@@ -494,6 +494,16 @@ class WithholdCallTest(unittest.TestCase):
         write(self.t.root, TEMPLATE, withholding_template(directive="Check the thing at {{RULES}}."))
         self.assertProblem("its directive doesn't run rule-registry.sh release demo/fits-facts")
 
+    def test_a_release_of_a_longer_id_doesnt_count(self):
+        write(self.t.root, TEMPLATE, withholding_template(
+            directive="Check the thing at {{RULES}}; run `scripts/rule-registry.sh release demo/fits-facts-two`."))
+        self.assertProblem("its directive doesn't run rule-registry.sh release demo/fits-facts")
+
+    def test_a_nested_markdown_file_is_scanned(self):
+        rel = "skills/demo/koto-templates/notes/guide.md"
+        write(self.t.root, rel, "Run jev-withhold.sh by hand.\n")
+        self.assertProblem("%s: calls jev-withhold.sh; only a template's command may" % rel)
+
     def test_no_literal_rule_id(self):
         write(self.t.root, TEMPLATE, withholding_template(rule_id='"{{RULE}}"'))
         self.assertProblem("calls jev-withhold.sh without a literal rule id")

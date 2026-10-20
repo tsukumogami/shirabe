@@ -94,6 +94,7 @@ event() {  # event <type> <gate> <criterion> [mode]
 
 # --- every condition holds ----------------------------------------------------
 fresh
+cp "$ROOT/$REL" "$C/rule-before.md"
 run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"
 want="$SDIR/jev-rules/demo-fits-facts-rules.md"
 if [ "$RC" = 0 ] && [ "$OUT" = "$want" ] && [ -f "$want" ]; then
@@ -104,7 +105,20 @@ fi
 expected=$(printf '# Demo\n\nIntro.\n\n\nAfter.\n')
 [ "$(cat "$want" 2>/dev/null)" = "$expected" ] && pass "the copy is the file without the rule's lines" \
     || fail "copy content" "[$(cat "$want" 2>/dev/null)]"
-cmp -s "$ROOT/$REL" "$C/../c1/plugin/$REL" && pass "the rule file itself is untouched" || fail "rule file" "changed"
+cmp -s "$ROOT/$REL" "$C/rule-before.md" && pass "the rule file itself is untouched" || fail "rule file" "changed"
+
+fresh; event decider_checked fits fits veto
+run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"
+[ "$OUT" = "$SDIR/jev-rules/demo-fits-facts-rules.md" ] && pass "a decider_checked in veto mode still allows the copy" \
+    || fail "veto check" "out=[$OUT]"
+
+SAVED_RULE=$RULE
+RULE="rs-099"
+fresh
+run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"
+[ "$OUT" = "$SDIR/jev-rules/rs-099-rules.md" ] && pass "an rs- rule id is accepted, as the registry's checks accept it" \
+    || fail "rs id" "out=[$OUT]"
+RULE=$SAVED_RULE
 
 # --- any one condition failing alone ------------------------------------------
 fresh; entry_json untrusted eligible "$REL" > "$ROOT/references/rule-registry.json"

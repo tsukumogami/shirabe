@@ -603,14 +603,20 @@ def withhold_calls(root, cache, registry_by_id):
             if (e.get("check") or {}).get("template") != rel:
                 out.append("%s: state %s withholds %s, whose check is in another template" % (rel, sname, rid))
             directive = template_directive(root, rel, sname)
-            if "rule-registry.sh" not in directive or ("release %s" % rid) not in directive:
+            # The id must end where the release names it, so `release a/b`
+            # isn't satisfied by a directive that releases `a/bc`.
+            release = re.compile(r"\brelease\s+%s(?![A-Za-z0-9/_-])" % re.escape(rid))
+            if "rule-registry.sh" not in directive or not release.search(directive):
                 out.append("%s: state %s withholds %s but its directive doesn't run rule-registry.sh release %s"
                            % (rel, sname, rid, rid))
+    # Templates were judged above, call by call; every other file under these
+    # roots may not name the script at all.
+    templates = set(template_files(root))
     for d in ("skills", "koto-templates", "hooks"):
         for dirpath, _, files in os.walk(os.path.join(root, d)):
             for name in files:
                 rel = os.path.relpath(os.path.join(dirpath, name), root)
-                if rel.endswith(".md") and "/koto-templates/" in "/" + rel and not rel.endswith(".mermaid.md"):
+                if rel in templates:
                     continue
                 try:
                     if WITHHOLD_SCRIPT in read_text(os.path.join(dirpath, name), errors="replace"):

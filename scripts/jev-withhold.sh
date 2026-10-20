@@ -19,10 +19,11 @@
 # jev_criteria.py check refuses a call for a rule that isn't trusted, and none
 # is.
 #
-# It prints exactly one line, a path, and always exits 0. The answer is
-# <plugin-root>/<rule-file>, the full file, unless every check below passes, in
-# order; then it is a copy of that file without the rule's lines, rendered into
-# <session-dir>/jev-rules/:
+# It prints exactly one line and always exits 0. Called with anything but five
+# arguments it knows no file to fall back on and prints an empty line; with
+# five, the line is a path. The answer is <plugin-root>/<rule-file>, the full
+# file, unless every check below passes, in order; then it is a copy of that
+# file without the rule's lines, rendered into <session-dir>/jev-rules/:
 #   0. the arguments have safe shapes and the session directory exists and is
 #      not a symlink;
 #   1. the registry entry's jev.state is trusted, its withhold is eligible and
@@ -46,7 +47,10 @@ ANSWER=""
 # rendering was completed and checked.
 trap 'printf "%s\n" "${ANSWER:-$FULL}"' EXIT
 
-ID_SHAPE='^[a-z0-9-]+/[a-z0-9-]+$'
+# The registry's two id forms, as rule-registry.sh and jev_criteria.py accept
+# them. The session name only builds a log path, so its shape is kept narrow;
+# a name outside it falls back to the full file.
+ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$'
 NAME_SHAPE='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 PATH_SHAPE='^[A-Za-z0-9._][A-Za-z0-9._/-]*$'
 
@@ -107,7 +111,7 @@ DIR="$SDIR/jev-rules"
 [ -L "$DIR" ] && exit 0
 mkdir -p "$DIR" 2>/dev/null || exit 0
 [ -d "$DIR" ] && [ ! -L "$DIR" ] || exit 0
-OUT="$DIR/${RULE//\//-}-$(basename "$REL")"
+OUT="$DIR/${RULE//\//-}-${REL##*/}"
 [ ! -L "$OUT" ] || exit 0
 tmp=$(mktemp "$DIR/.withheld.XXXXXX" 2>/dev/null) || exit 0
 if LC_ALL=C awk -v a="$a" -v b="$b" 'NR < a || NR > b' "$FULL" > "$tmp" 2>/dev/null && mv -f "$tmp" "$OUT"; then
