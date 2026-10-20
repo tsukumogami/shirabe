@@ -39,6 +39,11 @@ jq '.holdings += [{worker: "plugin-done", unit: "Feature 8: Hooks", phase: "exec
 MOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-merged.json" 2> "$T/err")
 grep -qF '| Ongoing | Feature 8: Hooks | `plugin-done` | none yet | merged | tear down its worker |' <<<"$MOUT" \
     && ok "a merged row reads merged, its worker to tear down" || bad "a merged row reads merged, its worker to tear down" "$MOUT $(cat "$T/err")"
+# A stranded row (record-holding.sh --strand): its unit goes out again under a new topic.
+jq '.holdings += [{worker: "plugin-quiet", unit: "Feature 9: Themes", phase: "executing", dispatch_status: "stranded", parked: false, pull_request: ""}]' "$F" > "$T/pick-stranded.json"
+SOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-stranded.json" 2> "$T/err")
+grep -qF '| Ongoing | Feature 9: Themes | `plugin-quiet` | none yet | stranded | dispatch its unit again under a new topic |' <<<"$SOUT" \
+    && ok "a stranded row reads stranded, its unit to dispatch again" || bad "a stranded row reads stranded, its unit to dispatch again" "$SOUT $(cat "$T/err")"
 [ "$(col "$OUT" 2)" = "Feature 4: Plugin sandbox,Feature 1: Plugin manifest,Feature 6: CLI,Feature 7: Guides,Feature 3: Plugin registry,Feature 2: Plugin loader," ] \
     && ok "the queue is unblocked first, then blocked, and done or held units are left out" || bad "the queue order" "$(col "$OUT" 2)"
 grep -qF '| Waiting to be assigned | Feature 2: Plugin loader | N/A | N/A | waits on feature 1 | assigned as the cap frees, 2 of 2 in line |' <<<"$OUT" \

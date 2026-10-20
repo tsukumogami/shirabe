@@ -301,6 +301,19 @@ bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is to
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
 eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-next-step Feature 2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+# PRD R15: a live holding whose leg names a request this host's store doesn't
+# hold (the run was imported here) holds the gate until its leg has an end.
+seed "$(printf '%s' "$TWO" | jq -c '.holdings[0].return_path = "leg req_1:deliver" | .holdings[1].return_path = "leg req_2:deliver"')"
+mkdir -p "$KOTO_STORE/requests"
+: > "$KOTO_STORE/requests/req_1.gone"
+echo '{"request_id":"req_2","legs":{"deliver":{"disposition":"open"}}}' > "$KOTO_STORE/requests/req_2.json"
+eq "a leg whose request isn't here is leg-unclassified; one held here isn't" "leg-unclassified worker-f2" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap | select(startswith("leg-"))] | join(" ")')"
+bash "$RH" "${RM[@]}" | jq -r '.gaps[] | select(.gap == "leg-unclassified worker-f2") | .fix' | grep -q 'reconcile-legs.sh --session <this run> --topic worker-f2 --return-path "leg req_1:deliver"' \
+    && ok "  ... naming the fix" || bad "  ... naming the fix" "$(bash "$RH" "${RM[@]}" | jq -c .gaps)"
+rm -f "$KOTO_STORE/requests/req_1.gone" "$KOTO_STORE/requests/req_2.json"
+bash "$RH" "${RM[@]}" >/dev/null 2>&1; eq "a leg whose request can't be read fails the read" 2 $?
+rm -rf "$KOTO_STORE/requests"
 
 # On the session store the stored set is read from the run's record/ keys, and
 # the GitHub body, in the moved shape, plays no part (PRD R18).

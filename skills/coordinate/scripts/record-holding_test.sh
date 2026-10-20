@@ -9,7 +9,8 @@
 # refused (10); filed and closed deferrals dropped only once the run has
 # dispatched; the write going through record-write.sh (a whole-body edit, no
 # comment) and its refusals (a directed transition in the run, 10); both
-# containers.
+# containers; --strand only on a dispatched message-path holding, and
+# --retire only of a stranded one.
 #
 # Usage: bash skills/coordinate/scripts/record-holding_test.sh
 set -uo pipefail
@@ -120,5 +121,20 @@ eq "  ... which lands beside the row, alpha's kept" "$HEAD1|$HEAD2" "$(koto cont
 "${SEN[@]}" bash "$H" "${W_RM[@]}" --topic gamma --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "a topic with no holding is refused" 65 $?
 seed "$REC"
 bash "$H" "${W_RM[@]}" --topic alpha --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "--pushed-head on a GitHub record is refused" 65 $?
+
+echo "== stranded (PRD R15; shirabe#732) =="
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" --argjson b "$(holding beta '{"return_path": "leg req_1:deliver"}')" \
+    --argjson c "$(holding gamma '{"dispatch_status": "dispatching"}')" '.holdings = [$a, $b, $c]')"
+bash "$H" "${W_RM[@]}" --topic beta --strand >/dev/null 2>"$T/err"; eq "--strand refuses a holding off the message path" 65 $?
+grep -q 'only a holding on the message path is stranded' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+bash "$H" "${W_RM[@]}" --topic gamma --strand >/dev/null 2>"$T/err"; eq "--strand refuses a holding that isn't dispatched" 65 $?
+bash "$H" "${W_RM[@]}" --topic nobody --strand >/dev/null 2>"$T/err"; eq "--strand refuses a topic with no holding" 65 $?
+bash "$H" "${W_RM[@]}" --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire refuses a holding that isn't stranded" 65 $?
+eq "  ... and nothing was written" "" "$(grep '^issue edit' "$GH_DB.calls")"
+bash "$H" "${W_RM[@]}" --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand marks a message-path holding" 0 $?
+eq "  ... stranded, the rest of the row as it was" "stranded message feat/x" "$(live | jq -r '.holdings[0] | "\(.dispatch_status) \(.return_path) \(.branch)"')"
+bash "$H" "${W_RM[@]}" --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a stranded row" 0 $?
+eq "  ... and only it" "beta gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+bash "$H" "${W_RM[@]}" --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $?
 
 done_tests record-holding

@@ -254,6 +254,24 @@ eq "  ... and the probe's reading of a koto with neither feature" '{"context_lis
 printf '%s' "$SRC" | jq -r .reason | grep -q 'is ignored: the record decides' \
     && ok "  ... and reports the invocation's --store ignored" || bad "  ... and reports the invocation's --store ignored" "$SRC"
 eq "rs_source reads it" github "$(bash "$RS" --session "$S" --source 2>/dev/null)"
+# shirabe#855: a help text longer than a pipe's buffer, naming --prefix on its
+# first line. A reader that stops at the match would leave koto writing into a
+# closed pipe, and under pipefail the probe would read the feature as missing.
+mkdir -p "$T/bighelp"
+cat > "$T/bighelp/koto" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+    "context list --help")
+        echo "      --prefix <PREFIX>  Filter keys by prefix"
+        i=0; while [ "$i" -lt 4000 ]; do echo "padding line $i of a help text longer than any pipe buffer"; i=$((i + 1)); done ;;
+    "session import --help") exit 0 ;;
+    *) exit 2 ;;
+esac
+STUB
+chmod +x "$T/bighelp/koto"
+eq "the probe reads --prefix from a help text longer than a pipe's buffer, under pipefail" \
+    '{"context_list_prefix":true,"session_import":true}' \
+    "$(KOTO="$T/bighelp/koto" bash -c 'set -o pipefail; . "$1/record-source.sh"; rs_probe' _ "$HERE")"
 # What the sealed token carries in this release: the verdict and the record's
 # number, never the store; run-store reads the GitHub store from it.
 log_capture "$S" RECORD_FIND "$OUT" 2026-09-26T08:01:00.000Z
