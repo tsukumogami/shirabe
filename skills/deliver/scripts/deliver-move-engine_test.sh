@@ -231,10 +231,11 @@ echo "== 4. the source workspace's tick answers session_migrated =="
 on h a2
 SRC=$(k next "deliver-$TOPIC" --no-cleanup 2>&1)
 SRC_RC=$?
-if [ "$SRC_RC" -ne 0 ] && printf '%s' "$SRC" | grep -q session_migrated; then
+case "$SRC" in *session_migrated*) MIGRATED=1 ;; *) MIGRATED=0 ;; esac
+if [ "$SRC_RC" -ne 0 ] && [ "$MIGRATED" -eq 1 ]; then
     pass "mv-resume: the source's tick refuses with session_migrated"
 else
-    fail "mv-resume: the source's tick refuses with session_migrated" "rc=$SRC_RC $(printf '%s' "$SRC" | head -c 400)"
+    fail "mv-resume: the source's tick refuses with session_migrated" "rc=$SRC_RC ${SRC:0:400}"
 fi
 
 # --- 3. two hosts ------------------------------------------------------------------------------

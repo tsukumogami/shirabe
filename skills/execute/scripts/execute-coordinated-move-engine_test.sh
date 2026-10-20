@@ -313,7 +313,7 @@ SRC_RC=$?
 if [ "$SRC_RC" -ne 0 ] && grep -q session_migrated <<<"$SRC"; then
     pass "A: the source's tick answers session_migrated"
 else
-    fail "A: the source's tick: rc=$SRC_RC [$(printf '%s' "$SRC" | head -c 300)]"
+    fail "A: the source's tick: rc=$SRC_RC [${SRC:0:300}]"
 fi
 
 # --- workspace B: the run resumed to its merge --------------------------------------------
