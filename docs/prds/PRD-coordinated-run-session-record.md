@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A coordinated `/execute` run keeps the facts it runs on as lines in the coordination
   pull request's body: which pull request each node opened, the head each merge is pinned
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-coordinated-run-session-record](docs/briefs/BRIEF-coordinated-run-session-record.md); carried in Absorbed Brief.
 
