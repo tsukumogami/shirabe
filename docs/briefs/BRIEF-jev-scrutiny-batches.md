@@ -4,7 +4,8 @@ status: Draft
 problem: |
   /work-on's scrutiny panel spawns three reviewer subagents on every
   standard or full run, and nobody has measured which of their questions a
-  script-built slice could settle within the 2,560 bytes Jev was validated on.
+  script-built slice could settle within the 2,560-byte budget that Jev's
+  accuracy evidence supports.
   Nothing says how a Jev verdict would reach the findings ledger, or what a
   run does when Jev can't answer.
 outcome: |
@@ -32,7 +33,8 @@ run and again on a full retry round. Across the 180 `/work-on` sessions recorded
 on one maintainer's host, measured on 2026-10-20, the three seats raised seven
 blocking findings in all. Almost every round passes, and it costs three agents.
 
-shirabe can now hand a closed question to Jev through a koto decider check.
+shirabe can now hand a closed question to Jev, a classifier model that answers
+pass or fail about a slice of text, through a koto decider check.
 koto 0.20.0 falls back to the agent when Jev can't answer, and
 [jev-pass-trust](../prds/PRD-jev-pass-trust.md) (#921) requires every Jev
 criterion to show its sources, the script that builds its slice, a written case
@@ -69,13 +71,12 @@ on real runs. A question that needs more than 2,560 bytes, or more than a
 script can hand over, is recorded as rejected with the numbers that rejected
 it, rather than shipped on a cut slice.
 
-The question that does fit runs as one batch on the scrutiny state for any user
-whose decider is on, beside the three seats. Its findings land in the ledger by
-content id and close the way a seat's do, so the panel gate and the retry
-budget read them like any other finding. The decider events it produces are
-the evidence a later promotion reads. When the decider can't answer, the run
-answers the question itself and the seats still review, so a missing verdict
-is never a pass.
+For the one question that does fit, a user whose decider is on gets a Jev
+verdict beside the three seats, and a maintainer can trust that verdict the
+way they trust a seat's: it is counted and closed by the same rules, and it
+builds the record a later promotion is judged on. When the decider can't
+answer, nothing is lost: the run answers the question itself and the seats
+still review, so a missing verdict is never a pass.
 
 A `/work-on` user sees no change in which seats run. The maintainer who
 eventually promotes a batch finds the rule for replacing a seat already written
@@ -104,24 +105,27 @@ reason rather than restating its choice. Jev passes them, the panel passes on
 the seats' findings, and the run's decider events now count toward the batch's
 live figures.
 
-### The decider can't answer
+These next two journeys branch from the one above, on the verdict the batch
+gets.
 
-A user's run reaches scrutiny while the decider's provider is failing. The
-batch gets no verdict and koto holds the check pending. The run answers the
-question itself, as koto's fallback asks, and the three seats review the
-change in full, so the panel's verdict rests on reviewers, not on a check that
-never answered. The fallback is recorded with its reason, where a maintainer
-tuning the slice can count it.
+### A /work-on user's decider can't answer
 
-### The batch fails a decision
+A `/work-on` user with the decider on reaches scrutiny while the decider's
+provider is failing. The batch gets no verdict and koto holds the check
+pending. The user's agent answers the question itself, as koto's fallback
+asks, and the three seats review the change in full, so the panel's verdict
+rests on reviewers, not on a check that never answered. The fallback is
+recorded with its reason, where a maintainer tuning the slice can count it.
 
-A run records a decision whose rationale only repeats the choice. Jev fails it.
-The finding lands in the scrutiny findings ledger under the batch's name, by
-content id, and stays advisory while the batch is untrusted and in shadow, so
-it can't block a run on an unproven check. After promotion, in veto, the same
-failure would be a blocking finding that the panel gate holds and the retry
-budget counts, closed only by a later pass from the batch, as a seat's finding
-is closed only by a reviewer.
+### A /work-on user's decision fails the batch
+
+A `/work-on` user's agent records a decision whose rationale only repeats the
+choice, and Jev fails it at scrutiny. The user sees the finding in the panel's
+findings, under the batch's name, marked advisory: while the batch is
+untrusted it can't block the run on an unproven check. After promotion, the
+same failure would block the panel and count toward the retry budget, and only
+a later pass from the batch would clear it, as only a reviewer clears a seat's
+finding.
 
 ### A maintainer promotes the batch
 
@@ -143,14 +147,13 @@ rather than deciding the safety rules in the same change that uses them.
 - One batch on the scrutiny state for the question that fits (whether the
   run's recorded decisions give reasons), starting untrusted and in shadow,
   for users whose decider is on.
-- How the batch's verdicts land in the findings ledger: by content id, with
-  the same closing rules as a seat's findings, advisory while in shadow and
-  blocking only in veto.
-- What a run does when the batch can't answer: the run answers the question
-  itself, as koto's fallback asks, and every seat still runs.
-- The live bar's handling of a run with nothing to grade: an empty slice,
-  which koto records as not graded, is left out of the answered share and the
-  minimum counts, and never counts as a pass.
+- The batch's verdicts landing in the findings ledger under a seat's closing
+  rules, advisory until the batch is trusted.
+- What a run does when the batch can't answer: it answers the question itself
+  and every seat still runs.
+- How the trust bar counts a run that has nothing to grade, so a criterion
+  that is often empty can still earn trust and never earns it from an empty
+  run.
 - A written rule for replacing a seat, and the criteria the first promotion
   that retires one has to meet.
 
@@ -161,10 +164,10 @@ rather than deciding the safety rules in the same change that uses them.
   eligible; the path is specified for the first promotion that needs it.
 - Any budget above 2,560 bytes, and re-running the Jev accuracy spike, which
   is what a diff-sized slice would need first.
-- Promoting the batch or any other criterion, and withholding any rule.
-- Checking one unit (one acceptance criterion, one hunk) per evaluation. koto
-  opens no new visit on a self-transition and allows four consultations per
-  `koto next`, so a per-unit loop would need koto changes this feature doesn't
+- Promoting the batch or any other criterion, and leaving any rule's text out
+  of what a run loads.
+- Checking one unit (one acceptance criterion, one hunk) per evaluation, which
+  koto's decider checks can't do without koto changes this feature doesn't
   make.
 - The review, QA and light panels, and the juries of `/brief`, `/prd`,
   `/design` and `/review-plan`, which have no koto state to run a check in.
