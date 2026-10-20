@@ -31,10 +31,9 @@
 #      sits before 17 in this file, beside the cases it reuses fixtures from.)
 #      A leg-bound worker's checkpoint naming its pull request (shirabe#610)
 #      has it written onto its holding, the leg's return path kept and the
-#      leg never read. (Its question opening an entry needs no case of its
-#      own: dispatch-path_engine_test.sh shows the checkpoint reads as
-#      progress, the case above shows a progress question opens an entry, and
-#      record-decision_test.sh the entry's worker source.)
+#      leg never read. Its checkpoint asking a question is read as progress,
+#      leaves the leg unread, and opens an entry naming the worker as its
+#      source, the three parts in one case (shirabe#841).
 #  22. work a person assigns outside the roadmap (shirabe#607, #627): an
 #      issue and a release recorded as Standing assignment rows are listed by
 #      pick and dispatched through dispatch-worker.sh at roadmap scope, the
@@ -156,6 +155,33 @@ if to_pick progressq "$(record_json roadmap progressq | jq -c --argjson h "$(PRO
     eq "19 question: and is never classified" 0 "$(entered classify_report)"
 else
     bad "19 question: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# The three parts of a leg-bound worker's question, end to end (shirabe#841):
+# its checkpoint is read as progress, its leg stays open, and the entry its
+# question opens names the worker as its source. Each part has a test of its
+# own (dispatch-path_engine_test.sh "progress, leg", the case above,
+# record-decision_test.sh --open-from-report); this one fails if a change
+# splits them.
+if to_pick progresslegq "$(record_json roadmap progresslegq | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 194 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 leg question: a leg-bound worker's checkpoint asking a question opens a decision entry" decision_open \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 3 reached.\nQuestions:\n1. Should the loader pin v2?"}')"
+    eq "19 leg question: read as progress" progress "$(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
+    eq "19 leg question: its leg was never read" 0 "$(entered wait_leg)"
+    (cd "$WD" && koto context get "$S" coord/questions.json) \
+        | jq '[.[] | {key: (.index | tostring), value: {question: .text, options: ["pin -- one upgrade", "float -- none"]}}] | from_entries' > "$T/words.json"
+    write_as_agent record-decision.sh --open-from-report --text-file "$T/words.json"
+    eq "19 leg question: record-decision.sh writes the entry" 0 $?
+    case "$(live_body 194 | jq -r '.decisions.entries[-1].source // ""')" in
+        "worker feat-2 ["*) ok "19 leg question: the entry names the worker as its source" ;;
+        *) bad "19 leg question: the entry names the worker as its source" "$(live_body 194 | jq -c '.decisions')" ;;
+    esac
+    # The tick doesn't stop at decision_next: it routes on to the owed step.
+    at --with-data '{"opened":"opened"}' >/dev/null
+    from_to decision_open decision_next && ok "19 leg question: and the run goes on through decision_next" \
+        || bad "19 leg question: and the run goes on through decision_next" "now at $(now_at)"
+else
+    bad "19 leg question: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 # A leg-bound worker's checkpoint naming its pull request (shirabe#610): the
 # pull request reaches its holding, while its leg stays open for its result.

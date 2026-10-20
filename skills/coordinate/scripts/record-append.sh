@@ -49,7 +49,9 @@
 # check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
 # landed pull request judged against its milestone's Evidence, milestone.sh
 # check-goal-fit), milestone-failure (a failure reported against a Done
-# milestone, milestone.sh check-failure),
+# milestone, milestone.sh check-failure), decisions (settled Decisions rows
+# moved out of the body verbatim, record-decision.sh --archive, which reads
+# them back to restore one),
 # and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
 # (exit 65). On a public host the text may not name a private or unreadable
@@ -118,7 +120,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold moved cost milestone-verdict milestone-failure goal-fit "
+ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold moved cost milestone-verdict milestone-failure goal-fit decisions "
 # The kinds a reader outside the coordinator reads from GitHub.
 OUTWARD_KINDS=" cost milestone-verdict goal-fit milestone-failure "
 case "$MODE" in
@@ -293,8 +295,8 @@ tr -d '\r' < "$TEXTFILE" > "$WD/text"
 TEXT=$(awk '{ l[NR] = $0 } END { s = 1; while (s <= NR && l[s] ~ /^[ \t]*$/) s++
     e = NR; while (e >= s && l[e] ~ /^[ \t]*$/) e--; for (i = s; i <= e; i++) print l[i] }' "$WD/text")
 [ -n "$(printf '%s' "$TEXT" | tr -d ' \t\n')" ] || { echo "$PROG: refused: the entry is empty" >&2; exit 65; }
-if printf '%s' "$TEXT" | LC_ALL=C grep -q '[[:cntrl:]]' 2>/dev/null \
-    && printf '%s' "$TEXT" | LC_ALL=C tr -d '\n\t' | LC_ALL=C grep -q '[[:cntrl:]]'; then
+if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$TEXT" 2>/dev/null \
+    && LC_ALL=C grep -q '[[:cntrl:]]' <<<"$(LC_ALL=C tr -d '\n\t' <<<"$TEXT")"; then
     echo "$PROG: refused: the entry holds a control character" >&2; exit 65
 fi
 

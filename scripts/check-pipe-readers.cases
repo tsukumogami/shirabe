@@ -13,6 +13,7 @@ refused	after if	if printf '%s' "$OUT" | grep -q x; then :; fi
 refused	after elif	elif printf '%s' "$OUT" | grep -qv x; then :
 refused	after !	! printf '%s' "$OUT" | grep -q x
 refused	after &&	[ "$rc" = 0 ] && printf '%s' "$OUT" | grep -q x
+refused	a reader behind a variable assignment	if printf '%s' "$x" | LC_ALL=C grep -q '[[:cntrl:]]'; then :; fi
 refused	inside a command substitution	msg="got $(echo "$OUT" | head -c 300)"
 refused	a continued line, named by its first line	if [ "$rc" = 0 ] \<NL>    && printf '%s' "$OUT" \<NL>    | grep -q x; then :; fi
 fine	a here-string	grep -q done <<<"$OUT"

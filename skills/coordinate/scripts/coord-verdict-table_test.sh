@@ -78,7 +78,7 @@ while IFS='	' read -r w c g; do
     [ -n "$g" ] || continue
     for st in $(printf '%s' "$g" | tr ',' ' '); do
         cut -f1 "$T/arms" | grep -qx "$st" || continue
-        printf '%s\n' "$EXCEPT" | grep -qx "$st	$w" && continue
+        grep -qx "$st	$w" <<<"$EXCEPT" && continue
         awk -F'\t' -v s="$st" -v c="$c" '$1 == s && $2 == c { f = 1 } END { exit !f }' "$T/arms" \
             || echo "$st has no arm for $w ($c)" >> "$T/bad"
     done

@@ -82,9 +82,9 @@ want='## Changed since then|## Where things stand|## Exists nowhere else|## Side
 [ "$order" = "$want" ] && ok "sections render in R16's order" || bad "sections render in R16's order" "$order"
 nones=$(printf '%s\n' "$out" | grep -c '^None\.$')
 [ "$nones" = 6 ] && ok "every empty section reads None." || bad "every empty section reads None." "count=$nones"
-printf '%s\n' "$out" | grep -q 'No reasoning was received' && ok "absent reasoning says none was received" || bad "absent reasoning says none was received"
+grep -q 'No reasoning was received' <<<"$out" && ok "absent reasoning says none was received" || bad "absent reasoning says none was received"
 out=$(facts '[]' | render)
-printf '%s\n' "$out" | grep -q "Predecessor" && bad "roadmap scope has no reasoning section" || ok "roadmap scope has no reasoning section"
+grep -q "Predecessor" <<<"$out" && bad "roadmap scope has no reasoning section" || ok "roadmap scope has no reasoning section"
 
 echo "== changes =="
 H=$(holding merged "[$(pr MERGED "$VH")]")
@@ -212,13 +212,13 @@ out=$(facts "[$(holding a '[{"kind":"pr","status":"not_verified","reason":"timeo
 printf '%s' "$out" | jq -e '.holdings[0].grade.state == "not verified" and .holdings[0].grade.board == null' >/dev/null \
   && ok "a failed pull request read is graded not verified, with no board grade" || bad "a failed pull request read is graded not verified, with no board grade" "$out"
 out=$(facts "[$(holding a "[$(pr OPEN "$VH")]")]" | render)
-printf '%s\n' "$out" | grep -q 'open (measured)' && ok "the rendered holding shows its state grade" || bad "the rendered holding shows its state grade" "$out"
+grep -q 'open (measured)' <<<"$out" && ok "the rendered holding shows its state grade" || bad "the rendered holding shows its state grade" "$out"
 
 echo "== merge state and legs =="
 P=$(jq -nc --arg h "$VH" '{kind: "pr", status: "ok", state: "OPEN", head: $h, draft: false, merge_state: "BLOCKED", read_at: "2026-09-27T09:59:00Z"}')
 L='{"kind":"leg","status":"ok","disposition":"resolved","result":"merged","read_at":"2026-09-27T09:58:30Z"}'
 out=$(facts "[$(holding a "[$P,$L]" '{"return_path":"leg req1:deliver"}')]" | render)
-printf '%s\n' "$out" | grep -q 'open (measured), merge state BLOCKED; leg resolved: merged (measured)' \
+grep -q 'open (measured), merge state BLOCKED; leg resolved: merged (measured)' <<<"$out" \
   && ok "the holding line carries the merge state and the leg's result beside the pull request state" || bad "merge state and leg beside the pull request state" "$out"
 # A leg spent before its worker reported, with the worker found and no pull
 # request: recoverable by replacing the leg, never a worker gone (shirabe#506).
@@ -251,13 +251,13 @@ printf '%s' "$out" | jq -e '[.deferrals_disposed[] | {deferral, how}] == [{defer
   && ok "a disposed deferral is reported with how it was disposed of (shirabe#552)" || bad "a disposed deferral is reported with how it was disposed of (shirabe#552)" "$out"
 D2='[{"row":{"deferral":"d1","reason":"r1","raised":"2026-09-20","disposition":""},"disposed":false,"how":"empty","status":"ok"},{"row":{"deferral":"d2","reason":"r2","raised":"2026-09-21","disposition":"closed: done"},"disposed":true,"how":"closed","status":"ok"},{"row":{"deferral":"d4","reason":"r4","raised":"2026-09-23","disposition":""},"disposed":true,"how":"raised this run","status":"ok"},{"row":{"deferral":"d3","reason":"r3","raised":"2026-09-22"},"status":"not_verified","reason":"the run start is not a time this check reads"}]'
 md=$(facts '[]' '[]' "$D2" | render)
-printf '%s\n' "$md" | grep -qx -- '- d1 (raised 2026-09-20): r1; open because it has no disposition (verified by reading).' \
+grep -qx -- '- d1 (raised 2026-09-20): r1; open because it has no disposition (verified by reading).' <<<"$md" \
   && ok "an undisposed deferral says why it is open" || bad "an undisposed deferral says why it is open" "$md"
-printf '%s\n' "$md" | grep -qx -- '- d2 (raised 2026-09-21): closed (verified by reading).' \
+grep -qx -- '- d2 (raised 2026-09-21): closed (verified by reading).' <<<"$md" \
   && ok "a disposed deferral renders under Disposed deferrals with its disposition" || bad "a disposed deferral renders with its disposition" "$md"
-printf '%s\n' "$md" | grep -q -- "^- d4 (raised 2026-09-23): raised in this run" \
+grep -q -- "^- d4 (raised 2026-09-23): raised in this run" <<<"$md" \
   && ok "a deferral raised this run says so" || bad "a deferral raised this run says so" "$md"
-printf '%s\n' "$md" | grep -q -- '^- deferral d3: the run start is not a time this check reads' \
+grep -q -- '^- deferral d3: the run start is not a time this check reads' <<<"$md" \
   && ok "a deferral the check couldn't read says what it couldn't read" || bad "a deferral the check couldn't read says what it couldn't read" "$md"
 
 echo "== bound, raw output, identifiers =="
@@ -273,24 +273,24 @@ SES=$(jq -nc '[range(10) | {row: {action: "merge", target: "acme/widgets#\(.)"},
 DES=$(jq -nc '[range(10) | {row: {deferral: "d\(.)", reason: "later", raised: "2026-09-20"}, disposed: false, status: "ok"}]')
 lines=$(facts "[$HS]" "$SES" "$DES" | render | wc -l | tr -d ' ')
 [ "$lines" -le 220 ] && ok "10 holdings, 10 side effects and 10 deferrals render within the bound ($lines lines)" || bad "30 items render within the bound" "$lines"
-printf '%s' "$out" | grep -q 'RAW-GH-OUTPUT' && bad "raw read output never reaches the report" || ok "raw read output never reaches the report"
-printf '%s' "$out" | grep -qE '/home/|deadbeef|cfg\+' && bad "no absolute path, session id or instance name reaches the report" "$(printf '%s' "$out" | grep -E '/home/|deadbeef|cfg\+')" \
+grep -q 'RAW-GH-OUTPUT' <<<"$out" && bad "raw read output never reaches the report" || ok "raw read output never reaches the report"
+grep -qE '/home/|deadbeef|cfg\+' <<<"$out" && bad "no absolute path, session id or instance name reaches the report" "$(printf '%s' "$out" | grep -E '/home/|deadbeef|cfg\+')" \
   || ok "no absolute path, session id or instance name reaches the report"
-printf '%s' "$out" | grep -q '(absolute path withheld)' && ok "an absolute inventory path is withheld" || bad "an absolute inventory path is withheld"
+grep -q '(absolute path withheld)' <<<"$out" && ok "an absolute inventory path is withheld" || bad "an absolute inventory path is withheld"
 
 echo "== not verified, refused, nowhere else =="
 U='[{"raw":"| a | b | c","reason":"too few cells"}]'
 R=$(jq -nc --argjson h "$(holding outside '[]')" '$h + {refused: "pull request outside the scope repositories", facts: []}')
 out=$(facts "[$R]" '[]' '[]' null "$U" | render)
-printf '%s\n' "$out" | grep -q '```' && printf '%s\n' "$out" | grep -q '| a | b | c' \
+grep -q '```' <<<"$out" && grep -q '| a | b | c' <<<"$out" \
   && ok "an unparseable row is fenced under Not verified" || bad "an unparseable row is fenced under Not verified" "$out"
-printf '%s\n' "$out" | grep -q 'holding `outside`: refused: pull request outside' \
+grep -q 'holding `outside`: refused: pull request outside' <<<"$out" \
   && ok "a refused holding is reported, not re-checked" || bad "a refused holding is reported, not re-checked" "$out"
 H=$(holding w1 "[$(host missed),{\"kind\":\"inventory\",\"status\":\"not_verified\",\"reason\":\"instance not found\"}]" '{"pull_request":"none yet"}')
 out=$(facts "[$H]" | render)
-printf '%s\n' "$out" | grep -q '`w1`: no pull request; worker not found on this read; inventory could not be taken' \
+grep -q '`w1`: no pull request; worker not found on this read; inventory could not be taken' <<<"$out" \
   && ok "a missing worker is not found on this read, with no inventory" || bad "a missing worker is not found on this read, with no inventory" "$out"
-printf '%s\n' "$out" | grep -qiE '\b(gone|dead|lost)\b[^:]' && bad "no gone/dead/lost wording about the worker" "$(printf '%s\n' "$out" | grep -iE 'gone|dead')" \
+grep -qiE '\b(gone|dead|lost)\b[^:]' <<<"$out" && bad "no gone/dead/lost wording about the worker" "$(printf '%s\n' "$out" | grep -iE 'gone|dead')" \
   || ok "no gone/dead/lost wording about the worker"
 
 echo "== review fixes =="
@@ -337,12 +337,12 @@ tbl=$(facts "[$T1,$T2,$T3,$T4,$T5,$T6]" | render | sed -n '/^## Where things sta
 kinds=$(printf '%s\n' "$tbl" | awk -F' [|] ' '/^[|] [A-Z]/ && !/^[|] Kind/ {sub(/^[|] /, "", $1); print $1 ":" $3}' | tr '\n' ',')
 [ "$kinds" = 'Ready to merge:`tl1`,Ready to merge:`th2`,Ready to merge:`tl2`,Ongoing:`tw`,Ongoing:`td`,Waiting to be assigned:N/A,' ] \
   && ok "one table: ready to merge in record order, then ongoing (a closed pull request included), waiting to be assigned" || bad "one table in the four kinds' order" "$kinds"
-printf '%s\n' "$tbl" | grep -q '^| Kind | Unit | Session | PR | Status | Next or needs |$' && ok "the table's columns are Kind, Unit, Session, PR, Status, Next or needs" || bad "the table's columns" "$tbl"
-printf '%s\n' "$tbl" | grep -q 'tm2' && bad "a merged holding has no row" "$tbl" || ok "a merged holding has no row"
+grep -q '^| Kind | Unit | Session | PR | Status | Next or needs |$' <<<"$tbl" && ok "the table's columns are Kind, Unit, Session, PR, Status, Next or needs" || bad "the table's columns" "$tbl"
+grep -q 'tm2' <<<"$tbl" && bad "a merged holding has no row" "$tbl" || ok "a merged holding has no row"
 [ "$(printf '%s\n' "$tbl" | grep -c '^[|]')" = 8 ] && ok "every row is a table row, header and separator included" || bad "every row is a table row" "$tbl"
 NY=$(holding tn "[$(host found)]" '{"pull_request":"none yet"}')
 facts "[$NY]" | render | grep -q '^| Ongoing | unit tn | `tn` | none yet | ' && ok "a holding with no pull request yet reads none yet, not N/A" || bad "a holding with no pull request yet reads none yet" "$(facts "[$NY]" | render | grep tn)"
-printf '%s\n' "$tbl" | grep -q '^| Waiting to be assigned | N/A | N/A | N/A | ' && ok "N/A is kept for cells that cannot apply" || bad "N/A is kept for cells that cannot apply" "$tbl"
+grep -q '^| Waiting to be assigned | N/A | N/A | N/A | ' <<<"$tbl" && ok "N/A is kept for cells that cannot apply" || bad "N/A is kept for cells that cannot apply" "$tbl"
 PIPE=$(holding tp "[$(pr OPEN "$VH")]" '{"unit":"a | b"}')
 facts "[$PIPE]" | render | grep -q '| a \\| b |' && ok "a pipe inside a cell is escaped" || bad "a pipe inside a cell is escaped" "$(facts "[$PIPE]" | render | grep tp)"
 
@@ -350,11 +350,11 @@ facts "[$PIPE]" | render | grep -q '| a \\| b |' && ok "a pipe inside a cell is 
 DEC='[{"decision":"4","question":"Ship without the arm64 build?","recommendation":"wait","reason":"the release requires it","target":"a person"},
       {"decision":"5","question":"Adopt the new schema?","recommendation":"adopt","reason":"r","target":"coordinator schema-rr"}]'
 dt=$(facts "[$(holding tc "[$(pr CLOSED "$VH")]")]" | jq -c --argjson d "$DEC" '.decisions = $d' | render | sed -n '/^## Where things stand$/,/^$/p')
-printf '%s\n' "$dt" | grep -qF '| Blocked on you | Ship without the arm64 build? | N/A | N/A | decide | recommended: wait, because the release requires it |' \
+grep -qF '| Blocked on you | Ship without the arm64 build? | N/A | N/A | decide | recommended: wait, because the release requires it |' <<<"$dt" \
   && ok "an escalation to a person is a Blocked on you row with its recommendation and reason" || bad "an escalation to a person is a Blocked on you row" "$dt"
-printf '%s\n' "$dt" | grep -qF '| Ongoing | Adopt the new schema? | N/A | N/A | with `schema-rr` for a decision |' \
+grep -qF '| Ongoing | Adopt the new schema? | N/A | N/A | with `schema-rr` for a decision |' <<<"$dt" \
   && ok "an escalation to a coordinator is Ongoing" || bad "an escalation to a coordinator is Ongoing" "$dt"
-printf '%s\n' "$dt" | grep -q '^| Ongoing | .* | `tc` | .* | with me: re-dispatch or drop |' \
+grep -q '^| Ongoing | .* | `tc` | .* | with me: re-dispatch or drop |' <<<"$dt" \
   && ok "a closed pull request's holding is Ongoing, with me: re-dispatch or drop" || bad "a closed pull request's holding is Ongoing" "$dt"
 [ "$(printf '%s\n' "$dt" | grep -c '^| Blocked on you |')" = 1 ] \
   && ok "Blocked on you holds only the escalation to a person" || bad "Blocked on you holds only the escalation to a person" "$dt"
@@ -368,17 +368,17 @@ UX2=$(holding ux-new '[{"kind":"appeared","status":"ok","prs":[{"number":9,"url"
 UXSE='[{"row":{"action":"merge","target":"#7"},"fact":{"kind":"merge","verdict":"not_confirmed","status":"ok","reason":"src/a.go differs"}},{"row":{"action":"close","target":"acme/other#3"},"fact":{"kind":"close","verdict":"confirmed","status":"ok","reason":""}}]'
 UXU="[{\"raw\":\"| u | /x | --auto | executing | dispatched | message | w | acme/widgets | feat/w | $VH | 2026-09-25 | #7 |\",\"reason\":\"Holdings: worker: not a dispatch topic\"}]"
 uxout=$(facts "[$UX1,$UX2]" "$UXSE" '[]' null "$UXU" | jq -c '.scope.repo = "acme/widgets"' | render)
-printf '%s\n' "$uxout" | grep -Eq '[0-9a-f]{40}' && bad "no commit hash appears in the rendered report" "$(printf '%s\n' "$uxout" | grep -E '[0-9a-f]{40}')" || ok "no commit hash appears in the rendered report"
+grep -Eq '[0-9a-f]{40}' <<<"$uxout" && bad "no commit hash appears in the rendered report" "$(printf '%s\n' "$uxout" | grep -E '[0-9a-f]{40}')" || ok "no commit hash appears in the rendered report"
 bare=$(printf '%s\n' "$uxout" | grep -v '^  ' | grep -E '(^|[^[])#[0-9]+' || true)
 [ -z "$bare" ] && ok "every pull request reference outside a quoted record row is a link" || bad "every pull request reference outside a quoted record row is a link" "$bare"
-printf '%s\n' "$uxout" | grep -q -- '| Ongoing | unit ux-open | `ux-open` | \[#7\](https://github.com/acme/widgets/pull/7) |' && ok "a holding shows its worker as code and its pull request as a link" || bad "a holding shows its worker as code and its pull request as a link" "$uxout"
-printf '%s\n' "$uxout" | grep -q 'now \[#9\](https://github.com/acme/widgets/pull/9)' && ok "an appeared pull request is a link" || bad "an appeared pull request is a link" "$uxout"
-printf '%s\n' "$uxout" | grep -q -- '- merge \[#7\](https://github.com/acme/widgets/pull/7): not confirmed' && printf '%s\n' "$uxout" | grep -q -- '- close \[#3\](https://github.com/acme/other/issues/3): confirmed' \
+grep -q -- '| Ongoing | unit ux-open | `ux-open` | \[#7\](https://github.com/acme/widgets/pull/7) |' <<<"$uxout" && ok "a holding shows its worker as code and its pull request as a link" || bad "a holding shows its worker as code and its pull request as a link" "$uxout"
+grep -q 'now \[#9\](https://github.com/acme/widgets/pull/9)' <<<"$uxout" && ok "an appeared pull request is a link" || bad "an appeared pull request is a link" "$uxout"
+grep -q -- '- merge \[#7\](https://github.com/acme/widgets/pull/7): not confirmed' <<<"$uxout" && grep -q -- '- close \[#3\](https://github.com/acme/other/issues/3): confirmed' <<<"$uxout" \
   && ok "side-effect targets are links, in their own repository" || bad "side-effect targets are links, in their own repository" "$uxout"
-printf '%s\n' "$uxout" | grep -q '`ux-open`: head moved past the verified head' && ok "a moved head is named without either hash" || bad "a moved head is named without either hash" "$uxout"
-printf '%s\n' "$uxout" | grep -q 'merge not confirmed' && printf '%s\n' "$uxout" | grep -q -- '| Blocked on you | N/A | N/A | \[#7\](https://github.com/acme/widgets/pull/7) | merge not confirmed | confirm the merge: src/a.go differs |' \
+grep -q '`ux-open`: head moved past the verified head' <<<"$uxout" && ok "a moved head is named without either hash" || bad "a moved head is named without either hash" "$uxout"
+grep -q 'merge not confirmed' <<<"$uxout" && grep -q -- '| Blocked on you | N/A | N/A | \[#7\](https://github.com/acme/widgets/pull/7) | merge not confirmed | confirm the merge: src/a.go differs |' <<<"$uxout" \
   && ok "a waiting line names its pull request as a link" || bad "a waiting line names its pull request as a link" "$uxout"
-printf '%s\n' "$uxout" | grep -q '<commit>' && ok "a hash inside a quoted record row is replaced" || bad "a hash inside a quoted record row is replaced" "$uxout"
+grep -q '<commit>' <<<"$uxout" && ok "a hash inside a quoted record row is replaced" || bad "a hash inside a quoted record row is replaced" "$uxout"
 
 F=$(facts "$MIX" "$SE")
 a=$(printf '%s' "$F" | render)
@@ -391,9 +391,9 @@ facts "[$HH]" | render | grep -q 'row as written by the previous rotation' \
   && ok "a handoff row is labelled as the previous rotation's" || bad "a handoff row is labelled as the previous rotation's"
 INV='{"kind":"inventory","status":"ok","taken":true,"items":[{"clone":"/home/u/ws/cfg+t-dddd/repo","kind":"commit","path":"abc"}]}'
 out=$(facts "[$(holding t4 "[$INV]")]" | render)
-printf '%s' "$out" | grep -qE '/home/|cfg\+t-dddd' && bad "an absolute clone path is withheld" "$out" || ok "an absolute clone path is withheld"
+grep -qE '/home/|cfg\+t-dddd' <<<"$out" && bad "an absolute clone path is withheld" "$out" || ok "an absolute clone path is withheld"
 out=$(facts '[]' '[]' '[]' '"present"' '[]' discipline | render)
-printf '%s\n' "$out" | grep -q 'reasoning is in reconcile/reasoning.md' && ok "present reasoning points at its key" || bad "present reasoning points at its key" "$out"
+grep -q 'reasoning is in reconcile/reasoning.md' <<<"$out" && ok "present reasoning points at its key" || bad "present reasoning points at its key" "$out"
 
 echo "== has a pull request, one test =="
 H=$(holding t5 "[{\"kind\":\"pr\",\"status\":\"not_verified\",\"reason\":\"timeout\"},$(host found)]")

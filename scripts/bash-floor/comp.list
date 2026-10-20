@@ -1,0 +1,7 @@
+workflow: .github/workflows/check-comp-scripts.yml
+# /comp's state script. Its suite builds a throwaway repository and
+# a koto stand-in and needs only bash and jq (and the repository
+# tool); the cases that need real koto skip where it is absent (the
+# macOS floor leg) and run on the Linux job. It also reads SKILL.md
+# and the phase files, so the prose cases run on 3.2.
+skills/comp/scripts/comp-state_test.sh

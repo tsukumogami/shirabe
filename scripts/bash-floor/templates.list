@@ -1,0 +1,13 @@
+workflow: .github/workflows/check-templates.yml
+scripts/check-template-interpolation_test.sh
+scripts/check-template-interpolation.sh
+scripts/check-template-directives_test.sh
+scripts/check-template-directives.sh
+scripts/check-directive-invocations_test.sh
+scripts/check-directive-invocations.sh
+scripts/check-init-site-vars_test.sh
+scripts/check-init-site-vars.sh
+# Read the templates' front matter with yq, which the floor image
+# carries for them (see build_floor_image).
+scripts/check-decider-declarations_test.sh
+scripts/check-decider-declarations.sh

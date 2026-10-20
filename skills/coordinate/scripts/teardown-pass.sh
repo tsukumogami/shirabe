@@ -169,21 +169,21 @@ read_verdict() {
     # be `job -`, and then the name must be `-`: nothing is destroyed, so no
     # name is ever built into a command.
     REMOVED=0 NOJOB=0
-    printf '%s\n' "$v" | grep -qx 'removed yes' && REMOVED=1
+    grep -qx 'removed yes' <<<"$v" && REMOVED=1
     if [ "$REMOVED" = 1 ]; then
         [ "$INAME" = - ] || { echo "a removed verdict names an instance [$INAME]; it must be -" >"$T/why"; return 1; }
-        printf '%s\n' "$v" | grep -qx 'job -' && { NOJOB=1 JOB="" SID=""; }
+        grep -qx 'job -' <<<"$v" && { NOJOB=1 JOB="" SID=""; }
     fi
     # The fields the commands are built from are checked here, whatever the
     # verdict says: an empty or odd name never reaches niwa or claude.
     dc_valid_topic "$TOPIC" || { echo "the verdict's topic is not a dispatch topic" >"$T/why"; return 1; }
     if [ "$REMOVED" = 0 ]; then
-        printf '%s' "$INAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' || { echo "the verdict's instance name is not a plain name" >"$T/why"; return 1; }
+        grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' <<<"$INAME" || { echo "the verdict's instance name is not a plain name" >"$T/why"; return 1; }
     fi
     case "$IPATH" in /*) ;; *) echo "the verdict's instance path is not absolute" >"$T/why"; return 1 ;; esac
     if [ "$NOJOB" = 0 ]; then
-        printf '%s' "$JOB" | grep -Eq '^[0-9a-f]{6,64}$' || { echo "the verdict's job id is not a job id" >"$T/why"; return 1; }
-        printf '%s' "$SID" | grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' || { echo "the verdict's session id is not a session id" >"$T/why"; return 1; }
+        grep -Eq '^[0-9a-f]{6,64}$' <<<"$JOB" || { echo "the verdict's job id is not a job id" >"$T/why"; return 1; }
+        grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' <<<"$SID" || { echo "the verdict's session id is not a session id" >"$T/why"; return 1; }
     fi
     [ -n "$PRS" ] || { echo "the verdict names no merged pull request" >"$T/why"; return 1; }
     return 0
@@ -251,7 +251,7 @@ $PRS
 EOF
 cid=${HANDOFF##*#issuecomment-}
 hrepo=${HANDOFF#https://github.com/}; hrepo=$(printf '%s' "$hrepo" | cut -d/ -f1-2)
-printf '%s' "$cid" | grep -Eq '^[1-9][0-9]*$' || refused "the handoff link is not a comment link"
+grep -Eq '^[1-9][0-9]*$' <<<"$cid" || refused "the handoff link is not a comment link"
 out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$cid" 2>"$T/gh.err") \
     || refused "the handoff comment could not be read: $(tail -1 "$T/gh.err")"
 printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null || refused "the handoff comment is gone or empty"

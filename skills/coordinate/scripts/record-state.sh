@@ -217,7 +217,7 @@ if [ "$MODE" = host ]; then
             template_hash) [[ $HV =~ ^[0-9a-f]{64}$ ]] || { echo "$PROG: refused: --host template_hash takes 64 hex" >&2; exit 65; } ;;
             *) echo "$PROG: --host takes source_workspace, source_session, template_hash, rules:<label>, briefs:<label> or friction" >&2; exit 64 ;;
         esac
-        if printf '%s' "$HV" | LC_ALL=C grep -q '[[:cntrl:]]'; then echo "$PROG: refused: --host $HK: a control character" >&2; exit 65; fi
+        if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$HV"; then echo "$PROG: refused: --host $HK: a control character" >&2; exit 65; fi
         if grep -Eq "$TOKEN_RE" <<< "$HV"; then echo "$PROG: refused: --host $HK: a token-shaped string" >&2; exit 65; fi
     done <<EOF
 $HOSTKV

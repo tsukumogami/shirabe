@@ -465,10 +465,10 @@ cmd_release() {
     releasable_path "$P" || { fail "$P is not a file a skill loads"; return 0; }
     [ $((B - A + 1)) -le $RELEASE_MAX_LINES ] || { fail "the text is longer than $RELEASE_MAX_LINES lines"; return 0; }
     lines=$(LC_ALL=C sed -n "${A},${B}p" "$F") || { fail "could not read $P"; return 0; }
-    if printf '%s\n' "$lines" | LC_ALL=C grep -q -e "$MARK_OPEN" -e "$MARK_CLOSE" -e '::koto-finding::'; then
+    if LC_ALL=C grep -q -e "$MARK_OPEN" -e "$MARK_CLOSE" -e '::koto-finding::' <<<"$lines"; then
         fail "the text holds a marker line"; return 0
     fi
-    if printf '%s\n' "$lines" | LC_ALL=C tr -d '\t' | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$(LC_ALL=C tr -d '\t' <<<"$lines")"; then
         fail "the text holds a control character"; return 0
     fi
     ref="$P#L$A-L$B@$(revision "$P" "$F")"

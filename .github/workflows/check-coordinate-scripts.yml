@@ -11,6 +11,7 @@ on:
       - 'skills/execute/scripts/merge-verdict.sh'
       - '.github/workflows/check-coordinate-scripts.yml'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/coordinate.list'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
 

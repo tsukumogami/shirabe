@@ -72,6 +72,46 @@ run "holding none w1" "$(cat "$HERE/testdata/report-questions/questions-shape.tx
     "[$(printf '%s' "$ENTRY" | jq -c '.source = "worker w2 [20260926T080000Z report 5.1]"')]"
 eq "a citation of another worker's entry is dropped" "null null" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
 
+# An archived entry (shirabe#827): the body names it on its Archived line, and
+# its row is in a `decisions` entry on the record.
+SETTLED3=$(printf '%s' "$ENTRY" | jq -c '. + {state: "settled", verdict: "settle", outcome: "400", decided_by: "the coordinator"}')
+# archive_row <entry-json>: post the entry's row, as the body renders it, as a decisions entry.
+archive_row() {
+    render "$(record_json roadmap feat | jq -c --argjson e "[$1]" '.decisions = {next: 10, entries: $e}')" issue \
+        | bash "$HERE/record-parse.sh" | jq -r -L "$HERE" 'include "record-codec";
+            "Decisions 3, settled, moved out of the record body as it held them.\n\n\(d_header)\n\(.decisions.entries[0] | render_drow)"' > "$T/arch.md"
+    bash "$HERE/record-append.sh" --session "$S" --kind decisions --text-file "$T/arch.md" > /dev/null
+}
+ARCHIVED='.decisions = {next: 10, entries: [], archived: [3]}'
+own_archive() { archive_row "$SETTLED3"; }
+others_archive() { archive_row "$(printf '%s' "$SETTLED3" | jq -c '.source = "worker w2 [20260926T080000Z report 5.1]"')"; }
+# run with the section archived: the record's entries list is empty, entry 3 archived.
+run_archived() {
+    N=$((N + 1))
+    local ref=$((200 + N)) rec
+    rec=$(record_json roadmap feat | jq -c --argjson h "$WORKER" ".holdings = [\$h] | $ARCHIVED")
+    db '.issues = [] | .comments = [] | .issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-feat",
+        body: $b, state: "open", author: "coord", editor: null}]' --argjson k "$ref" --arg b "$(render "$rec" issue)"
+    S="coordinate-roadmap-feat-q$N-$RUNSTAMP"
+    found_session "$S" "$(roadmap_vars feat)" "$ref"
+    "$1"
+    log_to "$S" wait take_report
+    printf '%s' "$(cat "$HERE/testdata/report-questions/questions-shape.txt")" > "$T/report"
+    koto context add "$S" worker_report --from-file "$T/report"
+    printf 'message' > "$T/via"
+    koto context add "$S" report_source --from-file "$T/via"
+    log_to "$S" take_report report_facts
+    log_capture "$S" REPORT "$(bash "$HERE/coord-log.sh" seal --session "$S" --state report_facts --token "holding none w1")"
+    log_to "$S" report_facts report_questions
+    OUT=$(bash "$Q" --session "$S" 2>"$T/err")
+    RC=$?
+    seen "$OUT" >/dev/null
+}
+run_archived own_archive
+eq "a citation of the worker's own archived entry is kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+run_archived others_archive
+eq "a citation of another worker's archived entry is dropped" "0|null null" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+
 run "holding none w1" "$(printf 'Questions:\n1. first?\n\n2) second (decision 3)\nThat is all.\n3. not an item\n')" "$WORKER" "[$ENTRY]"
 eq "the part runs over blank lines and ends at the first other line" "first?|second (decision 3)" "$(list | jq -r '[.[].text] | join("|")')"
 

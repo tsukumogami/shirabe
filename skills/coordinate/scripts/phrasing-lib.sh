@@ -61,8 +61,8 @@ phrasings_check() {
     # Each pattern must also compile: grep exits 2 on a malformed expression.
     # It is given one line to read, since some greps compile only then.
     while IFS= read -r pat; do
-        printf 'x\n' | grep -Eq -e "$pat"
-        rc=${PIPESTATUS[1]}
+        grep -Eq -e "$pat" <<<x
+        rc=$?
         [ "$rc" -le 1 ] || { echo "decision phrasings: a pattern grep -E can't compile: $pat" >&2; return 65; }
     done < <(awk -F'\t' '!/^#/ && NF >= 2 { sub(/^[^\t]*\t/, ""); print }' "$f")
     return 0

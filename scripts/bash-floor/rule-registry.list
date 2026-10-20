@@ -1,0 +1,7 @@
+workflow: .github/workflows/check-rule-registry.yml
+# The rule registry's reader and its checks. The suites build
+# scratch plugin roots and repositories, plain and as git
+# repositories, and need only bash, git, jq, awk and sed, so every
+# case runs on 3.2.
+scripts/rule-registry_test.sh
+scripts/check-rule-registry_test.sh

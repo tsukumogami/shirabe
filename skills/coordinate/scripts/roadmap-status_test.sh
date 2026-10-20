@@ -625,7 +625,7 @@ eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
 echo "== --reopen: the edit =="
 reset_calls
 OUT=$(bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" 2>"$T/err"); rc=$?
-eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(printf '%s\n' "$OUT" | head -1)"
+eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(head -1 <<<"$OUT")"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... and names MV2, which depends on MV1 and holds a worker" "held-dependent MV2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
 PRR=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
@@ -734,7 +734,7 @@ fentry "$T/f3v.txt" "Feature 1" 2 "the removed manifest was listed as installed"
 URLF3=$(fpost "$T/f3v.txt")
 reset_calls
 OUT=$(bash "$RS" "${W[@]}" --reopen "Feature 1" --entry-file "$T/f3v.txt" --entry-url "$URLF3" 2>"$T/err"); rc=$?
-eq "a failure naming Feature 1 against Done Milestone 1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(printf '%s\n' "$OUT" | head -1)"
+eq "a failure naming Feature 1 against Done Milestone 1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(head -1 <<<"$OUT")"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... naming Milestone 2, whose Dependencies prose reads Feature 1 and whose holding names Feature 2" "held-dependent Milestone 2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
 PRR3=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")

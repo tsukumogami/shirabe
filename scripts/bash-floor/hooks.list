@@ -1,0 +1,9 @@
+workflow: .github/workflows/build-and-test.yml
+needs: shirabe
+# The plugin's pre-action hook, end to end. Claude Code runs the
+# script before every Bash call, under whatever bash the host
+# has, macOS's 3.2 included. Its suite runs a real shirabe (from
+# SHIRABE_BIN or target/release) and stand-in ones, scratch git
+# repositories, and the hook's own PATH of bash, sh, cat, sed,
+# tr, awk, sleep and git.
+hooks/pre-action-deny_test.sh

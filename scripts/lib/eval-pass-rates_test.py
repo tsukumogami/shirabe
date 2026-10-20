@@ -16,14 +16,18 @@ import tempfile
 import unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval-pass-rates.py")
+SET_A = "sha256:" + "a" * 64
+SET_B = "sha256:" + "b" * 64
 
 
 def entry(passed=9, graded=10, runs=1, runs_passed=1, rate="auto", measured_at="0.23.0",
-          models=("sonnet",), session_model=None):
+          models=("sonnet",), session_model=None, scenario_set=None):
     out = {"runs": runs, "runs_passed": runs_passed, "assertions_passed": passed,
            "assertions_graded": graded, "models": list(models), "measured_at": measured_at}
     if session_model is not None:
         out["session_model"] = session_model
+    if scenario_set is not None:
+        out["scenario_set"] = scenario_set
     if rate == "auto":
         out["pass_rate"] = round(passed / graded, 4)
     elif rate is not None:
@@ -37,13 +41,15 @@ def record(skills, version="0.23.0", last_tag="v0.22.0"):
 
 
 def summary_entry(passed=9, graded=10, code=0, runs=1, runs_passed=None, models=("sonnet",),
-                  session_model=None):
+                  session_model=None, scenario_set=None):
     if runs_passed is None:
         runs_passed = runs if code == 0 else 0
     out = {"runs": runs, "runs_passed": runs_passed, "assertions_passed": passed,
            "assertions_graded": graded, "models": list(models), "exit_code": code}
     if session_model is not None:
         out["session_model"] = session_model
+    if scenario_set is not None:
+        out["scenario_set"] = scenario_set
     return out
 
 
@@ -402,7 +408,8 @@ class StampTest(Case):
 
 
 class ReferenceTest(Case):
-    """A rate is compared only with one measured on the same models and session model."""
+    """A rate is compared only with one measured on the same models, session model,
+    scenarios and run count."""
 
     def test_session_model_change_is_a_new_reference_not_a_drop(self):
         prev = self.write(record({"brief": entry(10, 10, models=("sonnet",))}))
@@ -465,6 +472,43 @@ class ReferenceTest(Case):
                                                     session_model="sonnet")})
         rc, out = self.merge(prev, [summ], ["brief"])
         self.assertEqual(rc, 5, out)
+
+    def test_scenario_set_change_is_a_new_reference(self):
+        prev = self.write(record({"brief": entry(10, 10, scenario_set=SET_A)}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, scenario_set=SET_B)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("new reference: brief (no earlier measurement on models sonnet, "
+                      "session model default, 1 run(s), scenario set %s)" % SET_B[:19], out)
+        self.assertEqual(self.result()["skills"]["brief"]["scenario_set"], SET_B)
+
+    def test_same_scenario_set_is_compared(self):
+        prev = self.write(record({"brief": entry(10, 10, scenario_set=SET_A)}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, scenario_set=SET_A)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 5, out)
+        self.assertIn("drop: brief", out)
+
+    def test_entry_without_scenario_set_matches_only_one_without(self):
+        prev = self.write(record({"brief": entry(10, 10)}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, scenario_set=SET_A)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("new reference: brief", out)
+        summ = self.summary({"brief": summary_entry(5, 10, code=1)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 5, out)
+
+    def test_invalid_scenario_set(self):
+        prev = self.write(record({"brief": entry(10, 10, scenario_set="sha256:XYZ")}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("scenario_set is not a sha256: digest", out)
+        self.assertNotIn("XYZ", out)
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, scenario_set=7)})
+        rc, out = self.merge("-", [summ], ["brief"])
+        self.assertNotEqual(rc, 0, out)
 
     def test_invalid_session_model_in_a_record_drops_the_record(self):
         prev = self.write(record({"brief": entry(10, 10, session_model="-x")}))

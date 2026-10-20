@@ -1,0 +1,7 @@
+workflow: .github/workflows/check-release-scripts.yml
+# /release's state script. Its suite builds a throwaway repository
+# with tagged history, a stubbed gh and a koto stand-in and needs
+# only bash, jq and the repository tool; the cases that need real
+# koto skip where it is absent and run on the Linux job. It
+# extracts the Phase 4 blocks from SKILL.md at run time.
+skills/release/scripts/release-state_test.sh
