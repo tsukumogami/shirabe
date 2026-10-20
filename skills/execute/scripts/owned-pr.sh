@@ -257,6 +257,8 @@ list_candidates() {
             and (if $state == "open" then .state == "OPEN"
                  else (.state == "OPEN" or .state == "MERGED") end)
           ))
+        # open-else-merged took the `all` arm above; this narrows it to the
+        # OPEN candidates whenever there is one.
         | if $state == "open-else-merged" and any(.[]; .state == "OPEN")
           then map(select(.state == "OPEN")) else . end
         | .[]

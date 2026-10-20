@@ -1645,7 +1645,7 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
 
 Empty output or a non-zero exit means no single owned PR this run can use, or a failed read; tick with nothing submitted, and `monitor_owned_pr` ends the run.
 
-The lookup follows the PR past its merge: once it is MERGED, the three gates read it rather than finding nothing. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels passes `owned_ci_passing` and routes as green, and koto records the cancelled checks as `ci_cancelled_after_merge.txt`; name them in what you report. A MERGED PR with a failed check, or a cancel outside those workflows, still fails the gate here. You can't push a fix to a merged PR, so submit `ci_outcome: failing_unresolvable` naming the check.
+The lookup follows the PR past its merge: once it is MERGED, the three gates read it rather than finding nothing. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels passes `owned_ci_passing` and routes as green without stopping here, and koto records the cancelled checks as `ci_cancelled_after_merge.txt` (the `merged` state says to name them). A MERGED PR with a failed check, or a cancel outside those workflows, still fails the gate here. You can't push a fix to a merged PR, so submit `ci_outcome: failing_unresolvable` naming the check.
 
 If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
@@ -1810,6 +1810,8 @@ The PR merged, and a live read confirmed it. Render the exit lines from the term
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
 ```
+
+If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds, the PR merged while `ci_monitor` watched it and its CI passed with cancelled macOS floor checks: read it with `koto context get` and name those checks in your final report.
 
 ## ready_awaiting_merge
 

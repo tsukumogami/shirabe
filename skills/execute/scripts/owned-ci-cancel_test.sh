@@ -293,11 +293,19 @@ if grep -qF "pr checks $REPO_URL/pull/7 " "$FIX/gh.log" && grep -qF "pr view $RE
 else
     fail "--owned: the PR was not read by its URL: $(cat "$FIX/gh.log")"
 fi
-if grep -q -- "--state all " "$FIX/gh.log"; then
-    pass "--owned: the lookup goes through owned-pr.sh's open-else-merged"
+# The arguments reach owned-pr.sh as given: open-else-merged is the one value
+# that lists every state and still answers the MERGED PR here, while a
+# MERGED PR is no answer to --state open.
+if grep -q -- "pr list --repo $R --head $BRANCH --state all " "$FIX/gh.log"; then
+    pass "--owned: the lookup arguments reach owned-pr.sh, which lists every state"
 else
     fail "--owned: no --state all list call: $(cat "$FIX/gh.log")"
 fi
+fixture
+pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_REG"
+run_fallback "$REPO" execute-x --owned --repo "$R" --head "$BRANCH" --state open --run-id "$MINE"
+expect_exit "--owned with --state open finds no MERGED PR, so it blocks" 1
+expect_no_note "--owned with --state open records no note"
 
 # --- an open PR with a floor cancel: blocks -----------------------------------
 fixture
@@ -448,10 +456,10 @@ gate_command() {
     esac
 }
 
-# run_gate <name> [plugin-root]: the gate in GATE_CMD as koto runs it, from the
-# repository. The name is for the reader.
+# run_gate [plugin-root]: the gate in GATE_CMD as koto runs it, from the
+# repository.
 run_gate() {
-    local cmd="$GATE_CMD" root="${2:-$REPO_ROOT}"
+    local cmd="$GATE_CMD" root="${1:-$REPO_ROOT}"
     cmd="${cmd//\{\{PLUGIN_ROOT\}\}/$root}"
     cmd="${cmd//\{\{PLAN_SLUG\}\}/x}"
     (cd "$REPO" && env PATH="$T/bin:$PATH" GH_FIXTURE="$FIX" sh -c "$cmd") >/dev/null 2>"$T/err"
@@ -461,13 +469,13 @@ run_gate() {
 
 for g in owned_ci_passing owned_merge_state_clean monitor_owned_pr; do
     c=$(gate_command "$g")
-    case "$c" in
-        *"--state open-else-merged --run-id"*) pass "$g looks the PR up with --state open-else-merged" ;;
-        *) fail "$g does not look up with --state open-else-merged: [${c:0:160}]" ;;
-    esac
-    case "$c" in
-        *"--state open "*) fail "$g still carries a --state open lookup" ;;
-    esac
+    # Every --state the command passes, deduplicated: exactly the one value.
+    states=$(printf '%s' "$c" | grep -oE -- '--state [a-z-]+' | sort -u | tr '\n' ' ')
+    if [ "$states" = "--state open-else-merged " ]; then
+        pass "$g looks the PR up with --state open-else-merged, and with nothing else"
+    else
+        fail "$g's lookups pass [$states]"
+    fi
 done
 
 # --- owned_ci_passing -------------------------------------------------------------
@@ -483,19 +491,19 @@ else
 
     fixture
     pr 7 OPEN "$MINE" CLEAN -- "$PASS_CHECK" "$SKIP_CHECK"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing passes a green open PR" 0
     if [ ! -f "$FIX/added" ]; then pass "a green PR never reaches the fallback"
     else fail "a green PR reached the fallback: $(cat "$FIX/added")"; fi
 
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$PASS_CHECK" "$SKIP_CHECK"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing passes the run's green MERGED PR on its own filter" 0
 
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$PASS_CHECK" "$CANCEL_REG" "$CANCEL_COORD"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing passes a MERGED PR whose only non-green checks are floor cancels" 0
     expect_note "owned_ci_passing's pass records the cancelled checks"
     if grep -qx "execute-x ci_cancelled_after_merge.txt" "$FIX/added" 2>/dev/null; then
@@ -506,27 +514,27 @@ else
 
     fixture
     pr 7 OPEN "$MINE" CLEAN -- "$PASS_CHECK" "$CANCEL_REG"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing still fails an open PR with a floor cancel" 1
 
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_REG" "$FAIL_CHECK"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing still fails a MERGED PR with a failed check" 1
 
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_REG" "$PENDING_CHECK"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing still fails a MERGED PR with a pending check" 1
 
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_OTHER"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing still fails a MERGED PR with a cancel outside the floor workflows" 1
 
     fixture
     pr 7 MERGED "$OTHER" UNKNOWN -- "$PASS_CHECK" "$CANCEL_REG"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing still fails another run's MERGED PR" 1
     if [ "$(gh_calls "pr checks")" = 0 ]; then pass "another run's PR's checks are never read"
     else fail "another run's PR's checks were read: $(cat "$FIX/gh.log")"; fi
@@ -534,12 +542,12 @@ else
     fixture
     pr 6 MERGED "$OTHER" UNKNOWN -- "$PASS_CHECK"
     pr 7 OPEN "$MINE" CLEAN -- "$PASS_CHECK" "$CANCEL_REG"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing reads this run's open PR, not an earlier run's green MERGED one" 1
 
     fixture
     pr 7 CLOSED "$MINE" UNKNOWN -- "$PASS_CHECK"
-    run_gate owned_ci_passing
+    run_gate
     expect_exit "owned_ci_passing fails a branch whose only PR is closed-unmerged, as before" 1
 
     # The repository tsuku, koto and niwa look like: the gate is the filter
@@ -556,7 +564,7 @@ else
     mkdir -p "$T/empty-plugin" || exit 1
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_REG"
-    run_gate owned_ci_passing "$T/empty-plugin"
+    run_gate "$T/empty-plugin"
     expect_exit "owned_ci_passing exits exactly 1 when nothing it calls can run" 1
 fi
 
@@ -567,22 +575,22 @@ if [ -z "$GATE_CMD" ]; then
 else
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_REG"
-    run_gate owned_merge_state_clean
+    run_gate
     expect_exit "owned_merge_state_clean passes the run's MERGED PR (mergeStateStatus UNKNOWN)" 0
 
     fixture
     pr 7 OPEN "$MINE" CLEAN -- "$PASS_CHECK"
-    run_gate owned_merge_state_clean
+    run_gate
     expect_exit "owned_merge_state_clean passes a clean open PR" 0
 
     fixture
     pr 7 OPEN "$MINE" DIRTY -- "$PASS_CHECK"
-    run_gate owned_merge_state_clean
+    run_gate
     expect_exit "owned_merge_state_clean still answers 1 on a DIRTY open PR" 1
 
     fixture
     pr 7 CLOSED "$MINE" UNKNOWN -- "$PASS_CHECK"
-    run_gate owned_merge_state_clean
+    run_gate
     expect_exit "owned_merge_state_clean still holds (2) with no PR to read" 2
 fi
 
@@ -593,32 +601,32 @@ if [ -z "$GATE_CMD" ]; then
 else
     fixture
     pr 7 MERGED "$MINE" UNKNOWN -- "$CANCEL_REG"
-    run_gate monitor_owned_pr
+    run_gate
     expect_exit "monitor_owned_pr finds the run's MERGED PR" 0
 
     fixture
     pr 7 OPEN "$MINE" CLEAN -- "$PASS_CHECK"
-    run_gate monitor_owned_pr
+    run_gate
     expect_exit "monitor_owned_pr finds the run's open PR" 0
 
     fixture
     pr 6 MERGED "$MINE" UNKNOWN -- "$PASS_CHECK"
     pr 7 OPEN "$MINE" CLEAN -- "$PASS_CHECK"
-    run_gate monitor_owned_pr
+    run_gate
     expect_exit "monitor_owned_pr: an open PR beside a MERGED one is one answer, the open one" 0
 
     fixture
     pr 7 MERGED "$OTHER" UNKNOWN -- "$CANCEL_REG"
-    run_gate monitor_owned_pr
+    run_gate
     expect_exit "monitor_owned_pr: another run's MERGED PR is no single owned PR" 3
 
     fixture
     pr 7 CLOSED "$MINE" UNKNOWN -- "$CANCEL_REG"
-    run_gate monitor_owned_pr
+    run_gate
     expect_exit "monitor_owned_pr: a closed-unmerged PR alone is no single owned PR, as before" 3
 
     fixture
-    run_gate monitor_owned_pr
+    run_gate
     expect_exit "monitor_owned_pr: no PR is no single owned PR, as before" 3
 fi
 
