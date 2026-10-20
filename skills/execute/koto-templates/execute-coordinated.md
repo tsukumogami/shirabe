@@ -36,7 +36,11 @@
 # and CI's merge-last gate: coord-render.sh renders it after every transition
 # it shows and before every terminal (the coord_verdict default action), and
 # posts it only when it differs. execute-open.sh carries the keys into the
-# session koto replaces a finished one with.
+# session koto replaces a finished one with. A session with no record whose
+# run had started is recovered at coord_setup (record-coord-setup.sh, the one
+# reader of the body, through the codec), or stops; every terminal's result
+# carries `recovered`, the coordination PR's URL when this invocation
+# recovered.
 name: execute-coordinated
 version: "1.0"
 description: >
@@ -160,9 +164,13 @@ variables:
     rebind: true
   ADOPT_RUN:
     description: >-
-      A run id to adopt, from /execute's --adopt-run flag, or empty. Accepted,
-      and reported `ignored=adopt-run` by setup until recovery lands.
-      Rebindable, so an attach without the flag resets it to empty.
+      A run id to adopt, from /execute's --adopt-run flag, or empty. Honoured
+      only on a start that recovers a lost record: it becomes the run's
+      identity, outranking a carried run_id, and setup stamps it on the node
+      PRs whose marker names another run or none (only those that passed the
+      ownership lookup), recording who adopted the run and when. On any other
+      start setup stops adopt-run-refused. Rebindable, so an attach without
+      the flag resets it to empty.
     required: false
     pattern: '^([0-9a-f]{32})?$'
     rebind: true
@@ -192,7 +200,7 @@ states:
     accepts:
       setup_status:
         type: enum
-        values: [blocked, store-mismatch, coordination-pr-missing, coordination-pr-ambiguous, coordination-pr-mismatch, coordination-pr-closed]
+        values: [blocked, store-mismatch, coordination-pr-missing, coordination-pr-ambiguous, coordination-pr-mismatch, coordination-pr-closed, session-absent, recovery-unproven, recovery-plan-gone, coordination-index-missing, coordination-body-full, adopt-run-refused]
         description: >-
           Submitted only when record-coord-setup.sh refuses; the passing path
           submits nothing. A typed stop (exit 71, `stop=<code>`) submits its
@@ -261,6 +269,61 @@ states:
           step: "execute:coord_setup"
           reason: coordination-pr-closed
           failure_reason: "coord_setup: the recorded coordination PR is closed unmerged: ${evidence.detail}"
+      # Recovery's stops: a session with no record whose run had started.
+      - target: done_error
+        when:
+          gates.repos_recorded.matches: false
+          setup_status: session-absent
+        context_assignments:
+          outcome: error
+          step: "execute:coord_setup"
+          reason: session-absent
+          failure_reason: "coord_setup: the run's record is in an execute session that isn't here: ${evidence.detail}"
+      - target: done_error
+        when:
+          gates.repos_recorded.matches: false
+          setup_status: recovery-unproven
+        context_assignments:
+          outcome: error
+          step: "execute:coord_setup"
+          reason: recovery-unproven
+          failure_reason: "coord_setup: the coordination PR names node PRs this run can't prove are its own: ${evidence.detail}"
+      - target: done_error
+        when:
+          gates.repos_recorded.matches: false
+          setup_status: recovery-plan-gone
+        context_assignments:
+          outcome: error
+          step: "execute:coord_setup"
+          reason: recovery-plan-gone
+          failure_reason: "coord_setup: the record is lost and the PLAN is gone: ${evidence.detail}"
+      - target: done_error
+        when:
+          gates.repos_recorded.matches: false
+          setup_status: coordination-index-missing
+        context_assignments:
+          outcome: error
+          step: "execute:coord_setup"
+          reason: coordination-index-missing
+          failure_reason: "coord_setup: the coordination PR's index can't rebuild the run: ${evidence.detail}"
+      - target: done_error
+        when:
+          gates.repos_recorded.matches: false
+          setup_status: coordination-body-full
+        context_assignments:
+          outcome: error
+          step: "execute:coord_setup"
+          reason: coordination-body-full
+          failure_reason: "coord_setup: the coordination PR's body is over the size cap: ${evidence.detail}"
+      - target: done_error
+        when:
+          gates.repos_recorded.matches: false
+          setup_status: adopt-run-refused
+        context_assignments:
+          outcome: error
+          step: "execute:coord_setup"
+          reason: adopt-run-refused
+          failure_reason: "coord_setup: --adopt-run applies only to a start that recovers: ${evidence.detail}"
 
   coord_loop:
     # Agent-run. The agent runs coordinated-next.sh, performs exactly the
@@ -477,6 +540,7 @@ states:
       resume: "${context.resume}"
       waiting: "${context.waiting}"
       body: "${context.body}"
+      recovered: "${context.recovered}"
 
   ready_awaiting_merge:
     # Nothing is left to start, and something is unmerged: a node PR or the
@@ -491,6 +555,7 @@ states:
       resume: "${context.resume}"
       waiting: "${context.waiting}"
       body: "${context.body}"
+      recovered: "${context.recovered}"
 
   paused_awaiting_merges:
     # A node waits on an unmerged predecessor. The run record stays in the
@@ -506,6 +571,7 @@ states:
       resume: "${context.resume}"
       waiting: "${context.waiting}"
       body: "${context.body}"
+      recovered: "${context.recovered}"
 
   done_blocked:
     terminal: true
@@ -519,6 +585,7 @@ states:
       resume: "${context.resume}"
       waiting: "${context.waiting}"
       body: "${context.body}"
+      recovered: "${context.recovered}"
 
   done_error:
     terminal: true
@@ -532,6 +599,7 @@ states:
       resume: "${context.resume}"
       waiting: "${context.waiting}"
       body: "${context.body}"
+      recovered: "${context.recovered}"
 ---
 
 ## coord_setup
@@ -546,9 +614,9 @@ Record the run's write set and its coordination home. Run this in the coordinati
 
 Pass the five flags exactly as shown; an empty value means the flag wasn't given. The script records four keys, each fixed for the rest of the run: `repos`, the sorted, comma-joined `owner/repo` list of every PR node's repository, which is the run's write set; `home_repo`, this checkout's repository, which holds the coordination PR and need not hold a node (the run writes to it only through the coordination PR's own paths: its body edits, ready call, and merge, which take `home_repo` explicitly, and its branch's push from this checkout); `coord_branch`, the branch checked out here; and `plan_abs`, the PLAN's absolute path, which outline-sourced children receive as `PLAN_DOC`.
 
-It also keeps the run's record in this session. On a new run it finds the coordination PR through the ownership lookup (checking a handed `--coordination-pr` against it), mints the run's `run_id`, and seals `run/setup`: the store (`github` unless `--store session`), the coordination PR's number, `repos`, the mode, the PLAN's node list, and `/scope`'s run lines from the coordination PR's body. On a later invocation (the record carried in from a paused run) it makes no lookup: it checks `--store` against the sealed store and the recorded coordination PR's state. `--follow-up`, `--follow-up-remove` and `--adopt-run` are accepted and printed as `ignored=<flag>`; they change nothing yet. Then tick with `koto next {{SESSION_NAME}} --no-cleanup`; the state's gates read the record back and move the run to the loop.
+It also keeps the run's record in this session. When the session holds the record (carried in from a paused run, say) it makes no lookup: it checks `--store` against the sealed store and the recorded coordination PR's state, and with the PLAN gone it takes `repos` from the record. When the session holds none, it finds the coordination PR through the ownership lookup (checking a handed `--coordination-pr` against it), reads its body, looks up each PLAN node's branch, and decides whether a run had started there: a carried `run_id`, a rendered `run=` line, a PR Index line, or an owned PR on a node branch. Nothing started is a new run: it seals `run/setup` (the store, `github` unless `--store session` or the body's `store=` line says otherwise; the coordination PR's number; `repos`; the mode; the PLAN's node list; `/scope`'s run lines), then mints `run_id`, and prints `record=new`. A started run on the `session` store stops `session-absent`: its record is in an execute session that isn't here. On `github` it recovers: it rebuilds the record from the PLAN's nodes and the body's index, proves every indexed node PR is this run's (owned on its branch, then carrying the run's marker), reads each one's head live (never the body's `head=`), records the cascade as not run, and prints `record=recovered` and `recovered=<url>`. The run's identity is, in order, `--adopt-run`, the carried `run_id`, the body's `run=` line, the one id every node PR's marker names, and a minted one only when the index holds no node PR. `--adopt-run` is honoured only on a start that recovers: it stamps the run's marker on the node PRs that carry another or none (the one GitHub write setup makes, after every check passed) and records who adopted the run and when; on any other start it stops `adopt-run-refused`. Follow-up lines in the index are read but not recorded yet. `--follow-up` and `--follow-up-remove` are accepted and printed as `ignored=<flag>`; they change nothing yet. Then tick with `koto next {{SESSION_NAME}} --no-cleanup`; the state's gates read the record back and move the run to the loop.
 
-The script refuses a detached HEAD (exit 65), a value outside its pattern or an origin it can't read as `owner/repo` (66), the default branch (67), and a value that differs from one already recorded (68). An exit 71 is a typed stop, and writes nothing: it prints `stop=<code>`, one of `store-mismatch`, `coordination-pr-missing`, `coordination-pr-ambiguous`, `coordination-pr-mismatch`, `coordination-pr-closed`; submit `setup_status: <code>` with `detail` (relay its message), which ends the run at `done_error` with `step=execute:coord_setup` and `reason=<code>`. For 72 (a GitHub read failed) or any other refusal whose cause can't be fixed, submit `setup_status: blocked` with `detail`, which ends the run at `done_error` with `step=execute:coord_setup`. (In a live session that already holds all four keys, from a setup that wrote them and stopped before its tick, the gates pass and a submitted stop can't reach `done_error`: report the stop and its message, and don't tick.)
+The script refuses a detached HEAD (exit 65), a value outside its pattern or an origin it can't read as `owner/repo` (66), the default branch (67), and a value that differs from one already recorded (68). An exit 71 is a typed stop: it prints `stop=<code>`, one of `store-mismatch`, `coordination-pr-missing`, `coordination-pr-ambiguous`, `coordination-pr-mismatch`, `coordination-pr-closed`, `session-absent` (bring the session here with the import its message names, or run where it lives), `recovery-unproven` (an indexed node PR this run can't prove is its own; the message names each with its reason and URL, and suggests `--adopt-run <id>` only when every reason is its marker), `recovery-plan-gone` (the record is lost and the cascade deleted the PLAN: only the coordination merge is left), `coordination-index-missing` (the body holds no index line to rebuild the run from), `coordination-body-full` (the body is over the size cap), `adopt-run-refused`. A stop writes nothing, with one exception: a `recovery-unproven` stop on a PR that couldn't be stamped leaves the stamps already made, and a re-run with the same `--adopt-run` finds them marked and edits them no more. Submit `setup_status: <code>` with `detail` (relay its message), which ends the run at `done_error` with `step=execute:coord_setup` and `reason=<code>`. For 72 (a GitHub read failed) or any other refusal whose cause can't be fixed, submit `setup_status: blocked` with `detail`, which ends the run at `done_error` with `step=execute:coord_setup`. (In a live session that already holds all four keys, from a setup that wrote them and stopped before its tick, the gates pass and a submitted stop can't reach `done_error`: report the stop and its message, and don't tick.)
 
 ## coord_loop
 
@@ -641,7 +709,7 @@ The `failure_reason` context key carries the detail: `koto context get {{SESSION
 
 ## done_error
 
-The run could not record its write set, or setup stopped on a typed stop (the result's `reason` names it: `store-mismatch`, or a coordination PR that is missing, ambiguous, not this run's, or closed), and the run stopped before the loop. Render the exit lines from the terminal result:
+The run could not record its write set, or setup stopped on a typed stop (the result's `reason` names it: `store-mismatch`; a coordination PR that is missing, ambiguous, not this run's, or closed; or, for a session with no record, `session-absent`, `recovery-unproven`, `recovery-plan-gone`, `coordination-index-missing`, `coordination-body-full`, or `adopt-run-refused`), and the run stopped before the loop. Render the exit lines from the terminal result:
 
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
