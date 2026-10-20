@@ -208,9 +208,12 @@ the body. The trouble is that the same text is also the run's memory.
 ### Recovery
 
 - **R8. When recovery runs.** A coordinated start recovers when its execute session holds
-  no run record: there is no session of the topic on this host (the `github` store only), or
-  the session is a fresh replacement of a finished one that predates this feature, or a live
-  session that predates this feature. A session that holds the record never recovers.
+  no run record (no `run/setup` key, whether or not a session exists) and the run had
+  started: there is no session of the topic on this host (the `github` store only), or the
+  session is a fresh replacement of a finished one that predates this feature, or a live
+  session that predates this feature. A start with no `run/setup` key is a lost record only when the run had started: the coordination pull request's body carries a rendered `run=` line or an index line, or a PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request, or the session holds a carried `run_id`. Otherwise it's a new run and setup seals a fresh record on either store. A session that holds the record never
+  recovers, and the `session` store's `session-absent` stop applies only to a run that had
+  started.
 - **R9. How recovery rebuilds the record.** Before the loop runs, recovery:
   - finds the coordination pull request through the ownership lookup on the checked-out
     branch; none found stops with `coordination-pr-missing`, several with
@@ -294,8 +297,9 @@ the body. The trouble is that the same text is also the run's memory.
 - **R15. Rendered at these transitions.** `/execute` renders the coordination pull request's
   body from the run record, the body's live Part 1 and live state reads, and posts it, after
   each of: a node's pull request opened or pushed, a node observed merged, a follow-up
-  recorded, the cascade pushed or failed, the coordination pull request pushed, and every
-  terminal. A change in live state alone, such as checks finishing, doesn't trigger a
+  recorded, the cascade pushed or failed (the cascade's push is the coordination pull
+  request's push, one event), and each of the five terminals (`merged`,
+  `ready_awaiting_merge`, `paused_awaiting_merges`, `done_blocked`, `done_error`). A change in live state alone, such as checks finishing, doesn't trigger a
   render; the next one shows it. Rendering an unchanged record and unchanged live state
   produces the same bytes, and an unchanged body isn't posted. A failed render or post
   leaves the record as written, is reported as `body=stale` on that invocation's report, is

@@ -53,7 +53,9 @@ the end-to-end engine test, which needs everything before it.
 **Goal**: Add the `run/` keys, `run-record.sh` with its verb-to-field ownership table,
 `run-record-lib.sh`, a shared test helper that seeds a record, the opener's carry of `run/`
 across `--replace-terminal` (lock, retained snapshot), the five
-rebind variables (`STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE`, `ADOPT_RUN`),
+rebind variables (`STORE`, `COORDINATION_PR`, and `FOLLOW_UP`, `FOLLOW_UP_REMOVE`, `ADOPT_RUN`
+declared and passed but inert until Issues 3 and 4), the opener seeding a carried `run_id`
+but never minting one for a coordinated PLAN, with setup minting when it seals a new record,
 setup's store seal, node list, `/scope`'s run lines and handed pull request, `node-push.sh` writing heads through
 the recorder, and `coord_compute` and `coord-merge.sh` reading the record, with every merge
 pinned to the recorded head and made only after the loop's existing readiness check passes
@@ -154,12 +156,13 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
 **Group**: render-recover
 
 **Goal**: In `record-coord-setup.sh`, when `run/setup` is absent: stop with
-`session-absent` on the `session` store; otherwise find the coordination pull request,
+`session-absent` on the `session` store for a run that had started (R8's discriminator,
+built here: before this issue setup seals a fresh record whenever `run/setup` is absent);
+otherwise find the coordination pull request,
 parse the rendering with `cb_parse`, take the node list, resolve identity (carried
 `run_id`, rendered run line, unanimous markers, minted; `--adopt-run` outranks them), check
-node pull requests' markers and recovered follow-ups against R16's checks (dropping and
-reporting one that fails), re-read heads live, set the cascade from the PLAN's presence,
-write `run/recovered`; add `--adopt-run`; recover pre-feature runs once; add the structure
+node pull requests' markers, re-read heads live, set the cascade from the PLAN's presence,
+write `run/recovered`; give `ADOPT_RUN` (declared inert by Issue 1) its behavior; recover pre-feature runs once; add the structure
 test that bans body parsing from `skills/execute/` (design Decision 4; PRD R3, R6, R8-R11, R18,
 R22).
 
@@ -182,8 +185,10 @@ R22).
   with the PLAN gone the cascade is `pushed` at the live coordination head, which the
   readiness check examines before the coordination merge.
 - [ ] With `--adopt-run <id>` and a carried `run_id`, `<id>` wins and becomes the session's
-  `run_id`; for a coordinated PLAN the opener seeds a carried id and mints none, and setup
-  mints only when recovery finds no identity and no node pull request.
+  `run_id`; setup mints only when recovery finds no identity and no node pull request.
+- [ ] A first start with no started run (no run line, no index line, no owned node pull
+  request, no carried id) seals a fresh record on both stores and never stops with
+  `session-absent`.
 - [ ] Recovery reads follow-up lines but keeps none of them until Issue 4 adds the
   follow-up checks (no follow-up can be recorded before Issue 4).
 - [ ] The structure test also fails when a `run-record.sh` verb is called from a script other
@@ -209,7 +214,9 @@ R22).
 
 **Group**: follow-up-move
 
-**Goal**: Map `--follow-up <node>=<url> [--remove]` to the rebind variables, check and
+**Goal**: Give `FOLLOW_UP` and `FOLLOW_UP_REMOVE` (declared inert by Issue 1) their behavior,
+extend Issue 3's recovery with the follow-up checks (keep or drop and report
+`follow-up-dropped`), check and
 record follow-ups at setup with their live head, call the renderer after
 recording one (Issue 2's renderer, wired here), add them to `coord_compute` as
 `<node>/follow-up-<n>` after their node, merge them with `--merge`, render their lines, and
@@ -231,7 +238,7 @@ hold the merge-last gate until they merge (design Decision 7; PRD R16).
   `--remove` drops it; a replacement recorded and the closed one removed lets the gate pass
   once the replacement merges.
 
-**Dependencies**: Blocked by Issue 2
+**Dependencies**: Blocked by Issue 2, Issue 3
 
 ### Issue 5: feat(deliver): move a coordinated run between workspaces with its leg
 
@@ -277,7 +284,7 @@ on the same host and resumed to its merge (design Decision 5; PRD R12, R14, R19,
 graph TD
     I1["Issue 1: the record"] --> I2["Issue 2: the rendering"]
     I2 --> I3["Issue 3: recovery"]
-    I2 --> I4["Issue 4: follow-ups"]
+    I3 --> I4["Issue 4: follow-ups"]
     I3 --> I5["Issue 5: moves and the leg"]
     I4 --> I5
 ```

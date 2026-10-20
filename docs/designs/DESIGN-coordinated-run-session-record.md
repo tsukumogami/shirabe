@@ -151,14 +151,27 @@ Key assumptions:
 
 Keys in `execute-<topic>`:
 
-| Key | Holds | Owner (verb of `run-record.sh`) |
+| Key | Holds |
+|---|---|
+| `run/setup` | `store`, `coordination_pr`, the node list from the PLAN (`name`, `kind`, `repo`, `waits_on`), `/scope`'s run lines |
+| `run/node/<node>` | `repo`, `pr`, `head`, `merged_head` |
+| `run/follow-up/<node>/<n>` (`<n>` the pull request number) | `repo`, `pr`, `head`, `merged_head`, `removed` |
+| `run/cascade` | `verdict`, `head`, `step` |
+| `run/recovered` | the pull request recovered from, the identity source |
+| `run/adopted` | the id, the login, the time |
+
+Each verb of `run-record.sh`, the one script that may call it, and the fields it may write:
+
+| Verb | Called only from | Writes |
 |---|---|---|
-| `run/setup` | `store`, `coordination_pr`, the node list from the PLAN (`name`, `kind`, `repo`, `waits_on`), `/scope`'s run lines | `setup` (record-coord-setup.sh) |
-| `run/node/<node>` | `repo`, `pr`, `head`, `merged_head` | `push` (node-push.sh node), `observe` (coord-render.sh), `recover` |
-| `run/follow-up/<node>/<n>` (`<n>` the pull request number) | `repo`, `pr`, `head`, `merged_head`, `removed` | `follow-up` (setup), `observe`, `recover` |
-| `run/cascade` | `verdict`, `head`, `step` | `cascade` (node-push.sh coordination and the cascade's failure path), `recover` |
-| `run/recovered` | the pull request recovered from, the identity source | `recover` |
-| `run/adopted` | the id, the login, the time | `adopt` |
+| `setup` | `record-coord-setup.sh` (a new run) | all of `run/setup` |
+| `push` | `node-push.sh node` | `run/node/<node>`: `repo`, `pr`, `head` |
+| `observe` | `coord-render.sh` | `merged_head` of a node or follow-up |
+| `cascade` | `node-push.sh coordination` (pushed) and `record-coordination-verdict.sh` (failed) | all of `run/cascade` |
+| `follow-up` | `record-coord-setup.sh` (with `--follow-up`) | `run/follow-up/<node>/<n>`: `repo`, `pr`, `head`, `removed` |
+| `recover` | `record-coord-setup.sh` (a lost record) | `run/setup`, `run/node/*`, `run/follow-up/*`, `run/cascade`, `run/recovered` |
+| `adopt` | `record-coord-setup.sh` (with `--adopt-run`, during recovery) | `run/adopted` |
+| `carry` | `execute-open.sh` (a replacement with no `run/` key) | any `run/` key |
 
 Within a shared key each verb owns named fields: `push` writes `repo`, `pr` and `head`;
 `observe` writes only `merged_head`. No key holds a verified flag: `coord_compute` already runs `merge-verdict.sh` at the expected head for every open pull request on every pass and prints `merge` only when it passes, so that check, not a stored flag, is what verifies a head before a merge. `run-record.sh` holds that verb-to-field table and refuses anything outside it
@@ -328,8 +341,8 @@ Key assumptions:
 #### Chosen: setup recovers when `run/setup` is absent; the loop's readiness check re-verifies
 
 `record-coord-setup.sh` already checks the write set, the branch and the home. When
-`run/setup` is absent it decides: a `session` store stops with `session-absent` before any
-GitHub call; otherwise it runs recovery:
+`run/setup` is absent it first decides whether the run had started. A start with no `run/setup` key is a lost record only when the run had started: the coordination pull request's body carries a rendered `run=` line or an index line, or a PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request, or the session holds a carried `run_id`. Otherwise it's a new run and it seals a fresh record on either store. For a run that had started, a `session` store stops with
+`session-absent` and makes no GitHub write; otherwise it runs recovery:
 
 1. the coordination pull request through `coord_find_pr` (ownership lookup and the
    declaration marker), `coordination-pr-missing` for none, `coordination-pr-ambiguous` for
@@ -556,7 +569,7 @@ skill-session.sh import execute|deliver <topic> --from <workspace>
 ```
 
 New report tokens and stops: `not-owner` (exit 65), `follow-up-author`, `follow-up-dropped`,
-`merge-refused:body-full`, `store-mismatch`, `session-absent`, `coordination-pr-missing`,
+`merge-refused:body-stale`, `merge-refused:body-full`, `execute:visibility` (the renderer's refusal of a private node under a public home, ending at `done_error`), `store-mismatch`, `session-absent`, `coordination-pr-missing`,
 `coordination-index-missing`,
 `coordination-pr-ambiguous`, `coordination-pr-mismatch`, `coordination-pr-closed`,
 `recovery-unproven`, `recovered=<url>`, `body=stale`, `body=full`,
