@@ -400,6 +400,7 @@ rm -f "$PLUGIN_COPY/skills/writing-style/rules.yaml"
 (cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" "$PLUGIN_COPY/skills/scope/scripts/check-hop-document.sh" --topic t --hop prd) > "$OUT" 2> "$ERR"
 RC=$?
 expect_undecided "the plugin's rules file missing"
+rf_test_drop_plugin "$PLUGIN_COPY"
 
 # Odd files at a topic path.
 fixture odd

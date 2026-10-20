@@ -574,6 +574,7 @@ if [ "$RC_CONTROL" -eq 0 ] && [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ]; t
 else
     fail "--pr-body: missing rules.yaml: control rc $RC_CONTROL, rc $RC, stderr $(cat "$WORKDIR/stderr")"
 fi
+rf_test_drop_plugin "$NORULES"
 
 # --- --pr-body against a real validator -----------------------------------------
 #
@@ -664,6 +665,7 @@ Part two.")
     else
         fail "real validator: empty rules rc $RC, stdout $OUT"
     fi
+    rf_test_drop_plugin "$BROKEN"
 fi
 
 # --- the rule registry ----------------------------------------------------------

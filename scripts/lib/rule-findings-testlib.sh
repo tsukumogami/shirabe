@@ -163,23 +163,56 @@ rf_test_expected_range() {
 }
 
 # rf_test_copy_plugin <dest>: the parts of the plugin a gate script and the
-# registry's anchors read, as a plain directory (an installed-style copy).
+# registry's anchors read, as a plain directory (an installed-style copy) that
+# a test may edit. It is a sparse git worktree, not a recursive copy: a
+# checkout writes only the paths below, where a copy of references/ and
+# skills/ wrote over a thousand files per call, each scanned by the host. The
+# worktree is cut from `git stash create` when the checkout has uncommitted
+# changes to tracked files, so it holds what the suite is testing rather than
+# the last commit; a new file nothing has added yet is not in it. The paths
+# are the registry, the reader, the library, plugin.json, CLAUDE.md, the
+# writing-style rules, the scripts of the skills whose gate scripts report
+# registry rules (and the scripts they call), and every file a rule's text
+# points at. <dest> must not exist; rf_test_drop_plugin removes it.
 rf_test_copy_plugin() {
+    local d=$1 base
+    git -C "$RF_TEST_ROOT" worktree prune 2>/dev/null
+    base=$(git -C "$RF_TEST_ROOT" stash create 2>/dev/null) || base=""
+    [ -n "$base" ] || base=$(git -C "$RF_TEST_ROOT" rev-parse HEAD) || return 1
+    git -C "$RF_TEST_ROOT" worktree add --quiet --detach --no-checkout "$d" "$base" || return 1
+    {
+        printf '%s\n' /scripts/lib/ /scripts/rule-registry.sh /references/rule-registry.json \
+            /.claude-plugin/plugin.json /CLAUDE.md /skills/writing-style/ \
+            /skills/work-on/scripts/ /skills/scope/scripts/ /skills/execute/scripts/
+        jq -r '[.rules[].text.path | select(type == "string")] | unique | .[] | "/" + .' \
+            "$RF_TEST_REGISTRY"
+    } > "$d.sparse" || return 1
+    git -C "$d" sparse-checkout set --no-cone --stdin < "$d.sparse" || return 1
+    rm -f "$d.sparse"
+    git -C "$d" checkout --quiet "$base" || return 1
+}
+
+# rf_test_drop_plugin <dest>: removes a copy rf_test_copy_plugin made.
+rf_test_drop_plugin() {
+    git -C "$RF_TEST_ROOT" worktree remove --force "$1" 2>/dev/null || rm -rf "$1"
+    git -C "$RF_TEST_ROOT" worktree prune 2>/dev/null
+    return 0
+}
+
+# rf_test_restore <dest> <path>...: puts edited paths in a copy back as they
+# were checked out, so one copy serves every case.
+rf_test_restore() {
     local d=$1
-    mkdir -p "$d/scripts" "$d/docs" "$d/.claude-plugin"
-    cp -R "$RF_TEST_ROOT/scripts/lib" "$d/scripts/"
-    cp "$RF_TEST_HELPER" "$d/scripts/"
-    cp -R "$RF_TEST_ROOT/references" "$RF_TEST_ROOT/skills" "$d/"
-    cp -R "$RF_TEST_ROOT/docs/guides" "$d/docs/"
-    cp "$RF_TEST_ROOT/CLAUDE.md" "$d/"
-    cp "$RF_TEST_ROOT/.claude-plugin/plugin.json" "$d/.claude-plugin/"
+    shift
+    git -C "$d" checkout --quiet -- "$@"
 }
 
 rf_test_refusals() {
     local label=$1 rel=$2 id=$3 p script rc tmp
     shift 3
     p="$RF_TEST_DIR/plugin.$$"
-    rm -rf "$p"; rf_test_copy_plugin "$p"
+    rf_test_drop_plugin "$p"; rf_test_copy_plugin "$p" \
+        || { fail "$label: could not make the scratch copy of the plugin"; return; }
     script="$p/$rel"
     tmp="$RF_TEST_DIR/edit.$$"
 
@@ -208,24 +241,25 @@ rf_test_refusals() {
     [ $rc -eq 2 ] && pass "$label: a rule missing from RULE_IDS exits 2" \
         || fail "$label: rule outside RULE_IDS exited $rc, want 2"
 
-    rm -rf "$p"; rf_test_copy_plugin "$p"
+    rf_test_restore "$p" "$rel"
     jq --arg id "$id" '.rules |= map(if .id == $id then .status = "retired" else . end)' \
         "$p/references/rule-registry.json" > "$tmp" && cat "$tmp" > "$p/references/rule-registry.json"
     SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>&1; rc=$?
     [ $rc -eq 2 ] && pass "$label: a retired rule exits 2" \
         || fail "$label: retired rule exited $rc, want 2"
 
-    rm -rf "$p"; rf_test_copy_plugin "$p"
+    rf_test_restore "$p" references/rule-registry.json
     jq --arg id "$id" '.rules |= map(if .id == $id then .text.first = "no line holds this anchor" else . end)' \
         "$p/references/rule-registry.json" > "$tmp" && cat "$tmp" > "$p/references/rule-registry.json"
     SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>&1; rc=$?
     [ $rc -eq 2 ] && pass "$label: a rule whose text no longer resolves exits 2 before checking" \
         || fail "$label: unresolvable rule exited $rc, want 2"
 
-    rm -rf "$p"; rf_test_copy_plugin "$p"
+    rf_test_restore "$p" references/rule-registry.json
     rm -f "$p/scripts/lib/rule-findings.sh"
     SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>&1; rc=$?
     [ $rc -eq 2 ] && pass "$label: a missing scripts/lib/rule-findings.sh exits 2" \
         || fail "$label: missing library exited $rc, want 2"
-    rm -rf "$p" "$tmp"
+    rf_test_drop_plugin "$p"
+    rm -f "$tmp"
 }
