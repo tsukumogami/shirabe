@@ -35,7 +35,12 @@
 # override: the environment of a tick is the agent's, and a variable that
 # chose which board check runs would let it choose the verdict.
 #
-# Requires: bash 3.2+, jq, and pkill (procps on Linux, base system on macOS).
+# A script that calls rd_deadline first calls rd_idle with a private
+# directory of its own (see rd_idle below); without it every read returns 125.
+# This file takes file descriptor 7 for that; inventory-common.sh's pool takes 9.
+#
+# Requires: bash 3.2+, jq, mkfifo, and pkill (procps on Linux, base system on
+# macOS).
 
 RD_HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
@@ -113,9 +118,11 @@ rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # an earlier run is found there. And no two calls running at once share a
 # name: a counter bumped inside `$(...)` is lost when it returns, so calls
 # from one shell reuse a name, which is safe only because each call removes its
-# files before it returns and the next one starts. A background subshell that
-# calls this while its parent can also must first set RD_SHELL to a tag of its
-# own and RD_N to 0: reconcile-check.sh's inventory pool jobs (rc_job) do.
+# files before it returns and the next one starts. Any subshell that calls this
+# while another shell can too (a background job, either side of a pipeline, a
+# process substitution) must first set RD_SHELL to a tag of its own and RD_N to
+# 0: reconcile-check.sh's inventory pool jobs (rc_job) do, and no other caller
+# runs reads side by side.
 #
 # A read that can't be started because rd_idle failed (no mkfifo, no
 # directory) returns 125 without running CMD: a failed read, which every
@@ -167,7 +174,9 @@ rd_deadline() {
     wait "$pid"
     rc=$?
     : > "$out.done"
-    # The watcher waits in a builtin, so stopping it stops everything it ran.
+    # The watcher waits in a builtin, so there's no sleep of its own to stop:
+    # killing it is enough. If the deadline fired, a pkill it started may
+    # outlive it by a moment; CMD has ended by then either way.
     kill "$watcher" 2>/dev/null
     wait "$watcher" 2>/dev/null
     [ -e "$out.late" ] && rc=124

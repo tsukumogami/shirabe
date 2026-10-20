@@ -91,7 +91,9 @@ refuse() {  # refuse CODE STATUS REASON
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read.XXXXXX")
 trap 'rm -rf "$T"' EXIT
-# Here, so command substitutions inherit it.
+# Before the first read, in this shell: command substitutions inherit the
+# FIFO, where one opened inside a `$(...)` would be opened again by every
+# read. If it can't be opened, every read returns 125 and reads as failed.
 rd_idle "$T"
 
 # The run's facts: from the session, or all four override flags in tests.

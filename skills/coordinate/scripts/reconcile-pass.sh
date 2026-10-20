@@ -157,7 +157,9 @@ WORK="$W/visit.json"
 mkdir -p "$W" || die "can't create the work directory"
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass.XXXXXX") || die "no temp directory"
 trap 'rm -rf "$T"' EXIT
-# Here, so command substitutions inherit it.
+# Before the first read, in this shell: command substitutions inherit the
+# FIFO, where one opened inside a `$(...)` would be opened again by every
+# read. If it can't be opened, every read returns 125 and reads as failed.
 rd_idle "$T"
 # This pass's reads and deferral rows: its own directory, gone when it ends.
 R="$T/reads"

@@ -54,6 +54,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # rd_deadline's private directory, opened here so pool jobs and command
 # substitutions inherit it. Without one every read fails, as not verified.
 RD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check.XXXXXX") && rd_idle "$RD_TMP"
+# A mode that sets its own EXIT trap removes RD_TMP in it too (inventory does).
 trap 'rm -rf "$RD_TMP"' EXIT
 # shellcheck source=inventory-common.sh
 . "$HERE/inventory-common.sh"
@@ -879,6 +880,7 @@ inventory)
     [ -d "$IPATH" ] && [ ! -L "$IPATH" ] || refuse inventory "instance directory not found on this host"
     IROOT=$(cd -P "$IPATH" 2>/dev/null && pwd -P) || refuse inventory "instance directory can't be read"
     ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX")
+    # This replaces the EXIT trap set at the top, so it removes RD_TMP too.
     trap 'rm -f "$ITEMS" "$ITEMS".*; rm -rf "$RD_TMP"' EXIT
     TRUNC=false
     INV_N=0
