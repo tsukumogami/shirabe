@@ -20,6 +20,11 @@ stateDiagram-v2
     coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: coordination-index-missing
     coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: coordination-body-full
     coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: adopt-run-refused
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: follow-up-node
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: follow-up-repo
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: follow-up-base
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: follow-up-author
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: follow-up-closed
     coord_verdict --> coord_merge_confirm : gates.verdict_dirty.matches: false, gates.verdict_error.matches: false, gates.verdict_merged.matches: true, gates.verdict_paused.matches: false, gates.verdict_ready.matches: false
     coord_verdict --> ready_awaiting_merge : gates.verdict_dirty.matches: false, gates.verdict_error.matches: false, gates.verdict_merged.matches: false, gates.verdict_paused.matches: false, gates.verdict_ready.matches: true
     coord_verdict --> paused_awaiting_merges : gates.verdict_dirty.matches: false, gates.verdict_error.matches: false, gates.verdict_merged.matches: false, gates.verdict_paused.matches: true, gates.verdict_ready.matches: false
