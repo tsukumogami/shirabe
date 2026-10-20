@@ -14,7 +14,15 @@ name: macOS floor
 # workflow joins this run without an edit here. Each suite gets the setup its
 # own workflow's macOS leg gives it; the steps below that carry an `if` are
 # copies, and check-macos-floor-setup.sh, run on every pull request that
-# touches a workflow, fails when one no longer matches its original.
+# touches a workflow, fails when one no longer matches its original. They are
+# copies because a job's steps can't be generated at run time, and calling the
+# floor workflows through workflow_call would put all of them in one
+# concurrency group: a called workflow sees the caller's github.workflow and
+# github.sha, so their groups would collide and GitHub would cancel all but
+# one pending run.
+
+# The ref is in the run's name so a dispatcher can find its own run.
+run-name: macOS floor on ${{ inputs.ref || github.ref_name }}
 
 on:
   schedule:

@@ -22,10 +22,17 @@
 # `if` is `matrix.suite == '<suite>'` clauses joined by `||` applies to those
 # suites. Any other condition fails the check, since it can't be mapped to
 # suites. For every suite, the steps that apply to it must equal its own
-# setup, in order, and the floor job's env (with the workflow's) must hold
-# every variable the suite's own job sees. macos-floor.yml checks out with
-# full history for every suite, which covers a suite whose own checkout asks
-# for it, so checkout steps are left out on both sides.
+# setup, in order; the env macos-floor.yml's floor step sees (its own, the
+# job's and the workflow's) must hold every variable the suite's own floor
+# step sees; and the two floor steps must set the same shell,
+# working-directory and timeout. macos-floor.yml checks out the commit it
+# resolved, with full history for every suite, which covers a suite whose own
+# checkout asks for it, so a checkout's ref and fetch-depth are left out and
+# its other inputs must match.
+#
+# A floor call that names its suite at run time is allowed only in
+# macos-floor.yml, the one workflow whose suites this checks;
+# check-macos-floor-legs.sh can't read such a suite either.
 #
 # Usage:
 #   scripts/check-macos-floor-setup.sh            check macos-floor.yml
@@ -101,6 +108,9 @@ SUITE_IF = re.compile(r"^\s*(?:\$\{\{\s*)?" + SUITE_CLAUSE
                       + r"(?:\s*\|\|\s*" + SUITE_CLAUSE + r")*(?:\s*\}\})?\s*$")
 COMPARED = ("uses", "run", "with", "env", "shell", "working-directory",
             "continue-on-error", "timeout-minutes")
+FLOOR_STEP_KEYS = ("shell", "working-directory", "timeout-minutes")
+# macos-floor.yml checks out the commit it resolved, with full history.
+CHECKOUT_IGNORED = ("ref", "fetch-depth")
 
 
 def macos_job(job):
@@ -139,9 +149,20 @@ def norm(step):
     return {k: step[k] for k in COMPARED if k in step}
 
 
-def env_of(wf, job):
+def floor_extras(step):
+    """What the floor step itself sets, besides its command and env."""
+    return {k: step[k] for k in FLOOR_STEP_KEYS if k in step}
+
+
+def checkout_with(step):
+    return {k: v for k, v in (step.get("with") or {}).items() if k not in CHECKOUT_IGNORED}
+
+
+def env_of(wf, job, step):
+    """The env the floor step sees: the workflow's, the job's and its own."""
     env = dict(wf.get("env") or {})
     env.update(job.get("env") or {})
+    env.update(step.get("env") or {})
     return env
 
 
@@ -155,21 +176,32 @@ for wf_name, wf in workflows.items():
         if not isinstance(job, dict) or not macos_job(job):
             continue
         setup = []
+        checkout = {}
         for step in job.get("steps") or []:
             if not isinstance(step, dict) or not can_run_on_macos(step):
                 continue
             named = floor_suites(step)
             if named is None:
-                if not is_checkout(step):
+                if is_checkout(step):
+                    checkout = checkout_with(step)
+                else:
                     setup.append(norm(step))
                 continue
             for suite in named:
-                if suite == "$" or suite == "all":
+                if suite == "$":
+                    # check-macos-floor-legs.sh can't read such a suite either,
+                    # so only macos-floor.yml, whose suites this checks, may.
+                    problems.append(("(run time)", f"{wf_name} job {job_name} names its floor "
+                                     f"suite at run time; only {NET} may"))
+                    continue
+                if suite == "all":
                     continue
                 entry = {"where": f"{wf_name} job {job_name}", "setup": list(setup),
-                         "env": env_of(wf, job)}
+                         "env": env_of(wf, job, step), "floor": floor_extras(step),
+                         "checkout": checkout}
+                key = ("setup", "env", "floor", "checkout")
                 prior = suites.get(suite)
-                if prior and (prior["setup"], prior["env"]) != (entry["setup"], entry["env"]):
+                if prior and [prior[k] for k in key] != [entry[k] for k in key]:
                     problems.append((suite, f"runs in {prior['where']} and in {entry['where']} "
                                      "with different setups; macos-floor.yml can copy only one"))
                 suites.setdefault(suite, entry)
@@ -203,8 +235,12 @@ job_name, job, floor_at = floor_jobs[0]
 
 # Which suites each of the floor job's setup steps applies to.
 net_steps = []
+net_checkout = {}
 for step in (job.get("steps") or [])[:floor_at]:
-    if not isinstance(step, dict) or is_checkout(step):
+    if not isinstance(step, dict):
+        continue
+    if is_checkout(step):
+        net_checkout = checkout_with(step)
         continue
     label = step.get("name") or json.dumps(norm(step))[:60]
     cond = step.get("if")
@@ -222,7 +258,8 @@ for step in (job.get("steps") or [])[:floor_at]:
                              "the macOS floor"))
     net_steps.append((applies, norm(step)))
 
-net_env = env_of(net, job)
+net_floor = job["steps"][floor_at]
+net_env = env_of(net, job, net_floor)
 for suite in sorted(suites):
     own = suites[suite]
     have = [s for applies, s in net_steps if suite in applies]
@@ -234,6 +271,14 @@ for suite in sorted(suites):
         if net_env.get(key) != value:
             problems.append((suite, f"{own['where']} sets env {key}={value!r}; "
                              f"{NET} job {job_name} does not"))
+    if own["floor"] != floor_extras(net_floor):
+        problems.append((suite, f"the floor step in {own['where']} sets "
+                         f"{json.dumps(own['floor'])}; {NET}'s sets "
+                         f"{json.dumps(floor_extras(net_floor))}"))
+    if own["checkout"] != net_checkout:
+        problems.append((suite, f"the checkout in {own['where']} has "
+                         f"{json.dumps(own['checkout'])}; {NET}'s has "
+                         f"{json.dumps(net_checkout)} (ref and fetch-depth aside)"))
 
 for suite, why in problems:
     print(f"{NET}: suite {suite}: {why}")

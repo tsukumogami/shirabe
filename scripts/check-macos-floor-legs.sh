@@ -207,8 +207,8 @@ for job_name, job in (wf.get("jobs") or {}).items():
                 # A floor step allowed to fail proves nothing when it does.
                 if FLOOR_SYSTEM.search(args) and not step.get("continue-on-error"):
                     # A suite named at run time ("$SUITE", ${{ matrix.suite }})
-                    # can't be read here. macos-floor.yml is the one that does
-                    # it; check-macos-floor-setup.sh checks its suites.
+                    # can't be read here. check-macos-floor-setup.sh allows it
+                    # only in macos-floor.yml, and checks that one's suites.
                     for a in re.sub(r"\$\{\{.*?\}\}", "$", args).split():
                         if a.startswith("-") or a == "system" or "$" in a:
                             continue

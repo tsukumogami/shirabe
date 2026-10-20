@@ -19,13 +19,16 @@ the release workflow, run all of them on the commit the release is cut from
 and wait for the result:
 
 ```bash
+git fetch origin main
 sha=$(git rev-parse origin/main)
 gh workflow run macos-floor.yml -f ref="$sha"
-gh run list --workflow macos-floor.yml --event workflow_dispatch --limit 1 --json databaseId,createdAt,status
+# The run is named after its ref; repeat until this prints an id.
+gh run list --workflow macos-floor.yml --event workflow_dispatch --json databaseId,displayTitle \
+  --jq ".[] | select(.displayTitle == \"macOS floor on $sha\") | .databaseId"
 gh run watch <databaseId> --exit-status
 ```
 
-A red run stops the release. It files an issue titled "CI: the macOS floor run
+A red run stops the release; nothing enforces that but this step. It files an issue titled "CI: the macOS floor run
 is red", or comments on the open one, naming the suites that failed; the
 release waits until a run on the new main commit is green. The same workflow
 runs on main every day, so its latest scheduled run says whether the floor was

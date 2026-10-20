@@ -109,6 +109,35 @@ else
 fi
 
 fresh
+edit floor-a.yml 's/run: scripts\/check-bash-floor.sh --backend system demo/timeout-minutes: 20\
+        run: scripts\/check-bash-floor.sh --backend system demo/'
+check
+if [ "$RC" -eq 1 ] && has 'suite demo: the floor step in floor-a.yml job test sets {"timeout-minutes": 20}'; then
+    pass "a timeout on a suite's own floor step that macos-floor.yml's lacks fails"
+else
+    fail "floor step timeout (rc=$RC): $OUT"
+fi
+
+fresh
+edit floor-a.yml 's/fetch-depth: 0/submodules: true/'
+check
+if [ "$RC" -eq 1 ] && has 'suite demo: the checkout in floor-a.yml job test has {"submodules": true}' \
+    && ! has "suite other"; then
+    pass "a checkout input other than ref or fetch-depth that macos-floor.yml lacks fails"
+else
+    fail "checkout input (rc=$RC): $OUT"
+fi
+
+fresh
+edit floor-b.yml 's/--backend system other/--backend system "$SUITE"/'
+check
+if [ "$RC" -eq 1 ] && has "floor-b.yml job test names its floor suite at run time; only macos-floor.yml may"; then
+    pass "a run-time suite in any workflow but macos-floor.yml fails"
+else
+    fail "run-time suite elsewhere (rc=$RC): $OUT"
+fi
+
+fresh
 rm "$CASE/macos-floor.yml"
 check
 if [ "$RC" -eq 1 ] && has "macos-floor.yml is missing"; then
