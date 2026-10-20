@@ -21,6 +21,17 @@
 #     is the finalize resume (PAUSE_BEFORE_FINALIZE=false), and the same
 #     answer with "removed": true, as koto 0.17.0 gives for a session it
 #     removed, is not (PAUSE_BEFORE_FINALIZE stays true)
+#     the five coordinated variables: a coordinated PLAN passes each exactly
+#     once, empty without its flag and the given value (either spelling) with
+#     it, a flag's separate value never read as the PLAN; a single-pr PLAN
+#     passes one only when its flag was given; a valueless flag and --remove
+#     without --follow-up are own refusals (error=usage)
+#     a live coordinated session at coord_loop given --store,
+#     --coordination-pr, --follow-up or --adopt-run: error=flag-needs-setup,
+#     exit 64, no koto init; at coord_setup, or without the flags, the open
+#     goes ahead
+#     the lock: one a live opener holds is error=session-busy; one whose
+#     holder is gone is taken over and released at exit
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -45,7 +56,10 @@
 #       a repeated --review-ceiling: duplicate_var; a coordinated PLAN takes
 #       the bound too
 #     a coordinated PLAN: execute-coordinated.md under the same execute-<slug>
-#       name; on a live execute.md session koto's template_mismatch (session
+#       name, no run_id minted before setup, the five variables bound empty;
+#       --store session then an attach without it: STORE rebound to empty;
+#       --store on a single-pr PLAN: koto's unknown_var, worded for the flag;
+#       on a live execute.md session koto's template_mismatch (session
 #       unchanged, outcome=error step=execute:refused, recorded on the leg
 #       under --koto-leg); a retained terminal execute.md session replaced
 #
@@ -171,6 +185,7 @@ PAIRS_BIN="$WORK/pairs-bin"
 mkdir -p "$PAIRS_BIN"
 cat > "$PAIRS_BIN/koto" <<'STUB'
 #!/usr/bin/env bash
+[ -n "${KOTO_STUB_LOG-}" ] && printf '%s\n' "$*" >> "$KOTO_STUB_LOG"
 if [ "${1-}" = status ] && [ -n "${KOTO_STUB_STATUS-}" ]; then
     printf '%s\n' "$KOTO_STUB_STATUS"
     exit 0
@@ -217,6 +232,99 @@ pairs_eq "a kept paused_for_review session: the resume passes PAUSE_BEFORE_FINAL
 pairs_of '["docs/plans/PLAN-t.md"]' "$(printf '%s' "$PAUSED" | jq -c '. + {removed: true}')"
 pairs_eq "a paused_for_review session koto removed (removed: true) is no resume: PAUSE_BEFORE_FINALIZE stays true" \
     '"true"' 'map(select(.[0] == "PAUSE_BEFORE_FINALIZE"))[0][1]'
+
+# The five coordinated variables. A coordinated PLAN passes each exactly once,
+# empty when its flag is absent, so an attach rebinds an earlier value away; a
+# single-pr PLAN passes one only when its flag was given, for koto to refuse.
+export SHIRABE_STATE_DIR="$WORK/state"
+mkdir -p "$FIXREPO/docs/plans"
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: coordinated\n---\n\n# PLAN: cpairs\n' \
+    > "$FIXREPO/docs/plans/PLAN-cpairs.md"
+COORD_VARS='["STORE","COORDINATION_PR","FOLLOW_UP","FOLLOW_UP_REMOVE","ADOPT_RUN"]'
+coord_pairs='map(select(.[0] as $v | '"$COORD_VARS"' | index($v)))'
+pairs_of '["docs/plans/PLAN-cpairs.md"]'
+pairs_eq "a coordinated PLAN with none of the flags: each of the five variables once, empty" \
+    '[["STORE",""],["COORDINATION_PR",""],["FOLLOW_UP",""],["FOLLOW_UP_REMOVE",""],["ADOPT_RUN",""]]' "$coord_pairs"
+pairs_of '["docs/plans/PLAN-cpairs.md","--store","session","--coordination-pr=https://github.com/o/r/pull/10","--follow-up","pr-a=https://github.com/o/r/pull/11","--remove","--adopt-run","0123456789abcdef0123456789abcdef"]'
+pairs_eq "a coordinated PLAN with every flag, in both spellings: each value once" \
+    '[["STORE","session"],["COORDINATION_PR","https://github.com/o/r/pull/10"],["FOLLOW_UP","pr-a=https://github.com/o/r/pull/11"],["FOLLOW_UP_REMOVE","true"],["ADOPT_RUN","0123456789abcdef0123456789abcdef"]]' \
+    "$coord_pairs"
+pairs_eq "a flag's separate value is never read as the PLAN" '"docs/plans/PLAN-cpairs.md"' 'map(select(.[0] == "PLAN_DOC"))[0][1]'
+pairs_of '["docs/plans/PLAN-cpairs.md","--store","github","--store=session"]'
+pairs_eq "a repeated --store is two pairs, left to koto's duplicate_var" '[["STORE","github"],["STORE","session"]]' \
+    'map(select(.[0] == "STORE"))'
+pairs_of '["docs/plans/PLAN-t.md","--merge"]'
+pairs_eq "a single-pr PLAN without the flags passes none of the five" '[]' "$coord_pairs"
+pairs_of '["docs/plans/PLAN-t.md","--store","session"]'
+pairs_eq "a single-pr PLAN with --store passes it, for koto's unknown_var" '[["STORE","session"]]' "$coord_pairs"
+own_refusal "a --store with no value" '["docs/plans/PLAN-cpairs.md","--store"]'
+own_refusal "a --coordination-pr followed by another flag" '["docs/plans/PLAN-cpairs.md","--coordination-pr","--merge"]'
+own_refusal "--remove without --follow-up" '["docs/plans/PLAN-cpairs.md","--remove"]'
+
+# A live coordinated session past coord_setup refuses the setup-only flags:
+# setup has run, so they would be accepted and never applied.
+LOOPING='{"name":"execute-cpairs","current_state":"coord_loop","is_terminal":false}'
+for flag in '"--store","session"' '"--coordination-pr","https://github.com/o/r/pull/10"' \
+            '"--follow-up","pr-a=https://github.com/o/r/pull/11"' '"--adopt-run","0123456789abcdef0123456789abcdef"'; do
+    : > "$WORK/stub.log"
+    tokens "[\"docs/plans/PLAN-cpairs.md\",$flag]"
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" KOTO_STUB_STATUS="$LOOPING" \
+        PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=flag-needs-setup" ] && ! grep -q '^init' "$WORK/stub.log" \
+        && grep -q 'coord_loop' "$WORK/stderr"; then
+        pass "a live session at coord_loop with [$flag]: error=flag-needs-setup, exit 64, no koto init"
+    else
+        fail "flag-needs-setup [$flag]: exit $RC, out [$OUT], calls [$(tr '\n' ';' < "$WORK/stub.log")]"
+    fi
+done
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-cpairs.md","--store","session"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+    KOTO_STUB_STATUS='{"name":"execute-cpairs","current_state":"coord_setup","is_terminal":false}' \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+if [ "$OUT" != "error=flag-needs-setup" ] && grep -q '^init' "$WORK/stub.log"; then
+    pass "a live session still at coord_setup takes --store: koto init is called"
+else
+    fail "at coord_setup: out [$OUT], calls [$(tr '\n' ';' < "$WORK/stub.log")]"
+fi
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-cpairs.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" KOTO_STUB_STATUS="$LOOPING" \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+if [ "$OUT" != "error=flag-needs-setup" ] && grep -q '^init' "$WORK/stub.log"; then
+    pass "a live session past coord_setup without the flags is attached as before"
+else
+    fail "past coord_setup, no flags: out [$OUT]"
+fi
+
+# A lock another live opener holds: error=session-busy, no koto init.
+mkdir -p "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock"
+sleep 60 &
+HOLDER=$!
+printf '%s\n' "$HOLDER" > "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock/pid"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-cpairs.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+RC=$?
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+if [ "$RC" -eq 64 ] && [ "$OUT" = "error=session-busy" ] && ! grep -q '^init' "$WORK/stub.log"; then
+    pass "a lock a live opener holds: error=session-busy, exit 64, no koto init"
+else
+    fail "session-busy: exit $RC, out [$OUT]"
+fi
+# The same lock, its holder gone: taken over, and released after the open.
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-cpairs.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+if grep -q '^init' "$WORK/stub.log" && [ ! -e "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock" ]; then
+    pass "a lock whose holder is gone is taken over, and released when the opener exits"
+else
+    fail "stale lock: out [$OUT], lock [$(ls "$SHIRABE_STATE_DIR/execute-carry" 2>&1)]"
+fi
+rm -f "$FIXREPO/docs/plans/PLAN-cpairs.md"
 
 # --- engine-backed ------------------------------------------------------------
 
@@ -502,6 +610,39 @@ if [ "$RC" -eq 0 ] && line 'opened=new' && line 'session=execute-cfresh' \
     pass "a coordinated PLAN opens execute-coordinated.md under execute-<slug>, MERGE from --merge"
 else
     fail "coordinated open: exit $RC, out [$OUT], template [$(built_from execute-cfresh)]; $ERR"
+fi
+
+if k context exists execute-cfresh run_id >/dev/null 2>&1; then
+    fail "a coordinated open minted run_id before setup: [$(k context get execute-cfresh run_id 2>/dev/null)]"
+else
+    pass "a coordinated open mints no run_id: coord_setup mints it when it seals the run record"
+fi
+if [ "$(session_var execute-cfresh STORE)" = "" ] && [ "$(session_var execute-cfresh ADOPT_RUN)" = "" ]; then
+    pass "a coordinated open without the flags binds the five variables empty"
+else
+    fail "coordinated vars: STORE [$(session_var execute-cfresh STORE)], ADOPT_RUN [$(session_var execute-cfresh ADOPT_RUN)]"
+fi
+
+# --store on one invocation, then an attach without it: rebound to empty,
+# never inherited.
+coord_plan cstore
+run_open '["docs/plans/PLAN-cstore.md","--store","session"]'
+if [ "$RC" -eq 0 ] && line 'opened=new' && [ "$(session_var execute-cstore STORE)" = session ]; then
+    pass "a coordinated run opened with --store session: STORE=session"
+else
+    fail "cstore open: exit $RC, out [$OUT], STORE [$(session_var execute-cstore STORE)]; $ERR"
+fi
+run_open '["docs/plans/PLAN-cstore.md"]'
+if [ "$RC" -eq 0 ] && line 'opened=attached' && [ "$(session_var execute-cstore STORE)" = "" ]; then
+    pass "attached again without --store: STORE is rebound to empty, never inherited"
+else
+    fail "cstore attach: exit $RC, out [$OUT], STORE [$(session_var execute-cstore STORE)]; $ERR"
+fi
+run_open '["docs/plans/PLAN-t.md","--store","session"]'
+if [ "$RC" -eq 2 ] && line 'refused=unknown_var' && grep -q -- '--store applies only to a coordinated PLAN' <<<"$ERR"; then
+    pass "--store on a single-pr PLAN is koto's unknown_var, worded for the flag"
+else
+    fail "single-pr --store: exit $RC, out [$OUT]; $ERR"
 fi
 
 # A live execute.md session, then a coordinated invocation of the same topic.

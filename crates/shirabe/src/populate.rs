@@ -2854,10 +2854,16 @@ mod tests {
     }
 
     fn tempdir() -> PathBuf {
+        // A per-process counter keeps two tests that start in the same clock
+        // tick from sharing a directory: macOS resolves the clock to the
+        // microsecond, and the test harness runs tests in parallel threads.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let base = std::env::temp_dir();
         let dir = base.join(format!(
-            "shirabe-populate-{}-{}",
+            "shirabe-populate-{}-{}-{}",
             std::process::id(),
+            n,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

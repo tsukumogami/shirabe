@@ -112,6 +112,23 @@ Two more flags, on both paths:
   remaining children unbounded, and children already spawned keep the bound they
   started with. A value outside the three names is koto's `invalid_var`, a
   repeat its `duplicate_var`, each with exit 2 and no session.
+- Five more, on a coordinated PLAN only (on a single-pr PLAN each is koto's
+  `unknown_var`), each `--flag <value>` or `--flag=<value>`. They become the
+  koto variables `STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE` and
+  `ADOPT_RUN`, all rebind and passed on every coordinated invocation (empty when
+  the flag is absent), so none persists from an earlier invocation:
+  - `--store github|session` — where the run's record lives, sealed in the run
+    record at the run's first setup (`github` without the flag); a later
+    invocation with the other value stops `store-mismatch` and changes nothing,
+    and one without the flag reads the sealed value.
+  - `--coordination-pr <url>` — the coordination PR, verified at setup through
+    the ownership lookup and its number recorded; a PR by another author or on
+    another branch, one without the marker, or one other than the lookup's
+    stops `coordination-pr-mismatch`.
+  - `--follow-up <node>=<url>`, with `--remove`, and `--adopt-run <id>` —
+    accepted and reported `ignored=follow-up`, `ignored=remove`,
+    `ignored=adopt-run` by setup until follow-ups and recovery land; they
+    change nothing yet.
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
@@ -125,13 +142,22 @@ own before `koto init` for anything a koto variable can express: the merge flag,
 the mode, and the PLAN slug are all constrained variables, so under `--koto-leg`
 every argument refusal is koto's and koto records it on the leg. `/execute`'s own
 pre-init refusals are only those where no koto call can be built at all: a
-malformed `--koto-leg` value, an args file inside the work tree, or a missing
-`koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
+malformed `--koto-leg` value, a coordinated flag with no value or a `--remove`
+without `--follow-up` (`error=usage`), an args file inside the work tree, or a
+missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
 `execute-open.sh` refuses with `error=multi-pr` (exit 64) and a message naming
 `/work-on <PLAN>` as the entry point (per
-`docs/decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md`). None of these makes a koto call, so none
-is recorded on a `--koto-leg`. `/deliver` never produces them, because it builds the `--koto-leg` value
-and the args itself and hands a `multi-pr` PLAN off without calling `/execute`.
+`docs/decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md`).
+Three more guard a coordinated run's record rather than an argument: a
+`--store`, `--coordination-pr`, `--follow-up` or `--adopt-run` given to a live
+session past `coord_setup`, where it would be accepted and never applied
+(`error=flag-needs-setup`, exit 64); another opener holding the session's lock
+(`error=session-busy`, exit 64); and a run record the opener could not
+snapshot or carry (`failed=carry`, exit 70). None of these makes a koto init
+call, so none is recorded on a `--koto-leg`. `/deliver` never produces the
+argument and routing ones, because it builds the `--koto-leg` value and the
+args itself and hands a `multi-pr` PLAN off without calling `/execute`. The
+five coordinated flags on a single-pr PLAN are koto's own `unknown_var`.
 
 ## Topic-Slug Constraint
 
@@ -170,7 +196,9 @@ maps them to the session's variables with `jq` (never `eval`) and makes the one
 ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
 # The invocation's tokens, one JSON string each, in order: the PLAN path and any
 # of --auto, --interactive, --merge, --review-floor=<level>,
-# --review-ceiling=<level>, --koto-leg=<request-id>:execute.
+# --review-ceiling=<level>, --koto-leg=<request-id>:execute, and on a
+# coordinated PLAN --store, --coordination-pr, --follow-up [--remove],
+# --adopt-run with their values.
 jq -n '$ARGS.positional' --args -- <token> <token> ... > "$ARGS_DIR/tokens.json"
 ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/execute-open.sh "$ARGS_DIR/tokens.json"
 ```
@@ -192,6 +220,11 @@ The script prints koto-open's result line and nothing else you need to parse:
 - `error=multi-pr` (exit 64) — the PLAN is `multi-pr`, which `/execute` doesn't
   run; stderr names `/work-on <PLAN>` as the entry point. No koto call was made.
   Stop and direct the user there.
+- On a coordinated PLAN: `carried=<n>` after `opened=` when the run record of
+  the finished session was carried into the new one; `error=flag-needs-setup`
+  or `error=session-busy` (exit 64), or `failed=carry` (exit 70, with
+  `carry=pending` when the carry itself failed): stop and report stderr's
+  message. Invoking `/execute` again retries a pending carry.
 
 ### Step 3 — Drive the orchestrator loop
 
@@ -258,10 +291,28 @@ the `evaluate-coordination` and `merge-coordination` actions in
 `execute-coordinated.md`'s `coord_loop` directive are where the run invokes it.
 
 The loop reads **work items and PR status** and the merge-gate result, never a
-child PR's body. It runs against an existing coordination PR, found by an
-ownership-filtered head-branch lookup on the coordination branch (never by title)
-and required to carry the `This is a **coordination PR**` marker; creating it
-stays `/scope`'s job. The PLAN comes from `plan-to-tasks.sh`, which gives every PR
+child PR's body. It runs against an existing coordination PR; creating it stays
+`/scope`'s job. Setup finds it once, by an ownership-filtered head-branch lookup
+on the coordination branch (never by title), or verifies the one
+`--coordination-pr` hands it against that lookup; it must carry the
+`This is a **coordination PR**` marker, and setup records its number.
+
+**The run record is the run's store.** A coordinated run keeps its
+control-plane facts as `run/` keys in its own session, `execute-<plan-slug>`,
+beside its `run_id`: `run/setup` (the store, the coordination PR's number,
+`repos`, the mode, the PLAN's node list, and `/scope`'s run lines, sealed at the
+run's first setup), `run/node/<node>` (each node's repository, PR, and pushed
+head), and `run/cascade` (the cascade's verdict: `not-run`, `pushed` with its
+head, or `failed` with its step). `run-record.sh` is the one writer, refusing a
+field the calling verb doesn't own (`not-owner`), and `run-record-lib.sh` the one
+reader. The loop reads the node map, each node's head, the cascade's verdict,
+and the coordination PR's number from the record, never from the coordination
+PR's index, which `node-push.sh` still writes for reviewers and CI. After the
+cascade deletes the PLAN, the node list is the one `run/setup` sealed; a
+`failed` or absent cascade verdict runs the cascade again. A merge passes the
+recorded head to `--match-head-commit`, and only after the loop's readiness
+check passed at that head on the same pass; a live head that moved off it is
+reported `awaiting:head-moved`. The PLAN comes from `plan-to-tasks.sh`, which gives every PR
 node its `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`, so `/execute` never
 re-parses the PLAN. A coordinated PLAN at `tracking_level: none` carries no GitHub
 issue at all: its work items are outlines, and the run makes no `gh issue` call.
@@ -291,8 +342,12 @@ opens `execute-<plan-slug>` from `execute-coordinated.md` through
 `scripts/koto-open.sh` with `--attach-live --replace-terminal` (plus
 `--koto-leg=<request-id>:execute` when given), passing `PLAN_DOC`, `PLAN_SLUG`,
 `PLUGIN_ROOT`, `MERGE` from this invocation's `--merge`,
-`PAUSE_BEFORE_FINALIZE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when given. The session stays a root, and every `koto next` on it
-carries `--no-cleanup`, as on the single-pr path.
+`PAUSE_BEFORE_FINALIZE`, `REVIEW_FLOOR`/`REVIEW_CEILING` when given, and the five
+coordinated variables (`STORE`, `COORDINATION_PR`, `FOLLOW_UP`,
+`FOLLOW_UP_REMOVE`, `ADOPT_RUN`) on every invocation, empty when their flag is
+absent. The session stays a root, and every `koto next` on it
+carries `--no-cleanup`, as on the single-pr path. The opener mints no `run_id`
+for a coordinated PLAN: `coord_setup` mints it when it seals a new run record.
 
 The two templates share the `execute-<plan-slug>` name. A live session of that
 name built from `execute.md` is **refused** by koto (`template_mismatch`), the
@@ -301,18 +356,20 @@ session is left as it was, and the run prints `outcome=error` and
 the refusal on the leg with source `refused`. A finished (retained terminal)
 session of either template is replaced.
 
-**Ownership and the write set.** Every PR number read from the index and every
-head-branch lookup goes through `owned-pr.sh` with the run's `--run-id`, keeping
+**Ownership and the write set.** Every recorded node PR and every head-branch
+lookup goes through `owned-pr.sh` with the run's `--run-id`, keeping
 only PRs with `isCrossRepository == false`, the authenticated author, the
-default branch as base, for index entries head branch `impl/<slug>-<node-id>`
+default branch as base, for a recorded node PR head branch `impl/<slug>-<node-id>`
 for that node, and a run marker that names this run or none. Zero survivors let `node-push.sh` open a node's PR, stamped with the
-run's marker; where an existing PR must be adopted (an index entry, the
-coordination PR) zero survivors end `step=execute:pr-adopt`, several, an
-ambiguous lookup, or another run's PR end `step=execute:pr-adopt`, and a failed
-read ends `step=execute:status-read`. An index entry, an outline `**Repo**:` field, or a
-`_Repo:` row naming a repository outside `repos` ends the run `outcome=error` with
-`step=execute:write-set`. The one exception is the coordination PR's own index
-entry (`coordination`), which must name `home_repo` and nothing else. `home_repo`
+run's marker; where an existing PR must be adopted (a recorded node PR) zero
+survivors, or a survivor other than the recorded PR, end
+`step=execute:pr-adopt`; several, an ambiguous lookup, or another run's PR end
+`step=execute:pr-adopt`, and a failed read ends `step=execute:status-read`.
+Setup's own lookup of the coordination PR ends `coordination-pr-missing` for
+none and `coordination-pr-ambiguous` for several. A recorded node PR, an outline
+`**Repo**:` field, or a `_Repo:` row naming a repository outside `repos` ends the
+run `outcome=error` with `step=execute:write-set`. The coordination PR is
+recorded by number, not as a node, and lives in `home_repo`. `home_repo`
 need not be in `repos`: a PLAN whose nodes all land in other repositories, such as
 a private planning repository over public ones, keeps its coordination PR where it
 was scoped, and the run writes there only through the coordination PR's body edits,
@@ -323,17 +380,24 @@ lives in another repository, so each is cut with `node-cut.sh --repo-dir <clone>
 the coordination PR's repository (exit 79, nothing pushed).
 
 **The pause.** When a node can't start because a predecessor's PR is unmerged,
-the run ends `paused_awaiting_merges`. The coordination PR is **left open**, never
-closed: it is the durable record the pause rests on. The exit lines carry
+the run ends `paused_awaiting_merges`. The run record in `execute-<plan-slug>` is
+the run's store and survives the pause in the retained session, and the
+coordination PR is **left open**, never closed. The exit lines carry
 `outcome=paused-awaiting-merges`, one `pr=<url> waiting=human|predecessor
 reason=<condition>` line per unmerged PR, the `repos=` line, and
 `resume=/execute docs/plans/PLAN-<topic>.md`, with ` --merge` appended exactly when
 this invocation had `--merge`.
 
 **Resume.** A later `/execute` (or `/deliver`) on the same PLAN replaces the
-retained paused session, reads node state from the coordination PR's index and
-live `gh`, doesn't re-dispatch the work items of a node whose PR is `MERGED`,
-opens no PR for a node already indexed, and makes no scoping commit: nothing
+retained paused session. The opener first snapshots the finished session's
+`run/` keys and `run_id` under the per-user state directory, then carries them
+into the replacement (`run-record.sh carry`) and keeps the snapshot until the
+carry succeeds, so a crash between koto's replacement and the carry is repaired
+by the next open. The resumed run continues with the same `run_id`, node map,
+and heads, and with its merge attempts empty (the opener removes
+`merge_attempts`); it reads node state from the run record and live `gh`,
+doesn't re-dispatch the work items of a node whose PR is `MERGED`, opens no PR
+for a node already recorded, and makes no scoping commit: nothing
 under `docs/briefs/`, `docs/prds/`, `docs/designs/`, or `docs/plans/` changes
 outside the cascade.
 
@@ -377,9 +441,9 @@ Step 2's entry (`execute-open.sh`, which calls `koto init ... --attach-live
 
 So retention buys a record that can be read after the fact, not a session a
 later run resumes in place: the replacement starts at `write_set_record` and
-re-adopts the home PR (on a coordinated PLAN, at `coord_setup`, and the loop
-re-reads every node's state from the coordination PR's index and live `gh`; see
-**Coordinated Execution Path**). Initializing under a different session name does NOT work:
+re-adopts the home PR (on a coordinated PLAN, at `coord_setup`, with the run
+record the opener carried in, and the loop re-reads every node's state from that
+record and live `gh`; see **Coordinated Execution Path**). Initializing under a different session name does NOT work:
 `settled_branch_record`'s action writes the settled branch into
 `execute-{{PLAN_SLUG}}` while its gate reads the *current* session, so a run under
 any other name blocks there with no override edge and routes to `done_blocked`.
@@ -461,15 +525,34 @@ against its chain shape:
      the coordination branch after its cascade). None force-pushes, and none pushes
      the default branch.
    - **`head=` fields** on the coordination PR's index, written only by
-     `node-push.sh` from the commit it just pushed.
+     `node-push.sh` from the same pushed commit it records in the run record.
+   - **The run record**, a coordinated run's store: the `run/` keys in
+     `execute-<plan-slug>`, each written only through `run-record.sh`, by the
+     verb that owns its fields (any other verb is refused `not-owner`):
+     `run/setup` (verb `setup`, from `record-coord-setup.sh` on a new run),
+     `run/node/<node>` (`push`, from `node-push.sh` after a successful push),
+     `run/follow-up/<node>/<n>` (`follow-up`, not written yet),
+     `run/cascade` (`cascade`: `pushed` from `node-push.sh` coordination mode,
+     `failed` from `record-coordination-verdict.sh`), `run/recovered` and
+     `run/adopted` (`recover` and `adopt`, not written yet); the head a
+     node's or follow-up's merge landed at belongs to `observe`, not written
+     yet. `carry`,
+     from `execute-open.sh`, restores a finished session's keys into its
+     replacement. The opener's snapshot of them sits under the per-user state
+     directory (`$SHIRABE_STATE_DIR`, else `$XDG_STATE_HOME/shirabe`, whose
+     default is `.local/state/shirabe` under the home directory, in
+     `execute-carry/`, mode 0700) only until the
+     carry succeeds.
    - **koto context keys** this run's scripts write: `repos` (the write set,
      fixed at start), `home_pr` (only from `owned-pr.sh`'s output), `waiting`,
      `expected_head` (only after a successful push), `cascade_result.json`
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
-     `coord_branch`, `plan_abs`, `merge_attempts`, `coord_verdict`, `pr`, and
-     `resume`; and the `outcome`, `step`, `reason`, `loop_line`, and `waiting` keys
-     the templates' own edges assign.
+     `coord_branch`, `plan_abs`, `merge_attempts` (which the opener removes at
+     every invocation's start), `coord_verdict`, `pr`, and `resume`, and
+     `run_id`, minted by `record-coord-setup.sh` when it seals a new run record
+     (by `execute-open.sh` on single-pr); and the `outcome`, `step`, `reason`,
+     `loop_line`, and `waiting` keys the templates' own edges assign.
 
    `gh pr review` is outside the set: `/execute` never approves or reviews a PR,
    its own or anyone's. No default action writes to GitHub; the ones koto runs
@@ -484,11 +567,13 @@ against its chain shape:
    `execution_mode` is re-validated against `{single-pr, coordinated, multi-pr}` at
    `/execute` entry BEFORE it selects a path or interpolates into any branch name, and
    again at the `/work-on` dispatcher — the dispatcher is the **second** untrusted-enum
-   consumer and re-validates independently. The coordinated path likewise re-checks
-   every index entry on every `coordinated-next.sh` read, since the index lives in an
-   editable body: each line against a closed grammar, its repository against the
-   write set (the `coordination` line against `home_repo`), and its PR against the
-   ownership filter.
+   consumer and re-validates independently. The coordinated path likewise
+   reads nothing it decides on from the coordination PR's editable body: the
+   node map and heads come from the run record, whose every field
+   `run-record.sh` checks against a closed pattern on every write (and again on
+   a carry), and every `coordinated-next.sh` read re-checks each recorded
+   node's repository against the write set and its PR against the ownership
+   filter.
 4. **Visibility boundary.** `/execute` runs in public and private repositories, and a
    PLAN in either may drive pull requests in both. Visibility is checked against
    each pull request's own target, never against where the PLAN lives. Placement

@@ -399,6 +399,265 @@ chmod +x "$A/probe2.sh"
 "$A/probe2.sh" >/dev/null 2>"$T/err"; RC=$?
 [ $RC -eq 2 ] && pass "rf_emit refuses an id rf_require_any did not resolve" || fail "rf_emit unresolved" "rc=$RC"
 
+# --- stage and resolve -------------------------------------------------------
+
+# A scratch registry of script entries at each stage, with backstops that do
+# and don't count. The entries' own check is scripts/check.sh; hooks/deny.sh
+# and the workflow are the distinct checks a backstop may name.
+S="$T/stage"; make_root "$S" 1.2.3
+mkdir -p "$S/hooks" "$S/.github/workflows"
+echo '#!/bin/sh' > "$S/scripts/check.sh"
+echo '#!/bin/sh' > "$S/hooks/deny.sh"
+echo 'name: ci' > "$S/.github/workflows/ci.yml"
+ln -s deny.sh "$S/hooks/deny-link.sh"
+cat > "$S/references/rule-registry.json" <<'JSON'
+{"schema":"shirabe-rule-registry/v1","rules":[
+ {"id":"s/nostage","status":"active","summary":"No stage","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"]},
+ {"id":"s/unknown","status":"active","summary":"Unknown stage","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["none"],"stage":"loud"},
+ {"id":"s/nonstring","status":"active","summary":"Stage not a string","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["none"],"stage":["warn"]},
+ {"id":"s/no-backstop","status":"active","summary":"No backstop","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"warn"},
+ {"id":"s/missing-path","status":"active","summary":"Missing backstop path","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"warn","stage_backstops":[{"before":"pr-create","check":"hooks/missing.sh"}]},
+ {"id":"s/self-path","status":"active","summary":"Backstop is its own check","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"warn","stage_backstops":[{"before":"pr-create","check":"scripts/check.sh"}]},
+ {"id":"s/link-path","status":"active","summary":"Backstop is a symlink","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"warn","stage_backstops":[{"before":"pr-create","check":"hooks/deny-link.sh"}]},
+ {"id":"s/partial","status":"active","summary":"One guard of two backed","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create","push"],"stage":"warn","stage_backstops":[{"before":"pr-create","check":"hooks/deny.sh"}]},
+ {"id":"s/wrong-before","status":"active","summary":"Backstop for another action","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"warn","stage_backstops":[{"before":"merge","check":"hooks/deny.sh"}]},
+ {"id":"s/bad-guards","status":"active","summary":"Guards not a list","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":"pr-create","stage":"warn"},
+ {"id":"s/covered","status":"active","summary":"Every guard backed","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create","publish"],"stage":"warn","stage_backstops":[{"before":"pr-create","check":"hooks/deny.sh"},{"before":"publish","check":".github/workflows/ci.yml"}]},
+ {"id":"s/shadow","status":"active","summary":"Unguarded shadow","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["none"],"stage":"shadow"},
+ {"id":"s/block","status":"active","summary":"Guarded block","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"block"},
+ {"id":"s/quiet","status":"active","summary":"Retired check, guard backed","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"retired","stage_backstops":[{"before":"pr-create","check":"hooks/deny.sh"}]},
+ {"id":"s/quiet-bare","status":"active","summary":"Retired check, guard unbacked","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"retired"},
+ {"id":"s/gone","status":"retired","summary":"Retired rule","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"script","path":"scripts/check.sh"},"guards":["pr-create"],"stage":"retired"},
+ {"id":"rs-901","status":"active","summary":"A criterion","text":{"path":"references/r.md","first":"RULE-SINGLE only line"},"check":{"kind":"review-shadow","criterion":"x"},"guards":["none"]}
+]}
+JSON
+
+# stage_is <id> <want> <label>
+stage_is() {
+    run "$S" stage "$1"
+    if [ $RC -eq 0 ] && [ "$OUT" = "$2" ]; then pass "stage: $3"; else fail "stage: $3" "rc=$RC out=[$OUT] want [$2] err=[$ERR]"; fi
+}
+stage_is s/nostage block "a script entry with no stage is block"
+stage_is s/unknown block "an unknown stage value is block"
+stage_is s/nonstring block "a stage that isn't a string is block"
+stage_is s/no-backstop block "a guarded entry at warn with no stage_backstops is block"
+stage_is s/missing-path block "a guarded entry at warn whose backstop path doesn't exist is block"
+stage_is s/self-path block "a guarded entry at warn whose backstop is its own check.path is block"
+stage_is s/link-path block "a guarded entry at warn whose backstop path is a symlink is block"
+stage_is s/partial block "an entry guarding pr-create and push with a backstop for pr-create only is block"
+stage_is s/wrong-before block "an entry guarding pr-create whose only backstop names merge is block"
+stage_is s/bad-guards block "an entry below block whose guards aren't a list is block"
+stage_is s/covered warn "an entry at warn with every protected guard backed by an existing, distinct path is warn"
+stage_is s/shadow shadow "an entry guarding none keeps its shadow stage without a backstop"
+stage_is s/block block "a guarded entry at block needs no backstop"
+stage_is s/quiet retired "an active entry at retired with its guard backed is retired"
+stage_is s/quiet-bare block "an active entry at retired with its guard unbacked is block"
+stage_is s/gone retired "a status-retired script entry prints its stage"
+
+run "$S" stage rs-901
+[ $RC -ne 0 ] && [ -z "$OUT" ] && pass "stage fails for an entry that isn't script-checked" || fail "stage review-shadow" "rc=$RC out=[$OUT]"
+run "$S" stage s/none
+[ $RC -ne 0 ] && [ -z "$OUT" ] && pass "stage fails for an id with no entry" || fail "stage unknown id" "rc=$RC out=[$OUT]"
+run "$S" stage 'not an id'
+[ $RC -eq 2 ] && pass "stage refuses a malformed id" || fail "stage malformed id" "rc=$RC"
+
+# resolve prints what ref, summary and stage print, tab-separated, one line.
+for id in s/covered s/partial s/shadow; do
+    run "$S" ref "$id"; r=$OUT
+    run "$S" summary "$id"; m=$OUT
+    run "$S" stage "$id"; s=$OUT
+    run "$S" resolve "$id"
+    want=$(printf '%s\t%s\t%s' "$r" "$m" "$s")
+    if [ $RC -eq 0 ] && [ "$OUT" = "$want" ] && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ]; then
+        pass "resolve $id prints ref, summary and stage on one tab-separated line"
+    else
+        fail "resolve $id" "rc=$RC out=[$OUT] want [$want]"
+    fi
+done
+run "$S" resolve rs-901
+[ $RC -eq 0 ] && [ "${OUT##*	}" = block ] && pass "resolve gives an active entry outside the lifecycle block" \
+    || fail "resolve review-shadow" "rc=$RC out=[$OUT]"
+run "$S" resolve s/gone
+[ $RC -eq 1 ] && [ -z "$OUT" ] && pass "resolve refuses a retired rule like ref" || fail "resolve retired" "rc=$RC out=[$OUT]"
+run "$S" resolve s/none
+[ $RC -eq 1 ] && pass "resolve fails for an id with no entry" || fail "resolve unknown id" "rc=$RC"
+
+# --- the library resolves once per rule -----------------------------------------
+
+# A stub reader that logs every call: the library resolves each id with one
+# `resolve` call, never with separate ref and summary calls, and rf_require_any
+# skips an id already resolved.
+L="$T/stub"; mkdir -p "$L/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$L/scripts/lib/rule-findings.sh"
+cat > "$L/scripts/rule-registry.sh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$STUB_LOG"
+case "$1:${STUB_SHAPE:-}" in
+    resolve:) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\tblock\n' "$2" ;;
+    resolve:two) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\n' "$2" ;;
+    resolve:four) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\tblock\textra\n' "$2" ;;
+    resolve:loud) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\tloud\n' "$2" ;;
+    log-finding:*) ;;
+    *) exit 1 ;;
+esac
+STUB
+chmod +x "$L/scripts/rule-registry.sh"
+cat > "$L/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/a t/b"
+  RULE_IDS_ANY_ACTIVE=1
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require t/a t/b
+rf_require_any t/c t/a t/c
+printf '%s|%s|%s\n' "$(rf_ref t/c)" "$(rf_summary t/c)" "$(rf_stage t/c)"
+PROBE
+chmod +x "$L/probe.sh"
+: > "$T/stub.log"
+OUT=$(STUB_LOG="$T/stub.log" "$L/probe.sh" 2>"$T/err"); RC=$?
+calls=$(tr '\n' ',' < "$T/stub.log")
+if [ $RC -eq 0 ] && [ "$calls" = "resolve t/a,resolve t/b,resolve t/c," ] \
+    && [ "$OUT" = "references/r.md#L1-L1@v0.0.0|Summary of t/c|block" ]; then
+    pass "rf_require and rf_require_any make one resolve call per id and cache its ref, summary and stage"
+else
+    fail "one resolve per id" "rc=$RC calls=[$calls] out=[$OUT] err=[$(cat "$T/err")]"
+fi
+for shape in two four loud; do
+    : > "$T/stub.log"
+    STUB_SHAPE=$shape STUB_LOG="$T/stub.log" "$L/probe.sh" >/dev/null 2>"$T/err"; RC=$?
+    [ $RC -eq 2 ] && pass "rf_require refuses a resolve line of shape [$shape]" \
+        || fail "resolve shape $shape" "rc=$RC err=[$(cat "$T/err")]"
+done
+
+# --- the library applies the stage ----------------------------------------------
+
+# The library run against the stage registry's reader: s/block, s/covered,
+# s/shadow and s/quiet resolve to block, warn, shadow and retired.
+mkdir -p "$S/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$S/scripts/lib/rule-findings.sh"
+cat > "$S/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+# probe.sh find <id>...            rf_finding for each id
+# probe.sh emit <id> [<stage-id>]  rf_emit of a finding for <id>
+# probe.sh stage <id>              rf_stage and rf_level
+# probe.sh hint                    rf_dispute_hint
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="s/block s/covered s/shadow s/quiet"
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+mode=$1; shift
+case "$mode" in
+    find)
+        rf_require s/block s/covered s/shadow s/quiet
+        for id in "$@"; do
+            rf_finding "$id" "detail"
+            echo "counted=$RF_COUNTED"
+        done ;;
+    emit)
+        rf_require s/block s/covered s/shadow s/quiet
+        ref=$(rf_ref "$1") || exit 2
+        sum=$(rf_summary "$1") || exit 2
+        json=$(jq -cn --arg id "$1" --arg ref "$ref" --arg m "$sum: built by the script" \
+            '{rule_id: $id, level: "error", message: $m, rule_ref: $ref}')
+        rf_emit "$json" ${2+"$2"}
+        echo "counted=$RF_COUNTED" ;;
+    stage)
+        rf_require "$1"
+        s=$(rf_stage "$1") || exit 2
+        l=$(rf_level "$s"); echo "stage=$s level=$l rc=$?" ;;
+    hint)
+        rf_dispute_hint ;;
+esac
+echo "blocking=$RF_BLOCKING"
+PROBE
+chmod +x "$S/probe.sh"
+mkdir -p "$T/tmpdir"
+LOGF="$T/tmpdir/stage.log"
+probe() { : > "$LOGF"; OUT=$(SHIRABE_FINDINGS_LOG="$LOGF" TMPDIR="$T/tmpdir" "$S/probe.sh" "$@" 2>"$T/err"); RC=$?; ERR=$(cat "$T/err"); }
+levels() { printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.level' | tr '\n' ' ' | sed 's/ $//'; }
+
+probe find s/block
+[ $RC -eq 0 ] && [ "$(levels)" = error ] && grep -qx 'counted=1' <<<"$OUT" && grep -qx 'blocking=1' <<<"$OUT" \
+    && pass "rf_finding prints a block rule's finding at error, counts it and sets RF_COUNTED to 1" \
+    || fail "rf_finding block" "rc=$RC out=[$OUT] err=[$ERR]"
+probe find s/covered
+[ $RC -eq 0 ] && [ "$(levels)" = warning ] && grep -qx 'counted=0' <<<"$OUT" && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_finding prints a warn rule's finding at warning without counting it" \
+    || fail "rf_finding warn" "rc=$RC out=[$OUT] err=[$ERR]"
+probe find s/shadow
+[ $RC -eq 0 ] && [ "$(levels)" = info ] && grep -qx 'counted=0' <<<"$OUT" && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_finding prints a shadow rule's finding at info without counting it" \
+    || fail "rf_finding shadow" "rc=$RC out=[$OUT] err=[$ERR]"
+probe find s/quiet
+[ $RC -eq 0 ] && ! grep -q '::koto-finding::' <<<"$OUT" && [ ! -s "$LOGF" ] \
+    && grep -qx 'counted=0' <<<"$OUT" && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_finding prints and logs nothing for a retired rule and doesn't count it" \
+    || fail "rf_finding retired" "rc=$RC out=[$OUT] log=[$(cat "$LOGF")] err=[$ERR]"
+probe find s/block s/covered s/quiet s/block s/shadow
+[ $RC -eq 0 ] && [ "$(levels)" = "error warning error info" ] && grep -qx 'blocking=2' <<<"$OUT" \
+    && [ "$(grep -c '^::koto-finding::' "$LOGF")" = 4 ] \
+    && pass "RF_BLOCKING counts only the block findings of a mixed run, and the log holds every printed one" \
+    || fail "rf_finding mixed" "rc=$RC out=[$OUT] err=[$ERR]"
+run "$S" verify-findings "$LOGF"
+[ $RC -eq 0 ] && pass "verify-findings accepts findings printed at their rules' stages" \
+    || fail "verify-findings stages" "rc=$RC out=[$OUT] err=[$ERR]"
+
+probe emit s/shadow
+[ $RC -eq 0 ] && [ "$(levels)" = info ] && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_emit sets a built finding's level from its own rule's stage" \
+    || fail "rf_emit own stage" "rc=$RC out=[$OUT] err=[$ERR]"
+probe emit s/shadow s/block
+[ $RC -eq 0 ] && [ "$(levels)" = error ] && grep -qx 'counted=1' <<<"$OUT" && grep -qx 'blocking=1' <<<"$OUT" \
+    && pass "rf_emit with a stage source prints at that rule's stage and counts a block" \
+    || fail "rf_emit stage source block" "rc=$RC out=[$OUT] err=[$ERR]"
+run "$S" verify-findings "$LOGF"
+[ $RC -eq 1 ] && pass "verify-findings without --stage-source refuses a finding printed at another rule's stage" \
+    || fail "verify-findings no stage source" "rc=$RC out=[$OUT]"
+run "$S" verify-findings --stage-source s/block "$LOGF"
+[ $RC -eq 0 ] && pass "verify-findings --stage-source checks the level against that rule's stage" \
+    || fail "verify-findings stage source" "rc=$RC out=[$OUT] err=[$ERR]"
+probe emit s/block s/quiet
+[ $RC -eq 0 ] && ! grep -q '::koto-finding::' <<<"$OUT" && [ ! -s "$LOGF" ] && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_emit with a retired stage source prints, logs and counts nothing" \
+    || fail "rf_emit stage source retired" "rc=$RC out=[$OUT] err=[$ERR]"
+probe emit s/block s/partial
+[ $RC -eq 2 ] && ! grep -q '::koto-finding::' <<<"$OUT" \
+    && pass "rf_emit refuses a stage source the run did not resolve" \
+    || fail "rf_emit unresolved stage source" "rc=$RC out=[$OUT]"
+
+for pair in s/block:error s/covered:warning s/shadow:info; do
+    probe stage "${pair%%:*}"
+    [ $RC -eq 0 ] && grep -q "level=${pair#*:} rc=0" <<<"$OUT" \
+        && pass "rf_stage and rf_level give ${pair%%:*} the level ${pair#*:}" || fail "rf_level ${pair%%:*}" "rc=$RC out=[$OUT] err=[$ERR]"
+done
+probe stage s/quiet
+[ $RC -eq 0 ] && grep -q "stage=retired level= rc=1" <<<"$OUT" \
+    && pass "rf_level prints nothing and fails for retired" || fail "rf_level retired" "rc=$RC out=[$OUT] err=[$ERR]"
+
+probe hint
+want="probe.sh: to dispute a finding you believe is wrong, run $S/scripts/rule-dispute.sh --session <session> --gate <gate> --rule <rule-id> --reason <why>; the session and gate are in the koto response"
+[ $RC -eq 0 ] && [ "$ERR" = "$want" ] && [ "$OUT" = "blocking=0" ] \
+    && pass "rf_dispute_hint prints one standard-error line naming rule-dispute.sh with its placeholders" \
+    || fail "rf_dispute_hint" "rc=$RC err=[$ERR] out=[$OUT]"
+
+# verify-findings on levels, with hand-written logs.
+sref=$("$S/scripts/rule-registry.sh" ref s/covered)
+qref=$("$S/scripts/rule-registry.sh" ref s/quiet)
+printf '%s\n' "::koto-finding::{\"rule_id\":\"s/covered\",\"level\":\"error\",\"message\":\"Every guard backed: x\",\"rule_ref\":\"$sref\"}" > "$T/wrong-level.log"
+run "$S" verify-findings "$T/wrong-level.log"
+[ $RC -eq 1 ] && grep -q 'level \[error\] is not \[warning\]' <<<"$OUT" \
+    && pass "verify-findings refuses a warn rule's finding logged at error" || fail "verify-findings wrong level" "rc=$RC out=[$OUT]"
+printf '%s\n' "::koto-finding::{\"rule_id\":\"s/covered\",\"message\":\"Every guard backed: x\",\"rule_ref\":\"$sref\"}" > "$T/no-level.log"
+run "$S" verify-findings "$T/no-level.log"
+[ $RC -eq 1 ] && pass "verify-findings refuses a finding with no level" || fail "verify-findings no level" "rc=$RC out=[$OUT]"
+printf '%s\n' "::koto-finding::{\"rule_id\":\"s/quiet\",\"level\":\"error\",\"message\":\"Retired check, guard backed: x\",\"rule_ref\":\"$qref\"}" > "$T/retired.log"
+run "$S" verify-findings "$T/retired.log"
+[ $RC -eq 1 ] && grep -q 'stage retired' <<<"$OUT" \
+    && pass "verify-findings refuses any finding logged under a retired stage" || fail "verify-findings retired" "rc=$RC out=[$OUT]"
+run "$S" verify-findings --stage-source s/none "$T/wrong-level.log"
+[ $RC -eq 2 ] && pass "verify-findings exits 2 for a stage source that doesn't resolve" || fail "verify-findings bad source" "rc=$RC"
+run "$S" verify-findings --stage-source s/block
+[ $RC -eq 2 ] && pass "verify-findings --stage-source without a log is a usage error" || fail "verify-findings usage" "rc=$RC"
+
 # --- the escalation ladder (rf_deliver) ----------------------------------------
 
 # A gate script that prints one finding per argument and then delivers. The
@@ -643,6 +902,79 @@ unexplained=$(jq -r '
     | .id' "$REG")
 [ -z "$unexplained" ] && pass "every empty or shared baseline key list is explained in notes" \
     || fail "baseline notes" "$unexplained"
+
+# The lifecycle fields: every active script entry at block since the landing
+# date with gates, both retired script entries at retired, and nothing on any
+# entry that isn't script-checked.
+STAGE_SINCE=2026-10-16
+bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script" and .status == "active")
+    | select(.stage != "block" or .stage_since != $since or (.gates | type) != "array" or (.gates | length) == 0
+             or any(.gates[]; type != "string" or (test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)))
+    | .id' "$REG")
+nactive=$(jq '[.rules[] | select(.check.kind == "script" and .status == "active")] | length' "$REG")
+[ -z "$bad" ] && [ "$nactive" = 35 ] && pass "all 35 active script entries are at block since $STAGE_SINCE with gates" \
+    || fail "active script stages" "n=$nactive bad: $bad"
+retired=$(jq -r '[.rules[] | select(.check.kind == "script" and .status == "retired") | "\(.id)=\(.stage)"] | join(",")' "$REG")
+[ "$retired" = "branch/no-wip-files=retired,panel/blocking-finding=retired" ] \
+    && pass "both status-retired script entries are at retired" || fail "retired script stages" "$retired"
+bad=$(jq -r '.rules[] | select(.check.kind != "script")
+    | select(has("stage") or has("stage_since") or has("gates") or has("stage_backstops")) | .id' "$REG")
+[ -z "$bad" ] && pass "no entry outside the script checks carries a lifecycle field" || fail "non-script lifecycle fields" "$bad"
+
+# Each gate value names a command gate of its skill's templates, in a state
+# the entry's timing lists, whose command runs a script that reports the rule:
+# one whose RULE_IDS line lists the id, or panel-scope.sh, which reports
+# panel/open-finding. The awk reads each template's frontmatter: a state at two
+# spaces under `states:`, `gates:` at four, a gate at six, its command at eight.
+for tpl in "$REPO_ROOT"/skills/*/koto-templates/*.md; do
+    case "$tpl" in *.mermaid.md) continue ;; esac
+    skill=${tpl#"$REPO_ROOT"/skills/}; skill=${skill%%/*}
+    awk -v skill="$skill" '
+        NR == 1 && /^---/ { fm = 1; next }
+        fm && /^---/ { exit }
+        !fm { next }
+        /^states:/ { in_states = 1; next }
+        in_states && /^  [a-z0-9_]+:/ { state = $1; sub(":", "", state); in_gates = 0; next }
+        in_states && /^    gates:/ { in_gates = 1; next }
+        in_states && /^    [a-z_]+:/ { in_gates = 0 }
+        in_gates && /^      [a-z0-9_]+:/ { gate = $1; sub(":", "", gate); next }
+        in_gates && /^        command:/ { c = $0; sub(/^        command: /, "", c); print skill ":" state ":" gate "\t" c }
+    ' "$tpl"
+done > "$T/command-gates.tsv"
+for s in "$REPO_ROOT"/skills/*/scripts/*.sh; do
+    line=$(grep -m1 '^RULE_IDS=' "$s") || continue
+    ids=${line#RULE_IDS=\"}; ids=${ids%\"}
+    printf '%s\t%s\n' "${s##*/}" "$ids"
+done > "$T/rule-ids.tsv"
+unmatched=""
+while IFS='	' read -r id timing gate; do
+    case " $timing " in *" ${gate%:*} "*) ;; *) unmatched="$unmatched $id:$gate(timing)"; continue ;; esac
+    cmd=$(awk -F'\t' -v g="$gate" '$1 == g { print $2; exit }' "$T/command-gates.tsv")
+    [ -n "$cmd" ] || { unmatched="$unmatched $id:$gate(no-command-gate)"; continue; }
+    ok=""
+    while IFS='	' read -r script ids; do
+        case "$cmd" in *"scripts/$script\""*) ;; *) continue ;; esac
+        if [ "$script" = panel-scope.sh ] || case " $ids " in *" $id "*) true ;; *) false ;; esac; then ok=1; break; fi
+    done < "$T/rule-ids.tsv"
+    [ -n "$ok" ] || unmatched="$unmatched $id:$gate(script)"
+done < <(jq -r '.rules[] | select(.check.kind == "script" and .status == "active")
+    | .id as $id | (.timing | join(" ")) as $t | .gates[] | "\($id)\t\($t)\t\(.)"' "$REG")
+[ -s "$T/command-gates.tsv" ] && [ -z "$unmatched" ] \
+    && pass "every gate names a command gate, in a timing state, that runs a script reporting the rule" \
+    || fail "gates against the templates" "$unmatched"
+
+wrong=""
+for id in $(jq -r '.rules[] | select(.check.kind == "script") | .id' "$REG"); do
+    want=$(jq -r --arg id "$id" '.rules[] | select(.id == $id) | if .status == "retired" then "retired" else "block" end' "$REG")
+    got=$("$SUT" stage "$id" 2>/dev/null) || got="rc=$?"
+    [ "$got" = "$want" ] || wrong="$wrong $id=$got"
+done
+[ -z "$wrong" ] && pass "stage prints block for every active script entry and retired for the retired two" \
+    || fail "stage on the real registry" "$wrong"
+"$SUT" stage rs-001 >/dev/null 2>&1 && fail "stage rs-001" "printed a stage for a review-shadow entry" \
+    || pass "stage fails for a review-shadow entry on the real registry"
+"$SUT" stage nope/no-such-rule >/dev/null 2>&1 && fail "stage unknown" "printed a stage for no entry" \
+    || pass "stage fails for an id with no entry on the real registry"
 
 unresolved=""
 for id in $(jq -r '.rules[] | select(.status == "active") | .id' "$REG"); do

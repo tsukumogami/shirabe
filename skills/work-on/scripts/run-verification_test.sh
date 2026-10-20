@@ -362,6 +362,16 @@ else
 fi
 rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verification/command-failed --verdict --session s-fail
 
+# The same result against plugin copies with verification/command-failed at
+# each stage: its finding prints at the stage's level, and only at block does
+# it route the run back (1).
+VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh"
+verdict_in_copy() { # <copy>
+    cd "$WORKDIR/r-fail" && "$1/skills/work-on/scripts/check-verification.sh" --verdict --session s-fail
+}
+# shellcheck disable=SC2086 # the two paths, split on purpose
+rf_test_stages "--verdict" verification/command-failed 1 "" verdict_in_copy $VERDICT_PATHS
+
 echo "--- a command that forks past max_procs"
 mkrepo fork "$(map '{"forker": {"run": ["bin/forker.sh"], "max_procs": 4}}' '[]' '["forker"]')"
 change top.txt
@@ -476,6 +486,52 @@ settle s-attended
 expect_rc "an unattended: false command" 4
 expect_rule "an unattended: false command" verification/needs-person
 [ ! -e "$WORKDIR/attended.rec" ] && pass "the attended command was never started" || fail "the attended command ran"
+
+echo "--- the route ranks only the causes at block"
+# verdict_at_warn <session> <rule at warn> <label> <exit> <levels>: the verdict
+# from a plugin copy with <rule> at warn; <levels> is the sorted
+# `<rule>=<level>` list the findings must print, space-terminated.
+STAGE_COPY="$RF_TEST_DIR/stage-copy"
+STAGE_LOG="$RF_TEST_DIR/stage-copy.log"
+verdict_at_warn() {
+    local got hints
+    # shellcheck disable=SC2086 # the two paths, split on purpose
+    if ! rf_test_stage_copy "$STAGE_COPY" "$2" warn $VERDICT_PATHS 2>"$WORKDIR/verdict.err"; then
+        fail "$3: could not make a plugin copy with $2 at warn: $(cat "$WORKDIR/verdict.err")"
+        return
+    fi
+    : > "$STAGE_LOG"
+    # Session s-<name> belongs to the repository r-<name>.
+    OUT=$(cd "$WORKDIR/r-${1#s-}" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" \
+        "$STAGE_COPY/skills/work-on/scripts/check-verification.sh" --verdict --session "$1" 2>"$WORKDIR/verdict.err")
+    RC=$?
+    expect_rc "$3" "$4"
+    got=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '"\(.rule_id)=\(.level)"' | sort -u | tr '\n' ' ')
+    [ "$got" = "$5" ] && pass "$3: findings $5" || fail "$3: findings [$got], want [$5]"
+    hints=$(grep -c -F -- "$RF_TEST_HINT" "$WORKDIR/verdict.err")
+    if [ "$4" -eq 0 ]; then
+        [ "$hints" -eq 0 ] && pass "$3: a passing verdict prints no dispute hint" || fail "$3: dispute hint printed on a pass"
+    else
+        [ "$hints" -eq 1 ] && pass "$3: the route prints the dispute hint once" || fail "$3: dispute hint printed $hints times"
+    fi
+    rf_test_verify_copy "$3" "$STAGE_COPY" "$STAGE_LOG"
+}
+
+# needs-person can't share a result with a failed command (an attended result
+# lists no commands), so the mixed result is a failed command beside one past
+# its timeout, which ranks 4 like needs-person does.
+mkrepo mixed "$(map '{"bad": {"run": ["bin/fail.sh"]}, "slow": {"run": ["bin/slow.sh"], "timeout_secs": 1}}' '[]' '["bad", "slow"]')"
+change top.txt
+start s-mixed
+settle s-mixed
+expect_rc "a failed command beside a timed-out one, both at block" 4
+verdict_at_warn s-mixed verification/timed-out "timed-out at warn beside command-failed at block" 1 \
+    "verification/command-failed=error verification/timed-out=warning "
+verdict_at_warn s-mixed verification/command-failed "command-failed at warn beside timed-out at block" 4 \
+    "verification/command-failed=warning verification/timed-out=error "
+verdict_at_warn s-attended verification/needs-person "needs-person at warn alone" 0 \
+    "verification/needs-person=warning "
+rm -rf "$STAGE_COPY" "$STAGE_LOG"
 
 echo "--- an unreadable result"
 mkrepo unread "$(map "{\"ok\": $(rec "$WORKDIR/unread.rec" ok)}" '[]' '["ok"]')"

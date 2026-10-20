@@ -2,10 +2,23 @@
 # node-push_test.sh — a node's push, its draft PR, and its head= record
 # Part of the execute skill
 #
-# node-push.sh is the one writer of `head=` fields on the coordination PR's
-# index. Each case runs it in a real git worktree (node-cut.sh) whose origin is
-# a local bare repository, against the eval gh shim's repository model and a
-# shirabe stub (see coord-test-helpers.sh).
+# node-push.sh is the one writer of a node's and the cascade's pushed head, in
+# the run record (run/node/<node>, run/cascade) and as `head=` fields on the
+# coordination PR's index. Each case runs it in a real git worktree
+# (node-cut.sh) whose origin is a local bare repository, against the eval gh
+# shim's repository model, a shirabe stub, and the koto context stub, with a
+# sealed run record naming the coordination PR (see coord-test-helpers.sh).
+#
+# The run record:
+#   a fresh push records run/node/<node> {repo, pr, head=<the pushed sha>};
+#   a second push records the new head; a push keeps a recorded merged_head;
+#   a push the remote rejects exits 68 and records nothing; a failed body edit
+#   (75) still leaves the head recorded; a record write that fails exits 70
+#   and posts nothing; adoption reads the record, not the body: a recorded
+#   PR with no owned PR to adopt, or other than the owned one, exits 73;
+#   coordination mode records run/cascade {verdict: pushed, head}; order mode
+#   records nothing; a session with no record, or a recorded coordination PR
+#   that is not open, exits 73.
 #
 # Cases:
 #   usage errors                                 exit 64, no push, no gh write
@@ -108,6 +121,17 @@ REAL_SHIRABE="${SHIRABE_BIN:-$(command -v shirabe 2>/dev/null || true)}"
 # shellcheck source=coord-test-helpers.sh
 . "$SCRIPT_DIR/coord-test-helpers.sh"
 
+S=execute-t
+# np_case <name> -- a fresh case whose session holds a sealed run record
+# naming the coordination PR #10, over both model repositories (some nodes
+# below land in acme/repo-b).
+np_case() {
+    ct_case "$1"
+    CT_RECORD_REPOS="acme/repo-a,acme/repo-b"
+    ct_record_setup
+}
+rec_node() { cat "$CASE/ctx/$S/run/node/$1" 2>/dev/null; }
+
 # The push itself, read from the script: the explicit refspec, never a force.
 PUSH_LINES=$(grep -v '^[[:space:]]*#' "$PUSH" | grep 'git push')
 if [ "$(printf '%s\n' "$PUSH_LINES" | grep -c .)" -eq 1 ] \
@@ -135,7 +159,7 @@ fresh_repo() {
 }
 
 push_node() { # push_node [extra args]
-    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1,2 \
+    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" "$@" 2>"$CASE/stderr")
     RC=$?
 }
@@ -150,20 +174,23 @@ db_pr() { jq -c --argjson n "$1" '.prs[] | select(.number == $n)' "$GH_CALL_LOG.
 
 # --- usage ------------------------------------------------------------------------
 
-ct_case usage
+np_case usage
 ct_write_db
 fresh_repo usage
-for args in "" "branch --slug t" "node --slug T --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
-            "node --slug t --node coordination --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
-            "node --slug t --node $CT_CORE --repo $CT_REPO --issues '#1' --home-repo $CT_REPO --coord-branch $CT_CB" \
-            "coordination --slug t --node $CT_CORE --home-repo $CT_REPO --coord-branch $CT_CB" \
-            "node --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
-            "node --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB --plan $CT_WORK/no-such-plan.md" \
-            "coordination --slug t --home-repo $CT_REPO --coord-branch $CT_CB --plan $PLAN"; do
+for args in "" "branch --slug t" "node --session $S --slug T --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
+            "node --session $S --slug t --node coordination --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
+            "node --session $S --slug t --node $CT_CORE --repo $CT_REPO --issues '#1' --home-repo $CT_REPO --coord-branch $CT_CB" \
+            "coordination --session $S --slug t --node $CT_CORE --home-repo $CT_REPO --coord-branch $CT_CB" \
+            "node --session $S --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
+            "node --session $S --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB --plan $CT_WORK/no-such-plan.md" \
+            "coordination --session $S --slug t --home-repo $CT_REPO --coord-branch $CT_CB --plan $PLAN"; do
     # shellcheck disable=SC2086
     (cd "$WT" && bash "$PUSH" $args >/dev/null 2>&1); rc=$?
     [ "$rc" -eq 64 ] && pass "usage [$args] exits 64" || fail "usage [$args]: rc=$rc"
 done
+(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 --home-repo "$CT_REPO" \
+    --coord-branch "$CT_CB" --plan "$PLAN" >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "a node push without --session exits 64" || fail "no --session: rc=$rc"
 if [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/*")" ]; then
     fail "a usage error pushed"
 else
@@ -172,7 +199,7 @@ fi
 
 # --- branch refusals --------------------------------------------------------------
 
-ct_case refusals
+np_case refusals
 ct_write_db
 fresh_repo refusals
 (cd "$WT" && git checkout -q --detach)
@@ -182,13 +209,13 @@ push_node
 push_node
 [ "$RC" -eq 66 ] && pass "the wrong branch exits 66" || fail "wrong branch: rc=$RC"
 (cd "$REPO" && git checkout -q main 2>/dev/null)
-OUT=$(cd "$REPO" && bash "$PUSH" coordination --slug t --home-repo "$CT_REPO" --coord-branch main 2>/dev/null); RC=$?
+OUT=$(cd "$REPO" && bash "$PUSH" coordination --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch main 2>/dev/null); RC=$?
 [ "$RC" -eq 67 ] && pass "the default branch exits 67" || fail "default branch: rc=$RC"
 if ct_calls | grep -Eq '^pr (create|edit)'; then fail "a refusal wrote to GitHub"; else pass "no refusal wrote to GitHub"; fi
 
 # --- a fresh node push ------------------------------------------------------------
 
-ct_case fresh
+np_case fresh
 ct_write_db
 fresh_repo fresh
 push_node
@@ -224,6 +251,12 @@ else
     fail "the index line is missing; body: $(db_body | grep '^- ')"
 fi
 [ "$(printf '%s\n' "$OUT" | sed -n 's/^head=//p')" = "$SHA" ] && pass "node-push.sh prints head=<sha>" || fail "output: [$OUT]"
+WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $h}')
+[ "$(rec_node "$CT_CORE")" = "$WANT_REC" ] \
+    && pass "the run record holds run/node/<node> {repo, pr, head=<the pushed sha>}" \
+    || fail "run/node after the push: [$(rec_node "$CT_CORE")]"
+ADD_AT=$(grep -n "^context add $S run/node/$CT_CORE" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
+[ -n "$ADD_AT" ] && pass "the head was written through the run record's writer" || fail "no run/node write in the koto log"
 if grep -q -- '--coordination-body' "$CASE/shirabe-calls.log" && [ "$(ct_calls | grep -c '^pr edit 10')" -eq 1 ]; then
     pass "the new body was validated, then posted with one pr edit"
 else
@@ -245,24 +278,103 @@ if [ "$(db_body | grep -c "^- $CT_CORE |")" -eq 1 ] && db_body | grep -q "head=$
 else
     fail "index after the second push: $(db_body | grep '^- ')"
 fi
+[ "$(rec_node "$CT_CORE" | jq -r '"\(.pr) \(.head)"')" = "50 $SHA2" ] \
+    && pass "a second push records the new head against the same PR" \
+    || fail "run/node after the second push: [$(rec_node "$CT_CORE")]"
 
-# --- an indexed node with nothing owned to adopt -----------------------------------
+# A merged head the observer recorded survives a later push (push merges).
+printf '%s' "{\"run/node/$CT_CORE\":{\"merged_head\":\"$SHA2\"}}" > "$CASE/observe.json"
+bash "$SCRIPT_DIR/run-record.sh" observe --session "$S" --json "$CASE/observe.json" >/dev/null 2>&1
+(cd "$WT" && git commit -q --allow-empty -m "fix: again")
+push_node
+SHA3=$(git -C "$WT" rev-parse HEAD)
+[ "$RC" -eq 0 ] && [ "$(rec_node "$CT_CORE" | jq -r '"\(.head) \(.merged_head)"')" = "$SHA3 $SHA2" ] \
+    && pass "a push keeps a recorded merged_head" || fail "merged_head after a push: [$(rec_node "$CT_CORE")]"
 
-ct_case adopt-missing
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+# --- a recorded node with nothing owned to adopt -----------------------------------
+
+np_case adopt-missing
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'author="someone-else"'
 ct_write_db
 fresh_repo adopt-missing
 push_node
 if [ "$RC" -eq 73 ] && ! ct_calls | grep -q '^pr create' && ! ct_calls | grep -q '^pr edit'; then
-    pass "an indexed node whose PR is not owned exits 73 with no pr create or edit"
+    pass "a recorded node whose PR is not owned exits 73 with no pr create or edit"
 else
     fail "adopt-missing: rc=$RC"
 fi
 
+np_case adopt-other
+ct_record_node "$CT_CORE" "$CT_REPO" 12 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+fresh_repo adopt-other
+push_node
+if [ "$RC" -eq 73 ] && ! ct_calls | grep -q '^pr edit' && [ "$(rec_node "$CT_CORE" | jq -r .pr)" = 12 ]; then
+    pass "a record naming a PR other than the owned one exits 73, the record unchanged"
+else
+    fail "adopt-other: rc=$RC record=[$(rec_node "$CT_CORE")]"
+fi
+
+np_case index-only
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+fresh_repo index-only
+push_node
+[ "$RC" -eq 0 ] && [ "$(rec_node "$CT_CORE" | jq -r .pr)" = 11 ] \
+    && pass "adoption reads the run record, not the body: the owned PR is adopted and recorded" \
+    || fail "index-only: rc=$RC record=[$(rec_node "$CT_CORE")]"
+
+# --- a push or a record write that fails ----------------------------------------------
+
+np_case push-rejected
+ct_write_db
+fresh_repo push-rejected
+printf '#!/bin/sh\nexit 1\n' > "$REPO.origin.git/hooks/pre-receive"
+chmod +x "$REPO.origin.git/hooks/pre-receive"
+push_node
+if [ "$RC" -eq 68 ] && [ -z "$(rec_node "$CT_CORE")" ] && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "a push the remote rejects exits 68 and records no head"
+else
+    fail "push-rejected: rc=$RC record=[$(rec_node "$CT_CORE")]"
+fi
+
+np_case edit-fails
+ct_write_db
+fresh_repo edit-fails
+mkdir -p "$CASE/failedit-bin"
+cat > "$CASE/failedit-bin/gh" <<STUB
+#!/usr/bin/env bash
+[ "\$1 \$2" = "pr edit" ] && { printf '%s\n' "\$*" >> "\$GH_CALL_LOG"; exit 1; }
+exec "$CT_FIXTURES/bin/gh" "\$@"
+STUB
+chmod +x "$CASE/failedit-bin/gh"
+OLDPATH="$PATH"
+PATH="$CASE/failedit-bin:$PATH"
+push_node
+PATH="$OLDPATH"
+ESHA=$(git -C "$WT" rev-parse HEAD)
+[ "$RC" -eq 75 ] && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$ESHA" ] \
+    && pass "a failed body edit (75) leaves the pushed head recorded: the record is written first" \
+    || fail "edit-fails: rc=$RC record=[$(rec_node "$CT_CORE")]"
+
+np_case record-fails
+ct_write_db
+fresh_repo record-fails
+export KOTO_FAIL_ADD="run/node/$CT_CORE"
+push_node
+unset KOTO_FAIL_ADD
+if [ "$RC" -eq 70 ] && ! ct_calls | grep -q '^pr edit'; then
+    pass "a run record write that fails exits 70 and posts nothing"
+else
+    fail "record-fails: rc=$RC edits=$(ct_calls | grep -c '^pr edit')"
+fi
+
 # --- a failing validation -----------------------------------------------------------
 
-ct_case body-invalid
+np_case body-invalid
 ct_write_db
 fresh_repo body-invalid
 BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json")
@@ -280,16 +392,23 @@ fi
 ct_case no-coord
 ct_write_db
 fresh_repo no-coord
-OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 \
-    --home-repo "$CT_REPO" --coord-branch docs/elsewhere --plan "$PLAN" 2>/dev/null); RC=$?
-[ "$RC" -eq 73 ] && pass "no owned coordination PR exits 73" || fail "no-coord: rc=$RC"
+push_node
+[ "$RC" -eq 73 ] && [ -z "$(git -C "$REPO" ls-remote origin "refs/heads/impl/*")" ] \
+    && pass "a session with no run record (no coordination PR recorded) exits 73, nothing pushed" || fail "no-coord: rc=$RC"
+
+np_case coord-closed
+CT_COORD_STATE=CLOSED
+ct_write_db
+fresh_repo coord-closed
+push_node
+[ "$RC" -eq 73 ] && pass "a recorded coordination PR that is not open exits 73" || fail "coord-closed: rc=$RC"
 
 # --- the run marker -----------------------------------------------------------------------
 
 MINE=0123456789abcdef0123456789abcdef
 OTHER=fedcba9876543210fedcba9876543210
 
-ct_case marker-fresh
+np_case marker-fresh
 ct_write_db
 fresh_repo marker-fresh
 push_node --run-id "$MINE"
@@ -310,7 +429,7 @@ if ct_calls | grep '^pr list' | grep -q . && [ "$(ct_calls | grep -c '^pr create
     fi
 fi
 
-ct_case marker-foreign
+np_case marker-foreign
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $OTHER -->\""
 ct_write_db
 fresh_repo marker-foreign
@@ -326,7 +445,7 @@ else
     fail "marker-foreign: the node branch was pushed onto another run's PR"
 fi
 
-ct_case marker-kept
+np_case marker-kept
 ct_write_db
 # The coordination PR carries a run marker after its merge-order block, as a
 # stamped body would; the index rewrite must keep that line.
@@ -341,7 +460,7 @@ else
     fail "marker-kept: rc=$RC; body [$(db_body)]"
 fi
 
-ct_case marker-usage
+np_case marker-usage
 ct_write_db
 fresh_repo marker-usage
 push_node --run-id NOTANID
@@ -359,7 +478,7 @@ separators() { awk '/^[[:space:]]*(```|~~~)/ { f = !f; next } !f && /^---[[:spac
 part1() { awk '/^---[[:space:]]*$/ { exit } { print }' "$1"; }
 created_title() { ct_calls | grep '^pr create' | tail -1 | sed -n 's/.*--title \(.*\) --body-file.*/\1/p'; }
 
-ct_case pr-body
+np_case pr-body
 ct_write_db
 fresh_repo pr-body
 # Summary rows under the two items' entity rows, as an issue-carrying PLAN
@@ -418,7 +537,7 @@ fi
 
 # An outline's **Goal**: (here read past the table path, which ignores the
 # section; the outline path reaches the same reader), spanning two lines.
-ct_case pr-body-outline
+np_case pr-body-outline
 ct_write_db
 fresh_repo pr-body-outline
 cat >> "$PLAN" <<'OUTLINES'
@@ -437,7 +556,7 @@ into tokens.
 
 **Goal**: Test the tokens.
 OUTLINES
-OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 2,1 \
+OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 2,1 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
 db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
 if [ "$RC" -eq 0 ] && [ "$(part1 "$CASE/node-body.md" | grep -v '^$' | tr '\n' '|')" = "Test the tokens.|Read the input into tokens.|" ]; then
@@ -447,7 +566,7 @@ else
 fi
 
 # No goal and no summary: the items' titles, still above one separator.
-ct_case pr-body-titles
+np_case pr-body-titles
 ct_write_db
 fresh_repo pr-body-titles
 push_node
@@ -465,7 +584,7 @@ fi
 docs_node() {
     local c="$1" p
     shift
-    ct_case "$c"
+    np_case "$c"
     ct_write_db
     fresh_repo "$c"
     (cd "$WT" && git reset -q --hard HEAD~1)
@@ -491,7 +610,7 @@ fi
 
 # A refused body or title: no PR is created, and the coordination PR is
 # untouched.
-ct_case pr-body-invalid
+np_case pr-body-invalid
 ct_write_db
 fresh_repo pr-body-invalid
 BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json")
@@ -511,7 +630,7 @@ fi
 # which waits on both. The seeded body's block lists two nodes with a merge
 # state; the push must replace it whole.
 
-ct_case merge-order
+np_case merge-order
 ct_write_db
 fresh_repo merge-order gated
 push_node
@@ -558,7 +677,7 @@ fi
 
 # --- a PLAN with no such node -----------------------------------------------------------
 
-ct_case plan-no-node
+np_case plan-no-node
 ct_write_db
 fresh_repo plan-no-node two-repo
 push_node
@@ -581,13 +700,13 @@ fi
 # Run in the coordination checkout before the cascade: renders the block from
 # the PLAN and edits the body, with no push and no index line.
 
-ct_case order
+np_case order
 ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_write_db
 fresh_repo order gated
 INDEX_BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json" | grep '^- ')
 order_run() { # order_run [extra args]
-    OUT=$(cd "$REPO" && bash "$PUSH" order --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" "$@" 2>"$CASE/stderr")
+    OUT=$(cd "$REPO" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" "$@" 2>"$CASE/stderr")
     RC=$?
 }
 order_run --plan "$PLAN"
@@ -598,8 +717,9 @@ else
 fi
 if [ -z "$(git -C "$REPO" ls-remote origin "refs/heads/*" | grep -v 'refs/heads/main$')" ] \
     && ! ct_calls | grep -q '^pr create' && [ "$(ct_calls | grep -c '^pr edit 10')" -eq 1 ] \
-    && [ "$(db_body | grep '^- ')" = "$INDEX_BEFORE" ]; then
-    pass "order mode pushes nothing, creates no PR, and leaves the PR index as it was"
+    && [ "$(db_body | grep '^- ')" = "$INDEX_BEFORE" ] \
+    && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
+    pass "order mode pushes nothing, creates no PR, records nothing, and leaves the PR index as it was"
 else
     fail "order mode side effects: $(ct_calls)"
 fi
@@ -653,7 +773,7 @@ done
 
 # --- coordination mode ------------------------------------------------------------------
 
-ct_case coordination
+np_case coordination
 ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
 ct_write_db
@@ -661,7 +781,7 @@ fresh_repo coordination
 (cd "$REPO" && git rm -q docs/plans/PLAN-t.md && git commit -q -m "chore: cascade")
 ORDER_BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json" \
     | awk '/^## /{ s = ($0 ~ /^## Merge Order/) } s')
-OUT=$(cd "$REPO" && bash "$PUSH" coordination --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" 2>"$CASE/stderr"); RC=$?
+OUT=$(cd "$REPO" && bash "$PUSH" coordination --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" 2>"$CASE/stderr"); RC=$?
 CSHA=$(git -C "$REPO" rev-parse HEAD)
 if [ "$RC" -eq 0 ] && [ "$(git -C "$REPO" ls-remote origin "refs/heads/$CT_CB" | cut -f1)" = "$CSHA" ] \
     && db_body | grep -qxF -- "- coordination | $CT_REPO:docs/plans/PLAN-t.md#10 | open | head=$CSHA" \
@@ -671,6 +791,9 @@ else
     fail "coordination mode: rc=$RC; $(tail -3 "$CASE/stderr")"
 fi
 ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass "coordination mode creates no PR"
+[ "$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)" = "{\"head\":\"$CSHA\",\"verdict\":\"pushed\"}" ] \
+    && pass "coordination mode records run/cascade {verdict: pushed, head=<the pushed sha>}" \
+    || fail "run/cascade after the coordination push: [$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)]"
 [ -n "$ORDER_BEFORE" ] && [ "$(merge_order_section)" = "$ORDER_BEFORE" ] \
     && pass "coordination mode, after the cascade deleted the PLAN, leaves the merge-order section as it was" \
     || fail "coordination mode changed the merge-order section: $(merge_order_section)"
@@ -703,7 +826,7 @@ cut_in() {
 # adds it to notes.txt first. VIS_PRS, when set, is ct_pr arguments for a PR
 # already on the node branch.
 vis_push() {
-    ct_case "$1"
+    np_case "$1"
     CT_VIS_A="$2"
     CT_VIS_B="$3"
     [ -n "${VIS_PRS:-}" ] && ct_pr acme/repo-b 60 "impl/t-$CT_CORE" "$VIS_PRS"
@@ -713,7 +836,7 @@ vis_push() {
     if [ -n "${4:-}" ]; then
         (cd "$WT" && printf '%s\n' "$4" > notes.txt && git add notes.txt && git commit -q -m "docs: notes")
     fi
-    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
     NBODY=$(jq -r '.prs[] | select(.repo == "acme/repo-b") | .body' "$GH_CALL_LOG.d/db.json" 2>/dev/null)
@@ -772,7 +895,7 @@ vis_push vis-home-unread none public
 
 # The node PR's description comes from the private PLAN, so it is scanned
 # with the commits: a goal naming a private/ path stops the push.
-ct_case vis-goal
+np_case vis-goal
 CT_VIS_A=private
 CT_VIS_B=public
 ct_write_db
@@ -780,7 +903,7 @@ fresh_repo vis-goal
 awk '{ print } index($0, "| [#1: ") == 1 { print "| _Mirror private/tools into the parser._ | | |" }' "$PLAN" > "$PLAN.new" \
     && mv "$PLAN.new" "$PLAN"
 node_clone vis-goal
-OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
 if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
     pass "a work item's goal naming a private/ path, public node under a private home: 78, nothing pushed"
@@ -822,7 +945,7 @@ vis_push vis-scan-priv-node private private "see private/plans/notes.md"
 
 # home_push -- push the node from $WT with --repo acme/repo-b.
 home_push() {
-    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
 }
@@ -830,7 +953,7 @@ home_push() {
 home_has_node_branch() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
 gh_wrote() { ct_calls | grep -Eq '^pr (create|edit|ready|merge|close)'; }
 
-ct_case home-worktree
+np_case home-worktree
 ct_write_db
 fresh_repo home-worktree
 home_push
@@ -841,7 +964,7 @@ else
     fail "home worktree: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 
-ct_case home-url
+np_case home-url
 ct_write_db
 fresh_repo home-url
 NREPO="$CT_WORK/home-url-reclone"
@@ -858,12 +981,12 @@ fi
 # origin nor any URL the home uses (an unrelated bare repository): the branch
 # was still cut from the coordination checkout's default branch, so the git
 # directory alone refuses it.
-ct_case home-worktree-alt-remote
+np_case home-worktree-alt-remote
 ct_write_db
 fresh_repo home-worktree-alt-remote
 git init -q --bare "$CT_WORK/alt-remote.git"
 (cd "$REPO" && git remote add alt "$CT_WORK/alt-remote.git")
-OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" --remote alt 2>"$CASE/stderr")
 RC=$?
 if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$CT_WORK/alt-remote.git" "refs/heads/impl/*")" ]; then
@@ -874,7 +997,7 @@ fi
 
 # The home's origin spelled another way: the same repository over ssh in the
 # coordination checkout, over https in the node clone.
-ct_case home-url-spelling
+np_case home-url-spelling
 ct_write_db
 fresh_repo home-url-spelling
 (cd "$REPO" && git remote set-url origin git@git.invalid:Acme/repo-a.git)
@@ -894,7 +1017,7 @@ fi
 # One insteadOf rule shared by both checkouts: the coordination checkout's
 # origin and the separate clone's are written gh:acme/repo-a, which both
 # resolve to the home's bare origin, so the push would land there.
-ct_case home-insteadof
+np_case home-insteadof
 ct_write_db
 fresh_repo home-insteadof
 git config --global url."$REPO.origin.git".insteadOf gh:acme/repo-a
@@ -914,7 +1037,7 @@ git config --global --unset url."$REPO.origin.git".insteadOf
 # The coordination checkout's origin with a separate pushurl (its pushes go
 # to a fork): a clone of the home itself, the repository home_repo names,
 # is still refused.
-ct_case home-pushurl
+np_case home-pushurl
 ct_write_db
 fresh_repo home-pushurl
 git init -q --bare "$CT_WORK/home-fork.git"
@@ -931,7 +1054,7 @@ fi
 
 # The other way round: the checkout fetches from a mirror and pushes to the
 # home. A clone of the home is refused on the push URL.
-ct_case home-mirror
+np_case home-mirror
 ct_write_db
 fresh_repo home-mirror
 git clone -q --bare "$REPO.origin.git" "$CT_WORK/home-mirror.git"
@@ -949,7 +1072,7 @@ fi
 
 # A --plan outside any git repository: the coordination checkout can't be
 # read, which refuses rather than passing.
-ct_case plan-outside-git
+np_case plan-outside-git
 ct_write_db
 fresh_repo plan-outside-git
 node_clone plan-outside-git
@@ -983,7 +1106,7 @@ github.com/acme/repo-b
 [ "$url_keys" = "$want_keys" ] && pass "coord_url_key: https, ssh and scp forms of one repository share a key; a path is kept" \
     || fail "coord_url_key: [$url_keys]"
 
-ct_case own-clone
+np_case own-clone
 ct_write_db
 fresh_repo own-clone
 node_clone own-clone

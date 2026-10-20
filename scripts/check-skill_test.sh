@@ -308,6 +308,33 @@ else
     pass "the FAIL lines hold only failures and their detail"
 fi
 
+# The same, for the two other forms a suite prints a failure in: FAIL colored
+# with ANSI codes, as panel-scope_test.sh prints it through echo -e, and TAP's
+# "not ok". Colored PASS lines stay out of the list.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+{
+    printf '#!/bin/sh\n'
+    printf 'printf '"'"'\\033[0;32mPASS\\033[0m: first case\\n'"'"'\n'
+    printf 'printf '"'"'\\033[0;31mFAIL\\033[0m: colored case\\n'"'"'\n'
+    printf 'echo "    colored detail"\n'
+    printf 'echo "not ok 3 - tap case"\n'
+    printf 'i=0; while [ "$i" -lt 100 ]; do printf '"'"'\\033[0;32mPASS\\033[0m: case %%s\\n'"'"' "$i"; i=$((i + 1)); done\n'
+    printf 'echo "1 failed"; exit 1\n'
+} > "$ROOT/skills/demo/scripts/forms_test.sh"
+run_check
+expect "a failing suite lists its colored FAIL and not-ok lines" 1 \
+    "every FAIL line:" "      "$'\033'"[0;31mFAIL"$'\033'"[0m: colored case" "          colored detail" \
+    "      not ok 3 - tap case"
+if awk '/every FAIL line:/ { s = 1; next } /load when it ended:/ { s = 0 } s && /PASS/ { bad = 1 } END { exit !bad }' <<EOF
+$OUT
+EOF
+then
+    fail "colored PASS lines are kept out of the FAIL lines"
+else
+    pass "colored PASS lines are kept out of the FAIL lines"
+fi
+
 new_tree
 mkdir -p "$ROOT/skills/demo/scripts"
 printf '[ -f skills/demo/SKILL.md ] || { echo "not at the root"; exit 1; }\n' \

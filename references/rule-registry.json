@@ -26,6 +26,11 @@
         "push",
         "merge"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "execute:worktree_sync:current_with_main"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -57,6 +62,9 @@
         "pr-create",
         "publish"
       ],
+      "stage": "retired",
+      "stage_since": "2026-10-16",
+      "gates": [],
       "withhold": "never",
       "baseline_keys": [
         "references/wip-hygiene.md#L14-L16"
@@ -91,6 +99,14 @@
       "guards": [
         "pr-create",
         "push"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:finalization:commit_convention",
+        "work-on:deferral_approval:commit_convention",
+        "work-on:pre_pr_evidence:commit_convention",
+        "execute:pr_finalization:settled_commits"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -127,6 +143,14 @@
         "pr-create",
         "push",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:finalization:commit_convention",
+        "work-on:deferral_approval:commit_convention",
+        "work-on:pre_pr_evidence:commit_convention",
+        "execute:pr_finalization:settled_commits"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -170,6 +194,15 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "docs/guides/doc-validation.md#L28-L49"
@@ -207,6 +240,15 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -246,6 +288,15 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [
@@ -283,6 +334,17 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_precheck:branch_docs_visibility",
+        "execute:pr_finalization:settled_docs_visibility",
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -322,6 +384,15 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "docs/guides/doc-validation.md#L21-L22"
@@ -359,6 +430,15 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -398,6 +478,15 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "docs/guides/doc-validation.md#L21-L22"
@@ -435,6 +524,15 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -474,6 +572,15 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "references/pipeline-model.md#L186-L188"
@@ -512,6 +619,15 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "docs/guides/doc-validation.md#L23-L27"
@@ -549,6 +665,15 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -590,6 +715,17 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_precheck:branch_docs_visibility",
+        "execute:pr_finalization:settled_docs_visibility",
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "docs/guides/doc-validation.md#L23-L27"
@@ -629,6 +765,17 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_precheck:branch_docs_visibility",
+        "execute:pr_finalization:settled_docs_visibility",
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -694,6 +841,9 @@
         "pr-create",
         "merge"
       ],
+      "stage": "retired",
+      "stage_since": "2026-10-16",
+      "gates": [],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -726,6 +876,14 @@
         "pr-create",
         "merge"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:scrutiny:scrutiny_verdict",
+        "work-on:review:review_verdict",
+        "work-on:qa_validation:qa_verdict",
+        "work-on:light_review:light_verdict"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -756,6 +914,12 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -792,6 +956,12 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "references/issues-table.md#L226-L229"
@@ -826,6 +996,12 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -862,6 +1038,12 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "skills/writing-style/rules.yaml#L17-L89"
@@ -896,6 +1078,12 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -935,6 +1123,12 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -977,6 +1171,12 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "references/pr-body-conformance.md#L57-L60"
@@ -1016,6 +1216,12 @@
       ],
       "guards": [
         "none"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
       ],
       "withhold": "eligible",
       "baseline_keys": [
@@ -1062,6 +1268,12 @@
         "pr-create",
         "publish"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
       "withhold": "never",
       "baseline_keys": [
         "references/pr-body-conformance.md#L51-L56"
@@ -1105,6 +1317,15 @@
       "guards": [
         "pr-create",
         "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
       ],
       "withhold": "never",
       "baseline_keys": [
@@ -1932,6 +2153,11 @@
       "guards": [
         "pr-create"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -1959,6 +2185,11 @@
       ],
       "guards": [
         "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
       ],
       "withhold": "never",
       "baseline_keys": [],
@@ -1988,6 +2219,11 @@
       "guards": [
         "pr-create"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -2015,6 +2251,11 @@
       ],
       "guards": [
         "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
       ],
       "withhold": "never",
       "baseline_keys": [],
@@ -2044,6 +2285,11 @@
       "guards": [
         "pr-create"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -2071,6 +2317,11 @@
       ],
       "guards": [
         "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
       ],
       "withhold": "never",
       "baseline_keys": [],
@@ -2100,6 +2351,11 @@
       "guards": [
         "pr-create"
       ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
@@ -2127,6 +2383,11 @@
       ],
       "guards": [
         "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
       ],
       "withhold": "never",
       "baseline_keys": [],

@@ -17,14 +17,17 @@
 # The id lives in the run's koto session context under `run_id`. This script
 # is the one place it is minted and the one place the marker line is written;
 # owned-pr.sh is the one place it is read off a PR. It is minted only where a
-# session is born -- execute-open.sh, scope-open.sh and deliver-open.sh, right
-# after the open -- and every later caller reads it with `get`, which never
-# mints: a read that fails is an error, never a new identity for the run.
+# session or a coordinated run is born -- execute-open.sh (a single-pr PLAN),
+# scope-open.sh and deliver-open.sh right after the open, and
+# record-coord-setup.sh when it seals a coordinated run's record (the opener
+# never mints one for a coordinated PLAN) -- and every later caller reads it
+# with `get`, which never mints: a read that fails is an error, never a new
+# identity for the run.
 #
 # Usage:
 #   run-id.sh mint <session>
 #       Print the session's id, minting and storing one when it has none.
-#       Only the session-opening scripts call this.
+#       Only the session-opening scripts and record-coord-setup.sh call this.
 #   run-id.sh get <session>
 #       Print the session's id. A session with no id exits 67; a failed read
 #       exits 66. Never mints.

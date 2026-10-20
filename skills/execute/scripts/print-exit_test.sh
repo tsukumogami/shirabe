@@ -13,7 +13,8 @@
 #   done_blocked via DIRTY                           abandonment-forced  ready-awaiting-merge
 #   done_blocked via a verdict error / a blocker     abandonment-forced  error + step
 #   re-evaluation                                    re-evaluation error, execute:re-evaluation
-#   coordinated: merged / nothing left / a node waits on a predecessor
+#   coordinated: merged / nothing left / a node waits on a predecessor / a
+#     coord_setup stop (its reason on a line of its own)
 #
 # plus the refused case (outcome=error, step=execute:refused), the
 # merge-not-observed note, the three input shapes, and values that fail their
@@ -184,6 +185,21 @@ check "coordinated: a pause whose only condition is the pause itself" \
 repos=o/r
 pr=$URL2 waiting=predecessor reason=predecessor-unmerged
 resume=/execute docs/plans/PLAN-topic.md"
+
+# --- coordinated setup stops ----------------------------------------------------
+#
+# coord_setup's typed stops end at done_error with a literal reason and no PR:
+# the reason is printed on a line of its own.
+
+for r in store-mismatch coordination-pr-missing coordination-pr-ambiguous coordination-pr-mismatch coordination-pr-closed; do
+    STOP=$(jq -nc --arg r "$r" '{action: "done", state: "done_error", result: {status: "failure", summary: "s",
+        payload: {outcome: "error", step: "execute:coord_setup", reason: $r, pr: "", repos: "", waiting: ""}}}')
+    check "a coord_setup stop: $r" "$STOP" \
+"outcome=error
+step=execute:coord_setup
+exit=abandonment-forced
+reason=$r"
+done
 
 # --- refusals -----------------------------------------------------------------
 
