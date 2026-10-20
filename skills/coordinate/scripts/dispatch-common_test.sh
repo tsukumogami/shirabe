@@ -171,11 +171,17 @@ else
     # bash drops a TERM that reaches the watcher's sleep before it execs (the
     # forked child still runs the watcher's trap). A sleep that ignores TERM
     # stands in for that one, and the command ends only once the sleep is
-    # running, so the watcher has to stop it from its trap.
+    # running, so the watcher has to stop it from its trap. The command fails
+    # if it never sees the sleep, so the case can't pass without testing it.
     sleep() { if [ "$1" = "$LEN" ]; then trap '' TERM; exec sleep "$@"; fi; command sleep "$@"; }
-    dc_with_deadline "$LEN" sh -c 'i=0; until ps -eo args | grep -q "^sleep $1\$" || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done' _ "$LEN"
+    dc_with_deadline "$LEN" sh -c 'i=0; until ps -eo args | grep -q "^sleep $1\$"; do [ "$i" -ge 50 ] && exit 1; sleep 0.1; i=$((i + 1)); done' _ "$LEN"
+    RC=$?
     unset -f sleep
-    no_watcher_left "deadline: no watcher left behind when its sleep ignores TERM"
+    if [ "$RC" -ne 0 ]; then
+        bad "deadline: no watcher left behind when its sleep ignores TERM" "the watcher's sleep was never seen running (status $RC)"
+    else
+        no_watcher_left "deadline: no watcher left behind when its sleep ignores TERM"
+    fi
 fi
 # bash also drops a TERM that reaches the watcher while `trap` installs its
 # handler. A watcher that ignores TERM for a second before its trap goes in
@@ -190,6 +196,20 @@ if [ $(( $(date +%s) - START )) -lt 10 ]; then
     ok "deadline: a TERM the watcher drops as its trap goes in still stops it"
 else
     bad "deadline: a TERM the watcher drops as its trap goes in still stops it" "returned after $(( $(date +%s) - START ))s"
+fi
+# A watcher that never installs its trap ignores every TERM, and stands in for
+# one that won't stop: after about five seconds of TERMs the caller kills it
+# and returns the command's own status, well before the deadline. The
+# watcher's sleep is left to run out its 30 seconds.
+trap() { builtin trap '' TERM; : >"$T/deaf"; }
+START=$(date +%s)
+dc_with_deadline 30 sh -c 'i=0; until [ -e "$1" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done' _ "$T/deaf"
+RC=$?
+unset -f trap
+if [ "$RC" -eq 0 ] && [ $(( $(date +%s) - START )) -lt 20 ]; then
+    ok "deadline: a watcher that won't stop is killed and the call returns"
+else
+    bad "deadline: a watcher that won't stop is killed and the call returns" "status $RC after $(( $(date +%s) - START ))s"
 fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
 # The watcher writes its mark before it kills the command. A kill that pauses
