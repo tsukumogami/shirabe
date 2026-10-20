@@ -240,9 +240,11 @@ expect_problem "a prose entry with a check" "$TK: a prose entry must have check.
 
 # A decider check: a koto decider-check gate's criterion. It guards nothing,
 # so check 2's guard rule doesn't apply to it, while a script gate with the
-# same fields still fails ("a gate entry guarding none" above).
+# same fields still fails ("a gate entry guarding none" above). The lifecycle
+# fields belong to script entries only, so the converted entry drops them.
 DECIDER='{"kind": "decider", "template": "skills/work-on/koto-templates/work-on.md", "state": "review_level_check", "gate": "level_fits_facts", "criterion": "level_fits_facts"}'
-reg "$(sel $G2).check = $DECIDER | $(sel $G2).guards = [\"none\"] | $(sel $G2).withhold = \"never\""
+reg "$(sel $G2).check = $DECIDER | $(sel $G2).guards = [\"none\"] | $(sel $G2).withhold = \"never\"
+     | del($(sel $G2).stage, $(sel $G2).stage_since, $(sel $G2).gates, $(sel $G2).stage_backstops)"
 expect_clean "a decider entry guarding none"
 
 reg "$(sel $RS).jev = {\"state\": \"rejected\"}"
