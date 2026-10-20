@@ -55,7 +55,7 @@ fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'rm -rf "$T"' EXIT
+trap 'case "$T" in */deliver-open-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 
 PASS=0

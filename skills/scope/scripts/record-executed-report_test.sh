@@ -23,7 +23,7 @@ done
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/executed-report-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'rm -rf "$T"' EXIT
+trap 'case "$T" in */executed-report-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 
 PASS=0

@@ -29,7 +29,7 @@ done
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/publish-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'rm -rf "$T"' EXIT
+trap 'case "$T" in */publish-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 

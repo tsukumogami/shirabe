@@ -102,7 +102,7 @@ if [ "$(jq -r '.session_import // false' <<< "$PROBE")" != true ]; then
 fi
 echo "== two hosts =="
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; rm -rf "$T"' EXIT
+trap 's3_stop; case "$T" in */coordinate-open-engine.*) rm -rf "$T" ;; esac' EXIT
 s3_start || { fail "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; exit 1; }
 host_make a; host_make b
 for h in a b; do

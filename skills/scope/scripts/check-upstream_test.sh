@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/check-upstream.sh"
 T="$(mktemp -d "${TMPDIR:-/tmp}/check-upstream-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'rm -rf "$T"' EXIT
+trap 'case "$T" in */check-upstream-test.*) rm -rf "$T" ;; esac' EXIT
 # The scratch directory may itself sit inside a checkout (TMPDIR pointed into
 # one); stop git's discovery at it so "outside any work tree" means that.
 export GIT_CEILING_DIRECTORIES="$T"

@@ -48,7 +48,7 @@ SHIRABE="$(cd "$(dirname "$SHIRABE")" && pwd)/$(basename "$SHIRABE")"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/pre-action-deny-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-cleanup() { rm -rf "$T"; return 0; }
+cleanup() { case "${T:-}" in */pre-action-deny-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
