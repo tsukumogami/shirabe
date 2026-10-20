@@ -591,18 +591,27 @@ dc_with_deadline() {
     rc=$?
     # bash ignores a signal while `trap` installs its handler, so a TERM that
     # lands as the watcher sets its trap is lost, and the watcher would run to
-    # the deadline. Send it again until the watcher is gone: 100 tries 0.05s
-    # apart, about five seconds. A watcher still there after that is killed
-    # outright, so the call always returns; a sleep it had started is then
-    # left to run out on its own, and nothing is reported. bash prints a
-    # job's "Terminated" notice when it reaps the watcher between the loop's
-    # commands, so the loop's stderr goes nowhere, as the wait's does.
+    # the deadline. A watcher that got the TERM is gone within a millisecond
+    # or two, so the first loop only checks for it, with the builtin kill -0,
+    # and spawns nothing. One still there after that gets the TERM again
+    # until it is gone: 100 tries 0.05s apart, about five seconds. A watcher
+    # still there after that is killed outright, so the call always returns;
+    # a sleep it had started is then left to run out on its own, and nothing
+    # is reported. bash prints a job's "Terminated" notice when it reaps the
+    # watcher between the loops' commands, so their stderr goes nowhere, as
+    # the wait's does.
     kill -TERM "$watcher" >/dev/null 2>&1
-    while [ "$tries" -lt 100 ] && kill -0 "$watcher" >/dev/null 2>&1; do
-        sleep 0.05
-        kill -TERM "$watcher" >/dev/null 2>&1
-        tries=$((tries + 1))
-    done 2>/dev/null
+    {
+        while [ "$tries" -lt 500 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+            tries=$((tries + 1))
+        done
+        tries=0
+        while [ "$tries" -lt 100 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+            sleep 0.05
+            kill -TERM "$watcher" >/dev/null 2>&1
+            tries=$((tries + 1))
+        done
+    } 2>/dev/null
     if kill -0 "$watcher" >/dev/null 2>&1; then
         kill -KILL "$watcher" >/dev/null 2>&1
     fi
