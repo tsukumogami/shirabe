@@ -103,7 +103,7 @@ and the earlier review-shadow trial's records on the same host:
 | completeness | are the evidence claims verifiable from the diff | the agent's own claims, which nothing records | none | n/a |
 | justification | are deviations explained, do the reasons hold up | the criteria, the plan and the diff; lower bound measured: criteria and plan | 180 sessions | 154 |
 | intent | does the change do what the design describes | the design context and the diff; lower bound measured: design context | 172 sessions | 91 |
-| justification, closed part | does each recorded decision give a reason | the decisions recorded in analysis and implementation | 180 sessions (88 with a decision) | 5 |
+| justification, closed part | does each recorded decision's rationale give a reason | each decision's choice and rationale, recorded in analysis and implementation | 119 graded sessions (of 1,502 kept) | 3 |
 
 The coverage question doesn't fit even one criterion at a time: the trial's
 per-criterion slices had to drop hunks to stay under the bound in 2,933 of
@@ -111,11 +111,18 @@ per-criterion slices had to drop hunks to stay under the bound in 2,933 of
 self-transition opens no new visit, and one `koto next` allows four
 consultations. So no seat's questions are all closed within the budget. One
 closed question fits: a run records its decisions with `koto decisions record`
-while it analyses and builds the change, and whether each gives a reason,
-rather than restating its choice, can be judged from the decision's own text.
-It is the part of the justification seat's question a script can hand over
-whole. Over the same 180 sessions the three seats raised seven blocking
-findings in all.
+while it analyses and builds the change, each with a required rationale, and
+whether that rationale gives a reason, rather than restating its choice, can be
+judged from the choice and the rationale alone. It is the part of the
+justification seat's question a script can hand over whole. Its figures are
+over graded sessions only, the ones that recorded a decision, since an empty
+slice says nothing about size: across every koto session log the host kept,
+1,502 sessions after removing duplicates, 119 were graded, the largest slice
+3,549 bytes, the 90th percentile 1,761, and 3 over the budget (2.5%). The fit is
+marginal: 119 graded runs is just past the 100-run minimum, and live figures,
+not this measurement, decide whether the criterion earns trust. Over the 180
+`/work-on` sessions with recorded review facts the three seats raised seven
+blocking findings in all.
 
 ## Goals
 
@@ -220,11 +227,11 @@ criterion in `mode: shadow` whose key is its registry id,
 `work-on/scrutiny-decision-reasons`, so koto's events and the ledger name the
 same rule. Its text is:
 
-- question: "Does every decision listed here give a reason for its choice: a
-  constraint, a fact about the code or the system, or an alternative it
-  rejected, rather than a restatement of the choice?"
-- pass: "Each decision's reason or rejected alternatives say why the choice
-  was made, in terms other than the choice itself."
+- question: "Does every decision listed here give, in its reason, why the
+  choice was made: a constraint, a fact about the code or the system, or an
+  alternative it rules out, rather than a restatement of the choice?"
+- pass: "Each decision's reason says why the choice was made, in terms other
+  than the choice itself."
 - fail: "At least one decision's reason only restates or paraphrases its
   choice, or gives no reason at all."
 - escape: "The list can't be read as decisions, so it can't be judged."
@@ -238,27 +245,32 @@ whose `state` is `analysis` or `implementation`, on any visit, in log order, as:
 ```
 - choice: <choice>
   reason: <rationale>
-  rejected: <alternative>; <alternative>
 ```
 
-with the `rejected:` line only when the decision names an alternative, each
-field's whitespace (newlines and tabs included) collapsed to single spaces and
-trimmed, and the bytes otherwise unchanged. A missing or empty choice or
+with each field's whitespace (newlines and tabs included) collapsed to single
+spaces and trimmed, and the bytes otherwise unchanged. The decision's
+alternatives are left out: `koto decisions record` requires a rationale, the
+question asks whether that rationale gives a reason, and the alternatives don't
+bear on it, while carrying them put the slice over budget on 5 graded runs
+where leaving them out puts it over on 3. A missing or empty choice or
 rationale prints as the label with nothing after it (`  reason:`), so the
 decider sees that the reason is absent. When the session recorded no such
 decision it prints nothing and exits 0. It never reads a file the agent names
 or selects, nor any context key.
 
-**R5. Measured on real runs.** `work-on/scrutiny-decision-reasons`'s contract
-records the slice measured over every recorded `/work-on` session, population
-`koto-sessions`, at least 100 runs, by a shipped command that prints the same
-figures (runs, maximum, nearest-rank p90, runs over budget) given the same
-session logs. The contract's state follows
-jev-pass-trust's rule over those runs (over budget on more than 5% of them is
-`rejected`): on 2026-10-20 that was 5 of 180, 2.8%, so `untrusted`. Its written
-case also states the share over graded sessions only, 5 of 88 (5.7%), past
-the 5% line, so a reviewer sees both and the next measurement with more graded
-runs can be compared with it.
+**R5. Measured on graded runs.** `work-on/scrutiny-decision-reasons`'s contract
+records the slice measured over graded sessions only, the ones whose slice is
+not empty, population `koto-sessions`, at least 100 such runs, by a shipped
+command that reads every session log under each directory it is given (gzipped
+ones included), counts a session once by its id, and prints the same figures
+(runs, maximum, nearest-rank p90, runs over budget) given the same logs. An
+empty slice says nothing about size, so a session with nothing to grade is
+never a run here, the same way the live bar leaves it out. The contract's state
+follows jev-pass-trust's rule over those runs (over budget on more than 5% of
+them is `rejected`): on 2026-10-20 that was 3 of 119 graded sessions (2.5%),
+so `untrusted`. Its written case states the all-sessions figure beside it (3 of
+1,502) and says plainly that the fit is marginal and live figures decide
+trust.
 
 **R6. Fixtures.** `work-on/scrutiny-decision-reasons` has a fixture file meeting
 jev-pass-trust's fixture profile (at least 10 good, 20 seeded-bad and 5
@@ -383,8 +395,9 @@ Contracts:
   `runs`, and each written case contains "These figures are a lower bound: the
   full slice also carries the diff." (R2)
 - [ ] `work-on/scrutiny-decision-reasons`'s `measured` records population
-  `koto-sessions`, `runs` at least 100 and `over_budget` at most 5% of `runs`,
-  and its written case states the graded-session share. (R5)
+  `koto-sessions`, `runs` (graded sessions) at least 100 and `over_budget` at
+  most 5% of `runs`, and its written case states the all-sessions figure beside
+  it and calls the fit marginal. (R5)
 
 The batch and its slice:
 
@@ -397,7 +410,7 @@ The batch and its slice:
 - [ ] Given a session log holding decisions recorded in `analysis` (two
   visits), `implementation` and `verification`, the slice script prints the
   `analysis` and `implementation` decisions only, in log order, in R4's
-  layout; a decision with no alternative has no `rejected:` line; a field with
+  layout, with no alternatives printed even when a decision names some; a field with
   newlines, tabs and runs of spaces prints on one line with single spaces; a
   multibyte character prints unchanged. (R4)
 - [ ] Given a log with no such decision, the slice script prints nothing and
@@ -405,9 +418,10 @@ The batch and its slice:
 - [ ] The slice script's output doesn't change when a file named in a decision,
   or any context key of the session, changes. (R4)
 - [ ] `jev_criteria.py measure sessions` with the decision-reasons slice prints,
-  over a fixture corpus of session directories, the runs, maximum, p90 and
-  over-budget count that corpus should give, counting a session with no
-  decision as a run of 0 bytes. (R5)
+  over a fixture corpus of session directories in two `--dir` roots, one log
+  gzipped and one session present in both roots, the runs, maximum, p90 and
+  over-budget count that corpus should give, counting only sessions with a
+  decision and each session once. (R5)
 - [ ] The fixture file passes jev-pass-trust's fixture checks (at least 10
   good, 20 seeded-bad and 5 adversarial cases, at least 3 techniques), and a
   test runs the slice script on every case's input and gets the case's slice.
@@ -522,8 +536,10 @@ Floor, CI and visibility:
   slice. Finding one is the justification seat's job, which is why the seat
   stays.
 - A run that records no decision gives the batch nothing to grade, which was
-  92 of 180 sessions on 2026-10-20, so live figures accumulate at about half
-  the rate of runs.
+  92 of the 180 `/work-on` sessions with recorded review facts on 2026-10-20,
+  so live figures accumulate at about half the rate of runs.
+- The measured fit is marginal: 119 graded runs is just past the 100-run
+  minimum, and 3 of them (2.5%) were over budget. Live figures decide trust.
 - Live figures exist only where a host opts its decider in, and the measured
   figures come from one host's sessions.
 - A carried scrutiny round records nothing, so a batch verdict from a carried
@@ -552,13 +568,19 @@ does.
 implementation slices doesn't lower the share of graded runs over budget
 (implementation's alone was 3 of 34) and doubles the calls.
 
-**The run denominator is the session; the graded share is recorded beside
-it.** jev-pass-trust defines a run as a session and holds a contract to more
-than 5% of runs over budget, and its 100-run minimum is over the same runs, so
-the contract's state is decided over every session (2.8%). Over graded
-sessions only it is 5.7%, past the line. Both are written down so the review of
-this change, and the next measurement, can weigh them; deciding the state over
-graded sessions alone would also leave the contract under the 100-run minimum.
+**Choice and reason, not alternatives.** With each decision's alternatives in
+the slice, 5 of 88 graded sessions in the live store were over budget (5.7%),
+past the 5% line. The question is whether the rationale gives a reason, which
+`koto decisions record` always carries, and the alternatives don't bear on it,
+so the slice leaves them out.
+
+**Measure on graded runs only.** The live bar leaves not-graded evaluations out,
+so the measurement does too: an empty slice says nothing about size, and
+counting empty runs toward the 100-run minimum or the over-budget share would
+pad both. The live store alone held 90 graded sessions, under the minimum, so
+the measurement reads every session log the host kept, archived copies
+included, and counts each session once: 119 graded. The all-sessions figure is
+written beside it.
 
 **Record the ledger entries from koto's log.** Leaving the batch's verdicts to
 the agent's round file would let a fail go unrecorded; reading them from the

@@ -89,13 +89,14 @@ The PRD's requirements, carried here so the design stands on its own:
   `rs-019` (justification) and `rs-020` (intent), each with a measured lower bound
   over budget on more than 5% of runs and the sentence "These figures are a lower
   bound: the full slice also carries the diff."; `work-on/scrutiny-decision-reasons`,
-  `untrusted`, measured over at least 100 `koto-sessions` runs with at most 5% over
-  budget, its graded-only share stated in its written case (R1, R2, R5).
+  `untrusted`, measured over at least 100 graded `koto-sessions` runs (sessions
+  with something to grade) with at most 5% over budget, its all-sessions figure
+  and a plain statement that the fit is marginal in its written case (R1, R2, R5).
 - The batch is gate `scrutiny_decider`, `max_bytes` 2,560, label `decisions`, one
   shadow criterion keyed `work-on/scrutiny-decision-reasons` with fixed question,
   pass, fail and escape text, read by no route (R3).
 - The slice prints every `analysis` and `implementation` decision on any visit, in
-  log order, as `- choice:` / `  reason:` / `  rejected:` lines with whitespace
+  log order, as `- choice:` / `  reason:` lines (no alternatives) with whitespace
   collapsed, nothing (exit 0) when there are none, non-zero when the log can't be
   read, and reads nothing else (R4).
 - Fixtures meet jev-pass-trust's profile (10 good, 20 seeded-bad, 5 adversarial, 3
@@ -328,11 +329,13 @@ and for each prints:
 ```
 - choice: <choice>
   reason: <rationale>
-  rejected: <alt>; <alt>
 ```
 
-with `gsub("\\s+"; " ")` and a trim on every field, the `rejected:` line only when
-`alternatives_considered` has a non-empty entry, and an empty choice or rationale
+with `gsub("\\s+"; " ")` and a trim on every field, the decision's
+`alternatives_considered` left out (the question judges the rationale, which
+`koto decisions record` requires; with alternatives the slice was over budget on
+5 graded runs of the live store where without them it is over on 3 of all 119),
+and an empty choice or rationale
 printed as the bare label. It prints nothing and exits 0 when no event matches.
 Exits: 0 slice printed (or empty); 64 usage; 66 the log is missing or unreadable;
 127 jq missing. A line `jq` can't parse makes `jq` fail and the script exit 66,
@@ -405,7 +408,10 @@ paragraph with the same facts and command.
 - `check_promotion` requires `live.not_graded` as a non-negative integer.
 - `measure sessions` gains `--slice` with `review-facts` (default),
   `decision-reasons` (runs `decision-reasons.sh slice` on each session's
-  `koto-*.state.jsonl`, counting an empty slice as a run of 0 bytes),
+  `koto-*.state.jsonl`, or a gzipped copy through a temporary file, under every
+  `--dir` given, which may repeat, counting a session once by the header's
+  `session_id` and only when its slice is not empty, so a run here is a graded
+  session),
   `criteria-plan` (the byte lengths of `ctx/review_level_criteria.txt` plus
   `ctx/plan.md`) and `design-context` (`ctx/context.md`), reading regular files
   only (a symlink is skipped and counted on stderr), over every session
@@ -603,8 +609,8 @@ redaction; that is the user's choice and is unchanged by this design.
   seat, so the panel costs what it did plus the call.
 - `--record` now reads the session log on every round, not only when a round file
   names a decider entry.
-- The graded-only over-budget share (5.7%) sits past the 5% line even though the
-  contract passes over all sessions.
+- The fit is marginal: 119 graded runs is just past the 100-run minimum, with 3
+  (2.5%) over budget, so live figures, not this measurement, decide trust.
 
 ### Mitigations
 
@@ -614,5 +620,6 @@ redaction; that is the user's choice and is unchanged by this design.
   cost is one call per scrutiny visit for opted-in users only.
 - The log read is one `jq` pass over a file koto already wrote; a missing log is a
   no-op.
-- The written case states both shares, and the next measurement with more graded
-  runs re-decides the state.
+- The written case says plainly that the fit is marginal and states the
+  all-sessions figure beside the graded one; the next measurement with more
+  graded runs re-decides the state, and the live bar decides trust.

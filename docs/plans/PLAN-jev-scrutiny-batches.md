@@ -129,8 +129,8 @@ answer a pending batch.
 **Acceptance Criteria**:
 - [ ] `skills/work-on/scripts/decision-reasons.sh slice <log>` prints every
       `decision_recorded` event of state `analysis` or `implementation`, any
-      visit, in log order, as `- choice:` / `  reason:` / `  rejected:` lines
-      (the last only when an alternative is named), each field's whitespace
+      visit, in log order, as `- choice:` / `  reason:` lines (alternatives
+      never printed, even when a decision names some), each field's whitespace
       collapsed and trimmed, a missing field as the bare label, multibyte text
       unchanged; prints nothing and exits 0 with no such event; exits 66 for a
       missing or unreadable log; reads no other file and no context key. Its
@@ -148,9 +148,14 @@ answer a pending batch.
       in state `untrusted` (`check.kind: decider`, the template, state, gate and
       criterion, `declared.sha256` current, `level: gate`, `timing:
       ["work-on:scrutiny"]`, `withhold: never`), measured by
-      `measure sessions --slice decision-reasons` over at least 100 runs with at
-      most 5% over 2,560, and `references/jev-criteria.md` has its section,
-      stating the graded-session share too; `jev_criteria.py check` passes.
+      `measure sessions --slice decision-reasons` over at least 100 graded runs
+      with at most 5% over 2,560; that slice reads every `--dir` given (it may
+      repeat) and gzipped logs, counts a session once by its id and only when
+      its slice is not empty, and a test over two fixture roots (one gzipped
+      log, one session in both) gets the figures they should give;
+      `references/jev-criteria.md` has its section, with the all-sessions figure
+      beside the graded one, a statement that the fit is marginal, and the case
+      for leaving alternatives out; `jev_criteria.py check` passes.
 - [ ] `scripts/jev-criteria/fixtures/work-on-scrutiny-decision-reasons.jsonl`
       holds at least 10 good, 20 seeded-bad and 5 adversarial cases (at least 3
       techniques, inline layout mimicry among them), each with its input as log
