@@ -15,7 +15,8 @@
 #
 # Exit status:
 #   75  no result for this head yet; the gate waits
-#   0   every selected command ran and passed
+#   0   every selected command ran and passed, or every cause found is of a
+#       rule below the `block` stage
 #   1   a command ran and failed               verification/command-failed
 #   3   no map, or a map that selects nothing  verification/no-map
 #       a map that does not parse              verification/bad-map
@@ -32,6 +33,14 @@
 # Exit 4 outranks exit 1: when one result holds a failed command and one that
 # timed out, the run stops for a person rather than going back to
 # implementation, since the change was never fully verified.
+#
+# Only a cause whose rule is at the `block` stage takes part in that ranking.
+# Every cause prints its finding at its rule's stage (error at block, warning
+# at warn, info at shadow, nothing at retired); the route is the highest exit
+# among the causes printed at block, and 0 when there is none. So a timed-out
+# command whose rule is at warn, beside a failed command whose rule is at
+# block, routes to 1, not 4. A non-zero route also prints a line on stderr
+# saying how to dispute a finding.
 #
 # Each violation prints one koto finding per cause:
 #   ::koto-finding::{"rule_id":"verification/<rule>","level":"error",
@@ -109,7 +118,8 @@ JQ_ERR=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could
 trap 'rm -f "$JQ_ERR"' EXIT
 
 # The findings and the verdict, both from the result, in one jq program. Each
-# line is `<exit>\t<rule>\t<message>`; the verdict is the highest-ranked exit.
+# line is `<exit>\t<rule>\t<message>`; the verdict is the highest-ranked exit
+# among the lines whose finding printed at block.
 LINES=$(jq -r '
     def argv: (.argv // []) | join(" ");
     def logpart: if .log then " (log: \(.log))" else "" end;
@@ -129,17 +139,12 @@ LINES=$(jq -r '
     else "2\t\t" + "unknown result status \(.status)" end
 ' "$RESULT" 2>"$JQ_ERR") || undecided "could not read the result $RESULT: $(tail -n 3 "$JQ_ERR")"
 
-VERDICT=0
 TAB=$(printf '\t')
+# A result this script can't read holds the gate before anything is recorded
+# or printed.
 while IFS= read -r line; do
     [ -n "$line" ] || continue
-    code=${line%%"$TAB"*}
-    case "$code" in
-        2) undecided "${line##*"$TAB"}" ;;
-        4) VERDICT=4 ;;
-        3) [ "$VERDICT" -eq 4 ] || VERDICT=3 ;;
-        1) [ "$VERDICT" -ge 3 ] || VERDICT=1 ;;
-    esac
+    [ "${line%%"$TAB"*}" != 2 ] || undecided "${line##*"$TAB"}"
 done <<EOF
 $LINES
 EOF
@@ -149,19 +154,31 @@ command -v koto >/dev/null || undecided "koto is not on PATH; the result was not
 koto context add "$SESSION" verification_results.json --from-file "$RESULT" >/dev/null \
     || undecided "could not record verification_results.json in koto context"
 
+# Print every finding, and rank the route over the ones that printed at block:
+# rf_finding sets RF_COUNTED to 1 for exactly those, so a cause whose rule is
+# below block reports without choosing the route.
+VERDICT=0
 while IFS= read -r line; do
     [ -n "$line" ] || continue
+    code=${line%%"$TAB"*}
     rest=${line#*"$TAB"}
     rule=verification/${rest%%"$TAB"*}
     msg=${rest#*"$TAB"}
     rf_finding "$rule" "$msg"
+    [ "$RF_COUNTED" -eq 1 ] || continue
+    case "$code" in
+        4) VERDICT=4 ;;
+        3) [ "$VERDICT" -eq 4 ] || VERDICT=3 ;;
+        1) [ "$VERDICT" -ge 3 ] || VERDICT=1 ;;
+    esac
 done <<EOF
 $LINES
 EOF
 
+[ "$VERDICT" -eq 0 ] || rf_dispute_hint
 # The escalation ladder (scripts/lib/rule-findings.sh): nothing without the
-# template's context, or when no finding was printed. A passing verdict prints
-# none, so rf_deliver does nothing before an exit 0 and always returns 0, which
-# is why it can sit before every exit here.
+# template's context, or when no block-stage finding was printed. A passing
+# verdict prints none at block, so rf_deliver does nothing before an exit 0 and
+# always returns 0, which is why it can sit before every exit here.
 rf_deliver
 exit "$VERDICT"

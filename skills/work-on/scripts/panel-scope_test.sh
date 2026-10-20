@@ -1153,6 +1153,43 @@ expect_rc "--verdict with an unknown panel" 2
 run --verdict scrutiny
 expect_rc "--verdict with no session" 2
 
+# Stages. Every finding --verdict prints takes panel/open-finding's stage,
+# whichever rule it cites, and only at block does the panel fail. One finding
+# is unruled; the other cites commit/conventional-subject, a script rule whose
+# stage a plugin copy can set.
+fixture verdictstage
+plan_record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"unruled","path":"src/a.sh","lines":"41"},
+                                                    {"severity":"blocking","summary":"ruled","rule_id":"commit/conventional-subject"}]},
+                       {"seat":"completeness"},{"seat":"justification"}]'
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict on the stage fixture against the real registry" 1
+verdict_in_copy() { # <copy>
+    cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$1/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "$SESSION"
+}
+rf_test_stages "--verdict" panel/open-finding 1 panel/open-finding verdict_in_copy \
+    skills/work-on/scripts/panel-scope.sh
+
+# The cited rule at warn doesn't soften its finding while panel/open-finding
+# is at block: the finding still prints at error, under the cited rule.
+STAGE_COPY="$RF_TEST_DIR/stage-copy"
+STAGE_LOG="$RF_TEST_DIR/stage-copy.log"
+if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject warn skills/work-on/scripts/panel-scope.sh; then
+    : > "$STAGE_LOG"
+    OUT=$(cd "$FX/repo" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" PATH="$SHIM_BIN:$PATH" \
+        "$STAGE_COPY/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "$SESSION" 2>"$WORKDIR/stderr")
+    RC=$?
+    GOT=$(verdict_findings | jq -r '"\(.rule_id)=\(.level)"' | sort | tr '\n' ' ')
+    if [ "$RC" = 1 ] && [ "$GOT" = "commit/conventional-subject=error panel/open-finding=error " ]; then
+        pass "--verdict: a finding citing a warn-stage rule prints at error while panel/open-finding is at block"
+    else
+        fail "--verdict with the cited rule at warn: exit $RC, findings [$GOT]"
+    fi
+    rf_test_verify_copy "--verdict, cited rule at warn" "$STAGE_COPY" "$STAGE_LOG" panel/open-finding
+else
+    fail "--verdict: could not make a plugin copy with commit/conventional-subject at warn"
+fi
+rm -rf "$STAGE_COPY" "$STAGE_LOG"
+
 # The rule the gate used to print is retired: kept joinable, never printed.
 REGISTRY_JSON="$PLUGIN_ROOT/references/rule-registry.json"
 jq -e '[.rules[] | select(.id == "panel/blocking-finding")][0]
@@ -1712,7 +1749,9 @@ if engine_to_qa_retry "$S"; then
 fi
 cd "$WORKDIR" || exit 1
 
-rf_test_verify "panel-scope --verdict"
+# Every finding --verdict prints is at panel/open-finding's stage, whichever
+# rule it names.
+rf_test_verify "panel-scope --verdict" panel/open-finding
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

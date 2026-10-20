@@ -10,6 +10,10 @@
 # others; they SKIP with a notice where shirabe is not on PATH (the macOS floor
 # leg), and the Linux CI job builds it so they run there.
 #
+# One case runs the installed koto: a throwaway template whose command gate is
+# this script with its rule at warn in a plugin copy, to show a warn-stage
+# finding leaves the gate passing. It skips when koto is not on PATH.
+#
 # Every finding line the script prints is checked against koto's finding shape
 # (`jq -e '.rule_id and .level and .message and .rule_ref'`).
 #
@@ -50,6 +54,10 @@ git config --global user.email t@example.invalid
 git config --global user.name t
 git config --global init.defaultBranch main
 git config --global advice.detachedHead false
+
+# The installed koto, found before the stand-in goes on PATH, for the one case
+# that drives a real engine. It skips when koto is absent.
+REAL_KOTO=$(command -v koto 2>/dev/null || true)
 
 # --- the koto stand-in ----------------------------------------------------------
 
@@ -246,6 +254,84 @@ else
     fail "--base-ref and --session disagree: [$BASE_REF_RC] $BASE_REF_OUT vs [$RC] $OUT"
 fi
 check_shape "--commits --session"
+
+# The same branch against scratch copies of the plugin with the rule at each
+# stage: only a block finding fails the gate. The copies' findings go to a log
+# of their own, verified against each copy's registry, so the suite's log keeps
+# only real-registry findings.
+commits_in_copy() { # <copy>
+    cd "$REPO" && "$1/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main
+}
+rf_test_stages "--commits" commit/conventional-subject 1 "" commits_in_copy \
+    skills/work-on/scripts/check-branch-output.sh
+
+# The same gate under the installed koto: a throwaway template whose command
+# gate runs a copy's check-branch-output.sh on this branch, routed on the exit
+# code. With the rule at warn the finding prints and the gate passes, so `koto
+# next` advances to `passed`; the control, the rule at block, routes to `held`.
+echo "--- engine: a command gate whose only finding is of a warn-stage rule"
+if [ -z "$REAL_KOTO" ]; then
+    echo "SKIP: koto not on PATH -- the engine case did not run"
+else
+    KOTO_COPY="$RF_TEST_DIR/koto-copy"
+    for stage in warn block; do
+        case "$stage" in warn) want=passed ;; *) want=held ;; esac
+        if ! rf_test_stage_copy "$KOTO_COPY" commit/conventional-subject "$stage" \
+            skills/work-on/scripts/check-branch-output.sh 2>"$WORKDIR/stderr"; then
+            fail "engine: could not make a plugin copy with commit/conventional-subject at $stage: $(cat "$WORKDIR/stderr")"
+            continue
+        fi
+        TPL="$WORKDIR/stage-gate-$stage.md"
+        cat > "$TPL" <<EOF
+---
+name: stage-gate-$stage
+version: "1.0"
+description: one command gate running a gate script whose rule is at $stage
+initial_state: check
+states:
+  check:
+    gates:
+      commits:
+        type: command
+        command: '"$KOTO_COPY/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main'
+    transitions:
+      - target: passed
+        when:
+          gates.commits.exit_code: 0
+      - target: held
+        when:
+          gates.commits.exit_code: 1
+  passed:
+    terminal: true
+  held:
+    terminal: true
+---
+
+## check
+
+Check the commits.
+
+## passed
+
+Passed.
+
+## held
+
+Held.
+EOF
+        S="stage-gate-$stage"
+        if ! (cd "$REPO" && "$REAL_KOTO" init "$S" --template "$TPL") >"$WORKDIR/init.out" 2>&1; then
+            fail "engine at $stage: koto init failed: $(cat "$WORKDIR/init.out")"
+            continue
+        fi
+        (cd "$REPO" && "$REAL_KOTO" next "$S" --no-cleanup) >"$WORKDIR/next.out" 2>&1
+        STATE=$(cd "$REPO" && "$REAL_KOTO" status "$S" 2>/dev/null | jq -r '.current_state // empty')
+        [ "$STATE" = "$want" ] \
+            && pass "engine: with commit/conventional-subject at $stage, koto next routes the gate to [$want]" \
+            || fail "engine at $stage: the session is at [$STATE], want [$want]: $(head -c 600 "$WORKDIR/next.out")"
+    done
+    rm -rf "$KOTO_COPY"
+fi
 
 # A control character in a commit subject is replaced in the finding's message,
 # so the finding stays one line koto can parse.
