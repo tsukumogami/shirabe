@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   `/execute`'s coordinated loop keeps the node-to-pull-request map, each node's pushed head
   and the only sign the cascade ran as lines in the coordination pull request's body, which
@@ -36,7 +36,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
