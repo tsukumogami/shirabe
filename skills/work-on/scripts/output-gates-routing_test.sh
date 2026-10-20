@@ -658,7 +658,8 @@ tick '{"pr_status":"check_unsatisfiable","check_exit_reason":"PB4 cannot be met 
 STATE=$(printf '%s' "$RESP" | jq -r '.state // "none"')
 expect "ladder run: taking the exit" check_exit
 # koto's run journal: <base>/_run_journal.jsonl for a redirected store, and
-# ~/.koto/_run_journal.jsonl for the default one (koto's docs/reference/run-journal.md).
+# _run_journal.jsonl in the .koto directory under HOME for the default one
+# (koto's docs/reference/run-journal.md).
 # HOME is this suite's temporary home (above), so either way it is this run's.
 LJOURNAL="${KOTO_SESSIONS_BASE:-$HOME/.koto}/_run_journal.jsonl"
 if [ -f "$LJOURNAL" ] && jq -R -n -e --arg s "$LS" '[inputs | fromjson? | select(.kind == "state_entered" and .session == $s and .["koto.state"] == "check_exit")] | length == 1' < "$LJOURNAL" >/dev/null; then
