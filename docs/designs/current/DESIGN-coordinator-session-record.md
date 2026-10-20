@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-coordinator-session-record.md
 problem: |
   The coordinate skill reads and writes a coordinator's state as a GitHub issue
@@ -39,7 +39,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

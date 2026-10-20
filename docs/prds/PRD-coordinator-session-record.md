@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A coordinator's state lives in a GitHub record and its koto session is thrown
   away at every start, so a restart rebuilds the run from a body it can only
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-coordinator-session-record](docs/briefs/BRIEF-coordinator-session-record.md); carried in Absorbed Brief.
 

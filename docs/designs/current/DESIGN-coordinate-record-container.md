@@ -52,7 +52,7 @@ rationale: |
 
 Current
 
-> **Note (2026-10-11).** `docs/designs/DESIGN-coordinator-session-record.md`
+> **Note (2026-10-11).** `docs/designs/current/DESIGN-coordinator-session-record.md`
 > amends Decisions 1, 3 and 5. For a record whose owner wrote a `store session` Run
 > row, the body is no longer where the state lives: the same sections, in the
 > codec's JSON form and with the same one writer each, are keys under `record/` in
