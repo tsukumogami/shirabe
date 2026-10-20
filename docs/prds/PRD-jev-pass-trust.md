@@ -16,7 +16,8 @@ goals: |
   away only by reviewed registry changes. A trusted criterion's rule is
   withheld only for a user whose decider is active, and is loaded again
   whenever the check can't answer.
-upstream: docs/briefs/BRIEF-jev-pass-trust.md
+absorbed:
+  - docs/briefs/BRIEF-jev-pass-trust.md
 ---
 
 # PRD: Jev criteria and pass trust
@@ -24,6 +25,41 @@ upstream: docs/briefs/BRIEF-jev-pass-trust.md
 ## Status
 
 Accepted
+
+The completeness, clarity and testability reviewers passed it over three
+rounds. The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-jev-pass-trust](docs/briefs/BRIEF-jev-pass-trust.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so a maintainer can tell which questions Jev can be trusted
+with, and so a rule a trusted check enforces stops costing every run its text
+without ever going unchecked. The brief framed three gaps: no Jev criterion
+says what its slice holds or how big it gets on real runs, no criterion has
+earned trust from anything but the agent, and nothing can stop loading a
+checked rule safely or undo that. This document's Problem Statement states all
+three in full, with the measured sizes.
+
+The outcome it set: a maintainer reads the record for any criterion (sources,
+slice script, completeness case, measured size, fixtures, live figures) and
+sees a criterion that falls short rejected rather than shipped; once a
+criterion earns pass trust, a user whose decider is active doesn't load its
+rule, a user without one sees no change, an unanswered check hands the agent
+the rule, and a confirmed false pass takes trust away through a reviewed
+change. Goals and User Stories carry that outcome.
+
+Its journeys were a maintainer whose proposed criterion measurement rejects, a
+maintainer promoting a criterion with fixture and live evidence, users with and
+without an active decider running `/work-on`, an unanswered check mid-run, and
+a reviewer confirming a false pass. User Stories, R2, R9 to R15 carry them.
+
+Its scope boundary put slice contracts, the criterion format, the 2.5 KB
+ceiling, the fixture profile, the promotion and demotion bar, per-user
+withholding and moving the review-shadow trial onto koto decider events in;
+and batched scrutiny criteria, larger budgets, offline ablations, dashboards,
+the script-check lifecycle, koto changes and actually withholding a rule out.
+Requirements and Out of Scope carry it.
 
 ## Problem Statement
 
