@@ -144,7 +144,7 @@ FIXTURE
 # exists until the repository is built.
 land() {
     local session="$1" subject="$2" summary="$3" prepr="$4" data="$5" earlier="${6:-}"
-    local repo; repo=$(mktemp -d); TMPS+=("$repo")
+    local repo; repo=$(mktemp -d) || exit 1; TMPS+=("$repo")
     build_fixture "$repo"
     (
         cd "$repo" || exit 1

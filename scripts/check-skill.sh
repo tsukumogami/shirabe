@@ -28,7 +28,9 @@
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
 #      SKILL.md declares disable-model-invocation: true may have none);
 #   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
-#      refuses a printf, echo or cat piped into grep -q or head.
+#      refuses a printf, echo or cat piped into grep -q or head;
+#   7. runs scripts/check-mktemp-guards.sh over the skill's directory, which
+#      refuses an unchecked mktemp whose value a cd, rm, mv or git acts on.
 #
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
@@ -619,6 +621,15 @@ if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
 else
     show_log
     fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
+fi
+
+# 7. No unchecked mktemp feeding a cd, rm, mv or git: a failed mktemp leaves
+#    the value empty, and `cd ""` stays in the caller's directory.
+if bash "$SCRIPT_DIR/check-mktemp-guards.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
+    echo "ok: mktemp guards ($SKILL_DIR)"
+else
+    show_log
+    fail "mktemp guards: $SKILL_DIR (scripts/check-mktemp-guards.sh)"
 fi
 
 if [ -n "$FAILURES" ]; then

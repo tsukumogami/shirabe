@@ -57,9 +57,9 @@ case "$REAL_MINIMUM" in
     *) echo "FAIL: cannot read the koto minimum from scripts/assert-koto-floor.sh" >&2; exit 1 ;;
 esac
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/preflight-minimum-test.XXXXXX")
-T=$(cd "$T" && pwd -P)
-cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/preflight-minimum-test.XXXXXX") || exit 1
+T=$(cd "$T" && pwd -P) || exit 1
+cleanup() { case "${T:-}" in */preflight-minimum-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 ROOT="$T/root"

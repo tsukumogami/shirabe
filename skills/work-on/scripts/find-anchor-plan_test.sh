@@ -83,7 +83,7 @@ T=$(new_tree)
 expect "two PLANs naming one issue cannot be decided" 2 "$T" 9
 
 # Case 9 — a repository with no plans directory has confidently no anchor.
-T=$(mktemp -d); TMPS+=("$T")
+T=$(mktemp -d) || exit 1; TMPS+=("$T")
 expect "no docs/plans directory is confidently no anchor" 1 "$T" 42
 
 # Case 10 — a caller-supplied PLAN short-circuits the search.

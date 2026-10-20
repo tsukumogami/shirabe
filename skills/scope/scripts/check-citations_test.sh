@@ -25,7 +25,7 @@ ok_test() {
 # Build a throwaway repo with a BRIEF being absorbed into a PRD.
 new_repo() {
     local dir
-    dir=$(mktemp -d)
+    dir=$(mktemp -d) || return 1
     (
         cd "$dir" || exit 1
         git init -q .
@@ -127,7 +127,7 @@ got=$(run_guard "$dir" --target 'docs/*' --survivor docs/prds/PRD-topic.md)
 rm -rf "$dir"
 
 # --- 3: outside a git work tree -------------------------------------------
-dir=$(mktemp -d)
+dir=$(mktemp -d) || exit 1
 got=$(run_guard "$dir" --target docs/briefs/BRIEF-topic.md --survivor docs/prds/PRD-topic.md)
 [[ "$got" == "3" ]] \
     && ok_test "outside a work tree exits 3" \

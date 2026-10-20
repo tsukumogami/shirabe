@@ -37,7 +37,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/work-on-requires-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/work-on-requires-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 MODE_FLAGS=$(awk -F'\t' '$1 == "koto" && $2 == "init" && $4 == "mode:koto-leg" { print $3 }' "$REQ")

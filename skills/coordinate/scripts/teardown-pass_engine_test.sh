@@ -61,9 +61,9 @@ for bin in koto jq git; do
 done
 . "$HERE/../../../scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
-T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass-engine.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass-engine.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */teardown-pass-engine.*) rm -rf "$T" ;; esac' EXIT
 # Its own HOME and koto home, inside the scratch directory, so suites run
 # side by side share no path.
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T" KOTO_SESSIONS_BASE="$T/koto-home"

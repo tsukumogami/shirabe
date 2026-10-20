@@ -27,9 +27,9 @@ for bin in koto jq; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/coord-log-engine.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/coord-log-engine.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */coord-log-engine.*) rm -rf "$T" ;; esac' EXIT
 export HOME="$T/home"
 mkdir -p "$HOME"
 export GIT_CEILING_DIRECTORIES="$T"

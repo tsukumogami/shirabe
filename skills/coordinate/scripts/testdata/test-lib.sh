@@ -6,8 +6,8 @@
 # record bodies rendered by the real codec, and prepared koto session logs in
 # the shape real koto writes.
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-test.XXXXXX")
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-test.XXXXXX") || exit 1
+trap 'case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
 export GH_DB="$T/db.json" KOTO_STORE="$T/koto" KOTO_COMPILED_HASH=feedface
 mkdir -p "$KOTO_STORE/sessions"
 PATH="$HERE/testdata:$PATH"

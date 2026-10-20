@@ -33,9 +33,9 @@ for bin in koto jq; do
 done
 [ -f "$HERE/coord-log.sh" ] && [ -f "$HERE/coord-verdict.sh" ] || { echo "SKIP: the record feature's coord-log.sh is not beside this script"; exit 0; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-engine.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-engine.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */reconcile-engine.*) rm -rf "$T" ;; esac' EXIT
 export HOME="$T/home"
 mkdir -p "$HOME"
 # The session store, named explicitly for the pass and this test alike.
