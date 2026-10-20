@@ -25,8 +25,8 @@ Active
 
 A coordinated `/execute` run stops keeping its control-plane facts in the coordination pull
 request's body. The node map, pushed and merged heads, follow-ups, the cascade verdict, the
-coordination pull request's number, the store and the run identity become `run/` keys in
-`execute-<topic>`, written through one recorder and read through one reader. The body is
+coordination pull request's number and the store become `run/` keys in `execute-<topic>`
+beside its existing `run_id`, written through one recorder and read through one reader. The body is
 rendered from them at every transition, a start with no record recovers from the
 rendering, pauses carry the record across koto's terminal replacement, the session moves by
 the shared import with `/deliver`'s inner leg re-bound or reported, and every merge passes
@@ -54,7 +54,10 @@ the end-to-end engine test, which needs everything before it.
 `run-record-lib.sh`, a shared test helper that seeds a record, the opener's carry of `run/`
 across `--replace-terminal` (lock, retained snapshot), the five
 rebind variables (`STORE`, `COORDINATION_PR`, and `FOLLOW_UP`, `FOLLOW_UP_REMOVE`, `ADOPT_RUN`
-declared and passed but inert until Issues 3 and 4), the opener seeding a carried `run_id`
+declared and passed but inert until Issues 3 and 4: until then setup accepts them and
+reports `ignored=<flag>`), `execute-open.sh` refusing `--store`, `--follow-up`,
+`--adopt-run` and `--coordination-pr` with `flag-needs-setup` when it attaches to a live
+session past `coord_setup`, the opener seeding a carried `run_id`
 but never minting one for a coordinated PLAN, with setup minting when it seals a new record,
 setup's store seal, node list, `/scope`'s run lines and handed pull request, `node-push.sh` writing heads through
 the recorder, and `coord_compute` and `coord-merge.sh` reading the record, with every merge
@@ -84,6 +87,10 @@ R24).
 - [ ] A carried head whose readiness check refuses it is reported `awaiting:<reason>` and the
   run pauses or ends with that reason, never looping; one that passes merges with `--merge` in
   the same loop.
+- [ ] A direct `/execute` with no `--coordination-pr` finds the pull request through the
+  ownership lookup and stops with `coordination-pr-missing` or `coordination-pr-ambiguous`
+  for none or several; an attach to a live session past setup with `--follow-up` exits
+  `flag-needs-setup`.
 - [ ] `--coordination-pr` is verified through the ownership lookup and its number recorded;
   a pull request from another author or branch, without the marker, or differing from the
   lookup's is refused with `coordination-pr-mismatch`; a later invocation reads the number
@@ -115,8 +122,8 @@ sixth decision of `docs/designs/current/DESIGN-scope-then-execute.md` (design De
 and 6; PRD R5, R15, R17, R18, R21, R23).
 
 **Acceptance Criteria**:
-- [ ] Each listed transition but the follow-up one (Issue 4 tests it) and each terminal posts a
-  body in its own test case; a
+- [ ] Each listed transition but the follow-up one (Issue 4 tests it) and each terminal
+  reached through the verdict state but `merged` posts a body in its own test case; a
   live-state change alone posts nothing; two renders of an unchanged record and live state
   post once.
 - [ ] A renderer test over nodes open, merged and closed with zero, one and two follow-ups
@@ -130,14 +137,20 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
   `body=stale`, leaves the record unchanged, and the next transition posts; a render the
   stub fails just before the coordination merge makes no merge call, reports
   `merge-refused:body-stale`, records it in the merge attempts and ends at
-  `ready_awaiting_merge` without printing `evaluate-coordination` again; a body over 60,000
+  `ready_awaiting_merge` without printing `evaluate-coordination` again, and the same holds
+  for a render the stub fails at `evaluate-coordination` on a draft coordination pull
+  request (the attempts grammar gains `body-stale` and `body-full`, read before the draft
+  arm); a body over 60,000
   bytes reports `body=full` and, at the coordination step, `merge-refused:body-full`.
 - [ ] Each merge (node, follow-up, coordination, single-pr home) passes a message file whose
   subject is the title and whose body is Part 1; an empty Part 1, a multi-line title or AI
   attribution makes no merge call and reports `merge-refused:squash-message`; `rebase`
   passes no message.
-- [ ] `/coordinate`'s land step (`land-merge.sh` and `land-check.sh`) uses
-  `scripts/lib/squash-message.sh` and its suites pass unchanged.
+- [ ] `/coordinate`'s land step (`land-merge.sh` and `land-check.sh`) and its test fixtures
+  (`testdata/board/helpers.sh`, `check-skill.tsv`) use `scripts/lib/squash-message.sh`, and
+  its land suites pass with no change to what they assert.
+- [ ] At the `merged` terminal the render posts nothing; a setup stop posts nothing; a
+  renderer refusal of a private node ends at `done_error` with `execute:visibility`.
 - [ ] No script under `skills/execute/` calls the index-entry grammar; it lives only in the
   codec, and the execute eval fixtures' coordination bodies are rendered bodies.
 - [ ] A private node under a public coordination pull request is refused with
@@ -178,7 +191,8 @@ R22).
   or none stops with `recovery-unproven`
   naming every such node; a recovering start with `--adopt-run <id>` re-stamps or stamps only
   those, records the login and time, and is refused on a start whose session holds a record or
-  with a malformed id; `run-id.sh restamp` and `stamp` are first checked to work on a merged
+  with a malformed id; if `run-id.sh restamp` or `stamp` fails on a pull request, recovery
+  stops with `recovery-unproven` naming it as not stampable; they are first checked to work on a merged
   pull request's body.
 - [ ] A body with no index line and the PLAN gone stops with `coordination-index-missing`.
 - [ ] With the PLAN on the branch the node list comes from it and the cascade is `not-run`;
@@ -238,7 +252,7 @@ hold the merge-last gate until they merge (design Decision 7; PRD R16).
   `--remove` drops it; a replacement recorded and the closed one removed lets the gate pass
   once the replacement merges.
 
-**Dependencies**: Blocked by Issue 2, Issue 3
+**Dependencies**: Blocked by Issue 3
 
 ### Issue 5: feat(deliver): move a coordinated run between workspaces with its leg
 
@@ -269,7 +283,7 @@ on the same host and resumed to its merge (design Decision 5; PRD R12, R14, R19,
   and the old request reads `abandoned`; a `/deliver` session resumed in place on the same
   host gets the result on its original leg.
 - [ ] A refused attach resolves the leg `outcome: error`, `reason:
-  execute-leg-lost:<code>`, naming the execute session's state; a `/deliver` session moved
+  execute-leg-lost:<code>`, `step: deliver:child-absent`, naming the execute session's state; a `/deliver` session moved
   between two simulated hosts with separate request stores ends with
   `execute-leg-lost:request_not_found`, and a new `/deliver` there gets the result.
 - [ ] `/deliver` passes `/scope`'s pull request as `--coordination-pr` and `--store` when

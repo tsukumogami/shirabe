@@ -298,8 +298,7 @@ the body. The trouble is that the same text is also the run's memory.
   body from the run record, the body's live Part 1 and live state reads, and posts it, after
   each of: a node's pull request opened or pushed, a node observed merged, a follow-up
   recorded, the cascade pushed or failed (the cascade's push is the coordination pull
-  request's push, one event), and each of the five terminals (`merged`,
-  `ready_awaiting_merge`, `paused_awaiting_merges`, `done_blocked`, `done_error`). A change in live state alone, such as checks finishing, doesn't trigger a
+  request's push, one event), and each of the five terminals reached through the verdict state (`merged`, `ready_awaiting_merge`, `paused_awaiting_merges`, `done_blocked`, `done_error`); at `merged` the render records merged heads and posts nothing, the merged body being final, and setup's own stops, which end at `done_error` before the loop, render and post nothing. A change in live state alone, such as checks finishing, doesn't trigger a
   render; the next one shows it. Rendering an unchanged record and unchanged live state
   produces the same bytes, and an unchanged body isn't posted. A failed render or post
   leaves the record as written, is reported as `body=stale` on that invocation's report, is
@@ -330,8 +329,7 @@ the body. The trouble is that the same text is also the run's memory.
     all of them.`, with `<n>` the number of PR nodes;
   - exactly one top-level `---`;
   - Part 2: the declaration marker; the run lines `topic=`, `exit=`, `outcome=`, `intent=`,
-    `mode=` as `/scope` published them, recorded at setup from the body it found (and, after a
-    republish that lost them, from the republished body's own lines), and `store=` and `run=`
+    `mode=` as `/scope` published them, recorded at setup from the body it found, and `store=` and `run=`
     from the record; the PR Index (a node line's `<n>` is its pull request number);
     the merge-order block as today.
   The PR Index has one line per PR node, `- <node> | <repo>:docs/plans/PLAN-<topic>.md#<n> |
@@ -517,7 +515,8 @@ the body. The trouble is that the same text is also the run's memory.
 - [ ] A state read the stub fails renders that line's state as `unknown`.
 - [ ] Each of these posts a body in its own test case: a node's pull request opened, a node
   pushed, a node observed merged, a follow-up recorded, the cascade pushed, the cascade
-  failed, the coordination pull request pushed, and each of the five terminals.
+  failed, the coordination pull request pushed, and each terminal reached through the verdict
+  state but `merged`; at `merged` nothing is posted, and a setup stop posts nothing.
 - [ ] A node in a private repository under a public coordination pull request is refused
   with `execute:visibility` at its push, and the renderer refuses a record holding one, without
   naming the private repository in either message.

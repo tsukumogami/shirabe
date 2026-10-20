@@ -167,7 +167,7 @@ Each verb of `run-record.sh`, the one script that may call it, and the fields it
 | `setup` | `record-coord-setup.sh` (a new run) | all of `run/setup` |
 | `push` | `node-push.sh node` | `run/node/<node>`: `repo`, `pr`, `head` |
 | `observe` | `coord-render.sh` | `merged_head` of a node or follow-up |
-| `cascade` | `node-push.sh coordination` (pushed) and `record-coordination-verdict.sh` (failed) | all of `run/cascade` |
+| `cascade` | `node-push.sh coordination` (pushed) and `record-coordination-verdict.sh` (failed); the one verb with two callers, both steps of the cascade | all of `run/cascade` |
 | `follow-up` | `record-coord-setup.sh` (with `--follow-up`) | `run/follow-up/<node>/<n>`: `repo`, `pr`, `head`, `removed` |
 | `recover` | `record-coord-setup.sh` (a lost record) | `run/setup`, `run/node/*`, `run/follow-up/*`, `run/cascade`, `run/recovered` |
 | `adopt` | `record-coord-setup.sh` (with `--adopt-run`, during recovery) | `run/adopted` |
@@ -272,9 +272,16 @@ posts with `gh pr edit --body-file` only on a difference. A failed read or post 
 node's loop decision. The coordination pull request is the exception, because CI's
 merge-last gate reads the posted body: `evaluate-coordination` and `merge-coordination`
 run the renderer first and proceed only on `body=posted` or `body=unchanged`, so the gate
-never reads an index older than the record. On a refused render the step records `coordination:body-stale` (or `body-full`) in the invocation's merge attempts, so `coord_compute` doesn't print the step again, and the run ends at `ready_awaiting_merge` with reason `merge-refused:body-stale` (or `merge-refused:body-full`); the next invocation starts with empty attempts and tries again. The recorded `merged_head` is what the index shows for a merged pull request; the
+never reads an index older than the record. On a refused render the step records `coordination:body-stale` (or `body-full`) in the invocation's merge attempts (the attempts grammar in `coord-common.sh` and `coordinated-next.sh` gains both values), and `coord_compute` reads the coordination attempt before its draft and `pending:*` arms, so it prints neither `evaluate-coordination` nor `merge-coordination` again, and the run ends at `ready_awaiting_merge` with reason `merge-refused:body-stale` (or `merge-refused:body-full`); the next invocation starts with empty attempts and tries again. The recorded `merged_head` is what the index shows for a merged pull request; the
 renderer is its reader. A coordination pull request already merged gets no further post:
-its body is final at the merge.
+its body is final at the merge, so the render at the `merged` terminal records merged heads
+and posts nothing. Setup's own stops end at `done_error` without reaching the loop or the
+renderer, so they post nothing. A renderer refusal of a private node prints
+`body=refused:execute:visibility` and the loop's next action is `error:execute:visibility`,
+ending at `done_error`; setup also runs `coord_node_visibility` over the PLAN's nodes, so a
+private node under a public home is usually refused before any pull request exists. Setup's
+read of `/scope`'s run lines from the coordination body is the one body read allowed outside
+the codec, limited to setup and to `key=value` lines above the index.
 
 It's called by `node-push.sh` after a node's pull request opens or is pushed (replacing
 its `awk` surgery), by `node-push.sh coordination` after the cascade pushes and by the
