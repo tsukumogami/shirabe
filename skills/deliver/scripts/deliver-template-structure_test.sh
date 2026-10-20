@@ -27,8 +27,24 @@
 #     executed_check and merged_check is overridable: false; so are the
 #     mode_route and confirm gates
 #   - the default actions are exactly open_request, scope_absent,
-#     execute_absent and the three re-checks, and none pushes, merges, or
-#     opens a PR
+#     execute_absent, the three re-checks, mode_route's handover read and
+#     execute_lost, and none pushes, merges, or opens a PR; no command koto
+#     runs (a default action or a gate) reads ${context. or ${gates., which
+#     koto never substitutes
+#   - mode_route captures EXEC_HANDOVER from deliver-execute-leg.sh handover
+#     with STORE, and execute_run's directive appends it unless it reads none;
+#     STORE is optional, github|session, rebind
+#   - every scope_run arm that copies the leg's pr copies its intent as
+#     scope_intent; the explicit arm clears it
+#   - execute_run's refused and missing arms, and only those, reach
+#     execute_lost with step deliver:child-absent and reason
+#     execute-leg-lost:<koto's code> or execute-leg-lost:request_not_found;
+#     execute_lost runs deliver-execute-leg.sh lost and goes only to
+#     done_error
+#   - each of those bites on a mutated copy where the file uses it: a
+#     refused leg or a missing request routed as before, an arm copying pr
+#     without intent, a result map without execute_state, a command reading
+#     ${context.
 #   - on both leg gates: every arm that leaves toward progress requires a
 #     promoted, valid result; the explicit arm reaches only done_error with
 #     deliver:child-absent and assigns no leg value; the child_returned arm
@@ -37,8 +53,9 @@
 #   - outcome=merged is assigned only by merged_check and executed_check, on
 #     an arm requiring both the verdict and a non-empty checked_pr; every
 #     other merged_check arm ends ready-awaiting-merge
-#   - the three terminals declare the ten-key result map, each read as
-#     ${context.<key>}; done_error is a failure
+#   - the three terminals declare the same eleven-key result map (the ten
+#     report keys and execute_state), each read as ${context.<key>};
+#     done_error is a failure
 #   - the child directives name --intent=continue and the legs; execute_run's
 #     appends --review-floor={{REVIEW_FLOOR}} and
 #     --review-ceiling={{REVIEW_CEILING}}, each only when not empty
@@ -143,7 +160,7 @@ for v in TOPIC PLUGIN_ROOT COORDINATION UPSTREAM MAX_ROUNDS; do
 done
 
 CHECKS=(
-"the states are exactly the run's|.states | keys == [\"confirm\",\"done\",\"done_error\",\"done_stopped\",\"execute_absent\",\"execute_run\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scope_run\",\"scoped_check\"]"
+"the states are exactly the run's|.states | keys == [\"confirm\",\"done\",\"done_error\",\"done_stopped\",\"execute_absent\",\"execute_lost\",\"execute_run\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scope_run\",\"scoped_check\"]"
 "open_request is the initial state|.initial_state == \"open_request\""
 "MODE is auto or interactive, default interactive|.variables.MODE | (.values == [\"auto\",\"interactive\"] and .default == \"interactive\")"
 "MERGE is true or false, default false|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\")"
@@ -153,7 +170,7 @@ CHECKS=(
 "exec_leg is a non-overridable request-leg gate on REQ's execute leg|.states.execute_run.gates.exec_leg | (.type == \"request-leg\" and .overridable == false and .request == \"{{REQ}}\" and .leg == \"execute\" and .expect.outcome == [\"merged\",\"ready-awaiting-merge\",\"paused-for-review\",\"paused-awaiting-merges\",\"error\"])"
 "every re-check gate is a non-overridable context-matches gate|[.states.scoped_check, .states.executed_check, .states.merged_check | .gates[] | (.type == \"context-matches\" and .overridable == false)] | length == 7 and all"
 "the mode_route and confirm gates refuse overrides|[.states.mode_route, .states.confirm | .gates[] | .overridable == false] | length == 2 and all"
-"the default actions are exactly the request-store and re-check states|[.states | to_entries[] | select(.value.default_action != null) | .key] | sort == [\"execute_absent\",\"executed_check\",\"merged_check\",\"open_request\",\"scope_absent\",\"scoped_check\"]"
+"the default actions are exactly the request-store, re-check, handover and lost-leg states|[.states | to_entries[] | select(.value.default_action != null) | .key] | sort == [\"execute_absent\",\"execute_lost\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scoped_check\"]"
 "no default action pushes, merges, or writes a PR|[.states[] | (.default_action.command // \"\") | test(\"git push|gh pr (merge|create|edit|ready|close)|gh api .*-X\")] | any | not"
 "the re-checks run deliver-probe.sh in their own mode|(.states.scoped_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" scoped \")) and (.states.executed_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" executed \")) and (.states.merged_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" merged \"))"
 "open_request captures REQ from deliver-open-request.sh|.states.open_request.default_action | (.capture_stdout_as == \"REQ\" and (.command | test(\"deliver-open-request\\\\.sh\")))"
@@ -163,7 +180,17 @@ CHECKS=(
 "every scope_run arm into done_stopped requires a promoted, valid result|[.states.scope_run.transitions[] | select(.target == \"done_stopped\") | .when | (.[\"gates.scope_leg.source\"] == \"promoted\" and .[\"gates.scope_leg.valid\"] == true)] | length == 3 and all"
 "the explicit arms reach only done_error with deliver:child-absent and copy no leg value|[.states.scope_run.transitions[], .states.execute_run.transitions[] | select((.when[\"gates.scope_leg.source\"] // .when[\"gates.exec_leg.source\"]) == \"explicit\") | (.target == \"done_error\" and .context_assignments.step == \"deliver:child-absent\" and .context_assignments.pr == \"\" and ([.context_assignments[] | contains(\"\${gates.\")] | any | not))] | length == 2 and all"
 "the child_returned arms need an open, unbound leg and reach only the absent state|[.states.scope_run.transitions[], .states.execute_run.transitions[] | select(.when.child_returned != null) | ((.target == \"scope_absent\" and .when[\"gates.scope_leg.disposition\"] == \"open\" and .when[\"gates.scope_leg.bound\"] == false) or (.target == \"execute_absent\" and .when[\"gates.exec_leg.disposition\"] == \"open\" and .when[\"gates.exec_leg.bound\"] == false))] | length == 2 and all"
-"every scope_run and execute_run arm but the explicit one copies the leg's payload|[(.states.scope_run.transitions[] | select(.when[\"gates.scope_leg.source\"] != \"explicit\") | .context_assignments | [\"scope_outcome\",\"plan_path\",\"plan_execution_mode\",\"pr\",\"pr_state\",\"startable\",\"next\"] as \$ks | [\$ks[] as \$k | .[\$k] == (\"\${gates.scope_leg.payload.\" + (if \$k == \"scope_outcome\" then \"outcome\" else \$k end) + \"}\")] | all), (.states.execute_run.transitions[] | select(.when[\"gates.exec_leg.source\"] != \"explicit\") | .context_assignments | [\"pr\",\"repos\",\"resume\",\"waiting\"] as \$ks | [\$ks[] as \$k | .[\$k] == (\"\${gates.exec_leg.payload.\" + \$k + \"}\")] | all)] | length == 25 and all"
+"every scope_run arm but the explicit one, and every execute_run arm but the explicit and missing ones, copies the leg's payload|[(.states.scope_run.transitions[] | select(.when[\"gates.scope_leg.source\"] != \"explicit\") | .context_assignments | [\"scope_outcome\",\"plan_path\",\"plan_execution_mode\",\"pr\",\"pr_state\",\"startable\",\"next\",\"scope_intent\"] as \$ks | [\$ks[] as \$k | .[\$k] == (\"\${gates.scope_leg.payload.\" + (if \$k == \"scope_outcome\" then \"outcome\" elif \$k == \"scope_intent\" then \"intent\" else \$k end) + \"}\")] | all), (.states.execute_run.transitions[] | select(.when[\"gates.exec_leg.source\"] != \"explicit\" and .when[\"gates.exec_leg.disposition\"] != \"missing\") | .context_assignments | [\"pr\",\"repos\",\"resume\",\"waiting\"] as \$ks | [\$ks[] as \$k | .[\$k] == (\"\${gates.exec_leg.payload.\" + \$k + \"}\")] | all)] | length == 24 and all"
+"every scope_run arm that copies the leg's pr also copies its intent as scope_intent|[.states.scope_run.transitions[] | .context_assignments | select(.pr == \"\${gates.scope_leg.payload.pr}\") | .scope_intent == \"\${gates.scope_leg.payload.intent}\"] | length == 15 and all"
+"scope_run's explicit arm clears scope_intent|[.states.scope_run.transitions[] | select(.when[\"gates.scope_leg.source\"] == \"explicit\") | .context_assignments.scope_intent] == [\"\"]"
+"execute_run's refused and missing arms reach execute_lost with deliver:child-absent and an execute-leg-lost reason|[.states.execute_run.transitions[] | select(.when[\"gates.exec_leg.source\"] == \"refused\" or .when[\"gates.exec_leg.disposition\"] == \"missing\") | (.target == \"execute_lost\" and .context_assignments.outcome == \"error\" and .context_assignments.step == \"deliver:child-absent\" and (.context_assignments.reason | startswith(\"execute-leg-lost:\")))] | length == 2 and all"
+"the refused arm names koto's code and the missing arm request_not_found|([.states.execute_run.transitions[] | select(.when[\"gates.exec_leg.source\"] == \"refused\") | .context_assignments.reason] == [\"execute-leg-lost:\${gates.exec_leg.payload.reason}\"]) and ([.states.execute_run.transitions[] | select(.when[\"gates.exec_leg.disposition\"] == \"missing\") | .context_assignments | [.reason, .pr]] == [[\"execute-leg-lost:request_not_found\", \"\"]])"
+"only execute_run's refused and missing arms enter execute_lost|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"execute_lost\") | \$s] == [\"execute_run\",\"execute_run\"]"
+"execute_lost runs deliver-execute-leg.sh lost and goes only to done_error|(.states.execute_lost.default_action.command | test(\"deliver-execute-leg\\\\.sh\\\" lost \")) and (.states.execute_lost.transitions | map(.target) == [\"done_error\"])"
+"mode_route captures EXEC_HANDOVER from deliver-execute-leg.sh handover, passing STORE|.states.mode_route.default_action | (.capture_stdout_as == \"EXEC_HANDOVER\" and (.command | contains(\"deliver-execute-leg.sh\\\" handover \") and contains(\"--store \\\"{{STORE}}\\\"\")))"
+"execute_run's directive appends the handover arguments, and nothing when they read none|.states.execute_run.directive | (contains(\"{{EXEC_HANDOVER}}\") and contains(\"When that value reads\\n\`none\`, append nothing\"))"
+"STORE is optional, default empty, github or session, rebind|.variables.STORE | ((.required // false) == false and (.default // \"\") == \"\" and .pattern == \"^(github|session)?\$\" and .rebind == true)"
+"no command koto runs reads \${context. or \${gates.|[.states[] | ((.default_action.command // \"\"), ((.gates // {})[] | (.command // \"\"))) | test(\"\\\\$\\\\{(context|gates)\\\\.\")] | any | not"
 "a disposition of abandoned ends deliver:request-abandoned on both legs|[.states.scope_run.transitions[], .states.execute_run.transitions[] | select((.when[\"gates.scope_leg.disposition\"] // .when[\"gates.exec_leg.disposition\"]) == \"abandoned\") | (.target == \"done_error\" and .context_assignments.step == \"deliver:request-abandoned\")] | length == 2 and all"
 "outcome merged is assigned only by merged_check and executed_check|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.context_assignments.outcome == \"merged\") | \$s] | sort == [\"executed_check\",\"merged_check\"]"
 "merged_check's merged arm requires the verdict and a non-empty checked_pr|[.states.merged_check.transitions[] | select(.context_assignments.outcome == \"merged\") | .when == {\"gates.merged_confirmed.matches\": true, \"gates.merged_pr.matches\": true}] == [true]"
@@ -172,7 +199,8 @@ CHECKS=(
 "scoped_check routes to mode_route only on pass and a non-empty checked_pr|[.states.scoped_check.transitions[] | select(.target == \"mode_route\") | .when] == [{\"gates.scoped_pass.matches\": true, \"gates.scoped_pr.matches\": true}]"
 "mode_route: 0 and 10 to confirm, 20 to done_stopped as handed-off-multi-pr, 4 to an error|[.states.mode_route.transitions[] | [.when[\"gates.plan_mode.exit_code\"], .target, (.context_assignments.outcome // \"\")]] == [[0,\"confirm\",\"\"],[10,\"confirm\",\"\"],[20,\"done_stopped\",\"handed-off-multi-pr\"],[4,\"done_error\",\"error\"]]"
 "confirm: auto goes on without evidence; stop ends scoped with next=/deliver <topic>|(.states.confirm.transitions[0] | .target == \"execute_run\" and .when == {\"gates.mode_auto.exit_code\": 0}) and ([.states.confirm.transitions[] | select(.target == \"done_stopped\") | .context_assignments] == [{\"outcome\":\"scoped\",\"next\":\"/deliver {{TOPIC}}\"}])"
-"the three terminals declare the ten-key result map read from context|[.states[] | select(.terminal == true) | .result | (keys == ([\"outcome\",\"step\",\"reason\",\"pr\",\"pr_state\",\"repos\",\"resume\",\"waiting\",\"next\",\"startable\"] | sort) and (to_entries | all(.value == (\"\${context.\" + .key + \"}\"))))] | length == 3 and all"
+"the three terminals declare the eleven-key result map read from context|[.states[] | select(.terminal == true) | .result | (keys == ([\"outcome\",\"step\",\"reason\",\"pr\",\"pr_state\",\"repos\",\"resume\",\"waiting\",\"next\",\"startable\",\"execute_state\"] | sort) and (to_entries | all(.value == (\"\${context.\" + .key + \"}\"))))] | length == 3 and all"
+"the three terminals' result maps are equal|[.states[] | select(.terminal == true) | .result] | (length == 3 and (unique | length) == 1)"
 "done_error is a failure; done and done_stopped are not|.states.done_error.failure == true and ((.states.done.failure // false) == false) and ((.states.done_stopped.failure // false) == false)"
 "scope_run's directive runs /scope --intent=continue on the scope leg|.states.scope_run.directive | (contains(\"--intent=continue\") and contains(\"--koto-leg={{REQ}}:scope\"))"
 "execute_run's directive runs /execute on the PLAN and the execute leg|.states.execute_run.directive | (contains(\"docs/plans/PLAN-{{TOPIC}}.md\") and contains(\"--koto-leg={{REQ}}:execute\") and contains(\"{{MERGE}}\"))"
@@ -222,6 +250,21 @@ mutate "a merged arm on the leg's word alone" \
 mutate "a merged_check arm upgrading without checked_pr" \
     "merged_check's merged arm requires the verdict and a non-empty checked_pr" \
     's/(          gates\.merged_confirmed\.matches: true\n          gates\.merged_pr\.matches: false\n        context_assignments:\n          outcome: )ready-awaiting-merge/${1}merged/'
+mutate "a refused execute leg ending execute:refused again" \
+    "execute_run's refused and missing arms reach execute_lost with deliver:child-absent and an execute-leg-lost reason" \
+    's/(      - target: )execute_lost(\n        when:\n          gates\.exec_leg\.disposition: resolved\n          gates\.exec_leg\.source: refused\n)/${1}done_error$2/'
+mutate "a missing request ending deliver:request-abandoned again" \
+    "execute_run's refused and missing arms reach execute_lost with deliver:child-absent and an execute-leg-lost reason" \
+    's/(          gates\.exec_leg\.disposition: missing\n        context_assignments:\n          outcome: error\n          step: )"deliver:child-absent"/${1}"deliver:request-abandoned"/'
+mutate "a scope_run arm that copies pr but not intent" \
+    "every scope_run arm that copies the leg's pr also copies its intent as scope_intent" \
+    's/(          gates\.scope_leg\.payload\.outcome: scoped\n(?:[^\n]*\n)*?          pr: "\$\{gates\.scope_leg\.payload\.pr\}"\n)          scope_intent: [^\n]*\n/$1/'
+mutate "a terminal whose result map lacks execute_state" \
+    "the three terminals' result maps are equal" \
+    's/(      startable: "\$\{context\.startable\}"\n)      execute_state: "\$\{context\.execute_state\}"\n/$1/'
+mutate "a default action reading \${context." \
+    "no command koto runs reads \${context. or \${gates." \
+    's/(deliver-execute-leg\.sh" lost --topic "\{\{TOPIC\}\}")/${1} --x "\${context.pr}"/'
 mutate "a default action that pushes" \
     "no default action pushes, merges, or writes a PR" \
     's/(scripts\/deliver-open-request\.sh" --topic "\{\{TOPIC\}\}")/${1} \&\& git push/'

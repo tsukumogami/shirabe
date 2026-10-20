@@ -5,9 +5,13 @@
 # Each case asserts what the probe wrote to context (the verdict, checked_pr,
 # pr, pr_state), what it cleared, and that it wrote nothing to GitHub. Covered:
 #
-#   scoped    pass; the PLAN untracked, modified, or missing from HEAD; HEAD
-#             not pushed; the PR body recording intent=stop; owned-pr.sh's
-#             zero survivors, several (exit 3), and a failed read (exit 2)
+#   scoped    pass; /scope's result (scope_intent and pr, as scope_run copies
+#             them from the leg) recording intent stop, no intent, a forged
+#             one, no PR, or a PR other than the owned one; a body with no
+#             intent= line, or one recording intent=stop, beside a result of
+#             continue still passes; the PLAN untracked, modified, or missing
+#             from HEAD; HEAD not pushed; owned-pr.sh's zero survivors,
+#             several (exit 3), and a failed read (exit 2)
 #   executed  merged and open; the PLAN still present; no current DESIGN;
 #             zero, several, and a failed read; stale pr_state cleared
 #   merged    merged; not merged (the PR still OPEN) with its URL written;
@@ -16,9 +20,10 @@
 #             PR beside the merged one; zero, several, and a failed read, each
 #             writing not-merged and no PR
 #
-# plus, in every mode, stale keys from an earlier tick cleared, and a stale
-# leg-copied `pr` naming another PR replaced by the owned PR's URL (or left
-# empty when the lookup fails), and the usage errors.
+# plus, in every mode, stale keys from an earlier tick cleared; in executed
+# and merged a stale leg-copied `pr` naming another PR replaced by the owned
+# PR's URL (or left empty when the lookup fails), and in scoped such a `pr`
+# failing the check; and the usage errors.
 #
 # Usage: bash skills/deliver/scripts/deliver-probe_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs bash, git and jq.
@@ -97,6 +102,9 @@ SESS=deliver-t1
 key() { cat "$KOTO_STORE/$SESS/$1" 2>/dev/null; }
 has() { [ -f "$KOTO_STORE/$SESS/$1" ]; }
 seed() { mkdir -p "$KOTO_STORE/$SESS"; printf '%s' "$2" >"$KOTO_STORE/$SESS/$1"; }
+# scoped_store -- reset_store plus /scope's result as scope_run copies it from
+# the scope leg: intent continue, and the owned PR's URL as pr.
+scoped_store() { reset_store; seed scope_intent continue; seed pr "$URL"; }
 # reset_store -- an empty session store holding only the run identity
 # deliver-open.sh mints at the session's birth; the probe only reads it.
 reset_store() {
@@ -127,28 +135,29 @@ failed() {
 echo "== scoped =="
 MODE=scoped
 
-reset_store; seed pr "$OTHER"; seed scoped_verdict pass; seed checked_pr "$OTHER"
+scoped_store; seed scoped_verdict fail; seed checked_pr "$OTHER"
 db "[$(pr "$URL" OPEN)]"
 run scoped
 eq "pass: exit 0" 0 "$RC"
 eq "pass: verdict" pass "$(key scoped_verdict)"
 eq "pass: checked_pr is the owned PR" "$URL" "$(key checked_pr)"
-eq "pass: the leg-copied pr naming another PR is replaced by the owned PR" "$URL" "$(key pr)"
+eq "pass: pr is the owned PR, the one /scope's result names" "$URL" "$(key pr)"
+eq "pass: /scope's intent is left as scope_run copied it" continue "$(key scope_intent)"
 no_writes "pass"
 if grep -q -- "--state open" "$GH_DB.calls"; then ok "pass: the lookup is owned-pr.sh --state open"; else bad "pass: --state open" "$(cat "$GH_DB.calls")"; fi
 
-reset_store; seed pr "$OTHER"; seed scoped_verdict pass; seed checked_pr "$OTHER"
+scoped_store; seed scoped_verdict pass; seed checked_pr "$OTHER"
 db "[]"
 run scoped
 failed "zero survivors (no PR)" fail
 no_writes "zero survivors"
 
-reset_store; seed pr "$OTHER"
+scoped_store
 db "[$(pr "https://github.com/fork/widgets/pull/7" OPEN me true),$(pr "https://github.com/acme/widgets/pull/8" OPEN someone-else)]"
 run scoped
 failed "zero survivors (only a fork's and another author's PRs)" fail
 
-reset_store
+scoped_store
 db "[$(pr "$URL" OPEN),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
 run scoped
 failed "several owned PRs (exit 3)" fail
@@ -157,60 +166,94 @@ failed "several owned PRs (exit 3)" fail
 MINE=0123456789abcdef0123456789abcdef
 FOREIGN=fedcba9876543210fedcba9876543210
 
-reset_store
+scoped_store
 db "[$(pr "$URL" OPEN)]"
 run scoped
 eq "an unmarked /scope PR, looked up with a run identity, still passes on the fallback" pass "$(key scoped_verdict)"
 
-reset_store; rm -f "$KOTO_STORE/$SESS/run_id"
+scoped_store; rm -f "$KOTO_STORE/$SESS/run_id"
 db "[$(pr "$URL" OPEN)]"
 run scoped
 eq "a session with no run_id: exit 66" 66 "$RC"
 if has run_id; then bad "the probe mints no run_id" "[$(key run_id)]"; else ok "the probe mints no run_id"; fi
 
-reset_store; seed run_id "$MINE"
+scoped_store; seed run_id "$MINE"
 db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
 <!-- shirabe-run: $FOREIGN -->")]"
 run scoped
 failed "the topic branch's PR was opened by another run (exit 5)" fail
 no_writes "another run's PR"
 
-reset_store; seed run_id "$MINE"
+scoped_store; seed run_id "$MINE"
 db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
 <!-- shirabe-run: $MINE -->"),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
 run scoped
 failed "a marked and an unmarked PR are ambiguous (exit 4)" fail
 
-reset_store; seed pr "$OTHER"
+scoped_store
 db "[$(pr "$URL" OPEN)]" '{"pr list": 1}'
 run scoped
 failed "a failed read (exit 2)" fail
 
-reset_store
+# /scope's intent is read from its result (the leg, copied by scope_run),
+# never from the PR's body.
+scoped_store; seed scope_intent stop
+db "[$(pr "$URL" OPEN)]"
+run scoped
+failed "/scope's result records intent stop" fail
+
+scoped_store; rm -f "$KOTO_STORE/$SESS/scope_intent"
+db "[$(pr "$URL" OPEN)]"
+run scoped
+failed "/scope's result records no intent" fail
+
+scoped_store; seed scope_intent 'continue; rm -rf /'
+db "[$(pr "$URL" OPEN)]"
+run scoped
+failed "a forged intent outside continue|stop" fail
+
+scoped_store
+db "[$(pr "$URL" OPEN me false "$BRANCH" "no intent line here")]"
+run scoped
+eq "a body with no intent= line, /scope's result continue: pass" pass "$(key scoped_verdict)"
+eq "... with the owned PR" "$URL" "$(key checked_pr)"
+
+scoped_store
 db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=stop")]"
 run scoped
-failed "the PR body records intent=stop" fail
+eq "a body recording intent=stop, /scope's result continue: pass" pass "$(key scoped_verdict)"
 
-reset_store
+scoped_store; seed pr "$OTHER"
+db "[$(pr "$URL" OPEN)]"
+run scoped
+failed "/scope's result names a PR that is not the owned PR" fail
+
+scoped_store; rm -f "$KOTO_STORE/$SESS/pr"
+db "[$(pr "$URL" OPEN)]"
+run scoped
+failed "/scope's result names no PR" fail
+
+
+scoped_store
 db "[$(pr "$URL" OPEN)]"
 printf 'more\n' >>"$R/docs/plans/PLAN-$TOPIC.md"
 run scoped
 failed "the PLAN modified against HEAD" fail
 G checkout -q -- "docs/plans/PLAN-$TOPIC.md"
 
-reset_store
+scoped_store
 G rm -q --cached "docs/plans/PLAN-$TOPIC.md"
 run scoped
 failed "the PLAN not tracked" fail
 G reset -q -- "docs/plans/PLAN-$TOPIC.md"
 
-reset_store
+scoped_store
 G commit -q --allow-empty -m "local only"
 run scoped
 failed "HEAD not pushed" fail
 G reset -q --hard HEAD~1
 
-reset_store
+scoped_store
 db "[$(pr "$URL" OPEN)]"
 run scoped
 eq "control: pass again after the fixtures are restored" pass "$(key scoped_verdict)"
