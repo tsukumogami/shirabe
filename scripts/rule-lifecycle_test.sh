@@ -410,7 +410,8 @@ if [ "$tsv_out" = "$from_json" ] && [ "$nobj" = 7 ]; then
 else
     fail "--json prints one object per rule with the same values" "tsv=[$tsv_out] json=[$json_out]"
 fi
-keys=$(printf '%s\n' "$json_out" | head -1 | jq -c 'keys_unsorted')
+first_json=${json_out%%$'\n'*}
+keys=$(jq -c 'keys_unsorted' <<<"$first_json")
 if [ "$keys" = '["id","stage","days","evaluations","fires_error","fires_warning","fires_info","passes","disputes_agent","disputes_person","unconverged","criterion"]' ]; then
     pass "--json keys match the columns"
 else
@@ -449,7 +450,7 @@ snap() { (cd "$RO" && ls -la . && cksum registry.json journal); }
 before=$(snap)
 out=$(cd "$RO" && bash "$SUT" --registry registry.json figures journal 2>&1); rc=$?
 after=$(snap)
-if [ $rc -eq 0 ] && [ "$before" = "$after" ] && printf '%s\n' "$out" | grep -q "^t/block${TAB}block${TAB}7${TAB}"; then
+if [ $rc -eq 0 ] && [ "$before" = "$after" ] && grep -q "^t/block${TAB}block${TAB}7${TAB}" <<<"$out"; then
     pass "a read-only directory: prints, creates and modifies nothing"
 else
     fail "a read-only directory: prints, creates and modifies nothing" "rc=$rc out=[$out]"
