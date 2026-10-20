@@ -89,7 +89,7 @@ refuse() {  # refuse CODE STATUS REASON
     exit "$1"
 }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read.XXXXXX") || refuse 5 failed "no temporary directory could be made"
 trap 'rm -rf "$T"' EXIT
 # Before the first read, in this shell: command substitutions inherit the
 # FIFO, where one opened inside a `$(...)` would be opened again by every

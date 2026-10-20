@@ -21,7 +21,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ENGINE=0
 [ "${1-}" = --engine ] && ENGINE=1
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-tests.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-tests.XXXXXX") || { echo "run-tests: no temporary directory" >&2; exit 1; }
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/stubs"
 for tool in gh koto; do
