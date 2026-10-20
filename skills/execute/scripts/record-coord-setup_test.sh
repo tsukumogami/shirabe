@@ -22,7 +22,11 @@
 #                                  --store reads the sealed value
 #   the ownership lookup           no coordination PR: coordination-pr-missing;
 #                                  two: coordination-pr-ambiguous; nothing
-#                                  written either way
+#                                  written either way; one already MERGED is
+#                                  accepted (and on a later invocation); one
+#                                  closed unmerged, handed, stops
+#                                  coordination-pr-closed (the lookup alone
+#                                  drops it: coordination-pr-missing)
 #   --coordination-pr              #10 recorded; a PR by another author, on
 #                                  another branch, without the marker, or
 #                                  other than the lookup's:
@@ -251,6 +255,35 @@ run_setup
 [ "$RC" -eq 71 ] && [ "$OUT" = stop=coordination-pr-closed ] && [ "$(store_sum)" = "$SUM0" ] \
     && pass "a recorded coordination PR closed unmerged stops coordination-pr-closed" \
     || fail "closed: rc=$RC out=[$OUT]"
+
+# --- a coordination PR no longer open, at setup ------------------------------------
+
+setup_case setup-merged
+CT_COORD_STATE=MERGED
+ct_write_db
+run_setup --coordination-pr "$URL10"
+if [ "$RC" -eq 0 ] && [ "$(setup_val .coordination_pr)" = 10 ] && printf '%s\n' "$OUT" | grep -qx record=new; then
+    pass "a coordination PR already MERGED at setup is accepted and recorded (the loop ends it done:merged)"
+else
+    fail "setup-merged: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+run_setup
+[ "$RC" -eq 0 ] && pass "a later invocation over a MERGED recorded coordination PR is accepted" \
+    || fail "later merged: rc=$RC out=[$OUT]"
+
+setup_case setup-closed
+CT_COORD_STATE=CLOSED
+ct_write_db
+# The ownership lookup drops a PR closed unmerged (owned-pr.sh --state all),
+# so with nothing handed there is no coordination PR to find.
+run_setup
+stopped "a coordination PR closed unmerged, nothing handed: the lookup finds none" coordination-pr-missing
+run_setup --coordination-pr "$URL10"
+stopped "the same PR handed with --coordination-pr" coordination-pr-closed
+db_edit '(.prs[] | select(.number == 10) | .body) = "a plain body"'
+rm -rf "$GH_CALL_LOG.d"
+run_setup --coordination-pr "$URL10"
+stopped "a handed closed PR without the marker is not this run's" coordination-pr-mismatch
 
 # --- the inert flags -----------------------------------------------------------------
 

@@ -38,8 +38,10 @@
 #
 # The run record. On a new run (no run/setup in the session) it finds the
 # coordination PR through the ownership lookup (owned-pr.sh on home_repo and
-# the coordination branch, carrying the declaration marker), checks a
-# --coordination-pr against what the lookup found, and seals run/setup
+# the coordination branch, in any state, carrying the declaration marker),
+# checks a --coordination-pr against what the lookup found, refuses a PR
+# closed unmerged (an already-merged one is accepted: the loop ends it
+# done:merged), and seals run/setup
 # through `run-record.sh setup`: the store (--store, else github), the
 # coordination PR's number, repos, mode `coordinated`, the node list from the
 # PLAN ({name, kind, repo, waits_on}, in plan-to-tasks.sh's order), and
@@ -49,7 +51,7 @@
 # the opener carried or seeded). On a later invocation (run/setup present) it
 # makes no lookup: it compares --store with the sealed store, a
 # --coordination-pr with the recorded number, and reads the recorded PR's
-# state, refusing a closed one. Every check runs before any write, so a stop
+# state, refusing one closed unmerged. Every check runs before any write, so a stop
 # changes no key.
 #
 # --follow-up, --follow-up-remove and --adopt-run are accepted and reported
@@ -251,8 +253,10 @@ if [ "$RECORD" = existing ]; then
     esac
     [[ $C_URL =~ $RE_COORD_URL ]] || { echo "$PROG: the recorded coordination PR's URL read as [$C_URL]" >&2; exit 72; }
 else
-    # A new run: the ownership lookup, once.
-    coord_find_pr "$HOME_REPO" "$CB" open
+    # A new run: the ownership lookup, once, over every state. A coordination
+    # PR already MERGED is a run the loop ends done:merged; only one CLOSED
+    # unmerged stops, below.
+    coord_find_pr "$HOME_REPO" "$CB" all
     case $? in
         0) ;;
         2) exit 72 ;;
@@ -261,6 +265,18 @@ else
                 several) stop coordination-pr-ambiguous "several owned coordination PRs on $HOME_REPO $CB, or an ambiguous lookup" ;;
                 *)
                     if [ -n "$CPR" ]; then
+                        # The lookup never sees a PR closed unmerged
+                        # (owned-pr.sh --state all drops it). A handed one,
+                        # in home_repo on this branch with the marker, that
+                        # reads CLOSED is that stop, not a mismatch.
+                        if [ "$C_WHY" = none ] && [ "$(coord_lower "$CPR_REPO")" = "$(coord_lower "$HOME_REPO")" ]; then
+                            VIEW=""
+                            coord_gh_read VIEW pr view "$CPR_NUM" --repo "$HOME_REPO" --json state,headRefName,body || exit 72
+                            if printf '%s' "$VIEW" | jq -e --arg cb "$CB" --arg m "$COORD_MARKER" \
+                                'type == "object" and .state == "CLOSED" and .headRefName == $cb and ((.body // "") | contains($m))' >/dev/null 2>&1; then
+                                stop coordination-pr-closed "the handed coordination PR $CPR is closed unmerged"
+                            fi
+                        fi
                         stop coordination-pr-mismatch "$CPR is not the one coordination PR this run owns on $HOME_REPO $CB ($C_WHY)"
                     fi
                     stop coordination-pr-missing "no coordination PR this run owns on $HOME_REPO $CB ($C_WHY); /scope opens it"
@@ -271,6 +287,11 @@ else
     if [ -n "$CPR" ] && ! cpr_matches "$C_NUM"; then
         stop coordination-pr-mismatch "$CPR differs from the coordination PR the lookup found, $C_URL"
     fi
+    case "$(printf '%s' "$C_JSON" | jq -r '.state // ""')" in
+        OPEN|MERGED) ;;
+        CLOSED) stop coordination-pr-closed "the coordination PR $C_URL is closed unmerged" ;;
+        *) echo "$PROG: the coordination PR's state read as [$(printf '%s' "$C_JSON" | jq -r '.state // ""')]" >&2; exit 72 ;;
+    esac
     [ -n "$STORE" ] || STORE=github
     # /scope's run lines: above the body's first `## ` heading, the first of
     # each key. The one read of the body outside the renderer's codec.
