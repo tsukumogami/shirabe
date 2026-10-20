@@ -155,6 +155,8 @@ jobs:
           bash skills/execute/scripts/coord-merge_test.sh
           bash skills/execute/scripts/coordinated-home-outside_test.sh
           bash skills/execute/scripts/coordination-body_test.sh
+          bash skills/execute/scripts/coord-render_test.sh
+          bash skills/execute/scripts/merge-message_test.sh
           bash scripts/lib/squash-message_test.sh
 
       # settled-branch-record_test.sh drives real koto sessions -- it asserts

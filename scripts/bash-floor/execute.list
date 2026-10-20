@@ -58,6 +58,8 @@ skills/execute/scripts/execute-coordinated-engine_test.sh
 # builder every /execute merge passes its message through: jq, awk
 # and the same stubs, so every case runs on 3.2.
 skills/execute/scripts/coordination-body_test.sh
+skills/execute/scripts/coord-render_test.sh
+skills/execute/scripts/merge-message_test.sh
 scripts/lib/squash-message_test.sh
 # The "merged" wording check and its test: text only, so every
 # case runs on 3.2.
