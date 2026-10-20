@@ -153,7 +153,7 @@ Keys in `execute-<topic>`:
 
 | Key | Holds |
 |---|---|
-| `run/setup` | `store`, `coordination_pr`, the node list from the PLAN (`name`, `kind`, `repo`, `waits_on`), `/scope`'s run lines |
+| `run/setup` | `store`, `coordination_pr`, `repos`, `mode`, the node list from the PLAN (`name`, `kind`, `repo`, `waits_on`), `/scope`'s run lines |
 | `run/node/<node>` | `repo`, `pr`, `head`, `merged_head` |
 | `run/follow-up/<node>/<n>` (`<n>` the pull request number) | `repo`, `pr`, `head`, `merged_head`, `removed` |
 | `run/cascade` | `verdict`, `head`, `step` |
@@ -278,7 +278,7 @@ its body is final at the merge, so the render at the `merged` terminal records m
 and posts nothing. Setup's own stops end at `done_error` without reaching the loop or the
 renderer, so they post nothing. A renderer refusal of a private node prints
 `body=refused:execute:visibility` and the loop's next action is `error:execute:visibility`,
-ending at `done_error`; setup also runs `coord_node_visibility` over the PLAN's nodes, so a
+ending at `done_blocked`, where the loop's errors route (`execute:visibility` joins both verdict scripts' step patterns); setup also runs `coord_node_visibility` over the PLAN's nodes, so a
 private node under a public home is usually refused before any pull request exists. Setup's
 read of `/scope`'s run lines from the coordination body is the one body read allowed outside
 the codec, limited to setup and to `key=value` lines above the index.
@@ -356,9 +356,9 @@ Key assumptions:
    several, or, with `--coordination-pr`, that pull request after the same check
    (`coordination-pr-mismatch` when they differ);
 2. `cb_parse` over its body: the map and follow-ups, any line naming the coordination pull
-   request itself dropped. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and it stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request. With the PLAN
-   gone as well, nothing names the nodes and it stops with `coordination-index-missing`;
-3. the node list from the PLAN when the branch has it, otherwise from the map;
+   request itself dropped. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and it stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request. 
+3. the node list from the PLAN. Recovery needs the PLAN: a lost record whose PLAN the cascade has already deleted stops with `recovery-plan-gone`, since only the coordination merge is left and it needs a person or an import of the session. A run that holds its record needs no PLAN: `run/setup` keeps the node list, the write set (`repos`) and the mode, and `execute-open.sh` takes the coordinated template from a finished session's `run/setup` when the PLAN file is gone. `record-coord-setup.sh` reads `repos`
+   and the mode from `run/setup` when the record exists;
 4. identity: a `run_id` the opener carried from a replaced session (for a coordinated PLAN
    `execute-open.sh` seeds a carried id but no longer mints one, so a `run_id` present at
    setup was carried), else the rendered `run=` line, else
@@ -371,8 +371,7 @@ Key assumptions:
    carried `run_id` and the run line, and the session's `run_id` is set to it;
 5. each pull request's head from `gh pr view --json headRefOid` (a merged one's merge head
    for `merged_head`), written through `run-record.sh recover`;
-6. the cascade: `not-run` with the PLAN on the branch, otherwise `pushed` at the
-   coordination pull request's live head;
+6. the cascade: `not-run`, the PLAN being on the branch;
 7. `run/recovered`, and `recovered=<url>` on the invocation's report.
 
 In the loop nothing changes for a recovered head: `coord_compute` already runs `merge-verdict.sh` at the expected head for every open pull request on every pass and prints `merge` only when it passes, so that check, not a stored flag, is what verifies a head before a merge. A head the check
@@ -455,6 +454,7 @@ with its test, unchanged, and `land-merge.sh` calls it there. `coord-merge.sh` a
 single-pr `merge_attempt` read the pull request's title and body, run it, and pass its
 output as `merge-exec.sh`'s fourth argument; a non-zero exit from the builder (empty Part 1,
 a multi-line title, AI attribution) skips the merge with `merge-refused:squash-message`.
+Every merge refusal (`merge-refused:squash-message`, `merge-refused:merge-gate`, `awaiting:head-moved` from `coord-merge.sh`) is recorded in the invocation's merge attempts as `<node>:merge-refused`, a value the attempts grammar gains, so `coord_compute` reports the pull request unmerged with its reason instead of printing the merge again, and the run ends at `ready_awaiting_merge`.
 `merge-exec.sh` already passes no message for `rebase` and the same one for `merge`.
 
 #### Alternatives Considered
@@ -576,7 +576,7 @@ skill-session.sh import execute|deliver <topic> --from <workspace>
 ```
 
 New report tokens and stops: `not-owner` (exit 65), `follow-up-author`, `follow-up-dropped`,
-`merge-refused:body-stale`, `merge-refused:body-full`, `execute:visibility` (the renderer's refusal of a private node under a public home, ending at `done_error`), `store-mismatch`, `session-absent`, `coordination-pr-missing`,
+`merge-refused:body-stale`, `merge-refused:body-full`, `execute:visibility` (the renderer's refusal of a private node under a public home, ending at `done_blocked`), `store-mismatch`, `session-absent`, `coordination-pr-missing`,
 `coordination-index-missing`,
 `coordination-pr-ambiguous`, `coordination-pr-mismatch`, `coordination-pr-closed`,
 `recovery-unproven`, `recovered=<url>`, `body=stale`, `body=full`,

@@ -149,8 +149,11 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
 - [ ] `/coordinate`'s land step (`land-merge.sh` and `land-check.sh`) and its test fixtures
   (`testdata/board/helpers.sh`, `check-skill.tsv`) use `scripts/lib/squash-message.sh`, and
   its land suites pass with no change to what they assert.
+- [ ] Every merge refusal (`squash-message`, `merge-gate`, `head-moved`) is recorded as a
+  `merge-refused` attempt, the loop doesn't print that merge again, and the run ends at
+  `ready_awaiting_merge`.
 - [ ] At the `merged` terminal the render posts nothing; a setup stop posts nothing; a
-  renderer refusal of a private node ends at `done_error` with `execute:visibility`.
+  renderer refusal of a private node ends at `done_blocked` with `execute:visibility` (added to both verdict scripts' step patterns).
 - [ ] No script under `skills/execute/` calls the index-entry grammar; it lives only in the
   codec, and the execute eval fixtures' coordination bodies are rendered bodies.
 - [ ] A private node under a public coordination pull request is refused with
@@ -194,10 +197,8 @@ R22).
   with a malformed id; if `run-id.sh restamp` or `stamp` fails on a pull request, recovery
   stops with `recovery-unproven` naming it as not stampable; they are first checked to work on a merged
   pull request's body.
-- [ ] A body with no index line and the PLAN gone stops with `coordination-index-missing`.
-- [ ] With the PLAN on the branch the node list comes from it and the cascade is `not-run`;
-  with the PLAN gone the cascade is `pushed` at the live coordination head, which the
-  readiness check examines before the coordination merge.
+- [ ] Recovery with the PLAN gone stops with `recovery-plan-gone`; with the PLAN on the
+  branch the node list comes from it and the cascade is `not-run`.
 - [ ] With `--adopt-run <id>` and a carried `run_id`, `<id>` wins and becomes the session's
   `run_id`; setup mints only when recovery finds no identity and no node pull request.
 - [ ] A first start with no started run (no run line, no index line, no owned node pull
@@ -213,8 +214,9 @@ R22).
   one does; an old-format self row is ignored; a body over the cap is refused.
 - [ ] A pre-feature run recovers once keeping its `run_id` and records store `github`; the
   next invocation writes no recovery marker.
-- [ ] With a node removed from the rendered index by hand and the PLAN gone, a recovered run
-  doesn't list that node (the PRD's Known Limitation, pinned).
+- [ ] A run holding its record whose PLAN the cascade deleted re-invokes on the coordinated
+  template (`execute-open.sh` reads the mode from `run/setup`) and setup reads `repos` and the
+  node list from `run/setup`.
 - [ ] The structure test fails on any non-test file under `skills/execute/` that defines or
   calls `RE_COORD_ENTRY`, `coord_index_entries`, `coord_parse_entry` or `coord_find_entry`,
   holds a pattern containing `head=`, or adds or removes a `run/` key outside
@@ -233,7 +235,7 @@ extend Issue 3's recovery with the follow-up checks (keep or drop and report
 `follow-up-dropped`), check and
 record follow-ups at setup with their live head, call the renderer after
 recording one (Issue 2's renderer, wired here), add them to `coord_compute` as
-`<node>/follow-up-<n>` after their node, merge them with `--merge`, render their lines, and
+`<node>/follow-up-<n>` after their node (widening the node-id checks, `coord-merge.sh --node` and the attempts grammar to accept that name), merge them with `--merge`, render their lines, and
 hold the merge-last gate until they merge (design Decision 7; PRD R16).
 
 **Acceptance Criteria**:

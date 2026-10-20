@@ -218,8 +218,7 @@ the body. The trouble is that the same text is also the run's memory.
   - finds the coordination pull request through the ownership lookup on the checked-out
     branch; none found stops with `coordination-pr-missing`, several with
     `coordination-pr-ambiguous`;
-  - takes the node list from the PLAN when the checked-out branch still has it, otherwise
-    from the body's rendered index, and the node-to-pull-request map and follow-ups from the
+  - takes the node list from the PLAN, which must still be on the checked-out branch (Recovery needs the PLAN: a lost record whose PLAN the cascade has already deleted stops with `recovery-plan-gone`, since only the coordination merge is left and it needs a person or an import of the session. A run that holds its record needs no PLAN: `run/setup` keeps the node list, the write set (`repos`) and the mode, and `execute-open.sh` takes the coordinated template from a finished session's `run/setup` when the PLAN file is gone.), and the node-to-pull-request map and follow-ups from the
     rendered index, ignoring any line that names the coordination pull request itself (an
     earlier release wrote one), read by the shared codec that renders it (R17), which lives outside
     `skills/execute/`;
@@ -234,8 +233,8 @@ the body. The trouble is that the same text is also the run's memory.
     map holds no node pull request at all. A follow-up in the map is exempt from the node-branch lookup and the run marker, since a person opens it on any branch; it must pass the follow-up checks of R16 instead (the node's repository and base, no fork, the invoking login as author, not closed unmerged), or recovery drops it and reports `follow-up-dropped:<url>`. An index line is any line that parses
     as a node or follow-up entry; a self row doesn't count;
   - re-reads every head live from GitHub, never from the body;
-  - sets the cascade verdict to `not-run` when the PLAN is still on the branch, otherwise
-    to `pushed` with the coordination pull request's live head;
+  - sets the cascade verdict to `not-run` (the PLAN being on the branch, the cascade hasn't
+    run);
   - writes the recovery marker naming the pull request it recovered from.
   The run's report carries `recovered=<pull request URL>` on the invocation that recovered.
   A cascade verdict of `failed`, recovered or recorded, makes the next invocation run the
@@ -367,7 +366,7 @@ the body. The trouble is that the same text is also the run's memory.
   the coordinate skill, which
   strips markdown and HTML comments and refuses an empty Part 1, a multi-line title and AI
   attribution). A body with no top-level `---` passes all of it. When no message can be built,
-  the merge isn't attempted and the run reports `merge-refused:squash-message`. A `merge`
+  the merge isn't attempted and the run reports `merge-refused:squash-message`. Every merge refusal (`merge-refused:squash-message`, `merge-refused:merge-gate`, `awaiting:head-moved` from `coord-merge.sh`) is recorded in the invocation's merge attempts as `<node>:merge-refused`, a value the attempts grammar gains, so `coord_compute` reports the pull request unmerged with its reason instead of printing the merge again, and the run ends at `ready_awaiting_merge`. A `merge`
   method passes the same message; a `rebase` merge takes none.
 
 ### Compatibility, limits and tests
@@ -468,13 +467,14 @@ the body. The trouble is that the same text is also the run's memory.
   `coordination-index-missing` when one does.
 - [ ] A node pull request in the map with no run marker stops recovery with
   `recovery-unproven`, naming it.
-- [ ] Recovery with the PLAN gone from the branch sets the cascade verdict to `pushed` at the
-  coordination pull request's live head and re-verifies it before the coordination merge.
+- [ ] Recovery with the PLAN gone from the branch stops with `recovery-plan-gone`; a run that
+  holds its record and whose PLAN is gone re-invokes on the coordinated template and lists
+  every node from `run/setup`.
 - [ ] A run whose session predates this feature (it holds `run_id` and none of R1's new keys,
   its body carries the old index) recovers once keeping its `run_id`, records store `github`,
   and the next invocation writes no recovery marker.
-- [ ] With a node removed from the rendered index by hand and the PLAN gone, a recovered run
-  doesn't list that node (the Known Limitation, pinned).
+- [ ] A squash-message refusal is recorded as a merge attempt and the run ends at
+  `ready_awaiting_merge` without printing that merge again.
 
 ### Pauses, imports and legs
 
@@ -575,10 +575,10 @@ the body. The trouble is that the same text is also the run's memory.
   `awaiting:head-moved` until the run pushes it again, as it does today; this feature adds no
   node re-record step. A review fix belongs on a follow-up pull request (R16), whose head can
   be recorded again.
-- On the `github` store, recovery with the PLAN gone trusts the rendered index as the list of
-  nodes. A hand edit that drops a node hides it from a recovered run until a person records it
-  again; the identity check catches a node that's there under another run, not one that's
-  missing. Heads are never taken from the body, so an edit can hide work but can't pin a merge.
+- Recovery needs the PLAN on the branch, so a run that lost its record after the cascade
+  stops with `recovery-plan-gone`; its coordination pull request is merged by a person, or the
+  session is imported. Heads are never taken from the body, so an edit to it can hide an index
+  line but can't pin a merge.
 - On the `session` store, a run lives only as long as its session: a session removed with its
   workspace and never imported leaves nothing to recover from.
 - This feature's own coordinated run executes on the plugin release before it, so it keeps its
