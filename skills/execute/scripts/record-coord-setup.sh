@@ -513,12 +513,12 @@ else
                 echo "$PROG: could not read $url" >&2
                 exit 72
             }
-            head=$(printf '%s' "$VIEW" | jq -r 'if type == "object" then (.headRefOid // "") else "" end')
-            [[ $head =~ $RE_COORD_SHA ]] || { echo "$PROG: $url's head read as [$head]" >&2; exit 72; }
-            mhead=$(printf '%s' "$VIEW" | jq -r 'if .state == "MERGED" then (.mergeCommit.oid // "") else "" end')
+            oid=$(printf '%s' "$VIEW" | jq -r 'if type == "object" then (.headRefOid // "") else "" end')
+            [[ $oid =~ $RE_COORD_SHA ]] || { echo "$PROG: $url's head read as [$oid]" >&2; exit 72; }
+            moid=$(printf '%s' "$VIEW" | jq -r 'if .state == "MERGED" then (.mergeCommit.oid // "") else "" end')
             # "-" for none: a tab-separated field read back must never be
             # empty, or read folds it into its neighbour.
-            [[ $mhead =~ $RE_COORD_SHA ]] || mhead=-
+            [[ $moid =~ $RE_COORD_SHA ]] || moid=-
             f="$WORK/node-$i.md"
             printf '%s' "$VIEW" | jq -j '.body // ""' > "$f" || exit 70
             # Its diagnostic for no marker or a malformed one is the case
@@ -530,7 +530,7 @@ else
                 65) mk=malformed ;;
                 *) cat "$WORK/marker.err" >&2; echo "$PROG: could not read the run marker of $url" >&2; exit 70 ;;
             esac
-            PASS3="$PASS3$n	$r	$p	$url	$head	$mhead	$mk	$f
+            PASS3="$PASS3$n	$r	$p	$url	$oid	$moid	$mk	$f
 "
         done <<<"$PASS2"
 
@@ -549,7 +549,7 @@ else
         elif [ "$N_INDEX_NODES" -eq 0 ]; then
             SOURCE=minted
         fi
-        while IFS=$'\t' read -r n r p url head mhead mk f; do
+        while IFS=$'\t' read -r n r p url oid moid mk f; do
             [ -n "$n" ] || continue
             if [ -z "$SOURCE" ]; then
                 unproven "$n" "$url" "no identity to prove it by (no carried run_id, no run= line, and the node PRs' markers don't name one run); its marker: $mk" 1
@@ -592,16 +592,23 @@ for pair in "repos=$REPOS" "home_repo=$HOME_REPO" "coord_branch=$CB" "plan_abs=$
     fi
 done
 
-# run_record <verb> <json> -- one run-record.sh write, from a file.
+# run_record <setup|adopt|recover> <json> -- one run-record.sh write, from a
+# file. Each verb is called by name (the structure test resolves every call's
+# verb to its owner).
 run_record() {
     local doc rc
     doc=$(mktemp "${TMPDIR:-/tmp}/record-coord-setup.XXXXXX") || exit 70
     printf '%s' "$2" > "$doc" || { rm -f "$doc"; exit 70; }
-    "$BASH" "$COORD_SELF_DIR/run-record.sh" "$1" --session "$SESSION" --json "$doc" </dev/null >&2
+    case "$1" in
+        setup) "$BASH" "$COORD_SELF_DIR/run-record.sh" setup --session "$SESSION" --json "$doc" </dev/null >&2 ;;
+        adopt) "$BASH" "$COORD_SELF_DIR/run-record.sh" adopt --session "$SESSION" --json "$doc" </dev/null >&2 ;;
+        recover) "$BASH" "$COORD_SELF_DIR/run-record.sh" recover --session "$SESSION" --json "$doc" </dev/null >&2 ;;
+        *) false ;;
+    esac
     rc=$?
     rm -f "$doc"
     if [ "$rc" -ne 0 ]; then
-        echo "$PROG: run-record.sh $1 exited $rc; the run record was not written" >&2
+        echo "$PROG: the run record's $1 write exited $rc; the run record was not written" >&2
         exit 70
     fi
 }
