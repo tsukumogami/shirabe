@@ -37,6 +37,12 @@ on:
       # its exit 6, and its suite checks the released text against the entry.
       - 'references/rule-registry.json'
       - 'scripts/rule-registry.sh'
+      # The move engine test imports the run with skill-session.sh over the
+      # simulated cloud hosts and their fake S3 server (both also under
+      # skills/** above).
+      - 'scripts/skill-session.sh'
+      - 'skills/coordinate/scripts/testdata/cloud-hosts.sh'
+      - 'skills/coordinate/scripts/testdata/fake-s3.py'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-execute-scripts.yml'
 
@@ -227,6 +233,14 @@ jobs:
       - name: Run coordinated envelope engine tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/execute-coordinated-engine_test.sh
+
+      # A coordinated run paused after its first merge call, imported into a
+      # second workspace with skill-session.sh over simulated cloud hosts, and
+      # resumed there to its merge with the same run_id and no recovery, every
+      # read served a body with no index line.
+      - name: Run coordinated move engine tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-coordinated-move-engine_test.sh
 
       # /execute's koto entry: the flags reach koto as variables, and koto's
       # refusals (duplicate or invalid --merge, another template's live
