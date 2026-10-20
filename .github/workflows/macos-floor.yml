@@ -14,7 +14,10 @@ name: macOS floor
 # workflow joins this run without an edit here. Each suite gets the setup its
 # own workflow's macOS leg gives it; the steps below that carry an `if` are
 # copies, and check-macos-floor-setup.sh, run on every pull request that
-# touches a workflow, fails when one no longer matches its original. They are
+# touches a workflow, fails when one no longer matches its original. A copied
+# step's `if` names the suites it is for, as
+# `matrix.suite == 'a' || matrix.suite == 'b'` and in no other form, and the
+# steps for one suite keep the order of its own workflow. They are
 # copies because a job's steps can't be generated at run time, and calling the
 # floor workflows through workflow_call would put all of them in one
 # concurrency group: a called workflow sees the caller's github.workflow and
@@ -53,6 +56,11 @@ env:
 jobs:
   suites:
     runs-on: ubuntu-latest
+    # yq is pinned, as in check-macos-floor-legs.yml, so the image moving to
+    # another yq can't change which suites the list finds.
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
     outputs:
       sha: ${{ steps.list.outputs.sha }}
       suites: ${{ steps.list.outputs.suites }}
@@ -60,6 +68,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.sha }}
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
 
       # The commit is resolved once, here, so every suite runs on the same one
       # even if the branch moves while the run waits for macOS runners.
@@ -74,6 +97,7 @@ jobs:
 
   floor:
     needs: suites
+    # The report job finds the suites that failed by this prefix.
     name: 'macOS floor: ${{ matrix.suite }}'
     strategy:
       fail-fast: false
@@ -179,7 +203,8 @@ jobs:
             --jq '.jobs[] | select(.name | startswith("macOS floor: ")) | select(.conclusion != "success")
               | "- `" + (.name | ltrimstr("macOS floor: ")) + "`: " + (.conclusion // "unfinished")')
           if [ -z "$failed" ]; then
-            failed="- no suite ran: listing the suites ended $SUITES_RESULT"
+            # A ref older than scripts/check-macos-floor-setup.sh lands here too.
+            failed="- no suite ran: listing the suites ended $SUITES_RESULT (see the suites job's log)"
           fi
           body="$RUNNER_TEMP/body.md"
           {

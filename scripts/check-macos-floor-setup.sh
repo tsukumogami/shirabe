@@ -34,6 +34,9 @@
 # macos-floor.yml, the one workflow whose suites this checks;
 # check-macos-floor-legs.sh can't read such a suite either.
 #
+# The same parse gives macos-floor.yml its matrix (--suites), so the suites
+# it runs and the suites this checks can't disagree.
+#
 # Usage:
 #   scripts/check-macos-floor-setup.sh            check macos-floor.yml
 #   scripts/check-macos-floor-setup.sh --suites   print the floor suites as a
@@ -86,6 +89,7 @@ python3 - "$MODE" "$T/json" <<'PY'
 import json, os, re, sys
 
 mode, json_dir = sys.argv[1], sys.argv[2]
+# The safety net: the one workflow that runs every floor suite after merge.
 NET = "macos-floor.yml"
 
 workflows = {}
@@ -93,7 +97,8 @@ for name in sorted(os.listdir(json_dir)):
     with open(os.path.join(json_dir, name)) as fh:
         workflows[name[: -len(".json")]] = json.load(fh) or {}
 
-# The same reading of "can run on macOS" as check-macos-floor-legs.sh.
+# The same reading of "can run on macOS", and of a floor call, as
+# check-macos-floor-legs.sh; a change to either file's rules belongs in both.
 LINUX_ONLY = re.compile(
     r"^\s*(?:\$\{\{\s*)?(?:"
     r"runner\.os\s*==\s*['\"]Linux['\"]"
@@ -250,7 +255,8 @@ for step in (job.get("steps") or [])[:floor_at]:
         m = SUITE_IF.match(str(cond))
         if not m:
             problems.append(("(any)", f"step \"{label}\": condition {cond!r} is not "
-                             "matrix.suite == '<suite>' clauses joined by ||"))
+                             "matrix.suite == '<suite>' clauses joined by ||; write it as "
+                             "matrix.suite == 'a' || matrix.suite == 'b'"))
             continue
         applies = set(re.findall(SUITE_CLAUSE, str(cond)))
         for stale in sorted(applies - set(suites)):
@@ -266,7 +272,10 @@ for suite in sorted(suites):
     if have != own["setup"]:
         problems.append((suite, f"setup differs from {own['where']}\n"
                          f"      own:         {json.dumps(own['setup'])}\n"
-                         f"      macos-floor: {json.dumps(have)}"))
+                         f"      macos-floor: {json.dumps(have)}\n"
+                         f"      fix: make the floor job's steps whose `if` names '{suite}' "
+                         "(and those with no `if`) match the own list, in the same order; "
+                         "names and conditions aren't compared"))
     for key, value in sorted(own["env"].items()):
         if net_env.get(key) != value:
             problems.append((suite, f"{own['where']} sets env {key}={value!r}; "

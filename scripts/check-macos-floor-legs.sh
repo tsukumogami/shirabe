@@ -144,6 +144,8 @@ FLOOR = re.compile(POS + r"(?:\./)?scripts/check-bash-floor\.sh\b(.*)")
 FLOOR_SYSTEM = re.compile(r"--backend(?:\s+|=)system\b")
 SEPARATOR = re.compile(r"(&&|\|\||;|\||#)")
 
+# check-macos-floor-setup.sh copies LINUX_ONLY and the floor-call reading;
+# a change here belongs there too.
 # A condition limits a step to Linux only in these simple forms. Anything
 # compound or negated is read as able to run on macOS: a false alarm on an odd
 # condition is cheap, a missed macOS step is the defect this check exists for.

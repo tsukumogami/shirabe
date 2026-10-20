@@ -28,9 +28,10 @@ gh run list --workflow macos-floor.yml --event workflow_dispatch --json database
 gh run watch <databaseId> --exit-status
 ```
 
-A red run stops the release; nothing enforces that but this step. It files an issue titled "CI: the macOS floor run
-is red", or comments on the open one, naming the suites that failed; the
-release waits until a run on the new main commit is green. The same workflow
+A red run stops the release; nothing enforces that but this step. The run
+files an issue titled "CI: the macOS floor run is red", or comments on the
+open one, naming the suites that failed; the release waits until a run on the
+new main commit is green. The same workflow
 runs on main every day, so its latest scheduled run says whether the floor was
 already red before the release started.
 

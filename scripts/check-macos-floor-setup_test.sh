@@ -109,8 +109,9 @@ else
 fi
 
 fresh
-edit floor-a.yml 's/run: scripts\/check-bash-floor.sh --backend system demo/timeout-minutes: 20\
-        run: scripts\/check-bash-floor.sh --backend system demo/'
+# Add a timeout under the floor step's name.
+awk '{ print } /name: Run the suite on the floor \(macOS\)/ { print "        timeout-minutes: 20" }' \
+    "$CASE/floor-a.yml" >"$CASE/floor-a.yml.new" && mv "$CASE/floor-a.yml.new" "$CASE/floor-a.yml"
 check
 if [ "$RC" -eq 1 ] && has 'suite demo: the floor step in floor-a.yml job test sets {"timeout-minutes": 20}'; then
     pass "a timeout on a suite's own floor step that macos-floor.yml's lacks fails"
