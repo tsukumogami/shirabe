@@ -46,6 +46,12 @@ skip() { echo -e "${YELLOW}SKIP${NC}: $*"; }
 
 TMPS=()
 SESSIONS=()
+# `koto session cleanup`, not `koto cancel`: cancel ends a session but keeps its
+# directory and log, so a cancelled session still sits in the store.
+remove_sessions() {
+    for w in "${SESSIONS[@]:-}"; do [[ -n "$w" ]] && koto session cleanup "$w" >/dev/null 2>&1; done
+    return 0
+}
 # Ends with an explicit success. The last command in this trap is a test that is
 # FALSE when the arrays are empty, which under `set -e` would replace this
 # script's own exit status -- a clean `exit 0` on the skip path coming back as 1,
@@ -60,11 +66,23 @@ SESSIONS=()
 # The trigger is `set -e` and not any shell version: bash 5.2 and 3.2 behave
 # identically.
 cleanup() {
-    for w in "${SESSIONS[@]:-}"; do [[ -n "$w" ]] && koto cancel "$w" >/dev/null 2>&1; done
+    remove_sessions
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
     return 0
 }
 trap cleanup EXIT
+
+# koto's session store lives under HOME (KOTO_HOME is ignored; see the header of
+# scope-substrate_test.sh), so a HOME of the suite's own keeps every session out
+# of the user's ~/.koto, even on a run killed before its trap. This run's names
+# already in the real store are read first: a PID can repeat one an older run
+# leaked, and only names this run adds count against it. The check is on this
+# run's names alone, so a parallel run of the suite elsewhere can't move it.
+REAL_HOME="$HOME"
+real_store_names() { ls -d "$REAL_HOME"/.koto/sessions/ci-role-*-"$$" 2>/dev/null; }
+REAL_BEFORE=$(real_store_names)
+SUITE_HOME=$(mktemp -d) || exit 1; TMPS+=("$SUITE_HOME")
+export HOME="$SUITE_HOME"
 
 # Engine-free, so it runs on the bash 3.2 floor too: the discriminator refuses a
 # call it cannot answer, printing nothing a caller could mistake for a role.
@@ -169,12 +187,15 @@ FIXTURE
 
 # land <dir> <session> <block> <evidence-json-or-empty> [ci] [merge] [is_root]
 # Drives to ci_monitor and, with evidence, submits it; prints the response.
+#
+# The caller records <session> in SESSIONS, before calling: every case runs
+# `land` inside $(...), and an append made here would vanish with the subshell,
+# leaving cleanup nothing to remove.
 land() {
     local dir="$1" session="$2" block="$3" data="$4"
     local ci_exit="${5:-0}" merge_exit="${6:-0}" root_exit="${7:-0}"
     build_fixture "$dir" "$block" "$ci_exit" "$merge_exit" "$root_exit"
     koto init "$session" --template "$dir/fixture.md" >/dev/null 2>&1 || return 1
-    SESSIONS+=("$session")
     if [[ -z "$data" ]]; then
         koto next "$session" 2>/dev/null
     else
@@ -187,6 +208,7 @@ land() {
 # Case 1 — a root with green CI reaches the cascade, with no evidence.
 # ---------------------------------------------------------------------------
 D1=$(mktemp -d); TMPS+=("$D1")
+SESSIONS+=("ci-role-root-$$")
 OUT1=$(land "$D1" "ci-role-root-$$" "$CI_MONITOR" '' 0 0 0 || true)
 if grep -q '"state":"cascade_entry"' <<<"$OUT1"; then
     pass "a root with passing CI routes to cascade_entry with no evidence"
@@ -199,6 +221,7 @@ fi
 # and never reaches the cascade.
 # ---------------------------------------------------------------------------
 D2=$(mktemp -d); TMPS+=("$D2")
+SESSIONS+=("ci-role-child-$$")
 OUT2=$(land "$D2" "ci-role-child-$$" "$CI_MONITOR" '' 0 0 1 || true)
 if grep -q '"state":"cascade_entry"' <<<"$OUT2"; then
     fail "a child reached cascade_entry — it would cascade a PLAN its siblings are still using"
@@ -242,6 +265,7 @@ LEGACY_CI_MONITOR='  ci_monitor:
           ci_outcome: failing_unresolvable
       - target: done'
 D3=$(mktemp -d); TMPS+=("$D3")
+SESSIONS+=("ci-role-legacy-$$")
 OUT3=$(land "$D3" "ci-role-legacy-$$" "$LEGACY_CI_MONITOR" '{"ci_outcome":"passing"}' || true)
 if grep -q '"state":"cascade_entry"' <<<"$OUT3"; then
     pass "the pre-split state sends a child to cascade_entry — the split is load-bearing"
@@ -255,6 +279,7 @@ fi
 # ci_monitor, where the gates poll CI on the new push.
 # ---------------------------------------------------------------------------
 D4=$(mktemp -d); TMPS+=("$D4")
+SESSIONS+=("ci-role-fixed-$$")
 OUT4=$(land "$D4" "ci-role-fixed-$$" "$CI_MONITOR" '{"ci_outcome":"failing_fixed"}' 1 0 0 || true)
 if grep -qE '"state":"done"|"action":"done"' <<<"$OUT4"; then
     fail "failing_fixed reached done — a fix nobody re-checked ended the run"
@@ -270,6 +295,7 @@ fi
 # checks and ticks again; reporting success on red CI is the defect.
 # ---------------------------------------------------------------------------
 D4B=$(mktemp -d); TMPS+=("$D4B")
+SESSIONS+=("ci-role-red-$$")
 OUT4B=$(land "$D4B" "ci-role-red-$$" "$CI_MONITOR" '' 1 0 1 || true)
 if grep -qE '"state":"done"|"action":"done"' <<<"$OUT4B"; then
     fail "red CI reached done — the run reported success on failing checks"
@@ -296,6 +322,7 @@ fi
 # Case 5 — an unresolvable failure still blocks, and carries its reason.
 # ---------------------------------------------------------------------------
 D5=$(mktemp -d); TMPS+=("$D5")
+SESSIONS+=("ci-role-unresolvable-$$")
 OUT5=$(land "$D5" "ci-role-unresolvable-$$" "$CI_MONITOR" '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' 1 0 1 || true)
 if grep -q '"state":"done_blocked"' <<<"$OUT5"; then
     pass "failing_unresolvable on red CI routes to done_blocked"
@@ -323,6 +350,7 @@ fi
 # and the merge-state gate is the only thing that can tell them apart.
 # ---------------------------------------------------------------------------
 D7=$(mktemp -d); TMPS+=("$D7")
+SESSIONS+=("ci-role-dirty-$$")
 OUT7=$(land "$D7" "ci-role-dirty-$$" "$CI_MONITOR" '' 0 1 0 || true)
 if grep -q '"state":"done_blocked"' <<<"$OUT7"; then
     pass "a DIRTY pull request blocks even with the CI gate passing"
@@ -334,6 +362,7 @@ fi
 
 # Case 7b — and a clean one still passes, so Case 7 is not blocking everything.
 D7B=$(mktemp -d); TMPS+=("$D7B")
+SESSIONS+=("ci-role-clean-$$")
 OUT7B=$(land "$D7B" "ci-role-clean-$$" "$CI_MONITOR" '' 0 0 0 || true)
 if grep -q '"state":"cascade_entry"' <<<"$OUT7B"; then
     pass "a clean merge state still reaches the cascade"
@@ -359,6 +388,7 @@ RUN_N=0
 for root_exit in $PLAN_RUN_ROLES; do
     RUN_N=$((RUN_N + 1))
     D=$(mktemp -d); TMPS+=("$D")
+    SESSIONS+=("ci-role-plan-${RUN_N}-$$")
     OUT=$(land "$D" "ci-role-plan-${RUN_N}-$$" "$CI_MONITOR" '' 0 0 "$root_exit" || true)
     if grep -q '"state":"cascade_entry"' <<<"$OUT"; then
         CASCADE_COUNT=$((CASCADE_COUNT + 1))
@@ -508,6 +538,42 @@ ROLE_PARENT
         || fail "an unresolvable session classified as '$got', expected child"
 else
     skip "jq not on PATH; the discriminator cases need it"
+fi
+
+# ---------------------------------------------------------------------------
+# Store hygiene — no session reached the user's store, every session the cases
+# left is one cleanup knows about, and removing them leaves none behind.
+#
+# The real store is read before cleanup runs, so the check pins the private
+# HOME itself: a run killed before its trap gets no cleanup at all.
+#
+# "Left", not "created": koto disposes of a session that reaches a success
+# terminal on its own, so only the cases that end at done_blocked or hold at
+# ci_monitor are still on disk here. Those are the ones that leaked.
+# ---------------------------------------------------------------------------
+REAL_AFTER=$(real_store_names)
+if [[ "$REAL_AFTER" == "$REAL_BEFORE" ]]; then
+    pass "no session from this run reached the user's koto store"
+else
+    fail "sessions from this run reached the user's koto store: $(comm -13 <(echo "$REAL_BEFORE") <(echo "$REAL_AFTER") | tr '\n' ' ')"
+fi
+suite_store_names() { ls "$SUITE_HOME/.koto/sessions" 2>/dev/null | grep '^ci-role-' | sort; }
+KEPT=$(suite_store_names)
+RECORDED=$(printf '%s\n' "${SESSIONS[@]:-}" | grep -v '^$' | sort)
+UNRECORDED=$(comm -23 <(echo "$KEPT") <(echo "$RECORDED"))
+if [[ -n "$KEPT" && -z "$UNRECORDED" ]]; then
+    pass "cleanup holds the name of every session the cases left ($(wc -l <<<"$KEPT" | tr -d ' '))"
+elif [[ -z "$KEPT" ]]; then
+    fail "no ci-role session in the suite's store, so the cleanup checks below prove nothing"
+else
+    fail "sessions left in the store that cleanup has no name for: $(echo $UNRECORDED)"
+fi
+remove_sessions
+LEFT=$(suite_store_names)
+if [[ -z "$LEFT" ]]; then
+    pass "cleanup removes every session it created, leaving no directory behind"
+else
+    fail "sessions still in the store after cleanup: $(echo $LEFT)"
 fi
 
 echo
