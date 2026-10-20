@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 upstream: docs/briefs/BRIEF-coordinated-run-session-record.md
 problem: |
   A coordinated `/execute` run keeps the facts it runs on as lines in the coordination
@@ -23,7 +23,7 @@ goals: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
