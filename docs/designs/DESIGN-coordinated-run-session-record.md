@@ -1,7 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-coordinated-run-session-record.md
 problem: |
   `/execute`'s coordinated loop keeps the node-to-pull-request map, each node's pushed head
   and the only sign the cascade ran as lines in the coordination pull request's body, which
@@ -29,6 +28,7 @@ rationale: |
   root, and putting merge observation there gives merged heads an owner without making the
   read-only loop write. A koto spike showed the existing attach already re-legs an imported
   session on one host, so no new leg mechanism is built.
+upstream: docs/prds/PRD-coordinated-run-session-record.md
 decision_provenance: inline-resolved
 ---
 
@@ -155,7 +155,7 @@ Keys in `execute-<topic>`:
 |---|---|---|
 | `run/setup` | `store`, `coordination_pr`, the node list from the PLAN (`name`, `kind`, `repo`, `waits_on`), `/scope`'s run lines | `setup` (record-coord-setup.sh) |
 | `run/node/<node>` | `repo`, `pr`, `head`, `verified`, `merged_head` | `push` (node-push.sh node), `observe` (coord-render.sh), `verified` (record-coordination-verdict.sh), `recover` |
-| `run/follow-up/<node>/<n>` | `repo`, `pr`, `head`, `verified`, `merged_head`, `removed` | `follow-up` (setup), `observe`, `verified`, `recover` |
+| `run/follow-up/<node>/<n>` (`<n>` the pull request number) | `repo`, `pr`, `head`, `verified`, `merged_head`, `removed` | `follow-up` (setup), `observe`, `verified`, `recover` |
 | `run/cascade` | `verdict`, `head`, `verified`, `step` | `cascade` (node-push.sh coordination and the cascade's failure path), `verified`, `recover` |
 | `run/recovered` | the pull request recovered from, the identity source | `recover` |
 | `run/adopted` | the id, the login, the time | `adopt` |
@@ -165,7 +165,9 @@ sets `verified: true`; `observe` writes only `merged_head`; `verified` flips onl
 `verified`. `run-record.sh` holds that verb-to-field table and refuses anything outside it
 with exit 65 `not-owner`, changing nothing; a structure test asserts each verb is called
 only from its owning script and that no script under `skills/execute/` runs `koto context
-add` on a `run/` key except `run-record.sh`. The reader is a sourced library,
+add` or `koto context remove` on a `run/` key except `run-record.sh`. The keys rely on
+`koto context list --prefix` and on `/` in key names, both present since koto 0.16.0 and
+used by the coordinate skill's record; shirabe's koto floor (0.20.0) doesn't move. The reader is a sourced library,
 `run-record-lib.sh`, with `rr_setup`, `rr_nodes`, `rr_node <node>`, `rr_follow_ups
 <node>`, `rr_cascade`, all local koto reads. The store is sealed in `run/setup` at the
 run's first setup and compared on every later one; the invocation's `--store` reaches
@@ -207,7 +209,14 @@ Key assumptions:
 --replace-terminal` and seeds it into the new one. It widens that read to every key under
 `run/` (`koto context list --prefix run/`, then `get` each into a private directory) and,
 after `opened=new`, restores them through `run-record.sh carry`, the one verb allowed to
-write keys it doesn't own, and only into a session holding no `run/` key yet. `merge_attempts`
+write keys it doesn't own, and only into a session holding no `run/` key yet, under a
+`mkdir` lock named for the session. The carry validates every field again and clears every
+`verified` flag, so each carried head passes the loop's readiness check once more before a
+merge. The snapshot directory is kept until the carry succeeds and its path is printed; an
+opener that finds a snapshot for a session with no `run/` keys carries from it before
+anything else, so a crash between the replacement and the carry loses nothing. With no
+snapshot left either, setup's recovery applies (on the `github` store) or the start stops
+with `session-absent` (on `session`). `merge_attempts`
 isn't under `run/` and isn't carried, so it starts empty on each invocation (R13). A live
 session attached in place keeps its keys and needs no carry.
 
@@ -241,14 +250,21 @@ Key assumptions:
 `scripts/lib/coordination-body.sh` is a sourced library with two halves: `cb_render`
 builds a body from a JSON document (the record, live states keyed by pull request, the live
 Part 1 or none, the topic and node count for the composed Part 1), and `cb_parse` reads a
-rendered or old-format body back into a map for recovery only. `skills/execute/scripts/coord-render.sh`
+rendered or old-format body back into a map for recovery only, refusing a body over 60,000
+bytes rather than reading part of it. `skills/execute/scripts/coord-render.sh`
 is the one caller that posts: it reads the coordination pull request (`gh pr view --json
 body,state,headRefOid`), reads each indexed pull request's state and, for one newly seen
 `MERGED`, its merge head, records that through `run-record.sh observe`, renders, refuses a
 body over 60,000 bytes (`body=full`), compares bytes, re-reads the body just before
 posting and skips the post (`body=stale`) when its Part 1 changed since the render, and
-posts with `gh pr edit --body-file` only on a difference. A failed read or post prints `body=stale` and exits 0,
-so it never changes a loop decision.
+posts with `gh pr edit --body-file` only on a difference. A failed read or post prints `body=stale` and exits 0, so it never changes a
+node's loop decision. The coordination pull request is the exception, because CI's
+merge-last gate reads the posted body: `evaluate-coordination` and `merge-coordination`
+run the renderer first and proceed only on `body=posted` or `body=unchanged`, otherwise
+reporting `merge-refused:body-stale`, so the gate never reads an index older than the
+record. The recorded `merged_head` is what the index shows for a merged pull request; the
+renderer is its reader. A coordination pull request already merged gets no further post:
+its body is final at the merge.
 
 It's called by `node-push.sh` after a node's pull request opens or is pushed (replacing
 its `awk` surgery), by `node-push.sh coordination` after the cascade pushes and by the
@@ -276,7 +292,7 @@ run=<32 hex>
 ## PR Index
 
 - <node> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <open|merged|closed|unknown> | head=<sha>
-- <node>/follow-up | <repo>:docs/plans/PLAN-<slug>.md#<n> | <state> | head=<sha>
+- <node>/follow-up-<n> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <state> | head=<sha>
 
 ## Merge Order
 
@@ -435,11 +451,12 @@ Resolved inline.
 
 `execute-open.sh` maps the flag to a rebind variable, `FOLLOW_UP`. Setup, after the record
 is loaded or recovered, checks it (the node in `run/setup`, the pull request in the node's
-repository, based on its default branch, not closed unmerged) and records it through
+repository, based on its default branch, not from a fork, authored by the invoking GitHub
+login, not closed unmerged) and records it through
 `run-record.sh follow-up` with its live head and `verified: false`, so the loop's evaluate
 step checks it before any merge, as it does a recovered head; `--remove` sets `removed`. `coord_compute` adds each live
-follow-up as a pull request after its node: `merge:<node>/follow-up` only after the node is
-merged, and the coordination pull request's merge-last gate counts its index line through
+follow-up as a pull request after its node, named `<node>/follow-up-<n>` by its number so two
+on one node stay distinct: `merge:<node>/follow-up-<n>` only after the node is merged, and the coordination pull request's merge-last gate counts its index line through
 `coordination-gate-refs.sh` unchanged. A follow-up closed unmerged is reported
 `follow-up-closed:<url>` and blocks `evaluate-coordination`.
 
@@ -508,8 +525,10 @@ coord-render.sh --cb_render--> scripts/lib/coordination-body.sh --> gh pr edit (
 - **`scripts/lib/squash-message.sh`** (moved from `skills/coordinate/scripts/`).
 - **Changed**: `execute-open.sh` (the carry; `--store`, `--coordination-pr`, `--follow-up`,
   `--remove`, `--adopt-run` mapped to rebind variables), `execute-coordinated.md` (the five
-  variables; `coord_verdict`'s action renders before routing; result maps gain `body` and
-  `recovered`), `record-coord-setup.sh` (record, store seal, recovery, follow-ups, the
+  variables; `coord_verdict`'s action renders before routing, amending the template's
+  statement that the verdict step writes nothing to GitHub; result maps gain `body` and
+  `recovered`, and each new stop token reaches a terminal's `reason`: setup's stops through
+  `done_error`, the loop's through `done_blocked`), `record-coord-setup.sh` (record, store seal, recovery, follow-ups, the
   handed pull request), `coord-common.sh` (`coord_compute` reads `rr_*`; unverified heads
   and follow-ups; no body parse), `node-push.sh` (writes through `run-record.sh` and calls
   `coord-render.sh` instead of editing the body), `coord-merge.sh` (the recorded head and the
@@ -555,15 +574,20 @@ New report tokens and stops: `store-mismatch`, `session-absent`, `coordination-p
 
 ## Implementation Approach
 
+Phases 1 to 3 change what a running loop reads, so they ship in one release: a release
+holding Phase 1 without Phase 3 would meet pre-feature runs with no record and no recovery.
+No release is cut between their merges.
+
 ### Phase 1: The record and its seam
 
-`run-record.sh`, `run-record-lib.sh`, the opener's carry and the five variables, setup's
-store seal, node list and handed pull request, `node-push.sh` writing heads through the
-recorder, `coord_compute` and `coord-merge.sh` reading the record, merges pinned to the
-recorded head, and the structure test. The body is still written by `node-push.sh` as today
-during this phase, so nothing reads the page and nothing yet renders from the record.
+`run-record.sh`, `run-record-lib.sh`, a shared test helper that seeds a record, the
+opener's carry and the five variables, setup's store seal, node list and handed pull
+request, `node-push.sh` writing heads through the recorder, `coord_compute` and
+`coord-merge.sh` reading the record, and merges pinned to the recorded head. The body is
+still written by `node-push.sh` as today during this phase, and the index-entry grammar is
+still defined in `coord-common.sh` for it.
 
-Deliverables: the two new scripts and their tests; `execute-open.sh`,
+Deliverables: the two new scripts, the test helper and their tests; `execute-open.sh`,
 `record-coord-setup.sh`, `coord-common.sh`, `node-push.sh`, `coord-merge.sh`, the template;
 `skills/execute/SKILL.md`'s write-target set.
 
@@ -583,7 +607,8 @@ Recovery in setup, `session-absent`, unverified heads through evaluate, `--adopt
 pre-feature runs.
 
 Deliverables: `record-coord-setup.sh`, `coord-common.sh`, `run-id.sh` use, recovery tests
-over old-format and rendered bodies.
+over old-format and rendered bodies, and the structure test (R3), which can pass only once
+the grammar has left `skills/execute/` for the codec.
 
 ### Phase 4: Follow-ups
 
@@ -622,18 +647,23 @@ grammar (node ids `^[a-z][a-z0-9-]*$`, `owner/repo`, plan paths with `..` and `/
 refused, 40-hex heads ignored) and reads at most the renderer's 60,000-byte cap. Recovered
 values reach `run-record.sh` as JSON data, never as shell text. A recovered pull request is
 adopted only when it's in a repository the PLAN or its node names, passes the ownership
-lookup on its node's branch, and carries a run marker equal to the run's identity; anything
-else stops the start with `recovery-unproven`. No head is read from the body.
+lookup on its node's branch (which requires the invoking login as its author, the
+default base and no fork), and carries a run marker equal to the run's identity; anything
+else stops the start with `recovery-unproven`. A body over the cap is refused, not read in
+part. No head is read from the body.
 
 **Carried and imported keys.** `carry` treats keys as data: names are matched against the
 fixed `run/` layout before use, every field is validated again by `run-record.sh`, and
 `carry` writes only into a session holding no `run/` key. An imported session supplies keys
 only; templates and scripts always come from the importing host's plugin root, compiled
-there by the import step. A follow-up's head, given by whoever passed the flag, is recorded
-unverified and checked like a recovered one. A carried head keeps its verified flag: the
-carry and the import move this run's own record, which koto's import checks, and the merge
-still passes `--match-head-commit`, so a head that moved since stops with
-`awaiting:head-moved`.
+there by the import step. A follow-up's head is recorded unverified and checked like a recovered
+one, and a follow-up must be authored by the invoking login, outside a fork, on the node's
+repository and base. Every carried head comes back unverified too, and setup checks every
+carried repository against the PLAN's write set before any GitHub call, so a key edited in
+the session store can't skip the readiness check or point the run at another repository.
+The session store itself is part of the trusted base: koto's import checks that the session
+is a root compiled from a template it holds, not what its keys say, and a person who can
+write the store already runs as the user.
 
 **Merges.** A merge is pinned to a head this run pushed and verified, or one re-read live
 and re-verified by the same readiness check. The editable page can no longer pin one.
@@ -645,19 +675,31 @@ the invoking login, and records the login and time in `run/adopted`.
 
 **Posting.** The renderer re-reads the body just before posting and skips the post when
 Part 1 changed since it rendered, so a person's concurrent edit to the description isn't
-overwritten; the next transition renders again.
+overwritten; the next transition renders again. That narrows the window rather than closing
+it. A stale or oversize body never reaches the merge-last gate unnoticed: the coordination
+pull request is evaluated and merged only after a render that posted or found nothing to
+change, so CI's gate reads an index at least as new as the record.
 
 **Public text.** The squash message is Part 1 through the shared builder, which strips HTML
-comments and refuses AI attribution. A public coordination pull request never names a
+comments and refuses AI attribution and `Co-authored-by` trailers. Closing keywords and
+mentions in Part 1 are left as written: a description that closes an issue on merge is what
+its author meant, and the builder doesn't second-guess it. A public coordination pull request never names a
 private node: the visibility check fails closed, and its refusal names the node, never the
-private repository. Rendered bodies and report lines carry pull request URLs, heads and koto
+private repository; the renderer's tests cover node and follow-up lines and the run lines.
+Rendered bodies and report lines carry pull request URLs, heads and koto
 codes, never workspace paths, session-store locations or tokens, and the renderer's tests
 check that.
 
 **Residual risk.** A person with write access can still edit the body to make a recovery
-stop (`recovery-unproven`, a denial rather than an adoption) or edit the rendered region,
-which the next transition overwrites. The CI merge-last gate still reads the body and is
-unchanged, so its existing trust model, recomputing every state live, applies.
+stop (`recovery-unproven`). Run markers can be copied, but a copied one can't steer
+recovery toward another author's pull request, because the ownership lookup admits only the
+invoking login's. They can edit the rendered region, which the next transition overwrites, and the
+coordination merge waits for a fresh render. The CI merge-last gate is unchanged and
+recomputes every state live; its input is now the renderer's output, which the
+coordination merge keeps current. Two `/execute` invocations at once on one topic remain
+unsupported (R24); koto refuses a second workspace's attach and the carry's lock covers the
+one window where two openers could both write. The adopt record's login stays in the
+session store and is never rendered.
 
 ## Consequences
 

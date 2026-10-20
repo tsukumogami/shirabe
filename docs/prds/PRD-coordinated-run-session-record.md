@@ -289,13 +289,17 @@ the body. The trouble is that the same text is also the run's memory.
   render; the next one shows it. Rendering an unchanged record and unchanged live state
   produces the same bytes, and an unchanged body isn't posted. A failed render or post
   leaves the record as written, is reported as `body=stale` on that invocation's report, is
-  tried again at the next transition, and never changes a merge decision.
+  tried again at the next transition, and never changes a node's merge decision. The
+  coordination pull request is the exception, since CI's gate reads the posted body: it's
+  evaluated and merged only after a render that posted or found nothing to change, and
+  otherwise the run reports `merge-refused:body-stale`.
 - **R16. A follow-up can be recorded.** `/execute --follow-up <node>=<pull request URL>` on a
   coordinated PLAN records a follow-up pull request against an existing node, with the head
   it reads live at that moment. It's refused, changing nothing, with `follow-up-node` when
   the node isn't in the run record, `follow-up-repo` when the pull request is in another
   repository than the node's, `follow-up-base` when it doesn't target that repository's
-  default branch, and `follow-up-closed` when it was closed without merging. Recording the
+  default branch, `follow-up-author` when it comes from a fork or another author than the
+  invoking GitHub login, and `follow-up-closed` when it was closed without merging. Recording the
   same pull request again updates its head. Once recorded, the merge-last gate holds the
   coordination pull request until the follow-up has merged; with `--merge`, `/execute`
   merges an open follow-up the way it merges a node (R4, R10), after its node. A recorded
@@ -313,7 +317,7 @@ the body. The trouble is that the same text is also the run's memory.
     `mode=` as `/scope` published them, and `store=` and `run=` from the record; the PR Index;
     the merge-order block as today.
   The PR Index has one line per PR node, `- <node> | <repo>:docs/plans/PLAN-<topic>.md#<n> |
-  <live state> | head=<head>`, and one line per follow-up, `- <node>/follow-up |
+  <live state> | head=<head>`, and one line per follow-up, `- <node>/follow-up-<n> |
   <repo>:docs/plans/PLAN-<topic>.md#<n> | <live state> | head=<head>`, after its node's line,
   where `<head>` is the recorded merged head once merged and the recorded pushed head
   before. The reference field is the form
@@ -501,7 +505,10 @@ the body. The trouble is that the same text is also the run's memory.
 
 - [ ] `--follow-up <node>=<url>` records an open and a merged follow-up with its live head;
   recording it again updates the head; it's refused with `follow-up-node`, `follow-up-repo`,
-  `follow-up-base` and `follow-up-closed` for the four cases in R16, each changing nothing.
+  `follow-up-base`, `follow-up-author` and `follow-up-closed` for the five cases in R16, each
+  changing nothing; two follow-ups on one node render as two lines, each named by its number.
+- [ ] With a render the stub fails just before the coordination merge, no coordination merge
+  call is made and the run reports `merge-refused:body-stale`.
 - [ ] With an open follow-up recorded, the merge-last gate fails until it merges; with
   `--merge` the run merges it after its node; without `--merge` it doesn't.
 - [ ] A recorded follow-up closed unmerged holds the gate and is reported as
