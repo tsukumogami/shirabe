@@ -10,14 +10,22 @@
 # /execute attached to the run's execute leg and left live, then moves:
 #
 #   1. new-after-import (one host, workspaces A and B): execute-<topic> is
-#      imported into B, and a new /deliver run in B opens its own request,
-#      which abandons A's (request_state closed, its execute leg abandoned);
-#      the moved execute session re-inits with --attach-live on the new
-#      execute leg, finishes, and the new run ends done with its result
+#      imported into B; deliver-open.sh's probe in B meets A's live
+#      deliver-<topic> (origin_mismatch) until that is imported too, and then
+#      attaches it, as the opener does before it removes it; a new /deliver
+#      run in B opens its own request, which abandons A's (request_state
+#      closed, its execute leg abandoned); the moved execute session re-inits
+#      with --attach-live on the new execute leg, finishes, and the new run
+#      ends done with its result
 #   2. resumed-in-place (one host): deliver-<topic> and execute-<topic> are
-#      both imported into B; the execute stand-in finishes in B, and the
-#      imported /deliver, ticked in B, reads the result on its original leg
-#      and ends done
+#      both imported into B; the execute stand-in re-attaches to the original
+#      execute leg, as execute-open.sh does under the run's --koto-leg, and
+#      finishes in B, and the imported /deliver, ticked in B, reads the result
+#      on that leg and ends done
+#
+# On one host koto keeps sessions by name for the whole machine, so a
+# workspace sees, and is fenced from, a session another workspace on the host
+# holds; an import moves that one session to the importing workspace.
 #   3. two hosts with separate request stores: both sessions imported from
 #      host p to host q; a tick on q finds no such request there and ends
 #      done_error with step deliver:child-absent, reason
@@ -48,11 +56,15 @@ SS="$REPO_ROOT/scripts/skill-session.sh"
 for bin in koto jq git python3; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine-backed cases did not run"; exit 0; }
 done
+# On CI a koto without either would let the move criterion pass untested, so
+# it fails there; a local run skips.
 if ! koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
+    [ -z "${CI:-}" ] || { echo "FAIL: this koto predates --koto-leg -- the move cases cannot run on CI"; exit 1; }
     echo "SKIP: this koto predates --koto-leg -- no case ran"
     exit 0
 fi
 if ! koto session import --help >/dev/null 2>&1; then
+    [ -z "${CI:-}" ] || { echo "FAIL: this koto has no session import -- the move cases cannot run on CI"; exit 1; }
     echo "SKIP: this koto has no session import -- no case ran"
     exit 0
 fi
@@ -158,6 +170,15 @@ import_deliver() {
             || fail "$TOPIC: the deliver session imports" "$(cat "$T/imp.err")"
     fi
 }
+# probe -- deliver-open.sh's first koto call, here: the deliver template with
+# only TOPIC and PLUGIN_ROOT, --attach-live --replace-terminal. Prints koto's
+# outcome (attached, replaced, new) or its refusal code.
+probe() {
+    # $KOTO_LEGACY_ENV_ARG (#483): unquoted, empty when the knob is off.
+    k init "deliver-$TOPIC" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
+        --attach-live --replace-terminal >"$T/probe.out" 2>&1
+    jq -nrR '[inputs | fromjson? | objects | .outcome // .code // .error.code // empty] | first // "unparsed"' "$T/probe.out"
+}
 # import_execute <from-host> <from-ws> -- the stand-in execute-<topic>, by a
 # raw compile and import.
 import_execute() {
@@ -196,12 +217,25 @@ park
 on h b1
 import_execute h a1
 eq "mv-new: the moved execute session is live in B at its state" work "$(k status "execute-$TOPIC" 2>/dev/null | jq -r '.current_state // "gone"')"
+# Session names are machine-wide, so A's live deliver-<topic> holds the name
+# here too: deliver-open.sh's probe in B is refused, and the new /deliver
+# stops with koto's refusal, until that session is imported as well.
+eq "mv-new: before deliver-$TOPIC is imported, B's probe meets A's session" origin_mismatch "$(probe)"
+import_deliver h a1
+# Imported, the session is B's: the probe attaches it, and deliver-open.sh
+# removes it before the fresh open.
+eq "mv-new: after the import, B's probe attaches the deliver session" attached "$(probe)"
+k session cleanup "deliver-$TOPIC" >/dev/null 2>"$T/cleanup.err" || fail "mv-new: the probed session is removed" "$(cat "$T/cleanup.err")"
 start auto
 REQ_B="$REQ"
 if [ -n "$REQ_B" ] && [ "$REQ_B" != "$REQ_A" ]; then pass "mv-new: the new run opened its own request"; else fail "mv-new: the new run opened its own request" "[$REQ_A] [$REQ_B]"; fi
 eq "mv-new: the old request is closed" closed "$(req_of "$REQ_A" '.request_state')"
 eq "mv-new: the old request's execute leg reads abandoned" abandoned "$(leg_of "$REQ_A" execute '.disposition')"
-to_execute_run
+# /scope's opener passes --attach-live --replace-terminal, which replaces the
+# finished scope-<topic> A's run left under the machine-wide name.
+child scope "{\"outcome\":\"scoped\",\"intent\":\"continue\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-$TOPIC.md\",\"plan_execution_mode\":\"single-pr\"}" \
+    --attach-live --replace-terminal
+tick
 eq "mv-new: the new run reaches execute_run" execute_run "$(state)"
 child_attach execute --attach-live
 eq "mv-new: the moved execute session is bound to the new leg" "execute-$TOPIC" "$(leg_of "$REQ_B" execute '.bound_child // "none"')"
@@ -220,6 +254,12 @@ on h b2
 import_deliver h a2
 import_execute h a2
 eq "mv-resume: the imported /deliver is at execute_run" execute_run "$(state)"
+# The imported /deliver's directive runs /execute on its own execute leg, and
+# execute-open.sh attaches the live session there (--attach-live
+# --replace-terminal --koto-leg). koto needs that attach: the import gives the
+# session a new identity, so the leg still names it but its terminal tick
+# promotes nothing until it is attached again.
+child_attach execute --attach-live --replace-terminal
 child_finish execute "$READY"
 eq "mv-resume: the original leg reads resolved, promoted" "resolved promoted" "$(leg_of "$REQ_A" execute '"\(.disposition) \(.result_source // .source)"')"
 tick
