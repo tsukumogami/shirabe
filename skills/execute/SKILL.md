@@ -130,9 +130,10 @@ Two more flags, on both paths:
     carried `run_id`, and setup stamps its marker on the node PRs that carry
     another run's or none, recording who adopted the run and when. On any
     other start setup stops `adopt-run-refused` and changes nothing.
-  - `--follow-up <node>=<url>`, with `--remove` — accepted and reported
-    `ignored=follow-up` and `ignored=remove` by setup until follow-ups land;
-    they change nothing yet.
+  - `--follow-up <node>=<url>`, with `--remove` — not usable yet: koto
+    refuses the `--follow-up` value at init (`invalid_var`) and nothing
+    changes. `--remove` is accepted and reported `ignored=remove` by setup,
+    changing nothing, until follow-ups land.
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
