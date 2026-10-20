@@ -62,6 +62,7 @@ jobs:
         run: |
           bash scripts/rule-registry_test.sh
           bash scripts/check-rule-registry_test.sh
+          bash scripts/rule-lifecycle_test.sh
           bash scripts/rule-dispute_test.sh
 
       - name: Check the registry against the merge base (Linux)
