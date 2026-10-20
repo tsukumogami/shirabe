@@ -31,17 +31,6 @@ GIT_ID="-c user.name=test -c user.email=test@example.com -c commit.gpgsign=false
 # ---------------------------------------------------------------- the copy
 
 S="$WORK/s"
-mkdir -p "$S/docs/designs/current" "$S/docs/measurement/offload-baseline" "$S/.github/workflows" \
-    "$S/.claude-plugin"
-for d in references skills scripts hooks docs/guides; do
-    cp -R "$REPO_ROOT/$d" "$S/$d"
-done
-for f in CLAUDE.md .claude-plugin/plugin.json docs/designs/current/DESIGN-output-gates.md \
-    docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml \
-    .github/workflows/validate-pr-body.yml; do
-    cp "$REPO_ROOT/$f" "$S/$f"
-done
-
 git init -q "$S"
 # The common directory, not the git directory: in a linked worktree the
 # objects live with the main checkout. git prints it relative to the
@@ -49,8 +38,27 @@ git init -q "$S"
 COMMON=$(git -C "$REPO_ROOT" rev-parse --git-common-dir)
 case "$COMMON" in /*) ;; *) COMMON="$REPO_ROOT/$COMMON" ;; esac
 echo "$COMMON/objects" > "$S/.git/objects/info/alternates"
-git -C "$S" add -A
-git $GIT_ID -C "$S" commit -qm scratch
+
+# The copy is a sparse checkout, not a recursive copy: it writes only the
+# files the check reads (the scanned scripts, the templates, every path the
+# registry names) rather than every file under skills/ and scripts/. It is cut
+# from `git stash create` when the checkout has uncommitted changes to tracked
+# files, so it holds what the suite is testing; a file nothing has added yet
+# is not in it. Its HEAD is that commit, the base the --base cases build on.
+SNAP=$(git -C "$REPO_ROOT" stash create 2>/dev/null) || SNAP=""
+[ -n "$SNAP" ] || SNAP=$(git -C "$REPO_ROOT" rev-parse HEAD) || { echo "no commit to test" >&2; exit 2; }
+git -C "$S" config core.sparseCheckout true
+git -C "$S" config core.sparseCheckoutCone false
+{
+    printf '%s\n' /references/ /hooks/ /scripts/lib/ '/scripts/*.sh' /scripts/review-shadow/criteria.json \
+        '/skills/*/scripts/*.sh' '/skills/*/koto-templates/*.md' /CLAUDE.md /.claude-plugin/plugin.json \
+        /docs/designs/current/DESIGN-output-gates.md /docs/measurement/offload-baseline/template-pin.json \
+        /.github/workflows/check-rule-registry.yml /.github/workflows/validate-pr-body.yml
+    git -C "$REPO_ROOT" show "$SNAP:references/rule-registry.json" | jq -r '.rules[]
+        | (.text.path?, .check.path?, .backstop.check?, .deny.hook?, (.fixtures[]?), (.stage_backstops[]?.check))
+        | strings | "/" + .'
+} > "$S/.git/info/sparse-checkout"
+git -C "$S" checkout -q --detach "$SNAP" || { echo "could not check out the scratch copy" >&2; exit 2; }
 
 REG="$S/references/rule-registry.json"
 MUTABLE="references/rule-registry.json references/rule-registry.md references/pr-body-conformance.md
@@ -337,6 +345,124 @@ expect_problem "a deny whose script does not list the id" "commit/conventional-s
 sed 's#^RULE_IDS="\(.*\) commit/no-ai-trailer"$#RULE_IDS="\1"#' "$WORK/orig/$HK" > "$S/$HK"
 expect_problem "an id dropped from the hook's RULE_IDS line" "$P: deny names $HK, whose RULE_IDS line does not list it"
 
+# ---------------------------------------------------------------- stage shape
+
+R=branch/no-wip-files
+for f in stage stage_since gates; do
+    reg "del($(sel $G).$f)"
+    expect_problem "a script entry with no $f" "$G: missing field $f"
+done
+
+reg "$(sel $G).stage = \"hard\""
+expect_problem "a stage outside the vocabulary" "$G: stage \"hard\" is not shadow, warn, block or retired"
+
+reg "$(sel $G).stage_since = \"2026-13-01\""
+expect_problem "a stage_since with no such month" "$G: stage_since \"2026-13-01\" is not a YYYY-MM-DD date"
+
+reg "$(sel $G).stage_since = \"16 Oct 2026\""
+expect_problem "a stage_since in another format" "$G: stage_since \"16 Oct 2026\" is not a YYYY-MM-DD date"
+
+reg "$(sel $RS).stage = \"block\""
+expect_problem "a review-shadow entry with a stage" "$RS: stage is only for an entry with check.kind script"
+
+reg "$(sel $TK).stage_backstops = []"
+expect_problem "a prose entry with stage_backstops" "$TK: stage_backstops is only for an entry with check.kind script"
+
+reg "$(sel $R).stage = \"block\""
+expect_problem "a status retired entry at another stage" "$R: a status retired entry needs stage retired"
+
+reg "$(sel $G).gates = []"
+expect_problem "an active script entry with no gates" "$G: gates is empty on an active entry"
+
+reg "$(sel $G).gates = [\"work-on:pr_creation\"]"
+expect_problem "a gate missing its gate name" "$G: gate \"work-on:pr_creation\" is not <skill>:<state>:<gate>"
+
+reg "$(sel $G).gates = [\"Work-On:pr_creation:pr_body_conformant\"]"
+expect_problem "a gate with an upper-case skill" "is not <skill>:<state>:<gate>"
+
+reg "$(sel $G2).stage_backstops = [{\"before\": \"pr-create\", \"check\": \"$HK\"}]"
+expect_problem "stage_backstops with no notes" "$G2: stage_backstops needs notes saying why"
+
+reg "$(sel $G2).stage_backstops = [{\"before\": \"deploy\", \"check\": \"$HK\"}] | $(sel $G2).notes = \"why\""
+expect_problem "a stage backstop before an unprotected action" "$G2: stage_backstops before \"deploy\" is not a protected action"
+
+reg "$(sel $G2).stage_backstops = [{\"before\": \"pr-create\", \"check\": \"$HK\"}, {\"before\": \"pr-create\", \"check\": \".github/workflows/validate-pr-body.yml\"}] | $(sel $G2).notes = \"why\""
+expect_problem "a stage backstop action named twice" "$G2: stage_backstops names pr-create more than once"
+
+reg "$(sel $G2).stage_backstops = [{\"before\": \"pr-create\", \"check\": \"\"}] | $(sel $G2).notes = \"why\""
+expect_problem "a stage backstop with no check" "$G2: a stage_backstops check is not a path"
+
+# ---------------------------------------------------------------- stage safety
+
+# G2 guards pr-create and publish. Each case lowers it below block.
+BS_PR="{\"before\": \"pr-create\", \"check\": \"$HK\"}"
+BS_PUB='{"before": "publish", "check": ".github/workflows/validate-pr-body.yml"}'
+below() { printf '%s.stage = "%s" | %s.notes = "a backstop holds each guard"' "$(sel $G2)" "$1" "$(sel $G2)"; }
+
+reg "$(below warn)"
+expect_problem "a guarded entry at warn with no backstop" "$G2: guards pr-create at stage warn with no stage_backstops entry"
+
+reg "$(below warn) | $(sel $G2).stage_backstops = [$BS_PR]"
+expect_problem "a guarded entry at warn with a backstop for one guard of two" "$G2: guards publish at stage warn with no stage_backstops entry"
+
+reg "$(below shadow) | $(sel $G2).stage_backstops = [$BS_PR, {\"before\": \"publish\", \"check\": \".github/workflows/no-such.yml\"}]"
+expect_problem "a stage backstop path that does not exist" "$G2: stage backstop path .github/workflows/no-such.yml does not exist"
+
+reg "$(below warn) | $(sel $G2).stage_backstops = [$BS_PR, {\"before\": \"publish\", \"check\": \"skills/work-on/scripts/check-pr-output.sh\"}]"
+expect_problem "a stage backstop that is the entry's own check" "$G2: guards publish at stage warn with no stage_backstops entry"
+
+reg "$(below retired) | $(sel $G2).stage_backstops = [$BS_PR, $BS_PUB]"
+run_check
+[ "$RC" = 0 ] && pass "an active guarded entry at retired with an existing backstop for every guard passes" \
+    || fail "an active guarded entry at retired with an existing backstop for every guard passes" "rc=$RC: $OUT"
+reset_copy
+
+reg "$(below warn) | $(sel $G2).stage_backstops = [$BS_PR, $BS_PUB]"
+run_check
+[ "$RC" = 0 ] && pass "a guarded entry at warn with every guard backed passes" \
+    || fail "a guarded entry at warn with every guard backed passes" "rc=$RC: $OUT"
+reset_copy
+
+reg "$(sel $G).stage = \"shadow\""
+run_check
+[ "$RC" = 0 ] && pass "an unguarded entry at shadow needs no backstop" \
+    || fail "an unguarded entry at shadow needs no backstop" "rc=$RC: $OUT"
+reset_copy
+
+# The stage safety rule and rule-registry.sh's run-time copy of it read the
+# same protected actions.
+P1=$(grep -m1 '^PROTECTED=' "$SCRIPT_DIR/rule-registry.sh")
+P2=$(grep -m1 '^PROTECTED=' "$CHECK")
+if [ -n "$P1" ] && [ "$P1" = "$P2" ]; then
+    pass "rule-registry.sh and check-rule-registry.sh list the same protected actions"
+else
+    fail "rule-registry.sh and check-rule-registry.sh list the same protected actions" "[$P1] vs [$P2]"
+fi
+
+# ---------------------------------------------------------------- gates
+
+reg "$(sel $G).gates += [\"work-on:no_such_state:pr_body_conformant\"]"
+expect_problem "a gate naming no state of the skill" "$G: gate work-on:no_such_state:pr_body_conformant names no state no_such_state"
+
+reg "$(sel $G).gates += [\"work-on:pr_creation:no_such_gate\"]"
+expect_problem "a gate that is not a command gate of its state" "$G: gate work-on:pr_creation:no_such_gate is not a command gate of state pr_creation"
+
+reg "$(sel $G).gates += [\"work-on:verification:verification_verdict\"]"
+expect_problem "a gate whose script does not list the id" "$G: gate work-on:verification:verification_verdict runs no script whose RULE_IDS line lists $G"
+
+reg "$(sel $R).gates = [\"execute:no_such_state:x\"]"
+expect_problem "a retired entry's gate is still checked by name" "$R: gate execute:no_such_state:x names no state"
+
+reg "$(sel $G).gates += [\"work-on:scrutiny:scrutiny_verdict\", \"work-on:light_review:light_verdict\"]"
+run_check
+[ "$RC" = 0 ] && pass "a review-panel gate passes for any active rule" \
+    || fail "a review-panel gate passes for any active rule" "rc=$RC: $OUT"
+reset_copy
+
+sed 's/^      owned_pr_body_conformant:/      owned_pr_body_renamed:/' \
+    "$WORK/orig/skills/execute/koto-templates/execute.md" > "$S/skills/execute/koto-templates/execute.md"
+expect_problem "a gate renamed in its template" "$G: gate execute:pr_finalization:owned_pr_body_conformant is not a command gate"
+
 # ---------------------------------------------------------------- releasable
 
 { cat "$WORK/orig/skills/execute/scripts/adopt-or-create-pr.sh"
@@ -429,6 +555,103 @@ fi
 chmod 755 "$S/skills/unreadable"
 rmdir "$S/skills/unreadable"
 
+# ---------------------------------------------------------------- stage transitions
+
+# base_commit: a commit of the copy, on its HEAD, whose registry is standard
+# input. It is written through a scratch index, so the copy's HEAD, index and
+# tree stay as they are; it prints the commit.
+base_commit() {
+    local blob tree
+    blob=$(git -C "$S" hash-object -w --stdin) || return 1
+    rm -f "$WORK/base.idx"
+    GIT_INDEX_FILE="$WORK/base.idx" git -C "$S" read-tree HEAD || return 1
+    GIT_INDEX_FILE="$WORK/base.idx" git -C "$S" update-index --cacheinfo "100644,$blob,references/rule-registry.json" \
+        || return 1
+    tree=$(GIT_INDEX_FILE="$WORK/base.idx" git -C "$S" write-tree) || return 1
+    git $GIT_ID -C "$S" commit-tree "$tree" -p HEAD -m base
+}
+
+# expect_base <label> <rc> <substring> <base filter> <head filter>: the
+# registry at the base and in the tree are the original through each filter;
+# the check with --base exits <rc> and prints <substring>.
+expect_base() {
+    local label=$1 want_rc=$2 want=$3 b
+    reg "$5"
+    b=$(jq "$4" "$WORK/orig/references/rule-registry.json" | base_commit) && [ -n "$b" ] \
+        || { echo "bad base filter: $4" >&2; exit 2; }
+    run_check --base "$b"
+    if [ "$RC" = "$want_rc" ] && grep -qF -- "$want" <<<"$OUT"; then
+        pass "$label"
+    else
+        fail "$label" "rc=$RC, want $want_rc and [$want]; got: $(head -n 5 <<<"$OUT" | tr '\n' '|')"
+    fi
+    reset_copy
+}
+
+OK="check-rule-registry: ok"
+# at <stage> [<since>]: a filter setting G's stage, and its stage_since when
+# given.
+at() {
+    printf '%s.stage = "%s"' "$(sel $G)" "$1"
+    [ $# -lt 2 ] || printf ' | %s.stage_since = "%s"' "$(sel $G)" "$2"
+}
+LATER=2099-01-01
+
+expect_base "transition: no change passes" 0 "$OK" '.' '.'
+for s in shadow warn block; do
+    expect_base "transition: a new entry at $s passes" 0 "$OK" "del($(sel $G))" "$(at $s)"
+done
+expect_base "transition: a base entry with no stage taking block passes" 0 "$OK" "del($(sel $G).stage)" '.'
+expect_base "transition: a retired base entry with no stage taking retired passes" 0 "$OK" "del($(sel $R).stage)" '.'
+expect_base "transition: shadow to warn passes" 0 "$OK" "$(at shadow)" "$(at warn $LATER)"
+expect_base "transition: warn to block passes" 0 "$OK" "$(at warn)" "$(at block $LATER)"
+expect_base "transition: block to shadow passes" 0 "$OK" '.' "$(at shadow $LATER)"
+expect_base "transition: warn to retired passes" 0 "$OK" "$(at warn)" "$(at retired $LATER)"
+expect_base "transition: retired to shadow on an active entry passes" 0 "$OK" "$(at retired)" "$(at shadow $LATER)"
+expect_base "transition: a protected guard dropped at block passes" 0 "$OK" '.' "$(sel $G2).guards = [\"pr-create\"]"
+
+expect_base "transition: shadow to block fails" 1 "$G: stage shadow to block skips a step" \
+    "$(at shadow)" "$(at block $LATER)"
+expect_base "transition: retired to warn fails" 1 "$G: stage retired may change only to shadow" \
+    "$(at retired)" "$(at warn $LATER)"
+expect_base "transition: a new entry at retired fails" 1 "$G: a new entry starts at shadow, warn or block" \
+    "del($(sel $G))" "$(at retired)"
+expect_base "transition: a base entry with no stage taking warn fails" 1 "$G: an entry with no stage at the base takes block" \
+    "del($(sel $G).stage)" "$(at warn $LATER)"
+expect_base "transition: a stage change that keeps stage_since fails" 1 "$G: stage changed from shadow to warn but stage_since" \
+    "$(at shadow)" "$(at warn)"
+expect_base "transition: a stage change that lowers stage_since fails" 1 "is not later than the base" \
+    "$(at shadow $LATER)" "$(at warn 2026-01-01)"
+expect_base "transition: a status change to retired at block fails" 1 "$G: a status change to retired sets stage retired" \
+    '.' "$(sel $G).status = \"retired\""
+expect_base "transition: a status retired entry made active fails" 1 "$R: a status retired entry keeps its status and stage" \
+    '.' "$(sel $R).status = \"active\""
+expect_base "transition: a status retired entry's stage changed fails" 1 "$R: a status retired entry keeps its status and stage" \
+    '.' "$(sel $R).stage = \"shadow\" | $(sel $R).stage_since = \"$LATER\""
+expect_base "transition: a protected guard dropped while leaving block fails" 1 "$G2: drops protected guard(s) publish while at stage warn" \
+    '.' "$(sel $G2).guards = [\"pr-create\"] | $(sel $G2).stage = \"warn\" | $(sel $G2).stage_since = \"$LATER\" | $(sel $G2).stage_backstops = [$BS_PR] | $(sel $G2).notes = \"why\""
+
+b=$(printf 'not json\n' | base_commit)
+run_check --base "$b"
+if [ "$RC" = 2 ]; then
+    pass "transition: a base registry that does not parse exits 2"
+else
+    fail "transition: a base registry that does not parse exits 2" "rc=$RC: $OUT"
+fi
+b=$(printf '{"rules": 1}\n' | base_commit)
+run_check --base "$b"
+if [ "$RC" = 2 ]; then
+    pass "transition: a base registry with no rules list exits 2"
+else
+    fail "transition: a base registry with no rules list exits 2" "rc=$RC: $OUT"
+fi
+run_check --base no-such-ref
+if [ "$RC" = 2 ] && grep -qF "is not a commit" <<<"$OUT"; then
+    pass "transition: a base that is not a commit exits 2"
+else
+    fail "transition: a base that is not a commit exits 2" "rc=$RC: $OUT"
+fi
+
 # ---------------------------------------------------------------- id removal
 
 reg "del(.rules[] | select(.id == \"$TK\"))"
@@ -473,16 +696,16 @@ git -C "$A" add -A
 git $GIT_ID -C "$A" commit -qm base
 BASE=$(git -C "$A" rev-parse HEAD)
 
-git -C "$A" rm -q "skills/work-on/scripts/$OLD"
-printf '{"rules":[{"id":"x/one"},{"id":"rs-001"}]}\n' > "$A/references/rule-registry.json"
-mkdir -p "$WORK/adopt-orig"
-cp -R "$A/." "$WORK/adopt-orig/"
-rm -rf "$WORK/adopt-orig/.git"
+# reset_adopt: the working tree that adopts the registry, rebuilt over the
+# base commit rather than copied back.
 reset_adopt() {
-    rm -rf "$A/docs" "$A/skills" "$A/scripts" "$A/references"
-    cp -R "$WORK/adopt-orig/docs" "$WORK/adopt-orig/skills" "$WORK/adopt-orig/scripts" \
-        "$WORK/adopt-orig/references" "$A/"
+    git -C "$A" reset -q --hard "$BASE"
+    git -C "$A" clean -qfd
+    git -C "$A" rm -q "skills/work-on/scripts/$OLD"
+    mkdir -p "$A/references"
+    printf '{"rules":[{"id":"x/one"},{"id":"rs-001"}]}\n' > "$A/references/rule-registry.json"
 }
+reset_adopt
 
 # expect_adopt <label> <rc> <substring> [base]
 expect_adopt() {

@@ -10,17 +10,23 @@
 #      duplicate id or alias, no alias that is an id, `none` alone in guards,
 #      every <skill>:<state> timing names a `## <state>` section of one of
 #      that skill's koto templates, a one-line summary with no control
-#      character and no `::`
+#      character and no `::`; a script entry's stage (shadow, warn, block,
+#      retired), stage_since (YYYY-MM-DD) and gates (<skill>:<state>:<gate>,
+#      non-empty while active), stage retired on a status retired entry, and
+#      none of these or stage_backstops on any other entry; stage_backstops
+#      entries name a protected action once each and a check, with notes
 #   2  withhold safety: a guard other than `none`, or check.kind `none`,
 #      needs withhold `never`; a gate needs a guard, or a backstop: the
 #      deterministic check that still blocks a protected action after the
 #      gate (backstop.before), for a rule whose harm a later edit undoes; a
 #      backstop needs level gate, guards ["none"], withhold `eligible` and
-#      notes; prose needs check `none`
-#   3  paths: text, check, backstop and fixture paths have a safe shape and
-#      stay in the repository; an active entry's check path, backstop check
-#      and fixtures exist; a review-shadow check names a criterion in
-#      criteria.json
+#      notes; prose needs check `none`. Stage safety: an active script
+#      entry below block covers each protected guard with a stage_backstops
+#      entry before it whose check isn't the entry's own check.path
+#   3  paths: text, check, backstop, stage backstop and fixture paths have a
+#      safe shape and stay in the repository; an active entry's check path,
+#      backstop checks and fixtures exist; a review-shadow check names a
+#      criterion in criteria.json
 #   4  pointers: every active entry's anchors resolve, through
 #      rule-registry.sh's own lookup, to a range with no marker line and no
 #      control character but tab; a retired entry is exempt
@@ -43,18 +49,31 @@
 #      pull_request paths of check-rule-registry.yml
 #  10  releasable ids: every released id passes rule-registry.sh's own
 #      release rules (path, 60 lines, no marker), so CI fails before a run does
-#  11  id removal (--base <ref>): every id in the registry at <ref> is still
-#      in it; a base with no registry passes
+#  11  id removal and stage transitions (--base <ref>): every id in the
+#      registry at <ref> is still in it. Joined by id: a new entry starts at
+#      shadow, warn or block; a base entry with no stage takes block, or
+#      retired when its status is retired; a stage moves one step up, any
+#      steps down among block, warn and shadow, to retired, or from retired to
+#      shadow on an active entry, and every move raises stage_since; a status
+#      change to retired sets stage retired; a status retired base entry keeps
+#      its status and stage; an active entry that drops a protected guard is
+#      at block. A base with no registry passes; one that doesn't parse exits 2
 #  12  hook links: a `deny` is an object of hook and before only, whose hook
 #      is a safe relative path to an existing file and whose before is a
 #      non-empty list of protected actions (the guards vocabulary less
 #      `none`); every id on a RULE_IDS
 #      line under hooks/ has a `deny` naming that script, and every `deny`
 #      names a script whose RULE_IDS line lists the id
+#  13  gates: every gates value names a state of that skill's koto templates
+#      (frontmatter, not the mermaid renderings) and a command gate of that
+#      state; for an active entry, a command that runs a script whose
+#      RULE_IDS line lists the id, or a script in ANY_ACTIVE_ALLOWED
 #
 # The rules that rule-registry.sh enforces at run time (anchor lookup, safe
 # path, releasable path) are asked of it rather than copied here, so the two
-# can't drift apart.
+# can't drift apart. The stage safety rule is the exception: rule-registry.sh
+# repeats it at run time, so a registry edited without passing this check
+# still can't soften a guarded rule.
 #
 # Usage: check-rule-registry.sh [--root <dir>] [--base <ref>]
 #   --root  the repository to check (default: this script's repository); the
@@ -111,8 +130,12 @@ ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$'
 RULE_IDS_LINE='^RULE_IDS="([a-z0-9/-]+( [a-z0-9/-]+)*)"$'
 COMMENT_LINE='^[[:space:]]*#'
 # The guards vocabulary less `none`: the actions a guard, a backstop or a
-# deny can name.
+# deny can name. rule-registry.sh keeps the same list for its run-time stage
+# safety rule; check-rule-registry_test.sh fails when the two differ.
 PROTECTED='["pr-create","push","force-push","merge","close-issue","release","delete-branch","publish","destroy-record"]'
+# A script entry's stage, in rising order of what a finding does; retired
+# prints nothing.
+STAGES='["shadow","warn","block","retired"]'
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-registry.XXXXXX") || die2 "cannot make a scratch directory"
 trap 'rm -rf "$TMP"' EXIT
@@ -152,7 +175,7 @@ if ! jq -e '.rules | type == "array"' "$REG" >/dev/null 2>&1; then
     exit 1
 fi
 
-jqf "$TMP/shape" -r --argjson protected "$PROTECTED" '
+jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" '
   def strs: type == "array" and all(.[]; type == "string");
   def ctl: explode | any(.[]; . < 32 or . == 127);
   ["id","status","summary","text","check","fixtures","level","timing","guards",
@@ -218,7 +241,52 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" '
             elif ($e.notes | type) != "string" or $e.notes == "" then "\($n): a backstop needs notes saying why"
             else empty end),
         (select($e.level == "prose" and ($e.check | type) == "object" and $e.check.kind != "none")
-          | "\($n): a prose entry must have check.kind none")
+          | "\($n): a prose entry must have check.kind none"),
+        # The check lifecycle: stage, stage_since and gates on every script
+        # entry and on no other; stage_backstops only beside them.
+        (($e.check | type) == "object" and $e.check.kind == "script") as $script
+        | (if $script then
+             ("stage","stage_since","gates" | . as $f | select($e | has($f) | not) | "\($n): missing field \($f)")
+           else
+             ("stage","stage_since","gates","stage_backstops" | . as $f | select($e | has($f))
+               | "\($n): \($f) is only for an entry with check.kind script")
+           end),
+        (select($script and ($e | has("stage"))) | $e.stage
+          | . as $s | select(($s | type) != "string" or ($stages | index($s)) == null)
+          | "\($n): stage \(tojson) is not shadow, warn, block or retired"),
+        (select($script and ($e | has("stage_since"))) | $e.stage_since
+          | select(type != "string" or (test("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$") | not))
+          | "\($n): stage_since \(tojson) is not a YYYY-MM-DD date"),
+        (select($script and $e.status == "retired" and ($e | has("stage")) and $e.stage != "retired")
+          | "\($n): a status retired entry needs stage retired"),
+        (select($script and ($e | has("gates"))) | $e.gates
+          | if strs | not then "\($n): gates is not a list of strings"
+            elif length == 0 and $e.status == "active" then "\($n): gates is empty on an active entry"
+            else (.[] | select(test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)
+                  | "\($n): gate \(tojson) is not <skill>:<state>:<gate>")
+            end),
+        (select($script and ($e | has("stage_backstops"))) | $e.stage_backstops
+          | if type != "array" or length == 0 or any(.[]; type != "object") then
+              "\($n): stage_backstops is not a non-empty list of objects"
+            else
+              (.[] | .before as $a | select(($a | type) != "string" or ($protected | index($a)) == null) | $a
+                | "\($n): stage_backstops before \(tojson) is not a protected action"),
+              ([.[].before | strings] | group_by(.) | map(select(length > 1)[0])[]
+                | "\($n): stage_backstops names \(.) more than once"),
+              (.[] | .check | select(type != "string" or . == "")
+                | "\($n): a stage_backstops check is not a path"),
+              (select(($e.notes | type) != "string" or $e.notes == "")
+                | "\($n): stage_backstops needs notes saying why")
+            end),
+        # The safety rule: a guarded rule below block keeps every protected
+        # action it guards behind another deterministic check.
+        (select($script and $e.status == "active" and ($e.stage | type) == "string"
+                and $e.stage != "block" and ($stages | index($e.stage)) != null
+                and ($e.guards | strs))
+          | (if ($e.stage_backstops | type) == "array" then [$e.stage_backstops[] | objects] else [] end) as $bs
+          | $e.guards[] | . as $g | select(($protected | index($g)) != null)
+          | select(any($bs[]; .before == $g and (.check | type) == "string" and .check != "" and .check != $e.check.path) | not)
+          | "\($n): guards \($g) at stage \($e.stage) with no stage_backstops entry before \($g) naming a check other than its own")
     end
 ' "$REG"
 report "$TMP/shape"
@@ -271,6 +339,8 @@ jqf "$TMP/paths" -r '.rules[] | objects | .id as $id | (.status // "") as $s
        | ((.text | objects | .path | strings | "\($id)\t\($s)\ttext\t\(.)"),
           (.check | objects | select(.kind == "script") | .path | strings | "\($id)\t\($s)\tcheck\t\(.)"),
           (.backstop | objects | .check | strings | "\($id)\t\($s)\tbackstop\t\(.)"),
+          (.stage_backstops | arrays | .[] | objects | .check | strings | select(. != "")
+             | "\($id)\t\($s)\tstage backstop\t\(.)"),
           (.fixtures | arrays | .[] | strings | "\($id)\t\($s)\tfixture\t\(.)"))' "$REG"
 while IFS='	' read -r id status what p; do
     [ -n "$p" ] || continue
@@ -623,6 +693,47 @@ if [ -n "$BASE" ]; then
         comm -23 "$TMP/base-ids" "$TMP/head-ids" \
             | sed "s/\$/: in the registry at the base but removed; retire an entry instead of deleting it/" > "$TMP/removed"
         report "$TMP/removed"
+        # Stage transitions: each head entry against its base entry, by id.
+        # A stage rises one step per change and a guard is dropped only at
+        # block, so promoting past warn, or dropping a guard and softening the
+        # stage, takes two reviewed changes.
+        jqf "$TMP/transitions" -r --argjson protected "$PROTECTED" --slurpfile base "$TMP/base-registry.json" '
+          def rank: if type == "string" then {"shadow": 0, "warn": 1, "block": 2}[.] else null end;
+          def pguards: if (.guards | type) == "array"
+                       then [.guards[] | strings | . as $g | select(($protected | index($g)) != null)]
+                       else [] end;
+          ([$base[0].rules[] | objects | select((.id | type) == "string") | {key: .id, value: .}]
+             | from_entries) as $old
+          | .rules[] | objects | select((.id | type) == "string") | .id as $n | . as $h
+          | $old[$n] as $b
+          | if $b == null then
+              select($h.stage == "retired") | "\($n): a new entry starts at shadow, warn or block, not retired"
+            else
+              (select($b.status == "retired" and ($h.status != "retired"
+                        or (($b | has("stage")) and $h.stage != $b.stage)))
+                | "\($n): a status retired entry keeps its status and stage (was \($b.stage // "no stage"), now \($h.status) at \($h.stage // "no stage"))"),
+              (select($b.status != "retired" and $h.status == "retired" and $h.stage != "retired"
+                      and ($h | has("stage")))
+                | "\($n): a status change to retired sets stage retired, not \($h.stage | tojson)"),
+              (select(($b | has("stage") | not) and ($h | has("stage")))
+                | select($h.stage != "block" and ($h.stage != "retired" or $h.status != "retired"))
+                | "\($n): an entry with no stage at the base takes block (or retired when its status is retired), not \($h.stage | tojson)"),
+              (select(($b | has("stage")) and ($h | has("stage")) and $b.stage != $h.stage and $b.status != "retired")
+                | $b.stage as $from | $h.stage as $to
+                | (if $to == "retired" then empty
+                   elif $from == "retired" then
+                     (if $to == "shadow" and $h.status == "active" then empty
+                      else "\($n): stage retired may change only to shadow on an active entry, not to \($to | tojson)" end)
+                   elif ($from | rank) != null and ($to | rank) != null and ($to | rank) > ($from | rank) + 1 then
+                     "\($n): stage \($from) to \($to) skips a step; promote one step at a time"
+                   else empty end),
+                  (select(($h.stage_since | type) != "string" or ($b.stage_since | type) == "string" and $h.stage_since <= $b.stage_since)
+                   | "\($n): stage changed from \($from) to \($to) but stage_since \($h.stage_since | tojson) is not later than the base \($b.stage_since | tojson)")),
+              (select($h.status == "active" and ($h.stage // "block") != "block")
+                | ($b | pguards) - ($h | pguards) | select(length > 0)
+                | "\($n): drops protected guard(s) \(join(", ")) while at stage \($h.stage); drop a guard only at block, and soften the stage in a later change")
+            end' "$REG"
+        report "$TMP/transitions"
     else
         echo "$PROG: the base has no registry; the id-removal check has nothing to compare"
     fi
@@ -682,6 +793,80 @@ while IFS= read -r hit; do
             || problem "$rel:$lineno: RULE_IDS names $id, whose registry entry has no deny naming $rel"
     done
 done < "$TMP/hook-ids"
+
+# ---------------------------------------------------------------- 13
+
+# Each skill's koto templates, frontmatter only: a state at two spaces under
+# `states:`, `gates:` at four, a gate at six and its command at eight. One
+# `S skill:state` line per state and one `G skill:state:gate command` line per
+# command gate. The mermaid renderings carry no frontmatter of their own.
+: > "$TMP/template-gates"
+for t in "$ROOT"/skills/*/koto-templates/*.md; do
+    [ -f "$t" ] || continue
+    case "$t" in *.mermaid.md) continue ;; esac
+    skill=${t#"$ROOT"/skills/}
+    skill=${skill%%/*}
+    awk -v skill="$skill" '
+        NR == 1 && /^---[[:space:]]*$/ { fm = 1; next }
+        !fm { exit }
+        /^---[[:space:]]*$/ { exit }
+        /^[^ #]/ { in_states = ($0 ~ /^states:/); in_gates = 0; next }
+        !in_states { next }
+        /^  [a-z0-9_]+:/ { state = $1; sub(/:$/, "", state); in_gates = 0; print "S\t" skill ":" state; next }
+        /^    gates:/ { in_gates = 1; next }
+        /^    [^ ]/ { in_gates = 0; next }
+        in_gates && /^      [a-z0-9_]+:/ { gate = $1; sub(/:$/, "", gate); next }
+        in_gates && /^        command:/ {
+            c = $0; sub(/^        command:[[:space:]]*/, "", c)
+            print "G\t" skill ":" state ":" gate "\t" c
+        }' "$t" >> "$TMP/template-gates" || die2 "could not read $t"
+done
+
+# The scripts that declare what they report: <path> <ids>, one line each.
+: > "$TMP/script-ids"
+while IFS= read -r hit; do
+    file=${hit%%:*}
+    rest=${hit#*:}
+    text=${rest#*:}
+    [[ $text =~ $RULE_IDS_LINE ]] || continue
+    printf '%s\t%s\n' "${file#"$ROOT"/}" "${BASH_REMATCH[1]}" >> "$TMP/script-ids"
+done < "$TMP/rule-ids"
+
+jqf "$TMP/gates" -r '.rules[] | objects | select((.id | type) == "string" and (.gates | type) == "array")
+       | .id as $id | (.status // "") as $s | .gates[] | strings
+       | select(test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$")) | "\($id)\t\($s)\t\(.)"' "$REG"
+# One awk pass over the three lists. A gate command runs a script when it
+# names the plugin's path to it, closed by a quote or a space. A retired rule
+# has left every RULE_IDS line, so only its gate names are checked. A script
+# that resolves a finding's own rule at run time (ANY_ACTIVE_ALLOWED) may
+# report any active rule.
+awk -F'\t' -v any="$ANY_ACTIVE_ALLOWED" -v q='"' '
+    function runs(c, p) { return index(c, "{{PLUGIN_ROOT}}/" p q) || index(c, "{{PLUGIN_ROOT}}/" p " ") }
+    FILENAME == ARGV[1] {
+        if ($1 == "S") state_of[$2] = 1
+        else if ($1 == "G") { n[$2]++; cmd[$2, n[$2]] = $3 }
+        next
+    }
+    FILENAME == ARGV[2] { ns++; spath[ns] = $1; sids[ns] = " " $2 " "; next }
+    {
+        id = $1; status = $2; gate = $3
+        sg = gate; sub(/:[^:]*$/, "", sg)
+        skill = gate; sub(/:.*$/, "", skill)
+        state = sg; sub(/^[^:]*:/, "", state)
+        if (!(sg in state_of)) { print id ": gate " gate " names no state " state " in skills/" skill "/koto-templates/"; next }
+        if (!(gate in n)) { print id ": gate " gate " is not a command gate of state " state; next }
+        if (status != "active") next
+        ok = 0
+        na = split(any, a, " ")
+        for (i = 1; i <= n[gate] && !ok; i++) {
+            c = cmd[gate, i]
+            for (j = 1; j <= na; j++) if (runs(c, a[j])) ok = 1
+            for (k = 1; k <= ns; k++) if (runs(c, spath[k]) && index(sids[k], " " id " ")) ok = 1
+        }
+        if (!ok) print id ": gate " gate " runs no script whose RULE_IDS line lists " id
+    }' "$TMP/template-gates" "$TMP/script-ids" "$TMP/gates" > "$TMP/gate-problems" \
+    || die2 "the gates check could not run"
+report "$TMP/gate-problems"
 
 if [ "$PROBLEMS" -gt 0 ]; then
     echo "$PROG: $PROBLEMS problem(s)"
