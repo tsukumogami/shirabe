@@ -424,26 +424,104 @@ class CheckTest(unittest.TestCase):
         self.assertProblem("rs-007: a Jev criterion with no jev contract")
 
 
+def trust(t):
+    """Promote the tree's decider entry with a record that meets every bar."""
+    e = t.entry(RULE)
+    j = e["jev"]
+    j["state"] = "trusted"
+    e["withhold"] = "eligible"
+    counts = {"good": {"pass": 10, "fail": 0, "unclear": 0, "error": 0},
+              "seeded-bad": {"pass": 0, "fail": 20, "unclear": 0, "error": 0},
+              "adversarial": {"pass": 0, "fail": 5, "unclear": 0, "error": 0}}
+    j["promotion"] = {
+        "trusted_since": "2026-11-20",
+        "slice_script_blob": jc.git_blob(t.root, SLICE),
+        "fixture_run": {"on": "2026-11-01", "model": "jev-1", "declared_sha256": j["declared"]["sha256"],
+                        "fixtures_blob": jc.git_blob(t.root, FIXTURES), "counts": counts},
+        "live": {"from": "2026-10-21", "to": "2026-11-20", "evaluations": 30, "sessions": 5, "answered": 29,
+                 "over_budget_fallbacks": 0, "max_input_bytes": 300}}
+    t.save()
+
+
+WITHHOLD_ACTION = """  check_state:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/scripts/jev-withhold.sh" %s skills/demo/references/rules.md "{{SESSION_NAME}}" "{{SESSION_DIR}}" "{{PLUGIN_ROOT}}"'
+      capture_stdout_as: RULES
+"""
+WITHHOLD_DIRECTIVE = "Check the thing, reading the rules at {{RULES}}. When a gate fails, run `scripts/rule-registry.sh release demo/fits-facts`."
+
+
+def withholding_template(rule_id=RULE, directive=WITHHOLD_DIRECTIVE):
+    return TEMPLATE_TEXT.replace("  check_state:\n", WITHHOLD_ACTION % rule_id, 1) \
+        .replace("Check the thing.", directive, 1)
+
+
+class WithholdCallTest(unittest.TestCase):
+    """Rule 12: who may call jev-withhold.sh, and for which rule."""
+
+    def setUp(self):
+        self.t = Tree()
+        trust(self.t)
+
+    def tearDown(self):
+        self.t.close()
+
+    def assertProblem(self, want):
+        rc, out = self.t.check()
+        self.assertEqual(rc, 1, out)
+        self.assertIn(want, out)
+
+    def test_a_trusted_rule_with_its_release_passes(self):
+        write(self.t.root, TEMPLATE, withholding_template())
+        rc, out = self.t.check()
+        self.assertEqual(rc, 0, out)
+
+    def test_a_rule_that_isnt_trusted(self):
+        e = self.t.entry(RULE)
+        e["jev"]["state"], e["withhold"] = "untrusted", "never"
+        del e["jev"]["promotion"]
+        self.t.save()
+        write(self.t.root, TEMPLATE, withholding_template())
+        self.assertProblem("withholds demo/fits-facts, which isn't a trusted Jev criterion")
+
+    def test_a_rule_of_another_template(self):
+        write(self.t.root, "skills/demo/koto-templates/other.md",
+              "---\nname: other\nstates:\n" + WITHHOLD_ACTION % RULE + "---\n\n## check_state\n\n"
+              + WITHHOLD_DIRECTIVE + "\n")
+        self.assertProblem("withholds demo/fits-facts, whose check is in another template")
+
+    def test_a_directive_without_the_release(self):
+        write(self.t.root, TEMPLATE, withholding_template(directive="Check the thing at {{RULES}}."))
+        self.assertProblem("its directive doesn't run rule-registry.sh release demo/fits-facts")
+
+    def test_no_literal_rule_id(self):
+        write(self.t.root, TEMPLATE, withholding_template(rule_id='"{{RULE}}"'))
+        self.assertProblem("calls jev-withhold.sh without a literal rule id")
+
+    def test_a_mention_outside_a_command(self):
+        write(self.t.root, TEMPLATE, withholding_template().replace(
+            "Check the thing,", "Check the thing (jev-withhold.sh chose the file),", 1))
+        self.assertProblem("names jev-withhold.sh outside a state's command")
+
+    def test_a_call_from_any_other_file(self):
+        for rel in ("skills/demo/scripts/run.sh", "koto-templates/notes.mermaid.md", "hooks/pre.sh"):
+            with self.subTest(rel):
+                write(self.t.root, rel, 'out=$("$ROOT/scripts/jev-withhold.sh" demo/fits-facts x y z w)\n')
+                self.assertProblem("%s: calls jev-withhold.sh; only a template's command may" % rel)
+                os.remove(os.path.join(self.t.root, rel))
+
+    def test_no_template_in_the_repository_calls_it(self):
+        for rel in jc.template_files(REPO):
+            with self.subTest(rel):
+                self.assertNotIn(jc.WITHHOLD_SCRIPT, jc.read_text(os.path.join(REPO, rel)))
+
+
 class PromotionTest(unittest.TestCase):
     """A trusted entry: every promotion rule, one failure at a time."""
 
     def setUp(self):
         self.t = Tree()
-        e = self.t.entry(RULE)
-        j = e["jev"]
-        j["state"] = "trusted"
-        e["withhold"] = "eligible"
-        counts = {"good": {"pass": 10, "fail": 0, "unclear": 0, "error": 0},
-                  "seeded-bad": {"pass": 0, "fail": 20, "unclear": 0, "error": 0},
-                  "adversarial": {"pass": 0, "fail": 5, "unclear": 0, "error": 0}}
-        j["promotion"] = {
-            "trusted_since": "2026-11-20",
-            "slice_script_blob": jc.git_blob(self.t.root, SLICE),
-            "fixture_run": {"on": "2026-11-01", "model": "jev-1", "declared_sha256": j["declared"]["sha256"],
-                            "fixtures_blob": jc.git_blob(self.t.root, FIXTURES), "counts": counts},
-            "live": {"from": "2026-10-21", "to": "2026-11-20", "evaluations": 30, "sessions": 5, "answered": 29,
-                     "over_budget_fallbacks": 0, "max_input_bytes": 300}}
-        self.t.save()
+        trust(self.t)
 
     def tearDown(self):
         self.t.close()

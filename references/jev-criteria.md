@@ -60,10 +60,27 @@ template's declaration and prints the `fixture_run` record a promotion keeps.
 after its latest false pass, if later) to the day the figures were read: at
 least 30 evaluations across at least 5 sessions, at least 95% of them answered
 `pass` or `fail`, no fallback for `over_budget`, and no input over the budget.
-The figures come from koto's exported decider events read in a log backend,
-never from a local file. `jev_criteria.py figures <rule-id> --sessions <dir>`
-computes the same figures from local koto session logs; it is a tested
-reference for their definitions, not the tool that decides a promotion.
+The figures that decide a promotion come from koto's exported decider events
+read in a log backend; a local file never decides one.
+`jev_criteria.py figures <rule-id> --sessions <dir>` computes the same figures
+from local koto session logs, as a tested reference for their definitions.
+
+## Withholding
+
+A trusted criterion's rule may be left out of what a run reads, but only for
+a user whose decider will check the result. `scripts/jev-withhold.sh` makes
+that call at run time: it prints a copy of the rule's file without the rule's
+lines only when the entry is trusted and `withhold: eligible`, the user's
+decider mode is `auto` with a key, the project sets no decider configuration,
+and the session's log holds no shadow-mode check, fallback or agent answer for
+that criterion. Anything else, including any error, prints the full file.
+
+The script ships unwired: no template calls it, and none may until a
+criterion is trusted. `jev_criteria.py check` holds any call to a literal rule
+id of a trusted criterion whose check is in the same template, made from a
+state's command whose directive runs `rule-registry.sh release <id>`, and
+refuses the script's name anywhere else under `skills/`, `koto-templates/` or
+`hooks/`.
 
 ## work-on/review-level-fits-facts
 

@@ -95,6 +95,9 @@ KINDS = tuple(FIXTURE_MINIMUMS)
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PATH_SHAPE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")
 LOCAL_PATH = re.compile(r"(^|[\s\"'=])(/Users/|/home/|/root/|/private/|/var/|~/|\$HOME)")
+RULE_ID = re.compile(r"^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$")
+WITHHOLD_SCRIPT = "jev-withhold.sh"
+WITHHOLD_CALL = re.compile(r"jev-withhold\.sh[\"']?\s+[\"']?([^\"'\s]+)")
 
 
 class CannotRun(Exception):
@@ -228,6 +231,25 @@ def canonical(obj):
 
 def declared_sha256(decl):
     return hashlib.sha256(canonical(decl).encode("utf-8")).hexdigest()
+
+
+def template_directive(root, rel, state):
+    """The body text under `## <state>` in a template, up to the next `## `."""
+    try:
+        text = read_text(os.path.join(root, rel))
+    except OSError:
+        return ""
+    body = text.split("\n---\n", 1)[-1] if text.startswith("---") else text
+    out, on = [], False
+    for line in body.split("\n"):
+        if line.startswith("## "):
+            if on:
+                break
+            on = line.strip() == "## " + state
+            continue
+        if on:
+            out.append(line)
+    return "\n".join(out)
 
 
 # --- Fixtures -----------------------------------------------------------------
@@ -546,6 +568,58 @@ def check_promotion(root, jev, promo, fps, budget):
     return out
 
 
+def withhold_calls(root, cache, registry_by_id):
+    """Problems with templates that call the withhold script (rule 12)."""
+    out = []
+    for rel in template_files(root):
+        text = read_text(os.path.join(root, rel))
+        if WITHHOLD_SCRIPT not in text:
+            continue
+        states = template_states(root, rel, cache) or {}
+        commands = []
+        for sname, state in states.items():
+            state = state or {}
+            da = state.get("default_action")
+            if isinstance(da, dict) and isinstance(da.get("command"), str):
+                commands.append((sname, da["command"]))
+            for g in (state.get("gates") or {}).values():
+                if isinstance(g, dict) and isinstance(g.get("command"), str):
+                    commands.append((sname, g["command"]))
+        called = [(s, c) for s, c in commands if WITHHOLD_SCRIPT in c]
+        mentions = text.count(WITHHOLD_SCRIPT)
+        if mentions > len(called):
+            out.append("%s: names %s outside a state's command" % (rel, WITHHOLD_SCRIPT))
+        for sname, cmd in called:
+            m = WITHHOLD_CALL.search(cmd)
+            rid = m.group(1) if m else ""
+            if not RULE_ID.match(rid):
+                out.append("%s: state %s calls %s without a literal rule id" % (rel, sname, WITHHOLD_SCRIPT))
+                continue
+            e = registry_by_id.get(rid)
+            jev = (e or {}).get("jev") or {}
+            if not e or jev.get("state") != "trusted":
+                out.append("%s: state %s withholds %s, which isn't a trusted Jev criterion" % (rel, sname, rid))
+                continue
+            if (e.get("check") or {}).get("template") != rel:
+                out.append("%s: state %s withholds %s, whose check is in another template" % (rel, sname, rid))
+            directive = template_directive(root, rel, sname)
+            if "rule-registry.sh" not in directive or ("release %s" % rid) not in directive:
+                out.append("%s: state %s withholds %s but its directive doesn't run rule-registry.sh release %s"
+                           % (rel, sname, rid, rid))
+    for d in ("skills", "koto-templates", "hooks"):
+        for dirpath, _, files in os.walk(os.path.join(root, d)):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), root)
+                if rel.endswith(".md") and "/koto-templates/" in "/" + rel and not rel.endswith(".mermaid.md"):
+                    continue
+                try:
+                    if WITHHOLD_SCRIPT in read_text(os.path.join(dirpath, name), errors="replace"):
+                        out.append("%s: calls %s; only a template's command may" % (rel, WITHHOLD_SCRIPT))
+                except OSError:
+                    pass
+    return out
+
+
 def history(root, base, registry):
     """Problems against the registry at `base` (rules 13 and 14)."""
     r = run(["git", "-C", root, "show", "%s:%s" % (base, REGISTRY)])
@@ -621,6 +695,8 @@ def cmd_check(args):
             elif ((match[0].get("jev") or {}).get("state")) not in ("untrusted", "trusted"):
                 problems.append("%s: decider check %s/%s criterion %s is declared, but its entry is %s"
                                 % (t, s, g, cid, (match[0].get("jev") or {}).get("state")))
+        # 12: who may call the withhold script, and for which rule.
+        problems += withhold_calls(root, cache, by_id)
         if args.base:
             problems += history(root, args.base, registry)
     except CannotRun as e:

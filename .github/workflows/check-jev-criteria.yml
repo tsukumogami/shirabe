@@ -17,6 +17,9 @@ on:
       - 'scripts/rule-registry.sh'
       - 'scripts/rule-registry_test.sh'
       - 'scripts/review-shadow/**'
+      - 'scripts/jev-withhold.sh'
+      - 'scripts/jev-withhold_test.sh'
+      - 'scripts/bash-floor/jev-withhold.list'
       - 'skills/*/koto-templates/**'
       - 'skills/work-on/scripts/review-level.sh'
       - 'skills/work-on/references/review-level-rules.tsv'
@@ -71,3 +74,24 @@ jobs:
           set -euo pipefail
           base=$(git merge-base "$BASE_SHA" HEAD)
           python3 scripts/jev-criteria/jev_criteria.py check --base "$base"
+
+  # The withholding script decides what a run loads, so its suite runs on
+  # Linux's bash 5 and on the bash 3.2 floor macOS ships. The suite uses a
+  # stub koto and a scratch plugin root; no real koto or key is involved.
+  withhold:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the withhold suite (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/jev-withhold_test.sh
+
+      # A bare `bash` on a macOS runner is Homebrew's bash 5; only /bin/bash
+      # is 3.2, and check-bash-floor.sh is the one way onto it.
+      - name: Run the withhold suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system jev-withhold
