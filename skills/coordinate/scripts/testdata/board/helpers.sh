@@ -2,7 +2,8 @@
 # test sets HERE (the scripts directory) and T (its temporary directory).
 #
 # bt_setup: a localized plugin tree at $T/plugin holding copies of the scripts
-# under test, coord-log.sh and the record codec, with stand-ins for
+# under test, coord-log.sh and the record codec (and scripts/lib's
+# squash-message.sh, at its own path in the tree), with stand-ins for
 # posture-read.sh and record-holding.sh beside them, and a stand-in
 # merge-exec.sh at skills/execute/scripts/ (so no test depends on the real
 # ones, and no script needs an override to find them); gh-board as `gh` on
@@ -17,12 +18,13 @@ HASH=feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface
 
 bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
-    mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
+    mkdir -p "$S" "$T/plugin/scripts/lib" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
              merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-source.sh record-parse.sh record-render.sh record-codec.jq \
-             panel-evidence.sh squash-message.sh merge-order-entry.sh pause-read.sh milestone.sh; do
+             panel-evidence.sh merge-order-entry.sh pause-read.sh milestone.sh; do
         cp "$HERE/$f" "$S/$f"
     done
+    cp "$HERE/../../../scripts/lib/squash-message.sh" "$T/plugin/scripts/lib/squash-message.sh"
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
     cp "$TD/board/stand-in-record-holding.sh" "$S/record-holding.sh"

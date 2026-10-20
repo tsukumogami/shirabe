@@ -16,6 +16,10 @@ on:
       # Wide, because the suites here read other skills' files: run-cascade.sh
       # lives under skills/work-on/, and execute.md materializes work-on.md.
       - 'skills/**'
+      # The squash-message builder every /execute merge passes its message
+      # through.
+      - 'scripts/lib/squash-message.sh'
+      - 'scripts/lib/squash-message_test.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -149,6 +153,7 @@ jobs:
           bash skills/execute/scripts/coordinated-visibility_test.sh
           bash skills/execute/scripts/coord-merge_test.sh
           bash skills/execute/scripts/coordinated-home-outside_test.sh
+          bash scripts/lib/squash-message_test.sh
 
       # settled-branch-record_test.sh drives real koto sessions -- it asserts
       # that orchestrator_setup's gate holds the state when the settled branch

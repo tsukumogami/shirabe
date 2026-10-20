@@ -25,8 +25,8 @@
 # 5. The reviewed head against <sha> (board-lib.sh's bl_reviewed_fresh): a
 #    head further from it than merge-ins of the base branch is `unready`.
 # 6. The body's mechanical checks (shirabe validate --pr-body, with the
-#    title), then the squash message (squash-message.sh): a failure of either
-#    is `unready`.
+#    title), then the squash message (scripts/lib/squash-message.sh): a
+#    failure of either is `unready`.
 # 7. The record's holds on the pull request, each evaluated live
 #    (board-lib.sh's bl_holds_eval, over the same read): any not met, or whose condition can't be
 #    read, is `held <pr> <sha>`. A hold is reported held because this check
@@ -197,7 +197,7 @@ case "$(jq -r '.outcome // ""' "$MS.pb")" in
     *) sed 's/^/  /' "$MS.pb.err" | head -n 3 >&2
        echo "$PROG: the PR-body check gave no outcome (its stderr above)" >&2; exit 2 ;;
 esac
-MSG=$(bash "$HERE/squash-message.sh" --title "$TITLE" "$MS.body" 2> "$MS.msg.err")
+MSG=$(bash "$HERE/../../../scripts/lib/squash-message.sh" --title "$TITLE" "$MS.body" 2> "$MS.msg.err")
 case $? in
     0) detail '.message = $m' --arg m "$MSG" ;;
     1) detail '.message_refusal = $m' --arg m "$(head -1 "$MS.msg.err")"

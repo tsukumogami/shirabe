@@ -17,6 +17,8 @@ skills/coordinate/scripts/posture-read_test.sh
 # The board, land and merge scripts: a localized plugin tree with
 # the gh-board and koto stand-ins, so every case runs on 3.2.
 skills/coordinate/scripts/board-verdict_test.sh
+# The land step's squash-message builder, in scripts/lib/: jq and awk.
+scripts/lib/squash-message_test.sh
 skills/coordinate/scripts/board-record_test.sh
 skills/coordinate/scripts/land-check_test.sh
 skills/coordinate/scripts/land-merge_test.sh
