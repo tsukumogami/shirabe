@@ -153,7 +153,8 @@ demotion.
   agent recorded its own answer with `koto decider answer`).
 - **Effective decider mode**: the lowest of three modes, ordered `off` below
   `shadow` below `auto`: the user's mode, which `koto config get decider.mode`
-  prints after applying the `KOTO_DECIDER` variable over `~/.koto/config.toml`;
+  prints after applying the `KOTO_DECIDER` variable over the user's koto
+  configuration file (`.koto/config.toml` in their home directory);
   the project's mode, `decider.mode` in the working directory's
   `.koto/config.toml`; and the template's mode for the criterion. A veto check
   blocks only at `auto`.
@@ -402,8 +403,8 @@ criterion's rule is `withhold: never` unless its contract is `trusted`. This
 applies to `rs-007` to `rs-017`, which are `eligible` today.
 
 **R18. The review-shadow trial reads koto decider events.** The trial's local
-store, under `$REVIEW_SHADOW_HOME` (default
-`${XDG_STATE_HOME:-~/.local/state}/shirabe/review-shadow`), is retired: no
+store, under `$REVIEW_SHADOW_HOME` (by default `shirabe/review-shadow` in
+the user's XDG state directory), is retired: no
 skill or script writes or deletes it, and none reads it on its own, so
 existing data on a user's disk stays where it is. The measurement script reads
 records only from a directory its caller names, which is how the
