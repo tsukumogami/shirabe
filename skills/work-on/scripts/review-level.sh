@@ -848,7 +848,9 @@ cmd_level() {
 # there are at most 16 of them, the booleans are booleans and the floor is a
 # level or `unknown`. The order line is what makes the slice complete: the
 # floor already applies review-level-rules.tsv, so the order of the levels is
-# all the question still needs (references/jev-criteria.md).
+# all the question still needs. A facts file jq can't parse projects as `{}`,
+# the same as no facts: the check then judges the level with nothing but the
+# order, and the level check itself holds on unreadable facts.
 project_slice() {
     local facts=$1 level=$2
     valid_level "$level" || level=unset
@@ -878,8 +880,8 @@ cmd_slice() {
 }
 
 # project <facts-file> <level>: the slice for a facts file, the way `slice`
-# prints it for a session. The Jev criteria fixtures and the slice measurement
-# call it, so a fixture's slice is this script's output by construction.
+# prints it for a session, so anything that builds this slice outside a live
+# session (a fixture, a measurement) gets this script's output by construction.
 cmd_project() {
     local facts="${1:-}" level="${2:-}"
     [ -f "$facts" ] && [ -r "$facts" ] || die 64 "project: $facts is not a readable file"
