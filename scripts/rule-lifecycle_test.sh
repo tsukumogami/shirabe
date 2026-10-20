@@ -41,7 +41,7 @@ cat >"$REG" <<'EOF'
  {"id":"t/block","status":"active","summary":"Block","check":{"kind":"script","path":"scripts/x.sh"},"stage":"block","stage_since":"2026-01-01","gates":["demo:s_block:g"]},
  {"id":"t/other","status":"active","summary":"Other","check":{"kind":"script","path":"scripts/x.sh"},"stage":"block","stage_since":"2026-01-01","gates":["demo:s_other:g"]},
  {"id":"t/two","status":"active","summary":"Two gates","check":{"kind":"script","path":"scripts/x.sh"},"stage":"block","stage_since":"2026-01-01","gates":["demo:s_two:a","other:s_two:b"]},
- {"id":"t/gone","status":"retired","summary":"Gone","check":{"kind":"script","path":"scripts/x.sh"},"stage":"retired","stage_since":"2026-01-01","gates":[]},
+ {"id":"t/gone","status":"retired","summary":"Gone","check":{"kind":"script","path":"scripts/x.sh"},"stage":"retired","stage_since":"2026-01-01","gates":["demo:s_gone:g"]},
  {"id":"t/nostage","status":"active","summary":"No stage","check":{"kind":"script","path":"scripts/x.sh"},"gates":["demo:s_nostage:g"]},
  {"id":"rs-1","status":"active","summary":"Review shadow","text":{"path":"r.md","first":"x"}}
 ]}
@@ -342,6 +342,49 @@ f_line() { # session seq visit state gate level
   endline $D3; } >"$J/unconverged"
 expect_row "two error fires in a visit that never passed: one unconverged visit" \
     "$J/unconverged" t/two t/two block 3 4 3 1 0 1 0 0 1 hold
+
+# A pass of the rule's other gate in the same visit doesn't converge it, and a
+# level other than error, warning or info counts as a fire in no column.
+{ e_line V 1 1 s_two a failed; f_line V 1 1 s_two a error
+  e_line V 2 1 s_two b passed
+  e_line V 3 2 s_two b failed; f_line V 3 2 s_two b notice
+  endline $D3; } >"$J/other-gate"
+expect_row "another gate's pass leaves the visit unconverged; an odd level is a fire" \
+    "$J/other-gate" t/two t/two block 3 3 1 0 0 1 0 0 1 hold
+
+# -- each criterion applies only at its stages ------------------------------
+
+# Copies of the criterion fixtures, moved to a stage the criterion skips.
+for pair in "p2w:s_shadow:s_warn:t/shadow:t/warn" "p2w:s_shadow:s_block:t/shadow:t/block" \
+            "p2b:s_warn:s_shadow:t/warn:t/shadow" "p2b:s_warn:s_block:t/warn:t/block" \
+            "demote:s_block:s_shadow:t/block:t/shadow"; do
+    IFS=: read -r src from to old new <<EOF
+$pair
+EOF
+    sed -e "s/\"$from\"/\"$to\"/g" -e "s#\"$old\"#\"$new\"#g" "$J/$src" >"$J/stage-$src-$to"
+done
+# At warn the same figures meet promote to block, which comes after it.
+expect_crit "promote to warn doesn't apply at warn" "$J/stage-p2w-s_warn" t/warn promote-to-block
+expect_crit "promote to warn doesn't apply at block" "$J/stage-p2w-s_block" t/block hold
+expect_crit "promote to block doesn't apply at shadow" "$J/stage-p2b-s_shadow" t/shadow promote-to-warn
+expect_crit "promote to block doesn't apply at block" "$J/stage-p2b-s_block" t/block hold
+expect_crit "demote doesn't apply at shadow" "$J/stage-demote-s_shadow" t/shadow hold
+# t/two has two gates; retire's figures at one of them retire it.
+{ evals s_two a 300 0 error $D0 a t/two; endline $D56; } >"$J/ret-two"
+expect_crit "retire's figures at one of two gates" "$J/ret-two" t/two retire
+{ evals s_gone g 300 0 error $D0 a t/gone; endline $D56; } >"$J/ret-gone"
+expect_crit "nothing applies at retired" "$J/ret-gone" t/gone hold
+
+# A rule with no stage_since counts nothing, even with data at its gate.
+{ evals s_nostage g 300 0 error $D0 a t/nostage; endline $D56; } >"$J/nosince"
+expect_row "no stage_since: no window, even with data" "$J/nosince" t/nostage \
+    t/nostage block 0 0 0 0 0 0 0 0 0 hold
+
+# An object with no dated `at` is skipped, and doesn't move the window's end.
+{ cat "$J/p2w-d13"
+  printf '{"kind":"state_entered","at":"yesterday","koto.session.id":"x"}\n'
+  printf '{"kind":"state_entered","koto.session.id":"x"}\n'; } >"$J/undated"
+expect_crit "an undated line is skipped" "$J/undated" t/shadow hold
 
 # -- registry shapes --------------------------------------------------------
 
