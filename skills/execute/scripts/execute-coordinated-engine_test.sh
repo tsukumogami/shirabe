@@ -59,14 +59,12 @@
 #                           edit; no record on github, the rendered run line
 #                           matching the node PR's marker: setup recovers,
 #                           the run pauses with recovered=<coordination PR>
-#                           in the result, and print-exit.sh prints it
-#
-# Setup runs the real record-coord-setup.sh, which seals the run record; each
-# case then seeds the node PRs and heads the run recorded up to its moment
-# through the test helper (run-record.sh itself, on the real koto). The
-# case's fixed run_id is written after setup: one written before it would be
-# a carried id, which makes the start a recovery.
-#   overrides               koto refuses `koto overrides record` on
+#                           in the result, and print-exit.sh prints it; no
+#                           record, no carried run_id, a body with no index
+#                           line, and an owned PR on a node branch (ixmiss):
+#                           done_error with reason=coordination-index-missing,
+#                           nothing posted, commented on, or merged
+#   overrides              koto refuses `koto overrides record` on
 #                           coord_verdict's and coord_merge_confirm's gates,
 #                           with and without --with-data
 #   retention               a terminal reached with --no-cleanup keeps the
@@ -74,6 +72,15 @@
 #   --koto-leg              the execute leg's promoted payload carries outcome,
 #                           pr, repos, resume, and waiting, and the leg names
 #                           execute-coordinated.md as the template
+#
+# A new run's setup runs the real record-coord-setup.sh, which seals the run
+# record before any node PR exists, as in a real run; the node PRs a case
+# added with ct_pr reach the gh model only after it (open_run), and the case
+# then seeds the heads the run recorded up to its moment through the test
+# helper (run-record.sh itself, on the real koto). The case's fixed run_id is
+# written after setup: one written before it would be a carried id, which
+# makes the start a recovery. The recovery cases (open_recovering) leave
+# their node PRs in the model before setup: there they mean a started run.
 #
 # In a checkout whose path koto's --var allowlist refuses (a `+` in a
 # directory name), the cases run a copy of the template with this checkout's
@@ -143,10 +150,10 @@ fixture() {
 }
 k() { (cd "$REPO" && koto "$@"); }
 
-# open_run <slug> <merge> [extra init args] -- init, record the setup, and
-# tick into coord_loop.
+# open_run <slug> <merge> [extra init args] -- init, record the setup, open
+# the case's node PRs, and tick into coord_loop.
 open_run() {
-    local s="execute-$1" st
+    local s="execute-$1" st seed="$EVAL_SCENARIO_DIR/gh/db.json" live="$GH_CALL_LOG.d/db.json" held rc
     shift
     local merge="$1"
     shift
@@ -154,8 +161,26 @@ open_run() {
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+    # The node PRs the case added (ct_pr, on impl/ branches) reach the model
+    # only once setup has sealed the record, as in a real run, where
+    # node-push.sh opens them after setup: an owned PR on a node branch at
+    # setup means a run had started, and setup would stop or recover rather
+    # than seal a new one. They are held out of the seed the shim's first
+    # call (setup's) copies, then added to the model it built, with the
+    # remote_url the shim gives a seeded PR in default_repo.
+    held=$(jq -c '[.prs[] | select(.headRefName | startswith("impl/"))]' "$seed")
+    cp "$seed" "$seed.full"
+    jq '.prs |= map(select(.headRefName | startswith("impl/") | not))' "$seed.full" > "$seed"
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
-        >/dev/null 2>"$CASE/setup.err") || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
+        >/dev/null 2>"$CASE/setup.err")
+    rc=$?
+    mv "$seed.full" "$seed"
+    if [ -f "$live" ]; then
+        jq --argjson h "$held" --arg u "$(git -C "$REPO" remote get-url --push origin 2>/dev/null)" \
+            '.default_repo as $home | .prs += ($h | map(if $u != "" and .repo == $home then . + {remote_url: $u} else . end))' \
+            "$live" > "$live.tmp" && mv "$live.tmp" "$live"
+    fi
+    [ "$rc" -eq 0 ] || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
     # The case's fixed run identity, written over the one setup minted: one
     # written before setup would be a carried id, which makes the start a
     # recovery rather than a new run.
@@ -697,6 +722,34 @@ expect_terminal rec paused_awaiting_merges outcome=paused-awaiting-merges "recov
     || fail "recovered run_id: [$(k context get execute-rec run_id 2>/dev/null)]"
 OUT=$(k status execute-rec | bash "$SCRIPT_DIR/print-exit.sh")
 grep -qx "recovered=$COORD_URL" <<<"$OUT" && pass "print-exit.sh prints recovered=" || fail "recovered exit lines: [$OUT]"
+
+# On github, a start with no record, no carried run_id, and a body with no
+# index line, beside an owned PR on a PLAN node's branch, is a run that started
+# and left nothing to rebuild it from: setup stops coordination-index-missing,
+# writes nothing, and the run ends at done_error naming it.
+ct_case index-missing
+fixture ixmiss
+ct_pr "$CT_REPO" 11 "impl/ixmiss-$CT_CORE"
+ct_write_db
+open_recovering ixmiss false
+if [ "$SETUP_RC" -eq 71 ] && [ "$(cat "$CASE/setup.out")" = stop=coordination-index-missing ]; then
+    pass "an owned node PR beside a body with no index line stops setup coordination-index-missing"
+    k next execute-ixmiss --with-data '{"setup_status":"coordination-index-missing","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+else
+    fail "index missing: setup exit $SETUP_RC, out [$(cat "$CASE/setup.out")]; $(cat "$CASE/setup.err")"
+fi
+expect_terminal ixmiss done_error outcome=error step=execute:coord_setup reason=coordination-index-missing
+body_posts ixmiss 0
+if ct_calls | grep -Eq '^(pr (edit|comment|merge|ready|create|close)|issue |api .*comments)'; then
+    fail "index missing: a write reached GitHub: $(ct_calls | grep -E '^(pr (edit|comment|merge|ready|create|close)|issue |api .*comments)')"
+else
+    pass "index missing: no body post, comment, or merge"
+fi
+if k context exists execute-ixmiss run/setup >/dev/null 2>&1; then
+    fail "index missing: setup sealed run/setup"
+else
+    pass "index missing: no run/setup was sealed"
+fi
 
 # --- --koto-leg -----------------------------------------------------------------------
 
