@@ -54,8 +54,10 @@ skills/execute/scripts/coord-merge_test.sh
 skills/execute/scripts/coordinated-home-outside_test.sh
 skills/execute/scripts/execute-coordinated-structure_test.sh
 skills/execute/scripts/execute-coordinated-engine_test.sh
-# The squash-message builder every /execute merge passes its
-# message through: jq and awk, so every case runs on 3.2.
+# The coordination body's codec, its poster, and the squash-message
+# builder every /execute merge passes its message through: jq, awk
+# and the same stubs, so every case runs on 3.2.
+skills/execute/scripts/coordination-body_test.sh
 scripts/lib/squash-message_test.sh
 # The "merged" wording check and its test: text only, so every
 # case runs on 3.2.
