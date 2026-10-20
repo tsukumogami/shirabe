@@ -24,7 +24,8 @@ Subcommands:
       Send each fixture case to Jev under the template's declaration and
       print counts by kind and answer and the `fixture_run` JSON. Exit 0 when
       the fixture bar is met, 1 when not, 2 when it could not run. The key
-      comes from KOTO_DECIDER_API_KEY and is never printed.
+      comes from KOTO_DECIDER_API_KEY and is never printed; a loopback
+      endpoint (a local stub) never gets it.
   figures RULE_ID --sessions DIR [--from D] [--to D] [--bar]
       Compute the live figures from local koto session logs and print the
       `live` JSON; with --bar exit 0 when they meet the bar, 1 when not. A
@@ -784,7 +785,7 @@ def cmd_measure(args):
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"  # koto's default decider endpoint
 JEV_MODEL = "jev-latest"
-JEV_TIMEOUT = 30
+JEV_TIMEOUT = 30  # seconds per request; a fixture run is a few dozen of them
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -838,7 +839,33 @@ def check_endpoint(url):
     return "the endpoint must be https, or http to localhost, 127.0.0.1 or ::1"
 
 
-def transport(endpoint, key, opener_factory=None):
+def is_loopback(url):
+    try:
+        return urllib.parse.urlsplit(url).hostname in LOOPBACK
+    except ValueError:
+        return False
+
+
+# A loopback endpoint is a stub on this machine: it gets this placeholder,
+# and KOTO_DECIDER_API_KEY isn't read at all, so no test or local run can hand
+# the real key to a stub.
+LOOPBACK_KEY = "loopback-stub"
+
+
+def decider_entry(root, rule_id):
+    """The registry entry for `rule_id`, which must be a decider check; exits 2
+    otherwise."""
+    try:
+        registry = read_json(os.path.join(root, REGISTRY))
+    except CannotRun as x:
+        fail2(str(x))
+    e = next((e for e in registry.get("rules", []) if isinstance(e, dict) and e.get("id") == rule_id), None)
+    if not e or (e.get("check") or {}).get("kind") != "decider":
+        fail2("%s is not a decider entry" % rule_id)
+    return e
+
+
+def transport(endpoint, key):
     """send(body) -> (status, raw). The key goes in an unredirected
     Authorization header and nowhere else; nothing from a failure is kept,
     since an error can echo request headers."""
@@ -847,7 +874,7 @@ def transport(endpoint, key, opener_factory=None):
 
     def send(body):
         if not opener:
-            opener.append((opener_factory or build_opener)())
+            opener.append(build_opener())
         req = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json"})
         req.add_unredirected_header("Authorization", "Bearer " + key)
@@ -898,13 +925,10 @@ def map_answer(answer, cid, threshold):
     return win
 
 
-def cmd_fixtures(args, opener_factory=None):
+def cmd_fixtures(args):
     root = os.path.realpath(args.root)
+    e = decider_entry(root, args.rule_id)
     try:
-        registry = read_json(os.path.join(root, REGISTRY))
-        e = next((e for e in registry.get("rules", []) if isinstance(e, dict) and e.get("id") == args.rule_id), None)
-        if not e or (e.get("check") or {}).get("kind") != "decider":
-            fail2("%s is not a decider entry" % args.rule_id)
         gate, crit = find_gate(root, e["check"], {})
         if gate is None or crit is None:
             fail2("%s: no template declares its criterion, so there is no declaration to run" % args.rule_id)
@@ -917,17 +941,21 @@ def cmd_fixtures(args, opener_factory=None):
         blob = git_blob(root, rel)
     except CannotRun as x:
         fail2(str(x))
-    key = os.environ.get("KOTO_DECIDER_API_KEY", "").strip()
-    if not key or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
-        # The message names no part of the key.
-        fail2("KOTO_DECIDER_API_KEY is unset, empty or holds whitespace")
     endpoint = args.endpoint or os.environ.get("KOTO_DECIDER_ENDPOINT") or JEV_ENDPOINT
     why = check_endpoint(endpoint)
     if why:
         fail2(why)
+    if is_loopback(endpoint):
+        key = LOOPBACK_KEY
+    else:
+        key = os.environ.get("KOTO_DECIDER_API_KEY", "").strip()
+        # A key with whitespace or a control character could split the
+        # Authorization header. The message names no part of the key.
+        if not key or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
+            fail2("KOTO_DECIDER_API_KEY is unset, empty or holds whitespace")
     decl = declaration(gate, crit)
     cid = e["check"]["criterion"]
-    send = transport(endpoint, key, opener_factory)
+    send = transport(endpoint, key)
     counts = {k: {a: 0 for a in ANSWERS} for k in KINDS}
     models = set()
     for c in cases:
@@ -1021,13 +1049,7 @@ def live_figures(sessions_dir, gate, cid, start, end):
 
 def cmd_figures(args):
     root = os.path.realpath(args.root)
-    try:
-        registry = read_json(os.path.join(root, REGISTRY))
-    except CannotRun as x:
-        fail2(str(x))
-    e = next((e for e in registry.get("rules", []) if isinstance(e, dict) and e.get("id") == args.rule_id), None)
-    if not e or (e.get("check") or {}).get("kind") != "decider":
-        fail2("%s is not a decider entry" % args.rule_id)
+    e = decider_entry(root, args.rule_id)
     jev = e.get("jev") or {}
     for d in (args.from_, args.to):
         if d and not DATE.match(d):

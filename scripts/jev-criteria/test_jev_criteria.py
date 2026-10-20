@@ -44,6 +44,11 @@ class _RefusingOpener:
 # swaps in a stub and puts this back.
 jc.build_opener = _RefusingOpener
 
+# A real decider key in the caller's environment never reaches a test: the
+# tests that need a key set a fake one of their own.
+os.environ.pop("KOTO_DECIDER_API_KEY", None)
+os.environ.pop("KOTO_DECIDER_ENDPOINT", None)
+
 RULE = "demo/fits-facts"
 TEMPLATE = "skills/demo/koto-templates/demo.md"
 SLICE = "skills/demo/scripts/slice.sh"
@@ -749,6 +754,8 @@ def answers(overrides=None):
 
 
 class FixturesTest(unittest.TestCase):
+    env_at_import = dict(os.environ)
+
     def setUp(self):
         self.t = Tree()
         self.env = dict(os.environ)
@@ -856,6 +863,32 @@ class FixturesTest(unittest.TestCase):
                 rc, out, _ = self.run_fixtures(answers(), "--endpoint", url)
                 self.assertEqual(rc, 0, out)
 
+    def test_a_loopback_stub_never_gets_the_key(self):
+        # A sentinel stands in for a real key: if fixtures ever read the
+        # variable for a loopback endpoint, the sentinel shows up here.
+        sentinel = "sentinel-key-must-not-reach-a-stub"
+        os.environ["KOTO_DECIDER_API_KEY"] = sentinel
+        for url in ("http://127.0.0.1:9/v1", "https://localhost/v1", "http://[::1]:9/v1"):
+            with self.subTest(url):
+                rc, out, stub = self.run_fixtures(answers(), "--endpoint", url)
+                self.assertEqual(rc, 0, out)
+                self.assertTrue(stub.requests)
+                for req, body in stub.requests:
+                    self.assertEqual(req.unredirected_hdrs.get("Authorization"), "Bearer " + jc.LOOPBACK_KEY)
+                    seen = json.dumps([dict(req.headers), dict(req.unredirected_hdrs), body])
+                    self.assertNotIn(sentinel, seen)
+                self.assertNotIn(sentinel, out)
+        with self.subTest("no key at all"):
+            os.environ.pop("KOTO_DECIDER_API_KEY")
+            rc, out, _ = self.run_fixtures(answers(), "--endpoint", "http://127.0.0.1:9/v1")
+            self.assertEqual(rc, 0, out)
+
+    def test_the_tests_never_inherit_a_key(self):
+        # The module drops any inherited key at import; FixturesTest sets its
+        # own fake one, which is the only key a test can hold.
+        self.assertEqual(os.environ.get("KOTO_DECIDER_API_KEY"), "test-key")
+        self.assertNotIn("KOTO_DECIDER_API_KEY", self.env_at_import)
+
     def test_every_request_failing(self):
         rc, out, _ = self.run_fixtures(lambda _t: 500)
         self.assertEqual(rc, 2, out)
@@ -942,9 +975,11 @@ class FiguresTest(unittest.TestCase):
             self.log("o%d" % i, event(2, "2026-10-21", "decider_fallback", reason="over_budget", input_bytes=10))
 
     def test_bar(self):
-        cases = [("29 evaluations", dict(sessions=1, per_session=29, answered_total=29), 1),
+        # Each failing case misses one bar only: 29 evaluations still spread
+        # over 29 sessions, and 949 of 1,000 is exactly 94.9% answered.
+        cases = [("29 evaluations", dict(sessions=29, per_session=1, answered_total=29), 1),
                  ("4 sessions", dict(sessions=4, per_session=10, answered_total=40), 1),
-                 ("94.9% answered", dict(sessions=5, per_session=79, answered_total=374), 1),
+                 ("94.9% answered", dict(sessions=5, per_session=200, answered_total=949), 1),
                  ("an over_budget fallback", dict(sessions=5, per_session=6, answered_total=30, over=1), 1),
                  ("an input one byte over", dict(sessions=5, per_session=6, answered_total=30, max_bytes=2049), 1),
                  ("30, 5 and 95%", dict(sessions=5, per_session=6, answered_total=30), 0),
