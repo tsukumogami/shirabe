@@ -879,7 +879,9 @@ inventory)
     case "$IPATH" in /*) ;; *) refuse inventory "instance path is not absolute" ;; esac
     [ -d "$IPATH" ] && [ ! -L "$IPATH" ] || refuse inventory "instance directory not found on this host"
     IROOT=$(cd -P "$IPATH" 2>/dev/null && pwd -P) || refuse inventory "instance directory can't be read"
-    ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX")
+    # Refused before the trap names it: an empty ITEMS would make the trap's
+    # "$ITEMS".* every dotfile in the caller's directory.
+    ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX") || refuse inventory "no temporary file could be made"
     # This replaces the EXIT trap set at the top, so it removes RD_TMP too.
     trap 'rm -f "$ITEMS" "$ITEMS".*; rm -rf "$RD_TMP"' EXIT
     TRUNC=false

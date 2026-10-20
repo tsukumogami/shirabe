@@ -462,6 +462,13 @@ expect "a missing instance directory: inventory not taken" '.status == "not_veri
 mkdir -p "$T/linkdir-target"; ln -s "$T/linkdir-target" "$T/linked-instance"
 new_case inventory-symlinked
 expect "a symlinked instance path is not followed" '.status == "not_verified"' "$(run inventory --path "$T/linked-instance")"
+# No temporary file can be made: the inventory isn't taken, and its cleanup
+# never globs the caller's directory (an empty name's ".*" is every dotfile).
+new_case inventory-no-tmp
+mkdir -p "$CASE/cwd"; : > "$CASE/cwd/.keep-me"
+out=$(cd "$CASE/cwd" && TMPDIR="$CASE/no-such-dir" run inventory --path "$I" 2>/dev/null)
+expect "with no temporary file the inventory is not taken" '.status == "not_verified" and (.reason | test("temporary file"))' "$out"
+[ -e "$CASE/cwd/.keep-me" ] && ok "with no temporary file nothing in the caller's directory is removed" || bad "with no temporary file nothing in the caller's directory is removed"
 new_case inventory-no-remote
 I2="$T/inst2"; mkdir -p "$I2/r"; git -C "$I2/r" init -q; git -C "$I2/r" remote add origin https://gitlab.example/x/y.git
 expect "a clone with no github.com origin is marked unchecked" '.items | any(.kind == "unchecked")' "$(run inventory --path "$I2")"
