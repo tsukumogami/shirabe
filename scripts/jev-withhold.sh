@@ -34,10 +34,12 @@
 #      absent or mentions `decider` on no line outside a comment;
 #   5. the session log, <session-dir>/koto-<session-name>.state.jsonl, holds
 #      for the entry's gate and criterion no decider_checked whose mode isn't
-#      veto, no decider_fallback and no decider_check_answered. A missing or
-#      malformed log fails this.
-# Because 5 reads the log on every call, a fallback or an agent answer makes
-# every later call in the session print the full file.
+#      veto or whose outcome isn't pass or fail (unanswered, escape,
+#      not_graded or none), no decider_fallback and no decider_check_answered.
+#      A missing or malformed log fails this.
+# Because 5 reads the log on every call, a fallback, an agent answer or a
+# check the decider left unanswered makes every later call in the session
+# print the full file.
 
 set -u
 
@@ -96,7 +98,9 @@ LOG="$SDIR/koto-$NAME.state.jsonl"
 [ -f "$LOG" ] && [ ! -L "$LOG" ] || exit 0
 seen=$(tail -n +2 "$LOG" | jq -c --arg g "$GATE" --arg c "$CRIT" '
   select(.payload.gate? == $g and .payload.rule_id? == $c)
-  | select((.type == "decider_checked" and .payload.mode != "veto")
+  | select((.type == "decider_checked"
+            and (.payload.mode != "veto"
+                 or (.payload.outcome != "pass" and .payload.outcome != "fail")))
            or .type == "decider_fallback" or .type == "decider_check_answered")' 2>/dev/null) || exit 0
 [ -z "$seen" ] || exit 0
 
@@ -112,7 +116,7 @@ DIR="$SDIR/jev-rules"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 [ -d "$DIR" ] && [ ! -L "$DIR" ] || exit 0
 OUT="$DIR/${RULE//\//-}-${REL##*/}"
-[ ! -L "$OUT" ] || exit 0
+[ ! -L "$OUT" ] && [ ! -d "$OUT" ] || exit 0
 tmp=$(mktemp "$DIR/.withheld.XXXXXX" 2>/dev/null) || exit 0
 if LC_ALL=C awk -v a="$a" -v b="$b" 'NR < a || NR > b' "$FULL" > "$tmp" 2>/dev/null && mv -f "$tmp" "$OUT"; then
     ANSWER=$OUT

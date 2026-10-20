@@ -463,10 +463,11 @@ only when every check passes, in order, stopping at the first that fails:
    mentions `decider` at all. Any mention, in any TOML form, counts as a
    project setting.
 5. jq over `<session-dir>/koto-<session-name>.state.jsonl` finds no
-   `decider_checked` with `mode` other than `veto`, no `decider_fallback` and
-   no `decider_check_answered` whose payload `gate` and `rule_id` are the
-   entry's gate and criterion id. A missing or malformed log fails this
-   check.
+   `decider_checked` with `mode` other than `veto` or `outcome` other than
+   `pass` or `fail`, no `decider_fallback` and no `decider_check_answered`
+   whose payload `gate` and `rule_id` are the entry's gate and criterion id.
+   A check the decider left unanswered, escaped or didn't grade is never a
+   pass. A missing or malformed log fails this check.
 
 When all hold, it writes the rule file without the lines `rule-registry.sh
 range` gives to a temporary file in `<session-dir>/jev-rules/`, refusing a

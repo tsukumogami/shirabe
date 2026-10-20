@@ -87,9 +87,9 @@ expect_full() {  # expect_full <name>
     fi
 }
 
-event() {  # event <type> <gate> <criterion> [mode]
-    printf '{"seq":9,"timestamp":"2026-10-20T10:01:00Z","type":"%s","payload":{"state":"check_state","visit_seq":1,"gate":"%s","rule_id":"%s","mode":"%s"}}\n' \
-        "$1" "$2" "$3" "${4:-veto}" >> "$SDIR/koto-$NAME.state.jsonl"
+event() {  # event <type> <gate> <criterion> [mode] [outcome]
+    printf '{"seq":9,"timestamp":"2026-10-20T10:01:00Z","type":"%s","payload":{"state":"check_state","visit_seq":1,"gate":"%s","rule_id":"%s","mode":"%s","outcome":"%s"}}\n' \
+        "$1" "$2" "$3" "${4:-veto}" "${5:-pass}" >> "$SDIR/koto-$NAME.state.jsonl"
 }
 
 # --- every condition holds ----------------------------------------------------
@@ -107,10 +107,12 @@ expected=$(printf '# Demo\n\nIntro.\n\n\nAfter.\n')
     || fail "copy content" "[$(cat "$want" 2>/dev/null)]"
 cmp -s "$ROOT/$REL" "$C/rule-before.md" && pass "the rule file itself is untouched" || fail "rule file" "changed"
 
-fresh; event decider_checked fits fits veto
-run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"
-[ "$OUT" = "$SDIR/jev-rules/demo-fits-facts-rules.md" ] && pass "a decider_checked in veto mode still allows the copy" \
-    || fail "veto check" "out=[$OUT]"
+for outcome in pass fail; do
+    fresh; event decider_checked fits fits veto "$outcome"
+    run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"
+    [ "$OUT" = "$SDIR/jev-rules/demo-fits-facts-rules.md" ] && pass "a veto-mode decider_checked answered $outcome still allows the copy" \
+        || fail "veto check $outcome" "out=[$OUT]"
+done
 
 SAVED_RULE=$RULE
 RULE="rs-099"
@@ -152,6 +154,17 @@ run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "an agent's answer fo
 
 fresh; event decider_checked fits fits shadow
 run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "a decider_checked that ran in shadow"
+
+# An unanswered check is never a pass: a veto-mode check the decider didn't
+# answer pass or fail keeps the rule loaded.
+for outcome in unanswered escape not_graded; do
+    fresh; event decider_checked fits fits veto "$outcome"
+    run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "a veto-mode decider_checked with outcome $outcome"
+done
+fresh
+printf '{"seq":9,"timestamp":"2026-10-20T10:01:00Z","type":"decider_checked","payload":{"state":"check_state","visit_seq":1,"gate":"fits","rule_id":"fits","mode":"veto"}}\n' \
+    >> "$SDIR/koto-$NAME.state.jsonl"
+run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "a veto-mode decider_checked with no outcome"
 
 fresh; event decider_fallback fits other
 run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"
@@ -201,6 +214,8 @@ fresh; printf '{"rules": [' > "$ROOT/references/rule-registry.json"
 run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "an unreadable registry"
 fresh; mkdir -p "$C/elsewhere"; ln -s "$C/elsewhere" "$SDIR/jev-rules"
 run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "a symlinked jev-rules directory"
+fresh; mkdir -p "$SDIR/jev-rules/demo-fits-facts-rules.md"
+run_it "$RULE" "$REL" "$NAME" "$SDIR" "$ROOT"; expect_full "an output path that is a directory"
 
 # --- the key never reaches output ---------------------------------------------
 fresh
