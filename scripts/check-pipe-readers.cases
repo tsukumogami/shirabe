@@ -30,6 +30,8 @@ refused	a lone read after a middle stage	jq -r .x "$f" | tr -d x | read -r y
 refused	inside a command substitution in double quotes	fail "got $(ct_calls | grep -E '^pr' | head -1)"
 refused	after an or-list	[ -n "$x" ] || jq -r .a "$f" | sed 1d | grep -q b
 refused	grep -m after a middle stage	v=$(jq -r .x "$f" | tr -d y | grep -m 1 z)
+refused	a middle stage that redirects stderr	v=$(jq -r .x "$f" | tr -d y 2>&1 | head -1)
+refused	a middle stage piped with |&	jq -r .x "$f" | tr -d y |& grep -q z
 fine	a pipe inside a single-quoted pattern	v=$(grep -E 'a|b|head' "$f" | sort)
 fine	a pipe inside a double-quoted message	bad "x | y | head" "$(jq -r .x "$f")"
 fine	a case pattern list	jq|grep|egrep|head|read) n=1 ;;

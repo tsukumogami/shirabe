@@ -145,6 +145,10 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
   function late_reader(t,   s, segs, nseg, j, stages, nst, k) {
     late_idx = -1
     s = strip(t)
+    # The & of a redirection (2>&1, >&2, &>, |&) ends no pipeline.
+    gsub(/[0-9]*[<>]&[0-9-]*/, " ", s)
+    gsub(/&>/, ">", s)
+    gsub(/[|]&/, "|", s)
     gsub(/[|][|]/, "\001", s)
     nseg = split(s, segs, "[;&()\001]")
     for (j = 1; j <= nseg; j++) {
@@ -175,7 +179,7 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
     held = ""
     if (line ~ /^[ \t]*#/) { flush_pending(); next }
     if (pending != "") {
-      if (pending_idx >= 0 && index(line, "PIPESTATUS[" pending_idx "]") > 0) pending = ""; else flush_pending()
+      if (pending_idx >= 0 && index(line, "${PIPESTATUS[" pending_idx "]}") > 0) pending = ""; else flush_pending()
     }
     if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t|;&]*[ \t]+)*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
       sub(/^[ \t]+/, "", line)
