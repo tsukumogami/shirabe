@@ -33,7 +33,7 @@ done
 # The restricted PATH: declared tools plus the POSIX utilities.
 COMMON="bash sh env cat sed awk grep head tail tr cut wc sort uniq diff cmp mktemp rm
 mkdir cp mv ln chmod date basename dirname printf test true false dd od xargs tee
-touch ls base64 sha256sum shasum sleep find expr id uname readlink realpath"
+touch ls base64 sha256sum shasum sleep find expr id uname readlink realpath mkfifo"
 mkdir -p "$T/path"
 DECLARED=$(awk -F'\t' '!/^#/ && NF > 1 { print $1 }' "$HERE/../requires.tsv" | sort -u)
 # Engine suites need the real koto even when requires.tsv doesn't name it, and
