@@ -26,6 +26,7 @@ stateDiagram-v2
     changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: true
     changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: false, paths_status: override
     changed_paths_record --> done_blocked : gates.changed_paths_recorded.exists: false, paths_status: blocked
+    check_exit --> done_blocked
     ci_monitor --> cascade_entry : gates.ci_passing.exit_code: 0, gates.is_root.exit_code: 0, gates.merge_state_clean.exit_code: 0
     ci_monitor --> done : gates.ci_passing.exit_code: 0, gates.is_root.exit_code: 1, gates.merge_state_clean.exit_code: 0
     ci_monitor --> done_blocked : gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 1
@@ -42,6 +43,7 @@ stateDiagram-v2
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
+    finalization --> check_exit : finalization_status: check_unsatisfiable, gates.commit_convention.exit_code: 1
     finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete
@@ -76,11 +78,13 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
+    pr_creation --> check_exit : gates.pr_body_conformant.exit_code: 1, pr_status: check_unsatisfiable
     pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, pr_status: created
     pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
     pr_creation --> done : pr_status: shared, vars.SHARED_BRANCH: {"is_set":true}
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
+    pr_precheck --> check_exit : gates.branch_docs_visibility.exit_code: 1, precheck_status: check_unsatisfiable
     pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0
     pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked

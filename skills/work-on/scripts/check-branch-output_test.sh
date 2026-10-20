@@ -134,6 +134,28 @@ run() { # <args>... from $REPO
     ERR=$(cat "$WORKDIR/stderr")
 }
 
+# same_laddered <label> <args>...: the run with the escalation ladder's context
+# (the session log in $LADDER_LOG, gate $LADDER_GATE) exits and prints on
+# standard output exactly what the run without it does. Leaves the laddered
+# run's stderr in $WORKDIR/stderr.
+LADDER_LOG="$WORKDIR/ladder.jsonl"
+LADDER_GATE=commit_convention
+same_laddered() {
+    local label=$1 plain_out plain_rc
+    shift
+    run "$@"; plain_out=$OUT; plain_rc=$RC
+    OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME="$LADDER_GATE" \
+        SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
+        "$CHECK" "$@" 2>"$WORKDIR/stderr")
+    RC=$?
+    if [ "$RC" -eq "$plain_rc" ] && [ "$OUT" = "$plain_out" ]; then
+        pass "$label: exits and prints the same with the ladder's context"
+    else
+        fail "$label: differs with the ladder's context: rc $RC vs $plain_rc"
+    fi
+}
+released() { grep -c "^::shirabe-rule::{\"rule_id\":\"$1\"" "$WORKDIR/stderr"; }
+
 # Every finding line is koto's shape, and the run printed at least one when it
 # exited 1 and none otherwise.
 check_shape() { # <label>
@@ -193,6 +215,29 @@ case "$OUT" in
 esac
 BASE_REF_OUT=$OUT
 BASE_REF_RC=$RC
+
+# The escalation ladder: with the template's context and a session log where
+# koto already recorded this gate failing once on the rule, the rule's text is
+# released on stderr and nothing else about the run changes.
+LADDER_LOG="$WORKDIR/ladder.jsonl"
+rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 1
+OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=commit_convention \
+    SHIRABE_GATE_EXITS="finalization:finalization_status" "$CHECK" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
+RC=$?
+if [ "$RC" = "$BASE_REF_RC" ] && [ "$OUT" = "$BASE_REF_OUT" ] \
+    && [ "$(grep -c '^::shirabe-rule::{"rule_id":"commit/conventional-subject"' "$WORKDIR/stderr")" -eq 1 ] \
+    && ! grep -q '^::shirabe-check-exit::' "$WORKDIR/stderr"; then
+    pass "--commits ladder: a second failure releases the rule's text and changes nothing else"
+else
+    fail "--commits ladder: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 2
+OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=commit_convention \
+    SHIRABE_GATE_EXITS="finalization:finalization_status" "$CHECK" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
+grep -q '^::shirabe-check-exit::.*"finalization_status":"check_unsatisfiable"' "$WORKDIR/stderr" \
+    && pass "--commits ladder: a third failure at finalization offers its exit" \
+    || fail "--commits ladder: count 3: stderr $(cat "$WORKDIR/stderr")"
+
 set_impl_base s-subjects "$BASE"
 run --commits --session s-subjects
 if [ "$RC" = "$BASE_REF_RC" ] && [ "$OUT" = "$BASE_REF_OUT" ]; then
@@ -263,6 +308,13 @@ commit_file a.txt a -m "feat: add a"
 advance_origin "docs: a change on main"
 run --synced
 expect "--synced: a branch missing origin/main" 1 "branch/current-with-main"
+LADDER_GATE=synced
+rf_test_ladder_log "$LADDER_LOG" worktree_sync synced branch/current-with-main 1
+same_laddered "--synced ladder: a violation at count 2" --synced
+[ "$(released branch/current-with-main)" -eq 1 ] \
+    && pass "--synced ladder: a second failure releases branch/current-with-main's text" \
+    || fail "--synced ladder: stderr $(cat "$WORKDIR/stderr")"
+LADDER_GATE=commit_convention
 git -C "$REPO" merge -q --no-commit --no-ff origin/main >/dev/null 2>&1
 if [ -e "$(git -C "$REPO" rev-parse --absolute-git-dir)/MERGE_HEAD" ]; then
     pass "fixture: a merge is in progress"
@@ -290,11 +342,24 @@ run --synced
 expect "clean: --synced" 0
 run --docs-visibility --session s-clean
 expect "clean: --docs-visibility with no changed document" 0
+# A passing run reads no log and prints nothing more with the ladder's context.
+rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 2
+same_laddered "clean ladder: a passing --commits" --commits --session s-clean
+if grep -q '^::shirabe-' "$WORKDIR/stderr"; then
+    fail "clean ladder: a passing run printed ladder output: $(cat "$WORKDIR/stderr")"
+else
+    pass "clean ladder: a passing run releases nothing"
+fi
+same_laddered "clean ladder: a passing --synced" --synced
 
 # --- could not decide -----------------------------------------------------------
 
 run --commits --base-ref origin/no-such-branch
 expect "--commits: a --base-ref that does not resolve" 2
+same_laddered "undecided ladder: a --base-ref that does not resolve" --commits --base-ref origin/no-such-branch
+! grep -q '^::shirabe-' "$WORKDIR/stderr" \
+    && pass "undecided ladder: a run that could not decide releases nothing" \
+    || fail "undecided ladder: stderr $(cat "$WORKDIR/stderr")"
 set_impl_base s-bogus 0123456789abcdef0123456789abcdef01234567
 run --commits --session s-bogus
 expect "--commits: an impl_base that names no commit" 2
@@ -382,6 +447,19 @@ if command -v shirabe >/dev/null 2>&1; then
     git -C "$REPO" add -A && git -C "$REPO" commit -qm "docs: add a comparison"
     run --docs-visibility --base-ref origin/main
     expect "--docs-visibility: a COMP doc in a public repository" 1 "docs/private-only-type"
+    # docs/private-only-type is one of the rules release refuses (its text is in
+    # a guide no skill loads), so its second rung is the refusal and the rule's
+    # anchored reference.
+    LADDER_GATE=branch_docs_visibility
+    rf_test_ladder_log "$LADDER_LOG" pr_precheck branch_docs_visibility docs/private-only-type 1
+    same_laddered "--docs-visibility ladder: a violation at count 2" --docs-visibility --base-ref origin/main
+    if grep -q '^rule-registry: could not release docs/private-only-type: ' "$WORKDIR/stderr" \
+        && grep -q "^rule-findings: docs/private-only-type's full text is at docs/guides/doc-validation.md#L" "$WORKDIR/stderr"; then
+        pass "--docs-visibility ladder: an unreleasable rule gets the refusal and its anchored reference"
+    else
+        fail "--docs-visibility ladder: stderr $(cat "$WORKDIR/stderr")"
+    fi
+    LADDER_GATE=commit_convention
 
     fixture comp-private "## Repo Visibility: Private"
     printf '%s\n' "$COMP" | write_doc docs/competitive/COMP-x.md

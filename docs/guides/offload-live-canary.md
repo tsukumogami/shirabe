@@ -38,8 +38,10 @@ in neither group has nothing recorded, so a rewind into the assignment state
 draws again; that run then counts in the group it drew.
 
 In every group, when the `pr_body_conformant` gate fails on PB4, its output
-carries the finding and PB4's full text, so a withheld agent learns the rule
-the first time it breaks it.
+carries the finding, whose message opens with PB4's summary. From the second
+failure on PB4 in the run, the escalation ladder (`references/rule-registry.md`,
+"Escalating a rule's text") also hands over PB4's full text, so a withheld agent
+whose first fix misses gets the whole rule.
 
 On an opted-in host, `shirabe pr-body-hook`, the PreToolUse hook that checks a
 `gh pr create` or `gh pr edit` before it runs, no longer denies one for PB4,
@@ -149,8 +151,13 @@ before it.
   `pr_creation` across both groups, and PB4 rarely breaks, so a difference
   shows as a count over several weeks.
 - **It counts first failures.** After a run breaks PB4 once, the gate hands
-  it the rule's text, so both groups know the rule from then on. A run counts
-  once either way.
+  it the rule's summary, and from a second break its full text, so both groups
+  have the rule from then on. A run counts once either way.
+- **Summary or full text.** Each PB4 `check_rule` carries
+  `koto.rule.session_count`. A broken run whose highest count is 1 fixed PB4
+  from the summary; 2 or more needed the full text. Adding
+  `@koto.rule.session_count` as a column to the query above splits
+  `broken_runs` that way, per group.
 - **Runs from one plan are correlated.** Each `/work-on` run in a `multi-pr`
   plan draws on its own, but runs from one plan share an author and a task,
   so they aren't independent samples.
