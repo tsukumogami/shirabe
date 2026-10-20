@@ -32,6 +32,11 @@
 #     goes ahead
 #     the lock: one a live opener holds is error=session-busy; one whose
 #     holder is gone is taken over and released at exit
+#     a deleted PLAN: execute-coordinated.md when the session's run/setup
+#     says coordinated, when only the opener's snapshot does, and when only
+#     git history does (the PLAN's version before the commit that deleted
+#     it); a deleted single-pr PLAN, and one that never existed, stay on
+#     execute.md
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -58,6 +63,7 @@
 #     a coordinated PLAN: execute-coordinated.md under the same execute-<slug>
 #       name, no run_id minted before setup, the five variables bound empty;
 #       --store session then an attach without it: STORE rebound to empty;
+#       a malformed --adopt-run on a coordinated PLAN: koto's invalid_var;
 #       --store on a single-pr PLAN: koto's unknown_var, worded for the flag;
 #       on a live execute.md session koto's template_mismatch (session
 #       unchanged, outcome=error step=execute:refused, recorded on the leg
@@ -325,6 +331,57 @@ else
     fail "stale lock: out [$OUT], lock [$(ls "$SHIRABE_STATE_DIR/execute-carry" 2>&1)]"
 fi
 rm -f "$FIXREPO/docs/plans/PLAN-cpairs.md"
+
+# A PLAN the cascade deleted takes its run's mode: the session's run/setup,
+# else the opener's snapshot, else the PLAN's last committed version. The stub
+# answers `context exists|get <s> run/setup` with KOTO_STUB_SETUP when it is
+# set, and every other call as absent or failed; the template koto would have
+# been handed is in the init call it logs.
+MODE_BIN="$WORK/mode-bin"
+mkdir -p "$MODE_BIN"
+cat > "$MODE_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+[ -n "${KOTO_STUB_LOG-}" ] && printf '%s\n' "$*" >> "$KOTO_STUB_LOG"
+if [ "${1-} ${2-}" = "context exists" ] && [ "${4-}" = run/setup ] && [ -n "${KOTO_STUB_SETUP-}" ]; then exit 0; fi
+if [ "${1-} ${2-}" = "context get" ] && [ "${4-}" = run/setup ] && [ -n "${KOTO_STUB_SETUP-}" ]; then
+    printf '%s\n' "$KOTO_STUB_SETUP"
+    exit 0
+fi
+exit 1
+STUB
+chmod +x "$MODE_BIN/koto"
+template_of() { # template_of <json tokens> [KOTO_STUB_SETUP] -- the template the init call named
+    : > "$WORK/stub.log"
+    tokens "$1"
+    (cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_SETUP="${2-}" PATH="$MODE_BIN:$PATH" \
+        bash "$OPEN" "$TOKENS" >/dev/null 2>&1)
+    sed -n 's#^init [^ ]* .*--template [^ ]*/\([^/ ]*\.md\).*#\1#p' "$WORK/stub.log" | tail -1
+}
+SETUP_COORD='{"mode":"coordinated","store":"github"}'
+got=$(template_of '["docs/plans/PLAN-gone.md"]' "$SETUP_COORD")
+[ "$got" = execute-coordinated.md ] \
+    && pass "a deleted PLAN whose session holds run/setup (mode coordinated) opens execute-coordinated.md" \
+    || fail "deleted PLAN, session record: template [$got], calls [$(tr '\n' ';' < "$WORK/stub.log")]"
+mkdir -p "$SHIRABE_STATE_DIR/execute-carry/execute-snapgone"
+printf '%s\n' '{"run/setup":{"mode":"coordinated"}}' > "$SHIRABE_STATE_DIR/execute-carry/execute-snapgone/record.json"
+got=$(template_of '["docs/plans/PLAN-snapgone.md"]')
+[ "$got" = execute-coordinated.md ] && pass "a deleted PLAN with only the opener's snapshot opens execute-coordinated.md" \
+    || fail "deleted PLAN, snapshot: template [$got]"
+rm -rf "$SHIRABE_STATE_DIR/execute-carry/execute-snapgone"
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: coordinated\n---\n\n# PLAN: hist\n' \
+    > "$FIXREPO/docs/plans/PLAN-hist.md"
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\n---\n\n# PLAN: hsingle\n' \
+    > "$FIXREPO/docs/plans/PLAN-hsingle.md"
+(cd "$FIXREPO" && git add docs/plans/PLAN-hist.md docs/plans/PLAN-hsingle.md && git commit -q -m "docs: plans" \
+    && git rm -q docs/plans/PLAN-hist.md docs/plans/PLAN-hsingle.md && git commit -q -m "chore: cascade")
+got=$(template_of '["docs/plans/PLAN-hist.md"]')
+[ "$got" = execute-coordinated.md ] \
+    && pass "a deleted coordinated PLAN with no session and no snapshot opens execute-coordinated.md from git history" \
+    || fail "deleted PLAN, history: template [$got]"
+got=$(template_of '["docs/plans/PLAN-hsingle.md"]')
+[ "$got" = execute.md ] && pass "a deleted single-pr PLAN stays on execute.md" || fail "deleted single-pr PLAN: template [$got]"
+got=$(template_of '["docs/plans/PLAN-never.md"]')
+[ "$got" = execute.md ] && pass "a PLAN that never existed stays on execute.md" || fail "a PLAN that never existed: template [$got]"
 
 # --- engine-backed ------------------------------------------------------------
 
@@ -638,6 +695,9 @@ if [ "$RC" -eq 0 ] && line 'opened=attached' && [ "$(session_var execute-cstore 
 else
     fail "cstore attach: exit $RC, out [$OUT], STORE [$(session_var execute-cstore STORE)]; $ERR"
 fi
+coord_plan cadopt
+refusal "a malformed --adopt-run on a coordinated PLAN" '["docs/plans/PLAN-cadopt.md","--adopt-run","XYZ"]' \
+    invalid_var execute-cadopt
 run_open '["docs/plans/PLAN-t.md","--store","session"]'
 if [ "$RC" -eq 2 ] && line 'refused=unknown_var' && grep -q -- '--store applies only to a coordinated PLAN' <<<"$ERR"; then
     pass "--store on a single-pr PLAN is koto's unknown_var, worded for the flag"
