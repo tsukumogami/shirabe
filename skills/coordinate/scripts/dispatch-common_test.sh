@@ -187,15 +187,17 @@ fi
 # handler. A watcher that ignores TERM for a second before its trap goes in
 # stands in for that; the command ends once the watcher is inside that
 # second, so the caller's first TERM is the one dropped, and the call still
-# returns well before its deadline.
+# returns well before its deadline. As in the case above, the command fails
+# if the watcher never gets there.
 trap() { builtin trap '' TERM; : >"$T/ignoring"; command sleep 1; builtin trap "$@"; }
 START=$(date +%s)
-dc_with_deadline 20 sh -c 'i=0; until [ -e "$1" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done' _ "$T/ignoring"
+dc_with_deadline 20 sh -c 'i=0; until [ -e "$1" ]; do [ "$i" -ge 50 ] && exit 1; sleep 0.1; i=$((i + 1)); done' _ "$T/ignoring"
+RC=$?
 unset -f trap
-if [ $(( $(date +%s) - START )) -lt 10 ]; then
+if [ "$RC" -eq 0 ] && [ $(( $(date +%s) - START )) -lt 10 ]; then
     ok "deadline: a TERM the watcher drops as its trap goes in still stops it"
 else
-    bad "deadline: a TERM the watcher drops as its trap goes in still stops it" "returned after $(( $(date +%s) - START ))s"
+    bad "deadline: a TERM the watcher drops as its trap goes in still stops it" "status $RC after $(( $(date +%s) - START ))s"
 fi
 # A watcher that never installs its trap ignores every TERM, and stands in for
 # one that won't stop: after about five seconds of TERMs the caller kills it
@@ -203,7 +205,7 @@ fi
 # watcher's sleep is left to run out its 30 seconds.
 trap() { builtin trap '' TERM; : >"$T/deaf"; }
 START=$(date +%s)
-dc_with_deadline 30 sh -c 'i=0; until [ -e "$1" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done' _ "$T/deaf"
+dc_with_deadline 30 sh -c 'i=0; until [ -e "$1" ]; do [ "$i" -ge 50 ] && exit 1; sleep 0.1; i=$((i + 1)); done' _ "$T/deaf"
 RC=$?
 unset -f trap
 if [ "$RC" -eq 0 ] && [ $(( $(date +%s) - START )) -lt 20 ]; then
