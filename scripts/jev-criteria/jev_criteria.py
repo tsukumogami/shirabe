@@ -5,7 +5,7 @@ A Jev criterion is a closed question Jev answers about a slice of an agent's
 work. Each one has an entry in references/rule-registry.json, and its `jev`
 object is the criterion's contract and trust record. references/jev-criteria.md
 describes the contract and holds each criterion's completeness case; the
-design is docs/designs/DESIGN-jev-pass-trust.md.
+design is docs/designs/current/DESIGN-jev-pass-trust.md.
 
 Subcommands:
 
