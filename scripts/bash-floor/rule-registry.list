@@ -5,3 +5,6 @@ workflow: .github/workflows/check-rule-registry.yml
 # case runs on 3.2.
 scripts/rule-registry_test.sh
 scripts/check-rule-registry_test.sh
+# The dispute wrapper refuses ids the reader doesn't resolve as active; its
+# suite runs against stub koto binaries, so it needs no koto either.
+scripts/rule-dispute_test.sh
