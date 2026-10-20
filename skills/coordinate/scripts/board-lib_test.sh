@@ -26,14 +26,18 @@ eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; f
 
 # --- a quick read leaves no sleep behind ----------------------------------------------
 
-# Every sleep the deadline starts for a read runs as `sleep 23` here, and this
-# stand-in records its pid before it execs sleep (keeping that pid), so the
-# check needs no ps: each recorded pid must be gone the moment bl_gh returns.
-# The deadline runs the sleep in the background, where the exec replaces only
-# that background process. A sleep stopped before it records anything is
-# gone too, so a read may record none.
+# Every sleep the deadline starts for a read runs for the seconds left of 23
+# here: 23, or less when SECONDS ticks over between BL_START and the read, or
+# the host is slow. This stand-in records that sleep's pid before it execs
+# sleep (keeping that pid), so the check needs no ps: each recorded pid must
+# be gone the moment bl_gh returns. The deadline runs the sleep in the
+# background, where the exec replaces only that background process. A sleep
+# stopped before it records anything is gone too, so a read may record none.
 export BOARD_DEADLINE_SECS=23
 BL_DEADLINE=23
+# is_deadline_sleep <arg>: a whole number of seconds from 10 to 23, which no
+# other sleep here uses (the deadline's own checks sleep 0.05, a retry 1).
+is_deadline_sleep() { case "$1" in 1[0-9] | 2[0-3]) return 0 ;; esac; return 1; }
 # sleeps_left <case>: fails the case for each recorded sleep still running,
 # and kills it, since one that ignores TERM would outlive the suite.
 sleeps_left() {
@@ -53,7 +57,7 @@ sleeps_left() {
 # one, and gh ends only once the sleep is running, so the deadline has to stop
 # it after the read; gh fails the case if the sleep never starts.
 sleep() {
-    if [ "$1" = 23 ]; then exec sh -c 'trap "" TERM; echo $$ >>"$0"; exec sleep "$1"' "$T/sleeps" "$1"; fi
+    if is_deadline_sleep "$1"; then exec sh -c 'trap "" TERM; echo $$ >>"$0"; exec sleep "$1"' "$T/sleeps" "$1"; fi
     command sleep "$@"
 }
 gh() { local i=0; until [ -s "$T/sleeps" ]; do [ "$i" -ge 50 ] && return 1; command sleep 0.1; i=$((i + 1)); done; }
@@ -65,7 +69,7 @@ sleeps_left "no deadline sleep left running when it ignores TERM"
 # A gh that returns at once is the case that left the old watchdog's sleep
 # running most often: its TERM landed before the watchdog had the sleep's pid.
 sleep() {
-    if [ "$1" = 23 ]; then exec sh -c 'echo $$ >>"$0"; exec sleep "$1"' "$T/sleeps" "$1"; fi
+    if is_deadline_sleep "$1"; then exec sh -c 'echo $$ >>"$0"; exec sleep "$1"' "$T/sleeps" "$1"; fi
     command sleep "$@"
 }
 gh() { :; }

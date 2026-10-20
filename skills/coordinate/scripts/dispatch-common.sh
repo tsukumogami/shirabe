@@ -196,6 +196,9 @@
 #       TERM to dc_tree (dc_with_deadline's) is passed to the whole group, so
 #       `dc_with_deadline <secs> dc_tree <command...>` stops the command's
 #       children too, such as the remote helper `git ls-remote` starts.
+#       It sets a TERM trap and toggles `set -m` in the shell that runs it,
+#       so it runs in a subshell of its own, as dc_with_deadline's command
+#       does, never in a caller's shell.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:

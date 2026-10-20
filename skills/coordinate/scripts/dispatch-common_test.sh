@@ -239,7 +239,7 @@ elif kill -0 "$CHILD" 2>/dev/null; then
 else
     ok "deadline under dc_tree: the command's child is stopped too"
 fi
-dc_tree sh -c 'exit 3'; eq "dc_tree: the command's own status" 3 "$?"
+( dc_tree sh -c 'exit 3' ); eq "dc_tree: the command's own status" 3 "$?"
 # The watcher writes its mark before it kills the command. A kill that pauses
 # after every TERM (the watcher's subshell inherits the function) holds the
 # command's end and the caller's TERM to the watcher wide apart, so with the
