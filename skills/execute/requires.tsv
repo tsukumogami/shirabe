@@ -84,7 +84,10 @@
 # mints it) with `koto context exists`,
 # `koto context get`, and `koto context add`, and od reads /dev/urandom;
 # record-write-set.sh falls back to `gh repo view`; adopt-or-create-pr.sh makes
-# the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`. git adds
+# the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`.
+# owned_ci_passing's fallback, /work-on's ci-cancel-after-merge.sh --owned,
+# reads `gh pr view`, `gh pr checks`, and `gh api repos/<repo>/actions/runs/<id>`,
+# and writes ci_cancelled_after_merge.txt with `koto context add`. git adds
 # `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
 # of those fall under the gh, git, and jq records.
 #

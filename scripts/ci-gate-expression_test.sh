@@ -43,6 +43,9 @@ FAIL=0
 # It carries no --json or --jq, so the last-of-kind extraction still lands on
 # the `gh pr checks` call, and the "cancel gates" case stays true of the
 # filter. skills/work-on/scripts/ci-cancel-after-merge_test.sh pins the fallback.
+# execute.md's owned_ci_passing ends the same way, calling the same script with
+# `--owned <owned-pr.sh arguments>` (#958); that tail carries no --json or --jq
+# either, and skills/execute/scripts/owned-ci-cancel_test.sh pins it.
 #
 # Every koto template carrying a CI-green gate belongs here, as
 # "<template>:<gate>". work-on.md's is ci_passing. execute.md's is
