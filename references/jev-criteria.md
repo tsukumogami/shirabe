@@ -62,6 +62,17 @@ least 30 evaluations across at least 5 sessions, at least 95% of them answered
 `pass` or `fail`, no fallback for `over_budget`, and no input over the budget.
 The figures that decide a promotion come from koto's exported decider events
 read in a log backend; a local file never decides one.
+
+**Evaluations with nothing to grade.** An evaluation whose every event is a
+`decider_checked` with `koto.decider.outcome` `not_graded` had an empty slice:
+the slice script printed nothing, so there was nothing to grade, and the
+decider never decided that. It is left out of the evaluations, the sessions and
+the answered share, never counts as a pass toward trust or withholding, and is
+counted on its own as `not_graded`, which a promotion's `live` record carries.
+The minimums (30 evaluations across 5 sessions) count graded evaluations only.
+An evaluation with a `not_graded` event and any other event is graded and
+follows the rule above, so a fallback for any reason, `over_budget` included,
+and an `escape` still count against the bar. This holds for every criterion.
 `jev_criteria.py figures <rule-id> --sessions <dir>` computes the same figures
 from local koto session logs, as a tested reference for their definitions.
 
@@ -81,6 +92,32 @@ id of a trusted criterion whose check is in the same template, made from a
 state's command whose directive runs `rule-registry.sh release <id>`, and
 refuses the script's name anywhere else under `skills/`, `koto-templates/` or
 `hooks/`.
+
+## Replacing a seat
+
+A `/work-on` panel seat is a reviewer subagent, and a batch of trusted Jev
+criteria could one day stand in for one. No seat qualifies today: every
+question the scrutiny seats ask is `rejected` (`rs-015`, `rs-018`, `rs-019`,
+`rs-020`), because its slice needs more than 2,560 bytes or more than a script
+can hand over. Nothing in shirabe leaves a seat unspawned, and the pull request
+that first does must build all of these, for that seat:
+
+1. **Every question the seat asks is trusted.** Each has a `trusted` contract
+   declared on the panel's state in `veto`, so a batch stands in for the whole
+   seat and never for part of it.
+2. **The decider is active for the session.** For each of those criteria,
+   every condition `scripts/jev-withhold.sh` checks before it withholds a rule
+   holds for the session, so a user whose decider would not judge the result
+   still gets the seat.
+3. **An unanswered criterion brings the seat back.** When any of those criteria
+   is unanswered in the panel state's current visit (no `decider_checked`
+   event with outcome `pass` or `fail`), `panel-scope.sh --plan` gives the seat
+   `full` for that round, so a missing verdict never stands in for a review.
+4. **The batch's findings take the seat's place.** Its blocking findings stand
+   in the findings ledger and the panel's verdict gate where the seat's would,
+   and close by the same rules.
+5. **Each condition is tested.** The change ships a test for each of
+   conditions 1 to 4.
 
 ## work-on/review-level-fits-facts
 
@@ -112,6 +149,52 @@ longest level name, largest 246, p90 229, none over the 2,048-byte budget
 **State.** `untrusted`: it runs today, in veto mode for a user whose decider is
 in `auto`, and no fixture run or live window has been recorded. Its rule's text
 isn't preloaded in any directive, so nothing is withheld when it earns trust.
+
+## work-on/scrutiny-decision-reasons
+
+`/work-on`'s `scrutiny` asks Jev, beside the seats, whether every decision the
+run recorded in `analysis` and `implementation` gives, in its reason, why the
+choice was made rather than restating it. It is the closed part of the
+justification seat's question; the rest of that question is `rs-019`.
+
+**Sources.** The `decision_recorded` events koto writes to the session log when
+the agent runs `koto decisions record`, each with its state and its decision's
+`choice`, `rationale` and optional `alternatives_considered`. The agent writes
+the decisions, which are what the criterion grades; it never writes the slice.
+
+**Slice.** `decision-reasons.sh slice` over the session log the gate passes
+prints each matching decision, any visit, in log order, as a `- choice:` line
+and a `  reason:` line, every field's whitespace collapsed to single spaces so
+no field can start a line of its own. It reads no other file and no context
+key. A run with no decision in those states has an empty slice, which koto
+records as not graded.
+
+**Completeness.** The question is whether a reason says why its choice was
+made, and the choice and the reason are all it needs: the verdict is
+`sufficient`. The alternatives are left out. They don't bear on the question,
+since a reason can rule an alternative out in its own words, and
+`koto decisions record` requires a rationale but not alternatives. With them,
+5 of the live store's 88 graded sessions were over budget (5.7%), past the 5%
+line; that first measurement read the live store alone, before the archive
+was added to reach the 100-run minimum. Splitting the slice by state lowers
+no share and doubles the calls.
+
+**Figures.** Every session log the host kept, the live store and its archive,
+gzipped copies included, each session counted once by its `session_id`: 119
+graded sessions (with a decision to grade) of 1,502, largest 3,549, p90 1,761,
+3 over the 2,560-byte budget (the gate's `max_bytes`). That is 2.5% of graded
+runs, and 0.2% of all 1,502 sessions. The graded share is the one the contract
+is held to, since the live bar counts graded evaluations only. The fit is
+marginal: 119 graded runs is just past the 100-run minimum, and the live
+figures, not this measurement, decide whether the criterion earns trust. A run
+over budget falls back for `over_budget` and the agent answers it.
+
+**State.** `untrusted`: it runs in shadow for a user whose decider is on, its
+answers are recorded and never block the panel, and no fixture run or live
+window has been recorded. The fixtures' adversarial cases include
+inline layout mimicry (labelled `vocabulary-mimicry`): a reason that carries a
+second decision's `- choice:` and `reason:` text, which the collapsed
+whitespace keeps on the reason's own line.
 
 ## rs-007
 
@@ -226,3 +309,47 @@ change?
 
 **Sources**, **slice**, **completeness** and **figures** as `rs-010`.
 **State.** `rejected`, for the same measurement.
+
+## rs-018
+
+Can every claim a change makes about meeting its acceptance criteria be
+verified from the diff? The completeness seat's second question.
+
+**Sources.** The agent's own claims that its work meets each criterion, and
+the diff. **Slice.** None: nothing records the claims anywhere a script can
+read, so no slicer exists; the row's slice kind, `ac-claims`, only names the
+slice the question would need. **Completeness.** The claims are the agent's words
+about its own work, which no slice may carry, since the agent would then
+choose what the classifier sees. The verdict is `insufficient`. **Figures.**
+None: `not_measured: no-real-run-record`. **State.** `rejected`.
+
+## rs-019
+
+Does every place where a change departs from its acceptance criteria or its
+plan carry a reason that reflects a real trade-off? The justification seat's
+question.
+
+**Sources.** The criteria (`review_level_criteria.txt`, which
+`review-level.sh` writes), the plan the run wrote (`plan.md`) and the diff.
+**Slice.** The criteria, the plan and the hunks. **Completeness.** A
+departure is visible only against the criteria and the plan, and whether its
+reason is real needs the code it explains, so all three are what the question
+reads. The verdict is `sufficient`. **Figures.** The criteria and the plan
+alone, over 180 `/work-on` sessions: largest 40,003, p90 10,458, 154 over
+2,560. These figures are a lower bound: the full slice also carries the diff.
+**State.** `rejected`: over the budget on 86% of runs before the diff is
+counted.
+
+## rs-020
+
+Does a change do what its design context describes, rather than only what its
+criteria literally say? The intent seat's question.
+
+**Sources.** The design context (`context.md`) and the diff. **Slice.** The
+design context and the hunks. **Completeness.** The behaviour a design
+describes and the code that implements it are what the question compares.
+The verdict is `sufficient`. **Figures.** The design context alone, over 172
+`/work-on` sessions that kept one: largest 37,777, p90 5,888, 91 over 2,560.
+These figures are a lower bound: the full slice also carries the diff.
+**State.** `rejected`: over the budget on 53% of runs before the diff is
+counted.

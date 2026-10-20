@@ -39,7 +39,7 @@ class TestLoader(unittest.TestCase):
     def test_shipped_files_load(self):
         crit = rs.load_criteria()
         rs.load_categories(crit)
-        self.assertEqual(len(crit["criteria"]), 17)
+        self.assertEqual(len(crit["criteria"]), 20)
         for c in crit["criteria"]:
             self.assertEqual(set(c["values"]), {"pass", "fail"})
             self.assertEqual(len(c["escape"]), 1)
@@ -610,9 +610,11 @@ class TestFailClosed(unittest.TestCase):
 
 class TestShippedOff(unittest.TestCase):
     def test_rs009_and_rs010_are_off_by_default(self):
+        # rs-018 to rs-020 are off too: the scrutiny questions no slicer can
+        # build, kept for their contracts (references/jev-criteria.md).
         crit = rs.load_criteria()
         self.assertEqual({c["rule_id"] for c in crit["criteria"] if not c.get("enabled", True)},
-                         {"rs-009", "rs-010"})
+                         {"rs-009", "rs-010", "rs-018", "rs-019", "rs-020"})
         self.assertNotIn("rs-010", [c["rule_id"] for c in rs.active(crit)])
 
 
@@ -663,7 +665,8 @@ class TestSiteKinds(unittest.TestCase):
         self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["brief"], ("brief-journey", "summary-pair"))
         self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["prd"], ("prd-ac",))
         self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["plan"], ("plan-ac-block",))
-        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["local-change"], ("ac-hunks", "code-hunks"))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["local-change"],
+                         ("ac-hunks", "code-hunks", "ac-claims", "plan-hunks", "design-hunks"))
         for kind in ("brief-journey", "summary-pair", "prd-ac", "plan-ac-block", "ac-hunks"):
             self.assertIn(kind, rs.SLICE_KINDS)
 

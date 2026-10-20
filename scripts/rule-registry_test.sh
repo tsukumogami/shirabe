@@ -865,8 +865,10 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # The 14 scope document-gate rules (check-hop-document.sh) took this from 40
 # rules and 22 gates to 54 and 36; pr-body/banned-word (the PR gate's PB5)
 # took it to 55 and 37; work-on/review-level-fits-facts, the decider check's
-# Jev contract, took it to 56 and 38.
-[ "$n" = 56 ] && [ "$gates" = 38 ] && [ "$rsn" = 17 ] && pass "the registry has 56 rules: 38 gates and 17 criteria" \
+# Jev contract, took it to 56 and 38; rs-018 to rs-020, the scrutiny seats'
+# rejected questions, to 59 rules and 20 criteria; work-on/scrutiny-decision-
+# reasons, the scrutiny batch's Jev contract, to 60 and 39.
+[ "$n" = 60 ] && [ "$gates" = 39 ] && [ "$rsn" = 20 ] && pass "the registry has 60 rules: 39 gates and 20 criteria" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -876,14 +878,14 @@ missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | 
 bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) or (.check.kind == "none"))) | .id' "$REG")
 [ -z "$bad" ] && pass "every guarding or unchecked rule is never-withhold" || fail "withhold safety" "$bad"
 
-# rs-007 to rs-017 are Jev criteria, and a Jev criterion's rule may be left
+# rs-007 to rs-020 are Jev criteria, and a Jev criterion's rule may be left
 # out of a run only once it is trusted (references/jev-criteria.md); none is,
 # so they are never-withhold. rs-004 to rs-006 are script criteria.
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-00[4-6]$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
-jev_never=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[7-9]|1[0-7])$")) | select(.withhold == "never")] | length' "$REG")
-[ "$never" = 41 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 11 ] \
-    && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-006 are eligible; the Jev criteria rs-007 to rs-017 are never" \
+jev_never=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[7-9]|1[0-9]|20)$")) | select(.withhold == "never")] | length' "$REG")
+[ "$never" = 42 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
+    && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-006 are eligible; the Jev criteria rs-007 to rs-020 are never" \
     || fail "withhold marking" "never=$never eligible=$eligible jev_never=$jev_never"
 
 # The one gate rule eligible to withhold, through its backstop (the live
