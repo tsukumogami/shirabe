@@ -629,7 +629,10 @@ Key assumptions:
   a new `push-and-record.sh` record `git rev-parse HEAD` after a successful
   push, and a gate on `plan_completion` makes a missing record visible.
   Coordinated `head=` fields are written only by `node-push.sh`, which
-  validates the new coordination body before editing it.
+  validates the new coordination body before editing it. (Amended
+  2026-10-20: they are rendered from the run's record by
+  `scripts/lib/coordination-body.sh`, and `coord-render.sh` is the one
+  poster; see the amendment at the end of this decision.)
 - **Outcomes.** Every edge into a terminal assigns `outcome` through
   `context_assignments` (K2), and assigns `step` and `reason` there only when
   the edge fixes them as literals. A `step` or `reason` that comes from a
@@ -687,6 +690,24 @@ the assignments that carry them.
 defer the smaller moves. Rejected: it pays the largest cost where the
 unknowns are (the multi-repo anchor, durable resume from the coordination
 PR), and it leaves the cheap trust fixes undone.
+
+**Amendment (2026-10-20): the run's session is its record, and the body its
+rendering.** The objection that the coordination PR, "not a machine-local
+session, is the durable resume record" no longer holds, and the design "The
+coordinated run's session is its record" replaces it: a koto session can be
+exported and imported with its context, so the `/execute` run's
+`execute-<topic>` session holds the run's record as `run/` keys (one writer,
+`run-record.sh`; one reader, `run-record-lib.sh`), the loop reads the node
+map, heads and cascade verdict from there, and the coordination PR's body is
+the record's rendering. `coord-render.sh` renders it through
+`scripts/lib/coordination-body.sh` after every transition and before every
+terminal, and posts it only on a difference; `node-push.sh` no longer edits
+the body, and the coordinated `head=` fields are only ever the codec's
+rendering of the record. The other objection stands: per-node koto children
+still can't wait for a merge, so the loop stays a script-driven loop inside the
+thin envelope. One consequence for the Security section's default-action rule:
+`coord_verdict`'s default action now posts the rendered body (and nothing once
+the coordination PR merged).
 
 ## Decision Outcome
 
@@ -1815,7 +1836,11 @@ adopt reports an error; several owned PRs are always an error.
 
 **No default action writes to GitHub.** The verdict, the expected head, and
 `/scope`'s exit record are written by scripts, not the agent, but none of
-those scripts pushes, opens a PR, or merges. `merge_attempt`, `republish`,
+those scripts pushes, opens a PR, or merges. (Amended 2026-10-20: one default
+action now writes to GitHub. `coord_verdict`'s posts the coordination PR's
+body rendered from the run's record, through `coord-render.sh`, only when it
+differs from the live body and never once that PR merged; it pushes nothing,
+opens nothing and merges nothing. See Decision 6's amendment.) `merge_attempt`, `republish`,
 and the publish states stay agent-run. The default actions that carry a
 script's output into context (`merge_readiness`, `merge_confirm`,
 `coord_verdict`, `coord_merge_confirm`, `intake`, `executed_report`, and

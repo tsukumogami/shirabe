@@ -143,6 +143,48 @@ run_verdict "$GONEDIR" --merge true
 check "the coordination PR awaiting review after the cascade" ready \
     "$COORD_URL:human" "" "merge-state:BLOCKED:review=REVIEW_REQUIRED" ""
 
+# --- the merge refusals and a body the render couldn't post --------------------------
+
+ct_case ready-refused
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
+ct_write_db
+run_verdict "$PLAN2DIR" --merge true --attempts "pr-repo-a-default:merge-refused,pr-repo-b-default:merge-refused"
+check "every root's merge refused" ready \
+    "$U11:human,$U21:human,$COORD_URL:predecessor" "" "merge-refused" ""
+
+both_merged ready-body-stale
+ct_record_cascade pushed "$CT_HEAD"
+ct_write_db
+run_verdict "$GONEDIR" --merge true --attempts "coordination:body-stale"
+check "a draft coordination PR whose body couldn't be posted" ready \
+    "$COORD_URL:human" "" "merge-refused:body-stale" ""
+run_verdict "$GONEDIR" --merge true --attempts "coordination:body-full"
+check "a coordination PR whose body is over the cap" ready \
+    "$COORD_URL:human" "" "merge-refused:body-full" ""
+
+# The node's verdict is awaiting (its recorded head moved): a refused merge
+# keeps the verdict's own reason.
+ct_case refused-head-moved
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_OTHER"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_OTHER"
+ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
+ct_write_db
+run_verdict "$PLAN2DIR" --merge true --attempts "pr-repo-a-default:merge-refused"
+check "a refused merge whose verdict is awaiting keeps head-moved" ready \
+    "$U11:human,$U21:human,$COORD_URL:predecessor" "" "head-moved" ""
+
+ct_case error-visibility
+ct_record_setup
+ct_write_db
+run_verdict "$PLANDIR" --merge true --loop-line "error:execute:visibility"
+check "a loop stopped on error:execute:visibility names the step" error "" "" "" "execute:visibility"
+
 # --- paused -----------------------------------------------------------------------
 
 ct_case paused

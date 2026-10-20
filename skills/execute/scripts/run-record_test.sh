@@ -21,8 +21,10 @@
 #   required fields     a node without repo, a pushed cascade without head, a
 #                       failed one with a head exit 66 `incomplete`
 #   preconditions       push and cascade with no run/setup, a push repo
-#                       outside repos, observe on an absent key: 66; setup over
-#                       a record: 67
+#                       outside repos, observe on an absent key: 66; setup,
+#                       recover and adopt over a record: 67, nothing written;
+#                       adopt then recover where there is none: written,
+#                       run/setup last
 #   koto failure        a failed `context add` exits 70
 #   carry               into an empty session (every key, run/setup last);
 #                       over equal keys (an interrupted carry); over a
@@ -192,6 +194,26 @@ expect "a valid setup" 0 "written=run/setup"
 [ "$(val run/setup)" = "$(printf '%s' "$SETUP_V" | jq -cS .)" ] && pass "run/setup is stored as canonical JSON" || fail "run/setup stored as [$(val run/setup)]"
 rec setup "{\"run/setup\":$SETUP_V}"
 expect "a second setup over the record" 67 "refused=conflict key=run/setup"
+SUM0=$(store_sum)
+REC_DOC="{\"run/setup\":$SETUP_V,\"run/node/pr-repo-a-core\":{\"repo\":\"acme/repo-a\",\"pr\":11,\"head\":\"$CT_HEAD\"},\"run/cascade\":{\"verdict\":\"not-run\"},\"run/recovered\":{\"pr\":\"$URL10\",\"source\":\"run-line\"}}"
+rec recover "$REC_DOC"
+expect "a recover over an existing run/setup" 67 "refused=conflict key=run/setup"
+rec adopt "{\"run/adopted\":{\"id\":\"$RUNID\",\"login\":\"eval-user\",\"at\":\"2026-10-20T00:00:00Z\"}}"
+expect "an adopt over an existing run/setup" 67 "refused=conflict key=run/setup"
+[ "$(store_sum)" = "$SUM0" ] && pass "the refused recover and adopt wrote nothing" || fail "a refused recover or adopt wrote"
+
+# recover and adopt where there is no record: the recovery's own writes.
+ct_case recover
+rec adopt "{\"run/adopted\":{\"id\":\"$RUNID\",\"login\":\"eval-user\",\"at\":\"2026-10-20T00:00:00Z\"}}"
+expect "an adopt with no run/setup" 0 "written=run/adopted"
+rec recover "$REC_DOC"
+if [ "$RC" -eq 0 ] && [ "$(tail -1 <<<"$OUT")" = "written=run/setup" ] \
+    && [ "$(val run/recovered)" = "{\"pr\":\"$URL10\",\"source\":\"run-line\"}" ] \
+    && [ "$(val run/cascade)" = '{"verdict":"not-run"}' ]; then
+    pass "a recover with no run/setup writes the whole record, run/setup last"
+else
+    fail "recover: rc=$RC out=[$OUT]"
+fi
 
 # --- merge, replace, required fields -------------------------------------------------
 

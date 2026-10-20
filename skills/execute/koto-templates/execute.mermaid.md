@@ -18,6 +18,7 @@ stateDiagram-v2
     merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 1
     merge_attempt --> merge_confirm : gates.merge_intent.exit_code: 0, merge_exec: called
     merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 0, merge_exec: refused
+    merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 0, merge_exec: squash-message
     merge_confirm --> merged : gates.confirmed_merged.matches: true
     merge_confirm --> ready_awaiting_merge : gates.confirmed_merged.matches: false
     merge_readiness --> merge_route : gates.verdict_recorded.exists: true

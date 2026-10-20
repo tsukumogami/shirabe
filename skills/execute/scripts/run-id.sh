@@ -15,14 +15,19 @@
 # (execute-<slug>), which is exactly the pair this has to tell apart.
 #
 # The id lives in the run's koto session context under `run_id`. This script
-# is the one place it is minted and the one place the marker line is written;
-# owned-pr.sh is the one place it is read off a PR. It is minted only where a
+# is the one place it is minted and the one place the marker line is written.
+# owned-pr.sh reads markers off a PR to filter a lookup; `marker` here is the
+# second place one is read, for record-coord-setup.sh's recovery, which needs
+# the id itself (owned-pr.sh keeps an unmarked PR beside a matching one, so
+# it can't tell "no marker" from "this run's"). It is minted only where a
 # session or a coordinated run is born -- execute-open.sh (a single-pr PLAN),
 # scope-open.sh and deliver-open.sh right after the open, and
-# record-coord-setup.sh when it seals a coordinated run's record (the opener
-# never mints one for a coordinated PLAN) -- and every later caller reads it
-# with `get`, which never mints: a read that fails is an error, never a new
-# identity for the run.
+# record-coord-setup.sh when it seals or recovers a coordinated run's record
+# (the opener never mints one for a coordinated PLAN) -- and every later
+# caller reads it with `get`, which never mints: a read that fails is an
+# error, never a new identity for the run. `adopt` is the one place a stored
+# run_id is overwritten, and record-coord-setup.sh its one caller, on a
+# recovering start given --adopt-run.
 #
 # Usage:
 #   run-id.sh mint <session>
@@ -36,6 +41,16 @@
 #       already has one keeps it. execute-open.sh uses this to carry a
 #       finished session's id into the session koto replaces it with, so a
 #       resumed run still owns the PR it opened.
+#   run-id.sh adopt <session> <id>
+#       Store <id> as the session's id whether or not it has one. Only
+#       record-coord-setup.sh calls this, on a recovering start given
+#       --adopt-run <id>, after every recovery check passed.
+#   run-id.sh marker <body-file>
+#       Print the id the body's marker names: every marker line (a line that
+#       starts like one, surrounding whitespace allowed) must be exactly
+#       `<!-- shirabe-run: <id> -->` and all must name one id. A body with no
+#       marker line exits 67; one whose marker lines name different ids, or
+#       include a malformed one, exits 65.
 #   run-id.sh stamp <id> <body-file>
 #       Append the marker line for <id> to a PR body about to be created. A
 #       body that already names <id> is left as it is; one naming any other
@@ -53,15 +68,17 @@
 #   <id>       ^[0-9a-f]{32}$
 #
 # Exit codes:
-#   0   done (get, mint: the id is the only line on stdout)
+#   0   done (get, mint, marker: the id is the only line on stdout)
 #   64  usage error
-#   65  stamp: the body names another run
+#   65  stamp: the body names another run; marker: the marker lines name
+#       several runs, or one is malformed
 #   66  a koto context call failed, or no id could be minted
 #   67  get: the session has no run_id (it was not opened through a
-#       session-opening script, or the id was lost)
+#       session-opening script, or the id was lost); marker: the body
+#       carries no marker line
 #   74  a body file could not be read or written
 #
-# Requires: bash 3.2+, koto (get, mint, seed), od.
+# Requires: bash 3.2+, koto (get, mint, seed, adopt), od.
 set -uo pipefail
 
 PROG=run-id
@@ -71,10 +88,12 @@ RE_ID='^[0-9a-f]{32}$'
 # A marker line, loosely: anything that starts like one is treated as one,
 # whether or not its id is well formed.
 RE_MARKER_LINE='^[[:space:]]*<!--[[:space:]]*shirabe-run:'
+# A marker line that names a run, once trimmed: the only shape that does.
+RE_MARKER_EXACT='^<!-- shirabe-run: ([0-9a-f]{32}) -->$'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: run-id.sh mint <session> | get <session> | seed <session> <id> | stamp <id> <body-file> | restamp <id> <body-file> | carry <live-body-file> <new-body-file>" >&2
+    echo "usage: run-id.sh mint <session> | get <session> | seed <session> <id> | adopt <session> <id> | marker <body-file> | stamp <id> <body-file> | restamp <id> <body-file> | carry <live-body-file> <new-body-file>" >&2
     exit 64
 }
 
@@ -168,6 +187,34 @@ case "$MODE" in
         [[ $2 =~ $RE_ID ]] || usage_error "[$2] is not a run id"
         ID=$(stored "$1") || exit $?
         [ -n "$ID" ] || store "$1" "$2"
+        ;;
+    adopt)
+        [ $# -eq 2 ] || usage_error "adopt takes a session and an id"
+        [[ $1 =~ $RE_SESSION ]] || usage_error "[$1] is not a koto session name"
+        [[ $2 =~ $RE_ID ]] || usage_error "[$2] is not a run id"
+        store "$1" "$2"
+        ;;
+    marker)
+        [ $# -eq 1 ] || usage_error "marker takes a body file"
+        [ -f "$1" ] || { echo "$PROG: no body file [$1]" >&2; exit 74; }
+        LINES=$(marker_lines "$1")
+        if [ -z "$LINES" ]; then
+            echo "$PROG: the body carries no run marker" >&2
+            exit 67
+        fi
+        ID=""
+        while IFS= read -r l; do
+            if ! [[ $l =~ $RE_MARKER_EXACT ]]; then
+                echo "$PROG: the body carries a malformed run marker" >&2
+                exit 65
+            fi
+            if [ -n "$ID" ] && [ "$ID" != "${BASH_REMATCH[1]}" ]; then
+                echo "$PROG: the body's run markers name more than one run" >&2
+                exit 65
+            fi
+            ID="${BASH_REMATCH[1]}"
+        done <<<"$LINES"
+        printf '%s\n' "$ID"
         ;;
     stamp)
         [ $# -eq 2 ] || usage_error "stamp takes an id and a body file"

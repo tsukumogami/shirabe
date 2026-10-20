@@ -96,11 +96,14 @@
 # run-record.sh otherwise read and write context with
 # `koto context get/add/remove/exists`. Its scripts add gh
 # and git calls under the same records: node-push.sh's node-PR
-# `gh pr create --draft`, the coordination body's `gh pr edit --body-file`, and
-# `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
-# coordinated mode record below covers the two shirabe modes they run:
-# node-push.sh validates each new coordination body with
-# `--coordination-body`, and each new node PR's body and title with
+# `gh pr create --draft`, coord-render.sh's `gh pr edit --body-file` of the
+# coordination body, record-coord-setup.sh's `gh pr edit --body-file` of the
+# node PRs it stamps on a recovery given --adopt-run, and `gh pr ready`;
+# execute-open.sh's read-only `git log` and `git show` of a deleted PLAN's
+# last version; node-cut.sh's `git worktree add` and
+# `git fetch`. The coordinated mode record below covers the two shirabe modes
+# they run: coord-render.sh validates each rendered coordination body with
+# `--coordination-body`, node-push.sh each new node PR's body and title with
 # `--pr-body` and `--pr-title`, and coord-merge.sh and the loop's
 # evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
 # per indexed ref.

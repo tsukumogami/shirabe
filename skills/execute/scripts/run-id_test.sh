@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# run-id_test.sh — run-id.sh's four modes, against a file-backed koto stub
+# run-id_test.sh — run-id.sh's modes, against a file-backed koto stub
 # Part of the execute skill
 #
 # Asserts:
 #   get    mints a 32-hex id once, stores it as run_id, and returns the same
 #          id on every later call; two sessions get different ids
 #   seed   stores a given id only when the session has none
+#   adopt  stores a given id whether or not the session has one
+#   marker prints the one id a body's marker lines name; none exits 67; two
+#          ids or a malformed marker exit 65
 #   stamp  appends the marker line; is idempotent for the same id; refuses a
 #          body naming another run (exit 65)
 #   carry  keeps the live body's marker and drops any the new body invented;
@@ -79,6 +82,34 @@ rid seed execute-fresh "$S"
 if [ "$(rid get execute-fresh)" = "$S" ]; then pass "seed stores the id on a session with none"; else fail "seed did not store"; fi
 rid seed execute-demo "$S"
 if [ "$(rid get execute-demo)" = "$A1" ]; then pass "seed leaves an existing id alone"; else fail "seed overwrote an existing id"; fi
+
+# --- adopt -------------------------------------------------------------------------
+
+rid seed execute-adopt "$A1"
+rid adopt execute-adopt "$S"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(rid get execute-adopt)" = "$S" ]; then pass "adopt overwrites a session's existing id"; else fail "adopt: exit $RC, id [$(rid get execute-adopt)]"; fi
+rid adopt execute-adopt-fresh "$S"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(rid get execute-adopt-fresh)" = "$S" ]; then pass "adopt stores the id on a session with none"; else fail "adopt on a fresh session: exit $RC"; fi
+
+# --- marker ------------------------------------------------------------------------
+
+marker_of() { # marker_of <body> -- sets MOUT and MRC
+    printf '%b' "$1" > "$WORK/m.md"
+    MOUT=$(rid marker "$WORK/m.md" 2>/dev/null)
+    MRC=$?
+}
+marker_of "Body.\n\n<!-- shirabe-run: $S -->\n"
+[ "$MRC" -eq 0 ] && [ "$MOUT" = "$S" ] && pass "marker prints the id of a body's one marker" || fail "marker one: exit $MRC [$MOUT]"
+marker_of "Body.\n  <!-- shirabe-run: $S -->  \nmore\n<!-- shirabe-run: $S -->\n"
+[ "$MRC" -eq 0 ] && [ "$MOUT" = "$S" ] && pass "marker reads an indented marker and a repeat of the same id as that id" || fail "marker repeat: exit $MRC [$MOUT]"
+marker_of "Body with no marker.\n"
+[ "$MRC" -eq 67 ] && [ -z "$MOUT" ] && pass "marker on a body with none exits 67" || fail "marker none: exit $MRC [$MOUT]"
+marker_of "Body.\n<!-- shirabe-run: $S -->\n<!-- shirabe-run: $A1 -->\n"
+[ "$MRC" -eq 65 ] && [ -z "$MOUT" ] && pass "marker on a body naming two runs exits 65" || fail "marker two: exit $MRC [$MOUT]"
+marker_of "Body.\n<!-- shirabe-run: not-an-id -->\n"
+[ "$MRC" -eq 65 ] && [ -z "$MOUT" ] && pass "marker on a malformed marker exits 65" || fail "marker malformed: exit $MRC [$MOUT]"
+marker_of "Body.\n<!-- shirabe-run: $S -->\n<!--shirabe-run: $S-->\n"
+[ "$MRC" -eq 65 ] && pass "marker refuses a loosely spaced copy beside a well-formed one (65)" || fail "marker loose: exit $MRC [$MOUT]"
 
 # --- stamp -------------------------------------------------------------------------
 
@@ -183,6 +214,10 @@ expect_rc "mint without a session" 64 mint
 expect_rc "get without a session" 64 get
 expect_rc "get with a bad session name" 64 get '-x'
 expect_rc "seed with a bad id" 64 seed execute-demo ABC
+expect_rc "adopt with a bad id" 64 adopt execute-demo ABC
+expect_rc "adopt without an id" 64 adopt execute-demo
+expect_rc "marker on a missing file" 74 marker "$WORK/nope.md"
+expect_rc "marker without a file" 64 marker
 expect_rc "stamp with a bad id" 64 stamp xyz "$WORK/body.md"
 expect_rc "stamp on a missing file" 74 stamp "$S" "$WORK/nope.md"
 expect_rc "carry on a missing live file" 74 carry "$WORK/nope.md" "$WORK/body.md"

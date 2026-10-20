@@ -13,9 +13,12 @@
 #
 # The template follows the PLAN's `execution_mode:` frontmatter:
 # `coordinated` enters execute-coordinated.md, `multi-pr` is refused (it runs
-# through /work-on), anything else enters execute.md. Both
-# share the session name, so a live session from the other template is koto's
-# template_mismatch refusal, and a finished one is replaced.
+# through /work-on), anything else enters execute.md. A PLAN the cascade
+# deleted takes the mode of its run instead: run/setup's in the session, else
+# in the opener's snapshot, else the PLAN's last committed version before the
+# commit that deleted it. Both share the session name, so a live session from
+# the other template is koto's template_mismatch refusal, and a finished one
+# is replaced.
 #
 # koto then decides everything a variable can express, so /execute refuses
 # nothing of its own that koto could: a repeated --merge is koto's
@@ -116,8 +119,9 @@
 # (`carried=<key-count>`); a carry that fails keeps it for the next open
 # (`carry=pending`, `failed=carry`, exit 70; stderr names the snapshot). A
 # session that already has run/setup makes the snapshot stale, and it is
-# removed. `merge_attempts` is removed, so every invocation starts with no
-# merge attempts. A single-pr open seeds the prior run_id and mints one when
+# removed. `merge_attempts` and `recovered` are removed, so every invocation
+# starts with no merge attempts and reports a recovery only when its own setup
+# made one. A single-pr open seeds the prior run_id and mints one when
 # the session still has none.
 #
 # The run identity. A session this script opens always has a `run_id`
@@ -228,16 +232,22 @@ PLAN=$(printf '%s' "$TOKENS" | jq -r '. as $t | [range(0; length) as $i
 SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
 
-# The template, from the PLAN's execution_mode, re-validated against the enum:
-# exactly `coordinated` selects execute-coordinated.md, `multi-pr` is refused
-# here, before any koto call; anything else, a PLAN
-# that doesn't exist included, stays on execute.md, as before. Both templates
-# share the execute-<slug> session name, so koto's --attach-live refuses a live
-# session built from the other one (template_mismatch) and --replace-terminal
-# replaces a finished one.
-MODE=""
-if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
-    MODE=$(awk '
+# A slug outside the pattern is koto's to refuse (invalid_var on PLAN_SLUG), and
+# koto validates variables before it looks at the session name, so the call is
+# made under a placeholder name that koto never reaches.
+case "$SLUG" in
+    ""|*[!a-z0-9-]*) SESSION="execute-unnamed" ;;
+    *) SESSION="execute-$SLUG" ;;
+esac
+HAVE_KOTO=0
+command -v koto >/dev/null && HAVE_KOTO=1
+NAMED=0
+[ "$SESSION" != "execute-unnamed" ] && [ "$HAVE_KOTO" -eq 1 ] && NAMED=1
+CR="${SHIRABE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shirabe}/execute-carry"
+
+# mode_of -- the execution_mode of the PLAN text on stdin (its frontmatter).
+mode_of() {
+    awk '
         NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit; next }
         /^---[[:space:]]*$/ { exit }
         /^execution_mode:/ {
@@ -245,7 +255,45 @@ if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
             gsub(/["\047[:space:]]/, "")
             print
             exit
-        }' "$PLAN")
+        }'
+}
+
+# The template, from the PLAN's execution_mode, re-validated against the enum:
+# exactly `coordinated` selects execute-coordinated.md, `multi-pr` is refused
+# here, before any koto call; anything else stays on execute.md, as before.
+# Both templates share the execute-<slug> session name, so koto's
+# --attach-live refuses a live session built from the other one
+# (template_mismatch) and --replace-terminal replaces a finished one.
+#
+# A PLAN that is gone (the finalization cascade deletes it) takes its mode
+# from the run it belonged to, read-only and before the lock: the session's
+# run/setup (a live or finished session holding the record), else the
+# snapshot an earlier open kept, else the PLAN's last committed version
+# before the commit that deleted it. A run holding its record re-invokes on
+# the coordinated template that way, and a lost record with its PLAN gone
+# reaches setup's recovery-plan-gone stop. Nothing found stays on execute.md.
+MODE=""
+if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
+    MODE=$(mode_of < "$PLAN")
+elif [ -n "$PLAN" ] && [ "$NAMED" -eq 1 ]; then
+    if GONE_SETUP=$(rr_setup "$SESSION") && [ "$(jq -r '.mode // ""' <<<"$GONE_SETUP")" = coordinated ]; then
+        MODE=coordinated
+    elif [ -f "$CR/$SESSION/record.json" ] \
+        && [ "$(jq -r '(.["run/setup"] // {}).mode // ""' "$CR/$SESSION/record.json")" = coordinated ]; then
+        MODE=coordinated
+    else
+        GONE_AT=$(git log -1 --diff-filter=D --format=%H -- "$PLAN") || GONE_AT=""
+        if [[ $GONE_AT =~ ^[0-9a-f]{40}$ ]]; then
+            case "$PLAN" in
+                /*) GONE_TOP=$(git rev-parse --show-toplevel) || GONE_TOP=""
+                    GONE_PATH="${PLAN#"$GONE_TOP"/}" ;;
+                *) GONE_PATH="./$PLAN" ;;
+            esac
+            if GONE_TEXT=$(git show "$GONE_AT^:$GONE_PATH"); then
+                [ "$(mode_of <<<"$GONE_TEXT")" = coordinated ] && MODE=coordinated
+            fi
+        fi
+    fi
 fi
 COORDINATED=0
 case "$MODE" in
@@ -262,21 +310,9 @@ case "$MODE" in
         ;;
 esac
 
-# A slug outside the pattern is koto's to refuse (invalid_var on PLAN_SLUG), and
-# koto validates variables before it looks at the session name, so the call is
-# made under a placeholder name that koto never reaches.
-case "$SLUG" in
-    ""|*[!a-z0-9-]*) SESSION="execute-unnamed" ;;
-    *) SESSION="execute-$SLUG" ;;
-esac
-HAVE_KOTO=0
-command -v koto >/dev/null && HAVE_KOTO=1
-NAMED=0
-[ "$SESSION" != "execute-unnamed" ] && [ "$HAVE_KOTO" -eq 1 ] && NAMED=1
-
 # The coordinated run's lock, before the session is read: one opener at a time
-# reads, replaces, and carries a session's record.
-CR="${SHIRABE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shirabe}/execute-carry"
+# reads, replaces, and carries a session's record. (The mode fallback above
+# only reads.)
 LOCK=""
 release_lock() { [ -n "$LOCK" ] && rm -rf -- "$LOCK"; return 0; }
 if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
@@ -502,9 +538,12 @@ case "$OUT" in
                 esac
             fi
             # Every invocation starts with no merge attempts (an earlier
-            # invocation's are not carried).
+            # invocation's are not carried), and with no `recovered`: only
+            # the invocation whose setup recovered the record reports it.
             koto context remove "$SESSION" merge_attempts >/dev/null \
                 || echo "$PROG: could not clear merge_attempts in $SESSION" >&2
+            koto context remove "$SESSION" recovered >/dev/null \
+                || echo "$PROG: could not clear recovered in $SESSION" >&2
         else
             # Carry the prior run's identity into a replacement (seed writes
             # only when the session has none, so an attached live session

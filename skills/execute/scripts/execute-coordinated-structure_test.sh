@@ -31,7 +31,8 @@
 #     ${gates.<g>.<path>} (there is no command gate whose output could hold a
 #     script's)
 #   every terminal declares the result map (outcome, step, reason, pr, repos,
-#     resume, waiting), step and reason read from context
+#     resume, waiting, body, recovered), step, reason, body and recovered
+#     read from context
 #   PLAN_DOC's pattern admits a path with `+` and refuses `..`, spaces and `$(`
 #   the variables: PLAN_DOC and PLAN_SLUG not rebindable (PLAN_SLUG pattern
 #     ^[a-z0-9-]+$), MERGE and PAUSE_BEFORE_FINALIZE values [true, false]
@@ -43,16 +44,39 @@
 #   no default_action command holds ${context.
 #   STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE and ADOPT_RUN are
 #     optional and rebind, each with its pattern admitting empty; coord_setup
-#     accepts blocked and the five typed stops, each stop's edge assigning its
-#     own code as a literal reason; its directive passes all five variables to
+#     accepts blocked and the eleven typed stops (the five the record's setup
+#     makes, and recovery's session-absent, recovery-unproven,
+#     recovery-plan-gone, coordination-index-missing, coordination-body-full
+#     and adopt-run-refused), each stop's edge assigning its own code as a
+#     literal reason; its directive passes all five variables to
 #     record-coord-setup.sh; every coordinated-next.sh and node-push.sh call in
 #     coord_loop's directive passes --session
 #
-# and, engine-free, over the source and the skill's tree:
+# and, engine-free, over the source and the skill's tree (non-test files:
+# no *_test.sh, coord-test-helpers.sh, testdata/ or evals/), each check a
+# function over a root that runs on the tree and then on a copy with one
+# mutation, which it must fail:
 #   `outcome=` followed by `refused` appears nowhere under skills/execute/
-#   the only line that builds a `head=` field is in node-push.sh
+#   no file under skills/execute/ names the index-entry grammar or its
+#     parsers by their old coord-common.sh names (the entry pattern and the
+#     entries, parse and find functions); the codec holds CB_RE_ENTRY
+#     (mutation: a definition of the pattern in coord-common.sh)
+#   no pattern on head=: a non-comment script line holding `head=` is only
+#     a printf output line with no grep, sed, awk, =~, test( or match(, and no
+#     template `pattern:` holds it; the codec builds the field (mutation: a
+#     `=~ head=(...)` line in coord-merge.sh)
+#   no `koto context add` or `remove` of a run/ key outside run-record.sh
+#     (mutation: one in coordinated-next.sh)
+#   every run-record.sh call names a verb its script owns: setup, recover,
+#     adopt and follow-up record-coord-setup.sh's; push node-push.sh's;
+#     observe coord-render.sh's; cascade node-push.sh's and
+#     record-coordination-verdict.sh's; carry execute-open.sh's; a "$VAR"
+#     verb resolved through the file's VAR=<literal> assignments, and one that
+#     can't be resolved is a finding (mutations: an observe call in
+#     node-push.sh, a "$1" verb in coord-merge.sh)
 #   SKILL.md names the run record as the run's store, and its closed
-#     write-target set lists the six run/ keys and run-record.sh
+#     write-target set lists the six run/ keys, run-record.sh, and
+#     coord-render.sh
 #
 # and that each structural check bites on a mutated copy: a second edge into
 # merged, a command gate on coord_merge_confirm, an overridable coord_verdict
@@ -88,18 +112,154 @@ else
     fail "the refused outcome token appears: $REFUSED"
 fi
 
-# Lines that build a head= field: a `head=` followed by a shell expansion, in
-# non-comment lines of the skill's scripts, templates, and SKILL.md. Reads (a
-# regex group, a sed) and tests don't build one.
-HEAD_WRITES=$(grep -rn 'head=\$' "$SKILL_DIR/scripts" "$SKILL_DIR/koto-templates" "$SKILL_DIR/SKILL.md" 2>/dev/null \
-    | grep -v '_test\.sh:' | grep -v '/coord-test-helpers\.sh:' \
-    | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' \
-    | grep -v "printf 'pr=%s\\\\nhead=%s" || true)
-if [ -n "$HEAD_WRITES" ] && [ -z "$(printf '%s\n' "$HEAD_WRITES" | grep -v '/node-push\.sh:')" ]; then
-    pass "the only line that builds a head= field is in node-push.sh"
+T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure-test.XXXXXX") || { echo "FAIL: mktemp failed" >&2; exit 1; }
+trap 'rm -rf "$T"' EXIT
+CODEC="$SKILL_DIR/../../scripts/lib/coordination-body.sh"
+
+# The body is read in one place: the codec, called from setup. Each check is
+# a function over a root laid out like skills/execute/, printing one
+# path:line: text per finding (nothing when the root passes). The tree is
+# checked, then a copy with one mutation per check, which must fail it.
+#
+# skill_files <root> <name-glob> -- the root's non-test files: no *_test.sh,
+# coord-test-helpers.sh, testdata/ or evals/.
+skill_files() {
+    find "$1" -type f -name "$2" ! -name '*_test.sh' ! -name 'coord-test-helpers.sh' \
+        ! -path '*/testdata/*' ! -path "$1/evals/*" | LC_ALL=C sort
+}
+
+# check_grammar <root> -- no file defines or calls the index-entry grammar or
+# its parsers by their old coord-common.sh names, tests included. The names
+# are built from halves so this file doesn't carry them either.
+check_grammar() {
+    grep -rn -e "RE_COORD""_ENTRY" -e "coord_index""_entries" -e "coord_parse""_entry" -e "coord_find""_entry" "$1"
+    return 0
+}
+
+# check_head <root> -- no pattern on a head= field: in a script, a non-comment
+# line holding `head=` is a finding unless it is a printf output line with no
+# grep, sed, awk, =~, test( or match( on it (node-push.sh prints its pushed
+# head that way); in a template, a YAML `pattern:` line holding head= is one.
+check_head() {
+    local f
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        awk -v f="$f" '
+            /^[[:space:]]*#/ { next }
+            index($0, "head=") == 0 { next }
+            index($0, "printf") > 0 && $0 !~ /grep|sed|awk|=~|test\(|match\(/ { next }
+            { print f ":" NR ": " $0 }' "$f"
+    done <<<"$(skill_files "$1" '*.sh')"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        awk -v f="$f" '/^[[:space:]]*pattern:/ && index($0, "head=") > 0 { print f ":" NR ": " $0 }' "$f"
+    done <<<"$(find "$1/koto-templates" -type f -name '*.md' | LC_ALL=C sort)"
+}
+
+# check_run_writes <root> -- no line adds or removes a run/ key with koto
+# context outside run-record.sh, the record's one writer.
+check_run_writes() {
+    local f
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in */run-record.sh) continue ;; esac
+        awk -v f="$f" '/koto context (add|remove)/ && index($0, "run/") > 0 { print f ":" NR ": " $0 }' "$f"
+    done <<<"$(skill_files "$1" '*')"
+}
+
+# check_verbs <root> -- every run-record.sh call names a verb its owner may
+# call: the word after run-record.sh, taken as written, or a "$VAR" resolved
+# through the file's own VAR=<literal> assignments (node-push.sh's RR_VERB).
+# An unresolvable verb is a finding too.
+check_verbs() {
+    local f
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in */run-record.sh|*/run-record-lib.sh) continue ;; esac
+        awk -v f="$f" -v base="${f##*/}" '
+            function owner_ok(v) {
+                if (v == "setup" || v == "recover" || v == "adopt" || v == "follow-up") return base == "record-coord-setup.sh"
+                if (v == "push") return base == "node-push.sh"
+                if (v == "observe") return base == "coord-render.sh"
+                if (v == "cascade") return base == "node-push.sh" || base == "record-coordination-verdict.sh"
+                if (v == "carry") return base == "execute-open.sh"
+                return 0
+            }
+            /^[[:space:]]*#/ { next }
+            { line[NR] = $0 }
+            $0 ~ /^[[:space:]]*(local[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=[a-z][a-z-]*[[:space:]]*$/ {
+                a = $0; sub(/^[[:space:]]*(local[[:space:]]+)?/, "", a); sub(/[[:space:]]*$/, "", a)
+                k = a; sub(/=.*/, "", k); v = a; sub(/^[^=]*=/, "", v)
+                vals[k] = vals[k] " " v
+            }
+            END {
+                for (i = 1; i <= NR; i++) {
+                    if (!(i in line)) continue
+                    rest = line[i]
+                    while ((p = index(rest, "run-record.sh")) > 0) {
+                        rest = substr(rest, p + 13)
+                        t = rest; sub(/^"/, "", t)
+                        if (t !~ /^[[:space:]]/) continue
+                        sub(/^[[:space:]]+/, "", t); sub(/[[:space:]].*$/, "", t)
+                        verbs = ""
+                        if (t ~ /^[a-z][a-z-]*$/) verbs = t
+                        else if (t ~ /^"?\$/) {
+                            k = t; gsub(/["${}]/, "", k)
+                            if (k ~ /^[A-Za-z_][A-Za-z0-9_]*$/) verbs = vals[k]
+                        }
+                        if (verbs == "") { print f ":" i ": a run-record.sh verb that cannot be resolved: " line[i]; continue }
+                        n = split(verbs, vs, " ")
+                        for (j = 1; j <= n; j++)
+                            if (!owner_ok(vs[j])) print f ":" i ": run-record.sh " vs[j] " called outside its owner: " line[i]
+                    }
+                }
+            }' "$f"
+    done <<<"$(skill_files "$1" '*.sh')"
+}
+
+FOUND=$(check_grammar "$SKILL_DIR")
+if [ -z "$FOUND" ] && grep -q '^CB_RE_ENTRY=' "$CODEC"; then
+    pass "no file under skills/execute/ names the index-entry grammar; the codec holds it"
 else
-    fail "head= is built outside node-push.sh (or nowhere): $HEAD_WRITES"
+    fail "the index-entry grammar is named under skills/execute/: $FOUND"
 fi
+FOUND=$(check_head "$SKILL_DIR")
+if [ -z "$FOUND" ] && grep -q 'head=\\(' "$CODEC"; then
+    pass "no non-test file under skills/execute/ holds a pattern on head=; the codec builds the field"
+else
+    fail "head= is matched under skills/execute/ (or not built in the codec): $FOUND"
+fi
+FOUND=$(check_run_writes "$SKILL_DIR")
+[ -z "$FOUND" ] && pass "no non-test file under skills/execute/ adds or removes a run/ key outside run-record.sh" \
+    || fail "a run/ key is written outside run-record.sh: $FOUND"
+FOUND=$(check_verbs "$SKILL_DIR")
+[ -z "$FOUND" ] && pass "every run-record.sh call under skills/execute/ names a verb its script owns" \
+    || fail "a run-record.sh verb is called outside its owner: $FOUND"
+
+# Each check bites: a copy of the skill's scripts and templates with one
+# mutation, checked by the same function.
+mutated() { # mutated <label> <check> <file under the root> <line to append>
+    local root="$T/mut-$2"
+    rm -rf "$root"
+    mkdir -p "$root"
+    cp -R "$SKILL_DIR/scripts" "$SKILL_DIR/koto-templates" "$SKILL_DIR/SKILL.md" "$root/" || { fail "$1: could not copy the tree"; return; }
+    printf '%s\n' "$4" >> "$root/$3"
+    if [ -n "$("$2" "$root")" ]; then
+        pass "$2 fails on a copy with $1"
+    else
+        fail "$2 passed a copy with $1"
+    fi
+}
+mutated "an index-entry grammar definition in coord-common.sh" check_grammar scripts/coord-common.sh \
+    "RE_COORD""_ENTRY='^- x'"
+mutated "a head= regex in coord-merge.sh" check_head scripts/coord-merge.sh \
+    '[[ $x =~ head=([0-9a-f]+) ]] && echo "${BASH_REMATCH[1]}"'
+mutated "a run/ key added by coordinated-next.sh" check_run_writes scripts/coordinated-next.sh \
+    'printf x | koto context add "$S" run/node/x'
+mutated "a run-record.sh observe call in node-push.sh" check_verbs scripts/node-push.sh \
+    '"$BASH" "$COORD_SELF_DIR/run-record.sh" observe --session "$SESSION" --json "$F"'
+mutated "a run-record.sh call whose verb is a positional parameter" check_verbs scripts/coord-merge.sh \
+    '"$BASH" "$COORD_SELF_DIR/run-record.sh" "$1" --session "$SESSION" --json "$F"'
 
 # SKILL.md names the run record as a coordinated run's store, and its closed
 # write-target set lists every run/ key.
@@ -111,11 +271,11 @@ else
 fi
 WTS=$(awk '/Closed write-target set/ { f = 1 } f && /^3\. / { exit } f' "$SKILL_MD")
 missing=""
-for key in 'run/setup' 'run/node/<node>' 'run/follow-up/<node>/<n>' 'run/cascade' 'run/recovered' 'run/adopted' 'run-record.sh'; do
+for key in 'run/setup' 'run/node/<node>' 'run/follow-up/<node>/<n>' 'run/cascade' 'run/recovered' 'run/adopted' 'run-record.sh' 'coord-render.sh'; do
     grep -qF -- "\`$key\`" <<<"$WTS" || missing="$missing $key"
 done
 if [ -n "$WTS" ] && [ -z "$missing" ]; then
-    pass "SKILL.md's closed write-target set lists every run/ key, each written through run-record.sh"
+    pass "SKILL.md's closed write-target set lists every run/ key, each written through run-record.sh, and coord-render.sh"
 else
     fail "SKILL.md's closed write-target set lacks:$missing"
 fi
@@ -127,8 +287,7 @@ if ! command -v koto >/dev/null 2>&1; then
     exit 0
 fi
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure-test.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+WORK="$T/compile"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 
@@ -157,8 +316,10 @@ CHECKS=(
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "step and reason are assigned only as literals|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | to_entries[] | select(.key == \"step\" or .key == \"reason\") | .value | (contains(\"\${\") or contains(\"{{\"))] | any | not"
 "no assignment reads \${context. or \${gates.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | (contains(\"\${context.\") or contains(\"\${gates.\"))] | any | not"
-"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length == 5 and all"
+"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"body\",\"outcome\",\"pr\",\"reason\",\"recovered\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length == 5 and all"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
+"every terminal reads body from context|[.states[] | select(.terminal == true) | .result.body == \"\${context.body}\"] | all"
+"every terminal reads recovered from context|[.states[] | select(.terminal == true) | .result.recovered == \"\${context.recovered}\"] | length == 5 and all"
 "no default_action command holds \${context.|[.states[] | (.default_action.command // \"\") | contains(\"\${context.\")] | any | not"
 "MERGE is values [true, false], default false, rebind|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
 "REVIEW_FLOOR and REVIEW_CEILING are optional, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
@@ -169,8 +330,8 @@ CHECKS=(
 "PLUGIN_ROOT is rebindable|.variables.PLUGIN_ROOT.rebind == true"
 "STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE, ADOPT_RUN are optional and rebind|[.variables.STORE, .variables.COORDINATION_PR, .variables.FOLLOW_UP, .variables.FOLLOW_UP_REMOVE, .variables.ADOPT_RUN] | all(. != null and (.required // false) == false and .rebind == true)"
 "the five coordinated variables carry their patterns, each admitting empty|.variables.STORE.pattern == \"^(github|session)?\$\" and .variables.COORDINATION_PR.pattern == \"^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP.pattern == \"^([a-z][a-z0-9-]*=https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP_REMOVE.pattern == \"^(true)?\$\" and .variables.ADOPT_RUN.pattern == \"^([0-9a-f]{32})?\$\""
-"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 5 and all"
-"coord_setup accepts blocked and the five typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\"]"
+"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 11 and all"
+"coord_setup accepts blocked and the eleven typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\"]"
 "coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
 "every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
 )

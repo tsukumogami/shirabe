@@ -44,12 +44,19 @@
 #                   another run opened on a node or coordination branch is
 #                   never adopted. Omitted only on a hand run, where the
 #                   lookups match by login and branch alone.
-#   --attempts      the session's `merge_attempts` record, written by
-#                   coord-merge.sh: `<node>:merge-not-observed` or
-#                   `<node>:merge-call-failed` for a merge this run already
-#                   called and did not see land (node `coordination` for the
-#                   coordination PR). Such a PR is not merged again in this
-#                   invocation; it is reported unmerged with that reason.
+#   --attempts      the session's `merge_attempts` record:
+#                   `<node>:merge-not-observed` or `<node>:merge-call-failed`
+#                   for a merge this run already called and did not see land,
+#                   `<node>:merge-refused` for one coord-merge.sh refused
+#                   before or at the call (node `coordination` for the
+#                   coordination PR), and `coordination:body-stale` or
+#                   `coordination:body-full` for a coordination body
+#                   coord-render.sh could not bring up to date before the
+#                   coordination PR's evaluation or merge. Such a PR is not
+#                   merged or evaluated again in this invocation; it is
+#                   reported unmerged with that reason (merge-refused keeps
+#                   an awaiting verdict's own reason, and the body results
+#                   read merge-refused:body-stale or merge-refused:body-full).
 #
 # Output: exactly one line, from the closed set (first match wins):
 #
@@ -144,7 +151,7 @@ coord_valid_branch "$CC_CB" || usage_error "--coord-branch [$CC_CB] is not an al
 case "/$CC_PLAN/" in */../*) usage_error "--plan [$CC_PLAN] has a .. segment" ;; esac
 case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a character outside [A-Za-z0-9._/-]" ;; esac
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
-    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed>,..."
+    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full>,..."
 fi
 case "$SEEN" in
     *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;

@@ -9,13 +9,63 @@
 # `gh repo view`) with the koto stub (see coord-test-helpers.sh). Every case's
 # GitHub model holds the coordination PR, #10 on the coordination branch.
 #
+# Each case starts from a fresh session (no run_id: one would be a carried
+# id, which says a run had started).
+#
 # Cases:
 #   one repository, two groups     repos=acme/repo-a (one entry), home_repo,
 #                                  coord_branch, plan_abs; repos written last
 #   a new run                      run/setup sealed: the node list in PLAN
 #                                  order, store github, coordination_pr 10,
-#                                  repos, mode, /scope's run lines; run_id
-#                                  minted; a carried run_id kept
+#                                  repos, mode, /scope's run lines; then
+#                                  run_id minted (a failed seal mints none; a
+#                                  record left without one gets one next time)
+#   nothing started                record=new on both stores, no stop
+#   session-absent                 on session, a carried run_id, a rendered
+#                                  run= line, an index line, or an owned PR on
+#                                  a PLAN node's branch, each alone, stops
+#                                  naming the import, with no GitHub write; so
+#                                  does the body's store=session with no
+#                                  --store; a --store other than the body's
+#                                  store= line stops store-mismatch
+#   recovery on github             --adopt-run (first: over a merged
+#                                  foreign-marked PR, an unmarked one and one
+#                                  already marked: only the first two edited,
+#                                  every body then marked, run_id the adopted
+#                                  id over a carried one, run/adopted's login
+#                                  and time, the merged one's merged_head);
+#                                  --adopt-run over a record refused before
+#                                  any PR read; a stamp that fails names its
+#                                  PR not stampable and a re-run edits no PR
+#                                  twice; identity from the run line (live
+#                                  heads, never the body's; the PLAN's nodes;
+#                                  cascade not-run; store github; then the
+#                                  loop's merge: setup's head read, the
+#                                  readiness reads and the merge at the live
+#                                  head, in that order in the log), unanimous
+#                                  markers, and minted (a follow-up line
+#                                  alone, which is recorded nowhere); another
+#                                  run's marker, none, or no identity stops
+#                                  recovery-unproven naming each, writing no
+#                                  run_id; a PR another author opened and a
+#                                  node outside the PLAN are named, with no
+#                                  --adopt-run hint and no read of the
+#                                  stranger
+#   pre-feature and the index      a session holding only its run_id over an
+#                                  old-format body recovers once (carried,
+#                                  self row dropped), then record=existing
+#                                  with no recovery marker; /scope's empty
+#                                  index recovers an empty map, or stops
+#                                  coordination-index-missing beside an owned
+#                                  node PR; the PLAN gone stops
+#                                  recovery-plan-gone (or
+#                                  coordination-index-missing with no index
+#                                  line), and with nothing started is the
+#                                  usage error; a held record with the PLAN
+#                                  (and its directory) gone passes, repos from
+#                                  run/setup; a 60,001-byte body stops
+#                                  coordination-body-full, a line outside the
+#                                  grammar recovery-unproven
 #   --store session                sealed as session; a later --store github
 #                                  stops store-mismatch with the store's
 #                                  bytes unchanged; a later invocation with no
@@ -35,9 +85,8 @@
 #                                  user); the recorded PR closed unmerged:
 #                                  coordination-pr-closed; a --coordination-pr
 #                                  other than the recorded one: mismatch
-#   inert flags                    --follow-up, --follow-up-remove and
-#                                  --adopt-run print ignored= and change
-#                                  nothing else
+#   inert flags                    --follow-up and --follow-up-remove print
+#                                  ignored= and change nothing else
 #   two repositories               repos sorted and comma-joined
 #   home_repo outside repos        recorded: a coordination PR whose
 #                                  repository holds no node (repos names only
@@ -82,13 +131,26 @@ store_sum() {
 }
 written() { ls "$CASE/ctx/$S" 2>/dev/null | grep -vx run_id; }
 
-setup_case() { # setup_case <name> [two-repo] -- a checkout on the coordination branch
+setup_case() { # setup_case <name> [two-repo|three] -- a checkout on the coordination branch
     ct_case "$1"
+    # A fresh session: no run_id. One here would be a carried id, which says
+    # a run had started.
+    rm -f "$CASE/ctx/$S/run_id"
     ct_write_db
     REPO="$CT_WORK/$1-repo"
     ct_repo "$REPO"
     ct_plan "$REPO" "${2:-}"
     mkdir -p "$CASE/ctx/$S"
+}
+seed_id() { printf '%s' "${1:-$SEEDED_ID}" > "$CASE/ctx/$S/run_id"; }
+# no_remote_write <label> -- the case's gh log holds no body edit, comment or
+# merge.
+no_remote_write() {
+    if grep -Eq '^pr (edit|comment|merge) ' "$GH_CALL_LOG" 2>/dev/null; then
+        fail "$1: a remote write was made: $(grep -E '^pr (edit|comment|merge) ' "$GH_CALL_LOG" | head -1)"
+    else
+        pass "$1: no body edit, comment or merge"
+    fi
 }
 run_setup() { # run_setup [flags...]
     OUT=$(cd "$REPO" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md "$@" 2>"$CASE/stderr")
@@ -134,7 +196,6 @@ fi
 # --- the seal ------------------------------------------------------------------------
 
 setup_case seal
-rm -f "$CASE/ctx/$S/run_id"
 db_edit '(.prs[] | select(.number == 10) | .body) |= ("topic=t\nintent=deliver\nowner=x\ntopic=other\n\n" + . + "\nexit=late\n")'
 run_setup
 WANT_NODES=$(ct_nodes_of "$REPO/docs/plans/PLAN-t.md")
@@ -153,14 +214,29 @@ fi
 [[ $(val run_id) =~ ^[0-9a-f]{32}$ ]] && pass "a new run's setup mints run_id" || fail "run_id: [$(val run_id)]"
 ORDER=$(grep '^context add' "$CASE/koto-calls.log" | awk '{print $4}' | tr '\n' ' ')
 case "$ORDER" in
-    "run_id run/setup plan_abs coord_branch home_repo repos ") pass "run_id, then run/setup, then the fixed keys, repos last" ;;
+    "run/setup run_id plan_abs coord_branch home_repo repos ") pass "run/setup, then run_id, then the fixed keys, repos last" ;;
     *) fail "the write order was [$ORDER]" ;;
 esac
 
-setup_case carried-id
+# A seal that fails leaves no run_id behind, so the next start is not read as
+# a started run.
+setup_case seal-fails
+export KOTO_FAIL_ADD=run/setup; run_setup
+[ "$RC" -eq 70 ] && [ ! -f "$CASE/ctx/$S/run_id" ] && pass "a seal that fails exits 70 and mints no run_id" \
+    || fail "failed seal: rc=$RC run_id=[$(val run_id)]"
+unset KOTO_FAIL_ADD
 run_setup
-[ "$RC" -eq 0 ] && [ "$(val run_id)" = "$SEEDED_ID" ] && pass "a carried run_id is kept (mint returns it)" \
-    || fail "carried id: rc=$RC run_id=[$(val run_id)]"
+[ "$RC" -eq 0 ] && grep -qx record=new <<<"$OUT" && pass "the next start after a failed seal is a new run again" \
+    || fail "after a failed seal: rc=$RC out=[$OUT]"
+
+# A crash between the seal and the mint is repaired by the next invocation.
+setup_case mint-repair
+run_setup
+rm -f "$CASE/ctx/$S/run_id"
+run_setup
+[ "$RC" -eq 0 ] && grep -qx record=existing <<<"$OUT" && [[ $(val run_id) =~ ^[0-9a-f]{32}$ ]] \
+    && pass "a record with no run_id gets one minted on the next invocation" \
+    || fail "mint repair: rc=$RC run_id=[$(val run_id)]"
 
 setup_case store
 run_setup --store session
@@ -288,12 +364,11 @@ stopped "a handed closed PR without the marker is not this run's" coordination-p
 # --- the inert flags -----------------------------------------------------------------
 
 setup_case inert
-run_setup --follow-up "pr-repo-a-core=https://github.com/acme/repo-a/pull/30" --follow-up-remove true \
-    --adopt-run 0123456789abcdef0123456789abcdef
+run_setup --follow-up "pr-repo-a-core=https://github.com/acme/repo-a/pull/30" --follow-up-remove true
 INERT_SETUP=$(val run/setup)
 if [ "$RC" -eq 0 ] && grep -qx ignored=follow-up <<<"$OUT" && grep -qx ignored=remove <<<"$OUT" \
-    && grep -qx ignored=adopt-run <<<"$OUT" && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
-    pass "--follow-up, --follow-up-remove and --adopt-run are reported ignored= and write nothing of their own"
+    && ! grep -q '^ignored=adopt-run' <<<"$OUT" && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
+    pass "--follow-up and --follow-up-remove are reported ignored= and write nothing of their own"
 else
     fail "inert: rc=$RC out=[$OUT] run/=[$(ls "$CASE/ctx/$S/run" 2>/dev/null | tr '\n' ' ')]"
 fi
@@ -302,6 +377,366 @@ run_setup --follow-up "" --follow-up-remove "" --adopt-run ""
 [ "$RC" -eq 0 ] && [ "$(val run/setup)" = "$INERT_SETUP" ] && ! grep -q '^ignored=' <<<"$OUT" \
     && pass "the same run without them seals the same record and reports nothing ignored" \
     || fail "inert control: rc=$RC out=[$OUT]"
+
+# --- recovery: whether a run had started ------------------------------------------
+
+RID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+OTHER_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ADOPT_ID=cccccccccccccccccccccccccccccccc
+BR_CORE="impl/$CT_SLUG-$CT_CORE"
+BR_CLI="impl/$CT_SLUG-$CT_CLI"
+URL11="https://github.com/acme/repo-a/pull/11"
+URL12="https://github.com/acme/repo-a/pull/12"
+# node_prs <core-body-json> <cli-body-json> -- the two node PRs, #11 and #12,
+# on their branches, each with head CT_HEAD.
+node_prs() {
+    ct_pr "$CT_REPO" 11 "$BR_CORE" "body=$1"
+    ct_pr "$CT_REPO" 12 "$BR_CLI" "body=$2"
+}
+PLAIN_BODY='"Implements the node.\n\n---\n\nCoordinated node.\n"'
+# recovered_ok <label> <source> -- exit 0, record=recovered, recovered=URL10,
+# and run/recovered naming the coordination PR and <source>.
+recovered_ok() {
+    if [ "$RC" -eq 0 ] && grep -qx record=recovered <<<"$OUT" && grep -qx "recovered=$URL10" <<<"$OUT" \
+        && [ "$(val run/recovered)" = "{\"pr\":\"$URL10\",\"source\":\"$2\"}" ] && [ "$(val recovered)" = "$URL10" ]; then
+        pass "$1: recovered, source $2, recovered=$URL10"
+    else
+        fail "$1: rc=$RC out=[$OUT] run/recovered=[$(val run/recovered)] stderr=[$(tail -3 "$CASE/stderr" | tr '\n' ' ')]"
+    fi
+}
+
+# A first start with nothing started seals a new record on both stores.
+for st in github session; do
+    setup_case "fresh-$st"
+    run_setup --store "$st"
+    [ "$RC" -eq 0 ] && grep -qx record=new <<<"$OUT" && [ "$(setup_val .store)" = "\"$st\"" ] \
+        && ! grep -q '^recovered=' <<<"$OUT" \
+        && pass "a first start with nothing started on --store $st seals a new record, no stop" \
+        || fail "fresh $st: rc=$RC out=[$OUT]"
+done
+
+# On session, each started signal alone stops session-absent, naming the
+# import, with no GitHub write.
+absent() { # absent <label> [flags...]
+    local label="$1"; shift
+    run_setup "$@"
+    if [ "$RC" -eq 71 ] && [ "$OUT" = stop=session-absent ] && [ -z "$(written)" ] \
+        && grep -q 'skill-session.sh import execute' "$CASE/stderr"; then
+        pass "$label: stop=session-absent naming the import, nothing written"
+    else
+        fail "$label: rc=$RC out=[$OUT] written=[$(written | tr '\n' ' ')] stderr=[$(tail -1 "$CASE/stderr")]"
+    fi
+    no_remote_write "$label"
+}
+setup_case absent-carried
+seed_id
+absent "session, a carried run_id" --store session
+setup_case absent-run-line
+ct_rendered_body "$CASE/body.md" "$RID" session
+ct_write_db "$CASE/body.md"
+absent "session, a rendered run= line" --store session
+setup_case absent-index
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_write_db
+absent "session, an index line" --store session
+setup_case absent-owned
+ct_pr "$CT_REPO" 11 "$BR_CORE"
+ct_write_db
+absent "session, an owned PR on a PLAN node's branch" --store session
+setup_case absent-body-store
+ct_rendered_body "$CASE/body.md" "$RID" session
+ct_write_db "$CASE/body.md"
+absent "the body's store=session with no --store"
+setup_case body-store-mismatch
+ct_rendered_body "$CASE/body.md" "$RID" session
+ct_write_db "$CASE/body.md"
+run_setup --store github
+stopped "a --store other than the body's store= line" store-mismatch
+
+# --- recovery on github ---------------------------------------------------------------
+
+# A merged node PR first: its body takes the stamp, and its merge commit is
+# recorded as merged_head.
+setup_case adopt three
+seed_id "$OTHER_ID"
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_index_line "$CT_CLI" "$CT_REPO" 12
+ct_index_line pr-repo-a-docs "$CT_REPO" 13
+node_prs "$(ct_marked_body "$OTHER_ID")" "$PLAIN_BODY"
+ct_pr "$CT_REPO" 13 "impl/$CT_SLUG-pr-repo-a-docs" "body=$(ct_marked_body "$ADOPT_ID")"
+CT_PRS=$(printf '%s' "$CT_PRS" | jq -c '(.[] | select(.number == 11)) |= (.state = "MERGED" | .merge_sha = "5555555555555555555555555555555555555555")')
+ct_write_db
+run_setup --adopt-run "$ADOPT_ID"
+recovered_ok "--adopt-run over a foreign-marked merged PR, an unmarked one and one already marked" adopted
+EDITS=$(grep -E '^pr edit ' "$GH_CALL_LOG" | awk '{print $3}' | LC_ALL=C sort | tr '\n' ' ')
+[ "$EDITS" = "11 12 " ] && pass "adopt edits only the PRs whose marker isn't the id (#11, #12), not #13" \
+    || fail "adopt edits: [$EDITS]"
+DB_NOW="$GH_CALL_LOG.d/db.json"
+MARKS=$(jq -r '[.prs[] | select(.number >= 11) | .body | split("\n") | map(select(test("shirabe-run"))) | join(";")] | join(" ")' "$DB_NOW")
+WANT_MARK="<!-- shirabe-run: $ADOPT_ID -->"
+[ "$MARKS" = "$WANT_MARK $WANT_MARK $WANT_MARK" ] && pass "every node PR's body carries only the adopted id's marker, the merged one's included" \
+    || fail "marks after adopt: [$MARKS]"
+[ "$(val run_id)" = "$ADOPT_ID" ] && pass "--adopt-run outranks a carried run_id: the adopted id is the session's" \
+    || fail "run_id after adopt: [$(val run_id)]"
+if val run/adopted | jq -e --arg id "$ADOPT_ID" '.id == $id and .login == "eval-user"
+        and (.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' >/dev/null; then
+    pass "run/adopted records the id, the login and the time"
+else
+    fail "run/adopted: [$(val run/adopted)]"
+fi
+[ "$(val run/node/pr-repo-a-core | jq -r .merged_head)" = 5555555555555555555555555555555555555555 ] \
+    && [ "$(val run/node/pr-repo-a-cli | jq -r 'has("merged_head")')" = false ] \
+    && pass "the merged node's live merge commit is its merged_head; an open one has none" \
+    || fail "merged heads: core=[$(val run/node/pr-repo-a-core)] cli=[$(val run/node/pr-repo-a-cli)]"
+: > "$GH_CALL_LOG"
+run_setup --adopt-run "$ADOPT_ID"
+[ "$RC" -eq 71 ] && [ "$OUT" = stop=adopt-run-refused ] && ! grep -Eq '^(pr|api) ' "$GH_CALL_LOG" \
+    && pass "--adopt-run on a session holding its record: adopt-run-refused, before any PR or API read" \
+    || fail "adopt over a record: rc=$RC out=[$OUT] calls=[$(tr '\n' ';' < "$GH_CALL_LOG")]"
+
+# A stamp that fails stops, naming the PR as not stampable. The index's nodes
+# are stamped in node-name order, so #12 (pr-repo-a-cli) is stamped before
+# the edit of #11 fails.
+setup_case adopt-fails
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_index_line "$CT_CLI" "$CT_REPO" 12
+node_prs "$(ct_marked_body "$OTHER_ID")" "$(ct_marked_body "$OTHER_ID")"
+ct_write_db
+printf '%s\n' '[ "$1 $2 $3" = "pr edit 11" ] && exit 1' 'exit 0' > "$CASE/hook.sh"
+export CT_GH_HOOK="$CASE/hook.sh"
+run_setup --adopt-run "$ADOPT_ID"
+unset CT_GH_HOOK
+if [ "$RC" -eq 71 ] && [ "$OUT" = stop=recovery-unproven ] && grep -q "$URL11.*not stampable" "$CASE/stderr" \
+    && [ -z "$(written)" ] && [ ! -f "$CASE/ctx/$S/run_id" ]; then
+    pass "a stamp that fails stops recovery-unproven naming #11 as not stampable, no record written"
+else
+    fail "adopt fails: rc=$RC out=[$OUT] written=[$(written | tr '\n' ' ')] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+run_setup --adopt-run "$ADOPT_ID"
+recovered_ok "a re-run with the same --adopt-run" adopted
+EDITS=$(grep -cE '^pr edit 12 ' "$GH_CALL_LOG")
+[ "$EDITS" -eq 1 ] && pass "the re-run makes no second edit of #12, stamped before the failure" \
+    || fail "edits of #12 across both runs: $EDITS"
+
+# The rendered run line names the run, and every node PR carries its marker.
+setup_case run-line
+ct_rendered_body "$CASE/body.md" "$RID" github "$CT_CORE=11" "$CT_CLI=12"
+node_prs "$(ct_marked_body "$RID")" "$(ct_marked_body "$RID")"
+ct_write_db "$CASE/body.md"
+grep -q "head=$CT_OTHER" "$CASE/body.md" && pass "the rendered body shows a head the model never had" \
+    || fail "the rendered body carries no head=$CT_OTHER"
+run_setup
+recovered_ok "a rendered run line matching every node PR's marker" run-line
+WANT_NODES=$(ct_nodes_of "$REPO/docs/plans/PLAN-t.md")
+if [ "$(val run/node/pr-repo-a-core | jq -c .)" = "{\"head\":\"$CT_HEAD\",\"pr\":11,\"repo\":\"acme/repo-a\"}" ] \
+    && [ "$(val run/node/pr-repo-a-cli | jq -r .head)" = "$CT_HEAD" ]; then
+    pass "each node's head is the live headRefOid, never the body's head="
+else
+    fail "recovered heads: core=[$(val run/node/pr-repo-a-core)] cli=[$(val run/node/pr-repo-a-cli)]"
+fi
+[ "$(setup_val .nodes)" = "$(printf '%s' "$WANT_NODES" | jq -cS .)" ] && [ "$(val run/cascade)" = '{"verdict":"not-run"}' ] \
+    && [ "$(setup_val '[.store, .coordination_pr, .repos, .mode, .run_lines]')" = '["github",10,["acme/repo-a"],"coordinated",{"topic":"t"}]' ] \
+    && pass "the node list comes from the PLAN, the cascade is not-run, the store github" \
+    || fail "recovered setup: [$(val run/setup)] cascade=[$(val run/cascade)]"
+[ "$(val run_id)" = "$RID" ] && pass "the run line's id becomes the session's run_id" || fail "run_id: [$(val run_id)]"
+grep -q "pr view 11 --repo acme/repo-a --json url,state,headRefOid,mergeCommit,body" "$GH_CALL_LOG" \
+    && pass "each node PR is read live once" || fail "no live read of #11: [$(tr '\n' ';' < "$GH_CALL_LOG")]"
+no_remote_write "recovery by the run line"
+
+# Recovery, then the loop's merge: setup's live read of #11's head comes
+# before the loop's readiness reads of #11, and both before the merge call,
+# which passes the live head (never the body's) to --match-head-commit.
+setup_case recover-merge
+ct_rendered_body "$CASE/body.md" "$RID" github "$CT_CORE=11"
+ct_pr "$CT_REPO" 11 "$BR_CORE" "body=$(ct_marked_body "$RID")"
+ct_write_db "$CASE/body.md"
+run_setup
+recovered_ok "recovery before a merge" run-line
+NEXT_OUT=$(cd "$REPO" && bash "$SCRIPT_DIR/coordinated-next.sh" --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" \
+    --repos "$(val repos)" --home-repo "$(val home_repo)" --coord-branch "$CT_CB" --merge true --run-id "$RID" 2>"$CASE/next.err")
+mkdir -p "$CASE/tmp"
+MERGE_OUT=$(cd "$REPO" && TMPDIR="$CASE/tmp" bash "$SCRIPT_DIR/coord-merge.sh" --session "$S" --slug "$CT_SLUG" \
+    --home-repo "$(val home_repo)" --coord-branch "$CT_CB" --node "$CT_CORE" 2>"$CASE/merge.err")
+ORDER_LOG=$(ct_order)
+SETUP_AT=$(grep -n -m1 "^gh pr view 11 --repo acme/repo-a --json url,state,headRefOid,mergeCommit,body" <<<"$ORDER_LOG" | cut -d: -f1)
+MERGE_AT=$(grep -n -m1 "^gh pr merge 11 " <<<"$ORDER_LOG" | cut -d: -f1)
+READ_AT=$(awk -v s="${SETUP_AT:-0}" 'NR > s && /^gh pr (view|checks) 11 / { print NR; exit }' <<<"$ORDER_LOG")
+MERGE_LINE=$(grep -m1 "^gh pr merge 11 " <<<"$ORDER_LOG")
+if [ "$NEXT_OUT" = "merge:$CT_CORE" ] && [ -n "$SETUP_AT" ] && [ -n "$READ_AT" ] && [ -n "$MERGE_AT" ] \
+    && [ "$SETUP_AT" -lt "$READ_AT" ] && [ "$READ_AT" -lt "$MERGE_AT" ] \
+    && grep -q -- "--match-head-commit $CT_HEAD" <<<"$MERGE_LINE" && ! grep -q "$CT_OTHER" <<<"$MERGE_LINE"; then
+    pass "setup's live head read, then the readiness reads, then the merge at the live head, in that order"
+else
+    fail "recover-merge: next=[$NEXT_OUT] setup@$SETUP_AT read@$READ_AT merge@$MERGE_AT merge=[$MERGE_LINE] out=[$MERGE_OUT] err=[$(tail -1 "$CASE/merge.err")]"
+fi
+
+# Unanimous markers name the run when nothing else does.
+setup_case markers
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_index_line "$CT_CLI" "$CT_REPO" 12
+node_prs "$(ct_marked_body "$RID")" "$(ct_marked_body "$RID")"
+ct_write_db
+run_setup
+recovered_ok "no run line, both node PRs marked alike" markers
+[ "$(val run_id)" = "$RID" ] && pass "the markers' id becomes the session's run_id" || fail "markers run_id: [$(val run_id)]"
+
+# A follow-up line alone counts as started; with no node line and no
+# identity, the id is minted, and the follow-up is not recorded.
+setup_case follow-up-only
+CT_INDEX="- $CT_CORE/follow-up-14 | $CT_REPO:docs/plans/PLAN-t.md#14 | open
+"
+ct_write_db
+run_setup
+recovered_ok "a follow-up line alone, nothing else started" minted
+[[ $(val run_id) =~ ^[0-9a-f]{32}$ ]] && pass "an empty map with no identity mints the run_id" || fail "minted run_id: [$(val run_id)]"
+[ -z "$(ls "$CASE/ctx/$S/run" | grep -v -e '^setup$' -e '^cascade$' -e '^recovered$')" ] \
+    && grep -q 'follow-up lines are not recovered yet' "$CASE/stderr" \
+    && pass "the follow-up line is read and no run/follow-up key is written" \
+    || fail "follow-up keys: [$(ls -R "$CASE/ctx/$S/run" | tr '\n' ' ')]"
+
+# Markers that don't prove the run.
+setup_case unproven-one
+ct_rendered_body "$CASE/body.md" "$RID" github "$CT_CORE=11" "$CT_CLI=12"
+node_prs "$(ct_marked_body "$OTHER_ID")" "$(ct_marked_body "$RID")"
+ct_write_db "$CASE/body.md"
+run_setup
+stopped "one node PR with another run's marker" recovery-unproven
+grep -q "$CT_CORE ($URL11): another run's marker" "$CASE/stderr" && ! grep -q "$CT_CLI (" "$CASE/stderr" \
+    && grep -q -- '--adopt-run' "$CASE/stderr" \
+    && pass "the stop names that node, its reason and URL, and suggests --adopt-run" \
+    || fail "unproven-one stderr: [$(cat "$CASE/stderr")]"
+[ ! -f "$CASE/ctx/$S/run_id" ] && pass "a recovery-unproven stop writes no run_id" || fail "run_id written: [$(val run_id)]"
+setup_case unproven-two
+ct_rendered_body "$CASE/body.md" "$RID" github "$CT_CORE=11" "$CT_CLI=12"
+node_prs "$(ct_marked_body "$OTHER_ID")" "$PLAIN_BODY"
+ct_write_db "$CASE/body.md"
+run_setup
+stopped "a foreign-marked and an unmarked node PR" recovery-unproven
+grep -q "$CT_CORE ($URL11): another run's marker" "$CASE/stderr" && grep -q "$CT_CLI ($URL12): no marker" "$CASE/stderr" \
+    && pass "both are named, each with its reason" || fail "unproven-two stderr: [$(cat "$CASE/stderr")]"
+no_remote_write "recovery-unproven"
+setup_case no-identity
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_index_line "$CT_CLI" "$CT_REPO" 12
+node_prs "$(ct_marked_body "$OTHER_ID")" "$(ct_marked_body "$RID")"
+ct_write_db
+run_setup
+stopped "node PRs with no identity (no carried id, no run line, markers disagree)" recovery-unproven
+[ ! -f "$CASE/ctx/$S/run_id" ] && grep -q "$CT_CORE ($URL11): no identity" "$CASE/stderr" \
+    && grep -q "$CT_CLI ($URL12): no identity" "$CASE/stderr" \
+    && pass "every node PR is named, and no run_id is minted" || fail "no identity: [$(cat "$CASE/stderr")]"
+
+# Ownership, which --adopt-run never bypasses.
+setup_case not-owned
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_index_line "$CT_CLI" "$CT_REPO" 12
+node_prs "$(ct_marked_body "$RID")" "$(ct_marked_body "$RID")"
+CT_PRS=$(printf '%s' "$CT_PRS" | jq -c '(.[] | select(.number == 12) | .author) = "someone-else"')
+ct_write_db
+run_setup --adopt-run "$ADOPT_ID"
+stopped "an index node whose PR another author opened, even with --adopt-run" recovery-unproven
+grep -q "$CT_CLI (acme/repo-a#12): not owned on $BR_CLI" "$CASE/stderr" && ! grep -q -- 'invoke again with --adopt-run' "$CASE/stderr" \
+    && pass "the stop names it not owned, and suggests no --adopt-run" || fail "not-owned stderr: [$(cat "$CASE/stderr")]"
+no_remote_write "an unowned index node with --adopt-run"
+setup_case outside-plan
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_index_line pr-stranger eval-org/stranger 7
+node_prs "$(ct_marked_body "$RID")" "$PLAIN_BODY"
+ct_write_db
+run_setup
+stopped "an index node outside the PLAN" recovery-unproven
+grep -q "pr-stranger (eval-org/stranger#7): outside the PLAN" "$CASE/stderr" && ! grep -q stranger "$GH_CALL_LOG" \
+    && pass "it is named outside the PLAN, with no GitHub read of it" || fail "outside: [$(cat "$CASE/stderr")]"
+
+# --- recovery: the carried id, the index, the PLAN ---------------------------------
+
+# A pre-feature run: the session holds only its run_id, the body is the old
+# format (a coordination self row, index lines, no separator).
+setup_case pre-feature
+seed_id
+ct_index_line coordination "$CT_REPO" 10
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
+ct_index_line "$CT_CLI" "$CT_REPO" 12
+node_prs "$(ct_marked_body "$SEEDED_ID")" "$(ct_marked_body "$SEEDED_ID")"
+ct_write_db
+run_setup
+recovered_ok "a pre-feature run with its run_id and an old-format body" carried
+[ "$(val run_id)" = "$SEEDED_ID" ] && [ "$(setup_val .store)" = '"github"' ] \
+    && [ "$(ls "$CASE/ctx/$S/run/node" | tr '\n' ' ')" = "pr-repo-a-cli pr-repo-a-core " ] \
+    && pass "its run_id is kept, the store is github, and the self row is no node" \
+    || fail "pre-feature: run_id=[$(val run_id)] nodes=[$(ls "$CASE/ctx/$S/run/node" | tr '\n' ' ')]"
+: > "$CASE/koto-calls.log"
+run_setup
+if [ "$RC" -eq 0 ] && grep -qx record=existing <<<"$OUT" && ! grep -q '^recovered=' <<<"$OUT" \
+    && ! ct_ctx_writes | grep -q 'run/recovered'; then
+    pass "the next invocation is record=existing and writes no recovery marker"
+else
+    fail "after recovery: rc=$RC out=[$OUT] writes=[$(ct_ctx_writes | tr '\n' ';')]"
+fi
+
+# /scope's body: a PR Index heading with no entry.
+setup_case scope-empty
+seed_id
+run_setup
+recovered_ok "/scope's body with a carried id and no owned node PR: an empty map" carried
+[ ! -d "$CASE/ctx/$S/run/node" ] && pass "the empty map records no node" || fail "nodes: [$(ls "$CASE/ctx/$S/run/node")]"
+setup_case index-missing
+seed_id
+ct_pr "$CT_REPO" 11 "$BR_CORE" "body=$(ct_marked_body "$SEEDED_ID")"
+ct_write_db
+run_setup
+stopped "/scope's body, an owned PR on $BR_CORE" coordination-index-missing
+grep -q "$CT_CORE" "$CASE/stderr" && pass "the stop names the node with the owned PR" || fail "index-missing: [$(cat "$CASE/stderr")]"
+
+# The PLAN gone, with no record.
+setup_case plan-gone
+seed_id
+ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_write_db
+rm -f "$REPO/docs/plans/PLAN-t.md"
+run_setup
+stopped "the PLAN gone, no record, an index line" recovery-plan-gone
+setup_case plan-gone-no-index
+seed_id
+rm -f "$REPO/docs/plans/PLAN-t.md"
+run_setup
+stopped "the PLAN gone, no record, no index line" coordination-index-missing
+setup_case plan-gone-new
+rm -f "$REPO/docs/plans/PLAN-t.md"
+run_setup
+[ "$RC" -eq 64 ] && [ -z "$(written)" ] && grep -q 'no PLAN at' "$CASE/stderr" \
+    && pass "the PLAN gone and nothing started is the usage error it always was" || fail "no PLAN, new: rc=$RC"
+
+# The PLAN gone, the record held: repos from run/setup, plan_abs computed.
+setup_case plan-gone-record
+run_setup
+ABS0=$(val plan_abs)
+rm -f "$REPO/docs/plans/PLAN-t.md"
+run_setup
+[ "$RC" -eq 0 ] && grep -qx record=existing <<<"$OUT" && grep -qx "repos=acme/repo-a" <<<"$OUT" \
+    && grep -qx "plan_abs=$ABS0" <<<"$OUT" \
+    && pass "with the record held and the PLAN gone: exit 0, repos from run/setup, plan_abs computed" \
+    || fail "plan gone with a record: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
+rmdir "$REPO/docs/plans"
+run_setup
+[ "$RC" -eq 0 ] && grep -qx "plan_abs=$ABS0" <<<"$OUT" \
+    && pass "and with the PLAN's directory gone too, plan_abs is still the same path" \
+    || fail "plan dir gone: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
+
+# A body over the cap, and an index line outside the grammar.
+setup_case body-full
+seed_id
+awk 'BEGIN { s = "> This is a **coordination PR** for a coordinated effort.\n\n## PR Index\n\n"; while (length(s) < 60001) s = s "x"; printf "%s", substr(s, 1, 60001) }' > "$CASE/big.md"
+ct_write_db "$CASE/big.md"
+run_setup
+stopped "a 60,001-byte body" coordination-body-full
+setup_case bad-line
+seed_id
+CT_INDEX="- $CT_CORE | $CT_REPO:docs/plans/PLAN-t.md#11 | pending
+"
+ct_write_db
+run_setup
+stopped "an index line outside the entry grammar" recovery-unproven
 
 # --- the write set -------------------------------------------------------------------
 
