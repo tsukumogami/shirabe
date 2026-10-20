@@ -91,9 +91,11 @@ endline() {
     printf '{"kind":"state_entered","v":1,"at":"%sT12:00:00.000Z","koto.session.id":"end","koto.state":"elsewhere"}\n' "$1"
 }
 
-# row <journal> <rule>: the rule's tab-separated line.
+# row <journal> <rule>: the rule's tab-separated line, read against $RREG
+# (the test registry unless a section sets another).
+RREG=$REG
 row() {
-    bash "$SUT" --registry "$REG" figures "$1" 2>/dev/null | awk -F'\t' -v r="$2" '$1 == r'
+    bash "$SUT" --registry "$RREG" figures "$1" 2>/dev/null | awk -F'\t' -v r="$2" '$1 == r'
 }
 TAB=$(printf '\t')
 tsv() { local IFS="$TAB"; echo "$*"; }
@@ -385,6 +387,43 @@ expect_row "no stage_since: no window, even with data" "$J/nosince" t/nostage \
   printf '{"kind":"state_entered","at":"yesterday","koto.session.id":"x"}\n'
   printf '{"kind":"state_entered","koto.session.id":"x"}\n'; } >"$J/undated"
 expect_crit "an undated line is skipped" "$J/undated" t/shadow hold
+
+# -- panel/open-finding counts every finding at the panel gates --------------
+
+# panel-scope.sh --verdict prints a reviewer finding that cites an active rule
+# under the cited rule's id, at a panel gate and at panel/open-finding's stage,
+# and an agent disputes it with the cited id. At panel/open-finding's gates a
+# finding or a dispute counts for it whatever rule id it carries, and never
+# for the rule it cites, whose own findings at its own gate still count.
+PREG="$T/panel-registry.json"
+cat >"$PREG" <<'EOF'
+{"schema":"shirabe-rule-registry/v1","rules":[
+ {"id":"panel/open-finding","status":"active","summary":"Open finding","check":{"kind":"script","path":"scripts/p.sh"},"stage":"block","stage_since":"2026-01-01","gates":["demo:s_panel:v"]},
+ {"id":"t/cited","status":"active","summary":"Cited","check":{"kind":"script","path":"scripts/x.sh"},"stage":"block","stage_since":"2026-01-01","gates":["demo:s_cited:g"]}
+]}
+EOF
+RREG=$PREG
+
+{ evals s_panel v 10 3 error $D0 p t/cited
+  evals s_panel v 2 2 error $D0 q panel/open-finding
+  evals s_cited g 5 1 error $D0 c t/cited
+  endline $D3; } >"$J/panel-cites"
+expect_row "a panel finding citing another rule fires for panel/open-finding" \
+    "$J/panel-cites" panel/open-finding panel/open-finding block 3 12 5 0 0 7 0 0 5 hold
+expect_row "a panel finding doesn't fire for the rule it cites" \
+    "$J/panel-cites" t/cited t/cited block 3 5 1 0 0 4 0 0 1 hold
+
+{ evals s_panel v 10 3 error $D0 p t/cited
+  disputes s_panel v t/cited 2 agent $D0 pd
+  disputes s_panel v panel/open-finding 1 person $D0 pp
+  evals s_cited g 5 1 error $D0 c t/cited
+  endline $D3; } >"$J/panel-disputes"
+expect_row "a panel dispute citing another rule counts for panel/open-finding" \
+    "$J/panel-disputes" panel/open-finding panel/open-finding block 3 10 3 0 0 7 2 1 3 hold
+expect_row "a panel dispute doesn't count for the rule it cites" \
+    "$J/panel-disputes" t/cited t/cited block 3 5 1 0 0 4 0 0 1 hold
+
+RREG=$REG
 
 # -- registry shapes --------------------------------------------------------
 

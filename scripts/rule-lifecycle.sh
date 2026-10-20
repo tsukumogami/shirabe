@@ -37,9 +37,13 @@
 #      for each `koto.finding.level`. An evaluation with findings at two levels
 #      counts in both level columns and once in the fires, and a level other
 #      than error, warning or info counts in the fires only, so the fires are
-#      evaluations minus passes, not the sum of the level columns.
+#      evaluations minus passes, not the sum of the level columns. For
+#      `panel/open-finding` a finding counts whatever `koto.rule.id` it
+#      carries: panel-scope.sh prints every reviewer finding at that rule's
+#      stage and at its gates, under the rule the finding cites, if any.
 #   4. Disputes. `check_disputed` records naming the rule at one of its gates
-#      (`koto.state`, `koto.check.name`), at most one per `koto.session.id`,
+#      (`koto.state`, `koto.check.name`; for `panel/open-finding`, any rule id,
+#      as with fires), at most one per `koto.session.id`,
 #      by `koto.dispute.source`. One session repeating a dispute moves the
 #      figure once; the earliest by `at` is the one kept, so the split by
 #      source doesn't depend on the order the lines arrive in. Only the two
@@ -69,9 +73,11 @@
 # Output: one tab-separated line per script-checked rule,
 #   id stage days evaluations fires_error fires_warning fires_info passes
 #   disputes_agent disputes_person unconverged criterion
-# or, with --json, one JSON object per rule with those keys and values. A
-# script entry with no stage is shown at block, the stage rule-registry.sh
-# fails closed to.
+# or, with --json, one JSON object per rule with those keys and values. The
+# stage shown is the registry's, or block when an entry has none. The reader
+# doesn't apply rule-registry.sh's backstop check for guarded rules, so it
+# shows a guarded rule's registry stage as is; check-rule-registry.sh enforces
+# that check in CI, so a guarded rule below block without backstops can't land.
 #
 # It writes no file and makes no network call.
 #
@@ -147,6 +153,13 @@ def civil:
   | $era * 146097 + $doe;
 def key2(a; b): "\(a)\u0000\(b)";
 def count(f): map(select(f)) | length;
+# panel-scope.sh --verdict prints every finding at the stage of this rule,
+# and a finding that cites another rule is journaled under the cited id. So
+# at the gates of this rule (the panel gates) every finding and dispute
+# counts for it, whatever koto.rule.id it carries. A cited rule never counts
+# it, since no other rule lists a panel gate.
+def panel_rule: "panel/open-finding";
+def for_rule($id): $id == panel_rule or .["koto.rule.id"] == $id;
 
 [inputs | fromjson? | objects | select(.at | isdate)] as $lines
 | ($lines | map(.at) | max) as $end
@@ -170,7 +183,7 @@ def count(f): map(select(f)) | length;
    end) as $evals
 | (if $since == null then {} else
     $finds_all
-    | map(select(.["koto.rule.id"] == $id and .at[0:10] >= $since
+    | map(select(for_rule($id) and .at[0:10] >= $since
                  and $gk[key2(.["koto.state"]; .["koto.check.name"])] == true))
     | reduce .[] as $f ({};
         .[key2($f["koto.session.id"]; $f["koto.seq"])] += [$f["koto.finding.level"]])
@@ -190,7 +203,7 @@ def count(f): map(select(f)) | length;
        | unique | length) as $unconverged
 | (if $since == null then [] else
     $disps_all
-    | map(select(.["koto.rule.id"] == $id and .at[0:10] >= $since
+    | map(select(for_rule($id) and .at[0:10] >= $since
                  and $gk[key2(.["koto.state"]; .["koto.check.name"])] == true
                  and has("koto.session.id")
                  and (.["koto.dispute.source"] == "agent" or .["koto.dispute.source"] == "person")))
