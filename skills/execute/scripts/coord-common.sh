@@ -366,7 +366,7 @@ coord_compute() {
     local rc rec tasks n i name kind repo waits
     local satisfied="," blocked_reason_first="" merge_cand="" dispatch_cand="" eval_cand=""
     local all_merged=1 pr_nodes=0 state draft verdict out node_branch exp
-    local plan_present=0 node_rec n_repo n_pr n_head
+    local plan_present=0 node_rec n_repo n_pr n_sha
 
     # The run record, read once for the whole pass.
     rec=$(rr_record "$CC_SESSION") || { CC_ACTION="error:execute:status-read"; return 0; }
@@ -486,7 +486,7 @@ coord_compute() {
         fi
         n_repo=$(printf '%s' "$node_rec" | jq -r '.repo // ""')
         n_pr=$(printf '%s' "$node_rec" | jq -r '.pr // ""')
-        n_head=$(printf '%s' "$node_rec" | jq -r '.head // ""')
+        n_sha=$(printf '%s' "$node_rec" | jq -r '.head // ""')
         if [ "$n_repo" != "$repo" ]; then
             echo "$PROG: the run record names $n_repo for $name, the PLAN names $repo" >&2
             CC_ACTION="error:execute:pr-adopt"; return 0
@@ -529,7 +529,7 @@ coord_compute() {
             [ -n "$eval_cand" ] || eval_cand="$name"
             continue
         fi
-        exp="${n_head:-none}"
+        exp="${n_sha:-none}"
         verdict=$("$BASH" "$COORD_SELF_DIR/merge-verdict.sh" --repo "$n_repo" --pr "$n_pr" \
             --merge "$CC_MERGE" --expected-head "$exp" </dev/null) \
             || { CC_ACTION="error:execute:status-read"; return 0; }
@@ -584,17 +584,17 @@ coord_compute() {
         # run record holds its verdict as pushed (with the head
         # node-push.sh's coordination mode pushed), it didn't finish. A
         # `failed` verdict, or none, runs it again.
-        local c_verdict c_head
+        local c_verdict c_sha
         c_verdict=$(rr_q "$rec" '.["run/cascade"].verdict // "not-run"')
-        c_head=$(rr_q "$rec" '.["run/cascade"].head // ""')
-        if [ "$plan_present" -eq 1 ] || [ "$c_verdict" != pushed ] || [ -z "$c_head" ]; then
+        c_sha=$(rr_q "$rec" '.["run/cascade"].head // ""')
+        if [ "$plan_present" -eq 1 ] || [ "$c_verdict" != pushed ] || [ -z "$c_sha" ]; then
             CC_ACTION="cascade"; return 0
         fi
         if [ "$c_draft" = "true" ]; then
             CC_ACTION="evaluate-coordination"; return 0
         fi
         verdict=$("$BASH" "$COORD_SELF_DIR/merge-verdict.sh" --repo "$CC_HOME" --pr "$C_NUM" \
-            --merge "$CC_MERGE" --expected-head "$c_head" </dev/null) \
+            --merge "$CC_MERGE" --expected-head "$c_sha" </dev/null) \
             || { CC_ACTION="error:execute:status-read"; return 0; }
         case "$verdict" in
             merged) CC_ACTION="done:merged" ;;
