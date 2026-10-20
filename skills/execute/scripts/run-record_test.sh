@@ -75,7 +75,7 @@ adds() { grep -c '^context add ' "$CASE/koto-calls.log"; }
 
 # expect_rc <label> <rc> <first stdout line>
 expect() {
-    if [ "$RC" -eq "$2" ] && [ "$(printf '%s\n' "$OUT" | head -1)" = "$3" ]; then
+    if [ "$RC" -eq "$2" ] && [ "$(head -1 <<<"$OUT")" = "$3" ]; then
         pass "$1"
     else
         fail "$1: rc=$RC out=[$OUT] (want $2 [$3]) stderr=[$(tail -1 "$CASE/stderr")]"

@@ -115,12 +115,12 @@ else
 fi
 LAST=$(grep '^context add' "$CASE/koto-calls.log" | tail -1)
 [ "$LAST" = "context add $S repos" ] && pass "repos is written last" || fail "last write [$LAST]"
-printf '%s\n' "$OUT" | grep -qx "record=new" && printf '%s\n' "$OUT" | grep -qx "coordination_pr=$URL10" \
-    && printf '%s\n' "$OUT" | grep -qx "store=github" \
+grep -qx "record=new" <<<"$OUT" && grep -qx "coordination_pr=$URL10" <<<"$OUT" \
+    && grep -qx "store=github" <<<"$OUT" \
     && pass "a new run reports record=new, store=github and the coordination PR" || fail "one-repo output: [$OUT]"
 
 run_setup
-[ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qx "record=existing" \
+[ "$RC" -eq 0 ] && grep -qx "record=existing" <<<"$OUT" \
     && pass "a re-run with the same values is a no-op" || fail "re-run: rc=$RC out=[$OUT]"
 
 printf '%s' "acme/repo-a,acme/repo-z" > "$CASE/ctx/$S/repos"
@@ -164,7 +164,7 @@ run_setup
 
 setup_case store
 run_setup --store session
-[ "$RC" -eq 0 ] && [ "$(setup_val .store)" = '"session"' ] && printf '%s\n' "$OUT" | grep -qx store=session \
+[ "$RC" -eq 0 ] && [ "$(setup_val .store)" = '"session"' ] && grep -qx store=session <<<"$OUT" \
     && pass "--store session is sealed as session" || fail "store session: rc=$RC store=[$(setup_val .store)]"
 SUM0=$(store_sum)
 run_setup --store github
@@ -174,7 +174,7 @@ else
     fail "store-mismatch: rc=$RC out=[$OUT]"
 fi
 run_setup
-[ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qx store=session \
+[ "$RC" -eq 0 ] && grep -qx store=session <<<"$OUT" \
     && pass "a later invocation with no --store reads the sealed value" || fail "no --store later: rc=$RC out=[$OUT]"
 run_setup --store ""
 [ "$RC" -eq 0 ] && pass "an empty --store (the template's unset variable) is no --store" || fail "empty --store: rc=$RC"
@@ -262,7 +262,7 @@ setup_case setup-merged
 CT_COORD_STATE=MERGED
 ct_write_db
 run_setup --coordination-pr "$URL10"
-if [ "$RC" -eq 0 ] && [ "$(setup_val .coordination_pr)" = 10 ] && printf '%s\n' "$OUT" | grep -qx record=new; then
+if [ "$RC" -eq 0 ] && [ "$(setup_val .coordination_pr)" = 10 ] && grep -qx record=new <<<"$OUT"; then
     pass "a coordination PR already MERGED at setup is accepted and recorded (the loop ends it done:merged)"
 else
     fail "setup-merged: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
@@ -291,15 +291,15 @@ setup_case inert
 run_setup --follow-up "pr-repo-a-core=https://github.com/acme/repo-a/pull/30" --follow-up-remove true \
     --adopt-run 0123456789abcdef0123456789abcdef
 INERT_SETUP=$(val run/setup)
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -qx ignored=follow-up && printf '%s\n' "$OUT" | grep -qx ignored=remove \
-    && printf '%s\n' "$OUT" | grep -qx ignored=adopt-run && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
+if [ "$RC" -eq 0 ] && grep -qx ignored=follow-up <<<"$OUT" && grep -qx ignored=remove <<<"$OUT" \
+    && grep -qx ignored=adopt-run <<<"$OUT" && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
     pass "--follow-up, --follow-up-remove and --adopt-run are reported ignored= and write nothing of their own"
 else
     fail "inert: rc=$RC out=[$OUT] run/=[$(ls "$CASE/ctx/$S/run" 2>/dev/null | tr '\n' ' ')]"
 fi
 setup_case inert-control
 run_setup --follow-up "" --follow-up-remove "" --adopt-run ""
-[ "$RC" -eq 0 ] && [ "$(val run/setup)" = "$INERT_SETUP" ] && ! printf '%s\n' "$OUT" | grep -q '^ignored=' \
+[ "$RC" -eq 0 ] && [ "$(val run/setup)" = "$INERT_SETUP" ] && ! grep -q '^ignored=' <<<"$OUT" \
     && pass "the same run without them seals the same record and reports nothing ignored" \
     || fail "inert control: rc=$RC out=[$OUT]"
 
@@ -318,7 +318,7 @@ db_edit '.default_repo = "acme/plans" | .repos["acme/plans"] = .repos["acme/repo
 run_setup
 if [ "$RC" -eq 0 ] && [ "$(val repos)" = acme/repo-a ] && [ "$(val home_repo)" = acme/plans ] \
     && [ "$(val coord_branch)" = "$CT_CB" ] && [ -n "$(val plan_abs)" ] \
-    && printf '%s\n' "$OUT" | grep -qx "coordination_pr=https://github.com/acme/plans/pull/10"; then
+    && grep -qx "coordination_pr=https://github.com/acme/plans/pull/10" <<<"$OUT"; then
     pass "a home repository outside the write set is recorded: repos=acme/repo-a, home_repo=acme/plans"
 else
     fail "outside: rc=$RC repos=[$(val repos)] home=[$(val home_repo)] stderr=[$(tail -1 "$CASE/stderr")]"
