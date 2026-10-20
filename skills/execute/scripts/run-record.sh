@@ -156,7 +156,7 @@ refuse() { # refuse <exit> <code> [key] [field] [why]
 }
 
 DOC=$(jq -cS -s 'if length == 1 and (.[0] | type) == "object" and (.[0] | length) > 0
-    and all(.[0][]; type == "object") then .[0] else error("no document") end' "$FILE" 2>/dev/null) \
+    and all(.[0][]; type == "object") then .[0] else error("no document") end' "$FILE") \
     || refuse 66 invalid "" "" "the document is not one non-empty JSON object of key objects"
 
 CUR=$(rr_record "$SESSION") || { printf 'failed=koto-read\n'; echo "$PROG: could not read the run record in session $SESSION" >&2; exit 70; }

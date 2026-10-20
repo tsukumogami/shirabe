@@ -244,8 +244,8 @@ if [ "$RECORD" = existing ]; then
         echo "$PROG: could not read the recorded coordination PR #$C_NUM in $HOME_REPO" >&2
         exit 72
     }
-    C_STATE=$(printf '%s' "$VIEW" | jq -r 'if type == "object" then (.state // "") else "" end' 2>/dev/null)
-    C_URL=$(printf '%s' "$VIEW" | jq -r 'if type == "object" then (.url // "") else "" end' 2>/dev/null)
+    C_STATE=$(printf '%s' "$VIEW" | jq -r 'if type == "object" then (.state // "") else "" end')
+    C_URL=$(printf '%s' "$VIEW" | jq -r 'if type == "object" then (.url // "") else "" end')
     case "$C_STATE" in
         OPEN|MERGED) ;;
         CLOSED) stop coordination-pr-closed "the recorded coordination PR $C_URL is closed unmerged" ;;
@@ -273,7 +273,7 @@ else
                             VIEW=""
                             coord_gh_read VIEW pr view "$CPR_NUM" --repo "$HOME_REPO" --json state,headRefName,body || exit 72
                             if printf '%s' "$VIEW" | jq -e --arg cb "$CB" --arg m "$COORD_MARKER" \
-                                'type == "object" and .state == "CLOSED" and .headRefName == $cb and ((.body // "") | contains($m))' >/dev/null 2>&1; then
+                                'type == "object" and .state == "CLOSED" and .headRefName == $cb and ((.body // "") | contains($m))' >/dev/null; then
                                 stop coordination-pr-closed "the handed coordination PR $CPR is closed unmerged"
                             fi
                         fi

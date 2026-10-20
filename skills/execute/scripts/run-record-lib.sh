@@ -85,7 +85,7 @@ rr__object() {
         echo "${PROG:-run-record-lib}: could not read $2 in session $1" >&2
         return 2
     }
-    printf '%s' "$v" | jq -cS -s 'if length == 1 and (.[0] | type) == "object" then .[0] else error("not one object") end' 2>/dev/null || {
+    printf '%s' "$v" | jq -cS -s 'if length == 1 and (.[0] | type) == "object" then .[0] else error("not one object") end' || {
         echo "${PROG:-run-record-lib}: $2 in session $1 is not one JSON object" >&2
         return 2
     }
@@ -94,7 +94,7 @@ rr__object() {
 # rr__present <S> <key> -- rc 0 present, 1 absent, 2 the check failed.
 rr__present() {
     local rc
-    koto context exists "$1" "$2" </dev/null >/dev/null 2>&1
+    koto context exists "$1" "$2" </dev/null >/dev/null
     rc=$?
     case "$rc" in
         0) return 0 ;;

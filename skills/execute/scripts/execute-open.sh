@@ -323,8 +323,23 @@ fi
 # state, so a removed pause has nothing to resume and is read as none.
 STATUS=""
 if [ "$NAMED" -eq 1 ]; then
-    STATUS=$(koto status "$SESSION" 2>/dev/null) || STATUS=""
-    printf '%s' "$STATUS" | jq -e 'type == "object" and has("current_state")' >/dev/null 2>&1 || STATUS=""
+    # koto answers a session it doesn't have with a nonzero exit and a
+    # `not found` error object on stdout: that is no session. Any other
+    # failure is reported here and read as no session too; the init below
+    # then decides from koto's own state.
+    STATUS=$(koto status "$SESSION")
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        case "$STATUS" in
+            *"not found"*) ;;
+            *) echo "$PROG: koto status $SESSION failed (exit $rc): $STATUS" >&2 ;;
+        esac
+        STATUS=""
+    fi
+    if [ -n "$STATUS" ] && ! jq -e 'type == "object" and has("current_state")' <<<"$STATUS" >/dev/null; then
+        echo "$PROG: koto status $SESSION answered something other than a session's status: $STATUS" >&2
+        STATUS=""
+    fi
 fi
 RESUMING_PAUSE=0
 if [ -n "$STATUS" ] && printf '%s' "$STATUS" \
@@ -348,20 +363,30 @@ if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
     # The snapshot: a finished session's run record, kept before koto
     # replaces it.
     if [ "$FINISHED" -eq 1 ]; then
-        KEYS=$(rr_keys "$SESSION" 2>/dev/null) || {
+        KEYS=$(rr_keys "$SESSION") || {
             printf 'failed=carry\n'
             echo "$PROG: could not list $SESSION's run record; nothing was replaced" >&2
             exit 70
         }
         if [ -n "$KEYS" ]; then
             SNAP_TMP=$(mktemp -d "$CR/.$SESSION.XXXXXX") || SNAP_TMP=""
-            if [ -z "$SNAP_TMP" ] || ! rr_record "$SESSION" > "$SNAP_TMP/record.json" 2>/dev/null; then
+            if [ -z "$SNAP_TMP" ] || ! rr_record "$SESSION" > "$SNAP_TMP/record.json"; then
                 [ -n "$SNAP_TMP" ] && rm -rf -- "$SNAP_TMP"
                 printf 'failed=carry\n'
                 echo "$PROG: could not read $SESSION's run record into a snapshot; nothing was replaced" >&2
                 exit 70
             fi
-            SNAP_ID=$(koto context get "$SESSION" run_id 2>/dev/null) || SNAP_ID=""
+            # The run identity, when the session has one: `exists` answering
+            # 1 is none; any other failure is reported, and the replacement
+            # falls back to the identity read below.
+            SNAP_ID=""
+            koto context exists "$SESSION" run_id >/dev/null
+            rc=$?
+            case "$rc" in
+                0) SNAP_ID=$(koto context get "$SESSION" run_id) || SNAP_ID="" ;;
+                1) ;;
+                *) echo "$PROG: could not check run_id in $SESSION (koto exit $rc)" >&2 ;;
+            esac
             [[ $SNAP_ID =~ ^[0-9a-f]{32}$ ]] && printf '%s' "$SNAP_ID" > "$SNAP_TMP/run_id"
             # The finished session is newer than any snapshot an earlier open
             # left behind.
@@ -450,7 +475,7 @@ case "$OUT" in
             fi
             # The record: carried into a session that has none yet.
             if [ -f "$CR/$SESSION/record.json" ]; then
-                rr_setup "$SESSION" >/dev/null 2>&1
+                rr_setup "$SESSION" >/dev/null
                 case $? in
                     0)
                         # The session already holds its record: the snapshot
@@ -458,9 +483,9 @@ case "$OUT" in
                         rm -rf -- "$CR/$SESSION"
                         ;;
                     1)
-                        N=$(jq 'length' "$CR/$SESSION/record.json" 2>/dev/null) || N=""
+                        N=$(jq 'length' "$CR/$SESSION/record.json") || N=""
                         if CARRY_OUT=$(bash "$SELF_DIR/run-record.sh" carry --session "$SESSION" \
-                            --json "$CR/$SESSION/record.json" </dev/null 2>/dev/null); then
+                            --json "$CR/$SESSION/record.json" </dev/null); then
                             rm -rf -- "$CR/$SESSION"
                             printf 'carried=%s\n' "$N"
                         else
@@ -478,7 +503,7 @@ case "$OUT" in
             fi
             # Every invocation starts with no merge attempts (an earlier
             # invocation's are not carried).
-            koto context remove "$SESSION" merge_attempts >/dev/null 2>&1 \
+            koto context remove "$SESSION" merge_attempts >/dev/null \
                 || echo "$PROG: could not clear merge_attempts in $SESSION" >&2
         else
             # Carry the prior run's identity into a replacement (seed writes
