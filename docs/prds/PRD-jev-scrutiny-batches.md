@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   /work-on's scrutiny panel spawns three reviewer subagents on every standard
   or full run, and no one has measured which of their questions a script-built
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-jev-scrutiny-batches.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
