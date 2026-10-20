@@ -694,9 +694,12 @@ if [ -n "$BASE" ]; then
             | sed "s/\$/: in the registry at the base but removed; retire an entry instead of deleting it/" > "$TMP/removed"
         report "$TMP/removed"
         # Stage transitions: each head entry against its base entry, by id.
-        # A stage rises one step per change and a guard is dropped only at
-        # block, so promoting past warn, or dropping a guard and softening the
-        # stage, takes two reviewed changes.
+        # The moves allowed are the header's list for check 11: one step up,
+        # any steps down among block, warn and shadow, any stage to retired,
+        # and retired to shadow on an active entry. Because a stage rises one
+        # step per change and a guard is dropped only at block, promoting
+        # past warn, or dropping a guard and softening the stage, takes two
+        # reviewed changes.
         jqf "$TMP/transitions" -r --argjson protected "$PROTECTED" --slurpfile base "$TMP/base-registry.json" '
           def rank: if type == "string" then {"shadow": 0, "warn": 1, "block": 2}[.] else null end;
           def pguards: if (.guards | type) == "array"
@@ -839,7 +842,9 @@ jqf "$TMP/gates" -r '.rules[] | objects | select((.id | type) == "string" and (.
 # names the plugin's path to it, closed by a quote or a space. A retired rule
 # has left every RULE_IDS line, so only its gate names are checked. A script
 # that resolves a finding's own rule at run time (ANY_ACTIVE_ALLOWED) may
-# report any active rule.
+# report any active rule. The awk tells its inputs apart by position
+# (ARGV[1] the template gates, ARGV[2] the declaring scripts, then the
+# registry's gate values), so keep the three arguments in that order.
 awk -F'\t' -v any="$ANY_ACTIVE_ALLOWED" -v q='"' '
     function runs(c, p) { return index(c, "{{PLUGIN_ROOT}}/" p q) || index(c, "{{PLUGIN_ROOT}}/" p " ") }
     FILENAME == ARGV[1] {
