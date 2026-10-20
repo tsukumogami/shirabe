@@ -16,13 +16,16 @@
 # line, dotted keys) from the named files, or from standard input when none is
 # named, and each script-checked rule's `stage`, `stage_since` and `gates` from
 # the registry beside it (references/rule-registry.json; --registry exists for
-# the tests). A line that isn't a JSON object is skipped. For each rule, in
-# registry order:
+# the tests). A line that isn't a JSON object, or has no `at` starting with a
+# YYYY-MM-DD date, is skipped. For each rule, in registry order:
 #
 #   1. Window. Records whose `at` date is on or after the rule's `stage_since`
 #      count; the window ends at the newest `at` among all input lines, of
 #      any kind and any rule. Its length is the calendar days between the two
-#      dates, and 0 with no input or no `stage_since`.
+#      dates, counted from the date prefixes alone (no time zone, no
+#      strptime, which differs between the jq builds on Linux and macOS), and
+#      0 with no input. A rule with no `stage_since` has no window: every
+#      figure is 0 and it holds.
 #   2. Evaluations. `check_evaluated` records carrying
 #      `koto.check.finding_count` (a koto that journals findings), whose
 #      (`koto.state`, `koto.check`) is the state and gate of one of the rule's
@@ -31,10 +34,17 @@
 #   3. Fires. Those evaluations with a `check_finding` for the rule at the same
 #      session and `koto.seq`, whose own `koto.state` and `koto.check.name` are
 #      one of the rule's gates; once per evaluation, and once per evaluation
-#      for each `koto.finding.level`.
+#      for each `koto.finding.level`. An evaluation with findings at two levels
+#      counts in both level columns and once in the fires, and a level other
+#      than error, warning or info counts in the fires only, so the fires are
+#      evaluations minus passes, not the sum of the level columns.
 #   4. Disputes. `check_disputed` records naming the rule at one of its gates
-#      (`koto.state`, `koto.check.name`), at most one per session (the
-#      earliest), by `koto.dispute.source` (agent or person).
+#      (`koto.state`, `koto.check.name`), at most one per `koto.session.id`,
+#      by `koto.dispute.source`. One session repeating a dispute moves the
+#      figure once; the earliest by `at` is the one kept, so the split by
+#      source doesn't depend on the order the lines arrive in. Only the two
+#      sources koto writes, agent and person, count, and a record with no
+#      session id is skipped, since it can't be counted once per session.
 #   5. Unconverged visits. (`koto.session.id`, `koto.visit.seq`) pairs with an
 #      `error` fire for the rule and no `passed` evaluation of the same gate in
 #      that visit. Informational; no criterion reads it.
@@ -52,6 +62,9 @@
 #                          least 5 fires; disputes at most 5% of fires
 #      Rates count agent and person disputes alike, and a rate with a zero
 #      denominator meets no criterion that reads it. The arithmetic is integer.
+#      No figures meet two criteria (the stages, the fires and the dispute
+#      rates rule each pair out), so the order makes the answer definite
+#      rather than choosing between rivals.
 #
 # Output: one tab-separated line per script-checked rule,
 #   id stage days evaluations fires_error fires_warning fires_info passes
@@ -179,6 +192,7 @@ def count(f): map(select(f)) | length;
     $disps_all
     | map(select(.["koto.rule.id"] == $id and .at[0:10] >= $since
                  and $gk[key2(.["koto.state"]; .["koto.check.name"])] == true
+                 and has("koto.session.id")
                  and (.["koto.dispute.source"] == "agent" or .["koto.dispute.source"] == "person")))
     | sort_by(.at) | group_by(.["koto.session.id"]) | map(.[0])
    end) as $disps

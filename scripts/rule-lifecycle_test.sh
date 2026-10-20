@@ -241,7 +241,10 @@ fi
 # -- order, window end ------------------------------------------------------
 
 # At warn, 100 evaluations over 14 days, 10 fires and 3 disputes: promote to
-# block's evaluation and day minimums hold, and demote comes first.
+# block's evaluation and day minimums hold, and demote comes first. No figures
+# meet two criteria outright (the reader's header says why), so this pins the
+# answer where demote and promote to block's minimums overlap; it can't tell
+# a reversed order from the table's.
 { evals s_warn g 100 10 warning $D0 a t/warn
   disputes s_warn g t/warn 3 agent $D0 d; endline $D14; } >"$J/order"
 expect_crit "demote is reported before promote to block" "$J/order" t/warn demote
@@ -305,6 +308,23 @@ expect_row "one session disputing twice counts once" "$J/disp-twice" t/block \
 expect_row "a third session's dispute demotes" "$J/disp-third" t/block \
     t/block block 7 100 5 0 0 95 2 1 5 demote
 
+# The session's earliest dispute is the one kept, whatever the line order:
+# the agent's line comes first in the file and is three days later.
+{ evals s_block g 100 5 error $D0 a t/block
+  disputes s_block g t/block 1 agent $D3 q
+  disputes s_block g t/block 1 person $D0 q; endline $D7; } >"$J/disp-earliest"
+expect_row "a session's earliest dispute is the one kept" "$J/disp-earliest" t/block \
+    t/block block 7 100 5 0 0 95 0 1 5 hold
+
+# Only agent and person count, and a dispute with no session id is skipped.
+{ evals s_block g 100 5 error $D0 a t/block
+  disputes s_block g t/block 3 bot $D0 b
+  disputes s_block g t/block 2 agent $D0 d
+  printf '{"kind":"check_disputed","v":1,"at":"%sT11:00:00.000Z","koto.state":"s_block","koto.check.name":"g","koto.rule.id":"t/block","koto.dispute.source":"agent"}\n' $D0
+  endline $D7; } >"$J/disp-source"
+expect_row "another source and a dispute with no session don't count" "$J/disp-source" t/block \
+    t/block block 7 100 5 0 0 95 2 0 5 hold
+
 # A visit with two error fires and no passing evaluation is one unconverged
 # visit; a visit whose gate passed after an error fire is none; a second
 # check_finding level on one evaluation is one fire.
@@ -352,6 +372,14 @@ if [ "$keys" = '["id","stage","days","evaluations","fires_error","fires_warning"
     pass "--json keys match the columns"
 else
     fail "--json keys match the columns" "got $keys"
+fi
+if printf '%s\n' "$json_out" | jq -s -e 'all(.[];
+        ([.id, .stage, .criterion] | all(type == "string"))
+        and ([.days, .evaluations, .fires_error, .fires_warning, .fires_info, .passes,
+              .disputes_agent, .disputes_person, .unconverged] | all(type == "number")))' >/dev/null; then
+    pass "--json counts are numbers, names are strings"
+else
+    fail "--json counts are numbers, names are strings" "got [$json_out]"
 fi
 
 stdin_out=$(bash "$SUT" --registry "$REG" figures <"$J/all")
