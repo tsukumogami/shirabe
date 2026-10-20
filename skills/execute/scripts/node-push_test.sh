@@ -300,7 +300,8 @@ if [ "$RC" -eq 0 ] && grep -qxF "<!-- shirabe-run: $MINE -->" <<<"$NBODY" \
 else
     fail "marker-fresh: rc=$RC body [$NBODY]"
 fi
-if ct_calls | grep '^pr list' | grep -q . && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
+PR_LIST_CALLS=$(ct_calls | grep '^pr list')
+if grep -q . <<<"$PR_LIST_CALLS" && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
     (cd "$WT" && git commit -q --allow-empty -m "fix: more")
     push_node --run-id "$MINE"
     if [ "$RC" -eq 0 ] && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
@@ -372,7 +373,7 @@ push_node --run-id "$MINE"
 db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
 if [ "$RC" -eq 0 ] && [ "$(separators "$CASE/node-body.md")" -eq 1 ] \
     && [ "$(part1 "$CASE/node-body.md" | grep -c .)" -eq 2 ] \
-    && part1 "$CASE/node-body.md" | sed -n 1p | grep -qxF "Parse the input into tokens." \
+    && [ "$(part1 "$CASE/node-body.md" | sed -n 1p)" = "Parse the input into tokens." ] \
     && part1 "$CASE/node-body.md" | grep -qxF "Cover the parser with table tests."; then
     pass "the node PR body's first part is each work item's goal from the PLAN, above one top-level ---"
 else

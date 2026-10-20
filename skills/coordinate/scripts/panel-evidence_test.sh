@@ -13,7 +13,7 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
-T=$(mktemp -d "${TMPDIR:-/tmp}/panel-evidence-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/panel-evidence-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 PE="$HERE/panel-evidence.sh"
 H=0123456789abcdef0123456789abcdef01234567

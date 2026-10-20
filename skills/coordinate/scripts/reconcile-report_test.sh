@@ -111,7 +111,8 @@ H=$(holding stuck "[$(host found), $SETTLED]" '{"dispatch_status": "dispatching"
 out=$(facts "[$H]" | report)
 printf '%s' "$out" | jq -e '.changes | any(.what == "dispatch status" and .recorded == "dispatching" and .live == "dispatched" and .grade == "measured")' >/dev/null \
   && ok "a settled holding is a change, measured" || bad "a settled holding is a change, measured" "$out"
-printf '%s' "$out" | "$BASH" "$S" md | sed -n '/^## Changed since then/,/^## /p' | grep -q '`stuck`: settled: record said dispatching, the worker is live, and the record now says dispatched' \
+r=$(printf '%s' "$out" | "$BASH" "$S" md | sed -n '/^## Changed since then/,/^## /p')
+grep -q '`stuck`: settled: record said dispatching, the worker is live, and the record now says dispatched' <<<"$r" \
   && ok "the rendered report says the row was settled" || bad "the rendered report says the row was settled" "$(printf '%s' "$out" | "$BASH" "$S" md)"
 H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, reason: "the holding is dispatched now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
 facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status") | not' >/dev/null \
@@ -299,7 +300,8 @@ out=$(facts "[$H]" | report)
 printf '%s' "$out" | jq -e '(.nowhere_else | length) == 0 and (.not_verified | any(.what == "t1: pr"))' >/dev/null \
   && ok "a pull request whose read failed is not reported as having none" || bad "a pull request whose read failed is not reported as having none" "$out"
 H=$(holding t2 "[$(host ambiguous)]" '{"pull_request":"none yet"}')
-facts "[$H]" | render | grep -q '`t2`: no pull request; worker ambiguous in the listing' \
+r=$(facts "[$H]" | render)
+grep -q '`t2`: no pull request; worker ambiguous in the listing' <<<"$r" \
   && ok "an ambiguous listing is worded as ambiguous" || bad "an ambiguous listing is worded as ambiguous"
 SEF='[{"row":{"action":"merge","target":"acme/widgets#9"},"fact":{"kind":"merge","verdict":"not_confirmed","status":"not_verified","reason":"contents read timed out"}}]'
 out=$(facts '[]' "$SEF" | report)
@@ -315,7 +317,8 @@ HELD=$(holding th "[$(pr OPEN "$VH"),$(board holds "$VH")]" '{"phase":"held"}')
 out=$(facts "[$HELD]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].phase == "held" and .holdings[0].next_code == "held" and ([.waiting[].topic] == ["th"]) and ([.not_verified[] | select(.what | test("phase"))] | length) == 0' >/dev/null \
   && ok "a held holding is verified and waits on the human, not on its worker" || bad "a held holding is verified and waits on the human" "$out"
-facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge stopped by a hold in the record (the land check names it)" \
+r=$(facts "[$HELD]" | render)
+grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge stopped by a hold in the record (the land check names it)" <<<"$r" \
   && ok "the held line says a hold in the record stops the merge" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
 HELDM=$(holding tm "[$(pr MERGED "$VH")]" '{"phase":"held"}')
 facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "teardown" and (.waiting | length) == 0' >/dev/null \
@@ -341,10 +344,12 @@ grep -q '^| Kind | Unit | Session | PR | Status | Next or needs |$' <<<"$tbl" &&
 grep -q 'tm2' <<<"$tbl" && bad "a merged holding has no row" "$tbl" || ok "a merged holding has no row"
 [ "$(printf '%s\n' "$tbl" | grep -c '^[|]')" = 8 ] && ok "every row is a table row, header and separator included" || bad "every row is a table row" "$tbl"
 NY=$(holding tn "[$(host found)]" '{"pull_request":"none yet"}')
-facts "[$NY]" | render | grep -q '^| Ongoing | unit tn | `tn` | none yet | ' && ok "a holding with no pull request yet reads none yet, not N/A" || bad "a holding with no pull request yet reads none yet" "$(facts "[$NY]" | render | grep tn)"
+r=$(facts "[$NY]" | render)
+grep -q '^| Ongoing | unit tn | `tn` | none yet | ' <<<"$r" && ok "a holding with no pull request yet reads none yet, not N/A" || bad "a holding with no pull request yet reads none yet" "$(facts "[$NY]" | render | grep tn)"
 grep -q '^| Waiting to be assigned | N/A | N/A | N/A | ' <<<"$tbl" && ok "N/A is kept for cells that cannot apply" || bad "N/A is kept for cells that cannot apply" "$tbl"
 PIPE=$(holding tp "[$(pr OPEN "$VH")]" '{"unit":"a | b"}')
-facts "[$PIPE]" | render | grep -q '| a \\| b |' && ok "a pipe inside a cell is escaped" || bad "a pipe inside a cell is escaped" "$(facts "[$PIPE]" | render | grep tp)"
+r=$(facts "[$PIPE]" | render)
+grep -q '| a \\| b |' <<<"$r" && ok "a pipe inside a cell is escaped" || bad "a pipe inside a cell is escaped" "$(facts "[$PIPE]" | render | grep tp)"
 
 # Blocked on you holds only escalated decision entries and reserved steps.
 DEC='[{"decision":"4","question":"Ship without the arm64 build?","recommendation":"wait","reason":"the release requires it","target":"a person"},
@@ -387,7 +392,8 @@ b=$(printf '%s' "$F" | report | render)
 printf '%s' "$F" | report | bash "$S" json >/dev/null 2>&1; rc=$?
 [ "$rc" = 65 ] && ok "json refuses a report document" || bad "json refuses a report document" "rc=$rc"
 HH=$(jq -nc --argjson h "$(holding t3 "[$(pr OPEN "$VH")]")" '$h + {source: "handoff"}')
-facts "[$HH]" | render | grep -q 'row as written by the previous rotation' \
+r=$(facts "[$HH]" | render)
+grep -q 'row as written by the previous rotation' <<<"$r" \
   && ok "a handoff row is labelled as the previous rotation's" || bad "a handoff row is labelled as the previous rotation's"
 INV='{"kind":"inventory","status":"ok","taken":true,"items":[{"clone":"/home/u/ws/cfg+t-dddd/repo","kind":"commit","path":"abc"}]}'
 out=$(facts "[$(holding t4 "[$INV]")]" | render)
@@ -410,7 +416,8 @@ out=$(printf '{"schema":"coordinate-reconcile-report/v1","header":1}' | bash "$S
 echo "== inventory not taken, missing facts =="
 INV='{"kind":"inventory","status":"ok","taken":false,"reason":"instance directory unreadable"}'
 out=$(facts "[$(holding t7 "[$INV]" '{"pull_request":"none yet"}')]")
-printf '%s' "$out" | render | grep -q 'inventory could not be taken (instance directory unreadable)' \
+r=$(printf '%s' "$out" | render)
+grep -q 'inventory could not be taken (instance directory unreadable)' <<<"$r" \
   && ok "an inventory not taken carries its reason" || bad "an inventory not taken carries its reason" "$(printf '%s' "$out" | render)"
 printf '%s' "$out" | report | jq -e '.not_verified | any(.what == "t7: inventory" and .reason == "instance directory unreadable")' >/dev/null \
   && ok "an inventory not taken is listed as not verified" || bad "an inventory not taken is listed as not verified"
@@ -427,20 +434,22 @@ out=$(printf '%s' "$IMP" | render)
 grep -qF "This run was imported from session \`coordinate-roadmap-demo-20260901T000000Z\` in workspace \`/srv/ws-a\`, compiled from template \`$IH\`." <<< "$out" \
   && ok "the text names the source session, workspace and template hash in one sentence" || bad "the import sentence" "$out"
 [ "$(printf '%s\n' "$out" | grep -c 'imported from')" = 1 ] && ok "  ... once" || bad "  ... once" "$out"
-facts '[]' | render | grep -q 'imported from' && bad "a run never imported has no import sentence" || ok "a run never imported has no import sentence"
+r=$(facts '[]' | render)
+grep -q 'imported from' <<<"$r" && bad "a run never imported has no import sentence" || ok "a run never imported has no import sentence"
 facts '[]' | report | jq -e '.header.import == null' >/dev/null && ok "  ... and a null import in the header" || bad "  ... and a null import in the header"
 for odd in '7' '{"source_session":""}' '{"source_session":3}' '"coordinate-roadmap-demo-20260901T000000Z"'; do
     o=$(facts '[]' | jq -c --argjson i "$odd" '.record.import = $i')
-    if printf '%s' "$o" | report | jq -e '.header.import == null' >/dev/null && ! printf '%s' "$o" | render | grep -q 'imported from'; then
+    r=$(printf '%s' "$o" | render)
+    if printf '%s' "$o" | report | jq -e '.header.import == null' >/dev/null && ! grep -q 'imported from' <<<"$r"; then
         ok "an import fact that isn't one is dropped: $odd"
     else bad "an import fact that isn't one is dropped: $odd" "$(printf '%s' "$o" | report | jq -c .header)"; fi
 done
 o=$(facts '[]' | report | jq -c '.header.import = {source_session: 5}')
-printf '%s' "$o" | render > /dev/null 2>&1 && ! printf '%s' "$o" | render | grep -q 'imported from' \
-  && ok "md renders a report whose import isn't well formed without the sentence" || bad "md and a malformed import" "$(printf '%s' "$o" | render 2>&1 | head -3)"
+printf '%s' "$o" | render > /dev/null 2>&1 && { r=$(printf '%s' "$o" | render); ! grep -q 'imported from' <<<"$r"; } \
+  && ok "md renders a report whose import isn't well formed without the sentence" || bad "md and a malformed import" "$(r=$(printf '%s' "$o" | render 2>&1); head -3 <<<"$r")"
 
 echo "== purity =="
-EMPTYBIN=$(mktemp -d)
+EMPTYBIN=$(mktemp -d) || exit 1
 ln -s "$(command -v jq)" "$EMPTYBIN/jq"
 got=$(facts "[$(holding a "[$(pr MERGED "$VH")]")]" | env -i PATH="$EMPTYBIN" "$(command -v bash)" "$S" json 2>&1)
 rm -rf "$EMPTYBIN"

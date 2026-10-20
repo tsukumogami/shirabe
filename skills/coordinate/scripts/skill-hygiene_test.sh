@@ -41,7 +41,7 @@ while IFS='	' read -r label re; do
 done <<< "$PATTERNS"
 
 # The patterns catch what they claim: each fires on a sample.
-T=$(mktemp -d "${TMPDIR:-/tmp}/skill-hygiene.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/skill-hygiene.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 printf '%s\n' 'see wip/notes.md' 'from dot-niwa-overlay' 'w-6f1c2e3a-1b2c-4d5e-8f90-123456789abc' \
     'req-cb2ae3c7-e66f' 'tsuku+coordinate_record-43e4a66f' '/run/user/1/cc-socks/1.sock' > "$T/sample"

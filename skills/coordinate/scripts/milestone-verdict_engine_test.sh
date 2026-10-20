@@ -113,7 +113,7 @@ open_run() {
 }
 # landing_file <directive-and-details>: the landing guidance file a rendered
 # directive names, resolved in the plugin.
-landing_file() { printf '%s' "$1" | grep -oE 'references/landing-[a-z]+-roadmap\.md' | head -1; }
+landing_file() { local m; m=$(grep -oE 'references/landing-[a-z]+-roadmap\.md' <<<"$1"); printf '%s\n' "${m%%$'\n'*}"; }
 
 # ---- the milestone run ------------------------------------------------------
 cat > "$T/mv.md" <<'EOF'

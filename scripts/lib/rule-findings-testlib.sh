@@ -70,7 +70,7 @@ rf_test_expected_range() {
     if [ -z "$last" ]; then
         b=$a
     else
-        b=$(tail -n "+$a" "$file" | grep -n -F -- "$last" | head -n 1 | cut -d: -f1)
+        b=$(tail -n "+$a" "$file" | grep -n -F -- "$last" | cut -d: -f1); b=${b%%$'\n'*}
         b=$((a + b - 1))
     fi
     printf '%s#L%s-L%s' "$path" "$a" "$b"

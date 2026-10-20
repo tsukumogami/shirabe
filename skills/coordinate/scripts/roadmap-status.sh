@@ -529,7 +529,8 @@ follow_ups_read() {
         printf '%s\t%s\t%s\t%s\n' "$i" "$tag" "$title" "$(lib_tag_key "$tag")" >> "$WD/fu/index.tsv"
         i=$((i + 1))
     done
-    [ "$(cut -f4 "$WD/fu/index.tsv" | sort | uniq -d | head -1)" = "" ] || refuse "two follow-up sections share a tag"
+    DUPTAGS=$(cut -f4 "$WD/fu/index.tsv" | sort | uniq -d)
+    [ "${DUPTAGS%%$'\n'*}" = "" ] || refuse "two follow-up sections share a tag"
     # Each follow-up the verdict names has its section, and each section is
     # one the verdict names.
     : > "$WD/fu-plan.tsv"

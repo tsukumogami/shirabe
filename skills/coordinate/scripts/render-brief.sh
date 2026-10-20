@@ -297,7 +297,8 @@ fi
 # both execution modes.
 FLAGS=$(jq -r 'if (.entry_args | type) == "array" and (.run_mode | type) == "string" then
     ((.run_mode | split(" ") | map(select(. != ""))) + .entry_args[1:])[] else empty end' "$INPUT")
-DUP=$(printf '%s\n' "$FLAGS" | sed '/^$/d' | sort | uniq -d | head -1)
+DUPALL=$(printf '%s\n' "$FLAGS" | sed '/^$/d' | sort | uniq -d)
+DUP=${DUPALL%%$'\n'*}
 [ -n "$DUP" ] && refuse "run_mode and entry_args: $DUP is given twice"
 if grep -qx -- --auto <<<"$FLAGS" && grep -qx -- --interactive <<<"$FLAGS"; then
     refuse "run_mode and entry_args: --auto and --interactive together"

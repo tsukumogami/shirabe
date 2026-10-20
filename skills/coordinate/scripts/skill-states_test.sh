@@ -17,7 +17,7 @@ TPL="$HERE/../koto-templates/coordinate.md"
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
-T=$(mktemp -d "${TMPDIR:-/tmp}/skill-states.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/skill-states.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 # The template's states: the `  <state>:` lines of its front matter.

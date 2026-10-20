@@ -112,7 +112,8 @@ ok "the session opens"
 PROBE=$(cd "$WD" && bash "$PS/record-source.sh" --session "$S" --probe)
 if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
     eq "a koto without the session store's features stops at the find" record_conflict "$(at)"
-    (cd "$WD" && koto context get "$S" coord/record_find.json) | jq -r .reason | grep -q '^store-unsupported' \
+    find_reason=$( (cd "$WD" && koto context get "$S" coord/record_find.json) | jq -r .reason)
+    grep -q '^store-unsupported' <<<"$find_reason" \
         && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cd "$WD" && koto context get "$S" coord/record_find.json)"
     eq "  ... opening no record" 0 "$(jq '[.issues[] | select(.title == "Coordinator record: ROADMAP-store")] | length' "$GH_DB")"
     # The plain listing: this koto's `context list` takes no --prefix.

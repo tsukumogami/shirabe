@@ -108,7 +108,7 @@ SCOPE= NAME= REPO= REF=
 . "$HERE/record-common.sh"
 lib_facts
 lib_run_stamp
-T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 

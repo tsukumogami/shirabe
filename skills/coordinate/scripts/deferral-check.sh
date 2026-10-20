@@ -204,7 +204,7 @@ lib_facts
 lib_bounds
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 REASON= OPEN='[]' ACTIVE=0 PARKED=0 CHOICE= TOPIC=- COMPARED=false

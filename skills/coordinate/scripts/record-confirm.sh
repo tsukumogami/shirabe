@@ -141,7 +141,7 @@ lib_facts
 STATE_NAME=record
 [ "$VERIFIED" = 1 ] && STATE_NAME=verified_confirm
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-confirm.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/record-confirm.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 VERDICT= REASON= SOURCE= EVT= WRITTEN= EXPECT=
@@ -437,7 +437,7 @@ destroy)
         || { VERDICT=conflict; REASON="no valid sealed teardown inventory"; finish; }
     INV=$(bash "$HERE/coord-log.sh" check --session "$SESSION" --state teardown_inventory --sealed "$TSEAL" --key teardown_verdict --any-visit 2> /dev/null) \
         || { VERDICT=conflict; REASON="the teardown inventory fails its seal"; finish; }
-    UNIT=$(printf '%s\n' "$INV" | sed -n 's/^topic //p' | head -1)
+    UNIT=$(sed -n '/^topic /{s///p;q;}' <<<"$INV")
     [ -n "$UNIT" ] || { VERDICT=conflict; REASON="the sealed inventory names no topic"; finish; }
     TJ=$(jq -n --arg t "$UNIT" '$t')
     if has_value destroyed; then

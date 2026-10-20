@@ -37,9 +37,9 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SESSION" ] || usage
 . "$HERE/phrasing-lib.sh"
-T=$(mktemp -d "${TMPDIR:-/tmp}/need-check.XXXXXX")
-trap 'rm -rf "$T"' EXIT
 die2() { echo "$PROG: $*" >&2; exit 2; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/need-check.XXXXXX") || die2 "cannot make a temporary directory"
+trap 'rm -rf "$T"' EXIT
 seal() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state surface_check --token "$1" || die2 "cannot seal the verdict"; exit 0; }
 refuse() { echo "$PROG: refused: $*" >&2; seal refused; }
 

@@ -118,7 +118,7 @@ CB=$(git symbolic-ref --quiet --short HEAD) || {
 }
 coord_valid_branch "$CB" || { echo "$PROG: branch [$CB] is not an allowed branch name" >&2; exit 66; }
 DEFAULT=$(git ls-remote --symref origin HEAD </dev/null \
-    | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p' | head -1)
+    | sed -n '/^ref: refs\/heads\/\([^[:space:]]*\)[[:space:]]*HEAD$/{s//\1/p;q;}')
 if [ -z "$DEFAULT" ]; then
     DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || true)
     DEFAULT=${DEFAULT#origin/}

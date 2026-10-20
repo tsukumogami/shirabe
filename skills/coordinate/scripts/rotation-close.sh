@@ -95,7 +95,7 @@ else
     lib_run_ref || refuse "the run has no found record"
 fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/rotation-close.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/rotation-close.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 gh pr view "$REF" --repo "$REPO" --json state,isDraft,headRefName,isCrossRepository > "$T/pr.json" 2> "$T/pr.err" < /dev/null \

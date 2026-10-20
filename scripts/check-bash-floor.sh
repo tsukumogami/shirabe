@@ -399,7 +399,7 @@ RUN for b in \$(which -a bash) /bin/bash /usr/bin/bash; do \\
             || { echo "\$b is not bash 3.2" >&2; exit 1; }; \\
     done \\
     && for t in ls grep sed find awk diff; do \\
-        "\$t" --version 2>&1 | head -n 1 | grep -q GNU \\
+        "\$t" --version 2>&1 | head -n 1 | grep GNU >/dev/null \\
             || { echo "\$t is not the GNU one" >&2; exit 1; }; \\
     done \\
     && ps --version | grep -q procps

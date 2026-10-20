@@ -162,7 +162,7 @@ if [ "$RC" -ne 0 ]; then
 fi
 
 field() { # field <key> -- the value of the one `<key>=` line
-    printf '%s\n' "$OUT" | sed -n "s/^$1=//p" | head -1
+    sed -n "/^$1=/{s///p;q;}" <<<"$OUT"
 }
 V=$(field coord_verdict)
 PR=$(field pr)

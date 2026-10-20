@@ -607,7 +607,7 @@ if [ "$run_real" -eq 1 ]; then
         fail "mixed: rc=$RC count=$(finding_count) out=[$(cat "$OUT")]"
     fi
     VOUT=$(cd "$REPO" && SHIRABE_RULES="$RULES_FILE" shirabe validate --format json -- docs/designs/DESIGN-t.md 2>/dev/null)
-    vmsg=$(printf '%s' "$VOUT" | jq -r '.findings[] | select(.code == "FC04") | .message' | head -n 1)
+    vmsg=$(jq -r '.findings[] | select(.code == "FC04") | .message' <<<"$VOUT" | head -n 1)
     summary=$(jq -r '.rules[] | select(.id == "docs/required-sections") | .summary' "$SCRIPT_DIR/../../../references/rule-registry.json")
     gmsg=$(findings | jq -r 'select(.rule_id == "docs/required-sections") | .message')
     if [ -n "$vmsg" ] && [ "$gmsg" = "$summary: $vmsg" ]; then

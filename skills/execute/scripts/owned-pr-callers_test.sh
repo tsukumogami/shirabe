@@ -213,7 +213,8 @@ if [ -z "$BAD" ]; then
 else
     fail "--take-over appears elsewhere: $BAD"
 fi
-if printf '%s\n' "$TAKE" | grep 'execute.md:' | grep -qE 'adopt-or-create-pr\.sh .*--take-over'; then
+TAKE_EXEC=$(grep 'execute.md:' <<<"$TAKE")
+if grep -qE 'adopt-or-create-pr\.sh .*--take-over' <<<"$TAKE_EXEC"; then
     fail "execute.md runs --take-over in a command block; it must be the exit-6 decision's re-run only"
 else
     pass "execute.md passes --take-over only through the exit-6 decision"

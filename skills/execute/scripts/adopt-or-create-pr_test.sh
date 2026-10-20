@@ -207,7 +207,7 @@ TEMPLATE="$ROOT/skills/execute/koto-templates/execute.md"
 FIRST=$(jq -r '.rules[] | select(.id == "execute/pr-takeover-needs-signal") | .text.first' "$REG")
 LAST=$(jq -r '.rules[] | select(.id == "execute/pr-takeover-needs-signal") | .text.last' "$REG")
 A=$(grep -n -F -- "$FIRST" "$TEMPLATE" | head -n 1 | cut -d: -f1)
-B=$(tail -n "+$A" "$TEMPLATE" | grep -n -F -- "$LAST" | head -n 1 | cut -d: -f1); B=$((A + B - 1))
+B=$(tail -n "+$A" "$TEMPLATE" | grep -n -m1 -F -- "$LAST" | cut -d: -f1); B=$((A + B - 1))
 WANT=$(sed -n "${A},${B}p" "$TEMPLATE")
 GOT=$(sed -n '/^::shirabe-rule::/,/^::shirabe-rule-end::$/p' "$CASE/stderr" | sed '1d;$d')
 OPEN=$(grep '^::shirabe-rule::' "$CASE/stderr" | sed 's/^::shirabe-rule:://' | jq -r '.rule_id' 2>/dev/null)

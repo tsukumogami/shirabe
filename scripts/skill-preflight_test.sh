@@ -61,7 +61,7 @@ trap cleanup EXIT
 
 mktmp() {
     local d
-    d=$(mktemp -d)
+    d=$(mktemp -d) || exit 1
     TMPS+=("$d")
     printf '%s' "$d"
 }
@@ -69,7 +69,7 @@ mktmp() {
 # new_root -- a throwaway plugin root carrying the real scripts under test.
 new_root() {
     local root
-    root=$(mktmp)
+    root=$(mktmp) || exit 1
     mkdir -p "$root/.claude-plugin" "$root/scripts/lib" "$root/skills"
     printf '{"name":"shirabe","version":"0.0.0-test"}\n' >"$root/.claude-plugin/plugin.json"
     cp "$ENTRY" "$root/scripts/skill-preflight.sh"
@@ -158,7 +158,7 @@ run_preflight() {
     local root="$1" skill="$2" name="${3-run}"
     shift 3 2>/dev/null || shift $#
     local capture
-    capture=$(mktmp)/capture
+    capture=$(mktmp)/capture || exit 1
     RC=0
     (
         cd "$RUN_CWD" || exit 111
@@ -911,7 +911,7 @@ extract_injected_line() {
 run_injected() {
     local root="$1" cmd="$2" name="$3" disable="${4-}"
     local capture
-    capture=$(mktmp)/injected
+    capture=$(mktmp)/injected || exit 1
     RC=0
     (
         cd "$REPO" || exit 111

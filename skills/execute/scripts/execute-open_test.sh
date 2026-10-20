@@ -489,8 +489,11 @@ coord_plan() { # coord_plan <slug>
         "$1" > "$FIXREPO/docs/plans/PLAN-$1.md"
 }
 built_from() { # built_from <session> -> the template file name the session was built from
-    cat "$(k session dir "$1")"/*.state.jsonl 2>/dev/null \
-        | grep -o 'execute-coordinated\.md\|koto-templates/execute\.md\|"execute\.md"' | head -1
+    local m
+    m=$(cat "$(k session dir "$1")"/*.state.jsonl 2>/dev/null \
+        | grep -o 'execute-coordinated\.md\|koto-templates/execute\.md\|"execute\.md"')
+    [ -n "$m" ] || return 1
+    printf '%s\n' "${m%%$'\n'*}"
 }
 
 coord_plan cfresh

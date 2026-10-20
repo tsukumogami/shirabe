@@ -93,7 +93,7 @@ esac
 # answers, the two conventional names, so an unanswerable question never lets
 # every branch through.
 DEFAULT=$(git ls-remote --symref "$REMOTE" HEAD </dev/null \
-    | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p' | head -1)
+    | sed -n '/^ref: refs\/heads\/\([^[:space:]]*\)[[:space:]]*HEAD$/{s//\1/p;q;}')
 if [ -z "$DEFAULT" ]; then
     DEFAULT=$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)
     DEFAULT=${DEFAULT#"$REMOTE"/}

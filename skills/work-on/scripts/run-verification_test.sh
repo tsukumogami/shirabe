@@ -340,7 +340,8 @@ start s-fail
 settle s-fail
 expect_rc "a failing command" 1
 expect_rule "a failing command" verification/command-failed
-REF=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r 'select(.rule_id == "verification/command-failed") | .rule_ref' | head -n 1)
+REF=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r 'select(.rule_id == "verification/command-failed") | .rule_ref')
+REF=${REF%%$'\n'*}
 WANT_RANGE=$(rf_test_expected_range verification/command-failed)
 [ "${REF%@*}" = "$WANT_RANGE" ] && pass "a failing command: verification/command-failed's range is $WANT_RANGE, found from its anchors with grep" \
     || fail "a failing command: range [${REF%@*}], want [$WANT_RANGE]"

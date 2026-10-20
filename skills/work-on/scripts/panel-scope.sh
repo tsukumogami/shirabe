@@ -774,9 +774,11 @@ if [ "$MODE" = "--record" ]; then
         if grep -q '^MISSING ' "$WORK/decider_events"; then
             die 65 "koto's log holds no decider_checked event for: $(grep '^MISSING ' "$WORK/decider_events" | head -n 1 | cut -c9-)"
         fi
-        dup=$(sort "$WORK/decider_events" | uniq -d | head -n 1)
+        dup=$(sort "$WORK/decider_events" | uniq -d)
+        dup=${dup%%$'\n'*}
         [ -z "$dup" ] || die 65 "decider event [$dup] backs two entries"
-        used=$(printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]' | grep -Fxf "$WORK/decider_events" | head -n 1)
+        used=$(printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]' | grep -Fxf "$WORK/decider_events")
+        used=${used%%$'\n'*}
         [ -z "$used" ] || die 65 "decider event [$used] already backed an earlier entry"
     fi
 

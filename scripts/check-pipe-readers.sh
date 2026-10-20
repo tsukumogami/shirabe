@@ -24,13 +24,22 @@
 #     --silent, --files-with-matches, --files-without-match or --max-count,
 #     or head, with or without variable assignments in front of it
 #     (`LC_ALL=C grep -q`).
-# The rule applies whether or not the file sets pipefail: a function is
+# Also refused (shirabe#906), whatever the writer: a reader that stops early
+# (the same grep flags, head, or a lone `read`) as the third or a later stage
+# of a pipeline, `... | sed ... | grep -q`, `... | grep ... | head -1 | cut`.
+# When it exits, the stage before it takes SIGPIPE in the same way. Capture
+# the middle stage first and match with a here-string, or let one command do
+# both: `sed -n '/re/{s///p;q;}' <<<"$v"`, `grep -m1`. A pipeline whose next
+# line reads the reader's status from PIPESTATUS is left alone: that status is
+# the reader's own, whatever the cut-off stage got.
+# The rules apply whether or not the file sets pipefail: a function is
 # sourced into shells that do, and a script gains it later.
 #
 # Not seen, and left to review: a writer whose arguments hold a `|`, `;`, `&&`
 # or a command substitution (`echo "$(cmd)" | grep -q x`); a line that ends
-# in `|` with the reader on the next; a reader after a middle stage
-# (`printf ... | tr -d x | grep -q`), which cuts off that stage the same way;
+# in `|` with the reader on the next; a two-stage `cmd | head` whose writer is
+# a program rather than printf, echo or cat; a pipeline written with no space
+# inside any stage (`a|b|head`), which reads as a case pattern list;
 # a reader behind an assignment whose value holds a space (`X="a b" grep -q`),
 # behind a command prefix (`command grep`, `env X=1 grep`, `/usr/bin/grep`)
 # or reached through a variable or a function; a writer in a `{ ...; }` group; a grep whose quiet
@@ -85,19 +94,75 @@ LIST=$(files "$@") || exit 2
 # to the pipe and hold no |, ;, && or command substitution: past one of those
 # the pipe belongs to another command. A grep's flags are looked for up to
 # the first |, ;, & or ), so the -eq of a test after `grep -c` is not one.
+#
+# The second rule looks at the shape of each pipeline rather than at its
+# writer. strip() blanks what the shell would not read as syntax: the inside
+# of a single-quoted string, and the literal text of a double-quoted one (a
+# $(...) inside double quotes is kept, since its pipes are real). `||` is set
+# aside, the line is cut into pipelines at ; & ( ) and the set-aside `||`, and
+# each pipeline into stages at |. A reader that can stop early, starting the
+# third stage or a later one, is refused. A pipeline none of whose stages is a
+# word with an argument (a case pattern list such as jq|grep|head) is skipped.
 SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
-  FNR == 1 { held = ""; start = 0 }
+  function strip(t,   out, i, n, c, top, stack) {
+    out = ""; n = length(t); stack = "n"
+    for (i = 1; i <= n; i++) {
+      c = substr(t, i, 1); top = substr(stack, length(stack), 1)
+      if (top == "s") {
+        if (c == "\047") { stack = substr(stack, 1, length(stack) - 1); out = out c } else out = out "x"
+        continue
+      }
+      if (top == "d") {
+        if (c == "\\") { out = out "xx"; i++; continue }
+        if (c == "\"") { stack = substr(stack, 1, length(stack) - 1); out = out c; continue }
+        if (c == "$" && substr(t, i + 1, 1) == "(") { stack = stack "c"; out = out "$("; i++; continue }
+        out = out "x"; continue
+      }
+      if (c == "\\") { out = out substr(t, i, 2); i++; continue }
+      if (c == "\047") { stack = stack "s"; out = out c; continue }
+      if (c == "\"") { stack = stack "d"; out = out c; continue }
+      if (c == "(" && top == "c") { stack = stack "c"; out = out c; continue }
+      if (c == "$" && substr(t, i + 1, 1) == "(") { stack = stack "c"; out = out "$("; i++; continue }
+      if (c == ")" && top == "c") { stack = substr(stack, 1, length(stack) - 1); out = out c; continue }
+      out = out c
+    }
+    return out
+  }
+  function late_reader(t,   s, segs, nseg, j, stages, nst, k) {
+    s = strip(t)
+    gsub(/[|][|]/, "\001", s)
+    nseg = split(s, segs, "[;&()\001]")
+    for (j = 1; j <= nseg; j++) {
+      # A case pattern list (jq|grep|head|read) has no word followed by an
+      # argument in any of its parts; a pipeline of commands does.
+      if (segs[j] !~ /[^ \t|][ \t]+[^ \t|]/) continue
+      nst = split(segs[j], stages, "|")
+      for (k = 3; k <= nst; k++)
+        if (stages[k] ~ /^[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*(head([ \t]|$)|read([ \t]|$)|grep[ \t]([^<>]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) return 1
+    }
+    return 0
+  }
+  # A site of the second rule waits one line: when the next line reads the
+  # status from PIPESTATUS, the status the reader itself gave is taken and
+  # pipefail decides nothing, so the site is dropped.
+  function flush_pending() { if (pending != "") print pending; pending = "" }
+  FNR == 1 { flush_pending(); held = ""; start = 0 }
   {
     line = $0
     if (held != "") { line = held " " line } else { start = FNR }
     if (line ~ /\\$/) { held = substr(line, 1, length(line) - 1); next }
     held = ""
     if (line ~ /^[ \t]*#/) next
+    if (pending != "") { if (line ~ /PIPESTATUS/) pending = ""; else flush_pending() }
     if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t|;&]*[ \t]+)*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
       sub(/^[ \t]+/, "", line)
       printf "%s:%d: %s\n", FILENAME, start, line
+    } else if (late_reader(line)) {
+      sub(/^[ \t]+/, "", line)
+      pending = sprintf("%s:%d: %s", FILENAME, start, line)
     }
-  }')
+  }
+  END { flush_pending() }')
 
 if [ -n "$SITES" ]; then
   printf '%s\n' "$SITES" | sed "s|^$REPO_ROOT/||"

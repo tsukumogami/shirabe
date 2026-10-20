@@ -634,7 +634,7 @@ main() {
   fi
   read_cadence "$POLICY_FILE"
 
-  WORK=$(mktemp -d)
+  WORK=$(mktemp -d) || usage_error "cannot make a temporary directory"
   : > "$WORK/live.flags"
 
   local dir skill decl

@@ -60,7 +60,7 @@ command -v git  >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran"
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 [ -x "$RECORDER" ] || { echo "FAIL: recorder not executable at $RECORDER" >&2; exit 1; }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || exit 1
 cleanup() {
     [ -n "${LOCKED_CTX:-}" ] && [ -d "${LOCKED_CTX:-}" ] && chmod u+w "$LOCKED_CTX" 2>/dev/null
     [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"
