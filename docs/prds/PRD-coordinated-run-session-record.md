@@ -1,7 +1,6 @@
 ---
 schema: prd/v1
 status: Accepted
-upstream: docs/briefs/BRIEF-coordinated-run-session-record.md
 problem: |
   A coordinated `/execute` run keeps the facts it runs on as lines in the coordination
   pull request's body: which pull request each node opened, the head each merge is pinned
@@ -17,6 +16,8 @@ goals: |
   the body. A run imported into another workspace resumes as the same run through its
   merge-last gate, `/deliver`'s leg to it ends with a result or a named loss, and the
   default branch gets each pull request's description and nothing else.
+absorbed:
+  - docs/briefs/BRIEF-coordinated-run-session-record.md
 ---
 
 # PRD: The coordinated run's session is its record
@@ -24,6 +25,34 @@ goals: |
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-coordinated-run-session-record](docs/briefs/BRIEF-coordinated-run-session-record.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature frames one gap: a coordinated `/execute` run uses the coordination pull
+request's body both as the page people and CI read and as the run's own memory, and the
+second use is what fails. The body is editable, goes stale once a node merges, has no room
+for a follow-up, lists itself, lands on the default branch, and is all a moved or restarted
+run has to resume from, so a run whose session is lost or moved can't take its own merged
+nodes back. The reason the body was chosen, that a koto session couldn't leave its host, no
+longer holds now that session import moves one.
+
+The outcome it asks for belongs to whoever drives a coordinated effort, a person or a
+coordinator session dispatching `/deliver` workers: stop a run, move it to another
+workspace, and resume it through its merge-last gate as the same run, with `/deliver`'s leg
+ending in a result or a stated loss. The reviewer of the coordination pull request reads an
+index that matches what happened, and a maintainer reading the default branch finds the
+description and none of the run's bookkeeping.
+
+The journeys it traced are the four the User Stories carry before the gate owner's: a
+coordinator handing a run to a replacement, a maintainer restarting a run whose execute
+session was removed, a reviewer deciding whether to land, and a maintainer reading history.
+Its boundary is the one Requirements and Out of Scope draw: the run's facts as its record,
+the body as a rendering without the self row, the squash message, identity across a move,
+the inner leg and the per-run store with GitHub the default are in; what stays on GitHub on
+purpose, the default store and existing runs, the single-pr path, the coordinator's GitHub
+record and a proven move between hosts are out.
 
 ## Problem Statement
 
