@@ -41,10 +41,13 @@ echo "$COMMON/objects" > "$S/.git/objects/info/alternates"
 
 # The copy is a sparse checkout, not a recursive copy: it writes only the
 # files the check reads (the scanned scripts, the templates, every path the
-# registry names) rather than every file under skills/ and scripts/. It is cut
-# from `git stash create` when the checkout has uncommitted changes to tracked
-# files, so it holds what the suite is testing; a file nothing has added yet
-# is not in it. Its HEAD is that commit, the base the --base cases build on.
+# registry names) rather than every file under skills/ and scripts/, where the
+# recursive copy it replaces wrote over a thousand files per run, each one
+# scanned by the host. It is cut from `git stash create` when the checkout
+# has uncommitted changes to tracked files, so it holds what the suite is
+# testing; a file nothing has added yet is not in it, so `git add` a new file
+# the check reads before running the suite. Its HEAD is that commit, the base
+# the --base cases build on.
 SNAP=$(git -C "$REPO_ROOT" stash create 2>/dev/null) || SNAP=""
 [ -n "$SNAP" ] || SNAP=$(git -C "$REPO_ROOT" rev-parse HEAD) || { echo "no commit to test" >&2; exit 2; }
 git -C "$S" config core.sparseCheckout true
