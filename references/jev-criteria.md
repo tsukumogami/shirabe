@@ -62,6 +62,17 @@ least 30 evaluations across at least 5 sessions, at least 95% of them answered
 `pass` or `fail`, no fallback for `over_budget`, and no input over the budget.
 The figures that decide a promotion come from koto's exported decider events
 read in a log backend; a local file never decides one.
+
+**Evaluations with nothing to grade.** An evaluation whose every event is a
+`decider_checked` with `koto.decider.outcome` `not_graded` had an empty slice:
+the slice script printed nothing, so there was nothing to grade, and the
+decider never decided that. It is left out of the evaluations, the sessions and
+the answered share, never counts as a pass toward trust or withholding, and is
+counted on its own as `not_graded`, which a promotion's `live` record carries.
+The minimums (30 evaluations across 5 sessions) count graded evaluations only.
+An evaluation with a `not_graded` event and any other event is graded and
+follows the rule above, so a fallback for any reason, `over_budget` included,
+and an `escape` still count against the bar. This holds for every criterion.
 `jev_criteria.py figures <rule-id> --sessions <dir>` computes the same figures
 from local koto session logs, as a tested reference for their definitions.
 

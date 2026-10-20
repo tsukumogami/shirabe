@@ -45,11 +45,18 @@ Field names below are paths in the rule's registry entry: `check` and
   `decider_fallback` event in the window, filtered to the entry's gate and
   criterion. koto writes a fallback again each time a held visit is ticked;
   those fall in the same tuple and count once.
+- **Not graded.** A tuple whose every event is a `decider_checked` with
+  `koto.decider.outcome` `not_graded`: the slice was empty, so there was
+  nothing to grade. It is left out of the evaluations, the sessions and the
+  answered share, never counts as a pass, and is counted on its own. A tuple
+  with a `not_graded` event and any other event is an evaluation like any
+  other, so a fallback or an `escape` beside it still counts against the bar.
 - **Answered.** An evaluation any of whose `decider_checked` events has
   `koto.decider.outcome` `pass` or `fail`. A tuple with only fallbacks, or
   only other outcomes, is unanswered. An agent's own answer
   (`decider_check_answered`) never makes it answered.
-- **Sessions.** The distinct `koto.session.id` values among the evaluations.
+- **Sessions.** The distinct `koto.session.id` values among the evaluations,
+  so a session whose only tuples were not graded isn't one.
 - **Over-budget fallbacks.** Evaluations with a `decider_fallback` whose
   `koto.decider.reason` is `over_budget`.
 - **Largest input.** The largest `koto.decider.input_bytes` on either event.
@@ -59,10 +66,12 @@ As queries over the exported events, for one criterion:
 1. Filter to event type `decider_checked` or `decider_fallback`, with
    `koto.check` equal to the entry's `check.gate` and `koto.rule.id` equal to
    its `check.criterion`, inside the window.
-2. Count distinct (`koto.session.id`, `koto.visit.seq`) pairs: the
-   evaluations. The filter has already fixed `koto.check` and
-   `koto.rule.id`, so a pair here is the full tuple above.
-3. Count distinct `koto.session.id`: the sessions.
+2. Drop every (`koto.session.id`, `koto.visit.seq`) pair all of whose
+   events are `decider_checked` with `koto.decider.outcome` `not_graded`, and
+   count them: the not-graded tuples. Count the distinct pairs left: the
+   evaluations. The filter has already fixed `koto.check` and `koto.rule.id`,
+   so a pair here is the full tuple above.
+3. Count distinct `koto.session.id` among the pairs left: the sessions.
 4. Among `decider_checked` events with `koto.decider.outcome` in (`pass`,
    `fail`), count distinct (`koto.session.id`, `koto.visit.seq`) pairs: the
    answered evaluations.
@@ -72,7 +81,8 @@ As queries over the exported events, for one criterion:
 
 The bar is met with at least 30 evaluations across at least 5 sessions, at
 least 95% of them answered, no over-budget fallback, and no input over the
-entry's `jev.budget`. `references/jev-criteria.md` owns these numbers; if the
+entry's `jev.budget`. Not-graded tuples count toward none of these: the
+minimums count graded evaluations only. `references/jev-criteria.md` owns these numbers; if the
 two ever disagree, the reference is right.
 
 `jev_criteria.py figures` computes the same figures from local koto session

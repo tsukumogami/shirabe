@@ -548,9 +548,13 @@ def check_promotion(root, jev, promo, fps, budget):
     if not isinstance(live, dict):
         out.append("promotion has no live record")
     else:
-        for k in ("from", "to", "evaluations", "sessions", "answered", "over_budget_fallbacks", "max_input_bytes"):
+        for k in ("from", "to", "evaluations", "sessions", "answered", "over_budget_fallbacks", "max_input_bytes",
+                  "not_graded"):
             if k not in live:
                 out.append("promotion.live has no %s" % k)
+        ng = live.get("not_graded")
+        if "not_graded" in live and (not isinstance(ng, int) or isinstance(ng, bool) or ng < 0):
+            out.append("promotion.live.not_graded is not a non-negative integer")
         out += ["the live figures miss the bar: %s" % r for r in live_bar(live, budget)[1]]
         frm, to = live.get("from", ""), live.get("to", "")
         d = jev.get("declared") if isinstance(jev.get("declared"), dict) else {}
@@ -1139,8 +1143,14 @@ def window(jev, start, end):
 
 def live_figures(sessions_dir, gate, cid, start, end):
     # An evaluation is (session, visit, gate, criterion): koto re-writes a
-    # fallback on each tick of a held visit, and those count once.
-    evals, sessions, over = {}, set(), set()
+    # fallback on each tick of a held visit, and those count once. One whose
+    # every event is a decider_checked with outcome not_graded (koto's outcome
+    # for an empty slice, which only the slice script's output decides) had
+    # nothing to grade: it is left out of the evaluations, the sessions and
+    # the answered share, and counted as not_graded. Any other event makes it
+    # graded, so a fallback or an escape beside a not_graded still counts
+    # against the bar.
+    evals, graded, sessions, over = {}, set(), set(), set()
     max_in, unread = 0, 0
     for path in sorted(glob.glob(os.path.join(sessions_dir, "*", "koto-*.state.jsonl"))):
         try:
@@ -1170,7 +1180,8 @@ def live_figures(sessions_dir, gate, cid, start, end):
                 continue
             k = (sid, p.get("visit_seq"), gate, cid)
             evals.setdefault(k, False)
-            sessions.add(sid)
+            if not (t == "decider_checked" and p.get("outcome") == "not_graded"):
+                graded.add(k)
             if t == "decider_checked" and p.get("outcome") in ("pass", "fail"):
                 evals[k] = True
             if t == "decider_fallback" and p.get("reason") == "over_budget":
@@ -1178,9 +1189,10 @@ def live_figures(sessions_dir, gate, cid, start, end):
             b = p.get("input_bytes")
             if isinstance(b, int) and not isinstance(b, bool):
                 max_in = max(max_in, b)
-    return {"from": start, "to": end, "evaluations": len(evals), "sessions": len(sessions),
-            "answered": sum(1 for v in evals.values() if v), "over_budget_fallbacks": len(over),
-            "max_input_bytes": max_in}, unread
+    sessions = {k[0] for k in graded}
+    return {"from": start, "to": end, "evaluations": len(graded), "sessions": len(sessions),
+            "answered": sum(1 for k in graded if evals[k]), "over_budget_fallbacks": len(over),
+            "max_input_bytes": max_in, "not_graded": len(evals) - len(graded)}, unread
 
 
 def cmd_figures(args):

@@ -440,7 +440,7 @@ def trust(t):
         "fixture_run": {"on": "2026-11-01", "model": "jev-1", "declared_sha256": j["declared"]["sha256"],
                         "fixtures_blob": jc.git_blob(t.root, FIXTURES), "counts": counts},
         "live": {"from": "2026-10-21", "to": "2026-11-20", "evaluations": 30, "sessions": 5, "answered": 29,
-                 "over_budget_fallbacks": 0, "max_input_bytes": 300}}
+                 "over_budget_fallbacks": 0, "max_input_bytes": 300, "not_graded": 0}}
     t.save()
 
 
@@ -574,6 +574,16 @@ class PromotionTest(unittest.TestCase):
         self.promo()["fixture_run"]["counts"]["seeded-bad"] = {"pass": 1, "fail": 19, "unclear": 0, "error": 0}
         self.t.save()
         self.assertProblem("1 seeded-bad case(s) answered pass")
+
+    def test_live_record_carries_not_graded(self):
+        del self.promo()["live"]["not_graded"]
+        self.t.save()
+        self.assertProblem("promotion.live has no not_graded")
+        for bad in (-1, "3", True):
+            with self.subTest(value=bad):
+                self.promo()["live"]["not_graded"] = bad
+                self.t.save()
+                self.assertProblem("promotion.live.not_graded is not a non-negative integer")
 
     def test_live_bar_evaluations(self):
         self.promo()["live"]["evaluations"] = 29
@@ -1091,6 +1101,52 @@ class FiguresTest(unittest.TestCase):
                           live["over_budget_fallbacks"], live["max_input_bytes"]), (2, 1, 1, 1, 3000))
         self.assertIn("skipped 1", out)
 
+    def test_not_graded_evaluations_are_left_out(self):
+        self.log("a",
+                 # visit 1: only not_graded, written twice: left out
+                 event(2, "2026-10-21", "decider_checked", outcome="not_graded"),
+                 event(3, "2026-10-21", "decider_checked", outcome="not_graded"),
+                 # visit 2: not_graded, then a pass on a changed slice: answered
+                 event(4, "2026-10-21", "decider_checked", visit_seq=2, outcome="not_graded"),
+                 event(5, "2026-10-21", "decider_checked", visit_seq=2, outcome="pass", input_bytes=90),
+                 # visit 3: not_graded beside a fallback: graded and unanswered
+                 event(6, "2026-10-21", "decider_checked", visit_seq=3, outcome="not_graded"),
+                 event(7, "2026-10-21", "decider_fallback", visit_seq=3, reason="provider_error", input_bytes=90),
+                 # visit 4: not_graded beside an escape: graded and unanswered
+                 event(8, "2026-10-21", "decider_checked", visit_seq=4, outcome="not_graded"),
+                 event(9, "2026-10-21", "decider_checked", visit_seq=4, outcome="escape", input_bytes=90))
+        # A session whose only evaluation had nothing to grade isn't a session.
+        self.log("b", event(2, "2026-10-21", "decider_checked", outcome="not_graded"))
+        rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((live["evaluations"], live["sessions"], live["answered"], live["not_graded"]),
+                         (3, 1, 1, 2), out)
+
+    def not_graded_log(self, name, n):
+        self.log(name, *[event(v + 2, "2026-10-21", "decider_checked", visit_seq=v + 1, outcome="not_graded")
+                         for v in range(n)])
+
+    def test_the_bar_counts_graded_evaluations_only(self):
+        cases = [("29 graded beside 50 not graded", dict(sessions=29, per_session=1, answered_total=29), 50, 0, 1),
+                 ("4 graded sessions beside 10 not-graded ones",
+                  dict(sessions=4, per_session=10, answered_total=40), 0, 10, 1),
+                 ("28 of 30 graded answered (93.3%), beside not-graded runs that would lift it",
+                  dict(sessions=5, per_session=6, answered_total=28), 40, 10, 1),
+                 ("30 graded across 5 sessions all answered, beside not-graded runs",
+                  dict(sessions=5, per_session=6, answered_total=30), 40, 10, 0)]
+        for name, kw, extra_evals, extra_sessions, want in cases:
+            with self.subTest(name):
+                shutil.rmtree(self.dir)
+                os.makedirs(self.dir)
+                self.bar_log(**kw)
+                if extra_evals:
+                    self.not_graded_log("ng-many", extra_evals)
+                for i in range(extra_sessions):
+                    self.not_graded_log("ng-%d" % i, 1)
+                rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21", "--bar")
+                self.assertEqual(rc, want, out)
+                self.assertEqual(live["not_graded"], extra_evals + extra_sessions, out)
+
     def test_window_edges(self):
         self.log("a", event(2, "2026-10-20", "decider_checked", outcome="pass", visit_seq=1),
                  event(3, "2026-10-21", "decider_checked", outcome="pass", visit_seq=2),
@@ -1254,6 +1310,16 @@ class ReferenceTest(unittest.TestCase):
                 self.assertIn("missing condition: %s" % c, seat_problems(self.text.replace(c, "")))
         cut = self.text.replace("## Replacing a seat\n", "")
         self.assertEqual(seat_problems(cut), ["missing section: Replacing a seat"])
+
+    def test_both_documents_state_the_not_graded_rule(self):
+        with open(GUIDE, encoding="utf-8") as f:
+            guide = guide_section(f.read(), "Reading the live figures")
+        bars = guide_section(self.text, "The bars")
+        for name, body in (("reference", bars), ("guide", guide)):
+            with self.subTest(document=name):
+                flat = " ".join(body.split())
+                self.assertIn("`koto.decider.outcome` `not_graded`", flat)
+                self.assertIn("graded evaluations only", flat)
 
     def test_the_lower_bounds_say_so(self):
         for rid in ("rs-019", "rs-020"):
