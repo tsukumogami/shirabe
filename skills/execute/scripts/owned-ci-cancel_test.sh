@@ -430,14 +430,22 @@ expect_exit "--owned: a failed context write blocks" 1
 # Wiring: the ci_monitor gates as execute.md ships them
 # ---------------------------------------------------------------------------
 
-# gate_command <name>: the gate's command, unquoted, with the variables koto
-# substitutes filled in.
+# gate_command <name>: the gate's command, unquoted. owned_ci_passing and
+# owned_merge_state_clean are double-quoted YAML scalars, which
+# koto_unquote_scalar reads; monitor_owned_pr is single-quoted, where the
+# only escape is a doubled quote.
 gate_command() {
-    local raw cmd
+    local raw q="'"
     raw=$(koto_gate_command "$TEMPLATE" "$1") || return 1
     [ -n "$raw" ] || return 1
-    cmd=$(koto_unquote_scalar "$raw") || return 1
-    printf '%s' "$cmd"
+    case "$raw" in
+        "$q"*"$q")
+            raw="${raw#"$q"}"
+            raw="${raw%"$q"}"
+            printf '%s' "${raw//"$q$q"/$q}"
+            ;;
+        *) koto_unquote_scalar "$raw" ;;
+    esac
 }
 
 # run_gate <name> [plugin-root]: the gate in GATE_CMD as koto runs it, from the
