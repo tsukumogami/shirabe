@@ -148,9 +148,10 @@ variables:
   FOLLOW_UP:
     description: >-
       A follow-up pull request for a node, from /execute's --follow-up
-      <node>=<url> flag, or empty. Accepted, and reported `ignored=follow-up`
-      by setup until follow-ups land. Rebindable, so an attach without the
-      flag resets it to empty.
+      <node>=<url> flag, or empty. Not usable yet: koto refuses a non-empty
+      value at init (`invalid_var`) and nothing changes, and --remove only goes
+      with --follow-up, so it can't be used yet either. Rebindable, so an
+      attach without the flag resets it to empty.
     required: false
     pattern: '^([a-z][a-z0-9-]*=https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?$'
     rebind: true
