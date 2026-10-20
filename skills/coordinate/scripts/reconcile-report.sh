@@ -75,6 +75,12 @@
 #                  row that is `dispatched` now, by this write or an earlier
 #                  pass's, is reported under changes, a failed settle under
 #                  not_verified
+#       legs       outcome (watched|relegged|unwatchable|none), now (the
+#                  row's Return path after it), reason: the pass's other
+#                  write, a dispatched holding whose leg's request this
+#                  host's store doesn't hold given an end by
+#                  reconcile-legs.sh (PRD R15); relegged and unwatchable are
+#                  reported under changes, a failed one under not_verified
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
@@ -295,10 +301,13 @@ def next_text:
 def next_of: next_code_of | next_text;
 
 def changes_of($written):
-  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st
+  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st | fact("legs") as $lg
   | [
       (if ok($st) and ($st.settled == true or $st.now == "dispatched") then
         {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
+       else empty end),
+      (if ok($lg) and ($lg.outcome == "relegged" or $lg.outcome == "unwatchable") then
+        {topic: $t, what: ("leg " + $lg.outcome), recorded: (.row.return_path // ""), live: ($lg.now // ""), written: $written, grade: "measured"}
        else empty end),
       (if ok($pr) and $pr.state != "OPEN" then
         {topic: $t, what: "pull request", recorded: "open", live: ($pr.state | ascii_downcase), written: $written, grade: "measured"}
@@ -507,6 +516,8 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
        elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
+       elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
+       elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; tell the worker the address of this coordinator"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)

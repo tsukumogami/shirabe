@@ -22,13 +22,23 @@
 #
 # Context keys written (all under reconcile/): progress (while pending),
 # refusal (when blocked), report.json, report.md, reasoning.md (when the
-# predecessor left reasoning). progress and refusal are cleared at the start
-# of every pass; a new visit removes the rest.
+# predecessor left reasoning). A pass leaves progress only when it ends
+# pending and refusal only when it ends blocked; a new visit removes the rest.
 #
-# The pass writes the record in one case only: a holding left `dispatching`
+# koto's cost is per call, and on its cloud backend a context call takes
+# seconds against the 30-second cap on this action (shirabe#844). So the pass
+# lists its reconcile/ keys once, removes only a key that is there, and makes
+# no other context call it can do without: a tick of a pending visit makes
+# two, the sealing tick five at most. reconcile-pass_test.sh pins the counts.
+#
+# The pass writes the record in two cases only. A holding left `dispatching`
 # whose worker the listing finds (and whose leg, when it has one, is bound or
-# resolved) is rewritten `dispatched` by reconcile-settle.sh, launched like a
-# re-check once those facts are in, and reported under "Changed since then".
+# resolved) is rewritten `dispatched` by reconcile-settle.sh. A dispatched
+# holding whose leg's request this host's store doesn't hold (the run was
+# imported here) gets its leg an end from reconcile-legs.sh: re-legged when
+# the worker's session came along unbound, else moved to the message path
+# (PRD R15). Each is launched like a re-check once the facts it needs are
+# in, and reported under "Changed since then".
 # A deferral's carry is judged against the chain start (coord-log.sh
 # chain-start), so a restart doesn't re-decide what the run it replaced
 # carried.
@@ -119,8 +129,26 @@ iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { printf '%s\n' "$1" >&3; exit 0; }
 die() { echo "reconcile-pass: $1" >&2; exit 1; }
 
-ctx_put() { koto context add "$SESSION" "$1" --from-file "$2" >/dev/null || die "koto context add $1 failed"; }
-ctx_rm() { koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true; }
+# HAVE: the reconcile/ keys the session holds, space-separated with a space at
+# each end, from the one listing a pass makes and kept current by the pass's
+# own adds and removes.
+HAVE=" "
+list_keys() {
+    local out names
+    out=$(koto context list "$SESSION" --prefix reconcile/ < /dev/null) || die "koto context list failed"
+    names=$(jq -r '.[]' <<< "$out") || die "koto context list printed no JSON array"
+    HAVE=" $(printf '%s ' $names)"
+}
+has_key() { case "$HAVE" in *" $1 "*) return 0 ;; esac; return 1; }
+ctx_put() {
+    koto context add "$SESSION" "$1" --from-file "$2" >/dev/null || die "koto context add $1 failed"
+    has_key "$1" || HAVE="$HAVE$1 "
+}
+ctx_rm() {
+    has_key "$1" || return 0
+    koto context remove "$SESSION" "$1" >/dev/null || die "koto context remove $1 failed"
+    HAVE=${HAVE/ $1 / }
+}
 ctx_rm_all() { local k; for k in progress refusal report.json report.md reasoning.md; do ctx_rm "reconcile/$k"; done; }
 
 T0=$(now) || exit 1
@@ -133,8 +161,10 @@ trap 'rm -rf "$T"' EXIT
 R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"
 
+list_keys
+# A refusal belongs to the pass that wrote it; progress stays until this pass
+# says pending again (rewriting it), seals or blocks.
 ctx_rm reconcile/refusal
-ctx_rm reconcile/progress
 
 # The visit: the sequence number of the latest entry into this state.
 PROBE=$("${RUNBASH[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token visit) \
@@ -175,6 +205,7 @@ if [ -f "$WORK" ]; then
         ctx_put reconcile/report.json "$W/report.json"
         ctx_put reconcile/report.md "$W/report.md"
         [ -f "$W/reasoning.md" ] && ctx_put reconcile/reasoning.md "$W/reasoning.md"
+        ctx_rm reconcile/progress
         say "$LAST"
     elif ! [[ $LAST =~ ^pending:$VISIT:[0-9]+:([0-9a-f]{64})$ ]] || [ "${BASH_REMATCH[1]}" != "$WSHA" ]; then
         # Edited since the last logged pass, or left by a pass that never
@@ -200,6 +231,7 @@ if [ -z "$WJ" ]; then
         [ -n "$REASON" ] || REASON="the record could not be read"
         printf 'case: %s\nreason: %s\n' "$CASE" "$REASON" > "$T/refusal"
         ctx_put reconcile/refusal "$T/refusal"
+        ctx_rm reconcile/progress
         say "blocked:$CASE"
     fi
     RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
@@ -259,7 +291,15 @@ plan() {
                        else empty end)
                   else empty end)
                end),
-              (if (($h.return_path // "") | startswith("leg ")) then {id: "\($p).leg", sub: "leg", args: ["--return-path", $h.return_path], natural: 8} else empty end)),
+              (if (($h.return_path // "") | startswith("leg ")) then {id: "\($p).leg", sub: "leg", args: ["--return-path", $h.return_path], natural: 8} else empty end),
+              # A dispatched holding whose leg the request store of this host
+              # does not hold (the run was imported here) gets its leg an end:
+              # re-legged, or moved to the message path (reconcile-legs.sh).
+              (if ($h.dispatch_status // "") == "dispatched" and (($h.return_path // "") | startswith("leg "))
+                  and ($f["\($p).leg"].status // "") == "not_verified"
+                  and ($f["\($p).leg"].reason // "") == "request not found on this host" then
+                 {id: "\($p).legs", sub: "legs", args: ["--session", $session, "--topic", $h.worker, "--return-path", $h.return_path], natural: 20}
+               else empty end)),
           ($rec.side_effects | to_entries[] | .key as $j | .value.row as $s | "s\($j)" as $p
             | ($s.target | target) as $t
             | (($s.action // "") | ascii_downcase) as $a
@@ -329,6 +369,8 @@ collect() {
 }
 
 running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
+# writing: a settle or a legs classification, one of the pass's writes, is running.
+writing() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do case "$x" in *.settle | *.legs) return 0 ;; esac; done; return 1; }
 
 # launch SPEC LEFT -- start one re-check in the background with its deadline
 # clipped to LEFT seconds.
@@ -353,10 +395,12 @@ launch() {
         exec 3>&-
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
-        # The settle is the pass's one write, in a script of its own; every
-        # other read is a re-check.
+        # The settle and the legs classification are the pass's writes, each
+        # in a script of its own; every other read is a re-check.
         if [ "$sub" = settle ]; then
             RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-settle.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        elif [ "$sub" = legs ]; then
+            RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-legs.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
         else
             RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
                 "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
@@ -387,10 +431,17 @@ while :; do
         tn=$(now) || exit 1
         el=$((tn - T0))
         left=$((READS_END - el))
-        # A write is never clipped: the settle starts only when its whole
-        # budget fits, else in a later pass, which starts with it.
+        # A write is never clipped: the settle and the legs classification
+        # start only when their whole budget fits, else in a later pass,
+        # which starts with them. And one write runs at a time: two would
+        # each rewrite the record, and the second would find it changed.
         whole=1
-        [ "$(printf '%s' "$spec" | jq -r .sub)" = settle ] && [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
+        case "$(printf '%s' "$spec" | jq -r .sub)" in
+            settle | legs)
+                [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
+                writing && whole=0
+                ;;
+        esac
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
             launch "$spec" "$left"
             ready=$((ready - 1))
@@ -431,7 +482,7 @@ jq -c --arg at "$(iso)" '
           elif $f["\($p).host1"] != null then ($f["\($p).host1"] | strip) else null end) as $host
        | {source: .value.source, row: .value.row, refused: null,
           facts: ([get("\($p).pr"), get("\($p).board.v"), get("\($p).board.l"), get("\($p).branch"),
-                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg"), get("\($p).settle")]
+                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg"), get("\($p).settle"), get("\($p).legs")]
                   + (if $host == null then [] else [$host | del(.path)] end)
                   + (if $f["\($p).inv"] != null then [get("\($p).inv")]
                      elif $host != null and $host.status == "ok" and $host.state == "missed" then
@@ -454,6 +505,7 @@ jq -c --arg at "$(iso)" '
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"
 DIGEST=$(rd_sha256 < "$W/report.json")
+ctx_rm reconcile/progress
 ctx_put reconcile/report.json "$W/report.json"
 ctx_put reconcile/report.md "$W/report.md"
 if [ "$(wj -r '.record.reasoning // empty')" = present ] && [ -f "$W/reasoning.md" ]; then

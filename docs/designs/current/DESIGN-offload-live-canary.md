@@ -290,7 +290,10 @@ whose directive tells the agent to author against `{{PR_BODY_RULES}}`. A
 withheld agent reads a conformance text with no PB4 paragraph, and a
 preloaded one reads the real file. When `pr_body_conformant` fails on PB4,
 `check-pr-output.sh` prints the finding and releases PB4's text, so either
-group can fix the body. In Datadog, the marker state on `state_entered`, the
+group can fix the body. (Since DESIGN-validate-and-return, a `/work-on` run
+gets PB4's text from its second PB4 failure, through the escalation ladder
+every output gate shares; the first failure carries PB4's summary. A run
+without the ladder's context still gets the text on every failure.) In Datadog, the marker state on `state_entered`, the
 entry into `pr_creation`, and the `check_rule` events for PB4 join on
 `koto.session.id` into a per-group count of runs and broken runs.
 

@@ -360,6 +360,71 @@ rm -rf "$STAGE_COPY" "$STAGE_LOG"
 FAKE_SHIRABE_RC=0
 FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
 
+# --- --pr-body: the escalation ladder -------------------------------------------
+#
+# With the template's ladder context, PB4 is delivered like every rule: its
+# summary on the first failure, its text from the second (koto's count, read
+# from the session log). The cases above, run without the context, are the
+# no-ladder path: PB4's text on every failure.
+
+LADDER_LOG="$WORKDIR/ladder.jsonl"
+run_ladder() {
+    OUT=$(SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=pr_body_conformant \
+        SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
+        "$CHECK" "$@" 2>"$WORKDIR/stderr")
+    RC=$?
+}
+# same_with_ladder <label>: the run with the context exits and prints on
+# standard output exactly what the run without it did.
+same_with_ladder() {
+    local plain_out plain_rc
+    run --pr-body; plain_out=$OUT; plain_rc=$RC
+    run_ladder --pr-body
+    if [ "$RC" -eq "$plain_rc" ] && [ "$OUT" = "$plain_out" ]; then
+        pass "--pr-body ladder: $1 exits and prints the same with the context"
+    else
+        fail "--pr-body ladder: $1 differs with the context: rc $RC vs $plain_rc"
+    fi
+}
+
+FAKE_SHIRABE_RC=2
+FAKE_SHIRABE_OUT=$(msg_json "$PB4")
+rf_test_ladder_log "$LADDER_LOG" pr_creation pr_body_conformant
+run_ladder --pr-body
+if [ "$RC" -eq 1 ] && [ "$(release_count)" -eq 0 ] \
+    && [ "$(findings | jq -r '.rule_id')" = pr-body/no-heading-in-part1 ]; then
+    pass "--pr-body ladder: PB4's first failure prints its summary finding and no text"
+else
+    fail "--pr-body ladder: count 1: rc $RC, $(release_count) releases, stderr $(cat "$WORKDIR/stderr")"
+fi
+same_with_ladder "a PB4 violation at count 1"
+
+rf_test_ladder_log "$LADDER_LOG" pr_creation pr_body_conformant pr-body/no-heading-in-part1 1
+run_ladder --pr-body
+if [ "$RC" -eq 1 ] && [ "$(release_count)" -eq 1 ] && grep -qF -- "$PB4_FIRST" "$WORKDIR/stderr" \
+    && ! grep -q '^::shirabe-check-exit::' "$WORKDIR/stderr"; then
+    pass "--pr-body ladder: PB4's second failure releases its text once"
+else
+    fail "--pr-body ladder: count 2: rc $RC, $(release_count) releases, stderr $(cat "$WORKDIR/stderr")"
+fi
+same_with_ladder "a PB4 violation at count 2"
+
+rf_test_ladder_log "$LADDER_LOG" pr_creation pr_body_conformant pr-body/no-heading-in-part1 2
+run_ladder --pr-body
+if [ "$RC" -eq 1 ] && [ "$(release_count)" -eq 1 ] \
+    && grep -q '^::shirabe-check-exit::{"rule_id":"pr-body/no-heading-in-part1","count":3,"state":"pr_creation","submit":{"pr_status":"check_unsatisfiable"' "$WORKDIR/stderr"; then
+    pass "--pr-body ladder: PB4's third failure offers the pr_creation exit"
+else
+    fail "--pr-body ladder: count 3: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+same_with_ladder "a conformant body"
+FAKE_SHIRABE_RC=1
+FAKE_SHIRABE_OUT='not json'
+same_with_ladder "a validator that fails to run (undecided)"
+
 # --- --pr-body: which PR, and the title as data ----------------------------------
 
 FAKE_SHIRABE_RC=0

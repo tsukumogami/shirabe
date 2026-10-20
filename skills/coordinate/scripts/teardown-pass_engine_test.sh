@@ -85,7 +85,7 @@ has()  { case "$2" in *"$3"*) pass "$1" ;; *) fail "$1" "missing [$3] in [$2]" ;
 PR="$T/plugin"
 S="$PR/skills/coordinate/scripts"
 mkdir -p "$S" "$PR/skills/coordinate/koto-templates"
-for f in dispatch-common.sh teardown-inventory.sh github-refs.sh teardown-verdict.sh coord-log.sh \
+for f in dispatch-common.sh teardown-inventory.sh inventory-common.sh github-refs.sh teardown-verdict.sh coord-log.sh \
     coord-verdict.sh teardown-handoff.sh teardown-pass.sh unit-cost.sh; do
     cp "$HERE/$f" "$S/$f"
 done

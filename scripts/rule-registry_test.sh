@@ -658,6 +658,205 @@ run "$S" verify-findings --stage-source s/none "$T/wrong-level.log"
 run "$S" verify-findings --stage-source s/block
 [ $RC -eq 2 ] && pass "verify-findings --stage-source without a log is a usage error" || fail "verify-findings usage" "rc=$RC"
 
+# --- the escalation ladder (rf_deliver) ----------------------------------------
+
+# A gate script that prints one finding per argument and then delivers. The
+# library is an installed-style copy, so release reads the t/ fixtures: t/multi
+# and t/single release, t/long (longer than release allows) and t/docs (a docs/ path) don't.
+L="$T/ladder"; make_root "$L" 1.2.3
+mkdir -p "$L/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$L/scripts/lib/rule-findings.sh"
+cat > "$L/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/multi t/single t/long t/docs"
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require t/multi t/single t/long t/docs
+for id in "$@"; do rf_finding "$id" "detail for $id"; done
+rf_deliver
+[ -z "${DELIVER_TWICE:-}" ] || rf_deliver
+exit 1
+PROBE
+chmod +x "$L/probe.sh"
+LOGS="$T/ladder-logs"; mkdir -p "$LOGS"
+LADDER_EXITS="pr_creation:pr_status finalization:finalization_status"
+
+# mklog <file> <state> [<event json>...]: a koto session log whose header is
+# line 1, whose session entered <state> last, and which holds the given events.
+mklog() {
+    local f=$1 state=$2 seq=1 ev
+    shift 2
+    printf '%s\n' '{"schema_version":1,"workflow":"w","template_hash":"h","created_at":"2026-10-16T00:00:00Z"}' > "$f"
+    printf '{"seq":%d,"timestamp":"t","type":"transitioned","payload":{"from":"start","to":"%s"}}\n' "$seq" "$state" >> "$f"
+    for ev in "$@"; do
+        seq=$((seq + 1))
+        printf '{"seq":%d,"timestamp":"t","type":"gate_evaluated","payload":%s}\n' "$seq" "$ev" >> "$f"
+    done
+}
+# fail_ev <state> <gate> <rule> <session> [<visit>]: a failed gate_evaluated payload.
+fail_ev() {
+    printf '{"state":"%s","gate":"%s","outcome":"failed","attempt":1,"visit_attempt":1,"rule_counts":{"%s":{"visit":%s,"session":%s}}}' \
+        "$1" "$2" "$3" "${5:-1}" "$4"
+}
+# ladder <log> <gate> <ids...>: run the probe with the ladder's context.
+ladder() {
+    local log=$1 gate=$2
+    shift 2
+    SHIRABE_GATE_LOG="$log" SHIRABE_GATE_NAME="$gate" SHIRABE_GATE_EXITS="$LADDER_EXITS" \
+        "$L/probe.sh" "$@" > "$T/lout" 2> "$T/lerr"
+    RC=$?
+}
+released() { grep -c "^::shirabe-rule::{\"rule_id\":\"$1\"" "$T/lerr"; }
+notices() { grep -c '^::shirabe-check-exit::' "$T/lerr"; }
+
+"$L/probe.sh" t/multi > "$T/plain.out" 2> "$T/plain.err"; plain_rc=$?
+[ $plain_rc -eq 1 ] && [ ! -s "$T/plain.err" ] && grep -q '"rule_id":"t/multi"' "$T/plain.out" \
+    && pass "ladder: without the context rf_deliver prints nothing" \
+    || fail "ladder no context" "rc=$plain_rc err=[$(cat "$T/plain.err")]"
+
+mklog "$LOGS/none.jsonl" pr_creation
+ladder "$LOGS/none.jsonl" g t/multi
+[ $RC -eq 1 ] && [ "$(released t/multi)" = 0 ] && [ "$(notices)" = 0 ] \
+    && pass "ladder: count 1 prints the summary finding and no release" \
+    || fail "ladder count 1" "rc=$RC err=[$(cat "$T/lerr")]"
+cmp -s "$T/lout" "$T/plain.out" && pass "ladder: standard output is the same with and without the context" \
+    || fail "ladder stdout" "outputs differ"
+
+mklog "$LOGS/one.jsonl" pr_creation "$(fail_ev pr_creation g t/multi 1)"
+ladder "$LOGS/one.jsonl" g t/multi
+[ $RC -eq 1 ] && [ "$(released t/multi)" = 1 ] && grep -qx '::shirabe-rule-end::' "$T/lerr" && [ "$(notices)" = 0 ] \
+    && pass "ladder: count 2 releases the rule's text once and offers no exit" \
+    || fail "ladder count 2" "rc=$RC err=[$(cat "$T/lerr")]"
+cmp -s "$T/lout" "$T/plain.out" && pass "ladder: count 2 leaves standard output unchanged" || fail "ladder stdout 2" "outputs differ"
+
+DELIVER_TWICE=1 ladder "$LOGS/one.jsonl" g t/multi
+[ "$(released t/multi)" = 1 ] && pass "ladder: rf_deliver runs once per process" || fail "ladder once" "released $(released t/multi) times"
+
+mklog "$LOGS/two.jsonl" other "$(fail_ev other g t/multi 1)" "$(fail_ev other g t/single 3)"
+ladder "$LOGS/two.jsonl" g t/multi t/single
+[ "$(released t/multi)" = 1 ] && [ "$(released t/single)" = 1 ] && [ "$(notices)" = 0 ] \
+    && pass "ladder: two rules at count 2 and 4 are each released once; no exit outside the exit table" \
+    || fail "ladder two rules" "err=[$(cat "$T/lerr")]"
+
+mklog "$LOGS/three.jsonl" finalization "$(fail_ev finalization g t/multi 2)"
+ladder "$LOGS/three.jsonl" g t/multi
+n=$(grep '^::shirabe-check-exit::' "$T/lerr" | sed 's/^::shirabe-check-exit:://')
+if [ "$(released t/multi)" = 1 ] && [ "$(notices)" = 1 ] \
+    && [ "$(jq -r '.rule_id' <<<"$n")" = t/multi ] && [ "$(jq -r '.count' <<<"$n")" = 3 ] \
+    && [ "$(jq -r '.state' <<<"$n")" = finalization ] \
+    && [ "$(jq -r '.submit.finalization_status' <<<"$n")" = check_unsatisfiable ] \
+    && jq -e '.submit | has("check_exit_reason")' <<<"$n" >/dev/null \
+    && [ "$(jq -r '.ends_at' <<<"$n")" = done_blocked ]; then
+    pass "ladder: count 3 in an exit state releases the text and prints one exit notice"
+else
+    fail "ladder count 3" "err=[$(cat "$T/lerr")]"
+fi
+
+mklog "$LOGS/three-noexit.jsonl" verification "$(fail_ev verification g t/multi 2)"
+ladder "$LOGS/three-noexit.jsonl" g t/multi
+[ "$(released t/multi)" = 1 ] && [ "$(notices)" = 0 ] \
+    && pass "ladder: count 3 in a state without an exit prints no notice" || fail "ladder no exit" "err=[$(cat "$T/lerr")]"
+
+mklog "$LOGS/tie.jsonl" pr_creation "$(fail_ev pr_creation g t/single 2)" "$(fail_ev pr_creation g t/multi 2)"
+ladder "$LOGS/tie.jsonl" g t/multi t/single
+[ "$(notices)" = 1 ] && grep -q '^::shirabe-check-exit::{"rule_id":"t/multi"' "$T/lerr" \
+    && grep -q '"pr_status":"check_unsatisfiable"' "$T/lerr" \
+    && pass "ladder: a tie at count 3 names the rule printed first" || fail "ladder tie" "err=[$(cat "$T/lerr")]"
+
+mklog "$LOGS/visit.jsonl" pr_creation "$(fail_ev pr_creation g t/multi 2 1)"
+ladder "$LOGS/visit.jsonl" g t/multi
+grep -q '"count":3' "$T/lerr" && pass "ladder: the count is koto's session count, not its visit count" \
+    || fail "ladder session count" "err=[$(cat "$T/lerr")]"
+
+mklog "$LOGS/elsewhere.jsonl" pr_creation "$(fail_ev pr_creation other-gate t/multi 4)" \
+    "$(fail_ev finalization g t/multi 4)" "$(fail_ev pr_creation g t/single 4)"
+ladder "$LOGS/elsewhere.jsonl" g t/multi
+[ "$(released t/multi)" = 0 ] && [ "$(notices)" = 0 ] \
+    && pass "ladder: counts under another gate, state or rule leave the rule at count 1" \
+    || fail "ladder scoping" "err=[$(cat "$T/lerr")]"
+
+# The same gate in two states: the state is read from the latest transition.
+mklog "$LOGS/moved.jsonl" finalization "$(fail_ev finalization g t/multi 2)"
+printf '%s\n' '{"seq":9,"timestamp":"t","type":"transitioned","payload":{"from":"finalization","to":"pre_pr_evidence"}}' >> "$LOGS/moved.jsonl"
+ladder "$LOGS/moved.jsonl" g t/multi
+[ "$(released t/multi)" = 0 ] && pass "ladder: a count recorded in another state doesn't follow the gate" \
+    || fail "ladder moved" "err=[$(cat "$T/lerr")]"
+printf '%s\n' '{"seq":10,"timestamp":"t","type":"rewound","payload":{"from":"pre_pr_evidence","to":"finalization"}}' >> "$LOGS/moved.jsonl"
+ladder "$LOGS/moved.jsonl" g t/multi
+[ "$(released t/multi)" = 1 ] && [ "$(notices)" = 1 ] \
+    && pass "ladder: a rewind back makes the earlier state's count current" || fail "ladder rewound" "err=[$(cat "$T/lerr")]"
+
+# Counts claimed anywhere but a gate_evaluated event of this gate change nothing.
+mklog "$LOGS/claimed.jsonl" pr_creation
+printf '%s\n' '{"seq":5,"timestamp":"t","type":"evidence_submitted","payload":{"state":"pr_creation","fields":{"rule_counts":{"t/multi":{"visit":9,"session":9}}}}}' \
+    '{"seq":6,"timestamp":"t","type":"context_added","payload":{"key":"rule_counts","state":"pr_creation","gate":"g"}}' >> "$LOGS/claimed.jsonl"
+printf '9\n' > "$LOGS/count"
+ladder "$LOGS/claimed.jsonl" g t/multi
+[ "$(released t/multi)" = 0 ] && pass "ladder: a count claimed in evidence, context or a file has no effect" \
+    || fail "ladder claimed" "err=[$(cat "$T/lerr")]"
+
+# Logs the ladder can't read: every reported rule at count 2, no exit.
+printf '%s\n' '{"seq":1,"timestamp":"t","type":"transitioned","payload":{"from":"a","to":"pr_creation"}}' > "$LOGS/noheader.jsonl"
+printf '%s\n' '{"schema_version":2,"workflow":"w"}' > "$LOGS/v2.jsonl"
+printf '%s\n' '{"schema_version":1,"workflow":"w"}' > "$LOGS/notransition.jsonl"
+printf 'not json at all\n' > "$LOGS/garbage.jsonl"
+for bad in "$LOGS/missing.jsonl" "$LOGS/noheader.jsonl" "$LOGS/v2.jsonl" "$LOGS/notransition.jsonl" "$LOGS/garbage.jsonl"; do
+    ladder "$bad" g t/multi t/single
+    if [ $RC -eq 1 ] && [ "$(released t/multi)" = 1 ] && [ "$(released t/single)" = 1 ] && [ "$(notices)" = 0 ] \
+        && grep -q "^rule-findings: could not read koto's counts from $bad" "$T/lerr" \
+        && ! grep -q '^jq: ' "$T/lerr" \
+        && cmp -s "$T/lout" <("$L/probe.sh" t/multi t/single 2>/dev/null); then
+        pass "ladder: an unreadable log ($(basename "$bad")) releases every rule and offers no exit"
+    else
+        fail "ladder unreadable $(basename "$bad")" "rc=$RC err=[$(cat "$T/lerr")]"
+    fi
+done
+if [ "$(id -u)" != 0 ]; then
+    mklog "$LOGS/locked.jsonl" pr_creation "$(fail_ev pr_creation g t/multi 2)"
+    chmod 000 "$LOGS/locked.jsonl"
+    ladder "$LOGS/locked.jsonl" g t/multi
+    chmod 600 "$LOGS/locked.jsonl"
+    [ "$(released t/multi)" = 1 ] && [ "$(notices)" = 0 ] && pass "ladder: an unreadable file releases and offers no exit" \
+        || fail "ladder locked" "err=[$(cat "$T/lerr")]"
+fi
+SHIRABE_GATE_NAME=g "$L/probe.sh" t/multi > /dev/null 2> "$T/lerr"
+[ "$(released t/multi)" = 1 ] && pass "ladder: a gate name with no log is the unreadable-log path, not silence" \
+    || fail "ladder half context" "err=[$(cat "$T/lerr")]"
+SHIRABE_GATE_LOG="$LOGS/one.jsonl" "$L/probe.sh" t/multi > /dev/null 2> "$T/lerr"
+[ "$(released t/multi)" = 1 ] && grep -q "^rule-findings: could not read koto's counts" "$T/lerr" \
+    && pass "ladder: a log with no gate name is the unreadable-log path, not silence" \
+    || fail "ladder half context log" "err=[$(cat "$T/lerr")]"
+
+# Text release refuses: its refusal line, then the rule's anchored reference.
+mklog "$LOGS/refused.jsonl" pr_creation "$(fail_ev pr_creation g t/long 1)" "$(fail_ev pr_creation g t/docs 1)"
+ladder "$LOGS/refused.jsonl" g t/long t/docs
+long_ref=$("$L/scripts/rule-registry.sh" ref t/long 2>/dev/null); docs_ref=$("$L/scripts/rule-registry.sh" ref t/docs 2>/dev/null)
+if grep -q '^rule-registry: could not release t/long: ' "$T/lerr" \
+    && grep -qxF "rule-findings: t/long's full text is at $long_ref" "$T/lerr" \
+    && grep -q '^rule-registry: could not release t/docs: ' "$T/lerr" \
+    && grep -qxF "rule-findings: t/docs's full text is at $docs_ref" "$T/lerr" \
+    && [ -n "$long_ref" ] && [ -n "$docs_ref" ]; then
+    pass "ladder: a rule release refuses gets the refusal and its anchored reference"
+else
+    fail "ladder refused" "err=[$(cat "$T/lerr")]"
+fi
+
+# The rules a /work-on gate script can report that release refuses. A rule
+# joining or leaving this set changes what an agent gets at rung 2, so the set
+# is pinned. panel-scope.sh --verdict can also print under any active id a
+# finding cites; this covers the ids the scripts name on their RULE_IDS lines.
+refused=""
+for s in check-pr-output check-branch-output check-verification panel-scope; do
+    for id in $(sed -n 's/^RULE_IDS="\(.*\)"$/\1/p' "$REPO_ROOT/skills/work-on/scripts/$s.sh"); do
+        out=$("$SUT" release "$id" 2>&1 </dev/null)
+        case "$out" in "::shirabe-rule::"*) ;; *) refused="$refused $id" ;; esac
+    done
+done
+refused=$(printf '%s\n' $refused | sort -u | tr '\n' ' ')
+want="docs/private-only-type docs/visibility-strategy-sections docs/visibility-vision-sections pr-body/banned-word pr-body/conformance "
+[ "$refused" = "$want" ] && pass "ladder: the /work-on gate rules release refuses are the five the design names" \
+    || fail "ladder unreleasable set" "got [$refused] want [$want]"
+
 # --- the real registry's shape -----------------------------------------------
 
 REG="$REPO_ROOT/references/rule-registry.json"

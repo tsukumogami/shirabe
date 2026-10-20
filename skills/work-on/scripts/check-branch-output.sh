@@ -101,6 +101,7 @@ blocked() {
     [ "$RF_BLOCKING" -gt 0 ] || return 0
     echo "check-branch-output: $1" >&2
     rf_dispute_hint
+    rf_deliver
     exit 1
 }
 

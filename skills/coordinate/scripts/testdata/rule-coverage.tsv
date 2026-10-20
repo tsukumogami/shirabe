@@ -254,3 +254,7 @@ S12	skills/coordinate/references/record-template.md	-	Only `record-state.sh --ho
 S13	skills/coordinate/koto-templates/coordinate.md	reconcile	on the first tick after an import
 S14	skills/coordinate/koto-templates/coordinate.md	reconcile	reports to (`no-reports-to`)
 S15	skills/coordinate/koto-templates/coordinate.md	reconcile	the session, workspace and template it came from
+S16	skills/coordinate/SKILL.md	-	Every worker's leg is a key of the coordinator's own session
+S17	skills/coordinate/koto-templates/coordinate.md	reconcile	until each leg has an end (`leg-unclassified <worker>`)
+S18	skills/coordinate/koto-templates/coordinate.md	failure	--topic <its topic> --strand
+S19	skills/coordinate/koto-templates/coordinate.md	take_report	so it stands as a message report from `worker <topic>`

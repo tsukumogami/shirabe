@@ -2658,7 +2658,14 @@ lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
 address; a holding merged and waiting for its teardown is exempt. On the
 session store it also holds while the record names nobody this coordinator
-reports to (`no-reports-to`). This full
+reports to (`no-reports-to`). After an import it holds, on either store,
+until each leg has an end (`leg-unclassified <worker>`): a live holding whose
+leg names a request this host's store doesn't hold. The pass gives each such
+leg its end, re-legging a worker whose session came along unbound and moving
+any other to the message path, and the report names each under "Changed
+since then"; tell a worker moved to message your address, which the told
+rule asks for. When the pass reported one not verified, run the fix the gap
+names. This full
 reconcile runs at every start and restart, again whenever the record is
 found anew after a conflict, and again
 on the first tick after an import: a report sealed on the old host read that
@@ -3199,7 +3206,12 @@ naming the worker.
 A report is admitted only when it has text and when it may stand for its
 worker: a message for a worker on the message path, a leg result for the leg
 the record names, or a progress report from any worker with a holding. A message for a leg-bound worker goes back to the hub; read
-that worker's leg instead. A leg report must be exactly the result koto holds
+that worker's leg instead. Once that leg is read (its `legs/` key reads
+`taken`, or koto's own record of the leg holds the worker's promoted result),
+or can't be watched from this host (`unwatchable`, or a request this host's
+store doesn't hold), a message is the only way the worker can
+report, so it stands as a message report from `worker <topic>`, questions
+included. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg
 from koto rather than trusting the report's text. One that isn't goes to the
 human with the report cleared: name the worker in `report_topic`, and the
@@ -4070,6 +4082,16 @@ failure is outside the scope, when what was pushed can't be picked up cold, or
 when the conflict means two units disagree about something only a decision can
 settle. The escalation's shape is in `references/loop.md`; a re-dispatch writes
 its brief from `references/brief-template.md`.
+
+A worker on the message path that went quiet (a second silence, or a worker
+that moved to message after an import and never answered) is stranded when
+you redispatch its unit: mark it with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-holding.sh" --session {{SESSION_NAME}} --topic <its topic> --strand`
+before you submit `redispatch`, and dispatch the unit under a new topic. The
+script refuses a leg-bound worker, whose end still arrives on its leg. The
+new worker's brief names the stranded worker's branch and last pushed head,
+and the stranded row is retired once the new worker is dispatched; a report
+that later comes from the old topic matches no holding and is refused.
 
 ## decision_apply
 

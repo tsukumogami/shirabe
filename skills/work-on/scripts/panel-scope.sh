@@ -590,6 +590,7 @@ $findings
 EOF
     [ "$RF_BLOCKING" -gt 0 ] || exit 0
     rf_dispute_hint
+    rf_deliver
     exit 1
 fi
 

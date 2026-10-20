@@ -257,21 +257,27 @@ check_pr_body() {
             "shirabe validate --pr-body reported violations it did not list; run it on the PR body for the detail"
     fi
     # PB4 is the rule the offload canary may leave out of a run's preloaded
-    # text (DESIGN-offload-live-canary.md), so when it is
-    # broken its full text is released here, once, in every run where its
-    # finding is shown as something to act on: at warn or block, not at shadow
-    # (an info line) or retired (nothing printed). release prints on stderr,
-    # which koto returns to the agent with the gate's output, and always exits
-    # 0, so it never changes this gate's result.
+    # text (DESIGN-offload-live-canary.md), so its full text reaches the agent
+    # whenever its finding is shown as something to act on, and never at
+    # shadow (an info line) or retired (nothing printed). At block, when the
+    # template supplies the escalation ladder's context, the ladder delivers it
+    # like every rule (its text from its second failure, rf_deliver below);
+    # without that context -- /execute's gate, a test, an agent's own shell --
+    # it is released here on every failure, as before the ladder. At warn the
+    # gate passes and the ladder doesn't run, so it is released here. release
+    # prints on stderr, which koto returns to the agent with the gate's output,
+    # and always exits 0, so no path changes this gate's result.
     if [ "$pb4" -eq 1 ]; then
         pb4_stage=$(rf_stage pr-body/no-heading-in-part1) || exit 2
         case "$pb4_stage" in
-            warn|block) "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null ;;
+            warn) "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null ;;
+            block) rf_ladder_active || "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null ;;
         esac
     fi
     if [ "$RF_BLOCKING" -gt 0 ]; then
         echo "check-pr-output: $RF_BLOCKING PR title/body violation(s)" >&2
         rf_dispute_hint
+        rf_deliver
         exit 1
     fi
     echo "check-pr-output: the PR title and body break no rule at block; the findings above are of rules below it" >&2

@@ -1043,7 +1043,7 @@ states:
       # only way past it, listed by `koto overrides list`.
       scrutiny_verdict:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "{{SESSION_NAME}}"'
+        command: 'SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=scrutiny_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "{{SESSION_NAME}}"'
         override_default:
           exit_code: 0
           error: ""
@@ -1133,7 +1133,7 @@ states:
       # The panel's pass, from the ledger (gate 6), as on scrutiny.
       review_verdict:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict review "{{SESSION_NAME}}"'
+        command: 'SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=review_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict review "{{SESSION_NAME}}"'
         override_default:
           exit_code: 0
           error: ""
@@ -1257,7 +1257,7 @@ states:
       # The panel's pass, from the ledger (gate 6), as on scrutiny.
       qa_verdict:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict qa "{{SESSION_NAME}}"'
+        command: 'SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=qa_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict qa "{{SESSION_NAME}}"'
         override_default:
           exit_code: 0
           error: ""
@@ -1341,7 +1341,7 @@ states:
       # The panel's pass, from the ledger (gate 6), as on scrutiny.
       light_verdict:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict light "{{SESSION_NAME}}"'
+        command: 'SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=light_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict light "{{SESSION_NAME}}"'
         override_default:
           exit_code: 0
           error: ""
@@ -1469,7 +1469,7 @@ states:
     gates:
       verification_verdict:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" --verdict --session "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=verification_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" --verdict --session "{{SESSION_NAME}}"'
         poll:
           interval_secs: 15
           timeout_secs: 7200
@@ -1567,7 +1567,7 @@ states:
       # above; pre_pr_evidence runs the same gate as its backstop.
       commit_convention:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=commit_convention SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
     accepts:
       finalization_status:
         type: enum
@@ -1579,12 +1579,26 @@ states:
         #   self-reported deferral terminal here (the old deferred_items_noted loophole is
         #   removed). This routes to the blocking deferral_approval human gate instead.
         # issues_found: defects need more implementation; return to implementation.
-        values: [ready_for_pr, deferral_requested, issues_found]
+        # check_unsatisfiable: the named exit (DESIGN-validate-and-return.md) for a
+        #   commit rule the run can't satisfy; accepted only while commit_convention
+        #   fails on a rule, and it stops the run at done_blocked, never past the gate.
+        values: [ready_for_pr, deferral_requested, issues_found, check_unsatisfiable]
         required: true
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing check can't
+          be satisfied. It becomes part of failure_reason.
     transitions:
       - target: implementation
         when:
           finalization_status: issues_found
+      - target: check_exit
+        when:
+          finalization_status: check_unsatisfiable
+          gates.commit_convention.exit_code: 1
+        context_assignments:
+          failure_reason: "check_exit at finalization: commit_convention could not be satisfied: ${evidence.check_exit_reason}"
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable on verification_verdict exit 0.
       # It also requires both artifacts to pass the checks pre_pr_evidence makes.
@@ -1629,7 +1643,7 @@ states:
       # reason as the checks above.
       commit_convention:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=commit_convention SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
     accepts:
       approval_decision:
         type: enum
@@ -1684,7 +1698,7 @@ states:
       # and its 2 (could not decide) both end the run.
       commit_convention:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=commit_convention SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
       # The concrete referents, in an artifact the run writes, checked for
       # existence and not only for shape (check-pre-pr-referents.sh):
       # "cleanup_commit: done" is not a sha, a sha that names no commit or a
@@ -1824,18 +1838,30 @@ states:
       # docs/visibility-strategy-sections).
       branch_docs_visibility:
         type: command
-        command: 'test -n "{{SHARED_BRANCH}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --session "{{SESSION_NAME}}"; }'
+        command: 'test -n "{{SHARED_BRANCH}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=branch_docs_visibility SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --session "{{SESSION_NAME}}"; }'
     accepts:
       precheck_status:
         type: enum
-        values: [override, blocked]
+        values: [override, blocked, check_unsatisfiable]
         description: >-
           Absent on the passing path. The state advances with no evidence when
-          the gate passes, so the agent never sees it.
+          the gate passes, so the agent never sees it. check_unsatisfiable is the
+          named exit for a documents rule branch_docs_visibility keeps failing on.
       detail:
         type: string
         description: Why the branch could not be settled.
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing check can't
+          be satisfied. It becomes part of failure_reason.
     transitions:
+      - target: check_exit
+        when:
+          precheck_status: check_unsatisfiable
+          gates.branch_docs_visibility.exit_code: 1
+        context_assignments:
+          failure_reason: "check_exit at pr_precheck: branch_docs_visibility could not be satisfied: ${evidence.check_exit_reason}"
       - target: pr_creation
         when:
           gates.on_feature_branch_pr.exit_code: 0
@@ -1878,16 +1904,30 @@ states:
       # default pass-through list, so the template declares no pass_env.
       pr_body_conformant:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
     accepts:
       pr_status:
         type: enum
-        values: [created, shared, creation_failed_retry, creation_failed_escalate]
+        values: [created, shared, creation_failed_retry, creation_failed_escalate, check_unsatisfiable]
         required: true
       pr_url:
         type: string
         description: URL of the created pull request
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing check can't
+          be satisfied. It becomes part of failure_reason.
     transitions:
+      # The named exit (DESIGN-validate-and-return.md): accepted only while
+      # pr_body_conformant fails on a rule, and it stops the run at done_blocked
+      # through check_exit, never past the gate.
+      - target: check_exit
+        when:
+          pr_status: check_unsatisfiable
+          gates.pr_body_conformant.exit_code: 1
+        context_assignments:
+          failure_reason: "check_exit at pr_creation: pr_body_conformant could not be satisfied: ${evidence.check_exit_reason}"
       - target: ci_monitor
         when:
           pr_status: created
@@ -1920,6 +1960,16 @@ states:
           pr_status: creation_failed_escalate
         context_assignments:
           failure_reason: "pr_creation failed after retries: ${evidence.pr_url}"
+
+  # The named exit's marker state. It passes straight through to done_blocked;
+  # its name is what carries a run that took the exit to an exporter such as
+  # Datadog (koto's state_entered event has it in koto.state, and no evidence
+  # value is ever exported). failure_reason is set on the edge into this state,
+  # so koto's W5 warning that this edge writes none is expected: an assignment
+  # here would resolve to an empty value and overwrite it.
+  check_exit:
+    transitions:
+      - target: done_blocked
 
   ci_monitor:
     gates:
@@ -2831,6 +2881,18 @@ Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
 `koto context add` replaces the whole key, so rewrite `pre_pr.md` with both
 lines, not just the one that failed.
 
+**`commit_convention`'s output escalates.** The first time a rule fails here,
+its finding carries the rule's summary. From the second failed evaluation of
+the same rule, the gate's output also carries the rule's full text, or, where
+that text can't be printed, the file and line range to read; from the third, a
+`::shirabe-check-exit::` line says this state's exit is open. koto's own count
+decides each step, not anything you submit. When a commit rule can't
+be satisfied, take the exit rather than looping: submit
+`finalization_status: check_unsatisfiable` with `check_exit_reason` set to one
+sentence saying why. It is accepted only while `commit_convention` fails on a
+rule (exit 1), and it ends the run at `done_blocked` through `check_exit`; it
+never moves the run past the gate.
+
 koto keeps only a referent gate's exit status, not what it printed. To see why
 one failed, run its check yourself; it prints the reason on stderr:
 
@@ -2939,6 +3001,8 @@ The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so n
 
 Submit `precheck_status: override` to proceed from the default branch anyway, or `blocked` with `detail` to stop. `override` still needs `branch_docs_visibility` to pass. On the passing path submit nothing -- the run advances on its own.
 
+`branch_docs_visibility`'s output escalates. The first time a rule fails here, its finding carries the rule's summary. From the second failed evaluation of the same rule, the gate's output also carries the rule's full text, or, where that text can't be printed, the file and line range to read; from the third, a `::shirabe-check-exit::` line says this state's exit is open. koto's own count decides each step. When a documents rule can't be satisfied, take the exit rather than looping: submit `precheck_status: check_unsatisfiable` with `check_exit_reason` set to one sentence saying why. It is accepted only while `branch_docs_visibility` fails on a rule (exit 1), and it ends the run at `done_blocked` through `check_exit`; it never moves the run past the gate.
+
 ## pr_creation
 
 If `SHARED_BRANCH` is set, this child is running on the orchestrator's shared
@@ -2971,9 +3035,28 @@ again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
 
+The gate's output escalates. The first time a rule fails here, its finding
+carries the rule's summary. From the second failed evaluation of the same
+rule, the output also carries the rule's full text, or, where that text can't
+be printed, the file and line range to read; from the third, a
+`::shirabe-check-exit::` line says this state's exit is open. koto's own count
+decides each step. When a title or body rule can't be satisfied, take the exit
+rather than looping: first mark the pull request draft
+(`gh pr ready --undo`) so nobody reads it as finished, then submit
+`pr_status: check_unsatisfiable` with `check_exit_reason` set to one sentence
+saying why. It is accepted only while `pr_body_conformant` fails on a rule
+(exit 1), and it ends the run at `done_blocked` through `check_exit`; it never
+moves the run past the gate.
+
 Retry cap: self-loop with `creation_failed_retry` up to 3 times. After 3, use
 `creation_failed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number.
+
+## check_exit
+
+koto passes through this state to `done_blocked` without stopping. There is
+nothing to submit: the run took a check's named exit, and `failure_reason`
+already says which state, which gate and why.
 
 ## ci_monitor
 
