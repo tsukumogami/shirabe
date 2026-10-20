@@ -24,7 +24,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 # The copied tree: reconcile's scripts, /execute's validators, and the two
@@ -368,6 +368,14 @@ expect "a message return path makes no request-store read" '.status == "not_veri
 new_case leg-bad
 expect "an invalid request id reaches no command" '.status == "not_verified"' "$(run leg --return-path 'leg ../x:deliver')"
 [ -s "$CASE/log" ] && bad "an invalid request id makes no call" || ok "an invalid request id makes no call"
+# No private directory for the reads (TMPDIR can't be written to): every read
+# fails closed with rd_deadline's own code, never as koto's "not found", and
+# no command runs.
+new_case leg-no-tmp
+serve koto-request 1 "$REQ_JSON"
+out=$(TMPDIR="$CASE/no-such-dir" run leg --return-path 'leg req1:deliver' 2>/dev/null)
+expect "with no private directory a read fails closed, not as not found" '.status == "not_verified" and (.reason | test("exit 125"))' "$out"
+[ -s "$CASE/log" ] && bad "with no private directory no read runs" "$(cat "$CASE/log")" || ok "with no private directory no read runs"
 
 echo "== inventory =="
 # A real clone in a temp instance. ls-remote is served; every other git call
@@ -454,6 +462,13 @@ expect "a missing instance directory: inventory not taken" '.status == "not_veri
 mkdir -p "$T/linkdir-target"; ln -s "$T/linkdir-target" "$T/linked-instance"
 new_case inventory-symlinked
 expect "a symlinked instance path is not followed" '.status == "not_verified"' "$(run inventory --path "$T/linked-instance")"
+# No temporary file can be made: the inventory isn't taken, and its cleanup
+# never globs the caller's directory (an empty name's ".*" is every dotfile).
+new_case inventory-no-tmp
+mkdir -p "$CASE/cwd"; : > "$CASE/cwd/.keep-me"
+out=$(cd "$CASE/cwd" && TMPDIR="$CASE/no-such-dir" run inventory --path "$I" 2>/dev/null)
+expect "with no temporary file the inventory is not taken" '.status == "not_verified" and (.reason | test("temporary file"))' "$out"
+[ -e "$CASE/cwd/.keep-me" ] && ok "with no temporary file nothing in the caller's directory is removed" || bad "with no temporary file nothing in the caller's directory is removed"
 new_case inventory-no-remote
 I2="$T/inst2"; mkdir -p "$I2/r"; git -C "$I2/r" init -q; git -C "$I2/r" remote add origin https://gitlab.example/x/y.git
 expect "a clone with no github.com origin is marked unchecked" '.items | any(.kind == "unchecked")' "$(run inventory --path "$I2")"

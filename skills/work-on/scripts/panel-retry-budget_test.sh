@@ -60,7 +60,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 [ -x "$SCRIPT" ] || { echo "FAIL: $SCRIPT is missing or not executable" >&2; exit 1; }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 

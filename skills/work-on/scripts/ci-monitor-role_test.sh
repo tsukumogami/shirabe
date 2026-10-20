@@ -380,7 +380,7 @@ fi
 # wrongly cascades deletes a PLAN its siblings are still working from.
 # ---------------------------------------------------------------------------
 if command -v jq >/dev/null 2>&1; then
-    RD=$(mktemp -d); TMPS+=("$RD")
+    RD=$(mktemp -d) || exit 1; TMPS+=("$RD")
     mkdir -p "$RD/home"
     rk() { (cd "$RD" && HOME="$RD/home" koto "$@"); }
     role_of() { (cd "$RD" && HOME="$RD/home" bash "$ROLE_SH" "$1" 2>/dev/null); }

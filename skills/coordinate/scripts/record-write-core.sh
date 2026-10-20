@@ -376,7 +376,7 @@ core_write() {
     fi
     [[ $REF =~ $RE_NUM ]] || usage
 
-    T=$(mktemp -d "${TMPDIR:-/tmp}/record-write.XXXXXX")
+    T=$(mktemp -d "${TMPDIR:-/tmp}/record-write.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
 
     # The budget first: a body past it is record-full whatever else is wrong

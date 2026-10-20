@@ -38,7 +38,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"

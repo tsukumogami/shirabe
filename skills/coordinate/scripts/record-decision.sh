@@ -193,7 +193,7 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || usage
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-decision.XXXXXX")
+WD=$(mktemp -d "${TMPDIR:-/tmp}/record-decision.XXXXXX") || lib_die2 "cannot make a temporary directory"
 # The write core takes over the EXIT trap; CORE_CLEANUP has it remove this too.
 CORE_CLEANUP=$WD
 trap 'rm -rf "$WD"' EXIT

@@ -41,7 +41,7 @@ fail() { printf "${RED}FAIL${NC}: %s\n" "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 [ -f "$PACKET_SH" ] || { echo "FAIL: review-packet.sh not found at $PACKET_SH" >&2; exit 1; }
 command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH, no case ran"; exit 0; }
 
-ROOT=$(mktemp -d)
+ROOT=$(mktemp -d) || exit 1
 trap 'rm -rf "$ROOT"' EXIT
 
 # Stubs. KOTO_STORE is a directory with one file per context key.

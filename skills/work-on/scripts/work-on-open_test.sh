@@ -57,9 +57,9 @@ eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: want [$2], got [$3]"; 
 
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/work-on-open-test.XXXXXX")
-WORK=$(cd -P "$WORK" && pwd -P)
-trap 'rm -rf "$WORK"' EXIT
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/work-on-open-test.XXXXXX") || exit 1
+WORK=$(cd -P "$WORK" && pwd -P) || exit 1
+trap 'case "$WORK" in */work-on-open-test.*) rm -rf "$WORK" ;; esac' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 export GIT_CEILING_DIRECTORIES="$WORK"
