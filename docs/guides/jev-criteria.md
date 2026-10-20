@@ -82,8 +82,8 @@ As queries over the exported events, for one criterion:
 The bar is met with at least 30 evaluations across at least 5 sessions, at
 least 95% of them answered, no over-budget fallback, and no input over the
 entry's `jev.budget`. Not-graded tuples count toward none of these: the
-minimums count graded evaluations only. `references/jev-criteria.md` owns these numbers; if the
-two ever disagree, the reference is right.
+minimums count graded evaluations only. `references/jev-criteria.md` owns
+these numbers; if the two ever disagree, the reference is right.
 
 `jev_criteria.py figures` computes the same figures from local koto session
 logs and prints the `live` JSON a promotion records:
