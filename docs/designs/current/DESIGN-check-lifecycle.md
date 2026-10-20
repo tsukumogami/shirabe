@@ -447,10 +447,12 @@ program:
 3. Fires: those evaluations with a `check_finding` record for the rule at the
    same session and `koto.seq`, counted once per evaluation and by
    `koto.finding.level`. A finding only counts at the rule's own gates (its
-   `koto.state` and `koto.check.name`), so a review panel's finding citing a
-   rule counts for `panel/open-finding`, whose gates the panel gates are, and
-   not for the cited rule.
-4. Disputes: `check_disputed` records naming the rule at one of its gates
+   `koto.state` and `koto.check.name`). `panel-scope.sh` journals a review
+   panel's finding citing a rule under the cited rule's id, so at the panel
+   gates every finding counts for `panel/open-finding`, whatever
+   `koto.rule.id` it carries, and never for the cited rule.
+4. Disputes: `check_disputed` records naming the rule (for
+   `panel/open-finding`, any rule id, as with fires) at one of its gates
    (`koto.state` and `koto.check.name`), by `koto.dispute.source`, counted at
    most once per session per rule, so one session repeating a dispute moves
    the figure once.

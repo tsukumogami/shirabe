@@ -111,16 +111,19 @@ themselves, so in a backend the gate has one path on all three kinds.
 |---|---|
 | Window | From the rule's `stage_since` (inclusive) to the newest `at` among the records read, of any kind and any rule. Its length is the calendar days between the two dates. |
 | Evaluations | `check_evaluated` records in the window that carry `koto.check.finding_count` (a koto that journals findings; older evaluations would read as quiet and aren't counted), whose `koto.state` and `koto.check` (`koto.check.name` in a backend) are the state and gate of one of the rule's gates. One per `koto.session.id` and `koto.seq`. |
-| Fires | Evaluations with a `check_finding` for the rule (`koto.rule.id`) at the same `koto.session.id` and `koto.seq`, whose `koto.state` and `koto.check.name` are one of the rule's gates. Counted once per evaluation, and once per evaluation per `koto.finding.level`. Fires are evaluations minus passes, not the sum of the level columns. |
+| Fires | Evaluations with a `check_finding` for the rule (`koto.rule.id`; for `panel/open-finding`, any `koto.rule.id`) at the same `koto.session.id` and `koto.seq`, whose `koto.state` and `koto.check.name` are one of the rule's gates. Counted once per evaluation, and once per evaluation per `koto.finding.level`. Fires are evaluations minus passes, not the sum of the level columns. |
 | Passes | Evaluations minus fires. |
-| Disputes | `check_disputed` records for the rule at one of its gates (`koto.state`, `koto.check.name`), at most one per `koto.session.id` (the earliest by `at`), split by `koto.dispute.source` (`agent` or `person`; no other source counts). A record with no session id isn't counted. |
+| Disputes | `check_disputed` records for the rule (`koto.rule.id`; for `panel/open-finding`, any `koto.rule.id`) at one of its gates (`koto.state`, `koto.check.name`), at most one per `koto.session.id` (the earliest by `at`), split by `koto.dispute.source` (`agent` or `person`; no other source counts). A record with no session id isn't counted. |
 | Unconverged visits | `koto.session.id` and `koto.visit.seq` pairs with an `error` fire for the rule and no evaluation of the same gate with `koto.check.outcome` `passed` in that visit. Informational. |
 
 A finding joins its evaluation on the session id and `koto.seq`; a dispute
 joins the evaluation it disputes on the session id, `koto.state`,
-`koto.check.name` and `koto.attempt`. A review panel's finding that cites a
-rule counts for `panel/open-finding`, whose gates the panel gates are, never
-for the cited rule. A rate is per evaluation of the rule's gates, not per case
+`koto.check.name` and `koto.attempt`. `panel-scope.sh --verdict` journals a
+reviewer's finding that cites a rule under the cited rule's id, at a panel
+gate and at `panel/open-finding`'s stage, so at the panel gates every finding
+and dispute counts for `panel/open-finding`, whatever `koto.rule.id` it
+carries, and never for the cited rule, whose gates don't include a panel
+gate. A rate is per evaluation of the rule's gates, not per case
 the rule applies to.
 
 ## Criteria
