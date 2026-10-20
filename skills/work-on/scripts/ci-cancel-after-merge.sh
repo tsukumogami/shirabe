@@ -32,7 +32,9 @@
 #       never just the branch's, since another run can hold a pull request on
 #       the same head. An empty or failed lookup is exit 1. owned-pr.sh is the
 #       execute skill's copy under the same plugin root, found the way
-#       check-pr-output.sh finds it.
+#       check-pr-output.sh finds it. The floor list still comes from the
+#       working tree's repository: /execute records the repository it runs
+#       in as the one its lookups name, so the two are the same.
 #   - every check outside the pass and skipping buckets is in the cancel
 #     bucket, and there is at least one. A pending or failed check blocks.
 #   - each such check's link is an Actions run of this pull request's own

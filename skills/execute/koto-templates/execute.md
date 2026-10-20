@@ -755,9 +755,10 @@ states:
       # All three gates look up with --state open-else-merged (#958): the open
       # PR while there is one, exactly as --state open answers, and the run's
       # MERGED PR once it has merged. With --state open, a PR that merged while
-      # the run watched CI was no PR at all, and monitor_owned_pr's exit 3 ended
-      # the run at execute:pr-adopt. A MERGED PR's merge state reads UNKNOWN,
-      # which owned_merge_state_clean passes.
+      # the run watched CI was no PR at all: monitor_owned_pr's exit 3 ended
+      # the run at execute:pr-adopt, and owned_merge_state_clean's empty
+      # lookup was a 2 that matches no edge. A MERGED PR's merge state reads
+      # UNKNOWN, which owned_merge_state_clean passes.
       #
       # owned_ci_passing keeps the filter above and falls back, only when it
       # says not green, to work-on's ci-cancel-after-merge.sh, the one copy of
