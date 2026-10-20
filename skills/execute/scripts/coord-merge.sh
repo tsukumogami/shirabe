@@ -16,6 +16,18 @@
 # head is the cascade's pushed head (`run/cascade`); with no pushed cascade
 # the merge is refused.
 #
+# A follow-up, `--node <node>/follow-up-<n>` (coordinated-next.sh prints
+# `merge:<node>/follow-up-<n>`), takes its repository, number and head from
+# its own record (run/follow-up/<node>/<n>, which setup wrote from its live
+# head); an absent or removed one, or one outside its node's repository or
+# the write set, is exit 73. It merges only after its node: a node PR GitHub
+# doesn't report MERGED refuses with `merge-refused:predecessor-unmerged`.
+# Then the rule every follow-up is held to (coord_follow_up_check, read live:
+# the default branch as base, not a fork, the authenticated author, not
+# closed) refuses with `merge-refused:follow-up-<base|author|closed>`, and
+# one already MERGED prints `merged` with no call. No owned-branch lookup and
+# no merge-last gate apply to it; the merge itself is a node's.
+#
 # For the coordination PR it first brings the body up to date with the
 # record (`coord-render.sh --before-coordination`): CI's merge-last gate reads
 # the body, so a body the render couldn't post (body=stale, body=full) refuses
@@ -39,32 +51,35 @@
 #
 # After a `merge-called:` line it runs `merge-verdict.sh --confirm`. A merge is
 # never read as merged on the call alone. When the confirm read doesn't see
-# MERGED, or the merge call itself failed, it records `<node>:<result>` in the
+# MERGED, or the merge call itself failed, it records `<id>:<result>` in the
 # session's `merge_attempts` context key, so the loop doesn't call the same
 # merge again in this invocation: coordinated-next.sh then reports that PR
 # unmerged with reason merge-not-observed or merge-call-failed. Every refusal
 # (no recorded head, the merge-last gate, the squash message, or merge-exec.sh's
-# own fresh verdict) records `<node>:merge-refused` the same way, and the run
+# own fresh verdict) records `<id>:merge-refused` the same way, and the run
 # ends ready-awaiting-merge with that PR waiting on a human.
 #
-# A node seen merged is a transition the body shows: after the confirm read
-# reports `merged` for a node, coord-render.sh records its merged head and
-# posts the body. The coordination PR's body is final at its merge, so none
-# is rendered after it.
+# A node or follow-up seen merged is a transition the body shows: after the
+# confirm read reports `merged` for one, coord-render.sh records its merged
+# head and posts the body. The coordination PR's body is final at its merge,
+# so none is rendered after it.
 #
 # Usage:
 #   coord-merge.sh --session <koto-session> --slug <slug>
 #                  --home-repo <owner/repo> --coord-branch <branch>
-#                  --node <node-id|coordination>
+#                  --node <node-id|<node>/follow-up-<n>|coordination>
 #
 # Output: merge-exec.sh's line (`merge-called:<method>:<sha>` or
 # `merge-refused:<verdict>`), then, after a call, the confirm line (`merged` or
-# `not-merged:merge-not-observed`), then, after a node's `merged`,
-# coord-render.sh's `observed=` and `body=` lines. A merge refused before
-# merge-exec.sh runs prints `merge-refused:awaiting:head-moved` (no pushed head
-# in the run record), `merge-refused:body-stale` or `merge-refused:body-full`
-# (the coordination body couldn't be brought up to date),
-# `merge-refused:merge-gate`, or `merge-refused:squash-message`.
+# `not-merged:merge-not-observed`), then, after a node's or a follow-up's
+# `merged`, coord-render.sh's `observed=` and `body=` lines. A merge refused
+# before merge-exec.sh runs prints `merge-refused:awaiting:head-moved` (no
+# pushed head in the run record), `merge-refused:body-stale` or
+# `merge-refused:body-full` (the coordination body couldn't be brought up to
+# date), `merge-refused:merge-gate`, `merge-refused:squash-message`, or, for a
+# follow-up, `merge-refused:predecessor-unmerged` or
+# `merge-refused:follow-up-<base|author|closed>`; a follow-up already MERGED
+# prints `merged` alone.
 #
 # Exit codes:
 #   0   a line was printed (a refusal included)
@@ -74,8 +89,9 @@
 #   72  a GitHub read failed, or the run record could not be read
 #       (execute:status-read)
 #   73  the recorded PR is not the one owned PR on its branch, the run record
-#       has no PR for the node, or the recorded coordination PR is not open
-#       (execute:pr-adopt)
+#       has no PR for the node, holds no live follow-up of that number, or one
+#       outside its node's repository or the write set, or the recorded
+#       coordination PR is not open (execute:pr-adopt)
 #   77  the render refused a record that would index a private repository in
 #       a public coordination PR (execute:visibility); before the coordination
 #       PR's merge no call was made
@@ -92,7 +108,7 @@ REPO_ROOT=$(CDPATH='' cd "$COORD_SELF_DIR/../../.." && pwd) || exit 64
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: coord-merge.sh --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --node <node-id|coordination>" >&2
+    echo "usage: coord-merge.sh --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --node <node-id|<node>/follow-up-<n>|coordination>" >&2
     exit 64
 }
 
@@ -120,7 +136,12 @@ done
 [[ $SLUG =~ $RE_COORD_SLUG ]] || usage_error "--slug [$SLUG] is outside ^[a-z0-9-]+\$"
 coord_valid_repo "$HOME_REPO" || usage_error "--home-repo [$HOME_REPO] is not a single owner/repo"
 coord_valid_branch "$CB" || usage_error "--coord-branch [$CB] is not an allowed branch name"
-[[ $NODE =~ $RE_COORD_NODE ]] || usage_error "--node [$NODE] is outside ^[a-z][a-z0-9-]*\$"
+[ "$NODE" = coordination ] || [[ $NODE =~ $RE_COORD_UNIT ]] \
+    || usage_error "--node [$NODE] is not coordination, a node id, or <node>/follow-up-<n>"
+FU_OF=""; FU_NUM=""
+if [[ $NODE =~ $RE_COORD_FOLLOW_UP_ID ]]; then
+    FU_OF="${BASH_REMATCH[1]}"; FU_NUM="${BASH_REMATCH[2]}"
+fi
 command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
 
 # This run's identity, from its session: every lookup below carries it.
@@ -186,6 +207,58 @@ if [ "$NODE" = coordination ]; then
     REPO="$HOME_REPO"; PR="$C_NUM"
     CASCADE=$(rr_cascade "$SESSION") || { echo "$PROG: could not read run/cascade in session $SESSION" >&2; exit 72; }
     HEAD=$(printf '%s' "$CASCADE" | jq -r 'if .verdict == "pushed" then (.head // "") else "" end')
+elif [ -n "$FU_OF" ]; then
+    # A follow-up: its repository, number and head from its own record, in
+    # its node's repository and the write set; no owned-branch lookup (it is
+    # a person's PR, on a branch of their own), and the rule every follow-up
+    # is held to, read live.
+    N_REC=$(rr_node "$SESSION" "$FU_OF")
+    case $? in
+        0) ;;
+        1) echo "$PROG: the run record has no PR for $FU_OF, so $NODE has no node to merge after" >&2; exit 73 ;;
+        *) echo "$PROG: could not read $FU_OF's run record" >&2; exit 72 ;;
+    esac
+    N_REPO=$(printf '%s' "$N_REC" | jq -r '.repo // ""')
+    N_PR=$(printf '%s' "$N_REC" | jq -r '.pr // ""')
+    FUS=$(rr_follow_ups "$SESSION" "$FU_OF") || { echo "$PROG: could not read $FU_OF's follow-ups" >&2; exit 72; }
+    REC=$(printf '%s' "$FUS" | jq -c --argjson p "$FU_NUM" '[.[] | select(.pr == $p)][0] // empty')
+    if [ -z "$REC" ] || [ "$(printf '%s' "$REC" | jq -r '.removed // false')" = true ]; then
+        echo "$PROG: the run record holds no live follow-up #$FU_NUM for $FU_OF (absent or removed)" >&2
+        exit 73
+    fi
+    REPO=$(printf '%s' "$REC" | jq -r '.repo // ""')
+    PR=$(printf '%s' "$REC" | jq -r '.pr // ""')
+    HEAD=$(printf '%s' "$REC" | jq -r '.head // ""')
+    SETUP_REPOS=$(rr_setup "$SESSION" | jq -r '(.repos // []) | join(",")') \
+        || { echo "$PROG: could not read run/setup in session $SESSION" >&2; exit 72; }
+    if ! coord_valid_repo "$REPO" || ! [[ $PR =~ ^[1-9][0-9]*$ ]] || [ "$REPO" != "$N_REPO" ] \
+        || ! coord_in_list "$REPO" "$SETUP_REPOS"; then
+        echo "$PROG: the run record's $NODE names [$REPO] #$PR, not a PR in $FU_OF's repository within the write set" >&2
+        exit 73
+    fi
+    # Only after its node: GitHub must report the node's PR MERGED.
+    N_VIEW=""
+    coord_gh_read N_VIEW pr view "$N_PR" --repo "$N_REPO" --json state \
+        || { echo "$PROG: could not read $FU_OF's PR #$N_PR" >&2; exit 72; }
+    if [ "$(printf '%s' "$N_VIEW" | jq -r '.state // ""')" != MERGED ]; then
+        echo "$PROG: $FU_OF's PR is not MERGED; its follow-up $NODE merges only after it" >&2
+        printf 'merge-refused:predecessor-unmerged\n'
+        record_attempt merge-refused
+        exit 0
+    fi
+    coord_gh_read LOGIN api user --jq .login || { echo "$PROG: could not read the authenticated login" >&2; exit 72; }
+    coord_follow_up_check "$REPO" "$PR" "$LOGIN" || exit 72
+    if [ -n "$FU_FAULT" ]; then
+        echo "$PROG: $FU_URL fails the follow-up rule ($FU_FAULT); nothing was merged" >&2
+        printf 'merge-refused:follow-up-%s\n' "$FU_FAULT"
+        record_attempt merge-refused
+        exit 0
+    fi
+    if [ "$FU_STATE" = MERGED ]; then
+        # Already merged (a person merged it): nothing to call.
+        printf 'merged\n'
+        exit 0
+    fi
 else
     REC=$(rr_node "$SESSION" "$NODE")
     case $? in
@@ -275,7 +348,7 @@ case "$LINE1" in
         if [ "$LINE2" != merged ]; then
             record_attempt merge-not-observed
         elif [ "$NODE" != coordination ]; then
-            # A node seen merged: the body records its merged head.
+            # A node or follow-up seen merged: the body records its merged head.
             render
             rc=$?
             printf '%s\n' "$RENDER_OUT"

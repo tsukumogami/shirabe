@@ -44,6 +44,14 @@
 #     coordination merge is merge-refused:body-stale (an oversize body
 #     merge-refused:body-full), recorded, with no pr merge; the
 #     coordination merge posts nothing after it lands
+#   follow-ups                           --node <node>/follow-up-<n> with its
+#     node MERGED merges at the recorded head with --subject and --body-file
+#     and records its merged head; with the node open it is
+#     merge-refused:predecessor-unmerged, recorded under the full id; another
+#     author is merge-refused:follow-up-author; a moved head is
+#     merge-refused:awaiting:head-moved; a removed or absent one exits 73; the
+#     coordination merge's gate carries both follow-ups; follow-up-x is a
+#     usage error
 #
 # Usage: coord-merge_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -391,12 +399,91 @@ else
     fail "home unread: rc=$RC_UNREAD merges=$(merges) shirabe=[$(cat "$CASE/shirabe-calls.log")]"
 fi
 
+# --- follow-ups ----------------------------------------------------------------------------
+
+FU21="$CT_CORE/follow-up-21"
+# fu_case <name> <node-state> [follow-up key=json ...] -- core's #11 recorded
+# in <node-state>, and follow-up #21 recorded against it at CT_HEAD.
+fu_case() {
+    local name="$1" st="$2"
+    shift 2
+    ct_case "$name"
+    ct_record_setup
+    ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+    ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+    ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "state=\"$st\""
+    ct_follow_up_pr "$CT_REPO" 21 "$@"
+    ct_write_db
+}
+
+fu_case fu-merge MERGED
+run_merge "$FU21"
+MLINE=$(ct_calls | grep '^pr merge')
+FSHA=$(printf 'merge %s#%s' "$CT_REPO" 21 | git hash-object --stdin)
+# The render also records the node's own merge, which no render had seen yet.
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | sed -n '1,2p')" = "merge-called:squash:$CT_HEAD
+merged" ] && grep -qx "observed=$FU21:$FSHA" <<<"$OUT" && [ "$(printf '%s\n' "$OUT" | tail -1)" = body=posted ]; then
+    pass "a follow-up whose node is MERGED: merged at the recorded head, then the body records it"
+else
+    fail "fu-merge: rc=$RC out=[$OUT]"; tail -3 "$CASE/stderr"
+fi
+case "$MLINE" in
+    "pr merge 21 --repo $CT_REPO --squash --match-head-commit $CT_HEAD --subject fix(t): follow-up 21 --body-file "*)
+        [ "$(merges)" -eq 1 ] && pass "one pr merge of the follow-up, with --match-head-commit, --subject and --body-file" \
+            || fail "merges: $(merges)" ;;
+    *) fail "the follow-up's merge call: [$MLINE]" ;;
+esac
+[ "$(jq -r .merged_head "$CASE/ctx/$S/run/follow-up/$CT_CORE/21")" = "$FSHA" ] \
+    && pass "the follow-up's merge commit is recorded as its merged_head" || fail "follow-up record after merge"
+
+fu_case fu-node-open OPEN
+run_merge "$FU21"
+[ "$RC" -eq 0 ] && [ "$OUT" = "merge-refused:predecessor-unmerged" ] && [ "$(merges)" -eq 0 ] \
+    && [ "$(attempts)" = "$FU21:merge-refused" ] \
+    && pass "a follow-up whose node is open is refused predecessor-unmerged, recorded under its full id" \
+    || fail "fu-node-open: rc=$RC out=[$OUT] attempts=[$(attempts)]"
+
+fu_case fu-author MERGED 'author="someone-else"'
+run_merge "$FU21"
+[ "$OUT" = "merge-refused:follow-up-author" ] && [ "$(merges)" -eq 0 ] && [ "$(attempts)" = "$FU21:merge-refused" ] \
+    && pass "a follow-up another author opened is refused at merge time" || fail "fu-author: rc=$RC out=[$OUT]"
+
+fu_case fu-head-moved MERGED "headRefOid=\"$CT_OTHER\""
+run_merge "$FU21"
+[ "$OUT" = "merge-refused:awaiting:head-moved" ] && [ "$(merges)" -eq 0 ] \
+    && pass "a follow-up whose live head moved off the recorded one: awaiting:head-moved, no merge" \
+    || fail "fu-head-moved: out=[$OUT] merges=$(merges)"
+
+fu_case fu-removed MERGED
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21 "$CT_HEAD" true
+run_merge "$FU21"
+[ "$RC" -eq 73 ] && [ "$(merges)" -eq 0 ] && pass "a removed follow-up exits 73" || fail "fu-removed: rc=$RC"
+run_merge "$CT_CORE/follow-up-22"
+[ "$RC" -eq 73 ] && [ "$(merges)" -eq 0 ] && pass "a follow-up never recorded exits 73" || fail "fu-absent: rc=$RC"
+
+# The coordination merge's gate counts every live follow-up's line.
+coord_case coord-follow-ups
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 22
+ct_follow_up_pr "$CT_REPO" 21 'state="MERGED"'
+ct_follow_up_pr "$CT_REPO" 22 'state="MERGED"'
+ct_write_db
+run_merge coordination
+GATE=$(grep -- '--merge-gate' "$CASE/shirabe-calls.log")
+if grep -q -- "--pr acme/repo-a:docs/plans/PLAN-t.md#21" <<<"$GATE" && grep -q -- "--pr acme/repo-a:docs/plans/PLAN-t.md#22" <<<"$GATE" \
+    && grep -q -- "--pr acme/repo-a:docs/plans/PLAN-t.md#11" <<<"$GATE"; then
+    pass "the coordination merge's gate carries both follow-ups beside the nodes"
+else
+    fail "the gate with follow-ups: [$GATE] out=[$OUT]"
+fi
+
 # --- usage ------------------------------------------------------------------------------
 
 ct_case usage
 ct_write_db
 for args in "--session $S --slug t --home-repo $CT_REPO --coord-branch $CT_CB" \
             "--session $S --slug t --home-repo $CT_REPO --coord-branch $CT_CB --node Bad" \
+            "--session $S --slug t --home-repo $CT_REPO --coord-branch $CT_CB --node core/follow-up-x" \
             "--session $S --slug t --home-repo a/b/c --coord-branch $CT_CB --node x"; do
     # shellcheck disable=SC2086
     bash "$MERGE" $args >/dev/null 2>&1; rc=$?

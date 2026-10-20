@@ -626,8 +626,9 @@ against its chain shape:
    path only:
    - **`gh pr merge`**, reached only through `scripts/merge-exec.sh`, the one call
      site in the repository, and only on a run invoked with `--merge`: from
-     `merge_attempt` on single-pr, and through `coord-merge.sh` for each node PR and
-     then the coordination PR on coordinated. No other script or directive merges.
+     `merge_attempt` on single-pr, and through `coord-merge.sh` for each node PR,
+     each recorded follow-up after its node, and then the coordination PR on
+     coordinated. No other script or directive merges.
      Every merge passes the squash message `merge-message.sh` builds from the
      PR's title and Part 1; a message the builder refuses makes no merge call
      (`merge-refused:squash-message`).
