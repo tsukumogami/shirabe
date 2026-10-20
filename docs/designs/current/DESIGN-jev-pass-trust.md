@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   Every Jev criterion needs a slice contract a machine can hold to the
   templates, a bar that grants and removes pass trust only through reviewed
@@ -37,7 +37,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

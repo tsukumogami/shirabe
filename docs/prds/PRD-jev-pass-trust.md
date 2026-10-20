@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe can grade an agent's work with Jev through koto decider checks, but
   no Jev criterion says what its slice holds, why that is enough, or how big
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness, clarity and testability reviewers passed it over three
 rounds. The downstream DESIGN owns the approach.

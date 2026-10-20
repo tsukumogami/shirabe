@@ -8,7 +8,7 @@ be trusted. This page is where each criterion's written case lives; the
 figures and the trust record live in its entry in
 `references/rule-registry.json`, under `jev`, and
 `scripts/jev-criteria/jev_criteria.py check` holds the two to each other and to
-the templates. The design is `docs/designs/DESIGN-jev-pass-trust.md`.
+the templates. The design is `docs/designs/current/DESIGN-jev-pass-trust.md`.
 
 ## The contract
 
