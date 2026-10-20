@@ -80,7 +80,7 @@
 #       coordination PR's body is read. Prints one JSON object:
 #         {"index": <a `## PR Index` section exists in the region>,
 #          "nodes": {<node>: {repo, pr, state}},
-#          "follow_ups": {<node>: [{repo, pr, state}, ...]},
+#          "follow_ups": {<node>: [{repo, pr, state, fu}, ...]},
 #          "run": <the first ^run=<32 hex>$ line's id, or null>,
 #          "store": <the first ^store=(github|session)$ line's value, or null>,
 #          "run_lines": {topic?, exit?, outcome?, intent?, mode?}}
@@ -96,7 +96,9 @@
 #       the region's `## PR Index` section. A line for node `coordination`
 #       (an older body's self row) is dropped, and so is a line whose ref is
 #       <self-repo>#<self-number> when given (the repository compared
-#       case-insensitively). Heads are never returned: a head on a page is
+#       case-insensitively). A follow-up's `fu` is the number its id names
+#       (<node>/follow-up-<fu>), kept beside the ref's `pr` so a reader can
+#       refuse a line whose two numbers differ. Heads are never returned: a head on a page is
 #       never trusted. Returns 0; 2 the file can't be read; 3 the body is
 #       over CB_MAX_BYTES (nothing read); 4 an entry-shaped line outside the
 #       grammar, a bad repository or path, or a node named twice (the line
@@ -321,7 +323,8 @@ cb_parse() {
     printf '%s' "$rows" | jq -RncS --argjson index "$index" --arg run "$run" --arg store "$store" \
         --arg lines "$lines" '
         [inputs | select(length > 0) | split("\t")
-         | {node: .[0], fu: .[1], v: {repo: .[2], pr: (.[3] | tonumber), state: .[4]}}] as $rs
+         | {node: .[0], fu: .[1], v: ({repo: .[2], pr: (.[3] | tonumber), state: .[4]}
+              + (if .[1] == "" then {} else {fu: (.[1] | tonumber)} end))}] as $rs
         | {index: $index,
            nodes: ([$rs[] | select(.fu == "") | {(.node): .v}] | add // {}),
            follow_ups: (reduce ($rs[] | select(.fu != "")) as $r ({}; .[$r.node] += [$r.v])
