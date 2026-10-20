@@ -43,8 +43,10 @@
 # longer match, fails the canary instead of passing every document.
 #
 # Exit status (the gate scripts' shared convention):
-#   0  every checked document passes, or none exists
-#   1  at least one violation; one `::koto-finding::` line per violation
+#   0  every checked document passes, or none exists, or every violation is
+#      of a rule below the `block` stage (printed, at its stage's level)
+#   1  at least one violation of a rule at `block`; one `::koto-finding::`
+#      line per violation, and a line on stderr saying how to dispute one
 #   2  could not decide: a usage error; git, jq or shirabe missing; a shirabe
 #      that resolves inside the repository; the rules file unreadable or with
 #      no words; a failed canary; a validator exit other than 0 or 2; an
@@ -304,9 +306,11 @@ code_to_id() {
 
 # Map every code, and resolve the entries the findings will print under, before
 # printing anything. Only those entries are resolved: each resolution runs
-# rule-registry.sh twice (reference and summary), and on a busy shared host
-# resolving all seventeen up front made a clean PLAN check take 19 seconds,
-# against about 3 this way, under koto's 30-second command limit.
+# rule-registry.sh (reference, summary and stage in one call), and on a busy
+# shared host resolving all seventeen up front made a clean PLAN check take 19
+# seconds, against about 3 this way, under koto's 30-second command limit.
+# rf_require caches each rule's stage as it resolves, so resolving late still
+# prints every finding at its stage.
 # check-rule-registry.sh in CI is what keeps every anchor resolvable.
 [ -f "$WORK/hits" ] || : > "$WORK/hits"
 : > "$WORK/ids"
@@ -337,9 +341,16 @@ while IFS= read -r hit; do
 done < "$WORK/hits"
 
 checked=$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' "$WORK/checked")
-if [ "$printed" -gt 0 ]; then
-    echo "check-hop-document: $printed violation(s) in $checked" >&2
+# Only a finding of a rule at block holds the hop; one below block printed at
+# its stage's level and leaves the gate passing.
+if [ "$RF_BLOCKING" -gt 0 ]; then
+    echo "check-hop-document: $RF_BLOCKING violation(s) in $checked" >&2
+    rf_dispute_hint
     exit 1
 fi
-echo "check-hop-document: $checked pass" >&2
+if [ "$printed" -gt 0 ]; then
+    echo "check-hop-document: $checked pass; no violation is of a rule at block" >&2
+else
+    echo "check-hop-document: $checked pass" >&2
+fi
 exit 0

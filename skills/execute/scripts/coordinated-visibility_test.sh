@@ -72,10 +72,12 @@ setup() {
     (cd "$B_CO" && git checkout -q main)
     mkdir -p "$CASE/ctx/$S"
     : > "$CASE/walk.log"
+    # coord_setup's seal: the PLAN's nodes and the coordination PR #10.
+    ct_record_setup github 10 "$(ct_nodes_of "$PLAN")"
 }
 
 next() {
-    bash "$NEXT" --plan "$PLAN" --slug t --repos acme/repo-a,acme/repo-b --home-repo acme/repo-a \
+    bash "$NEXT" --session "$S" --plan "$PLAN" --slug t --repos acme/repo-a,acme/repo-b --home-repo acme/repo-a \
         --coord-branch "$CT_CB" --merge true 2>>"$CASE/walk.log"
 }
 
@@ -90,7 +92,7 @@ dispatch() {
     wt=$(cd "$HOME_CO" && bash "$CUT" t "$node" --repo-dir "$dir" 2>>"$CASE/walk.log" | sed -n 's/^worktree=//p')
     [ -n "$wt" ] && [ -d "$wt" ] || { echo "no worktree for $node" >>"$CASE/walk.log"; return 1; }
     (cd "$wt" && echo "$node" > "$node.txt" && git add "$node.txt" && git commit -q -m "feat: $node")
-    (cd "$wt" && bash "$PUSH" node --slug t --node "$node" --repo "$repo" --issues 1 \
+    (cd "$wt" && bash "$PUSH" node --session "$S" --slug t --node "$node" --repo "$repo" --issues 1 \
         --home-repo acme/repo-a --coord-branch "$CT_CB" --plan "$PLAN") >>"$CASE/walk.log" 2>&1
 }
 
@@ -141,7 +143,7 @@ esac
 # pushed commit stands in for them). The shim's PR #10 then carries it, as
 # GitHub would after the push.
 (cd "$HOME_CO" && git commit -q --allow-empty -m "chore: cascade" \
-    && bash "$PUSH" coordination --slug t --home-repo acme/repo-a --coord-branch "$CT_CB") >>"$CASE/walk.log" 2>&1
+    && bash "$PUSH" coordination --session "$S" --slug t --home-repo acme/repo-a --coord-branch "$CT_CB") >>"$CASE/walk.log" 2>&1
 CSHA=$(git -C "$HOME_CO" rev-parse HEAD)
 jq --arg sha "$CSHA" '(.prs[] | select(.number == 10 and .repo == "acme/repo-a") | .headRefOid) = $sha' \
     "$GH_CALL_LOG.d/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$GH_CALL_LOG.d/db.json"
@@ -155,6 +157,11 @@ case "$GATE" in
 esac
 [ "$(db '.prs[] | select(.number == 10 and .repo == "acme/repo-a") | .state')" = '"MERGED"' ] \
     && pass "the private coordination PR merged last" || fail "coordination: $(cat "$CASE/coord.out" "$CASE/coord.err")"
+REC=$(cat "$CASE/ctx/$S/run/node/pr-repo-a-default" "$CASE/ctx/$S/run/node/pr-repo-b-default" 2>/dev/null | jq -rs 'map(.repo) | join(",")')
+[ "$REC" = "acme/repo-a,acme/repo-b" ] && pass "the run record names each node's own repository" || fail "run/node repos: [$REC]"
+[ "$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)" = "{\"head\":\"$CSHA\",\"verdict\":\"pushed\"}" ] \
+    && pass "the run record holds the cascade pushed at the coordination head the merge was pinned to" \
+    || fail "run/cascade: [$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)]"
 
 # --- a public home: the private node is refused at dispatch --------------------------
 

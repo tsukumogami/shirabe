@@ -130,13 +130,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/eval-koto-shim_test.sh
 
-      # The coordinated loop's scripts: the next action, the verdict and its
-      # record, the setup record, node branches, node pushes and their head=
-      # records, and the merge. Each drives the eval gh shim's repository
-      # model, a koto context stub, and real git, so none needs the engine.
+      # The coordinated loop's scripts: the run record's writer and reader,
+      # the next action, the verdict and its record, the setup record, node
+      # branches, node pushes and their head records, and the merge. Each
+      # drives the eval gh shim's repository model, a koto context stub, and
+      # real git, so none needs the engine.
       - name: Run coordinated loop script tests (Linux)
         if: runner.os == 'Linux'
         run: |
+          bash skills/execute/scripts/run-record_test.sh
           bash skills/execute/scripts/coordinated-next_test.sh
           bash skills/execute/scripts/coordination-verdict_test.sh
           bash skills/execute/scripts/record-coordination-verdict_test.sh

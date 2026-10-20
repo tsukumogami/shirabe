@@ -42,28 +42,59 @@
 #                              prints one ::koto-finding:: line whose rule_id is
 #                              <id>, rule_ref is the reference rf_require
 #                              resolved, and message is "<summary>: <detail>"
-#                              with control characters replaced
-#   rf_ref <id>, rf_summary <id>
-#                              the resolved reference or summary, for a script
-#                              that builds its finding objects itself; each calls
+#                              with control characters replaced; it goes
+#                              through rf_emit, so its level and counting are
+#                              rf_emit's (below)
+#   rf_ref <id>, rf_summary <id>, rf_stage <id>
+#                              the resolved reference, summary or stage, for a
+#                              script that builds its finding objects itself or
+#                              decides by a rule's stage; each calls
 #                              `undecided` for an id rf_require didn't resolve.
-#                              Such a script must prefix the message and replace
-#                              control characters as rf_finding does
-#                              (panel-scope.sh --verdict is the one that does)
-#   rf_emit <json>             prints a finding object the script built and logs
-#                              it; refuses (`undecided`) one whose rule_id was
-#                              not resolved, whose rule_ref differs from the
-#                              resolved one, or whose message lacks the summary
-#                              prefix
+#                              A script building findings must prefix the
+#                              message and replace control characters as
+#                              rf_finding does (panel-scope.sh --verdict is the
+#                              one that does)
+#   rf_level <stage>           the finding level a stage prints at: block is
+#                              error, warn is warning, shadow is info; retired
+#                              prints nothing and returns 1
+#   rf_emit <json> [<stage-id>]
+#                              prints a finding object the script built and logs
+#                              it, at the level of <stage-id>'s stage (default:
+#                              the finding's own rule_id); refuses (`undecided`)
+#                              one whose rule_id was not resolved, whose
+#                              rule_ref differs from the resolved one, whose
+#                              message lacks the summary prefix, or whose
+#                              <stage-id> was not resolved. A retired stage
+#                              prints and logs nothing. A block stage adds one
+#                              to RF_BLOCKING and records the rule for the
+#                              ladder. RF_COUNTED is 1 after a finding that
+#                              counted toward RF_BLOCKING and 0 otherwise
 #   rf_deliver                 the escalation ladder, below; called once, right
 #                              before the script's non-zero exit that follows
 #                              its findings
+#   rf_dispute_hint            one line on standard error telling the agent how
+#                              to dispute a finding with scripts/rule-dispute.sh,
+#                              for a script about to exit non-zero on block
+#                              findings. The script knows neither its session
+#                              nor its gate, so the line names them as
+#                              placeholders the agent fills from the koto
+#                              response it holds
+#
+# Stages. A rule's stage, read with its ref and summary in one
+# `scripts/rule-registry.sh resolve` call per rule, decides how its findings
+# print, not whether the check runs: the check still runs and its finding is
+# still built and validated, then printed at the stage's level, or not at all
+# at `retired`. RF_BLOCKING counts the findings that printed at `block`; it is
+# the count for a gate script's exit to read, so a rule below block can report
+# without holding the gate. The counters live in the script's main shell, so
+# findings must be printed from it, not from a subshell or a pipeline.
 #
 # Every printed finding also goes to `scripts/rule-registry.sh log-finding`,
 # which appends it to $SHIRABE_FINDINGS_LOG when that names a safe file; the
 # gate scripts' test suites use the log to verify what they printed.
 #
-# The escalation ladder. rf_emit records every rule id it prints in RF_REPORTED.
+# The escalation ladder. rf_emit records in RF_REPORTED every rule id it prints
+# at block: those are the findings that fail the gate and that koto counts.
 # rf_deliver then reads, from the koto session's own log, how many times koto has
 # recorded this gate failing on each of those rules in the current state, and
 # escalates on the count this failure will get (koto's rule_counts[id].session,
@@ -96,48 +127,75 @@
 # changes a gate's exit status, its standard output or the findings koto records.
 # DESIGN-validate-and-return.md has the reasoning.
 #
-# Written for the bash 3.2 floor: no associative arrays, so the resolved refs
-# and summaries are kept as tab-separated lines.
+# Written for the bash 3.2 floor: no associative arrays, so the resolved refs,
+# summaries and stages are kept as tab-separated lines.
 
 RF_HELPER="$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/rule-registry.sh"
+RF_ROOT=$(dirname -- "$(dirname -- "$RF_HELPER")")
 RF_CACHE=""
 RF_TAB=$(printf '\t')
+RF_BLOCKING=0
+RF_COUNTED=0
 RF_REPORTED=""
 RF_DELIVERED=""
 RF_FULL_TEXT_AT=2
 RF_EXIT_AT=3
 
+# rf_cache_add <id>: one `rule-registry.sh resolve` call, which prints the ref,
+# summary and stage tab-separated, appended to RF_CACHE as
+# "<id> <ref> <summary> <stage>". One call per rule rather than one per field:
+# each call reads the registry and runs git, and check-hop-document.sh already
+# resolves late to keep that cost down.
+rf_cache_add() {
+    local id=$1 out ref summary stage rest
+    out=$("$RF_HELPER" resolve "$id" 2>&1) || undecided "cannot resolve rule $id: $out"
+    # The reader prints exactly three fields and fails closed to block for a
+    # stage it doesn't know, so anything else is a reader this library doesn't
+    # match.
+    case "$out" in
+        *"$RF_TAB"*"$RF_TAB"*"$RF_TAB"*) undecided "rule $id resolved to more than a ref, a summary and a stage" ;;
+        *"$RF_TAB"*"$RF_TAB"*) ;;
+        *) undecided "rule $id resolved to [$out], not a ref, a summary and a stage" ;;
+    esac
+    ref=${out%%"$RF_TAB"*}
+    rest=${out#*"$RF_TAB"}
+    summary=${rest%%"$RF_TAB"*}
+    stage=${rest#*"$RF_TAB"}
+    [ -n "$ref" ] && [ -n "$summary" ] || undecided "rule $id resolved to an empty ref or summary"
+    case "$stage" in
+        block|warn|shadow|retired) ;;
+        *) undecided "rule $id resolved to the unknown stage [$stage]" ;;
+    esac
+    RF_CACHE="$RF_CACHE$id$RF_TAB$ref$RF_TAB$summary$RF_TAB$stage
+"
+}
+
 rf_require() {
-    local id ref summary
+    local id
     [ -x "$RF_HELPER" ] || undecided "the rule registry reader $RF_HELPER is not executable"
     for id in "$@"; do
         case " $RULE_IDS " in
             *" $id "*) ;;
             *) undecided "rule $id is not in this script's RULE_IDS" ;;
         esac
-        ref=$("$RF_HELPER" ref "$id" 2>&1) || undecided "cannot resolve rule $id: $ref"
-        summary=$("$RF_HELPER" summary "$id" 2>&1) || undecided "cannot read rule $id: $summary"
-        RF_CACHE="$RF_CACHE$id$RF_TAB$ref$RF_TAB$summary
-"
+        rf_cache_add "$id"
     done
 }
 
 rf_require_any() {
-    local id ref summary
+    local id
     [ "${RULE_IDS_ANY_ACTIVE:-}" = 1 ] \
         || undecided "rf_require_any needs RULE_IDS_ANY_ACTIVE=1 in the calling script"
     [ -x "$RF_HELPER" ] || undecided "the rule registry reader $RF_HELPER is not executable"
     for id in "$@"; do
         # Already resolved this run: a second lookup would read the same entry.
         [ -z "$(rf_field "$id" 2)" ] || continue
-        ref=$("$RF_HELPER" ref "$id" 2>&1) || undecided "cannot resolve rule $id: $ref"
-        summary=$("$RF_HELPER" summary "$id" 2>&1) || undecided "cannot read rule $id: $summary"
-        RF_CACHE="$RF_CACHE$id$RF_TAB$ref$RF_TAB$summary
-"
+        rf_cache_add "$id"
     done
 }
 
-# rf_field <id> <2|3>: the cached ref (2) or summary (3), or nothing.
+# rf_field <id> <2|3|4>: the cached ref (2), summary (3) or stage (4), or
+# nothing.
 rf_field() {
     printf '%s' "$RF_CACHE" | awk -F'\t' -v id="$1" -v f="$2" '$1 == id { print $f; exit }'
 }
@@ -156,26 +214,61 @@ rf_summary() {
     printf '%s' "$v"
 }
 
+rf_stage() {
+    local v
+    v=$(rf_field "$1" 4)
+    [ -n "$v" ] || undecided "rule $1 was not resolved by rf_require in this run"
+    printf '%s' "$v"
+}
+
+# rf_level <stage>. The cache only ever holds the four stages. Anything else a
+# caller passes gets error, block's level, so a value this library doesn't know
+# never prints a finding softer than every finding printed before stages.
+# scripts/rule-registry.sh's stage_level holds the same mapping for
+# verify-findings; change both together.
+rf_level() {
+    case "$1" in
+        warn) printf 'warning' ;;
+        shadow) printf 'info' ;;
+        retired) return 1 ;;
+        *) printf 'error' ;;
+    esac
+}
+
 rf_emit() {
-    local json=$1 id ref msg want_ref want_summary line
+    local json=$1 source=${2-} id ref msg want_ref want_summary stage level line
+    RF_COUNTED=0
     id=$(printf '%s' "$json" | jq -r '.rule_id // ""' 2>/dev/null)
     ref=$(printf '%s' "$json" | jq -r '.rule_ref // ""' 2>/dev/null)
     msg=$(printf '%s' "$json" | jq -r '.message // ""' 2>/dev/null)
     want_ref=$(rf_field "$id" 2)
     want_summary=$(rf_field "$id" 3)
     [ -n "$id" ] && [ -n "$want_ref" ] || undecided "a finding names rule [$id], which this run did not resolve"
+    [ -n "$source" ] || source=$id
+    stage=$(rf_field "$source" 4)
+    [ -n "$stage" ] || undecided "a finding for $id takes its stage from rule [$source], which this run did not resolve"
     [ "$ref" = "$want_ref" ] || undecided "a finding for $id carries rule_ref [$ref], not [$want_ref]"
     case "$msg" in
         "$want_summary: "*) ;;
         *) undecided "a finding for $id does not start with the rule's summary" ;;
     esac
+    # At retired the check still ran and the finding was still validated
+    # above; it just isn't shown, logged or counted.
+    level=$(rf_level "$stage") || return 0
+    json=$(printf '%s' "$json" | jq -c --arg level "$level" '.level = $level' 2>/dev/null)
+    [ -n "$json" ] || undecided "could not set the level of a finding for $id"
     line="::koto-finding::$json"
     printf '%s\n' "$line"
     "$RF_HELPER" log-finding "$line" </dev/null >/dev/null 2>&1 || true
-    case " $RF_REPORTED " in
-        *" $id "*) ;;
-        *) RF_REPORTED="${RF_REPORTED:+$RF_REPORTED }$id" ;;
-    esac
+    if [ "$stage" = block ]; then
+        RF_BLOCKING=$((RF_BLOCKING + 1))
+        RF_COUNTED=1
+        case " $RF_REPORTED " in
+            *" $id "*) ;;
+            *) RF_REPORTED="${RF_REPORTED:+$RF_REPORTED }$id" ;;
+        esac
+    fi
+    return 0
 }
 
 # rf_ladder_active: whether the template supplied the ladder's context.
@@ -303,6 +396,7 @@ rf_finding() {
     # 2` carries the could-not-decide out to the caller's exit code.
     ref=$(rf_ref "$id") || exit 2
     summary=$(rf_summary "$id") || exit 2
+    # The level written here is a placeholder: rf_emit sets it from the stage.
     json=$(jq -cn --arg id "$id" --arg ref "$ref" --arg summary "$summary" --arg detail "$detail" \
         --arg path "$path" --arg line "$line" '
         {rule_id: $id, level: "error",
@@ -312,4 +406,9 @@ rf_finding() {
         + (if $path != "" and ($line | test("^[1-9][0-9]*$")) then {line: ($line | tonumber)} else {} end)') \
         || undecided "could not build the finding for rule $id"
     rf_emit "$json"
+}
+
+rf_dispute_hint() {
+    printf '%s: to dispute a finding you believe is wrong, run %s/scripts/rule-dispute.sh --session <session> --gate <gate> --rule <rule-id> --reason <why>; the session and gate are in the koto response\n' \
+        "$(basename -- "$0")" "$RF_ROOT" >&2
 }

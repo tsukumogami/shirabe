@@ -5,14 +5,19 @@
 #
 # coordinated-next.sh prints `merge:<node>` or `merge-coordination`; this is
 # the command that action runs. It takes nothing the merge depends on from the
-# agent: it finds the coordination PR through the ownership filter, reads the
-# node's index line for the PR number and the `head=` that node-push.sh
-# recorded, checks that the indexed PR is the one owned PR on the node's
-# branch, and hands exactly those values to merge-exec.sh, which recomputes the
-# verdict and makes the one fixed `gh pr merge --match-head-commit` call.
+# agent or from the coordination PR's editable body: it reads the coordination
+# PR the run record names (run/setup's coordination_pr), takes the node's
+# repository, PR number, and pushed head from its run record
+# (`run/node/<node>`, which node-push.sh wrote from the commit it pushed),
+# checks that the recorded PR is the one owned PR on the node's branch, and
+# hands exactly those values to merge-exec.sh, which recomputes the verdict at
+# that head and makes the one fixed `gh pr merge --match-head-commit` call, or
+# refuses with no call when the live head differs. For the coordination PR the
+# head is the cascade's pushed head (`run/cascade`); with no pushed cascade
+# the merge is refused.
 #
 # For the coordination PR it first runs the merge-last gate itself:
-# `shirabe validate --merge-gate --mode=ready` over the index's refs, with the
+# `shirabe validate --merge-gate --mode=ready` over the body index's refs, with the
 # entry pointing at the coordination PR itself dropped (the coordination PR
 # can't wait on its own merge), and with `--visibility private` when the home
 # repository reads private live (repo-visibility.sh's read), so a private
@@ -34,17 +39,19 @@
 # Output: merge-exec.sh's line (`merge-called:<method>:<sha>` or
 # `merge-refused:<verdict>`), then, after a call, the confirm line (`merged` or
 # `not-merged:merge-not-observed`). A merge refused before merge-exec.sh runs
-# prints `merge-refused:awaiting:head-moved` (no head= record) or
-# `merge-refused:merge-gate`.
+# prints `merge-refused:awaiting:head-moved` (no pushed head in the run
+# record) or `merge-refused:merge-gate`.
 #
 # Exit codes:
 #   0   a line was printed (a refusal included)
 #   64  usage error
 #   70  the merge_attempts write failed, or the run's identity could not be
 #       read (run-id.sh get)
-#   72  a GitHub read failed (execute:status-read)
-#   73  the indexed PR is not the one owned PR on its branch, or the index has
-#       no line for the node (execute:pr-adopt)
+#   72  a GitHub read failed, or the run record could not be read
+#       (execute:status-read)
+#   73  the recorded PR is not the one owned PR on its branch, the run record
+#       has no PR for the node, or the recorded coordination PR is not open
+#       (execute:pr-adopt)
 #
 # Requires: bash 3.2+, gh, jq, koto, shirabe.
 set -uo pipefail
@@ -95,27 +102,33 @@ COORD_RUN_ID=$("$BASH" "$COORD_SELF_DIR/run-id.sh" get "$SESSION" </dev/null) ||
     exit 70
 }
 
-coord_find_pr "$HOME_REPO" "$CB" open
+coord_recorded_pr "$SESSION" "$HOME_REPO" open
 case $? in
     0) ;;
     2) exit 72 ;;
     *) exit 73 ;;
 esac
+# The body is read only for the merge-last gate's refs below.
 BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
-ENTRIES=$(coord_index_entries "$BODY")
-LINE=$(coord_find_entry "$ENTRIES" "$NODE") || {
-    echo "$PROG: the coordination PR's index has no single line for $NODE" >&2
-    exit 73
-}
-coord_parse_entry "$LINE" || { echo "$PROG: the index line for $NODE is outside the grammar" >&2; exit 73; }
-REPO="$E_REPO"; PR="$E_NUM"; HEAD="$E_HEAD"
 
 if [ "$NODE" = coordination ]; then
-    if [ "$PR" != "$C_NUM" ] || [ "$(coord_lower "$REPO")" != "$(coord_lower "$HOME_REPO")" ]; then
-        echo "$PROG: the coordination line names $REPO#$PR, not the coordination PR $C_URL" >&2
-        exit 73
-    fi
+    REPO="$HOME_REPO"; PR="$C_NUM"
+    CASCADE=$(rr_cascade "$SESSION") || { echo "$PROG: could not read run/cascade in session $SESSION" >&2; exit 72; }
+    HEAD=$(printf '%s' "$CASCADE" | jq -r 'if .verdict == "pushed" then (.head // "") else "" end')
 else
+    REC=$(rr_node "$SESSION" "$NODE")
+    case $? in
+        0) ;;
+        1) echo "$PROG: the run record has no PR for $NODE" >&2; exit 73 ;;
+        *) echo "$PROG: could not read $NODE's run record" >&2; exit 72 ;;
+    esac
+    REPO=$(printf '%s' "$REC" | jq -r '.repo // ""')
+    PR=$(printf '%s' "$REC" | jq -r '.pr // ""')
+    HEAD=$(printf '%s' "$REC" | jq -r '.head // ""')
+    coord_valid_repo "$REPO" && [[ $PR =~ ^[1-9][0-9]*$ ]] || {
+        echo "$PROG: the run record for $NODE names no usable repository and PR" >&2
+        exit 73
+    }
     OUT=$(coord_owned "$REPO" "impl/$SLUG-$NODE" open)
     case $? in
         0) ;;
@@ -123,12 +136,12 @@ else
         *) exit 73 ;;
     esac
     if [ -z "$OUT" ] || [ "${OUT##*/}" != "$PR" ]; then
-        echo "$PROG: index entry $NODE names #$PR, which is not the owned open PR on $REPO impl/$SLUG-$NODE" >&2
+        echo "$PROG: the run record names #$PR for $NODE, which is not the owned open PR on $REPO impl/$SLUG-$NODE" >&2
         exit 73
     fi
 fi
 
-if [ -z "$HEAD" ]; then
+if ! [[ $HEAD =~ $RE_COORD_SHA ]]; then
     # No recorded push: merge-verdict.sh would say head-moved, and merge-exec.sh
     # takes no `none`.
     printf 'merge-refused:awaiting:head-moved\n'

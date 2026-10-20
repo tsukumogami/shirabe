@@ -22,7 +22,13 @@
 #   a field failing its pattern (verdict, pr, waiting, resume, reason, step,
 #     an error verdict with no step)            nothing written
 #   the written reason; the written step
-#   merge_attempts and loop_line from context reach the verdict as arguments
+#   merge_attempts and loop_line from context reach the verdict as arguments,
+#     and --session does
+#   cascade=failed                              run/cascade becomes failed with
+#                                               the step, before coord_verdict
+#   no cascade line                             run/cascade untouched
+#   a failed cascade the record refuses         exit 70, nothing written
+#   a cascade value other than failed           nothing written
 #   a missing coord_setup record                exit 64, nothing written
 #   usage errors                                exit 64, no koto call
 #   no GitHub write
@@ -58,6 +64,7 @@ STUBDIR="$CT_WORK/stub-scripts"
 mkdir -p "$STUBDIR"
 cp "$RECORD" "$STUBDIR/record-coordination-verdict.sh"
 cp "$SCRIPT_DIR/run-id.sh" "$STUBDIR/run-id.sh"
+cp "$SCRIPT_DIR/run-record.sh" "$SCRIPT_DIR/run-record-lib.sh" "$STUBDIR/"
 cat > "$STUBDIR/coordination-verdict.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VERDICT_ARGS_LOG:?}"
@@ -95,7 +102,8 @@ nothing_written() { # nothing_written <label>
 # --- the normal write, end to end ------------------------------------------------
 
 setup_case normal
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 (cd "$PLANDIR" && bash "$RECORD" --session "$S" --merge false --plan docs/plans/PLAN-t.md --slug t 2>"$CASE/stderr")
@@ -202,6 +210,54 @@ case "$ARGS" in
         pass "the recorded write set, home repo, and coordination branch reach it" ;;
     *) fail "the verdict's arguments were [$ARGS]" ;;
 esac
+case "$ARGS" in
+    "--session $S "*) pass "--session reaches coordination-verdict.sh" ;;
+    *) fail "no --session in the verdict's arguments [$ARGS]" ;;
+esac
+
+# --- a failed cascade, in the run record --------------------------------------------
+
+setup_case cascade-failed
+ct_record_setup
+export VERDICT_OUT="$(good error "" "" "" "execute:cascade")
+cascade=failed"
+run_stub
+if [ "$RC" -eq 0 ] && [ "$(ctx_val run/cascade)" = '{"step":"execute:cascade","verdict":"failed"}' ] \
+    && [ "$(ctx_val coord_verdict)" = error ]; then
+    pass "cascade=failed records run/cascade {verdict: failed, step}"
+else
+    fail "cascade=failed: rc=$RC run/cascade=[$(ctx_val run/cascade)] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+ORDER=$(grep '^context add' "$CASE/koto-calls.log" | awk '{print $4}' | grep -v '^run/setup$' | tr '\n' ' ')
+case "$ORDER" in
+    "run/cascade "*"coord_verdict ") pass "run/cascade is written before any verdict key" ;;
+    *) fail "the write order was [$ORDER]" ;;
+esac
+
+setup_case cascade-untouched
+ct_record_setup
+ct_record_cascade pushed "$CT_HEAD"
+export VERDICT_OUT="$(good error "" "" "" "execute:coord-loop")"
+run_stub
+if [ "$RC" -eq 0 ] && [ "$(ctx_val run/cascade)" = "{\"head\":\"$CT_HEAD\",\"verdict\":\"pushed\"}" ]; then
+    pass "without a cascade line run/cascade is left as it was"
+else
+    fail "cascade-untouched: rc=$RC run/cascade=[$(ctx_val run/cascade)]"
+fi
+
+setup_case cascade-refused
+# No run/setup: the record refuses the cascade write.
+export VERDICT_OUT="$(good error "" "" "" "execute:cascade")
+cascade=failed"
+run_stub
+[ "$RC" -eq 70 ] && ! ctx_has run/cascade && pass "a failed cascade the record refuses exits 70" \
+    || fail "cascade-refused: rc=$RC run/cascade=[$(ctx_val run/cascade)]"
+nothing_written "a failed cascade the record refuses"
+
+bad_case "a cascade value other than failed" "$(good error "" "" "" "execute:cascade")
+cascade=pushed"
+bad_case "a failed cascade on a verdict that is not an error" "$(good ready "$U11:human" "" review "")
+cascade=failed"
 
 # --- a missing coord_setup record ---------------------------------------------------
 

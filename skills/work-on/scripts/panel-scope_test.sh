@@ -909,15 +909,29 @@ fi
 
 echo "--- script: --record starts the decider shadow and never waits on it"
 
-# wait_for_log <n>: up to 5 seconds for the background stand-in to log n lines.
-wait_for_log() {
+# Every wait below is for a background process to show up, and returns as soon
+# as it does. The bound only ends a wait for one that never will, so it is set
+# for a loaded host, where a background start can lag by seconds (shirabe#867).
+SHADOW_POLLS=600
+
+# wait_until <command...>: polls the command every 0.1s until it succeeds, up
+# to SHADOW_POLLS times.
+wait_until() {
     local i=0
-    while [ "$i" -lt 50 ]; do
-        [ -f "$SHADOW_LOG" ] && [ "$(wc -l < "$SHADOW_LOG" | tr -d ' ')" -ge "$1" ] && return 0
+    while [ "$i" -lt "$SHADOW_POLLS" ]; do
+        "$@" && return 0
         sleep 0.1
         i=$((i + 1))
     done
     return 1
+}
+# log_has <n> [<text>]: the stand-in has logged n lines (holding <text>).
+log_has() {
+    [ -f "$SHADOW_LOG" ] && [ "$(grep -c -- "${2:-}" "$SHADOW_LOG")" -ge "$1" ]
+}
+# wait_for_log <n> [<text>]: until the background stand-in has logged n lines.
+wait_for_log() {
+    wait_until log_has "$@"
 }
 
 fixture shadow
@@ -925,10 +939,13 @@ rm -f "$SHADOW_LOG"
 record scrutiny "$ALL_PASS"
 HEAD_SHA=$(cd "$FX/repo" && git rev-parse HEAD)
 TOP=$(cd "$FX/repo" && git rev-parse --show-toplevel)
-if wait_for_log 1; then
-    [ "$(cat "$SHADOW_LOG")" = "site work-on --session shadow --panel scrutiny --head $HEAD_SHA --repo-path $TOP" ] \
+# Here and below, each wait reads this case's line only: a stand-in an earlier
+# case started can still be writing when the log is removed.
+if wait_for_log 1 "--session shadow "; then
+    GOT=$(grep -- "--session shadow " "$SHADOW_LOG")
+    [ "$GOT" = "site work-on --session shadow --panel scrutiny --head $HEAD_SHA --repo-path $TOP" ] \
         && pass "--record scrutiny starts the shadow with identifiers only" \
-        || fail "shadow called with [$(cat "$SHADOW_LOG")]"
+        || fail "shadow called with [$GOT]"
 else
     fail "--record scrutiny never started the shadow"
 fi
@@ -936,7 +953,7 @@ for p in review light; do
     rm -f "$SHADOW_LOG"
     seat=pragmatic; [ "$p" = light ] && seat=reviewer
     record "$p" "[{\"seat\":\"$seat\",\"blocking_count\":0}]"
-    wait_for_log 1 && grep -q -- "--panel $p " "$SHADOW_LOG" \
+    wait_for_log 1 "--session shadow --panel $p " \
         && pass "--record $p starts the shadow" || fail "--record $p: shadow log [$(cat "$SHADOW_LOG" 2>/dev/null)]"
 done
 for optin in "" 0 1; do
@@ -945,7 +962,7 @@ for optin in "" 0 1; do
     autorun "$WORKDIR/round.json"
     (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITES="$optin" "$SCRIPT" --record scrutiny "$SESSION" \
         "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
-    wait_for_log 1 && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
+    wait_for_log 1 "--session shadow --panel scrutiny " && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
         || fail "--record skipped the shadow with REVIEW_SHADOW_SITES=[$optin]"
 done
 rm -f "$SHADOW_LOG"
@@ -953,24 +970,36 @@ record qa '[{"seat":"tester","blocking_count":0}]'
 sleep 0.5
 [ ! -s "$SHADOW_LOG" ] && pass "--record qa starts no shadow (QA is agent-only)" || fail "qa started the shadow"
 
+# A shadow that fails, is missing or is still running changes nothing --record
+# returns or records. That --record never waits on it is shown by order, not by
+# a clock: the running stand-in blocks until this case releases it, so a
+# --record that waited could return only after the stand-in's own fallback had
+# ended the wait and written shadow-finished. Timing --record against a few
+# seconds measured --record itself, and failed on a loaded host (shirabe#867).
 LEDGER_BEFORE=$(jq -c '.seats["scrutiny/completeness"] | del(.rev)' "$SHIM_STORE/$SESSION/verdict_ledger.json")
-for variant in fail missing hang; do
+for variant in fail missing running; do
     case "$variant" in
         fail) printf '#!/usr/bin/env bash\nexit 3\n' > "$WORKDIR/shadow-bad"; chmod +x "$WORKDIR/shadow-bad"
               CMD="$WORKDIR/shadow-bad" ;;
         missing) CMD="$WORKDIR/no-such-shadow" ;;
-        hang) printf '#!/usr/bin/env bash\nsleep 20\n' > "$WORKDIR/shadow-bad"; chmod +x "$WORKDIR/shadow-bad"
-              CMD="$WORKDIR/shadow-bad" ;;
+        running) rm -f "$WORKDIR/shadow-release" "$WORKDIR/shadow-finished"
+                 printf '#!/usr/bin/env bash\ni=0\nwhile [ ! -f "%s" ] && [ "$i" -lt 1200 ]; do sleep 0.1; i=$((i + 1)); done\n: > "%s"\n' \
+                     "$WORKDIR/shadow-release" "$WORKDIR/shadow-finished" > "$WORKDIR/shadow-bad"
+                 chmod +x "$WORKDIR/shadow-bad"
+                 CMD="$WORKDIR/shadow-bad" ;;
     esac
     printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
     autorun "$WORKDIR/round.json"
-    START=$SECONDS
     OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="$CMD" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
     RC=$?
-    ELAPSED=$((SECONDS - START))
     expect_rc "--record with the shadow [$variant]" 0
-    [ "$ELAPSED" -lt 5 ] && pass "--record returns at once with the shadow [$variant] (${ELAPSED}s)" \
-        || fail "--record waited ${ELAPSED}s on the shadow [$variant]"
+    if [ "$variant" = running ]; then
+        [ ! -f "$WORKDIR/shadow-finished" ] && pass "--record returns while its shadow is still running" \
+            || fail "--record returned only after its shadow finished: it waited on the shadow"
+        : > "$WORKDIR/shadow-release"
+        wait_until test -f "$WORKDIR/shadow-finished" && pass "the shadow --record left running ran to its end" \
+            || fail "the shadow --record started never ran"
+    fi
     [ "$(jq -c '.seats["scrutiny/completeness"] | del(.rev)' "$SHIM_STORE/$SESSION/verdict_ledger.json")" = "$LEDGER_BEFORE" ] \
         && pass "the ledger is the same with the shadow [$variant]" || fail "the ledger changed with the shadow [$variant]"
 done
@@ -993,13 +1022,12 @@ if command -v python3 >/dev/null 2>&1; then
     RC=$?
     expect_rc "--record with the real shadow" 0
     REC=""
-    i=0
-    while [ "$i" -lt 100 ] && [ -z "$REC" ]; do
+    # shadow_record: the first record the real shadow wrote, in REC.
+    shadow_record() {
         REC=$(find "$STORE" -name '*.json' 2>/dev/null | head -1)
-        [ -n "$REC" ] || sleep 0.1
-        i=$((i + 1))
-    done
-    if [ -n "$REC" ]; then
+        [ -n "$REC" ]
+    }
+    if wait_until shadow_record; then
         [ "$(jq -r '.not_graded_reason' "$REC")" = not-opted-in ] \
             && pass "the record says the decider wasn't asked (not-opted-in)" \
             || fail "record reason [$(jq -r '.not_graded_reason' "$REC")]"
@@ -1153,6 +1181,43 @@ run --verdict bogus "$SESSION"
 expect_rc "--verdict with an unknown panel" 2
 run --verdict scrutiny
 expect_rc "--verdict with no session" 2
+
+# Stages. Every finding --verdict prints takes panel/open-finding's stage,
+# whichever rule it cites, and only at block does the panel fail. One finding
+# is unruled; the other cites commit/conventional-subject, a script rule whose
+# stage a plugin copy can set.
+fixture verdictstage
+plan_record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"unruled","path":"src/a.sh","lines":"41"},
+                                                    {"severity":"blocking","summary":"ruled","rule_id":"commit/conventional-subject"}]},
+                       {"seat":"completeness"},{"seat":"justification"}]'
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict on the stage fixture against the real registry" 1
+verdict_in_copy() { # <copy>
+    cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$1/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "$SESSION"
+}
+rf_test_stages "--verdict" panel/open-finding 1 panel/open-finding verdict_in_copy \
+    skills/work-on/scripts/panel-scope.sh
+
+# The cited rule at warn doesn't soften its finding while panel/open-finding
+# is at block: the finding still prints at error, under the cited rule.
+STAGE_COPY="$RF_TEST_DIR/stage-copy"
+STAGE_LOG="$RF_TEST_DIR/stage-copy.log"
+if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject warn skills/work-on/scripts/panel-scope.sh; then
+    : > "$STAGE_LOG"
+    OUT=$(cd "$FX/repo" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" PATH="$SHIM_BIN:$PATH" \
+        "$STAGE_COPY/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "$SESSION" 2>"$WORKDIR/stderr")
+    RC=$?
+    GOT=$(verdict_findings | jq -r '"\(.rule_id)=\(.level)"' | sort | tr '\n' ' ')
+    if [ "$RC" = 1 ] && [ "$GOT" = "commit/conventional-subject=error panel/open-finding=error " ]; then
+        pass "--verdict: a finding citing a warn-stage rule prints at error while panel/open-finding is at block"
+    else
+        fail "--verdict with the cited rule at warn: exit $RC, findings [$GOT]"
+    fi
+    rf_test_verify_copy "--verdict, cited rule at warn" "$STAGE_COPY" "$STAGE_LOG" panel/open-finding
+else
+    fail "--verdict: could not make a plugin copy with commit/conventional-subject at warn"
+fi
+rm -rf "$STAGE_COPY" "$STAGE_LOG"
 
 # The rule the gate used to print is retired: kept joinable, never printed.
 REGISTRY_JSON="$PLUGIN_ROOT/references/rule-registry.json"
@@ -1713,7 +1778,9 @@ if engine_to_qa_retry "$S"; then
 fi
 cd "$WORKDIR" || exit 1
 
-rf_test_verify "panel-scope --verdict"
+# Every finding --verdict prints is at panel/open-finding's stage, whichever
+# rule it names.
+rf_test_verify "panel-scope --verdict" panel/open-finding
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
