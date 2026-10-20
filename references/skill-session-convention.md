@@ -157,7 +157,10 @@ source, stops at any other refusal with the name and koto's code, and fails
 when nothing in the set exists there. A re-run after a stop finishes the set.
 It needs koto's cloud backend, a stopped source, and each session's template
 compiled on the importing host first; it never passes `--as` or
-`--trust-template`. The script's header lists its output lines and exit codes.
+`--trust-template`. The `execute` and `deliver` sets compile their shipped
+templates on the importing host themselves, from the plugin root the script
+runs from, before the first import; for the other sets the caller still
+compiles. The script's header lists its output lines and exit codes.
 
 ### The dispatch key
 
@@ -286,7 +289,10 @@ The session names a chain uses, which are also the set an import moves:
 | strategic | `charter-<topic>` | `vision-`, `strategy-`, `roadmap-<topic>` | `explore-<topic>` |
 
 The leaf skills keep one session each, which is the whole set an import moves
-for them: `explore-<topic>`, `comp-<topic>` and `release-<topic>`.
+for them: `explore-<topic>`, `comp-<topic>` and `release-<topic>`. So do
+`/execute` and `/deliver`: the `execute` set is `execute-<topic>`, which holds
+a coordinated run's record, and the `deliver` set is `deliver-<topic>`. A
+`/deliver` run's `/scope` sessions move with the `tactical` set.
 
 ### The reserved coordinator areas
 

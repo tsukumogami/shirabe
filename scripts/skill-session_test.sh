@@ -347,6 +347,13 @@ case "$1 ${2:-} ${3:-}" in
     "session import --help")
         [ -n "${IMPORT_NO_VERB:-}" ] && { printf 'error: unrecognized subcommand\n' >&2; exit 2; }
         exit 0 ;;
+    "template compile "*)
+        if [ -n "${IMPORT_COMPILE_FAIL:-}" ] && [ "${3##*/}" = "$IMPORT_COMPILE_FAIL" ]; then
+            printf 'error: template %s does not compile\n' "$3" >&2
+            exit 1
+        fi
+        printf '/cache/compiled-%s.json\n' "${3##*/}"
+        exit 0 ;;
 esac
 if [ "$1 ${2:-}" = "session import" ]; then
     f="$IMPORT_ANSWERS/$3"
@@ -462,6 +469,70 @@ RC=0
 assert_eq "import: a koto without session import exits 69" "69" "$RC"
 assert_contains "it prints failed=koto_no_import" "failed=koto_no_import" "$(cat "$T/stdout")"
 assert_eq "it imports nothing" "0" "$(import_calls)"
+
+compile_calls() {
+    if [ -f "$STUB_LOG" ]; then grep -c '^template compile ' "$STUB_LOG" | tr -d ' '; else echo 0; fi
+}
+# The tactical and strategic sets leave the compile to their caller.
+rm -rf "$IMPORT_ANSWERS"
+answer scope-imp 0 "$(imported_json scope-imp)"
+run_import tactical imp --from /src/ws
+assert_eq "import tactical: no template compile call" "0" "$(compile_calls)"
+run_import strategic imp --from /src/ws
+assert_eq "import strategic: no template compile call" "0" "$(compile_calls)"
+
+# The execute and deliver sets compile their shipped templates first, from the
+# script's own plugin root.
+PLUGIN_ROOT_T=$(cd -P "$SCRIPT_DIR/.." && pwd -P)
+rm -rf "$IMPORT_ANSWERS"
+answer execute-imp 0 "$(imported_json execute-imp)"
+run_import execute imp --from /src/ws
+assert_eq "import execute: exits 0" "0" "$RC"
+assert_eq "import execute: prints the session imported under its own name" "imported=execute-imp" "$STDOUT"
+assert_eq "import execute: compiles both shipped execute templates, then imports" \
+"template compile $PLUGIN_ROOT_T/skills/execute/koto-templates/execute.md
+template compile $PLUGIN_ROOT_T/skills/execute/koto-templates/execute-coordinated.md
+session import execute-imp --from /src/ws" "$(grep -E '^(template compile|session import [a-z])' "$STUB_LOG")"
+if grep -qE -- '--as|--trust-template' "$STUB_LOG"; then
+    fail "import execute passed --as or --trust-template"
+else
+    pass "import execute never passes --as or --trust-template"
+fi
+
+rm -rf "$IMPORT_ANSWERS"
+answer deliver-imp 0 "$(imported_json deliver-imp)"
+run_import deliver imp --from /src/ws
+assert_eq "import deliver: exits 0" "0" "$RC"
+assert_eq "import deliver: prints imported=deliver-imp" "imported=deliver-imp" "$STDOUT"
+assert_eq "import deliver: compiles deliver.md, then imports deliver-imp" \
+"template compile $PLUGIN_ROOT_T/skills/deliver/koto-templates/deliver.md
+session import deliver-imp --from /src/ws" "$(grep -E '^(template compile|session import [a-z])' "$STUB_LOG")"
+
+rm -rf "$IMPORT_ANSWERS"
+answer execute-imp 0 "$(imported_json execute-imp)"
+rm -f "$STUB_LOG"
+RC=0
+(cd "$REPO" && IMPORT_COMPILE_FAIL=execute-coordinated.md KOTO_BIN="$IMPORT_STUB_DIR/koto" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" import execute imp --from /src/ws) \
+    >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "import execute: a template that doesn't compile exits 1" "1" "$RC"
+assert_eq "import execute: and prints failed=template_compile naming it" \
+    "failed=template_compile template=execute-coordinated.md" "$(cat "$T/stdout")"
+assert_contains "import execute: koto's compile diagnostic reaches stderr" "does not compile" "$(cat "$T/stderr")"
+assert_eq "import execute: no session import after the failed compile" "0" "$(import_calls)"
+
+rm -rf "$IMPORT_ANSWERS"
+answer execute-taken 2 '{"error":{"code":"import_name_taken","message":"a session named execute-taken already exists here"}}'
+run_import execute taken --from /src/ws
+assert_eq "import execute: a live session of that name exits 1" "1" "$RC"
+assert_eq "import execute: and prints koto's code" "failed=execute-taken code=import_name_taken" "$STDOUT"
+
+rm -f "$STUB_LOG"
+run_import executes t --from /src/ws
+if [ "$RC" -eq 64 ] && ! [ -s "$STUB_LOG" ]; then
+    pass "import refuses the unknown set [executes] with 64 before any koto call"
+else
+    fail "import [executes t]: expected 64 and no koto call, got $RC and calls [$(cat "$STUB_LOG" 2>/dev/null)]"
+fi
 
 # --- a session koto removed, against a stand-in koto --------------------------------
 #
