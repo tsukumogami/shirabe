@@ -1982,14 +1982,26 @@ states:
       # still running isn't green, and a cancelled one returned no verdict.
       # Don't rewrite this as "nothing is in the fail bucket" -- that would let
       # an all-queued PR report green.
-      #   semantics: scripts/ci-gate-expression_test.sh
+      #
+      # One cancel is resolved: when the filter says not green,
+      # ci-cancel-after-merge.sh passes the gate if GitHub reports the PR MERGED
+      # and every non-green check is a cancelled run of a workflow
+      # scripts/check-macos-floor-setup.sh --workflows lists, the runs
+      # cancel-closed-pr-macos-runs.yml cancels when a PR closes (#952). It
+      # records those checks in context as ci_cancelled_after_merge.txt. A
+      # repo without that script, an open PR, a failed or pending check, and
+      # a cancel outside those workflows all still fail. The trailing
+      # `|| exit 1` keeps the gate at 0 or 1, the only codes the edges match,
+      # even when the script can't run.
+      #   semantics: scripts/ci-gate-expression_test.sh,
+      #              skills/work-on/scripts/ci-cancel-after-merge_test.sh
       #   execute.md's counterpart is owned_ci_passing: the same filter over the
       #   PR its ownership filter resolves, under its own name because
       #   scripts/validate-template-mermaid.sh check 4 holds one gate name to one
       #   command across templates
       ci_passing:
         type: command
-        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || exit 1"
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one. `ci_passing` asks whether nothing is failing, and
       # zero check-runs satisfies that, so the same gate fires for a genuinely
@@ -3075,6 +3087,16 @@ still working from. When the gate exits 2 the role was never decided (PLUGIN_ROO
 does not reach the script, or the script failed): the state holds rather than
 choosing either way. Read the gate's stderr, fix the cause, and tick again. A DIRTY
 pull request stops at `done_blocked`, since GitHub runs no checks on one.
+
+A repository that cancels a closed pull request's unfinished macOS floor runs
+(it has `scripts/check-macos-floor-setup.sh`, as shirabe does) can leave a
+MERGED pull request with cancelled checks that nothing failed. `ci_passing`
+passes once GitHub reports the pull request MERGED and every check that isn't
+green is a cancelled run of one of the workflows that script's `--workflows`
+lists. The run then routes as green, and `ci_cancelled_after_merge.txt` in
+context names those checks: mention them in your final report. A cancel on an
+open pull request, a failed or pending check, and a cancel outside those
+workflows still fail the gate.
 
 While checks are still running the state holds on `ci_passing`; tick again once
 they finish. If the gate fails, fix what you can, push, and submit

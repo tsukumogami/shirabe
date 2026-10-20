@@ -167,6 +167,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-monitor-role_test.sh
 
+      # Runs ci_passing's fallback for a MERGED pull request's cancelled macOS
+      # floor checks, alone and through the gate command extracted from the
+      # template, against stubbed gh and koto. No engine needed; the macOS leg
+      # runs it on the floor through the work-on suite.
+      - name: Run CI cancel-after-merge fallback tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/ci-cancel-after-merge_test.sh
+
       # Runs pr_creation's closing-keyword gate expression, extracted from the
       # template, against constructed bodies with gh stubbed. No engine needed;
       # the macOS leg runs it on the floor through the work-on suite.
