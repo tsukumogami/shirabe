@@ -15,15 +15,18 @@
 # and the token scrub. The session log is read only through coord-log.sh.
 #
 # The deadline: a check state's default action has 30 seconds. Every read
-# checks bash's SECONDS against BL_DEADLINE (24) before it starts, and a
-# watchdog kills a read still running at the deadline, so a hung gh can't hold
-# the action past its limit. BOARD_DEADLINE_SECS may lower it (1..24) for the
-# deadline test; it can never raise it.
+# checks bash's SECONDS against BL_DEADLINE (24) before it starts, and
+# dispatch-common.sh's dc_with_deadline kills a read still running at the
+# deadline, so a hung gh can't hold the action past its limit.
+# BOARD_DEADLINE_SECS may lower it (1..24) for the deadline test; it can never
+# raise it.
 #
-# Requires: bash 3.2+, jq, gh, and coord-log.sh and record-common.sh beside
-# the caller.
+# Requires: bash 3.2+, jq, gh, and coord-log.sh, record-common.sh and
+# dispatch-common.sh beside the caller.
 
 . "$HERE/record-common.sh" || { echo "${PROG:-board-lib}: cannot source record-common.sh" >&2; exit 2; }
+# shellcheck source=dispatch-common.sh
+. "$HERE/dispatch-common.sh" || { echo "${PROG:-board-lib}: cannot source dispatch-common.sh" >&2; exit 2; }
 
 BL_RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 BL_RE_PR='^[1-9][0-9]*$'
@@ -69,23 +72,13 @@ bl_scrub() {
 # second attempt won't change it. Returns 0 read; 1 failed, with <out>.fail
 # holding `deadline`, `notfound`, `refused` or `read`.
 bl_gh() {
-    local out=$1 attempt=1 rc remain pid wd
+    local out=$1 attempt=1 rc remain
     shift
     rm -f "$out.fail"
     while :; do
         remain=$(bl_left)
         if [ "$remain" -le 0 ]; then echo deadline > "$out.fail"; return 1; fi
-        gh "$@" </dev/null >"$out" 2>"$out.err" &
-        pid=$!
-        # The watchdog: kills the read at the deadline. Its own sleep is killed
-        # with it (the TERM trap), so no timer outlives the script.
-        ( trap 'kill $sp 2>/dev/null; exit 0' TERM
-          sleep "$remain" & sp=$!
-          wait $sp
-          kill "$pid" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
-        wd=$!
-        wait "$pid"; rc=$?
-        kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+        dc_with_deadline "$remain" gh "$@" </dev/null >"$out" 2>"$out.err"; rc=$?
         [ "$rc" -eq 0 ] && return 0
         if [ "$(bl_left)" -le 0 ]; then echo deadline > "$out.fail"; return 1; fi
         bl_scrub < "$out.err" | sed "s/^/$PROG: gh: /" >&2

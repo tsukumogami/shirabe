@@ -26,7 +26,10 @@
 # is dropped: only the coordinator's config files and the flags below apply.
 #
 # The script ends by exec'ing git, so a caller's deadline that stops this
-# process stops the read itself.
+# process stops git itself. The remote helper git starts for https is a
+# process of its own and outlives that, so a caller that must stop the whole
+# read signals its process group (teardown-inventory.sh runs it under
+# dispatch-common.sh's dc_tree).
 #
 # Usage: github-refs.sh [--gh <gh path>] <owner/repo> [<pattern>...]
 #   --gh  the gh program to authenticate with, one path or name (default: gh

@@ -153,11 +153,11 @@ variables:
       space between them) from /execute's --follow-up <node>=<url> flag,
       or empty. The opener turns the flag's first `=` into the space,
       because koto's own value allowlist has no `=`. Setup checks it (a
-      node with a recorded PR, the node's repository, its default branch as base, the invoking login
-      as author and not a fork, not closed unmerged) and records it with its
-      live head; the loop merges it after its node, and it holds the
-      coordination PR until it merges. Rebindable, so an attach without the
-      flag resets it to empty.
+      node with a recorded PR, the node's repository, its default branch
+      as base, the invoking login as author and not a fork, not closed
+      unmerged) and records it with its live head; the loop merges it after
+      its node, and it holds the coordination PR until it merges.
+      Rebindable, so an attach without the flag resets it to empty.
     required: false
     pattern: '^([a-z][a-z0-9-]* https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?$'
     rebind: true

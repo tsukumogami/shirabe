@@ -364,8 +364,10 @@ check_repo() {
     # rewrite, a transport, a credential helper) runs, and authenticated by
     # the gh login, so a private repository reads too. https reads GitHub;
     # file lets a URL the coordinator's own config rewrites point at a local
-    # repository, and runs nothing.
-    live=$(dc_with_deadline "$FETCH_SECS" "$HERE/github-refs.sh" --gh "$GH" "$repo" 2>"$WORK/ls.err")
+    # repository, and runs nothing. The read runs in its own process group
+    # (dc_tree), so the deadline also stops the remote helper git starts,
+    # which would otherwise keep waiting on the network after git is gone.
+    live=$(dc_with_deadline "$FETCH_SECS" dc_tree "$HERE/github-refs.sh" --gh "$GH" "$repo" 2>"$WORK/ls.err")
     case $? in
         0) ;;
         124) note 2 "error $rel: origin's refs could not be read: the read timed out after ${FETCH_SECS}s"; return ;;
