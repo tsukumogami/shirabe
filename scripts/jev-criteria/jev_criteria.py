@@ -756,9 +756,9 @@ def work_on_sessions(dirs):
 
 
 def key_bytes(ctx, names):
-    """The summed byte length of the named context keys, or why a session
-    can't be measured: a key that is missing, or one that is a symlink and so
-    may not be the session's own."""
+    """The summed byte length of the named context keys, or the reason a
+    session can't be measured: "missing" for a key that isn't there, "symlink"
+    for one that is a symlink and so may not be the session's own."""
     total = 0
     for name in names:
         p = os.path.join(ctx, name)
@@ -770,32 +770,38 @@ def key_bytes(ctx, names):
     return total, ""
 
 
+# How each skip reason is said on stderr.
+SKIP_MESSAGES = {
+    "unprojected": "skipped %d session(s) whose facts didn't project",
+    "missing": "skipped %d session(s) with a missing key",
+    "symlink": "skipped %d session(s) with a symlink key",
+}
+
+
 def measure_sessions(args):
     root = os.path.realpath(args.root)
-    dirs = args.dir
     sizes, skipped = [], {}
     if args.slice == "review-facts":
         script = os.path.join(root, REVIEW_LEVEL_SH)
-        for path in work_on_sessions(dirs):
+        for path in work_on_sessions(args.dir):
             # "standard" is the longest level name, so the size is an upper bound.
             r = run([script, "project", path, "standard"])
             if r.returncode != 0:
-                skipped["facts that didn't project"] = skipped.get("facts that didn't project", 0) + 1
+                skipped["unprojected"] = skipped.get("unprojected", 0) + 1
                 continue
             sizes.append(len(r.stdout.encode("utf-8")))
         slice_arg = ""
     else:
-        for path in work_on_sessions(dirs):
+        for path in work_on_sessions(args.dir):
             n, why = key_bytes(os.path.dirname(path), SESSION_KEY_SLICES[args.slice])
             if n is None:
-                why = "a %s key" % why
                 skipped[why] = skipped.get(why, 0) + 1
                 continue
             sizes.append(n)
         slice_arg = " --slice %s" % args.slice
     for why, n in sorted(skipped.items()):
         # Said out loud, so a short run count is never mistaken for the corpus.
-        print("%s: skipped %d session(s) with %s" % (PROG, n, why), file=sys.stderr)
+        print("%s: %s" % (PROG, SKIP_MESSAGES[why] % n), file=sys.stderr)
     return figures(sizes, args.budget, "koto-sessions",
                    "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions>%s --budget %d"
                    % (slice_arg, args.budget))

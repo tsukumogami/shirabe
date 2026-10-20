@@ -260,7 +260,8 @@ verified from the diff? The completeness seat's second question.
 
 **Sources.** The agent's own claims that its work meets each criterion, and
 the diff. **Slice.** None: nothing records the claims anywhere a script can
-read, so no slicer exists. **Completeness.** The claims are the agent's words
+read, so no slicer exists; the row's slice kind, `ac-claims`, only names the
+slice the question would need. **Completeness.** The claims are the agent's words
 about its own work, which no slice may carry, since the agent would then
 choose what the classifier sees. The verdict is `insufficient`. **Figures.**
 None: `not_measured: no-real-run-record`. **State.** `rejected`.

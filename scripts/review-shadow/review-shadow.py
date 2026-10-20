@@ -43,7 +43,7 @@ SLICE_KINDS_BY_ARTIFACT = {
     "plan": ("plan-ac-block",),
     # ac-claims, plan-hunks and design-hunks name the slices the scrutiny
     # seats' questions would need (rs-018 to rs-020). No slicer builds them:
-    # their contracts are rejected and the rows are shipped off
+    # their contracts are rejected and the rows ship with `enabled: false`
     # (references/jev-criteria.md).
     "local-change": ("ac-hunks", "code-hunks", "ac-claims", "plan-hunks", "design-hunks"),
 }
