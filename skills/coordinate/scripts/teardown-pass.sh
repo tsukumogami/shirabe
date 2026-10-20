@@ -20,11 +20,16 @@
 #            listing the instance by that name and path;
 #         3. re-inventory the instance (teardown-inventory.sh, unsealed);
 #            anything but durable refuses;
-#         4. preserve, into <archive>/<UTC date>-<topic>-<job id>/: the
-#            transcript and its sibling subagent directory, the job's
+#         4. preserve, into <archive>/<UTC date>-<topic>-<job id>/: every
+#            Claude Code project directory of the instance, whole, into
+#            claude-projects/<directory name>/ (below), the job's
 #            state.json, timeline.jsonl and tmp/, and every koto session
 #            whose header's execution_dir is at or under the instance path or
-#            the job's tmp/; each copy checked against its source's hash, a
+#            the job's tmp/, and teardown.json (`{topic, instance: {name,
+#            path}, job: {id, session}, removed, niwa: {dispatch_id,
+#            reason}}`, written from the verdict, the dispatch id from its
+#            `dispatch` line, reason `no source` or `invalid input` when
+#            there is no id); each copy checked against its source's hash, a
 #            MANIFEST (`<sha256> <bytes> <path>` per file) and a README;
 #         4a. the unit's cost capture (unit-cost.sh capture): one `cost`
 #            entry on the record and unit-cost.json in the archive, under its
@@ -43,13 +48,43 @@
 #       reports that it can't find a single archive.
 #       Steps 1 to 4 remove nothing, so a failure there is `refused`; a
 #       failure from step 5 on is `incomplete`, naming the step.
+#
+#       Project directories: under <claude home>/projects, the directory
+#       named for the instance path (every character outside [A-Za-z0-9]
+#       made `-`) is always taken; one named for it followed by `-` (a
+#       worktree or clone under the instance) only when at least one line of
+#       a .jsonl file in it carries a `cwd` at or under the instance path and
+#       none carries one outside it, so a sibling instance whose name extends
+#       this one's is never swept in. Each is entered with `cd -P` and its
+#       physical path checked, and its files are listed with `find -type f`,
+#       which never follows a symbolic link: a link is skipped. The README
+#       lists every directory taken, every one skipped with its reason
+#       (`cwd outside the instance`, or a directory that is itself a link)
+#       and every link skipped inside one. The verdict's transcript must be
+#       in a directory taken, so the cost capture reads the worker's own
+#       session from the archive. The pass runs under umask 077.
+#
+#       Removed mode, when the verdict says `removed yes` (the unit was torn
+#       down outside the pass; teardown-handoff.sh): the instance name is
+#       `-` and the job line may be `job -`. Step 2 checks the pull requests
+#       and the handoff comment as above, then that niwa lists no instance
+#       at the path or for the topic and Claude Code lists no job there (a
+#       listing that can't be read refuses); there is no job or instance to
+#       re-read and step 3 is skipped. Step 4 preserves what survives (the
+#       project directories, as above, and koto sessions by
+#       execution_dir), 4a captures as above, and RESULT says done: steps 5
+#       to 7 never run, so the pass has no path to `niwa destroy` or `claude
+#       rm`. With `job -` no session survived: nothing is archived or
+#       posted, and the last line still says done.
 #   teardown-pass.sh confirm --session <s>
 #       The teardown_confirm state's default action: reads the verdict the
 #       same way, both listings, and the archive (RESULT says done, every
 #       MANIFEST file present at its size; the full hash check is run's), and
 #       prints, sealed to this visit, `teardown-confirmed` or
 #       `teardown-incomplete`, the reason in context key
-#       coord/teardown_confirm.json and on stderr.
+#       coord/teardown_confirm.json and on stderr. For a removed verdict it
+#       also checks Claude Code lists no job at the path, and with `job -`
+#       it confirms without an archive, since none was made.
 #
 # Output (run): progress lines, then one last line `teardown-pass: done
 # <archive>`, `teardown-pass: refused: <why>` or `teardown-pass: incomplete at
@@ -96,6 +131,9 @@ while [ $# -gt 0 ]; do
 done
 case "$MODE" in run) [ -n "$WANT_KS" ] || usage ;; confirm) [ -z "$WANT_KS" ] || usage ;; *) usage ;; esac
 [ -n "$SESSION" ] || usage
+# Everything the pass writes (the archive, its scratch files) is the user's
+# alone: the archive holds whole project directories, tool results included.
+umask 077
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass.XXXXXX") || exit 2
 trap 'rm -rf "$T"' EXIT
@@ -124,14 +162,29 @@ read_verdict() {
     TR=$(printf '%s\n' "$v" | sed -n 's/^transcript //p' | head -1)
     HANDOFF=$(printf '%s\n' "$v" | sed -n 's/^handoff //p' | head -1)
     PRS=$(printf '%s\n' "$v" | sed -n 's/^pr //p')
+    DISPATCH=$(printf '%s\n' "$v" | sed -n 's/^dispatch //p' | head -1)
     KS=$(printf '%s\n' "$v" | sed -n 's/^keyseal //p' | tail -1)
+    # Removed mode: the verdict says the unit was torn down outside the pass.
+    # Only beside `removed yes` may the instance name be `-` and the job line
+    # be `job -`, and then the name must be `-`: nothing is destroyed, so no
+    # name is ever built into a command.
+    REMOVED=0 NOJOB=0
+    grep -qx 'removed yes' <<<"$v" && REMOVED=1
+    if [ "$REMOVED" = 1 ]; then
+        [ "$INAME" = - ] || { echo "a removed verdict names an instance [$INAME]; it must be -" >"$T/why"; return 1; }
+        grep -qx 'job -' <<<"$v" && { NOJOB=1 JOB="" SID=""; }
+    fi
     # The fields the commands are built from are checked here, whatever the
     # verdict says: an empty or odd name never reaches niwa or claude.
     dc_valid_topic "$TOPIC" || { echo "the verdict's topic is not a dispatch topic" >"$T/why"; return 1; }
-    printf '%s' "$INAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' || { echo "the verdict's instance name is not a plain name" >"$T/why"; return 1; }
+    if [ "$REMOVED" = 0 ]; then
+        grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' <<<"$INAME" || { echo "the verdict's instance name is not a plain name" >"$T/why"; return 1; }
+    fi
     case "$IPATH" in /*) ;; *) echo "the verdict's instance path is not absolute" >"$T/why"; return 1 ;; esac
-    printf '%s' "$JOB" | grep -Eq '^[0-9a-f]{6,64}$' || { echo "the verdict's job id is not a job id" >"$T/why"; return 1; }
-    printf '%s' "$SID" | grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' || { echo "the verdict's session id is not a session id" >"$T/why"; return 1; }
+    if [ "$NOJOB" = 0 ]; then
+        grep -Eq '^[0-9a-f]{6,64}$' <<<"$JOB" || { echo "the verdict's job id is not a job id" >"$T/why"; return 1; }
+        grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' <<<"$SID" || { echo "the verdict's session id is not a session id" >"$T/why"; return 1; }
+    fi
     [ -n "$PRS" ] || { echo "the verdict names no merged pull request" >"$T/why"; return 1; }
     return 0
 }
@@ -158,6 +211,12 @@ if [ "$MODE" = confirm ]; then
     AG=$(agents) || { say "claude agents could not be read"; exit 2; }
     printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null \
         || verdict teardown-incomplete "claude agents still lists job $JOB"
+    if [ "$REMOVED" = 1 ]; then
+        printf '%s' "$AG" | jq -e --arg p "$IPATH" 'any(.[]; .cwd == $p) | not' >/dev/null \
+            || verdict teardown-incomplete "claude agents lists a job in $IPATH"
+        # No session survived the removal: there was nothing to archive.
+        [ "$NOJOB" = 1 ] && verdict teardown-confirmed "the unit was removed outside the pass and no session of it survived to archive"
+    fi
     ls -d "$ARCHIVE_ROOT"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-"$TOPIC-$JOB" >"$T/arch" 2>/dev/null
     [ "$(wc -l <"$T/arch" | tr -d ' ')" = 1 ] || verdict teardown-incomplete "no single archive for $TOPIC and job $JOB under $ARCHIVE_ROOT"
     ARCH=$(cat "$T/arch")
@@ -192,28 +251,51 @@ $PRS
 EOF
 cid=${HANDOFF##*#issuecomment-}
 hrepo=${HANDOFF#https://github.com/}; hrepo=$(printf '%s' "$hrepo" | cut -d/ -f1-2)
-printf '%s' "$cid" | grep -Eq '^[1-9][0-9]*$' || refused "the handoff link is not a comment link"
+grep -Eq '^[1-9][0-9]*$' <<<"$cid" || refused "the handoff link is not a comment link"
 out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$cid" 2>"$T/gh.err") \
     || refused "the handoff comment could not be read: $(tail -1 "$T/gh.err")"
 printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null || refused "the handoff comment is gone or empty"
-AG=$(agents) || refused "claude agents could not be read"
-printf '%s' "$AG" | jq -e --arg j "$JOB" --arg p "$IPATH" --arg s "$SID" \
-    '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and (.[0].state | IN("done", "stopped", "failed"))' >/dev/null \
-    || refused "job $JOB is no longer the finished job of $IPATH with session $SID"
-NL=$(niwa_list) || refused "niwa list could not be read"
-printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" '[.[] | select(.name == $n or .path == $p)] | length == 1 and .[0].name == $n and .[0].path == $p' >/dev/null \
-    || refused "niwa no longer lists $INAME at $IPATH"
+if [ "$REMOVED" = 1 ]; then
+    # Removed mode: the unit is already gone. Check that it is (neither
+    # listing names it; a listing that can't be read refuses), then preserve
+    # what survives. There is no job to check and no instance to inventory,
+    # and nothing below this branch destroys or removes anything.
+    NL=$(niwa_list) || refused "niwa list could not be read"
+    printf '%s' "$NL" | jq -e --arg p "$IPATH" 'type == "array" and (any(.[]; .path == $p) | not)' >/dev/null \
+        || refused "niwa lists an instance at $IPATH"
+    printf '%s' "$NL" | jq -r '.[] | .session_name | strings' >"$T/niwa-sessions"
+    while IFS= read -r n; do
+        dc_session_matches "$TOPIC" "$n" && refused "niwa lists an instance for $TOPIC (session $n)"
+    done <"$T/niwa-sessions"
+    AG=$(agents) || refused "claude agents could not be read"
+    printf '%s' "$AG" | jq -e --arg p "$IPATH" --arg j "$JOB" 'type == "array" and (any(.[]; .cwd == $p or ($j != "" and .id == $j)) | not)' >/dev/null \
+        || refused "claude agents lists a job for $IPATH"
+else
+    AG=$(agents) || refused "claude agents could not be read"
+    printf '%s' "$AG" | jq -e --arg j "$JOB" --arg p "$IPATH" --arg s "$SID" \
+        '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and (.[0].state | IN("done", "stopped", "failed"))' >/dev/null \
+        || refused "job $JOB is no longer the finished job of $IPATH with session $SID"
+    NL=$(niwa_list) || refused "niwa list could not be read"
+    printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" '[.[] | select(.name == $n or .path == $p)] | length == 1 and .[0].name == $n and .[0].path == $p' >/dev/null \
+        || refused "niwa no longer lists $INAME at $IPATH"
 
-STEP=inventory
-say "re-inventorying $IPATH"
-bash "$HERE/teardown-inventory.sh" --topic "$TOPIC" --instance "$IPATH" >"$T/inv" 2>&1
-case $? in
-    0) ;;
-    1) refused "the instance holds unique material now: $(grep -m1 '^unique' "$T/inv")" ;;
-    *) refused "the inventory reads an error: $(grep -m1 '^error' "$T/inv" || tail -1 "$T/inv")" ;;
-esac
+    STEP=inventory
+    say "re-inventorying $IPATH"
+    bash "$HERE/teardown-inventory.sh" --topic "$TOPIC" --instance "$IPATH" >"$T/inv" 2>&1
+    case $? in
+        0) ;;
+        1) refused "the instance holds unique material now: $(grep -m1 '^unique' "$T/inv")" ;;
+        *) refused "the inventory reads an error: $(grep -m1 '^error' "$T/inv" || tail -1 "$T/inv")" ;;
+    esac
+fi
 
 STEP=preserve
+# A unit removed outside the pass with no surviving session has nothing to
+# archive and no entry to post: its cost can't be read from anything.
+if [ "$NOJOB" = 1 ]; then
+    say "done: the unit was removed outside the pass and no session of it survives; nothing archived"
+    exit 0
+fi
 ARCH="$ARCHIVE_ROOT/$(date -u +%Y-%m-%d)-$TOPIC-$JOB"
 # The archive holds transcripts, which hold whatever the worker saw: only
 # the user reads this pass's directory, and the root too when this pass
@@ -240,14 +322,86 @@ copy_tree() {
     done <"$T/tree"
 }
 [ -f "$TR" ] || refused "the transcript $TR is missing"
-copy_file "$TR" "transcript/$SID.jsonl"
-[ -d "$(dirname "$TR")/$SID" ] && copy_tree "$(dirname "$TR")/$SID" "transcript/$SID"
+# The project directories of the instance (the header's rule). Names start
+# with `-`, so every command gets one only inside an absolute path.
+PROJ="$CLAUDE_HOME/projects"
+ENC=$(printf '%s' "$IPATH" | sed 's/[^A-Za-z0-9]/-/g')
+: >"$T/taken"
+: >"$T/skipped"
+: >"$T/links"
+PPROJ=""
+[ -d "$PROJ" ] && { PPROJ=$(cd -P -- "$PROJ" 2>"$T/cd.err" && pwd -P) || refused "cannot enter $PROJ"; }
+# cwd_inside <physical dir>: 0 when at least one line of a .jsonl file in it
+# carries a cwd at or under the instance path and none carries one outside
+# it; 1 when not; 2 when the directory can't be read.
+cwd_inside() {
+    local f c inside=1
+    (cd -P -- "$1" && find . -type f -name '*.jsonl') >"$T/jl" 2>"$T/find.err" || return 2
+    : >"$T/cwds"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        jq -R -r 'fromjson? | objects | .cwd | strings' "$1/${f#./}" >>"$T/cwds" 2>"$T/jq.err" || return 2
+    done <"$T/jl"
+    while IFS= read -r c; do
+        case "$c" in
+            "$IPATH" | "$IPATH"/*) inside=0 ;;
+            *) return 1 ;;
+        esac
+    done <"$T/cwds"
+    return "$inside"
+}
+# copy_project <physical dir> <name>: every regular file in it, no link
+# followed; the links it holds are listed for the README.
+copy_project() {
+    local f
+    (cd -P -- "$1" && [ "$(pwd -P)" = "$1" ] && find . -type f) >"$T/tree" 2>"$T/find.err" || refused "cannot list the project directory $2"
+    (cd -P -- "$1" && find . -type l) >"$T/tree.links" 2>"$T/find.err" || refused "cannot list the project directory $2"
+    while IFS= read -r f; do
+        [ -n "$f" ] && printf 'claude-projects/%s/%s\n' "$2" "${f#./}" >>"$T/links"
+    done <"$T/tree.links"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        copy_file "$1/${f#./}" "claude-projects/$2/${f#./}"
+    done <"$T/tree"
+}
+if [ -n "$PPROJ" ]; then
+    for d in "$PPROJ/$ENC" "$PPROJ/$ENC"-*; do
+        name=${d##*/}
+        if [ -L "$d" ]; then
+            printf '%s\tsymbolic link\n' "$name" >>"$T/skipped"
+            continue
+        fi
+        [ -d "$d" ] || continue
+        phys=$(cd -P -- "$d" 2>"$T/cd.err" && pwd -P) || refused "cannot enter the project directory $name"
+        [ "$phys" = "$PPROJ/$name" ] || refused "the project directory $name is not where its name says"
+        if [ "$name" != "$ENC" ]; then
+            cwd_inside "$phys"
+            case $? in
+                0) ;;
+                1) printf '%s\tcwd outside the instance\n' "$name" >>"$T/skipped"; continue ;;
+                *) refused "cannot read the project directory $name" ;;
+            esac
+        fi
+        copy_project "$phys" "$name"
+        printf '%s\n' "$name" >>"$T/taken"
+    done
+fi
+# The worker's own transcript is in one of them, or its row couldn't be read.
+TRD=$(cd -P -- "$(dirname "$TR")" 2>"$T/cd.err" && pwd -P) || TRD=""
+[ -n "$TRD" ] && [ -n "$PPROJ" ] && [ "$TRD" = "$PPROJ/${TRD##*/}" ] && grep -qxF -- "${TRD##*/}" "$T/taken" \
+    || refused "the transcript $TR is not in a project directory of the instance"
 J="$CLAUDE_HOME/jobs/$JOB"
-[ -f "$J/state.json" ] || refused "the job's state.json is missing"
-copy_file "$J/state.json" job/state.json
-[ -f "$J/timeline.jsonl" ] && copy_file "$J/timeline.jsonl" job/timeline.jsonl
-[ -d "$J/tmp" ] && copy_tree "$J/tmp" job/tmp
-JTMP=$(cd "$J/tmp" 2>/dev/null && pwd -P) || JTMP="$J/tmp"
+if [ "$REMOVED" = 0 ]; then
+    [ -f "$J/state.json" ] || refused "the job's state.json is missing"
+    copy_file "$J/state.json" job/state.json
+    [ -f "$J/timeline.jsonl" ] && copy_file "$J/timeline.jsonl" job/timeline.jsonl
+    [ -d "$J/tmp" ] && copy_tree "$J/tmp" job/tmp
+    JTMP=$(cd "$J/tmp" 2>/dev/null && pwd -P) || JTMP="$J/tmp"
+else
+    # The job went with the unit: its koto sessions are found by the
+    # instance path alone.
+    J="$IPATH" JTMP="$IPATH"
+fi
 NK=0
 for d in "$KOTO_SESSIONS"/*/; do
     [ -d "$d" ] || continue
@@ -263,6 +417,21 @@ for d in "$KOTO_SESSIONS"/*/; do
     done
 done
 say "copied $(wc -l <"$T/copies" | tr -d ' ') files, $NK koto sessions"
+# teardown.json: what the pass acted on, written by the pass and checked
+# into the MANIFEST like the copies. The pass only writes it; nothing here
+# reads it back. niwa's dispatch id comes from the sealed verdict's
+# `dispatch` line, kept only in the shape the handoff admitted; otherwise the
+# reason it is missing is one of the cost capture's closed words.
+jq -n -c --arg topic "$TOPIC" --arg name "$INAME" --arg path "$IPATH" --arg job "$JOB" --arg sid "$SID" \
+    --argjson removed "$([ "$REMOVED" = 1 ] && echo true || echo false)" --arg d "$DISPATCH" '
+    {topic: $topic,
+     instance: {name: (if $name == "-" then null else $name end), path: $path},
+     job: {id: $job, session: $sid},
+     removed: $removed,
+     niwa: (if $d == "" or $d == "-" then {dispatch_id: null, reason: "no source"}
+            elif $d == "invalid" then {dispatch_id: null, reason: "invalid input"}
+            else {dispatch_id: $d, reason: null} end)}' >"$T/teardown.json" || refused "cannot write teardown.json"
+copy_file "$T/teardown.json" teardown.json
 : >"$ARCH/MANIFEST.new"
 while IFS='	' read -r rel src; do
     h=$(sha256 <"$ARCH/$rel") || refused "cannot hash $rel"
@@ -272,12 +441,26 @@ done <"$T/copies"
 mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
 {
     printf '# Teardown of %s\n\n' "$TOPIC"
-    printf 'Taken %s by the coordinator'"'"'s teardown pass, before anything was removed.\n\n' "$(date -u +%Y-%m-%dT%H:%MZ)"
-    printf -- '- Instance: %s (%s)\n' "$INAME" "$IPATH"
-    printf -- '- Claude Code job: %s, session %s\n' "$JOB" "$SID"
+    if [ "$REMOVED" = 1 ]; then
+        printf 'Taken %s by the coordinator'"'"'s teardown pass, after the unit was removed outside it: this is what survived.\n\n' "$(date -u +%Y-%m-%dT%H:%MZ)"
+        printf -- '- Instance: removed (%s)\n' "$IPATH"
+        printf -- '- Claude Code job: removed; session %s (job id %s, from the session id)\n' "$SID" "$JOB"
+    else
+        printf 'Taken %s by the coordinator'"'"'s teardown pass, before anything was removed.\n\n' "$(date -u +%Y-%m-%dT%H:%MZ)"
+        printf -- '- Instance: %s (%s)\n' "$INAME" "$IPATH"
+        printf -- '- Claude Code job: %s, session %s\n' "$JOB" "$SID"
+    fi
     printf '%s\n' "$PRS" | sed 's/^/- Merged pull request: /'
     printf -- '- Handoff: %s\n\n' "$HANDOFF"
+    # shellcheck disable=SC2016 # the backticks are Markdown
+    printf '`claude-projects/` holds the Claude Code project directories of the instance, each copied whole without following a symbolic link:\n\n'
+    sed 's/^/- Project directory taken: /' "$T/taken"
+    awk -F'\t' '{ printf "- Project directory skipped (%s): %s\n", $2, $1 }' "$T/skipped"
+    sed 's/^/- Symbolic link skipped: /' "$T/links"
+    printf '\n'
     printf 'MANIFEST lists every copied file as `<sha256> <bytes> <path>`; each was checked against its source.\n'
+    # shellcheck disable=SC2016 # the backticks are Markdown
+    printf '`teardown.json`, in the MANIFEST, records what the pass acted on: the topic, the instance, the job and session, whether the unit was removed outside the pass, and niwa'"'"'s dispatch id.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.\n'
 } >"$ARCH/README.md"
@@ -293,6 +476,14 @@ dc_with_deadline "$CAPTURE_SECS" bash "$HERE/unit-cost.sh" capture --session "$S
     --archive "$ARCH" --topic "$TOPIC" --prs-file "$T/prs" \
     </dev/null >/dev/null 2>"$T/capture.err" \
     || say "capture: no cost entry (status $?): $(tail -n 1 "$T/capture.err" 2>/dev/null | cut -c1-200)" >&2
+# Removed mode ends here: the instance and the job are already gone, so the
+# pass never reaches the destroy or the removal below.
+if [ "$REMOVED" = 1 ]; then
+    STEP=confirm
+    printf 'done %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ARCH/RESULT"
+    say "done $ARCH"
+    exit 0
+fi
 STEP=destroy
 say "destroying $INAME"
 (cd "$ROOT" && "$NIWA" destroy --force "$INAME") >"$T/destroy" 2>&1 || incomplete "niwa destroy failed: $(tail -1 "$T/destroy")"

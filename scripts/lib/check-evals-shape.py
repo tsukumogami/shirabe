@@ -9,7 +9,15 @@ skill. It checks the file the eval harness reads without running it:
   - the file parses as JSON and is an object with an `evals` list;
   - every entry under `evals` has a non-empty `name` and a non-empty `prompt`;
   - every entry has at least one of `expectations` or `assertions` as a
-    non-empty list. Both shapes are in use across the suites.
+    non-empty list. Both shapes are in use across the suites;
+  - `tier`, when present, is 1 or 2; every reader takes tier-2 as any tier
+    other than 1, so no other value is let through;
+  - every tier-2 entry (`tier` other than 1) names the behaviour it exercises
+    in `behaviour`, a kebab-case slug, and each behaviour has exactly one entry
+    with `"release": true`: the scenario the release eval check runs for it
+    (scripts/run-evals.sh --release-subset). The scheduled runs rotate through
+    the rest (scripts/scheduled-evals.py). `release` is only ever `true`, and
+    a tier-1 entry carries neither key: every tier-1 scenario runs at release.
 
 A skill with no evals.json passes only when its SKILL.md declares
 `disable-model-invocation: true`, read the way scripts/check-evals-exist.sh
@@ -28,7 +36,10 @@ Exit codes:
 
 import json
 import os
+import re
 import sys
+
+SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def non_empty_string(value):
@@ -76,12 +87,62 @@ def check(path):
             continue
         if not non_empty_string(entry.get("name")):
             problems.append("%s: missing or empty `name`" % where)
+        elif "," in entry["name"]:
+            # scripts/run-evals.sh --scenario takes a comma-separated list.
+            problems.append("%s: `name` can't contain a comma" % where)
         if not non_empty_string(entry.get("prompt")):
             problems.append("%s: missing or empty `prompt`" % where)
+        if not tier_ok(entry):
+            # Every reader takes tier-2 as `tier` other than 1 (scripts/run-evals.sh,
+            # scripts/scheduled-evals.py, the release subset below), so a tier of
+            # 3 or "2" would be read as tier-2 by some and not others: refuse it.
+            problems.append("%s: `tier` is 1 or 2 (absent means 1), not %s"
+                            % (where, json.dumps(entry.get("tier"))))
         if not (non_empty_list(entry.get("expectations"))
                 or non_empty_list(entry.get("assertions"))):
             problems.append(
                 "%s: needs a non-empty `expectations` or `assertions` list" % where)
+    problems.extend(check_release_subset(path, evals))
+    return problems
+
+
+def tier_ok(entry):
+    """`tier` is absent, 1 or 2; a boolean is neither, though Python's True == 1."""
+    tier = entry.get("tier", 1)
+    return not isinstance(tier, bool) and tier in (1, 2)
+
+
+def check_release_subset(path, evals):
+    """Each tier-2 behaviour has exactly one release scenario."""
+    problems = []
+    releases = {}
+    for index, entry in enumerate(evals):
+        if not isinstance(entry, dict):
+            continue
+        where = "%s: %s" % (path, label(index, entry))
+        if not tier_ok(entry):
+            continue  # refused above; its release keys would only repeat it
+        tier2 = entry.get("tier", 1) != 1
+        behaviour = entry.get("behaviour")
+        if "release" in entry and entry["release"] is not True:
+            problems.append("%s: `release` is only ever `true`" % where)
+        if not tier2:
+            if "behaviour" in entry or "release" in entry:
+                problems.append("%s: `behaviour` and `release` belong on tier-2 entries; "
+                                "every tier-1 scenario runs at release" % where)
+            continue
+        if not (isinstance(behaviour, str) and SLUG.match(behaviour)):
+            problems.append("%s: a tier-2 entry needs a kebab-case `behaviour` naming what it "
+                            "exercises" % where)
+            continue
+        releases.setdefault(behaviour, [])
+        if entry.get("release") is True:
+            releases[behaviour].append(label(index, entry))
+    for behaviour, picked in sorted(releases.items()):
+        if len(picked) != 1:
+            problems.append("%s: behaviour %r needs exactly one `\"release\": true` entry, "
+                            "has %d%s" % (path, behaviour, len(picked),
+                                          (": " + ", ".join(picked)) if picked else ""))
     return problems
 
 

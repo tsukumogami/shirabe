@@ -19,7 +19,7 @@ bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
     mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
-             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq \
+             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-source.sh record-parse.sh record-render.sh record-codec.jq \
              panel-evidence.sh squash-message.sh merge-order-entry.sh pause-read.sh milestone.sh; do
         cp "$HERE/$f" "$S/$f"
     done
@@ -117,7 +117,7 @@ bt_run() {
     bt_enter "$1" start_posture
     bt_sealed "$1" start_posture POSTURE "$2"
     bt_enter "$1" record_find
-    bt_sealed "$1" record_find RECORD_FIND "found 7"
+    bt_sealed "$1" record_find RECORD_FIND "${BT_FIND_TOKEN:-found 7}"
     bt_enter "$1" verify
     bt_evidence "$1" verify '{"prediction":"every job green"}'
 }
@@ -146,6 +146,25 @@ bt_record_paused() {
         deferrals: [], side_effects: [], reversals: [], holds: $h, standing: $s}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+# bt_session_record <S>: the record bt_record_body or bt_record_paused last
+# built ($T/rec.json), as the session store holds it in S's keys (record/meta and
+# one key per section), and issue #7's body emptied, so a reader that finds the
+# record's holds or pauses read them from the session.
+bt_session_record() {
+    local f pair field key
+    jq -c '{scope, store: "session", written: "2026-09-26T11:00:00Z", pending: false}' "$T/rec.json" > "$T/meta.json"
+    "$KOTO_BIN" context add "$1" record/meta --from-file "$T/meta.json" || return 1
+    for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
+        field=${pair%%:*} key=${pair#*:}
+        jq -e --arg f "$field" 'has($f)' "$T/rec.json" > /dev/null || continue
+        jq -c --arg f "$field" '.[$f]' "$T/rec.json" > "$T/sec.json"
+        "$KOTO_BIN" context add "$1" "record/$key" --from-file "$T/sec.json" || return 1
+    done
+    jq -nc '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: [],
+        run: [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]}' > "$T/moved.json"
+    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/moved.json" > "$T/moved.md" || return 1
+    jq -Rsc '{number: 7, body: .}' "$T/moved.md" > "$GH_BOARD_DIR/issue-7.out"
 }
 bt_pause() {
     jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
@@ -176,16 +195,27 @@ bt_prview() {
           files: [{path: "skills/x.sh", additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
 }
 
+# The merge confirmation's reads (board-lib.sh's bl_merge_compare): pull
+# request #12's record and the repository, then the comparison of main with
+# the merge commit. BT_MC is the merge commit unless a case names another.
+BT_MC=cccccccccccccccccccccccccccccccccccccccc
+# bt_merged <state> [head] [merge-commit]: #12's record, the head GitHub
+# merged (default $H, the verified head) and its merge commit (default
+# $BT_MC; "" for none); and the repository, whose default branch is main.
 bt_merged() {
-    jq -nc --arg s "$1" --argjson f "$2" '{state: $s, files: [$f[] | {path: ., additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
+    jq -nc --arg s "$1" --arg h "${2-$H}" --arg m "${3-$BT_MC}" \
+        '{state: $s, headRefOid: $h, mergeCommit: (if $m == "" then null else {oid: $m} end)}' > "$GH_BOARD_DIR/prview-12.out"
     echo '{"full_name":"acme/widgets","default_branch":"main"}' > "$GH_BOARD_DIR/repo.out"
 }
-bt_blob() {
-    local k="contents-$1-$(printf '%s' "$2" | sed 's#/#__#g')"
+# bt_reach <status|fail|notfound> [merge-commit]: the comparison of main with
+# the merge commit (default $BT_MC): a status (behind or identical means the
+# commit is on main), or a failed read.
+bt_reach() {
+    local k="compare-main...${2-$BT_MC}"
     rm -f "$GH_BOARD_DIR/$k.out" "$GH_BOARD_DIR/$k.err" "$GH_BOARD_DIR/$k.rc"
-    case "$3" in
-        absent) echo 'gh: Not Found (HTTP 404)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
+    case "$1" in
+        notfound) echo 'gh: Not Found (HTTP 404)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
         fail) echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
-        *) jq -nc --arg p "$2" --arg s "$3" '{type: "file", path: $p, sha: $s}' > "$GH_BOARD_DIR/$k.out" ;;
+        *) jq -nc --arg s "$1" '{status: $s}' > "$GH_BOARD_DIR/$k.out" ;;
     esac
 }

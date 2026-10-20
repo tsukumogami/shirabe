@@ -56,6 +56,9 @@ trap cleanup EXIT
 
 WORK=$(mktemp -d); TMPS+=("$WORK")
 SESSIONS_FILE="$WORK/sessions"
+# koto's session store lives under HOME: a HOME of the suite's own keeps its
+# sessions out of the user's store and away from suites running beside it.
+mkdir -p "$WORK/home" && export HOME="$WORK/home"
 
 # iso_days_ago <n> -- an ISO-8601 UTC timestamp n days before now.
 iso_days_ago() { jq -nr --argjson n "$1" '(now - ($n * 86400)) | floor | todate'; }
@@ -207,7 +210,7 @@ expect_json "unavailable verdict names gh" '.verdict == "unavailable" and (.reas
 
 run_check STUB_ISSUE="$(issue_json 2 '' '')" GH_FAIL_VIEW=1 GH_VIEW_STDERR="token ghp_abcdefghijklmnop rejected"
 expect_rc "token-shaped stderr is still unavailable" 3
-if printf '%s' "$OUT" | grep -q 'ghp_'; then fail "token-shaped stderr reached the report: $OUT"; else pass "token-shaped stderr withheld from the report"; fi
+if grep -q 'ghp_' <<<"$OUT"; then fail "token-shaped stderr reached the report: $OUT"; else pass "token-shaped stderr withheld from the report"; fi
 
 run_check STUB_ISSUE="$(issue_json 2 'M1' '')" GH_FAIL_CLOSED=1
 expect_rc "closed milestone list failing is unavailable" 3
@@ -220,7 +223,7 @@ ln -s "$STUB_DIR/gh" "$NOJQ/gh"
 ln -s "$REAL_GIT" "$NOJQ/git"
 OUT=$(cd "$REPO" && PATH="$NOJQ" "$BASH" "$CHECK" --issue 7 2>/dev/null); RC=$?
 expect_rc "no jq on PATH is unavailable" 3
-if printf '%s' "$OUT" | grep -q '"reason":"jq not found"'; then pass "no-jq report names jq"; else fail "no-jq report: $OUT"; fi
+if grep -q '"reason":"jq not found"' <<<"$OUT"; then pass "no-jq report names jq"; else fail "no-jq report: $OUT"; fi
 
 NOTREPO="$WORK/notrepo"
 mkdir -p "$NOTREPO/src"

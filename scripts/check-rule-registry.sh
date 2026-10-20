@@ -12,18 +12,27 @@
 #      that skill's koto templates, a one-line summary with no control
 #      character and no `::`
 #   2  withhold safety: a guard other than `none`, or check.kind `none`,
-#      needs withhold `never`; a gate needs a guard; prose needs check `none`
-#   3  paths: text, check and fixture paths have a safe shape and stay in the
-#      repository; an active entry's check path and fixtures exist; a
-#      review-shadow check names a criterion in criteria.json
+#      needs withhold `never`; a gate needs a guard, or a backstop: the
+#      deterministic check that still blocks a protected action after the
+#      gate (backstop.before), for a rule whose harm a later edit undoes; a
+#      backstop needs level gate, guards ["none"], withhold `eligible` and
+#      notes; prose needs check `none`
+#   3  paths: text, check, backstop and fixture paths have a safe shape and
+#      stay in the repository; an active entry's check path, backstop check
+#      and fixtures exist; a review-shadow check names a criterion in
+#      criteria.json
 #   4  pointers: every active entry's anchors resolve, through
 #      rule-registry.sh's own lookup, to a range with no marker line and no
 #      control character but tab; a retired entry is exempt
 #   5  review-shadow agreement: the rs- ids of the registry and criteria.json
 #      are one set, and each entry's text.path is its criterion's rule_ref
-#   6  printable ids: every id on a RULE_IDS="..." line under skills/ or
-#      scripts/, and every id a script passes to `rule-registry.sh release`,
-#      is an active entry
+#   6  printable ids: every id on a RULE_IDS="..." line under skills/,
+#      scripts/ or hooks/ (a hook's *_test.sh suite aside), and every id a
+#      script passes to `rule-registry.sh release`,
+#      is an active entry; a RULE_IDS_ANY_ACTIVE=1 line, the declared
+#      exception for a script that resolves a finding's own rule at run time,
+#      appears only in an allowed script and only beside an rf_require_any
+#      call, and no other shipping script calls rf_require_any
 #   7  baseline keys: template-pin.json's commit is 40 hex characters; each
 #      key is <path>#L<a>-L<b>, a <= b, inside its file at that commit; an
 #      entry sharing a key names the others in notes; an empty list has notes
@@ -36,6 +45,12 @@
 #      release rules (path, 60 lines, no marker), so CI fails before a run does
 #  11  id removal (--base <ref>): every id in the registry at <ref> is still
 #      in it; a base with no registry passes
+#  12  hook links: a `deny` is an object of hook and before only, whose hook
+#      is a safe relative path to an existing file and whose before is a
+#      non-empty list of protected actions (the guards vocabulary less
+#      `none`); every id on a RULE_IDS
+#      line under hooks/ has a `deny` naming that script, and every `deny`
+#      names a script whose RULE_IDS line lists the id
 #
 # The rules that rule-registry.sh enforces at run time (anchor lookup, safe
 # path, releasable path) are asked of it rather than copied here, so the two
@@ -95,6 +110,9 @@ TIMING_SHAPE='^([a-z0-9-]+):([a-z0-9_]+)$'
 ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$'
 RULE_IDS_LINE='^RULE_IDS="([a-z0-9/-]+( [a-z0-9/-]+)*)"$'
 COMMENT_LINE='^[[:space:]]*#'
+# The guards vocabulary less `none`: the actions a guard, a backstop or a
+# deny can name.
+PROTECTED='["pr-create","push","force-push","merge","close-issue","release","delete-branch","publish","destroy-record"]'
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-registry.XXXXXX") || die2 "cannot make a scratch directory"
 trap 'rm -rf "$TMP"' EXIT
@@ -134,13 +152,11 @@ if ! jq -e '.rules | type == "array"' "$REG" >/dev/null 2>&1; then
     exit 1
 fi
 
-jqf "$TMP/shape" -r '
+jqf "$TMP/shape" -r --argjson protected "$PROTECTED" '
   def strs: type == "array" and all(.[]; type == "string");
   def ctl: explode | any(.[]; . < 32 or . == 127);
   ["id","status","summary","text","check","fixtures","level","timing","guards",
    "withhold","baseline_keys","aliases","notes"] as $fields
-  | ["pr-create","push","force-push","merge","close-issue","release",
-     "delete-branch","publish","destroy-record"] as $protected
   | .rules | to_entries[] | .key as $i | .value as $e
   | if ($e | type) != "object" then "entry \($i): not an object"
     else
@@ -182,14 +198,25 @@ jqf "$TMP/shape" -r '
         (select($e.guards | strs) | $e.guards
           | if length == 0 then "\($n): guards is empty; use [\"none\"]"
             elif index("none") != null and length > 1 then "\($n): none is mixed with other guards"
-            else (.[] | select(. != "none" and ($protected | index(.)) == null) | "\($n): guard \(tojson) is not in the vocabulary")
+            # $g, not the dot: inside `$protected | index(...)` the dot is the list.
+            else (.[] | . as $g | select($g != "none" and ($protected | index($g)) == null) | "\($n): guard \(tojson) is not in the vocabulary")
             end),
         (select(($e.guards | strs) and any($e.guards[]; . != "none") and $e.withhold == "eligible")
           | "\($n): a protected guard requires withhold never"),
         (select(($e.check | type) == "object" and $e.check.kind == "none" and $e.withhold == "eligible")
           | "\($n): check.kind none requires withhold never"),
-        (select($e.level == "gate" and ($e.guards | strs) and all($e.guards[]; . == "none"))
-          | "\($n): a gate entry needs a guard other than none"),
+        (select($e.level == "gate" and ($e.guards | strs) and all($e.guards[]; . == "none")
+                and ($e | has("backstop") | not))
+          | "\($n): a gate entry needs a guard other than none, or a backstop"),
+        (select($e | has("backstop")) | $e.backstop as $b
+          | if ($b | type) != "object" then "\($n): backstop is not an object"
+            elif ($protected | index($b.before)) == null then "\($n): backstop.before \($b.before | tojson) is not a protected action"
+            elif ($b.check | type) != "string" or $b.check == "" then "\($n): backstop.check is not a path"
+            elif $e.level != "gate" then "\($n): a backstop needs level gate"
+            elif ($e.guards != ["none"]) then "\($n): a backstop needs guards [\"none\"]"
+            elif $e.withhold != "eligible" then "\($n): a backstop needs withhold eligible"
+            elif ($e.notes | type) != "string" or $e.notes == "" then "\($n): a backstop needs notes saying why"
+            else empty end),
         (select($e.level == "prose" and ($e.check | type) == "object" and $e.check.kind != "none")
           | "\($n): a prose entry must have check.kind none")
     end
@@ -243,6 +270,7 @@ safe_rel() {
 jqf "$TMP/paths" -r '.rules[] | objects | .id as $id | (.status // "") as $s
        | ((.text | objects | .path | strings | "\($id)\t\($s)\ttext\t\(.)"),
           (.check | objects | select(.kind == "script") | .path | strings | "\($id)\t\($s)\tcheck\t\(.)"),
+          (.backstop | objects | .check | strings | "\($id)\t\($s)\tbackstop\t\(.)"),
           (.fixtures | arrays | .[] | strings | "\($id)\t\($s)\tfixture\t\(.)"))' "$REG"
 while IFS='	' read -r id status what p; do
     [ -n "$p" ] || continue
@@ -335,7 +363,15 @@ scan() {
     [ "$rc" -le 1 ] || die2 "a scan could not read the tree: $(head -n 1 "$TMP/grep.err")"
 }
 
-scan "$TMP/rule-ids" -rnE '^RULE_IDS=' "$ROOT/skills" "$ROOT/scripts"
+scan "$TMP/rule-ids.skills" -rnE '^RULE_IDS=' "$ROOT/skills" "$ROOT/scripts"
+# A hook script's line is a declaration too (check 12 reads it again). A
+# hook's own suite reads that line with a `RULE_IDS=$(...)` of its own, which
+# is not one.
+: > "$TMP/hook-ids"
+if [ -d "$ROOT/hooks" ]; then
+    scan "$TMP/hook-ids" -rnE --exclude='*_test.sh' '^RULE_IDS=' "$ROOT/hooks"
+fi
+cat "$TMP/rule-ids.skills" "$TMP/hook-ids" > "$TMP/rule-ids"
 while IFS= read -r hit; do
     file=${hit%%:*}
     rest=${hit#*:}
@@ -350,6 +386,40 @@ while IFS= read -r hit; do
         is_active "$id" || problem "$rel:$lineno: RULE_IDS names $id, which is not an active registry entry"
     done
 done < "$TMP/rule-ids"
+
+# The one declared exception to "every printable id is on a static line":
+# a script that prints a finding under the finding's own rule resolves that id
+# at run time with rf_require_any, and says so with RULE_IDS_ANY_ACTIVE=1. The
+# runtime still refuses any id that isn't active; this keeps the exception
+# visible, paired and confined to the scripts listed here.
+ANY_ACTIVE_ALLOWED="skills/work-on/scripts/panel-scope.sh"
+scan "$TMP/any-marker" -rnE '^RULE_IDS_ANY_ACTIVE=' "$ROOT/skills" "$ROOT/scripts"
+scan "$TMP/any-calls" -rlE --include='*.sh' '(^|[^A-Za-z0-9_])rf_require_any([[:space:]]|$)' "$ROOT/skills" "$ROOT/scripts"
+while IFS= read -r hit; do
+    file=${hit%%:*}
+    rest=${hit#*:}
+    lineno=${rest%%:*}
+    text=${rest#*:}
+    rel=${file#"$ROOT"/}
+    if [ "$text" != "RULE_IDS_ANY_ACTIVE=1" ]; then
+        problem "$rel:$lineno: malformed RULE_IDS_ANY_ACTIVE line; want RULE_IDS_ANY_ACTIVE=1"
+        continue
+    fi
+    case " $ANY_ACTIVE_ALLOWED " in
+        *" $rel "*) ;;
+        *) problem "$rel:$lineno: RULE_IDS_ANY_ACTIVE is allowed only in: $ANY_ACTIVE_ALLOWED" ;;
+    esac
+    grep -qxF -- "$file" "$TMP/any-calls" \
+        || problem "$rel:$lineno: declares RULE_IDS_ANY_ACTIVE=1 but never calls rf_require_any"
+done < "$TMP/any-marker"
+while IFS= read -r file; do
+    rel=${file#"$ROOT"/}
+    case "$rel" in
+        *_test.sh|scripts/lib/*|scripts/check-rule-registry*.sh) continue ;;
+    esac
+    grep -qE '^RULE_IDS_ANY_ACTIVE=1$' "$file" \
+        || problem "$rel: calls rf_require_any without declaring RULE_IDS_ANY_ACTIVE=1"
+done < "$TMP/any-calls"
 
 # Ids passed to `rule-registry.sh release` by the scripts that ship. The
 # reader itself, its library, these checks and the test suites are not
@@ -557,6 +627,61 @@ if [ -n "$BASE" ]; then
         echo "$PROG: the base has no registry; the id-removal check has nothing to compare"
     fi
 fi
+
+# ---------------------------------------------------------------- 12
+
+# A `deny` names the plugin hook that denies a protected action when the rule
+# is broken, and the hook script declares the rules it denies on its RULE_IDS
+# line. The link is checked both ways, so neither side can name a rule the
+# other doesn't.
+jqf "$TMP/deny-shape" -r --argjson protected "$PROTECTED" '
+  .rules[] | objects | select(has("deny"))
+  | (if (.id | type) == "string" then .id else "an entry" end) as $n | .deny
+  | if type != "object" then "\($n): deny is not an object"
+    elif (keys - ["hook", "before"]) != [] then "\($n): deny has a field other than hook and before: \(keys - ["hook", "before"] | join(", "))"
+    elif (.hook | type) != "string" or .hook == "" then "\($n): deny.hook is not a path"
+    elif (.before | type) != "array" or (.before | length) == 0 then "\($n): deny.before is not a non-empty list"
+    # Bind each action before the lookup: inside `$protected | index(.)` the
+    # dot is the list itself, which always finds itself at 0.
+    else .before[] | . as $a | select(($a | type) != "string" or ($protected | index($a)) == null)
+      | "\($n): deny.before \(tojson) is not a protected action"
+    end' "$REG"
+report "$TMP/deny-shape"
+
+jqf "$TMP/deny-links" -r '.rules[] | objects
+       | select((.id | type) == "string" and (.deny | type) == "object" and (.deny.hook | type) == "string")
+       | "\(.id)\t\(.deny.hook)"' "$REG"
+while IFS='	' read -r id p; do
+    [ -n "$p" ] || continue
+    if ! safe_rel "$p"; then
+        problem "$id: deny.hook [$p] is unsafe (shape, a . or .. segment, a symlink, or outside the repository)"
+        continue
+    fi
+    if [ ! -f "$ROOT/$p" ]; then
+        problem "$id: deny.hook $p does not exist"
+        continue
+    fi
+    listed=""
+    line=$(grep -E '^RULE_IDS=' "$ROOT/$p" | head -n 1)
+    if [[ $line =~ $RULE_IDS_LINE ]]; then
+        case " ${BASH_REMATCH[1]} " in *" $id "*) listed=1 ;; esac
+    fi
+    [ -n "$listed" ] || problem "$id: deny names $p, whose RULE_IDS line does not list it"
+done < "$TMP/deny-links"
+
+while IFS= read -r hit; do
+    file=${hit%%:*}
+    rest=${hit#*:}
+    lineno=${rest%%:*}
+    text=${rest#*:}
+    rel=${file#"$ROOT"/}
+    # Check 6 has already reported a malformed line.
+    [[ $text =~ $RULE_IDS_LINE ]] || continue
+    for id in ${BASH_REMATCH[1]}; do
+        grep -qxF -- "$id	$rel" "$TMP/deny-links" \
+            || problem "$rel:$lineno: RULE_IDS names $id, whose registry entry has no deny naming $rel"
+    done
+done < "$TMP/hook-ids"
 
 if [ "$PROBLEMS" -gt 0 ]; then
     echo "$PROG: $PROBLEMS problem(s)"

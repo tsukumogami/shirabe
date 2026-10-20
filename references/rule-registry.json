@@ -133,7 +133,125 @@
         "references/pr-body-conformance.md#L57-L60"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with pr-body/no-ai-trailer; PB3's predicate is applied to commit trailers."
+      "notes": "Shares its text and baseline key with pr-body/no-ai-trailer; PB3's predicate is applied to commit trailers.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "push"
+        ]
+      }
+    },
+    {
+      "id": "docs/absorbed-declaration",
+      "status": "active",
+      "summary": "A document's absorbed declaration or its contribution sections are malformed",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "4. **FC18–FC19 -- absorbed documents.**",
+        "last": "-- those are a separate cleanup, not this check's business."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L28-L49"
+      ],
+      "aliases": [
+        "FC18"
+      ],
+      "notes": "Shares its text and baseline key with docs/absorbed-requirement-citation: one item states them together."
+    },
+    {
+      "id": "docs/absorbed-requirement-citation",
+      "status": "active",
+      "summary": "A document cites a requirement its absorbed PRD no longer defines",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "4. **FC18–FC19 -- absorbed documents.**",
+        "last": "-- those are a separate cleanup, not this check's business."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L28-L49"
+      ],
+      "aliases": [
+        "FC19"
+      ],
+      "notes": "Shares its text and baseline key with docs/absorbed-declaration: one item states them together."
+    },
+    {
+      "id": "docs/no-stale-reference",
+      "status": "active",
+      "summary": "A document names an artifact path that has moved",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "5. **FC20 -- stale prose references.**",
+        "last": "a reader follows it to nothing."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC20"
+      ],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "docs/private-only-type",
@@ -141,7 +259,7 @@
       "summary": "A changed document has a type allowed only in a private repository",
       "text": {
         "path": "docs/guides/doc-validation.md",
-        "first": "3. **Format-specific rules** -- Plan docs",
+        "first": "3. **Format-specific rules** --",
         "last": "(R9), and the gate fires before FC01-FC04."
       },
       "check": {
@@ -155,7 +273,12 @@
       "level": "gate",
       "timing": [
         "work-on:pr_precheck",
-        "execute:pr_finalization"
+        "execute:pr_finalization",
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
       ],
       "guards": [
         "pr-create",
@@ -168,7 +291,273 @@
       "aliases": [
         "R9"
       ],
-      "notes": "Shares its text and baseline key with docs/visibility-strategy-sections and docs/visibility-vision-sections: one paragraph states R7, R8 and R9."
+      "notes": "Shares its text and baseline key with docs/visibility-strategy-sections and docs/visibility-vision-sections: one paragraph states R7, R8 and R9. Also shares its text and baseline key with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
+    },
+    {
+      "id": "docs/required-fields",
+      "status": "active",
+      "summary": "A document lacks a frontmatter field its type requires",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "2. **FC01–FC04** -- required frontmatter fields",
+        "last": "body consistency, required sections."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L21-L22"
+      ],
+      "aliases": [
+        "FC01"
+      ],
+      "notes": "Shares its text and baseline key with docs/valid-status, docs/status-matches-body and docs/required-sections: one item states them together."
+    },
+    {
+      "id": "docs/required-sections",
+      "status": "active",
+      "summary": "A document lacks a section its type requires",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "2. **FC01–FC04** -- required frontmatter fields",
+        "last": "body consistency, required sections."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L21-L22"
+      ],
+      "aliases": [
+        "FC04"
+      ],
+      "notes": "Shares its text and baseline key with docs/required-fields, docs/valid-status and docs/status-matches-body: one item states them together."
+    },
+    {
+      "id": "docs/status-matches-body",
+      "status": "active",
+      "summary": "A document's frontmatter status differs from its Status section",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "2. **FC01–FC04** -- required frontmatter fields",
+        "last": "body consistency, required sections."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L21-L22"
+      ],
+      "aliases": [
+        "FC03"
+      ],
+      "notes": "Shares its text and baseline key with docs/required-fields, docs/valid-status and docs/required-sections: one item states them together."
+    },
+    {
+      "id": "docs/upstream-direction",
+      "status": "active",
+      "summary": "A document's upstream names a type it may not name",
+      "text": {
+        "path": "references/pipeline-model.md",
+        "first": "The two properties are enforced as `R10` (direction) and `R11` (lifetime).",
+        "last": "survives being acted on."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pipeline-model.md#L186-L188"
+      ],
+      "aliases": [
+        "R10"
+      ],
+      "notes": "Shares its text and baseline key with docs/upstream-lifetime: one sentence states both properties."
+    },
+    {
+      "id": "docs/upstream-lifetime",
+      "status": "active",
+      "summary": "A durable document's upstream names a working document",
+      "text": {
+        "path": "references/pipeline-model.md",
+        "first": "The two properties are enforced as `R10` (direction) and `R11` (lifetime).",
+        "last": "survives being acted on."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pipeline-model.md#L186-L188"
+      ],
+      "aliases": [
+        "R11"
+      ],
+      "notes": "Shares its text and baseline key with docs/upstream-direction: one sentence states both properties."
+    },
+    {
+      "id": "docs/upstream-resolves",
+      "status": "active",
+      "summary": "A document's upstream names a file that doesn't exist or isn't tracked",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "3. **Format-specific rules** --",
+        "last": "(R9), and the gate fires before FC01-FC04."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L23-L27"
+      ],
+      "aliases": [
+        "R6"
+      ],
+      "notes": "Shares its text and baseline key with docs/visibility-vision-sections, docs/visibility-strategy-sections and docs/private-only-type: one item states R6 to R9."
+    },
+    {
+      "id": "docs/valid-status",
+      "status": "active",
+      "summary": "A document's status is not one its type allows",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "2. **FC01–FC04** -- required frontmatter fields",
+        "last": "body consistency, required sections."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L21-L22"
+      ],
+      "aliases": [
+        "FC02"
+      ],
+      "notes": "Shares its text and baseline key with docs/required-fields, docs/status-matches-body and docs/required-sections: one item states them together."
     },
     {
       "id": "docs/visibility-strategy-sections",
@@ -176,7 +565,7 @@
       "summary": "A changed STRATEGY document has a section a public repository prohibits",
       "text": {
         "path": "docs/guides/doc-validation.md",
-        "first": "3. **Format-specific rules** -- Plan docs",
+        "first": "3. **Format-specific rules** --",
         "last": "(R9), and the gate fires before FC01-FC04."
       },
       "check": {
@@ -190,7 +579,12 @@
       "level": "gate",
       "timing": [
         "work-on:pr_precheck",
-        "execute:pr_finalization"
+        "execute:pr_finalization",
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
       ],
       "guards": [
         "pr-create",
@@ -203,7 +597,7 @@
       "aliases": [
         "R8"
       ],
-      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-vision-sections: one paragraph states R7, R8 and R9."
+      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-vision-sections: one paragraph states R7, R8 and R9. Also shares its text and baseline key with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
     },
     {
       "id": "docs/visibility-vision-sections",
@@ -211,7 +605,7 @@
       "summary": "A changed VISION document has a section a public repository prohibits",
       "text": {
         "path": "docs/guides/doc-validation.md",
-        "first": "3. **Format-specific rules** -- Plan docs",
+        "first": "3. **Format-specific rules** --",
         "last": "(R9), and the gate fires before FC01-FC04."
       },
       "check": {
@@ -225,7 +619,12 @@
       "level": "gate",
       "timing": [
         "work-on:pr_precheck",
-        "execute:pr_finalization"
+        "execute:pr_finalization",
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
       ],
       "guards": [
         "pr-create",
@@ -238,7 +637,7 @@
       "aliases": [
         "R7"
       ],
-      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-strategy-sections: one paragraph states R7, R8 and R9."
+      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-strategy-sections: one paragraph states R7, R8 and R9. Also shares its text and baseline key with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
     },
     {
       "id": "execute/pr-takeover-needs-signal",
@@ -270,7 +669,7 @@
     },
     {
       "id": "panel/blocking-finding",
-      "status": "active",
+      "status": "retired",
       "summary": "A review seat recorded a blocking finding",
       "text": {
         "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
@@ -298,7 +697,179 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+      "notes": "Retired when the panel gate moved to the findings ledger: a blocking finding with no closing verdict record now prints under panel/open-finding, or under the active rule it cites."
+    },
+    {
+      "id": "panel/open-finding",
+      "status": "active",
+      "summary": "A blocking finding in the panel's ledger has no closing verdict record",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "A blocking finding stays open until a verdict record closes it"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/panel-scope.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create",
+        "merge"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The generic rule for a blocking finding that names no rule of its own; a finding with a rule prints under that rule. The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "plan/issues-table-dependencies",
+      "status": "active",
+      "summary": "A plan's issues table names a dependency with no row",
+      "text": {
+        "path": "references/issues-table.md",
+        "first": "- **FC06** -- cross-reference existence.",
+        "last": "same table."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/issues-table.md#L230-L232"
+      ],
+      "aliases": [
+        "FC06"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "plan/issues-table-shape",
+      "status": "active",
+      "summary": "A plan's issues table is not in its profile's shape",
+      "text": {
+        "path": "references/issues-table.md",
+        "first": "- **FC05** -- issues-table schema conformance.",
+        "last": "well-formed (entity, description, optional child reference)."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/issues-table.md#L226-L229"
+      ],
+      "aliases": [
+        "FC05"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "plan/outline-dependency-resolves",
+      "status": "active",
+      "summary": "A plan outline depends on an outline that doesn't exist",
+      "text": {
+        "path": "skills/plan/references/plan-to-tasks-contract.md",
+        "first": "**An unresolvable reference stops the work at both boundaries.**",
+        "last": "a word, producing a complete task list with the edge missing."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "skills/plan/references/plan-to-tasks-contract.md#L282-L291"
+      ],
+      "aliases": [
+        "FC17"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "pr-body/banned-word",
+      "status": "active",
+      "summary": "The pull request title or body uses a word the writing-style rules ban",
+      "text": {
+        "path": "skills/writing-style/rules.yaml",
+        "first": "# Banned words, grouped by the category the guidance uses.",
+        "last": "- Moreover"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "skills/writing-style/rules.yaml#L17-L89"
+      ],
+      "aliases": [
+        "PB5"
+      ],
+      "notes": "Shares its text and baseline key with prose/banned-word: the same banned words, checked on pull request titles and bodies by shirabe validate --pr-body --writing-style rather than on documents. The gate passes the plugin's own rules.yaml."
     },
     {
       "id": "pr-body/conformance",
@@ -331,7 +902,13 @@
         "references/pr-body-conformance.md#L34-L79"
       ],
       "aliases": [],
-      "notes": "The catch-all for a validator message no narrower pr-body rule matches; its text contains PB1 to PB4."
+      "notes": "The catch-all for a validator message no narrower pr-body rule matches; its text contains PB1 to PB4.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/conventional-title",
@@ -366,7 +943,13 @@
       "aliases": [
         "PB1"
       ],
-      "notes": "Shares its text with commit/conventional-subject."
+      "notes": "Shares its text with commit/conventional-subject.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/no-ai-trailer",
@@ -401,7 +984,13 @@
       "aliases": [
         "PB3"
       ],
-      "notes": "Shares its text and baseline key with commit/no-ai-trailer."
+      "notes": "Shares its text and baseline key with commit/no-ai-trailer.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/no-heading-in-part1",
@@ -410,7 +999,7 @@
       "text": {
         "path": "references/pr-body-conformance.md",
         "first": "**PB4 — no markdown section heading in Part 1.**",
-        "last": "is not matched, so a prose Part 1 that mentions one is never a false positive."
+        "last": "Prose commit bodies essentially never use setext."
       },
       "check": {
         "kind": "script",
@@ -426,17 +1015,26 @@
         "execute:pr_finalization"
       ],
       "guards": [
-        "pr-create",
-        "publish"
+        "none"
       ],
-      "withhold": "never",
+      "withhold": "eligible",
       "baseline_keys": [
         "references/pr-body-conformance.md#L61-L75"
       ],
       "aliases": [
         "PB4"
       ],
-      "notes": ""
+      "notes": "The one gate rule eligible to withhold (the live offload canary, DESIGN-offload-live-canary.md): its gate runs after gh pr create on the pull request GitHub has, a violation is fixed with gh pr edit, and the backstop, validate-pr-body.yml, is a required status check on main, so a heading in Part 1 never reaches main whatever the agent was told.",
+      "backstop": {
+        "before": "merge",
+        "check": ".github/workflows/validate-pr-body.yml"
+      },
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/one-separator",
@@ -471,7 +1069,51 @@
       "aliases": [
         "PB2"
       ],
-      "notes": ""
+      "notes": "",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
+    },
+    {
+      "id": "prose/banned-word",
+      "status": "active",
+      "summary": "A document uses a word the writing-style rules ban",
+      "text": {
+        "path": "skills/writing-style/rules.yaml",
+        "first": "# Banned words, grouped by the category the guidance uses.",
+        "last": "- Moreover"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "skills/writing-style/rules.yaml#L17-L89"
+      ],
+      "aliases": [
+        "FC10"
+      ],
+      "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice. Shares its text and baseline key with pr-body/banned-word, the same words checked on pull request titles and bodies. Quoted text (a blockquote, or double quotes that pair on one line) is exempt in both, because a verbatim quotation is not the author's to reword."
     },
     {
       "id": "rs-001",

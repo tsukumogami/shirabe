@@ -119,8 +119,16 @@ mktempdir() {
 
 # -- Suite registry -----------------------------------------------------------
 #
-# One entry per shell suite CI runs, naming the same scripts the workflow runs
-# so the local check and the CI check cannot drift apart.
+# One list per shell suite CI runs, scripts/bash-floor/<suite>.list, naming
+# the same scripts the workflow runs so the local check and the CI check cannot
+# drift apart. A list is one entry per line: `workflow: <path>`, the workflow
+# whose macOS leg runs the suite; `needs: shirabe` when the suite runs the
+# shirabe binary; a `#` comment; or a script's path from the repository root.
+# Any other line is an error check-bash-floor_test.sh reports, rather than a
+# script the floor silently never runs. The lists live outside this script so
+# that adding a script to a suite edits only that suite's list, and each
+# workflow's path filter names its own list, which the test also checks: a
+# change to one list re-runs one floor, not all of them (shirabe#907).
 #
 # Exemptions - shell that CI runs and this deliberately does not floor-check:
 #
@@ -167,431 +175,61 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session comp release explore"
+FLOOR_DIR="$SCRIPT_DIR/bash-floor"
+
+# The suites: one per scripts/bash-floor/<suite>.list, in name order.
+# Empty, not an exit under set -e, when the directory is missing: the canary
+# runs without it, and need_suites refuses a use of the whole registry.
+SUITES=$(cd "$FLOOR_DIR" 2>/dev/null && for f in *.list; do [ -f "$f" ] && echo "${f%.list}"; done | LC_ALL=C sort | tr '\n' ' ') || SUITES=""
+# need_suites: refuse a use of the whole registry when it reads as empty (a
+# checkout without scripts/bash-floor/). The canary needs no list.
+need_suites() {
+    [ -n "$SUITES" ] || die "no suite lists under $FLOOR_DIR"
+}
+
+# suite_list <suite>: the suite's list file, or exit 1 when there is none. A
+# name is a list's name only when it is a plain word, so a suite argument can
+# never reach a path outside the directory.
+suite_list() {
+    case "$1" in
+        ''|*[!a-z0-9-]*) return 1 ;;
+    esac
+    [ -f "$FLOOR_DIR/$1.list" ] || return 1
+    echo "$FLOOR_DIR/$1.list"
+}
 
 suite_scripts() {
-    case "$1" in
-        plan)
-            echo "skills/plan/scripts/plan-to-tasks_test.sh"
-            # Needs no binary.
-            echo "skills/plan/scripts/resolve-split-mode_test.sh"
-            ;;
-        execute)
-            echo "skills/work-on/scripts/run-cascade_test.sh"
-            echo "skills/execute/scripts/assert-child-template_test.sh"
-            # Skips cleanly when koto is absent, which it is on the macOS
-            # runner. It is here for the floor's own sake: a developer running
-            # this suite on macOS has koto, so the cases execute on 3.2 there.
-            echo "skills/execute/scripts/settled-branch-record_test.sh"
-            # Same koto-absent contract: its static cases still run on the
-            # macOS leg, and the engine-backed ones skip there.
-            echo "skills/execute/scripts/terminal-retention_test.sh"
-            # Need no engine and no network: both drive the merge scripts
-            # through a test-local gh stub, so every case executes on 3.2.
-            echo "skills/execute/scripts/merge-verdict_test.sh"
-            echo "skills/execute/scripts/merge-exec_test.sh"
-            # The single-pr merge step's scripts, each driven through test-local
-            # gh and koto stubs (and real git), so every case runs on 3.2.
-            echo "skills/execute/scripts/owned-pr_test.sh"
-            echo "skills/execute/scripts/run-id_test.sh"
-            # Reads the call sites with grep, awk and find only.
-            echo "skills/execute/scripts/owned-pr-callers_test.sh"
-            echo "skills/execute/scripts/push-and-record_test.sh"
-            echo "skills/execute/scripts/record-merge-verdict_test.sh"
-            echo "skills/execute/scripts/adopt-or-create-pr_test.sh"
-            echo "skills/execute/scripts/print-exit_test.sh"
-            echo "skills/execute/scripts/eval-gh-shim_test.sh"
-            # The eval koto shim on an execute session; needs only jq.
-            echo "skills/execute/scripts/eval-koto-shim_test.sh"
-            # Its own refusals run on a koto stub; its engine cases, like the
-            # structure test's compile, skip without koto.
-            echo "skills/execute/scripts/execute-open_test.sh"
-            echo "skills/execute/scripts/execute-template-structure_test.sh"
-            # The output gates' routes need koto and skip without it; the
-            # removed-value counts and the routing gates' stdout run on the
-            # floor.
-            echo "skills/execute/scripts/execute-output-gates-routing_test.sh"
-            # Its script cases write through a koto stand-in and need only git
-            # and jq, so they run on the macOS leg; its engine cases skip there.
-            echo "skills/execute/scripts/drift-facts_test.sh"
-            # The coordinated loop's scripts. Each drives the eval gh shim's
-            # repository model, a koto context stub, and real git, so every
-            # case runs on 3.2; the envelope's structure test compiles with
-            # koto and its engine test runs it, each skipping without koto.
-            echo "skills/execute/scripts/coordinated-next_test.sh"
-            echo "skills/execute/scripts/coordination-verdict_test.sh"
-            echo "skills/execute/scripts/record-coordination-verdict_test.sh"
-            echo "skills/execute/scripts/record-coord-setup_test.sh"
-            echo "skills/execute/scripts/node-cut_test.sh"
-            echo "skills/execute/scripts/node-push_test.sh"
-            echo "skills/execute/scripts/repo-visibility_test.sh"
-            echo "skills/execute/scripts/coordinated-visibility_test.sh"
-            echo "skills/execute/scripts/coord-merge_test.sh"
-            echo "skills/execute/scripts/coordinated-home-outside_test.sh"
-            echo "skills/execute/scripts/execute-coordinated-structure_test.sh"
-            echo "skills/execute/scripts/execute-coordinated-engine_test.sh"
-            # The "merged" wording check and its test: text only, so every
-            # case runs on 3.2.
-            echo "scripts/check-merged-wording_test.sh"
-            echo "scripts/check-merged-wording.sh"
-            ;;
-        work-on)
-            # Drives real koto sessions to assert that a cleared context key
-            # holds its phase, which cannot be checked without the engine that
-            # evaluates the gate. Skips cleanly when koto is absent, which it is
-            # on the macOS runner; it is in this suite for the floor's own sake,
-            # since a developer running it locally has koto and the cases
-            # genuinely execute on 3.2 there.
-            echo "skills/work-on/scripts/retry-clearing_test.sh"
-            # Also drives real koto sessions, and skips cleanly without them
-            # for the same reason retry-clearing_test.sh does.
-            echo "skills/work-on/scripts/cascade-chaining_test.sh"
-            # Needs no engine at all: it builds repositories and reads commits,
-            # so every case genuinely executes on the floor.
-            echo "skills/work-on/scripts/verify-cascade-commit_test.sh"
-            # Drives real koto sessions, and skips cleanly without them. Its
-            # engine-free case invokes the discriminator it carries.
-            echo "skills/work-on/scripts/ci-monitor-role_test.sh"
-            # Needs no engine: it runs the gate expression against stubbed gh.
-            echo "skills/work-on/scripts/closing-keyword-gate_test.sh"
-            # Drives real koto sessions, and skips cleanly without them.
-            echo "skills/work-on/scripts/pre-pr-evidence_test.sh"
-            # Drives real koto sessions, and skips cleanly without them.
-            echo "skills/work-on/scripts/finalization-shape_test.sh"
-            # Holds pre_pr.md in a real koto session, and skips cleanly
-            # without one.
-            echo "skills/work-on/scripts/check-pre-pr-referents_test.sh"
-            # Its rule-text cases need no engine; its engine cases skip without
-            # koto.
-            echo "skills/work-on/scripts/terminal-retention_test.sh"
-            # Its script cases write through a koto stand-in and need only git,
-            # so they run on the floor; its engine cases skip without koto.
-            echo "skills/work-on/scripts/record-changed-paths_test.sh"
-            # Same shape: its script cases run real clones through a koto
-            # stand-in; its engine cases skip without koto.
-            echo "skills/work-on/scripts/has-commits_test.sh"
-            # Its script cases run git fixtures through a koto stand-in and
-            # need only jq; its engine cases skip without koto.
-            echo "skills/work-on/scripts/panel-scope_test.sh"
-            # Its script cases run git fixtures through a koto stand-in and
-            # need only jq; its engine cases skip without koto.
-            echo "skills/work-on/scripts/review-level_test.sh"
-            # Its clearing-site greps read shipped files; its engine cases
-            # skip without koto.
-            echo "skills/work-on/scripts/review-level-routes_test.sh"
-            # Its script cases need only jq, git and a stubbed gh, so they run
-            # on the floor; its engine cases skip without koto.
-            echo "skills/work-on/scripts/check-staleness_test.sh"
-            # The --koto-leg entry: its own refusals run on a koto stub, so they
-            # execute on the floor; its engine cases skip without koto.
-            echo "skills/work-on/scripts/work-on-open_test.sh"
-            # Preflight against a stand-in koto; the at-floor case skips
-            # without a real one.
-            echo "skills/work-on/scripts/work-on-requires_test.sh"
-            # Reads shipped files only; every case runs on the floor.
-            echo "skills/work-on/scripts/settled-policy_test.sh"
-            # Its rule and fail-closed cases run the panel retry budget through
-            # a koto stand-in, so they execute on the floor; its real-session
-            # case skips without koto.
-            echo "skills/work-on/scripts/panel-retry-budget_test.sh"
-            # The output gate scripts against git fixtures and stand-ins; no
-            # engine. The --docs-visibility cases need the real validator and
-            # skip without it, so they run on the Linux leg.
-            echo "skills/work-on/scripts/check-branch-output_test.sh"
-            echo "skills/work-on/scripts/check-pr-output_test.sh"
-            # Reads the committed verification map with jq and the files that
-            # document it; no engine.
-            echo "skills/work-on/scripts/verification-map-schema_test.sh"
-            # The verification runner and verdict against git fixtures and a
-            # koto stand-in; its real-koto case skips without koto.
-            echo "skills/work-on/scripts/run-verification_test.sh"
-            # The output gates' routes need koto and skip without it; the
-            # removed-value counts, the routing gates' stdout and the kept
-            # directive lines run on the floor.
-            echo "skills/work-on/scripts/output-gates-routing_test.sh"
-            # extract-context.sh with no session and with no koto: needs only
-            # bash and jq, so every case runs on the floor.
-            echo "skills/work-on/scripts/extract-context_test.sh"
-            # session-role.sh is deliberately NOT listed. Every entry here is
-            # run with no arguments and a nonzero status is a failure, and the
-            # discriminator exits 2 on a missing session name by design. It
-            # reaches the floor through ci-monitor-role_test.sh, whose
-            # engine-free case runs without koto and invokes it.
-            ;;
-        preflight)
-            # Runs on the system backend only. In the docker container one
-            # case fails for a reason unrelated to bash: the image carries no
-            # koto, gh or shirabe to satisfy the shipped declarations. Its
-            # floor run is the macOS leg.
-            echo "scripts/skill-preflight_test.sh"
-            echo "scripts/lib/preflight-probe_test.sh"
-            echo "scripts/lib/preflight-report_test.sh"
-            echo "scripts/lib/preflight-minimum_test.sh"
-            echo "scripts/check-skill-requires_test.sh"
-            # The scan on its own, against the committed tree: the verdict the
-            # macOS leg reports, not only a case inside the harness above.
-            echo "scripts/check-skill-requires.sh"
-            echo "scripts/check-skill-injection_test.sh"
-            echo "scripts/check-tool-diagnostic-discards_test.sh"
-            ;;
-        templates)
-            echo "scripts/check-template-interpolation_test.sh"
-            echo "scripts/check-template-interpolation.sh"
-            echo "scripts/check-template-directives_test.sh"
-            echo "scripts/check-template-directives.sh"
-            echo "scripts/check-directive-invocations_test.sh"
-            echo "scripts/check-directive-invocations.sh"
-            echo "scripts/check-init-site-vars_test.sh"
-            echo "scripts/check-init-site-vars.sh"
-            # Read the templates' front matter with yq, which the floor image
-            # carries for them (see build_floor_image).
-            echo "scripts/check-decider-declarations_test.sh"
-            echo "scripts/check-decider-declarations.sh"
-            ;;
-        template-consistency)
-            echo "scripts/validate-template-mermaid.sh"
-            echo "scripts/validate-template-mermaid_test.sh"
-            echo "scripts/ci-gate-expression_test.sh"
-            # The gate reader both of those depend on. Its regression only
-            # reproduces on the floor: newer bash does not make the writer's
-            # SIGPIPE fatal, so this leg is where the pin actually bites.
-            echo "scripts/lib/koto-gates_test.sh"
-            # The settled-branch read used to be listed here, because it
-            # extracted twenty-five lines of shell straight out of
-            # skills/execute/koto-templates/execute.md. That read is gone: the
-            # branch now arrives in spawn_and_await as a capture from
-            # settled_branch_record, whose gate has already verified it. What is
-            # left to check lives with the script that does the recording, in
-            # the `execute` suite.
-            ;;
-        koto-open)
-            # The shared koto entry. Its stand-in cases need only jq and git,
-            # so they execute on the floor wherever it runs; its engine cases
-            # skip without koto, which the macOS runner lacks, and a developer
-            # running this locally with koto gets them on 3.2 as well.
-            echo "scripts/koto-open_test.sh"
-            # The harness knob's helper, probed against stand-in kotos only.
-            # Temporary, #483.
-            echo "scripts/lib/koto-legacy-env_test.sh"
-            # A stub koto answers every case, so all of them run on 3.2.
-            echo "scripts/assert-koto-floor_test.sh"
-            # Reads files and greps them; no koto, so every case runs on 3.2.
-            echo "scripts/koto-minimum-consistency_test.sh"
-            # The decider check against a stand-in koto; needs yq, and skips
-            # loudly without it.
-            echo "scripts/check-koto-release_test.sh"
-            ;;
-        skill-session)
-            # The skill-session convention's shared script. Its stand-in cases
-            # need only jq and git, so they execute on the floor wherever it
-            # runs; its engine cases skip without koto, which the macOS runner
-            # lacks, and a developer running this locally with koto gets them
-            # on 3.2 as well.
-            echo "scripts/skill-session_test.sh"
-            ;;
-        coordinate)
-            # /coordinate's script tests. They drive test-local gh and koto
-            # stand-ins and need only jq and git, so every case runs on 3.2.
-            # Its engine suites (*_engine_test.sh) need real koto and run on
-            # ubuntu only.
-            echo "skills/coordinate/scripts/record-codec_test.sh"
-            echo "skills/coordinate/scripts/coord-log_test.sh"
-            echo "skills/coordinate/scripts/coordinate-report_test.sh"
-            echo "skills/coordinate/scripts/rule-coverage_test.sh"
-            echo "skills/coordinate/scripts/record-find_test.sh"
-            echo "skills/coordinate/scripts/record-open_test.sh"
-            echo "skills/coordinate/scripts/record-write_test.sh"
-            echo "skills/coordinate/scripts/record-holding_test.sh"
-            echo "skills/coordinate/scripts/record-confirm_test.sh"
-            echo "skills/coordinate/scripts/start-check_test.sh"
-            echo "skills/coordinate/scripts/posture-read_test.sh"
-            # The board, land and merge scripts: a localized plugin tree with
-            # the gh-board and koto stand-ins, so every case runs on 3.2.
-            echo "skills/coordinate/scripts/board-verdict_test.sh"
-            echo "skills/coordinate/scripts/board-record_test.sh"
-            echo "skills/coordinate/scripts/land-check_test.sh"
-            echo "skills/coordinate/scripts/land-merge_test.sh"
-            echo "skills/coordinate/scripts/merge-confirm_test.sh"
-            echo "skills/coordinate/scripts/merged-facts_test.sh"
-            # The close-outs and the turn's checks: the gh and koto stand-ins
-            # (closeout-read's in a localized tree with a stand-in board), so
-            # every case runs on 3.2.
-            echo "skills/coordinate/scripts/predecessor-handoff_test.sh"
-            echo "skills/coordinate/scripts/closeout-read_test.sh"
-            echo "skills/coordinate/scripts/rotation-close_test.sh"
-            echo "skills/coordinate/scripts/deferral-check_test.sh"
-            echo "skills/coordinate/scripts/pick-facts_test.sh"
-            echo "skills/coordinate/scripts/roadmap-features_test.sh"
-            echo "skills/coordinate/scripts/report-facts_test.sh"
-            echo "skills/coordinate/scripts/quiet-check_test.sh"
-            echo "skills/coordinate/scripts/skill-hygiene_test.sh"
-            echo "skills/coordinate/scripts/progress-view_test.sh"
-            echo "skills/coordinate/scripts/coord-verdict-table_test.sh"
-            # The dispatch path's scripts: test-local niwa, koto, gh and record
-            # stand-ins, so every case runs on 3.2.
-            echo "skills/coordinate/scripts/dispatch-common_test.sh"
-            echo "skills/coordinate/scripts/render-brief_test.sh"
-            echo "skills/coordinate/scripts/dispatch-worker_test.sh"
-            echo "skills/coordinate/scripts/wait-target_test.sh"
-            echo "skills/coordinate/scripts/teardown-inventory_test.sh"
-            # The teardown pass's field checks and its cost capture: stand-in
-            # niwa, claude, gh and record scripts, process groups under the
-            # deadline, so every case runs on 3.2.
-            echo "skills/coordinate/scripts/teardown-pass_test.sh"
-            echo "skills/coordinate/scripts/unit-cost_test.sh"
-            # The decision-phrasing list's reader: bash, awk and grep only.
-            echo "skills/coordinate/scripts/decision-phrasings_test.sh"
-            echo "skills/coordinate/scripts/decision-render_test.sh"
-            echo "skills/coordinate/scripts/report-questions_test.sh"
-            echo "skills/coordinate/scripts/record-decision_test.sh"
-            echo "skills/coordinate/scripts/decision-next_test.sh"
-            echo "skills/coordinate/scripts/need-check_test.sh"
-            echo "skills/coordinate/scripts/skill-states_test.sh"
-            # Milestone verdicts (docs/designs/DESIGN-milestone-verdicts.md):
-            # the file-only reader and checker, the writer of verdict-owed
-            # rows and verdict edits, the record scripts it changes, and the
-            # feature's acceptance suite. gh and koto stand-ins and a stand-in
-            # shirabe, so every case runs on 3.2.
-            echo "skills/coordinate/scripts/milestone_test.sh"
-            echo "skills/coordinate/scripts/roadmap-status_test.sh"
-            echo "skills/coordinate/scripts/record-state_test.sh"
-            echo "skills/coordinate/scripts/record-append_test.sh"
-            echo "skills/coordinate/scripts/milestone-verdicts_test.sh"
-            ;;
-        deliver)
-            # The report, the probes, the mode map, and the eval gh shim. They
-            # drive test-local gh and koto stand-ins and need only bash, git
-            # and jq, so every case runs on 3.2. The engine
-            # suites stay on the Linux job that installs koto.
-            echo "scripts/plan-mode_test.sh"
-            echo "skills/deliver/scripts/deliver-report_test.sh"
-            echo "skills/deliver/scripts/deliver-probe_test.sh"
-            echo "skills/deliver/scripts/eval-gh-shim_test.sh"
-            echo "skills/deliver/scripts/deliver-requires_test.sh"
-            ;;
-        scope)
-            # Citations, intake, the /plan hop's consistency check, resume
-            # routing, publish, and the exit records. A gh stub and a local bare
-            # origin stand in for GitHub; the koto and shirabe cases skip here
-            # and run on the Linux jobs that install both.
-            echo "skills/scope/scripts/check-citations_test.sh"
-            echo "skills/scope/scripts/resolve-intent_test.sh"
-            echo "skills/scope/scripts/check-recorded-intent_test.sh"
-            echo "skills/scope/scripts/check-upstream_test.sh"
-            echo "skills/scope/scripts/check-plan-mode_test.sh"
-            echo "skills/scope/scripts/run-intake_test.sh"
-            echo "skills/scope/scripts/scope-template_test.sh"
-            echo "skills/scope/scripts/resume-probe_test.sh"
-            echo "skills/scope/scripts/startable-issues_test.sh"
-            echo "skills/scope/scripts/record-executed-report_test.sh"
-            echo "skills/scope/scripts/record-scope-exit_test.sh"
-            echo "skills/scope/scripts/publish-scoping-pr_test.sh"
-            echo "skills/scope/scripts/print-scope-exit_test.sh"
-            ;;
-        offload-baseline)
-            # The instruction-offload baseline's pin check and token count.
-            # Its suite builds a throwaway repository and a koto stand-in and
-            # needs only bash, git and jq, so every case runs on 3.2.
-            echo "scripts/offload-baseline_test.sh"
-            ;;
-        review-packet)
-            # The review seats' input packet. Its suite builds a throwaway
-            # repository with stand-in koto and gh and needs only bash and
-            # git, so every case runs on 3.2.
-            echo "scripts/review-packet_test.sh"
-            ;;
-        check-skill)
-            # The skills/** verification-map entry's checks. Its suite builds
-            # throwaway skills with stand-in shirabe, koto and claude and needs
-            # only bash, git and python3, so every case runs on 3.2.
-            echo "scripts/check-skill_test.sh"
-            ;;
-        rule-registry)
-            # The rule registry's reader and its checks. The suites build
-            # scratch plugin roots and repositories, plain and as git
-            # repositories, and need only bash, git, jq, awk and sed, so every
-            # case runs on 3.2.
-            echo "scripts/rule-registry_test.sh"
-            echo "scripts/check-rule-registry_test.sh"
-            ;;
-        comp)
-            # /comp's state script. Its suite builds a throwaway repository and
-            # a koto stand-in and needs only bash and jq (and the repository
-            # tool); the cases that need real koto skip where it is absent (the
-            # macOS floor leg) and run on the Linux job. It also reads SKILL.md
-            # and the phase files, so the prose cases run on 3.2.
-            echo "skills/comp/scripts/comp-state_test.sh"
-            ;;
-        release)
-            # /release's state script. Its suite builds a throwaway repository
-            # with tagged history, a stubbed gh and a koto stand-in and needs
-            # only bash, jq and the repository tool; the cases that need real
-            # koto skip where it is absent and run on the Linux job. It
-            # extracts the Phase 4 blocks from SKILL.md at run time.
-            echo "skills/release/scripts/release-state_test.sh"
-            ;;
-        explore)
-            # /explore's state script. Its suite builds a throwaway repository
-            # and a koto stand-in and needs only bash and jq (and the repository
-            # tool); the cases that need real koto skip where it is absent (the
-            # macOS floor leg) and run on the Linux job. It also reads SKILL.md
-            # and the phase files, so the prose cases run on 3.2.
-            echo "skills/explore/scripts/explore-state_test.sh"
-            ;;
-        canary)
-            # Not a suite: the #283 regression kept as a fixture. It is
-            # expected to FAIL on the floor and to pass under bash 4+, which is
-            # what check-bash-floor_test.sh asserts. Listing it here runs the
-            # self-test through the same code path as a real suite.
-            echo "scripts/bash-floor-canary.sh"
-            ;;
-        coordinate-reconcile)
-            # /coordinate's reconcile scripts: bash, jq and git only, with
-            # stand-ins for gh, niwa and koto, so every case runs on 3.2.
-            echo "skills/coordinate/scripts/reconcile-report_test.sh"
-            echo "skills/coordinate/scripts/reconcile-check_test.sh"
-            echo "skills/coordinate/scripts/reconcile-read_test.sh"
-            echo "skills/coordinate/scripts/reconcile-pass_test.sh"
-            echo "skills/coordinate/scripts/reconcile-settle_test.sh"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    local list
+    if [ "$1" = canary ]; then
+        # Not a suite: the #283 regression kept as a fixture. It is expected
+        # to FAIL on the floor and to pass under bash 4+, which is what
+        # check-bash-floor_test.sh asserts. Listing it here runs the self-test
+        # through the same code path as a real suite.
+        echo "scripts/bash-floor-canary.sh"
+        return 0
+    fi
+    list=$(suite_list "$1") || return 1
+    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*workflow:/d' -e '/^[[:space:]]*needs:/d' \
+        -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$list"
 }
 
 suite_workflow() {
-    case "$1" in
-        plan)                 echo ".github/workflows/check-plan-scripts.yml" ;;
-        execute)              echo ".github/workflows/check-execute-scripts.yml" ;;
-        work-on)              echo ".github/workflows/check-work-on-scripts.yml" ;;
-        preflight)            echo ".github/workflows/check-preflight-scripts.yml" ;;
-        templates)            echo ".github/workflows/check-templates.yml" ;;
-        template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
-        koto-open)            echo ".github/workflows/check-koto-open.yml" ;;
-        deliver)              echo ".github/workflows/check-deliver-scripts.yml" ;;
-        scope)                echo ".github/workflows/check-scope-scripts.yml" ;;
-        coordinate)           echo ".github/workflows/check-coordinate-scripts.yml" ;;
-        coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
-        offload-baseline)     echo ".github/workflows/check-offload-baseline.yml" ;;
-        review-packet)        echo ".github/workflows/check-review-packet.yml" ;;
-        check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
-        rule-registry)        echo ".github/workflows/check-rule-registry.yml" ;;
-        skill-session)        echo ".github/workflows/check-skill-session.yml" ;;
-        comp)                 echo ".github/workflows/check-comp-scripts.yml" ;;
-        release)              echo ".github/workflows/check-release-scripts.yml" ;;
-        explore)              echo ".github/workflows/check-explore-scripts.yml" ;;
-        canary)               echo "(fixture, not a CI suite)" ;;
-    esac
+    local list
+    if [ "$1" = canary ]; then
+        echo "(fixture, not a CI suite)"
+        return 0
+    fi
+    list=$(suite_list "$1") || return 0
+    awk 'sub(/^[[:space:]]*workflow:[[:space:]]*/, "") { sub(/[[:space:]]*$/, ""); print; exit }' "$list"
 }
 
-# The plan and execute harnesses run `shirabe` for real rather than emulating
-# it, so a floor run has to hand them a binary the floor container can execute.
+# A suite whose harnesses run `shirabe` for real rather than emulating it says
+# so in its list with `needs: shirabe`, and a floor run hands it a binary the
+# floor container can execute.
 suite_needs_shirabe() {
-    case "$1" in
-        plan|execute) return 0 ;;
-        *)            return 1 ;;
-    esac
+    local list
+    list=$(suite_list "$1") || return 1
+    grep -Eq '^[[:space:]]*needs:[[:space:]]*shirabe[[:space:]]*$' "$list"
 }
 
 list_suites() {
@@ -995,6 +633,7 @@ REQUESTED=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --list)
+            need_suites
             list_suites
             exit 0
             ;;
@@ -1002,6 +641,7 @@ while [ $# -gt 0 ]; do
         # (scripts/check-macos-floor-legs.sh). --list is for people and may
         # change shape; these print one name per line and nothing else.
         --suites)
+            need_suites
             for suite in $SUITES; do echo "$suite"; done
             exit 0
             ;;
@@ -1031,6 +671,7 @@ while [ $# -gt 0 ]; do
             die "unknown option: $1 (try --help)"
             ;;
         all)
+            need_suites
             REQUESTED="$REQUESTED $SUITES"
             shift
             ;;

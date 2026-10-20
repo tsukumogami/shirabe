@@ -9,7 +9,8 @@
 # refused (10); filed and closed deferrals dropped only once the run has
 # dispatched; the write going through record-write.sh (a whole-body edit, no
 # comment) and its refusals (a directed transition in the run, 10); both
-# containers.
+# containers; --strand only on a dispatched message-path holding, and
+# --retire only of a stranded one.
 #
 # Usage: bash skills/coordinate/scripts/record-holding_test.sh
 set -uo pipefail
@@ -99,5 +100,41 @@ DH=(--scope discipline --name ci-health --repo "$REPO" --ref 22)
 bash "$H" "${DH[@]}" --skip-session-checks --topic beta --row-file "$T/beta.json" >/dev/null 2>"$T/err"; eq "a discipline write exits 0" 0 $?
 eq "the pull request's body holds the row" "beta" "$(bash "$H" "${DH[@]}" --list | jq -r 'map(.worker) | join(" ")')"
 grep -q '^pr edit 22' "$GH_DB.calls" && ok "the discipline write is a pr edit" || bad "the discipline write is a pr edit" "$(calls)"
+
+echo "== a pushed head on the session store (PRD R17) =="
+SH=coordinate-roadmap-plugin-system-20260926T180000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SH")
+HEAD1=1111111111111111111111111111111111111111
+HEAD2=2222222222222222222222222222222222222222
+REC=$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" --argjson b "$(holding beta '{"unit": "Feature 3"}')" \
+    '.holdings = [$a, $b] | .run = [{key: "store", value: "session", set_by: "alice", set: "2026-09-26T08:00Z"}]')
+seed "$REC"; render "$REC" issue 2026-09-26T08:00:00Z | bash "$HERE/record-parse.sh" --container issue > "$T/sh.json"; session_keys "$SH" "$T/sh.json"
+reset_calls
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic alpha --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "--pushed-head sets alpha's head" 0 $?
+eq "  ... --read prints it" "$HEAD1" "$("${SEN[@]}" bash "$H" "${RM[@]}" --topic alpha --read | jq -r .pushed_head)"
+eq "  ... --list prints it beside its row only" "$HEAD1|null" "$("${SEN[@]}" bash "$H" "${RM[@]}" --list | jq -r 'map(.pushed_head) | map(tostring) | join("|")')"
+grep -qE '^(issue|pr) edit' "$GH_DB.calls" && bad "  ... and GitHub is never edited" "$(calls)" || ok "  ... and GitHub is never edited"
+"${SEN[@]}" bash "$H" "${RM[@]}" --topic beta --read | jq -c 'del(.pushed_head) | .pushed_head = $h' --arg h "$HEAD2" > "$T/beta-row.json"
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic beta --row-file "$T/beta-row.json" >/dev/null 2>"$T/err"; eq "a row file may carry pushed_head" 0 $?
+eq "  ... which lands beside the row, alpha's kept" "$HEAD1|$HEAD2" "$(koto context get "$SH" record/holdings | jq -r 'map(.pushed_head) | join("|")')"
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic alpha --pushed-head nothex >/dev/null 2>"$T/err"; eq "a malformed head is refused" 65 $?
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic gamma --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "a topic with no holding is refused" 65 $?
+seed "$REC"
+bash "$H" "${W_RM[@]}" --topic alpha --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "--pushed-head on a GitHub record is refused" 65 $?
+
+echo "== stranded (PRD R15; shirabe#732) =="
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" --argjson b "$(holding beta '{"return_path": "leg req_1:deliver"}')" \
+    --argjson c "$(holding gamma '{"dispatch_status": "dispatching"}')" '.holdings = [$a, $b, $c]')"
+bash "$H" "${W_RM[@]}" --topic beta --strand >/dev/null 2>"$T/err"; eq "--strand refuses a holding off the message path" 65 $?
+grep -q 'only a holding on the message path is stranded' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+bash "$H" "${W_RM[@]}" --topic gamma --strand >/dev/null 2>"$T/err"; eq "--strand refuses a holding that isn't dispatched" 65 $?
+bash "$H" "${W_RM[@]}" --topic nobody --strand >/dev/null 2>"$T/err"; eq "--strand refuses a topic with no holding" 65 $?
+bash "$H" "${W_RM[@]}" --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire refuses a holding that isn't stranded" 65 $?
+eq "  ... and nothing was written" "" "$(grep '^issue edit' "$GH_DB.calls")"
+bash "$H" "${W_RM[@]}" --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand marks a message-path holding" 0 $?
+eq "  ... stranded, the rest of the row as it was" "stranded message feat/x" "$(live | jq -r '.holdings[0] | "\(.dispatch_status) \(.return_path) \(.branch)"')"
+bash "$H" "${W_RM[@]}" --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a stranded row" 0 $?
+eq "  ... and only it" "beta gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+bash "$H" "${W_RM[@]}" --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $?
 
 done_tests record-holding

@@ -15,15 +15,23 @@
 # sealed token; every token in koto's capture alphabet; pick.json's host; every
 # Unit cell form dispatch-common.sh dc_unit_forms lists from pick.json is one
 # this script reads as covering its unit, and the old template's form isn't;
-# units a person assigned (Standing assignment rows: issues read in their own
-# repositories, a closed one done, a release open until its row ends) listed
+# units a person assigned (Standing assignment rows: issues or pull requests
+# read in their own repositories in one GraphQL read, a closed or merged one
+# done, a failed, partial or unknown-state answer refused; a release open
+# until its row ends) listed
 # after the roadmap's, covered by a holding, their forms the dispatch path
 # takes, and an open one keeping the roadmap from completing; a unit's
 # awaiting, answered and follow_up from the record's Work rows and Decisions
 # entries, none of them holding a slot; a unit's verdict_owed from a
 # verdict-owed Work row, with and without its holding, and no brief form for
 # it; a unit's rework text from a rework Work row, the unit offered and
-# briefable.
+# briefable. On a roadmap/v3 roadmap (`## Milestones`, `### Milestone N:`)
+# the facts are the v2 roadmap's (units, dependencies, blocked flags and
+# statuses, holdings, landed and Work rows), the Dependencies prose still
+# saying `Feature N` naming the item tagged `Milestone N`; holdings, a landed
+# row and verdict-owed and follow-up rows written under `Feature N` cover
+# `Milestone N`, a holding naming `Milestone 2` covers a v2 `Feature 2`, and
+# `Milestone 03`, `feature 2` and `#2` cover nothing.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -156,6 +164,7 @@ db '.issues += [{repo: "acme/widgets", number: 591, title: "pick the review leve
     {repo: "acme/widgets", number: 592, title: "a second fix", body: "", state: "closed", author: "alice", editor: null}]'
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
 session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+reset_calls
 OUT=$(bash "$PF" --session "$S" 2>"$T/err")
 eq "an open assigned unit keeps the roadmap from completing" pick "${OUT% sealed:*}"
 eq "the assigned units follow the roadmap's, each with its row" "acme/widgets#591:s3 #592:s4 release acme/widgets v0.25.0:s5" \
@@ -167,8 +176,45 @@ eq "a holding covers an assigned unit by its id" '{"worker":"w591","phase":"exec
 facts > "$T/assigned-pick.json"
 eq "the dispatch path takes the assigned units' ids, and host#n for #n" "acme/widgets#591 #592 acme/widgets#592 release acme/widgets v0.25.0" \
     "$(. "$HERE/dispatch-common.sh"; dc_unit_forms "$T/assigned-pick.json" | grep -v '^Feature' | tr '\n' ' ' | sed 's/ $//')"
-grep -q "issue view 591 --repo acme/widgets" "$GH_DB.calls" && grep -q "issue view 592 --repo acme/widgets" "$GH_DB.calls" \
+eq "every assigned issue comes from one GraphQL read, none from gh issue view (shirabe#840)" "1 0" \
+    "$(grep -c 'query pickAssigned(' "$GH_DB.calls") $(grep -c 'issue view 59[12]' "$GH_DB.calls")"
+grep -q -- "-f o0=acme -f r0=widgets -F n0=591 -f o1=acme -f r1=widgets -F n1=592" "$GH_DB.calls" \
     && ok "each assigned issue is read in its own repository" || bad "each assigned issue is read in its own repository" "$(calls)"
+eq "the record is read once, for all of its lists" 1 "$(grep -c '^issue view 7 ' "$GH_DB.calls")"
+eq "the holdings are record-holding.sh --list's" "$(bash "$HERE/record-holding.sh" --list --session "$S" | jq -c '[.[].worker]')" \
+    "$(facts | jq -c '[.holdings[].worker]')"
+# refused <label> <db change>: the assigned issues' read fails or comes back
+# short, and pick-facts fails the read (exit 2) rather than drop the unit or
+# read it closed, writing no facts.
+refused() {
+    seed "$(record_json roadmap plugin-system | jq -c --argjson s "$STAND" '.standing = $s')"
+    db '.issues += [{repo: "acme/widgets", number: 591, title: "t", body: "", state: "open", author: "alice", editor: null},
+        {repo: "acme/widgets", number: 592, title: "a second fix", body: "", state: "closed", author: "alice", editor: null}]'
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
+    db "$2"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    bash "$PF" --session "$S" > /dev/null 2> "$T/err"
+    eq "$1: exit 2" 2 $?
+    grep -q "cannot read the assigned units" "$T/err" && ok "$1: and says the assigned units couldn't be read" || bad "$1: and says the assigned units couldn't be read" "$(cat "$T/err")"
+    if [ -e "$KOTO_STORE/context/$S/coord/pick.json" ]; then bad "$1: no facts are written" "$(facts)"; else ok "$1: no facts are written"; fi
+}
+refused "a failed read (rate limited)" '.graphql_fail = true'
+refused "a partial answer, the last issue null with no error" '.graphql_partial = true'
+refused "an issue GitHub can't resolve" '.issues |= map(select(.number != 592))'
+refused "a state other than OPEN, CLOSED or MERGED" '(.issues[] | select(.number == 592)).state = "op"'
+# A row may name a pull request: it reads like an issue, open while OPEN and
+# done once MERGED (or CLOSED).
+PRSTAND=$(jq -nc '[{standing: "s6", kind: "assignment", on: "#30", until: "", what: "land the fix", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"},
+    {standing: "s7", kind: "assignment", on: "#31", until: "", what: "land the next", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"}]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson s "$PRSTAND" '.standing = $s')"
+pr 30 MERGED false; pr 31 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+OUT=$(bash "$PF" --session "$S" 2>"$T/err"); rc=$?
+eq "a pull request named by an assignment reads: exit 0" 0 "$rc"
+eq "  ... merged is done, open isn't" "#30:merged:true #31:open:false" \
+    "$(facts | jq -r '[.units[] | select(.assigned != null) | "\(.unit):\(.status):\(.done)"] | join(" ")')"
+eq "  ... and the open one keeps the roadmap from completing" pick "${OUT% sealed:*}"
 seed "$(record_json roadmap plugin-system | jq -c --argjson s "$(printf '%s' "$STAND" | jq -c '[.[1]]')" '.standing = $s')"
 db '.issues += [{repo: "acme/widgets", number: 592, title: "a second fix", body: "", state: "closed", author: "alice", editor: null}]'
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
@@ -306,6 +352,7 @@ dseed() { # dseed <title>
 }
 dseed "docs(coordinate): ci-health rotation 2026-09-22 to 2026-09-29"
 session "$(discipline_vars ci-health | jq -c '.CAP = "4" | .PARKED_BOUND = "2"')" 22 discipline-ci-health
+reset_calls
 OUT=$(bash "$PF" --session "$S" --today 2026-09-29 2>"$T/err")
 eq "on the title's end date the rotation goes on" pick "${OUT% sealed:*}"
 eq "units are the open labelled issues in number order" "#3 #5" "$(facts | jq -r '[.units[].unit] | join(" ")')"
@@ -313,6 +360,8 @@ eq "the issue a holding covers carries it" "null alpha" "$(facts | jq -r '[.unit
 eq "the session's CAP and PARKED_BOUND" "4 2" "$(facts | jq -r '"\(.cap) \(.parked_bound)"')"
 grep -q '^issue list --repo acme/widgets --state open --label ci-health --json number,title --limit 200$' "$GH_DB.calls" \
     && ok "issues are listed by label, never searched" || bad "issues are listed by label, never searched" "$(calls)"
+eq "the record, its title with it, is read once (shirabe#840)" "1 1" \
+    "$(grep -c '^pr view 22 ' "$GH_DB.calls") $(grep -c '^pr view 22 --repo acme/widgets --json body,title' "$GH_DB.calls")"
 OUT=$(bash "$PF" --scope discipline --name ci-health --repo "$REPO" --ref 22 --today 2026-09-30 --no-seal 2>"$T/err")
 eq "after the title's end date it is rotation-over" rotation-over "$OUT"
 tok_shape "rotation-over is in koto's capture alphabet" "$OUT"
@@ -329,11 +378,58 @@ session "$(discipline_vars ci-health)" 22 discipline-ci-health
 OUT=$(bash "$PF" --session "$S" --today 2026-09-29 2>"$T/err")
 eq "a carry owed is decisions" "decisions carry" "${OUT% sealed:*}"
 
+echo "== roadmap/v3: the same facts as v2, the record under Feature N =="
+# rmv <schema> <statuses...>: roadmap()'s text with that schema, and on v3
+# its items under `## Milestones` headed `### Milestone N:`; the Dependencies
+# prose (`Feature 1`, `Features 1 and 2`, `Feature 4`) is left as it is.
+rmv() {
+    local sch=$1; shift
+    roadmap "$@" | awk -v s="$sch" 'NR == 1 { print; print "schema: " s; next } { print }' \
+        | if [ "$sch" = roadmap/v3 ]; then sed -e 's/^## Features$/## Milestones/' -e 's/^### Feature \([0-9]\)/### Milestone \1/'; else cat; fi
+}
+RS4='{"action":"roadmap-status","target":"Feature 4 [#30](https://github.com/acme/widgets/pull/30)","verified_head":"","attempted":"2026-09-26T09:00Z","how_to_confirm":"the roadmap on main reads Feature 4 Done"}'
+ROWS=$(jq -nc '[{item: "Feature 5", kind: "verdict-owed", who: "none", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 1", kind: "follow-up", who: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-loader.md", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+for v in v2 v3; do
+    seed "$(printf '%s' "$REC" | jq -c --argjson r "$RS4" --argjson w "$ROWS" '.side_effects = [$r] | .work = $w')"; pr 21 OPEN true; pr 23 OPEN false
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(rmv roadmap/$v Done 'In progress' 'Not started' 'Not started' 'In progress')"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    OUT=$(bash "$PF" --session "$S" 2>"$T/err"); eq "$v: the facts are read" "0 pick" "$? ${OUT% sealed:*}"
+    facts > "$T/parity-$v.json"
+done
+eq "v3 units are the Milestone N headings, in order" "Milestone 1,Milestone 2,Milestone 3,Milestone 4,Milestone 5" "$(jq -r '[.units[].unit] | join(",")' "$T/parity-v3.json")"
+eq "v2 and v3 give the same facts, a unit read Milestone N for Feature N" \
+    "$(jq -c '.units' "$T/parity-v2.json")" "$(jq -c '.units | map(.unit |= sub("^Milestone "; "Feature "))' "$T/parity-v3.json")"
+eq "  ... and the same holdings, counts and decisions" "$(jq -c 'del(.units)' "$T/parity-v2.json")" "$(jq -c 'del(.units)' "$T/parity-v3.json")"
+eq "v3: Feature 1 in prose blocks Milestone 2 on Milestone 1; Features 1 and 2 block Milestone 3 on Milestone 2" "false [] true|true [2] false" \
+    "$(jq -r '[.units[1], .units[2]] | map("\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)") | join("|")' "$T/parity-v3.json")"
+eq "v3: holdings naming Feature 2, Feature 4 and Feature 3: Sandbox cover Milestones 2, 4 and 3" "alpha beta gamma" \
+    "$(jq -r '[.units[1].holding.worker, .units[3].holding.worker, .units[2].holding.worker] | join(" ")' "$T/parity-v3.json")"
+eq "v3: the landed row for Feature 4 marks Milestone 4 landed" "[#30](https://github.com/acme/widgets/pull/30)" "$(jq -r '.units[3].landed' "$T/parity-v3.json")"
+eq "v3: the verdict-owed row for Feature 5 and the follow-up row for Feature 1 mark Milestones 5 and 1" "true acme/widgets#41" \
+    "$(jq -r '"\(.units[4].verdict_owed) \(.units[0].follow_up.after)"' "$T/parity-v3.json")"
+# covered_in <schema> <unit-cell>: the unit pick reads one holding as covering, or none.
+covered_in() {
+    seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding solo "$(jq -nc --arg u "$2" '{unit: $u, pull_request: ""}')")" '.holdings = [$h]')"
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(rmv "$1" Done 'In progress' 'Not started' 'Not started' Dropped)"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    bash "$PF" --session "$S" > /dev/null 2>&1
+    facts | jq -r '[.units[] | select(.holding.worker == "solo") | .unit][0] // "none"'
+}
+eq "v2: a holding naming Milestone 2 covers Feature 2" "Feature 2" "$(covered_in roadmap/v2 "Milestone 2")"
+eq "v2: one naming Milestone 3: Sandbox covers Feature 3" "Feature 3" "$(covered_in roadmap/v2 "Milestone 3: Sandbox")"
+eq "v3: one naming Feature 3: Registry, another title, covers nothing" none "$(covered_in roadmap/v3 "Feature 3: Registry")"
+eq "v3: one naming Feature 03 covers nothing" none "$(covered_in roadmap/v3 "Feature 03")"
+eq "v3: one naming feature 2 covers nothing" none "$(covered_in roadmap/v3 "feature 2")"
+eq "v3: one naming #2, an issue, covers nothing" none "$(covered_in roadmap/v3 "#2")"
+
 echo "== the dispatch path's unit forms are the ones pick reads =="
 # dispatch-common.sh dc_unit_forms lists, from coord/pick.json, the Unit cells
 # the dispatch path accepts for a brief. Each must be one this script reads as
-# covering its unit, and a form it doesn't list must not be, or the two rules
-# have drifted and a holding can go invisible to pick (#493).
+# covering its unit, or the two rules have drifted and a holding can go
+# invisible to pick (#493). The converse isn't required: this script also
+# reads a unit's Feature/Milestone twin (above), which dispatch never offers
+# for a new holding.
 . "$HERE/dispatch-common.sh"
 covered_by() { # covered_by <scope> <unit-cell>: the unit pick reads the one holding as covering, or none
     if [ "$1" = roadmap ]; then

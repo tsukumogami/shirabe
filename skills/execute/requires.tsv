@@ -23,6 +23,10 @@
 # `transition <plan> Done`. SKILL.md's visibility boundary routes the
 # governance-aware checks with `--visibility`.
 #
+# pr_finalization's owned_pr_body_conformant gate runs /work-on's
+# check-pr-output.sh on every plan, which calls `validate --pr-body
+# --pr-title --format --writing-style`, so those flags are always records too.
+#
 # The coordinated path adds the two coordination modes of the same subcommand:
 # `--coordination-body` for offline authoring feedback on the PR body, and
 # `--merge-gate` for the live merge-last gate. Neither runs on a single-pr
@@ -62,7 +66,7 @@
 # shared script, which the one-directional requires check does not treat as a
 # finding.
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
-# 0.15.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# 0.20.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, and a child's result is delivered under --no-cleanup) is
 # behaviour with no flag to declare, so no record here carries it. The preflight
 # compares koto's version with that minimum at load instead
@@ -104,7 +108,7 @@ koto	context remove	-	always
 koto	context exists	-	always
 koto	status	-	always
 koto	session cleanup	-	always
-shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always
+shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
 gh	-	-	always

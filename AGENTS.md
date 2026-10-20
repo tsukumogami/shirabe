@@ -13,9 +13,9 @@ When adding or modifying a skill:
    verifiable checks).
 
 2. **Pass the skill gate.** A pull request's definition of done for a skill
-   change is `scripts/check-skill.sh <skill-name>`: `shirabe validate`, the
-   template compile, the skill's script suites, and the shape of
-   `evals/evals.json`. The pull request doesn't run the evals.
+   change is `scripts/check-skill.sh --changed <skill-name>`: `shirabe
+   validate`, the template compile, the script suites the change touches, and
+   the shape of `evals/evals.json`. The pull request doesn't run the evals.
 
 3. **The evals run at release.** `/shirabe:release` runs the evals of every
    skill changed since the last tag and stops on a pass-rate drop (see
@@ -171,8 +171,11 @@ Every macOS CI leg reaches the floor that way, as
 `bash`, and a script run by path through `#!/usr/bin/env bash`, are Homebrew's
 bash 5, and `/bin/bash` on a harness leaves its nested `bash` calls there too.
 `scripts/check-macos-floor-legs.sh` fails a workflow whose macOS leg runs a
-suite any of those ways, so a new suite belongs in the runner's registry and
-its workflow's macOS leg calls the runner.
+suite any of those ways, so a new suite gets its own list,
+`scripts/bash-floor/<suite>.list`, and its workflow's macOS leg calls the
+runner. A new script in an existing suite goes on that suite's list, and the
+workflow's path filter names the list, so the change re-runs that suite's
+floor and no other.
 
 Do not rely on a grep for `declare -A` and friends. A pattern list only catches
 what its author remembered - the sweep that fixed `plan-to-tasks.sh` found

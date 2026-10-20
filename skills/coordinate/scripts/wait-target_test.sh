@@ -8,9 +8,13 @@
 # skipped; a request koto can't read skipped rather than routed; `none` printed
 # and written when nothing is watched (never an empty capture); a refused
 # record read; an unknown flag refused. For
-# leg: the leg printed and report_topic written; exit 1 with no leg. For
-# report-source.sh: a leg report admitted, a message admitted for a
-# message-path worker and refused for a leg-bound one or an unknown topic, and
+# leg: the leg printed and report_topic written; exit 1 with no leg. For the
+# leg keys: select records a bound child's name once, and a leg with no key
+# is passed over; the leg mode writes `taken` with the result, or `spent`,
+# and keeps a key already marked. For report-source.sh: a leg report
+# admitted, a message admitted for a message-path worker, for a leg-bound one
+# whose leg is taken or unwatchable or whose request this host doesn't hold,
+# and refused for a leg-bound one watched here or an unknown topic, and
 # malformed inputs.
 #
 # Usage: bash skills/coordinate/scripts/wait-target_test.sh
@@ -37,13 +41,24 @@ BIN="$T/bin"
 mkdir -p "$BIN"
 export ST="$T/state"
 
+# A key with slashes (legs/<request>/<leg>) is a file under directories; a
+# request this host's store doesn't hold is marked <request>.gone, which koto
+# answers with its exit 2.
 cat >"$BIN/koto" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
     "context get") [ -f "$ST/ctx/$4" ] || exit 1; cat "$ST/ctx/$4" ;;
     "context exists") [ -f "$ST/ctx/$4" ] ;;
-    "context add") cat "$6" >"$ST/ctx/$4" ;;
-    "request get") [ -f "$ST/req/$3.json" ] || exit 1; cat "$ST/req/$3.json" ;;
+    "context add")
+        mkdir -p "$(dirname "$ST/ctx/$4")"
+        if [ "${5-}" = --from-file ]; then cat "$6" >"$ST/ctx/$4"; else cat >"$ST/ctx/$4"; fi
+        echo "add $4" >>"$ST/calls.log" ;;
+    "context list")
+        p=""; [ "${4-}" = --prefix ] && p=$5
+        (cd "$ST/ctx" && find . -type f | sed 's#^\./##') | awk -v p="$p" 'index($0, p) == 1' | jq -R . | jq -sc . ;;
+    "request get")
+        [ -f "$ST/req/$3.gone" ] && exit 2
+        [ -f "$ST/req/$3.json" ] || exit 1; cat "$ST/req/$3.json" ;;
     *) exit 64 ;;
 esac
 EOF
@@ -103,7 +118,7 @@ eq  "select: wait_target topic" gamma "$(target .topic)"
 eq  "select: wait_target leg" execute "$(target .leg)"
 # Both captures (WAIT_REQ from select, WAIT_LEG from leg) must be characters
 # koto admits in a capture.
-safe() { if printf '%s' "$2" | grep -Eq '^[A-Za-z0-9 :/_.@-]+$'; then ok "$1"; else bad "$1" "$2"; fi; }
+safe() { if grep -Eq '^[A-Za-z0-9 :/_.@-]+$' <<<"$2"; then ok "$1"; else bad "$1" "$2"; fi; }
 safe "capture: select's request id is capture-safe" "$(sel)"
 safe "capture: leg's leg name is capture-safe" "$(bash "$S" leg --session coord)"
 reset '[]'
@@ -201,6 +216,49 @@ bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: no leg is exit 1" 1 "$?"
 printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"bad leg"}\n' >"$ST/ctx/wait_target"
 bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: a malformed leg is exit 2" 2 "$?"
 
+# --- the leg keys (PRD R13) ------------------------------------------------------------------------------
+
+key() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
+mkkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg t "$3" '{request: $r, leg: $l, topic: $t, state: "open", templates: ["scope.md"], inputs: {TOPIC: "x"}}' >"$ST/ctx/legs/$1/$2"; }
+reset "$ROWS"
+printf '{"request_id":"req_a","legs":{"scope":{"name":"scope","disposition":"open","bound_child":"scope-x"}}}\n' >"$ST/req/req_a.json"
+req req_g execute open
+mkkey req_a scope alpha; mkkey req_g execute gamma
+sel >/dev/null
+eq  "child: select records the bound child's name in the leg's key" scope-x "$(key req_a scope | jq -r .child)"
+eq  "  ... and changes nothing else in it" open "$(key req_a scope | jq -r .state)"
+eq  "  ... and a leg nobody attached to gets no child" null "$(key req_g execute | jq -r .child)"
+eq  "  ... and leg_children lists the recorded leg" req_a:scope "$(cat "$ST/ctx/leg_children")"
+: >"$ST/calls.log"
+sel >/dev/null
+eq  "child: the next select writes no key again" "" "$(grep 'add legs/' "$ST/calls.log")"
+rm -rf "$ST/ctx/legs" "$ST/ctx/leg_children"
+sel >/dev/null; eq "child: a leg with no key (opened before keys) is passed over without a failure" 0 "$?"
+eq  "  ... and no key is made for it" "" "$(ls "$ST/ctx/legs" 2>/dev/null)"
+
+reset "$ROWS"
+printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","bound_child":"execute-p","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
+mkkey req_g execute gamma
+sel >/dev/null
+bash "$S" leg --session coord >/dev/null
+eq  "taken: the leg mode marks a promoted result's key taken" taken "$(key req_g execute | jq -r .state)"
+eq  "  ... with the result beside it, before take_report reads anything" \
+    '{"status":"success","final_state":"done","source":"promoted","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}' \
+    "$(key req_g execute | jq -c .result)"
+eq  "  ... and keeps the declaration" '{"TOPIC":"x"}' "$(key req_g execute | jq -c .inputs)"
+reset "$ROWS"
+req req_g execute abandoned
+mkkey req_g execute gamma
+sel >/dev/null; bash "$S" leg --session coord >/dev/null
+eq  "spent: an abandoned leg's key reads spent" spent "$(key req_g execute | jq -r .state)"
+reset "$ROWS"
+req req_g execute abandoned
+sel >/dev/null; bash "$S" leg --session coord >/dev/null
+eq  "spent: a leg with no key gets one naming its worker" "gamma spent" "$(key req_g execute | jq -r '"\(.topic) \(.state)"')"
+mkdir -p "$ST/ctx/legs/req_g"; jq -c '.state = "taken"' "$ST/ctx/legs/req_g/execute" >"$ST/x" && mv "$ST/x" "$ST/ctx/legs/req_g/execute"
+bash "$S" leg --session coord >/dev/null
+eq  "  ... and a key already marked keeps its state" taken "$(key req_g execute | jq -r .state)"
+
 # --- report-source.sh ----------------------------------------------------------------------------------
 
 src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/report_source"; bash "$R" --session coord >/dev/null 2>&1; echo $?; }
@@ -236,7 +294,31 @@ printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
 eq  "source: a leg report with no leg read goes to the human" 3 "$(src gamma leg)"
 eq  "source: a leg report for a topic with no holding goes to the human" 3 "$(src nobody leg)"
 eq  "source: a message for a message-path worker is admitted" 0 "$(src beta message)"
+jq -c 'map(if .worker == "beta" then .dispatch_status = "stranded" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+eq  "source: a message for a stranded worker is refused" 1 "$(src beta message)"
+eq  "source: so is its progress" 1 "$(src beta progress)"
+jq -c 'map(if .worker == "beta" then .dispatch_status = "dispatched" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+req req_g execute open
 eq  "source: a message for a leg-bound worker is refused" 1 "$(src gamma message)"
+# PRD R16: once the leg is read or can't be watched from here, a message is
+# the worker's only way to report, and it stands.
+legkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg s "$3" '{request: $r, leg: $l, topic: "gamma", state: $s}' >"$ST/ctx/legs/$1/$2"; }
+legkey req_g execute taken
+eq  "source: a message for a worker whose leg was taken is admitted" 0 "$(src gamma message)"
+legkey req_g execute unwatchable
+eq  "source: a message for a worker whose leg is unwatchable is admitted" 0 "$(src gamma message)"
+legkey req_g execute open
+eq  "source: a message for a worker whose leg is open here is refused" 1 "$(src gamma message)"
+printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result":{"status":"success"}}}}\n' >"$ST/req/req_g.json"
+eq  "source: a message for a worker whose leg holds its promoted result, the key not yet marked, is admitted" 0 "$(src gamma message)"
+printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"explicit","result":{"status":"failure"}}}}\n' >"$ST/req/req_g.json"
+eq  "source: one whose leg was spent without its result is refused" 1 "$(src gamma message)"
+req req_g execute open
+: >"$ST/req/req_g.gone"
+eq  "source: a message for a worker whose request this host doesn't hold is admitted" 0 "$(src gamma message)"
+rm -f "$ST/req/req_g.gone" "$ST/req/req_g.json"
+eq  "source: a message for a leg-bound worker whose request can't be read is 2" 2 "$(src gamma message)"
+rm -rf "$ST/ctx/legs"
 eq  "source: a message for an unknown topic is refused" 1 "$(src nobody message)"
 eq  "source: an unknown source is 2" 2 "$(src beta email)"
 eq  "source: a malformed topic is 2" 2 "$(src ../x message)"

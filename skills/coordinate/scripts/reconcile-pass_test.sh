@@ -2,7 +2,8 @@
 # reconcile-pass_test.sh -- reconcile-pass.sh advances a visit's work file in
 # bounded passes, prints exactly one capturable line, writes only reconcile/
 # context keys, and seals a report only when every re-check is done;
-# reconcile-report-get.sh accepts only the report the seal names.
+# reconcile-report-get.sh accepts only the report the seal names, and on the
+# session store refuses with 3 one sealed before the run was imported here.
 #
 # The scripts run from a copy of the tree. reconcile-read.sh,
 # reconcile-check.sh and the record feature's coord-log.sh are stand-ins
@@ -28,10 +29,14 @@ check() { if [ "$2" = 0 ]; then ok "$1"; else bad "$1" "${3-}"; fi; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
+# The pass makes its working directory under TMPDIR, and the planting cases
+# glob TMPDIR for it: a TMPDIR of the suite's own keeps both away from another
+# suite's pass running at the same time (check-skill.sh runs suites in parallel).
+mkdir -p "$T/tmp" && export TMPDIR="$T/tmp"
 
 SC="$T/tree/skills/coordinate/scripts"
 mkdir -p "$SC" "$T/tree/skills/execute/scripts" "$T/bin"
-for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
+for f in reconcile-pass.sh reconcile-deps.sh record-source.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 P="$SC/reconcile-pass.sh"
 G="$SC/reconcile-report-get.sh"
@@ -160,6 +165,7 @@ case "$cmd" in
     chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
+    run-store) cat "$STUB_DIR/store" 2>/dev/null || echo github ;;
     *) exit 64 ;;
 esac
 STUB
@@ -170,6 +176,10 @@ cat > "$T/bin/koto" <<'STUB'
 echo "koto $*" >> "$STUB_DIR/log"
 [ "$1" = context ] || exit 2
 mkdir -p "$STUB_DIR/ctx"
+if [ "$2" = list ]; then
+    ls "$STUB_DIR/ctx" | sed 's#%#/#g' | awk -v p="${5-}" 'index($0, p) == 1' | jq -R . | jq -sc .
+    exit 0
+fi
 k=$(printf '%s' "$4" | sed 's#/#%#g')
 case "$2" in
     add) if [ "${5-}" = --from-file ]; then cp "$6" "$STUB_DIR/ctx/$k"; else cat > "$STUB_DIR/ctx/$k"; fi ;;
@@ -192,6 +202,13 @@ cat > "$SC/reconcile-settle.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$STUB_DIR/settles"
 cat "$STUB_DIR/settle.out" 2>/dev/null || echo '{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"t"}'
+STUB
+# The legs classification, the pass's other write: logs its arguments to
+# <case>/legs and prints <case>/legs.out, else a re-legged fact.
+cat > "$SC/reconcile-legs.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/legs"
+cat "$STUB_DIR/legs.out" 2>/dev/null || echo '{"kind":"legs","status":"ok","outcome":"relegged","now":"leg req_9:deliver","reason":"","read_at":"t"}'
 STUB
 chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
 
@@ -219,8 +236,8 @@ ctx() { cat "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" 2>/dev/null; }
 has_ctx() { [ -f "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" ]; }
 tick() { echo $(( $(cat "$CASE/clock") + $1 )) > "$CASE/clock"; }
 lines_ok() {  # every line the pass printed is one of the three grammars and capturable
-    printf '%s\n' "$1" | grep -Eq '^(pending:[0-9]+:[0-9]+:[0-9a-f]{64}|blocked:(none|unreadable)|reconciled [0-9a-f]{64} sealed:[0-9]+:[0-9a-f]{64})$' \
-        && printf '%s' "$1" | grep -Eq '^[A-Za-z0-9 :/_.@-]*$' && [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ]
+    grep -Eq '^(pending:[0-9]+:[0-9]+:[0-9a-f]{64}|blocked:(none|unreadable)|reconciled [0-9a-f]{64} sealed:[0-9]+:[0-9a-f]{64})$' <<<"$1" \
+        && grep -Eq '^[A-Za-z0-9 :/_.@-]*$' <<<"$1" && [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ]
 }
 
 SHA1=1111111111111111111111111111111111111111
@@ -524,9 +541,80 @@ echo 7 > "$CASE/visit"; rm -f "$CASE/ctx/reconcile%report.json"
 get --check; [ $? = 2 ]; check "an absent report can't be read" $?
 echo "pending:7:1:$(printf x | sha)" > "$CASE/capture"
 get --check; [ $? = 1 ]; check "a pending capture is no report" $?
+echo "== a report sealed before an import =="
+new_case imported
+record "[]"
+pass
+echo session > "$CASE/store"
+get --check; check "on the session store, a run never imported reads its report" $?
+jq -nc '{source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-plugin-system-20260927T000000Z", friction: "/srv/ws-a/f.md"}' \
+    > "$CASE/ctx/record%host"
+get --check; [ $? = 3 ]; check "a report sealed before the run was imported here is refused with 3" $?
+get --md > /dev/null; [ $? = 3 ]; check "  ... in every mode" $?
+echo 8 > "$CASE/visit"
+jq -c --slurpfile h "$CASE/ctx/record%host" '.record.import = ($h[0] | {source_workspace, source_session, template_hash})' "$CASE/read.out" > "$CASE/read.x" && mv "$CASE/read.x" "$CASE/read.out"
+pass
+get --check; check "the next visit's report, read under the import, reads" $?
+grep -q 'This run was imported from session' <<< "$(ctx reconcile/report.md)"; check "  ... and names the source" $?
+echo github > "$CASE/store"; echo 9 > "$CASE/visit"; record "[]"; pass
+get --check; check "a GitHub record has no import facts to compare" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
+
+echo "== a leg this host's store doesn't hold (PRD R15) =="
+new_case legs
+record "[$(hold legged "$PR12" '{"return_path": "leg req_1:deliver"}'),$(hold watched "" '{"return_path": "leg req_2:deliver", "branch": ""}')]"
+printf '%s\n' '{"kind":"leg","status":"not_verified","reason":"request not found on this host","read_at":"t"}' > "$CASE/check.leg.leg_req_1_deliver.1"
+pass
+while case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 31; pass; done
+case "$LINE" in "reconciled "*) ok "the visit seals" ;; *) bad "the visit seals" "$LINE $(cat "$CASE/stderr")" ;; esac
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+eq "the legs classification runs once, for the holding whose request isn't here" \
+    "--session $SESSION --topic legged --return-path leg req_1:deliver" "$(cat "$CASE/legs" 2>/dev/null)"
+ctx reconcile/report.json | jq -e '[.changes[] | select(.topic == "legged" and .what == "leg relegged" and .live == "leg req_9:deliver")] | length == 1' >/dev/null
+check "its re-leg is reported under Changed since then" $? "$(ctx reconcile/report.json | jq -c .changes)"
+grep -q 're-legged: its session came here with the import' <<< "$(ctx reconcile/report.md)"; check "  ... in the rendered report" $?
+new_case legs-unwatchable
+record "[$(hold legged "$PR12" '{"return_path": "leg req_1:deliver"}')]"
+printf '%s\n' '{"kind":"leg","status":"not_verified","reason":"request not found on this host","read_at":"t"}' > "$CASE/check.leg.leg_req_1_deliver.1"
+printf '%s\n' '{"kind":"legs","status":"ok","outcome":"unwatchable","now":"message","reason":"x","read_at":"t"}' > "$CASE/legs.out"
+pass
+while case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 31; pass; done
+grep -q 'reports by message: its leg `leg req_1:deliver` cannot be watched from this host' <<< "$(ctx reconcile/report.md)"
+check "an unwatchable leg is reported, naming the move to message" $? "$(ctx reconcile/report.md)"
+new_case legs-dispatching
+record "[$(hold early "" '{"return_path": "leg req_1:deliver", "dispatch_status": "dispatching", "branch": ""}')]"
+printf '%s\n' '{"kind":"leg","status":"not_verified","reason":"request not found on this host","read_at":"t"}' > "$CASE/check.leg.leg_req_1_deliver.1"
+pass
+while case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 31; pass; done
+[ -e "$CASE/legs" ] && bad "a holding still dispatching gets no legs classification" "$(cat "$CASE/legs")" || ok "a holding still dispatching gets no legs classification"
+
+echo "== koto calls per tick (shirabe#844) =="
+# On koto's cloud backend each context call costs seconds against the action's
+# 30-second cap, so the pass's own koto calls per tick are pinned: one listing
+# of reconcile/, a remove only for a key that is there, and the writes the
+# tick's outcome needs. The pass's helpers here are stand-ins that don't call
+# koto, so every `koto` line in the log is the pass's own.
+kcalls() { grep -c '^koto ' "$CASE/log" || true; }
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]: $(grep '^koto ' "$CASE/log")"; fi; }
+new_case calls
+record "[$(hold no-pr "")]"
+# The worker isn't in the first listing read, so the visit ends pending until
+# the second read, 30 seconds on.
+printf '%s\n' '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host.1"
+: > "$CASE/log"; pass
+case "$LINE" in pending:7:*) ok "a visit's first tick ends pending" ;; *) bad "a visit's first tick ends pending" "$LINE" ;; esac
+eq "  ... in two koto calls: the listing and its progress" 2 "$(kcalls)"
+grep -q '^koto context remove' "$CASE/log" && bad "  ... and removes no key that isn't there" "$(cat "$CASE/log")" || ok "  ... and removes no key that isn't there"
+tick 31; : > "$CASE/log"; pass
+case "$LINE" in "reconciled "*) ok "the next tick seals" ;; *) bad "the next tick seals" "$LINE" ;; esac
+eq "  ... in five: the listing, progress removed, the report and its rendering, the read back" 5 "$(kcalls)"
+: > "$CASE/log"; pass
+eq "a tick in a sealed visit makes three: the listing and the report put back" 3 "$(kcalls)"
+echo 8 > "$CASE/visit"; : > "$CASE/log"; pass
+case "$LINE" in "reconciled "*" sealed:8:"*) ok "a new visit reads again and seals" ;; *) bad "a new visit reads again and seals" "$LINE" ;; esac
+eq "  ... in six: the listing, the old report's two keys removed, the new one's two written and read back" 6 "$(kcalls)"
 
 echo "== the clock =="
 # #481: the stand-ins advance the clock while the pass reads it. Four writers

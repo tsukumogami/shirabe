@@ -5,10 +5,10 @@
 # a copy of it anywhere under crates/ or skills/ is a defect the CI
 # word-list check fails on.
 #
-# Resolution order for the validator: --rules flag, then SHIRABE_RULES env
-# var, then an ancestor walk for skills/writing-style/rules.yaml. A missing
-# or unparseable file is a tool error; the validator never proceeds over an
-# empty rule set.
+# Document checks (FC10) find it through SHIRABE_RULES, then an ancestor walk
+# for skills/writing-style/rules.yaml, and check no word when neither finds it.
+# `--pr-body --writing-style <file>` loads the file it names and treats a
+# missing, unparseable or empty one as a tool error.
 #
 # schema: writing-style-rules/v1
 

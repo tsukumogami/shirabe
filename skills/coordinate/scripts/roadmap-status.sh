@@ -24,7 +24,18 @@
 # --unit first reads the roadmap at the default branch's head and its
 # frontmatter `schema:`, before any refusal, and then does one of two things.
 #
-# On a roadmap/v2 (milestone) roadmap a milestone reads Done only on a
+# A milestone roadmap is a roadmap/v2 or roadmap/v3 one (milestone.sh
+# is-milestone). The two read alike: v3 lists its milestones under
+# `## Milestones` with `### Milestone N:` headings where v2 has `## Features`
+# and `### Feature N:`. TAG and every record row and entry this script
+# matches to a heading (a holding, a pending row, a Work row, a verdict or
+# failure entry, a follow-up, an amendment, a Progress reopen line) compare
+# by record-common.sh's tag key, so a record that names `Feature 2` still
+# finds a v3 roadmap's `### Milestone 2:`. Rows keep TAG as given; what the
+# edit writes into the roadmap (a Progress line, the commit and pull request
+# titles) names the milestone as the roadmap spells its heading.
+#
+# On a milestone roadmap a milestone reads Done only on a
 # recorded verdict, never because its work merged, so --unit opens no pull
 # request. It refuses a TAG that isn't a milestone with Evidence there, one
 # that already reads Done or Dropped, and one with a follow-up Work row (its
@@ -167,8 +178,8 @@
 # standing; the entry is still on the record, so --verdict or --reopen can
 # open the edit again from it.
 # --list prints the pending rows as a JSON array of {unit, pull_request,
-# attempted, action}; it is the one reader of these rows, which pick-facts.sh
-# marks as landed units.
+# attempted, action}, record-codec.jq pending_list, the projection pick-facts.sh
+# also takes from its own parse to mark landed units.
 #
 # Each change to the record is told as an entry with record-append.sh, kind
 # roadmap-status, after the body is written.
@@ -255,48 +266,54 @@ lib_facts
 [ "$SCOPE" = roadmap ] || { echo "$PROG: a feature's status is a roadmap's; this run's scope is $SCOPE" >&2; exit 64; }
 lib_roadmap_path
 lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
-RE_HEADING_TAG='^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
+RE_HEADING_TAG='^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
 case "$MODE" in
     list) ;;
     verdict|reopen) [[ $TAG =~ $RE_HEADING_TAG ]] && [ "${#TAG}" -le 40 ] \
-                 || { echo "$PROG: refused: $TAG is not a milestone's heading tag (Feature 7, ED1, AB10b)" >&2; exit 65; } ;;
-    *) [[ $TAG =~ $RE_HEADING_TAG ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, ED1, AB10b)" >&2; exit 64; } ;;
+                 || { echo "$PROG: refused: $TAG is not a milestone's heading tag (Feature 7, Milestone 7, ED1, AB10b)" >&2; exit 65; } ;;
+    *) [[ $TAG =~ $RE_HEADING_TAG ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, Milestone 7, ED1, AB10b)" >&2; exit 64; } ;;
 esac
 case "$OUTCOME$REASON$ENTRY_URL" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome, --reason and --entry-url are one line" >&2; exit 64 ;; esac
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/roadmap-status.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
-gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/r.err")"
-tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
-lib_parse "$WD/live.md" "$WD/parsed.json"
+rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/parsed.json.err")" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical roadmap record for $NAME" >&2; exit 10 ;;
+    4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+    12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
-# The pending rows, {unit, pull_request, attempted, action, how_to_confirm}:
-# the Target is `<TAG> [#n](URL)`. Four Actions are roadmap edits: a
-# feature's Done (roadmap-status), a milestone verdict's (milestone-done,
-# milestone-verdict) and a milestone's reopen (milestone-reopen).
-EDIT_ACTIONS='["roadmap-status", "milestone-done", "milestone-verdict", "milestone-reopen"]'
-jq -c --argjson acts "$EDIT_ACTIONS" '[.side_effects[] | select(.action as $a | any($acts[]; . == $a))
-        | (.target | capture("^(?<unit>.+) (?<pr>\\[#[0-9]+\\]\\(https://github\\.com/[^)]+\\))$")) as $t
-        | {unit: ($t.unit // .target), pull_request: ($t.pr // ""), attempted, action, how_to_confirm}]' "$WD/parsed.json" > "$WD/pending.json" \
+cp "$WD/parsed.json.md" "$WD/live.md"
+
+# The pending rows, {unit, pull_request, attempted, action, how_to_confirm}
+# (record-codec.jq pending_rows, which pick-facts.sh reads the same way).
+jq -c -L "$HERE" 'include "record-codec"; pending_rows' "$WD/parsed.json" > "$WD/pending.json" \
     || lib_die2 "jq failed"
 if [ "$MODE" = list ]; then
-    jq -c 'map(del(.how_to_confirm))' "$WD/pending.json"
+    jq -c -L "$HERE" 'include "record-codec"; pending_list' "$WD/parsed.json"
     exit 0
 fi
 
 refuse() { echo "$PROG: refused: $*" >&2; exit 65; }
 lib_default_branch || lib_die2 "cannot read $REPO's default branch"
 # feature_read <file>: FEATURE, TAG's entry as lib_roadmap_features reads the
-# roadmap, or empty when no item carries TAG. A roadmap the reader can't read
-# is a read failure, never a feature that isn't there.
+# roadmap (its tag compared by key), or empty when no item carries TAG. A
+# roadmap the reader can't read is a read failure, never a feature that isn't
+# there. Sets RM_SECTION and RM_WORD, as the reader does.
 feature_read() {
     lib_roadmap_features "$1" > "$WD/features.json" 2> "$WD/f.err" || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
-    FEATURE=$(jq -c --arg t "$TAG" '[.[] | select(.id == $t)][0] // empty' "$WD/features.json") || lib_die2 "jq failed"
+    FEATURE=$(jq -c --arg t "$TAG" "$JQ_TAG_KEY"'[.[] | select((.id | tag_key) == ($t | tag_key))][0] // empty' "$WD/features.json") || lib_die2 "jq failed"
+}
+# words_read <file>: RM_SECTION and RM_WORD for the roadmap at FILE, and
+# HEAD_TAG, TAG as that roadmap spells its heading (`Milestone 2` on v3 for a
+# TAG of `Feature 2`).
+words_read() {
+    lib_roadmap_words "$1"
+    HEAD_TAG=$(lib_heading_tag "$TAG")
 }
 
 # write_record <next-json> <entry-text>: the record through the write core,
@@ -325,10 +342,10 @@ write_record() {
 # with clear-owed also without TAG's verdict-owed and rework Work rows (a
 # confirmed verdict or reopen supersedes the rework an earlier one left).
 without_row() {
-    jq --arg t "$TAG" --argjson owed "${2:-false}" --argjson acts "$EDIT_ACTIONS" 'del(.written)
+    jq -L "$HERE" --arg t "$TAG" --argjson owed "${2:-false}" 'include "record-codec"; '"$JQ_TAG_KEY"' roadmap_edit_actions as $acts | del(.written)
         | .side_effects = [.side_effects[] | select(((.action as $a | any($acts[]; . == $a))
-                                                     and (.target | startswith($t + " ["))) | not)]
-        | if $owed then .work = [(.work // [])[] | select(((.kind == "verdict-owed" or .kind == "rework") and .item == $t) | not)]
+                                                     and (.target | index(" [") as $i | $i != null and (.[0:$i] | tag_key) == ($t | tag_key))) | not)]
+        | if $owed then .work = [(.work // [])[] | select(((.kind == "verdict-owed" or .kind == "rework") and (.item | tag_key) == ($t | tag_key)) | not)]
                         | (if (.work | length) == 0 then del(.work) else . end)
           else . end' \
         "$WD/parsed.json" > "$1" || lib_die2 "jq failed"
@@ -383,10 +400,10 @@ pending_refuse() {
 # execution to come: its follow-up Work row stands until a holding takes it.
 follow_up_refuse() {
     local fu
-    fu=$(jq -r --arg t "$TAG" '[(.work // [])[] | select(.kind == "follow-up" and .item == $t) | .who][0] // empty' "$WD/parsed.json")
+    fu=$(jq -r --arg t "$TAG" "$JQ_TAG_KEY"'[(.work // [])[] | select(.kind == "follow-up" and (.item | tag_key) == ($t | tag_key)) | .who][0] // empty' "$WD/parsed.json")
     [ -z "$fu" ] || refuse "$TAG's scoping alone landed ($fu) and its execution is a follow-up still to dispatch; it isn't Done until that lands"
 }
-OWED_WHO=$(jq -r --arg t "$TAG" '[(.work // [])[] | select(.kind == "verdict-owed" and .item == $t) | .who][0] // empty' "$WD/parsed.json")
+OWED_WHO=$(jq -r --arg t "$TAG" "$JQ_TAG_KEY"'[(.work // [])[] | select(.kind == "verdict-owed" and (.item | tag_key) == ($t | tag_key)) | .who][0] // empty' "$WD/parsed.json")
 
 # norm_entry <in> <out>: an entry's text as record-append.sh posts it: CR
 # dropped, leading and trailing blank lines dropped, one final line break.
@@ -472,13 +489,17 @@ follow_ups_read() {
         END { exit(bad ? 1 : 0) }' || refuse "the follow-ups file holds text before its first \`### <tag>: <title>\` section"
     n=$(ls "$WD/fu" | grep -c '\.md$')
     [ "$n" -gt 0 ] || refuse "the follow-ups file holds no \`### <tag>: <title>\` section"
-    RE_FU_HEAD='^### (Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?): (.+)$'
+    RE_FU_HEAD='^### (Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?): (.+)$'
     : > "$WD/fu/index.tsv"
     i=1
     while [ "$i" -le "$n" ]; do
         head=$(head -1 "$WD/fu/$i.md")
         [[ $head =~ $RE_FU_HEAD ]] || refuse "follow-up section $i's heading is not \`### <tag>: <title>\`: [${head:0:80}]"
         tag=${BASH_REMATCH[1]} title=${BASH_REMATCH[2]}
+        # A section is headed as the roadmap heads its milestones: `Milestone
+        # N` on v3, `Feature N` on v2.
+        [ "$(lib_heading_tag "$tag")" = "$tag" ] \
+            || refuse "follow-up section $tag: this roadmap heads its milestones $RM_WORD N, so write \`### $(lib_heading_tag "$tag"): $title\`"
         # Field lines only, each once, from the closed set; the four a
         # milestone needs present and not empty.
         fields=$(awk '
@@ -500,13 +521,15 @@ follow_ups_read() {
         [ -z "$fields" ] || refuse "follow-up section $tag: $fields"
         # The Evidence as the roadmap's reader takes it: one `- ` clause or
         # more, nothing it can't classify.
-        { printf -- '---\nschema: roadmap/v2\n---\n\n## Features\n\n'; cat "$WD/fu/$i.md"; printf '**Status:** Not started\n'; } > "$WD/fu/$i.check"
+        # Checked in a document of the roadmap's own version and section.
+        { printf -- '---\nschema: %s\n---\n\n## %s\n\n' "$(if [ "$RM_WORD" = Milestone ]; then echo roadmap/v3; else echo roadmap/v2; fi)" "$RM_SECTION"
+          cat "$WD/fu/$i.md"; printf '**Status:** Not started\n'; } > "$WD/fu/$i.check"
         bash "$HERE/milestone.sh" evidence "$WD/fu/$i.check" "$tag" > "$WD/fu/$i.json" 2> /dev/null \
             || refuse "follow-up section $tag: its Evidence is not one \`- \` clause or more"
-        printf '%s\t%s\t%s\n' "$i" "$tag" "$title" >> "$WD/fu/index.tsv"
+        printf '%s\t%s\t%s\t%s\n' "$i" "$tag" "$title" "$(lib_tag_key "$tag")" >> "$WD/fu/index.tsv"
         i=$((i + 1))
     done
-    [ "$(cut -f2 "$WD/fu/index.tsv" | sort | uniq -d | head -1)" = "" ] || refuse "two follow-up sections share a tag"
+    [ "$(cut -f4 "$WD/fu/index.tsv" | sort | uniq -d | head -1)" = "" ] || refuse "two follow-up sections share a tag"
     # Each follow-up the verdict names has its section, and each section is
     # one the verdict names.
     : > "$WD/fu-plan.tsv"
@@ -519,18 +542,19 @@ follow_ups_read() {
             grep -qE "^### $tag:( |$)" "$WD/roadmap.md" && refuse "the follow-up \`new: $t\` takes the tag $tag, which the roadmap already uses"
             printf 'new\t%s\t%s\n' "$i" "$tag" >> "$WD/fu-plan.tsv"
         else
-            [ "$t" != "$TAG" ] || refuse "a follow-up amends $TAG itself; the milestone this verdict verifies keeps the Evidence it was judged against"
+            [ "$(lib_tag_key "$t")" != "$(lib_tag_key "$TAG")" ] || refuse "a follow-up amends $TAG itself; the milestone this verdict verifies keeps the Evidence it was judged against"
             bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$t" > "$WD/fu/target.json" 2> /dev/null \
                 || refuse "the follow-up \`amend $t\` names a tag the roadmap has no milestone for"
-            i=$(awk -F'\t' -v t="$t" '$2 == t { print $1; exit }' "$WD/fu/index.tsv")
-            [ -n "$i" ] || refuse "the follow-up \`amend $t\` has no section in the follow-ups file (a \`### $t: <title>\` heading)"
+            i=$(RS_KEY="$(lib_tag_key "$t")" awk -F'\t' '$4 == ENVIRON["RS_KEY"] { print $1; exit }' "$WD/fu/index.tsv")
+            [ -n "$i" ] || refuse "the follow-up \`amend $t\` has no section in the follow-ups file (a \`### $(lib_heading_tag "$t"): <title>\` heading)"
             ftitle=$(awk -F'\t' -v i="$i" '$1 == i { print $3 }' "$WD/fu/index.tsv")
             [ "$ftitle" = "$(jq -r .title "$WD/fu/target.json")" ] \
                 || refuse "the amend section for $t retitles it; an amendment changes Outcome, Evidence or Left open, never the title"
             # Dependencies don't change in place (roadmap format): the
             # section's must be the milestone's.
-            [ "$(field_of "$WD/fu/$i.md" Dependencies)" = "$(tr -d '\r' < "$WD/roadmap.md" | awk -v h="### $t: " '
-                    /^## / { inf = ($0 ~ /^## Features[ \t]*$/); inb = 0; next }
+            [ "$(field_of "$WD/fu/$i.md" Dependencies)" = "$(tr -d '\r' < "$WD/roadmap.md" | RS_H="### $(lib_heading_tag "$t"): " RS_SECTION="## $RM_SECTION" awk '
+                    BEGIN { h = ENVIRON["RS_H"]; sect = ENVIRON["RS_SECTION"] }
+                    /^## / { s = $0; sub(/[ \t]+$/, "", s); inf = (s == sect); inb = 0; next }
                     inf && /^### / { inb = (index($0, h) == 1); next }
                     inb && /^\*\*Dependencies:\*\*/ { print; exit }')" ] \
                 || refuse "the amend section for $t changes its Dependencies, which a milestone roadmap never changes in place"
@@ -553,12 +577,12 @@ follow_ups_apply() {
     local k i at new=
     while IFS='	' read -r k i at; do
         if [ "$k" = amend ]; then
-            RS_TAG="$at" RS_OUT="$(field_of "$WD/fu/$i.md" Outcome)" RS_EVI="$(field_of "$WD/fu/$i.md" Evidence)" \
+            RS_TAG="$(lib_heading_tag "$at")" RS_SECTION="## $RM_SECTION" RS_OUT="$(field_of "$WD/fu/$i.md" Outcome)" RS_EVI="$(field_of "$WD/fu/$i.md" Evidence)" \
             RS_LEFT="$(field_of "$WD/fu/$i.md" "Left open")" awk '
-                BEGIN { h = "### " ENVIRON["RS_TAG"] ": "; r["Outcome"] = ENVIRON["RS_OUT"]; r["Evidence"] = ENVIRON["RS_EVI"]; r["Left open"] = ENVIRON["RS_LEFT"] }
+                BEGIN { h = "### " ENVIRON["RS_TAG"] ": "; sect = ENVIRON["RS_SECTION"]; r["Outcome"] = ENVIRON["RS_OUT"]; r["Evidence"] = ENVIRON["RS_EVI"]; r["Left open"] = ENVIRON["RS_LEFT"] }
                 dropping && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#/) { dropping = 0 }
                 dropping { next }
-                /^## / { inf = ($0 ~ /^## Features[ \t]*$/); inb = 0; print; next }
+                /^## / { s = $0; sub(/[ \t]+$/, "", s); inf = (s == sect); inb = 0; print; next }
                 inf && /^### / { inb = (index($0, h) == 1); print; next }
                 inb && /^\*\*(Outcome|Evidence|Left open):\*\*/ {
                     name = $0; sub(/^\*\*/, "", name); sub(/:\*\*.*$/, "", name)
@@ -572,13 +596,13 @@ follow_ups_apply() {
         fi
     done < "$WD/fu-plan.tsv"
     if [ -n "$new" ]; then
-        # After the last milestone: where the Features section ends, at the
+        # After the last milestone: where the items section ends, at the
         # next `## ` heading or the end of the file.
-        RS_NEW="$new" awk '
-            BEGIN { s = ENVIRON["RS_NEW"]; sub(/\n+$/, "", s) }
+        RS_NEW="$new" RS_SECTION="## $RM_SECTION" awk '
+            BEGIN { s = ENVIRON["RS_NEW"]; sub(/\n+$/, "", s); sect = ENVIRON["RS_SECTION"] }
             function put() { if (pb) print ""; print s; print ""; done = 1 }
             /^## / && inf && !done { put() }
-            /^## / { inf = ($0 ~ /^## Features[ \t]*$/) }
+            /^## / { h = $0; sub(/[ \t]+$/, "", h); inf = (h == sect) }
             { print; pb = ($0 !~ /^[ \t]*$/) }
             END { if (inf && !done) { if (pb) print ""; print s } }' "$1" > "$1.fu" && mv "$1.fu" "$1" || lib_die2 "awk failed"
         while IFS='	' read -r k i at; do
@@ -604,18 +628,26 @@ failure_rework_of() {
          END { printf "Evidence clause %s failed: %s", c, w }' "$1" \
         | jq -R -s -j -L "$HERE" 'include "record-codec"; rework_cap'
 }
-# reopen_line <roadmap>: the last `## Progress` line naming TAG, when it is a
+# reopen_line <roadmap>: the last `## Progress` line naming TAG (its tag
+# compared by key, so `Feature 2` and `Milestone 2` are one), when it is a
 # reopen line --reopen writes for a failure posted on this run's record. Sets
-# RL_CLAUSE, RL_URL, RL_ID and RL_HASH; returns 1 otherwise. TAG and the
+# RL_CLAUSE, RL_URL, RL_ID and RL_HASH; returns 1 otherwise. The key and the
 # record's URL are compared as text, never as patterns.
 reopen_line() {
-    local last pre rest re
-    last=$(tr -d '\r' < "$1" | RS_TAG="$TAG" awk '
-        BEGIN { t = ": " ENVIRON["RS_TAG"] " -- " }
+    local last pre rest re ltag
+    last=$(tr -d '\r' < "$1" | RS_KEY="$(lib_tag_key "$TAG")" awk '
+        BEGIN { k = ENVIRON["RS_KEY"] }
         /^## / { inprog = ($0 ~ /^## Progress[ \t]*$/); next }
-        inprog && /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]: / && index($0, t) == 13 { last = $0 }
+        inprog && /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]: / {
+            rest = substr($0, 15); p = index(rest, " -- ")
+            if (p == 0) next
+            tg = substr(rest, 1, p - 1)
+            if (tg ~ /^(Feature|Milestone) [0-9]+$/) tg = "ms:" substr(tg, index(tg, " ") + 1)
+            if (tg == k) last = $0
+        }
         END { print last }')
-    pre="${last:0:12}: $TAG -- reopened: clause "
+    ltag=${last:14}; ltag=${ltag%% -- *}
+    pre="${last:0:12}: $ltag -- reopened: clause "
     [ -n "$last" ] && [ "${last:0:${#pre}}" = "$pre" ] || return 1
     rest=${last:${#pre}}
     re='^([1-9][0-9]*) failed, reported by .+ \((https://github\.com/[^ ]+#issuecomment-([1-9][0-9]*)), ([0-9a-f]{8})\)$'
@@ -630,9 +662,11 @@ reopen_line() {
 # Status; DONE 1 also drops its Needs field and adds DELIVER to its Delivered
 # field; PROGRESS (one line or more) goes after the last line of `## Progress`.
 # Values reach awk through the environment, which takes them as written.
+# TAG's block is its heading as the roadmap spells it (HEAD_TAG) under the
+# roadmap's items section; call words_read on $WD/roadmap.md first.
 block_edit() {
-    tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$TAG" RS_STATUS="$2" RS_DONE="$3" RS_DELIVER="$4" RS_PROGRESS="$5" awk '
-        BEGIN { tag = ENVIRON["RS_TAG"]; status = ENVIRON["RS_STATUS"]; done = ENVIRON["RS_DONE"] == "1"; deliver = ENVIRON["RS_DELIVER"]; progress = ENVIRON["RS_PROGRESS"] }
+    tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_STATUS="$2" RS_DONE="$3" RS_DELIVER="$4" RS_PROGRESS="$5" awk '
+        BEGIN { tag = ENVIRON["RS_TAG"]; sect = ENVIRON["RS_SECTION"]; status = ENVIRON["RS_STATUS"]; done = ENVIRON["RS_DONE"] == "1"; deliver = ENVIRON["RS_DELIVER"]; progress = ENVIRON["RS_PROGRESS"] }
         function field_end() { return ($0 ~ /^[ \t]*$/ || $0 ~ /^\*\*[A-Z][A-Za-z ]*:\*\*/ || $0 ~ /^#+([ \t]|$)/) }
         # The Delivered field held back, so the last of its lines takes the new items.
         function flush_delivered() { if (nd) { dl[nd] = dl[nd] ", " deliver; for (i = 1; i <= nd; i++) print dl[i]; nd = 0 } }
@@ -649,7 +683,7 @@ block_edit() {
         nd { dl[++nd] = $0; next }
         /^## / {
             if (inprog) { more = 1; flush_progress() }
-            infeat = ($0 ~ /^## Features[ \t]*$/); inblock = 0
+            h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0
             print
             if ($0 ~ /^## Progress[ \t]*$/ && !wrote) { inprog = 1; np = 0; more = 0 }
             next
@@ -668,7 +702,7 @@ block_edit() {
 
 case "$MODE" in
 confirm|drop)
-    ROW=$(jq -c --arg t "$TAG" '[.[] | select(.unit == $t)][0] // empty' "$WD/pending.json")
+    ROW=$(jq -c --arg t "$TAG" "$JQ_TAG_KEY"'[.[] | select((.unit | tag_key) == ($t | tag_key))][0] // empty' "$WD/pending.json")
     [ -n "$ROW" ] || refuse "no roadmap pull request is pending for $TAG"
     ACTION=$(printf '%s' "$ROW" | jq -r .action)
     PRL=$(printf '%s' "$ROW" | jq -r .pull_request)
@@ -716,7 +750,8 @@ confirm|drop)
             posted_entry "$RL_ID" "$WD/posted.txt" milestone-failure
             [ "$RL_HASH" = "$(sha8 "$WD/posted.txt")" ] \
                 || refuse "the entry at $RL_URL is not the text its Progress line hashed ($RL_HASH); it changed since its reopen edit, so nothing is confirmed: check the comment's history"
-            [ "$(sed -n 1p "$WD/posted.txt")" = "Failure: $TAG" ] && [ "$(sed -n 4p "$WD/posted.txt")" = "Clause: $RL_CLAUSE" ] \
+            FL=$(sed -n 1p "$WD/posted.txt")
+            [ "${FL:0:9}" = "Failure: " ] && [ "$(lib_tag_key "${FL:9}")" = "$(lib_tag_key "$TAG")" ] && [ "$(sed -n 4p "$WD/posted.txt")" = "Clause: $RL_CLAUSE" ] \
                 || refuse "the entry at $RL_URL doesn't name $TAG and clause $RL_CLAUSE as its Progress line does"
             URL=$RL_URL
             REWORK=$(failure_rework_of "$WD/posted.txt") || lib_die2 "jq failed"
@@ -830,6 +865,7 @@ if [ "$MODE" = verdict ]; then
     bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$TAG" > "$WD/milestone.json" 2> "$WD/m.err" \
         || refuse "$TAG is not a milestone with Evidence on $DEFAULT_BRANCH: $(lib_scrub < "$WD/m.err")"
     TITLE=$(jq -r .title "$WD/milestone.json")
+    words_read "$WD/roadmap.md"
     case "$(jq -r .status "$WD/milestone.json")" in Done*) refuse "$TAG already reads Done on $DEFAULT_BRANCH" ;; esac
     # Clauses are identified by position in the Evidence at Source; a
     # judgment is only good for the Evidence the default branch carries now,
@@ -845,12 +881,12 @@ if [ "$MODE" = verdict ]; then
     # The hash of the entry as posted (the text --confirm re-reads), so a
     # later edit of the comment shows.
     HASH=$(sha8 "$ENTRY")
-    PROGRESS="- $CHECKED_ON: $TAG -- $VERDICT, checked by $CHECKER ($ENTRY_URL, $HASH)"
+    PROGRESS="- $CHECKED_ON: $HEAD_TAG -- $VERDICT, checked by $CHECKER ($ENTRY_URL, $HASH)"
     # Each amendment a follow-up makes is named in Progress, as the format
     # asks of an Outcome, Evidence or Left open changed in place.
     while IFS='	' read -r k i at; do
         [ "$k" = amend ] || continue
-        PROGRESS="$PROGRESS"$'\n'"- $CHECKED_ON: $at amended -- a follow-up of the verified verdict on $TAG ($ENTRY_URL)"
+        PROGRESS="$PROGRESS"$'\n'"- $CHECKED_ON: $(lib_heading_tag "$at") amended -- a follow-up of the verified verdict on $HEAD_TAG ($ENTRY_URL)"
     done < "$WD/fu-plan.tsv"
     DONE=0 DELIVER=
     if [ "$VERDICT" != "changes needed" ]; then
@@ -858,8 +894,8 @@ if [ "$MODE" = verdict ]; then
         # The Work checked pull requests the Delivered line doesn't name yet.
         DELIVER=$(jq -r '.work_checked | join("\n")' "$WD/verdict.json" | while IFS= read -r item; do
             [ -n "$item" ] || continue
-            tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$TAG" RS_ITEM="$item" awk '
-                BEGIN { tag = ENVIRON["RS_TAG"]; item = ENVIRON["RS_ITEM"] }
+            tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_ITEM="$item" awk '
+                BEGIN { tag = ENVIRON["RS_TAG"]; sect = ENVIRON["RS_SECTION"]; item = ENVIRON["RS_ITEM"] }
                 # names(s): s names item as a whole reference (#1 is not #12).
                 function names(s,   p) {
                     while ((p = index(s, item)) > 0) {
@@ -868,7 +904,7 @@ if [ "$MODE" = verdict ]; then
                     }
                     return 0
                 }
-                /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); inblock = 0; next }
+                /^## / { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0; next }
                 infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); indel = 0; next }
                 inblock && /^\*\*Delivered:\*\*/ { indel = 1 }
                 inblock && indel && (/^[ \t]*$/ || (/^\*\*[A-Z][A-Za-z ]*:\*\*/ && !/^\*\*Delivered:\*\*/)) { indel = 0 }
@@ -885,14 +921,15 @@ if [ "$MODE" = verdict ]; then
     if [ "$DONE" = 1 ]; then block_edit "$DOC.1" Done 1 "$DELIVER" "$PROGRESS"
     else block_edit "$DOC.1" "" 0 "" "$PROGRESS"; fi
     # A verified milestone with no Delivered line gets one after its Status.
-    if [ "$DONE" = 1 ] && [ -n "$DELIVER" ] && ! awk -v t="### $TAG: " '
-            /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); inb = 0; next }
+    if [ "$DONE" = 1 ] && [ -n "$DELIVER" ] && ! RS_H="### $HEAD_TAG: " RS_SECTION="## $RM_SECTION" awk '
+            BEGIN { t = ENVIRON["RS_H"]; sect = ENVIRON["RS_SECTION"] }
+            /^## / { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inb = 0; next }
             infeat && /^### / { inb = (index($0, t) == 1); next }
             inb && /^\*\*Delivered:\*\*/ { f = 1 }
             END { exit(f ? 0 : 1) }' "$DOC.1"; then
-        RS_TAG="$TAG" RS_DELIVER="$DELIVER" awk '
-            BEGIN { tag = ENVIRON["RS_TAG"]; deliver = ENVIRON["RS_DELIVER"] }
-            /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); inb = 0; print; next }
+        RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_DELIVER="$DELIVER" awk '
+            BEGIN { tag = ENVIRON["RS_TAG"]; sect = ENVIRON["RS_SECTION"]; deliver = ENVIRON["RS_DELIVER"] }
+            /^## / { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inb = 0; print; next }
             infeat && /^### / { inb = (index($0, "### " tag ": ") == 1); print; next }
             inb && /^\*\*Status:\*\*/ { print; print "**Delivered:** " deliver; next }
             { print }' "$DOC.1" > "$DOC" || lib_die2 "awk failed"
@@ -910,17 +947,17 @@ EOF
             || refuse "$TAG's Status could not be set to Done (its block has no **Status:** line?)"
     fi
     if [ "$DONE" = 1 ]; then
-        MSG="docs(roadmap): record $TAG, $TITLE, as done on its verdict"
+        MSG="docs(roadmap): record $HEAD_TAG, $TITLE, as done on its verdict"
     else
-        MSG="docs(roadmap): record the changes-needed verdict on $TAG, $TITLE"
+        MSG="docs(roadmap): record the changes-needed verdict on $HEAD_TAG, $TITLE"
     fi
     BRANCH_STAMP=%Y%m%d%H%M%S
     populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-verdict "$MSG"
     {
         if [ "$DONE" = 1 ]; then
-            printf 'Records the %s verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$TAG" "$TITLE"
+            printf 'Records the %s verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$HEAD_TAG" "$TITLE"
         else
-            printf 'Records the changes-needed verdict on %s of the roadmap, %s: a Progress line names the verdict, who checked it and the entry. Its Status and Delivered line are unchanged; the milestone stays open for the changes the verdict names.\n' "$TAG" "$TITLE"
+            printf 'Records the changes-needed verdict on %s of the roadmap, %s: a Progress line names the verdict, who checked it and the entry. Its Status and Delivered line are unchanged; the milestone stays open for the changes the verdict names.\n' "$HEAD_TAG" "$TITLE"
         fi
         if [ -s "$WD/fu-plan.tsv" ]; then
             printf '\nIts follow-ups, in the same edit:\n\n'
@@ -934,8 +971,7 @@ EOF
         printf '\n---\n\n'
         printf 'Opened by the coordinator for %s from its record, issue #%s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, and the coordinator never merges it.\n' "$NAME" "$REF"
     } > "$WD/prbody.md"
-    if [ "$DONE" = 1 ]; then open_pr "docs(roadmap): record $TAG, $TITLE, as done on its verdict"
-    else open_pr "docs(roadmap): record the changes-needed verdict on $TAG, $TITLE"; fi
+    open_pr "$MSG"
     if [ "$DONE" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG Done"
     else ACTION=milestone-verdict HOW="the roadmap on $DEFAULT_BRANCH carries $ENTRY_URL in Progress"; fi
     jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg a "$ACTION" --arg h "$HOW" '
@@ -979,6 +1015,7 @@ if [ "$MODE" = reopen ]; then
     SEEN_ON=$(jq -r .seen_on "$WD/failure.json")
     CLAUSE=$(jq -r .clause "$WD/failure.json")
     TITLE=$(bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$TAG" | jq -r .title) || lib_die2 "cannot read $TAG's title"
+    words_read "$WD/roadmap.md"
     grep -qE $'^## Progress[ \t\r]*$' "$WD/roadmap.md" || refuse "$ROADMAP has no ## Progress section for the reopen's line"
     # Its confirmation leaves a rework row for the next brief: text the record
     # can't hold is refused now, before any edit is opened.
@@ -987,13 +1024,15 @@ if [ "$MODE" = reopen ]; then
     # The milestones a holding covers whose Dependencies name TAG, as pick
     # reads them: they read blocked again once this edit lands.
     lib_roadmap_features "$WD/roadmap.md" > "$WD/features.json" 2> "$WD/f.err" || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
-    HELD=$(jq -r --arg t "$TAG" --slurpfile p "$WD/parsed.json" '
-        ([.[] | select(.id == $t) | .number][0]) as $n
-        | .[] | select(.id != $t and any(.dependencies[]; . == $n)) | . as $f
-        | $p[0].holdings[] | select(.unit == $f.id or .unit == ($f.id + ": " + $f.title))
+    HELD=$(jq -r --arg t "$TAG" --slurpfile p "$WD/parsed.json" "$JQ_TAG_KEY"'
+        def covers($id; $title): (tag_key == ($id | tag_key))
+            or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
+        ([.[] | select((.id | tag_key) == ($t | tag_key)) | .number][0]) as $n
+        | .[] | select((.id | tag_key) != ($t | tag_key) and any(.dependencies[]; . == $n)) | . as $f
+        | $p[0].holdings[] | select(.unit | covers($f.id; $f.title))
         | "held-dependent \($f.id) \(.worker)"' "$WD/features.json") || lib_die2 "jq failed"
     HASH=$(sha8 "$ENTRY")
-    PROGRESS="- $SEEN_ON: $TAG -- reopened: clause $CLAUSE failed, reported by $REPORTER ($ENTRY_URL, $HASH)"
+    PROGRESS="- $SEEN_ON: $HEAD_TAG -- reopened: clause $CLAUSE failed, reported by $REPORTER ($ENTRY_URL, $HASH)"
     mkdir -p "$WD/doc"
     DOC="$WD/doc/$(basename "$ROADMAP")"
     CRLF=0
@@ -1004,11 +1043,11 @@ if [ "$MODE" = reopen ]; then
     bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e '.status == "In progress"' > /dev/null \
         || refuse "$TAG's Status could not be set to In progress (its block has no **Status:** line?)"
     bash "$HERE/milestone.sh" progress-has "$DOC" "$PROGRESS" || refuse "the Progress line could not be written into $ROADMAP"
-    MSG="docs(roadmap): reopen $TAG, $TITLE, on a reported failure"
+    MSG="docs(roadmap): reopen $HEAD_TAG, $TITLE, on a reported failure"
     BRANCH_STAMP=%Y%m%d%H%M%S
     populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-reopen "$MSG"
     {
-        printf 'Reopens %s of the roadmap, %s, on a failure reported after it read Done: its Status goes back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$TAG" "$TITLE"
+        printf 'Reopens %s of the roadmap, %s, on a failure reported after it read Done: its Status goes back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$HEAD_TAG" "$TITLE"
         printf '\nThe failure entry, as posted on the record (%s):\n\n' "$ENTRY_URL"
         sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
         printf '\n---\n\n'
@@ -1027,9 +1066,14 @@ fi
 
 # ---- --unit ------------------------------------------------------------------
 head_read
-SCHEMA=$(bash "$HERE/milestone.sh" schema "$WD/roadmap.md") || lib_die2 "cannot read $ROADMAP's schema"
+bash "$HERE/milestone.sh" is-milestone "$WD/roadmap.md"
+case $? in
+    0) MILESTONES=1 ;;
+    1) MILESTONES=0 ;;
+    *) lib_die2 "cannot read $ROADMAP's schema" ;;
+esac
 
-if [ "$SCHEMA" = roadmap/v2 ]; then
+if [ "$MILESTONES" = 1 ]; then
     # A milestone roadmap: the verdict, not the merge, sets Done.
     bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$TAG" > "$WD/milestone.json" 2> "$WD/m.err" \
         || refuse "$TAG is not a milestone with Evidence on $ROADMAP: $(lib_scrub < "$WD/m.err")"
@@ -1041,7 +1085,8 @@ if [ "$SCHEMA" = roadmap/v2 ]; then
         echo "verdict-owed $TAG"
         exit 0
     fi
-    WHO=$(jq -r --arg t "$TAG" '[.holdings[] | select(.unit == $t or (.unit | startswith($t + ": "))) | .worker][0] // "none"' "$WD/parsed.json")
+    WHO=$(jq -r --arg t "$TAG" "$JQ_TAG_KEY"'[.holdings[] | select((.unit | tag_key) == ($t | tag_key)
+        or (.unit | index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($t | tag_key))) | .worker][0] // "none"' "$WD/parsed.json")
     TODAY=$(date -u +%Y-%m-%d)
     jq --arg t "$TAG" --arg w "$WHO" --arg n "verdict owed since $TODAY" --arg u "$(date -u +%Y-%m-%dT%H:%MZ)" '
         del(.written) | .work = ((.work // []) + [{item: $t, kind: "verdict-owed", who: $w, next: $n, wakes: "0", updated: $u}])' \
@@ -1060,6 +1105,7 @@ feature_read "$WD/roadmap.md"
 [ -n "$FEATURE" ] || refuse "$TAG is not a feature of $ROADMAP"
 [ "$(printf '%s' "$FEATURE" | jq -r .done)" = false ] || refuse "$TAG already reads $(printf '%s' "$FEATURE" | jq -r .status)"
 TITLE=$(printf '%s' "$FEATURE" | jq -r .title)
+words_read "$WD/roadmap.md"
 
 # TAG's Status, Needs and Delivered fields, and nothing else before the
 # populate. A Needs or Delivered field goes with its wrapped lines, the lines
@@ -1071,11 +1117,11 @@ mkdir -p "$WD/doc"
 DOC="$WD/doc/$(basename "$ROADMAP")"
 CRLF=0
 grep -q $'\r$' "$WD/roadmap.md" && CRLF=1
-tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$TAG" RS_DELIVERED="$OUTCOME" awk '
-    BEGIN { tag = ENVIRON["RS_TAG"]; delivered = ENVIRON["RS_DELIVERED"] }
+tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_DELIVERED="$OUTCOME" awk '
+    BEGIN { tag = ENVIRON["RS_TAG"]; sect = ENVIRON["RS_SECTION"]; delivered = ENVIRON["RS_DELIVERED"] }
     dropping && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#+([ \t]|$)/) { dropping = 0 }
     dropping { next }
-    /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); inblock = 0; print; next }
+    /^## / { h = $0; sub(/[ \t]+$/, "", h); infeat = (h == sect); inblock = 0; print; next }
     infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); print; next }
     inblock && /^\*\*Needs:\*\*/ { dropping = 1; next }
     inblock && /^\*\*Delivered:\*\*/ { dropping = 1; next }

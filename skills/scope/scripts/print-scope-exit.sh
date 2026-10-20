@@ -34,6 +34,12 @@
 #   --session      reads `koto status <name>`
 #   --result-file  a `koto next` or `koto status` JSON response
 #
+# A scope session koto removed at its terminal is read like a kept one, on
+# purpose: a koto that keeps finished records (tsukumogami/koto#355) answers
+# `koto status` for it with "removed": true and the same current_state and
+# result, which is all the block needs. A name koto has no session or record
+# for answers "not found", and the script exits 1.
+#
 # The artifact path of a re-evaluation (the Decision Record) and an
 # abandonment (the file carrying the abandonment marker) is read from the tree
 # in the working directory, composed from the validated slug.
@@ -91,7 +97,7 @@ PAYLOAD=$(printf '%s' "$JSON" | jq -c '.result.payload // {} | if type == "objec
 get() {
     local v
     v=$(printf '%s' "$PAYLOAD" | jq -r --arg k "$1" '.[$k] // "" | strings') || v=""
-    if [ -n "$v" ] && printf '%s' "$v" | LC_ALL=C grep -q '[[:cntrl:]]'; then v=""; fi
+    if [ -n "$v" ] && LC_ALL=C grep -q '[[:cntrl:]]' <<<"$v"; then v=""; fi
     if [ -n "$v" ] && [[ "$v" =~ $2 ]]; then printf '%s' "$v"; fi
 }
 

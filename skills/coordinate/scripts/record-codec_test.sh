@@ -26,7 +26,10 @@
 # rework row round-trips, its text held to one paragraph of 600 bytes with no
 # URL or link, its Item a heading tag and its Who `verdict <id>` or
 # `failure <id>`; a milestone-reopen row round-trips; rework_cap cuts a
-# failure's text to 600 bytes without splitting a codepoint.
+# failure's text to 600 bytes without splitting a codepoint. Milestone N units:
+# a `Milestone 3` Item round-trips as a unit and as a heading tag, and
+# `Milestone 03` and `milestone 3` are refused as `Feature 03` and `feature 3`
+# are.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -247,7 +250,7 @@ cp "$HERE/testdata/record/pre-decisions.md" "$T/pre.md"
 if bash "$P" "$T/pre.md" > "$T/pre.json" && ! jq -e 'has("decisions")' "$T/pre.json" > /dev/null \
    && jq 'del(.written)' "$T/pre.json" | bash "$R" --written "$(jq -r .written "$T/pre.json")" | cmp -s - "$T/pre.md"; then
     ok "a body main's codec wrote parses to no decisions and renders back byte for byte"
-else bad "a body main's codec wrote parses to no decisions and renders back byte for byte" "$(cat "$T/pre.json" 2>/dev/null | head -3)"; fi
+else bad "a body main's codec wrote parses to no decisions and renders back byte for byte" "$(head -3 "$T/pre.json" 2>/dev/null)"; fi
 { cat "$T/pre.md"; printf '\n## Decisions\n\nNext decision: 1\n\nNone.\n'; } > "$T/toggle.md"
 bash "$P" "$T/toggle.md" > /dev/null 2>&1; [ $? -eq 3 ] && ok "a Decisions section holding only Next decision: 1 is not canonical" || bad "a Decisions section holding only Next decision: 1 is not canonical"
 bash "$R" --written "$W" <(full_record | jq -c '.decisions = {next: 1, entries: []}') | grep -q '^## Decisions' \
@@ -453,6 +456,39 @@ eq "  ... cuts a longer one to 600 bytes ending ..." "600 ..." "$(cap "$LONG" | 
 MB="Evidence clause 1 failed: $(printf 'x%.0s' 1 2 3)$(i=0; while [ $i -lt 200 ]; do printf '\342\202\254'; i=$((i + 1)); done)"
 eq "  ... never splits a codepoint, and the result passes rework_problem" "true" \
     "$(cap "$MB" | jq -R -s -L "$HERE" 'include "record-codec"; (utf8bytelength <= 600) and (rework_problem == null) and endswith("...")')"
+
+echo "== Milestone N units =="
+# A roadmap/v3 roadmap's classic tag is `Milestone <N>`: a unit and a heading
+# tag the same as `Feature <N>`, and refused in the same shapes.
+UNITROW() { jq -nc --arg i "$1" '{item: $i, kind: "decision", who: "decision 1", next: "waits on the human", wakes: "0", updated: "2026-10-09T10:00Z"}'; }
+mv_roundtrip "a decision row whose Item is Milestone 3 round-trips" "$(MVREC "[$(UNITROW 'Milestone 3')]" '[]')"
+refuse "  ... Milestone 03 is refused, as Feature 03 is" "$(MVREC "[$(UNITROW 'Milestone 03')]" '[]')" "Item is a unit as pick lists it"
+refuse "  ... Feature 03 is still refused" "$(MVREC "[$(UNITROW 'Feature 03')]" '[]')" "Item is a unit as pick lists it"
+refuse "  ... milestone 3 is refused, as feature 3 is" "$(MVREC "[$(UNITROW 'milestone 3')]" '[]')" "Item is a unit as pick lists it"
+refuse "  ... feature 3 is still refused" "$(MVREC "[$(UNITROW 'feature 3')]" '[]')" "Item is a unit as pick lists it"
+mv_roundtrip "a verdict-owed row whose Item is Milestone 3 round-trips" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "Milestone 3"')]" '[]')"
+refuse "  ... milestone 3 is refused as a heading tag" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "milestone 3"')]" '[]')" "a verdict-owed row's Item is a milestone's heading tag"
+
+echo "== the crash set (PRD R17) =="
+# rules, briefs, friction and reports-to: a session-store record's Run rows,
+# kept only beside the `store session` row.
+SHA=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+RR() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "alice", set: "2026-10-13T10:00Z"}'; }
+CRASH() { jq -nc --argjson r "[$1]" '{scope: {kind: "roadmap", name: "plugin-system"}, holdings: [], deferrals: [], side_effects: [], reversals: [], run: $r}'; }
+STORE=$(RR store session)
+roundtrip "the crash set round-trips beside the store session row" "$(CRASH "$STORE, $(RR rules "skill-rules sha256:$SHA"), $(RR rules "lane-rules sha256:$SHA"), $(RR briefs "brief sha256:$SHA"), $(RR friction friction-log), $(RR reports-to "the lane's dispatcher at ws-lead")")"
+roundtrip "reports-to may be a role alone" "$(CRASH "$STORE, $(RR reports-to "the human")")"
+for k in rules briefs friction reports-to; do
+    v="a sha256:$SHA"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
+    refuse "$k without the store session row is refused" "$(CRASH "$(RR "$k" "$v")")" "$k is kept only by a record on the session store"
+    refuse "$k beside a store github row is refused" "$(CRASH "$(RR store github), $(RR "$k" "$v")")" "$k is kept only by a record on the session store"
+done
+refuse "a rules digest that isn't sha256 hex is refused" "$(CRASH "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
+refuse "a rules label used twice is refused" "$(CRASH "$STORE, $(RR rules "a sha256:$SHA"), $(RR rules "a sha256:$SHA")")" "label is used twice"
+refuse "two friction rows are refused" "$(CRASH "$STORE, $(RR friction a), $(RR friction b)")" "used twice"
+refuse "a friction row that isn't a label is refused" "$(CRASH "$STORE, $(RR friction "a b")")" "a friction row is a label"
+refuse "a reports-to address shaped like a path is refused" "$(CRASH "$STORE, $(RR reports-to "the lead at /tmp/x")")" "shape of a path"
+refuse "a reports-to address that is two words is refused" "$(CRASH "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<role>\` or \`<role> at <address>\`"
 
 echo
 echo "record-codec: $PASS passed, $FAIL failed"

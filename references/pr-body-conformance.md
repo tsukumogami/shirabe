@@ -33,7 +33,7 @@ the squashed commit reads cleanly.
 
 ## The gated checks (mechanical)
 
-These four checks are objective — a machine decides them with no judgment — so
+These checks are objective — a machine decides them with no judgment — so
 they are gated. `shirabe validate --pr-body <file> [--pr-title <string>]`
 enforces them offline (no `gh`, no network).
 
@@ -73,9 +73,34 @@ enforces them offline (no `gh`, no network).
   advisory). A `#` that is not a heading — an issue reference (`#123`), a shebang
   (`#!/bin/sh`), a preprocessor line (`#include`), or a run of seven or more `#` —
   is not matched, so a prose Part 1 that mentions one is never a false positive.
+  This moves one narrow, objective slice from advisory to gated: PB4 never
+  inspects Part 2 section choice or Part 1 wording; it only rejects a commit
+  body that was structured as a headed document. Like the other structural
+  checks it scans the body with fenced code blocks removed, so a `##` shown
+  inside an example fence does not trip it. It gates only ATX headings, the
+  shape a template produces. A **setext** heading in Part 1 (a text line
+  underlined by `===` or `---`) is an accepted residual: a `---` underline is
+  parsed as the PB2 separator, so it cannot be gated as a heading without
+  conflicting with PB2, and an `===` underline is left out to keep the check
+  to the single common shape.
+  Prose commit bodies essentially never use setext.
+- **PB5 — no banned writing-style word (workflow gate only).** With
+  `--writing-style <rules-file>`, the title and both parts of the body are
+  checked against the banned words in `skills/writing-style/rules.yaml`, the
+  list FC10 checks documents against, by the same matcher: inline and fenced
+  code, table cells, link destinations, bare URLs and HTML comments are not
+  prose; quoted text (a blockquote, or double quotes that pair on one line)
+  isn't checked, since a verbatim quotation isn't the author's to reword;
+  a title's `type(scope): ` prefix is skipped; and a term the
+  repository declares under `## Prose Vocabulary:` is allowed. Each finding
+  names the word, its body line or the title, and what the rules suggest
+  instead. The /work-on and /execute pull request gate passes the flag with
+  the plugin's own rules file and reports PB5 as `pr-body/banned-word`; CI
+  and the PreToolUse hook below don't, so PB5 is enforced at the workflow
+  gate only. The rule's one home is `rules.yaml`; it isn't restated here.
 
-The structural checks (PB2, PB3, PB4) scan the body with fenced code blocks
-removed, so a `---`, a `Co-Authored-By:` line, or a `##` shown inside an example
+The structural checks (PB2, PB3) scan the body with fenced code blocks
+removed, so a `---` or a `Co-Authored-By:` line shown inside an example
 fence (as this document does) does not trip the check.
 
 ## What stays advisory (subjective)
@@ -90,15 +115,8 @@ Everything else is judgment and is **not** gated:
   Part 1 and a Part 2 that is only `Fixes #N` passes.
 
 Gating any of these would fail correct PRs; the check deliberately confines
-itself to the four mechanical rules so it never false-positives on a
+itself to the mechanical rules above so it never false-positives on a
 well-formed minimal PR.
-
-PB4 moves one narrow, objective slice from advisory to gated: the *presence of a
-markdown section heading in Part 1*. That is a mechanical fact a parser decides,
-distinct from the subjective question of what Part 1 or Part 2 should say, which
-stays advisory. The boundary holds — PB4 never inspects Part 2 section choice or
-Part 1 wording; it only rejects a commit body that was structured as a
-headed document.
 
 ## Accepted residuals
 
@@ -110,14 +128,6 @@ fenced blocks:
   outside any fence, while not intending it structurally.
 - The same content inside a 4-space **indented** code block, which the
   fenced-only scan does not strip.
-- A **setext** heading in Part 1 (a text line underlined by `===` or `---`).
-  PB4 gates only ATX headings (`#`-prefixed), which is the shape the motivating
-  case used and the shape a template produces. A setext `---` underline is
-  indistinguishable from the PB2 Part-1/Part-2 separator — the `---` line is
-  parsed as the separator, not a heading rule — so it cannot be gated as a
-  heading without conflicting with PB2; a setext `===` underline is left out to
-  keep the check to the single common shape. Prose commit bodies essentially
-  never use setext.
 
 Any of these is low-likelihood and resolved by rewording one line or fencing the
 example.
@@ -130,7 +140,7 @@ example.
   Actions bot) emits a fixed body shape that cannot carry the two-part `---`
   convention, so gating it would false-positive every such PR. The reusable
   workflow skips the built-in bot set and any author a caller adds through its
-  `exempt_authors` input; the rule itself (PB1–PB4) is unchanged — only the set
+  `exempt_authors` input; the rule itself is unchanged — only the set
   of PRs the CI surface applies it to.
 - **`/execute`** (`pr_finalization`) and **`/work-on`** (PR phase) cite this
   reference for the mechanical rule while authoring the title and two-part
@@ -139,5 +149,5 @@ example.
   as a built-in default for shirabe adopters) runs the same `check_pr_body`
   engine against a `gh pr create` / `gh pr edit` command before it executes,
   catching a malformed PR at authoring time in any checkout. It reuses this
-  rule, adding no checks of its own — PB1–PB4 are stated here once and enforced
+  rule, adding no checks of its own — the gated checks are stated here once and enforced
   by CI, the skills, and the hook alike.

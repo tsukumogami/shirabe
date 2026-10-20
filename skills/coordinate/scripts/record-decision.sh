@@ -2,7 +2,9 @@
 # record-decision.sh -- the one reader and writer of the record's Decisions
 # section. The decision scripts read the section through --list and --read
 # (closeout-read.sh and reconcile read it through the parser, as they read the
-# rest of the record); the write modes are the only way anything changes it.
+# rest of the record, and pick-facts.sh and decision-next.sh --parsed through
+# --list's own projection, record-codec.jq decisions_list, over a parse they
+# already hold); the write modes are the only way anything changes it.
 #
 # Usage:
 #   record-decision.sh --session S --list        print the section
@@ -69,6 +71,17 @@
 #       its own stamped line; any other answer is evidence, as --evidence.
 #       The arrival is the latest of its kind before this visit, so a retry
 #       decision_next routes here after a write that didn't land reads it too.
+#   --archive                                      decision_next
+#       Moves every settled entry that owes nothing and holds no parked unit
+#       (the codec's d_archivable and d_parked) out of the body: their rows, as the body holds them, go to `decisions`
+#       entries on the record (record-append.sh, one per 50,000 bytes of rows),
+#       then the body is written without them, their identifiers added to the
+#       section's Archived line and this run's stamps on them to its kept
+#       stamps, which the replay guard reads as it reads a row's. Refused
+#       unless the record is within 4,096 bytes of the 60,000-byte budget and
+#       something can move. decision-next.sh runs it
+#       before it routes, so no owed write parks at record-full while settled
+#       entries could leave (shirabe#827).
 #   --sent [--route tool|message]                  a *_send state
 #       Marks the message the matching render state rendered as sent, when
 #       coord/decision_message.txt checks against that render's seal and the
@@ -76,6 +89,12 @@
 #       escalation), or, for a redirect, a `redirect <report seq>` Evidence
 #       line. An escalation to a person records its route as an `ask`
 #       Evidence line; --route is required then.
+#
+# An archived entry named by --evidence, --answer or a citation in
+# --open-from-report is restored first: its row comes back from the latest
+# unedited `decisions` entry holding it, and its identifier leaves the Archived
+# line, in the same write that records the arrival. A withdrawal reaches only
+# the entries in the body.
 #
 # The stamps, which decision-next.sh reads to tell whether this run's write
 # landed. Each names the run (lib_run_stamp) and a log sequence:
@@ -136,7 +155,7 @@ while [ $# -gt 0 ]; do
         --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --list) mode list; shift ;;
         --read) [ $# -ge 2 ] || usage; mode read; ENTRY=$2; shift 2 ;;
-        --carry|--open|--open-from-report|--take|--settle|--escalate|--hold|--evidence|--answer|--sent) mode "${1#--}"; shift ;;
+        --carry|--open|--open-from-report|--take|--settle|--escalate|--hold|--evidence|--answer|--sent|--archive) mode "${1#--}"; shift ;;
         --question) [ $# -ge 2 ] || usage; Q=$2; shift 2 ;;
         --option) [ $# -ge 2 ] || usage; OPTS+=("$2"); shift 2 ;;
         --source) [ $# -ge 2 ] || usage; SRC=$2; shift 2 ;;
@@ -181,13 +200,16 @@ trap 'rm -rf "$WD"' EXIT
 
 # read_live: the live body, parsed canonically into $WD/parsed.json.
 read_live() {
-    if [ "$SCOPE" = roadmap ]; then
-        gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" 2> "$WD/gh.err" < /dev/null \
-            || { lib_scrub < "$WD/gh.err" >&2; echo >&2; lib_die2 "cannot read issue #$REF"; }
-    else
-        gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" 2> "$WD/gh.err" < /dev/null \
-            || { lib_scrub < "$WD/gh.err" >&2; echo >&2; lib_die2 "cannot read pull request #$REF"; }
-    fi
+    local rc
+    rs_record "$WD/parsed.json" body --json body --jq .body
+    rc=$?
+    case $rc in
+        2) lib_scrub < "$WD/parsed.json.err" >&2; echo >&2
+           [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
+        4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+        12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
+    esac
+    cp "$WD/parsed.json.md" "$WD/live.md"
     # A write to a record past the write core's budget is record-full before
     # anything else, even past the parser's own limit, as the core says.
     case "$MODE" in
@@ -195,8 +217,7 @@ read_live() {
         *) SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
            [ "$SIZE" -le 60000 ] || { echo "$PROG: refused: record-full: the record is $SIZE bytes, over the 60000-byte budget; compact settled decisions or prune the record" >&2; exit 13; } ;;
     esac
-    lib_parse "$WD/live.md" "$WD/parsed.json"
-    case $? in
+    case $rc in
         0) ;;
         3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
         *) lib_die2 "record-parse.sh failed" ;;
@@ -206,7 +227,7 @@ read_live() {
 read_live
 case "$MODE" in
 list)
-    jq -c '.decisions // {next: 1, entries: []}' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$WD/parsed.json"
     exit 0
     ;;
 read)
@@ -243,6 +264,7 @@ case "$MODE" in
     take) WANT=decision_take ;; settle|escalate|hold) WANT=decision_verdict ;;
     evidence) WANT=decision_evidence ;; answer) WANT=decision_answer ;;
     sent) WANT="escalate_send decision_withdraw_send decision_reply_send decision_redirect_send" ;;
+    archive) WANT=decision_next ;;
 esac
 case " $WANT " in *" $CUR_STATE "*) ;; *) refuse "--$MODE runs in ${WANT// / or }, and the session is in $CUR_STATE" ;; esac
 
@@ -297,8 +319,8 @@ def release:
       else .entries |= map(if .decision == ($q | tostring) then
           (if (escalation_problems($t) | length) == 0 then escalate_now else .verdict = "" end) else . end) end
   end;
-def stamped($kind; $seq): any(.entries[] | d_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
-def stamped_report($seq): any(.entries[] | d_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
+def stamped($kind; $seq): any(d_section_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
+def stamped_report($seq): any(d_section_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
 # A routed entry missing from the live record (edited by hand since the route)
 # is a refusal, never an empty result: an empty program output would be written
 # as no section at all.
@@ -343,6 +365,27 @@ write() {
 has_entry() { # has_entry <n> <jq test over the entry>
     SEC | jq -e --arg n "$1" '[.entries[] | select(.decision == $n) | '"$2"'] | any' >/dev/null
 }
+is_archived() { SEC | jq -e --argjson n "$1" '(.archived // []) | index($n) != null' >/dev/null; }
+# restore <n>...: the archived entries back into the section this write starts
+# from, each from the latest unedited `decisions` entry holding its row.
+restore() {
+    bash "$HERE/record-append.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/ra.err" \
+        || { lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+    jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args "$@")" --slurpfile es "$WD/entries.json" 'include "record-codec";
+        ([$es[0][] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
+        | reduce $ids[] as $n (.;
+            (first($arch[] | .text | d_archive_rows[] | select(.decision == ($n | tostring)))
+              // error("entry \($n) is archived, and no decisions entry on the record holds it")) as $e
+            | .decisions.entries += [$e] | .decisions.archived -= [$n])
+        | .decisions.entries |= sort_by(.decision | tonumber)
+        | if .decisions.archived == [] then del(.decisions.archived) else . end
+        # The row it comes back with carries its stamps, so the kept ones go.
+        | if .decisions.kept == null then .
+          else .decisions.kept.stamps |= map(select(.decision as $k | $ids | index($k) | not))
+            | if .decisions.kept.stamps == [] then del(.decisions.kept) else . end end' "$WD/parsed.json" > "$WD/restored.json" 2> "$WD/jq.err" \
+        || refuse "$(sed -n 's/^jq: error ([^)]*): //p' "$WD/jq.err" | head -1)"
+    mv "$WD/restored.json" "$WD/parsed.json"
+}
 
 case "$MODE" in
 carry)
@@ -379,6 +422,10 @@ open-from-report)
     bash "$HERE/coord-log.sh" check --session "$SESSION" --state report_questions --sealed "$QSEAL" --key coord/questions.json > "$WD/questions.json"
     case $? in 0) ;; 1) refuse "coord/questions.json doesn't check against report_questions' seal" ;; *) lib_die2 "cannot check the question list" ;; esac
     RSEQ=$(printf '%s' "$QSEAL" | cut -d: -f2)
+    CITED=$(jq -r '[.[] | select(.kind != "withdrawal") | .cite // empty | tostring | select(test("^[1-9][0-9]*$"))] | unique | .[]' "$WD/questions.json")
+    BACK=()
+    for c in $CITED; do has_entry "$c" true || ! is_archived "$c" || BACK+=("$c"); done
+    [ ${#BACK[@]} -eq 0 ] || restore "${BACK[@]}"
     change '($q[0]) as $items | ($w[0]) as $words
       | if stamped_report($seq) then error("this run already wrote report \($seq)") else . end
       | ([$items[] | select(.kind != "withdrawal") | .index | tostring]) as $need
@@ -470,6 +517,7 @@ evidence|answer)
     RND=$(printf '%s' "$EV" | jq -r '.fields.round // ""')
     WSEQ=$(printf '%s' "$EV" | jq -r '.seq')
     [[ $N =~ ^[1-9][0-9]*$ ]] || refuse "the $MODE names no decision"
+    has_entry "$N" 'true' || ! is_archived "$N" || restore "$N"
     has_entry "$N" 'true' || refuse "the record has no entry $N"
     if [ "$MODE" = answer ]; then
         [[ $RND =~ ^[1-9][0-9]*$ ]] || refuse "an answer names its round"
@@ -548,5 +596,47 @@ sent)
           | .entries |= map(if .decision == $n then add_ev(ev_line("the coordinator"; "\($run) redirect \($rs)"; "redirect sent")) | .updated = $now else . end)
           | compact_except($n)' --arg n "$N" --arg rs "$RSEQ" ;;
     esac
+    write ;;
+archive)
+    SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
+    [ "$SIZE" -gt $((60000 - 4096)) ] || refuse "the record is $SIZE bytes, not within 4,096 bytes of the 60,000-byte budget"
+    PARKED=$(jq -c -L "$HERE" 'include "record-codec"; d_parked' "$WD/parsed.json") || lib_die2 "jq failed"
+    change '[.entries[] | select(d_archivable($parked))] as $go
+      | if ($go | length) == 0 then error("no settled entry owes nothing and holds no parked unit") else . end
+      # This run'"'"'s stamps on the rows that go stay in the body; another run'"'"'s are read by no rule.
+      | ([$go[] | . as $e | d_stamps[] | select(.run == $run)
+          | {decision: ($e.decision | tonumber), kind, seq, addressed: (.text | startswith(d_addressed_mark))}]) as $mine
+      | ((if (.kept.run // "") == $run then .kept.stamps else [] end) + $mine) as $ks
+      | .entries |= map(select(d_archivable($parked) | not))
+      | .archived = ((.archived // []) + ($go | map(.decision | tonumber)) | unique)
+      | if ($ks | length) > 0 then .kept = {run: $run, stamps: $ks} else del(.kept) end' --argjson parked "$PARKED"
+    # The rows as the live body holds them, in entries of at most 50,000 bytes
+    # of rows, well under record-append.sh's 60,000-byte entry. SEC still reads
+    # parsed.json, which change leaves as it was. The entries go up before the
+    # body is written: a post that fails leaves the body whole, and a write that
+    # fails after it leaves only a duplicate entry, which restore never minds,
+    # since it reads the latest unedited one holding a row.
+    SEC | jq -c -L "$HERE" --arg run "$RUN" --argjson parked "$PARKED" 'include "record-codec";
+        [.entries[] | select(d_archivable($parked))]
+        | reduce .[] as $e ([];
+            ($e | render_drow) as $r
+            | if length > 0 and (.[-1].bytes + ($r | utf8bytelength) + 1) <= 50000
+              then .[-1].rows += [$r] | .[-1].ids += [$e.decision | tonumber] | .[-1].bytes += ($r | utf8bytelength) + 1
+              else . + [{rows: [$r], ids: [$e.decision | tonumber], bytes: ($r | utf8bytelength)}] end)
+        | .[] | "Decisions \(.ids | d_ranges), settled, moved out of the record body as it held them.\n\n\(d_header)\n\(.rows | join("\n"))"' \
+        > "$WD/archive.jsonl" || lib_die2 "jq failed"
+    i=0
+    while IFS= read -r line; do
+        i=$((i + 1))
+        printf '%s' "$line" | jq -r . > "$WD/archive-$i.md" || lib_die2 "jq failed"
+        bash "$HERE/record-append.sh" --session "$SESSION" --kind decisions --text-file "$WD/archive-$i.md" > /dev/null 2> "$WD/ra.err"
+        case $? in
+            0) ;;
+            10) lib_scrub < "$WD/ra.err" >&2; echo >&2; exit 10 ;;
+            65) refuse "the archive entry: $(lib_scrub < "$WD/ra.err")" ;;
+            2) lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot post the archive entry" ;;
+            *) echo "$PROG: the archive entry failed, the body unchanged: $(lib_scrub < "$WD/ra.err")" >&2; exit 11 ;;
+        esac
+    done < "$WD/archive.jsonl"
     write ;;
 esac

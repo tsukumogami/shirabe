@@ -12,9 +12,8 @@
 # Proves: dispatch doesn't leave on `sent` until the record shows the holding
 # dispatched, and no override record can stand in for the gate. A unit whose
 # private target the entry point can't take is refused by dispatch-worker.sh
-# before any leg, holding or launch, naming the entry point to use instead; so is
-# a unit pick wouldn't read, naming the forms that would match, and a dispatch
-# with no coord/pick.json in the session exits 2 with nothing written; a leg-bound
+# before any leg, holding or launch, naming the entry point to use instead (a
+# control shows the request query behind "no leg" can see one); a leg-bound
 # worker's promoted result reaches take_report and report_facts with the leg's
 # outcome as the report, an open leg holds until back or rescan, an explicit,
 # abandoned or missing leg goes to leg_spent, and a leg read once isn't read
@@ -29,7 +28,9 @@
 # teardown inventories only after the session is stopped, hands only a
 # durable instance on to teardown_handoff (teardown-pass_engine_test.sh runs
 # the pass from there), sends a unique one to promote, and no override record can
-# stand in for the inventory's gate.
+# stand in for the inventory's gate; a stopped worker niwa lists no instance
+# for is sealed absent and comes back to teardown with its topic kept, and a
+# listed instance with no directory is an error that goes to surface.
 #
 # Needs koto, git and jq; SKIPs (exit 0) without koto.
 # Usage: bash skills/coordinate/scripts/dispatch-path_engine_test.sh
@@ -90,7 +91,9 @@ done
 case "$MODE" in
     list) cat "$ST/rows.json" ;;
     write) jq -c --arg t "$TOPIC" --slurpfile r "$ROWF" '[.[] | select(.worker != $t)] + $r' "$ST/rows.json" >"$ST/rows.tmp" && mv "$ST/rows.tmp" "$ST/rows.json" ;;
-    read) jq -ce --arg t "$TOPIC" '.[] | select(.worker == $t)' "$ST/rows.json" || exit 1 ;;
+    # $ST/read.fail fails a single row's read, as a record that can't be read
+    # does, which holds take_report.
+    read) [ -e "$ST/read.fail" ] && exit 2; jq -ce --arg t "$TOPIC" '.[] | select(.worker == $t)' "$ST/rows.json" || exit 1 ;;
     *) exit 64 ;;
 esac
 EOF
@@ -139,7 +142,7 @@ SRC="$HERE/../koto-templates/coordinate.md"
 UNDER="dispatch wait leg_pick wait_leg leg_spent take_report teardown teardown_inventory promote"
 # Every state an UNDER state routes to that isn't under test, as a terminal.
 ENDS="record failure report_facts surface teardown_handoff pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped roadmap_status milestone_reopen
-decision_answer decision_evidence decision_raise"
+decision_answer decision_evidence decision_raise reconcile_pass"
 # block <state>: the state's YAML block, from its `  <state>:` line to the next
 # state's.
 block() {
@@ -286,12 +289,11 @@ eq  "private target: sent can't leave dispatch without the holding" dispatch "$(
 (cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null)
 eq  "private target: the shipped table's /deliver takes it" 0 "$?"
 
-# --- the unit pick reads -------------------------------------------------------------------------
+# --- the request query's control ------------------------------------------------------------------
 #
-# dispatch-worker.sh against this session's real context: a unit no form of
-# which pick listed is refused before any leg, holding or launch, naming the
-# forms; with no coord/pick.json in the session it exits 2, also with nothing
-# written.
+# A unit no form of which pick listed, or a dispatch with no coord/pick.json,
+# is refused before any leg, holding or launch: dispatch-worker_test.sh's
+# "unit:" cases.
 sed -e 's/"w9"/"w11"/g' -e 's/"Feature 9: the vault export"/"Feature 9 of ROADMAP-vault"/' -e 's|"acme/vault"|"acme/widgets"|' \
     "$T/brief-private.json" >"$T/brief-unit.json"
 unit_dispatch() { # unit_dispatch <topic> <brief>: a fresh session at dispatch, then dispatch-worker.sh
@@ -303,32 +305,20 @@ unit_dispatch() { # unit_dispatch <topic> <brief>: a fresh session at dispatch, 
     printf '[]\n' >"$ST/sessions.json"
     tick --with-data '{"go":"dispatch"}'
 }
-unit_dispatch w11 "$T/brief-unit.json"
-put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
-DW_ERR=$( (cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS") 2>&1 >/dev/null)
-eq  "unit: a unit pick wouldn't read is refused (exit 1)" 1 "$?"
-case "$DW_ERR" in
-    *'unit: [Feature 9 of ROADMAP-vault] matches no unit pick listed'*'"Feature 9", "Feature 9: the vault export"'*)
-        pass "unit: the refusal names the forms that would match" ;;
-    *) fail "unit: the refusal names the forms that would match" "$DW_ERR" ;;
-esac
-eq  "unit: no holding was written" '[]' "$(cat "$ST/rows.json")"
-eq  "unit: no request (and so no leg) was opened" 0 "$(requests w11)"
-eq  "unit: no worker was launched" "" "$(cat "$ST/niwa.log")"
-unit_dispatch w12 "$(sed 's/"w11"/"w12"/g' "$T/brief-unit.json" >"$T/brief-unit2.json"; printf '%s' "$T/brief-unit2.json")"
-(cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
-eq  "unit: with no coord/pick.json in the session, exit 2" 2 "$?"
-eq  "unit: and nothing was written" '[]' "$(cat "$ST/rows.json")"
-eq  "unit: no request was opened" 0 "$(requests w12)"
-eq  "unit: nor launched" "" "$(cat "$ST/niwa.log")"
 # The control: the same query sees the request a dispatch past the check
-# opens (the stand-in launch then fails), so the zeros above can fail.
+# opens (the stand-in launch then fails), so the private target's zero above
+# can fail.
 sed -e 's/"w11"/"w13"/g' -e 's/"Feature 9 of ROADMAP-vault"/"Feature 9"/' "$T/brief-unit.json" >"$T/brief-unit3.json"
 unit_dispatch w13 "$T/brief-unit3.json"
 put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
 (cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
-[ "$(requests w13)" -ge 1 ] && pass "unit: control: a unit pick reads gets past the check and its request is seen" \
-    || fail "unit: control: a unit pick reads gets past the check and its request is seen" "$(requests w13)"
+[ "$(requests w13)" -ge 1 ] && pass "control: a unit pick reads gets past the check and its request is seen" \
+    || fail "control: a unit pick reads gets past the check and its request is seen" "$(requests w13)"
+# The leg the dispatch opened is a key of the coordinator's own session (PRD
+# R13), written through real koto; the stand-in launch failed, so it reads spent.
+W13REQ=$( (cd "$W" && koto request list --coordinator-of-record coordinate-w13) | jq -r '.requests[0].request_id')
+eq  "control: the dispatch wrote the leg's key, with its worker, marked spent by the failed launch" "w13 spent deliver.md" \
+    "$(ctx "legs/$W13REQ/deliver" | jq -r '"\(.topic) \(.state) \(.templates | join(","))"')"
 
 # --- the leg path ----------------------------------------------------------------------------------
 
@@ -391,6 +381,32 @@ case "$(ctx worker_report)" in
 esac
 eq  "leg: report_source is leg" leg "$(ctx report_source)"
 eq  "leg: report_topic is the worker" w1 "$(ctx report_topic)"
+
+# The leg's key (PRD R13): the bound child recorded when the leg is picked,
+# and the result with state taken written by wait_leg's own action, so a run
+# stopped at take_report (here by a record that can't be read) already finds
+# it there.
+REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w5"}' \
+    --requested-by coord --coordinator-of-record coordinate-w5 | jq -r .request_id)
+SAVED_ROWS=$(cat "$ST/rows.json")
+rows "[{\"worker\":\"w5\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
+start
+put "legs/$REQ5/scope" "{\"request\":\"$REQ5\",\"leg\":\"scope\",\"topic\":\"w5\",\"state\":\"open\",\"templates\":[\"scope.md\"],\"inputs\":{\"TOPIC\":\"w5\"}}"
+(cd "$T" && koto init scope-w5 --template "$T/tpl/scope.md" --var TOPIC=w5 --koto-leg "$REQ5:scope" >/dev/null 2>"$T/child.err") ||
+    fail "the second stand-in worker attaches to its leg" "$(cat "$T/child.err")"
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+eq  "legkey: an open leg holds at wait_leg" wait_leg "$(at)"
+eq  "legkey: the pick recorded the bound child in the key, still open" "scope-w5 open" "$(ctx "legs/$REQ5/scope" | jq -r '"\(.child) \(.state)"')"
+tick --with-data '{"watch":"back"}'
+(cd "$T" && koto next scope-w5 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+: >"$ST/read.fail"
+tick --with-data '{"event":"leg"}'
+eq  "legkey: the run stops at take_report" take_report "$(at)"
+eq  "legkey: the key already reads taken, with the result the worker promoted" "taken promoted scoped https://github.com/acme/widgets/pull/7" \
+    "$(ctx "legs/$REQ5/scope" | jq -r '"\(.state) \(.result.source) \(.result.payload.outcome) \(.result.payload.pr)"')"
+rm -f "$ST/read.fail"
+rows "$SAVED_ROWS"
 
 start
 tick --with-data '{"go":"wait"}'
@@ -569,10 +585,24 @@ tick --with-data '{"event":"report","unit":"w3","report":"PR #9 is ready; CI is 
 eq  "message: a message-path worker's report reaches report_facts" report_facts "$(at)"
 eq  "message: its text is the report" "PR #9 is ready; CI is green." "$(ctx worker_report)"
 
+# A leg-bound worker whose leg is still open here reports through it, so its
+# message goes back to the hub; one whose leg already holds its promoted
+# result (w1's, read above) can only report by message now, and it stands
+# (PRD R16).
+REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w6"}' \
+    --requested-by coord --coordinator-of-record coordinate-w6 | jq -r .request_id)
+SAVED_ROWS=$(cat "$ST/rows.json")
+rows "$(jq -c --arg r "leg $REQ6:scope" '. + [{worker: "w6", dispatch_status: "dispatched", return_path: $r}]' <<<"$SAVED_ROWS")"
 start
 tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w1","report":"done, trust me"}'
-eq  "message: a message for a leg-bound worker goes back to wait" wait "$(at)"
+tick --with-data '{"event":"report","unit":"w6","report":"done, trust me"}'
+eq  "message: a message for a leg-bound worker whose leg is open goes back to wait" wait "$(at)"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"report","unit":"w1","report":"one more thing.\n\nQuestions:\n1. Should the loader pin v2?"}'
+eq  "message: a message for a worker whose leg holds its result reaches report_facts" report_facts "$(at)"
+eq  "  ... as a message report" message "$(ctx report_source)"
+rows "$SAVED_ROWS"
 
 start
 tick --with-data '{"go":"wait"}'
@@ -680,13 +710,29 @@ eq  "teardown: kept goes to record with no inventory" record "$(at)"
 eq  "teardown: leaving teardown clears teardown_topic" "" "$(ctx teardown_topic)"
 
 
-# A worker with no instance can't be inventoried: the verdict is sealed as an
-# error and goes to the human, rather than holding the run at the inventory.
+# A worker niwa lists no instance for is sealed absent, not as an error: a
+# stop that found nothing to stop goes back to teardown with the topic kept
+# (the coordinator then says whether it was removed), rather than holding the
+# run at the inventory or sending it to the human.
 start
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"retire","unit":"w9"}'
 tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: no instance for the worker goes to surface" surface "$(at)"
+eq  "teardown: no instance for a stopped worker goes back to teardown" teardown "$(at)"
+eq  "teardown: with teardown_topic kept" w9 "$(ctx teardown_topic)"
+case "$(ctx teardown_verdict)" in
+    absent*) pass "teardown: that verdict is sealed as absent" ;;
+    *) fail "teardown: that verdict is sealed as absent" "$(ctx teardown_verdict)" ;;
+esac
+
+# An instance niwa lists whose directory is gone can't be inventoried: the
+# verdict is sealed as an error and goes to the human.
+jq -c --arg p "$T/inst-gone" '. + [{name: "c", path: $p, session_name: "w8-1a2b3c4d"}]' "$ST/sessions.json" >"$ST/s.tmp" && mv "$ST/s.tmp" "$ST/sessions.json"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"retire","unit":"w8"}'
+tick --with-data '{"teardown":"stopped"}'
+eq  "teardown: a listed instance with no directory goes to surface" surface "$(at)"
 case "$(ctx teardown_verdict)" in
     error*) pass "teardown: that verdict is sealed as an error" ;;
     *) fail "teardown: that verdict is sealed as an error" "$(ctx teardown_verdict)" ;;

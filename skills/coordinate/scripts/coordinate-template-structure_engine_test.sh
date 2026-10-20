@@ -16,7 +16,9 @@
 # merge-exec.sh; no check script calls `gh api` without --method GET (GraphQL
 # queries aside) or sends a GraphQL mutation; nothing says the human merges;
 # every reference file is named by a state; the three deciders are declared
-# with their inputs gated.
+# with their inputs gated; teardown takes `removed` into the inventory, whose
+# gate passes --absent-route and routes exit 5 to teardown_handoff and exit 6
+# back to teardown with teardown_topic kept.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -31,7 +33,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX"); trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts milestone_reopen milestone_verdict pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
+WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts milestone_reopen milestone_verdict pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_move record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
 
@@ -73,6 +75,26 @@ DISPATCH=$(jq -r '.states as $st
           (if (.default_action.requires_confirmation // false) then "\($s): requires confirmation" else empty end),
           ((.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key): overridable")) ] | .[]' "$J")
 [ -z "$DISPATCH" ] && pass "the dispatch path's action states keep theirs" || fail "the dispatch path's action states keep theirs" "$DISPATCH"
+
+# The removed route: teardown takes `removed` into the same inventory as
+# `stopped`; the inventory's gate passes --absent-route, and its two absent
+# routes go to the handoff (5, after removed) and back to teardown (6, after
+# stopped) with teardown_topic kept, while 2 and 3 still go to surface.
+jq -e '(.states.teardown.accepts.teardown.values | index("removed")) != null
+       and any(.states.teardown.transitions[]; .target == "teardown_inventory" and .when.teardown == "removed")
+       and any(.states.teardown.transitions[]; .target == "teardown_inventory" and .when.teardown == "stopped")
+       and (.states.teardown_inventory.gates.inventory_durable.command | test("teardown-verdict\\.sh\" gate --session \"\\{\\{SESSION_NAME\\}\\}\" --absent-route$"))
+       and ([.states.teardown_inventory.transitions[] | select(.when["gates.inventory_durable.exit_code"] == 5) | .target] == ["teardown_handoff"])
+       and ([.states.teardown_inventory.transitions[] | select(.when["gates.inventory_durable.exit_code"] == 6) | [.target, (.context_assignments // null)]] == [["teardown", null]])
+       and ([.states.teardown_inventory.transitions[] | select(.when["gates.inventory_durable.exit_code"] == 2 or .when["gates.inventory_durable.exit_code"] == 3) | .target] | unique) == ["surface"]' "$J" >/dev/null \
+    && pass "teardown takes removed; the inventory routes absent to the handoff (5) or back to teardown (6), the topic kept" \
+    || fail "teardown takes removed; the inventory routes absent to the handoff (5) or back to teardown (6), the topic kept"
+jq -e '(.states.teardown.directive + .states.teardown.details | contains("`removed`"))
+       and (.states.teardown_inventory.details | contains("absent"))
+       and (.states.teardown_handoff.details | contains("removed yes"))
+       and (.states.destroy.details | contains("removed yes"))' "$J" >/dev/null \
+    && pass "the teardown, inventory, handoff and destroy directives explain removed" \
+    || fail "the teardown, inventory, handoff and destroy directives explain removed"
 
 # The design's decision states and changed edges, as from>to pairs.
 EDGES='decision_next>decision_carry decision_next>decision_open decision_next>decision_answer

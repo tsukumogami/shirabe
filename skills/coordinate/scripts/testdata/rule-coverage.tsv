@@ -2,7 +2,8 @@
 #
 # One row per rule of the pre-koto rule inventory (IDs C1..C190), then the
 # decision flow's rules (D1 onward) and the milestone verdict rules (M1
-# onward, docs/designs/DESIGN-milestone-verdicts.md). Columns,
+# onward, docs/designs/DESIGN-milestone-verdicts.md) and the store rules (S1
+# onward, docs/designs/DESIGN-coordinator-session-record.md). Columns,
 # tab-separated:
 #   <ID>  <carrier, repo-relative>  <state in coordinate.md, or ->  <key phrase>  [changed: <why>]
 # The key phrase is a verbatim substring of the carrier; when a state is named
@@ -126,7 +127,7 @@ C114	skills/coordinate/references/verification-checklist.md	-	A claim you can't 
 C115	skills/coordinate/koto-templates/coordinate.md	land	Take each finishing step as far as the workspace's
 C116	skills/coordinate/koto-templates/coordinate.md	surface	the order (`surfaced: merge_table`)
 C117	skills/coordinate/koto-templates/coordinate.md	land_merge	merges only at the verified head
-C118	skills/coordinate/koto-templates/coordinate.md	land_merge	by reading the changed files there, not by trusting
+C118	skills/coordinate/koto-templates/coordinate.md	land_merge	merged from the verified head,
 C119	skills/coordinate/references/verification-checklist.md	-	| Pull request | Worker | Verified at | Why this position |
 C120	skills/coordinate/koto-templates/coordinate.md	surface	back to unverified until you read it again
 C121	skills/coordinate/references/verification-checklist.md	-	report it before dispatching anything that depends on it
@@ -238,3 +239,22 @@ M17	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reads blocke
 M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens nothing by itself
 M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
+S1	skills/coordinate/SKILL.md	-	only its owner moves it, by writing that row
+S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
+S3	skills/coordinate/references/record-template.md	-	a record without one is on GitHub, a
+S4	skills/coordinate/references/record-template.md	-	a write is refused, changing no key, from a run that isn
+S5	skills/coordinate/koto-templates/coordinate.md	record_move	the find acts
+S6	skills/coordinate/koto-templates/coordinate.md	record_move	a write to the GitHub body
+S7	skills/coordinate/SKILL.md	-	(`store-conflict`), and a koto without the session store
+S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
+S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
+S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
+S11	skills/coordinate/SKILL.md	-	only when the operator says so
+S12	skills/coordinate/references/record-template.md	-	Only `record-state.sh --host` writes it
+S13	skills/coordinate/koto-templates/coordinate.md	reconcile	on the first tick after an import
+S14	skills/coordinate/koto-templates/coordinate.md	reconcile	reports to (`no-reports-to`)
+S15	skills/coordinate/koto-templates/coordinate.md	reconcile	the session, workspace and template it came from
+S16	skills/coordinate/SKILL.md	-	Every worker's leg is a key of the coordinator's own session
+S17	skills/coordinate/koto-templates/coordinate.md	reconcile	until each leg has an end (`leg-unclassified <worker>`)
+S18	skills/coordinate/koto-templates/coordinate.md	failure	--topic <its topic> --strand
+S19	skills/coordinate/koto-templates/coordinate.md	take_report	so it stands as a message report from `worker <topic>`

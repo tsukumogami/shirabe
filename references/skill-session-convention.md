@@ -16,7 +16,7 @@ and skills run inline read each other's files. The decisions behind it, and
 the alternatives they rejected, are in
 `docs/designs/current/DESIGN-resume-convention.md`.
 
-It describes koto 0.15.0 and later, shirabe's koto minimum
+It describes koto 0.15.0 and later. shirabe's koto minimum is 0.20.0
 (`scripts/assert-koto-floor.sh`).
 
 ## The pieces
@@ -122,7 +122,9 @@ opened it.
 
 A reader recomputes the name and runs `skill-session.sh status <session>`,
 which prints `absent`, `live` or `finished` from `koto status` without
-advancing anything. A reader may read a finished session's keys but never
+advancing anything. A session koto removed at its terminal is `absent`, even
+when koto answers for it from its finished record (`"removed": true`): its keys
+went with it. A reader may read a finished session's keys but never
 resumes it; the next `open` of that name replaces it, and the old keys go with
 it.
 

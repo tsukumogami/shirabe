@@ -24,6 +24,7 @@ on:
       - 'scripts/koto-open.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/comp.list'
       - '.tsuku.toml'
       - '.github/workflows/check-comp-scripts.yml'
 

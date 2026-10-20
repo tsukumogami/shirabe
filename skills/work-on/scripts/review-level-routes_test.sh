@@ -32,6 +32,13 @@
 #                       routes until `set` puts the ledger's level back
 #   unset               a session with no level at the check takes all three
 #                       panels and its ledger has an `unset` line
+#   the fallback        an opted-in user whose decider can't answer: in
+#                       shadow the check waits on level_fits_facts, its finding
+#                       and the directive give `koto decider answer`, and the
+#                       agent's pass lets it into scrutiny; at auto the agent's
+#                       fail holds it, a plain raise is asked about afresh, an
+#                       unclear lets it on, and the ledger has no veto line;
+#                       the log never holds a decider verdict for an answer
 #   clearing sites      every retry clearing loop that removes the panels'
 #                       results removes light_results.json too, and none
 #                       names review_level.jsonl
@@ -58,6 +65,8 @@ PHASES="$SKILL_DIR/references/phases"
 # koto validates a variable value against ^[a-zA-Z0-9._/:@ \-]*$; a checkout
 # under a directory outside it is reached through a symlink below.
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -93,7 +102,7 @@ done
 LEDGER_HITS=$(grep -rn 'context remove.*review_level\|^for KEY in .*review_level' "$SKILL_DIR" --include='*.md' --include='*.sh' 2>/dev/null \
     | grep -v '_test\.sh:')
 [ -z "$LEDGER_HITS" ] && pass "no clearing site names review_level.jsonl" || fail "a clearing site names the ledger: $LEDGER_HITS"
-printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel has its own clearing block" \
+grep -q 'phase-4d-light\.md' <<<"$SITES" && pass "the light panel has its own clearing block" \
     || fail "phase-4d-light.md has no clearing block"
 # implementation's clear_on_entry: koto clears these whenever the run comes
 # back to implementation, which is the only clearing on verification's exit-1
@@ -101,10 +110,10 @@ printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel h
 CLEAR_ON_ENTRY=$(awk '$0 == "  implementation:" { f = 1; next } f && /^  [a-z_]+:$/ { exit } f && /^    clear_on_entry:/ { print; exit }' "$TEMPLATE")
 for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md \
          scrutiny_scope.json review_scope.json qa_scope.json light_scope.json; do
-    printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q "$k" && pass "implementation's clear_on_entry clears $k" \
+    grep -q "$k" <<<"$CLEAR_ON_ENTRY" && pass "implementation's clear_on_entry clears $k" \
         || fail "implementation's clear_on_entry does not clear $k: [$CLEAR_ON_ENTRY]"
 done
-printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q 'review_level' && fail "implementation's clear_on_entry names the ledger" \
+grep -q 'review_level' <<<"$CLEAR_ON_ENTRY" && fail "implementation's clear_on_entry names the ledger" \
     || pass "implementation's clear_on_entry leaves review_level.jsonl alone"
 
 # ==============================================================================
@@ -122,6 +131,9 @@ trap cleanup EXIT
 
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
+# No decider unless a case opts in: the level check then behaves as if its
+# decider check weren't declared, which every case but the fallback ones relies on.
+unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
 git config --global user.name t
@@ -153,8 +165,16 @@ done
 GOT=$(jq -r '[.variables.REVIEW_LEVEL.rebind, .variables.REVIEW_FLOOR.rebind, .variables.REVIEW_CEILING.rebind]
              | map(. // false) | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = "true,false,false" ] && pass "only REVIEW_LEVEL is rebindable" || fail "rebind flags are [$GOT]"
+# plan_ready passes through the live offload canary's states, which add no
+# evidence, on its way to review_level_choice.
 GOT=$(jq -r '.states.analysis.transitions[] | select(.when.plan_outcome == "plan_ready") | .target' "$COMPILED" 2>/dev/null)
-[ "$GOT" = review_level_choice ] && pass "plan_ready targets review_level_choice" || fail "plan_ready targets [$GOT]"
+[ "$GOT" = offload_canary ] && pass "plan_ready targets offload_canary" || fail "plan_ready targets [$GOT]"
+GOT=$(jq -r '[.states.offload_canary.transitions[].target, .states.offload_arm_withheld.transitions[].target,
+              .states.offload_arm_preloaded.transitions[].target]
+             | map(select(. != "offload_arm_withheld" and . != "offload_arm_preloaded")) | unique | join(",")' \
+      "$COMPILED" 2>/dev/null)
+[ "$GOT" = review_level_choice ] && pass "every route out of the canary states reaches review_level_choice" \
+    || fail "the canary states route to [$GOT]"
 GOT=$(jq -r '.states.issue_type_routing.transitions[] | select(.when.issue_type == "code") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = review_level_check ] && pass "the code route targets review_level_check" || fail "the code route targets [$GOT]"
 GOT=$(jq -r '.states.review_level_check.gates | [.level_floor.type, .level_fits_facts.type] | join(",")' "$COMPILED" 2>/dev/null)
@@ -279,6 +299,7 @@ choose_and_implement() {
 record_round() {
     # $1 session, $2 panel, $3 round JSON
     printf '%s\n' "$3" > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
     "$PS" --record "$2" "$1" "$WORKDIR/round.json" 2>"$WORKDIR/record.err" \
         || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
 }
@@ -402,6 +423,103 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" standard task; then
     expect_visits "$S" review_level_check 0
     [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = standard ] && pass "the task run recorded its level" \
         || fail "task ledger is [$(ledger "$S")]"
+fi
+
+# ==============================================================================
+echo "--- engine: a decider that can't answer the level check"
+
+# An opted-in user whose decider can't be reached: the endpoint is a port
+# nothing listens on, so every consultation fails and level_fits_facts falls
+# back to the agent (koto 0.20.0). The routing deciders upstream fail the same
+# way and take the agent's evidence, as they always have.
+decider_on() {
+    export KOTO_DECIDER="$1" KOTO_DECIDER_API_KEY=routes-test-key \
+        KOTO_DECIDER_ENDPOINT="http://127.0.0.1:9/v1/systemone"
+}
+decider_off() { unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT; }
+# fits <field>: the level_fits_facts blocking condition's <field> as a string
+fits() {
+    printf '%s' "$NEXT_RESPONSE" | jq -r --arg f "$1" \
+        '[.blocking_conditions[]? | select(.name == "level_fits_facts")][0] // {} | getpath($f | split(".")) // "" | tostring'
+}
+answer() {
+    koto decider answer "$1" --gate level_fits_facts --criterion level_fits_facts --answer "$2" \
+        >/dev/null 2>"$WORKDIR/answer.err" \
+        || fail "$1: koto decider answer $2 failed: $(cat "$WORKDIR/answer.err")"
+}
+slog() { printf '%s' "$HOME/.koto/sessions/$1/koto-$1.state.jsonl"; }
+
+# Shadow: the check never fails the run, but a criterion with no verdict now
+# waits on the agent instead of passing, so the run holds until it answers.
+S=fallback-shadow
+if new_case "$S" "$SMALL"; then
+    decider_on shadow
+    if choose_and_implement "$S" standard code; then
+        expect_state "a shadow user whose decider can't answer" review_level_check
+        [ "$(fits status)|$(fits category)|$(fits output.awaiting)" = 'pending|corrective|["level_fits_facts"]' ] \
+            && pass "the check is pending and corrective, waiting on level_fits_facts" \
+            || fail "level_fits_facts is [$(fits status)|$(fits category)|$(fits output.awaiting)]"
+        case "$(fits failure.findings)" in
+            *"koto decider answer $S --gate level_fits_facts --criterion level_fits_facts"*)
+                pass "the warning finding gives the answer command" ;;
+            *) fail "findings are [$(fits failure.findings)]" ;;
+        esac
+        case "$(printf '%s' "$NEXT_RESPONSE" | jq -r '.directive // ""')" in
+            *"koto decider answer $S --gate level_fits_facts --criterion level_fits_facts --answer <pass|fail|unclear>"*)
+                pass "the directive gives the answer command" ;;
+            *) fail "the directive does not give the answer command" ;;
+        esac
+        tick "$S"
+        expect_state "a tick with no answer" review_level_check
+        answer "$S" pass
+        tick "$S"
+        expect_state "the tick after the agent answered pass" scrutiny
+        GOT=$(jq -rs '[.[] | select(.type == "decider_checked" and .payload.gate == "level_fits_facts")
+                       | .payload.outcome] | unique | join(",")' "$(slog "$S")")
+        [ "$GOT" = unanswered ] && pass "the only decider_checked outcome is unanswered: the agent's answer is no decider verdict" \
+            || fail "level_fits_facts decider_checked outcomes are [$GOT]"
+        GOT=$(jq -rs '[.[] | select(.type == "decider_check_answered" and .payload.gate == "level_fits_facts")
+                       | .payload.answer] | join(",")' "$(slog "$S")")
+        [ "$GOT" = pass ] && pass "the answer is recorded as the agent's" || fail "decider_check_answered answers are [$GOT]"
+    fi
+    decider_off
+fi
+
+# Veto (a user at auto): the agent's fail holds the run as a decider's would.
+# The raise it calls for is a plain one, not a veto, and the raised level is a
+# new slice the decider is asked about afresh; an unclear answer lets it on.
+S=fallback-veto
+if new_case "$S" "$SMALL"; then
+    decider_on auto
+    if choose_and_implement "$S" standard code; then
+        expect_state "an auto user whose decider can't answer" review_level_check
+        [ "$(fits status)|$(fits output.awaiting)" = 'pending|["level_fits_facts"]' ] \
+            && pass "the veto check is pending on level_fits_facts" \
+            || fail "level_fits_facts is [$(fits status)|$(fits output.awaiting)]"
+        answer "$S" fail
+        tick "$S"
+        expect_state "the tick after the agent answered fail" review_level_check
+        [ "$(fits status)|$(fits output.failed)|$(fits output.agent_answered)" = 'failed|["level_fits_facts"]|["level_fits_facts"]' ] \
+            && pass "the agent's fail fails the veto check, marked as the agent's" \
+            || fail "level_fits_facts is [$(fits status)|$(fits output.failed)|$(fits output.agent_answered)]"
+        setlevel "$S" full
+        tick "$S"
+        expect_state "the tick after a plain raise" review_level_check
+        [ "$(fits status)|$(fits output.awaiting)" = 'pending|["level_fits_facts"]' ] \
+            && pass "the raised level is asked about afresh and falls back again" \
+            || fail "level_fits_facts is [$(fits status)|$(fits output.awaiting)]"
+        answer "$S" unclear
+        tick "$S"
+        expect_state "the tick after the agent answered unclear at full" scrutiny
+        [ "$(events "$S")" = "bound choose check raise check" ] \
+            && pass "the ledger reads bound, choose, check, raise, check: no veto line" \
+            || fail "ledger events are [$(events "$S")]"
+        GOT=$(jq -rs '[.[] | select(.type == "decider_checked" and .payload.gate == "level_fits_facts")
+                       | .payload.outcome] | unique | join(",")' "$(slog "$S")")
+        [ "$GOT" = unanswered ] && pass "the only decider_checked outcome is unanswered: neither answer is a decider verdict" \
+            || fail "level_fits_facts decider_checked outcomes are [$GOT]"
+    fi
+    decider_off
 fi
 
 # ==============================================================================

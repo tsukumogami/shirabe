@@ -184,7 +184,7 @@ of `work/state.md` and holds no routing state of its own.
   consolidation_judgments:
     - hop: brief->prd            # <upstream-type>-><downstream-type>
       stage: carry               # preflight | judgment | carry
-      verdict: absorb            # absorb | keep
+      verdict: absorb            # absorb | keep (a fold's bail is not a judgment and isn't recorded)
       carry_check:               # present only when verdict is absorb
         <upstream section>: {target: <downstream section>, carried: <bool>}
       absorbed: docs/briefs/BRIEF-<topic>.md   # present on a completed absorb

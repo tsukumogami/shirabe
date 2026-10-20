@@ -8,7 +8,7 @@ docs/designs/current/DESIGN-evals-at-release.md (Decision 3, Security Considerat
 Usage:
   eval-pass-rates.py merge --previous <file or ->... [--no-baseline-reason <text>]
       [--summary <file>]... [--selected <skill>]... --version <v>
-      --last-tag <tag or ''> [--confirmed <a,b>] --out <file>
+      --last-tag <tag or ''> [--confirmed <a,b>] [--tolerance <rate>] --out <file>
   eval-pass-rates.py stamp --record <file> --version <v> [--measured <skill>]...
 
 merge
@@ -32,8 +32,25 @@ merge
     over the size cap, unparseable, another schema, any field check failing)
     leaves it out of the baseline, with a warning naming the field and never
     its value. No usable record at all means "no baseline".
-  - A drop is a skill whose rounded rate is strictly lower than its baseline
-    rate.
+  - A selected skill is compared only with an earlier measurement taken the
+    same way: the newest entry, among the composed records, that has a
+    pass_rate and the same models, session_model, scenario_set and number of
+    runs as this run's entry. scenario_set is the summary's hash of the
+    scenarios the run selected for the skill. The release subset changes as
+    scheduled runs measure other scenarios and better picks replace the
+    provisional ones, so the set is in the key: a rate is never compared with
+    one measured on a different set of scenarios
+    (shirabe#879). An entry with no scenario_set, written before the field
+    existed, ran an unknown set and matches only another entry with none.
+    An entry with no session_model was measured on the CLI default session
+    model and reads as session_model "default". The number of
+    runs is in the key because a rate pooled over three runs and a one-run
+    rate carry different noise. The tolerance is not in the key: it changes
+    how a rate is judged, not the rate. When the skill has no such entry,
+    this run's rate is a new reference for it: printed as one, never a drop,
+    and the entries this release writes are what later releases compare with.
+  - A drop is a skill whose rounded rate is lower than its reference rate by
+    more than --tolerance (a rate from 0 to 1, default 0: any lower rate).
   Exit codes: 0 clean (a harness exit 1 without a drop included); 1 any
   selected skill's harness exit was 2, 3 or 4 (an infrastructure failure
   outranks a drop); 5 a drop not listed in --confirmed, the output ending with
@@ -61,8 +78,13 @@ SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 TAG_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+SCENARIO_SET_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 COUNT_FIELDS = ("runs", "runs_passed", "assertions_passed", "assertions_graded")
+# The session model of an entry measured without an explicit EVAL_MODEL: the
+# claude CLI's own default. Records written before the field existed are read
+# as this.
+DEFAULT_SESSION = "default"
 INFRA_EXITS = (2, 3, 4)
 
 
@@ -96,6 +118,36 @@ def check_models(models, where):
             raise Invalid("%s.models has an invalid model" % where)
 
 
+def session_model_of(entry, where):
+    """The entry's session_model, DEFAULT_SESSION when it has none."""
+    if "session_model" not in entry:
+        return DEFAULT_SESSION
+    value = entry["session_model"]
+    if not isinstance(value, str) or not MODEL_RE.match(value):
+        raise Invalid("%s.session_model is not a model name" % where)
+    return value
+
+
+def scenario_set_of(entry, where):
+    """The entry's scenario_set, None when it has none (written before the field existed)."""
+    if "scenario_set" not in entry:
+        return None
+    value = entry["scenario_set"]
+    if not isinstance(value, str) or not SCENARIO_SET_RE.match(value):
+        raise Invalid("%s.scenario_set is not a sha256: digest" % where)
+    return value
+
+
+def measured_the_same_way(a, b):
+    """True when two entries ran the same scenarios on the same scenario models,
+    session model and run count. An entry with no scenario_set ran an unknown
+    set, which matches only another entry with none."""
+    return (sorted(set(a["models"])) == sorted(set(b["models"]))
+            and a.get("session_model", DEFAULT_SESSION) == b.get("session_model", DEFAULT_SESSION)
+            and a.get("scenario_set") == b.get("scenario_set")
+            and a["runs"] == b["runs"])
+
+
 def clean_record_entry(entry, where):
     """Validate one skill entry of a record; return it rebuilt from the field list."""
     if not isinstance(entry, dict):
@@ -108,6 +160,12 @@ def clean_record_entry(entry, where):
     out = {field: entry[field] for field in COUNT_FIELDS}
     out["models"] = list(entry["models"])
     out["measured_at"] = measured_at
+    session_model = session_model_of(entry, where)
+    if "session_model" in entry:
+        out["session_model"] = session_model
+    scenario_set = scenario_set_of(entry, where)
+    if scenario_set is not None:
+        out["scenario_set"] = scenario_set
     has_rate = "pass_rate" in entry
     has_exit = "exit_code" in entry
     if has_rate and has_exit:
@@ -183,9 +241,11 @@ def load_previous(path, reason):
 def compose_baseline(paths, reason):
     """Compose the per-skill baseline from records ordered newest first.
 
-    Returns (skills or None, warnings). A skill takes the newest entry with a
-    pass_rate; one with no pass_rate anywhere takes the newest entry it has.
-    None means no record was usable, and the last warning says why.
+    Returns (skills or None, history, warnings). A skill takes the newest
+    entry with a pass_rate; one with no pass_rate anywhere takes the newest
+    entry it has. history maps each skill to its entries with a pass_rate,
+    newest first, for finding one measured the same way. None means no record
+    was usable, and the last warning says why.
     """
     records = []
     warnings = []
@@ -203,16 +263,19 @@ def compose_baseline(paths, reason):
             why = warning
     if not records:
         warnings.append("no baseline: %s" % why)
-        return None, warnings
+        return None, {}, warnings
     skills = {}
+    history = {}
     for record in records:
         for name, entry in record["skills"].items():
-            if name not in skills and "pass_rate" in entry:
-                skills[name] = entry
+            if "pass_rate" in entry:
+                history.setdefault(name, []).append(entry)
+                if name not in skills:
+                    skills[name] = entry
     for record in records:
         for name, entry in record["skills"].items():
             skills.setdefault(name, entry)
-    return skills, warnings
+    return skills, history, warnings
 
 
 def load_summaries(paths):
@@ -236,6 +299,8 @@ def load_summaries(paths):
                     raise Invalid("skills.%s is not an object" % name)
                 check_counts(entry, "skills.%s" % name)
                 check_models(entry.get("models"), "skills.%s" % name)
+                session_model_of(entry, "skills.%s" % name)
+                scenario_set_of(entry, "skills.%s" % name)
                 code = entry.get("exit_code")
                 if isinstance(code, bool) or code not in (0, 1) + INFRA_EXITS:
                     raise Invalid("skills.%s.exit_code is not 0 to 4" % name)
@@ -254,6 +319,9 @@ def measured_entry(summary, version):
         return entry
     entry = {field: summary[field] for field in COUNT_FIELDS}
     entry["models"] = sorted(set(summary["models"]))
+    entry["session_model"] = summary.get("session_model", DEFAULT_SESSION)
+    if "scenario_set" in summary:
+        entry["scenario_set"] = summary["scenario_set"]
     entry["measured_at"] = version
     code = summary["exit_code"]
     if code in (0, 1) and summary["assertions_graded"] > 0:
@@ -313,8 +381,14 @@ def cmd_merge(args):
         if not SKILL_RE.match(name):
             raise UsageError("--selected has an invalid skill name")
     confirmed = set(parse_skill_list(args.confirmed, "--confirmed"))
+    try:
+        tolerance = float(args.tolerance)
+    except ValueError:
+        raise UsageError("--tolerance is not a number")
+    if not math.isfinite(tolerance) or tolerance < 0 or tolerance > 1:
+        raise UsageError("--tolerance is not a rate from 0 to 1")
 
-    baseline, baseline_warnings = compose_baseline(args.previous, args.no_baseline_reason)
+    baseline, history, baseline_warnings = compose_baseline(args.previous, args.no_baseline_reason)
     for message in baseline_warnings:
         print("warning: %s" % message)
     summaries, summary_warnings = load_summaries(args.summary)
@@ -338,18 +412,36 @@ def cmd_merge(args):
     print("%-24s %-10s %-10s %s" % ("skill", "current", "previous", "measured at"))
     infra = []
     drops = []
+    references = []
     for name in selected:
         entry = skills[name]
-        prev = baseline.get(name) if baseline else None
+        prev = None
+        if "pass_rate" in entry:
+            for earlier in history.get(name, []):
+                if measured_the_same_way(entry, earlier):
+                    prev = earlier
+                    break
+            if prev is None and history.get(name):
+                references.append(name)
+        else:
+            prev = baseline.get(name) if baseline else None
         prev_at = prev["measured_at"] if prev else "-"
         print("%-24s %-10s %-10s %s" % (name, fmt_rate(entry), fmt_rate(prev), prev_at))
         if name not in summaries:
             infra.append((name, "no summary, recorded as exit 2"))
         elif "exit_code" in entry:
             infra.append((name, "harness exit %d" % entry["exit_code"]))
-        elif prev is not None and "pass_rate" in prev and entry["pass_rate"] < prev["pass_rate"]:
+        elif (prev is not None and "pass_rate" in prev
+              and entry["pass_rate"] < round(prev["pass_rate"] - tolerance, 4)):
             drops.append(name)
     print("record: %s" % args.out)
+    for name in references:
+        # "sha256:" and the digest's first 12 hex digits name the set.
+        scenarios = skills[name].get("scenario_set")
+        print("new reference: %s (no earlier measurement on models %s, session model %s, "
+              "%d run(s)%s)" % (name, ",".join(skills[name]["models"]) or "-",
+                                skills[name]["session_model"], skills[name]["runs"],
+                                ", scenario set %s" % scenarios[:19] if scenarios else ""))
 
     if infra:
         print("")
@@ -405,6 +497,7 @@ def main(argv):
     merge.add_argument("--version", required=True)
     merge.add_argument("--last-tag", required=True)
     merge.add_argument("--confirmed", default="")
+    merge.add_argument("--tolerance", default="0")
     merge.add_argument("--out", required=True)
     stamp = sub.add_parser("stamp")
     stamp.error = parser.error

@@ -107,6 +107,39 @@
 #       the two; every read and write of a single cell goes through them
 #       (wait-target.sh's jq filter over the whole list reads the same form).
 #
+#   dc_leg_key <request> <leg>
+#       Prints the context key that holds one worker leg in the coordinator's
+#       own koto session: legs/<request>/<leg> (PRD R13). The session holds it
+#       whichever store the record is on, so an import or a carry moves a
+#       run's legs with its session.
+#
+#   dc_leg_get <session> <request> <leg>
+#       Prints the leg key's JSON object. Returns 0 read, 1 no such key, 2 a
+#       failed read or a value that isn't a JSON object. Presence comes from
+#       a listing, so an absent key and a failed read stay apart: `context
+#       get` fails the same way for both, and `context exists` on koto's
+#       cloud backend retries an absent key's 404 for about a second
+#       (record-source.sh rs_list).
+#
+#   dc_leg_put <session> <request> <leg> <json>
+#       Writes the leg key whole. Returns 0, or 2 when the value isn't a JSON
+#       object naming that request and leg, or the write fails.
+#
+#   A leg key is {request, leg, topic, state, templates, inputs}, and as they
+#   become known child (the bound session's name as koto reported it), result
+#   (koto's result for the leg, once read), new_request (a re-leg's new
+#   request) and from (the request a re-legged key replaced). templates and
+#   inputs are the leg's declaration at dispatch. state is one of:
+#     open           dispatched on this leg; no result read yet
+#     taken          wait-target.sh read its result, kept beside it
+#     spent          it ended with no result its worker promoted
+#     replaced       a new leg replaced it on this host (--releg, an
+#                    execution sent)
+#     releg-pending  an import's re-leg opened new_request and hasn't finished
+#     relegged       the re-leg finished: the holding names new_request
+#     unwatchable    after an import its worker can't be watched from this
+#                    host, and the holding reports by message
+#
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
 #       0 (an empty array when there are none), 10 refused, 2 otherwise.
@@ -147,8 +180,11 @@
 #
 #   dc_with_deadline <seconds> <command...>
 #       Runs the command and kills it once the deadline passes. Returns the
-#       command's status, or 124 when the deadline killed it. `timeout` isn't
-#       on macOS, whose /bin/bash is the floor these scripts target.
+#       command's status, or 124 once the deadline has passed and the command
+#       didn't exit 0: a command that exits 0 as the deadline's TERM lands, or
+#       from its own TERM trap, keeps its 0, and one that fails just as the
+#       deadline passes reads as 124. `timeout` isn't on macOS, whose /bin/bash
+#       is the floor these scripts target.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -172,6 +208,8 @@ DC_F_INSTEAD=7
 # koto's request-id grammar, and its leg-name grammar.
 DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
 DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
+# A koto session name, as a leg's bound child is recorded.
+DC_RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
 # The stored set's reader, for the pauses (record-state.sh --list); tests use
@@ -220,7 +258,7 @@ dc_unit_matches() {
     forms=$(dc_unit_forms "$2") || return 2
     case "$1" in '' | *'
 '*) return 1 ;; esac
-    printf '%s\n' "$forms" | grep -Fxq -- "$1"
+    grep -Fxq -- "$1" <<<"$forms"
 }
 
 dc_niwa_slug() {
@@ -238,7 +276,7 @@ dc_session_matches() {
         "$slug"-*) ;;
         *) return 1 ;;
     esac
-    printf '%s' "${2#"$slug"-}" | grep -Eq '^[0-9a-f]{8}$'
+    grep -Eq '^[0-9a-f]{8}$' <<<"${2#"$slug"-}"
 }
 
 DC_JQ_TOKENS='
@@ -381,6 +419,33 @@ dc_rp_to_row() {
     esac
 }
 
+DC_RE_LEG_STATE='^(open|taken|spent|replaced|releg-pending|relegged|unwatchable)$'
+
+dc_leg_key() { printf 'legs/%s/%s\n' "$1" "$2"; }
+
+dc_leg_get() {
+    local key out
+    key=$(dc_leg_key "$2" "$3")
+    out=$("${KOTO:-koto}" context list "$1" --prefix "$key" </dev/null) || return 2
+    jq -e --arg k "$key" 'type == "array" and index($k) != null' <<<"$out" >/dev/null
+    case "$?" in
+        0) ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+    out=$("${KOTO:-koto}" context get "$1" "$key" </dev/null) || return 2
+    jq -e 'type == "object"' <<<"$out" >/dev/null || return 2
+    printf '%s\n' "$out"
+}
+
+dc_leg_put() {
+    local key
+    key=$(dc_leg_key "$2" "$3")
+    jq -e --arg r "$2" --arg l "$3" --arg re "$DC_RE_LEG_STATE" \
+        'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null || return 2
+    jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null || return 2
+}
+
 dc_record_present() {
     [ -f "$DC_RECORD_HOLDING" ] && return 0
     printf 'dispatch-common: the record feature'"'"'s record-holding.sh is not installed at %s\n' "$DC_RECORD_HOLDING" >&2
@@ -450,7 +515,7 @@ dc_seal() {
     dc_coord_log_present || return 2
     local token
     token=$(bash "$DC_COORD_LOG" seal --session "$1" --state "$2" --file "$3" --key "$4") || return 2
-    printf '%s' "$token" | grep -Eq '^sealed:[0-9]+:[0-9a-f]{64}$' || return 2
+    grep -Eq '^sealed:[0-9]+:[0-9a-f]{64}$' <<<"$token" || return 2
     printf '%s\n' "$token"
 }
 
@@ -502,8 +567,13 @@ dc_with_deadline() {
         sleep "$secs" &
         sp=$!
         if [ -n "$stop" ]; then kill -TERM "$sp" >/dev/null 2>&1; exit 0; fi
-        if wait "$sp" && kill -TERM "$pid" >/dev/null 2>&1; then
+        # The mark goes down before the kill: the caller stops this watcher
+        # with TERM as soon as the command ends, and a mark written after the
+        # kill could be cut off by that TERM, so a deadline that passed would
+        # read as the killed command's 143.
+        if wait "$sp"; then
             : >"$mark"
+            kill -TERM "$pid" >/dev/null 2>&1
         fi
     ) </dev/null >/dev/null 2>&1 &
     watcher=$!
@@ -511,9 +581,11 @@ dc_with_deadline() {
     rc=$?
     kill -TERM "$watcher" >/dev/null 2>&1
     wait "$watcher" >/dev/null 2>&1
+    # Past the deadline, a command that still exited 0 (as the TERM landed, or
+    # from its own TERM trap) keeps its 0; any other status is the deadline's.
     if [ -e "$mark" ]; then
         rm -f "$mark"
-        return 124
+        [ "$rc" -eq 0 ] || return 124
     fi
     return "$rc"
 }

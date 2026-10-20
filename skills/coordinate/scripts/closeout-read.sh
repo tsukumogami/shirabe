@@ -41,11 +41,13 @@
 #                      isn't confirmed (roadmap-status.sh); the reason names
 #                      it, `verdict-owed <tag>`, and the detail's blocker is
 #                      its row (docs/designs/DESIGN-milestone-verdicts.md)
-#   features-open <n>  a feature under `## Features` doesn't read Done,
-#                      Shipped or Dropped (annotated or not, as in
-#                      `Done -- shipped in #12`, as lib_roadmap_features
-#                      reads it), the roadmap lists no feature, or it is
-#                      missing
+#   features-open <n>  an item under the roadmap's items section
+#                      (`## Milestones` on roadmap/v3, `## Features`
+#                      otherwise) doesn't read Done, Shipped or Dropped
+#                      (annotated or not, as in `Done -- shipped in #12`, as
+#                      lib_roadmap_features reads it), the roadmap lists no
+#                      item, or it is missing; on v3 the reason names
+#                      milestones
 #   holdings <n>       Holdings isn't empty
 #   side-effects <n>   Side effects in flight isn't empty; a milestone's
 #                      pending reopen edit (roadmap-status.sh --reopen) is
@@ -141,8 +143,10 @@ finish() { # finish <token>
 # ---- roadmap ----------------------------------------------------------------
 if [ "$SCOPE" = roadmap ]; then
     lib_roadmap_path
-    gh issue view "$REF" --repo "$REPO" --json state,body > "$T/issue.json" 2> "$T/issue.err" < /dev/null \
-        || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/issue.err")"
+    rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
+    [ $RS_RC -eq 2 ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/parsed.json.err")"
+    [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    cp "$T/parsed.json.raw" "$T/issue.json"
     PRSTATE=$(jq -r '.state // ""' "$T/issue.json")
     if [ "$PRSTATE" = CLOSED ]; then REASON="the record issue is closed"; finish "closed $REF"; fi
     lib_default_branch || lib_die2 "cannot read $REPO's default branch"
@@ -156,9 +160,7 @@ if [ "$SCOPE" = roadmap ]; then
     # it may already read Done on the default branch (its verdict's edit
     # merged, not yet confirmed) or still In progress, and either way the
     # roadmap isn't closed until its verdict-owed row is confirmed away.
-    jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
-    lib_parse "$T/body.md" "$T/parsed.json"
-    case $? in
+    case $RS_RC in
         0) ;;
         3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
         *) lib_die2 "record-parse.sh failed" ;;
@@ -170,13 +172,16 @@ if [ "$SCOPE" = roadmap ]; then
         finish "verdict-owed $REF"
     fi
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
+    # RM_SECTION and RM_WORD, from the reader: the item is a milestone on v3.
+    ITEM=feature
+    [ "$RM_WORD" = Milestone ] && ITEM=milestone
     if [ "$(jq length "$T/features.json")" -eq 0 ]; then
-        REASON="the roadmap lists no feature under ## Features"; finish "features-open $REF"
+        REASON="the roadmap lists no $ITEM under ## $RM_SECTION"; finish "features-open $REF"
     fi
     OPEN=$(jq -c '[.[] | select(.done | not)]' "$T/features.json")
     if [ "$(printf '%s' "$OPEN" | jq length)" -gt 0 ]; then
         BLOCKER=$(printf '%s' "$OPEN" | jq -c '.[0] | {id, title, status}')
-        REASON="$(printf '%s' "$OPEN" | jq length) feature(s) not Done, Shipped or Dropped"
+        REASON="$(printf '%s' "$OPEN" | jq length) $ITEM(s) not Done, Shipped or Dropped"
         finish "features-open $REF"
     fi
     if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then

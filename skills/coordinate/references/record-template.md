@@ -87,7 +87,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched, dispatch-failed or stranded> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
 
 ## Deferrals
 
@@ -117,7 +117,10 @@ holding a verified pull request whose merge a hold in the record stops (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge blanks
 its Pull request cell and keeps its Verified head, and the row goes when the
-worker is torn down.
+worker is torn down. A message-path worker whose unit you dispatch again
+after it went quiet is `stranded` (`record-holding.sh --strand`); its row
+goes once the unit's new worker is dispatched (`--retire`, which
+dispatch-worker.sh runs).
 
 A deferral is disposed of when its Disposition reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
@@ -192,12 +195,21 @@ each rendered only once it has a row:
 | <a holding's Unit, a parked or follow-up unit, a milestone's tag, or what the work is> | <holding, local-agent, decision, follow-up, verdict-owed or rework> | <its Worker, who does it, decision <n>, owner/repo#n, none, verdict <id> or failure <id>> | <what happens next> | <the holding's wakes so far; 0 otherwise> | <YYYY-MM-DDTHH:MMZ> |
 ```
 
-**Run** holds the run's arguments, the cap in force (the readers of the cap
+**Run** holds the run's arguments, the record's store (a `store` row,
+`github` or `session`, written once by its owner with `record-state.sh --run
+store <value> --by <person>`; a record without one is on GitHub, a
+discipline record never has one, and once a record is on the session store, or
+moving there, no write changes the row), the cap in force (the readers of the cap
 take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name) and one `told` row per party
-that has been sent that address. A new address clears the `told` rows. Every
+that has been sent that address. A new address clears the `told` rows. On the
+session store it also holds the crash set: `rules` and `briefs` rows (`<label>
+sha256:<64 hex>`, the digest of a file this coordinator ran with, one row per
+label, a second write replacing the first), a `friction` label, and
+`reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
+up to); each is refused on a GitHub record. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
 **Standing** holds the events only a person owns while they still bind: a
@@ -205,8 +217,8 @@ pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
 carried it to you, blank when they told you directly. A pause names its
 scope in On, `all` (the whole coordinator) or one unit as pick lists it
-(`Feature 2`, `ED1`, `#12`, `owner/repo#12`), and its resume condition in
-Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
+(`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`), and its resume
+condition in Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
 `merged owner/repo#n` or `tag owner/repo <tag>`. pick, the dispatch check, the
 land check and the merge read every pause live (`scripts/pause-read.sh`) and
 refuse what one holds; a pause whose condition reads met holds nothing, and
@@ -230,7 +242,9 @@ belong to a milestone roadmap, `verdict-owed` and `rework`, and only
 written to the body and then told as an entry:
 
 ```
-record-state.sh --session S --run arguments|cap|coordinator <value> --by <who>
+record-state.sh --session S --run arguments|cap|coordinator|store <value> --by <who>
+record-state.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>   (session store)
+record-state.sh --session S --host <key> <value> [--host <key> <value>]...            (session store)
 record-state.sh --session S --told <topic> --by <who>
 record-state.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 record-state.sh --session S --end <s<n>> --by <who>
@@ -310,6 +324,36 @@ roadmap record can't close while an entry is unsettled.
 The write core refuses a body over 60,000 bytes (`record-full`, exit 13), under
 GitHub's 65,536-byte limit.
 
+**The archive.** A settled entry doesn't stay in the body for good. When the
+record is within 4,096 bytes of that budget, `decision-next.sh` moves every
+settled entry that owes nothing out of the body before it routes anything,
+except one a `decision` Work row still parks a unit on, whose outcome pick
+reads when it dispatches the unit
+(`record-decision.sh --archive`): their rows go, exactly as the body held them,
+to `decisions` entries on the record (`record-append.sh`), and their
+identifiers join an `Archived:` line under `Next decision`. The current run's
+own entries move too, but their stamps stay, on one line, because the replay
+guard and the unrecorded and redirect rules read a stamp's kind, sequence and
+entry, and whether it marks a question addressed to a person, and never the
+rest of the row:
+
+```markdown
+Archived: 1-12, 14, 17-30 (settled; each kept verbatim in a decisions entry on this record)
+
+Stamps kept for run 20261015T080000Z: 17 raise 41, 18 report 52.1 addressed, 18 redirect 52
+```
+
+Only the archiving run's stamps are kept; a later run's archive drops them,
+since no rule reads another run's. `--owed` reads the move as `archive`, ahead
+of every rule, so a run restarted on a full record archives before it picks or
+dispatches anything. `record-full` is left for a record full of what can't
+move: unsettled entries, entries owed a message and entries a unit is parked
+on. Evidence, an answer or a
+worker's citation naming an archived entry restores it first, from the latest
+unedited `decisions` entry holding its row, in the same write that records the
+arrival, and its kept stamps go back to its row. A withdrawal reaches only the
+entries in the body. `Next decision` is unchanged by either move.
+
 The declaration line is for readers. It is deliberately different from the
 `This is a **coordination PR**` marker that `/execute` uses, so no gate
 written for coordination pull requests ever parses a record.
@@ -346,10 +390,13 @@ scope's, stamps the entry from the host clock in UTC to the second, and posts:
 The record's other writers post their own kinds with `--kind`, which takes
 the place of `entry` in both lines. The milestone steps post three:
 `milestone-verdict`, `goal-fit` and `milestone-failure`, whose lines are
-under Milestone Verdicts.
+under Milestone Verdicts. `record-decision.sh --archive` posts `decisions`,
+the settled Decisions rows it moves out of the body (see the archive under
+Decisions).
 
-An entry never grows and is never rewritten, so the record needs no archive
-however long the run. Write one when something happens that a successor would
+An entry comment never grows and is never rewritten, so the comments need no
+archive however long the run; only the body's Decisions section does. Write
+one when something happens that a successor would
 need the story of: what you dispatched and why, what a person told you, what
 you decided and on what evidence. On a public host the text gets the checks the
 Decisions section's text gets (no private repository, home-directory path or
@@ -373,8 +420,62 @@ loop.
 
 ## Where State Lives
 
+Every script reads the record's state through `scripts/record-source.sh`: its
+`rs_record` makes the read a script made before, with the same `gh` arguments,
+and parses the body; `rs_record_api` is the land check's and the merge's read
+under their deadline; `rs_facts` gives one holding's repository, pull request,
+branch, verified head, holds and pauses. A run's store comes from the record's
+`store` row, which the find writes to `coord/source.json` with why.
+
+A roadmap record on the session store keeps the same sections in the run's own
+session, under `record/`: `record/meta` (the scope, the store, the written time,
+and a pending mark a write sets while it is part way through), one key per
+section (`record/holdings`, `record/deferrals`, `record/side-effects`,
+`record/reversals`, `record/holds`, `record/run`, `record/standing`,
+`record/work`, `record/decisions`), each in the JSON form `record-parse.sh`
+produces, one `record/entries/<n>` per entry and, for an entry also posted to
+GitHub, the comment's URL in `record/posted/<n>`. The writers are the same and
+so are their checks: a write is refused, changing no key, from a run that isn't
+the scope's live one or after a `koto next --to` (10), when the state changed
+since it was read (12), past 60,000 bytes rendered (13), or when it changes a
+section its writer doesn't own (65). The GitHub record stays open in the moved
+shape, every section empty and the Run section only the `store session` row; no
+write but the move's changes it (`store-moved`), and the outward entries are
+still posted to it. A new record starts there with `--store session`
+(`record-open.sh` writes both halves); an existing one moves when its owner
+writes the row, at the next start (`record_move`, `scripts/record-move.sh`).
+`scripts/record-source.sh --show` prints the session's state as the body would
+read.
+
+Two more things live only in the session. `record/host` holds host facts, never
+rendered and never sent to GitHub: where the crash set's files are
+(`rules:<label>`, `briefs:<label>` and `friction`, each an absolute path) and,
+after an import, where the state came from (`source_workspace`,
+`source_session`, `template_hash`). Only `record-state.sh --host` writes it, and
+the opener calls it after an import. And each holding keeps its pushed head
+beside its row in `record/holdings` (`pushed_head`, 40 hex), set with
+`record-holding.sh --topic T --pushed-head <sha>`, by `holding-link.sh` when it
+links a pull request and by the report check when a report reads a new head;
+the rendered body never shows it. The keys move with the session: a resume
+keeps them, a carry copies every `record/` and `legs/` key into the new run,
+and an import brings them all from the other host.
+
+Each worker leg is a key of the coordinator's session on either store,
+`legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
+inputs, the bound session's name once one attaches, and its result once read.
+`dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
+replaces it (`replaced`) or a launch fails (`spent`); `wait-target.sh` adds
+the child and the end (`taken` with the result, or `spent`). After an import,
+a leg whose request this host's store doesn't hold gets its end from
+`reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which
+marks the old key `releg-pending` and then `relegged`, naming the new request,
+and writes the new request's key `open` with `from` naming the old one; or
+`unwatchable`, its holding moved to message. dispatch-common.sh lists the
+states and their meaning. A record on GitHub never shows them.
+
 A coordinator's state lives outside its session and outside any directory the
-workspace manager converges, and what must outlive the host lives on GitHub.
+workspace manager converges, and what must outlive the host lives on GitHub,
+except a session-store record's state, which stays in its session on this host.
 Here that is two places: the koto session (its journal on the host between
 checkpoints) and this record, for everything else. Keep no tools directory beside
 it. A local script for record entries, a snapshot copy of the body, archive
@@ -413,7 +514,7 @@ unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
 merges the roadmap pull request.
 
 All of this is a feature roadmap's. The script reads the roadmap's
-frontmatter first, and on a milestone roadmap (`schema: roadmap/v2`) the same
+frontmatter first, and on a milestone roadmap (`schema: roadmap/v2` or `roadmap/v3`) the same
 `--unit` call opens nothing and marks the milestone's verdict owed, as the
 next section says.
 

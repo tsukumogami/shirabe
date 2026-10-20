@@ -1,0 +1,7 @@
+workflow: .github/workflows/check-plan-scripts.yml
+needs: shirabe
+skills/plan/scripts/plan-to-tasks_test.sh
+# Needs no binary.
+skills/plan/scripts/resolve-split-mode_test.sh
+# Validates the step plan example with the suite's shirabe.
+skills/plan/scripts/resolve-plan-version_test.sh

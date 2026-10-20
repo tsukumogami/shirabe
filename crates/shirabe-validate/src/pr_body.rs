@@ -35,12 +35,34 @@
 //! `references/pr-body-conformance.md`.
 
 /// One finding from the static PR-body check. `line` is 1-based (or `1` for a
-/// title-level finding, which has no body line); `message` is an actionable
-/// "what to fix and why" string the CLI renders in any `--format`.
+/// title-level finding, which has no body line); `code` names the rule that
+/// produced it; `message` is an actionable "what to fix and why" string the
+/// CLI renders in any `--format`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrBodyFinding {
     pub line: usize,
+    /// `"PB1"` to `"PB5"`, or `""` for a finding outside them. Set where the
+    /// finding is built, so a caller maps it to a rule-registry entry through
+    /// the entry's `aliases` instead of matching message text. The CLI
+    /// renderers don't print it.
+    pub code: &'static str,
     pub message: String,
+}
+
+/// PB4's message.
+const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separator) \
+    contains a markdown section heading. Part 1 lands permanently on `main` as the commit \
+    message and must be plain prose, not a heading-structured document; rewrite Part 1 as \
+    prose and move any `## Section` headings below the `---` into Part 2 (see \
+    references/pr-body-conformance.md).";
+
+/// True when `f` is PB4's finding (no markdown heading in Part 1), the rule
+/// the live offload canary may leave out of a run's instructions. The
+/// pr-body hook drops it on a host that opted into the canary, leaving PB4 to
+/// the /work-on gate and CI. Matched by its code, so no other finding that
+/// happens to mention a heading is dropped.
+pub fn is_no_heading_finding(f: &PrBodyFinding) -> bool {
+    f.code == "PB4"
 }
 
 /// The Conventional Commits types accepted in a PR title (PB1). Mirrors the
@@ -62,7 +84,11 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
     // PB1 — Conventional Commits title.
     if let Some(title) = title {
         if let Some(message) = check_title(title) {
-            findings.push(PrBodyFinding { line: 1, message });
+            findings.push(PrBodyFinding {
+                line: 1,
+                code: "PB1",
+                message,
+            });
         }
     }
 
@@ -79,6 +105,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
     match separators.len() {
         0 => findings.push(PrBodyFinding {
             line: 1,
+            code: "PB2",
             message: "the PR body has no `---` separator. Add a single line that is exactly \
                       `---` between Part 1 (the squash commit body) and Part 2 (reviewer \
                       context deleted at merge); see references/pr-body-conformance.md."
@@ -92,6 +119,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
             if part1_empty {
                 findings.push(PrBodyFinding {
                     line: sep_line,
+                    code: "PB2",
                     message: "Part 1 (everything above the `---` separator) is empty. Part 1 \
                               becomes the squash commit body, so it must contain a factual \
                               description of the change; see references/pr-body-conformance.md."
@@ -110,19 +138,15 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
                 {
                     findings.push(PrBodyFinding {
                         line: *n,
-                        message: "Part 1 (the squash commit body, above the `---` separator) \
-                                  contains a markdown section heading. Part 1 lands permanently \
-                                  on `main` as the commit message and must be plain prose, not a \
-                                  heading-structured document; rewrite Part 1 as prose and move \
-                                  any `## Section` headings below the `---` into Part 2 (see \
-                                  references/pr-body-conformance.md)."
-                            .to_string(),
+                        code: "PB4",
+                        message: PB4_MESSAGE.to_string(),
                     });
                 }
             }
         }
         n => findings.push(PrBodyFinding {
             line: separators[1],
+            code: "PB2",
             message: format!(
                 "the PR body has {} top-level `---` separators; it must have exactly one. \
                  Everything from the first `---` down is deleted at merge, so a second bare \
@@ -138,6 +162,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
         if is_attribution_line(line) {
             findings.push(PrBodyFinding {
                 line: *n,
+                code: "PB3",
                 message: "the PR body carries an AI-attribution / co-author footer. Remove the \
                           `Co-Authored-By:` AI trailer or the \"Generated with Claude Code\" \
                           line; the org convention forbids AI attribution and co-author lines \
@@ -159,7 +184,11 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
 /// scan; it does not restate PB1. Returns `Some(finding)` (with `line: 1`, the
 /// title-level line) when the title is non-conforming, `None` when it passes.
 pub fn check_pr_title(title: &str) -> Option<PrBodyFinding> {
-    check_title(title).map(|message| PrBodyFinding { line: 1, message })
+    check_title(title).map(|message| PrBodyFinding {
+        line: 1,
+        code: "PB1",
+        message,
+    })
 }
 
 /// PB1: return `Some(message)` when `title` is not a valid Conventional Commits
@@ -246,7 +275,11 @@ fn is_issue_number_scope(scope: &str) -> bool {
 /// PB3 predicate: is `line` an AI-attribution / co-author footer line?
 /// Matches the specific trailer/footer shapes rather than any mention of the
 /// words, so prose that merely discusses the convention does not trip it.
-fn is_attribution_line(line: &str) -> bool {
+///
+/// Public so a caller checking text other than a PR body, such as the
+/// pre-action hook reading outgoing commit messages, applies PB3's own rule
+/// rather than a copy of it.
+pub fn is_attribution_line(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
     let trimmed = lower.trim_start();
     if trimmed.starts_with("co-authored-by:")
@@ -325,6 +358,141 @@ fn top_level_lines(body: &str) -> Vec<(usize, &str)> {
         }
     }
     out
+}
+
+/// The most PB5 findings one pull request produces, title and body together,
+/// before the truncation finding. The same bound FC10 puts on one document.
+pub const PB5_FINDING_CAP: usize = 50;
+
+/// PB5: banned writing-style terms in a pull request's title and body.
+///
+/// Opt-in: `shirabe validate --pr-body --writing-style <rules-file>` runs it,
+/// and nothing else does, so CI and the pr-body hook are unchanged. The
+/// matching is FC10's own, through
+/// [`crate::checks::banned_terms_in_spans`] over [`crate::prose::prose_spans`]:
+/// code, table cells, link destinations, bare URLs and HTML comments are not
+/// prose, quoted text (blockquotes and paired double quotes) is not matched,
+/// and whatever else that path comes to exclude is excluded here too.
+///
+/// The title is checked first, as a one-line document, after
+/// [`strip_conventional_prefix`] removes its `type(scope)!: ` prefix; then the
+/// body, as a document with no frontmatter, so each finding's line is a line
+/// of the whole body. One cap of [`PB5_FINDING_CAP`] covers both, followed by
+/// one truncation finding when there were more. Title findings carry line 1,
+/// as PB1's do, and say "in the title".
+///
+/// A message is built from the rule source alone (the term and its
+/// category's guidance) and the computed line, never from the title or body
+/// text, so what a pull request says can't reach a finding.
+pub fn check_pr_writing_style(
+    body: &str,
+    title: Option<&str>,
+    rules: &crate::rules::Rules,
+    vocabulary: &[String],
+) -> Vec<PrBodyFinding> {
+    let mut findings = Vec::new();
+    let mut truncated = false;
+    let mut room = PB5_FINDING_CAP;
+
+    if let Some(title) = title {
+        let line = vec![strip_conventional_prefix(title.trim()).to_string()];
+        let spans = crate::prose::prose_spans(&line, 1);
+        let (hits, more) = crate::checks::banned_terms_in_spans(&spans, rules, vocabulary, room);
+        room -= hits.len();
+        truncated |= more;
+        for hit in hits {
+            findings.push(PrBodyFinding {
+                line: 1,
+                code: "PB5",
+                message: pb5_message(rules, &hit.term, "in the title"),
+            });
+        }
+    }
+
+    // The body gets whatever room the title left. With none left the matcher
+    // still runs with a cap of 0, so a body hit reports the truncation and a
+    // clean body reports nothing.
+    if !truncated {
+        let lines: Vec<String> = body.lines().map(str::to_string).collect();
+        let spans = crate::prose::prose_spans(&lines, 1);
+        let (hits, more) = crate::checks::banned_terms_in_spans(&spans, rules, vocabulary, room);
+        truncated |= more;
+        for hit in hits {
+            findings.push(PrBodyFinding {
+                line: hit.line,
+                code: "PB5",
+                message: pb5_message(rules, &hit.term, &format!("on line {}", hit.line)),
+            });
+        }
+    }
+
+    if truncated {
+        findings.push(PrBodyFinding {
+            line: 1,
+            code: "PB5",
+            message: format!(
+                "[PB5] writing-style findings truncated at {PB5_FINDING_CAP} for this pull request; \
+                 fix these and re-run to see the rest"
+            ),
+        });
+    }
+
+    findings
+}
+
+/// The banned terms a repository's declared vocabulary suppressed, as the
+/// rule source spells them, sorted. Built from the rule source rather than
+/// the declaration, so a caller can report what was waived without echoing
+/// text the repository supplied.
+pub fn suppressed_terms(rules: &crate::rules::Rules, vocabulary: &[String]) -> Vec<String> {
+    let declared: std::collections::BTreeSet<String> =
+        vocabulary.iter().map(|t| t.to_lowercase()).collect();
+    rules
+        .all_terms()
+        .into_iter()
+        .filter(|t| declared.contains(t))
+        .collect()
+}
+
+/// A title with its Conventional Commits prefix removed, or the title
+/// unchanged when it has none.
+///
+/// A prefix is an identifier, not prose: `feat(tier): add levels` names a
+/// scope. It is recognised only in PB1's own shape, a type from
+/// [`CONVENTIONAL_TYPES`], an optional parenthesised scope with no space in
+/// it, an optional `!`, then `: `, so a banned word can't hide in a made-up
+/// prefix such as `leverage: `.
+pub fn strip_conventional_prefix(title: &str) -> &str {
+    let Some((head, rest)) = title.split_once(": ") else {
+        return title;
+    };
+    let head = head.strip_suffix('!').unwrap_or(head);
+    let type_part = match head.split_once('(') {
+        Some((t, scope_rest)) => match scope_rest.strip_suffix(')') {
+            Some(scope) if !scope.is_empty() && !scope.contains(char::is_whitespace) => t,
+            _ => return title,
+        },
+        None => head,
+    };
+    if CONVENTIONAL_TYPES.contains(&type_part) {
+        rest
+    } else {
+        title
+    }
+}
+
+/// One PB5 message: the term, where it is, and its category's guidance from
+/// the rule source on one line (left out when the category has none).
+fn pb5_message(rules: &crate::rules::Rules, term: &str, location: &str) -> String {
+    let guidance = rules
+        .category_for(term)
+        .map(|c| c.guidance.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
+    if guidance.is_empty() {
+        format!("[PB5] writing-style banned word {term:?} {location}")
+    } else {
+        format!("[PB5] writing-style banned word {term:?} {location} -- {guidance}")
+    }
 }
 
 #[cfg(test)]
@@ -641,5 +809,374 @@ Fixes #7
                 findings
             );
         }
+    }
+
+    #[test]
+    fn each_finding_carries_its_pb_code() {
+        // The pre-action hook maps a finding to its registry entry by this
+        // code, so every arm that builds a finding must set the right one.
+        fn codes(findings: &[PrBodyFinding]) -> Vec<&'static str> {
+            findings.iter().map(|f| f.code).collect()
+        }
+        let ok = Some("fix: thing");
+        let cases: [(&str, &str, Option<&str>, &str); 6] = [
+            ("bad title", GOOD_BODY, Some("Add the pr-body mode"), "PB1"),
+            ("missing separator", "no separator here\n", ok, "PB2"),
+            ("empty Part 1", "\n\n---\n\nPart 2 only.\n", ok, "PB2"),
+            (
+                "two separators",
+                "P1.\n\n---\n\nP2.\n\n---\n\nP3.\n",
+                ok,
+                "PB2",
+            ),
+            (
+                "attribution footer",
+                "Change.\n\n---\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n",
+                ok,
+                "PB3",
+            ),
+            (
+                "heading in Part 1",
+                "## Summary\n\nProse.\n\n---\n\nFixes #1\n",
+                ok,
+                "PB4",
+            ),
+        ];
+        for (what, body, title, want) in cases {
+            let findings = check_pr_body(body, title);
+            assert_eq!(codes(&findings), vec![want], "{}: {:?}", what, findings);
+        }
+
+        // The title-only entry point builds PB1 too.
+        let title_only = check_pr_title("Add the pr-body mode").expect("bad title");
+        assert_eq!(title_only.code, "PB1");
+    }
+
+    #[test]
+    fn is_attribution_line_is_reachable_from_the_crate_root() {
+        assert!(crate::is_attribution_line(
+            "Co-Authored-By: Claude <noreply@anthropic.com>"
+        ));
+        assert!(!crate::is_attribution_line(
+            "Co-Authored-By: Jane Doe <jane@example.com>"
+        ));
+    }
+
+    #[test]
+    fn is_no_heading_finding_matches_pb4_and_nothing_else() {
+        // The pr-body hook drops PB4 by this predicate, so it must recognise
+        // the finding check_pr_body actually emits for a heading in Part 1, and
+        // must not match the other rules' findings.
+        let headed = "## Summary\n\nprose\n\n---\n\nFixes #1\n";
+        let findings = check_pr_body(headed, Some("feat: x"));
+        assert_eq!(findings.len(), 1, "expected PB4 alone, got: {:?}", findings);
+        assert!(is_no_heading_finding(&findings[0]));
+
+        let no_separator = "plain prose with no separator\n";
+        let findings = check_pr_body(no_separator, Some("not conventional"));
+        assert!(!findings.is_empty());
+        assert!(
+            findings.iter().all(|f| !is_no_heading_finding(f)),
+            "PB1 and PB2 findings must not read as PB4: {:?}",
+            findings
+        );
+    }
+
+    // --- PB5: banned writing-style terms (--writing-style) ---
+
+    /// A small rule source, one term per line so the duplicate-word-list
+    /// check never reads it as a copy of the real list. `quiet` has no
+    /// guidance, to cover a message without one.
+    fn pb5_rules() -> crate::rules::Rules {
+        let text = r#"
+words:
+  - category: verbs
+    guidance: Prefer the plain
+      verb.
+    terms:
+      - leverage
+  - category: descriptors
+    guidance: Cut it.
+    terms:
+      - seamless
+      - robust
+  - category: organizing
+    guidance: Prefer level.
+    terms:
+      - tier
+      - tiered
+  - category: bare
+    terms:
+      - quietword
+"#;
+        crate::rules::parse_rules(text, "pb5-test").expect("test rules parse")
+    }
+
+    fn pb5(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
+        check_pr_writing_style(body, title, &pb5_rules(), &[])
+    }
+
+    fn pb5_terms(findings: &[PrBodyFinding]) -> Vec<(usize, String)> {
+        findings
+            .iter()
+            .map(|f| {
+                let term = f.message.split('"').nth(1).unwrap_or_default().to_string();
+                (f.line, term)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pb5_body_finding_names_term_line_and_guidance() {
+        let body = "Part one.\n\nThis will leverage the cache.\n\n---\n\nNotes.\n";
+        let f = pb5(body, None);
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].line, 3);
+        assert_eq!(
+            f[0].message,
+            "[PB5] writing-style banned word \"leverage\" on line 3 -- Prefer the plain verb."
+        );
+    }
+
+    #[test]
+    fn pb5_part_two_lines_count_over_the_whole_body() {
+        let body = "Part one.\n\n---\n\n## Notes\n\nA robust note.\n";
+        let f = pb5(body, None);
+        assert_eq!(pb5_terms(&f), vec![(7, "robust".to_string())]);
+    }
+
+    #[test]
+    fn pb5_matches_case_insensitively_and_whole_words_only() {
+        let f = pb5(
+            "Leverage it.\n\nLEVERAGE it.\n\nleveraged, releverage.\n",
+            None,
+        );
+        assert_eq!(
+            pb5_terms(&f),
+            vec![(1, "leverage".to_string()), (3, "leverage".to_string())]
+        );
+    }
+
+    #[test]
+    fn pb5_two_occurrences_on_one_line_are_two_findings() {
+        let f = pb5("leverage this, then leverage that.\n", None);
+        assert_eq!(f.len(), 2, "{f:?}");
+    }
+
+    #[test]
+    fn pb5_message_spells_the_term_from_the_rules_not_the_body() {
+        let f = pb5("We LEVERAGE it.\n", None);
+        assert_eq!(f.len(), 1);
+        assert!(f[0].message.contains("\"leverage\""), "{f:?}");
+        assert!(!f[0].message.contains("LEVERAGE"), "{f:?}");
+        assert!(!f[0].message.contains("We "), "{f:?}");
+    }
+
+    #[test]
+    fn pb5_skips_code_tables_links_urls_and_comments_in_both_parts() {
+        let body = [
+            "Inline `leverage` here.",
+            "",
+            "```",
+            "leverage",
+            "```",
+            "",
+            "    leverage in an indented block",
+            "",
+            "See [the guide](https://example.com/leverage) and https://example.com/robust.",
+            "",
+            "<!-- leverage -->",
+            "",
+            "---",
+            "",
+            "| col | col |",
+            "|-----|-----|",
+            "| leverage | robust |",
+            "",
+            "Part two `seamless` code.",
+        ]
+        .join("\n");
+        let f = pb5(&body, None);
+        assert!(f.is_empty(), "nothing above is prose: {f:?}");
+    }
+
+    #[test]
+    fn pb5_title_finding_says_title_and_skips_the_conventional_prefix() {
+        let f = pb5("Clean.\n", Some("feat: a seamless migration"));
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].line, 1);
+        assert!(f[0].message.contains("\"seamless\" in the title"), "{f:?}");
+
+        assert!(pb5("Clean.\n", Some("feat(tier): add levels")).is_empty());
+        assert!(pb5("Clean.\n", Some("fix(tier)!: drop levels")).is_empty());
+    }
+
+    #[test]
+    fn pb5_a_made_up_prefix_is_prose() {
+        let f = pb5("Clean.\n", Some("leverage: x"));
+        assert_eq!(pb5_terms(&f), vec![(1, "leverage".to_string())]);
+        // A scope with a space is not PB1's shape either.
+        let f = pb5("Clean.\n", Some("feat(the tier): x"));
+        assert_eq!(pb5_terms(&f), vec![(1, "tier".to_string())]);
+    }
+
+    #[test]
+    fn pb5_title_breaking_pb1_gets_both_findings() {
+        let title = "a seamless migration";
+        let body = "Part one.\n\n---\n\nPart two.\n";
+        let structural = check_pr_body(body, Some(title));
+        assert!(
+            structural
+                .iter()
+                .any(|f| f.message.starts_with("PR title ")),
+            "{structural:?}"
+        );
+        let prose = pb5(body, Some(title));
+        assert_eq!(pb5_terms(&prose), vec![(1, "seamless".to_string())]);
+        assert!(prose.iter().all(|f| f.message.starts_with("[PB5] ")));
+    }
+
+    #[test]
+    fn pb5_message_without_guidance_has_no_separator() {
+        let f = pb5("A quietword here.\n", None);
+        assert_eq!(
+            f[0].message,
+            "[PB5] writing-style banned word \"quietword\" on line 1"
+        );
+    }
+
+    #[test]
+    fn pb5_caps_at_fifty_then_reports_truncation() {
+        let body = "leverage\n\n".repeat(60);
+        let f = pb5(&body, None);
+        assert_eq!(f.len(), PB5_FINDING_CAP + 1, "{}", f.len());
+        assert_eq!(
+            f.last().unwrap().message,
+            "[PB5] writing-style findings truncated at 50 for this pull request; \
+             fix these and re-run to see the rest"
+        );
+        assert!(f[..PB5_FINDING_CAP]
+            .iter()
+            .all(|x| x.message.contains("\"leverage\" on line")));
+    }
+
+    #[test]
+    fn pb5_cap_is_shared_by_title_and_body_title_first() {
+        let body = "leverage\n\n".repeat(60);
+        let f = pb5(&body, Some("feat: seamless"));
+        assert_eq!(f.len(), PB5_FINDING_CAP + 1);
+        assert!(f[0].message.contains("in the title"), "{:?}", f[0]);
+        let body_hits = f
+            .iter()
+            .filter(|x| x.message.contains("\" on line "))
+            .count();
+        assert_eq!(body_hits, PB5_FINDING_CAP - 1);
+        assert!(f.last().unwrap().message.contains("truncated at 50"));
+    }
+
+    #[test]
+    fn pb5_a_maximum_size_body_is_bounded_by_the_cap() {
+        // GitHub's limit on a pull request body is 65,536 characters.
+        let mut body = String::new();
+        while body.len() + "leverage ".len() <= 65_536 {
+            body.push_str("leverage ");
+        }
+        let started = std::time::Instant::now();
+        let f = pb5(&body, Some("feat: seamless"));
+        assert!(f.len() <= PB5_FINDING_CAP + 1, "{}", f.len());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn pb5_declared_vocabulary_suppresses_only_the_declared_term() {
+        let rules = pb5_rules();
+        let vocab = vec!["Tier".to_string()];
+        let f = check_pr_writing_style("A tier and a tiered plan.\n", None, &rules, &vocab);
+        assert_eq!(pb5_terms(&f), vec![(1, "tiered".to_string())]);
+        assert_eq!(suppressed_terms(&rules, &vocab), vec!["tier".to_string()]);
+        // Declared text that names no rule term is never echoed.
+        assert!(suppressed_terms(&rules, &["something-else".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn pb5_reports_exactly_what_fc10_reports_for_the_same_text() {
+        // PB5 applies no span filter of its own: it shares FC10's prose
+        // scoping and matcher, so an exclusion added there reaches both.
+        // Each quoted form (blockquote, straight and curly double quotes, a
+        // quote around emphasis) and each non-prose form (inline and fenced
+        // code, table cells) carries a banned word, and lines 1 and 15 carry
+        // them plain.
+        let lines: Vec<&str> = vec![
+            "Plain leverage here.",
+            "",
+            "> A seamless blockquote.",
+            "",
+            "He said \"robust\" twice.",
+            "",
+            "Inline `tier` code.",
+            "",
+            "| tiered | x |",
+            "|--------|---|",
+            "| robust | y |",
+            "",
+            "She wrote \u{201C}a tiered plan\u{201D} and \"a *seamless* fit\".",
+            "",
+            "Unquoted robust, then \"leverage\" quoted.",
+            "",
+            "```",
+            "seamless",
+            "```",
+        ];
+        let body = lines.join("\n");
+        let rules = pb5_rules();
+        let doc = crate::doc::Doc {
+            path: "pr-body".to_string(),
+            schema: String::new(),
+            status: String::new(),
+            fields: std::collections::HashMap::new(),
+            sections: vec![],
+            body: lines.iter().map(|l| l.to_string()).collect(),
+            body_start_line: 1,
+        };
+        let fc10: Vec<(usize, String)> = crate::checks::check_writing_style_with(&doc, &rules, &[])
+            .iter()
+            .map(|e| (e.line, e.message.split('"').nth(1).unwrap().to_string()))
+            .collect();
+        let pr = pb5_terms(&check_pr_writing_style(&body, None, &rules, &[]));
+        assert_eq!(pr, fc10);
+        assert_eq!(
+            pr,
+            vec![(1, "leverage".to_string()), (15, "robust".to_string())],
+            "only the unquoted words fire, in both checks"
+        );
+    }
+
+    #[test]
+    fn pb5_a_title_that_fills_the_cap_leaves_the_body_none() {
+        let title = format!("feat: {}", "leverage ".repeat(50));
+        // A body hit past the cap is the truncation, not a finding...
+        let f = pb5("Body leverage.\n", Some(&title));
+        assert_eq!(f.len(), PB5_FINDING_CAP + 1, "{}", f.len());
+        assert!(f[..PB5_FINDING_CAP]
+            .iter()
+            .all(|x| x.message.contains("in the title")));
+        assert!(f.last().unwrap().message.contains("truncated at 50"));
+        // ...and a clean body adds nothing.
+        let f = pb5("Clean body.\n", Some(&title));
+        assert_eq!(f.len(), PB5_FINDING_CAP);
+    }
+
+    #[test]
+    fn pb5_strip_conventional_prefix_shapes() {
+        assert_eq!(strip_conventional_prefix("feat: x y"), "x y");
+        assert_eq!(strip_conventional_prefix("feat(cli)!: x"), "x");
+        assert_eq!(strip_conventional_prefix("feat!: x"), "x");
+        assert_eq!(strip_conventional_prefix("nope: x"), "nope: x");
+        assert_eq!(strip_conventional_prefix("feat(): x"), "feat(): x");
+        assert_eq!(strip_conventional_prefix("no colon"), "no colon");
     }
 }

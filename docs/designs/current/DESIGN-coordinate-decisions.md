@@ -403,7 +403,10 @@ round, from the `decision` and `round` fields of this visit's `wait` evidence. T
 comes from `coord-log.sh vars` (`REPORTS_TO`), never from an argument. It also has the two
 read modes `record-holding.sh` has for Holdings, `--list` and `--read <n>`, and every other
 script that reads the section (`decision-next.sh`, `decision-render.sh`, `report-questions.sh`,
-`pick-facts.sh`, `closeout-read.sh`) reads it through them.
+`pick-facts.sh`, `closeout-read.sh`) reads it through them, or through the projection `--list`
+prints (`decisions_list` in `record-codec.jq`) when it already holds the parsed record:
+`pick-facts.sh` reads the record once per tick and passes that parse to `decision-next.sh`
+(shirabe#840).
 
 | Mode | State | From | To | Refuses when |
 |---|---|---|---|---|
@@ -709,7 +712,7 @@ row, and every report carries a free-text "Waiting on the human" section.
 #### Chosen: decision rows from the record, closed need kinds, and the phrasing list behind both
 
 `pick-facts.sh` adds the record's unsettled entries to `coord/pick.json`, read through
-`record-decision.sh --list`, and `progress-view.sh` renders them:
+`record-decision.sh --list`'s projection, and `progress-view.sh` renders them:
 
 - an entry escalated to a person: a "Blocked on you" row, Unit the question, Status `decide`,
   and "recommended: <recommendation>, because <reason>" in the last column; refused when

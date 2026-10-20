@@ -32,7 +32,13 @@
 # init and on every rebind, and declares `decider-check` gates
 # (tsukumogami/koto#294): /work-on's review level routes on REVIEW_LEVEL and
 # its level check carries a veto-mode decider check, so a template that has
-# them doesn't compile on an older koto. Raise it in the pull request that adopts a feature from a
+# them doesn't compile on an older koto. 0.20.0 is the release whose decider
+# checks fall back to the agent when the decider gives no verdict
+# (tsukumogami/koto#374): the criterion waits, pending, under the gate's
+# output.awaiting until `koto decider answer` records the agent's answer, for a
+# shadow user as well as a veto one, where an older koto passed it unjudged.
+# /work-on's review_level_check tells the agent to answer, and an older koto
+# has no such command. Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
 # release brings.
@@ -70,7 +76,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.15.0}"
+FLOOR="${KOTO_FLOOR:-0.20.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically
@@ -91,7 +97,7 @@ semver_ge() {
 }
 
 FLOOR="${FLOOR#v}"
-if ! printf '%s' "$FLOOR" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+if ! grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$FLOOR"; then
     echo "assert-koto-floor: the floor \"$FLOOR\" is not a MAJOR.MINOR.PATCH version" >&2
     exit 1
 fi

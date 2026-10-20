@@ -6,6 +6,7 @@
 #
 # Usage:
 #   record-state.sh --session S --run KEY VALUE --by WHO
+#   record-state.sh --session S --host KEY VALUE [--host KEY VALUE]...
 #   record-state.sh --session S --told WHO --by WHO
 #   record-state.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
 #   record-state.sh --session S --end ID --by WHO
@@ -19,12 +20,35 @@
 # vars and run-facts); the override flags exist for tests only.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
-# number) or coordinator (the address messages to this coordinator reach: a
+# number), coordinator (the address messages to this coordinator reach: a
 # session name a worker can message, `_` allowed, or a dispatch topic; never
-# an id or a path). A new coordinator clears every `told` row, since nobody
-# has been told the new address yet. --told records that WHO (a worker's
-# dispatch topic, or another party's session name) was sent the current
-# address; it needs a coordinator row.
+# an id or a path) or store (the record's store, `github` or `session`,
+# written with --by naming the person who decided it; roadmap scope only;
+# `session` moves the record onto the session store at the next start, and a
+# record on the session store, or already moving there, is refused any further
+# store change, `store-moved`). A new
+# coordinator clears every `told` row, since nobody has been told the new
+# address yet. --told records that WHO (a worker's dispatch topic, or another
+# party's session name) was sent the current address; it needs a coordinator
+# row.
+#
+# A record on the session store also keeps the crash set
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 9; PRD R17),
+# what a replacement needs after a crash: --run rules and --run briefs, each
+# `<label> sha256:<64 hex>`, the digest of a file this coordinator ran with
+# (a second row with the same label replaces the first; other labels are
+# kept); --run friction, a label; and --run reports-to, `<role>` or `<role>
+# at <address>`, who this coordinator reports up to. Each is refused on a
+# record on GitHub (65). Where those files live goes in record/host, through
+# --host, never in the record's tables: KEY is rules:<label>, briefs:<label>
+# or friction with an absolute path, or one of the import's facts,
+# source_workspace (an absolute path), source_session (a coordinator session
+# name) or template_hash (64 hex). --host merges into record/host and changes
+# nothing else: it needs the session store, writes no table and posts no
+# entry, since host facts never go to GitHub. A value with a control
+# character or a token-shaped string is refused (65); a workspace path may be
+# a home-directory path, which a table cell never is. It prints the record/host
+# object.
 #
 # --standing records an event only a person owns that still binds the run:
 # KIND is pause, go-ahead, approval, answer or assignment, OWNER is the person who decided
@@ -112,6 +136,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL=
 SKIP_CHECKS=0
+# --host pairs, one `key<TAB>value` line each.
+HOSTKV=
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 setmode() { [ -z "$MODE" ] || usage; MODE=$1; }
@@ -123,6 +149,9 @@ while [ $# -gt 0 ]; do
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
         --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --run) [ $# -ge 3 ] || usage; setmode run; KEY=$2; VALUE=$3; shift 3 ;;
+        --host) [ $# -ge 3 ] || usage; [ "$MODE" = host ] || setmode host
+                case "$2$3" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --host key or value holds a tab or a newline" >&2; exit 65 ;; esac
+                HOSTKV="$HOSTKV$2"$'\t'"$3"$'\n'; shift 3 ;;
         --told) [ $# -ge 2 ] || usage; setmode told; WHO=$2; shift 2 ;;
         --standing) [ $# -ge 2 ] || usage; setmode standing; KIND=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; setmode end; ID=$2; shift 2 ;;
@@ -144,7 +173,9 @@ while [ $# -gt 0 ]; do
 done
 case "$MODE" in
     run) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
-         case "$KEY" in arguments|cap|coordinator) ;; *) echo "$PROG: --run takes arguments, cap or coordinator" >&2; exit 64 ;; esac ;;
+         case "$KEY" in arguments|cap|coordinator|store|rules|briefs|friction|reports-to) ;;
+             *) echo "$PROG: --run takes arguments, cap, coordinator, store, rules, briefs, friction or reports-to" >&2; exit 64 ;; esac ;;
+    host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     told) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     standing) [ -n "$WHAT" ] && [ -n "$OWNER" ] && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -155,6 +186,54 @@ case "$MODE" in
 esac
 . "$HERE/record-common.sh"
 lib_facts
+# The record's store (docs/designs/DESIGN-coordinator-session-record.md,
+# Decisions 2 and 11): only a roadmap record has one, and its value is github or
+# session. `session` is the owner's decision to move the record; the next start
+# moves it. A record on the session store, or one whose row already reads
+# session, never moves back to GitHub (PRD R3).
+if [ "$MODE" = run ] && [ "$KEY" = store ]; then
+    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: store-discipline: a discipline record has no store row; the session store is for roadmap scope" >&2; exit 65; }
+    case "$VALUE" in
+        github|session) ;;
+        *) echo "$PROG: refused: store-malformed: a store is github or session" >&2; exit 65 ;;
+    esac
+    [ "$(rs_source)" = github ] || { echo "$PROG: refused: store-moved: the record is on the session store and doesn't move back" >&2; exit 65; }
+fi
+# The crash set and the host facts belong to a record on the session store.
+if [ "$MODE" = host ] || { [ "$MODE" = run ] && case "$KEY" in rules|briefs|friction|reports-to) true ;; *) false ;; esac; }; then
+    [ "$(rs_source)" = session ] || { echo "$PROG: refused: $([ "$MODE" = host ] && echo "host facts are" || echo "the $KEY row is") kept only by a record on the session store" >&2; exit 65; }
+fi
+if [ "$MODE" = host ]; then
+    # Each key and value checked, then merged into the current record/host.
+    TOKEN_RE='(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})'
+    TAB=$'\t'
+    while IFS="$TAB" read -r HK HV; do
+        [ -n "$HK" ] || continue
+        case "$HK" in
+            source_workspace|friction|rules:*|briefs:*)
+                case "$HK" in rules:*|briefs:*) [[ ${HK#*:} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "$PROG: refused: --host $HK: the label is letters, digits, \`.\`, \`_\` and \`-\`" >&2; exit 65; } ;; esac
+                case "$HV" in /*) ;; *) echo "$PROG: refused: --host $HK takes an absolute path" >&2; exit 65 ;; esac ;;
+            source_session) [[ $HV =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || { echo "$PROG: refused: --host source_session takes a coordinator session name, coordinate-<slug>-<stamp>" >&2; exit 65; } ;;
+            template_hash) [[ $HV =~ ^[0-9a-f]{64}$ ]] || { echo "$PROG: refused: --host template_hash takes 64 hex" >&2; exit 65; } ;;
+            *) echo "$PROG: --host takes source_workspace, source_session, template_hash, rules:<label>, briefs:<label> or friction" >&2; exit 64 ;;
+        esac
+        if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$HV"; then echo "$PROG: refused: --host $HK: a control character" >&2; exit 65; fi
+        if grep -Eq "$TOKEN_RE" <<< "$HV"; then echo "$PROG: refused: --host $HK: a token-shaped string" >&2; exit 65; fi
+    done <<EOF
+$HOSTKV
+EOF
+    WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX")
+    trap 'rm -rf "$WD"' EXIT
+    rs_host "${RS_SESSION:-$SESSION}" "$WD/host" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.err")"
+    printf '%s' "$HOSTKV" | jq -R -s --slurpfile cur "$WD/host" \
+        '$cur[0] + (split("\n") | map(select(. != "") | split("\t") | {(.[0]): (.[1:] | join("\t"))}) | add // {})' \
+        > "$WD/host.next" || lib_die2 "jq failed"
+    lib_write_guard
+    . "$HERE/record-write-core.sh"
+    core_write_host "$WD/host.next"
+    jq -c . "$WD/host.next"
+    exit 0
+fi
 if [ "$OVERRIDE" = 1 ]; then
     [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
@@ -171,21 +250,24 @@ fi
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
-lib_parse "$WD/live.md" "$WD/parsed.json"
+rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+    12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$WD/parsed.json.md" "$WD/live.md"
+if [ "$MODE" = run ] && [ "$KEY" = store ] && [ "$VALUE" = github ] \
+    && jq -e 'any((.run // [])[]; .key == "store" and .value == "session")' "$WD/parsed.json" > /dev/null; then
+    echo "$PROG: refused: store-moved: #$REF's store already reads session and is moving; it doesn't move back to GitHub" >&2
+    exit 65
+fi
 
 if [ "$MODE" = list ]; then
-    jq -c '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "record-codec"; state_list' "$WD/parsed.json"
     exit 0
 fi
 
@@ -219,6 +301,11 @@ run)
     if [ "$KEY" = coordinator ]; then
         PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
         ETEXT="The coordinator's address is now $VALUE, set by $BY. Nobody has been told it yet."
+    elif [ "$KEY" = rules ] || [ "$KEY" = briefs ]; then
+        # One row per label: a new digest for a label replaces its row.
+        PROG_JQ='($v | split(" ")[0]) as $l
+            | .run = ([(.run // [])[] | select((.key == $k and (.value | split(" ")[0]) == $l) | not)] + [{key: $k, value: $v, set_by: $b, set: $t}])'
+        ETEXT="Run $KEY $VALUE set by $BY."
     else
         PROG_JQ='.run = ([(.run // [])[] | select(.key != $k)] + [{key: $k, value: $v, set_by: $b, set: $t}])'
         ETEXT="Run $KEY set to $VALUE by $BY."

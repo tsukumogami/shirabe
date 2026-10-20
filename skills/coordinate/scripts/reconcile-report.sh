@@ -28,7 +28,10 @@
 #   scope          {kind: roadmap|discipline, name, repo}
 #   record         {written: <ISO time the record says it was written>,
 #                   source: record|handoff|"record and handoff",
-#                   handoff_date: <date>|null}
+#                   handoff_date: <date>|null,
+#                   import: optional, null or {source_session,
+#                   source_workspace, template_hash} for a run imported
+#                   from another host (record/host)}
 #   reconciled_at  <ISO time the pass finished>
 #   plugin_root    optional: inside|outside|unknown, where the scripts that
 #                  ran sit relative to the repository being worked on
@@ -72,6 +75,12 @@
 #                  row that is `dispatched` now, by this write or an earlier
 #                  pass's, is reported under changes, a failed settle under
 #                  not_verified
+#       legs       outcome (watched|relegged|unwatchable|none), now (the
+#                  row's Return path after it), reason: the pass's other
+#                  write, a dispatched holding whose leg's request this
+#                  host's store doesn't hold given an end by
+#                  reconcile-legs.sh (PRD R15); relegged and unwatchable are
+#                  reported under changes, a failed one under not_verified
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
@@ -85,7 +94,9 @@
 #
 # Output: coordinate-reconcile-report/v1
 #
-#   header         {scope, written, reconciled_at, source, handoff_date}
+#   header         {scope, written, reconciled_at, source, handoff_date,
+#                   import (null, or the import facts; the text gives them one
+#                   sentence), repo, plugin_root}
 #   changes[]      {topic, what, recorded, live, written, grade}
 #   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
 #                   board, leg, next, next_code, source, read_at,
@@ -290,10 +301,13 @@ def next_text:
 def next_of: next_code_of | next_text;
 
 def changes_of($written):
-  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st
+  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st | fact("legs") as $lg
   | [
       (if ok($st) and ($st.settled == true or $st.now == "dispatched") then
         {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
+       else empty end),
+      (if ok($lg) and ($lg.outcome == "relegged" or $lg.outcome == "unwatchable") then
+        {topic: $t, what: ("leg " + $lg.outcome), recorded: (.row.return_path // ""), live: ($lg.now // ""), written: $written, grade: "measured"}
        else empty end),
       (if ok($pr) and $pr.state != "OPEN" then
         {topic: $t, what: "pull request", recorded: "open", live: ($pr.state | ascii_downcase), written: $written, grade: "measured"}
@@ -324,6 +338,11 @@ def changes_of($written):
     header: {scope: (($in.scope.kind // "") + " " + ($in.scope.name // "")), written: $w,
              reconciled_at: $in.reconciled_at, source: ($in.record.source // "record"),
              handoff_date: ($in.record.handoff_date // null),
+             import: ($in.record.import // null
+                      | if type == "object" and ((.source_session // null) | type) == "string" and .source_session != ""
+                        then {source_session, source_workspace: (.source_workspace // "" | tostring),
+                              template_hash: (.template_hash // "" | tostring)}
+                        else null end),
              repo: ($in.scope.repo // null),
              plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
     changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
@@ -483,6 +502,12 @@ def code: "`" + . + "`";
   + (if .header.source == "handoff" then " Rows as written by the previous rotation\($on)."
      elif .header.source == "record and handoff" then " Rows marked as the previous rotation'"'"'s are as it wrote them\($on)."
      else "" end)
+  + (.header.import as $im
+     | if ($im | type) != "object" or ($im.source_session | type) != "string" or $im.source_session == "" then ""
+       else " This run was imported from session \($im.source_session | code)"
+         + (if ($im.source_workspace | type) == "string" and $im.source_workspace != "" then " in workspace \($im.source_workspace | code)" else "" end)
+         + (if ($im.template_hash | type) == "string" and $im.template_hash != "" then ", compiled from template \($im.template_hash | code)" else "" end)
+         + "." end)
   + (if .header.plugin_root == "inside" then " The reconcile scripts ran from inside the repository being worked on."
      elif .header.plugin_root == "outside" then " The reconcile scripts ran from outside the repository being worked on."
      else "" end),
@@ -491,6 +516,8 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
        elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
+       elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
+       elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; tell the worker the address of this coordinator"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)

@@ -4,7 +4,7 @@ Run QA validation after code review passes. The tester agent validates that the 
 
 ## Tester Agent
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel qa --seat tester`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the tester runs on `model: "sonnet"` with a 30-call budget, larger than the other code seats because it runs the implementation. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. Add `--panel qa --seat <seat>` for each `full` seat, which lists that seat's own unclosed findings by id, the ones it answers this round; one packet per seat when more than one seat has findings of its own. The panel's re-verifier, the one run a retry round plans, gets its own packet instead, built from the due failures and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel qa --seat reverifier`.
 
 Spawn the tester agent using the Task tool. The tester:
 1. Reads the implementation's acceptance criteria from the packet
@@ -14,13 +14,13 @@ Spawn the tester agent using the Task tool. The tester:
 
 ## Whether the Tester Runs
 
-On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json` with the tester's decision. `full` and `rerun` mean a full validation against every acceptance criterion. `recheck` means the tester raised failures last round: its packet is the `recheck` kind on the commissioning line above, holding only those `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it checks whether each failing scenario now passes, prompted with the re-check prompt in `review-seat-commissioning.md` rather than the full validation steps. `keep` means its pass carries; koto then writes a carried `qa_results.json` and moves on to `verification` without stopping here. `phase-4a-scrutiny.md` explains the decisions.
+On entering `qa_validation`, koto runs `scripts/panel-scope.sh --plan qa` and writes `qa_scope.json`. In a full round (the first, or one a full-round trigger fires on, as `phase-4a-scrutiny.md` lists) the tester's decision is `full`: a full validation against every acceptance criterion, answering its own unclosed failures by id. Any other round keeps the tester and plans at most one run, the re-verifier (seat `reverifier`, decision `recheck`): it runs each due failing scenario again and answers it by id with `holds` or `reverified`, from the `recheck` packet on the commissioning line above and the re-check prompt in `review-seat-commissioning.md`. A failed scenario is usually a finding with no location, so it is due on every retry until it is re-verified. When nothing runs and no failure is unclosed, koto writes a carried `qa_results.json` and moves on to `verification` without stopping here.
 
 ```bash
 koto context get <WF> qa_scope.json
 ```
 
-A QA failure therefore routes narrowly. The retry returns to `implementation`, and the run walks forward through `scrutiny` and `review` as always, but those panels spawn nothing unless the fix touched what their seats cited: when every seat is untouched, koto carries their verdicts and the run goes from implementation straight to this phase's re-check. A fix that touches a seat's citations re-runs that seat; a fix that crosses the size threshold in `panel-scope.sh` re-runs every passed seat.
+A QA failure therefore routes narrowly. The retry returns to `implementation`, and the run walks forward through `scrutiny` and `review` as always. The first of them with a non-empty fix diff runs one re-verifier carrying the fix-diff review, which judges the fix against every panel's criteria; once it is recorded the later panels see an empty fix diff, spawn nothing and carry, and the run reaches this phase's re-verification. A fix over the size threshold in `panel-scope.sh` makes each panel's round full instead.
 
 ## Evidence Format
 
@@ -37,17 +37,19 @@ The tester writes full results to a `mktemp`-produced file outside the repositor
 }
 ```
 
-`cited` is the code the scenarios exercised; with nothing cited, any fix to a path in the diff re-runs QA. `findings` lists each failing scenario with `severity: blocking`, which a re-check round gets back; anything else worth noting that is not a failure goes in as `severity: advisory`. Every finding carries one of the two: the severity is the verdict, and a finding without one makes `--record` refuse the round.
+`cited` is the code the scenarios exercised, kept for the readers of seat entries. `findings` lists each failing scenario with `severity: blocking`, which a re-check round gets back; anything else worth noting that is not a failure goes in as `severity: advisory`. Every finding carries one of the two: the severity is the verdict, and a finding without one makes `--record` refuse the round.
 
 Delete the detail file once the round is aggregated; anything worth keeping goes into `qa_results.json`.
 
 ## Aggregation
 
-After the tester returns, record its verdict, as `phase-4a-scrutiny.md` describes, with `qa` as the panel and one `severity: blocking` finding per failed scenario:
+After the run returns, record it, as `phase-4a-scrutiny.md` describes, with `qa` as the panel: the tester with one `severity: blocking` finding per failed scenario, or the re-verifier answering each due scenario by id with `holds` (it still fails) or `reverified` (it passes now, with a reason):
 
 ```bash
 ROUND=$(mktemp)
-# write [{"seat": "tester", "cited": [...], "findings": [{"severity": "blocking", ...}, ...]}] to "$ROUND"
+# write [{"seat": "tester", "run": "qa-r1-tester", "cited": [...], "findings": [{"severity": "blocking", ...}]}]
+# or [{"seat": "reverifier", "run": "qa-r2-reverifier", "answers": [{"id": "...", "record": "reverified", "reason": "..."}]}]
+# to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record qa <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
@@ -55,8 +57,8 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then tick koto with nothing submitted. The `qa_verdict` gate reads the ledger (`panel-scope.sh --verdict qa`) and decides, as at scrutiny:
 
-- Exit 0, the tester recorded no failing scenario: koto advances to `verification`. Optionally write `qa_results.json` first, as the round's summary for a reader; no gate reads it.
-- Exit 1, scenarios failed: the gate prints one `panel/blocking-finding` finding per failed scenario. Submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' summaries as well as this one's.
+- Exit 0, every run recorded and no failed scenario unclosed: koto advances to `verification`. Optionally write `qa_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 1, a failed scenario is unclosed: the gate prints one finding per unclosed failed scenario, under the active rule it cites or under `panel/open-finding`. Submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' summaries as well as this one's.
 - Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
@@ -72,7 +74,7 @@ koto next <WF> --no-cleanup
 
 ## Retry Loop
 
-Run this only once the retry budget in the state's directive has granted the retry. When a defect sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. The retry budget is `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-retry-budget.sh" <WF> qa_validation`, with no count: it reads the panel's unclosed blocking findings from the ledger itself. Exit 0 grants the retry; any other exit refuses it, and you escalate with the reason it printed. When a defect sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=qa_outcome

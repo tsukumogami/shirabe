@@ -33,8 +33,8 @@
 #       call, 1 when it refuses it. The suite's view of the wrapper.
 #
 # The object holds, in this order: schema, key, captured_at, topic, record,
-# unit, milestone, plan_shape, pulls, dispatch, figures, sessions, tokens,
-# complete and missing. A figure is {value, raw, state, source}; state is
+# unit, milestone, plan_shape, pulls, dispatch, "niwa.dispatch.id", figures,
+# sessions, tokens, complete and missing. A figure is {value, raw, state, source}; state is
 # `measured`, `bound`, `not recoverable` or `not applicable`, and every figure
 # not taken is listed in `missing` with a reason from a closed list: `no
 # source`, `read failed`, `time limit`, `entry size`, `invalid input`.
@@ -54,13 +54,47 @@
 # {roadmap: ROADMAP-<name>, tag}. A Unit outside the safety pattern is null,
 # its milestone `not recoverable` (`invalid input`).
 #
-# Dispatch: the created_at of the unit's koto request, found through the
-# archived sessions' request-leg.toml files. Of the requests they name, those
-# whose requested_by is one of the archived sessions (a /deliver asking its
-# /scope, say) are the unit's own nested requests; the earliest of the rest
-# is the coordinator's dispatch. Else the job's createdAt; else `not
-# recoverable`. A request id outside koto's grammar makes it `not
-# recoverable` (`invalid input`): the request it names can't be read.
+# The archive's transcripts: claude-projects/<project directory>/, every
+# Claude Code project directory of the instance (teardown-pass.sh). A main
+# session transcript is a `<session id>.jsonl` directly in one of them. The
+# worker's session id is job/state.json's sessionId, else teardown.json's
+# job.session. One scan reads every .jsonl there, the worker's files first:
+# its main transcript and every .jsonl under <session id>/subagents/, in
+# every directory. An archive made before that layout holds transcript/
+# instead, read as before for the worker; its nested row is `not
+# recoverable` (`no source`) and it gives dispatch and credit nothing.
+#
+# Dispatch: the earliest of three. The created_at of the unit's koto
+# request, found through the archived sessions' request-leg.toml files (of
+# the requests they name, those whose requested_by is one of the archived
+# sessions, a /deliver asking its /scope, say, are the unit's own nested
+# requests; the earliest of the rest is the coordinator's); the job's
+# createdAt; and each main session transcript's first event (its earliest
+# `timestamp`). The request wins a tie; source is `koto-request` when it is
+# the earliest, else `job-state`. dispatch.jobs counts the main session
+# transcripts read. With none of them, `not recoverable`. A request id
+# outside koto's grammar makes it `not recoverable` (`invalid input`): the
+# request it names can't be read.
+#
+# Credit: `pulls` holds the holding's merged pull requests (the sealed
+# verdict's, `via: holding`), then each pull request a `pr-link` record in
+# claude-projects/ names that GitHub reads, at capture, as: in a repository
+# whose owner is the holding's (case-insensitive); not from a fork (its head
+# repository's owner is the same); created at or after dispatch and merged;
+# and either on a head branch (not its base) that is some line's gitBranch,
+# or linked within 120 seconds of its creation, either way, inclusive
+# (`via: session`), by merge time then number. A link's repository, number
+# and the gitBranch values are matched to their patterns before any use. At
+# most 200 candidates are read, one `gh pr view` each out of the read
+# budget, and `pulls` holds at most 100. The first reason a pull request was
+# left out is one `pulls` entry in `missing`: `no source` (dispatch not
+# recoverable), `read failed`, `time limit` or `entry size`. Credit never
+# changes a figure: green, merge and failing heads read the holding's only.
+#
+# niwa's dispatch id: teardown.json's niwa.dispatch_id, written by the pass,
+# as the top-level "niwa.dispatch.id"; else null, `missing` naming it with
+# the file's reason (`no source`, `invalid input`), `no source` without the
+# file.
 #
 # Time: per session, a state lasts from the transitioned or rewound event that
 # entered it to the next one, up to the first entry into done (else the last
@@ -76,14 +110,16 @@
 #
 # Tokens: per message id (assistant lines with a string id and a usage
 # object; a line without one is not counted at all), the largest value of
-# each class, summed. `worker` is the job's own transcript and its
-# subagents/; `nested` is every other transcript in the archive. A line that
+# each class, summed. `worker` is the worker's session, as above; `nested` is
+# every other .jsonl in claude-projects/. A message id counts once across the
+# archive: one the worker row holds is never counted in `nested`. A line that
 # isn't JSON makes its row `not recoverable` (`invalid input`).
 #
 # Public hosts: when the record's repository is public (or its visibility
-# can't be read), every pull request whose repository isn't read as public is
-# written as {repo: "not public"}, and an `owner/repo#n` Unit naming one as
-# "not public". A failed lookup counts as not public.
+# can't be read), every pull request whose repository isn't read as public,
+# credited ones included, is written as {repo: "not public"} and nothing
+# else, and an `owner/repo#n` Unit naming one as "not public". A failed
+# lookup counts as not public.
 #
 # Untrusted input: the archive and GitHub fields are read only through jq
 # filters that keep numbers, ids, timestamps and closed-set words; every kept
@@ -141,6 +177,10 @@ RE_PANEL='^[a-z][a-z0-9_-]{0,31}$'
 RE_BRANCH='^[A-Za-z0-9._/-]{1,100}$'
 RE_SHA='^[0-9a-f]{40}$'
 RE_NUM='^[1-9][0-9]{0,9}$'
+# A Claude Code session id, as the handoff and the pass match it.
+RE_SID='^[0-9a-f][0-9a-f-]{7,63}$'
+# niwa's dispatch id, as the handoff seals it.
+RE_DID='^[A-Za-z0-9._:-]{1,128}$'
 
 # A repository: the pattern, no `..`, and neither part starting with `-`, so
 # it can never read as an option.
@@ -221,7 +261,7 @@ uc_gh_ok() {
                 [ $# -ge 2 ] || return 1
                 case "$1" in
                     --branch) case "$2" in '' | -*) return 1 ;; esac
-                        printf '%s' "$2" | grep -Eq '^[A-Za-z0-9._/+-]{1,200}$' || return 1 ;;
+                        grep -Eq '^[A-Za-z0-9._/+-]{1,200}$' <<<"$2" || return 1 ;;
                     --commit) [[ $2 =~ $RE_SHA ]] || return 1 ;;
                     --json) [[ $2 =~ $fields_re ]] || return 1 ;;
                     --limit) [[ $2 =~ $RE_NUM ]] || return 1 ;;
@@ -235,7 +275,7 @@ uc_gh_ok() {
             [ $# -ge 4 ] && [ "$3" = GET ] || return 1
             case "$4" in repos/*) ;; *) return 1 ;; esac
             case "$4" in *..*) return 1 ;; esac
-            printf '%s' "$4" | grep -Eq '^repos/[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_.,=&?/-]*)?$' || return 1
+            grep -Eq '^repos/[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_.,=&?/-]*)?$' <<<"$4" || return 1
             shift 4
             while [ $# -gt 0 ]; do
                 case "$1" in
@@ -322,8 +362,12 @@ cd "$WD" || exit 1
 # `reason` fields name why a piece was not taken, and the assembly turns them
 # into `missing`. uc_compute runs them in order: uc_sessions first, since
 # uc_plan_shape and uc_dispatch read what it writes (sessions.json and
-# session-names), and uc_attribution before uc_visibility, which reads the
-# record's repository from it.
+# session-names); uc_scan before uc_tokens, uc_dispatch and uc_credit, which
+# read what it writes; uc_pulls and uc_dispatch before uc_credit; and
+# uc_attribution, uc_pulls and uc_credit before uc_visibility, which reads the
+# record's repository and every pull request's. The archive's own reads come
+# first and GitHub's after, so a spent budget never costs a local figure
+# that an earlier read could have taken.
 
 # uc_ledger <file>: a session's verdict ledger as {rows: [{panel, round}]}, or
 # {bad: true} when it isn't one.
@@ -431,7 +475,8 @@ uc_plan_shape() {
 # Dispatch, by the header's rule. A request whose requested_by names an
 # archived session was made inside the unit (its /deliver asking /scope or
 # /execute), after dispatch, so it is never the dispatch; requested_by is
-# only compared, never kept.
+# only compared, never kept. The candidates are compared by a key that pads
+# the fraction, so `09:00:05Z` and `09:00:05.1Z` order as times do.
 uc_dispatch() {
     local id f out bad
     : >"$WD/requests.jsonl"
@@ -449,20 +494,29 @@ uc_dispatch() {
     fi
     [[ $out =~ $RE_TS ]] || out=""
     bad=$(jq -r 'any(.[]; .request_bad)' "$WD/sessions.json")
-    jq -s -c --rawfile names "$WD/session-names" --arg job "$out" --arg re "$RE_TS" --argjson bad "$bad" '
+    jq -s -c --rawfile names "$WD/session-names" --arg job "$out" --arg re "$RE_TS" --argjson bad "$bad" \
+        --slurpfile scan "$WD/scan.json" '
+        def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
         ($names | split("\n") | map(select(. != ""))) as $n
-        | [.[] | select((.created_at | test($re)) and ((.by as $b | $n | index([$b])) == null)) | .created_at]
-        | sort | .[0] as $r
-        | if $bad then {value: null, state: "not recoverable", source: "koto-request", reason: "invalid input"}
-          elif $r != null then {value: $r, state: "measured", source: "koto-request"}
-          elif $job != "" then {value: $job, state: "measured", source: "job-state"}
-          else {value: null, state: "not recoverable", source: "koto-request", reason: "no source"} end' \
+        | $scan[0] as $s
+        | ([.[] | select((.created_at | test($re)) and ((.by as $b | $n | index([$b])) == null)) | .created_at]
+           | sort_by(key) | .[0]) as $r
+        | ([(if $job != "" then $job else empty end), ($s.firsts // [])[]] | sort_by(key) | .[0]) as $o
+        | ($s.jobs // 0) as $jobs
+        | if $bad then {value: null, state: "not recoverable", source: "koto-request", jobs: $jobs, reason: "invalid input"}
+          elif $s.reason != null and ($s.mains // 0) > 0 then
+              {value: null, state: "not recoverable", source: "koto-request", jobs: $jobs, reason: $s.reason}
+          elif $r != null and ($o == null or ($r | key) <= ($o | key)) then
+              {value: $r, state: "measured", source: "koto-request", jobs: $jobs}
+          elif $o != null then {value: $o, state: "measured", source: "job-state", jobs: $jobs}
+          else {value: null, state: "not recoverable", source: "koto-request", jobs: $jobs, reason: "no source"} end' \
         "$WD/requests.jsonl" >"$WD/dispatch.json"
 }
 
-# uc_token_row <file-list>: the row over the transcripts listed, on stdout.
-# Run through uc_run, so a large transcript counts against the budget and a
-# TERM never waits on a foreground jq.
+# uc_token_row <file-list>: the row over the transcripts listed, on stdout,
+# for an archive made before claude-projects/. Run through uc_run, so a large
+# transcript counts against the budget and a TERM never waits on a
+# foreground jq.
 # shellcheck disable=SC2329 # run through uc_run
 uc_token_row() {
     local f
@@ -490,45 +544,194 @@ uc_token_row() {
            cache_creation: ([.m[].cc] | add // 0), cache_read: ([.m[].cr] | add // 0)}'
 }
 
-uc_tokens() {
-    local sid="" tr="$ARCH/transcript" row reason b
+# The scan over claude-projects/, in one jq: the stream holds every listed
+# file, each opened by an `F<row><main>` line and every one of its lines
+# prefixed `L`, so nothing in a transcript can pass for a file boundary. Per
+# row its messages by id (the worker's files come first, and `nested` skips
+# an id the worker holds), per main session transcript its first event, the
+# pr-link records whose repository and number fit their patterns (the rest
+# are dropped here, never used), and the gitBranch values that fit the
+# branch pattern.
+UC_SCAN='
+def n(x): if (x | type) == "number" and x >= 0 then (x | floor) else 0 end;
+def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
+def repo_ok: type == "string" and test($re_repo) and (contains("..") | not) and (startswith("-") | not) and (contains("/-") | not);
+def num_ok: (type == "number" and . >= 1 and . == floor and . < 10000000000) or (type == "string" and test($re_num));
+def branch_ok: test($re_branch) and (contains("..") | not) and (startswith("-") | not);
+def row: {bad, messages: (.m | length), input: ([.m[].i] | add // 0), output: ([.m[].o] | add // 0),
+          cache_creation: ([.m[].cc] | add // 0), cache_read: ([.m[].cr] | add // 0)};
+reduce inputs as $s
+  ({row: "n", main: false, file: -1, mains: 0, w: {bad: false, m: {}}, n: {bad: false, m: {}}, first: {}, links: {}, branches: {}};
+   if ($s | startswith("F")) then
+       .row = (if $s[1:2] == "w" then "w" else "n" end) | .main = ($s[2:3] == "1") | .file += 1
+       | if .main then .mains += 1 else . end
+   elif ($s | startswith("L")) and ($s[1:] | test("[^[:space:]]")) then
+       .row as $r
+       | (try [$s[1:] | fromjson] catch null) as $l
+       | if $l == null then .[$r].bad = true
+         elif ($l[0] | type) != "object" then .
+         else $l[0] as $o
+           | (if $o.type == "assistant" and ($o.message | type) == "object" and ($o.message.id | type) == "string"
+                 and ($o.message.usage | type) == "object" and ($r == "w" or (.w.m | has($o.message.id) | not)) then
+                  $o.message.usage as $u
+                  | .[$r].m[$o.message.id] |= ((. // {i: 0, o: 0, cc: 0, cr: 0})
+                      | .i = ([.i, n($u.input_tokens)] | max)
+                      | .o = ([.o, n($u.output_tokens)] | max)
+                      | .cc = ([.cc, n($u.cache_creation_input_tokens)] | max)
+                      | .cr = ([.cr, n($u.cache_read_input_tokens)] | max))
+              else . end)
+           | (if .main and ($o.timestamp | type) == "string" and ($o.timestamp | test($re_evts)) then
+                  ($o.timestamp | key) as $k | (.file | tostring) as $f
+                  | if .first[$f] == null or $k < .first[$f].k then .first[$f] = {k: $k, v: $o.timestamp} else . end
+              else . end)
+           | (if $o.type == "pr-link" and ($o.prRepository | repo_ok) and ($o.prNumber | num_ok) then
+                  (($o.prRepository) + "#" + ($o.prNumber | tostring)) as $id
+                  | .links[$id] = ((.links[$id] // {r: $o.prRepository, n: ($o.prNumber | tostring), ts: []})
+                      | if ($o.timestamp | type) == "string" and ($o.timestamp | test($re_evts)) and (.ts | length) < 1000
+                        then .ts += [$o.timestamp] else . end)
+              else . end)
+           | (if ($o.gitBranch | type) == "string" and ($o.gitBranch | branch_ok) then .branches[$o.gitBranch] = true else . end)
+         end
+   else . end)
+| {worker: (.w | row), nested: (.n | row), mains: .mains, firsts: [.first[] | .v],
+   links: [.links[] | .ts |= unique], branches: (.branches | keys)}'
+
+# uc_scan_run: the stream over $WD/scan.list (`w <path>` then `n <path>`
+# lines) through UC_SCAN, on stdout. Run through uc_run, like uc_token_row.
+# shellcheck disable=SC2329 # run through uc_run
+uc_scan_run() {
+    local row f main
+    while IFS=' ' read -r row f; do
+        [ -n "$f" ] || continue
+        main=0
+        grep -qxF -- "$f" "$WD/main.list" && main=1
+        printf 'F%s%s\n' "$row" "$main"
+        sed 's/^/L/' "$f"
+        printf '\n'
+    done <"$WD/scan.list" | jq -R -n -c --arg re_repo "$RE_REPO" --arg re_num "$RE_NUM" --arg re_branch "$RE_BRANCH" \
+        --arg re_evts "$RE_EVTS" "$UC_SCAN"
+}
+
+# uc_scan: the archive's layout (LAYOUT: projects, transcript or none), the
+# worker's session id, and for claude-projects/ the scan, in $WD/scan.json:
+# {reason, worker, nested, mains, jobs, firsts, links, branches}, reason null
+# when the scan read every file. Only regular files are listed: find never
+# follows a link, and a linked directory is never entered.
+uc_scan() {
+    local cp="$ARCH/claude-projects" sid="" d f b rc reason=""
     : >"$WD/worker.list"
     : >"$WD/nested.list"
+    : >"$WD/main.list"
+    : >"$WD/scan.list"
     if reg "$ARCH/job/state.json"; then
         sid=$(uc_jq -r '.sessionId // "" | if type == "string" then . else "" end' "$ARCH/job/state.json") || sid=""
     fi
-    printf '%s' "$sid" | grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' || sid=""
-    # find -type f lists regular files only: a symlink in transcript/ is never read.
-    if [ -d "$tr" ] && [ ! -L "$tr" ]; then
-        if [ -n "$sid" ] && reg "$tr/$sid.jsonl"; then
-            printf '%s\n' "$tr/$sid.jsonl" >"$WD/worker.list"
-            if [ -d "$tr/$sid/subagents" ] && [ ! -L "$tr/$sid" ] && [ ! -L "$tr/$sid/subagents" ]; then
-                find "$tr/$sid/subagents" -type f -name '*.jsonl' 2>/dev/null | sort >>"$WD/worker.list"
-            fi
-        fi
-        find "$tr" -type f -name '*.jsonl' 2>/dev/null | sort | grep -vxF -f "$WD/worker.list" >"$WD/nested.list"
+    [[ $sid =~ $RE_SID ]] || sid=""
+    if [ -z "$sid" ] && reg "$ARCH/teardown.json"; then
+        sid=$(uc_jq -r '.job.session // "" | if type == "string" then . else "" end' "$ARCH/teardown.json") || sid=""
+        [[ $sid =~ $RE_SID ]] || sid=""
     fi
-    for row in worker nested; do
-        reason="" b=$(uc_left)
-        if [ "$b" -le 0 ]; then
-            reason="time limit"
-        elif [ ! -d "$tr" ] || [ -L "$tr" ] || { [ "$row" = worker ] && [ ! -s "$WD/worker.list" ]; }; then
-            reason="no source"
-        elif ! uc_run "$b" "$WD/$row.raw" uc_token_row "$WD/$row.list"; then
-            reason="read failed"
-            [ "$(uc_left)" -gt 0 ] || reason="time limit"
-        elif [ ! -s "$WD/$row.raw" ]; then
-            reason="read failed"
-        elif jq -e '.bad' "$WD/$row.raw" >/dev/null; then
-            reason="invalid input"
-        fi
-        if [ -n "$reason" ]; then
-            jq -n -c --arg r "$reason" '{messages: null, input: null, output: null, cache_creation: null, cache_read: null,
-                state: "not recoverable", source: "transcripts", reason: $r}' >"$WD/$row.json"
-        else
-            jq -c 'del(.bad) + {state: "measured", source: "transcripts"}' "$WD/$row.raw" >"$WD/$row.json"
+    SID=$sid
+    LAYOUT=none
+    if [ -d "$cp" ] && [ ! -L "$cp" ]; then
+        LAYOUT=projects
+    elif [ -d "$ARCH/transcript" ] && [ ! -L "$ARCH/transcript" ]; then
+        LAYOUT=transcript
+    fi
+    if [ "$LAYOUT" != projects ]; then
+        echo '{"reason":null,"worker":null,"nested":null,"mains":0,"jobs":0,"firsts":[],"links":[],"branches":[]}' >"$WD/scan.json"
+        return 0
+    fi
+    for d in "$cp"/*; do
+        [ -d "$d" ] && [ ! -L "$d" ] || continue
+        for f in "$d"/*.jsonl; do
+            reg "$f" || continue
+            b=${f##*/}
+            b=${b%.jsonl}
+            [[ $b =~ $RE_SID ]] && printf '%s\n' "$f" >>"$WD/main.list"
+        done
+        [ -n "$sid" ] || continue
+        reg "$d/$sid.jsonl" && printf '%s\n' "$d/$sid.jsonl" >>"$WD/worker.list"
+        if [ -d "$d/$sid/subagents" ] && [ ! -L "$d/$sid" ] && [ ! -L "$d/$sid/subagents" ]; then
+            find "$d/$sid/subagents" -type f -name '*.jsonl' 2>"$WD/find.err" | sort >>"$WD/worker.list"
         fi
     done
+    find "$cp" -type f -name '*.jsonl' 2>"$WD/find.err" | sort | grep -vxF -f "$WD/worker.list" >"$WD/nested.list"
+    sed 's/^/w /' "$WD/worker.list" >"$WD/scan.list"
+    sed 's/^/n /' "$WD/nested.list" >>"$WD/scan.list"
+    b=$(uc_left)
+    if [ "$b" -le 0 ]; then
+        reason="time limit"
+    else
+        uc_run "$b" "$WD/scan.raw" uc_scan_run
+        rc=$?
+        if [ "$rc" != 0 ] || ! uc_jq -e 'type == "object"' "$WD/scan.raw" >/dev/null; then
+            reason="read failed"
+            [ "$(uc_left)" -gt 0 ] || reason="time limit"
+        fi
+    fi
+    if [ -n "$reason" ]; then
+        jq -n -c --arg r "$reason" --argjson m "$(grep -c . "$WD/main.list")" \
+            '{reason: $r, worker: null, nested: null, mains: $m, jobs: 0, firsts: [], links: [], branches: []}' >"$WD/scan.json"
+    else
+        jq -c '. + {reason: null, jobs: .mains}' "$WD/scan.raw" >"$WD/scan.json"
+    fi
+}
+
+# Tokens: the rows from the scan, or, for an archive made before
+# claude-projects/, the worker's row read as before and no nested row.
+uc_tokens() {
+    local tr="$ARCH/transcript" reason="" b why row
+    if [ "$LAYOUT" = projects ]; then
+        why=$(jq -r '.reason // ""' "$WD/scan.json")
+        for row in worker nested; do
+            reason=$why
+            if [ -z "$reason" ]; then
+                if [ "$row" = worker ] && [ ! -s "$WD/worker.list" ]; then
+                    reason="no source"
+                elif jq -e --arg r "$row" '.[$r].bad' "$WD/scan.json" >/dev/null; then
+                    reason="invalid input"
+                fi
+            fi
+            if [ -n "$reason" ]; then
+                jq -n -c --arg r "$reason" '{messages: null, input: null, output: null, cache_creation: null, cache_read: null,
+                    state: "not recoverable", source: "transcripts", reason: $r}' >"$WD/$row.json"
+            else
+                jq -c --arg r "$row" '.[$r] | del(.bad) + {state: "measured", source: "transcripts"}' "$WD/scan.json" >"$WD/$row.json"
+            fi
+        done
+        return 0
+    fi
+    # find -type f lists regular files only: a symlink in transcript/ is never read.
+    : >"$WD/worker.list"
+    if [ "$LAYOUT" = transcript ] && [ -n "$SID" ] && reg "$tr/$SID.jsonl"; then
+        printf '%s\n' "$tr/$SID.jsonl" >"$WD/worker.list"
+        if [ -d "$tr/$SID/subagents" ] && [ ! -L "$tr/$SID" ] && [ ! -L "$tr/$SID/subagents" ]; then
+            find "$tr/$SID/subagents" -type f -name '*.jsonl' 2>"$WD/find.err" | sort >>"$WD/worker.list"
+        fi
+    fi
+    b=$(uc_left)
+    if [ "$b" -le 0 ]; then
+        reason="time limit"
+    elif [ "$LAYOUT" != transcript ] || [ ! -s "$WD/worker.list" ]; then
+        reason="no source"
+    elif ! uc_run "$b" "$WD/worker.raw" uc_token_row "$WD/worker.list"; then
+        reason="read failed"
+        [ "$(uc_left)" -gt 0 ] || reason="time limit"
+    elif [ ! -s "$WD/worker.raw" ]; then
+        reason="read failed"
+    elif jq -e '.bad' "$WD/worker.raw" >/dev/null; then
+        reason="invalid input"
+    fi
+    if [ -n "$reason" ]; then
+        jq -n -c --arg r "$reason" '{messages: null, input: null, output: null, cache_creation: null, cache_read: null,
+            state: "not recoverable", source: "transcripts", reason: $r}' >"$WD/worker.json"
+    else
+        jq -c 'del(.bad) + {state: "measured", source: "transcripts"}' "$WD/worker.raw" >"$WD/worker.json"
+    fi
+    # Without claude-projects/ the archive holds no whole nested row to read.
+    jq -n -c '{messages: null, input: null, output: null, cache_creation: null, cache_read: null,
+        state: "not recoverable", source: "transcripts", reason: "no source"}' >"$WD/nested.json"
 }
 
 # uc_runs <repo> <n> <branch>: the pull request's heads and the runs on them,
@@ -634,6 +837,100 @@ uc_pulls() {
     jq -s -c '.' "$WD/pulls.jsonl" >"$WD/pulls.json"
 }
 
+# Credit, by the header's rule. The candidates are the scan's pr-link
+# records under the holding's owner (the owner of a pull request the sealed
+# verdict names), less the holding's own, one per repository and number
+# (case-insensitive), earliest link first; at most 200 are read. Each read
+# is one `gh pr view` out of the budget, its answer read only through jq for
+# the four conditions; a pull request that fails one is simply not credited.
+# CREDIT_WHY holds the first reason one was left out.
+uc_credit() {
+    local total cand r n rc disp why
+    CREDIT_WHY=""
+    : >"$WD/credit.jsonl"
+    echo '[]' >"$WD/credit.json"
+    [ "$LAYOUT" = projects ] || return 0
+    why=$(jq -r '.reason // ""' "$WD/scan.json")
+    if [ -n "$why" ]; then
+        CREDIT_WHY=$why
+        return 0
+    fi
+    jq -c --slurpfile p "$WD/pulls.json" '
+        def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
+        ([$p[0][] | .repo | ascii_downcase | split("/")[0]] | unique) as $owners
+        | [$p[0][] | "\(.repo | ascii_downcase)#\(.number)"] as $held
+        | [.links[] | select((.r | ascii_downcase | split("/")[0]) as $o | $owners | index([$o]) != null)
+           | select("\(.r | ascii_downcase)#\(.n)" as $k | $held | index([$k]) == null)]
+        | group_by([(.r | ascii_downcase), (.n | tonumber)])
+        | map({r: .[0].r, n: .[0].n, ts: ([.[].ts[]] | unique)})
+        | sort_by([((.ts | map(key) | min) // "~"), (.r | ascii_downcase), (.n | tonumber)])
+        | .[]' "$WD/scan.json" >"$WD/cands.all"
+    total=$(grep -c . "$WD/cands.all")
+    [ "$total" -gt 0 ] || return 0
+    # Created at or after dispatch can't be judged without one.
+    if [ "$(jq -r .state "$WD/dispatch.json")" != measured ]; then
+        CREDIT_WHY="no source"
+        return 0
+    fi
+    disp=$(jq -r .value "$WD/dispatch.json")
+    head -n 200 "$WD/cands.all" >"$WD/cands"
+    [ "$total" -le 200 ] || CREDIT_WHY="entry size"
+    while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
+        r=$(printf '%s' "$cand" | jq -r .r)
+        n=$(printf '%s' "$cand" | jq -r .n)
+        # Matched again here, where the command is built.
+        repo_ok "$r" && [[ $n =~ $RE_NUM ]] || continue
+        uc_gh "$WD/cr.raw" pr view "$n" --repo "$r" --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner
+        rc=$?
+        if [ "$rc" != 0 ]; then
+            why="read failed"
+            [ "$rc" != 125 ] && [ "$(uc_left)" -gt 0 ] || why="time limit"
+            [ -n "$CREDIT_WHY" ] || CREDIT_WHY=$why
+            [ "$why" = "time limit" ] && break
+            continue
+        fi
+        uc_jq -c --argjson c "$cand" --arg d "$disp" --slurpfile s "$WD/scan.json" --arg sha "$RE_SHA" --arg evts "$RE_EVTS" "$UC_FIGURES"'
+            def str($re): type == "string" and test($re);
+            def abs: if . < 0 then -(.) else . end;
+            if type != "object" then error("x") else . end
+            | ($c.r | ascii_downcase | split("/")[0]) as $own
+            | (.headRepositoryOwner | if type == "object" then .login else null end
+               | if type == "string" then ascii_downcase else null end) as $hown
+            | (.createdAt | if str($evts) then ts else null end) as $created
+            | (.mergedAt | if str($evts) then . else null end) as $merged
+            | (.mergeCommit | if type == "object" then .oid else null end | if str($sha) then . else null end) as $oid
+            | (.headRefName | if type == "string" then . else null end) as $head
+            | (.baseRefName | if type == "string" then . else null end) as $base
+            | if $hown == $own and .state == "MERGED" and $merged != null and $oid != null
+                 and $created != null and $created >= ($d | ts)
+                 and (($head != null and $head != $base and ($s[0].branches | index([$head]) != null))
+                      or any($c.ts[]; (ts - $created) | abs <= 120))
+              then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged}
+              else empty end' "$WD/cr.raw" >"$WD/cr.out" || { [ -n "$CREDIT_WHY" ] || CREDIT_WHY="read failed"; continue; }
+        cat "$WD/cr.out" >>"$WD/credit.jsonl"
+    done <"$WD/cands"
+    jq -s -c 'def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
+        sort_by([(.merged_at | key), .number])' "$WD/credit.jsonl" >"$WD/credit.json"
+}
+
+# niwa's dispatch id, from teardown.json: {v, r}, r the reason v is null.
+uc_niwa() {
+    if ! reg "$ARCH/teardown.json"; then
+        echo '{"v":null,"r":"no source"}' >"$WD/niwa.json"
+        return 0
+    fi
+    uc_jq -c --arg re "$RE_DID" '
+        if type != "object" or ((.niwa // {}) | type) != "object" then {v: null, r: "invalid input"}
+        else (.niwa // {}) as $n
+          | if ($n.dispatch_id | type) == "string" then
+                (if ($n.dispatch_id | test($re)) then {v: $n.dispatch_id, r: null} else {v: null, r: "invalid input"} end)
+            elif $n.dispatch_id == null then {v: null, r: (if $n.reason == "invalid input" then "invalid input" else "no source" end)}
+            else {v: null, r: "invalid input"} end
+        end' "$ARCH/teardown.json" >"$WD/niwa.json" \
+        || echo '{"v":null,"r":"invalid input"}' >"$WD/niwa.json"
+}
+
 # The record, the Unit and the milestone, from the unit file. An issue
 # reference is checked before the safety pattern: `#12` starts with `#`, which
 # the pattern refuses, yet it is a plain Unit whose milestone is `none`. With
@@ -680,30 +977,41 @@ uc_public() {
 # Visibility, for a public host: {host_public, public: {repo: bool}} over the
 # pull requests' repositories and an `owner/repo#n` Unit's. The host is the
 # record's repository; with none known, or its visibility unreadable, the
-# host counts as public, so every repository is looked up.
+# host counts as public, so every repository is looked up. `uc_visibility
+# holding` reads the host, the holding's repositories and the Unit's before
+# credit spends any of the budget; `uc_visibility credited` adds the
+# credited pull requests' repositories. Each writes vis.json.
 uc_visibility() {
-    local host hp=true r
-    : >"$WD/vis.jsonl"
-    host=$(jq -r '.record.repo // empty' "$WD/attribution.json")
-    if [ -n "$host" ] && repo_ok "$host"; then
-        if uc_gh "$WD/vis.raw" api --method GET "repos/$host" --jq .private \
-            && [ "$(head -c 16 "$WD/vis.raw" | tr -d ' \r\n')" = true ]; then
-            hp=false
+    local r
+    if [ "$1" = holding ]; then
+        HOST_PUBLIC=true
+        : >"$WD/vis.jsonl"
+        : >"$WD/vis.seen"
+        r=$(jq -r '.record.repo // empty' "$WD/attribution.json")
+        if [ -n "$r" ] && repo_ok "$r"; then
+            if uc_gh "$WD/vis.raw" api --method GET "repos/$r" --jq .private \
+                && [ "$(head -c 16 "$WD/vis.raw" | tr -d ' \r\n')" = true ]; then
+                HOST_PUBLIC=false
+            fi
         fi
+        jq -r '.[].repo' "$WD/pulls.json" >"$WD/vis.want"
+        jq -r '.unit // "" | select(test("^[^#]+/[^#]+#[0-9]+$")) | sub("#[0-9]+$"; "")' "$WD/attribution.json" >>"$WD/vis.want"
+    else
+        jq -r '.[].repo' "$WD/credit.json" >"$WD/vis.want"
     fi
-    if [ "$hp" = true ]; then
-        for r in $(jq -r '.[].repo' "$WD/pulls.json"; jq -r '.unit // "" | select(test("^[^#]+/[^#]+#[0-9]+$")) | sub("#[0-9]+$"; "")' "$WD/attribution.json"); do
+    if [ "$HOST_PUBLIC" = true ]; then
+        while IFS= read -r r; do
             repo_ok "$r" || continue
-            grep -qxF "$r" "$WD/vis.seen" 2>/dev/null && continue
+            grep -qxF -- "$r" "$WD/vis.seen" && continue
             printf '%s\n' "$r" >>"$WD/vis.seen"
             if uc_public "$r"; then
                 jq -n -c --arg r "$r" '{($r): true}' >>"$WD/vis.jsonl"
             else
                 jq -n -c --arg r "$r" '{($r): false}' >>"$WD/vis.jsonl"
             fi
-        done
+        done <"$WD/vis.want"
     fi
-    jq -s -c --argjson hp "$hp" '{host_public: $hp, public: (add // {})}' "$WD/vis.jsonl" >"$WD/vis.json"
+    jq -s -c --argjson hp "$HOST_PUBLIC" '{host_public: $hp, public: (add // {})}' "$WD/vis.jsonl" >"$WD/vis.json"
 }
 
 # The figures, as the baseline's derivation computes them (its ts, rounding,
@@ -760,12 +1068,17 @@ uc_compute() {
     [[ $now =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     uc_sessions
     uc_plan_shape
+    uc_scan
+    uc_tokens
     uc_dispatch
     uc_attribution
+    uc_niwa
     uc_pulls
-    uc_visibility
-    uc_tokens
+    uc_visibility holding
+    uc_credit
+    uc_visibility credited
     jq -n -c --arg key "$KEY" --arg now "$now" --arg topic "$TOPIC" --argjson vbad "$VERDICT_BAD" \
+        --arg cwhy "$CREDIT_WHY" --slurpfile credit "$WD/credit.json" --slurpfile niwa "$WD/niwa.json" \
         --slurpfile att "$WD/attribution.json" --slurpfile shape "$WD/shape.json" \
         --slurpfile pulls "$WD/pulls.json" --slurpfile preasons "$WD/pull-reasons.json" \
         --slurpfile disp "$WD/dispatch.json" --slurpfile sess "$WD/sessions.json" --slurpfile vis "$WD/vis.json" \
@@ -850,8 +1163,13 @@ uc_compute() {
            end] as $sessions
 
         # A public host never names a repository it does not read as public.
+        # The holding pull requests first, then the credited ones; 100 at
+        # most, the first reason one was left out kept for `missing`.
         | def shown($r): ($V.host_public | not) or ($V.public[$r] == true);
-        ($P | map(if shown(.repo) then {repo, number, merge_commit, merged_at} else {repo: "not public"} end)) as $pulls_out
+        ([$P[] | if shown(.repo) then {repo, number, merge_commit, merged_at, via: "holding"} else {repo: "not public"} end]
+         + [$credit[0][] | if shown(.repo) then {repo, number, merge_commit, merged_at, via: "session"} else {repo: "not public"} end]) as $all
+        | ($all | .[0:100]) as $pulls_out
+        | (if $cwhy != "" then $cwhy elif ($all | length) > 100 then "entry size" else null end) as $creditwhy
         | ($a.unit | if type == "string" and test("^[^#]+/[^#]+#[0-9]+$") and (shown(sub("#[0-9]+$"; "")) | not)
                      then "not public" else . end) as $unit
 
@@ -860,7 +1178,10 @@ uc_compute() {
              (if $a.milestone.reason != null then {figure: "milestone", reason: $a.milestone.reason} else empty end),
              (if $p.reason != null then {figure: "plan_shape", reason: $p.reason} else empty end),
              $preasons[0][],
+             (if $creditwhy != null and ([$preasons[0][] | select(.figure == "pulls")] | length) == 0
+              then {figure: "pulls", reason: $creditwhy} else empty end),
              (if $d.reason != null then {figure: "dispatch", reason: $d.reason} else empty end),
+             (if $niwa[0].r != null then {figure: "niwa.dispatch.id", reason: $niwa[0].r} else empty end),
              ($figures | to_entries[] | select(.value.state == "not recoverable") | {figure: .key, reason: .value.reason}),
              ($sessions[] | .figures[] | select(.state == "not recoverable") | {figure: "sessions", reason}),
              (if $worker[0].reason != null then {figure: "tokens.worker", reason: $worker[0].reason} else empty end),
@@ -869,6 +1190,7 @@ uc_compute() {
         | {schema: "unit-cost/1", key: $key, captured_at: $now, topic: $topic,
            record: $a.record, unit: $unit, milestone: ($a.milestone | del(.reason)),
            plan_shape: ($p | del(.reason)), pulls: $pulls_out, dispatch: ($d | del(.reason)),
+           "niwa.dispatch.id": $niwa[0].v,
            figures: ($figures | map_values(del(.reason))),
            sessions: ($sessions | map(.figures |= map_values(del(.reason)))),
            tokens: {worker: ($worker[0] | del(.reason)), nested: ($nested[0] | del(.reason))},

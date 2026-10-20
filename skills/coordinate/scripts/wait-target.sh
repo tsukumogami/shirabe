@@ -29,6 +29,17 @@
 # pass. A worker re-briefed after a fix reports by message from then on
 # (dispatch-worker.sh --rebrief moves its holding to the message path).
 #
+# Each worker leg is also a key of this session, legs/<request>/<leg>
+# (dispatch-worker.sh writes it, dispatch-common.sh dc_leg_*), so a move to
+# another host carries what a re-leg needs (PRD R13). Whenever select reads a
+# request whose leg a session is bound to, it records that child's name in
+# the leg's key, once: the context key `leg_children` lists the legs already
+# recorded, so a later tick reads one key rather than every leg's. When a leg
+# is no longer open, the leg mode (and select's mark of a consumed leg) writes
+# its state before take_report classifies anything: `taken` with koto's result
+# for a resolved leg, `spent` for an abandoned or missing one. A leg opened
+# before leg keys existed gets its key there, with the topic and the result.
+#
 # Modes:
 #
 #   select --session <s>
@@ -54,7 +65,8 @@
 # run log), 64 usage.
 #
 # Reads the record and the request store; writes only this session's
-# wait_target, taken_legs, leg_consumed and report_topic context keys. bash 3.2; needs jq.
+# wait_target, taken_legs, leg_consumed, leg_children and report_topic context
+# keys and its legs/ keys. bash 3.2; needs jq.
 set -uo pipefail
 
 PROG=wait-target
@@ -105,17 +117,43 @@ LEG_DISP='(.request // .) as $r
     | if $d == "open" and (($r.request_state // "open") != "open") then "abandoned" else $d end
     | strings'
 
-# mark_if_done <wait_target json>: add its leg to taken_legs when koto no
-# longer shows it open. Returns 2 when the target or koto can't be read.
+# leg_record <request> <leg> <topic> <view>: write the leg key's end from
+# koto's view of the request: `taken` with the result for a result the
+# worker's session promoted, `spent` otherwise. Only a key still `open` (or
+# none yet) is written; one already marked keeps its state. Returns 2 when the
+# key can't be read or written.
+leg_record() {
+    local req=$1 leg=$2 topic=$3 view=$4 key end
+    end=$(jq -c --arg l "$leg" '(.request // .) as $r | ($r.legs[$l] // null) as $g
+        | def res: if $g.result == null then null
+            else {status: $g.result.status, final_state: $g.result_final_state, source: $g.result_source,
+                  payload: ($g.result.payload | if type == "object" then . else {} end)} end;
+        if $g != null and $g.disposition == "resolved" and $g.result_source == "promoted" then {state: "taken", result: res}
+        elif $g == null then {state: "spent", result: null}
+        else {state: "spent", result: res} end' <<<"$view") || return 2
+    key=$(dc_leg_get "$SESSION" "$req" "$leg")
+    case "$?" in
+        0) [ "$(jq -r '.state // ""' <<<"$key")" = open ] || return 0 ;;
+        1) key=$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$topic" '{request: $r, leg: $l, topic: $t, state: "open"}') ;;
+        *) printf '%s: cannot read the leg key for %s:%s\n' "$PROG" "$req" "$leg" >&2; return 2 ;;
+    esac
+    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c --argjson e "$end" '. + $e' <<<"$key")" ||
+        { printf '%s: cannot write the leg key for %s:%s\n' "$PROG" "$req" "$leg" >&2; return 2; }
+}
+
+# mark_if_done <wait_target json>: add its leg to taken_legs, and write its
+# leg key's end, when koto no longer shows it open. Returns 2 when the target,
+# koto or the key can't be read.
 mark_if_done() {
     local t="$1" req leg view disp taken
     req=$(printf '%s' "$t" | jq -r '.request // "" | strings')
     leg=$(printf '%s' "$t" | jq -r '.leg // "" | strings')
-    printf '%s' "$req" | grep -Eq "$RE_REQ" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; return 2; }
-    printf '%s' "$leg" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; return 2; }
+    grep -Eq "$RE_REQ" <<<"$req" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; return 2; }
+    grep -Eq "$RE_LEG" <<<"$leg" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; return 2; }
     view=$("$KOTO" request get "$req" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$req" >&2; return 2; }
     disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
     [ "$disp" = open ] && return 0
+    leg_record "$req" "$leg" "$(jq -r '.topic // "" | strings' <<<"$t")" "$view" || return 2
     taken=$(ctx_or_empty taken_legs) || return 2
     put taken_legs "$(printf '%s\n%s\n' "$taken" "$req:$leg" | sed '/^$/d' | sort -u)"
 }
@@ -127,7 +165,7 @@ if [ "$MODE" = leg ]; then
     LEG=$(printf '%s' "$T" | jq -r 'select(.path == "leg") | .leg // "" | strings')
     TOPIC=$(printf '%s' "$T" | jq -r 'select(.path == "leg") | .topic // "" | strings')
     [ -n "$LEG" ] || { printf '%s: wait_target names no leg\n' "$PROG" >&2; exit 1; }
-    printf '%s' "$LEG" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; exit 2; }
+    grep -Eq "$RE_LEG" <<<"$LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; exit 2; }
     dc_valid_topic "$TOPIC" || { printf '%s: wait_target holds a malformed topic\n' "$PROG" >&2; exit 2; }
     put report_topic "$TOPIC"
     # The leg's disposition now, not the one select saw: koto re-runs this
@@ -178,17 +216,18 @@ candidates() {
     rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
     paused_topics "$rows" || { printf '%s: the record'"'"'s pauses could not be read\n' "$PROG" >&2; return 2; }
-    local topic rp req leg view disp taken
+    local topic rp req leg view disp taken children child added=""
     taken=$(ctx_or_empty taken_legs) || return 2
+    children=$(ctx_or_empty leg_children) || return 2
     while IFS='	' read -r topic rp; do
         [ -n "$topic" ] || continue
         grep -Fqx -- "$topic" "$WORK/paused" && continue
         req=${rp%%:*}
         leg=${rp#*:}
-        printf '%s' "$req" | grep -Eq "$RE_REQ" || continue
-        printf '%s' "$leg" | grep -Eq "$RE_LEG" || continue
+        grep -Eq "$RE_REQ" <<<"$req" || continue
+        grep -Eq "$RE_LEG" <<<"$leg" || continue
         dc_valid_topic "$topic" || continue
-        printf '%s\n' "$taken" | grep -Fqx -- "$rp" && continue
+        grep -Fqx -- "$rp" <<<"$taken" && continue
         if view=$("$KOTO" request get "$req" </dev/null); then
             disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
         else
@@ -197,10 +236,39 @@ candidates() {
             printf '%s: could not read request %s for %s\n' "$PROG" "$req" "$topic" >&2
             continue
         fi
+        # The bound child's name, recorded once in the leg's key. A failed
+        # write is left for the next tick: it costs no watch.
+        child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$view")
+        if [ -n "$child" ] && ! grep -Fqx -- "$rp" <<<"$children"; then
+            record_child "$req" "$leg" "$child" && added="$added$rp
+"
+        fi
         printf '%s\t%s\t%s\t%s\n' "$disp" "$topic" "$req" "$leg"
     done <<EOF
 $(printf '%s' "$rows" | jq -r '.[] | select(.dispatch_status == "dispatched") | select((.return_path // "") | test("^leg [^: ]+:[^: ]+$")) | [.worker, (.return_path | ltrimstr("leg "))] | @tsv')
 EOF
+    if [ -n "$added" ]; then
+        printf '%s\n%s' "$children" "$added" | sed '/^$/d' | sort -u >"$WORK/children"
+        "$KOTO" context add "$SESSION" leg_children --from-file "$WORK/children" >/dev/null ||
+            printf '%s: cannot write leg_children\n' "$PROG" >&2
+    fi
+}
+
+# record_child <request> <leg> <child>: write the bound child's session name
+# into the leg's key when it names another or none. A leg with no key (opened
+# before leg keys existed) has nothing to record into, which counts as done.
+# Returns 1 when the key can't be read or written.
+record_child() {
+    local key
+    key=$(dc_leg_get "$SESSION" "$1" "$2")
+    case "$?" in
+        0) ;;
+        1) return 0 ;;
+        *) printf '%s: cannot read the leg key for %s:%s\n' "$PROG" "$1" "$2" >&2; return 1 ;;
+    esac
+    [ "$(jq -r '.child // "" | strings' <<<"$key")" = "$3" ] && return 0
+    dc_leg_put "$SESSION" "$1" "$2" "$(jq -c --arg c "$3" '.child = $c' <<<"$key")" ||
+        { printf '%s: cannot record the child of %s:%s\n' "$PROG" "$1" "$2" >&2; return 1; }
 }
 
 pick() {

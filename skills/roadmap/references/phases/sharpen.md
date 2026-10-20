@@ -1,8 +1,8 @@
 # Sharpen a Milestone in Place
 
 The procedure behind the Active-roadmap resume row in `SKILL.md`. It changes
-one milestone's Evidence or Left open on an Active `roadmap/v2` roadmap and
-nothing else, which a milestone roadmap allows without a new roadmap
+one milestone's Evidence or Left open on an Active milestone roadmap
+(`roadmap/v2` or `roadmap/v3`) and nothing else, which a milestone roadmap allows without a new roadmap
 (`references/roadmap-format.md`, Milestones, What may change while it is
 Active).
 
@@ -10,16 +10,20 @@ Active).
 
 `/roadmap` found `docs/roadmaps/ROADMAP-<topic>.md` at `status: Active`.
 
-- **`schema: roadmap/v2`** -- offer two choices: sharpen one milestone's
+- **`schema: roadmap/v2` or `schema: roadmap/v3`** -- offer two choices: sharpen one milestone's
   Evidence or Left open in place, or start a new roadmap. Recommend
   sharpening when the author's request names a check that can't be judged
   as written or a decision that turned out to belong to the delivering
   session; recommend a new roadmap when they want to add, remove, reorder or
   retitle milestones, change dependencies, or widen an Outcome.
 - **`schema: roadmap/v1`** -- start a new roadmap is the only choice. Say
-  that sharpening in place needs the roadmap on `roadmap/v2` first, which is
-  a migration (`references/roadmap-format.md`, Milestones, Migrating a
+  that sharpening in place needs a milestone roadmap first, which is a
+  migration (`references/roadmap-format.md`, Milestones, Migrating a
   roadmap), not something this procedure does.
+
+The procedure is the same on v2 and v3; only the words differ (a v2 roadmap's
+milestones sit under `## Features`, a v3 roadmap's under `## Milestones`).
+Sharpening never moves a v2 roadmap to v3: that is its own edit.
 
 A Draft roadmap is edited through the usual resume at Phase 3, and a Done
 one takes its own resume row; neither uses this procedure.
@@ -32,10 +36,11 @@ Under `--auto`, take the recommendation and say which choice was taken.
    whether its Evidence or its Left open changes, unless the request already
    says. Read that milestone's current text.
 
-2. **Write the sharper text.** For Evidence, every clause still names who
-   checks, from what starting state, and what observable result shows the
-   Outcome is met; a merge, a test run or an artifact existing is still not
-   Evidence. Sharpening may add a clause, split one, or make one concrete;
+2. **Write the sharper text.** For Evidence, every clause still follows the
+   format reference's Evidence rule: it names who checks, from what starting
+   state, what they do and what they see; a merge, a test run or an artifact
+   existing is still not Evidence, and neither is the file, script, function
+   or line that implements the check (that goes in Left open). Sharpening may add a clause, split one, or make one concrete;
    it must not narrow what the Outcome promises. For Left open, move a
    how-decision in or out; anything whose absence would make the Outcome
    false stays out of Left open. If the change the author wants narrows the

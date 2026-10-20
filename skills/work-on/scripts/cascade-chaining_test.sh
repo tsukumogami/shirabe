@@ -74,6 +74,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# koto's session store lives under HOME: a HOME of the suite's own keeps its
+# sessions out of the user's store and away from suites running beside it.
+KOTO_HOME_DIR=$(mktemp -d); TMPS+=("$KOTO_HOME_DIR")
+export HOME="$KOTO_HOME_DIR"
+
 # Skip cleanly when koto is absent, matching retry-clearing_test.sh. The macOS
 # bash-floor leg has no koto, and this test cannot run without the engine whose
 # chaining it asserts. The Linux CI step is what stops that skip from hiding a
@@ -186,12 +191,12 @@ tick_from_start() {
 D1=$(mktemp -d); TMPS+=("$D1")
 OUT1=$(tick_from_start "$D1" "cascade-chain-shipped-$$" 0 "$CASCADE_RUN" || true)
 
-if echo "$OUT1" | grep -q '"state":"cascade_run"'; then
+if grep -q '"state":"cascade_run"' <<<"$OUT1"; then
     pass "shipped shape: one tick stops at cascade_run (agent sees the directive)"
-elif echo "$OUT1" | grep -qE '"state":"done(_blocked)?"'; then
+elif grep -qE '"state":"done(_blocked)?"' <<<"$OUT1"; then
     fail "shipped shape: one tick chained past cascade_run to a terminal — the cascade would never run"
 else
-    fail "shipped shape: unexpected tick result: $(echo "$OUT1" | head -c 300)"
+    fail "shipped shape: unexpected tick result: $(head -c 300 <<<"$OUT1")"
 fi
 
 # ---------------------------------------------------------------------------
@@ -214,12 +219,12 @@ MUTATED=$(echo "$CASCADE_RUN" | awk '
 D2=$(mktemp -d); TMPS+=("$D2")
 OUT2=$(tick_from_start "$D2" "cascade-chain-mutated-$$" 0 "$MUTATED" || true)
 
-if echo "$OUT2" | grep -qE '"state":"done"|"action":"done"'; then
+if grep -qE '"state":"done"|"action":"done"' <<<"$OUT2"; then
     pass "all-unconditional mutation chains through to a terminal — the defect is detectable"
-elif echo "$OUT2" | grep -q '"state":"cascade_run"'; then
+elif grep -q '"state":"cascade_run"' <<<"$OUT2"; then
     fail "all-unconditional mutation still stopped at cascade_run — this test no longer detects the defect it exists for"
 else
-    fail "mutation case: unexpected tick result: $(echo "$OUT2" | head -c 300)"
+    fail "mutation case: unexpected tick result: $(head -c 300 <<<"$OUT2")"
 fi
 
 # ---------------------------------------------------------------------------
@@ -232,12 +237,12 @@ fi
 D3=$(mktemp -d); TMPS+=("$D3")
 OUT3=$(tick_from_start "$D3" "cascade-chain-noanchor-$$" 1 "$CASCADE_RUN" || true)
 
-if echo "$OUT3" | grep -q '"state":"cascade_run"'; then
+if grep -q '"state":"cascade_run"' <<<"$OUT3"; then
     fail "no-anchor path stopped at cascade_run — R3 violated, the agent learns a cascade exists"
-elif echo "$OUT3" | grep -qE '"state":"done"|"action":"done"'; then
+elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT3"; then
     pass "no-anchor path reaches a terminal without stopping at cascade_run (R3 holds)"
 else
-    fail "no-anchor case: unexpected tick result: $(echo "$OUT3" | head -c 300)"
+    fail "no-anchor case: unexpected tick result: $(head -c 300 <<<"$OUT3")"
 fi
 
 # ---------------------------------------------------------------------------
@@ -251,12 +256,12 @@ fi
 D4=$(mktemp -d); TMPS+=("$D4")
 OUT4=$(tick_from_start "$D4" "cascade-chain-undecided-$$" 2 "$CASCADE_RUN" || true)
 
-if echo "$OUT4" | grep -q '"state":"done_blocked"'; then
+if grep -q '"state":"done_blocked"' <<<"$OUT4"; then
     pass "could-not-decide stops at done_blocked (uncertainty is not treated as absence)"
-elif echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
+elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT4"; then
     fail "could-not-decide routed to done — an owed cascade would be skipped in silence"
 else
-    fail "undecided case: unexpected tick result: $(echo "$OUT4" | head -c 300)"
+    fail "undecided case: unexpected tick result: $(head -c 300 <<<"$OUT4")"
 fi
 
 # ---------------------------------------------------------------------------
@@ -273,14 +278,14 @@ fi
 D5=$(mktemp -d); TMPS+=("$D5")
 OUT5=$(tick_from_start "$D5" "cascade-chain-noroot-$$" real "$CASCADE_RUN" || true)
 
-if echo "$OUT5" | grep -q '"state":"done_blocked"'; then
+if grep -q '"state":"done_blocked"' <<<"$OUT5"; then
     pass "shipped gate with an unresolved plugin root fails closed to done_blocked"
-elif echo "$OUT5" | grep -qE '"state":"done"|"action":"done"'; then
+elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT5"; then
     fail "shipped gate with an unresolved plugin root routed to done — a cascade would be skipped because a path was wrong"
-elif echo "$OUT5" | grep -q '"state":"cascade_entry"'; then
+elif grep -q '"state":"cascade_entry"' <<<"$OUT5"; then
     fail "shipped gate with an unresolved plugin root held at cascade_entry with no route — the fail-closed guard is gone"
 else
-    fail "no-root case: unexpected tick result: $(echo "$OUT5" | head -c 300)"
+    fail "no-root case: unexpected tick result: $(head -c 300 <<<"$OUT5")"
 fi
 
 echo

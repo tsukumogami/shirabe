@@ -78,7 +78,9 @@
 #             the floor prints failed=koto_below_floor.
 #
 #   status    prints absent, live or finished from `koto status`, which reads
-#             only. Nothing is ticked.
+#             only. Nothing is ticked. A session koto removed at its terminal
+#             is absent, even when koto answers for it from its finished
+#             record ("removed": true).
 #
 #   has-work  exit 0 when <skill>-<topic> is live, its session/branch equals
 #             the current branch, and it holds a key under work/; exit 1
@@ -456,14 +458,21 @@ check_area() {
 # session_state <session> -- set SSTATE to absent, live or finished. Returns 4
 # when koto's answer is neither a state nor "not found". `koto status` reads
 # only; nothing here ticks.
+#
+# A session koto removed at its terminal is absent. A koto that keeps finished
+# records (tsukumogami/koto#355) answers for one from the record: exit 0,
+# "removed": true, the final state and the result. An older koto answers "not
+# found". Either way the session is gone: no keys to read or remove, nothing to
+# tick or close.
 SSTATE=""
 session_state() {
     local out rc=0 term
     SSTATE=""
     out=$("$KOTO" status "$1" 2>/dev/null) || rc=$?
     if [ "$rc" -eq 0 ]; then
-        term=$(printf '%s' "$out" | jq -r 'if type == "object" and has("is_terminal") then (.is_terminal | tostring) else "" end' 2>/dev/null) || term=""
+        term=$(printf '%s' "$out" | jq -r 'if type != "object" then "" elif .removed == true then "removed" elif has("is_terminal") then (.is_terminal | tostring) else "" end' 2>/dev/null) || term=""
         case "$term" in
+            removed) SSTATE=absent; return 0 ;;
             true) SSTATE=finished; return 0 ;;
             false) SSTATE=live; return 0 ;;
         esac
@@ -561,7 +570,7 @@ cmd_open() {
     # covers a koto-open that died before its own cleanup ran.
     [ -d "$dir" ] && rm -rf -- "$dir"
 
-    first=$(printf '%s\n' "$out" | head -1)
+    first=$(head -1 <<<"$out")
     case "$first" in
         opened=new|opened=replaced)
             if ! tick "$s" || [ "$(printf '%s' "$TICK_OUT" | jq -r '.state // ""' 2>/dev/null)" != "open" ]; then

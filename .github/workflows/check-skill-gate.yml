@@ -18,10 +18,12 @@ on:
       - 'scripts/check-skill.sh'
       - 'scripts/check-skill_test.sh'
       - 'scripts/lib/check-evals-shape.py'
+      - 'scripts/lib/check-evals-shape_test.py'
       - '.github/workflows/check-skill-gate.yml'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/check-skill.list'
 
 permissions:
   contents: read
@@ -44,3 +46,17 @@ jobs:
       - name: Run the suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
         run: scripts/check-bash-floor.sh --backend system check-skill
+
+  # The shape checker's own suite: the tier-2 release-subset rule (every
+  # tier-2 scenario names a behaviour, one release scenario per behaviour).
+  test-evals-shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run check-evals-shape tests
+        run: python3 scripts/lib/check-evals-shape_test.py

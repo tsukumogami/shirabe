@@ -189,7 +189,7 @@ topological_sort() {
 strip_frontmatter() {
     local content="$1"
 
-    if echo "$content" | head -1 | grep -q '^---$'; then
+    if [ "$(head -1 <<<"$content")" = --- ]; then
         echo "$content" | awk '
             BEGIN { in_frontmatter=0; found_end=0 }
             /^---$/ {
@@ -236,7 +236,7 @@ substitute_placeholders() {
 # Check for unresolved placeholders in text. Returns 0 if clean, 1 if found.
 check_placeholders() {
     local text="$1"
-    if echo "$text" | grep -qE '<<ISSUE:[^>]+>>'; then
+    if grep -qE '<<ISSUE:[^>]+>>' <<<"$text"; then
         return 1
     fi
     return 0

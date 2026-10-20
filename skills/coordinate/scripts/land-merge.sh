@@ -72,7 +72,7 @@ bash "$HERE/coord-log.sh" provenance --session "$SESSION" >/dev/null 2>&1 \
 DIRECTED=$(bash "$HERE/coord-log.sh" directed-since --session "$SESSION" --from 0 2>/dev/null)
 case $? in
     0) ;;
-    1) refuse "the run has a directed transition ($(printf '%s' "$DIRECTED" | head -1)); restart the run" ;;
+    1) refuse "the run has a directed transition ($(head -1 <<<"$DIRECTED")); restart the run" ;;
     *) refuse "the session log can't be read" ;;
 esac
 
@@ -130,7 +130,7 @@ if [ "$CLOSEOUT" = 0 ]; then
     [ -z "$STANDING" ] || refuse "a hold stands on #$PR now: $STANDING; go back through verify"
     # The pauses, re-read the same way; a merge can't be undone.
     PD=$(mktemp -d "${TMPDIR:-/tmp}/land-merge-pauses.XXXXXX") || refuse "no temporary directory"
-    bl_record_parsed "$SESSION" "$PD/rec" || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
+    rs_record_api "$PD/rec" "$SESSION" || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
     PAUSES=$(bl_pauses_on "$PD/rec" "$REPO" "$PR") || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
     rm -rf "$PD"
     PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')

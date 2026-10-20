@@ -6,7 +6,9 @@
 # coordinated-mode (repo, pr_group) contraction on both the table path and the
 # outline path (two-node DAG, gate nodes, per-node REPO/PR_GROUP/ISSUES/
 # ISSUE_SOURCE vars, the X->Y->X contraction-cycle resolution, and
-# irreducible-atomicity refusal).
+# irreducible-atomicity refusal), and `plan/v2` step plans in single-pr and
+# multi-pr (step-<N> task names, declared edges, an outline step waiting on
+# the step before it, and the tracking-level refusal).
 #
 # Usage:
 #   bash plan-to-tasks_test.sh
@@ -1010,7 +1012,7 @@ FIXTURE
     output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-long-name.md" 2>/dev/null)
 
     # Assert: script emits a truncation warning to stderr
-    if echo "$stderr_output" | grep -qi "truncat"; then
+    if grep -qi "truncat" <<<"$stderr_output"; then
         pass "$name (truncation warning emitted)"
     else
         fail "$name" "expected truncation warning on stderr, got: $stderr_output"
@@ -1740,14 +1742,14 @@ FIXTURE
     local stderr_out
     stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-asymmetric.md" 2>&1 >/dev/null) || true
 
-    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+    if grep -q "asymmetric empty-deps" <<<"$stderr_out"; then
         pass "$name (warning fired)"
     else
         fail "$name" "expected 'asymmetric empty-deps' in stderr, got: $stderr_out"
     fi
 
     # AC2.2: the warning text names BOTH colon placements as the likely cause.
-    if echo "$stderr_out" | grep -q '\*\*Dependencies\*\*:' && echo "$stderr_out" | grep -q '\*\*Dependencies:\*\*'; then
+    if grep -q '\*\*Dependencies\*\*:' <<<"$stderr_out" && grep -q '\*\*Dependencies:\*\*' <<<"$stderr_out"; then
         pass "$name (warning text names both colon placements, AC2.2)"
     else
         fail "$name" "warning text does not name both colon placements: $stderr_out"
@@ -1810,7 +1812,7 @@ FIXTURE
     local stderr_out
     stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-all-empty.md" 2>&1 >/dev/null) || true
 
-    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+    if grep -q "asymmetric empty-deps" <<<"$stderr_out"; then
         fail "$name" "warning fired on all-empty-deps fixture (expected suppression): $stderr_out"
     else
         pass "$name (no warning, as expected for symmetric all-empty)"
@@ -1862,7 +1864,7 @@ FIXTURE
     local stderr_out
     stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-single-issue.md" 2>&1 >/dev/null) || true
 
-    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+    if grep -q "asymmetric empty-deps" <<<"$stderr_out"; then
         fail "$name" "warning fired on single-issue fixture (expected suppression): $stderr_out"
     else
         pass "$name (no warning, as expected for single-issue PLAN)"
@@ -2113,7 +2115,7 @@ FIXTURE
     # repo-y (proving the seam split, not a cycle).
     local y_deps
     y_deps=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-y-default") | .waits_on[]') || true
-    if echo "$y_deps" | grep -q '^pr-repo-x-default-i1$'; then
+    if grep -q '^pr-repo-x-default-i1$' <<<"$y_deps"; then
         pass "$name (repo-y waits on repo-x split half i1)"
     else
         fail "$name" "repo-y should wait on pr-repo-x-default-i1; got: $y_deps"
@@ -2121,7 +2123,7 @@ FIXTURE
 
     local x3_deps
     x3_deps=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-x-default-i3") | .waits_on[]') || true
-    if echo "$x3_deps" | grep -q '^pr-repo-y-default$'; then
+    if grep -q '^pr-repo-y-default$' <<<"$x3_deps"; then
         pass "$name (repo-x split half i3 waits on repo-y)"
     else
         fail "$name" "pr-repo-x-default-i3 should wait on pr-repo-y-default; got: $x3_deps"
@@ -2305,8 +2307,8 @@ FIXTURE
     # about atomicity across PR groups / compatible-intermediate sequence).
     local diag="" drc=0
     diag=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>&1 >/dev/null) || drc=$?
-    if echo "$diag" | grep -qi "atomicity across PR groups" \
-        && echo "$diag" | grep -qi "compatible-intermediate sequence"; then
+    if grep -qi "atomicity across PR groups" <<<"$diag" \
+        && grep -qi "compatible-intermediate sequence" <<<"$diag"; then
         pass "$name (diagnostic carries reshaping guidance)"
     else
         fail "$name" "diagnostic missing reshaping guidance; got: $diag"
@@ -2728,13 +2730,13 @@ FIXTURE
     fi
     pass "$name (non-zero exit)"
 
-    if echo "$stderr_out" | grep -q "name no sibling outline"; then
+    if grep -q "name no sibling outline" <<<"$stderr_out"; then
         pass "$name (message names the defect)"
     else
         fail "$name" "expected 'name no sibling outline' in stderr, got: $stderr_out"
     fi
 
-    if echo "$stderr_out" | grep -q "issue 2"; then
+    if grep -q "issue 2" <<<"$stderr_out"; then
         pass "$name (message names the offending outline)"
     else
         fail "$name" "expected the offending outline number in stderr, got: $stderr_out"
@@ -2856,13 +2858,13 @@ FIXTURE
         fail "$name" "expected exit 2, got $rc"
     fi
 
-    if echo "$stderr_out" | grep -q "no issue outlines"; then
+    if grep -q "no issue outlines" <<<"$stderr_out"; then
         pass "$name (existing no-outlines message preserved)"
     else
         fail "$name" "expected 'no issue outlines' in stderr, got: $stderr_out"
     fi
 
-    if echo "$stderr_out" | grep -q "1. feat: foundation"; then
+    if grep -q "1. feat: foundation" <<<"$stderr_out"; then
         pass "$name (names the headings it found instead)"
     else
         fail "$name" "expected the stray heading text in stderr, got: $stderr_out"
@@ -2944,7 +2946,7 @@ FIXTURE
         fail "$name" "expected a non-zero exit with no binary available"
     fi
 
-    if echo "$stderr_out" | grep -q "shirabe binary not found"; then
+    if grep -q "shirabe binary not found" <<<"$stderr_out"; then
         pass "$name (message names the missing binary)"
     else
         fail "$name" "expected 'shirabe binary not found' in stderr, got: $stderr_out"
@@ -3014,7 +3016,7 @@ STUB
         fail "$name" "expected a non-zero exit on an unknown envelope schema"
     fi
 
-    if echo "$stderr_out" | grep -q "unrecognized outline envelope"; then
+    if grep -q "unrecognized outline envelope" <<<"$stderr_out"; then
         pass "$name (message names the skew)"
     else
         fail "$name" "expected 'unrecognized outline envelope' in stderr, got: $stderr_out"
@@ -3365,7 +3367,7 @@ assert_outline_refusal() {
     local out="" err="" rc=0
     err=$("$PARSER_SCRIPT" "$path" 2>&1 >/dev/null) || rc=$?
     out=$("$PARSER_SCRIPT" "$path" 2>/dev/null) || true
-    if [[ $rc -eq $want && -z "$out" ]] && echo "$err" | grep -qF -- "$pattern"; then
+    if [[ $rc -eq $want && -z "$out" ]] && grep -qF -- "$pattern" <<<"$err"; then
         pass "$name (exit $want, empty stdout, names the defect)"
     else
         fail "$name" "expected exit $want, empty stdout, stderr containing '$pattern'; got rc=$rc stdout=$out stderr=$err"
@@ -3478,8 +3480,8 @@ STUB
     local rc=0 out="" err=""
     err=$(SHIRABE_BIN="$TEST_DIR/old-shirabe" "$PARSER_SCRIPT" "$TEST_DIR/plan-skew.md" 2>&1 >/dev/null) || rc=$?
     out=$(SHIRABE_BIN="$TEST_DIR/old-shirabe" "$PARSER_SCRIPT" "$TEST_DIR/plan-skew.md" 2>/dev/null) || true
-    if [[ $rc -eq 1 && -z "$out" ]] && echo "$err" | grep -q "out of step; rebuild or reinstall" \
-        && ! echo "$err" | grep -q "missing a Repo/Group"; then
+    if [[ $rc -eq 1 && -z "$out" ]] && grep -q "out of step; rebuild or reinstall" <<<"$err" \
+        && ! grep -q "missing a Repo/Group" <<<"$err"; then
         pass "$name (exit 1 with rebuild guidance)"
     else
         fail "$name" "expected exit 1 and rebuild guidance; got rc=$rc stderr=$err"
@@ -3541,6 +3543,225 @@ FIXTURE
     teardown
 }
 
+# ── plan/v2 step plans ──
+#
+# The minimal step plan the validator's own tests use: steps 1 and 2
+# detailed (step 2 depends on step 1), step 3 a one-line outline. Each mode
+# variant is derived from it by a one-line rewrite of the frontmatter.
+PLAN_V2_FIXTURE="$REPO_ROOT/crates/shirabe-validate/tests/fixtures/PLAN-v2-minimal.md"
+
+# plan_v2_variant <out> <mode> [tracking_level] -- copy the fixture with its
+# execution_mode set to <mode> and, when given, a tracking_level line added.
+plan_v2_variant() {
+    local out="$1" mode="$2" level="${3:-}"
+    awk -v mode="$mode" -v level="$level" '
+        /^execution_mode: / && !done {
+            print "execution_mode: " mode
+            if (level != "") print "tracking_level: " level
+            done = 1
+            next
+        }
+        { print }
+    ' "$PLAN_V2_FIXTURE" > "$out"
+}
+
+# The task names, edges and ISSUE_SOURCE values, as one compact JSON value.
+plan_v2_shape() {
+    jq -c '[.[] | [.name, .waits_on, .vars.ISSUE_SOURCE, .vars.ARTIFACT_PREFIX]]'
+}
+
+test_plan_v2_single_pr() {
+    local name="plan/v2 single-pr: one step-<N> task per step, in order, with its edges"
+    setup
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$PLAN_V2_FIXTURE" 2>"$TEST_DIR/stderr") || rc=$?
+    local got
+    got=$(printf '%s' "$output" | plan_v2_shape 2>/dev/null) || got=""
+    local want='[["step-1",[],"plan_outline","step-1"],["step-2",["step-1"],"plan_outline","step-2"],["step-3",["step-2"],"plan_outline","step-3"]]'
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+    elif [[ "$got" != "$want" ]]; then
+        fail "$name" "expected $want, got $got"
+    elif grep -q "asymmetric empty-deps" "$TEST_DIR/stderr"; then
+        fail "$name" "an outline step's missing dependencies line raised the asymmetry warning"
+    else
+        pass "$name"
+    fi
+
+    teardown
+}
+
+test_plan_v2_multi_pr() {
+    local name="plan/v2 multi-pr: the same task names and edges as single-pr"
+    setup
+
+    local level got rc output
+    local want='[["step-1",[],"plan_item","step-1"],["step-2",["step-1"],"plan_item","step-2"],["step-3",["step-2"],"plan_item","step-3"]]'
+    for level in "" none; do
+        plan_v2_variant "$TEST_DIR/PLAN-multi.md" multi-pr "$level"
+        rc=0
+        output=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-multi.md" 2>"$TEST_DIR/stderr") || rc=$?
+        got=$(printf '%s' "$output" | plan_v2_shape 2>/dev/null) || got=""
+        if [[ $rc -ne 0 ]]; then
+            fail "$name" "tracking_level '${level:-absent}': expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+        elif [[ "$got" != "$want" ]]; then
+            fail "$name" "tracking_level '${level:-absent}': expected $want, got $got"
+        else
+            pass "$name (tracking_level ${level:-absent})"
+        fi
+    done
+
+    teardown
+}
+
+test_plan_v2_unsupported_tracking_level() {
+    local name="plan/v2 refuses a tracking level other than none"
+    setup
+
+    local mode level rc
+    for mode in single-pr multi-pr; do
+        for level in issues issues-and-milestone; do
+            plan_v2_variant "$TEST_DIR/PLAN-tracked.md" "$mode" "$level"
+            rc=0
+            "$PARSER_SCRIPT" "$TEST_DIR/PLAN-tracked.md" >/dev/null 2>"$TEST_DIR/stderr" || rc=$?
+            if [[ $rc -ne 2 ]]; then
+                fail "$name" "$mode/$level: expected exit 2, got $rc"
+            elif ! grep -q "plan/v2 supports only tracking_level 'none'" "$TEST_DIR/stderr"; then
+                fail "$name" "$mode/$level: message does not say plan/v2 supports only none: $(cat "$TEST_DIR/stderr")"
+            else
+                pass "$name ($mode, $level)"
+            fi
+        done
+    done
+
+    teardown
+}
+
+test_plan_v2_coordinated_refused() {
+    local name="plan/v2 refuses execution_mode coordinated, naming plan/v1"
+    setup
+
+    plan_v2_variant "$TEST_DIR/PLAN-coord.md" coordinated none
+    local rc=0
+    "$PARSER_SCRIPT" "$TEST_DIR/PLAN-coord.md" >/dev/null 2>"$TEST_DIR/stderr" || rc=$?
+    if [[ $rc -eq 2 ]] && grep -q "coordinated plan stays on plan/v1" "$TEST_DIR/stderr"; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 2 naming plan/v1, got $rc: $(cat "$TEST_DIR/stderr")"
+    fi
+
+    teardown
+}
+
+test_plan_v2_unresolved_step_refuses() {
+    local name="plan/v2 refuses a dependency that names no step"
+    setup
+
+    sed 's/^\*\*Dependencies\*\*: Step 1$/**Dependencies**: Step 7/' "$PLAN_V2_FIXTURE" > "$TEST_DIR/PLAN-dangling.md"
+    local rc=0
+    "$PARSER_SCRIPT" "$TEST_DIR/PLAN-dangling.md" >/dev/null 2>"$TEST_DIR/stderr" || rc=$?
+    if [[ $rc -eq 2 ]] && grep -q "step 2 declares dependencies that name no step: Step 7" "$TEST_DIR/stderr"; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 2 naming step 2 and Step 7, got $rc: $(cat "$TEST_DIR/stderr")"
+    fi
+
+    teardown
+}
+
+# Outline steps run in step order: each waits on the step before it, while a
+# detailed step keeps exactly what its **Dependencies**: line declares. The
+# validator's PLAN-v2-valid.md has two outline steps in a row (3 and 4); the
+# variant makes detailed step 2 declare `None`, which must leave it with no
+# edge even though it follows step 1.
+test_plan_v2_outline_steps_wait_on_the_step_before() {
+    local name="plan/v2 outline steps wait on the step before them; detailed steps keep their declared edges"
+    setup
+
+    local valid="$REPO_ROOT/crates/shirabe-validate/tests/fixtures/PLAN-v2-valid.md"
+    local output="" rc=0 got want mode
+    for mode in single-pr multi-pr; do
+        sed "s/^execution_mode: .*/execution_mode: $mode/" "$valid" > "$TEST_DIR/PLAN-outlines.md"
+        rc=0
+        output=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-outlines.md" 2>"$TEST_DIR/stderr") || rc=$?
+        got=$(printf '%s' "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || got=""
+        want='[["step-1",[]],["step-2",["step-1"]],["step-3",["step-2"]],["step-4",["step-3"]]]'
+        if [[ $rc -ne 0 ]]; then
+            fail "$name" "$mode: expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+        elif [[ "$got" != "$want" ]]; then
+            fail "$name" "$mode: expected $want, got $got"
+        else
+            pass "$name ($mode, steps 3 and 4 are outlines)"
+        fi
+    done
+
+    sed 's/^\*\*Dependencies\*\*: Step 1$/**Dependencies**: None/' "$PLAN_V2_FIXTURE" > "$TEST_DIR/PLAN-none.md"
+    rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-none.md" 2>"$TEST_DIR/stderr") || rc=$?
+    got=$(printf '%s' "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || got=""
+    want='[["step-1",[]],["step-2",[]],["step-3",["step-2"]]]'
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "Dependencies None: expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+    elif [[ "$got" != "$want" ]]; then
+        fail "$name" "Dependencies None: expected $want, got $got"
+    else
+        pass "$name (a detailed step declaring None keeps no edge)"
+    fi
+
+    teardown
+}
+
+test_unknown_schema_names_both_versions() {
+    local name="exit 2 on a schema that is neither plan/v1 nor plan/v2"
+    setup
+
+    sed 's/^schema: plan\/v2$/schema: plan\/v3/' "$PLAN_V2_FIXTURE" > "$TEST_DIR/PLAN-v3.md"
+    local rc=0
+    "$PARSER_SCRIPT" "$TEST_DIR/PLAN-v3.md" >/dev/null 2>"$TEST_DIR/stderr" || rc=$?
+    if [[ $rc -eq 2 ]] && grep -q "'plan/v1' or 'plan/v2', got: 'plan/v3'" "$TEST_DIR/stderr"; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 2 naming both versions, got $rc: $(cat "$TEST_DIR/stderr")"
+    fi
+
+    teardown
+}
+
+# A step plan whose titles carry a command substitution, backticks, a leading
+# `--`, an ANSI escape, a closing keyword and a mention. The fixture is
+# /execute's (skills/execute/scripts/testdata/), shared with the scope and
+# execute readers' suites. Task names come from step numbers, so nothing in a
+# title reaches the task list or runs: four tasks in step order, no PWNED file.
+test_plan_v2_hostile_titles() {
+    local name="plan/v2 hostile step titles: exit 0, step-<N> tasks only, nothing runs"
+    setup
+
+    local fx="$REPO_ROOT/skills/execute/scripts/testdata/PLAN-v2-hostile.md"
+    local output="" rc=0 got
+    if ! "$SHIRABE_BIN" validate "$fx" >"$TEST_DIR/validate.out" 2>&1; then
+        fail "$name" "the fixture does not pass shirabe validate: $(cat "$TEST_DIR/validate.out")"
+        teardown
+        return
+    fi
+    output=$(cd "$TEST_DIR" && "$PARSER_SCRIPT" "$fx" 2>"$TEST_DIR/stderr") || rc=$?
+    got=$(printf '%s' "$output" | plan_v2_shape 2>/dev/null) || got=""
+    local want='[["step-1",[],"plan_outline","step-1"],["step-2",["step-1"],"plan_outline","step-2"],["step-3",["step-2"],"plan_outline","step-3"],["step-4",["step-3"],"plan_outline","step-4"]]'
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+    elif [[ "$got" != "$want" ]]; then
+        fail "$name" "expected $want, got $got"
+    elif [[ -e "$TEST_DIR/PWNED" || -e "$SCRIPT_DIR/PWNED" || -e "$REPO_ROOT/PWNED" ]]; then
+        fail "$name" "a PWNED file appeared"
+    elif grep -q 'PWNED' <<<"$output"; then
+        fail "$name" "title text reached the task list: $output"
+    else
+        pass "$name"
+    fi
+
+    teardown
+}
+
 build_shirabe_binary
 
 echo "Running plan-to-tasks.sh tests..." >&2
@@ -3590,6 +3811,14 @@ test_single_pr_all_empty_deps_no_warning
 test_single_pr_single_issue_no_warning
 test_single_pr_section_header_deps_unchanged
 test_single_pr_slug_collision
+test_plan_v2_single_pr
+test_plan_v2_multi_pr
+test_plan_v2_unsupported_tracking_level
+test_plan_v2_coordinated_refused
+test_plan_v2_unresolved_step_refuses
+test_plan_v2_outline_steps_wait_on_the_step_before
+test_plan_v2_hostile_titles
+test_unknown_schema_names_both_versions
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2

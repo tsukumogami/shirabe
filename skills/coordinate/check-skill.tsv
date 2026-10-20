@@ -1,0 +1,104 @@
+# check-skill.tsv -- how scripts/check-skill.sh orders and selects this
+# skill's suites. scripts/check-skill.sh's header defines both kinds of row;
+# .claude/shirabe-extensions/README.md has the rule for keeping them current.
+# Tab-separated.
+#
+# shared <file under scripts/>: a change to it runs every suite. A file
+# sourced by two or more of the skill's files is shared without a row; these
+# are the ones that check can't see: the template's own scripts, which every
+# engine suite drives; the record codec, which jq includes and nearly every
+# script reads or writes through; and run-tests.sh, which CI runs every suite
+# through.
+shared	coord-verdict.sh
+shared	coord-log.sh
+shared	coordinate-open.sh
+shared	coordinate-open.wording.tsv
+shared	record-codec.jq
+shared	record-parse.sh
+shared	record-render.sh
+shared	run-tests.sh
+
+# cost <suite> <seconds>: the suite's CPU seconds (user plus system), measured
+# on main at 05d3a50 with four suites at a time on a loaded host. Suites
+# launch costliest first; a suite with no row launches after the rest. The
+# rows of the suites #830 cut are scaled by each suite's measured after/before
+# ratio, so they stay on the same scale as the rest.
+cost	coordinate_1_engine_test.sh	271
+cost	coordinate_2_engine_test.sh	255
+cost	coordinate_3_engine_test.sh	237
+cost	coordinate_4_engine_test.sh	200
+cost	decision-next_test.sh	196
+cost	deferral-check_test.sh	195
+cost	pick-facts_test.sh	193
+cost	decision-archive_test.sh	191
+cost	record-decision_test.sh	186
+cost	decisions-replay_engine_test.sh	176
+cost	unit-cost_test.sh	164
+cost	teardown-inventory_test.sh	154
+cost	land-check_test.sh	141
+cost	record-confirm_test.sh	139
+cost	roadmap-status_test.sh	135
+cost	pause_engine_test.sh	118
+cost	reconcile-check_test.sh	113
+cost	record-state_test.sh	112
+cost	milestone-verdicts_test.sh	106
+cost	report-questions_test.sh	100
+cost	milestone-verdict_engine_test.sh	71
+cost	report-facts_test.sh	63
+cost	reconcile-pass_test.sh	59
+cost	record-write_test.sh	57
+cost	dispatch-worker_test.sh	56
+cost	teardown-pass_engine_test.sh	55
+cost	land-merge_test.sh	53
+cost	holding-link_test.sh	48
+cost	board-land_engine_test.sh	47
+cost	quiet-check_test.sh	46
+cost	decision-render_test.sh	42
+cost	board-verdict_test.sh	40
+cost	session-store_engine_test.sh	32
+cost	closeout-read_test.sh	30
+cost	record-source_test.sh	30
+cost	board-record_test.sh	29
+cost	handover_engine_test.sh	29
+cost	record-codec_test.sh	25
+cost	writeback_engine_test.sh	25
+cost	render-brief_test.sh	19
+cost	record-holding_test.sh	17
+cost	record-find_test.sh	16
+cost	dispatch-path_engine_test.sh	15
+cost	merged-facts_test.sh	15
+cost	record-hold_test.sh	15
+cost	reconcile-read_test.sh	14
+cost	record-append_test.sh	14
+cost	record-move_test.sh	14
+cost	rotation-close_test.sh	14
+cost	coord-log_test.sh	13
+cost	roadmap-features_test.sh	13
+cost	posture-read_test.sh	11
+cost	merge-confirm_test.sh	10
+cost	record-open_test.sh	10
+cost	skill-hygiene_test.sh	10
+cost	teardown-pass_test.sh	10
+cost	predecessor-handoff_test.sh	7
+cost	reconcile-settle_test.sh	7
+cost	decision-phrasings_test.sh	6
+cost	milestone_test.sh	6
+cost	need-check_test.sh	6
+cost	progress-view_test.sh	6
+cost	reconcile-pass_engine_test.sh	6
+cost	coordinate-open_engine_test.sh	5
+cost	reconcile-report_test.sh	5
+cost	wait-target_test.sh	5
+cost	teardown-handoff_test.sh	4
+cost	coord-log_engine_test.sh	3
+cost	coord-verdict-table_test.sh	3
+cost	rule-coverage_test.sh	3
+cost	coordinate-template-structure_engine_test.sh	2
+cost	report-pr_test.sh	2
+cost	start-check_test.sh	2
+cost	dispatch-common_test.sh	1
+cost	panel-evidence_test.sh	1
+cost	pause-read_test.sh	1
+cost	coordinate-report_test.sh	0
+cost	skill-states_test.sh	0
+cost	squash-message_test.sh	0

@@ -3,7 +3,7 @@
 # commands from.
 #
 # A sealed verdict can't carry a bad instance name: teardown-handoff.sh
-# refuses one when it seals (teardown-pass_engine_test.sh covers that). The
+# refuses one when it seals (teardown-handoff_test.sh covers that). The
 # pass still checks every field it builds a command from, so a verdict that
 # somehow carried one would stop there. This feeds such verdicts straight to
 # `teardown-pass.sh run` through a stand-in for `teardown-handoff.sh read`,
@@ -17,6 +17,17 @@
 # pass's own capture deadline each leave the exit code, the last line and
 # RESULT as a capturing pass leaves them, add exactly one warning line on
 # stderr, and leave no capture process running.
+#
+# And what the pass archives: the instance's own Claude Code project
+# directory and a worktree's (the worker's main transcript, three subagent
+# transcripts across the two, and a relocated copy repeating two of the
+# worker's message ids) are copied whole into claude-projects/ and listed in
+# the README; a sibling instance's directory sharing the name's prefix is not
+# archived and is listed `cwd outside the instance`; a symbolic link is
+# never followed and is listed; nothing is written to transcript/; a file
+# that can't be copied refuses the pass before any destroy; an unreadable
+# linked pull request leaves the pass done (credit never gates); and a
+# capture whose credit reads hang still ends inside TEARDOWN_CAPTURE_SECS.
 #
 # Usage: bash skills/coordinate/scripts/teardown-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure. bash 3.2.
@@ -49,8 +60,10 @@ done
 chmod +x "$S"/*.sh "$T/bin"/*
 : >"$T/ws/.niwa/workspace.toml"
 : >"$T/ws/.niwa/instance.json"
-export VERDICT_FILE="$T/verdict" PATH="$T/bin:$PATH" HOME="$T/home"
-mkdir -p "$HOME"
+# Its own HOME and koto home, inside the scratch directory, so suites run
+# side by side share no path.
+export VERDICT_FILE="$T/verdict" PATH="$T/bin:$PATH" HOME="$T/home" KOTO_SESSIONS_BASE="$T/koto-home"
+mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 
 KS=keyseal:7:0000000000000000000000000000000000000000000000000000000000000000
 # verdict <name> <path> <job> <session>: a ready verdict with those fields.
@@ -80,6 +93,23 @@ verdict tsuku+w5 /i/w5 ';rm' 4b3597d2-6184-4a48
 refused "a job id that isn't one" "job id is not a job id"
 verdict tsuku+w5 /i/w5 4b3597d2 'x y'
 refused "a session id that isn't one" "session id is not a session id"
+
+# Removed mode's two forms, `instance - <path>` and `job -`, stand only beside
+# `removed yes`, and beside it the instance name must be `-`.
+verdict - /i/w5 4b3597d2 4b3597d2-6184-4a48
+refused "instance - without removed yes" "instance name is not a plain name"
+verdict tsuku+w5 /i/w5 4b3597d2 4b3597d2-6184-4a48
+sed -i.bak 's/^job .*/job -/' "$VERDICT_FILE"
+refused "job - without removed yes" "job id is not a job id"
+verdict tsuku+w5 /i/w5 4b3597d2 4b3597d2-6184-4a48
+printf 'removed yes\n' >>"$VERDICT_FILE"
+refused "removed yes beside a named instance" "must be -"
+verdict - relative/w5 4b3597d2 4b3597d2-6184-4a48
+printf 'removed yes\n' >>"$VERDICT_FILE"
+refused "removed yes with a relative path" "instance path is not absolute"
+verdict - /i/w5 ';rm' 4b3597d2-6184-4a48
+printf 'removed yes\n' >>"$VERDICT_FILE"
+refused "removed yes with a job id that isn't one" "job id is not a job id"
 
 # ---------------------------------------------------------------------------
 # Whole passes, and the cost capture inside them.
@@ -132,6 +162,12 @@ case "$*" in
     "run list --repo acme/widgets --branch feat/w5 "*)
         echo '[{"databaseId":7,"headSha":"0123456789012345678901234567890123456789","attempt":1,"status":"completed","conclusion":"success","updatedAt":"2026-10-01T11:00:00Z"}]' ;;
     "api --method GET repos/acme/widgets --jq .private") echo false ;;
+    "pr view 601 --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
+        hang; echo "HTTP 502" >&2; exit 1 ;;
+    "pr view 6"[0-9][0-9]" --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
+        hang
+        [ -f "$ST/slow" ] && { echo $$ >>"$ST/pids"; exec sleep 30; }
+        echo '{"state":"MERGED","createdAt":"2026-10-01T10:00:00Z","mergedAt":"2026-10-01T10:30:00Z","mergeCommit":{"oid":"0123456789012345678901234567890123456789"},"headRefName":"feat/w5-b","baseRefName":"main","headRepositoryOwner":{"login":"acme"}}' ;;
     "api --method POST "*)
         hang
         [ -f "$ST/post-fails" ] && { echo "HTTP 502" >&2; exit 1; }
@@ -160,17 +196,36 @@ chmod +x "$P2"/*.sh "$B2"/*
 IP="$T/inst/w5"
 JID=4b3597d2
 SID=$JID-6184-4a48
-TR="$HOME/.claude/projects/p/$SID.jsonl"
+# Claude Code's project directories: the instance's own (ENC), a worktree's
+# under it, and a sibling instance's whose name extends this one's.
+ENC=$(printf '%s' "$IP" | sed 's/[^A-Za-z0-9]/-/g')
+PJ="$HOME/.claude/projects"
+TR="$PJ/$ENC/$SID.jsonl"
+COPY=$JID-aaaa-bbbb
 export TEARDOWN_CLAUDE_HOME="$HOME/.claude" TEARDOWN_KOTO_SESSIONS="$T/ksess" TEARDOWN_ARCHIVE_DIR="$T/archive" \
     KOTO_REQUESTS="$T/requests" UNIT_COST_FETCH_SECS=1 UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=2
-# setup_run: a fresh instance, job, transcript, worker session and request,
-# both listings, an empty log, and the real unit-cost.sh.
+# msg <id> <output tokens> <cwd>: one assistant line.
+msg() { printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-01T09:00:30.000Z","message":{"id":"%s","usage":{"input_tokens":1,"output_tokens":%s}}}\n' "$3" "$1" "$2"; }
+# setup_run: a fresh instance, job, transcripts, worker session and request,
+# both listings, an empty log, and the real unit-cost.sh. The worker's
+# transcript links pull request 601 (unreadable) and 602 (created at 10:00,
+# linked 20 seconds later: credited).
 setup_run() {
-    rm -rf "$T/archive" "$T/ksess" "$T/requests" "$TEARDOWN_CLAUDE_HOME" "$IP" "$ST"
-    mkdir -p "$ST" "$IP" "$(dirname "$TR")" "$TEARDOWN_CLAUDE_HOME/jobs/$JID" "$T/ksess/issue_7" "$T/requests/r_w5"
+    rm -rf "$T/archive" "$T/ksess" "$T/requests" "$TEARDOWN_CLAUDE_HOME" "$IP" "$ST" "$T/outside"
+    mkdir -p "$ST" "$IP" "$PJ/$ENC/$SID/subagents" "$PJ/$ENC-wt/$SID/subagents" "$PJ/$ENC-2" "$T/outside" \
+        "$TEARDOWN_CLAUDE_HOME/jobs/$JID" "$T/ksess/issue_7" "$T/requests/r_w5"
     : >"$ST/log"
     : >"$ST/pids"
-    printf '{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":1,"output_tokens":7}}}\n' >"$TR"
+    { msg m1 7 "$IP"; msg m2 3 "$IP"
+      printf '{"type":"pr-link","prNumber":601,"prRepository":"acme/widgets","timestamp":"2026-10-01T10:00:20.000Z"}\n'
+      printf '{"type":"pr-link","prNumber":602,"prRepository":"acme/widgets","timestamp":"2026-10-01T10:00:20.000Z"}\n'; } >"$TR"
+    msg s1 1 "$IP" >"$PJ/$ENC/$SID/subagents/agent-1.jsonl"
+    msg s2 2 "$IP/wt" >"$PJ/$ENC-wt/$SID/subagents/agent-2.jsonl"
+    msg s3 4 "$IP/wt" >"$PJ/$ENC-wt/$SID/subagents/agent-3.jsonl"
+    { msg m1 7 "$IP"; msg m2 3 "$IP"; msg r1 5 "$IP/wt"; } >"$PJ/$ENC-wt/$COPY.jsonl"
+    msg x1 900 "$IP-2" >"$PJ/$ENC-2/$JID-cccc-dddd.jsonl"
+    msg far 800 "$IP" >"$T/outside/far.jsonl"
+    ln -s "$T/outside/far.jsonl" "$PJ/$ENC/linked.jsonl"
     printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/$JID/state.json"
     jq -nc --arg e "$IP" '{schema_version: 1, workflow: "issue_7", template_name: "work-on", template_source_file: "work-on.md", execution_dir: $e}' \
         >"$T/ksess/issue_7/koto-issue_7.state.jsonl"
@@ -236,8 +291,24 @@ eq_ "the archive keeps unit-cost.json, keyed by its name" "unit-cost/1 ${ARCHD##
 grep -qxF '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.' "$ARCHD/README.md" \
     && ok "the README says what unit-cost.json is" || bad "the README says what unit-cost.json is" "$(cat "$ARCHD/README.md")"
 grep -q 'unit-cost.json' "$ARCHD/MANIFEST" && bad "unit-cost.json is not in the MANIFEST" || ok "unit-cost.json is not in the MANIFEST"
-eq_ "the posted text opens with the summary line" "Cost of w5 (${ARCHD##*/}): 1 sessions, 7 output tokens, dispatch to merge 151.0 min." \
+eq_ "the posted text opens with the summary line" "Cost of w5 (${ARCHD##*/}): 1 sessions, 17 output tokens, dispatch to merge 151.0 min." \
     "$(head -n 1 "$ST/posted.txt")"
+for f in "$ENC/$SID.jsonl" "$ENC/$SID/subagents/agent-1.jsonl" "$ENC-wt/$SID/subagents/agent-2.jsonl" "$ENC-wt/$SID/subagents/agent-3.jsonl" "$ENC-wt/$COPY.jsonl"; do
+    [ -f "$ARCHD/claude-projects/$f" ] && ok "archived: claude-projects/$f" || bad "archived: claude-projects/$f" "$(cd "$ARCHD" && find . | sort)"
+done
+grep -q " claude-projects/$ENC-wt/$COPY.jsonl\$" "$ARCHD/MANIFEST" && ok "  ... each in the MANIFEST" || bad "  ... each in the MANIFEST" "$(cat "$ARCHD/MANIFEST")"
+[ -e "$ARCHD/claude-projects/$ENC-2" ] && bad "a sibling instance's directory sharing the name's prefix is not archived" || ok "a sibling instance's directory sharing the name's prefix is not archived"
+[ -e "$ARCHD/claude-projects/$ENC/linked.jsonl" ] && bad "a symbolic link is never followed or copied" || ok "a symbolic link is never followed or copied"
+[ -e "$ARCHD/transcript" ] && bad "nothing is written to transcript/" || ok "nothing is written to transcript/"
+eq_ "the README lists the directories taken and skipped, and the link" \
+    "- Project directory taken: $ENC|- Project directory taken: $ENC-wt|- Project directory skipped (cwd outside the instance): $ENC-2|- Symbolic link skipped: claude-projects/$ENC/linked.jsonl" \
+    "$(grep -e '^- Project directory' -e '^- Symbolic link' "$ARCHD/README.md" | tr '\n' '|' | sed 's/|$//')"
+eq_ "only the user can read what the pass wrote" "drwx------|drwx------" \
+    "$(ls -ld "$ARCHD/claude-projects" | cut -c1-10)|$(ls -ld "$ARCHD/claude-projects/$ENC-wt/$SID" | cut -c1-10)"
+eq_ "the worker row: its transcript and three subagents in two directories; nested only the copy's own message" "5 17|1 5" \
+    "$(jq -r '"\(.tokens.worker.messages) \(.tokens.worker.output)|\(.tokens.nested.messages) \(.tokens.nested.output)"' "$ARCHD/unit-cost.json" 2>&1)"
+eq_ "an unreadable linked pull request is left out and the pass is done: credit never gates" "acme/widgets#600 holding|acme/widgets#602 session|read failed|0 done" \
+    "$(jq -r '"\([.pulls[] | "\(.repo)#\(.number) \(.via)"] | join("|"))|\([.missing[] | select(.figure == "pulls") | .reason] | join(","))"' "$ARCHD/unit-cost.json" 2>&1)|$RC $RES"
 eq_ "  ... green read from the run on the pull request's head, the pull request named" "121 measured|acme/widgets#600" \
     "$(jq -r '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\(.pulls[0].repo)#\(.pulls[0].number)"' "$ARCHD/unit-cost.json" 2>&1)"
 
@@ -263,6 +334,51 @@ setup_run
 run_pass
 unchanged "a failing post"
 [ -n "$(line_of 'gh api --method POST')" ] && ok "  ... the post was tried" || bad "  ... the post was tried" "$(cat "$ST/log")"
+
+echo "== a file that can't be copied =="
+if [ "$(id -u)" = 0 ]; then
+    echo "skip: root reads a file of any mode"
+else
+    setup_run
+    printf 'memory\n' >"$PJ/$ENC/memory.md"
+    chmod 000 "$PJ/$ENC/memory.md"
+    run_pass
+    chmod 600 "$PJ/$ENC/memory.md"
+    [ "$RC" = 1 ] && ok "the pass refuses, exit 1" || bad "the pass refuses, exit 1" "exit $RC: $OUT"
+    case "$LAST" in "teardown-pass: refused: cannot copy $PJ/$ENC/memory.md") ok "  ... naming the file" ;; *) bad "  ... naming the file" "$LAST" ;; esac
+    case "$(cat "$ARCHD/RESULT" 2>&1)" in "refused at preserve: "*) ok "  ... RESULT says refused" ;; *) bad "  ... RESULT says refused" "$(cat "$ARCHD/RESULT" 2>&1)" ;; esac
+    [ -z "$(line_of 'niwa destroy')" ] && [ -z "$(line_of 'claude rm')" ] && ok "  ... and no niwa destroy or claude rm runs" || bad "  ... and no niwa destroy or claude rm runs" "$(cat "$ST/log")"
+fi
+
+echo "== credit reads that hang =="
+setup_run
+for n in 610 611 612 613 614 615 616 617 618 619 620 621 622 623 624 625 626 627 628 629; do
+    printf '{"type":"pr-link","prNumber":%s,"prRepository":"acme/widgets","timestamp":"2026-10-01T10:00:20.000Z"}\n' "$n" >>"$TR"
+done
+: >"$ST/slow"
+START=$(date +%s)
+TEARDOWN_CAPTURE_SECS=12 UNIT_COST_BUDGET_SECS=5 run_pass
+ELAPSED=$(($(date +%s) - START))
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "twenty hung credit reads: the pass is done" || bad "twenty hung credit reads: the pass is done" "exit $RC: $OUT $ERR"
+[ -z "$ERR" ] && ok "  ... the capture ended inside TEARDOWN_CAPTURE_SECS: no warning" || bad "  ... the capture ended inside TEARDOWN_CAPTURE_SECS: no warning" "$ERR"
+[ "$ELAPSED" -lt 12 ] && ok "  ... in ${ELAPSED}s" || bad "  ... the capture ended inside TEARDOWN_CAPTURE_SECS" "${ELAPSED}s"
+# The first linked pull request (601) is unreadable, so its reason comes
+# first; each hung read is cut at its own bound, and the budget stops the rest.
+eq_ "  ... the entry keeps one pulls reason, the first: read failed" "read failed" \
+    "$(jq -r '[.missing[] | select(.figure == "pulls") | .reason] | join(",")' "$ARCHD/unit-cost.json" 2>&1)"
+STARTED=$(grep -c . "$ST/pids")
+[ "$STARTED" -lt 21 ] && ok "  ... the budget stopped the credit reads ($STARTED of 21 hung reads began)" \
+    || bad "  ... the budget stopped the credit reads" "$STARTED of 21 began"
+[ -s "$ST/posted.txt" ] && ok "  ... and posted" || bad "  ... and posted" ""
+tries=0
+while :; do
+    left=""
+    for p in $(cat "$ST/pids"); do kill -0 "$p" 2>/dev/null && left="$left $p"; done
+    [ -z "$left" ] || [ "$tries" -ge 20 ] && break
+    tries=$((tries + 1))
+    sleep 0.1
+done
+[ -z "$left" ] && ok "  ... no read left running" || { bad "  ... no read left running" "$left"; for p in $left; do kill "$p" 2>/dev/null; done; }
 
 echo "== a capture past the pass's capture deadline =="
 setup_run

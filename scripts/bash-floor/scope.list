@@ -1,0 +1,19 @@
+workflow: .github/workflows/check-scope-scripts.yml
+# Citations, intake, the /plan hop's consistency check, resume
+# routing, publish, and the exit records. A gh stub and a local bare
+# origin stand in for GitHub; the koto and shirabe cases skip here
+# and run on the Linux jobs that install both.
+skills/scope/scripts/check-citations_test.sh
+skills/scope/scripts/resolve-intent_test.sh
+skills/scope/scripts/check-recorded-intent_test.sh
+skills/scope/scripts/check-upstream_test.sh
+skills/scope/scripts/check-plan-mode_test.sh
+skills/scope/scripts/run-intake_test.sh
+skills/scope/scripts/scope-template_test.sh
+skills/scope/scripts/resume-probe_test.sh
+skills/scope/scripts/startable-issues_test.sh
+skills/scope/scripts/record-executed-report_test.sh
+skills/scope/scripts/record-scope-exit_test.sh
+skills/scope/scripts/publish-scoping-pr_test.sh
+skills/scope/scripts/print-scope-exit_test.sh
+skills/scope/scripts/check-hop-document_test.sh

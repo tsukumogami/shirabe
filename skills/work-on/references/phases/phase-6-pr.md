@@ -35,12 +35,14 @@ so a plain push is always enough.
 
 ## Create PR
 
-Author the title and body to the **mechanical** rule in
-`references/pr-body-conformance.md`, which `shirabe validate --pr-body`
+Author the title and body to the **mechanical** rule in the conformance text
+the `pr_creation` directive names, which `shirabe validate --pr-body`
 enforces in CI. `pr_creation`'s `pr_body_conformant` gate runs the same check
-on the pull request GitHub has before the run moves on, so a violation holds
-the state with a finding naming the rule: fix it with `gh pr edit` and submit
-`pr_status: created` again. For the **subjective**
+on the pull request GitHub has before the run moves on, plus one CI doesn't
+run: the banned words in `skills/writing-style/rules.yaml`, in the title and
+both parts of the body (`pr-body/banned-word`, PB5). Write that prose to
+`skills/writing-style`. A violation holds the state with a finding naming the
+rule: fix it with `gh pr edit` and submit `pr_status: created` again. For the **subjective**
 Part 2 section selection (which reviewer-context sections this change needs),
 apply the reasoning framework from your project's PR creation skill. Include
 `Fixes #<N>` in Part 2 — `pr_creation`'s `closing_keyword` gate reads the pull

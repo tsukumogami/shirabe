@@ -5,7 +5,7 @@
 #
 # It holds the closed argument patterns, one bounded GitHub read (bl_gh), the
 # session-log reads these scripts share (a sealed capture, the unit's
-# repository, the merge posture), and the merged-blob comparison. Every GitHub
+# repository, the merge posture), and the merge confirmation. Every GitHub
 # read here is `gh api --method GET`, a GraphQL query, or `gh pr view`; there
 # is no write in this file, so a lint over a check script and this file finds
 # only reads.
@@ -184,31 +184,22 @@ bl_posture_merge() {
 # record-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
 # row; 2 read failure.
 bl_human_holds_merge() {
-    local s=$1 ev facts repo ref scope name min body
+    local s=$1 ev min
     ev=$(bash "$HERE/coord-log.sh" evidence --session "$s" --state posture_ask 2>/dev/null)
     case $? in 0) ;; 1) return 1 ;; *) return 2 ;; esac
     [ "$(printf '%s' "$ev" | jq -r '.fields.merge // ""')" = permitted ] || return 1
     min=$(printf '%s' "$ev" | jq -r '.timestamp' | cut -c1-16)
     [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
-    facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s" 2>/dev/null) || return 2
-    repo=$(printf '%s' "$facts" | jq -r '.repo // ""')
-    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
-    scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
-    name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    bl_repo_ok "$repo" && bl_pr_ok "$ref" || return 2
-    case "$scope" in roadmap|discipline) ;; *) return 2 ;; esac
-    local t
-    t=$(mktemp "${TMPDIR:-/tmp}/board-lib.XXXXXX") || return 2
-    if ! bl_gh "$t" api --method GET "repos/$repo/issues/$ref"; then rm -f "$t" "$t.err" "$t.fail"; return 2; fi
-    body=$(jq -r '.body // ""' "$t")
-    rm -f "$t" "$t.err" "$t.fail"
-    local cont=issue
-    [ "$scope" = discipline ] && cont=pr
-    printf '%s' "$body" | bash "$HERE/record-parse.sh" --container "$cont" --expect-scope "$scope:$name" - 2>/dev/null \
-        | jq -e --arg min "$min" '
+    local d
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-posture.XXXXXX") || return 2
+    rs_record_api "$d/parsed" "$s" 2>/dev/null || { rm -rf "$d"; return 2; }
+    jq -e --arg min "$min" '
             [.reversals[]? | select(.from == "the human"
                 and (((.reversed // "") + " " + (.now // "")) | ascii_downcase | contains("posture"))
-                and ((.date // "")[0:16] >= $min))] | length > 0' >/dev/null
+                and ((.date // "")[0:16] >= $min))] | length > 0' "$d/parsed" >/dev/null
+    local rc=$?
+    rm -rf "$d"
+    return $rc
 }
 
 # bl_merge_posture <session>: the merge step's effective posture, printed as
@@ -239,63 +230,63 @@ bl_merge_posture() {
     printf '%s\n' "$eff"
 }
 
-# bl_path_uri <path>: URL-encode each segment of a repository path.
-bl_path_uri() { jq -rn --arg p "$1" '$p | split("/") | map(@uri) | join("/")'; }
-
 # bl_merge_compare <repo> <pr> <sha>: prints merged, unconfirmed or
-# not-merged. merged needs the pull request MERGED and every file it changed
-# to have the same blob on the default branch as at <sha> (a file absent at
-# <sha>, deleted by the pull request, must be absent there too). Blob reads
-# run in parallel, six at a time. Returns 0 printed; 2 a read failed.
+# not-merged, from GitHub's own record of the merge, in three reads whatever
+# the pull request's size (each bl_gh, which tries a failed read once more
+# under the same deadline): the pull request (its state, the head it merged
+# and its merge commit), the repository (its default branch), and one
+# comparison of the default branch with the merge commit. merged needs the
+# pull request MERGED, the head GitHub merged to be <sha>, and the merge
+# commit reachable from the default branch (the comparison reads behind or
+# identical). A merged head other than <sha>, or a merge commit not on the
+# default branch, is unconfirmed; an open or closed pull request is
+# not-merged. It relies on headRefOid to pin the content: GitHub builds the
+# squash commit from the head it records (a plain merge commit has that head
+# as a parent, and a rebase replays its commits), so what GitHub merged is the
+# verified head's change, whatever the method. It confirms the merge event,
+# not what the default branch holds now: a later change to the same files
+# doesn't bear on it, and a revert after the merge still reads merged. It
+# makes no per-file check (the issue's squash file-coverage check included),
+# since a file list would tie the call count to the pull request's size.
+# The comparison is with the default branch, as before, so a pull request
+# merged into another base reads unconfirmed. A comparison GitHub answers
+# with not found is a read failure, not unconfirmed: from here it can't be
+# told from a merge commit GitHub hasn't indexed yet. Returns 0 printed; 2 a
+# read failed, or the record is malformed (no merge commit on a merged pull
+# request, a head or status that isn't one).
 bl_merge_compare() {
-    local repo=$1 pr=$2 sha=$3 d state def n i p ref k a b
+    local repo=$1 pr=$2 sha=$3 d rec state head mc def st
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-merge.XXXXXX") || return 2
-    if ! bl_gh "$d/pr" pr view "$pr" --repo "$repo" --json state,files; then rm -rf "$d"; return 2; fi
-    state=$(jq -r '.state // ""' "$d/pr")
+    if ! bl_gh "$d/pr" pr view "$pr" --repo "$repo" --json state,headRefOid,mergeCommit; then rm -rf "$d"; return 2; fi
+    # One jq for the three fields, joined by `|` rather than a tab, so an
+    # empty field stays in place (read collapses runs of whitespace IFS).
+    rec=$(jq -r '[(.state // ""), (.headRefOid // ""), ((.mergeCommit // {}) | .oid? // "")] | map(tostring) | join("|")' "$d/pr") \
+        || { echo "$PROG: the pull request's record isn't JSON" >&2; rm -rf "$d"; return 2; }
+    IFS='|' read -r state head mc <<EOF
+$rec
+EOF
     case "$state" in
         MERGED) ;;
         OPEN|CLOSED) rm -rf "$d"; echo not-merged; return 0 ;;
         *) echo "$PROG: pull request state [$state]" >&2; rm -rf "$d"; return 2 ;;
     esac
-    jq -r '.files[]?.path' "$d/pr" > "$d/paths" || { rm -rf "$d"; return 2; }
+    bl_sha_ok "$head" || { echo "$PROG: #$pr merged head [$head] is not a sha" >&2; rm -rf "$d"; return 2; }
+    bl_sha_ok "$mc" || { echo "$PROG: #$pr is merged with no merge commit [$mc]" >&2; rm -rf "$d"; return 2; }
+    if [ "$head" != "$sha" ]; then
+        echo "$PROG: #$pr merged head $head, not the verified $sha" >&2
+        rm -rf "$d"; echo unconfirmed; return 0
+    fi
     if ! bl_gh "$d/repo" api --method GET "repos/$repo"; then rm -rf "$d"; return 2; fi
     def=$(jq -r '.default_branch // ""' "$d/repo")
     bl_branch_ok "$def" || { echo "$PROG: default branch [$def]" >&2; rm -rf "$d"; return 2; }
-    n=0
-    while IFS= read -r p; do
-        [ -n "$p" ] || continue
-        n=$((n + 1))
-        printf '%s\n' "$p" > "$d/path.$n"
-        for ref in "$def" "$sha"; do
-            [ "$ref" = "$def" ] && k=def || k=sha
-            ( bl_gh "$d/blob.$n.$k" api --method GET "repos/$repo/contents/$(bl_path_uri "$p")?ref=$(jq -rn --arg r "$ref" '$r | @uri')" ) &
-        done
-        [ $((n % 3)) -eq 0 ] && wait
-    done < "$d/paths"
-    wait
-    local result=merged
-    i=1
-    while [ "$i" -le "$n" ]; do
-        for k in def sha; do
-            if [ -f "$d/blob.$i.$k.fail" ]; then
-                if [ "$(cat "$d/blob.$i.$k.fail")" = notfound ]; then
-                    printf 'absent' > "$d/sha.$i.$k"
-                else
-                    rm -rf "$d"; return 2
-                fi
-            else
-                jq -r 'if type == "object" and .type == "file" and (.sha | type) == "string" then .sha else "not-a-file" end' "$d/blob.$i.$k" > "$d/sha.$i.$k" || { rm -rf "$d"; return 2; }
-            fi
-        done
-        a=$(cat "$d/sha.$i.def"); b=$(cat "$d/sha.$i.sha")
-        if [ "$a" != "$b" ] || [ "$a" = not-a-file ]; then
-            echo "$PROG: $(cat "$d/path.$i") differs on $def ($a) from $sha ($b)" >&2
-            result=unconfirmed
-        fi
-        i=$((i + 1))
-    done
+    if ! bl_gh "$d/cmp" api --method GET "repos/$repo/compare/$def...$mc"; then rm -rf "$d"; return 2; fi
+    st=$(jq -r '.status // ""' "$d/cmp")
     rm -rf "$d"
-    echo "$result"
+    case "$st" in
+        behind|identical) echo merged ;;
+        ahead|diverged) echo "$PROG: #$pr's merge commit $mc is not on $def ($st)" >&2; echo unconfirmed ;;
+        *) echo "$PROG: comparison status [$st]" >&2; return 2 ;;
+    esac
 }
 
 # bl_reviewed_fresh <repo> <base-branch> <reviewed> <head>: is the head the
@@ -355,28 +346,11 @@ bl_reviewed_fresh() {
 bl_holds_on() {
     local s=$1 repo=$2 pr=$3 d
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
-    bl_record_parsed "$s" "$d/parsed" || { rm -rf "$d"; return 2; }
+    rs_record_api "$d/parsed" "$s" || { rm -rf "$d"; return 2; }
     bl_holds_eval "$d/parsed" "$repo" "$pr"
     local rc=$?
     rm -rf "$d"
     return $rc
-}
-
-# bl_record_parsed <session> <out>: the run's record, read live and parsed
-# (record-parse.sh's JSON) into <out>, for the holds and the pauses. Returns 0
-# written; 2 the record couldn't be read or parsed.
-bl_record_parsed() {
-    local s=$1 out=$2 facts rrepo ref scope name c
-    facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s") || return 2
-    rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
-    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
-    scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
-    name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    bl_repo_ok "$rrepo" && bl_pr_ok "$ref" || return 2
-    case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
-    bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2
-    jq -r '.body // ""' "$out.rec" | bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" - > "$out" \
-        || { echo "$PROG: the record couldn't be parsed" >&2; return 2; }
 }
 
 # bl_pauses_on <parsed-record-file> <repo> <pr>: the record's pauses as

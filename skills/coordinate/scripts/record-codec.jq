@@ -132,7 +132,7 @@ def check_cell($key; $private):
     elif $key == "action" and startswith("milestone-") then
       (if any(milestone_actions[]; . == $v) then . else refuse("action: \($v) is not one of the milestone roadmap edits, \(milestone_actions | join(" or "))") end)
     elif $key == "phase" then (if test("^(scoping|scoping-ahead|executing|held)$") then . else refuse("phase: not scoping, scoping-ahead, executing or held") end)
-    elif $key == "dispatch_status" then (if test("^(dispatching|dispatched|dispatch-failed)$") then . else refuse("dispatch_status: not dispatching, dispatched or dispatch-failed") end)
+    elif $key == "dispatch_status" then (if test("^(dispatching|dispatched|dispatch-failed|stranded)$") then . else refuse("dispatch_status: not dispatching, dispatched, dispatch-failed or stranded") end)
     elif $key == "return_path" then (if test("^(message|leg [a-z0-9_][a-z0-9_-]{0,63}:[a-z0-9_-]+)$") then . else refuse("return_path: not `message` or `leg <request-id>:<leg>` (the word leg, a space, then the request and leg)") end)
     elif $key == "repo" then (if test(re_repo) then . else refuse("repo: not owner/repo") end)
     elif $key == "branch" then (if test("^[A-Za-z0-9._/-]+$") then . else refuse("branch: not a branch name") end)
@@ -250,13 +250,17 @@ def parse_holds($p):
 # has a row, so a record written before them keeps its bytes. Only
 # record-state.sh changes them.
 #
-# Run, one row per key from a closed set; `told` is the one key that repeats:
-#   Key      arguments | cap | coordinator | told
+# Run, one row per key from a closed set; `told` repeats, and `rules` and
+# `briefs` once per label:
+#   Key      arguments | cap | coordinator | told | store | rules | briefs |
+#            friction | reports-to
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address. Both of the last
 #            two are messaging addresses (check_worker): a dispatch topic or
 #            a session name, which may hold `_`, never an id or a path.
+#            store: github or session. The last four are the crash set, kept
+#            only beside a `store session` row (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run:
@@ -316,7 +320,21 @@ def state_secs: [
     ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
     ["wakes", "Wakes"], ["updated", "Updated"]]}];
-def run_keys: ["arguments", "cap", "coordinator", "told"];
+# store: the record's store, `github` or `session`, written by its owner
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 2). A record
+# without the row is on GitHub.
+# The crash set (Decision 9; PRD R17), kept only by a record on the session
+# store, so only in a Run section that also holds the `store session` row: a
+# GitHub record refuses them as it refuses any Run key it doesn't know.
+#   rules, briefs  `<label> sha256:<64 hex>`, the digest of a file the
+#                  coordinator ran with, one row per label; its location is in
+#                  record/host, never here
+#   friction       a label, one row; its location is in record/host
+#   reports-to     `<role>` or `<role> at <address>`: words naming who the
+#                  coordinator reports up to, and their messaging address
+def run_keys: ["arguments", "cap", "coordinator", "told", "store", "rules", "briefs", "friction", "reports-to"];
+def crash_keys: ["rules", "briefs", "friction", "reports-to"];
+def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
@@ -340,11 +358,11 @@ def rework_cap:
   if utf8bytelength <= 600 then .
   else (explode | until((implode | utf8bytelength) <= 597; .[:-1]) | implode) + "..." end;
 # A milestone's heading tag, as a verdict-owed row's Item names it: the
-# heading-tag grammar roadmap-status.sh takes (`Feature 7`, `ED1`, `AB10b`).
-def re_heading_tag: "^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
+# heading-tag grammar roadmap-status.sh takes (`Feature 7`, `Milestone 7`, `ED1`, `AB10b`).
+def re_heading_tag: "^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
 def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
 # A unit as pick lists it: a roadmap feature's heading tag or an issue.
-def re_unit: "^(Feature [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
+def re_unit: "^(Feature [1-9][0-9]*|Milestone [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
 # A pause's resume condition: the merge policy's hold conditions and a time.
 def pause_until_ok:
   . == "lifted"
@@ -367,7 +385,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
     elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision, follow-up, verdict-owed or rework") end)
     elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
-    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
+    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
     else . end
   | if ($v != "") and $sk == "standing" and ($key == "on" or $key == "until") then
@@ -388,19 +406,31 @@ def check_srow($sec; $private):
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
+       elif .key == "store" then (if .value == "github" or .value == "session" then . else refuse("run.value: store-malformed: a store is github or session") end)
+       elif .key == "rules" or .key == "briefs" then
+         (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
+          else refuse("run.value: a \(.key) row is `<label> sha256:<64 hex>`, the label letters, digits, `.`, `_` and `-`") end)
+       elif .key == "friction" then
+         (if (.value | test(re_label)) then . else refuse("run.value: a friction row is a label: letters, digits, `.`, `_` and `-`") end)
+       elif .key == "reports-to" then
+         (if (.value | test(" at ")) then
+            (.value | sub("^.* at "; "")) as $addr | (.value | sub(" at [^ ]*$"; "")) as $role
+            | if ($addr | test(" ")) or $role == "" then refuse("run.value: a reports-to row is `<role>` or `<role> at <address>`")
+              else ($addr | check_worker) as $_ | . end
+          else . end)
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
-      (if ((.item | test(re_unit)) or (.item | test(re_assigned))) | not then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)")
+      (if ((.item | test(re_unit)) or (.item | test(re_assigned))) | not then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)")
        elif .kind == "decision" and (.who | test("^decision [1-9][0-9]*$") | not) then refuse("work.who: a decision row's Who is `decision <n>`")
        elif .kind == "follow-up" and (.who | test(re_pr_ref) | not) then refuse("work.who: a follow-up row's Who is the pull request that landed its scoping, `owner/repo#n`")
        else . end)
     elif $sec.key == "work" and .kind == "verdict-owed" then
-      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a verdict-owed row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
+      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a verdict-owed row's Item is a milestone's heading tag (`Feature 2`, `Milestone 2`, `MV1`, `AB10b`)")
        elif (.next | test("^verdict owed since [0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) then refuse("work.next: a verdict-owed row's Next step is `verdict owed since YYYY-MM-DD`")
        else (.who | check_worker) as $_ | . end)
     elif $sec.key == "work" and .kind == "rework" then
-      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
+      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `Milestone 2`, `MV1`, `AB10b`)")
        elif (.who | test("^(verdict|failure) [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>` or `failure <id>`, the record comment holding its verdict or failure entry")
        elif (.next | rework_problem) != null then refuse("work.next: a rework row's text is one paragraph of at most 600 bytes with no URL or markdown link: \(.next | rework_problem)")
        else . end)
@@ -424,10 +454,16 @@ def check_state($sec; $rows; $private):
   elif ($rows | type) != "array" then refuse("\($sec.key): not a list")
   else ($rows | map(check_srow($sec; $private))) as $r
     | if $sec.key == "run" then
-        ($r | map(select(.key != "told") | .key)) as $once
+        ($r | map(select(.key != "told" and .key != "rules" and .key != "briefs") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
-        | if ($once | unique | length) != ($once | length) then refuse("run: a key other than told is used twice")
+        | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
+        | ([$r[] | select(.key as $k | crash_keys | index($k)) | .key] | first) as $crash
+        | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: store-malformed: the store row is used twice")
+          elif $crash != null and (any($r[]; .key == "store" and .value == "session") | not) then
+            refuse("run.key: \($crash) is kept only by a record on the session store")
+          elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
+          elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
           else $r end
       elif $sec.key == "standing" then
         (if ($r | map(.standing) | unique | length) != ($r | length) then refuse("standing: an id is used twice") else $r end)
@@ -580,6 +616,66 @@ def compact_settled:
         | select(test("^[^ ]+ [^\\[]+ \\[[0-9]{8}T[0-9]{6}Z redirect [0-9]+\\]: "))] | join("\n"))
   else . end;
 
+# ---- the archive -------------------------------------------------------------
+#
+# A settled entry leaves the body for a `decisions` entry on the record
+# (record-append.sh), which holds its row verbatim, and its identifier joins the
+# section's `Archived:` line, so the body stays under the write core's budget
+# however long the record lives (shirabe#827). record-decision.sh --archive
+# moves them; evidence or a citation naming one brings it back (record-decision.sh
+# restores it from the latest entry holding it). `archived` is the identifiers,
+# ascending, rendered as ranges; an empty list is no line and no key, so a
+# record that never archived keeps its bytes.
+#
+# The stamps of the run that archived are all that stays of its own entries:
+# the replay guard (record-decision.sh) and the unrecorded and redirect rules
+# (decision-next.sh) read a stamp's run, kind and sequence, the entry it is on
+# and whether its line is the addressed mark, and nothing else of the row.
+# `kept` holds them, {run, stamps: [{decision, kind, seq, addressed}]}, rendered
+# on one line after Archived; only the latest archiving run's stamps are kept,
+# since no rule reads another run's.
+#
+# d_archivable: a settled entry that owes nothing.
+def d_archivable: .state == "settled" and (.owed // "") == "";
+# d_parked, over the whole record: the entries a `decision` Work row parks a
+# unit on (pick's await_decision). pick-facts.sh hands the unit its entry's
+# outcome once the entry settles, so the entry stays in the body until the row
+# goes; d_archivable($parked) is d_archivable for every other entry.
+def d_parked: [(.work // [])[] | select(.kind == "decision") | .who | ltrimstr("decision ")];
+def d_archivable($parked): d_archivable and (.decision as $n | $parked | index($n) | not);
+def d_archived_line: " (settled; each kept verbatim in a decisions entry on this record)";
+def d_kept_title: "Stamps kept for run ";
+def re_kept_stamp: "^[1-9][0-9]* (report|wait|raise|hold|redirect|ask) [1-9][0-9]*(\\.[1-9][0-9]*)?( addressed)?$";
+# d_section_stamps: every stamp a Decisions section holds, in its rows and kept,
+# each {run, kind, seq, text, decision}; a kept stamp's text is the addressed
+# mark or empty.
+def d_section_stamps:
+  [(.entries // [])[] | . as $e | d_stamps[] | . + {decision: $e.decision}]
+  + (if .kept == null then [] else .kept.run as $r
+       | [.kept.stamps[] | {run: $r, kind, seq, text: (if .addressed then d_addressed_mark else "" end), decision: (.decision | tostring)}] end);
+def d_ranges:
+  reduce .[] as $n ([]; if length > 0 and .[-1][1] + 1 == $n then .[-1][1] = $n else . + [[$n, $n]] end)
+  | map(if .[0] == .[1] then "\(.[0])" else "\(.[0])-\(.[1])" end) | join(", ");
+def d_unranges:
+  [split(", ")[] | split("-") | map(tonumber) | if length == 1 then .[0] else range(.[0]; .[1] + 1) end];
+def d_header:
+  ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") + "\n"
+  + ("|" + (decisions_cols | map("---") | join("|")) + "|");
+# render_drow: one entry as its table row, the bytes the body holds.
+def render_drow:
+  . as $r | "| " + (decisions_cols | map(.[0] as $k | $r[$k] | if any(d_text_cols[]; . == $k) then enc_d else enc end) | join(" | ")) + " |";
+# parse_drow: a table row back to its entry.
+def parse_drow:
+  (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
+   | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec_d)) as $cells
+  | if ($cells | length) != (decisions_cols | length) then refuse("Decisions: a row with \($cells | length) cells, not \(decisions_cols | length)")
+    else [range(0; decisions_cols | length) as $i | {(decisions_cols[$i][0]): $cells[$i]}] | add end;
+# d_archive_rows: the entries an archive entry's text holds, the rows under its
+# table header, whatever precedes it.
+def d_archive_rows:
+  split("\n") | (index([d_header | split("\n")[0]]) // null) as $h
+  | if $h == null then [] else .[$h + 2:] | map(select(startswith("| ")) | parse_drow) end;
+
 def check_drow($private):
   . as $row
   | if type != "object" then refuse("decisions: a row that isn't an object") else . end
@@ -605,48 +701,77 @@ def check_drow($private):
 def check_decisions($d; $private):
   if $d == null then null
   elif ($d | type) != "object" then refuse("decisions: not an object")
-  elif (($d | keys) - ["entries", "next"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next"])[0]): not a field of this section")
+  elif (($d | keys) - ["entries", "next", "archived", "kept"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next", "archived", "kept"])[0]): not a field of this section")
   elif ($d.next | type) != "number" or $d.next < 1 or $d.next > 999999 or ($d.next | floor) != $d.next then refuse("decisions.next: not a positive integer below a million")
   elif (($d.entries // []) | type) != "array" then refuse("decisions.entries: not a list")
+  elif (($d.archived // []) | type) != "array" or any(($d.archived // [])[]; type != "number" or . < 1 or floor != .)
+    then refuse("decisions.archived: not a list of identifiers")
+  elif $d.kept != null and (($d.kept | type) != "object" or ($d.kept | keys) != ["run", "stamps"]
+      or ($d.kept.run | type) != "string" or ($d.kept.run | test("^[0-9]{8}T[0-9]{6}Z$") | not)
+      or ($d.kept.stamps | type) != "array" or ($d.kept.stamps | length) == 0
+      or any($d.kept.stamps[]; type != "object" or keys != ["addressed", "decision", "kind", "seq"]
+             or (.decision | type) != "number" or (.addressed | type) != "boolean"
+             or ("\(.decision) \(.kind) \(.seq)" | test(re_kept_stamp) | not)))
+    then refuse("decisions.kept: not {run, stamps: [{decision, kind, seq, addressed}]}")
   else
     ($d.entries // [] | map(check_drow($private))) as $rows
     | ($rows | map(.decision | tonumber)) as $ids
+    | ($d.archived // [] | unique) as $arch
     | if ($ids | unique | length) != ($ids | length) then refuse("decisions: an identifier is used twice")
       elif any($ids[]; . >= $d.next) then refuse("decisions: an identifier at or above Next decision (\($d.next))")
+      elif any($arch[]; . >= $d.next) then refuse("decisions.archived: an identifier at or above Next decision (\($d.next))")
+      elif any($arch[]; . as $a | $ids | index($a)) then refuse("decisions.archived: an identifier the body still holds")
+      elif $d.kept != null and any($d.kept.stamps[]; .decision as $k | $arch | index($k) | not)
+        then refuse("decisions.kept: a stamp of an entry that isn't archived")
       # floor: a number written 7.0 or 7e0 renders as 7, the one form the
       # parser reads back.
-      else {next: ($d.next | floor), entries: $rows} end
+      else {next: ($d.next | floor), entries: $rows}
+        + (if ($arch | length) > 0 then {archived: $arch} else {} end)
+        + (if $d.kept != null then {kept: $d.kept} else {} end) end
   end;
 
 def render_decisions($d):
   if $d == null or (($d.entries | length) == 0 and $d.next == 1) then ""
   else
     "\n\n## \(decisions_title)\n\nNext decision: \($d.next)\n\n"
+    + (if ($d.archived // []) == [] then "" else "Archived: \($d.archived | d_ranges)\(d_archived_line)\n\n" end)
+    + (if $d.kept == null then ""
+       else "\(d_kept_title)\($d.kept.run): \($d.kept.stamps | map("\(.decision) \(.kind) \(.seq)\(if .addressed then " addressed" else "" end)") | join(", "))\n\n" end)
     + if ($d.entries | length) == 0 then "None."
-      else
-        ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") + "\n"
-        + ("|" + (decisions_cols | map("---") | join("|")) + "|")
-        + ($d.entries | map(. as $r | "\n| " + (decisions_cols | map(.[0] as $k | $r[$k] | if any(d_text_cols[]; . == $k) then enc_d else enc end) | join(" | ")) + " |") | join(""))
-      end
+      else d_header + ($d.entries | map("\n" + render_drow) | join("")) end
   end;
 
 def parse_decisions($p):
   if ($p | startswith(decisions_title + "\n\n") | not) then refuse("expected ## \(decisions_title) after Reversals") else . end
   | ($p[(decisions_title | length) + 2:]) as $body
   | ($body | capture("^Next decision: (?<n>[1-9][0-9]*)\n\n(?<rest>[\\s\\S]*)$") // refuse("Decisions: no `Next decision: <n>` line")) as $m
+  | (if $m.rest | startswith("Archived: ") then
+      ($m.rest | capture("^Archived: (?<ids>[^\n]*)\n\n(?<rest>[\\s\\S]*)$") // refuse("Decisions: an `Archived:` line with nothing after it")) as $c
+      | if ($c.ids | endswith(d_archived_line) | not) then refuse("Decisions: an `Archived:` line that doesn't end \"\(d_archived_line)\"")
+        elif ($c.ids | rtrimstr(d_archived_line) | test("^[1-9][0-9]*(-[1-9][0-9]*)?(, [1-9][0-9]*(-[1-9][0-9]*)?)*$") | not)
+        then refuse("Decisions: `Archived:` names identifiers as ascending ranges, `1-12, 14`")
+        else {ids: ($c.ids | rtrimstr(d_archived_line)), rest: $c.rest} end
+    else null end) as $a
+  | ($a.rest // $m.rest) as $r1
+  | (if $r1 | startswith(d_kept_title) then
+      ($r1 | capture("^" + d_kept_title + "(?<run>[0-9]{8}T[0-9]{6}Z): (?<st>[^\n]*)\n\n(?<rest>[\\s\\S]*)$")
+        // refuse("Decisions: a `\(d_kept_title)<run>: ...` line that doesn't read")) as $c
+      | {run: $c.run, rest: $c.rest, stamps: ($c.st | split(", ") | map(
+          if test(re_kept_stamp) then split(" ") as $w
+            | {decision: ($w[0] | tonumber), kind: $w[1], seq: $w[2], addressed: (($w | length) == 4)}
+          else refuse("Decisions: a kept stamp that isn't `<entry> <kind> <seq>[ addressed]`") end))}
+    else null end) as $k
+  | ($k.rest // $r1) as $rest
   | {next: ($m.n | tonumber), entries:
-      (if $m.rest == "None." then []
-       else ($m.rest | split("\n")) as $lines
-       | ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") as $header
+      (if $rest == "None." then []
+       else ($rest | split("\n")) as $lines
        | if ($lines | length) < 3 then refuse("Decisions: a table needs a header, a separator and a row, or None.")
-         elif $lines[0] != $header then refuse("Decisions: header row differs from the fixed columns")
-         else $lines[2:] | map(
-           (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
-            | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec_d)) as $cells
-           | if ($cells | length) != (decisions_cols | length) then refuse("Decisions: a row with \($cells | length) cells, not \(decisions_cols | length)")
-             else [range(0; decisions_cols | length) as $i | {(decisions_cols[$i][0]): $cells[$i]}] | add end)
+         elif $lines[0] != (d_header | split("\n")[0]) then refuse("Decisions: header row differs from the fixed columns")
+         else $lines[2:] | map(parse_drow)
          end
-       end)};
+       end)}
+  + (if $a == null then {} else {archived: ($a.ids | d_unranges)} end)
+  + (if $k == null then {} else {kept: {run: $k.run, stamps: $k.stamps}} end);
 
 def scope_text($s):
   if ($s | type) != "object" then refuse("scope: missing")
@@ -809,3 +934,23 @@ def parse_handoff:
     + (if $p != null and $text == predecessor_sentence then {predecessor_copy: {written: $p.w}} else {reasoning: $text} end)
     + parse_sections($parts[1:5])
     + optional_tail($opt);
+
+# ---- the listers' projections ------------------------------------------------
+# What record-holding.sh, record-state.sh, record-decision.sh and
+# roadmap-status.sh print for --list, from a parsed record. pick-facts.sh takes
+# all of them from one parse rather than running each lister, which would read
+# and parse the record once apiece (shirabe#840).
+def holdings_list: .holdings;
+def state_list: {run: (.run // []), standing: (.standing // []), work: (.work // [])};
+def decisions_list: .decisions // {next: 1, entries: []};
+# The Side effects Actions that are roadmap edits: a feature's Done
+# (roadmap-status), a milestone verdict's (milestone-done, milestone-verdict)
+# and a milestone's reopen (milestone-reopen).
+def roadmap_edit_actions: ["roadmap-status", "milestone-done", "milestone-verdict", "milestone-reopen"];
+# The pending roadmap pull requests, {unit, pull_request, attempted, action,
+# how_to_confirm}: the Target is `<TAG> [#n](URL)`.
+def pending_rows: roadmap_edit_actions as $acts
+  | [.side_effects[] | select(.action as $a | any($acts[]; . == $a))
+     | (.target | capture("^(?<unit>.+) (?<pr>\\[#[0-9]+\\]\\(https://github\\.com/[^)]+\\))$")) as $t
+     | {unit: ($t.unit // .target), pull_request: ($t.pr // ""), attempted, action, how_to_confirm}];
+def pending_list: pending_rows | map(del(.how_to_confirm));

@@ -265,13 +265,20 @@ a skill's koto loop, not after.
 
 Whenever a skill is created or updated, create or update its scenarios in
 `skills/<name>/evals/evals.json`. The pull request doesn't run them: its
-definition of done is `scripts/check-skill.sh <skill>` (see
+definition of done is `scripts/check-skill.sh --changed <skill>` (see
 `.claude/shirabe-extensions/README.md`), which checks the scenarios' shape
-along with the skill's Markdown, templates and script suites.
+along with the skill's Markdown, templates and the script suites the change
+touches. CI runs every suite.
 
 The evals run in the release precondition. `/shirabe:release` runs the eval
 check declared in `.claude/shirabe-extensions/release.md` on every skill
-changed since the last tag and stops on a pass-rate drop.
+changed since the last tag and stops on a pass-rate drop. It runs the
+with-skill agent only, with no no-skill baseline, on every tier-1 scenario
+and, of the tier-2 ones, only the release subset: each tier-2
+scenario names the behaviour it exercises in `"behaviour"`, and exactly one
+scenario per behaviour carries `"release": true`. The shape check enforces
+that, so a new tier-2 scenario either joins a behaviour or starts one and
+marks itself `release`. The rest rotate through `scripts/scheduled-evals.py`.
 
 For a local run, use `scripts/run-evals.sh <skill>`. It invokes `claude -p`
 with the skill-creator plugin to execute each scenario and grade it, so run it

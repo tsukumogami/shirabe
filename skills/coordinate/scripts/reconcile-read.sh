@@ -16,7 +16,8 @@
 #
 # Output, exit 0: one JSON object --
 #   {status: "found", scope: {kind, name, repo}, record: {written, source:
-#    "record" | "record and handoff", handoff_date}, holdings: [{row,
+#    "record" | "record and handoff", handoff_date, import: null |
+#    {source_workspace, source_session, template_hash}}, holdings: [{row,
 #    source}], deferrals: [{row, source}], side_effects: [{row, source}],
 #    decisions: [{decision, question, recommendation, reason, target}] (the
 #    escalated entries), unparseable: [{raw, reason}],
@@ -114,8 +115,11 @@ case "$SCOPE" in roadmap) CONTAINER=issue ;; discipline) CONTAINER=pr ;; *) refu
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 rd_valid_number "$REF" || refuse 5 failed "the run's record number is unreadable"
 
-# The body, live. A record that is no longer open isn't this run's record.
-rd_deadline "$DEADLINE" gh "$CONTAINER" view "$REF" --repo "$REPO" --json state,body > "$T/view.json" 2>/dev/null
+# The body, live, through the seam (record-source.sh's rs_view), under this
+# reader's own deadline; this reader keeps its row-by-row salvage of a body the
+# codec refuses, which only a GitHub body a person can edit by hand ever needs.
+# A record that is no longer open isn't this run's record.
+rd_deadline "$DEADLINE" rs_view "$CONTAINER" "$REF" "$REPO" --json state,body > "$T/view.json" 2>/dev/null
 case $? in
     0) ;;
     124) refuse 5 failed "reading the record timed out" ;;
@@ -191,6 +195,16 @@ case $? in
     *) refuse 5 failed "the record could not be parsed" ;;
 esac
 
+# Where an imported record's state came from (PRD R14): record/host's import
+# facts, on the session store only. A run that was never imported has none.
+IMPORT=null
+if [ -n "$SESSION" ] && [ "$(rs_source)" = session ]; then
+    rs_host "$SESSION" "$T/host" || refuse 5 failed "the record's host facts could not be read"
+    IMPORT=$(jq -c 'if (.source_session // "") == "" then null
+        else {source_workspace: (.source_workspace // ""), source_session, template_hash: (.template_hash // "")} end' "$T/host") \
+        || refuse 5 failed "the record's host facts are unreadable"
+fi
+
 # The handoff, at discipline scope: the file the previous rotation
 # committed, on the host's default branch.
 HANDOFF=null
@@ -244,7 +258,7 @@ fi
 # A handoff row the record already carries (the same worker, the same
 # deferral raised at the same time, the same side effect attempted at the
 # same time) is the record's, and is not listed twice.
-jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REASONING" '
+jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REASONING" --argjson import "$IMPORT" '
     def labelled($rows; $src): [$rows[] | {row: ., source: $src}];
     def add_new($mine; $theirs; key):
         ([$mine[] | key]) as $seen
@@ -269,7 +283,8 @@ jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REAS
        scope: {kind: .scope.kind, name: .scope.name, repo: $repo},
        record: {written: (if $wok then $wr else null end),
                 source: (if $handoff == null then "record" else "record and handoff" end),
-                handoff_date: (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $d else null end)},
+                handoff_date: (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $d else null end),
+                import: ($import | clean)},
        holdings: add_new(.holdings; ($h.holdings // []); [.worker, .unit]),
        deferrals: add_new(.deferrals; ($h.deferrals // []); [.deferral, .raised]),
        side_effects: add_new(.side_effects; ($h.side_effects // []); [.action, .target, .attempted]),

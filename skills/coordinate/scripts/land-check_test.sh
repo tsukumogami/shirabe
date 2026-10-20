@@ -20,7 +20,9 @@
 # GitHub (Reversals prose alone never widens it); a missing,
 # unverified or wrongly sealed verify capture (exit 2); a failed posture
 # re-read; the repository found from the record's Holdings row. The
-# milestone's Evidence for goal fit: on a roadmap/v2 roadmap read on the
+# milestone's Evidence for goal fit: on a roadmap/v2 or roadmap/v3 roadmap
+# (a v3 one's `### Milestone 1:` found for a holding on `Feature 1` or
+# `Milestone 1`, never `Feature 01`) read on the
 # default branch, coord/land.json carries the holding's milestone tag and its
 # numbered clauses (under permit and deny alike); a v1 roadmap and a pull
 # request no holding names add nothing; a failed roadmap or default-branch
@@ -307,6 +309,27 @@ bash "$LC" --session "$S" --no-seal >/dev/null 2>&1; eq "two holdings linking #1
 bash "$LC" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$LC" >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 
+echo "== the session store =="
+# A record on the session store (docs/designs/DESIGN-coordinator-session-record.md,
+# PRD R18, R20): the hold and the pause are read from the run's session keys,
+# with the GitHub body in the moved shape.
+export BT_FIND_TOKEN="found 7 session"
+scenario "$PERMIT" "$PERMIT"
+bt_record_paused "[$(bt_pause s1 pause "Feature 2" lifted)]" "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+bt_session_record "$S"
+prstate 346 OPEN
+eq "a pause on the session store holds the merge" "paused 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_paused '[]' "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+bt_session_record "$S"
+prstate 346 OPEN
+eq "a hold on the session store holds it too" "held 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_paused '[]'
+bt_session_record "$S"
+eq "  ... and with neither, it is permit" "permit 12 $H" "$(token)"
+unset BT_FIND_TOKEN
+
 echo "== pauses =="
 paused_record() { bt_record_paused "$@"; }
 prow() { bt_pause "$@"; }
@@ -415,6 +438,25 @@ milestone_record MV7; main_roadmap "$T/v2.md"
 eq "a unit with no milestone on a v2 roadmap: the token stands" "permit 12 $H" "$(token)"
 case "$(landjson | jq -r '.milestone_error // ""')" in
     "MV7 has no Evidence on main"*) ok "  ... and coord/land.json says so" ;;
+    *) bad "  ... and coord/land.json says so" "$(landjson | jq -c .)" ;;
+esac
+# The same roadmap as v3: `## Milestones`, `### Milestone 1:`, and a record
+# whose holding still names the unit `Feature 1`.
+sed -e 's/^schema: roadmap\/v2$/schema: roadmap\/v3/' -e 's/^## Features$/## Milestones/' -e 's/^### MV1: /### Milestone 1: /' "$T/v2.md" > "$T/v3.md"
+scenario "$PERMIT" "$PERMIT"
+milestone_record "Feature 1"; main_roadmap "$T/v3.md"
+eq "a pull request for a unit held as Feature 1 on a v3 roadmap: the token is unchanged" "permit 12 $H" "$(token)"
+eq "  ... and coord/land.json carries its tag and Milestone 1's numbered Evidence" \
+    '{"tag":"Feature 1","evidence":["A reviewer runs `widgets list` and sees exactly the three sample plugins.","The same reviewer removes one manifest and sees it named as skipped."]}' \
+    "$(landjson | jq -c .milestone)"
+scenario "$PERMIT" "$PERMIT"
+milestone_record "Milestone 1"; main_roadmap "$T/v3.md"
+eq "a unit held as Milestone 1 reads the same Evidence" "permit 12 $H 2" "$(token) $(landjson | jq '.milestone.evidence | length')"
+scenario "$PERMIT" "$PERMIT"
+milestone_record "Feature 01"; main_roadmap "$T/v3.md"
+eq "a unit held as Feature 01 isn't Milestone 1: the token stands, no Evidence" "permit 12 $H null" "$(token) $(landjson | jq -c .milestone)"
+case "$(landjson | jq -r '.milestone_error // ""')" in
+    "Feature 01 has no Evidence on main"*) ok "  ... and coord/land.json says so" ;;
     *) bad "  ... and coord/land.json says so" "$(landjson | jq -c .)" ;;
 esac
 echo

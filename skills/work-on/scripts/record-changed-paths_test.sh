@@ -35,6 +35,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$SCRIPT_DIR/record-changed-paths.sh"
 TEMPLATE="$SCRIPT_DIR/../koto-templates/work-on.md"
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -257,7 +259,7 @@ run --base s-ren
 run --write s-ren
 lines=$(path_lines)
 if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$lines" | wc -l | tr -d ' ')" = 1 ] \
-    && printf '%s\n' "$lines" | grep -qE "^R[0-9]*	src/a.go	src/renamed.go$"; then
+    && grep -qE "^R[0-9]*	src/a.go	src/renamed.go$" <<<"$lines"; then
     pass "a rename is one R line naming both paths, not a delete plus an add"
 else
     fail "rename: rc $RC, lines [$lines]"
@@ -288,7 +290,7 @@ run --base s-ce
 many_files 200 f
 run --write s-ce
 if [ "$RC" -eq 0 ] && [ "$(path_lines | grep -c '^A	')" = 200 ] \
-    && ! printf '%s\n' "$PATHS" | grep -q 'more paths'; then
+    && ! grep -q 'more paths' <<<"$PATHS"; then
     pass "exactly 200 paths: all kept, no trailer"
 else
     fail "200 paths: rc $RC, last [$(printf '%s\n' "$PATHS" | tail -1)]"
@@ -442,6 +444,7 @@ pass_round() {
     local s="$1" p="$2" seat
     shift 2
     for seat in "$@"; do printf '{"seat":"%s","findings":[]}\n' "$seat"; done | jq -s . > "$WORKDIR/round.json"
+    panel_round_runs "$s" "$p" "$WORKDIR/round.json"
     (cd "$FX/repo" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record "$p" "$s" "$WORKDIR/round.json") >/dev/null \
         || fail "$s: panel-scope.sh --record $p failed"
     tick "$s"
@@ -458,11 +461,13 @@ at_verification() {
 # prestart_verification <session>: start the runner for the session and wait
 # for its result, so the tick that enters verification settles at once rather
 # than on the poll gate's 15-second interval.
+# The wait is bounded by wall time (VERIFY_WAIT_SECS, default 180), not by a
+# count of sleeps; finalization-shape_test.sh says why (shirabe#866).
 prestart_verification() {
-    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f i=0
+    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f end=$((SECONDS + ${VERIFY_WAIT_SECS:-180}))
     (cd "$FX/repo" && "$rv" --start --session "$1") >/dev/null 2>&1
     f=$(cd "$FX/repo" && "$rv" --locate --session "$1" 2>/dev/null | sed -n 3p)
-    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
 }
 
 start() {

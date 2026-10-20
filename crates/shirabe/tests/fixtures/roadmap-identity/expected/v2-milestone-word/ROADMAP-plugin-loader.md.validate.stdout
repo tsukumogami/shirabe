@@ -1,0 +1,28 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "violations",
+    "errors": 1,
+    "notices": 1
+  },
+  "findings": [
+    {
+      "code": "FC09",
+      "severity": "notice",
+      "message": "[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)",
+      "file": "v2-milestone-word/ROADMAP-plugin-loader.md",
+      "line": 1
+    },
+    {
+      "code": "FC21",
+      "severity": "error",
+      "message": "[FC21] heading '### Milestone 2: A maintainer finds a plugin by name' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like 'Feature 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md",
+      "file": "v2-milestone-word/ROADMAP-plugin-loader.md",
+      "line": 36
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}

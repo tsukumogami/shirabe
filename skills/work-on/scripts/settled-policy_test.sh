@@ -122,8 +122,8 @@ cap_in() {
     body=$(directive_of "$state")
     # Prose wraps anywhere, so the phrases are matched on the joined text.
     joined=$(printf '%s\n' "$body" | tr '\n' ' ')
-    if printf '%s\n' "$joined" | grep -qF -- "$text" \
-        && printf '%s\n' "$joined" | grep -qF -- "$note"; then
+    if grep -qF -- "$text" <<<"$joined" \
+        && grep -qF -- "$note" <<<"$joined"; then
         pass "$state states its cap once, as temporary"
     else
         fail "$state directive lacks its cap ($text) or the temporary note"
@@ -150,13 +150,13 @@ PANEL_NOTE="until koto can count defects per round and enforce it, with the same
 for panel in scrutiny review qa_validation; do
     cap_in "$panel" 'The first 2 are granted whatever the counts. A third is granted only when this panel' "$PANEL_NOTE"
     cap_in "$panel" 'and no run gets more than 3.' "$PANEL_NOTE"
-    cap_in "$panel" "panel-retry-budget.sh\" \"{{SESSION_NAME}}\" $panel <" "$PANEL_NOTE"
+    cap_in "$panel" "panel-retry-budget.sh\" \"{{SESSION_NAME}}\" $panel\`" "$PANEL_NOTE"
 done
 # light_review, the one panel of the `light` review level, spends from the same
 # run-wide retries and states the same rule in its own words.
 cap_in light_review 'the first 2 are granted whatever the counts, a third only when this panel' "$PANEL_NOTE"
 cap_in light_review 'and no run gets more than 3.' "$PANEL_NOTE"
-cap_in light_review 'panel-retry-budget.sh" "{{SESSION_NAME}}" light_review <' "$PANEL_NOTE"
+cap_in light_review 'panel-retry-budget.sh" "{{SESSION_NAME}}" light_review`' "$PANEL_NOTE"
 RECORD=docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md
 
 absent "no phase or reference file restates a retry number" \

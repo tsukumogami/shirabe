@@ -1,0 +1,5 @@
+workflow: .github/workflows/check-skill-gate.yml
+# The skills/** verification-map entry's checks. Its suite builds
+# throwaway skills with stand-in shirabe, koto and claude and needs
+# only bash, git and python3, so every case runs on 3.2.
+scripts/check-skill_test.sh

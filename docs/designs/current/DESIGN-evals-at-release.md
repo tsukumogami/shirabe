@@ -268,7 +268,14 @@ separate shell calls, is per worktree, and can never be committed.
 
 `scripts/release-eval-check.sh --critical work-on,scope,execute
 --critical-runs 3` (the arguments are what `release.md` lists, so the list
-lives in the extension):
+lives in the extension; since shirabe#843 it declares `--critical-runs 1
+--model sonnet --tolerance 0.05`, compares a skill only with a measurement on
+the same scenario models and session model, and since shirabe#879 on the same
+set of scenarios, runs each skill's release subset
+(`--release-subset`: every tier-1 scenario and one tier-2 scenario per
+behaviour) with no no-skill baseline (`--no-baseline`), and leaves the repeat
+runs, the baseline and the other tier-2 scenarios to
+`scripts/scheduled-evals.py`):
 
 1. Validates `RELEASE_LAST_TAG` (empty, or `^v[0-9]+\.[0-9]+\.[0-9]+$`) and
    `RELEASE_VERSION`.
@@ -421,7 +428,7 @@ work-on DoD gate ──> .claude/shirabe-extensions/work-on.md
   Phase 1  LAST_TAG, release range
   Phase 2  built-in checks 1-6
            step 7: diff --stat; each `## Release checks` item
-             └─ scripts/release-eval-check.sh --critical ... --critical-runs 3
+             └─ scripts/release-eval-check.sh --critical ... --critical-runs 1 --model sonnet --tolerance 0.05
                   ├─ scripts/run-evals.sh --list-changed
                   ├─ scripts/run-evals.sh --runs N --summary-out <state>/<i>.json <skill>
                   ├─ gh release download $RELEASE_LAST_TAG --repo ... eval-pass-rates.json
@@ -444,8 +451,8 @@ work-on DoD gate ──> .claude/shirabe-extensions/work-on.md
 |---|---|---|
 | `scripts/check-skill.sh` | `<skill>` | 0 passed; 1 a check failed; 2 usage or missing tool |
 | `scripts/lib/check-evals-shape.py` | `<evals.json> <SKILL.md>` | 0 sound; 1 malformed, file and eval named; 2 usage |
-| `scripts/release-eval-check.sh` | `--critical <a,b> --critical-runs <N>`, or `--finalize`; env `RELEASE_*` | check: 0; 1 infrastructure failure; 5 unconfirmed drops; 2 usage. finalize: 0 with an `asset:` line; 1 when the marker doesn't match |
-| `scripts/lib/eval-pass-rates.py` | `merge --previous <file or -> --summary <file>... --version <v> --last-tag <t> --out <file>`; `stamp --record <file> --version <v> --measured <skill>...` | merge 0, 1, 5; stamp 0, or 1 on an invalid record |
+| `scripts/release-eval-check.sh` | `--critical <a,b> --critical-runs <N> [--model <name>] [--tolerance <rate>]`, or `--finalize`; env `RELEASE_*` | check: 0; 1 infrastructure failure; 5 unconfirmed drops; 2 usage. finalize: 0 with an `asset:` line; 1 when the marker doesn't match |
+| `scripts/lib/eval-pass-rates.py` | `merge --previous <file or -> --summary <file>... --version <v> --last-tag <t> [--tolerance <rate>] --out <file>`; `stamp --record <file> --version <v> --measured <skill>...` | merge 0, 1, 5; stamp 0, or 1 on an invalid record |
 | `scripts/run-evals.sh` | adds no-arg default, `--list-changed`, `--summary-out <file>`, `EVAL_MODEL`, `RUN_EVALS_REPO_ROOT` | unchanged codes; `--runs` now returns 2 |
 
 **Record (`eval-pass-rates/v1`):**

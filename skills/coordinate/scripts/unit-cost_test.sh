@@ -4,7 +4,11 @@
 #
 # Covers: the example unit (testdata/unit-cost/archive, a single-pr plan with
 # two /work-on children and one pull request of three heads, one of them
-# failing on an attempt a rerun passed) captured end to end: the posted
+# failing on an attempt a rerun passed; its claude-projects/ holds the
+# instance's own project directory, with the worker's main transcript, a
+# subagent and a second job's transcript, and a worktree's, with two more of
+# the worker's subagents and a relocated copy; pr-link records credit two
+# more pull requests) captured end to end: the posted
 # comment is a summary line, a blank line and one fenced json block,
 # committed as example-comment.md, whose object is example-entry.json, the
 # archive's unit-cost.json is the same object, and RESULT, MANIFEST and
@@ -21,10 +25,18 @@
 # /deliver with plan_backed children, and a session whose header can't be
 # read; the milestone for each Unit form, a discipline record, a failed
 # run-facts or Holdings read, a missing row and a Unit outside the safety
-# pattern; dispatch from the request, from the job, and neither; the token
-# rows by message id (a nested transcript, an id written three times with
-# usage rising then falling, a non-string id, a line that isn't JSON); two
-# pull requests in two repositories, and one the verdict doesn't name; one
+# pattern; dispatch from the request, from the job, from the transcripts'
+# first events (the earliest wins, the request a tie, dispatch.jobs counting
+# the main session transcripts), and none of them; the token rows by message
+# id (a nested transcript, an id written three times with usage rising then
+# falling, a non-string id, a line that isn't JSON, a relocated copy whose
+# repeats of the worker's ids count once, an archive made before
+# claude-projects/); two pull requests in two repositories, and one the
+# verdict doesn't name; credit from pr-link records (each condition, the
+# 120-second window both ways, a sibling branch, an unreadable pull request,
+# no dispatch, more than 100, a private repository on a public host, a
+# budget spent mid-way, and hostile links and branches that no read names);
+# niwa's dispatch id from teardown.json; one
 # entry per key (twice posts once, another key's entry doesn't stop a post, a
 # failed list posts anyway); missing transcripts, a failing `gh run list`, a
 # failing `gh pr view` and a spent budget still posting an entry with
@@ -47,6 +59,10 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
+# Its own HOME and koto home, inside the suite's scratch directory, so suites
+# run side by side share no path.
+export HOME="$T/home" KOTO_SESSIONS_BASE="$T/koto-home"
+mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 UC="$HERE/unit-cost.sh"
 RA="$HERE/record-append.sh"
 FX="$HERE/testdata/unit-cost"
@@ -121,7 +137,7 @@ eq "example-entry.json holds the hand-computed figures (expected-plan.json)" sam
 TEXT=$(printf '%s\n' "$BODY" | sed '1,3d')
 eq "the text is a summary line, a blank line and one fenced json block" "Cost|blank|fence|{|fence|5" \
     "$(printf '%s\n' "$TEXT" | awk 'NR==1{a=substr($0,1,4)} NR==2{b=($0==""?"blank":$0)} NR==3{c=($0=="```json"?"fence":$0)} NR==4{d=substr($0,1,1)} NR==5{e=($0=="```"?"fence":$0)} END{print a"|"b"|"c"|"d"|"e"|"NR}')"
-eq "  ... the summary line" "Cost of feat-x ($KEY): 5 sessions, 90 output tokens, dispatch to merge 150.0 min." "$(printf '%s\n' "$TEXT" | head -n 1)"
+eq "  ... the summary line" "Cost of feat-x ($KEY): 5 sessions, 110 output tokens, dispatch to merge 150.0 min." "$(head -n 1 <<<"$TEXT")"
 printf '%s\n' "$TEXT" | sed -n 4p | jq -e 'type == "object"' >/dev/null && ok "  ... the json line is one compact object" || bad "  ... the json line is one compact object" "$TEXT"
 E=$(jq -c . "$A/unit-cost.json")
 eq "the record's facts and the Unit's tag" '{"scope":"roadmap","name":"x","repo":"acme/widgets","ref":"7"}|Feature 4' "$(q "$E" '"\(.record | tojson)|\(.unit)"')"
@@ -138,6 +154,11 @@ rm -rf "$T/y"; mkdir -p "$T/y"; cp -R "$FX/issue-archive/$YKEY" "$T/y/"
 printf 'acme/widgets#31 %s\n' "$MERGEY" >"$T/prs-y"
 OUTY=$(bash "$UC" compute --archive "$T/y/$YKEY" --topic fix-y --prs-file "$T/prs-y" 2>"$T/err")
 eq "the single-issue unit: every figure and per-session figure as expected-issue.json" same "$(same_as "$OUTY" "$FX/expected-issue.json")"
+eq "  ... an archive made before claude-projects/: its dispatch is the job's, earlier than the request" \
+    "2026-10-02T08:59:30.000Z job-state 0" "$(q "$OUTY" '"\(.dispatch.value) \(.dispatch.source) \(.dispatch.jobs)"')"
+eq "  ... the worker read from transcript/ as before, nested not recoverable, no source" \
+    "1 4 12 30 60 measured|not recoverable|no source" \
+    "$(q "$OUTY" '"\(.tokens.worker | "\(.messages) \(.input) \(.output) \(.cache_creation) \(.cache_read) \(.state)")|\(.tokens.nested.state)|\([.missing[] | select(.figure == "tokens.nested") | .reason][0])"')"
 eq "  ... its plan shape is issue and minutes_per_unit not applicable" "issue|not applicable" \
     "$(q "$OUTY" '"\(.plan_shape.value)|\(.figures.minutes_per_unit.state)"')"
 eq "  ... every other figure is measured" true "$(q "$OUTY" '[.figures | to_entries[] | select(.key != "minutes_per_unit") | .value.state == "measured"] | all')"
@@ -185,7 +206,7 @@ echo "== compute: the entry's fields =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 OUT=$(compute); eq "compute exits 0" 0 $?
 eq "one line of output" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
-eq "every field of the entry, in order" "schema key captured_at topic record unit milestone plan_shape pulls dispatch figures sessions tokens complete missing" \
+eq "every field of the entry, in order" "schema key captured_at topic record unit milestone plan_shape pulls dispatch niwa.dispatch.id figures sessions tokens complete missing" \
     "$(q "$OUT" 'keys_unsorted | join(" ")')"
 eq "schema" "unit-cost/1" "$(q "$OUT" .schema)"
 eq "every baseline figure" "dispatch_to_green_min dispatch_to_merge_min writing_code_min review_min outside_share_pct review_share_pct panel_rounds failing_heads sessions_without_done summed_session_span_min minutes_per_unit" \
@@ -204,7 +225,7 @@ eq "a value is null unless measured or bound" true "$(q "$OUT" '[.figures[], .se
 eq "complete is false while any figure is missing" false "$(q "$OUT" .complete)"
 eq "without the record's facts the milestone is not recoverable" "null|not recoverable|no source" \
     "$(q "$OUT" '"\(.record)|\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"')"
-printf '%s' "$OUT" | grep -q 'execute-x\|deliver-x\|scope-x\|issue-1\|/work/inst\|r_dispatch_x\|0a1b2c3d-77aa\|feat/x' \
+grep -q 'execute-x\|deliver-x\|scope-x\|issue-1\|/work/inst\|work-inst\|r_dispatch_x\|0a1b2c3d-77aa\|0f9e8d7c\|5b6c7d8e\|feat/x' <<<"$OUT" \
     && bad "no session name, request id, session id, branch or path is in the entry" "$OUT" || ok "no session name, request id, session id, branch or path is in the entry"
 printf 'acme/widgets#21 %s\n' "$MERGE" >"$T/prs"
 bash "$UC" compute --archive "$A" --topic feat-y --prs-file "$T/prs" >/dev/null 2>&1; eq "an archive not named for the topic is refused" 65 $?
@@ -215,7 +236,7 @@ echo "== figures not taken =="
 fresh; prs "acme/widgets#21 $MERGE"
 OUT=$(KOTO_REQUESTS="$T/none" compute)
 eq "with the request gone, dispatch comes from the job and green moves with it" "130 measured" "$(fig "$OUT" dispatch_to_green_min)"
-rm -f "$A/job/state.json"
+rm -rf "$A/job/state.json" "$A/claude-projects"
 OUT=$(KOTO_REQUESTS="$T/none" compute)
 eq "with no dispatch, both dispatch figures and both shares are not recoverable" "not recoverable not recoverable not recoverable not recoverable" \
     "$(q "$OUT" '[.figures.dispatch_to_green_min, .figures.dispatch_to_merge_min, .figures.outside_share_pct, .figures.review_share_pct] | map(.state) | join(" ")')"
@@ -344,48 +365,105 @@ echo "== dispatch =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 disp() { compute | jq -r '"\(.dispatch.value) \(.dispatch.state) \(.dispatch.source)"'; }
 eq "from the request no archived session asked for" "2026-10-01T09:00:00.000Z measured koto-request" "$(disp)"
-eq "with no request on the host, from the job" "2026-10-01T08:59:58.000Z measured job-state" "$(KOTO_REQUESTS="$T/none" disp)"
+eq "  ... reading three main session transcripts, the relocated copy one of them" 3 "$(compute | jq -r .dispatch.jobs)"
+eq "with no request on the host, from the job" "2026-10-01T09:00:02.000Z measured job-state" "$(KOTO_REQUESTS="$T/none" disp)"
 mkdir -p "$T/nested-only"; cp -R "$FX/requests/r_nested_x" "$T/nested-only/"
-eq "a request an archived session asked for is not the dispatch" "2026-10-01T08:59:58.000Z measured job-state" "$(KOTO_REQUESTS="$T/nested-only" disp)"
+eq "a request an archived session asked for is not the dispatch" "2026-10-01T09:00:02.000Z measured job-state" "$(KOTO_REQUESTS="$T/nested-only" disp)"
 rm -f "$A/job/state.json"
-eq "with neither, not recoverable" "null not recoverable koto-request" "$(KOTO_REQUESTS="$T/none" disp)"
+eq "with no job record either, from the earliest main session transcript's first event" "2026-10-01T09:00:05.000Z measured job-state" "$(KOTO_REQUESTS="$T/none" disp)"
+rm -rf "$A/claude-projects"
+eq "with none of the three, not recoverable" "null not recoverable koto-request" "$(KOTO_REQUESTS="$T/none" disp)"
 eq "  ... and listed" "no source" "$(KOTO_REQUESTS="$T/none" compute | jq -r '[.missing[] | select(.figure == "dispatch") | .reason][0]')"
+# mkjobs <request created_at>: a unit that ran as two jobs. Its koto session
+# names request r_jobs (made by the coordinator at that time), the torn-down
+# job's record says 14:21, and two main session transcripts start at 08:12
+# and 14:21.
+mkjobs() {
+    rm -rf "$T/j" "$T/jreq"
+    A="$T/j/$KEY"
+    mkdir -p "$A/job" "$A/koto/w" "$A/claude-projects/-w-inst-j" "$T/jreq/r_jobs"
+    printf '{"createdAt":"2026-10-01T14:21:00.000Z","sessionId":"0a1b2c3d-0002"}\n' >"$A/job/state.json"
+    printf '{"schema_version":1,"workflow":"w","template_name":"work-on","template_source_file":"work-on.md"}\n' >"$A/koto/w/koto-w.state.jsonl"
+    printf 'request_id = "r_jobs"\n' >"$A/koto/w/request-leg.toml"
+    printf '{"created_at":"%s","requested_by":"coordinator"}\n' "$1" >"$T/jreq/r_jobs/request.jsonl"
+    printf '{"type":"summary"}\n{"type":"user","timestamp":"2026-10-01T08:12:00.000Z"}\n' >"$A/claude-projects/-w-inst-j/0a1b2c3d-0001.jsonl"
+    printf '{"type":"user","timestamp":"2026-10-01T14:21:00.000Z"}\n' >"$A/claude-projects/-w-inst-j/0a1b2c3d-0002.jsonl"
+}
+jdisp() { KOTO_REQUESTS="$T/jreq" compute | jq -r '"\(.dispatch.value) \(.dispatch.source) \(.dispatch.jobs)"'; }
+mkjobs 2026-10-01T14:20:00.000Z
+eq "two jobs, transcripts from 08:12 and 14:21, job record 14:21, request 14:20: the earliest job" "2026-10-01T08:12:00.000Z job-state 2" "$(jdisp)"
+mkjobs 2026-10-01T08:00:00.000Z
+eq "  ... with the request at 08:00 instead, the request" "2026-10-01T08:00:00.000Z koto-request 2" "$(jdisp)"
+mkjobs 2026-10-01T08:12:00Z
+eq "  ... a request tied with the earliest transcript wins the tie, whatever its fraction" "2026-10-01T08:12:00Z koto-request 2" "$(jdisp)"
+mkjobs 2026-10-01T14:20:00.000Z
+printf '{"type":"user","timestamp":"2026-10-01T08:11:59.5Z"}\n' >>"$A/claude-projects/-w-inst-j/0a1b2c3d-0002.jsonl"
+eq "  ... a transcript's first event is its earliest timestamp, not its first line's" "2026-10-01T08:11:59.5Z job-state 2" "$(jdisp)"
 
 echo "== tokens =="
 fresh
+PD="$A/claude-projects/-work-inst-feat-x"
 tok() { compute | jq -c -r ".tokens.$1 | \"\(.messages) \(.input) \(.output) \(.cache_creation) \(.cache_read) \(.state)\""; }
-eq "the worker row: its transcript and subagents/, by message id" "3 20 90 150 120 measured" "$(tok worker)"
-grep -q '"id":"msg_w3"' "$A/transcript/0a1b2c3d-77aa.jsonl" && ok "  ... the example holds an assistant line with no usage (msg_w3), not counted" \
+eq "the worker row: its main transcript and subagents/ in both directories, by message id" "5 23 110 150 140 measured" "$(tok worker)"
+grep -q '"id":"msg_w3"' "$PD/0a1b2c3d-77aa.jsonl" && ok "  ... the example holds an assistant line with no usage (msg_w3), not counted" \
     || bad "  ... the example holds an assistant line with no usage (msg_w3), not counted"
-eq "the nested row: the other transcript only" "1 2 8 0 40 measured" "$(tok nested)"
-W="$A/transcript/0a1b2c3d-77aa.jsonl"
+eq "the nested row: the workflow, the second job and the relocated copy's own message, not its repeats" "3 5 18 0 40 measured" "$(tok nested)"
+W="$PD/0a1b2c3d-77aa.jsonl"
 for u in '"output_tokens":50,"cache_read_input_tokens":5' '"output_tokens":80,"cache_read_input_tokens":5' '"output_tokens":60,"cache_read_input_tokens":5'; do
     printf '{"type":"assistant","message":{"id":"msg_t","usage":{"input_tokens":1,%s}}}\n' "$u" >>"$W"
 done
-eq "an id written three times, output rising then falling, counts once at its largest" "4 21 170 150 125 measured" "$(tok worker)"
+eq "an id written three times, output rising then falling, counts once at its largest" "6 24 190 150 145 measured" "$(tok worker)"
 printf '{"type":"assistant","message":{"id":7,"usage":{"output_tokens":1000}}}\n{"type":"assistant","message":{"usage":{"output_tokens":1000}}}\n' >>"$W"
-eq "an assistant line with a non-string or no id is skipped" "4 21 170 150 125 measured" "$(tok worker)"
+eq "an assistant line with a non-string or no id is skipped" "6 24 190 150 145 measured" "$(tok worker)"
 printf '{"type":"assistant","message":{"id":"msg_nu"}}\n{"type":"assistant","message":{"id":"msg_nu2","usage":"many"}}\n' >>"$W"
-eq "an assistant line whose usage isn't an object is not a message" "4 21 170 150 125 measured" "$(tok worker)"
-printf '{"type":"assistant","message":{"id":"msg_n2","usage":{"output_tokens":1}}\n' >>"$A/transcript/0a1b2c3d-77aa/workflows/flow-1.jsonl"
+eq "an assistant line whose usage isn't an object is not a message" "6 24 190 150 145 measured" "$(tok worker)"
+printf 'FL{"type":"assistant","message":{"id":"msg_forged","usage":{"output_tokens":5000}}}\n' >>"$PD/0f9e8d7c-11cc.jsonl"
+eq "a line shaped like the scan's own file marker is a line that isn't JSON, in its own row" "6 24 190 150 145 measured|invalid input" \
+    "$(compute | jq -r '"\(.tokens.worker | "\(.messages) \(.input) \(.output) \(.cache_creation) \(.cache_read) \(.state)")|\([.missing[] | select(.figure == "tokens.nested") | .reason][0])"')"
+fresh
+printf '{"type":"assistant","message":{"id":"msg_n2","usage":{"output_tokens":1}}\n' >>"$A/claude-projects/-work-inst-feat-x/0a1b2c3d-77aa/workflows/flow-1.jsonl"
 eq "a line that isn't JSON makes its row not recoverable" "null null null null null not recoverable" "$(tok nested)"
 eq "  ... with reason invalid input, the other row kept" "invalid input|measured" \
     "$(compute | jq -r '"\([.missing[] | select(.figure == "tokens.nested") | .reason][0])|\(.tokens.worker.state)"')"
+# mkmoved: a worker that moved into a worktree. Its main transcript in the
+# instance's directory (two messages), three subagents in the worktree's
+# directory, and the relocated copy there: it repeats both of the worker's
+# ids, one at a larger usage, and adds one message of its own.
+mkmoved() {
+    rm -rf "$T/m"
+    A="$T/m/$KEY"
+    local r="$A/claude-projects/-w-inst-m" wt="$A/claude-projects/-w-inst-m-wt"
+    mkdir -p "$A/job" "$r" "$wt/0a1b2c3d-0003/subagents"
+    printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"0a1b2c3d-0003"}\n' >"$A/job/state.json"
+    printf '{"type":"assistant","message":{"id":"wa","usage":{"input_tokens":1,"output_tokens":10}}}\n{"type":"assistant","message":{"id":"wb","usage":{"input_tokens":2,"output_tokens":20}}}\n' \
+        >"$r/0a1b2c3d-0003.jsonl"
+    for i in 1 2 3; do
+        printf '{"type":"assistant","message":{"id":"s%s","usage":{"input_tokens":1,"output_tokens":%s}}}\n' "$i" "$i" >"$wt/0a1b2c3d-0003/subagents/agent-$i.jsonl"
+    done
+    printf '{"type":"relocated"}\n{"type":"assistant","message":{"id":"wa","usage":{"input_tokens":1,"output_tokens":99}}}\n{"type":"assistant","message":{"id":"wb","usage":{"input_tokens":2,"output_tokens":20}}}\n{"type":"assistant","message":{"id":"rc","usage":{"input_tokens":4,"output_tokens":40}}}\n' \
+        >"$wt/0a1b2c3d-0004.jsonl"
+}
+mkmoved
+eq "a moved worker: its main transcript and three subagents in the worktree's directory" "5 6 36 0 0 measured" "$(tok worker)"
+eq "  ... nested is only the relocated copy's own message: a repeated id counts once, in the worker row" "1 4 40 0 0 measured" "$(tok nested)"
 
 echo "== pull requests =="
 fresh; seed
 prs "acme/widgets#21 $MERGE" "acme/gadgets#5 $MERGE2"
 OUT=$(compute)
-eq "a verdict naming two pull requests in two repositories records both" \
-    '[{"repo":"acme/widgets","number":21,"merge_commit":"'"$MERGE"'","merged_at":"2026-10-01T11:30:00Z"},{"repo":"acme/gadgets","number":5,"merge_commit":"'"$MERGE2"'","merged_at":"2026-10-01T11:20:00Z"}]' \
-    "$(q "$OUT" '.pulls | tojson')"
+eq "a verdict naming two pull requests in two repositories records both, in its order, via holding" \
+    '[{"repo":"acme/widgets","number":21,"merge_commit":"'"$MERGE"'","merged_at":"2026-10-01T11:30:00Z","via":"holding"},{"repo":"acme/gadgets","number":5,"merge_commit":"'"$MERGE2"'","merged_at":"2026-10-01T11:20:00Z","via":"holding"}]' \
+    "$(q "$OUT" '.pulls[0:2] | tojson')"
+eq "  ... then the example's two credited pull requests, by merge time, via session" \
+    '[{"repo":"acme/widgets","number":23,"merge_commit":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","merged_at":"2026-10-01T11:10:00Z","via":"session"},{"repo":"acme/gadgets","number":7,"merge_commit":"4545454545454545454545454545454545454545","merged_at":"2026-10-01T11:25:00Z","via":"session"}]' \
+    "$(q "$OUT" '.pulls[2:] | tojson')"
 eq "  ... each carrying the unit's one plan shape" "single-pr measured" "$(q "$OUT" '"\(.plan_shape.value) \(.plan_shape.state)"')"
 eq "  ... merge is the later of the two" "150 measured" "$(fig "$OUT" dispatch_to_merge_min)"
 eq "  ... and green waits on both: the second has no green head" "null not recoverable" "$(fig "$OUT" dispatch_to_green_min)"
 eq "a pull request the verdict doesn't name is absent" 0 "$(q "$OUT" '[.pulls[] | select(.number == 22)] | length')"
 prs "acme/widgets#21 $MERGE" "acme/widgets#0 $MERGE"
 OUT=$(compute)
-eq "a verdict line outside the shapes is left out, invalid input" "1|invalid input" \
+eq "a verdict line outside the shapes is left out, invalid input" "3|invalid input" \
     "$(q "$OUT" '"\(.pulls | length)|\([.missing[] | select(.figure == "pulls") | .reason][0])"')"
 eq "  ... and the GitHub figures, over an incomplete set, are invalid input" "invalid input invalid input invalid input" \
     "$(q "$OUT" '[.missing[] | select(.figure == "dispatch_to_green_min" or .figure == "dispatch_to_merge_min" or .figure == "failing_heads") | .reason] | join(" ")')"
@@ -396,7 +474,7 @@ printf 'request_id = "../../etc"\n' >"$A/koto/deliver-x/request-leg.toml"
 eq "a request id with ../ builds no path: dispatch is not recoverable" "null not recoverable koto-request|invalid input" \
     "$(compute | jq -r '"\(.dispatch.value) \(.dispatch.state) \(.dispatch.source)|\([.missing[] | select(.figure == "dispatch") | .reason][0])"')"
 fresh; prs "acme/widgets#21 $MERGE" "-x/y#3 $MERGE"
-eq "a verdict repository starting with -" "1|invalid input|invalid input" \
+eq "a verdict repository starting with -" "3|invalid input|invalid input" \
     "$(compute | jq -r '"\(.pulls | length)|\([.missing[] | select(.figure == "pulls") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
 prs "acme/widgets#21 $MERGE"
 db '(.prs[] | select(.number == 21)).headRefName = "-x"'
@@ -431,9 +509,10 @@ KEYLIKE="gh""p_$(printf 'Q%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 
 APIKEY="sk-""ant-$(printf 'z%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
 HOMEP="/ho""me/someone/notes.md"
 PROMPT="PLANTED PROMPT: summarise the secret roadmap"
-jq -nc --arg k "$KEYLIKE" --arg h "$HOMEP" --arg p "$PROMPT" '{type: "user", message: {role: "user", content: "\($p) \($k) \($h)"}}' >>"$A/transcript/0a1b2c3d-77aa.jsonl"
+jq -nc --arg k "$KEYLIKE" --arg h "$HOMEP" --arg p "$PROMPT" '{type: "user", message: {role: "user", content: "\($p) \($k) \($h)"}, cwd: $h, gitBranch: $k}' \
+    >>"$A/claude-projects/-work-inst-feat-x/0a1b2c3d-77aa.jsonl"
 jq -nc --arg k "$APIKEY" --arg h "$HOMEP" '{type: "assistant", message: {id: "msg_p1", content: [{type: "text", text: "\($k) \($h)"}], usage: {output_tokens: 1}}}' \
-    >>"$A/transcript/0a1b2c3d-77aa/subagents/agent-a1.jsonl"
+    >>"$A/claude-projects/-work-inst-feat-x/0a1b2c3d-77aa/subagents/agent-a1.jsonl"
 jq -nc --arg k "$KEYLIKE" --arg h "$HOMEP" --arg p "$PROMPT" '{seq: 9, timestamp: "2026-10-01T09:20:15.000Z", type: "evidence_submitted",
     payload: {state: "analysis", fields: {note: "\($p) \($k) \($h)"}}}' >>"$A/koto/execute-x.o-issue-1/koto-execute-x.o-issue-1.state.jsonl"
 printf '%s\n%s\n%s\n' "$PROMPT" "$KEYLIKE" "$HOMEP" >"$A/koto/execute-x.o-issue-1/ctx/notes.md"
@@ -446,9 +525,13 @@ eq "  ... the planted lines change no figure" same "$(same_as "$OUT" "$FX/expect
 echo "== symlinks in the archive =="
 seed; fresh
 printf '{"type":"assistant","message":{"id":"msg_far","usage":{"output_tokens":5000}}}\n' >"$T/far.jsonl"
-ln -s "$T/far.jsonl" "$A/transcript/linked.jsonl"
-ln -s "$T/far.jsonl" "$A/transcript/0a1b2c3d-77aa/subagents/agent-linked.jsonl"
-eq "a symlink in transcript/ is skipped" "3 90|1 8" "$(compute | jq -r '"\(.tokens.worker.messages) \(.tokens.worker.output)|\(.tokens.nested.messages) \(.tokens.nested.output)"')"
+ln -s "$T/far.jsonl" "$A/claude-projects/-work-inst-feat-x/linked.jsonl"
+ln -s "$T/far.jsonl" "$A/claude-projects/-work-inst-feat-x/0a1b2c3d-77aa/subagents/agent-linked.jsonl"
+ln -s "$T/far.jsonl" "$A/claude-projects/-work-inst-feat-x/0a1b2c3d-1234.jsonl"
+mkdir -p "$T/fardir"; cp "$T/far.jsonl" "$T/fardir/0a1b2c3d-77aa.jsonl"
+ln -s "$T/fardir" "$A/claude-projects/-work-inst-feat-x-far"
+eq "a symlink in claude-projects/, a linked file or a linked directory, is skipped" "5 110|3 18|3" \
+    "$(compute | jq -r '"\(.tokens.worker.messages) \(.tokens.worker.output)|\(.tokens.nested.messages) \(.tokens.nested.output)|\(.dispatch.jobs)"')"
 mkdir -p "$T/elsewhere-session"; cp "$A/koto/scope-x/koto-scope-x.state.jsonl" "$T/elsewhere-session/koto-zz.state.jsonl"
 ln -s "$T/elsewhere-session" "$A/koto/zz"
 eq "a symlinked session directory is skipped" 5 "$(compute | jq '.sessions | length')"
@@ -465,9 +548,10 @@ prs "acme/widgets#21 $MERGE" "acme/secret#9 $MERGE2" "acme/hidden#4 $MERGE2" "ac
 db '.fail = [{match: "repos/acme/gadgets --jq .private", rc: 1, stderr: "HTTP 502"}]'
 printf '%s' "$(rj 'acme/secret#12')" >"$T/unit.json"
 OUT=$(compute --unit-json "$T/unit.json")
-eq "a private repository's pull request, an unreadable one's and a failed lookup's are written as not public" \
-    '[{"repo":"acme/widgets","number":21},{"repo":"not public"},{"repo":"not public"},{"repo":"not public"}]' \
+eq "a private repository's pull request, an unreadable one's and a failed lookup's are written as not public, credited or not" \
+    '[{"repo":"acme/widgets","number":21},{"repo":"not public"},{"repo":"not public"},{"repo":"not public"},{"repo":"acme/widgets","number":23},{"repo":"not public"}]' \
     "$(q "$OUT" '[.pulls[] | {repo, number} | with_entries(select(.value != null))] | tojson')"
+eq "  ... a not-public pull request carries its repo alone, no via" true "$(q "$OUT" '[.pulls[] | select(.repo == "not public") | keys == ["repo"]] | all')"
 eq "  ... a Unit naming a private repository is not public" '"not public"|"none"' "$(q "$OUT" '"\(.unit | tojson)|\(.milestone.value | tojson)"')"
 case "$OUT" in *secret* | *hidden* | *gadgets*) bad "  ... and no such repository is named anywhere" "$OUT" ;; *) ok "  ... and no such repository is named anywhere" ;; esac
 eq "  ... their figures kept: merge is the latest of all four" "150 measured" "$(fig "$OUT" dispatch_to_merge_min)"
@@ -476,7 +560,7 @@ printf '%s' "$(rj 'acme/gadgets#12')" >"$T/unit.json"
 eq "a Unit naming a public repository is kept" "acme/gadgets#12" "$(compute --unit-json "$T/unit.json" | jq -r .unit)"
 jq -nc '{scope: "roadmap", name: "x", repo: "acme/secret", ref: "7", unit: "acme/secret#12"}' >"$T/unit.json"
 OUT=$(compute --unit-json "$T/unit.json")
-eq "on a private host every pull request and the Unit are kept" "acme/widgets acme/secret acme/hidden acme/gadgets|acme/secret#12" \
+eq "on a private host every pull request and the Unit are kept" "acme/widgets acme/secret acme/hidden acme/gadgets acme/widgets acme/gadgets|acme/secret#12" \
     "$(q "$OUT" '"\([.pulls[].repo] | join(" "))|\(.unit)"')"
 reset_calls
 compute --unit-json "$T/unit.json" >/dev/null
@@ -484,8 +568,9 @@ eq "  ... with no lookup but the host's" "api --method GET repos/acme/secret --j
 reset_calls
 prs "acme/widgets#21 $MERGE"
 compute >/dev/null
-eq "with no record known, the host counts as public: each repository is looked up" "api --method GET repos/acme/widgets --jq .private" \
-    "$(grep -- '--jq .private' "$GH_DB.calls")"
+eq "with no record known, the host counts as public: each repository is looked up, the credited ones' too" \
+    "api --method GET repos/acme/widgets --jq .private|api --method GET repos/acme/gadgets --jq .private" \
+    "$(grep -- '--jq .private' "$GH_DB.calls" | tr '\n' '|' | sed 's/|$//')"
 
 echo "== one entry per key =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
@@ -507,7 +592,7 @@ eq "  ... a second entry for the key, which readers report as a repeat" 2 \
 
 echo "== partial entries =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
-rm -rf "$A/transcript"
+rm -rf "$A/claude-projects"
 capture; eq "with the transcripts missing, the capture posts" 0 $?
 POSTED=$((POSTED + 1))
 eq "  ... complete false, naming the token rows" "false|tokens.worker:no source,tokens.nested:no source" \
@@ -570,10 +655,177 @@ LEFT=""
 for f in "$A"/.unit-cost*; do [ -e "$f" ] && LEFT="$LEFT ${f##*/}"; done
 eq "  ... and no temporary file is left" "" "$LEFT"
 
+echo "== credit =="
+# mkcredit [notime]: a unit with a job record (09:00) and the worker's main
+# transcript in claude-projects/, on gitBranch feat/own, its first event at
+# 09:00, and no koto session: dispatch is 09:00:00. With notime there is no
+# job record and no timestamp, so dispatch is not recoverable.
+mkcredit() {
+    rm -rf "$T/c"
+    A="$T/c/$KEY"
+    CW="$A/claude-projects/-w-inst-c/0a1b2c3d-0c0c.jsonl"
+    mkdir -p "$A/job" "$A/claude-projects/-w-inst-c"
+    if [ "${1:-}" = notime ]; then
+        printf '{"type":"user","cwd":"/w/inst/c","gitBranch":"feat/own"}\n' >"$CW"
+    else
+        printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"0a1b2c3d-0c0c"}\n' >"$A/job/state.json"
+        printf '{"type":"user","cwd":"/w/inst/c","gitBranch":"feat/own","timestamp":"2026-10-01T09:00:00.000Z"}\n' >"$CW"
+    fi
+}
+# link <repo> <number as JSON> <timestamp>: a pr-link record in the worker's transcript.
+link() {
+    jq -nc --arg r "$1" --argjson n "$2" --arg t "$3" \
+        '{type: "pr-link", sessionId: "0a1b2c3d-0c0c", prNumber: $n, prUrl: "https://github.com/\($r)/pull/\($n)", prRepository: $r, timestamp: $t}' >>"$CW"
+}
+# ghpr <repo> <n> <created> <state> <head> <merged at> [head owner]: one
+# pull request on GitHub's side.
+ghpr() {
+    db '.prs += [{repo: $r, number: ($n | tonumber), title: "x", body: "", state: $s, isDraft: false, isCrossRepository: ($o != ""),
+            baseRefName: "main", headRefName: $h, headRefOid: $m, author: "alice", editor: null, createdAt: $c}
+        + (if $s == "MERGED" then {mergedAt: $at, mergeCommit: $m} else {} end)
+        + (if $o == "" then {} else {headOwner: $o} end)]' \
+        --arg r "$1" --arg n "$2" --arg c "$3" --arg s "$4" --arg h "$5" --arg at "$6" --arg o "${7:-}" --arg m "$MERGE2"
+}
+via() { q "$1" '[.pulls[] | if .repo == "not public" then "not public" else "\(.repo)#\(.number) \(.via)" end] | join("|")'; }
+pmiss() { q "$1" '[.missing[] | select(.figure == "pulls") | .reason] | join(",")'; }
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+db '.repos["other/widgets"] = {private: false, default_branch: "main"}'
+ghpr acme/widgets 41 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
+link acme/widgets 41 2026-10-01T12:00:00.000Z
+ghpr acme/widgets 42 2026-10-01T10:10:00Z MERGED impl/plan-node-2 2026-10-01T10:40:00Z
+link acme/widgets 42 2026-10-01T10:10:30.000Z
+ghpr acme/widgets 43 2026-10-01T10:20:00Z MERGED feat/other 2026-10-01T10:50:00Z
+link acme/widgets 43 2026-10-01T11:20:00.000Z
+ghpr acme/widgets 44 2026-10-01T08:00:00Z MERGED feat/own 2026-10-01T08:30:00Z
+link acme/widgets 44 2026-10-01T11:00:00.000Z
+ghpr acme/widgets 45 2026-10-01T10:30:00Z MERGED feat/own 2026-10-01T10:45:00Z forker
+link acme/widgets 45 2026-10-01T10:30:10.000Z
+ghpr other/widgets 46 2026-10-01T10:30:00Z MERGED feat/own 2026-10-01T10:45:00Z
+link other/widgets 46 2026-10-01T10:30:10.000Z
+ghpr acme/widgets 47 2026-10-01T10:30:00Z OPEN feat/own ""
+link acme/widgets 47 2026-10-01T10:30:10.000Z
+link acme/widgets 21 2026-10-01T09:30:00.000Z
+reset_calls
+OUT=$(compute)
+eq "own branch, linked 30 s after creation, viewed an hour later, created before dispatch, a fork, another owner, unmerged: the first two credited after the holding's" \
+    "acme/widgets#21 holding|acme/widgets#41 session|acme/widgets#42 session" "$(via "$OUT")"
+eq "  ... credited with the merge commit and time GitHub reads" \
+    "$MERGE2 2026-10-01T10:30:00Z|$MERGE2 2026-10-01T10:40:00Z" "$(q "$OUT" '[.pulls[1:][] | "\(.merge_commit) \(.merged_at)"] | join("|")')"
+eq "  ... the holding's own link is no second entry" 1 "$(q "$OUT" '[.pulls[] | select(.number == 21)] | length')"
+eq "  ... nothing left out, nothing missing for pulls" "" "$(pmiss "$OUT")"
+eq "  ... one read per candidate under the holding's owner, none for another owner's" "41 42 43 44 45 47" \
+    "$(grep -- '--json state,createdAt' "$GH_DB.calls" | awk '{print $3}' | sort -n | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... and credit moves no figure: merge is still the holding's" "150 measured|130 measured" "$(fig "$OUT" dispatch_to_merge_min)|$(fig "$OUT" dispatch_to_green_min)"
+case "$(via "$OUT")" in *"#43"*) bad "a merged, same-owner pull request created after dispatch on no gitBranch of the unit, linked only more than 120 s after its creation, is not credited (viewed)" "$(via "$OUT")" ;;
+    *) ok "a merged, same-owner pull request created after dispatch on no gitBranch of the unit, linked only more than 120 s after its creation, is not credited (viewed)" ;; esac
+eq "a pull request the unit opened on a sibling node branch, absent from every gitBranch, linked within 120 s of its creation: credited via session" \
+    "acme/widgets#42 session" "$(q "$OUT" '[.pulls[] | select(.number == 42) | "\(.repo)#\(.number) \(.via)"][0]')"
+case " $(q "$OUT" '.pulls | tojson') " in *impl/plan-node-2* | *feat/own* | *feat/other*) bad "  ... no branch name enters the entry" "$OUT" ;; *) ok "  ... no branch name enters the entry" ;; esac
+# The window is 120 seconds either way, inclusive.
+seed; mkcredit
+ghpr acme/widgets 51 2026-10-01T10:00:00Z MERGED b/51 2026-10-01T10:31:00Z
+link acme/widgets 51 2026-10-01T10:02:00.000Z
+ghpr acme/widgets 52 2026-10-01T10:00:00Z MERGED b/52 2026-10-01T10:32:00Z
+link acme/widgets 52 2026-10-01T09:58:00.000Z
+ghpr acme/widgets 53 2026-10-01T10:00:00Z MERGED b/53 2026-10-01T10:33:00Z
+link acme/widgets 53 2026-10-01T10:02:00.001Z
+ghpr acme/widgets 54 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:34:00Z
+ghpr acme/widgets 55 2026-10-01T10:00:00Z MERGED main 2026-10-01T10:35:00Z
+link acme/widgets 54 2026-10-01T12:00:00.000Z
+link acme/widgets 55 2026-10-01T12:00:00.000Z
+printf '{"type":"user","gitBranch":"main"}\n' >>"$CW"
+OUT=$(compute)
+eq "linked 120 s after or before creation is credited, 120.001 s is not; a gitBranch head is, a head that is its own base is not" \
+    "acme/widgets#21 holding|acme/widgets#51 session|acme/widgets#52 session|acme/widgets#54 session" "$(via "$OUT")"
+# An unreadable linked pull request: left out, and credit never gates.
+seed; mkcredit
+ghpr acme/widgets 41 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
+link acme/widgets 41 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 42 2026-10-01T10:10:00Z MERGED feat/own 2026-10-01T10:40:00Z
+link acme/widgets 42 2026-10-01T10:10:10.000Z
+db '.fail = [{match: "pr view 41 --repo acme/widgets --json state", rc: 1, stderr: "HTTP 502"}]'
+OUT=$(compute)
+eq "an unreadable linked pull request is left out, the others credited" "acme/widgets#21 holding|acme/widgets#42 session" "$(via "$OUT")"
+eq "  ... missing names pulls once, read failed" "read failed" "$(pmiss "$OUT")"
+db '.fail = []'
+# No dispatch: created at or after dispatch can't be judged.
+seed; mkcredit notime
+ghpr acme/widgets 41 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
+link acme/widgets 41 none
+reset_calls
+OUT=$(KOTO_REQUESTS="$T/none" compute)
+eq "dispatch not recoverable: only the holding's pull request, pulls no source" "not recoverable|acme/widgets#21 holding|no source" \
+    "$(q "$OUT" .dispatch.state)|$(via "$OUT")|$(pmiss "$OUT")"
+eq "  ... and no credit read is made" "" "$(grep -- '--json state,createdAt' "$GH_DB.calls")"
+# More than 100: the holding's first, then by merge time and number.
+seed; mkcredit
+db '.prs += [range(101; 202) as $i | {repo: "acme/widgets", number: $i, title: "x", body: "", state: "MERGED", isDraft: false,
+        isCrossRepository: false, baseRefName: "main", headRefName: "b/\($i)", headRefOid: $m, author: "alice", editor: null,
+        createdAt: "2026-10-01T10:00:00Z", mergedAt: (if $i % 2 == 0 then "2026-10-01T10:20:00Z" else "2026-10-01T10:30:00Z" end),
+        mergeCommit: $m}]' --arg m "$MERGE2"
+jq -nc 'range(101; 202) as $i | {type: "pr-link", prNumber: $i, prRepository: "acme/widgets", timestamp: "2026-10-01T10:00:30.000Z"}' >>"$CW"
+OUT=$(compute)
+eq "101 creditable pull requests: 100 objects, the holding's first, then by merge time and number" \
+    "100|acme/widgets#21 holding|102 104 200 101 103|197|entry size" \
+    "$(q "$OUT" '"\(.pulls | length)|\(.pulls[0] | "\(.repo)#\(.number) \(.via)")|\([.pulls[1], .pulls[2], .pulls[50], .pulls[51], .pulls[52]] | map(.number | tostring) | join(" "))|\(.pulls[99].number)"')|$(pmiss "$OUT")"
+seed; mkcredit
+ghpr acme/secret 9 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
+link acme/secret 9 2026-10-01T10:00:10.000Z
+OUT=$(compute)
+eq "a private credited pull request on a public host is {repo: not public} alone" '[{"repo":"acme/widgets","via":"holding"},{"repo":"not public"}]' \
+    "$(q "$OUT" '[.pulls[] | if .repo == "not public" then . else {repo, via} end] | tojson')"
+# A budget spent after the first credit read: what was read is kept.
+seed; mkcredit
+db '.prs += [range(61; 76) as $i | {repo: "acme/widgets", number: $i, title: "x", body: "", state: "MERGED", isDraft: false,
+        isCrossRepository: false, baseRefName: "main", headRefName: "b/\($i)", headRefOid: $m, author: "alice", editor: null,
+        createdAt: "2026-10-01T10:\($i - 50):00Z", mergedAt: "2026-10-01T11:\($i - 50):00Z", mergeCommit: $m}]' --arg m "$MERGE2"
+for i in 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75; do link acme/widgets "$i" "2026-10-01T10:$((i - 50)):30.000Z"; done
+printf '#!/usr/bin/env bash\ncase "$*" in "pr view "*"--json state,createdAt"*) echo x >>"%s/slow.n"; sleep 0.6 ;; esac\nexec gh "$@"\n' "$T" >"$T/slowgh"
+chmod +x "$T/slowgh"
+: >"$T/slow.n"
+OUT=$(GH="$T/slowgh" UNIT_COST_BUDGET_SECS=6 compute)
+NC=$(q "$OUT" '[.pulls[] | select(.via == "session")] | length')
+[ "$NC" -ge 1 ] && [ "$NC" -lt 15 ] && ok "a budget spent mid-way keeps the credit read before it ($NC of 15)" || bad "a budget spent mid-way keeps the credit read before it" "$NC: $OUT"
+eq "  ... the earliest-linked first, in order" "$(awk -v n="$NC" 'BEGIN { for (i = 61; i <= 60 + n; i++) printf "%s%d", (i > 61 ? " " : ""), i }')" "$(q "$OUT" '[.pulls[] | select(.via == "session") | .number | tostring] | join(" ")')"
+eq "  ... and missing names pulls, time limit" "time limit" "$(pmiss "$OUT")"
+# Hostile links and branches: matched to their patterns before any read.
+seed; mkcredit
+link 'a/b;x' 5 2026-10-01T10:00:10.000Z
+link acme/widgets '"1 x"' 2026-10-01T10:00:10.000Z
+link '-acme/widgets' 6 2026-10-01T10:00:10.000Z
+link 'acme/../widgets' 7 2026-10-01T10:00:10.000Z
+link acme/widgets '"0"' 2026-10-01T10:00:10.000Z
+link acme/widgets 1.5 2026-10-01T10:00:10.000Z
+printf '{"type":"user","gitBranch":"--upload-pack=x"}\n' >>"$CW"
+ghpr acme/widgets 8 2026-10-01T10:00:00Z MERGED --upload-pack=x 2026-10-01T10:30:00Z
+link acme/widgets 8 2026-10-01T12:00:00.000Z
+reset_calls
+OUT=$(compute)
+eq "pr-link repository a/b;x, number 1 x, gitBranch --upload-pack=x: no GitHub read names them" "" \
+    "$(grep -e ';x' -e '1 x' -e 'upload-pack' -e '\.\.' -e 'repo -acme' -e 'pr view 0 ' -e 'pr view 1.5' "$GH_DB.calls")"
+eq "  ... the one well-formed link is read, and a head that is no allowed gitBranch credits nothing" "acme/widgets#21 holding|8" \
+    "$(via "$OUT")|$(grep -- '--json state,createdAt' "$GH_DB.calls" | awk '{print $3}' | tr '\n' ' ' | sed 's/ $//')"
+
+echo "== niwa's dispatch id =="
+seed; fresh; prs "acme/widgets#21 $MERGE"
+nid() { compute | jq -r '"\(."niwa.dispatch.id" | tojson)|\([.missing[] | select(.figure == "niwa.dispatch.id") | .reason] | join(","))"'; }
+eq "teardown.json's dispatch id is the entry's, unchanged" '"dsp-feat-x.1"|' "$(nid)"
+jq -c '.niwa = {dispatch_id: null, reason: "no source"}' "$A/teardown.json" >"$T/td" && cp "$T/td" "$A/teardown.json"
+eq "a teardown.json with no id: null, no source" 'null|no source' "$(nid)"
+jq -c '.niwa = {dispatch_id: null, reason: "invalid input"}' "$A/teardown.json" >"$T/td" && cp "$T/td" "$A/teardown.json"
+eq "  ... with the handoff's invalid input: null, invalid input" 'null|invalid input' "$(nid)"
+jq -c '.niwa = {dispatch_id: "a b", reason: null}' "$A/teardown.json" >"$T/td" && cp "$T/td" "$A/teardown.json"
+eq "an id outside its shape (a b): null, invalid input" 'null|invalid input' "$(nid)"
+printf 'not json\n' >"$A/teardown.json"
+eq "a teardown.json that isn't JSON: null, invalid input" 'null|invalid input' "$(nid)"
+rm -f "$A/teardown.json"
+eq "no teardown.json: null, no source" 'null|no source' "$(nid)"
+
 echo "== the GitHub wrapper =="
 admit() { bash "$UC" gh-check "$@"; eq "admits: $*" 0 $?; }
 refuse() { bash "$UC" gh-check "$@"; eq "refuses: $*" 1 $?; }
 admit pr view 21 --repo acme/widgets --json mergedAt,headRefName
+admit pr view 21 --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner
 admit run list --repo acme/widgets --branch feat/x --limit 300 --json databaseId,headSha,attempt,status,conclusion,updatedAt
 admit run list --repo acme/widgets --commit "$MERGE"
 admit api --method GET repos/acme/widgets/pulls/21/commits --paginate

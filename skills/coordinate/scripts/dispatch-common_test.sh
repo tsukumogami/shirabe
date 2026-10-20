@@ -161,6 +161,17 @@ else
     ok "deadline: no watcher left behind"
 fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
+# The watcher writes its mark before it kills the command. A kill that pauses
+# after every TERM (the watcher's subshell inherits the function) holds the
+# command's end and the caller's TERM to the watcher wide apart, so with the
+# mark moved back after the kill, that TERM would always land first and a
+# deadline that passed would read as the killed command's 143.
+kill() { builtin kill "$@"; local rc=$?; [ "${1-}" = -TERM ] && sleep 0.5; return $rc; }
+dc_with_deadline 1 sleep 20; eq "deadline: still 124 when the caller's TERM reaches the watcher right after its kill" 124 "$?"
+# A command that exits 0 from its own TERM trap keeps its 0 (its trap stops
+# the sleep it started, so nothing outlives the case).
+dc_with_deadline 1 sh -c 'trap "kill \$!; exit 0" TERM; sleep 20 & wait'; eq "deadline: a command that exits 0 as the deadline stops it keeps 0" 0 "$?"
+unset -f kill
 
 # --- the invocation and the holding's mode ---------------------------------------------
 #
@@ -229,6 +240,24 @@ EOF
         done
     fi
 done <"$DC_ENTRY_POINTS"
+
+# --- unit matches past a pipe's capacity (shirabe#874) ---------------------------
+# A pick.json whose units' forms run well past a pipe's buffer (6,000 issues,
+# about 120 KiB of forms), with the unit asked for listed first. Piped into
+# an early-exiting grep under pipefail, the writer was cut off once grep had
+# matched and the match read as "not pick_facts' JSON" (exit 2); read without
+# a pipe it matches every time.
+jq -n '{scope: "discipline", host: "acme/widgets", units: [range(1; 6001) | {unit: "#\(.)", title: "t"}]}' > "$T/pick-big.json"
+FORMS_BYTES=$(dc_unit_forms "$T/pick-big.json" | wc -c | tr -d ' ')
+[ "$FORMS_BYTES" -gt 65536 ] && ok "unit matches: the forms run past a pipe's buffer ($FORMS_BYTES bytes)" \
+    || bad "unit matches: the forms run past a pipe's buffer" "$FORMS_BYTES bytes"
+um_rc=
+for i in 1 2 3; do dc_unit_matches "#1" "$T/pick-big.json"; um_rc="$um_rc$?"; done
+eq "unit matches: the first unit of a large pick matches, 3 of 3" 000 "$um_rc"
+dc_unit_matches "acme/widgets#1" "$T/pick-big.json"; eq "unit matches: its host form too" 0 $?
+dc_unit_matches "#6001" "$T/pick-big.json"; eq "unit matches: a unit pick didn't list doesn't" 1 $?
+printf 'not json\n' > "$T/pick-bad.json"
+dc_unit_matches "#1" "$T/pick-bad.json"; eq "unit matches: a file that isn't pick_facts' JSON is 2" 2 $?
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

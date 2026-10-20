@@ -9,7 +9,9 @@
 # done_executed, done_re_evaluation, done_abandonment, done_cancelled,
 # done_refused, done_error), asserts no terminal ever prints outcome=refused,
 # and that values outside their closed patterns are dropped rather than
-# printed. Needs bash and jq.
+# printed. Through --session, against a stand-in koto, it pins that a session
+# koto removed at its terminal prints its block from the record koto answers
+# with, and that a name that never existed exits 1. Needs bash and jq.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -155,12 +157,53 @@ case "$OUT" in *pr=*|*pr_state=*) bad "a non-GitHub URL and pr_state=closed are 
 render done_full_run '{"outcome":"handed-off-multi-pr","exit":"full-run","intent":"none","next":"/work-on #7; rm -rf /","plan_execution_mode":"multi-pr","startable":"#7 ok\noutcome=merged\n#8 fine","wip_paths":"wip/a,../etc"}'
 case "$OUT" in *"rm -rf"*) bad "a next outside the pattern is dropped" "$OUT" ;; *) ok "a next outside the pattern is dropped" ;; esac
 case "$OUT" in *"wip_paths="*) bad "a leftover wip_paths in a payload is never printed" "$OUT" ;; *) ok "a leftover wip_paths in a payload is never printed" ;; esac
-if printf '%s\n' "$OUT" | grep -q '^outcome=merged'; then bad "a startable line that is not #<N> <title> is dropped" "$OUT"; else ok "a startable line that is not #<N> <title> is dropped"; fi
+if grep -q '^outcome=merged' <<<"$OUT"; then bad "a startable line that is not #<N> <title> is dropped" "$OUT"; else ok "a startable line that is not #<N> <title> is dropped"; fi
 
 render hop_plan '{}'
 eq "a non-terminal state exits 1" "1" "$RC"
 
-if printf '%s\n' "$ALL" | grep -q '^outcome=refused'; then
+echo "== --session against a stand-in koto =="
+# A koto that keeps finished records (tsukumogami/koto#355) answers `koto status`
+# for a scope session it removed at its terminal: exit 0, "removed": true, and
+# the same current_state and result a kept session reports. The exit block is
+# read from that answer, deliberately: it carries everything the block needs.
+# A name that never existed still answers "not found" (exit 2), and the script
+# exits 1. The stand-in answers from $STATUS_ANSWERS/<name>; a real koto is
+# never asked, since the one on PATH may predate the record.
+STUBBIN="$T/stubbin"
+mkdir -p "$STUBBIN" "$T/answers"
+cat >"$STUBBIN/koto" <<'STUB'
+#!/bin/bash
+if [ "${1:-}" = status ] && [ -f "$STATUS_ANSWERS/${2:-}" ]; then
+    cat "$STATUS_ANSWERS/$2"
+    exit 0
+fi
+[ "${1:-}" = status ] && { printf '{"command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "${2:-}"; exit 2; }
+exit 1
+STUB
+chmod +x "$STUBBIN/koto"
+# session <name> -- run against the stand-in; sets OUT and RC.
+session() {
+    OUT=$(cd "$W" && STATUS_ANSWERS="$T/answers" PATH="$STUBBIN:$PATH" bash "$S" --topic t --session "$1" 2>"$T/err")
+    RC=$?
+}
+jq -nc '{name: "scope-t", current_state: "done_full_run", is_terminal: true,
+    result: {status: "success", payload: {outcome: "scoped", exit: "full-run", intent: "none",
+        next: "/execute docs/plans/PLAN-t.md", pr: "", plan_path: "docs/plans/PLAN-t.md",
+        plan_execution_mode: "single-pr", startable: ""}},
+    removed: true, finished_at: "2026-10-12T14:00:00Z", session_id: "0123456789abcdef",
+    execution_dir: "/work/repo"}' >"$T/answers/scope-t"
+session scope-t
+eq "a removed session's exit is read from its record: exit 0" "0" "$RC"
+eq "a removed session prints the block a kept one does" "/scope finished: exit=full-run; artifact=docs/plans/PLAN-t.md
+intent=none
+outcome=scoped
+next=/execute docs/plans/PLAN-t.md" "$OUT"
+session scope-never
+eq "a session that never existed exits 1" "1" "$RC"
+eq "a session that never existed prints no block" "" "$OUT"
+
+if grep -q '^outcome=refused' <<<"$ALL"; then
     bad "no terminal prints outcome=refused" "$(printf '%s\n' "$ALL" | grep '^outcome=refused')"
 else
     ok "no terminal prints outcome=refused"

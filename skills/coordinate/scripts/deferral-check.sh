@@ -50,7 +50,9 @@
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
-#                         it an unrecorded write or an owed message
+#                         it an unrecorded write or an owed message; `archive`
+#                         (settled entries to move out of a full record)
+#                         blocks either way
 #   unresolved-topic      a redispatch (or any visit not from a pick) whose
 #                         unit resolves to no dispatch topic: the failed
 #                         unit can't be found (a leg no Holdings row
@@ -283,19 +285,24 @@ changed_or_die() { # changed_or_die <err-file> <what>
     fi
     lib_die2 "cannot read $2: $(lib_scrub < "$1")"
 }
+# The record, through the seam (record-source.sh); the container's state and
+# head are GitHub's, read in the same call.
 if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json state,body > "$T/rec.json" 2> "$T/rec.err" < /dev/null || changed_or_die "$T/rec.err" "issue #$REF"
+    rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
+    [ $RS_RC -eq 2 ] && changed_or_die "$T/parsed.json.err" "issue #$REF"
+    { [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    cp "$T/parsed.json.raw" "$T/rec.json"
     [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="issue #$REF is closed"; finish record-changed; }
 else
-    gh pr view "$REF" --repo "$REPO" --json state,body,headRefName,isCrossRepository > "$T/rec.json" 2> "$T/rec.err" < /dev/null \
-        || changed_or_die "$T/rec.err" "pull request #$REF"
+    rs_record "$T/parsed.json" json --json state,body,headRefName,isCrossRepository; RS_RC=$?
+    [ $RS_RC -eq 2 ] && changed_or_die "$T/parsed.json.err" "pull request #$REF"
+    { [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    cp "$T/parsed.json.raw" "$T/rec.json"
     [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="pull request #$REF is not open"; finish record-changed; }
     [ "$(jq -r .headRefName "$T/rec.json")" = "$BRANCH" ] && [ "$(jq -r .isCrossRepository "$T/rec.json")" = false ] \
         || { REASON="pull request #$REF is not from $BRANCH"; finish record-changed; }
 fi
-jq -r '.body // ""' "$T/rec.json" > "$T/body.md"
-lib_parse "$T/body.md" "$T/parsed.json"
-case $? in
+case $RS_RC in
     0) ;;
     3|65) REASON="#$REF is no longer a canonical $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
     *) lib_die2 "record-parse.sh failed" ;;

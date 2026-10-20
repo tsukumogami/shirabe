@@ -29,8 +29,9 @@ In increasing order:
 - **`full`** runs scrutiny, review, then QA.
 
 A blocking result from any panel, the `light` panel included, retries through
-implementation under the same retry cap, sticky verdicts and per-seat scoping
-as before. A `docs` or `task` run records a level too; its route skips the
+implementation under the same retry cap, and its next round is planned from
+the findings ledger like every panel's: only the findings the fix made due are
+re-verified. A `docs` or `task` run records a level too; its route skips the
 panels, so the level only appears in its ledger.
 
 ## Choosing, raising and lowering
@@ -52,7 +53,8 @@ when the rebind or a context read or write fails (neither changes).
   from below it: it needs no reason anywhere, and above the ceiling it is
   recorded as a breach too, because the facts win over the ceiling. A raise
   made because the decider check vetoed the level passes
-  `--cause veto:<criterion>` and is recorded as a veto.
+  `--cause veto:<criterion>` and is recorded as a veto; a raise after the
+  agent's own `fail` answer is a plain raise.
 - **Lower.** A lower level needs a non-empty `--reason`, which the ledger
   keeps. A lower below the facts floor or below the bound floor is refused,
   with or without a reason.
@@ -157,6 +159,15 @@ The level check also carries a veto-mode decider check whose command is
 level, never a path, a reason or criteria text. It asks whether the level is
 too light for these facts under the definitions on this page. It can only
 hold the run, never route it or lower the level.
+
+When the decider gives no verdict, the criterion falls back to the agent
+instead of passing (koto 0.20.0), for a user whose decider runs in shadow as
+well as one in veto: the check holds the run until the agent judges the level
+itself and answers with `koto decider answer`. `pass` and `unclear` let it
+through. An agent `fail` is acted on with a plain raise, not
+`--cause veto:<criterion>`, because a `veto` ledger line records only a raise
+the decider asked for. koto keeps the answer as the agent's: it is never
+written as a decider verdict, so nothing that measures the decider reads it.
 
 ## Hand rebinds
 

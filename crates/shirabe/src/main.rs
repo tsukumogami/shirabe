@@ -12,6 +12,8 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
+use shirabe_validate::rules::{load_rules, resolve_rules_path, Rules};
+use shirabe_validate::visibility::resolve_prose_vocabulary_from_dir;
 use shirabe_validate::{
     check_coordination_body, check_pr_body, check_slug_prefix, detect_format, detect_pr_draft,
     explain_advisory, format_error, format_notice, is_known_check_code, is_notice, parse_doc,
@@ -21,10 +23,12 @@ use shirabe_validate::{
     GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome, Mode, ParseError, PrPosture,
     ReviewPosture, SlugPrefixCheck, ValidationError, ARTIFACT_DIRS, SCHEMA_SKIP_CODE,
 };
+use shirabe_validate::{check_pr_writing_style, suppressed_terms};
 
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
+mod pre_action;
 mod work_summary;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -94,15 +98,35 @@ enum Commands {
     /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
     /// plain block). Every subcommand exits 0 (fail-safe).
     WorkSummary(work_summary::WorkSummaryArgs),
-    /// Client-side PreToolUse hook: gate a `gh pr create` / `gh pr edit`
-    /// command against the mechanical PR-body rule
+    /// Client-side PreToolUse hook: deny a `gh pr create` / `gh pr edit`
+    /// command whose title or body breaks a PR-body rule
     /// (references/pr-body-conformance.md) before it runs. Reads a Claude Code
     /// hook JSON on stdin, reuses the `validate --pr-body` engine, and emits a
-    /// PreToolUse `deny` decision naming the findings — or nothing (allow) when
-    /// the body/title is clean or cannot be confidently extracted. Fail-safe:
-    /// always exits 0. Registered via dot-niwa; the CI `pr-body.yml` gate is
-    /// the authoritative backstop.
+    /// PreToolUse `deny` decision naming each broken rule from the registry
+    /// built into the binary, or a fail-closed deny for a pull-request command
+    /// it can't check; nothing otherwise. Always exits 0. Registered via
+    /// dot-niwa; the CI `pr-body.yml` gate remains the backstop.
     PrBodyHook,
+    /// The shirabe plugin's PreToolUse hook: deny a `gh pr create` / `gh pr
+    /// edit` breaking a PR-body rule and a `git push` breaking a commit rule
+    /// before it runs, naming each rule from the plugin's registry, and deny a
+    /// guarded command it can't check. Leaves the PR-body rules to `pr-body-hook`
+    /// when the host's settings wire it. Reads a Claude Code hook JSON on
+    /// stdin; exits 0, or 3 when `--rules` names a rule this binary doesn't
+    /// check. Run by the plugin's `hooks/pre-action-deny.sh`.
+    PreActionHook(PreActionHookArgs),
+}
+
+#[derive(clap::Args)]
+struct PreActionHookArgs {
+    /// The plugin's root directory, whose `references/rule-registry.json`
+    /// supplies the rules' summaries and text locations.
+    #[arg(long = "plugin-root", value_name = "DIR")]
+    plugin_root: std::path::PathBuf,
+    /// The rule ids the calling script expects checked, separated by
+    /// whitespace. Naming a rule this binary doesn't check exits 3.
+    #[arg(long = "rules", value_name = "IDS")]
+    rules: String,
 }
 
 #[derive(clap::Args)]
@@ -224,8 +248,10 @@ struct ValidateArgs {
     /// Run only the named check(s) instead of the full applicable pass.
     /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
     /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
-    /// `FC01`-`FC16`, `FC-CONVENTIONS`, `R6`-`R11`. An unknown code is a tool
-    /// error. A valid but format-inapplicable code is a clean no-op.
+    /// `FC01`-`FC22`, `FC-CONVENTIONS`, `R6`-`R11`. The lifecycle codes
+    /// `L01`-`L10` come from `--lifecycle` and `--lifecycle-chain` and are not
+    /// selectable. An unknown code is a tool error. A valid but
+    /// format-inapplicable code is a clean no-op.
     #[arg(long, value_delimiter = ',')]
     check: Vec<String>,
 
@@ -370,6 +396,19 @@ struct ValidateArgs {
     /// supplies both.
     #[arg(long, value_name = "STRING", requires = "pr_body")]
     pr_title: Option<String>,
+
+    /// Under `--pr-body`, also check the title and body against the banned
+    /// words in this writing-style rules FILE (PB5), the way FC10 checks a
+    /// document: code, table cells, link destinations, bare URLs and HTML
+    /// comments are not prose, and the declared `## Prose Vocabulary:` of
+    /// the repository containing the working directory is honored. The file
+    /// is loaded as named, with no `SHIRABE_RULES` lookup and no ancestor
+    /// walk to fall back on: one that is missing, unreadable,
+    /// malformed or lists no banned word is a tool error. Opt-in, so callers
+    /// that don't pass it (the reusable CI workflow, the pr-body hook) see
+    /// exactly what they saw before. Only meaningful with `--pr-body`.
+    #[arg(long, value_name = "FILE", requires = "pr_body")]
+    writing_style: Option<String>,
 }
 
 /// Print a clap parse failure and map it onto shirabe's own exit-code
@@ -418,6 +457,9 @@ fn main() -> ExitCode {
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
+        Some(Commands::PreActionHook(args)) => {
+            pre_action::run_plugin(&args.plugin_root, &args.rules)
+        }
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
@@ -598,7 +640,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     for code in &args.check {
         if !is_known_check_code(code) {
             eprintln!(
-                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC16, FC-CONVENTIONS, R6-R11",
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC22, FC-CONVENTIONS, R6-R11 (the lifecycle codes L01-L10 come from --lifecycle and --lifecycle-chain and are not selectable)",
                 code
             );
             return ValidateOutcome::ToolError.exit();
@@ -616,7 +658,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if let Some(file) = args.pr_body.as_deref() {
-        return run_pr_body_mode(file, args.pr_title.as_deref(), args.format);
+        return run_pr_body_mode(
+            file,
+            args.pr_title.as_deref(),
+            args.writing_style.as_deref(),
+            args.format,
+        );
     }
 
     if args.merge_gate {
@@ -987,7 +1034,20 @@ fn run_coordination_body_mode(file: &str, format: Format) -> ExitCode {
 /// `::error::` form because the body lives in a temp file with no path in the
 /// checked-out tree — a file-anchored annotation would point at a nonexistent
 /// source line.
-fn run_pr_body_mode(file: &str, title: Option<&str>, format: Format) -> ExitCode {
+///
+/// With `writing_style` (`--writing-style <rules-file>`) it first loads that
+/// rules file, failing as a tool error with no envelope when it can't, then
+/// adds the PB5 banned-term findings of
+/// [`check_pr_writing_style`](shirabe_validate::check_pr_writing_style) after
+/// the PB1 to PB4 ones, honoring the declared prose vocabulary of the
+/// repository containing the working directory and naming on stderr the
+/// terms it suppressed.
+fn run_pr_body_mode(
+    file: &str,
+    title: Option<&str>,
+    writing_style: Option<&str>,
+    format: Format,
+) -> ExitCode {
     let body = match std::fs::read_to_string(file) {
         Ok(b) => b,
         Err(err) => {
@@ -996,7 +1056,33 @@ fn run_pr_body_mode(file: &str, title: Option<&str>, format: Format) -> ExitCode
         }
     };
 
-    let findings = check_pr_body(&body, title);
+    // Load the writing-style rules before checking anything, so a rules file
+    // that can't be used is a tool error with no envelope rather than a
+    // clean pass that checked no banned word.
+    let writing_style = match writing_style {
+        Some(path) => match load_writing_style_rules(path) {
+            Ok(rules) => Some(rules),
+            Err(reason) => {
+                eprintln!("--writing-style: {reason}");
+                return ValidateOutcome::ToolError.exit();
+            }
+        },
+        None => None,
+    };
+
+    let mut findings = check_pr_body(&body, title);
+    if let Some(rules) = writing_style {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let vocabulary = resolve_prose_vocabulary_from_dir(&cwd);
+        let waived = suppressed_terms(&rules, &vocabulary);
+        if !waived.is_empty() {
+            eprintln!(
+                "--writing-style: the repository's declared prose vocabulary suppressed: {}",
+                waived.join(", ")
+            );
+        }
+        findings.extend(check_pr_writing_style(&body, title, &rules, &vocabulary));
+    }
     let outcome = if findings.is_empty() {
         ValidateOutcome::Clean
     } else {
@@ -1042,6 +1128,24 @@ fn run_pr_body_mode(file: &str, title: Option<&str>, format: Format) -> ExitCode
     }
 
     outcome.exit()
+}
+
+/// Load the rules file `--writing-style` names, exactly that file, or say
+/// why it can't be used. A file with no banned word counts as unusable: a
+/// check that loads an empty list passes everything.
+fn load_writing_style_rules(path: &str) -> Result<Rules, String> {
+    // An explicit path is used as given or refused; the walk's start
+    // directory is never consulted for it.
+    let resolved =
+        resolve_rules_path(Some(path), std::path::Path::new(".")).map_err(|e| e.to_string())?;
+    let rules = load_rules(&resolved).map_err(|e| e.to_string())?;
+    if rules.all_terms().is_empty() {
+        return Err(format!(
+            "writing-style rule source at {} lists no banned word",
+            resolved.display()
+        ));
+    }
+    Ok(rules)
 }
 
 /// Map a [`MergeGateOutcome`] and review posture onto the shared

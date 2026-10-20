@@ -68,7 +68,9 @@ done
 
 # A koto without the --koto-leg entry flags: `init --help` knows --template,
 # --var and --attach-live (which every run needs, and which predates the
-# floor); every other subcommand answers with the flags /work-on always needs.
+# floor); every other subcommand answers with the flags /work-on always needs,
+# `decider answer` and its flags included, so the only gap it shows is the
+# entry flags.
 # Its `version` prints $KOTO_STUB_VERSION, so one stand-in covers the surface
 # cases at the minimum and the minimum case below it.
 MINIMUM=$(bash "$REPO/scripts/assert-koto-floor.sh" --print-floor)
@@ -77,7 +79,7 @@ cat >"$T/bin/koto" <<'OLD'
 #!/usr/bin/env bash
 case "$*" in
     "init --help") printf 'Usage: koto init <NAME> --template <T>\n\nOptions:\n      --template <T>\n      --var <K=V>\n      --attach-live\n  -h, --help\n' ;;
-    *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  overrides\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n      --children <NAME>\n      --gate <G>\n      --rationale <R>\n  -h, --help\n' "$1" ;;
+    *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  overrides\n  decider\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n  answer\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n      --children <NAME>\n      --gate <G>\n      --rationale <R>\n      --criterion <C>\n      --answer <A>\n  -h, --help\n' "$1" ;;
     "version"|"--version") printf 'koto %s\n' "$KOTO_STUB_VERSION" ;;
     *) printf "error: unrecognized subcommand '%s'\n" "$1" >&2; exit 2 ;;
 esac
@@ -106,6 +108,39 @@ if command -v koto >/dev/null 2>&1 && koto init --help 2>/dev/null | grep -q -- 
 else
     echo "SKIP: no koto with --koto-leg on PATH -- the at-floor case did not run"
 fi
+
+# The PR gate's validator flag. Both /work-on (pr_creation) and /execute
+# (pr_finalization) run check-pr-output.sh, which passes --writing-style, so
+# both skills' always records declare it, and a shirabe whose `validate
+# --help` predates it is named at load.
+for skill in work-on execute; do
+    FLAGS=$(awk -F'\t' '$1 == "shirabe" && $2 == "validate" && $4 == "always" { print $3 }' \
+        "$REPO/skills/$skill/requires.tsv")
+    for f in --pr-body --pr-title --writing-style; do
+        case ",$FLAGS," in
+            *",$f,"*) ok "$skill's always shirabe validate record declares $f" ;;
+            *) bad "$skill's always shirabe validate record declares $f" "[$FLAGS]" ;;
+        esac
+    done
+done
+mkdir -p "$T/shbin"
+cat >"$T/shbin/shirabe" <<'OLDSHIRABE'
+#!/usr/bin/env bash
+case "$*" in
+    "validate --help") printf 'Usage: shirabe validate [OPTIONS] [FILES]...\n\nOptions:\n      --format <FORMAT>\n      --check <CHECK>\n      --visibility <V>\n      --lifecycle <ROOT>\n      --mode <MODE>\n      --lifecycle-chain <DOC>\n      --allow-untracked-acs\n      --merge-gate\n      --pr <PR>\n      --upstream <U>\n      --coordination-body <FILE>\n      --pr-body <FILE>\n      --pr-title <STRING>\n  -h, --help\n' ;;
+    *"--help") printf 'Usage: shirabe %s\n\nCommands:\n  validate\n  transition\n  finalize-chain\n\nOptions:\n  -h, --help\n' "$1" ;;
+    "--version"|"-V") printf 'shirabe 0.26.0\n' ;;
+    *) exit 2 ;;
+esac
+OLDSHIRABE
+chmod +x "$T/shbin/shirabe"
+for skill in work-on execute; do
+    OUT=$(cd "$T/cwd" && PATH="$T/shbin:$PATH" bash "$PREFLIGHT" "$skill" 2>&1)
+    case "$OUT" in
+        *--writing-style*) ok "load-time preflight for $skill on a shirabe without --writing-style names it" ;;
+        *) bad "load-time preflight for $skill on a shirabe without --writing-style names it" "$OUT" ;;
+    esac
+done
 
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

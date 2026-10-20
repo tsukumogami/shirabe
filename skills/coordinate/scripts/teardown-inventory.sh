@@ -79,7 +79,11 @@
 #               stored verdict against the seal, so it can't be edited after
 #               the fact, and the destroy directive reads it through
 #               teardown-verdict.sh, which also refuses a destroy entered by a
-#               directed transition (koto#251).
+#               directed transition (koto#251). When niwa's listing was read
+#               and parsed and holds no instance for the topic, the verdict is
+#               `absent`, `instance -`, `topic <topic>` and nothing more: the
+#               worker's instance is already gone. A listing that can't be
+#               read or parsed still exits 2 with nothing sealed.
 #
 # Output: one line per repository, `durable <path> (vs <target>)` or
 # `unique <path>: <why> (vs <target>)` or `error <path>: <why>`, each path
@@ -150,6 +154,22 @@ unfound() {
     exit 0
 }
 
+# absent: under --seal, niwa's listing was read and parsed and holds no
+# instance for the topic. That is a fact about the workspace, not a failed
+# read, so it is sealed as its own word rather than as an error: the gate
+# routes it by the coordinator's latest teardown evidence (a unit already
+# removed outside the pass, or a stop that found nothing to stop). Only
+# dc_find_session's 1 reaches here; a listing that fails to read or parse is
+# still exit 2 with nothing sealed.
+absent() {
+    printf '%s: niwa lists no instance for %s\n' "$PROG" "$TOPIC" >&2
+    printf 'absent\ninstance -\ntopic %s\n' "$TOPIC" >"$WORK/sealed"
+    TOKEN=$(dc_seal "$SESSION" teardown_inventory "$WORK/sealed" teardown_verdict) || { printf '%s: sealing the verdict failed\n' "$PROG" >&2; exit 2; }
+    printf 'absent\n' >&2
+    printf '%s\n' "$TOKEN"
+    exit 0
+}
+
 if [ "$SEAL" = 1 ]; then
     [ -n "$SESSION" ] && [ -z "$TOPIC" ] || usage
     TOPIC=$("${KOTO:-koto}" context get "$SESSION" teardown_topic) || {
@@ -165,7 +185,8 @@ if [ -z "$INSTANCE" ]; then
     FOUND=$(dc_find_session "$ROOT" "$TOPIC")
     case "$?" in
         0) INSTANCE=${FOUND#*	} ;;
-        1) unfound "no instance for $TOPIC" ;;
+        1) [ "$SEAL" = 1 ] && absent
+           unfound "no instance for $TOPIC" ;;
         *) printf '%s: niwa list could not be read\n' "$PROG" >&2; exit 2 ;;
     esac
 fi
@@ -209,7 +230,7 @@ github_repo() {
         *) return 1 ;;
     esac
     r=${r%.git}
-    printf '%s' "$r" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || return 1
+    grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$r" || return 1
     case "/$r/" in */./* | */../*) return 1 ;; esac
     printf '%s' "$r"
 }

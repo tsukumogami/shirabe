@@ -4,7 +4,7 @@ The one panel of the `light` review level (`../review-levels.md`): a single revi
 
 ## Reviewer
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Reviewer runs on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel light --seat reviewer`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Reviewer runs on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. Add `--panel light --seat <seat>` for each `full` seat, which lists that seat's own unclosed findings by id, the ones it answers this round; one packet per seat when more than one seat has findings of its own. The panel's re-verifier, the one run a retry round plans, gets its own packet instead, built from the due findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel light --seat reverifier`.
 
 Spawn the one seat with the Task tool. After the seat preamble, its prompt:
 
@@ -29,7 +29,7 @@ code-review seat applies. Everything else is advisory.
 
 ## Which Seat Runs
 
-On entering `light_review`, koto runs `scripts/panel-scope.sh --plan light` and writes `light_scope.json` with the seat's decision: `full`, `recheck`, `rerun` or `keep`. They mean what they mean in `phase-4a-scrutiny.md`. A `recheck` seat gets the `recheck` packet on the commissioning line above, holding only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and the re-check prompt in `review-seat-commissioning.md` in place of the prompt above. When the decision is `keep`, koto writes a carried `light_results.json` and moves on to `verification` without stopping here.
+On entering `light_review`, koto runs `scripts/panel-scope.sh --plan light` and writes `light_scope.json`. The decisions mean what they mean in `phase-4a-scrutiny.md`: in a full round the seat is `full` and answers its own unclosed findings by id; any other round keeps it and plans at most one run, the re-verifier (seat `reverifier`, decision `recheck`), which answers each due finding by id and, when its decision carries `fix_review`, reviews the fix diff. It gets the `recheck` packet on the commissioning line above and the re-check prompt in `review-seat-commissioning.md` in place of the prompt above. When nothing runs and no blocking finding is unclosed, koto writes a carried `light_results.json` and moves on to `verification` without stopping here.
 
 ```bash
 koto context get <WF> light_scope.json
@@ -53,11 +53,12 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
 
 ## Aggregation
 
-Record the round, passed or blocking, as `phase-4a-scrutiny.md` describes, with `light` as the panel and `reviewer` as the seat:
+Record the round, passed or blocking, as `phase-4a-scrutiny.md` describes, with `light` as the panel: the `reviewer` seat in a full round, or the re-verifier answering each due finding by id with `holds` or `reverified`, a reason on each `reverified` (it may not dismiss one):
 
 ```bash
 ROUND=$(mktemp)
-# write the JSON array with the one seat, {"seat": "reviewer", ...}, to "$ROUND"
+# write the JSON array with the one run, {"seat": "reviewer", "run": "light-r1-reviewer", ...}
+# or {"seat": "reverifier", "run": "light-r2-reverifier", "answers": [...]}, to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record light <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
@@ -65,8 +66,8 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then tick koto with nothing submitted. The `light_verdict` gate reads the ledger (`panel-scope.sh --verdict light`) and decides, as at scrutiny:
 
-- Exit 0, the seat recorded no blocking finding: koto advances to `verification`. Optionally write `light_results.json` first, as the round's summary for a reader; no gate reads it.
-- Exit 1, the seat is blocking: the gate prints one `panel/blocking-finding` finding per blocking finding. Submit `light_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
+- Exit 0, every run recorded and every blocking finding closed: koto advances to `verification`. Optionally write `light_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 1, a blocking finding is unclosed: the gate prints one finding per unclosed blocking finding, under the active rule it cites or under `panel/open-finding`. Submit `light_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
 - Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
@@ -82,7 +83,7 @@ koto next <WF> --no-cleanup
 
 ## Retry Loop
 
-Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. The retry budget is `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-retry-budget.sh" <WF> light_review`, with no count: it reads the panel's unclosed blocking findings from the ledger itself. Exit 0 grants the retry; any other exit refuses it, and you escalate with the reason it printed. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=light_outcome

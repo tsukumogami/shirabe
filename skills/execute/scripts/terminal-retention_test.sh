@@ -227,9 +227,9 @@ fi
 # `accepts` halts nothing, so a state can require evidence and still be chained
 # straight through to a terminal.
 ESCALATE_BLOCK=$(sed -n '/^  escalate:/,/^  [a-z_]*:$/p' "$TEMPLATE")
-if printf '%s' "$ESCALATE_BLOCK" | grep -q 'accepts:' \
-   && printf '%s' "$ESCALATE_BLOCK" | grep -q 'target: done_blocked' \
-   && ! printf '%s' "$ESCALATE_BLOCK" | grep -q 'when:'; then
+if grep -q 'accepts:' <<<"$ESCALATE_BLOCK" \
+   && grep -q 'target: done_blocked' <<<"$ESCALATE_BLOCK" \
+   && ! grep -q 'when:' <<<"$ESCALATE_BLOCK"; then
     pass "escalate still declares accepts and reaches done_blocked unconditionally -- the shape that chains, which is why spawn_and_await's ticks are flagged"
 else
     fail "escalate's shape changed. Re-derive whether spawn_and_await's ticks can still chain into a terminal before trusting the flag count above; do NOT conclude from 'it accepts evidence' that it cannot."
@@ -286,6 +286,12 @@ mkdir -p "$FIXREPO"
     git remote add origin https://github.com/o/r.git
 ) >/dev/null 2>&1
 k() { (cd "$FIXREPO" && koto "$@"); }
+# kept <session>: koto still holds the session. From koto 0.17.0 (koto#355)
+# `koto status` also answers for a session koto removed at its terminal, with
+# "removed": true and its final state and result, so an answer alone no longer
+# means kept; before 0.17.0 a removed session's status fails, and both read as
+# not kept here, as scripts/skill-session.sh reads them.
+kept() { k status "$1" 2>/dev/null | jq -e '.removed != true' >/dev/null 2>&1; }
 
 # --- the plugin root ------------------------------------------------------------
 #
@@ -428,7 +434,7 @@ walk() {
     done
 }
 
-state_of() { k status "$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
+state_of() { kept "$1" || { echo gone; return; }; k status "$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
 
 # --- the blocked terminal keeps its context ----------------------------------
 
@@ -504,7 +510,7 @@ fi
 # These pin the signal, the refusal a plain init would still hit, and the
 # replacement.
 
-if [ "$(k status execute-pause-keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+if kept execute-pause-keep && [ "$(k status execute-pause-keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
     pass "the retained pause session reports is_terminal: true"
 else
     fail "koto status no longer reports is_terminal: true for the retained pause session"
@@ -530,8 +536,8 @@ jq -nc --arg root "$PLUGIN_ROOT_VAR" '[["PLAN_DOC","docs/plans/PLAN-pause-keep.m
     ["PLUGIN_ROOT",$root],["PAUSE_BEFORE_FINALIZE","false"],["MERGE","false"]]' > "$ARGS_DIR/vars.json"
 OPEN_OUT=$(cd "$FIXREPO" && bash "$REPO_ROOT/scripts/koto-open.sh" execute-pause-keep "$TPL" "$ARGS_DIR/vars.json" \
     --attach-live --replace-terminal 2>/dev/null)
-if printf '%s\n' "$OPEN_OUT" | grep -qx 'opened=replaced' \
-    && printf '%s\n' "$OPEN_OUT" | grep -qx 'replaced_state=paused_for_review' \
+if grep -qx 'opened=replaced' <<<"$OPEN_OUT" \
+    && grep -qx 'replaced_state=paused_for_review' <<<"$OPEN_OUT" \
     && [ "$(state_of execute-pause-keep)" = "write_set_record" ]; then
     pass "koto-open.sh --replace-terminal replaces the retained pause session and reports its old state"
 else
@@ -610,17 +616,17 @@ expect_control() {
     local s="$2" got
     got=$(printf '%s' "$RESP" | jq -r '.result.payload.outcome // "none"' 2>/dev/null)
     if [ "${4:-}" = failure ]; then
-        if [ "$got" = "$3" ] && k status "$s" >/dev/null 2>&1; then
+        if [ "$got" = "$3" ] && kept "$s"; then
             pass "$1 without the flag: the tick's response carries outcome=$3 and the failure terminal is kept"
         else
-            fail "$1 without the flag: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no), want outcome=$3 and the session kept"
+            fail "$1 without the flag: response outcome [$got], session still present: $(kept "$s" && echo yes || echo no), want outcome=$3 and the session kept"
         fi
         return
     fi
-    if [ "$got" = "$3" ] && ! k status "$s" >/dev/null 2>&1; then
+    if [ "$got" = "$3" ] && ! kept "$s"; then
         pass "$1 without the flag: the tick's response carries outcome=$3 and the session is gone (control)"
     else
-        fail "$1 without the flag: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no)"
+        fail "$1 without the flag: response outcome [$got], session still present: $(kept "$s" && echo yes || echo no)"
     fi
 }
 
@@ -811,7 +817,7 @@ jq -nc --arg root "$PLUGIN_ROOT_VAR" '[["PLAN_DOC","docs/plans/PLAN-resume-no-me
 OPEN_OUT=$(cd "$FIXREPO" && bash "$REPO_ROOT/scripts/koto-open.sh" execute-resume-no-merge "$TPL" "$ARGS_DIR/vars.json" \
     --attach-live --replace-terminal 2>/dev/null)
 k next execute-resume-no-merge --no-cleanup >/dev/null 2>&1
-if printf '%s\n' "$OPEN_OUT" | grep -qx 'opened=attached' && ! grep -q '^pr merge' "$GH_FIX/gh.log"; then
+if grep -qx 'opened=attached' <<<"$OPEN_OUT" && ! grep -q '^pr merge' "$GH_FIX/gh.log"; then
     pass "resumed at merge_attempt without --merge: the attach rebinds MERGE and no pr merge is made"
 else
     fail "resume without --merge: [$OPEN_OUT], gh: $(grep '^pr merge' "$GH_FIX/gh.log")"
@@ -834,7 +840,7 @@ for g in verdict_merged verdict_mergeable verdict_awaiting verdict_error verdict
     rc=$?
     out2=$(k overrides record execute-override-route --gate "$g" --rationale probe 2>&1)
     rc2=$?
-    if [ "$rc" -ne 0 ] && [ "$rc2" -ne 0 ] && printf '%s' "$out" | grep -q gate_not_overridable; then
+    if [ "$rc" -ne 0 ] && [ "$rc2" -ne 0 ] && grep -q gate_not_overridable <<<"$out"; then
         pass "merge_route's $g refuses an override, with and without --with-data"
     else
         fail "merge_route's $g accepted an override: [$out] [$out2]"
@@ -864,7 +870,7 @@ out=$(k overrides record execute-override-confirm --gate confirmed_merged --rati
 rc=$?
 out2=$(k overrides record execute-override-confirm --gate confirmed_merged --rationale probe 2>&1)
 rc2=$?
-if [ "$rc" -ne 0 ] && [ "$rc2" -ne 0 ] && printf '%s' "$out" | grep -q gate_not_overridable; then
+if [ "$rc" -ne 0 ] && [ "$rc2" -ne 0 ] && grep -q gate_not_overridable <<<"$out"; then
     pass "merge_confirm's gate refuses an override, with and without --with-data"
 else
     fail "merge_confirm's gate accepted an override: [$out] [$out2]"
@@ -941,7 +947,7 @@ koto init chain_bare --template "$WORKDIR/chain.md" >/dev/null 2>&1
 printf 'the orchestrator record\n' | koto context add chain_bare summary.md >/dev/null 2>&1
 RESP=$(koto next chain_bare --with-data '{"outcome":"bad"}' 2>/dev/null)
 if ! printf '%s' "$RESP" | jq -e '.state == "dead_end"' >/dev/null 2>&1; then
-    fail "a bare tick did not chain to dead_end: $(printf '%s' "$RESP" | head -c 300)"
+    fail "a bare tick did not chain to dead_end: $(head -c 300 <<<"$RESP")"
 elif koto context get chain_bare summary.md >/dev/null 2>&1; then
     fail "a bare tick did not chain through the accepts-declaring state -- re-check whether spawn_and_await's ticks still need the flag"
 else

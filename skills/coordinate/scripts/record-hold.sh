@@ -29,11 +29,16 @@
 # visibility first. This is the one script that sets HOLDS_WRITER=1; every
 # other writer must carry the section as the live record has it.
 #
+# On the session store (roadmap scope) each add and lift is also told as a
+# `hold` entry in the account (record-append.sh), since the record keeps no
+# GitHub body that would show it.
+#
 # Exit codes: 0 written (prints the URL) or printed; 2 a read failed; 10
 # refused (the target isn't an open record of this scope, provenance, or a
 # directed transition); 11 the write failed; 12 the record changed between
-# this script's read and its write; 13 the record is full; 64 usage; 65 the
-# hold was refused (the reason on stderr).
+# this script's read and its write; 13 the record is full; 14 the hold was
+# written but its session entry wasn't (the entry to post on stderr); 64 usage;
+# 65 the hold was refused (the reason on stderr).
 #
 # GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
 # --json body; the write happens only in the write core it sources
@@ -87,20 +92,18 @@ fi
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-# Line endings as the write core reads them, so a body GitHub serves with
-# CRLF parses the same here as there.
-tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
-lib_parse "$WD/live.md" "$WD/parsed.json"
+# The live record, through the seam (record-source.sh), which reads it with
+# the line endings the write core reads.
+rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+    12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$WD/parsed.json.md" "$WD/live.md"
 
 case "$MODE" in
 list)
@@ -143,3 +146,22 @@ lib_write_guard
 . "$HERE/record-write-core.sh"
 HOLDS_WRITER=1
 core_write
+
+# On the session store the record keeps no GitHub body to show a hold's change,
+# so each add and lift is also told as a `hold` entry in the account.
+if [ "$CORE_STORE_READ" = session ]; then
+    if [ "$MODE" = add ]; then
+        jq -r '"Hold \(.hold) added on \(.on), until \(.until), set by \(.set_by)."' "$ROWFILE" > "$T/hold-entry" || lib_die2 "jq failed"
+    else
+        printf 'Hold %s lifted by %s.\n' "$HOLD" "$BY" > "$T/hold-entry"
+    fi
+    if [ "$OVERRIDE" = 1 ]; then
+        ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF")
+    else
+        ADDR_ARGS=(--session "$SESSION")
+    fi
+    if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind hold --text-file "$T/hold-entry" > /dev/null; then
+        echo "$PROG: the hold was written, but its entry wasn't; post it with record-append.sh --kind hold: $(cat "$T/hold-entry")" >&2
+        exit 14
+    fi
+fi

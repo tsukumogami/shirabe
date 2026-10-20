@@ -5,8 +5,12 @@
 #
 # Usage:
 #   record-holding.sh --session S --topic T --row-file F    write the row
+#   record-holding.sh --session S --topic T --pushed-head SHA
+#                                                           set its pushed head
 #   record-holding.sh --session S --topic T --read          print the row
 #   record-holding.sh --session S --list                    print every row
+#   record-holding.sh --session S --topic T --strand        mark it stranded
+#   record-holding.sh --session S --topic T --retire        remove a stranded row
 #   ... [--scope roadmap|discipline --name N --repo O/R --ref N
 #        --skip-session-checks]                             (tests)
 #
@@ -29,6 +33,24 @@
 # waiting for teardown (record-common.sh lib_row_merged): only the cleared
 # cell after a confirmed merge writes that pair, so no other write may.
 #
+# On the session store a holding also keeps its last pushed head, the pull
+# request's head as a report or a link last read it (PRD R17): 40 hex, never in
+# the body, so never on GitHub. --pushed-head sets it, or clears it with an
+# empty SHA, and changes nothing else; a row file may carry it as `pushed_head`.
+# --read and --list print it on the session store. On a GitHub record either
+# is refused (65).
+#
+# --strand marks a holding `stranded`: the coordinator's choice to dispatch its
+# unit again when the worker reports by message and the quiet checks reached
+# the failure branch (PRD R15; shirabe#732). Only a `dispatched` holding whose
+# Return path is `message` may be stranded; any other is refused (65), since a
+# leg-bound worker's end still arrives on its leg. dispatch-worker.sh treats a
+# stranded topic as it treats a failed one: the unit goes out again under a
+# new topic, whose brief names this row's branch and last pushed head, and
+# --retire removes the stranded row once the new worker is dispatched. A report
+# that later arrives from the retired topic matches no holding and is refused.
+# --retire refuses (65) a row that isn't stranded.
+#
 # Exit codes: 0 written (prints the URL) or printed; 1 no row for the topic
 # (--read only); 2 a read failed; 10 refused (the target isn't an open record
 # of this scope, provenance, or a directed transition); 12 the record changed
@@ -43,7 +65,7 @@ set -uo pipefail
 
 PROG=record-holding
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TOPIC= ROWFILE= MODE=
+SESSION= SCOPE= NAME= REPO= REF= TOPIC= ROWFILE= MODE= PUSHED=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -56,15 +78,18 @@ while [ $# -gt 0 ]; do
         --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --topic) [ $# -ge 2 ] || usage; TOPIC=$2; shift 2 ;;
         --row-file) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=write; ROWFILE=$2; shift 2 ;;
+        --pushed-head) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=pushed; PUSHED=$2; shift 2 ;;
         --read) [ -z "$MODE" ] || usage; MODE=read; shift ;;
         --list) [ -z "$MODE" ] || usage; MODE=list; shift ;;
+        --strand) [ -z "$MODE" ] || usage; MODE=strand; shift ;;
+        --retire) [ -z "$MODE" ] || usage; MODE=retire; shift ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
     esac
 done
 case "$MODE" in
     write) [ -n "$TOPIC" ] && [ -r "$ROWFILE" ] || usage ;;
-    read) [ -n "$TOPIC" ] || usage ;;
+    pushed|read|strand|retire) [ -n "$TOPIC" ] || usage ;;
     list) [ -z "$TOPIC" ] || usage ;;
     *) usage ;;
 esac
@@ -88,38 +113,68 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" 2> /dev/null < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" 2> /dev/null < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-lib_parse "$T/live.md" "$T/parsed.json"
+rs_record "$T/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    4) lib_scrub < "$T/parsed.json.err" >&2; exit 10 ;;
+    12) lib_scrub < "$T/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$T/parsed.json.md" "$T/live.md"
 
+# Each holding's pushed head, {worker: sha}, kept beside the row on the session
+# store only (the seam's <out>.pushed); {} on GitHub.
+[ -s "$T/parsed.json.pushed" ] || echo '{}' > "$T/parsed.json.pushed"
 case "$MODE" in
 read)
-    ROW=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json")
+    ROW=$(jq -c --arg t "$TOPIC" --slurpfile p "$T/parsed.json.pushed" \
+        '[.holdings[] | select(.worker == $t) | if $p[0][$t] then . + {pushed_head: $p[0][$t]} else . end][0] // empty' "$T/parsed.json")
     [ -n "$ROW" ] || exit 1
     printf '%s\n' "$ROW"
     exit 0
     ;;
 list)
-    jq -c '.holdings' "$T/parsed.json"
+    jq -c -L "$HERE" --slurpfile p "$T/parsed.json.pushed" \
+        'include "record-codec"; holdings_list | map(.worker as $w | if $p[0][$w] then . + {pushed_head: $p[0][$w]} else . end)' "$T/parsed.json"
     exit 0
     ;;
+pushed)
+    jq -e --arg t "$TOPIC" 'any(.holdings[]; .worker == $t)' "$T/parsed.json" > /dev/null \
+        || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
+    jq 'del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    ;;
+strand|retire)
+    ROW=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json")
+    [ -n "$ROW" ] || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
+    ST=$(jq -r '.dispatch_status' <<< "$ROW")
+    if [ "$MODE" = strand ]; then
+        [ "$ST" = dispatched ] || { echo "$PROG: refused: only a dispatched holding is stranded; $TOPIC is $ST" >&2; exit 65; }
+        [ "$(jq -r '.return_path' <<< "$ROW")" = message ] \
+            || { echo "$PROG: refused: only a holding on the message path is stranded; $TOPIC reports on $(jq -r '.return_path' <<< "$ROW")" >&2; exit 65; }
+        jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end) | del(.written)' \
+            "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    else
+        [ "$ST" = stranded ] || { echo "$PROG: refused: only a stranded holding is retired; $TOPIC is $ST" >&2; exit 65; }
+        jq --arg t "$TOPIC" '.holdings |= map(select(.worker != $t)) | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    fi
+    ;;
+write)
+    jq -e 'type == "object"' "$ROWFILE" > /dev/null 2>&1 || { echo "$PROG: refused: the row file is not a JSON object" >&2; exit 65; }
+    W=$(jq -r '.worker // ""' "$ROWFILE")
+    [ "$W" = "$TOPIC" ] || { echo "$PROG: refused: the row's worker ($W) is not the topic $TOPIC" >&2; exit 65; }
+    # A pushed head in the row goes beside it, through record-write.sh, never
+    # into the body.
+    if jq -e 'has("pushed_head")' "$ROWFILE" > /dev/null; then
+        MODE=pushed PUSHED=$(jq -r '.pushed_head | tostring' "$ROWFILE")
+    fi
+    jq --slurpfile row "$ROWFILE" --arg t "$TOPIC" '($row[0] | del(.pushed_head)) as $r
+        | if any(.holdings[]; .worker == $t)
+        then .holdings |= map(if .worker == $t then $r else . end)
+        else .holdings += [$r] end | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    ;;
 esac
-
-jq -e 'type == "object"' "$ROWFILE" > /dev/null 2>&1 || { echo "$PROG: refused: the row file is not a JSON object" >&2; exit 65; }
-W=$(jq -r '.worker // ""' "$ROWFILE")
-[ "$W" = "$TOPIC" ] || { echo "$PROG: refused: the row's worker ($W) is not the topic $TOPIC" >&2; exit 65; }
-jq --slurpfile row "$ROWFILE" --arg t "$TOPIC" '
-    if any(.holdings[]; .worker == $t)
-    then .holdings |= map(if .worker == $t then $row[0] else . end)
-    else .holdings += $row end | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
 if lib_dispatched; then
     lib_drop_disposed "$T/next.json" "$T/dropped.json"
     mv "$T/dropped.json" "$T/next.json"
@@ -131,6 +186,7 @@ bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.writ
     || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
 
 set -- --body-file "$T/body.md"
+[ "$MODE" = pushed ] && set -- "$@" --pushed-head "$TOPIC" "$PUSHED"
 [ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
 if [ "$OVERRIDE" = 1 ]; then
     set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"

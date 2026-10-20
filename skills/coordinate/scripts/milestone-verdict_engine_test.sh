@@ -271,16 +271,16 @@ render_merged() {
 }
 if [ -n "${MS_S-}" ]; then
     OUT=$(render_merged "$MS_S" "$MS_WD")
-    eq "the milestone run holds at merged_facts" merged_facts "$(printf '%s\n' "$OUT" | head -1)"
+    eq "the milestone run holds at merged_facts" merged_facts "$(head -1 <<<"$OUT")"
     F=$(landing_file "$OUT")
     eq "  ... its rendered directive names the milestone guidance" references/landing-milestone-roadmap.md "$F"
-    printf '%s\n' "$OUT" | grep -qi 'status line' && bad "  ... and carries no status-line instruction itself" || ok "  ... and carries no status-line instruction itself"
+    grep -qi 'status line' <<<"$OUT" && bad "  ... and carries no status-line instruction itself" || ok "  ... and carries no status-line instruction itself"
     grep -qi 'status line' "$PR/skills/coordinate/$F" && bad "  ... nor does the guidance it names" "$(grep -i 'status line' "$PR/skills/coordinate/$F")" \
         || ok "  ... nor does the guidance it names"
 fi
 if [ -n "${FE_S-}" ]; then
     OUT=$(render_merged "$FE_S" "$FE_WD")
-    eq "the feature run holds at merged_facts" merged_facts "$(printf '%s\n' "$OUT" | head -1)"
+    eq "the feature run holds at merged_facts" merged_facts "$(head -1 <<<"$OUT")"
     F=$(landing_file "$OUT")
     eq "  ... its rendered directive names the feature guidance" references/landing-feature-roadmap.md "$F"
     grep -q "sets the feature's status line" "$PR/skills/coordinate/$F" && ok "  ... which still says to dispatch the status-line pull request" \
@@ -294,6 +294,6 @@ for form in milestone feature; do
     F=$(landing_file "$(printf '%s' "$TXT" | sed "s/{{ROADMAP_FORM}}/$form/g")")
     eq "merge_confirm rendered for a $form roadmap names its guidance" "references/landing-$form-roadmap.md" "$F"
 done
-printf '%s' "$TXT" | grep -qi 'status line' && bad "merge_confirm carries no status-line instruction itself" || ok "merge_confirm carries no status-line instruction itself"
+grep -qi 'status line' <<<"$TXT" && bad "merge_confirm carries no status-line instruction itself" || ok "merge_confirm carries no status-line instruction itself"
 
 done_tests milestone-verdict-engine

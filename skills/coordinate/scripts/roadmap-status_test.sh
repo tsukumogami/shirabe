@@ -625,7 +625,7 @@ eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
 echo "== --reopen: the edit =="
 reset_calls
 OUT=$(bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" 2>"$T/err"); rc=$?
-eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(printf '%s\n' "$OUT" | head -1)"
+eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(head -1 <<<"$OUT")"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... and names MV2, which depends on MV1 and holds a worker" "held-dependent MV2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
 PRR=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
@@ -683,5 +683,89 @@ eq "  ... into a rework text cut to 600 bytes, ending ..." "600 true" \
 seed
 bash "$RS" "${W[@]}" --reopen "Feature 1" --entry-file "$T/f.txt" --entry-url "https://github.com/acme/widgets/issues/7#issuecomment-1001" >/dev/null 2>"$T/err"
 eq "--reopen on a feature roadmap is refused" 65 $?
+
+# ---- a roadmap/v3 milestone roadmap, its record written under Feature N ------
+# The same milestones as mv.md under `## Milestones` with `### Milestone N:`
+# headings; the record names them `Feature N`, as a coordinator's record did
+# before the roadmap was renamed, and every lookup still finds them.
+sed -e 's/^schema: roadmap\/v2$/schema: roadmap\/v3/' -e 's/^## Features$/## Milestones/' \
+    -e 's/^### MV\([0-9]\): /### Milestone \1: /' -e 's/^\*\*Dependencies:\*\* MV1$/**Dependencies:** Feature 1/' \
+    -e 's/^- 2026-10-01: MV1 and MV2 started$/- 2026-10-01: Milestones 1 and 2 started/' "$T/mv.md" > "$T/mv3.md"
+MV3=$(cat "$T/mv3.md")
+mv3_seed() { # mv3_seed [roadmap-file]: holdings `Feature 1: the plugin list` and `Feature 2: the host serves`
+    db_init
+    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-plugin-system", body: $b, state: "open", author: "alice", editor: null}]
+        | .files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' \
+        --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding plugin-list '{"unit": "Feature 1: the plugin list", "pull_request": ""}')" \
+            --argjson c "$(holding mv2-host '{"unit": "Feature 2: the host serves", "pull_request": ""}')" '.holdings = [$a, $c]')" issue 2026-09-26T08:00:00Z)" \
+        --arg r "$(cat "${1:-$T/mv3.md}")"
+}
+
+echo "== roadmap/v3: --unit, --verdict and --confirm on a record that names Feature N =="
+mv3_seed
+OUT=$(bash "$RS" "${W[@]}" --unit "Feature 1" 2>"$T/err"); rc=$?
+eq "--unit Feature 1 on a v3 roadmap marks Milestone 1's verdict owed" "0 verdict-owed Feature 1" "$rc $OUT"
+eq "  ... Who the holding that names it Feature 1" "plugin-list|verdict owed since $TODAY" "$(owed "Feature 1")"
+bash "$RS" "${W[@]}" --unit "Feature 01" >/dev/null 2>"$T/err"; eq "Feature 01 is no Milestone 1" 65 $?
+bash "$RS" "${W[@]}" --unit "Feature 3" >/dev/null 2>"$T/err"; eq "Feature 3 finds Milestone 3, already Done" 65 $?
+grep -q 'already reads Done' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+ventry "$T/v3v.txt" "Feature 1" verified coordinate-plugins "acme/widgets#12, acme/widgets#3" fits none none held held
+URL3=$(post "$T/v3v.txt")
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --verdict "Feature 1" --entry-file "$T/v3v.txt" --entry-url "$URL3" 2>"$T/err"); rc=$?
+eq "a verified verdict naming Feature 1 opens the roadmap pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+PRB3=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+HASH3=$( (sha256sum < "$T/v3v.txt" 2>/dev/null || shasum -a 256 < "$T/v3v.txt") | cut -c1-8)
+diff "$T/mv3.md" <(on_branch "$PRB3") > "$T/d"
+eq "  ... writing Done, Delivered and a Progress line into ### Milestone 1:, and nothing else" \
+    "$(printf '%s\n' '21d20' '< **Needs:** `needs-design` -- the list layout' '23,24c22,23' '< **Status:** In progress' '< **Delivered:** acme/widgets#3' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#3, acme/widgets#12' '52a52' "> - $TODAY: Milestone 1 -- verified, checked by coordinate-plugins ($URL3, $HASH3)")" "$(cat "$T/d")"
+eq "  ... titled for the milestone as the roadmap heads it" "docs(roadmap): record Milestone 1, the plugin list, as done on its verdict" "$(jq -r '.prs[] | select(.number == 8) | .title' "$GH_DB")"
+eq "  ... its row keeps the record's tag" "milestone-done|Feature 1 [#8](https://github.com/acme/widgets/pull/8)" "$(live | jq -r '.side_effects[0] | "\(.action)|\(.target)"')"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRB3")"
+bash "$RS" "${W[@]}" --confirm "Milestone 1" >/dev/null 2>"$T/err"; rc=$?
+eq "--confirm Milestone 1 finds the row written for Feature 1" 0 $rc; [ $rc = 0 ] || cat "$T/err"
+eq "  ... and clears it and the verdict-owed row" "0 none" "$(live | jq '.side_effects | length') $(owed "Feature 1")"
+
+echo "== roadmap/v3: --reopen on a failure naming Feature 1 =="
+on_branch "$PRB3" > "$T/mv3d.md"
+mv3_seed "$T/mv3d.md"
+fentry "$T/f3v.txt" "Feature 1" 2 "the removed manifest was listed as installed"
+URLF3=$(fpost "$T/f3v.txt")
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --reopen "Feature 1" --entry-file "$T/f3v.txt" --entry-url "$URLF3" 2>"$T/err"); rc=$?
+eq "a failure naming Feature 1 against Done Milestone 1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(head -1 <<<"$OUT")"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... naming Milestone 2, whose Dependencies prose reads Feature 1 and whose holding names Feature 2" "held-dependent Milestone 2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
+PRR3=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+HASHF3=$( (sha256sum < "$T/f3v.txt" 2>/dev/null || shasum -a 256 < "$T/f3v.txt") | cut -c1-8)
+diff "$T/mv3d.md" <(on_branch "$PRR3") > "$T/d"
+eq "  ... returning Milestone 1 to In progress with the reopen Progress line, and nothing else" \
+    "$(printf '%s\n' '22c22' '< **Status:** Done' '---' '> **Status:** In progress' '52a53' "> - $TODAY: Milestone 1 -- reopened: clause 2 failed, reported by an operator ($URLF3, $HASHF3)")" "$(cat "$T/d")"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRR3")"
+bash "$RS" "${W[@]}" --confirm "Feature 1" >/dev/null 2>"$T/err"; rc=$?
+eq "--confirm finds the Milestone 1 reopen line for Feature 1" 0 $rc; [ $rc = 0 ] || cat "$T/err"
+eq "  ... and writes the rework row under the record's tag" "0|failure ${URLF3##*#issuecomment-}|Evidence clause 2 failed: the removed manifest was listed as installed" \
+    "$(live | jq '.side_effects | length')|$(live | jq -r '[.work[] | select(.kind == "rework" and .item == "Feature 1")][0] | "\(.who)|\(.next)"')"
+
+echo "== the session store: a verdict posted from the session =="
+# The record on the session store; the verdict entry is written to the session
+# and posted, and --verdict takes the posted comment's URL (R9, R10).
+SV=coordinate-roadmap-plugin-system-20260926T170000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SV")
+slive() { "${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh"; }
+mv_seed
+live > "$T/sv.json"
+session_keys "$SV" "$T/sv.json"
+"${SEN[@]}" bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>"$T/err"; eq "--unit marks the verdict owed on the session store" 0 $?
+eq "  ... in record/work" "plugin-list" "$(slive | jq -r '[(.work // [])[] | select(.kind == "verdict-owed" and .item == "MV1") | .who][0]')"
+ventry "$T/sv1.txt" MV1 verified coordinate-plugins "acme/widgets#12, acme/widgets#3" fits none none held held
+SURL=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/sv1.txt" 2>"$T/err")
+case "$SURL" in https://github.com/acme/widgets/issues/7\#issuecomment-*) ok "the verdict entry is posted from the session" ;; *) bad "the verdict entry is posted from the session" "$SURL $(cat "$T/err")" ;; esac
+OUT=$("${SEN[@]}" bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/sv1.txt" --entry-url "$SURL" 2>"$T/err"); rc=$?
+eq "--verdict accepts the URL of a verdict posted from the session" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+eq "  ... its milestone-done row in record/side-effects" "milestone-done|MV1 [#8](https://github.com/acme/widgets/pull/8)" \
+    "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.target)"')"
+grep -q '^issue edit' "$GH_DB.calls" && bad "  ... and the GitHub body never written" "$(calls)" || ok "  ... and the GitHub body never written"
 
 done_tests roadmap-status_test

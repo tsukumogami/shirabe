@@ -16,8 +16,14 @@
 # the holding's mode and given once on a re-brief; --releg replacing a spent leg (and refusing an open one, a
 # promoted one, a holding with a pull request); send_execution rewriting a
 # scoping-ahead holding with a new leg and the execution's entry point,
-# mode and phase; no session id, instance path or job id in the holding; and
-# every exit code of holding-recorded.sh.
+# mode and phase; no session id, instance path or job id in the holding; the
+# leg key written open at dispatch (and a dispatch stopped when it can't be),
+# spent on a failed launch, replaced by --releg; a stranded unit dispatched
+# under a new topic whose brief names the old branch and pushed head, the
+# stranded row retired after, and the stranded topic itself refused;
+# --releg-imported re-attaching an imported worker, finishing after a crash at
+# each step with one binding, and refusing each case the design names with
+# nothing left half-done; and every exit code of holding-recorded.sh.
 #
 # Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -38,8 +44,8 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
-has() { if printf '%s' "$2" | grep -Fq -- "$3"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
-lacks() { if printf '%s' "$2" | grep -Fq -- "$3"; then bad "$1" "unexpected [$3]"; else ok "$1"; fi; }
+has() { if grep -Fq -- "$3" <<<"$2"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
+lacks() { if grep -Fq -- "$3" <<<"$2"; then bad "$1" "unexpected [$3]"; else ok "$1"; fi; }
 
 # --- stand-ins ------------------------------------------------------------------------
 #
@@ -50,6 +56,9 @@ BIN="$T/bin"
 mkdir -p "$BIN"
 export ST="$T/state"
 
+# A key with slashes (the legs/<request>/<leg> keys) is a file under
+# directories. Leg-key writes aren't logged to calls.log, whose order the
+# launch cases read; KOTO_LEG_PUT_FAIL=1 fails them.
 cat >"$BIN/koto" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
@@ -57,14 +66,39 @@ case "$1 $2" in
         [ -f "$ST/ctx/$4" ] || exit 1
         cat "$ST/ctx/$4"
         ;;
+    "context add")
+        case "$4" in legs/*) [ "${KOTO_LEG_PUT_FAIL:-}" = 1 ] && exit 1 ;; esac
+        mkdir -p "$(dirname "$ST/ctx/$4")"
+        if [ "${5-}" = --from-file ]; then cat "$6" >"$ST/ctx/$4"; else cat >"$ST/ctx/$4"; fi
+        ;;
+    "context list")
+        p=""; [ "${4-}" = --prefix ] && p=$5
+        (cd "$ST/ctx" && find . -type f | sed 's#^\./##') | awk -v p="$p" 'index($0, p) == 1' | jq -R . | jq -sc .
+        ;;
+    "session list")
+        if [ -f "$ST/koto_sessions.json" ]; then cat "$ST/koto_sessions.json"; else echo '[]'; fi
+        ;;
+    "request attach")
+        echo "koto $*" >>"$ST/calls.log"
+        [ "${KOTO_ATTACH_FAIL:-}" = 1 ] && { echo '{"error":"template-mismatch"}'; exit 1; }
+        # --session <child> <request> <leg>
+        jq -c --arg l "$6" --arg c "$4" '.legs[$l].bound_child = $c' "$ST/requests/$5.json" >"$ST/r.tmp" && mv "$ST/r.tmp" "$ST/requests/$5.json"
+        ;;
     "request create")
         echo "koto request create $*" >>"$ST/calls.log"
         [ "${KOTO_CREATE_FAIL:-}" = 1 ] && exit 1
         n=$(( $(cat "$ST/req_n" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$ST/req_n"
+        # Kept as the request's view when the case keeps requests (requests/).
+        if [ -d "$ST/requests" ]; then
+            jq -c --arg id "req_$n" '{request_id: $id, request_state: "open", legs: (.legs | map({key: .name, value: (. + {disposition: "open", bound_child: null})}) | from_entries)}' <<<"$4" >"$ST/requests/req_$n.json"
+        fi
         printf '{"request_id":"req_%s"}\n' "$n"
         ;;
     "request get")
         echo "koto request get $3" >>"$ST/calls.log"
+        # A request of its own under requests/ (the re-leg cases), else the
+        # one shared answer.
+        [ -f "$ST/requests/$3.json" ] && { cat "$ST/requests/$3.json"; exit 0; }
         [ -f "$ST/request_get.rc" ] && exit "$(cat "$ST/request_get.rc")"
         [ -f "$ST/request_get.json" ] || exit 2
         cat "$ST/request_get.json"
@@ -125,10 +159,12 @@ EOF
 
 cat >"$T/record-holding.sh" <<'EOF'
 #!/usr/bin/env bash
-READ=0; TOPIC=""; ROWF=""; SESSION=""
+READ=0; LIST=0; RETIRE=0; TOPIC=""; ROWF=""; SESSION=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --read) READ=1; shift ;;
+        --list) LIST=1; shift ;;
+        --retire) RETIRE=1; shift ;;
         --topic) TOPIC="$2"; shift 2 ;;
         --row-file) ROWF="$2"; shift 2 ;;
         --session) SESSION="$2"; shift 2 ;;
@@ -136,6 +172,18 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || exit 64
+if [ "$LIST" = 1 ]; then
+    [ "${RECORD_READ_MODE:-}" = refuse ] && exit 10
+    [ "${RECORD_READ_MODE:-}" = fail ] && exit 2
+    cat "$ST"/rows/*.json 2>/dev/null | jq -sc .
+    exit 0
+fi
+if [ "$RETIRE" = 1 ]; then
+    echo "record retire $TOPIC" >>"$ST/calls.log"
+    [ "$(jq -r .dispatch_status "$ST/rows/$TOPIC.json" 2>/dev/null)" = stranded ] || exit 65
+    rm -f "$ST/rows/$TOPIC.json"
+    exit 0
+fi
 if [ "$READ" = 1 ]; then
     [ "${RECORD_READ_MODE:-}" = refuse ] && exit 10
     [ "${RECORD_READ_MODE:-}" = fail ] && exit 2
@@ -209,7 +257,7 @@ reset() {
     printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -814,6 +862,204 @@ eq  "no record script: exit 2" 2 "$RC"
 has "no record script: says so" "$ERR" "record-holding.sh is not installed"
 eq  "no record script: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 
+# --- the leg keys (PRD R13) ---------------------------------------------------------------------------------
+
+lkey() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
+eq  "legkey: a dispatch on a leg writes its key, open, with the worker and the declaration" \
+    '{"request":"req_1","leg":"deliver","topic":"plugin-api","state":"open","templates":["deliver.md"],"inputs":{"TOPIC":"plugin-api"}}' \
+    "$(lkey req_1 deliver)"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
+run >/dev/null 2>&1
+eq  "legkey: a message-path dispatch writes none" "" "$(ls "$ST/ctx/legs" 2>/dev/null)"
+reset "$INPUT_DELIVER"
+export KOTO_LEG_PUT_FAIL=1
+run >/dev/null 2>&1; eq "legkey: a key that can't be written stops the dispatch: exit 2" 2 "$?"
+eq  "  ... before any holding is written or worker launched" "" "$(grep -E 'record write|^niwa dispatch' "$ST/calls.log")"
+unset KOTO_LEG_PUT_FAIL
+reset "$INPUT_DELIVER"
+NIWA_MODE=fail; export NIWA_MODE
+run >/dev/null 2>&1
+eq  "legkey: a failed launch's leg reads spent" spent "$(lkey req_1 deliver | jq -r .state)"
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+rm -f "$ST/ctx/coord/pick.json"
+spent resolved explicit
+printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run --releg >/dev/null 2>&1
+eq  "legkey: --releg marks the spent leg's key replaced" replaced "$(lkey req_1 scope | jq -r .state)"
+eq  "  ... and writes the new leg's key open" "open plugin-api" "$(lkey req_2 scope | jq -r '"\(.state) \(.topic)"')"
+
+# --- a stranded holding (PRD R15; shirabe#732) ---------------------------------------------------------------
+
+PUSHED=cccccccccccccccccccccccccccccccccccccccc
+stranded_row() {
+    jq -nc --arg h "$PUSHED" '{unit: "Feature 2: the plugin API", entry_point: "deliver", mode: "--auto --no-merge", phase: "executing",
+        dispatch_status: "stranded", return_path: "message", worker: "plugin-api", repo: "acme/widgets", branch: "feat/plugin-api",
+        verified_head: "", dispatched: "2026-10-01", pull_request: "", pushed_head: $h}' >"$ST/rows/plugin-api.json"
+}
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch"')" relaunch
+stranded_row
+export NIWA_NAME=relaunch-1a2b3c4d
+OUT=$(run 2>"$T/st.err"); RC=$?
+eq  "stranded: the unit is dispatched under a new topic" "0 session=relaunch-1a2b3c4d" "$RC $OUT"
+has "stranded: the new brief names the old branch and last pushed head" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" \
+    "This unit was held by worker plugin-api, which was stranded: continue from its branch \`feat/plugin-api\`, last pushed head \`$PUSHED\`, rather than starting over."
+[ -f "$ST/rows/plugin-api.json" ] && bad "stranded: the stranded row is retired" "$(cat "$ST/rows/plugin-api.json")" || ok "stranded: the stranded row is retired"
+RET=$(grep -n 'record retire plugin-api' "$ST/calls.log" | cut -d: -f1)
+DONE=$(grep -n 'record write relaunch dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
+if [ -n "$RET" ] && [ -n "$DONE" ] && [ "$RET" -gt "$DONE" ]; then ok "  ... after the new holding reads dispatched"; else bad "  ... after the new holding reads dispatched" "$(calls)"; fi
+reset "$INPUT_DELIVER"
+stranded_row
+run >/dev/null 2>&1; eq "stranded: dispatching the stranded topic itself is exit 3" 3 "$?"
+eq  "  ... and launches nothing" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .unit = "Feature 1"')" relaunch
+stranded_row
+run >/dev/null 2>&1
+has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" "None beyond what the documents you read record."
+[ -f "$ST/rows/plugin-api.json" ] && ok "  ... or retired" || bad "  ... or retired" ""
+
+# --- --releg-imported: a worker that moved here with the session (PRD R15) ------------------------------------
+
+# The holding plugin-api reports on leg req_9:deliver, which this host's store
+# never held (the stand-in answers 2 for it); the child deliver-plugin-api,
+# bound to it on the old host, came here with the import and is bound to
+# nothing.
+child_log() { # child_log <template-file> <TOPIC>
+    mkdir -p "$ST/session"
+    jq -nc --arg t "$1" '{schema_version: 1, workflow: "deliver-plugin-api", template_source_file: $t}' >"$ST/session/koto-deliver-plugin-api.state.jsonl"
+    jq -nc --arg v "$2" '{seq: 1, type: "workflow_initialized", payload: {variables: {TOPIC: $v, MODE: "auto"}}}' >>"$ST/session/koto-deliver-plugin-api.state.jsonl"
+}
+imp_setup() {
+    reset "$INPUT_DELIVER"
+    mkdir -p "$ST/requests" "$ST/ctx/legs/req_9"
+    jq -nc '{unit: "Feature 2: the plugin API", entry_point: "deliver", mode: "--auto --no-merge", phase: "executing",
+        dispatch_status: "dispatched", return_path: "leg req_9:deliver", worker: "plugin-api", repo: "acme/widgets",
+        branch: "", verified_head: "", dispatched: "2026-10-01", pull_request: ""}' >"$ST/rows/plugin-api.json"
+    jq -nc '{request: "req_9", leg: "deliver", topic: "plugin-api", state: "open", templates: ["deliver.md"],
+        inputs: {TOPIC: "plugin-api"}, child: "deliver-plugin-api"}' >"$ST/ctx/legs/req_9/deliver"
+    printf '[{"id":"deliver-plugin-api","parent_workflow":null}]\n' >"$ST/koto_sessions.json"
+    child_log deliver.md plugin-api
+    : >"$ST/calls.log"
+}
+attaches() { grep -c '^koto request attach' "$ST/calls.log"; }
+untouched() { # untouched <name>: nothing opened, attached or written
+    eq "$1" "" "$(grep -E 'record write|koto request create|koto request attach' "$ST/calls.log")"
+}
+imp_setup
+OUT=$(run --releg-imported plugin-api 2>"$T/imp.err"); RC=$?
+eq  "imported: exit 0" 0 "$RC"
+eq  "imported: prints the new leg and the child" "leg=req_1:deliver child=deliver-plugin-api" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+has "imported: the new request declares the holding's leg, templates and pinned inputs" "$(calls)" \
+    '"name":"deliver","role":"deliver","template":"deliver.md","inputs":{"TOPIC":"plugin-api"}'
+has "  ... under the topic's coordinator" "$(calls)" "--coordinator-of-record coordinate-plugin-api"
+has "imported: the child is attached to it" "$(calls)" "koto request attach --session deliver-plugin-api req_1 deliver"
+eq  "imported: the holding's return path names the new leg" "leg req_1:deliver" "$(row return_path)"
+eq  "imported: the old key reads relegged, naming the new request" "relegged req_1" "$(lkey req_9 deliver | jq -r '"\(.state) \(.new_request)"')"
+eq  "imported: the new key is open, from the old request, with the child" "open req_9 deliver-plugin-api" \
+    "$(lkey req_1 deliver | jq -r '"\(.state) \(.from) \(.child)"')"
+eq  "imported: no launch, no brief" "0 none" "$(grep -c '^niwa dispatch' "$ST/calls.log") $([ -f "$W/.niwa/dispatch-briefs/plugin-api.md" ] && echo some || echo none)"
+: >"$ST/calls.log"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "imported: a re-run after it finished exits 0" 0 "$?"
+eq  "  ... and attaches nothing again" 0 "$(attaches)"
+
+# Killed after the request opened but before the key named it: the re-run
+# abandons that stray request and opens its own.
+imp_setup
+# The listing names the leg being re-legged too, as a store that did hold it
+# would: it is never abandoned.
+printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_9","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+jq -nc '{request_id: "req_7", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: null}}}' >"$ST/requests/req_7.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed before releg-pending, a re-run finishes: exit 0" 0 "$?"
+has "  ... abandoning the request the interrupted run left" "$(calls)" "koto request abandon-request req_7"
+lacks "  ... and never the request being re-legged" "$(calls)" "koto request abandon-request req_9"
+eq  "  ... and attaching once, to its own" 1 "$(attaches)"
+
+# Killed after the pending request was written: a re-run attaches it once.
+imp_setup
+jq -nc '{request_id: "req_1", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: null}}}' >"$ST/requests/req_1.json"
+echo 1 >"$ST/req_n"
+jq -c '.state = "releg-pending" | .new_request = "req_1"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed after releg-pending, a re-run finishes: exit 0" 0 "$?"
+eq  "  ... opening no second request" "" "$(grep 'koto request create' "$ST/calls.log")"
+eq  "  ... and attaching once" 1 "$(attaches)"
+eq  "  ... with the holding on the pending request" "leg req_1:deliver" "$(row return_path)"
+# Killed after the attach: no second attach.
+imp_setup
+jq -nc '{request_id: "req_1", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: "deliver-plugin-api"}}}' >"$ST/requests/req_1.json"
+echo 1 >"$ST/req_n"
+jq -c '.state = "releg-pending" | .new_request = "req_1"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed after the attach, a re-run finishes: exit 0" 0 "$?"
+eq  "  ... with one binding" 0 "$(attaches)"
+eq  "  ... and the old key relegged" relegged "$(lkey req_9 deliver | jq -r .state)"
+# Killed after the holding moved, before the old key was marked.
+imp_setup
+jq -nc '{request_id: "req_1", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: "deliver-plugin-api"}}}' >"$ST/requests/req_1.json"
+jq -c '.state = "releg-pending" | .new_request = "req_1"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+mkdir -p "$ST/ctx/legs/req_1"
+jq -c '.request = "req_1" | .state = "open" | .from = "req_9" | del(.new_request)' "$ST/ctx/legs/req_9/deliver" >"$ST/ctx/legs/req_1/deliver"
+jq -c '.return_path = "leg req_1:deliver"' "$ST/rows/plugin-api.json" >"$T/r" && mv "$T/r" "$ST/rows/plugin-api.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed before the old key's mark, a re-run marks it: exit 0" 0 "$?"
+eq  "  ... relegged" relegged "$(lkey req_9 deliver | jq -r .state)"
+untouched "  ... touching nothing else"
+
+# Refusals: exit 9, nothing opened, attached or written.
+imp_setup
+jq -c '.topic = "someone-else"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a key naming another worker than the holding's is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+jq -c 'del(.child)' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: no recorded child is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+jq -c '.child = "../deliver-plugin-api"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a child name off the session grammar is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+printf '[]\n' >"$ST/koto_sessions.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a child left on the old host is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+child_log scope.md plugin-api
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a child on a template the leg doesn't admit is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+child_log deliver.md another-topic
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a child whose TOPIC differs from the declaration is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+jq -nc '{request_id: "req_5", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: "deliver-plugin-api"}}}' >"$ST/requests/req_5.json"
+printf '{"requests":[{"request_id":"req_5","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a child bound to another leg here is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+printf '{"requests":[{"request_id":"req_6","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: an open request whose binding can't be read stops the re-leg: 2" 2 "$?"
+untouched "  ... nothing done"
+imp_setup
+jq -nc '{request_id: "req_9", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: null}}}' >"$ST/requests/req_9.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a leg whose request this host holds is watched as before: 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+rm -rf "$ST/ctx/legs"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a holding dispatched before leg keys is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+jq -c '.return_path = "message"' "$ST/rows/plugin-api.json" >"$T/r" && mv "$T/r" "$ST/rows/plugin-api.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a message-path holding is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+export KOTO_ATTACH_FAIL=1
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: koto refusing the attach is 9" 9 "$?"
+has "  ... the new request is abandoned" "$(calls)" "koto request abandon-request req_1"
+eq  "  ... the old key is open again, naming no pending request" "open null" "$(lkey req_9 deliver | jq -r '"\(.state) \(.new_request)"')"
+eq  "  ... and the holding stays on its leg" "leg req_9:deliver" "$(row return_path)"
+unset KOTO_ATTACH_FAIL
+run --releg-imported plugin-api --rebrief >/dev/null 2>&1; eq "imported and rebrief together: usage" 2 "$?"
+
 # --- holding-recorded.sh ----------------------------------------------------------------------------------
 
 gate() { bash "$G" --session coord >/dev/null 2>&1; echo $?; }
@@ -825,6 +1071,8 @@ printf '{"dispatch_status":"dispatching"}' >"$ST/rows/plugin-api.json"
 eq  "gate: dispatching is 4" 4 "$(gate)"
 printf '{"dispatch_status":"dispatch-failed"}' >"$ST/rows/plugin-api.json"
 eq  "gate: dispatch-failed is 3" 3 "$(gate)"
+printf '{"dispatch_status":"stranded"}' >"$ST/rows/plugin-api.json"
+eq  "gate: stranded is 3" 3 "$(gate)"
 printf '{"dispatch_status":"dispatched"}' >"$ST/rows/plugin-api.json"
 eq  "gate: dispatched is 0" 0 "$(gate)"
 printf 'other' >"$ST/ctx/dispatch_topic"

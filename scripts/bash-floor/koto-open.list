@@ -1,0 +1,16 @@
+workflow: .github/workflows/check-koto-open.yml
+# The shared koto entry. Its stand-in cases need only jq and git,
+# so they execute on the floor wherever it runs; its engine cases
+# skip without koto, which the macOS runner lacks, and a developer
+# running this locally with koto gets them on 3.2 as well.
+scripts/koto-open_test.sh
+# The harness knob's helper, probed against stand-in kotos only.
+# Temporary, #483.
+scripts/lib/koto-legacy-env_test.sh
+# A stub koto answers every case, so all of them run on 3.2.
+scripts/assert-koto-floor_test.sh
+# Reads files and greps them; no koto, so every case runs on 3.2.
+scripts/koto-minimum-consistency_test.sh
+# The decider check against a stand-in koto; needs yq, and skips
+# loudly without it.
+scripts/check-koto-release_test.sh

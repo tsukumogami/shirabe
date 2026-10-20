@@ -39,41 +39,42 @@ stateDiagram-v2
     finalize --> exit_full_run : exit: full-run
     finalize --> exit_re_evaluation : exit: re-evaluation
     finalize --> exit_abandonment : exit: abandonment-forced
-    fold --> finalize : gates.plan_present.exit_code: 0, verdict: keep
-    fold --> finalize : gates.plan_present.exit_code: 0, verdict: absorb
-    fold --> hop_plan : gates.design_present.exit_code: 0, gates.plan_present.exit_code: 1, verdict: keep
-    fold --> hop_plan : gates.design_present.exit_code: 0, gates.plan_present.exit_code: 1, verdict: absorb
-    fold --> hop_design : gates.design_present.exit_code: 1, gates.plan_present.exit_code: 1, verdict: keep
-    fold --> hop_design : gates.design_present.exit_code: 1, gates.plan_present.exit_code: 1, verdict: absorb
-    fold --> hop_design : gates.design_present.exit_code: 2, gates.plan_present.exit_code: 1, verdict: keep
-    fold --> hop_design : gates.design_present.exit_code: 2, gates.plan_present.exit_code: 1, verdict: absorb
-    fold --> hop_plan : gates.design_present.exit_code: 0, gates.plan_present.exit_code: 2, verdict: keep
-    fold --> hop_plan : gates.design_present.exit_code: 0, gates.plan_present.exit_code: 2, verdict: absorb
-    fold --> hop_design : gates.design_present.exit_code: 1, gates.plan_present.exit_code: 2, verdict: keep
-    fold --> hop_design : gates.design_present.exit_code: 1, gates.plan_present.exit_code: 2, verdict: absorb
-    fold --> hop_design : gates.design_present.exit_code: 2, gates.plan_present.exit_code: 2, verdict: keep
-    fold --> hop_design : gates.design_present.exit_code: 2, gates.plan_present.exit_code: 2, verdict: absorb
+    fold --> bail : verdict: bail
+    fold --> finalize : gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 0, verdict: keep
+    fold --> finalize : gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 0, verdict: absorb
+    fold --> hop_plan : gates.design_present.exit_code: 0, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: keep
+    fold --> hop_plan : gates.design_present.exit_code: 0, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: absorb
+    fold --> hop_design : gates.design_present.exit_code: 1, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: keep
+    fold --> hop_design : gates.design_present.exit_code: 1, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: absorb
+    fold --> hop_design : gates.design_present.exit_code: 2, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: keep
+    fold --> hop_design : gates.design_present.exit_code: 2, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: absorb
+    fold --> hop_plan : gates.design_present.exit_code: 0, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 2, verdict: keep
+    fold --> hop_plan : gates.design_present.exit_code: 0, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 2, verdict: absorb
+    fold --> hop_design : gates.design_present.exit_code: 1, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 2, verdict: keep
+    fold --> hop_design : gates.design_present.exit_code: 1, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 2, verdict: absorb
+    fold --> hop_design : gates.design_present.exit_code: 2, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 2, verdict: keep
+    fold --> hop_design : gates.design_present.exit_code: 2, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 2, verdict: absorb
     full_run_blocked --> publish_full_run : gates.chain_complete.exit_code: 0, gates.intent_declared.exit_code: 0, next_move: recheck
     full_run_blocked --> cleanup_full_run : gates.chain_complete.exit_code: 0, gates.intent_declared.exit_code: 1, next_move: recheck
     full_run_blocked --> full_run_blocked : gates.chain_complete.exit_code: 1, next_move: recheck
     full_run_blocked --> full_run_blocked : gates.chain_complete.exit_code: 2, next_move: recheck
     full_run_blocked --> exit_abandonment : next_move: abandon
-    hop_brief --> hop_prd : gates.brief_complete.exit_code: 0, outcome: landed
+    hop_brief --> hop_prd : gates.brief_complete.exit_code: 0, gates.brief_document.exit_code: 0, outcome: landed
     hop_brief --> hop_prd : outcome: skipped
     hop_brief --> exit_re_evaluation : outcome: rejected
     hop_brief --> bail : outcome: bail
-    hop_design --> fold : gates.design_complete.exit_code: 0, outcome: landed
+    hop_design --> fold : gates.design_complete.exit_code: 0, gates.design_document.exit_code: 0, outcome: landed
     hop_design --> hop_plan : outcome: skipped
     hop_design --> exit_re_evaluation : outcome: rejected
     hop_design --> bail : outcome: bail
-    hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
-    hop_plan --> fold : gates.filing_approval.matches: true, gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_document.exit_code: 0, gates.plan_filing.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> fold : gates.filing_approval.matches: true, gates.plan_complete.exit_code: 0, gates.plan_document.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> bail : gates.filing_approval.matches: false, gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 1, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 1, outcome: landed
     hop_plan --> finalize : outcome: skipped
     hop_plan --> bail : outcome: bail
-    hop_prd --> fold : gates.prd_complete.exit_code: 0, outcome: landed
+    hop_prd --> fold : gates.prd_complete.exit_code: 0, gates.prd_document.exit_code: 0, outcome: landed
     hop_prd --> hop_design : outcome: skipped
     hop_prd --> exit_re_evaluation : outcome: rejected
     hop_prd --> bail : outcome: bail
@@ -213,6 +214,9 @@ stateDiagram-v2
         gate: design_present
     end note
     note left of fold
+        gate: fold_documents
+    end note
+    note left of fold
         gate: plan_present
     end note
     note left of full_run_blocked
@@ -224,14 +228,23 @@ stateDiagram-v2
     note left of hop_brief
         gate: brief_complete
     end note
+    note left of hop_brief
+        gate: brief_document
+    end note
     note left of hop_design
         gate: design_complete
+    end note
+    note left of hop_design
+        gate: design_document
     end note
     note left of hop_plan
         gate: filing_approval
     end note
     note left of hop_plan
         gate: plan_complete
+    end note
+    note left of hop_plan
+        gate: plan_document
     end note
     note left of hop_plan
         gate: plan_filing
@@ -241,6 +254,9 @@ stateDiagram-v2
     end note
     note left of hop_prd
         gate: prd_complete
+    end note
+    note left of hop_prd
+        gate: prd_document
     end note
     note left of hop_select
         gate: first_open

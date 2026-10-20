@@ -1,12 +1,15 @@
 # record-write-core.sh -- the coordinator record's one write path. Sourced, never
 # run, and only by the agent-run write scripts (record-write.sh, which
-# record-holding.sh calls, the decision writer and the hold writer); no check
+# record-holding.sh calls, the decision writer, the hold writer, and the move and
+# the opener for their session-store writes); no check
 # script sources it, which keeps record-common.sh's promise that everything a check sources
 # only reads.
 #
 # core_write re-reads the target and writes the whole body, after the checks
 # record-write.sh's header lists; every check from the parse on lives here.
-# Three of them, in brief:
+# core_write_host writes a session-store record's record/host, the one key
+# outside its tables and account; only record-state.sh --host calls it.
+# Four of core_write's checks, in brief:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
 #     value in the environment never counts (exit 65). Only
@@ -25,6 +28,15 @@
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
 #
+# On the session store (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 4) every check above runs the same way, against the live record the
+# seam assembles from the session's keys; only the last step differs: it writes
+# the changed section keys between two writes of record/meta (core_write_session)
+# instead of editing the issue. Each key's owner is its section's owner, so the
+# owner checks above are the one-writer-per-key rule. On GitHub, a record whose
+# Run section holds `store session` has moved and keeps its moved-shape body:
+# a write to it is refused (exit 65, store-moved), except the move's own.
+#
 # The caller's contract:
 #   - it has sourced record-common.sh, run lib_facts and lib_write_guard, and
 #     set PROG, HERE, SESSION, SCOPE, NAME, REPO, REF, BODY, END and CLOSE; a
@@ -39,9 +51,14 @@
 #     CORE_CLEANUP, and the trap removes that too; any other EXIT trap the
 #     caller set is replaced;
 #   - core_write exits on every refusal and failure (10, 11, 12, 13, 2, 64,
-#     65) and returns only after a write, having printed the record's URL.
-# record-open.sh writes a new record's first body itself and refuses one
-# carrying a Decisions section.
+#     65) and returns only after a write, having printed the record's URL;
+#   - a caller may set CORE_STORE (github or session) to write to that store
+#     instead of the run's; core_write sets CORE_STORE_READ to the store it
+#     wrote, which a caller that tells the write afterwards (the hold writer's
+#     entry) reads.
+# record-open.sh writes a new GitHub record's first body itself and refuses one
+# carrying a Decisions section; on the session store it seeds the run's keys
+# through core_write.
 
 # RECORD_BUDGET: the largest body core_write sends, in bytes.
 RECORD_BUDGET=60000
@@ -51,6 +68,302 @@ DECISIONS_WRITER=0
 HOLDS_WRITER=0
 STATE_WRITER=0
 VERDICT_WRITER=0
+# The session store (docs/designs/DESIGN-coordinator-session-record.md,
+# Decisions 4, 10 and 11). SESSION_SEED=1 makes the write the first one into a
+# session holding no record/meta, or only the pending one an unfinished seed
+# left, with CORE_STORE=session; only record-open.sh and record-move.sh set it.
+# MOVE_WRITER=1 lifts the section-owner checks and the store-moved refusal for
+# the move's own writes, its copy into the session and its rewrite of the
+# GitHub body; only record-move.sh sets it. A structure test holds both to
+# those scripts.
+SESSION_SEED=0
+MOVE_WRITER=0
+# A holding's last pushed head (Decision 9; PRD R17) lives beside its row in
+# record/holdings on the session store and never in a body: every Holdings write
+# carries each row's value forward by Worker, and only record-write.sh
+# --pushed-head, which record-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
+# with CORE_PUSHED_TOPIC and CORE_PUSHED_HEAD, 40 hex or empty to clear it).
+CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
+
+# core_live: the live record, read through the seam, and every check against it:
+# the container open and this scope's, the compare on the Written: time, the
+# rotation's branch, store-moved, and the section owners. Sets BASE, URL and
+# the live files in $T. A seeding write (SESSION_SEED) has no live record and
+# skips it; the move (MOVE_WRITER) skips the section-owner checks, each of which
+# names it, and opens no owner flag.
+core_live() {
+    # The target, re-read now through the seam (record-source.sh), with the
+    # container's state, URL and head from the same read.
+    local live_rc
+    if [ "$SCOPE" = roadmap ]; then
+        rs_record "$T/live.json" json --json state,body,url; live_rc=$?
+        [ $live_rc -eq 2 ] && lib_die2 "cannot read issue #$REF"
+    else
+        rs_record "$T/live.json" json --json state,body,url,title,headRefName,isCrossRepository; live_rc=$?
+        [ $live_rc -eq 2 ] && lib_die2 "cannot read pull request #$REF"
+    fi
+    [ $live_rc -eq 4 ] && { lib_scrub < "$T/live.json.err" >&2; exit 10; }
+    [ $live_rc -eq 12 ] && { lib_scrub < "$T/live.json.err" >&2; exit 12; }
+    cp "$T/live.json.raw" "$T/target.json"
+    cp "$T/live.json.md" "$T/live.md"
+    STATE=$(jq -r '.state' "$T/target.json")
+    URL=$(jq -r '.url' "$T/target.json")
+    [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
+    grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
+    # A record moved to the session store keeps its GitHub body in the moved
+    # shape, a Run section holding only `store session`: every writer but the
+    # move refuses to change it, however its body was read (PRD R3, R8). Until
+    # the move's last step, the state is still the GitHub body's, written as
+    # before.
+    if [ "$CORE_STORE_READ" = github ] && [ "$MOVE_WRITER" != 1 ] && [ $live_rc -eq 0 ] && rs_moved "$T/live.json"; then
+        echo "$PROG: refused: store-moved: #$REF's state lives in the coordinator's session store; write through the run on that store" >&2
+        exit 65
+    fi
+    # Compare and swap on the Written: line. The body carries the Written: time of
+    # the version it was edited from; the live body must still carry that time, or
+    # someone wrote the record since it was read and this write would lose their
+    # change. A live body that no longer parses as a canonical record has changed
+    # too.
+    BASE=$(jq -r '.written // ""' "$T/parsed.json")
+    if [ $live_rc -eq 0 ]; then
+        LIVE_W=$(jq -r '.written // ""' "$T/live.json")
+    else
+        LIVE_W="(not a canonical record)"
+    fi
+    if [ -z "$BASE" ] || [ "$BASE" != "$LIVE_W" ]; then
+        echo "$PROG: refused: record-changed: #$REF was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
+        exit 12
+    fi
+    if [ "$SCOPE" = discipline ]; then
+        [ "$(jq -r '.headRefName' "$T/target.json")" = "$BRANCH" ] && [ "$(jq -r '.isCrossRepository' "$T/target.json")" = false ] \
+            || { echo "$PROG: refused: #$REF is not on $BRANCH in $REPO" >&2; exit 10; }
+    fi
+    # The Decisions section changes only through the decision writer, which
+    # checks each transition; any other write must carry it as the live record
+    # has it.
+    if [ "$DECISIONS_WRITER" != 1 ] && [ "$MOVE_WRITER" != 1 ]; then
+        NEW_D=$(jq -cS '.decisions // null' "$T/parsed.json") && LIVE_D=$(jq -cS '.decisions // null' "$T/live.json") \
+            || lib_die2 "cannot compare the Decisions sections"
+        if [ "$NEW_D" != "$LIVE_D" ]; then
+            echo "$PROG: refused: the Decisions section changes only through record-decision.sh; carry it as the live record has it" >&2
+            exit 65
+        fi
+    fi
+    # The Holds section changes only through the hold writer, and even it may
+    # only add a hold or stamp a blank Lifted cell: every live hold stays, with
+    # every other cell as it was.
+    NEW_H=$(jq -cS '.holds // []' "$T/parsed.json") && LIVE_H=$(jq -cS '.holds // []' "$T/live.json") \
+        || lib_die2 "cannot compare the Holds sections"
+    if [ "$MOVE_WRITER" = 1 ]; then
+        :
+    elif [ "$HOLDS_WRITER" != 1 ]; then
+        if [ "$NEW_H" != "$LIVE_H" ]; then
+            echo "$PROG: refused: the Holds section changes only through record-hold.sh; carry it as the live record has it" >&2
+            exit 65
+        fi
+    elif ! jq -n -e --argjson n "$NEW_H" --argjson l "$LIVE_H" '
+            all($l[]; . as $o | [$n[] | select(.hold == $o.hold)] as $m
+                | ($m | length) == 1
+                  and ($m[0] | del(.lifted)) == ($o | del(.lifted))
+                  and ($o.lifted == "" or $m[0].lifted == $o.lifted))' > /dev/null; then
+        echo "$PROG: refused: a hold is never removed or changed, only added or lifted once" >&2
+        exit 65
+    fi
+
+    # A milestone's verdict-owed Work row changes only through
+    # roadmap-status.sh, which writes it at the landed tick and clears it
+    # when the verdict's roadmap edit is confirmed.
+    if [ "$VERDICT_WRITER" != 1 ] && [ "$MOVE_WRITER" != 1 ]; then
+        NEW_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/parsed.json") \
+            && LIVE_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/live.json") \
+            || lib_die2 "cannot compare the verdict-owed rows"
+        if [ "$NEW_V" != "$LIVE_V" ]; then
+            echo "$PROG: refused: a verdict-owed Work row changes only through roadmap-status.sh; carry the rows as the live record has them" >&2
+            exit 65
+        fi
+        # A rework row is written only there too, at the confirmation of a
+        # changes-needed verdict or a reopen; record-state.sh may only remove
+        # one.
+        if ! jq -e --slurpfile live "$T/live.json" '
+                [(.work // [])[] | select(.kind == "rework")] as $n
+                | [($live[0].work // [])[] | select(.kind == "rework")] as $l
+                | all($n[]; . as $r | any($l[]; . == $r))' "$T/parsed.json" > /dev/null; then
+            echo "$PROG: refused: a rework Work row is written only by roadmap-status.sh --confirm; carry the rows as the live record has them" >&2
+            exit 65
+        fi
+    fi
+    # The stored set's other rows change only through record-state.sh, and a
+    # rework row leaves through it or roadmap-status.sh.
+    if [ "$STATE_WRITER" != 1 ] && [ "$MOVE_WRITER" != 1 ]; then
+        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/parsed.json") \
+            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/live.json") \
+            || lib_die2 "cannot compare the stored set's sections"
+        if [ "$NEW_S" != "$LIVE_S" ]; then
+            echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2
+            exit 65
+        fi
+        if [ "$VERDICT_WRITER" != 1 ] && [ "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/parsed.json")" != "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/live.json")" ]; then
+            echo "$PROG: refused: a rework Work row leaves only through record-state.sh --done or roadmap-status.sh; carry the rows as the live record has them" >&2
+            exit 65
+        fi
+    fi
+
+}
+
+# core_write_session <body>: the session store's last step. The body it was about
+# to write is parsed back into the state it holds; record/meta is read once more
+# and the write refused record-changed (12) unless its written time is the one
+# the caller edited from (a seeding write needs no record/meta at all); then
+# record/meta is marked pending, each section key whose JSON changed is written
+# (a section the state no longer holds loses its key), and record/meta is written
+# last with the new time. A failure after the first key changed exits 11; the
+# pending mark tells a reader not to trust the sections until a write clears it.
+core_write_session() {
+    local body=$1 s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC
+    [ -n "$s" ] || lib_die2 "the session store needs the run's session"
+    lib_parse "$body" "$T/next-state.json" || lib_die2 "the rendered body doesn't parse back"
+    rs_key "$s" record/meta "$T/meta.now"; rc=$?
+    if [ "$SESSION_SEED" = 1 ]; then
+        # A seed that stopped part way left record/meta pending with no written
+        # time, which no finished write leaves: seeding again finishes it.
+        [ $rc -eq 1 ] || { [ $rc -eq 0 ] && jq -e '.pending == true and .written == ""' "$T/meta.now" > /dev/null; } \
+            || { echo "$PROG: refused: session $s already holds a record" >&2; exit 65; }
+        RESEED=$([ $rc -eq 0 ] && echo 1)
+        jq -nc --argjson sc "$(jq -c .scope "$T/next-state.json")" '{scope: $sc, store: "session", written: "", pending: false}' > "$T/meta.now"
+        : > "$T/live.json"
+    else
+        [ $rc -eq 0 ] || lib_die2 "cannot read session $s's record/meta"
+        if [ "$(jq -r '.written' "$T/meta.now")" != "$BASE" ]; then
+            echo "$PROG: refused: record-changed: session $s's record was written at $(jq -r '.written' "$T/meta.now"), but this body was edited from $BASE; re-read it and redo the change" >&2
+            exit 12
+        fi
+    fi
+    jq -c '.pending = true' "$T/meta.now" > "$T/meta.pending"
+    "$KOTO" context add "$s" record/meta --from-file "$T/meta.pending" < /dev/null > /dev/null 2> "$T/k.err" \
+        || { echo "$PROG: the session write failed: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+    # A re-seed removes the section keys the unfinished seed left that this state
+    # doesn't hold; one listing names them.
+    if [ -n "${RESEED:-}" ]; then
+        rs_list "$s" record/ "$T/reseed-keys" || lib_die2 "cannot list session $s's record keys: $(lib_scrub < "$T/reseed-keys.err")"
+    fi
+    # The live holdings as the session keeps them, pushed heads included (the
+    # parsed live record has them stripped): each row's head is carried forward
+    # by Worker, and CORE_PUSHED_* sets one.
+    if [ -s "$T/live.json" ] && [ -s "$T/live.json.state" ]; then
+        jq -c '.holdings // []' "$T/live.json.state" > "$T/live-holdings.json" || lib_die2 "jq failed"
+    else
+        echo '[]' > "$T/live-holdings.json"
+    fi
+    for pair in $RS_SECTIONS; do
+        field=${pair%%:*} key=${pair#*:}
+        if jq -e --arg f "$field" 'has($f)' "$T/next-state.json" > /dev/null; then
+            jq -c --arg f "$field" '.[$f]' "$T/next-state.json" > "$T/sec.new"
+            LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS --arg f "$field" 'if has($f) then .[$f] else empty end' "$T/live.json")
+            if [ "$field" = holdings ]; then
+                jq -c --slurpfile live "$T/live-holdings.json" --arg set "$CORE_PUSHED_SET" --arg t "$CORE_PUSHED_TOPIC" --arg h "$CORE_PUSHED_HEAD" '
+                    ($live[0] | map(select((.pushed_head // "") != "") | {(.worker): .pushed_head}) | add // {}) as $p
+                    | map(. as $r | (if $set == "1" and $r.worker == $t then $h else ($p[$r.worker] // "") end) as $v
+                          | if $v == "" then del(.pushed_head) else . + {pushed_head: $v} end)' "$T/sec.new" > "$T/sec.merged" \
+                    || lib_die2 "jq failed"
+                mv "$T/sec.merged" "$T/sec.new"
+                LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS '.' "$T/live-holdings.json")
+            fi
+            if [ -n "$LIVE_SEC" ] && [ "$LIVE_SEC" = "$(jq -cS . "$T/sec.new")" ]; then
+                continue
+            fi
+            "$KOTO" context add "$s" "record/$key" --from-file "$T/sec.new" < /dev/null > /dev/null 2> "$T/k.err" \
+                || { echo "$PROG: the session write failed part way, at record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+        elif { [ -s "$T/live.json" ] && jq -e --arg f "$field" 'has($f)' "$T/live.json" > /dev/null; } \
+            || { [ -n "${RESEED:-}" ] && jq -e --arg key "record/$key" 'index($key) != null' "$T/reseed-keys" > /dev/null; }; then
+            "$KOTO" context remove "$s" "record/$key" < /dev/null > /dev/null 2> "$T/k.err" \
+                || { echo "$PROG: the session write failed part way, removing record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+        fi
+    done
+    jq -c --arg w "$(jq -r '.written' "$T/next-state.json")" '.written = $w | .pending = false' "$T/meta.now" > "$T/meta.next"
+    "$KOTO" context add "$s" record/meta --from-file "$T/meta.next" < /dev/null > /dev/null 2> "$T/k.err" \
+        || { echo "$PROG: the session write failed part way, at record/meta: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+}
+
+# core_write_host <json-file>: replace the run's record/host with the object in
+# <json-file>, the host facts record-state.sh --host merged and checked (PRD R14,
+# R17). Only record-state.sh calls it, which a structure test holds; it writes
+# no section and no entry, since host facts never go to GitHub. Exits 10 when
+# the session holds no record (no record/meta), 11 when the write fails, 2 when
+# a read fails.
+core_write_host() {
+    local s=${RS_SESSION:-$SESSION} d
+    [ -n "$s" ] || lib_die2 "record/host needs the run's session"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-host.XXXXXX") || lib_die2 "mktemp failed"
+    rs_key "$s" record/meta "$d/meta"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; echo "$PROG: refused: session $s holds no record" >&2; exit 10 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $s's record/meta" ;;
+    esac
+    "$KOTO" context add "$s" record/host --from-file "$1" < /dev/null > /dev/null 2> "$d/k.err" \
+        || { echo "$PROG: the record/host write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rm -rf "$d"
+}
+
+# core_carry <from> <to>: copy a session-store record, its state and its
+# account, from run <from> into the new run <to> on this host: every record/ and
+# legs/ key (PRD R12; Decision 6). The source is read through the seam, so it
+# passes every check a write makes: it assembles, renders and parses back as
+# this scope's record (SCOPE, NAME), fits RECORD_BUDGET, and holds only
+# well-formed pushed heads. The target must hold no record. Each key's name is
+# checked against the session store's names and its value checked (JSON, or for
+# record/posted/<n> a comment URL on REPO's issues), then copied, and
+# record/meta goes last, with the source's written time: until it lands the new
+# run holds no record, so a carry cut short leaves nothing a start would resume,
+# and the next start carries again. Only coordinate-open.sh calls it, which a
+# structure test holds. Exits 10 the source holds no record; 12 it was being
+# written; 13 it is over the budget; 65 refused (the reason on stderr); 11 a
+# write failed; 2 a read failed.
+core_carry() {
+    local from=$1 to=$2 d k rc size secs
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-carry.XXXXXX") || lib_die2 "mktemp failed"
+    rs_session_read "$d/rec" body "$from" "$SCOPE" "$NAME" "$REPO" 0; rc=$?
+    case $rc in
+        0) ;;
+        4) lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 10 ;;
+        12) lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 12 ;;
+        3|65) echo "$PROG: refused: session $from's record doesn't read back as this scope's:" >&2; lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 65 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $from's record" ;;
+    esac
+    size=$(wc -c < "$d/rec.md" | tr -d ' ')
+    [ "$size" -le "$RECORD_BUDGET" ] || { rm -rf "$d"; echo "$PROG: refused: record-full: session $from's record renders to $size bytes" >&2; exit 13; }
+    rs_key "$to" record/meta "$d/to-meta"
+    case $? in
+        1) ;;
+        0) rm -rf "$d"; echo "$PROG: refused: session $to already holds a record" >&2; exit 65 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $to's record/meta" ;;
+    esac
+    rs_list "$from" record/ "$d/rk" && rs_list "$from" legs/ "$d/lk" || { rm -rf "$d"; lib_die2 "cannot list session $from's keys"; }
+    secs=" $(for p in $RS_SECTIONS; do printf 'record/%s ' "${p#*:}"; done)"
+    jq -r '.[]' "$d/rk" "$d/lk" > "$d/keys" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    while IFS= read -r k; do
+        case "$k" in
+            record/meta) continue ;;
+            record/host) ;;
+            record/entries/*|record/posted/*) [[ $k =~ ^record/(entries|posted)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
+            record/*) case "$secs" in *" $k "*) ;; *) rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k, not one of the session store's" >&2; exit 65 ;; esac ;;
+            legs/*) [[ $k =~ ^legs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
+        esac
+        "$KOTO" context get "$from" "$k" < /dev/null > "$d/v" 2> "$d/k.err" || { rm -rf "$d"; lib_die2 "cannot read $k: $(lib_scrub < "$d/k.err")"; }
+        case "$k" in
+            record/posted/*)
+                [[ $(cat "$d/v") =~ ^https://github\.com/${REPO}/issues/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
+                    || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on $REPO's issues" >&2; exit 65; } ;;
+            *) jq -e . "$d/v" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
+        esac
+        "$KOTO" context add "$to" "$k" --from-file "$d/v" < /dev/null > /dev/null 2> "$d/k.err" \
+            || { echo "$PROG: the carry into $to failed at $k: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    done < "$d/keys"
+    jq -c '{scope, store: "session", written, pending: false}' "$d/rec.state" > "$d/meta" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    "$KOTO" context add "$to" record/meta --from-file "$d/meta" < /dev/null > /dev/null 2> "$d/k.err" \
+        || { echo "$PROG: the carry into $to failed at record/meta: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rm -rf "$d"
+}
 
 core_write() {
     if [ -z "$REF" ]; then
@@ -81,102 +394,27 @@ core_write() {
         *) lib_die2 "record-parse.sh failed" ;;
     esac
 
-    # The target, re-read now.
-    if [ "$SCOPE" = roadmap ]; then
-        gh issue view "$REF" --repo "$REPO" --json state,body,url > "$T/target.json" 2> "$T/r.err" < /dev/null || lib_die2 "cannot read issue #$REF"
+    # The store this write goes to: the run's, or CORE_STORE for a seeding
+    # write, which goes to the session store before any find has sealed it.
+    CORE_STORE_READ=${CORE_STORE:-$(rs_source)}
+    # A pushed head (record-write.sh --pushed-head) is kept on the session store
+    # only, beside a holding the record has.
+    if [ "$CORE_PUSHED_SET" = 1 ]; then
+        [ "$CORE_STORE_READ" = session ] || { echo "$PROG: refused: a pushed head is kept only by a record on the session store" >&2; exit 65; }
+        [[ $CORE_PUSHED_HEAD =~ ^([0-9a-f]{40})?$ ]] || { echo "$PROG: refused: a pushed head is 40 hex, or empty to clear it" >&2; exit 65; }
+        jq -e --arg t "$CORE_PUSHED_TOPIC" 'any(.holdings[]; .worker == $t)' "$T/parsed.json" > /dev/null \
+            || { echo "$PROG: refused: no holding's Worker is $CORE_PUSHED_TOPIC" >&2; exit 65; }
+    fi
+    if [ "$SESSION_SEED" = 1 ]; then
+        [ "$CORE_STORE_READ" = session ] && [ "$SCOPE" = roadmap ] \
+            || lib_die2 "a seeding write goes only to the session store, at roadmap scope"
+        BASE=$(jq -r '.written // ""' "$T/parsed.json")
+        URL="https://github.com/$REPO/issues/$REF"
     else
-        gh pr view "$REF" --repo "$REPO" --json state,body,url,title,headRefName,isCrossRepository > "$T/target.json" 2> "$T/r.err" < /dev/null || lib_die2 "cannot read pull request #$REF"
-    fi
-    jq -r '.body // ""' "$T/target.json" | tr -d '\r' > "$T/live.md" || lib_die2 "the target read is not JSON"
-    STATE=$(jq -r '.state' "$T/target.json")
-    URL=$(jq -r '.url' "$T/target.json")
-    [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
-    grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
-    # Compare and swap on the Written: line. The body carries the Written: time of
-    # the version it was edited from; the live body must still carry that time, or
-    # someone wrote the record since it was read and this write would lose their
-    # change. A live body that no longer parses as a canonical record has changed
-    # too.
-    BASE=$(jq -r '.written // ""' "$T/parsed.json")
-    if lib_parse "$T/live.md" "$T/live.json" 2> /dev/null; then
-        LIVE_W=$(jq -r '.written // ""' "$T/live.json")
-    else
-        LIVE_W="(not a canonical record)"
-    fi
-    if [ -z "$BASE" ] || [ "$BASE" != "$LIVE_W" ]; then
-        echo "$PROG: refused: record-changed: #$REF was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
-        exit 12
-    fi
-    if [ "$SCOPE" = discipline ]; then
-        [ "$(jq -r '.headRefName' "$T/target.json")" = "$BRANCH" ] && [ "$(jq -r '.isCrossRepository' "$T/target.json")" = false ] \
-            || { echo "$PROG: refused: #$REF is not on $BRANCH in $REPO" >&2; exit 10; }
-    fi
-    # The Decisions section changes only through the decision writer, which
-    # checks each transition; any other write must carry it as the live record
-    # has it.
-    if [ "$DECISIONS_WRITER" != 1 ]; then
-        NEW_D=$(jq -cS '.decisions // null' "$T/parsed.json") && LIVE_D=$(jq -cS '.decisions // null' "$T/live.json") \
-            || lib_die2 "cannot compare the Decisions sections"
-        if [ "$NEW_D" != "$LIVE_D" ]; then
-            echo "$PROG: refused: the Decisions section changes only through record-decision.sh; carry it as the live record has it" >&2
-            exit 65
-        fi
-    fi
-    # The Holds section changes only through the hold writer, and even it may
-    # only add a hold or stamp a blank Lifted cell: every live hold stays, with
-    # every other cell as it was.
-    NEW_H=$(jq -cS '.holds // []' "$T/parsed.json") && LIVE_H=$(jq -cS '.holds // []' "$T/live.json") \
-        || lib_die2 "cannot compare the Holds sections"
-    if [ "$HOLDS_WRITER" != 1 ]; then
-        if [ "$NEW_H" != "$LIVE_H" ]; then
-            echo "$PROG: refused: the Holds section changes only through record-hold.sh; carry it as the live record has it" >&2
-            exit 65
-        fi
-    elif ! jq -n -e --argjson n "$NEW_H" --argjson l "$LIVE_H" '
-            all($l[]; . as $o | [$n[] | select(.hold == $o.hold)] as $m
-                | ($m | length) == 1
-                  and ($m[0] | del(.lifted)) == ($o | del(.lifted))
-                  and ($o.lifted == "" or $m[0].lifted == $o.lifted))' > /dev/null; then
-        echo "$PROG: refused: a hold is never removed or changed, only added or lifted once" >&2
-        exit 65
-    fi
-
-    # A milestone's verdict-owed Work row changes only through
-    # roadmap-status.sh, which writes it at the landed tick and clears it
-    # when the verdict's roadmap edit is confirmed.
-    if [ "$VERDICT_WRITER" != 1 ]; then
-        NEW_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/parsed.json") \
-            && LIVE_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/live.json") \
-            || lib_die2 "cannot compare the verdict-owed rows"
-        if [ "$NEW_V" != "$LIVE_V" ]; then
-            echo "$PROG: refused: a verdict-owed Work row changes only through roadmap-status.sh; carry the rows as the live record has them" >&2
-            exit 65
-        fi
-        # A rework row is written only there too, at the confirmation of a
-        # changes-needed verdict or a reopen; record-state.sh may only remove
-        # one.
-        if ! jq -e --slurpfile live "$T/live.json" '
-                [(.work // [])[] | select(.kind == "rework")] as $n
-                | [($live[0].work // [])[] | select(.kind == "rework")] as $l
-                | all($n[]; . as $r | any($l[]; . == $r))' "$T/parsed.json" > /dev/null; then
-            echo "$PROG: refused: a rework Work row is written only by roadmap-status.sh --confirm; carry the rows as the live record has them" >&2
-            exit 65
-        fi
-    fi
-    # The stored set's other rows change only through record-state.sh, and a
-    # rework row leaves through it or roadmap-status.sh.
-    if [ "$STATE_WRITER" != 1 ]; then
-        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/parsed.json") \
-            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/live.json") \
-            || lib_die2 "cannot compare the stored set's sections"
-        if [ "$NEW_S" != "$LIVE_S" ]; then
-            echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2
-            exit 65
-        fi
-        if [ "$VERDICT_WRITER" != 1 ] && [ "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/parsed.json")" != "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/live.json")" ]; then
-            echo "$PROG: refused: a rework Work row leaves only through record-state.sh --done or roadmap-status.sh; carry the rows as the live record has them" >&2
-            exit 65
-        fi
+        # The live record is read from the store this write goes to.
+        RS_READ_STORE=$CORE_STORE_READ
+        core_live
+        RS_READ_STORE=
     fi
 
     # A public host never names a private repository: not in a Holdings Repo,
@@ -240,7 +478,13 @@ core_write() {
     fi
     OUT="$T/body.md"
 
-    if [ "$SCOPE" = roadmap ]; then
+    if [ "$CORE_STORE_READ" = session ]; then
+        core_write_session "$OUT"
+        if [ "$CLOSE" = 1 ]; then
+            gh issue close "$REF" --repo "$REPO" > /dev/null 2> "$T/w.err" < /dev/null \
+                || { echo "$PROG: the state was written but the close failed: $(lib_scrub < "$T/w.err")" >&2; exit 11; }
+        fi
+    elif [ "$SCOPE" = roadmap ]; then
         gh issue edit "$REF" --repo "$REPO" --body-file "$OUT" > /dev/null 2> "$T/w.err" < /dev/null \
             || { echo "$PROG: the issue edit failed: $(lib_scrub < "$T/w.err")" >&2; exit 11; }
         if [ "$CLOSE" = 1 ]; then

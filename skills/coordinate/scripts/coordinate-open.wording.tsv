@@ -1,5 +1,7 @@
 # /coordinate's refusal wording for koto's typed `koto init` errors, read by
-# scripts/koto-open.sh through coordinate-open.sh. Format: <code>[:<VAR>]<TAB><text>.
+# scripts/koto-open.sh through coordinate-open.sh, and for `koto session import`
+# errors (the import_ codes), read by coordinate-open.sh itself.
+# Format: <code>[:<VAR>]<TAB><text>.
 # {value} {var} {constraint} are replaced with koto's fields, never evaluated.
 invalid_var:ROADMAP	`{value}` is not a roadmap path: a roadmap scope is `docs/roadmaps/.../ROADMAP-<name>.md` in this repository.
 invalid_var:DISCIPLINE	Discipline name `{value}` must match `^[a-z0-9][a-z0-9-]*$`.
@@ -7,5 +9,15 @@ invalid_var:HOST_REPO	Host repository `{value}` must be `owner/repo`.
 invalid_var:CAP	The worker cap `{value}` must be a whole number from 1 to 99.
 invalid_var:PARKED_BOUND	The parked bound `{value}` must be a whole number from 1 to 99.
 invalid_var:ROTATION_DAYS	The rotation length `{value}` must be a whole number of days from 1 to 999.
+invalid_var:STORE	The store `{value}` must be `github` or `session`.
 duplicate_var	`{var}` was given more than once; give each setting once.
 invalid_var	`{value}` is not a valid value for {var} ({constraint}).
+import_requires_cloud	This host has no cloud session store; an import reads the run from the bucket, so configure the source host's bucket here first.
+import_source_not_found	The bucket holds no session by that name under that workspace; check the name and the --from path.
+import_source_migrated	That run was already imported to another host and lives there now.
+import_source_is_child	That session is a child of another run; import the run itself.
+import_name_taken	A session by that name already exists on this host; nothing was imported.
+import_template_unavailable	The template the run was compiled from isn't on this host; pass --trust-template to import it with the bucket's copy.
+import_source_unreadable	The run in the bucket couldn't be read; nothing was imported. Try again.
+import_push_failed	The run couldn't be marked migrated in the bucket; nothing was imported. Try again.
+import_unmarked	The run was imported, but the source couldn't be marked migrated, so its host may still write to it; run the same import again to mark it.

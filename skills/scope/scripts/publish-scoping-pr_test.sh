@@ -357,6 +357,66 @@ mkdir -p "$STORE/s-verify"; printf '%s' "$FOREIGN" >"$STORE/s-verify/run_id"
 run --topic topic --verify --expect-intent continue --session s-verify
 eq "verify --session: the session's own run verifies" "0" "$RC"
 
+echo "== a plan/v2 step plan lists its step headings =="
+# setup_v2 <fixture> -- setup, then the PLAN replaced by a plan/v2 fixture.
+setup_v2() {
+    setup multi-pr
+    cp "$1" "$R/docs/plans/PLAN-topic.md"
+    git -C "$R" add docs && git -C "$R" commit -q -m "docs: step plan"
+}
+setup_v2 "$HERE/testdata/PLAN-v2-steps.md"
+run --topic topic --exit full-run --intent continue
+eq "plan/v2: exit 0" "0" "$RC"
+eq "plan/v2: one pr create" "1" "$(calls create)"
+BODY=$(jq -r '.[0].body' "$GHF/prs.json")
+WANT_STEPS='### Step 1: report export writes a one-row report as CSV
+### Step 2: report export keeps only the columns named by --columns
+### Step 3: report export writes to standard output when the path is -
+### Step 4: report export refuses to overwrite a file without --force'
+eq "plan/v2: the body lists every ### Step N: <title>, in order" "$WANT_STEPS" \
+    "$(printf '%s\n' "$BODY" | grep '^### Step ')"
+if grep -Eq '^### Step [0-9]+: *$' <<<"$BODY"; then
+    bad "plan/v2: no step is listed with a blank title" "$BODY"
+else
+    ok "plan/v2: no step is listed with a blank title"
+fi
+case "$BODY" in
+    *'## Work Items'*'```text'*'### Step 1:'*'### Step 4:'*'```'*) ok "plan/v2: the steps sit inside a fenced block under Work Items" ;;
+    *) bad "plan/v2: the steps sit inside a fenced block under Work Items" "$BODY" ;;
+esac
+case "$BODY" in *"- Issue "*) bad "plan/v2: no plan/v1 Issue line" "$BODY" ;; *) ok "plan/v2: no plan/v1 Issue line" ;; esac
+
+echo "== hostile step titles stay data in the body =="
+setup_v2 "$HERE/../../execute/scripts/testdata/PLAN-v2-hostile.md"
+rm -f "$R/PWNED" "$T/PWNED"
+run --topic topic --exit full-run --intent continue
+eq "hostile: exit 0" "0" "$RC"
+if [ -e "$R/PWNED" ] || [ -e "$T/PWNED" ] || [ -e "$HERE/PWNED" ]; then
+    bad "hostile: no PWNED file appears" ""
+else
+    ok "hostile: no PWNED file appears"
+fi
+BODY=$(jq -r '.[0].body' "$GHF/prs.json")
+for want in '### Step 1: $(touch PWNED) runs end to end' \
+            '### Step 2: `touch PWNED` in backticks, and Fixes #1' \
+            '### Step 3: --help is not an option, @octocat is not a mention' \
+            '### Step 4: [31mred [0m and $(touch PWNED)'; do
+    if grep -Fxq -- "$want" <<<"$BODY"; then
+        ok "hostile: the body holds [$want] as text"
+    else
+        bad "hostile: the body holds [$want] as text" "$BODY"
+    fi
+done
+ESC=$(printf '\033')
+case "$BODY" in *"$ESC"*) bad "hostile: no escape character reaches the body" "" ;; *) ok "hostile: no escape character reaches the body" ;; esac
+# Every title line sits inside the one fenced block, so the closing keyword and
+# the mention are code, not live text: the fence opens before step 1 and
+# closes after step 4, with nothing but step lines between.
+INSIDE=$(printf '%s\n' "$BODY" | awk '/^```text$/ { f = 1; next } f && /^```$/ { exit } f')
+eq "hostile: the fenced block holds exactly the four step lines" "4" \
+    "$(printf '%s\n' "$INSIDE" | grep -c '^### Step [1-4]: ' | tr -d ' ')"
+eq "hostile: nothing else sits inside the fence" "4" "$(printf '%s\n' "$INSIDE" | wc -l | tr -d ' ')"
+
 echo "== usage =="
 setup single-pr
 run --topic Bad --exit full-run --intent continue

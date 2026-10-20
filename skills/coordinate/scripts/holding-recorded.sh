@@ -17,7 +17,7 @@
 #   1  no holding for the topic
 #   2  the record or the topic couldn't be read, or the record refused the
 #      read (no open record, or a directed transition in the run log)
-#   3  the holding says dispatch-failed
+#   3  the holding says dispatch-failed or stranded
 #   4  the holding says dispatching: an earlier dispatch-worker.sh run
 #      stopped partway; run it again to settle it
 #
@@ -56,7 +56,7 @@ esac
 STATUS=$(printf '%s' "$ROW" | jq -r '.dispatch_status // "" | strings')
 case "$STATUS" in
     dispatched) exit 0 ;;
-    dispatch-failed) printf '%s: %s dispatch-failed\n' "$PROG" "$TOPIC" >&2; exit 3 ;;
+    dispatch-failed | stranded) printf '%s: %s %s\n' "$PROG" "$TOPIC" "$STATUS" >&2; exit 3 ;;
     dispatching) printf '%s: %s still dispatching\n' "$PROG" "$TOPIC" >&2; exit 4 ;;
     *) printf '%s: %s has dispatch status [%s]\n' "$PROG" "$TOPIC" "$STATUS" >&2; exit 2 ;;
 esac

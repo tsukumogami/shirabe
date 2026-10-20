@@ -24,15 +24,20 @@
 #      recommendation and reason. The redirect is outside the first check:
 #      the DESIGN owes it per report, before the take (rule 5 before rule 7),
 #      and it asks no one anything.
-#   2. the same replay against a template whose wait evidence edge goes
-#      straight to escalate fails that check;
-#   3. three levels (a person, a workspace coordinator W, a roadmap
+#   2. three levels (a person, a workspace coordinator W, a roadmap
 #      coordinator R reporting to W): R's escalation opens a proposed entry at
 #      W with R's entry as its source; the person's answer settles W's entry,
 #      and W's rendered reply, relayed down as R's answer, settles R's naming
 #      the final decider; a withdrawal from R reopens W's escalated entry,
 #      W withdraws it from the person, and when W settles it nothing goes back
 #      down.
+#
+# Proved elsewhere, so not here: that wait's evidence edge goes to
+# decision_evidence and not straight to escalate is pinned by
+# coordinate-template-structure_engine_test.sh; the teardown's removed route
+# is driven by teardown-pass_engine_test.sh, its routes pinned by the
+# structure suite and the gate's exits (with and without --absent-route) by
+# teardown-inventory_test.sh.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -87,7 +92,7 @@ decision_withdraw_send decision_reply decision_reply_send decision_redirect deci
 PASSTHROUGH="take_report pick_facts classify_report"
 # Stand-ins where the run stops: states this suite doesn't drive, whatever
 # their real routes (report_link, for one, loops back to report_facts).
-TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status milestone_reopen failure"
+TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status milestone_reopen failure reconcile_pass"
 
 # block <state>: the state's YAML block, from its `  <state>:` line to the next state's.
 block() {
@@ -98,7 +103,7 @@ block() {
         on { print }
     ' "$STATES_FROM"
 }
-# skeleton <file> [sed program for the wait block]
+# skeleton <file>
 skeleton() {
     {
         cat <<'EOF'
@@ -155,10 +160,7 @@ states:
         when:
           gates.record_find_verdict.exit_code: 10  # found
 EOF
-        for st in $UNDER; do
-            if [ "$st" = wait ] && [ -n "${2-}" ]; then block wait | sed "$2"; else block "$st"; fi
-            echo
-        done
+        for st in $UNDER; do block "$st"; echo; done
         for st in $PASSTHROUGH; do
             next=wait
             [ "$st" = take_report ] && next=report_facts
@@ -173,14 +175,6 @@ TPL="$PR/skills/coordinate/koto-templates/coordinate.md"
 skeleton "$TPL"
 koto template compile "$TPL" >"$T/compile.err" 2>&1 || { bad "the skeleton compiles" "$(cat "$T/compile.err")"; finish; }
 ok "the skeleton compiles"
-# The variant: wait's evidence edge goes straight to escalate.
-VAR="$T/variant/coordinate.md"
-mkdir -p "$T/variant"
-skeleton "$VAR" '/^      - target: decision_evidence$/s/decision_evidence/escalate/'
-awk '/^  wait:$/,/^  report_facts:$/' "$VAR" | grep -q 'target: decision_evidence' &&
-    bad "the variant rewires wait's evidence edge" "wait still routes evidence to decision_evidence"
-koto template compile "$VAR" >"$T/compile.err" 2>&1 || { bad "the variant compiles" "$(cat "$T/compile.err")"; finish; }
-ok "the variant compiles, wait's evidence edge going to escalate"
 
 # --- the fixtures: records in the gh stand-in --------------------------------------------
 
@@ -339,11 +333,11 @@ replay_check() {
     first_render=$(printf '%s\n' "$order" | grep -E ':(escalate|decision_withdraw|decision_reply)$' | head -1 | cut -d: -f1)
     [ -n "$first_verdict" ] || return 1
     [ -z "$first_render" ] || [ "$first_verdict" -lt "$first_render" ] || return 1
-    ! printf '%s\n' "$order" | grep -q ':escalate$' || return 1
+    ! grep -q ':escalate$' <<<"$order" || return 1
     [ ! -e "$T/$1.bad-table" ]
 }
 
-# --- 1 and 2: the niwa#330 replay --------------------------------------------------------
+# --- 1: the niwa#330 replay --------------------------------------------------------------
 
 # Entry 1 as an earlier run left it: settled, owing nothing, and so compacted
 # by the codec's compact_settled (verdict and evidence blank, options kept).
@@ -391,14 +385,7 @@ eq "replay: the messages sent are the reply, the redirect and the reply, none to
     "$(jq -r .kind "$T/$R1.sent" | tr '\n' ' ' | sed 's/ $//')"
 eq "replay: the run ends at the report's classification" classify_report "$(at "$R1")"
 
-V1=coordinate-roadmap-replay-12-20260928T100002Z
-replay "$V1" "$VAR" 12
-if replay_check "$V1"; then bad "variant: the replay's check fails when evidence goes straight to escalate" "it passed: $(visits "$V1" | tr '\n' ' ')"; else
-    ok "variant: the replay's check fails when evidence goes straight to escalate"; fi
-eq "variant: escalate is entered with no verdict before it" "wait escalate" "$(visits "$V1" | sed -n '3,4p' | tr '\n' ' ' | sed 's/ $//')"
-eq "variant: the render finds nothing routed and the run stops at record_conflict" record_conflict "$(at "$V1")"
-
-# --- 3: three levels ---------------------------------------------------------------------
+# --- 2: three levels ---------------------------------------------------------------------
 
 # W reports to a person and holds R, a coordinator, under the topic rr. R reports to W,
 # whose dispatch topic is ws.

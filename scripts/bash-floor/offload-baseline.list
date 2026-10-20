@@ -1,0 +1,5 @@
+workflow: .github/workflows/check-offload-baseline.yml
+# The instruction-offload baseline's pin check and token count.
+# Its suite builds a throwaway repository and a koto stand-in and
+# needs only bash, git and jq, so every case runs on 3.2.
+scripts/offload-baseline_test.sh

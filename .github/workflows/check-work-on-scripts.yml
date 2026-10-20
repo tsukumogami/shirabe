@@ -20,9 +20,10 @@ on:
       # panel-scope_test.sh builds a re-check seat's packet from the scope it
       # plans, so a change to the packet script has to re-run it.
       - 'scripts/review-packet.sh'
-      # The macOS leg reaches bash 3.2 through the runner, so a change to it has
-      # to re-run this suite.
+      # The macOS leg reaches bash 3.2 through the runner, which reads this
+      # suite's scripts from its list, so a change to either has to re-run it.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/work-on.list'
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
@@ -34,8 +35,11 @@ on:
       - 'references/rule-registry.json'
       - 'scripts/rule-registry.sh'
       - 'scripts/lib/rule-findings.sh'
+      - 'scripts/lib/declared-visibility.sh'
       - 'scripts/lib/rule-findings-testlib.sh'
+      - 'scripts/lib/panel-round-testlib.sh'
       - 'references/pr-body-conformance.md'
+      - 'skills/writing-style/rules.yaml'
       - 'references/wip-hygiene.md'
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
@@ -57,13 +61,17 @@ on:
       - 'references/worktree-discipline.md'
       - 'scripts/review-packet.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/work-on.list'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
       - 'references/rule-registry.json'
       - 'scripts/rule-registry.sh'
       - 'scripts/lib/rule-findings.sh'
+      - 'scripts/lib/declared-visibility.sh'
       - 'scripts/lib/rule-findings-testlib.sh'
+      - 'scripts/lib/panel-round-testlib.sh'
       - 'references/pr-body-conformance.md'
+      - 'skills/writing-style/rules.yaml'
       - 'references/wip-hygiene.md'
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
@@ -302,7 +310,24 @@ jobs:
 
       - name: Run PR output gate tests (Linux)
         if: runner.os == 'Linux'
+        # The PB5 cases run against the validator built above, and fail
+        # rather than skip without it.
+        env:
+          CHECK_PR_OUTPUT_REQUIRE_SHIRABE: '1'
         run: skills/work-on/scripts/check-pr-output_test.sh
+
+      # The live offload canary: the draw against a scratch plugin root whose
+      # registry marks PB4 eligible (balance, the fallbacks, the rendering),
+      # then the shipped work-on.md driven through a real koto to entry and to
+      # a rendered pr_creation directive. The engine cases skip without koto;
+      # the macOS leg runs both on the floor through the work-on suite.
+      - name: Run offload canary tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/offload-canary_test.sh
+
+      - name: Run offload canary route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/offload-canary-routes_test.sh
 
       # Holds shirabe's verification map to the v1 schema with jq, and the
       # schema reference and work-on.md to what they must say. Needs only git
@@ -337,6 +362,18 @@ jobs:
       - name: Run extract-context tests (Linux)
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/extract-context_test.sh
+
+      # step-detail-check.sh against git fixtures, with the shirabe built above
+      # (an installed one may predate plan/v2), then the shipped template's
+      # plan_validation gate on an outline step, before and after the step is
+      # detailed, through a real koto. The macOS leg runs it on the floor
+      # through the work-on suite, where it builds shirabe itself and the koto
+      # cases skip.
+      - name: Run step detail check tests (Linux)
+        if: runner.os == 'Linux'
+        env:
+          SHIRABE_BIN: ${{ runner.temp }}/work-on-bin/shirabe
+        run: skills/work-on/scripts/step-detail-check_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

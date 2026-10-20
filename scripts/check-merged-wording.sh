@@ -78,7 +78,7 @@ residual() {
 # is_flagged <line>: true when the line still says "merged" after the
 # accepted tokens are removed.
 is_flagged() {
-    residual "$1" | grep -qi 'merged'
+    residual "$1" | grep -i 'merged' >/dev/null
 }
 
 is_scanned() {
