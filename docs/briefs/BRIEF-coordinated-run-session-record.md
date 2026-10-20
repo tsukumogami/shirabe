@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A coordinated `/execute` run keeps the facts it runs on (node to pull request, the head
   each merge is pinned to, the cascade's verdict, whose run it is) as editable lines in the
@@ -26,7 +26,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 This brief frames moving a coordinated `/execute` run's control-plane facts out of the
 coordination pull request's body and into the run's own koto session, with the body
