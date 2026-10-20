@@ -4,20 +4,27 @@
 #
 # The coordinated loop's decisions live here, not in prose. The script is
 # stateless and read-only: it reads the PLAN's nodes (through
-# plan-to-tasks.sh), the coordination PR's PR index (through the ownership
-# filter), and live `gh`, writes nothing anywhere, and prints exactly one line.
-# The agent performs that action and runs the script again, until it prints
-# `done:<outcome>`, `pause`, or `error:<step>`.
+# plan-to-tasks.sh), the run record in the session (run-record-lib.sh: the
+# coordination PR's number, the sealed node list, each node's recorded PR and
+# pushed head, the cascade's verdict), and live `gh` (each recorded PR checked
+# against the ownership filter), writes nothing anywhere, and prints exactly
+# one line. The agent performs that action and runs the script again, until it
+# prints `done:<outcome>`, `pause`, or `error:<step>`.
 #
 # Usage:
-#   coordinated-next.sh --plan <path> --slug <slug> --repos <owner/repo,...>
-#                       --home-repo <owner/repo> --coord-branch <branch>
-#                       --merge true|false [--attempts <node:result,...>]
-#                       [--run-id <id>]
+#   coordinated-next.sh --session <koto-session> --plan <path> --slug <slug>
+#                       --repos <owner/repo,...> --home-repo <owner/repo>
+#                       --coord-branch <branch> --merge true|false
+#                       [--attempts <node:result,...>] [--run-id <id>]
 #
+#   --session       the run's koto session, ^[A-Za-z0-9][A-Za-z0-9._-]*$,
+#                   whose run record the script reads (never writes). A
+#                   session with no run/setup is error:execute:status-read:
+#                   coord_setup seals the record before the loop runs.
 #   --plan          the PLAN in the coordination checkout. While it exists its
 #                   nodes come from plan-to-tasks.sh; once the finalization
-#                   cascade has deleted it, from the PR index.
+#                   cascade has deleted it, from the node list run/setup
+#                   sealed.
 #   --slug          the topic slug, ^[a-z0-9-]+$; node branches are
 #                   impl/<slug>-<node-id>
 #   --repos         the write set recorded at coord_setup, comma-joined: the
@@ -25,8 +32,8 @@
 #   --home-repo     the repository holding the coordination branch. It need
 #                   not be in --repos: a PLAN whose nodes all land elsewhere
 #                   keeps its coordination PR in a repository that holds no
-#                   node, and the one index entry that may name it is the
-#                   coordination PR's own (`coordination`)
+#                   node; the run record holds that PR by number, not as a
+#                   node
 #   --coord-branch  the coordination branch
 #   --merge         this invocation's merge intent: exactly `true` or `false`,
 #                   passed explicitly by the caller from the session's MERGE
@@ -46,23 +53,26 @@
 #
 # Output: exactly one line, from the closed set (first match wins):
 #
-#   error:<step>              a read failed (execute:status-read), a PR the
-#                             run must adopt is not the one owned PR on its
-#                             branch (execute:pr-adopt), a node entry outside
-#                             the write set or a coordination entry naming a
-#                             repository other than --home-repo
-#                             (execute:write-set), a failing
+#   error:<step>              a read failed, or the session holds no run
+#                             record (execute:status-read), a PR the run must
+#                             adopt is not the one owned PR on its branch, or
+#                             the recorded coordination PR lost its marker
+#                             (execute:pr-adopt), a recorded node PR outside
+#                             the write set (execute:write-set), a failing
 #                             check (execute:ci), a closed PR
 #                             (execute:pr-closed), or a verdict error
 #   done:merged               the coordination PR is MERGED
-#   merge:<node>              a node PR whose verdict is mergeable (only with
-#                             --merge true); run coord-merge.sh on it
-#   dispatch:<node>           a node with no indexed PR whose predecessors are
-#                             all satisfied: cut it, run its work items, push
+#   merge:<node>              a node PR whose verdict is mergeable at the head
+#                             the run record holds (only with --merge true);
+#                             run coord-merge.sh on it
+#   dispatch:<node>           a node with no recorded PR whose predecessors
+#                             are all satisfied: cut it, run its work items,
+#                             push
 #   evaluate:<node>           a node PR that is still a draft (mark it ready
 #                             once its checks pass) or whose checks are pending
 #   cascade                   every node PR MERGED, and the finalization
-#                             cascade has not run and been recorded
+#                             cascade has not run, or run/cascade holds no
+#                             `pushed` verdict (absent, or `failed`)
 #   evaluate-coordination     the coordination PR is a draft after the cascade,
 #                             or its checks are pending
 #   merge-coordination        the coordination PR is mergeable (only with
@@ -80,7 +90,8 @@
 # Exit codes: 0 a line was printed (an error: line included); 64 usage error
 # (nothing printed, no gh call made).
 #
-# Requires: bash 3.2+, jq, gh (through owned-pr.sh and merge-verdict.sh).
+# Requires: bash 3.2+, jq, gh (through owned-pr.sh and merge-verdict.sh),
+# koto (the run record's reads).
 set -uo pipefail
 
 PROG=coordinated-next
@@ -91,20 +102,21 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: coordinated-next.sh --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--run-id <id>]" >&2
+    echo "usage: coordinated-next.sh --session <koto-session> --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--run-id <id>]" >&2
     exit 64
 }
 
-CC_PLAN=""; CC_SLUG=""; CC_REPOS=""; CC_HOME=""; CC_CB=""; CC_MERGE=""; CC_ATTEMPTS=""
+CC_SESSION=""; CC_PLAN=""; CC_SLUG=""; CC_REPOS=""; CC_HOME=""; CC_CB=""; CC_MERGE=""; CC_ATTEMPTS=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--run-id)
+        --session|--plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
                 --run-id) COORD_RUN_ID="$2" ;;
+                --session) CC_SESSION="$2" ;;
                 --plan) CC_PLAN="$2" ;;
                 --slug) CC_SLUG="$2" ;;
                 --repos) CC_REPOS="$2" ;;
@@ -119,10 +131,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-for f in --plan --slug --repos --home-repo --coord-branch --merge; do
+for f in --session --plan --slug --repos --home-repo --coord-branch --merge; do
     case "$SEEN" in *" $f "*) ;; *) usage_error "$f is required" ;; esac
 done
 case "$CC_MERGE" in true|false) ;; *) usage_error "--merge must be true or false, got [$CC_MERGE]" ;; esac
+[[ $CC_SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage_error "--session [$CC_SESSION] is not a koto session name"
 [[ $CC_SLUG =~ $RE_COORD_SLUG ]] || usage_error "--slug [$CC_SLUG] is outside ^[a-z0-9-]+\$"
 coord_valid_repo_list "$CC_REPOS" || usage_error "--repos [$CC_REPOS] is not a comma-joined owner/repo list"
 coord_valid_repo "$CC_HOME" || usage_error "--home-repo [$CC_HOME] is not a single owner/repo"

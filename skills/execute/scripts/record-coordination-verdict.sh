@@ -11,7 +11,11 @@
 #
 # It reads GitHub (through coordination-verdict.sh) and writes koto context,
 # and nothing else: it pushes nothing, merges nothing, and writes nothing to
-# GitHub.
+# GitHub. Besides the verdict's context keys it writes one run record key:
+# when coordination-verdict.sh reports `cascade=failed` (the loop stopped
+# with the cascade still the next action), `run/cascade` becomes
+# {verdict: failed, step: <step>} through `run-record.sh cascade`, so the next
+# invocation runs the cascade again.
 #
 # Usage:
 #   record-coordination-verdict.sh --session <koto-session> --merge true|false
@@ -33,15 +37,17 @@
 #      for the gates or the result map to read as current;
 #   2. read and check the recorded coord_setup values and this run's identity
 #      (`run-id.sh get <session>`), then run coordination-verdict.sh with
-#      --run-id, so its lookups never adopt a PR another run opened;
+#      --session and --run-id, so its lookups never adopt a PR another run
+#      opened;
 #   3. check every field against its closed pattern: coord_verdict
 #      ^(merged|ready|paused|dirty|error)$; pr a PR URL; waiting comma-joined
 #      <url>:<human|predecessor>; resume `/execute <plan>[ --merge]`; reason
 #      the decision table's conditions plus merge-call-failed,
 #      merge-not-observed, and the pause conditions; step ^execute:[a-z-]+$
-#      from the closed step set;
-#   4. only when every field passed, write the non-empty ones, coord_verdict
-#      last.
+#      from the closed step set; cascade only `failed`, with an error and its
+#      step;
+#   4. only when every field passed: record a failed cascade in run/cascade,
+#      then write the non-empty fields, coord_verdict last.
 #
 # Exit codes:
 #   0   recorded
@@ -49,8 +55,9 @@
 #       was written after the clear
 #   64  usage error (nothing read or written), or a recorded coord_setup
 #       value is missing or invalid (the keys were cleared, nothing written)
-#   70  a koto context clear or write failed, or the run's identity could not
-#       be read
+#   70  a koto context clear or write failed, the run's identity could not
+#       be read, or the failed cascade could not be recorded in run/cascade
+#       (no context key written)
 #
 # Requires: bash 3.2+, jq, gh, koto.
 set -uo pipefail
@@ -149,7 +156,7 @@ RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || {
     exit 70
 }
 
-set -- --plan "$PLAN" --slug "$SLUG" --repos "$REPOS" --home-repo "$HOME_REPO" \
+set -- --session "$SESSION" --plan "$PLAN" --slug "$SLUG" --repos "$REPOS" --home-repo "$HOME_REPO" \
     --coord-branch "$CB" --merge "$MERGE" --run-id "$RUN_ID"
 [ -n "$ATTEMPTS" ] && set -- "$@" --attempts "$ATTEMPTS"
 [ -n "$LOOP_LINE" ] && set -- "$@" --loop-line "$LOOP_LINE"
@@ -170,6 +177,7 @@ WAITING=$(field waiting)
 RESUME=$(field resume)
 REASON=$(field reason)
 STEP=$(field step)
+CASCADE=$(field cascade)
 
 bad() { echo "$PROG: $*; nothing recorded" >&2; exit 1; }
 [[ $V =~ $RE_VERDICT ]] || bad "verdict [$V] is outside ^(merged|ready|paused|dirty|error)\$"
@@ -186,6 +194,27 @@ fi
 [ -z "$REASON" ] || [[ $REASON =~ $RE_REASON ]] || bad "reason [$REASON] is outside the closed condition set"
 [ -z "$STEP" ] || [[ $STEP =~ $RE_STEP ]] || bad "step [$STEP] is outside the closed step set"
 if [ "$V" = error ] && [ -z "$STEP" ]; then bad "an error verdict carries no step"; fi
+[ -z "$CASCADE" ] || [ "$CASCADE" = failed ] || bad "cascade [$CASCADE] is not failed"
+if [ "$CASCADE" = failed ] && { [ "$V" != error ] || [ -z "$STEP" ]; }; then
+    bad "a failed cascade comes only with an error verdict and its step"
+fi
+
+# A failed cascade, in the run record, before any context key: the next
+# invocation reads run/cascade and runs the cascade again.
+if [ "$CASCADE" = failed ]; then
+    DOC=$(mktemp "${TMPDIR:-/tmp}/record-coordination-verdict.XXXXXX") || {
+        echo "$PROG: could not stage the run record write" >&2
+        exit 70
+    }
+    jq -cn --arg s "$STEP" '{"run/cascade": {verdict: "failed", step: $s}}' > "$DOC"
+    "$BASH" "$SELF_DIR/run-record.sh" cascade --session "$SESSION" --json "$DOC" </dev/null >&2
+    rc=$?
+    rm -f "$DOC"
+    if [ "$rc" -ne 0 ]; then
+        echo "$PROG: run-record.sh cascade exited $rc; the failed cascade was not recorded" >&2
+        exit 70
+    fi
+fi
 
 [ -n "$PR" ] && ctx_write pr "$PR"
 [ -n "$WAITING" ] && ctx_write waiting "$WAITING"
