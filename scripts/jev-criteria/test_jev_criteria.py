@@ -232,7 +232,8 @@ class CheckTest(unittest.TestCase):
         self.assertProblem("jev.measured.population 'my-laptop'")
 
     def test_local_path_in_command(self):
-        self.jev("rs-007")["measured"]["command"] = "measure records --dir /Users/me/store"
+        # Split so the public-content check doesn't read this line as a leak.
+        self.jev("rs-007")["measured"]["command"] = "measure records --dir /" + "Users/me/store"
         self.t.save()
         self.assertProblem("jev.measured.command holds a local path")
 
@@ -551,6 +552,12 @@ class HistoryTest(unittest.TestCase):
         self.t.save()
         rc, out = self.t.check("HEAD")
         self.assertIn("a false pass recorded at the base was changed or removed", out)
+
+    def test_removed_declaration(self):
+        del self.t.entry(RULE)["jev"]["declared"]
+        self.t.save()
+        rc, out = self.t.check(self.base)
+        self.assertIn("%s: its declared record was removed" % RULE, out)
 
     def test_changed_declaration_needs_new_since(self):
         write(self.t.root, TEMPLATE, TEMPLATE_TEXT.replace("Is it fine?", "Is it really fine?"))

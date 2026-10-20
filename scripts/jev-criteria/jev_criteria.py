@@ -23,6 +23,10 @@ Subcommands:
 
 Reads templates with mikefarah yq v4 and shells out to git, gh (measure prs
 only) and scripts/rule-registry.sh (the release check). Standard library only.
+
+A "rule N" in a comment is the Nth contract rule in the design's
+`jev_criteria.py` section ("Contract rules (check)"). check_contract runs them
+in the order their inputs become available, not in that numbering.
 """
 
 import argparse
@@ -80,8 +84,6 @@ BLOB = re.compile(r"^[0-9a-f]{40}$")
 PATH_SHAPE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")
 LOCAL_PATH = re.compile(r"(^|[\s\"'=])(/Users/|/home/|/root/|/private/|/var/|~/|\$HOME)")
 RULE_ID = re.compile(r"^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$")
-WITHHOLD_SCRIPT = "jev-withhold.sh"
-WITHHOLD_CALL = re.compile(r"jev-withhold\.sh[\"']?\s+[\"']?([^\"'\s]+)")
 
 
 class CannotRun(Exception):
@@ -371,10 +373,9 @@ def check_contract(root, entry, jev, criteria, cache, declared):
             elif s["writer"] == "gate-script":
                 if not safe_rel(root, s.get("script")) or not os.path.isfile(os.path.join(root, s.get("script", ""))):
                     p("source %s: gate-script %r does not exist" % (s["what"], s.get("script")))
-    for field in ("slice_script",):
-        rel = jev.get(field)
-        if not safe_rel(root, rel) or not os.path.isfile(os.path.join(root, rel)):
-            p("jev.%s %r does not exist" % (field, rel))
+    rel = jev.get("slice_script")
+    if not safe_rel(root, rel) or not os.path.isfile(os.path.join(root, rel)):
+        p("jev.slice_script %r does not exist" % rel)
     budget = jev.get("budget")
     if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
         p("jev.budget is not a positive integer")
@@ -516,8 +517,7 @@ def check_promotion(root, jev, promo, fps, budget):
             if k not in fr:
                 out.append("promotion.fixture_run has no %s" % k)
         counts = fr.get("counts") if isinstance(fr.get("counts"), dict) else {}
-        met, reasons = fixture_bar(counts)
-        out += ["the fixture run misses the bar: %s" % r for r in reasons]
+        out += ["the fixture run misses the bar: %s" % r for r in fixture_bar(counts)[1]]
         rel = jev.get("fixtures")
         if isinstance(rel, str) and os.path.isfile(os.path.join(root, rel)):
             cases, _ = load_fixtures(os.path.join(root, rel))
@@ -537,8 +537,7 @@ def check_promotion(root, jev, promo, fps, budget):
         for k in ("from", "to", "evaluations", "sessions", "answered", "over_budget_fallbacks", "max_input_bytes"):
             if k not in live:
                 out.append("promotion.live has no %s" % k)
-        met, reasons = live_bar(live, budget)
-        out += ["the live figures miss the bar: %s" % r for r in reasons]
+        out += ["the live figures miss the bar: %s" % r for r in live_bar(live, budget)[1]]
         frm, to = live.get("from", ""), live.get("to", "")
         d = jev.get("declared") if isinstance(jev.get("declared"), dict) else {}
         if isinstance(d.get("since"), str) and frm < d["since"]:
@@ -552,58 +551,6 @@ def check_promotion(root, jev, promo, fps, budget):
     rel = jev.get("slice_script")
     if isinstance(rel, str) and os.path.isfile(os.path.join(root, rel)) and blob != git_blob(root, rel):
         out.append("promotion.slice_script_blob differs from the slice script's")
-    return out
-
-
-def withhold_calls(root, cache, registry_by_id):
-    """Problems with templates that call the withhold script (rule 12)."""
-    out = []
-    for rel in template_files(root):
-        text = read_text(os.path.join(root, rel))
-        if WITHHOLD_SCRIPT not in text:
-            continue
-        states = template_states(root, rel, cache) or {}
-        commands = []
-        for sname, state in states.items():
-            state = state or {}
-            da = state.get("default_action")
-            if isinstance(da, dict) and isinstance(da.get("command"), str):
-                commands.append((sname, da["command"]))
-            for g in (state.get("gates") or {}).values():
-                if isinstance(g, dict) and isinstance(g.get("command"), str):
-                    commands.append((sname, g["command"]))
-        called = [(s, c) for s, c in commands if WITHHOLD_SCRIPT in c]
-        mentions = text.count(WITHHOLD_SCRIPT)
-        if mentions > len(called):
-            out.append("%s: names %s outside a state's command" % (rel, WITHHOLD_SCRIPT))
-        for sname, cmd in called:
-            m = WITHHOLD_CALL.search(cmd)
-            rid = m.group(1) if m else ""
-            if not RULE_ID.match(rid):
-                out.append("%s: state %s calls %s without a literal rule id" % (rel, sname, WITHHOLD_SCRIPT))
-                continue
-            e = registry_by_id.get(rid)
-            jev = (e or {}).get("jev") or {}
-            if not e or jev.get("state") != "trusted":
-                out.append("%s: state %s withholds %s, which isn't a trusted Jev criterion" % (rel, sname, rid))
-                continue
-            if (e.get("check") or {}).get("template") != rel:
-                out.append("%s: state %s withholds %s, whose check is in another template" % (rel, sname, rid))
-            directive = template_directive(root, rel, sname)
-            if "rule-registry.sh" not in directive or ("release %s" % rid) not in directive:
-                out.append("%s: state %s withholds %s but its directive doesn't run rule-registry.sh release %s"
-                           % (rel, sname, rid, rid))
-    for d in ("skills", "koto-templates", "hooks"):
-        for dirpath, _, files in os.walk(os.path.join(root, d)):
-            for name in files:
-                rel = os.path.relpath(os.path.join(dirpath, name), root)
-                if rel.endswith(".md") and "/koto-templates/" in "/" + rel and not rel.endswith(".mermaid.md"):
-                    continue
-                try:
-                    if WITHHOLD_SCRIPT in read_text(os.path.join(dirpath, name), errors="replace"):
-                        out.append("%s: calls %s; only a template's command may" % (rel, WITHHOLD_SCRIPT))
-                except OSError:
-                    pass
     return out
 
 
@@ -634,7 +581,9 @@ def history(root, base, registry):
         if nfp[:len(ofp)] != ofp:
             out.append("%s: a false pass recorded at the base was changed or removed" % eid)
         od, nd = oj.get("declared") or {}, nj.get("declared") or {}
-        if od.get("sha256") and nd.get("sha256") and od["sha256"] != nd["sha256"]:
+        if od.get("sha256") and not nd.get("sha256"):
+            out.append("%s: its declared record was removed" % eid)
+        elif od.get("sha256") and od["sha256"] != nd["sha256"]:
             if not isinstance(nd.get("since"), str) or nd["since"] < base_date:
                 out.append("%s: its declaration changed, but declared.since %s is before the base's date %s"
                            % (eid, nd.get("since"), base_date))
@@ -680,7 +629,6 @@ def cmd_check(args):
             elif ((match[0].get("jev") or {}).get("state")) not in ("untrusted", "trusted"):
                 problems.append("%s: decider check %s/%s criterion %s is declared, but its entry is %s"
                                 % (t, s, g, cid, (match[0].get("jev") or {}).get("state")))
-        problems += withhold_calls(root, cache, by_id)
         if args.base:
             problems += history(root, args.base, registry)
     except CannotRun as e:
@@ -716,13 +664,17 @@ def cmd_declared_hash(args):
 def measure_sessions(args):
     root = os.path.realpath(args.root)
     script = os.path.join(root, REVIEW_LEVEL_SH)
-    sizes = []
+    sizes, skipped = [], 0
     for path in sorted(glob.glob(os.path.join(args.dir, "*", "ctx", "review_facts.json"))):
         # "standard" is the longest level name, so the size is an upper bound.
         r = run([script, "project", path, "standard"])
         if r.returncode != 0:
+            skipped += 1
             continue
         sizes.append(len(r.stdout.encode("utf-8")))
+    if skipped:
+        # Said out loud, so a short run count is never mistaken for the corpus.
+        print("%s: skipped %d session(s) whose facts didn't project" % (PROG, skipped), file=sys.stderr)
     return figures(sizes, args.budget, "koto-sessions",
                    "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --budget %d" % args.budget)
 

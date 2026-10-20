@@ -15,6 +15,7 @@ on:
       - 'references/rule-registry.json'
       - 'references/jev-criteria.md'
       - 'scripts/rule-registry.sh'
+      - 'scripts/rule-registry_test.sh'
       - 'scripts/review-shadow/**'
       - 'skills/*/koto-templates/**'
       - 'skills/work-on/scripts/review-level.sh'
@@ -60,7 +61,13 @@ jobs:
           git config --global user.name ci
           python3 scripts/jev-criteria/test_jev_criteria.py -v
 
+      # Against the merge base, as check-rule-registry.yml does: the history
+      # rules compare a changed declaration's date with the base's, and the
+      # base branch's tip can be newer than the point this branch left it.
       - name: Check every Jev criterion against its contract and the base
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 scripts/jev-criteria/jev_criteria.py check --base "$BASE_SHA"
+        run: |
+          set -euo pipefail
+          base=$(git merge-base "$BASE_SHA" HEAD)
+          python3 scripts/jev-criteria/jev_criteria.py check --base "$base"
