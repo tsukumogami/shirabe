@@ -57,7 +57,8 @@ As queries over the exported events, for one criterion:
    `koto.check` equal to the entry's `check.gate` and `koto.rule.id` equal to
    its `check.criterion`, inside the window.
 2. Count distinct (`koto.session.id`, `koto.visit.seq`) pairs: the
-   evaluations.
+   evaluations. The filter has already fixed `koto.check` and
+   `koto.rule.id`, so a pair here is the full tuple above.
 3. Count distinct `koto.session.id`: the sessions.
 4. Among `decider_checked` events with `koto.decider.outcome` in (`pass`,
    `fail`), count distinct (`koto.session.id`, `koto.visit.seq`) pairs: the
@@ -113,9 +114,11 @@ declares it in `veto` mode, and both bars are met.
    window's end, the declaration, slice script or fixture file changed since
    the figures were taken, the template mode isn't `veto`, or the rule isn't
    `withhold: eligible`.
-5. **Review.** The reviewer re-runs `figures --bar` (or the queries) over the
-   same window and `fixtures` against the same fixture file, and compares the
-   results with the record. The author doesn't merge their own promotion.
+5. **Review.** The reviewer re-runs the queries over the exported events for
+   the same window, and `fixtures` against the same fixture file, and compares
+   the results with the record. `figures --bar` over session logs the reviewer
+   holds is a cross-check on the queries, not a substitute: it sees only the
+   runs on that machine. The author doesn't merge their own promotion.
 
 Promotion makes the rule eligible to be withheld; it doesn't wire anything.
 `scripts/jev-withhold.sh` decides at run time whether a session leaves the
