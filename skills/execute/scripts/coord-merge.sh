@@ -16,20 +16,41 @@
 # head is the cascade's pushed head (`run/cascade`); with no pushed cascade
 # the merge is refused.
 #
-# For the coordination PR it first runs the merge-last gate itself:
-# `shirabe validate --merge-gate --mode=ready` over the body index's refs, with the
-# entry pointing at the coordination PR itself dropped (the coordination PR
+# For the coordination PR it first brings the body up to date with the
+# record (`coord-render.sh --before-coordination`): CI's merge-last gate reads
+# the body, so a body the render couldn't post (body=stale, body=full) refuses
+# the merge with no call, prints `merge-refused:body-stale` (or
+# `merge-refused:body-full`), and the render has recorded
+# `coordination:body-stale` (or `body-full`) in the session's merge_attempts.
+# Then it re-reads the coordination PR and runs the merge-last gate itself:
+# `shirabe validate --merge-gate --mode=ready` over the body index's refs, with
+# any entry pointing at the coordination PR itself dropped (the coordination PR
 # can't wait on its own merge), and with `--visibility private` when the home
 # repository reads private live (repo-visibility.sh's read), so a private
 # coordination PR can gate over public and private nodes alike. A gate that
 # doesn't pass refuses the merge.
+#
+# Every merge passes a squash message: merge-message.sh builds it from the
+# pull request's live title and Part 1 (scripts/lib/squash-message.sh), and
+# merge-exec.sh hands it to `gh pr merge` as --subject and --body-file (a
+# rebase takes none). A message the builder refuses (an empty Part 1, a title
+# that spans lines, an attribution line) makes no merge call and prints
+# `merge-refused:squash-message`.
 #
 # After a `merge-called:` line it runs `merge-verdict.sh --confirm`. A merge is
 # never read as merged on the call alone. When the confirm read doesn't see
 # MERGED, or the merge call itself failed, it records `<node>:<result>` in the
 # session's `merge_attempts` context key, so the loop doesn't call the same
 # merge again in this invocation: coordinated-next.sh then reports that PR
-# unmerged with reason merge-not-observed or merge-call-failed.
+# unmerged with reason merge-not-observed or merge-call-failed. Every refusal
+# (no recorded head, the merge-last gate, the squash message, or merge-exec.sh's
+# own fresh verdict) records `<node>:merge-refused` the same way, and the run
+# ends ready-awaiting-merge with that PR waiting on a human.
+#
+# A node seen merged is a transition the body shows: after the confirm read
+# reports `merged` for a node, coord-render.sh records its merged head and
+# posts the body. The coordination PR's body is final at its merge, so none
+# is rendered after it.
 #
 # Usage:
 #   coord-merge.sh --session <koto-session> --slug <slug>
@@ -38,9 +59,12 @@
 #
 # Output: merge-exec.sh's line (`merge-called:<method>:<sha>` or
 # `merge-refused:<verdict>`), then, after a call, the confirm line (`merged` or
-# `not-merged:merge-not-observed`). A merge refused before merge-exec.sh runs
-# prints `merge-refused:awaiting:head-moved` (no pushed head in the run
-# record) or `merge-refused:merge-gate`.
+# `not-merged:merge-not-observed`), then, after a node's `merged`,
+# coord-render.sh's `observed=` and `body=` lines. A merge refused before
+# merge-exec.sh runs prints `merge-refused:awaiting:head-moved` (no pushed head
+# in the run record), `merge-refused:body-stale` or `merge-refused:body-full`
+# (the coordination body couldn't be brought up to date),
+# `merge-refused:merge-gate`, or `merge-refused:squash-message`.
 #
 # Exit codes:
 #   0   a line was printed (a refusal included)
@@ -52,6 +76,9 @@
 #   73  the recorded PR is not the one owned PR on its branch, the run record
 #       has no PR for the node, or the recorded coordination PR is not open
 #       (execute:pr-adopt)
+#   77  the render refused a record that would index a private repository in
+#       a public coordination PR (execute:visibility); before the coordination
+#       PR's merge no call was made
 #
 # Requires: bash 3.2+, gh, jq, koto, shirabe.
 set -uo pipefail
@@ -106,8 +133,52 @@ coord_recorded_pr "$SESSION" "$HOME_REPO" open
 case $? in
     0) ;;
     2) exit 72 ;;
+    # A coordination body that lost its declaration marker (a /scope
+    # republish) gets it back from the render below, and is read again after.
+    3) [ "$NODE" = coordination ] && [ "$C_WHY" = marker ] || exit 73 ;;
     *) exit 73 ;;
 esac
+# record_attempt <result> -- this node's merge result, in merge_attempts.
+record_attempt() {
+    coord_record_attempt "$SESSION" "$NODE" "$1" || exit 70
+}
+
+# render [--before-coordination] -- coord-render.sh over the record. Sets
+# RENDER_OUT (its stdout) and returns its exit code.
+render() {
+    RENDER_OUT=$("$BASH" "$COORD_SELF_DIR/coord-render.sh" --session "$SESSION" --slug "$SLUG" \
+        --home-repo "$HOME_REPO" --coord-branch "$CB" "$@" </dev/null)
+}
+
+if [ "$NODE" = coordination ]; then
+    # The body CI's merge-last gate reads, brought up to date first; a render
+    # that couldn't post it refuses the merge (and has recorded why).
+    render --before-coordination
+    rc=$?
+    printf '%s\n' "$RENDER_OUT" | grep -v '^merge-refused:' >&2
+    case "$rc" in
+        0) ;;
+        70) exit 70 ;;
+        77) echo "$PROG: the coordination PR's body would index a private repository in a public coordination PR; nothing was merged" >&2
+            exit 77 ;;
+        *) echo "$PROG: coord-render.sh exited $rc; nothing was merged" >&2
+           printf 'merge-refused:body-stale\n'
+           record_attempt body-stale
+           exit 0 ;;
+    esac
+    REFUSED=$(printf '%s\n' "$RENDER_OUT" | grep '^merge-refused:' | tail -1)
+    if [ -n "$REFUSED" ]; then
+        printf '%s\n' "$REFUSED"
+        exit 0
+    fi
+    # The body just rendered, for the gate's refs.
+    coord_recorded_pr "$SESSION" "$HOME_REPO" open
+    case $? in
+        0) ;;
+        2) exit 72 ;;
+        *) exit 73 ;;
+    esac
+fi
 # The body is read only for the merge-last gate's refs below.
 BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
 
@@ -145,27 +216,9 @@ if ! [[ $HEAD =~ $RE_COORD_SHA ]]; then
     # No recorded push: merge-verdict.sh would say head-moved, and merge-exec.sh
     # takes no `none`.
     printf 'merge-refused:awaiting:head-moved\n'
+    record_attempt merge-refused
     exit 0
 fi
-
-record_attempt() { # record_attempt <result>
-    local old new rest e
-    old=$(koto context get "$SESSION" merge_attempts) || old=""
-    [[ $old =~ $RE_COORD_ATTEMPTS ]] || old=""
-    new=""
-    rest="$old"
-    while [ -n "$rest" ]; do
-        e="${rest%%,*}"
-        if [ "$e" = "$rest" ]; then rest=""; else rest="${rest#*,}"; fi
-        case "$e" in "$NODE":*) continue ;; esac
-        if [ -z "$new" ]; then new="$e"; else new="$new,$e"; fi
-    done
-    if [ -z "$new" ]; then new="$NODE:$1"; else new="$new,$NODE:$1"; fi
-    printf '%s' "$new" | koto context add "$SESSION" merge_attempts >/dev/null || {
-        echo "$PROG: could not record merge_attempts in session $SESSION" >&2
-        exit 70
-    }
-}
 
 if [ "$NODE" = coordination ]; then
     # The merge-last gate, over every indexed PR but the coordination PR itself.
@@ -177,6 +230,7 @@ if [ "$NODE" = coordination ]; then
     if [ $# -eq 0 ]; then
         echo "$PROG: the coordination PR's index names no PR to gate on" >&2
         printf 'merge-refused:merge-gate\n'
+        record_attempt merge-refused
         exit 0
     fi
     # The gate takes the coordination PR's own visibility: a private one may
@@ -191,11 +245,26 @@ if [ "$NODE" = coordination ]; then
     if ! "$SHIRABE" validate --merge-gate --mode=ready "$@" </dev/null >&2; then
         echo "$PROG: shirabe validate --merge-gate --mode=ready did not pass" >&2
         printf 'merge-refused:merge-gate\n'
+        record_attempt merge-refused
         exit 0
     fi
 fi
 
-LINE1=$("$BASH" "$COORD_SELF_DIR/merge-exec.sh" "$REPO" "$PR" "$HEAD" </dev/null)
+# The squash message: the title and Part 1, never the reviewer context or a
+# coordination PR's index.
+MSG=$("$BASH" "$COORD_SELF_DIR/merge-message.sh" "$REPO" "$PR" </dev/null)
+case $? in
+    0) ;;
+    1) printf 'merge-refused:squash-message\n'
+       record_attempt merge-refused
+       exit 0 ;;
+    72) exit 72 ;;
+    *) echo "$PROG: merge-message.sh failed; nothing was merged" >&2; exit 72 ;;
+esac
+[ -f "$MSG" ] || { echo "$PROG: merge-message.sh named no message file" >&2; exit 72; }
+
+LINE1=$("$BASH" "$COORD_SELF_DIR/merge-exec.sh" "$REPO" "$PR" "$HEAD" "$MSG" </dev/null)
+rm -f "$MSG"
 printf '%s\n' "$LINE1"
 case "$LINE1" in
     merge-called:*)
@@ -203,10 +272,21 @@ case "$LINE1" in
             --expected-head "$HEAD" --confirm </dev/null) || LINE2="not-merged:merge-not-observed"
         [ "$LINE2" = merged ] || LINE2="not-merged:merge-not-observed"
         printf '%s\n' "$LINE2"
-        [ "$LINE2" = merged ] || record_attempt merge-not-observed
+        if [ "$LINE2" != merged ]; then
+            record_attempt merge-not-observed
+        elif [ "$NODE" != coordination ]; then
+            # A node seen merged: the body records its merged head.
+            render
+            rc=$?
+            printf '%s\n' "$RENDER_OUT"
+            [ "$rc" -eq 77 ] && exit 77
+        fi
         ;;
     merge-refused:not-merged:merge-call-failed)
         record_attempt merge-call-failed
+        ;;
+    merge-refused:*)
+        record_attempt merge-refused
         ;;
 esac
 exit 0

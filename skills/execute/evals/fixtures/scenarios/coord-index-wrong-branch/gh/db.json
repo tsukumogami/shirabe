@@ -52,7 +52,7 @@
       "state": "OPEN",
       "isDraft": true,
       "title": "docs: coordination",
-      "body": "# Coordination PR: coord-outline-test\n\n> This is a **coordination PR** for a coordinated effort. It is docs-only and\n> merges **last**, once every indexed PR has merged and finalization is\n> complete. See `references/coordination-strategy.md`.\n\n## Artifact Chain\n\n- docs/plans/PLAN-coord-outline-test.md\n\n## PR Index\n\n- pr-eval-repo-core | eval-org/eval-repo:docs/plans/PLAN-coord-outline-test.md#11 | open | head=@HEAD_SHA@\n\n## Merge Order\n\n```merge-order\n# Two-node merge-order DAG (PR nodes + non-PR gate nodes), one node per line.\npr-eval-repo-core | open\npr-eval-repo-cli | open\n```",
+      "body": "Coordination pull request for coord-outline-test. It carries the planning documents for 2 node pull requests and merges after all of them.\n\n---\n\n> This is a **coordination PR** for a coordinated effort. It is docs-only and\n> merges **last**, once every indexed PR has merged and finalization is complete.\n> See `references/coordination-strategy.md`.\n\ntopic=coord-outline-test\nmode=coordinated\nstore=github\nrun=5e7a1c0d9b8f4e3a2c1b0a9f8e7d6c5b\n\n## PR Index\n\n- pr-eval-repo-core | eval-org/eval-repo:docs/plans/PLAN-coord-outline-test.md#11 | open | head=@HEAD_SHA@\n\n## Merge Order\n\n```merge-order\n# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.\n# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>\npr-eval-repo-core | pr | after: -\npr-eval-repo-cli | pr | after: pr-eval-repo-core\n```\n",
       "headRefOid": "@HEAD_SHA@",
       "mergeStateStatus": "CLEAN",
       "reviewDecision": "",

@@ -596,7 +596,7 @@ The diagram shows only what changes: `land`'s `moved` and `dirty` arms stay.
 | File | Change | Pull request |
 |---|---|---|
 | `skills/coordinate/scripts/panel-evidence.sh` | new: parse the Review panel table | 1 |
-| `skills/coordinate/scripts/squash-message.sh` | new: build the message | 1 |
+| `skills/coordinate/scripts/squash-message.sh` | new: build the message (since moved to `scripts/lib/squash-message.sh`, which `/execute`'s merges share) | 1 |
 | `skills/coordinate/scripts/board-lib.sh` | adds `bl_reviewed_fresh`, the freshness walk, inside the land check's 24-second read budget | 1 |
 | `skills/coordinate/scripts/land-check.sh` | evidence, freshness, message before the posture | 1 |
 | `skills/coordinate/scripts/board-record.sh` | `unevidenced` for a malformed table | 1 |

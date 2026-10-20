@@ -1041,8 +1041,8 @@ mod tests {
         );
     }
 
-    /// The `## Merge Order` section `node-push.sh` renders from the PLAN's
-    /// waits_on graph, read from the golden file its shell tests compare the
+    /// The `## Merge Order` section the codec renders from the node list the
+    /// run sealed at setup, read from the golden file its shell tests compare the
     /// posted section against: two comment lines, then one
     /// `<node-id> | pr|gate | after: <node-ids>` line per node. It must
     /// validate, and its node ids (the gate's included) must be read from the

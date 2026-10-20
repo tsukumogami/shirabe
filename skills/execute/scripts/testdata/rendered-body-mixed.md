@@ -1,0 +1,33 @@
+Two repositories, one gate.
+
+---
+
+> This is a **coordination PR** for a coordinated effort. It is docs-only and
+> merges **last**, once every indexed PR has merged and finalization is complete.
+> See `references/coordination-strategy.md`.
+
+topic=t
+exit=published
+outcome=planned
+intent=ship
+mode=coordinated
+store=github
+run=00112233445566778899aabbccddeeff
+
+## PR Index
+
+- pr-repo-a-core | acme/repo-a:docs/plans/PLAN-t.md#11 | merged | head=3333333333333333333333333333333333333333
+- pr-repo-a-core/follow-up-21 | acme/repo-a:docs/plans/PLAN-t.md#21 | open | head=1111111111111111111111111111111111111111
+- pr-repo-a-core/follow-up-22 | acme/repo-a:docs/plans/PLAN-t.md#22 | merged | head=4444444444444444444444444444444444444444
+- pr-repo-a-cli | acme/repo-b:docs/plans/PLAN-t.md#5 | closed | head=2222222222222222222222222222222222222222
+- pr-repo-a-cli/follow-up-7 | acme/repo-b:docs/plans/PLAN-t.md#7 | unknown | head=2222222222222222222222222222222222222222
+
+## Merge Order
+
+```merge-order
+# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
+# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
+pr-repo-a-core | pr | after: -
+gate-publish-core | gate | after: pr-repo-a-core
+pr-repo-a-cli | pr | after: pr-repo-a-core, gate-publish-core
+```

@@ -103,4 +103,3 @@ cost	panel-evidence_test.sh	1
 cost	pause-read_test.sh	1
 cost	coordinate-report_test.sh	0
 cost	skill-states_test.sh	0
-cost	squash-message_test.sh	0

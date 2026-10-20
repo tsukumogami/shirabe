@@ -20,13 +20,14 @@
 #
 #   setup      record-coord-setup.sh, sealing a new run's run/setup
 #   push       node-push.sh node: a node's repo, pr, and pushed head
-#   observe    the body renderer (a later change): a merged head
+#   observe    coord-render.sh, the coordination body's renderer: a merged
+#              head it read live (the merge commit GitHub reports)
 #   cascade    node-push.sh coordination (pushed, with the head) and
 #              record-coordination-verdict.sh (failed, with the step); the one
 #              verb with two callers, both steps of the cascade
 #   follow-up  record-coord-setup.sh with --follow-up (a later change)
-#   recover    record-coord-setup.sh rebuilding a lost record (a later change)
-#   adopt      record-coord-setup.sh with --adopt-run (a later change)
+#   recover    record-coord-setup.sh rebuilding a lost record
+#   adopt      record-coord-setup.sh on a recovering start with --adopt-run
 #   carry      execute-open.sh, restoring a finished session's record into the
 #              session koto replaced it with
 #
@@ -63,8 +64,10 @@
 # verdict, with head exactly when pushed and step exactly when failed;
 # run/recovered and run/adopted all of theirs).
 #
-# Preconditions, read from the session: setup refuses (67) when run/setup
-# exists; push, observe, cascade and follow-up refuse (66) when it doesn't;
+# Preconditions, read from the session: setup, recover and adopt refuse (67)
+# when run/setup exists (a record is recovered only where there is none, and
+# adopt is written just before recover seals it); push, observe, cascade and
+# follow-up refuse (66) when it doesn't;
 # push and follow-up refuse (66) a repo outside run/setup's repos; observe
 # refuses (66) a key that doesn't exist yet; carry refuses (67) unless every
 # run/ key the session already holds equals the document's value for it, so
@@ -87,8 +90,8 @@
 #   65  not-owner: a field the verb doesn't own
 #   66  invalid: a key or field outside the layout, a value outside its
 #       pattern, a missing required field, or a precondition unmet
-#   67  conflict: setup over an existing record, or a carry over a differing
-#       key
+#   67  conflict: setup, recover or adopt over an existing record, or a
+#       carry over a differing key
 #   70  a koto read or write failed
 #
 # Requires: bash 3.2+, jq, koto.
@@ -254,7 +257,8 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
               | err(66; "repo-outside"; $k; "nodes") ]
           | first_or(
               # 3. The preconditions the session decides.
-              (if $verb == "setup" and ($cur | has("run/setup")) then [err(67; "conflict"; "run/setup"; "")]
+              (if ($verb == "setup" or $verb == "recover" or $verb == "adopt") and ($cur | has("run/setup"))
+                 then [err(67; "conflict"; "run/setup"; "")]
                elif ($verb == "push" or $verb == "observe" or $verb == "cascade" or $verb == "follow-up")
                     and ($cur | has("run/setup") | not) then [err(66; "no-setup"; "run/setup"; "")]
                else [] end)

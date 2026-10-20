@@ -78,6 +78,22 @@ BODY="- a | tsukumogami/koto:docs/x.md#7 | open
 - b | tsukumogami/koto:docs/x.md#7 | open"
 assert_eq "duplicate refs collapse" "tsukumogami/koto:docs/x.md#7" "$(run_refs "$BODY")"
 
+# --- the bodies /execute renders from a run's record ---
+# skills/execute/scripts/testdata/rendered-body-*.md, the golden renders of
+# scripts/lib/coordination-body.sh, whose coordination PR is acme/repo-a#10.
+# The render never indexes the coordination PR, so the filter keeps every
+# node and follow-up line and drops nothing.
+RENDERED="$SCRIPT_DIR/../skills/execute/scripts/testdata"
+assert_eq "rendered body (open nodes, a person's Part 1)" \
+    "acme/repo-a:docs/plans/PLAN-t.md#11${NL}acme/repo-a:docs/plans/PLAN-t.md#12" \
+    "$(bash "$SUT" acme/repo-a 10 < "$RENDERED/rendered-body-open.md")"
+assert_eq "rendered body (merged, closed, follow-ups)" \
+    "acme/repo-a:docs/plans/PLAN-t.md#11${NL}acme/repo-a:docs/plans/PLAN-t.md#21${NL}acme/repo-a:docs/plans/PLAN-t.md#22${NL}acme/repo-b:docs/plans/PLAN-t.md#5${NL}acme/repo-b:docs/plans/PLAN-t.md#7" \
+    "$(bash "$SUT" acme/repo-a 10 < "$RENDERED/rendered-body-mixed.md")"
+assert_eq "rendered body (the composed Part 1)" \
+    "acme/repo-a:docs/plans/PLAN-t.md#11" \
+    "$(bash "$SUT" acme/repo-a 10 < "$RENDERED/rendered-body-composed.md")"
+
 # --- usage errors ---
 if printf '' | bash "$SUT" "$SELF_REPO" "abc" >/dev/null 2>&1; then
     FAIL=$((FAIL + 1)); echo "FAIL: non-numeric pr-number rejected"

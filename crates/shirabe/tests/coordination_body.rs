@@ -166,3 +166,28 @@ fn coordination_body_single_repo_missing_marker_fails() {
         .stdout(contains("declaration marker"));
     let _ = std::fs::remove_file(&path);
 }
+
+/// The bodies `/execute` renders from a run's record
+/// (scripts/lib/coordination-body.sh), read from the golden files its shell
+/// tests compare every render against: a person's Part 1, the composed one,
+/// nodes open, merged and closed, follow-up lines, and the merge-order block
+/// from the sealed node list. The validator must find nothing in any of them,
+/// so a render the shell side posts is one CI's merge-last gate accepts.
+#[test]
+fn coordination_body_rendered_fixtures_pass() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../skills/execute/scripts/testdata");
+    for name in [
+        "rendered-body-open.md",
+        "rendered-body-mixed.md",
+        "rendered-body-composed.md",
+    ] {
+        let path = dir.join(name);
+        assert!(path.is_file(), "the golden render {} exists", name);
+        shirabe()
+            .args(["validate", "--coordination-body"])
+            .arg(&path)
+            .assert()
+            .code(0);
+    }
+}
