@@ -189,7 +189,7 @@ case "$1" in
         echo "niwa $*" >>"$ST/log"; echo '[]' >"$ST/niwa.json"
         # niwa 0.34.1 on: destroy removes the instance's owning job too, its
         # directory and its row; a case can leave the row behind.
-        [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/dir-stays" ] && rm -rf "$HOME/.claude/jobs/4b3597d2"
+        [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/dir-stays" ] && rm -rf "$HOME/.claude/jobs/$JID"
         [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/row-stays" ] && echo '[]' >"$ST/agents.json"
         # And a case can have the instance outlive its destroy: the
         # listing it saved there is put back.
@@ -212,7 +212,8 @@ EOF
 chmod +x "$P2"/*.sh "$B2"/*
 
 IP="$T/inst/w5"
-JID=4b3597d2
+# Exported: the niwa stand-in's destroy removes this job's directory.
+export JID=4b3597d2
 SID=$JID-6184-4a48
 # Claude Code's project directories: the instance's own (ENC), a worktree's
 # under it, and a sibling instance's whose name extends this one's.
