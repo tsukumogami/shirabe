@@ -148,16 +148,17 @@ dc_with_deadline 5 false; eq "deadline: a failing command's status" 1 "$?"
 # the watcher when the TERM that stops it landed before the watcher had run
 # its first command, which a quick command makes likely: in about one call in
 # a hundred, the caller's EXIT trap ran in the watcher. Each trap appends a
-# line, so over 500 quick calls the file must end up with the caller's one
-# EXIT line and nothing else. bash 3.2 never showed it, so on the macOS floor
-# the case passes either way; Linux CI's bash 5 is what checks it.
+# line, so over 1000 quick calls the file must end up with the caller's one
+# EXIT line and nothing else; at that rate the old code fails the case nearly
+# every run. bash 3.2 never showed it, so on the macOS floor the case passes
+# either way; Linux CI's bash 5 is what checks it.
 TRAPS="$T/caller-traps"
 : >"$TRAPS"
 (
     trap 'echo exit >>"$TRAPS"' EXIT
     trap 'echo term >>"$TRAPS"; exit 143' TERM
     i=0
-    while [ "$i" -lt 500 ]; do
+    while [ "$i" -lt 1000 ]; do
         dc_with_deadline 30 true
         i=$((i + 1))
     done
