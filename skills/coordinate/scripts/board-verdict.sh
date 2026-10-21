@@ -89,12 +89,17 @@
 # a pull request event after the first (a body edit, say) starts a new run of
 # the same workflow at the same head, and re-running the old run replays its
 # old event payload, so its failure would stay red for good. Runs are keyed by
-# workflow_id and event, and ordered by created_at, then id. Within a key, a
-# job of an earlier run is superseded when a later run that wasn't skipped is
-# still going (its jobs aren't read yet, so the board reads pending, never
-# verified, until it finishes) or has a job of the same name that ran (not
-# skipped, not a job that never ran). A run whose every job is superseded (a
-# run with no job read, a startup failure say, has none left) drops out whole.
+# workflow_id and event, and ordered by created_at, then id; a re-run keeps its
+# run's place, since it replays that run's payload. A run without the three
+# fields can't be keyed, so it fails the runs read rather than being judged
+# alone. Within a key, a job of an earlier run that finished is superseded
+# when a later run that wasn't skipped is still going (its jobs aren't read
+# yet, so the board reads pending, never verified, until it finishes) or has a
+# job of the same name that ran (not skipped, not a job that never ran). An
+# earlier run still going is never superseded: it may run a job the later run
+# doesn't, so the board waits for it. A finished run whose every job is
+# superseded (a run with no job read, a startup failure say, has none left)
+# drops out whole.
 # A superseded job's check run (its id is the job's) drops from the required
 # set's contexts too, and a run whose only red jobs are superseded or never
 # ran isn't a run-conclusion. Different workflows, or the same workflow on
@@ -521,7 +526,7 @@ read -r -d '' SUPERSEDE <<'JQ'
 def ran: .status == "completed" and .conclusion != "skipped" and (not_run | not);
 .[0] as $R | .[1] as $J
 | [ $R[] | select((.status == "completed" and .conclusion == "skipped") | not) ] as $live
-| [ $live[] | . as $r
+| [ $live[] | select(.status == "completed") | . as $r
     | [ $live[] | select(.workflow_id == $r.workflow_id and .event == $r.event
                          and ([.created_at, .id] > [$r.created_at, $r.id])) ] as $later
     | select(($later | length) > 0)

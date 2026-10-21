@@ -114,8 +114,11 @@ fi
 # like any verdict, with the reason in context key coord/merged_facts.json.
 # MERGED is `unconfirmed <pr> <the head GitHub merged>`: a merge this run
 # can't confirm, written down as the Side effects row any unconfirmed merge
-# gets. Open or closed is `not-merged <pr>`, back to wait, where the
-# coordinator verifies it before submitting the merged event again. A failed
+# gets, at the head GitHub merged so a later reconcile's merge check can
+# confirm that row. A head an earlier run verified isn't compared: the head
+# comes from this run's capture, never from the record. Open or closed is
+# `not-merged <pr>`, back to wait: an open one is verified before the merged
+# event is submitted again, a closed one has no merge to record. A failed
 # read exits 2, since it may succeed on the next tick.
 no_verified_head() {
     local d state head token next
@@ -129,10 +132,14 @@ no_verified_head() {
             bl_sha_ok "$head" || { echo "$PROG: #$PR merged head [$head] is not a sha" >&2; exit 2; }
             token="unconfirmed $PR $head"
             next="GitHub merged #$PR at $head, which this run never verified: record it as a Side effects row for $REPO#$PR at $head" ;;
-        OPEN|CLOSED)
+        OPEN)
             bl_sha_ok "$head" || head=
             token="not-merged $PR"
-            next="#$PR is $state on GitHub: verify it before submitting the merged event again" ;;
+            next="#$PR is still open on GitHub: drive it through verify (a report event for its unit, classified done) before submitting the merged event again" ;;
+        CLOSED)
+            bl_sha_ok "$head" || head=
+            token="not-merged $PR"
+            next="#$PR was closed on GitHub without merging: there is no merge to record" ;;
         *) echo "$PROG: pull request state [$state]" >&2; exit 2 ;;
     esac
     jq -n --arg v "${token%% *}" --argjson pr "$PR" --arg repo "$REPO" --arg head "$head" --arg why "$1" --arg next "$next" \

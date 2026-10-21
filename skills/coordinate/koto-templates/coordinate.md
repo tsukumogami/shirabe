@@ -3809,7 +3809,8 @@ was recorded after that read.
 ## merged_facts
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
-the unit's own verified head.
+the head this run verified for the unit, or GitHub's record when there is
+none.
 
 <!-- details -->
 
@@ -3822,7 +3823,9 @@ head its verdict names. When this run never verified the pull request (an
 earlier run did, or a decision accepted it), the check reads GitHub instead,
 and `coord/merged_facts.json` says why: merged is unconfirmed at the head
 GitHub merged, which gets that same Side effects row; still open is
-not-merged, so verify it before you submit the merged event again. A holding
+not-merged, so drive it through verify (a report event for its unit,
+classified done) before you submit the merged event again; closed without
+merging is not-merged too, with no merge to record. A holding
 at Phase `scoping` gets its follow-up row, as at `merge_confirm`. What the
 roadmap needs once a unit's work lands depends on
 its form: read

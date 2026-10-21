@@ -252,7 +252,7 @@ if snap_load nover-wait; then
     eq "24: still open, the merged event comes back to wait" wait "$(at --with-data '{"event":"merged","unit":"feat-1"}')"
     from_to merged_facts wait && ok "24: the route was merged_facts -> wait" || bad "24: the route was merged_facts -> wait"
     case "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>/dev/null | jq -r '"\(.verdict) \(.reason)"')" in
-        "not-merged no verify capture for #12 in this run; #12 is OPEN on GitHub: verify it"*) ok "24: the reason says to verify it first" ;;
+        "not-merged no verify capture for #12 in this run; #12 is still open on GitHub: drive it through verify"*) ok "24: the reason says to verify it first" ;;
         *) bad "24: the reason says to verify it first" "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>&1)" ;;
     esac
     tick --with-data '{"event":"quiet"}' >/dev/null
