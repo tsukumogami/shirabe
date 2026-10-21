@@ -198,8 +198,8 @@ normal path; the one exception is the legacy importer's lookup on a fresh start
 
 **R4. The comment stream goes.** The skill no longer posts or lists marked
 record comments on a coordinator issue, and no longer reads collaborator
-permissions to decide whether a comment is an entry. The account is the
-session's entries alone.
+permissions to decide whether a comment is an entry, outside the legacy
+importer (R23). The account is the session's entries alone.
 
 **R5. Outward entries reach their readers on GitHub's own items.** The four
 outward kinds are written to the session first, then posted to GitHub with
@@ -399,7 +399,9 @@ no coordination pull request is open anywhere in the organization.
 no raised koto floor in `requires.tsv`.
 
 **R22. The suites run on the session alone.** No suite's `gh` stand-in serves an
-issue body, a record comment list or a collaborator-permission read, and the
+issue body, a record comment list or a collaborator-permission read, other than
+the legacy importer's own suite and the one lookup a fresh start makes through
+it (R23), and the
 stand-in fails a test on any `gh` or `git push` call the test didn't expect.
 Each behaviour a GitHub-only suite tests today that survives the removal is
 tested on the session; the design lists those behaviours (at least a stored-set
@@ -429,7 +431,8 @@ transition, and a rotation's carry), and each has a named session test.
 - [ ] A suite starts a new roadmap coordinator and runs it through dispatch,
       land and merge; its `gh` stand-in records no issue create, edit, view,
       close or list of a coordinator issue, no comment list, and no
-      collaborator-permission read, and fails on any unexpected `gh` call.
+      collaborator-permission read, other than the legacy importer's one lookup
+      on the fresh start (R23), and fails on any unexpected `gh` call.
 - [ ] A suite starts a discipline coordinator; the stand-in records no
       `gh pr create`, `gh pr ready`, contents write, ref deletion or `git push`,
       and the session holds the rotation's start and end dates and host

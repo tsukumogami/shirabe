@@ -131,7 +131,7 @@ be superseded and the rest amended.
   imports across the change.
 - **Nothing touches a live run.** R20: a change that removes a reader or writer
   of the GitHub record waits until no coordinator runs on one; what removes
-  nothing may land first, and the scripts come out last.
+  nothing may land first, and the script rename and the documents come last.
 - **Readers outside the coordinator keep their entries.** R5 to R7: the four
   outward kinds keep their marker line and text, posted on the item each is
   about; old progress links keep being accepted; nothing on GitHub is deleted,
@@ -272,9 +272,8 @@ matches `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` whole, it passes the provenance
 check a resume applies today (`coord-log.sh provenance`, built from the shipped
 template, or a template the carry-across already accepted), its own
 `DISCIPLINE` and `HOST_REPO` variables equal this run's, its
-`record/rotation` window has ended or it has no live run, and no other session
-of the discipline already names it as its predecessor (one predecessor is never
-carried twice). Two candidates with
+`record/rotation` window has ended, and no other session of the discipline
+already names it as its predecessor (one predecessor is never carried twice). Two candidates with
 the same stamp, or a candidate that fails any of these, is `unreadable`. It
 seals one of: `found` (this run's own state
 exists, a resume), `predecessor <session>`, `first` (no earlier rotation) or
@@ -293,8 +292,20 @@ closed has no `record/reasoning`, so it reads as `not_recorded`. Closing a
 rotation writes `record/reasoning` and ends the run; nothing is committed and
 no pull request is opened. A predecessor on another host is imported first by
 its owner with `coordinate-open.sh --import`, which this change allows at
-discipline scope. A second live session of the same discipline on one host is
-refused with the opener's existing `session-live` refusal.
+discipline scope.
+
+**A restart and a new rotation are told apart by the window.** At discipline
+scope the opener looks at the newest session of the discipline that holds
+`record/meta`. While that session's `record/rotation` window is open, a start
+is a restart of the same rotation, so the opener's existing resume and
+carry-across apply as at roadmap scope: resume it when it is live and its
+template matches, otherwise open a new run, cancel the live one as the opener
+does today, and carry the whole record across, window included. Once the window
+has ended, a start is a new rotation: the opener opens a new run with a new
+window and the find goes to the predecessor path above, never to the
+whole-record carry-across. So there is never a second rotation of one
+discipline open on a host: a start inside the window continues the current
+rotation, and a start after it closes that rotation and opens the next.
 
 *One session per discipline across all rotations.* Rejected: each rotation's
 run stamp is what its Decisions stamps key on, and a template change would
@@ -332,7 +343,7 @@ Resolved inline.
 
 R20 lets changes that remove nothing a running coordinator reads land first,
 holds every change that removes a reader or writer of the GitHub record until no
-coordinator runs on one, and puts the scripts last.
+coordinator runs on one, and puts the script rename and the documents last.
 
 **Chosen: five additive changes, one gated removal (with the legacy importer
 in the same pull request), a rename, then the
@@ -504,7 +515,12 @@ so its size is read by a person each time.
 
 `coordinate-open.sh` loses `--store`, the `STORE` variable and the
 `store-discipline` refusals, and keeps its resume, carry-across and `--import`
-at both scopes. A koto without the session store's features is refused at
+at both scopes, with the window rule of Decision 3 choosing between a restart
+and a new rotation at discipline scope. `state-find.sh` keeps writing
+`coord/source.json`, now always reading `session`, because the resume
+candidate (`rs_resume_candidate`) resumes or carries only a session whose
+`coord/source.json` reads `session`; a test starts a coordinator after the
+removal, stops it, and checks the next start resumes it. A koto without the session store's features is refused at
 start with `store-unsupported`, as the probe does today. The template's
 `record_find` runs `state-find.sh`: `found` goes to `reconcile_pass`, `none`
 to `record_open`, `malformed` to `record_conflict`, `predecessor` to the new
@@ -523,7 +539,9 @@ action, capturing the carry's report as `PREDECESSOR_CARRY`; its gate passes on
 exit 0 and goes to `reconcile_pass`, and any refusal goes to `record_conflict`
 with the predecessor named. The handover gate (`state-handover.sh`) then lists
 `carry-unacknowledged` until a Standing go-ahead whose Set time is after this
-run's start exists, so a carried rotation dispatches and merges nothing first;
+run's start exists (the start is the run log's `workflow_initialized` time,
+which `coord-log.sh` already reads, not any time stored in the session's
+keys), so a carried rotation dispatches and merges nothing first;
 `handover_engine_test.sh` gains that case.
 
 Step 3's bridge for a discipline whose last rotation ran on GitHub: when
@@ -677,15 +695,23 @@ deletes them.
 - **When it loads.** `coordinate-open.sh` calls it once, on a fresh start (no
   `record/meta` for the scope on this host). A resume, a carry-across or an
   import of a session never calls it.
-- **What it does.** It parses the body, writes each section into the session's
-  keys and each writer-authored entry into `record/entries/<n>` through the
-  write core's carry, so every key passes `state-schema.jq` and the writer
-  flags. It then posts one `moved` note on the record naming the session, and
-  makes no other GitHub write: no body edit, no close. The start continues as a
-  resume of the session it filled. Run again after a crash, it finds the
-  session state and imports nothing twice, posting the note only if none by the
-  coordinator's login exists. A body that doesn't parse stops the start with
-  `record-unreadable <ref>`, writing nothing.
+- **What it does, in an order that survives a crash.** It parses the body,
+  dropping any `store` Run row (the session is the store now), and writes each
+  section key and each writer-authored entry (`record/entries/<n>`) through the
+  write core's carry, every key passing `state-schema.jq` and the writer flags.
+  It then posts one `moved` note on the record naming the session, unless one by
+  the coordinator's login is already there, and writes `record/meta` last. A
+  crash at any point before `record/meta` leaves the start fresh, so the next
+  start calls the importer again, which rewrites the same sections whole and
+  finds the note already posted; after `record/meta`, the next start is an
+  ordinary resume. It makes no other GitHub write: no body edit, no close. A
+  body that doesn't parse, or an entry author whose permission can't be read,
+  stops the start with `record-unreadable <ref>` and writes nothing.
+- **Its copies.** The parser, the comment reader and the permission read are
+  copied from the scripts step 6 deletes, as they are at that step's base
+  commit, so the importer sources nothing step 6 or step 7 removes. Its suite
+  and scripts are registered in `run-tests.sh`, the bash-floor list and the
+  check-skill rows like any other.
 - **When it goes.** A later cleanup feature, outside this design's PLAN,
   deletes the directory and its one call, once no GitHub coordinator record and
   no coordination pull request is open anywhere in the organization.
@@ -706,7 +732,8 @@ rewritten to start from a predecessor session.
 
 ## Implementation Approach
 
-**Before the precondition**, in any order, each its own pull request:
+**Before the precondition**, in any order their dependencies allow; the PLAN
+lands steps 1 and 5 in one pull request and steps 3 and 4 in another:
 
 Every step before the precondition is additive: it adds the session-store
 path and leaves the GitHub-store path exactly as it is, choosing between them
@@ -739,9 +766,11 @@ its GitHub record runs the code it runs today.
    it.
 5. **The transitional structure test.**
 
-**The precondition** (R20). No coordinator runs on the GitHub record when both
-of these return nothing, for every organization a coordinator writes to, run
-with a token that can read every repository in it, private ones included:
+**The precondition** (R20). The PLAN's gate block carries the same commands
+and governs if the two ever differ; the gate is spent once step 6 merges, since
+step 7 deletes the parser its moved-shape test runs. No coordinator runs on the
+GitHub record when these pass, for every organization a coordinator writes to,
+run with a token that can read every repository in it, private ones included:
 
 ```bash
 gh search issues --owner <org> --state open --match title "Coordinator record:" --limit 1000 \

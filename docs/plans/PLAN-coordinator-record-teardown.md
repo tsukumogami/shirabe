@@ -106,9 +106,6 @@ unchanged.
       key, a stored-set row breaking its rules, an illegal Decisions state,
       transition or stamp, a private repository name, a home-directory path and a
       token-shaped string.
-- [ ] The private-repository, home-path and token scan walks every string in the
-      state recursively, and a test fails when a state with a new string-bearing
-      field is not scanned.
 - [ ] `state-schema.jq` accepts a `store` Run row reading `github` or `session`,
       as the codec does today, and refuses any other value; Issue 6 narrows it.
 - [ ] The reconcile workflow's path filter adds
@@ -119,7 +116,9 @@ unchanged.
       after shows nothing changed; a write built from a stale read is refused as
       `record-changed` (exit 12) with no key written; a write that changes a
       section owned by another writer flag is refused (exit 65) with no key
-      written.
+      written. While writers still hand the core a body, the codec's own checks
+      catch most of these first; Issue 8's `--state-file` criteria are where the
+      JSON path alone is proved.
 - [ ] `run-tests.sh` and the bash-floor leg pass.
 
 **Dependencies**: None
@@ -206,9 +205,13 @@ pull request, while a rotation already on GitHub keeps its machinery until it
 ends.
 
 **Acceptance Criteria**:
-- [ ] The `store-discipline` refusals are lifted for a new rotation; a second
-      live session of the same discipline on one host is refused with
-      `session-live`; a discipline session imported with
+- [ ] The `store-discipline` refusals are lifted for a new rotation. A start
+      while the newest session's `record/rotation` window is open is a restart:
+      it resumes that session when live with a matching template, otherwise it
+      carries the whole record across and cancels the live run, as at roadmap
+      scope, and no second rotation is opened; a start after the window ended
+      opens a new run with a new window and goes to the predecessor path, never
+      the whole-record carry. A suite proves both. A discipline session imported with
       `coordinate-open.sh --import` into a fresh workspace resumes there
       (`resumed=1`) and its `record/rotation` reads the same as on the source.
 - [ ] `record-state.sh` writes `record/rotation` (`{start, end, host_repo,
@@ -221,9 +224,9 @@ ends.
       `unreadable <session>`. One scenario per refusal starts from an earlier
       session that breaks exactly one rule (a name not matching
       `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>`, a failed `coord-log.sh provenance`,
-      a different `DISCIPLINE`, a different `HOST_REPO`, a still-live run with
-      an open window, a predecessor another session's `record/rotation` already
-      names, two candidates at one stamp); each ends `unreadable <session>`,
+      a different `DISCIPLINE`, a different `HOST_REPO`, a predecessor another
+      session's `record/rotation` already names, two candidates at one stamp);
+      each ends `unreadable <session>`,
       stops at `record_conflict`, and carries nothing.
 - [ ] A third rotation after a carried second one carries the second, never
       the first.
@@ -345,11 +348,15 @@ gh search prs --owner <org> --state open --match title "rotation" --limit 1000 \
 ```
 
 A record with the `store session` row but state still in its sections fails the
-test: it moves at its next start, not before. Every discipline whose last rotation ran on GitHub has started a rotation on its
-session, or its owner has retired it. A search error, a result count at the
+test: it moves at its next start, not before.
+
+Every discipline whose last rotation ran on GitHub has started a rotation on
+its session, or its owner has retired it. A search error, a result count at the
 limit or an organization the token can't read leaves the gate shut. Both
 searches run again immediately before Issue 6 merges, at least an hour after the
-last owner closed or moved a record, and their output, which can name private
+last owner closed or moved a record. The gate is spent once Issue 6 merges:
+Issue 8 deletes the parser its moved-shape test runs. Their output, which can
+name private
 repositories, goes in a report, not in a public pull request or issue.
 
 ### Issue 6: refactor(coordinate)!: remove the GitHub coordinator record
@@ -360,7 +367,9 @@ repositories, goes in a report, not in a public pull request or issue.
 
 **Goal**: Remove every reader and writer of the GitHub record and the per-run
 choice of store, so the skill creates, reads and writes no coordinator issue,
-comment, rotation pull request or committed handoff file.
+comment, rotation pull request or committed handoff file. Issues 6 and 7 land
+in one pull request, and the criteria below that mention Issue 7's importer
+are checked at that pull request, where the importer exists.
 
 **Acceptance Criteria**:
 - [ ] A grep over the non-test scripts under `skills/coordinate/scripts/` for
@@ -370,9 +379,16 @@ comment, rotation pull request or committed handoff file.
       nothing (Issue 7's importer lives outside this directory), and
       `record-move.sh` no longer exists.
 - [ ] `record-state.sh --run store session` is refused as an unknown Run key
-      (exit 65), and a write carrying a new `store` row is refused while the
-      legacy `store session` row an existing session holds is accepted;
+      (exit 65); a carry or importer write that preserves the legacy
+      `store session` row an existing session holds is accepted;
       `state-schema.jq` now refuses a `store github` row.
+- [ ] The start-up find still writes `coord/source.json` reading `session`, and
+      a suite starts a coordinator after the removal, stops it, and checks the
+      next start resumes it (`resumed=1`).
+- [ ] The private-repository, home-path and token scan now walks every string
+      in the state recursively (the GitHub path it would have changed is gone),
+      and a test fails when a state with a new string-bearing field is not
+      scanned.
 - [ ] `coordinate-open.sh --store session <roadmap>` exits 64 naming `--store`,
       and the template declares no `STORE` variable; with a koto stand-in that
       lacks `session import`, a start is refused with `store-unsupported`.
@@ -452,10 +468,23 @@ nothing else to GitHub. A later cleanup feature, outside this PLAN, removes it.
       session, and makes no other GitHub write: the suite's `gh` stand-in
       records no body edit, no close, no other comment and no pull request
       change.
-- [ ] Run again after a crash between the import and the note, it finds the
-      session state, imports nothing twice, and posts the note only if no note
-      by the coordinator's login exists; run on a body that fails to parse, it
-      stops the start with `record-unreadable <ref>` and writes nothing.
+- [ ] It writes the sections and entries, then posts the note, then writes
+      `record/meta` last. A suite crashes it after the sections and again after
+      the note: each time the next start is still fresh, calls the importer
+      again, rewrites the same sections whole, and ends with exactly one note
+      and one `record/meta`; once `record/meta` exists, the next start is a
+      resume and makes no lookup.
+- [ ] A body that fails to parse, or an entry author whose permission can't be
+      read, stops the start with `record-unreadable <ref>` and writes nothing.
+- [ ] A `store` Run row in the imported body (`github` or `session`) is
+      dropped, and the imported Run section passes `state-schema.jq` as it is
+      after Issue 6.
+- [ ] The importer's parser, comment reader and permission read are copies of
+      the scripts Issue 6 deletes, taken at Issue 6's base commit, and the
+      importer sources nothing under `skills/coordinate/scripts/` that Issue 6
+      or Issue 8 removes. Its suite and scripts are registered in
+      `run-tests.sh`, `scripts/bash-floor/coordinate.list` and the check-skill
+      rows, and the bash-floor leg runs them.
 - [ ] After the import the start continues as a resume of that session, and the
       handover gate and reconcile run on the imported state as on any session.
 
@@ -481,7 +510,8 @@ make the structure test refuse every match.
 - [ ] `ls skills/coordinate/scripts/record-*.sh skills/coordinate/scripts/record-codec.jq`
       finds nothing.
 - [ ] `grep -rlE 'record-(common|source|parse|render)\.sh|record-codec|Coordinator record:|collaborators/|docs/disciplines/|store-(malformed|unverified|conflict|moved|discipline)' skills/coordinate/scripts skills/coordinate/koto-templates`
-      lists only the structure test's fixtures, each named in that test.
+      lists only the structure test's fixtures, each named in that test, and
+      the transitional allow list is empty.
 - [ ] The write core takes `--state-file`: a test checks the file a writer hands
       it is mode 0600 inside the writer's private directory and is gone after
       the write. No write renders or parses a markdown body; a state whose
