@@ -81,9 +81,10 @@ Value of each item, landed alone:
 - #985: no script sources a record library or parses a record body.
 - #986: the shipped documents name the store that is there.
 
-**The gate, `no-record-coordinators`.** It stands between the additive issues and #983 on one
-side and #984 on the other: #984 merges only when it holds. No coordinator
-runs on a GitHub record when, for every organization a coordinator writes to, run with a token that can read every repository in it:
+**The gate, `no-record-coordinators`.** It holds #984 alone: #984 merges only
+when it holds, after the additive issues and #983 have landed. No coordinator
+runs on a GitHub record when, for every organization a coordinator writes to,
+run with a token that can read every repository in it:
 every open roadmap record the first search lists passes the moved-shape test
 below it, and the second search lists nothing.
 
@@ -127,7 +128,7 @@ in a report, not in a public pull request or issue.
 | _Makes the session the default store for a scope with no record, so every new coordinator starts on its session while existing GitHub records stay where they are._ | | |
 | [#982: test(coordinate): refuse new record scripts](https://github.com/tsukumogami/shirabe/issues/982) | None | simple |
 | _Adds the transitional structure test, which allows today's `record-*` matches by name and refuses any new one, so the list can only shrink._ | | |
-| [#983: feat(coordinate): import an unmoved GitHub record into the session](https://github.com/tsukumogami/shirabe/issues/983) | [#978](https://github.com/tsukumogami/shirabe/issues/978) | critical |
+| [#983: feat(coordinate): import an unmoved GitHub record into the session](https://github.com/tsukumogami/shirabe/issues/983) | [#978](https://github.com/tsukumogami/shirabe/issues/978), [#980](https://github.com/tsukumogami/shirabe/issues/980) | critical |
 | _Adds the owner's one-way importer under `skills/coordinate/legacy-import/`, dormant until the removal calls it, so no release removes the GitHub record without it. Not held by the precondition._ | | |
 | [#984: refactor(coordinate)!: remove the GitHub coordinator record](https://github.com/tsukumogami/shirabe/issues/984) | [#978](https://github.com/tsukumogami/shirabe/issues/978), [#979](https://github.com/tsukumogami/shirabe/issues/979), [#980](https://github.com/tsukumogami/shirabe/issues/980), [#981](https://github.com/tsukumogami/shirabe/issues/981), [#982](https://github.com/tsukumogami/shirabe/issues/982), [#983](https://github.com/tsukumogami/shirabe/issues/983) | critical |
 | _Removes every reader and writer of the GitHub record and the store choice, and wires the importer's one call into the opener. Held by the precondition: merges only when the gate's searches, run again, come back clean._ | | |
@@ -153,6 +154,7 @@ graph TD
     I978 --> I980
     I980 --> I981
     I978 --> I983
+    I980 --> I983
     I978 --> I984
     I979 --> I984
     I980 --> I984
@@ -183,7 +185,7 @@ record and no coordination pull request is open anywhere in the organization.
 
 **Before the gate**: #978, #979 and #982 can start at once, and #979 is
 independent of the others. #980 follows #978, #981 follows #980, and #983
-follows #978. Each lands as its own pull request; whichever of #978 and #982
+follows #978 and #980. Each lands as its own pull request; whichever of #978 and #982
 merges second keeps the structure test's allow list in step with the other.
 #983 lands before #984 and isn't held by the precondition.
 

@@ -402,7 +402,8 @@ deleted or edited, and old progress links stay accepted. The work lands in
 eight changes: five additive ones that leave a GitHub-record coordinator's
 behaviour as it is today, one removal behind a precondition (with the legacy
 importer landed just before it, dormant), the rename, and the documents. The
-PLAN files each as its own issue and pull request.
+PLAN files each as its own issue and pull request: nine, since the importer
+is an issue of its own.
 
 ## Solution Architecture
 
@@ -714,8 +715,10 @@ deletes them.
   body that doesn't parse, or an entry author whose permission can't be read,
   stops the start with `record-unreadable <ref>` and writes nothing.
 - **Its copies.** The parser, the comment reader and the permission read are
-  copied from the scripts step 6 deletes, as they are at that step's base
-  commit, so the importer sources nothing step 6 or step 7 removes. Its suite
+  copied from the scripts step 6 deletes, as they are when the importer lands
+  (after step 1 split the codec's checks), and step 6 refreshes the copies if
+  those scripts changed in between, so the importer sources nothing step 6 or
+  step 7 removes. Its suite
   and scripts are registered in `run-tests.sh`, the bash-floor list and the
   check-skill rows like any other.
 - **When it goes.** A later cleanup feature, outside this design's PLAN,
