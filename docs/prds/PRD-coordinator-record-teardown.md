@@ -480,7 +480,9 @@ transition, and a rotation's carry), and each has a named session test.
       parser on coordinator state (covered by the structure test's patterns).
 - [ ] A suite writes a state whose rendered body would exceed 60,000 bytes and
       the write succeeds; `grep -rnE '60000|65536' skills/coordinate/scripts`
-      finds no size check.
+      finds no size check other than the bound R9 lets the design keep with a
+      stated reason (an outward entry's cap, since it is posted as a GitHub
+      comment).
 
 **GitHub's own surfaces (R15)**
 
@@ -621,7 +623,10 @@ it protects finish on their own schedules. The owner closing the issue or pull
 request is the one way to declare a coordinator finished or abandoned, so an
 abandoned record can't hold the build forever.
 
-**No start-up guard for an unmoved record.** A guard that searches GitHub for a
-coordinator issue before starting would keep the title search R3 removes. The
-precondition protects the coordinators that exist when the removal lands, and
-nothing after it can create a GitHub record.
+**No permanent start-up guard for an unmoved record.** A guard that searches
+GitHub for a coordinator issue before starting would keep the title search R3
+removes. The precondition protects the coordinators that exist when the removal
+lands, and nothing after it can create a GitHub record. Whether a guard should
+ship for the one release that carries the removal, as a second protection, is
+the owner's call; the design and PLAN carry it as a separate item that can be
+dropped.
