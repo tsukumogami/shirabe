@@ -11,7 +11,8 @@ name: Check macOS floor legs
 # daily and pre-release run of every floor suite.
 #
 # And it runs the harness of cancel-closed-pr-runs.sh, which takes the
-# workflows it cancels from that script's parse (--workflows).
+# workflows it cancels from that script's parse (--workflows), and the harness
+# of macos-floor-watchdog.sh, which notices a day with no floor run.
 #
 # yq is pinned here rather than taken from the runner image, as in
 # check-templates.yml, so the image moving to another yq can't change what the
@@ -29,6 +30,8 @@ on:
       - 'scripts/check-macos-floor-setup/**'
       - 'scripts/cancel-closed-pr-runs.sh'
       - 'scripts/cancel-closed-pr-runs_test.sh'
+      - 'scripts/macos-floor-watchdog.sh'
+      - 'scripts/macos-floor-watchdog_test.sh'
       # The lint reads the floor suites from this runner's --list, to check
       # each Linux step's harnesses are in the suite its macOS leg runs.
       - 'scripts/check-bash-floor.sh'
@@ -76,3 +79,8 @@ jobs:
       # unfinished floor runs; this pins each run it must never cancel.
       - name: Run cancel-closed-pr-runs tests
         run: bash scripts/cancel-closed-pr-runs_test.sh
+
+      # macos-floor-watchdog.yml flags and replaces a missing daily floor run;
+      # this pins its dispatch guards and its one tracking issue.
+      - name: Run macos-floor-watchdog tests
+        run: bash scripts/macos-floor-watchdog_test.sh

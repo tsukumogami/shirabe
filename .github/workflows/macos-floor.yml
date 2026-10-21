@@ -7,6 +7,9 @@ name: macOS floor
 # when dispatched; the release procedure dispatches it on the commit a release
 # is cut from (.claude/shirabe-extensions/release.md). A red run files an
 # issue, or comments on the open one, so nobody has to watch Actions to see it.
+# GitHub fires the schedule late and can drop it, so macos-floor-watchdog.yml
+# files an issue for a day with no completed run and dispatches one in its
+# place (shirabe#993).
 #
 # The suite list comes from the workflows themselves: every
 # scripts/check-bash-floor.sh --backend system <suite> call in a job that can
