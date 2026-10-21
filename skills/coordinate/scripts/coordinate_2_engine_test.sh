@@ -4,7 +4,10 @@
 # coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
 # share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
 # by side under scripts/check-skill.sh; the cases are split in file order, so a
-# case that reuses an earlier case's fixtures stays in that case's part.
+# case that reuses an earlier case's fixtures stays in that case's part. Case
+# 11's moved-head run and case 17 load the run case 11 first drove to
+# verified_confirm, and the later runs of cases 18 and 19 load each case's
+# first run (snap_save, snap_load), rather than driving the same prefix again.
 #
 # Proves, one line per case:
 #  10. two silent quiet checks reach failure and no teardown;
@@ -76,6 +79,7 @@ fi
 # ---- 11. land ----------------------------------------------------------------
 echo "== 11. land needs a recorded verified head, and refuses a moved one =="
 if land_run landing 110; then
+    snap_save verified-confirm
     ok "11: a verified board with no recorded head stops at verified_confirm"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name VERIFIED)" in
         "verified 12 $H "*) ok "11: VERIFIED is the sealed verified head" ;; *) bad "11: VERIFIED is the sealed verified head" ;;
@@ -92,7 +96,8 @@ if land_run landing 110; then
 else
     bad "11: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
-if land_run moving 111; then
+# The run above as land_run left it, at verified_confirm.
+if snap_load verified-confirm; then
     record_verified
     # A push after verify: the board's live head (snapshot and ref) moves.
     jq -c --arg m "$MOVED" '.data.repository.pullRequest.headRefOid = $m | .data.repository.pullRequest.commits.nodes[0].commit.oid = $m' \
@@ -121,8 +126,11 @@ PROG_ROWS() {
 db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
     isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
     mergeStateStatus: "CLEAN"}]' --arg h "$H"
+# The first run is driven to wait and saved there; the three after it load
+# that wait visit.
 if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 191 \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    snap_save progress-wait
     eq "19 message: progress naming no pull request goes back to wait" wait \
         "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 1 reached: scoping started."}')"
     from_to take_report report_facts && from_to report_facts report_questions && from_to report_questions wait \
@@ -153,8 +161,7 @@ else
 fi
 # A checkpoint report that asks a question: its question is read and opens a
 # decision entry; the report is still never classified.
-if to_pick progressq "$(record_json roadmap progressq | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 192 \
-    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+if snap_load progress-wait; then
     eq "19 question: progress asking a question opens a decision entry" decision_open \
         "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 3 reached.\nQuestions:\n1. Should the loader pin v2?"}')"
     eq "19 question: and is never classified" 0 "$(entered classify_report)"
@@ -167,8 +174,7 @@ fi
 # own (dispatch-path_engine_test.sh "progress, leg", the case above,
 # record-decision_test.sh --open-from-report); this one fails if a change
 # splits them.
-if to_pick progresslegq "$(record_json roadmap progresslegq | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 194 \
-    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+if snap_load progress-wait; then
     eq "19 leg question: a leg-bound worker's checkpoint asking a question opens a decision entry" decision_open \
         "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 3 reached.\nQuestions:\n1. Should the loader pin v2?"}')"
     eq "19 leg question: read as progress" progress "$(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
@@ -177,9 +183,9 @@ if to_pick progresslegq "$(record_json roadmap progresslegq | jq -c --argjson h 
         | jq '[.[] | {key: (.index | tostring), value: {question: .text, options: ["pin -- one upgrade", "float -- none"]}}] | from_entries' > "$T/words.json"
     write_as_agent record-decision.sh --open-from-report --text-file "$T/words.json"
     eq "19 leg question: record-decision.sh writes the entry" 0 $?
-    case "$(live_body 194 | jq -r '.decisions.entries[-1].source // ""')" in
+    case "$(live_body 191 | jq -r '.decisions.entries[-1].source // ""')" in
         "worker feat-2 ["*) ok "19 leg question: the entry names the worker as its source" ;;
-        *) bad "19 leg question: the entry names the worker as its source" "$(live_body 194 | jq -c '.decisions')" ;;
+        *) bad "19 leg question: the entry names the worker as its source" "$(live_body 191 | jq -c '.decisions')" ;;
     esac
     # The tick doesn't stop at decision_next: it routes on to the owed step.
     at --with-data '{"opened":"opened"}' >/dev/null
@@ -190,13 +196,12 @@ else
 fi
 # A leg-bound worker's checkpoint naming its pull request (shirabe#610): the
 # pull request reaches its holding, while its leg stays open for its result.
-if to_pick progressleg "$(record_json roadmap progressleg | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 193 \
-    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+if snap_load progress-wait; then
     eq "19 leg link: its checkpoint naming its pull request goes to report_link" report_link \
         "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
     write_as_agent holding-link.sh
     eq "19 leg link: holding-link.sh writes it onto the leg-bound holding" "[#12](https://github.com/acme/widgets/pull/12) leg $PREQ:deliver" \
-        "$(live_body 193 | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
+        "$(live_body 191 | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
     eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
 else
     bad "19 leg: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -255,7 +260,8 @@ fi
 
 # ---- 17. a confirmed merge clears the Pull request cell -----------------------
 echo "== 17. a confirmed merge clears the Pull request cell and keeps the row =="
-if land_run merging 112; then
+# Case 11's first run as land_run left it, at verified_confirm.
+if snap_load verified-confirm; then
     record_verified
     # A fit with follow-ups goes on exactly as a fit does.
     if [ "$(at)" = goal_fit ] \
@@ -279,9 +285,9 @@ if land_run merging 112; then
         write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
         eq "17: record-holding.sh (agent-run) clears the cell" 0 $?
         eq "17: with the cell cleared, record confirms and the run goes on to pick" pick "$(at)"
-        live_body 112 | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
+        live_body 110 | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
             | length == 1 and .[0].pull_request == "" and .[0].verified_head == $h' >/dev/null \
-            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body 112 | jq -c .holdings)"
+            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body 110 | jq -c .holdings)"
     else
         bad "17: reach land_merge" "$(cat "$T/tick.err" 2>/dev/null)"
     fi
@@ -301,6 +307,7 @@ cat > "$T/exec-brief.json" <<'EOF'
  "dispatcher_session": "coord-engine"}
 EOF
 if send_exec_to_dispatch execsend 118; then
+    snap_save exec-dispatch
     (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/exec-brief.json" >/dev/null)
     # The workspace root the dispatch script renders briefs under, for this
     # one run of it.
@@ -315,7 +322,8 @@ if send_exec_to_dispatch execsend 118; then
 else
     bad "18: reach dispatch on send_execution" "at=$(now_at) $(cat "$T/open.err" "$T/tick.err" 2>/dev/null) $(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null)"
 fi
-if send_exec_to_dispatch execnone 119; then
+# The run above as send_exec_to_dispatch left it, before anything was sent.
+if snap_load exec-dispatch; then
     # Nothing was sent: the holding is still scoping ahead, so record holds.
     eq "18: a send that changed nothing holds at record" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
     case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in

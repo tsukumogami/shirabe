@@ -50,7 +50,7 @@ mkdir -p "$GH_BOARD_DIR"
 # shell.
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-has() { local f; for f in "$1".*; do [ -e "$f" ] && return 0; done; return 1; }
+has() { local f; for f in "$1"*; do [ -e "$f" ] && return 0; done; return 1; } # has <prefix>: a file starts with it
 key=
 case "${1-} ${2-}" in
     "api graphql") case "$*" in *"editor {"*) ;; *) key=snapshot ;; esac ;;
@@ -72,7 +72,7 @@ case "${1-} ${2-}" in
         esac ;;
     "pr view") key="prview-${3-}" ;;
 esac
-if [ -n "$key" ] && has "$GH_BOARD_DIR/$key"; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
+if [ -n "$key" ] && has "$GH_BOARD_DIR/$key."; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
 unset -f has; unset key p i
 . "$COORD_TESTDATA/gh" "$@"
 EOF
@@ -359,11 +359,15 @@ pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
 # snap_load puts them back byte for byte, so the loaded run is the one the
 # earlier case drove. Everything a case did since is discarded with it.
 #
-# A saved run is only as good as the build that drove it. Both record a
-# fingerprint of the template, the shipped scripts and the koto binary, and a
-# load from a different one fails as a check of its own rather than loading.
+# A saved run is only as good as the build that drove it. Saved runs live in
+# $T, so they never outlive the suite, but the tree can still change under a
+# running suite (a branch switch, a plugin rewritten in place). So both record
+# a fingerprint of the template, the shipped scripts, the gh stand-ins and the
+# koto binary (its size and time, not its bytes), and a load under a different
+# one fails as a check of its own rather than loading.
 snap_build() {
-    { cat "$TPL" "$PS"/*.sh "$PS"/*.jq; ls -lL "$(command -v koto)"; } | $SHA256
+    { cat "$TPL" "$PS"/*.sh "$PS"/*.jq "$REPO_ROOT"/scripts/lib/*.sh "$HERE/testdata/gh" "$HERE/testdata/gh-board"
+      ls -lL "$(command -v koto)"; } | $SHA256
 }
 
 snap_save() { # snap_save <label>
