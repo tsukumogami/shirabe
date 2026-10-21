@@ -39,6 +39,14 @@ standard.
    - for each run, its latest attempt. A re-run that supersedes a failed
      attempt is what GitHub's own checks judge, so an earlier failed attempt
      isn't red on its own; it is listed as `superseded`;
+   - for each workflow and event, its latest run. A pull request event after
+     the first (a body edit, say) starts a new run of the same workflow at
+     the same head, and re-running the old one replays its old payload, so a
+     job that a later run of the same workflow ran again is judged by that
+     later run, and the earlier one is listed as `superseded`. While the later
+     run is still going the board reads pending, never verified. A job the
+     later run didn't run again keeps its own result, and a later red always
+     counts;
    - every job in that attempt ran on a named runner and has at least one
      step that succeeded; a job whose steps were all skipped, or that ran on
      no runner, is red even when it shows green;

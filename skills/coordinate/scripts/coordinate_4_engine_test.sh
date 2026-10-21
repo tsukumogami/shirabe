@@ -31,6 +31,11 @@
 #  23. on a roadmap/v2 roadmap, land's check puts the holding's milestone and
 #      its numbered Evidence in coord/land.json, and a pull request judged
 #      `fits` with `clauses: advances none` still reaches land_merge.
+#  24. a merged event for a holding this run never verified (shirabe#560):
+#      merged on GitHub, merged_facts goes on to record as unconfirmed at the
+#      head GitHub merged, and the Side effects row any unconfirmed merge gets
+#      confirms it; still open, it goes back to wait as not-merged, with the
+#      reason in coord/merged_facts.json either way.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -212,6 +217,47 @@ else
     bad "23: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 ROADMAP_TEXT= LAND_UNIT=
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+
+# ---- 24. a merge this run never verified leaves merged_facts -----------------
+echo "== 24. a merged event for a pull request this run never verified leaves merged_facts =="
+# The holding's head was verified by an earlier run (it is in the record), so
+# this run has no verify capture for #12 (shirabe#560).
+if to_pick nover "$(record_json roadmap nover | jq -c --argjson h "$(land_row "$H")" '.holdings = [$h]')" 240 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    snap_save nover-wait
+    bt_merged MERGED "$MOVED"
+    eq "24: merged from a head this run never verified goes on to record" record "$(at --with-data '{"event":"merged","unit":"feat-1"}')"
+    from_to merged_facts record && ok "24: the route was merged_facts -> record" || bad "24: the route was merged_facts -> record"
+    eq "24: coord/merged_facts.json says unconfirmed at the head GitHub merged, and why" "unconfirmed 12 $MOVED true" \
+        "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>/dev/null | jq -r '"\(.verdict) \(.pr) \(.head) \(.reason | startswith("no verify capture for #12 in this run"))"')"
+    rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+    eq "24: record waits for the Side effects row" record "$(at)"
+    # The row any unconfirmed merge gets: Target the pull request, at the head
+    # the verdict names.
+    sleep 1
+    live_body 240 | jq -c --arg h "$MOVED" --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" \
+        '.side_effects += [{action: "merge", target: "acme/widgets#12", verified_head: $h, attempted: $d, how_to_confirm: "a person merged it; this run never verified the head"}]' > "$T/se.json"
+    jq 'del(.written)' "$T/se.json" > "$T/se.next.json"
+    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/se.json")" "$T/se.next.json" > "$T/se.md"
+    write_as_agent record-write.sh --body-file "$T/se.md"
+    eq "24: record-write.sh (agent-run) adds the Side effects row" 0 $?
+    eq "24: the row an unconfirmed merge gets confirms it, and the loop goes on to pick" pick "$(at)"
+else
+    bad "24: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# The same run, with #12 still open on GitHub.
+if snap_load nover-wait; then
+    bt_merged OPEN "$H"
+    eq "24: still open, the merged event comes back to wait" wait "$(at --with-data '{"event":"merged","unit":"feat-1"}')"
+    from_to merged_facts wait && ok "24: the route was merged_facts -> wait" || bad "24: the route was merged_facts -> wait"
+    case "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>/dev/null | jq -r '"\(.verdict) \(.reason)"')" in
+        "not-merged no verify capture for #12 in this run; #12 is OPEN on GitHub: verify it"*) ok "24: the reason says to verify it first" ;;
+        *) bad "24: the reason says to verify it first" "$(cd "$WD" && koto context get "$S" coord/merged_facts.json 2>&1)" ;;
+    esac
+    tick --with-data '{"event":"quiet"}' >/dev/null
+    from_to wait quiet_check && ok "24: back at wait, the next event is taken" || bad "24: back at wait, the next event is taken" "$(now_at)"
+fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 echo

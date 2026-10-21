@@ -10,7 +10,11 @@
 # (none, a malformed one, a title such as "Feature 16: example", one naming no
 # holding or a holding without a pull request are each refused as
 # unknown-topic, naming the field and the accepted topics); no verify capture
-# for the pull request in this run, and an unverified capture, each exit 2; the token sealed to merged_facts; the topic as a locator only.
+# for the pull request in this run, and an unverified capture, each a sealed
+# verdict from GitHub's record of the pull request (unconfirmed at the head it
+# merged, or not-merged) with the reason in coord/merged_facts.json, and exit 2
+# only when that read fails (shirabe#560); the token sealed to merged_facts;
+# the topic as a locator only.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/merged-facts_test.sh
@@ -26,11 +30,16 @@ MF="$PS/merged-facts.sh"
 CL="$PS/coord-log.sh"
 PERMIT="readable merge:permit close:permit teardown:permit"
 N=0
-at_facts() { # #12 verified for plugin-registry, #13 verified later for sandbox; now at merged_facts
+at_facts() { # [none|unverified]: #12 verified for plugin-registry (or with no verify
+    # capture in this run, or read unverified), #13 verified later for sandbox; now at merged_facts
     N=$((N + 1))
     S="coordinate-demo-20260926T1400$(printf '%02d' "$N")Z"
     bt_run "$S" "$PERMIT"
-    bt_verified "$S" 12 "$H"
+    case "${1-}" in
+        none) ;;
+        unverified) bt_verified "$S" 12 "$H"; bt_enter "$S" verify_board; bt_sealed "$S" verify_board VERIFIED "unverified 12 none" ;;
+        *) bt_verified "$S" 12 "$H" ;;
+    esac
     bt_enter "$S" verify; bt_evidence "$S" verify '{"prediction":"green"}'
     bt_verified "$S" 13 "$MOVED"
     bt_enter "$S" wait; bt_evidence "$S" wait '{"event":"merged","unit":"plugin-registry"}'
@@ -93,13 +102,40 @@ rm -f "$BT_STATE/holding.rc"
 at_facts; bt_evidence "$S" report_facts '{"unit":"sandbox"}'
 eq "evidence in another state isn't the event" "merged 12 $H" "$(bash "$MF" --session "$S" --no-seal 2>/dev/null)"
 
+echo "== no verified head in this run: a sealed verdict from GitHub's record, never exit 2 (shirabe#560) =="
+# unverified_head <label> <none|unverified> <reason>: #12 has no verified head
+# in this run. Merged, the run goes on to record as unconfirmed at the head
+# GitHub merged; open or closed, back to wait as not-merged. Each is sealed to
+# merged_facts with the reason in coord/merged_facts.json, and nothing but
+# the pull request is read.
+unverified_head() {
+    local st want D
+    for st in OPEN CLOSED MERGED; do
+        at_facts "$2"; bt_merged "$st" "$MOVED"
+        : > "$GH_BOARD_DIR/calls"
+        OUT=$(bash "$MF" --session "$S" --unit plugin-registry 2>"$T/err"); rc=$?
+        case $st in MERGED) want="unconfirmed 12 $MOVED" ;; *) want="not-merged 12" ;; esac
+        eq "$1, $st: exit 0, $want" "0 $want" "$rc ${OUT% sealed:*}"
+        bash "$CL" check --session "$S" --state merged_facts --sealed "$OUT" && ok "$1, $st: sealed to merged_facts" || bad "$1, $st: sealed to merged_facts"
+        D="$KOTO_BOARD_DIR/sessions/$S/ctx/coord__merged_facts.json"
+        jq -e --arg v "${want%% *}" --arg why "$3" '.verdict == $v and .pr == 12 and .repo == "acme/widgets" and (.reason | startswith($why))' "$D" >/dev/null \
+            && ok "$1, $st: the reason is in coord/merged_facts.json" || bad "$1, $st: the reason is in coord/merged_facts.json" "$(cat "$D" 2>/dev/null)"
+        grep -v '^pr view 12 ' "$GH_BOARD_DIR/calls" | grep -q . && bad "$1, $st: only the pull request is read" "$(cat "$GH_BOARD_DIR/calls")" || ok "$1, $st: only the pull request is read"
+    done
+    jq -e --arg h "$MOVED" '.head == $h and (.reason | contains("a Side effects row for acme/widgets#12 at " + $h))' "$D" >/dev/null \
+        && ok "$1, MERGED: the reason names the Side effects row to write" || bad "$1, MERGED: the reason names the Side effects row to write" "$(cat "$D")"
+    at_facts "$2"; echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/prview-12.err"; echo 1 > "$GH_BOARD_DIR/prview-12.rc"
+    bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "$1: a failed read of the pull request still exits 2" 2 $?
+}
+unverified_head "no verify capture for the pull request in this run" none "no verify capture for #12 in this run"
+unverified_head "the latest capture for the pull request is unverified" unverified "the verify capture for #12 reads [unverified 12 none], not a verified head"
+at_facts; jq -c '. + [{worker: "later", repo: "acme/widgets", pull_request: "[#14](https://github.com/acme/widgets/pull/14)"}]' "$BT_STATE/holdings" > "$T/h" && mv "$T/h" "$BT_STATE/holdings"
+bt_merged OPEN; mv "$GH_BOARD_DIR/prview-12.out" "$GH_BOARD_DIR/prview-14.out"
+eq "another pull request with no verify capture here is read by its own number" "not-merged 14" "$(bash "$MF" --session "$S" --unit later --no-seal 2>/dev/null)"
+
 echo "== failures exit 2 =="
 at_facts
 eq "--unit naming no holding is refused too" "unknown-topic" "$(bash "$MF" --session "$S" --unit nobody --no-seal 2>/dev/null)"
-jq -c '. + [{worker: "later", repo: "acme/widgets", pull_request: "[#14](https://github.com/acme/widgets/pull/14)"}]' "$BT_STATE/holdings" > "$T/h" && mv "$T/h" "$BT_STATE/holdings"
-bash "$MF" --session "$S" --unit later >/dev/null 2>&1; eq "no verify capture for its pull request in this run" 2 $?
-at_facts; bt_enter "$S" verify_board; bt_sealed "$S" verify_board VERIFIED "unverified 12 none"
-bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "the latest capture for its pull request is unverified" 2 $?
 at_facts; echo 2 > "$BT_STATE/holding.rc"
 bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "a failed holding read" 2 $?
 rm -f "$BT_STATE/holding.rc"
