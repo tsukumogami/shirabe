@@ -30,7 +30,8 @@
 #            reason}}`, written from the verdict, the dispatch id from its
 #            `dispatch` line, reason `no source` or `invalid input` when
 #            there is no id); each copy checked against its source's hash, a
-#            MANIFEST (`<sha256> <bytes> <path>` per file) and a README;
+#            MANIFEST (`<sha256> <bytes> <path>` per file), MANIFEST.sha256
+#            (the MANIFEST's own digest, `<sha256>  MANIFEST`) and a README;
 #         4a. the unit's cost capture (unit-cost.sh capture): one `cost`
 #            entry on the record and unit-cost.json in the archive, under its
 #            own deadline, with no stream of the pass's and its status
@@ -83,13 +84,18 @@
 #       posted, and the last line still says done.
 #   teardown-pass.sh confirm --session <s>
 #       The teardown_confirm state's default action: reads the verdict the
-#       same way, both listings, and the archive (RESULT says done, every
-#       MANIFEST file present at its size; the full hash check is run's), and
-#       prints, sealed to this visit, `teardown-confirmed` or
+#       same way, both listings, and the archive (RESULT says done, the
+#       MANIFEST's digest is the one MANIFEST.sha256 records, and every
+#       MANIFEST file is present at its size; the full hash check is run's),
+#       and prints, sealed to this visit, `teardown-confirmed` or
 #       `teardown-incomplete`, the reason in context key
 #       coord/teardown_confirm.json and on stderr. For a removed verdict it
 #       also checks Claude Code lists no job at the path, and with `job -`
-#       it confirms without an archive, since none was made.
+#       it confirms without an archive, since none was made. The sizes come
+#       from one listing of the archive, never a process per file, and that
+#       read has its own deadline inside koto's 30-second action bound: an
+#       archive it can't finish is `teardown-incomplete`, never a state left
+#       timing out.
 #
 # Output (run): progress lines, then one last line `teardown-pass: done
 # <archive>`, `teardown-pass: refused: <why>` or `teardown-pass: incomplete at
@@ -104,7 +110,8 @@
 # $HOME/.koto/sessions), TEARDOWN_ARCHIVE_DIR (default
 # ${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
 # (each GitHub read's bound, default 8), TEARDOWN_CAPTURE_SECS (the cost
-# capture's bound, default 120). bash 3.2.
+# capture's bound, default 120), TEARDOWN_CONFIRM_SECS (confirm's archive
+# read's bound, default 15). bash 3.2.
 set -uo pipefail
 
 PROG=teardown-pass
@@ -121,6 +128,9 @@ KOTO_SESSIONS="${TEARDOWN_KOTO_SESSIONS:-$HOME/.koto/sessions}"
 ARCHIVE_ROOT="${TEARDOWN_ARCHIVE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive}"
 FETCH_SECS="${TEARDOWN_FETCH_SECS:-8}"
 CAPTURE_SECS="${TEARDOWN_CAPTURE_SECS:-120}"
+# confirm's archive read gets half of koto's 30-second action bound; the
+# listings, the RESULT read and the MANIFEST digest before it get the rest.
+CONFIRM_SECS="${TEARDOWN_CONFIRM_SECS:-15}"
 
 usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
@@ -208,6 +218,36 @@ if [ "$MODE" = confirm ]; then
         bash "$DC_COORD_LOG" seal --session "$SESSION" --state teardown_confirm --token "$word" || { say "cannot seal the verdict"; exit 2; }
         exit 0
     }
+    # archive_whole <archive>: 0 when every MANIFEST line's file is in the
+    # archive at its size; 1 with the first that isn't on stdout; 2 when the
+    # archive can't be listed, 3 when the join can't run, the cause on
+    # stderr. One listing of every file's size (find never follows a link, so
+    # a link is no file) and one awk over it and the MANIFEST: no process per
+    # file, whatever the archive holds. It writes $T/sizes, confirm's scratch.
+    # shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
+    archive_whole() {
+        local st
+        # wc -c takes a regular file's size from fstat on GNU and BSD alike,
+        # and is on the restricted PATH the tests run under, which stat isn't.
+        # Each batch prints `<padding><bytes> ./<path>` per file and, past
+        # one file, a `<bytes> total` line no path collides with.
+        (cd "$1" && find . -type f -exec wc -c {} +) >"$T/sizes" || return 2
+        # Each MANIFEST line is `<sha256> <bytes> <path>`; a path may hold
+        # spaces, so both inputs split at their leading fields only.
+        awk '
+            FILENAME == ARGV[1] { sub(/^ +/, ""); i = index($0, " "); size[substr($0, i + 1)] = substr($0, 1, i - 1); next }
+            {
+                rel = $0
+                if (!sub(/^[^ ]+ [^ ]+ /, "", rel) || rel == "") next
+                if (!(("./" rel) in size)) { print rel " is missing from the archive"; bad = 1; exit }
+                if (size["./" rel] != $2) { print rel " in the archive is not the size the MANIFEST records"; bad = 1; exit }
+            }
+            END { exit bad }
+        ' "$T/sizes" "$1/MANIFEST"
+        st=$?
+        [ "$st" -le 1 ] && return "$st"
+        return 3
+    }
     read_verdict || verdict teardown-incomplete "$(cat "$T/why")"
     ROOT=$(dc_workspace_root) || verdict teardown-incomplete "no workspace root found"
     NL=$(niwa_list) || { say "niwa list could not be read"; exit 2; }
@@ -227,11 +267,24 @@ if [ "$MODE" = confirm ]; then
     ARCH=$(cat "$T/arch")
     case "$(head -1 "$ARCH/RESULT" 2>/dev/null)" in done*) ;; *) verdict teardown-incomplete "the archive's RESULT doesn't say done" ;; esac
     [ -s "$ARCH/MANIFEST" ] || verdict teardown-incomplete "the archive has no MANIFEST"
-    while read -r h size rel; do
-        [ -n "$rel" ] || continue
-        [ -f "$ARCH/$rel" ] || verdict teardown-incomplete "$rel is missing from the archive"
-        [ "$(wc -c <"$ARCH/$rel" | tr -d ' ')" = "$size" ] || verdict teardown-incomplete "$rel in the archive is not the size the MANIFEST records"
-    done <"$ARCH/MANIFEST"
+    # The MANIFEST is the one the pass wrote once every copy matched its
+    # source: its digest is the one the pass recorded beside it.
+    [ -s "$ARCH/MANIFEST.sha256" ] || verdict teardown-incomplete "the archive has no MANIFEST.sha256"
+    [ "$(sha256 <"$ARCH/MANIFEST")" = "$(cut -d' ' -f1 "$ARCH/MANIFEST.sha256")" ] \
+        || verdict teardown-incomplete "the archive's MANIFEST is not the one the pass recorded"
+    # Every file it lists is in the archive at its size, read under a
+    # deadline inside koto's 30-second command bound: past it the archive is
+    # not confirmed, never left holding the state.
+    dc_with_deadline "$CONFIRM_SECS" dc_tree archive_whole "$ARCH" >"$T/whole" 2>"$T/whole.err"
+    rc=$?
+    err=$(grep . "$T/whole.err" | tail -n 1 | cut -c1-200)
+    case $rc in
+        0) ;;
+        1) verdict teardown-incomplete "$(head -1 "$T/whole")" ;;
+        124) verdict teardown-incomplete "the archive's files could not be checked within $CONFIRM_SECS seconds" ;;
+        2) verdict teardown-incomplete "the archive's files could not be listed${err:+: $err}" ;;
+        *) verdict teardown-incomplete "the archive's sizes could not be checked (status $rc)${err:+: $err}" ;;
+    esac
     verdict teardown-confirmed "the instance and the job are gone and the archive is whole"
 fi
 
@@ -444,6 +497,10 @@ while IFS='	' read -r rel src; do
     printf '%s %s %s\n' "$h" "$(wc -c <"$ARCH/$rel" | tr -d ' ')" "$rel" >>"$ARCH/MANIFEST.new"
 done <"$T/copies"
 mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
+# Its digest, recorded once every copy matched: confirm reads it in place of
+# hashing the archive again.
+h=$(sha256 <"$ARCH/MANIFEST") && printf '%s  MANIFEST\n' "$h" >"$ARCH/MANIFEST.sha256" \
+    || refused "cannot record the MANIFEST's digest"
 {
     printf '# Teardown of %s\n\n' "$TOPIC"
     if [ "$REMOVED" = 1 ]; then
@@ -464,6 +521,8 @@ mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
     sed 's/^/- Symbolic link skipped: /' "$T/links"
     printf '\n'
     printf 'MANIFEST lists every copied file as `<sha256> <bytes> <path>`; each was checked against its source.\n'
+    # shellcheck disable=SC2016 # the backticks are Markdown
+    printf '`MANIFEST.sha256` holds the MANIFEST'"'"'s own sha256, recorded once every copy matched; the confirm check reads it.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`teardown.json`, in the MANIFEST, records what the pass acted on: the topic, the instance, the job and session, whether the unit was removed outside the pass, and niwa'"'"'s dispatch id.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown

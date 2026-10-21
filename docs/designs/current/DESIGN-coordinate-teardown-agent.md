@@ -313,6 +313,18 @@ out of the coordinator's context.
 > which `teardown_confirm` checks, so it isn't in `sha256sum`'s format and
 > doesn't take that name. Both were approved with tsukumogami/shirabe#647.
 
+> **Correction, 2026-10-21.** The size check below forked a `wc` per
+> MANIFEST line, and on an archive of about 17,700 files it outran koto's
+> 30-second action limit on every tick (tsukumogami/shirabe#999). The pass
+> now also writes `MANIFEST.sha256`, the MANIFEST's own digest in
+> `sha256sum`'s format, once every copy has verified. `teardown_confirm`
+> checks that digest, then reads every file's size in one listing joined to
+> the MANIFEST, under a deadline of its own inside the action limit; an
+> archive it can't check in time is `teardown-incomplete`. The digest alone
+> would miss a file deleted or cut short after the pass, which is why the
+> sizes are still read. An archive from a pass older than the digest has no
+> `MANIFEST.sha256` and is `teardown-incomplete` too, for the human to check.
+
 Exit 0 is `done`; 1 is `refused`, before anything was removed; 2 is
 `incomplete`, after the destroy, naming the step that failed. The script
 never stops a session: the stop is the `teardown` state's, before the

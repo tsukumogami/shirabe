@@ -4043,8 +4043,11 @@ are shown it.
 
 `teardown-pass.sh confirm` reads, apart from what you submitted, that niwa no
 longer lists the instance, that Claude Code no longer lists the job, and that
-the archive's RESULT says done with every MANIFEST file present; for a
-removed pass with `job -` there is no archive to read. Confirmed
+the archive's RESULT says done, its MANIFEST matches the digest the pass
+recorded in MANIFEST.sha256, and every MANIFEST file is present at its size;
+for a removed pass with `job -` there is no archive to read. The archive read
+has its own deadline inside the action's 30 seconds, so an archive too large
+to check in time is incomplete, never a state left timing out. Confirmed
 goes to `record`, which checks the holding row is gone. Anything else goes to
 the human with the reason in `coord/teardown_confirm.json`; the row is gone
 by then, so the surface need, `reserved-step teardown <link>`, carries the
