@@ -68,7 +68,7 @@ BL_START=$SECONDS
 if [ -n "${BOARD_LIB_XTRACE-}" ]; then exec 9>"$BOARD_LIB_XTRACE"; BASH_XTRACEFD=9; set -x; fi
 bl_gh "$T/out" api x
 DIAG_RC=$?
-set +x
+[ -n "${BOARD_LIB_XTRACE-}" ] && set +x
 echo "diag: case 1 rc=$DIAG_RC after $((SECONDS - BL_START))s; T exists: $([ -d "$T" ] && echo yes || echo no)"
 eq "a read whose deadline sleep ignores TERM returns 0" 0 "$DIAG_RC"
 sleeps_left "no deadline sleep left running when it ignores TERM"
