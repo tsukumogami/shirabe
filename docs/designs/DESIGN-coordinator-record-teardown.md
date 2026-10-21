@@ -1,8 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-coordinator-record-teardown.md
-decision_provenance: inline-resolved
 problem: |
   The coordinate skill reads and writes a coordinator's state through sixteen
   record-*.sh scripts and a markdown codec that serve two stores, the GitHub
@@ -23,8 +21,8 @@ decision: |
   record/reasoning for discipline scope. Post cost and goal-fit entries on the
   pull request they concern and verdicts and failures on the roadmap pull
   request that records them. Land the changes that remove nothing first, hold
-  the removal behind a precondition anyone can check on GitHub, and land the
-  rename, the amendments and the supersession last.
+  the removal behind a precondition anyone can check on GitHub, then the
+  rename, then the amendments and the supersession.
 rationale: |
   The removal's acceptance is a grep, so the survivors need a namespace the
   grep can't confuse with the record's. Validating JSON directly keeps every
@@ -34,6 +32,8 @@ rationale: |
   readers already look, on items GitHub owns. Ordering the work by what a
   running coordinator reads lets most of it land before the external gate
   opens.
+upstream: docs/prds/PRD-coordinator-record-teardown.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: Tear down the GitHub coordinator record
@@ -146,6 +146,8 @@ be superseded and the rest amended.
 
 ### Decision 1: The shape of the session-only state code
 
+Resolved inline.
+
 The record scripts serve two stores and validate through a renderer. After the
 removal they serve one store, and R16's grep has to tell a survivor from a
 leftover.
@@ -182,6 +184,8 @@ session view is the human surface, signed off by the owner.
 
 ### Decision 2: How outward entries reach their items
 
+Resolved inline.
+
 R5 fixes the item per kind: a unit's pull request (or issue) for `cost`, the
 named pull request for `goal-fit`, the roadmap pull request for
 `milestone-verdict` and `milestone-failure`.
@@ -194,8 +198,11 @@ repository that isn't one of the run's (the host repository or a holding's),
 and refuses a `goal-fit` whose text names a different pull request. The
 private-repository, home-path and token scan of the entry's text runs against
 the destination's visibility, not the host's: an entry bound for a public
-repository may name no private one, and a repository whose visibility can't be
-read counts as private; `unit-cost.sh` passes the holding's Pull
+repository may name no private one. Both reads fail toward refusing: a
+destination whose visibility can't be read counts as public, and a named
+repository whose visibility can't be read counts as private. The destination's
+visibility is read when the entry is posted, not when it was written.
+`unit-cost.sh` passes the holding's Pull
 request, or the unit's issue, or no target, in which case the entry stays in the
 session and the archive and the capture's output says so. A verdict or failure
 can only be posted once its roadmap pull request exists, and the progress line
@@ -231,6 +238,8 @@ checked against a comment's text.
 issue under another name.
 
 ### Decision 3: Discipline scope on the session
+
+Resolved inline.
 
 R10 and R11 put a rotation's window, host and reasoning in the session and have
 a rotation find and carry its predecessor there.
@@ -280,6 +289,8 @@ store nobody owns.
 
 ### Decision 4: Size bounds, `record-full` and the decisions archive
 
+Resolved inline.
+
 R9 removes every bound that came from GitHub's body limit.
 
 **Chosen: one bound survives, with a new reason.** The 60,000-byte record budget,
@@ -301,20 +312,31 @@ PRD rules out.
 
 ### Decision 5: The order, and the live-run precondition
 
+Resolved inline.
+
 R20 lets changes that remove nothing a running coordinator reads land first,
 holds every change that removes a reader or writer of the GitHub record until no
 coordinator runs on one, and puts the scripts last.
 
-**Chosen: five early changes, one gated removal, one last rename.** The early
-changes keep both stores working: the JSON validation (the GitHub path renders
-from validated JSON), the outward targets (old links stay accepted), discipline
-on the session (a rotation on GitHub keeps its machinery until it ends), the
-session as the default store for a scope with no record, and the structure test
-in a transitional form. Then, behind the precondition, the GitHub backend and the
-store choice come out at both scopes. Last, the codec's markdown half goes and
-the survivors are renamed, with the registries, the CI path filters, the
-amendments and the supersession in the same change. The precondition is two
-searches anyone can run (Implementation Approach).
+**Chosen: five additive changes, one gated removal, a rename, then the
+documents.** The early changes add the session path beside the GitHub one and
+pick between them by the run's sealed store, so a coordinator on its GitHub
+record runs exactly today's code: the JSON validation (the GitHub path renders
+from validated JSON), the outward targets for session-store runs, discipline on
+the session (a rotation on GitHub keeps its machinery until it ends, and the
+first session rotation carries its handoff file once), the session as the
+default store for a scope with no record, and the structure test in a
+transitional form. Then, behind the precondition, the GitHub backend, the store
+choice and those GitHub-store branches come out at both scopes. Then the
+codec's markdown half goes and the survivors are renamed, with the registries
+and the CI path filters. Last, the amendments and the supersession, which carry
+no runtime risk, land in their own change. The precondition is two searches
+anyone can run plus a per-discipline check (Implementation Approach).
+
+*Replace the GitHub paths in place in the early changes.* Rejected: a
+coordinator on its GitHub record has no session entries or keys, so changing
+`roadmap-status.sh`'s arguments or the retry's dedup under it would break a
+live run, which R20 forbids.
 
 *One pull request after the gate.* Rejected: too large to review, and it holds
 the safe changes behind an external gate for no reason.
@@ -345,8 +367,8 @@ its predecessor through `koto session list` and the core's carry. Outward
 entries keep their marker and text and go on the pull request they concern, or
 on the roadmap pull request that records a status change. Nothing on GitHub is
 deleted or edited, and old progress links stay accepted. The work lands in
-seven changes: five that remove nothing, one removal behind a precondition, and
-one rename that also carries the documents.
+eight changes: five additive ones that leave a GitHub-record coordinator on
+today's code, one removal behind a precondition, the rename, and the documents.
 
 ## Solution Architecture
 
@@ -379,6 +401,22 @@ Every caller changes the name it calls and, where it read a body, reads JSON:
 `state-schema`. `coord-log.sh run-facts` returns `{scope, name, repo}` with no
 issue number, and `run-store` is removed; `unit-cost.sh` reads the unit's
 milestone from those facts and its pull request from the holding.
+`quiet-check.sh` and `holding-link.sh` lose their GitHub-mode
+`--scope --name --repo --ref` calls, and `posture-read.sh` drops
+`record-write.sh --close` from its close verbs. Beyond those, every script that
+calls or sources a removed name changes: about forty today, among them
+`board-lib.sh` (and through it `land-check.sh` and `land-merge.sh`),
+`board-record.sh`, `start-check.sh`, `pause-read.sh`, `merged-facts.sh`, the
+`reconcile-*`, `report-*` and `decision-*` scripts, `dispatch-worker.sh`,
+`dispatch-common.sh`, `wait-target.sh`, `teardown-verdict.sh`, `pick-facts.sh`,
+`roadmap-status.sh` and `coordinate-open.sh`. The rename's change takes the list
+from `grep -l` over the removed names at its base commit, so nothing is missed
+by a list written earlier.
+
+A session moved from a GitHub record holds a `store` Run row reading
+`session`. `state-schema.jq` accepts that one legacy row, nothing writes a new
+`store` row, and `state-stored-set.sh --run store` is refused, so every session
+already on the store resumes unchanged (R14).
 
 ### The session layout
 
@@ -447,6 +485,21 @@ to `record_open`, `malformed` to `record_conflict`, `predecessor` to the new
 step of the existing close-out that writes `record/reasoning` and ends the run.
 The terminal results' `record:` field names the session instead of an issue
 URL.
+
+`predecessor_carry` runs `state-open.sh --carry-from <session>` as its default
+action, capturing the carry's report; its gate passes on exit 0 and goes to
+`reconcile_pass`, and any refusal goes to `record_conflict` with the
+predecessor named. The template change also updates
+`coordinate.mermaid.md`, the decider declarations that name a removed state
+(`coordinate.*.decider.jsonl`, checked by `check-decider-declarations`), and
+the rule-coverage rows for the removed and added states.
+
+`roadmap-status.sh --verdict` and `--reopen` record the roadmap pull request
+in their Side effects row as soon as it opens. When the post or the progress
+commit fails after that, they exit 14 with the row naming the pull request,
+and a re-run with the same entry finds the row, reposts (deduplicated as
+above) and pushes the missing commit, so a failure never leaves a second pull
+request or a progress line without its comment.
 
 ### Outward entries
 
@@ -566,18 +619,30 @@ rewritten to start from a predecessor session.
 
 **Before the precondition**, in any order, each its own pull request:
 
+Every step before the precondition is additive: it adds the session-store
+path and leaves the GitHub-store path exactly as it is, choosing between them
+by the run's sealed store (`coord-log.sh run-store`), so a coordinator still on
+its GitHub record runs the code it runs today.
+
 1. **JSON validation.** Split `record-codec.jq`'s checks into `state-schema.jq`;
    the write core validates the next state's JSON with it, and the renderer
    calls the same functions, so the GitHub path is unchanged. Port each refusal
-   case of `record-codec_test.sh` to a JSON case.
-2. **Outward targets.** `--on` for `cost` and `goal-fit`; `roadmap-status.sh`
-   posting verdict and failure entries on its pull request and pushing the
-   progress line after; `posted_entry` reading any comment of the roadmap's
-   repository; dedup by the coordinator's login; the cost reading guide.
-3. **Discipline on the session.** Lift `store-discipline`; `record/rotation`
-   and `record/reasoning`; the predecessor find and `predecessor_carry`; the
-   rotation end; `--import` at discipline scope. A rotation on GitHub keeps its
-   machinery until it ends.
+   case of `record-codec_test.sh` to a JSON case. The schema accepts a legacy
+   `store` Run row reading `session`, which every moved session holds, and no
+   other `store` value.
+2. **Outward targets, for session-store runs.** `--on` for `cost` and
+   `goal-fit`; `roadmap-status.sh --verdict` and `--reopen` taking `--entry
+   <n>` and posting on their roadmap pull request, then pushing the progress
+   line; `posted_entry` reading any comment of the roadmap's repository; dedup
+   by the coordinator's login; the cost reading guide. A GitHub-store run keeps
+   `--entry-url` and posting on its issue until step 6.
+3. **Discipline on the session.** Lift `store-discipline` for a new rotation;
+   `record/rotation` and `record/reasoning`; the predecessor find and
+   `predecessor_carry`; the rotation end; `--import` at discipline scope. A
+   rotation on GitHub keeps its machinery until it ends. A first session
+   rotation whose discipline's last rotation ran on GitHub carries that
+   rotation's committed `docs/disciplines/<name>.md` once, through today's
+   handoff reader, so the cutover drops nothing; that bridge goes in step 6.
 4. **The session as the default.** A scope with no record starts on its
    session; a GitHub record a start finds stays on GitHub until its owner moves
    it.
@@ -597,8 +662,13 @@ gh search prs --owner <org> --state open --match title "rotation" --limit 1000 \
 ```
 
 The first lists roadmap records not in the moved shape; the second, open
-rotation pull requests. Both run again immediately before step 6 merges, not
-only when the build is dispatched. An owner ends either by moving the coordinator at its
+rotation pull requests. A third condition can't be searched: every discipline
+whose last rotation ran on GitHub has started a rotation on the session (which
+carried its handoff file through step 3's bridge), or its owner has retired it.
+GitHub's search index can lag an edit, so both searches run again immediately
+before step 6 merges, at least an hour after the last owner closed or moved a
+record. A record closed while its coordinator is still tearing down counts as
+finished: its owner closes it only after the teardown. An owner ends either by moving the coordinator at its
 next start, by letting a rotation end, or by closing the issue or pull request.
 
 **After the precondition:**
@@ -606,12 +676,25 @@ next start, by letting a rotation end, or by closing the issue or pull request.
 6. **Remove the GitHub backend and the store choice.** The title search, the
    authority read, issue and pull request creation and edits, the comment
    listing and the permission read, the moved shape, `record-move.sh` and
-   `record_move`, `--store`, `STORE` and the `store` Run key, the discipline
-   handoff and rotation pull request machinery, `docs/disciplines/performance.md`.
+   `record_move`, `--store`, `STORE` and new `store` Run rows, the GitHub-store
+   branches of steps 2 and 3 (`--entry-url`, posting on an issue, step 3's
+   handoff bridge), the issue number in `run-facts` and `run-store` itself, the
+   GitHub-mode `--scope --name --repo --ref` call sites in `quiet-check.sh` and
+   `holding-link.sh`, `record-write.sh --close` and `posture-read.sh`'s use of
+   it, the discipline handoff and rotation pull request machinery, and
+   `docs/disciplines/performance.md`. The koto feature probe moves into
+   `coordinate-open.sh` as the start-up check that refuses
+   `store-unsupported`.
 7. **Remove the codec's markdown half and rename.** Delete `record-parse.sh` and
    `record-render.sh`; rename every survivor to its `state-*` name with its
    callers, tests, registries and CI filters; the full structure test; the
-   skill's text and references; the amendments and the supersession.
+   skill's text, `references/record-template.md` rewritten as
+   `references/state-keys.md` (each key's JSON and its writer), and the other
+   references. The callers to change are every file `grep -l` finds for the
+   removed names at the change's base commit, not a list written now.
+8. **The documents.** The amendments and the supersession, in their own pull
+   request after step 7, so each describes what has landed and none waits on
+   the rename's review.
 
 Verification for each: the coordinate suites (`run-tests.sh`, and `--engine`
 where the change touches a start or a move), the bash-floor leg, and `shirabe
@@ -646,8 +729,20 @@ touch without leaving a trace. The reconcile pass re-checks Holdings against
 GitHub before acting, so a forged holding can't merge anything GitHub doesn't
 show. It can't re-check a Standing approval or a hold's absence, so a
 discipline carry binds its predecessor by name pattern, provenance, discipline
-and host, stops on any ambiguity, and reports every hold and Standing row it
-carried to the owner before the run acts on them.
+and host, refuses a predecessor another session of the discipline already
+names in its `record/rotation` (so one predecessor is never carried twice),
+stops on any ambiguity, and reports every hold and Standing row it carried to
+the owner before the run acts on them.
+
+This is residual risk the owner accepts by accepting this design: with the
+GitHub copy gone, a Standing approval, the absence of a hold and the carried
+reasoning can be rewritten by anyone with write access to the session store,
+and nothing outside the store can contradict them. The same holds for a
+coordinator whose state is still on an unmoved GitHub record and is started on
+the release after step 6: it starts empty, without that record's holds, and
+could merge past one. The precondition (Implementation Approach) is what keeps
+that from happening; the design keeps no start-up guard, because a guard that
+finds a coordinator issue needs the title search the removal exists to delete.
 
 **`--confirm` reads a comment by id within one repository.** Widening
 `posted_entry` from one issue to any comment of the roadmap's repository is
@@ -659,14 +754,18 @@ doesn't reproduce byte for byte.
 **`--confirm` also checks the comment's author.** For a progress line written
 after the removal, a comment confirms an entry only when its author's login is
 the coordinator's (compared without case), in addition to the marker, kind,
-text and hash. A line written before the removal is confirmed as today.
+text and hash. A line written before the removal is confirmed as today, which
+checked marker, kind, text and hash and never the author. For both, the issue or
+pull request a comment sits on is read from the API's answer (`issue_url`), not
+from the URL's path.
 
 **Carried state is data, and the owner sees it first.** `record/reasoning` and
 the carried Standing rows were written by an agent and are read by the next
 rotation's agent as data, never as instructions. A rotation that started from a
 carry reports what it carried and takes no dispatch or merge until the owner's
 go-ahead is recorded as a Standing row, the way a person's word is recorded
-today.
+today. Only a go-ahead set in this run counts: carried Standing rows, a carried
+go-ahead or approval included, never satisfy that gate.
 
 **Outward entries are public where their destination is.** A cost entry posted
 on a public pull request is public content. One whose text fails the scan for
@@ -681,7 +780,10 @@ pull request or issue.
 **No new input reaches a command.** The new keys hold dates, a repository, a
 session name and prose; the session name is checked against the scope's
 `coordinate-<slug>-<stamp>` pattern before it reaches `koto`, and the prose is
-only ever read as JSON.
+only ever read as JSON. The one new path is the state file a writer hands the
+core: it is created with `mktemp` in the writer's private working directory
+(mode 0600, as the body file is today), read once by the core, and removed with
+the directory.
 
 ## Consequences
 
