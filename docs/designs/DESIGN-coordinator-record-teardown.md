@@ -624,6 +624,38 @@ pattern has one. Its transitional form, which lands early, refuses any new file
 matching the patterns and allows the existing ones by name, so the list can
 only shrink.
 
+### The legacy importer
+
+The owner's ruling on an unmoved record (a coordinator still on a GitHub record
+that nobody moved, started on the release that removes the record) is a slim,
+one-way importer rather than a start-up guard. A guard would tell the operator
+to move the record on the earlier release, which means downgrading to migrate;
+keeping today's move path would keep most of what this removal deletes.
+
+- **Where it lives.** `skills/coordinate/legacy-import/`, outside the
+  `scripts/` and `koto-templates/` directories the removal's grep and structure
+  test cover. It holds its own copy of the parse half of the record codec (no
+  renderer), its own reader for the record's marked comments with the
+  write-access filter, and its own lookup for an open record: at roadmap scope
+  an open issue with the record title in the roadmap's repository whose body
+  isn't in the moved shape, at discipline scope an open rotation pull request.
+  It calls none of the record writers the removal deletes.
+- **When it loads.** `coordinate-open.sh` calls it once, on a fresh start (no
+  `record/meta` for the scope on this host). A resume, a carry-across or an
+  import of a session never calls it.
+- **What it does.** It parses the body, writes each section into the session's
+  keys and each writer-authored entry into `record/entries/<n>` through the
+  write core's carry, so every key passes `state-schema.jq` and the writer
+  flags. It then posts one `moved` note on the record naming the session, and
+  makes no other GitHub write: no body edit, no close. The start continues as a
+  resume of the session it filled. Run again after a crash, it finds the
+  session state and imports nothing twice, posting the note only if none by the
+  coordinator's login exists. A body that doesn't parse stops the start with
+  `record-unreadable <ref>`, writing nothing.
+- **When it goes.** A later cleanup feature, outside this design's PLAN,
+  deletes the directory and its one call, once no GitHub coordinator record and
+  no coordination pull request is open anywhere in the organization.
+
 ### Registries and CI
 
 The rename updates `scripts/bash-floor/coordinate.list`, the check-skill rows,
@@ -707,7 +739,8 @@ next start, by letting a rotation end, or by closing the issue or pull request.
    it, the discipline handoff and rotation pull request machinery, and
    `docs/disciplines/performance.md`. The koto feature probe moves into
    `coordinate-open.sh` as the start-up check that refuses
-   `store-unsupported`.
+   `store-unsupported`. The legacy importer lands in the same pull request, so
+   no release removes the GitHub record without it.
 7. **Remove the codec's markdown half and rename.** Delete `record-parse.sh` and
    `record-render.sh`; rename every survivor to its `state-*` name with its
    callers, tests, registries and CI filters; the full structure test; the
@@ -760,20 +793,18 @@ the owner before the run acts on them.
 This is residual risk the owner accepts by accepting this design: with the
 GitHub copy gone, a Standing approval, the absence of a hold and the carried
 reasoning can be rewritten by anyone with write access to the session store,
-and nothing outside the store can contradict them. The same holds for a
-coordinator whose state is still on an unmoved GitHub record and is started on
-the release after step 6: it starts empty, without that record's holds, and
-could merge past one. The precondition (Implementation Approach) is what keeps
-that from happening. The design keeps no permanent start-up guard, because a
-guard that finds a coordinator issue needs the title search the removal exists
-to delete. Whether one release should carry such a guard is the owner's call,
-not yet made; the PLAN carries it as a separate item that lands with step 6 and
-is removed by step 7, so it ships in exactly one release, and that can be
-dropped without changing any other item. When it lands, its one open-issue
-search on a fresh roadmap start is the single exception to step 6's removal of
-the title search. It recognises the moved shape with its own check on the body
-rather than the codec, and it lives in one file the transitional structure test
-allows by name until step 7 removes both.
+and nothing outside the store can contradict them.
+
+**The legacy importer reads untrusted bodies, once.** A coordinator whose state
+is still on an unmoved GitHub record, started on the release after step 6, would
+otherwise start empty, without that record's holds, and could merge past one.
+The precondition is the first protection; the importer (Solution Architecture)
+is the second. It reads a body and comments from GitHub, which anyone with write
+access could have edited, so everything it writes goes through
+`state-schema.jq` and the write core like any other write, entries count only
+from authors with write access (the one collaborator-permission read left in
+the repository, inside the importer), and a body that doesn't parse stops the
+start rather than importing part of it. Its one GitHub write is the moved note.
 
 **`--confirm` reads a comment by id within one repository.** Widening
 `posted_entry` from one issue to any comment of the roadmap's repository is
@@ -832,8 +863,8 @@ the directory.
 - A cost reviewer reads one pull request per unit instead of one issue per
   scope, and a unit with no pull request or issue has its cost only in the
   session and the archive.
-- A coordinator whose state is still on an unmoved record and is started on the
-  new release starts empty.
+- A slim importer keeps a parser for the old body format alive, outside the
+  skill's normal path, until a later cleanup feature removes it.
 - A roadmap pull request for a verdict carries two commits instead of one.
 
 ### Mitigations
@@ -842,7 +873,8 @@ the directory.
   old names, and the transitional structure test stops new `record-*` files
   meanwhile.
 - The cost reading guide gives the command for a scope's set.
-- The precondition is checked before the removal merges, and the removal touches
-  no GitHub record, so an owner can go back to the earlier release and move.
+- The precondition is checked before the removal merges, and a record nobody
+  moved is imported at its next start rather than lost. The importer is one
+  directory with one call site, so its removal is a deletion.
 - `roadmap-status.sh` pushes the progress commit before it reports, so the pull
   request is never handed over without it.

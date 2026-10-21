@@ -374,9 +374,22 @@ storage moved to the session. The design lists them.
   removed.
 - The move path, the GitHub backend and the codec come out last, when nothing
   reads them.
-- A start after the removal doesn't look at GitHub (R3), so a coordinator whose
-  state is still on an unmoved record would start empty. The precondition is
-  what prevents that, and the release that carries the removal says so.
+- A start after the removal doesn't look at GitHub in the skill's normal path
+  (R3). A coordinator whose state is still on an unmoved record is caught by the
+  legacy importer (R23) at its next start rather than starting empty; the
+  precondition is the first protection, the importer the second.
+
+**R23. A record nobody moved is imported, not lost.** The owner's ruling: a
+slim, one-way importer, loaded only when a coordinator's start finds an open
+GitHub record for its scope and no session state. It reads the record's body
+and its writer-authored entries, writes them into the session through the
+normal write path (so every key passes R8's validation), posts one moved note
+on the record, and writes nothing else to GitHub. It reuses none of the record
+writers this removal deletes and lives outside the skill's normal script path
+(`skills/coordinate/legacy-import/`), so R16's grep, which covers
+`skills/coordinate/scripts/` and `koto-templates/`, does not reach it. A later
+cleanup feature, not this work, removes it once no GitHub coordinator record and
+no coordination pull request is open anywhere in the organization.
 
 ### Non-functional
 
@@ -528,6 +541,19 @@ transition, and a rotation's carry), and each has a named session test.
       issue that removes a reader or writer of the GitHub record lists, among
       its dependencies, every issue R20 allows to land first.
 
+**Legacy importer (R23)**
+
+- [ ] A suite starts a coordinator with no session over a fixture GitHub record
+      written by the release before the removal; the session then holds every
+      section and every writer-authored entry, each key passing the validation
+      R8 keeps, a non-writer's comment is not imported, exactly one moved note
+      is posted, and the `gh` stand-in records no other GitHub write.
+- [ ] A start that resumes or imports a session never calls the importer, and a
+      body that doesn't parse stops the start with nothing written.
+- [ ] The importer lives under `skills/coordinate/legacy-import/` and calls no
+      script R16 removes; the PLAN issue that removes the GitHub backend lands
+      it in the same pull request.
+
 ## Out of Scope
 
 - **GitHub's own surfaces** (R15): pull request state, checks, reviews,
@@ -552,17 +578,19 @@ transition, and a rotation's carry), and each has a named session test.
   coordinator state.
 - **Building the removal.** This document scopes it; the build waits for R20's
   precondition.
+- **Removing the legacy importer.** A later cleanup feature deletes it, once no
+  GitHub coordinator record and no coordination pull request is open anywhere in
+  the organization.
 
 ## Known Limitations
 
 - **A moved coordinator's stub issue stays open.** The skill stops reading it,
   and closing it is its owner's call (R7). A person who finds an open
   coordinator issue after the removal reads a body that says the state moved.
-- **An unmoved record started on the new release starts empty.** If an owner
-  ignores the precondition and starts a coordinator whose state is still on its
-  issue under the release that removes the record, the start doesn't find that
-  state (R20). Its issue is untouched, so the owner can go back to the earlier
-  release and move it.
+- **A parser for the old body format stays until a later cleanup.** The legacy
+  importer (R23) keeps one, outside the skill's normal path, with one call site.
+  Removing it is a separate feature, gated on no GitHub coordinator record and no
+  coordination pull request remaining open.
 - **A cost reviewer reads one item per unit.** A scope's cost entries were one
   comment list on one issue; now they sit on each unit's pull request, so a
   scope's set is a list of pull requests to read, and a unit with no pull
@@ -623,10 +651,10 @@ it protects finish on their own schedules. The owner closing the issue or pull
 request is the one way to declare a coordinator finished or abandoned, so an
 abandoned record can't hold the build forever.
 
-**No permanent start-up guard for an unmoved record.** A guard that searches
-GitHub for a coordinator issue before starting would keep the title search R3
-removes. The precondition protects the coordinators that exist when the removal
-lands, and nothing after it can create a GitHub record. Whether a guard should
-ship for the one release that carries the removal, as a second protection, is
-the owner's call; the design and PLAN carry it as a separate item that can be
-dropped.
+**An importer for an unmoved record, not a start-up guard.** The owner's ruling.
+A guard that refused the start and told the operator to move the record on the
+earlier release would mean downgrading the skill to migrate; keeping today's
+move path would keep most of what this removal deletes. A one-way importer,
+loaded only in that case, keeps the state and needs no downgrade (R23). Its own
+removal is a later cleanup feature, gated on no legacy records or coordination
+pull requests remaining.

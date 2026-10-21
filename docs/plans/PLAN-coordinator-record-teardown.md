@@ -36,8 +36,8 @@ coordinator is touched.
 ## Decomposition Strategy
 
 **Horizontal, around one gate.** The design's eight steps become nine work
-items in six pull request groups (the ninth, a one-release start-up guard,
-waits on the owner's call and can be dropped), all in this repository. The first five items
+items in six pull request groups (the ninth is a one-way importer for a GitHub
+record nobody moved, which the owner chose and a later cleanup feature removes), all in this repository. The first five items
 are additive: each adds the session path beside the GitHub one and chooses
 between them by the run's sealed store, so a coordinator still on its GitHub
 record runs exactly the code it runs today. They may land in any order their
@@ -65,8 +65,8 @@ Value of each group, landed alone:
 - `discipline` (Issues 3 and 4): a discipline coordinator can run on its session,
   and a new scope starts on its session with nothing to choose.
 - `removal` (Issues 6 and 7): the skill no longer creates, reads or writes a
-  GitHub record, and for one release a missed record stops its start instead of
-  starting empty.
+  GitHub record in its normal path, and a record nobody moved is imported into
+  the session at its next start instead of being lost.
 - `rename` (Issue 8): no script sources a record library or parses a record body.
 - `documents` (Issue 9): the shipped documents name the store that is there.
 
@@ -343,7 +343,8 @@ comment, rotation pull request or committed handoff file.
       `lib_open_issues`, `lib_discipline_read`, `lib_authority`,
       `lib_has_write_access`, `collaborators/`, an issue create, edit or close,
       a pull request create, edit or ready, and an issue comment listing finds
-      nothing outside Issue 7's guard, and `record-move.sh` no longer exists.
+      nothing (Issue 7's importer lives outside this directory), and
+      `record-move.sh` no longer exists.
 - [ ] `record-state.sh --run store session` is refused as an unknown Run key
       (exit 65), and a write carrying a new `store` row is refused while the
       legacy row an existing session holds is accepted.
@@ -354,8 +355,7 @@ comment, rotation pull request or committed handoff file.
       and merge; its `gh` stand-in, which fails on any call the test didn't
       expect, records no issue create, edit, view, close or list of a
       coordinator issue, no comment list, and no collaborator-permission read,
-      other than the one open-issue search Issue 7's guard makes on a fresh
-      start when Issue 7 lands in the same pull request.
+      other than the one lookup Issue 7's importer makes on a fresh start.
 - [ ] `state-schema.jq` allows the crash-set Run rows (`rules`, `briefs`,
       `friction`, `reports-to`) with no `store` row, and a suite opens a fresh
       session and writes each of them.
@@ -392,44 +392,51 @@ comment, rotation pull request or committed handoff file.
 
 **Type**: code
 
-### Issue 7: feat(coordinate): refuse a fresh start over an unmoved GitHub record
+### Issue 7: feat(coordinate): import an unmoved GitHub record into the session
 
 **Repo**: tsukumogami/shirabe
 
 **Group**: removal
 
-**Goal**: For the one release that carries Issue 6, a roadmap coordinator's
-start with no session state refuses when its roadmap's repository still has an
-open coordinator issue that isn't in the moved shape, naming the issue and
-telling the owner to move it on the earlier release, so a missed record never
-starts empty. This item is droppable: it lands only if the owner chooses a
-one-release guard, and dropping it changes no other item except its edge to
-Issue 8 and the clause it adds there.
+**Goal**: Add a slim one-way importer, outside the skill's normal script path,
+that a coordinator start loads only when it finds an open GitHub record for its
+scope and no session state: it reads the record's body and entries, writes them
+into the session through the write core, posts one moved note, and writes
+nothing else to GitHub. A later cleanup feature, outside this PLAN, removes it.
 
 **Acceptance Criteria**:
-- [ ] A fresh roadmap start (no `record/meta` for the scope on this host) makes
-      one open-issue search by the record title in the roadmap's repository and
-      refuses with `record-unmoved <owner/repo#n>` when an open one's body isn't
-      in the moved shape; it writes nothing and opens no session state.
-- [ ] A fresh start with no such issue, or with one in the moved shape, proceeds;
-      a resume or import makes no search.
-- [ ] A failed search refuses the start rather than proceeding, naming the
-      failure.
-- [ ] The guard recognises the moved shape with its own check on the body (a
-      `store` Run row reading `session`, the same test the gate's search uses),
-      without the codec Issue 8 removes.
-- [ ] The guard lives in one function in
-      `skills/coordinate/scripts/unmoved-guard.sh`, and this item adds that file
-      to the transitional structure test's allow list as a named exception that
-      Issue 8 removes; the structure test passes.
-- [ ] Dropping this item removes it, its edge to Issue 8, Issue 8's clause about
-      it, and the guard exceptions in Issue 6's grep and stand-in criteria,
-      which then hold with no exception.
+- [ ] The importer lives under `skills/coordinate/legacy-import/`, with its own
+      copy of the parse half of the record codec (no renderer) and its own
+      entry reader, and calls none of the record writers Issues 6 and 8
+      remove; `skills/coordinate/scripts/` and `koto-templates/` reach it only
+      through one call in the opener.
+- [ ] A fresh start (no `record/meta` for the scope on this host) asks the
+      importer whether an open GitHub record exists for the scope: at roadmap
+      scope an open issue with the record title in the roadmap's repository
+      whose body isn't in the moved shape, at discipline scope an open rotation
+      pull request. A resume or an import of a session makes no such call.
+- [ ] Given a fixture record body and entries written by the release before the
+      removal (holdings, holds, deferrals, side effects, reversals, Run,
+      Standing, Work, Decisions with an Archived line, and marker-bearing
+      entries from writers and from a non-writer), the importer writes each
+      section into the session's keys, every key passing `state-schema.jq`, and
+      writes the entries whose authors have write access as `record/entries/<n>`;
+      the non-writer's comment is not imported.
+- [ ] It posts exactly one comment on the record, a `moved` note naming the
+      session, and makes no other GitHub write: the suite's `gh` stand-in
+      records no body edit, no close, no other comment and no pull request
+      change.
+- [ ] Run again after a crash between the import and the note, it finds the
+      session state, imports nothing twice, and posts the note only if no note
+      by the coordinator's login exists; run on a body that fails to parse, it
+      stops the start with `record-unreadable <ref>` and writes nothing.
+- [ ] After the import the start continues as a resume of that session, and the
+      handover gate and reconcile run on the imported state as on any session.
 
 **Dependencies**: Blocked by <<ISSUE:6>>
 
 **Type**: code
-**Files**: `skills/coordinate/scripts/unmoved-guard.sh`, `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/state-structure_test.sh`
+**Files**: `skills/coordinate/legacy-import/`, `skills/coordinate/scripts/coordinate-open.sh`
 
 ### Issue 8: refactor(coordinate): rename the state scripts and drop the markdown codec
 
@@ -474,10 +481,8 @@ make the structure test refuse every match.
       `record_move`, the removed `rotation_*` and `predecessor_*` states and
       `--store` finds nothing.
 - [ ] `run-tests.sh`, `run-tests.sh --engine` and the bash-floor leg pass.
-- [ ] When Issue 7 landed, this item removes `unmoved-guard.sh` and its allow
-      list entry, and merges only after a release carrying Issues 6 and 7 has
-      shipped, so the guard ships in exactly one release. When Issue 7 was
-      dropped, this clause and the Issue 7 dependency drop with it.
+- [ ] The opener's one call into `skills/coordinate/legacy-import/` still works
+      after the rename, and the importer's suite passes.
 
 **Dependencies**: Blocked by <<ISSUE:6>>, <<ISSUE:7>>
 
@@ -521,7 +526,7 @@ graph TD
     I5["#5: refuse new record scripts"]
     G1["Gate: no-record-coordinators"]
     I6["#6: remove the GitHub coordinator record"]
-    I7["#7: refuse a fresh start over an unmoved record"]
+    I7["#7: import an unmoved GitHub record"]
     I8["#8: rename the state scripts, drop the codec"]
     I9["#9: amend the designs, supersede the container"]
 
@@ -547,8 +552,9 @@ graph TD
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked
 
-The edge from #7 to #8 holds only while Issue 7 is kept; dropping Issue 7 drops
-it.
+Issue 7's importer stays after Issue 9; a later cleanup feature removes it once
+no GitHub coordinator record and no coordination pull request is open anywhere
+in the organization.
 
 ## Implementation Sequence
 
@@ -567,6 +573,5 @@ after the gate's searches, run again, return nothing.
 **After the gate**: Issues 6 and 7 land together as the `removal` pull request;
 then Issue 8 (`rename`) and Issue 9 (`documents`), one pull request each: the
 rename touches every caller only once nothing reads the old names, and the
-amendments describe what has landed. Issue 7 is the owner's call: with it, the
-rename waits for a release carrying the removal, so the guard ships in exactly
-one release; without it, drop Issue 7 and Issue 8's clause about it.
+amendments describe what has landed. Issue 7 lands in the same pull request as
+Issue 6, so no release removes the GitHub record without the importer.
