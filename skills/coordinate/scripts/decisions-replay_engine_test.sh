@@ -66,8 +66,7 @@ T=$(cd -P "$T" && pwd -P) || exit 1
 if [ -n "${KEEP_T-}" ]; then trap - EXIT; echo "keeping $T"; fi
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
-printf '#!/usr/bin/env bash\nexec "%s/testdata/gh" "$@"\n' "$HERE" > "$T/bin/gh"
-chmod +x "$T/bin/gh"
+ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 PATH="$T/bin:$ORIG_PATH"
 export PATH HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
 mkdir -p "$HOME" "$T/ws"
