@@ -1,7 +1,6 @@
 ---
 schema: prd/v1
 status: Accepted
-upstream: docs/briefs/BRIEF-coordinator-record-teardown.md
 problem: |
   The coordinate skill keeps a coordinator's state in two stores: the GitHub
   record (an issue body and comment stream at roadmap scope, a committed handoff
@@ -23,6 +22,8 @@ motivating_context: |
   dispatch-to-merge loop on it, was handed off twice by import, and its owner read
   its state through koto's session view and said that was enough. The removal is
   scoped now and built later, once no coordinator still runs on the GitHub record.
+absorbed:
+  - docs/briefs/BRIEF-coordinator-record-teardown.md
 ---
 
 # PRD: Tear down the GitHub coordinator record
@@ -30,6 +31,43 @@ motivating_context: |
 ## Status
 
 Accepted
+
+The completeness, clarity and testability reviewers passed it over two rounds.
+The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-coordinator-record-teardown](docs/briefs/BRIEF-coordinator-record-teardown.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so the coordinate skill keeps one store for a coordinator's
+state instead of two. The brief framed the cost of the GitHub record that the
+session store left in place as a fallback: maintainers make and test every
+state change against two backends, an owner gets the GitHub issue by default
+and a moved coordinator keeps a stub issue, a discipline coordinator can't use
+the session at all, outside readers of cost and verdict entries depend on the
+issue, and the shipped designs name the wrong store. This document's Problem
+Statement states each of these in full.
+
+The outcome it set: a maintainer changes what a coordinator remembers once, in
+one store, and the designs they read name it; an owner starts a coordinator at
+either scope with nothing to choose, no issue opened and no file committed; a
+person reads a coordinator's state through koto's session view; outside
+readers still find their entries on GitHub; and a coordinator still running on
+the record is never touched mid-run. Goals and User Stories carry that outcome.
+
+Its journeys were a new roadmap coordinator starting after the removal, a
+discipline rotation handing over to the next, the owner of a coordinator that
+started on the GitHub record, a cost reviewer and a roadmap reader looking for
+an entry, and a maintainer amending the skill afterwards. User Stories, R1,
+R5, R7, R10, R11, R16, R17 and R20 carry them.
+
+Its scope boundary put in the removal of the record and everything that exists
+only because of it, keeping the write core's guarantees on the session,
+discipline scope on the session, a destination for the outward entries, the
+dated amendments and the supersession, and an order that never touches a live
+coordinator; and it put out GitHub's own surfaces, the coordinated `/execute`
+run's pull request body, moving any live coordinator, new koto features, new
+state, and the teardown archive. Requirements and Out of Scope carry it.
 
 ## Problem Statement
 
