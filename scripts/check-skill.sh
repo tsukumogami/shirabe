@@ -177,18 +177,53 @@ RUNS="$(mktemp -d)" || { rm -f "$LOG"; echo "check-skill: cannot create a tempor
 trap 'rm -rf "$LOG" "$RUNS"' EXIT
 # A stopped check stops the suites it started too: verification's timeout
 # signals the whole process group, but a person's ^C or a plain kill of this
-# script must not leave them running. Each job is a subshell waiting on its
-# suite, so the suite's own children are signalled first (a suite waiting on
-# them would otherwise leave them behind), then the suite, then the subshell.
+# script must not leave them running. Signalling each job and the two levels
+# below it left anything deeper running (a script a suite runs, and what that
+# script starts), and so did a suite that ignores TERM or drops one as it
+# forks. So the whole tree is read from one process table, TERMed, given up to
+# two seconds, and whatever is still there then, or started meanwhile, is
+# KILLed. The suites stay in this script's process group rather than getting
+# groups of their own: the verification gate counts that group's processes for
+# its max_procs bound and kills the group after every command, and a suite in
+# another group would escape both.
+#
+# our_processes prints every process started under this script, at any depth,
+# and, when this script leads its own process group (a terminal's job, or the
+# gate's command), every other member of that group: a suite's child whose
+# parent already exited was reparented to pid 1 and is nobody's descendant
+# here, but it kept the group. The ps and awk it runs are listed too; they have
+# exited by the time anything is signalled.
+our_processes() {
+    ps -A -o pid=,ppid=,pgid= 2>/dev/null | awk -v me="$$" '
+        { pid[NR] = $1; par[NR] = $2; grp[NR] = $3; if ($1 == me) mine = $3 }
+        END {
+            under[me] = 1
+            do {
+                more = 0
+                for (i = 1; i <= NR; i++)
+                    if (!(pid[i] in under) && (par[i] in under)) { under[pid[i]] = 1; more = 1 }
+            } while (more)
+            for (i = 1; i <= NR; i++)
+                if (pid[i] != me && ((pid[i] in under) || (mine == me && grp[i] == me))) print pid[i]
+        }'
+}
 stop_suites() {
-    local p k
-    for p in $(jobs -p); do
-        for k in $(pgrep -P "$p"); do
-            pkill -TERM -P "$k" 2>/dev/null
-            kill -TERM "$k" 2>/dev/null
+    local first p alive n=0
+    first=$(our_processes)
+    [ -n "$first" ] || return 0
+    # shellcheck disable=SC2086 # a list of pids
+    kill -TERM $first 2>/dev/null
+    while [ "$n" -lt 20 ]; do
+        alive=""
+        for p in $first; do
+            if kill -0 "$p" 2>/dev/null; then alive=1; break; fi
         done
-        kill -TERM "$p" 2>/dev/null
+        [ -n "$alive" ] || break
+        sleep 0.1
+        n=$((n + 1))
     done
+    # shellcheck disable=SC2086,SC2046 # lists of pids
+    kill -KILL $first $(our_processes) 2>/dev/null
 }
 trap 'stop_suites; exit 143' TERM
 trap 'stop_suites; exit 130' INT

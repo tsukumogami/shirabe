@@ -562,6 +562,60 @@ else
     for p in $alive; do kill "$p" 2>/dev/null; done
 fi
 
+# A plain TERM to the check reaches everything its suites started, however
+# deep, and stops a suite that ignores TERM too. Each suite records the pids
+# that must not survive:
+#   deep:   the suite runs a script that runs a sleep, three levels below the
+#           job that waits on the suite;
+#   deaf:   the suite ignores TERM, and so does the sleep it starts, which
+#           inherits the ignored signal;
+#   orphan: the suite's sleep is left behind by a subshell that has already
+#           exited, so it belongs to pid 1, not to the suite.
+# `stopped_tree leader` runs the check as its own job, so it leads its process
+# group the way it does as a terminal's job or as the verification gate's
+# command, and all three suites run. `stopped_tree shared` runs it in this
+# harness's group, where only its descendants are its own: the orphan suite is
+# left out, and the other two show the walk of the tree reaches them without
+# the group.
+stopped_tree() {
+    local mode="$1" want=4 f p n=0 alive=""
+    new_tree
+    mkdir -p "$ROOT/skills/demo/scripts"
+    rm -rf "$MARKS"; mkdir -p "$MARKS"
+    printf 'sleep 30 &\necho $! > "$MARKS/pid.deep"\nwait\n' > "$ROOT/skills/demo/scripts/deep-helper.sh"
+    printf 'bash "$(dirname "$0")/deep-helper.sh" &\nwait\n' > "$ROOT/skills/demo/scripts/deep_test.sh"
+    printf 'trap "" TERM\necho $$ > "$MARKS/pid.deaf"\nsleep 30 &\necho $! > "$MARKS/pid.deaf.child"\nwait\n' \
+        > "$ROOT/skills/demo/scripts/deaf_test.sh"
+    if [ "$mode" = leader ]; then
+        printf '( sleep 30 &\n  echo $! > "$MARKS/pid.orphan" )\nsleep 30 &\nwait\n' \
+            > "$ROOT/skills/demo/scripts/orphan_test.sh"
+    else
+        want=3
+    fi
+    cd "$WORK" || exit 1
+    [ "$mode" = leader ] && set -m
+    CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >/dev/null 2>&1 &
+    CHECKER=$!
+    set +m
+    cd - >/dev/null || exit 1
+    while [ "$(ls "$MARKS" | grep -c '^pid\.')" -lt "$want" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    kill -TERM "$CHECKER"
+    wait "$CHECKER" 2>/dev/null
+    sleep 0.5
+    for f in "$MARKS"/pid.*; do
+        [ -f "$f" ] || continue
+        kill -0 "$(cat "$f")" 2>/dev/null && alive="$alive $(basename "$f")=$(cat "$f")"
+    done
+    if [ "$(ls "$MARKS" | grep -c '^pid\.')" = "$want" ] && [ -z "$alive" ]; then
+        pass "a plain TERM to the check ($mode group) stops its suites' deepest descendants and a suite ignoring TERM${2:+, $2}"
+    else
+        fail "a plain TERM to the check ($mode group) left processes running:${alive:- none}, pid files $(ls "$MARKS" | grep -c '^pid\.')"
+        for p in $alive; do kill -KILL "${p#*=}" 2>/dev/null; done
+    fi
+}
+stopped_tree leader "and an orphaned child"
+stopped_tree shared
+
 # -- Launch order ----------------------------------------------------------------
 # check-skill.tsv's cost rows start the costliest suites first; a suite with no
 # row starts after them, in the glob's order. Results still print in the glob's

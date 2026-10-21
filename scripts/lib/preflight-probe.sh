@@ -61,6 +61,23 @@
 # that declines job control degrades to the release-only behaviour rather than
 # to signalling a process group that belongs to someone else.
 #
+# Stopping the watchdog once the probe returns has the same shape. The watchdog
+# waits on its sleep in the foreground, and a TERM to the watchdog ends the
+# subshell, not the sleep: the sleep was reparented to pid 1 and ran out the
+# budget, one per probe on every skill's load (16 `sleep 7.25` left by one
+# `/work-on` preflight under SHIRABE_PREFLIGHT_BUDGET=7.25). So the watchdog is
+# started under `set -m` too, its sleep shares its process group, and the
+# parent stops it with a KILL to that group. A KILL can't be caught or dropped
+# while a trap is being installed, which a TERM can, and the group id needs no
+# `ps` check: it is the pid of a child not yet reaped, which no other group can
+# carry. Without job control the group kill fails and the watchdog alone is
+# signalled, as before. preflight_probe_leaves_no_sleep counts what is left.
+# skills/coordinate/scripts/dispatch-common.sh's dc_with_deadline solves the
+# same problem with a trapped background sleep, and is not reused here: it runs
+# `sleep`, `mktemp` and `rm` from PATH, writes a file per call, and stops a
+# command with TERM alone, where this file resolves its helpers off PATH,
+# writes nothing, and needs the KILL that keeps a probe from blocking the load.
+#
 # WHAT IS CAPTURED
 #
 # Only stdout is read. Stderr is given its own descriptor and discarded at the
@@ -190,7 +207,8 @@ preflight_probe_helpers_ready() {
 # Sleeps the budget, then TERM and KILL. Runs as a subshell of the capture
 # group, which is why its first statement releases the inherited descriptors:
 # see the header. Signals the process group only when the group id is confirmed
-# to be the probe's own pid.
+# to be the probe's own pid. Runs in a process group of its own, which the
+# parent KILLs to stop it and its sleep together.
 preflight_probe_watchdog() {
     local pid="$1" pgid="" target
     exec >/dev/null 2>&1
@@ -338,14 +356,19 @@ _preflight_probe_bounded() {
             set +m
 
             # The subshell whose first statement releases both inherited
-            # capture descriptors, before it blocks on the budget.
+            # capture descriptors, before it blocks on the budget. It gets a
+            # process group of its own as well, which its sleep inherits, so
+            # the KILL below stops the sleep with it: see the header.
+            set -m
             preflight_probe_watchdog "$_preflight_probe_pid" &
             _preflight_probe_watchdog=$!
+            set +m
 
             wait "$_preflight_probe_pid"
             _preflight_probe_status=$?
 
-            kill "$_preflight_probe_watchdog" 2>/dev/null
+            kill -KILL -- "-$_preflight_probe_watchdog" 2>/dev/null \
+                || kill "$_preflight_probe_watchdog" 2>/dev/null
             wait "$_preflight_probe_watchdog" 2>/dev/null
 
             exit "$_preflight_probe_status"

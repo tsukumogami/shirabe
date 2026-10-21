@@ -422,6 +422,36 @@ PGID=$(jq -r '.commands[0].pgid' "$BRES")
 [ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the group stopped at the budget is alive" \
     || fail "the group $PGID stopped at the budget is still alive"
 
+echo "--- a supervisor stopped by TERM"
+# The command runs in its own process group, so a TERM to the supervisor never
+# reaches it: the supervisor has to stop the group itself before it exits. The
+# command records its pid, which is its group's id, and starts a child sleep,
+# so the group holds two processes when the TERM lands.
+HELD_CMD=$(jq -cn --arg f "$WORKDIR/held.pid" '{held: {run: ["bin/held.sh", $f], timeout_secs: 60}}')
+mkrepo stopped "$(map "$HELD_CMD" '[]' '["held"]')"
+printf '#!/bin/sh\necho $$ > "$1"\nsleep 30 &\nwait\n' > bin/held.sh
+chmod +x bin/held.sh
+change top.txt
+start s-stopped
+n=0
+while [ ! -s "$WORKDIR/held.pid" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+HELD=$(cat "$WORKDIR/held.pid" 2>/dev/null)
+SRES=$(result_of s-stopped)
+SUP=$(readlink "$(dirname "$SRES")/lock" 2>/dev/null)
+if [ -n "$HELD" ] && [ -n "$SUP" ] && [ "$(group_alive "$HELD")" -ge 2 ]; then
+    kill -TERM "$SUP"
+    n=0
+    while kill -0 "$SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    jq -e '.status == "supervisor-error"' "$SRES" >/dev/null 2>&1 \
+        && pass "a supervisor stopped by TERM still writes a result (supervisor-error)" \
+        || fail "a supervisor stopped by TERM wrote no supervisor-error result: $(head -c 300 "$SRES" 2>&1)"
+    [ "$(group_alive "$HELD")" -eq 0 ] && pass "a supervisor stopped by TERM stops the running command's group" \
+        || fail "a supervisor stopped by TERM left the command's group $HELD running"
+    kill -KILL -- "-$HELD" 2>/dev/null
+else
+    fail "the held command never started (pid [$HELD], supervisor [$SUP])"
+fi
+
 echo "--- a command that cannot start"
 mkrepo nostart "$(map '{"gone": {"run": ["bin/missing.sh"]}}' '[]' '["gone"]')"
 change top.txt

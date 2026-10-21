@@ -58,7 +58,8 @@
 # failure (exit 1). With the ceiling well above the bound, the watchdog sees
 # the count pass max_procs first. (TasksMax also counts threads, which the
 # watchdog doesn't, hence the fixed headroom.) The group is killed after every command, so nothing a
-# command left running outlives it. A descendant that moves to its own session
+# command left running outlives it, and a HUP, INT or TERM that stops the supervisor stops the
+# running command's group first (TERM, then KILL). A descendant that moves to its own session
 # or process group escapes both; the schema reference states that residual.
 #
 # The bound on the whole run: the supervisor stops after BUDGET_SECS (7200,
@@ -254,6 +255,8 @@ supervise() {
     SUP_LOCK="$dir/lock"
     SUP_ENTRIES="$dir/.entries"
     SUP_WRITTEN=0
+    # The running command's process group, empty between commands.
+    SUP_PGID=""
     : > "$SUP_ENTRIES"
 
     # Whatever stops the supervisor, a result gets written, so the verdict
@@ -265,8 +268,18 @@ supervise() {
               detail: "the supervisor stopped before every command ran", commands: .}' "$SUP_ENTRIES")"
         rm -f "$SUP_LOCK" "$SUP_ENTRIES"
     }
+    # A signal that stops the supervisor stops the running command too. The
+    # command has its own process group, so nothing sent to the supervisor
+    # reaches it, and exiting without this left it and everything it started
+    # running after the supervisor was gone. The same TERM, then KILL, as a
+    # command past its deadline.
+    stop_running() {
+        [ -n "$SUP_PGID" ] || return 0
+        kill_group TERM "$SUP_PGID"; sleep 1; kill_group KILL "$SUP_PGID"
+        SUP_PGID=""
+    }
     trap finish EXIT
-    trap 'exit 1' HUP INT TERM
+    trap 'stop_running; exit 1' HUP INT TERM
 
     cd "$ROOT" || exit 1
 
@@ -324,6 +337,7 @@ supervise() {
             "${argv[@]}" </dev/null >"$log" 2>&1 &
         fi
         pid=$!
+        SUP_PGID=$pid
         set +m
         # The job's process group is its pid: job control put it there.
         while kill -0 "$pid" 2>/dev/null; do
@@ -345,6 +359,7 @@ supervise() {
         wait "$pid" 2>/dev/null
         status=$?
         kill_group KILL "$pid"
+        SUP_PGID=""
         now=$(date +%s)
         jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --argjson status "$status" \
             --argjson dur $((now - start)) --argjson to "$timed_out" --argjson ra "$runaway" \
