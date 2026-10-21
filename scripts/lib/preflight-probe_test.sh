@@ -423,6 +423,43 @@ else
     fail "preflight_probe_returns_at_call_speed: eight probes took ${BATCH}s; with the budget inherited that is sixteen, which is the defect"
 fi
 
+# preflight_probe_leaves_no_sleep
+#
+# A probe that returns stops its watchdog, and the watchdog's sleep with it.
+# A TERM to the watchdog alone ended the subshell and left the sleep to run out
+# the budget under pid 1, one per probe. The budget here is a value nothing
+# else on the host sleeps for, so the count sees only this suite's sleeps, and
+# it is taken as soon as the probes return: a leftover sleep is still running
+# then, for the whole budget.
+count_budget_sleeps() {
+    ps -A -o args= 2>/dev/null | awk -v want="$PREFLIGHT_PROBE_SLEEP $1" '$0 == want { c++ } END { print c + 0 }'
+}
+reap_budget_sleeps() {
+    local p
+    for p in $(ps -A -o pid=,args= 2>/dev/null | awk -v want="$PREFLIGHT_PROBE_SLEEP $1" \
+        '{ pid = $1; sub(/^[ \t]*[0-9]+[ \t]+/, ""); if ($0 == want) print pid }'); do
+        kill -KILL "$p" 2>/dev/null
+    done
+}
+SAVED_BUDGET=$PREFLIGHT_PROBE_BUDGET
+PREFLIGHT_PROBE_BUDGET=9.31337
+I=0
+while [ "$I" -lt 4 ]; do
+    PROBE_KEYS=""
+    PROBE_DATA=""
+    preflight_probe_capture "$FIX/fast"
+    I=$(( I + 1 ))
+done
+LEFT=$(count_budget_sleeps "$PREFLIGHT_PROBE_BUDGET")
+assert_eq "preflight_probe_leaves_no_sleep: the probes were usable" "ok" "$PREFLIGHT_PROBE_OUTCOME"
+if [ "$LEFT" -eq 0 ]; then
+    pass "preflight_probe_leaves_no_sleep: four bounded probes left no watchdog sleep running"
+else
+    fail "preflight_probe_leaves_no_sleep: four bounded probes left $LEFT watchdog sleep(s) running for the whole budget"
+fi
+reap_budget_sleeps "$PREFLIGHT_PROBE_BUDGET"
+PREFLIGHT_PROBE_BUDGET=$SAVED_BUDGET
+
 # preflight_probe_kills_a_hung_binary
 PROBE_KEYS=""
 PROBE_DATA=""
