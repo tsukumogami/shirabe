@@ -14,7 +14,10 @@
 # locate and read (an interpreter's bare script name, a PATH command, a path
 # outside the roots, a missing file, a command substitution, `-m`) giving
 # unread, while an interpreter's script under a root, a relative path and
-# inline code are read; no roots found giving unread
+# inline code are read; niwa's PATH-first worktree hooks (`command -v` a
+# lookup, `2>&1` not a command) leaving the posture as if no hook were there,
+# while any other niwa path, subcommand or argument stays unread; no roots
+# found giving unread
 # everywhere; the roots found by walking up from the working directory with a
 # cloned repository's own settings ignored; $CLAUDE_PROJECT_DIR in a hook
 # command; the sealed token and its detail.
@@ -166,6 +169,53 @@ fresh
 printf 'gh pr merge\n' > "$IN/hooks/g.sh"
 in_settings "$(hook Bash 'bash -c "./hooks/g.sh"' bypassPermissions)"
 eq "a shell's inline code that runs a script under the root reads that script" "readable merge:confirm close:permit teardown:permit" "$(cd "$IN" && read_roots)"
+
+echo "== niwa's worktree hooks =="
+# niwa writes its worktree hooks PATH-first with its installed path as the
+# fallback (shirabe#988). `command -v` looks niwa up and runs nothing, `2>&1`
+# is a redirection rather than a command, and the guard and from-hook
+# subcommands gate none of the three steps, so the posture reads as if the
+# hook weren't there.
+NHOME="$T/home"
+NIWA_ABS="$NHOME/.tsuku/tools/current/niwa"
+read_home() { seen "$(HOME="$NHOME" bash "$PRD" --instance-root "$IN" --workspace-root "$WS" --no-seal 2>"$T/err")"; }
+niwa_hook() { printf "command -v niwa >/dev/null 2>&1 && exec niwa %s; exec '%s' %s" "$1" "$NIWA_ABS" "$1"; }
+for sub in 'worktree guard' 'worktree from-hook'; do
+    fresh
+    in_settings "$(hook 'EnterWorktree|Bash' "$(niwa_hook "$sub")" bypassPermissions)"
+    eq "niwa's [$sub] hook leaves the posture readable" "readable merge:permit close:permit teardown:permit" "$(read_home)"
+    fresh
+    in_settings "$(hook 'EnterWorktree|Bash' "$(niwa_hook "$sub")")"
+    eq "niwa's [$sub] hook under the default mode confirms, as with no hook" "readable merge:confirm close:confirm teardown:confirm" "$(read_home)"
+done
+fresh
+ws_settings "$(perm deny 'Bash(niwa destroy:*)')"
+in_settings "$(hook 'EnterWorktree|Bash' "$(niwa_hook 'worktree guard')" bypassPermissions)"
+eq "a deny stays deny beside niwa's guard" "readable merge:permit close:permit teardown:deny" "$(read_home)"
+fresh
+in_settings "$(hook Bash 'command -V niwa >/dev/null && exec niwa worktree guard' bypassPermissions)"
+eq "command -V is a lookup too" "readable merge:permit close:permit teardown:permit" "$(read_home)"
+# Only niwa's two worktree hooks, under the bare name or the path niwa
+# installs, with nothing after them: anything else niwa could run stays unread.
+for c in 'niwa worktree guard --force' 'niwa worktree' 'niwa destroy x' 'niwa worktree from-hook extra' \
+         '/usr/local/bin/niwa worktree guard' "$NHOME/.tsuku/tools/0.34.1/niwa worktree guard" \
+         "$T/niwa worktree guard" "command -v niwa >/dev/null 2>&1 && exec niwa worktree guard; exec '/opt/niwa' worktree guard" \
+         'command -v niwa && exec niwa instance context' 'command -p merge-guard-hook' 'command merge-guard-hook' \
+         'command -v merge-guard-hook; merge-guard-hook' 'merge-guard-hook 2>&1' 'merge-guard-hook>&2' 'true 2>&1 && merge-guard-hook'; do
+    fresh
+    in_settings "$(hook Bash "$c" bypassPermissions)"
+    eq "hook [$c] leaves every step unread" "$UNREAD_ALL" "$(read_home)"
+done
+# A plain `command` or `exec` still leads into the script it runs, read as before.
+for lead in command exec; do
+    fresh
+    printf 'gh pr merge\n' > "$IN/hooks/g.sh"
+    in_settings "$(hook Bash "$lead $IN/hooks/g.sh --check" bypassPermissions)"
+    eq "[$lead <path> args] still reads the script" "readable merge:confirm close:permit teardown:permit" "$(read_home)"
+done
+fresh
+in_settings "$(hook Bash 'jq -r .tool_input.command 2>&1 | grep -q "gh pr close" >&2 && exit 2' bypassPermissions)"
+eq "a descriptor redirection isn't a command" "readable merge:permit close:confirm teardown:permit" "$(read_home)"
 
 echo "== unreadable and missing =="
 fresh; printf '{not json' > "$IN/.claude/settings.local.json"

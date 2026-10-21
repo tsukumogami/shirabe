@@ -230,7 +230,10 @@ classify_segment() {
             env|/usr/bin/env) shift; while [ $# -gt 0 ]; do case "$1" in -*|[A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
             # Shell keywords that lead into a command: the command follows them.
             # Quoted: bash 3.2 can't parse a bare keyword as a case pattern.
-            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time'|'exec'|'command'|'nohup') shift ;;
+            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time'|'exec'|'nohup') shift ;;
+            # `command -v NAME` and `command -V NAME` look NAME up and run
+            # nothing; any other `command` leads into the command after it.
+            'command') case "${2-}" in -v|-V) return 0 ;; esac; shift ;;
             # `case WORD in PATTERN) command`: the command follows the pattern.
             'case') shift; while [ $# -gt 0 ]; do w=$1; shift; case "$w" in *')') break ;; esac; done ;;
             *')') shift ;;
@@ -285,6 +288,18 @@ classify_segment() {
             fi
             [ -n "$script" ] || { unreadable "$w with no script"; return 0; }
             read_script "$root" "$script" ;;
+        niwa)
+            # niwa's own worktree hooks, exactly as niwa writes them: the
+            # bare `niwa` or the ~/.tsuku/tools/current/niwa it installs, then
+            # `worktree guard` or `worktree from-hook` and nothing else. Safe
+            # to pass unread: niwa's guard refuses only worktree builds and
+            # git, never a merge, close or teardown command. Any other niwa
+            # path, subcommand or argument is read like any other command.
+            case "$(expand_path "$root" "$w")" in
+                niwa|"$HOME/.tsuku/tools/current/niwa")
+                    case "$*" in 'worktree guard'|'worktree from-hook') return 0 ;; esac ;;
+            esac
+            read_script "$root" "$w" ;;
         *)
             read_script "$root" "$w" ;;
     esac
@@ -294,7 +309,12 @@ while IFS='	' read -r root cmd; do
     printf '%s\n' "$cmd" >> "$T/hooktext"
     case "$cmd" in *'$('*|*'`'*|*'<('*) unreadable "$cmd (a command substitution)"; continue ;; esac
     # One simple command per line, split on the shell's list and pipe operators.
-    printf '%s\n' "$cmd" | awk '{ gsub(/&&|\|\||[|;&]/, "\n"); print }' | tr -d "\"'" > "$T/segments"
+    # A redirection that duplicates or closes a descriptor (`2>&1`, `>&2`,
+    # `<&0`, `>&-`) names no file, so it goes first: its `&` is not a list
+    # operator. The descriptor number before it counts only as a word of its own.
+    printf '%s\n' "$cmd" | awk '{
+        gsub(/(^|[ \t])[0-9]+[<>]&([0-9]+-?|-)/, " "); gsub(/[<>]&([0-9]+-?|-)/, " ")
+        gsub(/&&|\|\||[|;&]/, "\n"); print }' | tr -d "\"'" > "$T/segments"
     # Split on whitespace without globbing: a hook's `*` must stay text.
     set -f
     while IFS= read -r seg; do
