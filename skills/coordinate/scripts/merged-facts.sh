@@ -72,7 +72,9 @@ refuse_unit() {
         | jq -c -L "$HERE" 'include "record-codec"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
         echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
-    # The script's only EXIT trap; lib_emit exits through it.
+    # lib_emit exits through this trap. no_verified_head sets the only other
+    # one; both functions end the script, so one invocation reaches at most
+    # one of the two and neither trap replaces the other's file.
     trap 'rm -f "$DETAIL"' EXIT
     jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
         --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
@@ -119,7 +121,8 @@ fi
 # comes from this run's capture, never from the record. Open or closed is
 # `not-merged <pr>`, back to wait: an open one is verified before the merged
 # event is submitted again, a closed one has no merge to record. A failed
-# read exits 2, since it may succeed on the next tick.
+# read exits 2, since it may succeed on the next tick. It never returns: every
+# path ends the script, through lib_emit or an exit, like refuse_unit.
 no_verified_head() {
     local d state head token next
     d=$(mktemp -d "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2

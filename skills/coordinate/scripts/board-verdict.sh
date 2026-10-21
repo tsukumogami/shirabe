@@ -104,7 +104,7 @@
 # set's contexts too, and a run whose only red jobs are superseded or never
 # ran isn't a run-conclusion. Different workflows, or the same workflow on
 # another event, never supersede each other, and an earlier green never hides
-# a later red. `superseded` lists both kinds: {run, name, latest_attempt,
+# a later red. `superseded` holds three shapes: {run, name, latest_attempt,
 # earlier} for a run with later attempts, {run, name, by} for a run superseded
 # whole and {run, job, name, by} for a job of a run superseded in part, `by`
 # being the latest run that superseded it.
