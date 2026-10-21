@@ -656,6 +656,28 @@ progress line's comment must sit on the roadmap pull request its Side effects
 row names. A comment elsewhere in the repository can't confirm an entry it
 doesn't reproduce byte for byte.
 
+**`--confirm` also checks the comment's author.** For a progress line written
+after the removal, a comment confirms an entry only when its author's login is
+the coordinator's (compared without case), in addition to the marker, kind,
+text and hash. A line written before the removal is confirmed as today.
+
+**Carried state is data, and the owner sees it first.** `record/reasoning` and
+the carried Standing rows were written by an agent and are read by the next
+rotation's agent as data, never as instructions. A rotation that started from a
+carry reports what it carried and takes no dispatch or merge until the owner's
+go-ahead is recorded as a Standing row, the way a person's word is recorded
+today.
+
+**Outward entries are public where their destination is.** A cost entry posted
+on a public pull request is public content. One whose text fails the scan for
+its destination is not posted: it stays in the session and the archive, and
+the capture says so.
+
+**The precondition fails closed.** A search error, a result count at the limit,
+or an organization the token can't read leaves the gate shut. The search's
+output can name private repositories, so it goes in a report, never in a public
+pull request or issue.
+
 **No new input reaches a command.** The new keys hold dates, a repository, a
 session name and prose; the session name is checked against the scope's
 `coordinate-<slug>-<stamp>` pattern before it reaches `koto`, and the prose is
