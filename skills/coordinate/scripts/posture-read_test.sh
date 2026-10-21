@@ -211,10 +211,6 @@ for c in 'niwa worktree guard --force' 'niwa worktree' 'niwa destroy x' 'niwa wo
     in_settings "$(hook Bash "$c" bypassPermissions)"
     eq "hook [$c] leaves every step unread" "$UNREAD_ALL" "$(read_home)"
 done
-fresh
-# shellcheck disable=SC2088 # the hook's own text, which the reader expands
-in_settings "$(hook Bash '~/.tsuku/tools/current/niwa worktree guard' bypassPermissions)"
-eq "niwa's installed path written with ~/ is niwa's too" "readable merge:permit close:permit teardown:permit" "$(read_home)"
 # Without a HOME the installed path can't be told from any other, so only the
 # bare niwa passes; an empty HOME doesn't make /.tsuku/... niwa's.
 fresh

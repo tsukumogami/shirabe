@@ -302,7 +302,7 @@ classify_segment() {
 }
 # is_niwa_hook <root> <words...>: the words are one of niwa's own worktree
 # hooks, exactly as niwa writes them: the bare `niwa` or the
-# ~/.tsuku/tools/current/niwa it installs, then `worktree guard` or
+# $HOME/.tsuku/tools/current/niwa it installs, then `worktree guard` or
 # `worktree from-hook` and nothing else. Safe to pass unread: niwa's guard
 # refuses only worktree builds and git, never a merge, close or teardown
 # command (niwa's internal/cli/worktree_guard.go, added in niwa 0.34.0). If
