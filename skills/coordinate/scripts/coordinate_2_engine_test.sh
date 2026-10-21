@@ -54,22 +54,22 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 echo "== 10. two silent checks reach failure =="
 if to_pick quiet "$(record_json roadmap quiet | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 100 \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
-    echo 1860 > "$T/clock"
+    set_clock 1860
     eq "10: the first silent check sends a status message" status_message "$(at --with-data '{"event":"quiet"}')"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name QUIET)" in
         "first-silence feat-1 "*) ok "10: the first sweep reads first-silence" ;; *) bad "10: the first sweep reads first-silence" ;;
     esac
     eq "10: status sent returns to wait" wait "$(at --with-data '{"sent":"sent"}')"
-    echo 3720 > "$T/clock"
+    set_clock 3720
     eq "10: the second silent check reaches failure" failure "$(at --with-data '{"event":"quiet"}')"
-    rm -f "$T/clock"
+    clear_clock
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name QUIET)" in
         "second-silence feat-1 "*) ok "10: the second sweep reads second-silence" ;; *) bad "10: the second sweep reads second-silence" ;;
     esac
     eq "10: no teardown" 0 "$(entered teardown)"
     eq "10: the holding is still on the record" feat-1 "$(live_body 100 | jq -r '.holdings[0].worker')"
 else
-    rm -f "$T/clock"
+    clear_clock
     bad "10: reach wait with a holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
