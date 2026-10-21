@@ -128,8 +128,8 @@ no_verified_head() {
     d=$(mktemp -d "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
     trap 'rm -rf "$d"' EXIT
     bl_gh "$d/pr" pr view "$PR" --repo "$REPO" --json state,headRefOid || { echo "$PROG: a read failed" >&2; exit 2; }
-    state=$(jq -r '.state // "" | tostring' "$d/pr" 2>/dev/null)
-    head=$(jq -r '.headRefOid // "" | tostring' "$d/pr" 2>/dev/null)
+    state=$(jq -r '.state // "" | tostring' "$d/pr")
+    head=$(jq -r '.headRefOid // "" | tostring' "$d/pr")
     case "$state" in
         MERGED)
             bl_sha_ok "$head" || { echo "$PROG: #$PR merged head [$head] is not a sha" >&2; exit 2; }
