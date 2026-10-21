@@ -39,7 +39,12 @@
 #            stderr;
 #         5. `niwa destroy --force <name>` at the workspace root, the name
 #            checked before the command is built;
-#         6. `claude rm <job id>`;
+#         6. `claude rm <job id>`; when niwa destroy already removed the
+#            job, rm prints `No job matching`, and that counts as done only
+#            when niwa no longer lists the instance, <claude home>/jobs/<job
+#            id> is gone and `claude agents --json --all` doesn't list the
+#            job; RESULT then says so after `done <time>`. Any other rm
+#            failure is incomplete;
 #         7. confirm `niwa list --json` no longer shows the instance and
 #            `claude agents --json --all` no longer shows the job.
 #       RESULT in the archive says `done`, or why the pass stopped once the
@@ -489,13 +494,30 @@ say "destroying $INAME"
 (cd "$ROOT" && "$NIWA" destroy --force "$INAME") >"$T/destroy" 2>&1 || incomplete "niwa destroy failed: $(tail -1 "$T/destroy")"
 STEP=remove
 say "removing job $JOB"
-"$CLAUDE_CLI" rm "$JOB" >"$T/rm" 2>&1 || incomplete "claude rm failed: $(tail -1 "$T/rm")"
+GONE=""
+if ! "$CLAUDE_CLI" rm "$JOB" >"$T/rm" 2>&1; then
+    # niwa destroy can remove the instance's owning job itself (niwa 0.34.1
+    # on), leaving rm nothing to find. That is done only when rm said so and
+    # the job is gone everywhere it is read: niwa no longer lists the
+    # instance, the job has no directory and the agents listing has no row.
+    rmerr="claude rm failed: $(tail -1 "$T/rm")"
+    grep -q 'No job matching' "$T/rm" || incomplete "$rmerr"
+    NL=$(niwa_list) || incomplete "$rmerr; niwa list could not be read"
+    printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'type == "array" and (any(.[]; .name == $n or .path == $p) | not)' >/dev/null \
+        || incomplete "$rmerr; niwa still lists $INAME"
+    if [ -e "$J" ] || [ -L "$J" ]; then incomplete "$rmerr; $J is still there"; fi
+    AG=$(agents) || incomplete "$rmerr; claude agents could not be read"
+    printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null \
+        || incomplete "$rmerr; claude agents still lists job $JOB"
+    GONE=" (remove: job $JOB was already removed by niwa destroy)"
+    say "job $JOB was already removed by niwa destroy"
+fi
 STEP=confirm
 NL=$(niwa_list) || incomplete "niwa list could not be read"
 printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'any(.[]; .name == $n or .path == $p) | not' >/dev/null \
     || incomplete "niwa still lists $INAME"
 AG=$(agents) || incomplete "claude agents could not be read"
 printf '%s' "$AG" | jq -e --arg j "$JOB" 'any(.[]; .id == $j) | not' >/dev/null || incomplete "claude agents still lists job $JOB"
-printf 'done %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ARCH/RESULT"
+printf 'done %s%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GONE" >"$ARCH/RESULT"
 say "done $ARCH"
 exit 0
