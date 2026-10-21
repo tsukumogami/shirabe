@@ -29,6 +29,12 @@
 # linked pull request leaves the pass done (credit never gates); and a
 # capture whose credit reads hang still ends inside TEARDOWN_CAPTURE_SECS.
 #
+# And the remove step after niwa destroy took the job itself: `claude rm`
+# printing No job matching for a job with no directory and no row ends the
+# pass done, RESULT saying destroy already removed it; the same rm while the
+# job's directory or its row is still there, or niwa still lists the
+# instance, or any other rm failure, ends it incomplete at remove.
+#
 # Usage: bash skills/coordinate/scripts/teardown-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure. bash 3.2.
 set -uo pipefail
@@ -179,7 +185,16 @@ cat >"$B2/niwa" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
     list) cat "$ST/niwa.json" ;;
-    destroy) echo "niwa $*" >>"$ST/log"; echo '[]' >"$ST/niwa.json" ;;
+    destroy)
+        echo "niwa $*" >>"$ST/log"; echo '[]' >"$ST/niwa.json"
+        # niwa 0.34.1 on: destroy removes the instance's owning job too, its
+        # directory and its row; a case can leave the row behind.
+        [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/dir-stays" ] && rm -rf "$HOME/.claude/jobs/$JID"
+        [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/row-stays" ] && echo '[]' >"$ST/agents.json"
+        # And a case can have the instance outlive its destroy: the
+        # listing it saved there is put back.
+        [ -f "$ST/instance-stays" ] && cp "$ST/instance-stays" "$ST/niwa.json"
+        : ;;
     *) exit 64 ;;
 esac
 EOF
@@ -187,14 +202,18 @@ cat >"$B2/claude" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
     agents) cat "$ST/agents.json" ;;
-    rm) echo "claude $*" >>"$ST/log"; echo '[]' >"$ST/agents.json" ;;
+    rm)
+        echo "claude $*" >>"$ST/log"
+        [ -f "$ST/rm-says" ] && { cat "$ST/rm-says" >&2; exit 1; }
+        echo '[]' >"$ST/agents.json" ;;
     *) exit 64 ;;
 esac
 EOF
 chmod +x "$P2"/*.sh "$B2"/*
 
 IP="$T/inst/w5"
-JID=4b3597d2
+# Exported: the niwa stand-in's destroy removes this job's directory.
+export JID=4b3597d2
 SID=$JID-6184-4a48
 # Claude Code's project directories: the instance's own (ENC), a worktree's
 # under it, and a sibling instance's whose name extends this one's.
@@ -311,6 +330,49 @@ eq_ "an unreadable linked pull request is left out and the pass is done: credit 
     "$(jq -r '"\([.pulls[] | "\(.repo)#\(.number) \(.via)"] | join("|"))|\([.missing[] | select(.figure == "pulls") | .reason] | join(","))"' "$ARCHD/unit-cost.json" 2>&1)|$RC $RES"
 eq_ "  ... green read from the run on the pull request's head, the pull request named" "121 measured|acme/widgets#600" \
     "$(jq -r '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\(.pulls[0].repo)#\(.pulls[0].number)"' "$ARCHD/unit-cost.json" 2>&1)"
+
+echo "== a job niwa destroy already removed =="
+setup_run
+: >"$ST/destroy-takes-job"
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+run_pass
+[ "$RC" = 0 ] && [ "$LAST" = "teardown-pass: done $ARCHD" ] && [ "$RES" = "done" ] && ok "rm finds no job after destroy took it: the pass is done" \
+    || bad "rm finds no job after destroy took it: the pass is done" "exit $RC: $OUT $ERR"
+[ -n "$(line_of "claude rm $JID")" ] && ok "  ... rm did run" || bad "  ... rm did run" "$(cat "$ST/log")"
+case "$(cat "$ARCHD/RESULT" 2>&1)" in
+    "done "*" (remove: job $JID was already removed by niwa destroy)") ok "  ... RESULT says the remove step was already done by destroy" ;;
+    *) bad "  ... RESULT says the remove step was already done by destroy" "$(cat "$ARCHD/RESULT" 2>&1)" ;;
+esac
+# rm_fails <label> <reason>: rm printed No job matching, but the job isn't
+# gone everywhere (or rm said something else): the pass stays incomplete.
+rm_fails() {
+    run_pass
+    [ "$RC" = 2 ] && ok "$1: incomplete, exit 2" || bad "$1: incomplete, exit 2" "exit $RC: $OUT $ERR"
+    case "$LAST" in "teardown-pass: incomplete at remove: claude rm failed: "*"$2") ok "  ... at remove, naming why" ;; *) bad "  ... at remove, naming why" "$LAST" ;; esac
+    case "$(cat "$ARCHD/RESULT" 2>&1)" in "incomplete at remove: "*) ok "  ... RESULT says incomplete" ;; *) bad "  ... RESULT says incomplete" "$(cat "$ARCHD/RESULT" 2>&1)" ;; esac
+}
+setup_run
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+rm_fails "rm finds no job while its directory and row are still there" "jobs/$JID is still there"
+setup_run
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+: >"$ST/destroy-takes-job"
+: >"$ST/row-stays"
+rm_fails "rm finds no job while the agents listing still has it" "claude agents still lists job $JID"
+setup_run
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+: >"$ST/destroy-takes-job"
+: >"$ST/dir-stays"
+rm_fails "rm finds no job while its directory is still there, its row gone" "jobs/$JID is still there"
+setup_run
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+: >"$ST/destroy-takes-job"
+cp "$ST/niwa.json" "$ST/instance-stays"
+rm_fails "rm finds no job while niwa still lists the instance" "niwa still lists tsuku+w5"
+setup_run
+: >"$ST/destroy-takes-job"
+printf 'permission denied\n' >"$ST/rm-says"
+rm_fails "any other rm failure, the job gone" "permission denied"
 
 echo "== a crashing capture =="
 setup_run
