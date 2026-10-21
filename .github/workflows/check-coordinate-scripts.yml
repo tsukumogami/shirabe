@@ -46,8 +46,9 @@ jobs:
       - name: EXIT-trap race probe (temporary)
         run: |
           set +e
-          for n in 1 2 3; do bash .github/diag/exit-trap-race.sh 2000 </dev/null; done
-          bash -c 'trap "" TERM; exec bash .github/diag/exit-trap-race.sh 500' </dev/null
+          for n in 1 2 3; do
+            bash skills/coordinate/scripts/dispatch-common_test.sh </dev/null 2>&1 | grep -E "traps never run|passed,"
+          done
 
       - name: Diagnostics (temporary)
         run: |
