@@ -190,6 +190,8 @@
 #       on macOS, whose /bin/bash is the floor these scripts target.
 #       The deadline's TERM reaches only the command's own pid; a command
 #       whose children must stop with it runs through dc_tree.
+#       The watcher is sent no TERM until it is ready, so a caller's EXIT and
+#       TERM traps don't run in it (bash 5 would otherwise run them there).
 #
 #   dc_tree <command...>
 #       Runs the command in a process group of its own and waits for it. A
@@ -571,6 +573,8 @@ dc_with_deadline() {
     # caller's $(...) pipe open.
     # The trap goes in before the sleep starts: a command that finishes at
     # once can stop the watcher before it would otherwise have installed one.
+    # The ready mark goes down right after the trap, never before it: the
+    # caller sends no TERM until it sees the mark (see the wait below).
     # A TERM that lands before `sp` is set (the sleep may already be running)
     # only records the stop, and the line after the assignment acts on it, so
     # no sleep is left behind in that window either.
@@ -585,6 +589,7 @@ dc_with_deadline() {
         sp=""
         stop=""
         trap 'trap "" TERM; stop=1; if [ -n "$sp" ]; then kill -KILL "$sp" >/dev/null 2>&1; wait "$sp"; exit 0; fi' TERM
+        : >"$mark.ready"
         sleep "$secs" &
         sp=$!
         if [ -n "$stop" ]; then kill -KILL "$sp" >/dev/null 2>&1; wait "$sp"; exit 0; fi
@@ -600,10 +605,30 @@ dc_with_deadline() {
     watcher=$!
     wait "$pid"
     rc=$?
-    # bash ignores a signal while `trap` installs its handler, so a TERM that
-    # lands as the watcher sets its trap is lost, and the watcher would run to
-    # the deadline. A watcher that got the TERM is gone within a millisecond
-    # or two, so the first loop only checks for it, with the builtin kill -0,
+    # No TERM goes to the watcher until it has marked itself ready. bash 5
+    # runs a parent's traps in a subshell it has just forked when a signal
+    # lands before the subshell has run its first command, so a TERM sent the
+    # moment a quick command ended could run the caller's EXIT or TERM trap
+    # in the watcher (an EXIT trap that removes a temporary directory then
+    # removes it mid-run). The mark also means the TERM can't arrive while the
+    # watcher's own trap is going in. The wait spins on builtins for the
+    # millisecond or two a fork takes, then polls 0.01s apart, and gives up
+    # after about a second or as soon as the watcher is gone, so it can't hold
+    # the call; the TERM then goes out as before.
+    while [ ! -e "$mark.ready" ] && [ "$tries" -lt 1000 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+        tries=$((tries + 1))
+    done
+    tries=0
+    while [ ! -e "$mark.ready" ] && [ "$tries" -lt 100 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+        sleep 0.01
+        tries=$((tries + 1))
+    done
+    tries=0
+    # The loops below are for a watcher the wait gave up on: bash ignores a
+    # signal while `trap` installs its handler, so a TERM that lands as the
+    # watcher sets its trap is lost, and the watcher would run to the
+    # deadline. A watcher that got the TERM is gone within a millisecond or
+    # two, so the first loop only checks for it, with the builtin kill -0,
     # and spawns nothing. One still there after that gets the TERM again
     # until it is gone: 100 tries 0.05s apart, about five seconds. A watcher
     # still there after that is killed outright, so the call always returns;
@@ -627,6 +652,8 @@ dc_with_deadline() {
         kill -KILL "$watcher" >/dev/null 2>&1
     fi
     wait "$watcher" >/dev/null 2>&1
+    # The watcher is gone, so nothing writes the ready mark after this.
+    rm -f "$mark.ready"
     # Past the deadline, a command that still exited 0 (as the TERM landed, or
     # from its own TERM trap) keeps its 0; any other status is the deadline's.
     if [ -e "$mark" ]; then
