@@ -89,6 +89,7 @@ class	engine	skills/coordinate/scripts/teardown-pass.sh
 class	engine	skills/coordinate/scripts/teardown-verdict.sh
 class	engine	skills/coordinate/scripts/wait-target.sh
 class	engine	skills/deliver/scripts/deliver-absent.sh
+class	engine	skills/deliver/scripts/deliver-execute-leg.sh
 class	engine	skills/deliver/scripts/deliver-open-request.sh
 class	engine	skills/deliver/scripts/deliver-probe.sh
 class	engine	skills/execute/scripts/drift-facts.sh
@@ -112,6 +113,8 @@ class	engine	skills/work-on/scripts/check-pr-output.sh
 class	engine	skills/work-on/scripts/check-pre-pr-referents.sh
 class	engine	skills/work-on/scripts/check-staleness.sh
 class	engine	skills/work-on/scripts/check-verification.sh
+class	engine	skills/work-on/scripts/ci-cancel-after-merge.sh
+class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/has-commits.sh
 class	engine	skills/work-on/scripts/offload-canary.sh

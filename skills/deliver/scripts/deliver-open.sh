@@ -71,6 +71,11 @@
 #                       are the ones it got before the flags existed
 #   --upstream <path>   UPSTREAM=<path>, also --upstream=<path>; with no value
 #                       the literal token --upstream, which the pattern rejects
+#   --store <v>         STORE=<v>, also --store=<v>; with no value the literal
+#                       token --store, which the pattern (github or session)
+#                       rejects. Forwarded to /execute, beside the PR /scope
+#                       published as --coordination-pr, on a coordinated PLAN
+#                       only
 #   --koto-leg <id>:deliver
 #                       not a variable: also --koto-leg=<id>:deliver. The leg of
 #                       a caller's request this run answers. Checked here, the
@@ -216,12 +221,15 @@ def step($t):
   elif ($t | startswith("--review-ceiling=")) then .pairs += [["REVIEW_CEILING", $t[17:]]]
   elif $t == "--upstream" then .pending = "upstream"
   elif ($t | startswith("--upstream=")) then .pairs += [["UPSTREAM", $t[11:]]]
+  elif $t == "--store" then .pending = "store"
+  elif ($t | startswith("--store=")) then .pairs += [["STORE", $t[8:]]]
   elif $t == "--koto-leg" then .pending = "koto-leg"
   elif ($t | startswith("--koto-leg=")) then .legs += [$t[11:]]
   else .residue += [$t]
   end;
 def flush:
   if .pending == "upstream" then .pairs += [["UPSTREAM", "--upstream"]] | .pending = null
+  elif .pending == "store" then .pairs += [["STORE", "--store"]] | .pending = null
   elif .pending == "koto-leg" then .legs += [""] | .pending = null
   else . end;
 if (type != "array") or (map(type == "string") | all | not) then
@@ -230,6 +238,8 @@ else
   reduce .[] as $t ({pairs: [], modes: [], merges: [], residue: [], legs: [], pending: null};
     if .pending == "upstream" and ($t | startswith("--") | not) then
       .pairs += [["UPSTREAM", $t]] | .pending = null
+    elif .pending == "store" and ($t | startswith("--") | not) then
+      .pairs += [["STORE", $t]] | .pending = null
     elif .pending == "koto-leg" and ($t | startswith("--") | not) then
       .legs += [$t] | .pending = null
     else flush | step($t) end)

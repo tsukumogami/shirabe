@@ -183,8 +183,22 @@
 #       command's status, or 124 once the deadline has passed and the command
 #       didn't exit 0: a command that exits 0 as the deadline's TERM lands, or
 #       from its own TERM trap, keeps its 0, and one that fails just as the
-#       deadline passes reads as 124. `timeout` isn't on macOS, whose /bin/bash
-#       is the floor these scripts target.
+#       deadline passes reads as 124. No process it starts to keep the
+#       deadline is still running once it returns, unless its watcher won't
+#       stop within about five seconds: the watcher is then killed and the
+#       call returns, leaving the watcher's sleep to run out. `timeout` isn't
+#       on macOS, whose /bin/bash is the floor these scripts target.
+#       The deadline's TERM reaches only the command's own pid; a command
+#       whose children must stop with it runs through dc_tree.
+#
+#   dc_tree <command...>
+#       Runs the command in a process group of its own and waits for it. A
+#       TERM to dc_tree (dc_with_deadline's) is passed to the whole group, so
+#       `dc_with_deadline <secs> dc_tree <command...>` stops the command's
+#       children too, such as the remote helper `git ls-remote` starts.
+#       It sets a TERM trap and toggles `set -m` in the shell that runs it,
+#       so it runs in a subshell of its own, as dc_with_deadline's command
+#       does, never in a caller's shell.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -545,7 +559,7 @@ dc_directed_since() {
 }
 
 dc_with_deadline() {
-    local secs="$1" pid watcher rc mark
+    local secs="$1" pid watcher rc mark tries=0
     shift
     mark=$(mktemp "${TMPDIR:-/tmp}/dc-deadline.XXXXXX") || return 2
     rm -f "$mark"
@@ -560,13 +574,20 @@ dc_with_deadline() {
     # A TERM that lands before `sp` is set (the sleep may already be running)
     # only records the stop, and the line after the assignment acts on it, so
     # no sleep is left behind in that window either.
+    # The sleep is stopped with KILL, not TERM: until the forked child execs
+    # sleep it still runs the watcher's TERM trap, so a TERM landing in that
+    # window is caught and dropped and the sleep runs its full length. The
+    # watcher then waits on the sleep, so it is gone before the watcher exits
+    # and so before the caller's wait on the watcher returns. The trap's first
+    # act is to ignore further TERMs: the caller repeats its TERM, and one
+    # landing during that wait would cut the wait short.
     (
         sp=""
         stop=""
-        trap 'stop=1; if [ -n "$sp" ]; then kill -TERM "$sp" >/dev/null 2>&1; exit 0; fi' TERM
+        trap 'trap "" TERM; stop=1; if [ -n "$sp" ]; then kill -KILL "$sp" >/dev/null 2>&1; wait "$sp"; exit 0; fi' TERM
         sleep "$secs" &
         sp=$!
-        if [ -n "$stop" ]; then kill -TERM "$sp" >/dev/null 2>&1; exit 0; fi
+        if [ -n "$stop" ]; then kill -KILL "$sp" >/dev/null 2>&1; wait "$sp"; exit 0; fi
         # The mark goes down before the kill: the caller stops this watcher
         # with TERM as soon as the command ends, and a mark written after the
         # kill could be cut off by that TERM, so a deadline that passed would
@@ -579,7 +600,32 @@ dc_with_deadline() {
     watcher=$!
     wait "$pid"
     rc=$?
+    # bash ignores a signal while `trap` installs its handler, so a TERM that
+    # lands as the watcher sets its trap is lost, and the watcher would run to
+    # the deadline. A watcher that got the TERM is gone within a millisecond
+    # or two, so the first loop only checks for it, with the builtin kill -0,
+    # and spawns nothing. One still there after that gets the TERM again
+    # until it is gone: 100 tries 0.05s apart, about five seconds. A watcher
+    # still there after that is killed outright, so the call always returns;
+    # a sleep it had started is then left to run out on its own, and nothing
+    # is reported. bash prints a job's "Terminated" notice when it reaps the
+    # watcher between the loops' commands, so their stderr goes nowhere, as
+    # the wait's does.
     kill -TERM "$watcher" >/dev/null 2>&1
+    {
+        while [ "$tries" -lt 500 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+            tries=$((tries + 1))
+        done
+        tries=0
+        while [ "$tries" -lt 100 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+            sleep 0.05
+            kill -TERM "$watcher" >/dev/null 2>&1
+            tries=$((tries + 1))
+        done
+    } 2>/dev/null
+    if kill -0 "$watcher" >/dev/null 2>&1; then
+        kill -KILL "$watcher" >/dev/null 2>&1
+    fi
     wait "$watcher" >/dev/null 2>&1
     # Past the deadline, a command that still exited 0 (as the TERM landed, or
     # from its own TERM trap) keeps its 0; any other status is the deadline's.
@@ -588,4 +634,19 @@ dc_with_deadline() {
         [ "$rc" -eq 0 ] || return 124
     fi
     return "$rc"
+}
+
+# dc_with_deadline TERMs only its direct child, which would leave the
+# command's own children running; `set -m` is here only to give the command
+# its own process group, so `kill -- -<pid>` reaches all of it. The trap kills
+# and returns; it never waits on a child.
+# shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
+dc_tree() {
+    local p
+    set -m 2>/dev/null
+    "$@" &
+    p=$!
+    set +m 2>/dev/null
+    trap 'kill -TERM -- "-$p" >/dev/null 2>&1; kill -TERM "$p" >/dev/null 2>&1; exit 143' TERM
+    wait "$p"
 }

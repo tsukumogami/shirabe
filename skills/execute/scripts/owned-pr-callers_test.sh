@@ -123,7 +123,7 @@ done
 grep -q -- '--run-id "$RUN_ID"' skills/execute/scripts/record-coordination-verdict.sh \
     && pass "record-coordination-verdict.sh hands its identity to coordination-verdict.sh" \
     || fail "record-coordination-verdict.sh does not pass --run-id"
-grep -q -- '--verify --expect-intent continue --run-id "$RUN_ID"' skills/deliver/scripts/deliver-probe.sh \
+grep -q -- '--verify --run-id "$RUN_ID"' skills/deliver/scripts/deliver-probe.sh \
     && pass "deliver-probe.sh hands its identity to publish-scoping-pr.sh --verify" \
     || fail "deliver-probe.sh's --verify call carries no --run-id"
 VG=$(grep -c -- '--verify --expect-intent "{{RUN_INTENT}}"' skills/scope/koto-templates/scope.md)
@@ -188,13 +188,15 @@ else
     fail "node-push.sh: ownership check at [$OWN], push at [$GP]"
 fi
 
-# --- the run identity is minted only where a session is born ------------------
+# --- the run identity is minted only where a session or a run record is born --
 
 MINTERS=$(grep -rln --include='*.sh' --include='*.md' --exclude-dir=workspace -e 'run-id.sh" mint\|run-id.sh mint' skills \
     | grep -v '_test.sh$' | grep -vx skills/execute/scripts/run-id.sh | sort | tr '\n' ' ')
-WANT_MINTERS="skills/deliver/scripts/deliver-open.sh skills/execute/scripts/execute-open.sh skills/scope/scripts/scope-open.sh "
+# record-coord-setup.sh mints a coordinated run's identity when it seals the
+# run record; execute-open.sh mints only a single-pr session's.
+WANT_MINTERS="skills/deliver/scripts/deliver-open.sh skills/execute/scripts/execute-open.sh skills/execute/scripts/record-coord-setup.sh skills/scope/scripts/scope-open.sh "
 if [ "$MINTERS" = "$WANT_MINTERS" ]; then
-    pass "run-id.sh mint is called only by the three session-opening scripts"
+    pass "run-id.sh mint is called only by the three session-opening scripts and the coordinated setup"
 else
     fail "run-id.sh mint callers: [$MINTERS], want [$WANT_MINTERS]"
 fi
@@ -213,7 +215,8 @@ if [ -z "$BAD" ]; then
 else
     fail "--take-over appears elsewhere: $BAD"
 fi
-if printf '%s\n' "$TAKE" | grep 'execute.md:' | grep -qE 'adopt-or-create-pr\.sh .*--take-over'; then
+TAKE_EXEC=$(grep 'execute.md:' <<<"$TAKE")
+if grep -qE 'adopt-or-create-pr\.sh .*--take-over' <<<"$TAKE_EXEC"; then
     fail "execute.md runs --take-over in a command block; it must be the exit-6 decision's re-run only"
 else
     pass "execute.md passes --take-over only through the exit-6 decision"

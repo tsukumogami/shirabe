@@ -11,6 +11,7 @@ on:
     paths:
       - 'scripts/coordination-gate-refs.sh'
       - 'scripts/coordination-gate-refs_test.sh'
+      - 'skills/execute/scripts/testdata/rendered-body-*.md'
       - '.github/workflows/lifecycle.yml'
       - '.github/workflows/check-coordination-gate-refs.yml'
 

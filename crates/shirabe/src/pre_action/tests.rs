@@ -536,6 +536,32 @@ fn a_damaged_registry_fails_closed_on_a_checked_command_only() {
     }
 }
 
+/// A registry entry's `stage` decides how a gate script prints its findings,
+/// not whether the hook denies: a body breaking PB2 is denied under
+/// `pr-body/one-separator` at every stage.
+#[test]
+fn pb2_is_denied_at_every_stage() {
+    for stage in ["block", "warn", "shadow", "retired"] {
+        let root = fixture_root(&format!("stage-{stage}"), |reg| {
+            let mut v: serde_json::Value = serde_json::from_str(&reg).unwrap();
+            for e in v["rules"].as_array_mut().unwrap() {
+                if e["id"] == "pr-body/one-separator" {
+                    e["stage"] = serde_json::Value::from(stage);
+                }
+            }
+            serde_json::to_string_pretty(&v).unwrap()
+        });
+        let r = evaluate_all(
+            &hook(&create("feat: x", BAD)),
+            RegistrySource::PluginRoot(root.clone()),
+        )
+        .unwrap_or_else(|| panic!("{stage}: PB2 was not denied"));
+        assert!(r.contains("pr-body/one-separator: "), "{stage}: {r}");
+        assert!(!r.contains("could not check"), "{stage}: {r}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
 // --- the example table's PR rows, end to end -------------------------------
 
 #[test]

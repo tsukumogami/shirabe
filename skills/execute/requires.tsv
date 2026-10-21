@@ -84,19 +84,29 @@
 # mints it) with `koto context exists`,
 # `koto context get`, and `koto context add`, and od reads /dev/urandom;
 # record-write-set.sh falls back to `gh repo view`; adopt-or-create-pr.sh makes
-# the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`. git adds
+# the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`.
+# owned_ci_passing's fallback, /work-on's ci-cancel-after-merge.sh --owned,
+# reads `gh pr view`, `gh pr checks`, and `gh api repos/<repo>/actions/runs/<id>`,
+# and writes ci_cancelled_after_merge.txt with `koto context add`. git adds
 # `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
 # of those fall under the gh, git, and jq records.
 #
-# The coordinated envelope (execute-coordinated.md) adds no koto verb or flag:
-# record-coord-setup.sh, record-coordination-verdict.sh, and coord-merge.sh
-# read and write context with `koto context get/add/remove`. Its scripts add gh
+# The coordinated envelope (execute-coordinated.md) adds one koto verb: the run
+# record's reader (run-record-lib.sh, sourced by coord-common.sh,
+# run-record.sh, and execute-open.sh) lists a session's `run/` keys with
+# `koto context list --prefix run/`, a coordinated-mode record below.
+# record-coord-setup.sh, record-coordination-verdict.sh, coord-merge.sh, and
+# run-record.sh otherwise read and write context with
+# `koto context get/add/remove/exists`. Its scripts add gh
 # and git calls under the same records: node-push.sh's node-PR
-# `gh pr create --draft`, the coordination body's `gh pr edit --body-file`, and
-# `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
-# coordinated mode record below covers the two shirabe modes they run:
-# node-push.sh validates each new coordination body with
-# `--coordination-body`, and each new node PR's body and title with
+# `gh pr create --draft`, coord-render.sh's `gh pr edit --body-file` of the
+# coordination body, record-coord-setup.sh's `gh pr edit --body-file` of the
+# node PRs it stamps on a recovery given --adopt-run, and `gh pr ready`;
+# execute-open.sh's read-only `git log` and `git show` of a deleted PLAN's
+# last version; node-cut.sh's `git worktree add` and
+# `git fetch`. The coordinated mode record below covers the two shirabe modes
+# they run: coord-render.sh validates each rendered coordination body with
+# `--coordination-body`, node-push.sh each new node PR's body and title with
 # `--pr-body` and `--pr-title`, and coord-merge.sh and the loop's
 # evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
 # per indexed ref.
@@ -116,3 +126,4 @@ git	-	-	always
 jq	-	-	always
 python3	-	-	always
 shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coordinated
+koto	context list	--prefix	mode:coordinated

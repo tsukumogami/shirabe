@@ -82,7 +82,7 @@ PRE_PR=$(extract_state pre_pr_evidence)
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
-        link_dir=$(mktemp -d); TMPS+=("$link_dir")
+        link_dir=$(mktemp -d) || exit 1; TMPS+=("$link_dir")
         ln -s "$PLUGIN_ROOT" "$link_dir/plugin"
         PLUGIN_ROOT="$link_dir/plugin"
         ;;
@@ -144,7 +144,7 @@ FIXTURE
 # exists until the repository is built.
 land() {
     local session="$1" subject="$2" summary="$3" prepr="$4" data="$5" earlier="${6:-}"
-    local repo; repo=$(mktemp -d); TMPS+=("$repo")
+    local repo; repo=$(mktemp -d) || exit 1; TMPS+=("$repo")
     build_fixture "$repo"
     (
         cd "$repo" || exit 1
@@ -308,7 +308,7 @@ referent_case() {
     if ! grep -q "\"state\":\"$want\"" <<<"$OUT"; then
         fail "$label: expected $want, got: $(head -c 300 <<<"$OUT")"
     elif [[ "$why" != - ]] && ! grep -qF "$why" <<<"$OUT"; then
-        fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(echo "$OUT" | tail -n 1 | head -c 300)"
+        fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(tail -n 1 <<<"$OUT" | head -c 300)"
     else
         pass "$label: reaches $want"
     fi

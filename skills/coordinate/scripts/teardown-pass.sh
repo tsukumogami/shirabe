@@ -154,15 +154,15 @@ read_verdict() {
     v=$(bash "$HERE/teardown-handoff.sh" read --session "$SESSION" 2>"$T/why")
     rc=$?
     [ "$rc" = 0 ] || { [ -s "$T/why" ] || echo "the verdict can't be read" >"$T/why"; return 1; }
-    TOPIC=$(printf '%s\n' "$v" | sed -n 's/^topic //p' | head -1)
-    INAME=$(printf '%s\n' "$v" | sed -n 's/^instance \([^ ]*\) .*/\1/p' | head -1)
-    IPATH=$(printf '%s\n' "$v" | sed -n 's/^instance [^ ]* //p' | head -1)
-    JOB=$(printf '%s\n' "$v" | sed -n 's/^job \([^ ]*\) .*/\1/p' | head -1)
-    SID=$(printf '%s\n' "$v" | sed -n 's/^job [^ ]* //p' | head -1)
-    TR=$(printf '%s\n' "$v" | sed -n 's/^transcript //p' | head -1)
-    HANDOFF=$(printf '%s\n' "$v" | sed -n 's/^handoff //p' | head -1)
+    TOPIC=$(sed -n '/^topic /{s///p;q;}' <<<"$v")
+    INAME=$(sed -n '/^instance \([^ ]*\) .*/{s//\1/p;q;}' <<<"$v")
+    IPATH=$(sed -n '/^instance [^ ]* /{s///p;q;}' <<<"$v")
+    JOB=$(sed -n '/^job \([^ ]*\) .*/{s//\1/p;q;}' <<<"$v")
+    SID=$(sed -n '/^job [^ ]* /{s///p;q;}' <<<"$v")
+    TR=$(sed -n '/^transcript /{s///p;q;}' <<<"$v")
+    HANDOFF=$(sed -n '/^handoff /{s///p;q;}' <<<"$v")
     PRS=$(printf '%s\n' "$v" | sed -n 's/^pr //p')
-    DISPATCH=$(printf '%s\n' "$v" | sed -n 's/^dispatch //p' | head -1)
+    DISPATCH=$(sed -n '/^dispatch /{s///p;q;}' <<<"$v")
     KS=$(printf '%s\n' "$v" | sed -n 's/^keyseal //p' | tail -1)
     # Removed mode: the verdict says the unit was torn down outside the pass.
     # Only beside `removed yes` may the instance name be `-` and the job line

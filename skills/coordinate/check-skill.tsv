@@ -55,6 +55,7 @@ cost	board-land_engine_test.sh	47
 cost	quiet-check_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
+cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
 cost	record-source_test.sh	30
@@ -86,6 +87,7 @@ cost	milestone_test.sh	6
 cost	need-check_test.sh	6
 cost	progress-view_test.sh	6
 cost	reconcile-pass_engine_test.sh	6
+cost	reconcile-legs_test.sh	6
 cost	coordinate-open_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
@@ -101,4 +103,4 @@ cost	panel-evidence_test.sh	1
 cost	pause-read_test.sh	1
 cost	coordinate-report_test.sh	0
 cost	skill-states_test.sh	0
-cost	squash-message_test.sh	0
+cost	board-lib_test.sh	0

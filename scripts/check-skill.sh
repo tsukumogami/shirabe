@@ -28,7 +28,9 @@
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
 #      SKILL.md declares disable-model-invocation: true may have none);
 #   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
-#      refuses a printf, echo or cat piped into grep -q or head.
+#      refuses a printf, echo or cat piped into grep -q or head;
+#   7. runs scripts/check-mktemp-guards.sh over the skill's directory, which
+#      refuses an unchecked mktemp whose value a cd, rm, mv or git acts on.
 #
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
@@ -325,16 +327,17 @@ EVALS_PATH_RE='^skills/[^/]*/evals/'
 # third-level helper, a path built at run time) is left out. Matching errs
 # toward selecting more.
 evals_readers() {
-    local walk h1 h2
+    local walk h1 h2 pats
     walk='evals|(^|[^A-Za-z0-9_-])(find|rg|git grep)[[:space:]]|(^|[^A-Za-z0-9_-])grep([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*[rR][A-Za-z]*([[:space:]]|$)|grep[[:space:]].*--recursive|ls-files|(^|[^A-Za-z0-9_-])ls[[:space:]]+-[A-Za-z]*R|(^|[^A-Za-z0-9_-])cp[[:space:]]+-[A-Za-z]*[rRa]'
     h1=$(find "$SKILL_DIR/scripts" -type f ! -name '*_test.sh' -exec grep -lF evals {} + 2>/dev/null \
         | sed 's|.*/||' | sort -u)
     h2=""
     [ -z "$h1" ] || h2=$(find "$SKILL_DIR/scripts" -type f ! -name '*_test.sh' \
         -exec grep -lF -f <(printf '%s\n' "$h1") {} + 2>/dev/null | sed 's|.*/||' | sort -u)
+    pats=$(printf '%s\n%s\n' "$h1" "$h2" | sed '/^$/d')
     {
         grep -lE "$walk" "${suites[@]}"
-        [ -z "$h1$h2" ] || printf '%s\n%s\n' "$h1" "$h2" | sed '/^$/d' | grep -lF -f - "${suites[@]}"
+        [ -z "$pats" ] || grep -lF -f - "${suites[@]}" <<<"$pats"
     } | sort -u
 }
 
@@ -619,6 +622,15 @@ if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
 else
     show_log
     fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
+fi
+
+# 7. No unchecked mktemp feeding a cd, rm, mv or git: a failed mktemp leaves
+#    the value empty, and `cd ""` stays in the caller's directory.
+if bash "$SCRIPT_DIR/check-mktemp-guards.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
+    echo "ok: mktemp guards ($SKILL_DIR)"
+else
+    show_log
+    fail "mktemp guards: $SKILL_DIR (scripts/check-mktemp-guards.sh)"
 fi
 
 if [ -n "$FAILURES" ]; then

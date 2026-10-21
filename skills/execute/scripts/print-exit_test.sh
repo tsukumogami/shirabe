@@ -13,7 +13,13 @@
 #   done_blocked via DIRTY                           abandonment-forced  ready-awaiting-merge
 #   done_blocked via a verdict error / a blocker     abandonment-forced  error + step
 #   re-evaluation                                    re-evaluation error, execute:re-evaluation
-#   coordinated: merged / nothing left / a node waits on a predecessor
+#   coordinated: merged / nothing left / a node waits on a predecessor / a
+#     coord_setup stop (its reason on a line of its own) / a body the last
+#     render couldn't post (body=stale, body=full) / the merge refusals /
+#     a render refusal (execute:visibility) / a recovery's stops and the
+#     five follow-up stops / a follow-up closed unmerged
+#     (follow-up-closed:<url>, dropped without a URL), and a recovered run's
+#     recovered=<url> line (dropped outside the URL pattern)
 #
 # plus the refused case (outcome=error, step=execute:refused), the
 # merge-not-observed note, the three input shapes, and values that fail their
@@ -184,6 +190,114 @@ check "coordinated: a pause whose only condition is the pause itself" \
 repos=o/r
 pr=$URL2 waiting=predecessor reason=predecessor-unmerged
 resume=/execute docs/plans/PLAN-topic.md"
+
+# --- the coordination body's render, and the merge refusals ---------------------
+#
+# The coordinated terminals carry `body`, the last render's token: a body that
+# could not be posted (stale) or was over the cap (full) gets its own line,
+# after the PR lines; posted, unchanged and an absent token print nothing.
+
+check "coordinated: a body the render could not post prints body=stale" \
+    "$(result success '{outcome: "ready-awaiting-merge", reason: "merge-refused:body-stale", repos: "o/r", waiting: "https://github.com/o/r/pull/7:human", body: "stale"}')" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$URL waiting=human reason=merge-refused:body-stale
+body=stale"
+
+check "coordinated: a body over the cap prints body=full" \
+    "$(result success '{outcome: "ready-awaiting-merge", reason: "merge-refused:body-full", repos: "o/r", waiting: "https://github.com/o/r/pull/7:human", body: "full"}')" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$URL waiting=human reason=merge-refused:body-full
+body=full"
+
+for b in posted unchanged "" "refused:execute:visibility" "bogus"; do
+    P=$(jq -nc --arg u "$URL" --arg b "$b" '{outcome: "merged", pr: $u, repos: "o/r", waiting: "", body: $b}')
+    check "coordinated: body [$b] prints no body line" "$(result success "$P")" \
+"outcome=merged
+exit=full-run
+repos=o/r
+pr=$URL"
+done
+
+for r in merge-refused merge-refused:squash-message; do
+    P=$(jq -nc --arg u "$URL" --arg r "$r" '{outcome: "ready-awaiting-merge", reason: $r, pr: $u, repos: "o/r", waiting: ($u + ":human")}')
+    check "a merge refusal reason is kept: $r" "$(result success "$P")" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$URL waiting=human reason=$r"
+done
+
+check "a render refusal ends at done_blocked naming execute:visibility" \
+    "$(result failure '{outcome: "error", step: "execute:visibility", repos: "o/r", pr: "https://github.com/o/r/pull/7", waiting: "", body: "refused:execute:visibility"}')" \
+"outcome=error
+step=execute:visibility
+exit=abandonment-forced
+repos=o/r
+pr=$URL waiting=human"
+
+# --- coordinated setup stops ----------------------------------------------------
+#
+# coord_setup's typed stops end at done_error with a literal reason and no PR:
+# the reason is printed on a line of its own.
+
+for r in store-mismatch coordination-pr-missing coordination-pr-ambiguous coordination-pr-mismatch coordination-pr-closed \
+    session-absent recovery-unproven recovery-plan-gone coordination-index-missing coordination-body-full adopt-run-refused \
+    follow-up-node follow-up-repo follow-up-base follow-up-author follow-up-closed; do
+    STOP=$(jq -nc --arg r "$r" '{action: "done", state: "done_error", result: {status: "failure", summary: "s",
+        payload: {outcome: "error", step: "execute:coord_setup", reason: $r, pr: "", repos: "", waiting: "", recovered: ""}}}')
+    check "a coord_setup stop: $r" "$STOP" \
+"outcome=error
+step=execute:coord_setup
+exit=abandonment-forced
+reason=$r"
+done
+
+# --- a follow-up closed unmerged ------------------------------------------------
+#
+# The loop's reason for one carries its URL; a value that isn't a URL is
+# dropped from the PR line.
+
+FU_URL="https://github.com/o/r/pull/21"
+P=$(jq -nc --arg u "$FU_URL" '{outcome: "ready-awaiting-merge", reason: ("follow-up-closed:" + $u), pr: "https://github.com/o/r/pull/10", repos: "o/r", waiting: ($u + ":human,https://github.com/o/r/pull/10:predecessor")}')
+check "a follow-up closed unmerged: reason=follow-up-closed:<url>" "$(result success "$P")" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$FU_URL waiting=human reason=follow-up-closed:$FU_URL
+pr=https://github.com/o/r/pull/10 waiting=predecessor reason=follow-up-closed:$FU_URL"
+P=$(jq -nc --arg u "$FU_URL" '{outcome: "ready-awaiting-merge", reason: "follow-up-closed:not-a-url", pr: "https://github.com/o/r/pull/10", repos: "o/r", waiting: ($u + ":human")}')
+check "follow-up-closed: with no URL is dropped" "$(result success "$P")" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$FU_URL waiting=human"
+
+# --- a recovered run ------------------------------------------------------------
+#
+# A run whose setup rebuilt its record in this invocation says so with the
+# coordination PR's URL, after the PR lines; anything outside the URL pattern
+# prints nothing.
+
+check "coordinated: a recovered run prints recovered=<url>" \
+    "$(result success '{outcome: "paused-awaiting-merges", reason: "predecessor-unmerged", repos: "o/r", waiting: "https://github.com/o/r/pull/7:human", resume: "/execute docs/plans/PLAN-t.md", recovered: "https://github.com/o/r/pull/10"}')" \
+"outcome=paused-awaiting-merges
+repos=o/r
+pr=$URL waiting=human reason=predecessor-unmerged
+recovered=https://github.com/o/r/pull/10
+resume=/execute docs/plans/PLAN-t.md"
+for v in "" "not a url" "https://github.com/o/r/pull/10
+x"; do
+    P=$(jq -nc --arg u "$URL" --arg v "$v" '{outcome: "merged", pr: $u, repos: "o/r", waiting: "", recovered: $v}')
+    check "coordinated: recovered [$(printf '%s' "$v" | tr '\n' ' ')] prints no recovered line" "$(result success "$P")" \
+"outcome=merged
+exit=full-run
+repos=o/r
+pr=$URL"
+done
 
 # --- refusals -----------------------------------------------------------------
 

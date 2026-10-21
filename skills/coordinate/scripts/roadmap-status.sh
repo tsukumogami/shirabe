@@ -275,7 +275,7 @@ case "$MODE" in
 esac
 case "$OUTCOME$REASON$ENTRY_URL" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome, --reason and --entry-url are one line" >&2; exit 64 ;; esac
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/roadmap-status.XXXXXX")
+WD=$(mktemp -d "${TMPDIR:-/tmp}/roadmap-status.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 rs_record "$WD/parsed.json" body --json body --jq .body
@@ -323,7 +323,7 @@ words_read() {
 write_record() {
     bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$WD/parsed.json")" "$1" > "$WD/body.md" 2> "$WD/render.err" \
         || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
-    ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/roadmap-status-entry.XXXXXX")
+    ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/roadmap-status-entry.XXXXXX") || lib_die2 "cannot make a temporary file"
     printf '%s\n' "$2" > "$ENTRY_FILE"
     if [ "$OVERRIDE" = 1 ]; then ADDR=(--scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF")
     else ADDR=(--session "$SESSION"); fi
@@ -529,7 +529,8 @@ follow_ups_read() {
         printf '%s\t%s\t%s\t%s\n' "$i" "$tag" "$title" "$(lib_tag_key "$tag")" >> "$WD/fu/index.tsv"
         i=$((i + 1))
     done
-    [ "$(cut -f4 "$WD/fu/index.tsv" | sort | uniq -d | head -1)" = "" ] || refuse "two follow-up sections share a tag"
+    DUPTAGS=$(cut -f4 "$WD/fu/index.tsv" | sort | uniq -d)
+    [ "${DUPTAGS%%$'\n'*}" = "" ] || refuse "two follow-up sections share a tag"
     # Each follow-up the verdict names has its section, and each section is
     # one the verdict names.
     : > "$WD/fu-plan.tsv"

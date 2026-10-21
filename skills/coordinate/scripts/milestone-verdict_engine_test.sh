@@ -48,7 +48,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
@@ -113,7 +113,7 @@ open_run() {
 }
 # landing_file <directive-and-details>: the landing guidance file a rendered
 # directive names, resolved in the plugin.
-landing_file() { printf '%s' "$1" | grep -oE 'references/landing-[a-z]+-roadmap\.md' | head -1; }
+landing_file() { local m; m=$(grep -oE 'references/landing-[a-z]+-roadmap\.md' <<<"$1"); printf '%s\n' "${m%%$'\n'*}"; }
 
 # ---- the milestone run ------------------------------------------------------
 cat > "$T/mv.md" <<'EOF'

@@ -42,7 +42,7 @@ TMPS=()
 cleanup() { for d in "${TMPS[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done; }
 trap cleanup EXIT
 
-WORK=$(mktemp -d); TMPS+=("$WORK")
+WORK=$(mktemp -d) || exit 1; TMPS+=("$WORK")
 TAB=$'\t'
 
 # --- fixture builders -------------------------------------------------------
@@ -593,6 +593,22 @@ add_file 'a.sh' '. "$HERE/b.sh"' 'KA=koto'
 add_file 'b.sh' '. "$HERE/a.sh"' '"$KA" status 2>/dev/null || true'
 enum_open; enum_close
 assert_rejects "a source cycle terminates and still charges the binding" "skills/sourced-cycle/b.sh"
+
+# A work directory that can't be made (shirabe#926). Unchecked, WORK was empty
+# and every work file went to the filesystem root; the check then reported
+# what it couldn't read back. It's a usage error now, raised before any
+# write. The check runs from a throwaway directory with a mktemp that always
+# fails first on PATH.
+mkdir -p "$WORK/mkt-bin" "$WORK/mkt-cwd"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/mkt-bin/mktemp"
+chmod +x "$WORK/mkt-bin/mktemp"
+out=$(cd "$WORK/mkt-cwd" && PATH="$WORK/mkt-bin:$PATH" bash "$CHECK" --enumeration "$ENUM" "$FIXTURE" 2>&1); rc=$?
+if [ "$rc" -eq 2 ]; then pass "a failed mktemp is a usage error (2)"; else fail "a failed mktemp exited $rc, expected 2: $out"; fi
+case "$out" in
+  *"cannot make a temporary directory"*) pass "  ... that says so" ;;
+  *) fail "  ... that says so: $out" ;;
+esac
+if [ -z "$(ls -A "$WORK/mkt-cwd")" ]; then pass "  ... and writes nothing where it ran"; else fail "  ... and writes nothing where it ran: $(ls -A "$WORK/mkt-cwd")"; fi
 
 echo
 echo "check-tool-diagnostic-discards_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -41,9 +41,9 @@ if ! "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--vars-file'; then
     exit 0
 fi
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/scope-open-test.XXXXXX")"
-T="$(cd -P "$T" && pwd -P)"
-trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/scope-open-test.XXXXXX")" || exit 1
+T="$(cd -P "$T" && pwd -P)" || exit 1
+trap 'case "$T" in */scope-open-test.*) rm -rf "$T" ;; esac' EXIT
 
 PASS=0
 FAIL=0
@@ -528,7 +528,8 @@ printf 'not json' >"$T/garbage.json"
 eq "an args file that is not a JSON array: usage exit 64" "64" "$RC"
 if [ -e "$T/garbage.json" ]; then bad "a malformed args file is removed too"; else ok "a malformed args file is removed too"; fi
 
-if grep -n 'eval' "$OPEN" | grep -v '^[0-9]*:[[:space:]]*#' | grep -q .; then
+EVAL_HITS=$(grep -n 'eval' "$OPEN" | grep -v '^[0-9]*:[[:space:]]*#')
+if grep -q . <<<"$EVAL_HITS"; then
     bad "scope-open.sh uses eval" "$(grep -n eval "$OPEN")"
 else
     ok "scope-open.sh has no eval"

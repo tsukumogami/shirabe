@@ -25,9 +25,9 @@ S="$HERE/render-brief.sh"
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/render-brief-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/render-brief-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */render-brief-test.*) rm -rf "$T" ;; esac' EXIT
 
 PASS=0
 FAIL=0
@@ -162,7 +162,7 @@ has "return path: the brief's invocation carries the leg" "$L" 'Run `/shirabe:de
 # prose template can't drift apart unnoticed.
 TPL="$HERE/../references/brief-template.md"
 WANT=$(awk '/^```markdown/{f=1;next} /^```/{f=0} f && /^## /' "$TPL" | tr '\n' '|')
-GOT=$(printf '%s\n' "$B" | grep '^## ' | head -7 | tr '\n' '|')
+GOT=$(grep '^## ' <<<"$B" | head -7 | tr '\n' '|')
 eq  "template: the rendered headings are the template's" "$WANT" "$GOT"
 
 # An --interactive run mode is allowed (the human's decisions may ask for it,

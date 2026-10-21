@@ -1,10 +1,12 @@
 # coord-test-helpers.sh — shared fixtures for the coordinated scripts' tests.
 #
-# Sourced by coordinated-next_test.sh, coordination-verdict_test.sh,
-# record-coordination-verdict_test.sh, node-push_test.sh, node-cut_test.sh,
-# coord-merge_test.sh, record-coord-setup_test.sh, repo-visibility_test.sh,
-# coordinated-visibility_test.sh, execute-coordinated-engine_test.sh, and
-# coordinated-home-outside_test.sh. Not a test itself.
+# Sourced by run-record_test.sh, coordinated-next_test.sh,
+# coordination-verdict_test.sh, record-coordination-verdict_test.sh,
+# node-push_test.sh, node-cut_test.sh, coord-merge_test.sh,
+# record-coord-setup_test.sh, record-coord-follow-up_test.sh,
+# repo-visibility_test.sh, coordinated-visibility_test.sh,
+# execute-coordinated-engine_test.sh, coordinated-home-outside_test.sh,
+# coord-render_test.sh, and merge-message_test.sh. Not a test itself.
 #
 # GitHub is the eval gh shim (skills/execute/evals/fixtures/bin/gh) in its
 # repository-model mode: each case writes a gh/db.json seed into its own
@@ -33,19 +35,53 @@ git config --global user.name t
 git config --global init.defaultBranch main
 git config --global advice.detachedHead false
 
-ln -s "$CT_FIXTURES/bin/gh" "$CT_BIN/gh"
+# gh is a wrapper around the shim: it appends `gh <args>` to the case's
+# order.log, which the koto stub appends to as well, so a test can check that
+# a body post came after the koto write of the keys it shows (ct_order). With
+# CT_GH_HOOK set, it runs that script with gh's arguments first: a case's way
+# to change the model between two calls (a person editing the body).
+cat > "$CT_BIN/gh" <<STUB
+#!/usr/bin/env bash
+# A command koto runs may not see KOTO_STORE (the engine suites' real koto):
+# the call then goes unlogged here, and still reaches the shim.
+if [ -n "\${KOTO_STORE:-}" ]; then printf 'gh %s\\n' "\$*" >> "\$KOTO_STORE/order.log"; fi
+if [ -n "\${CT_GH_HOOK:-}" ]; then
+    bash "\$CT_GH_HOOK" "\$@" || exit 1
+fi
+exec "$CT_FIXTURES/bin/gh" "\$@"
+STUB
+chmod +x "$CT_BIN/gh"
 cat > "$CT_BIN/koto" <<'STUB'
 #!/usr/bin/env bash
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto-calls.log"
+printf 'koto %s\n' "$*" >> "$store/order.log"
 [ "$1" = context ] || { echo "koto stub: only context is served" >&2; exit 9; }
+if [ "$2" = list ]; then
+    # list [--prefix <p>] <session>, the flag on either side.
+    shift 2
+    prefix=""; s=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --prefix) prefix="$2"; shift 2 ;;
+            *) s="$1"; shift ;;
+        esac
+    done
+    [ -n "${KOTO_FAIL_LIST:-}" ] && exit 3
+    d="$store/ctx/$s"
+    [ -d "$d" ] || { printf '[]\n'; exit 0; }
+    (cd "$d" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) \
+        | while IFS= read -r k; do case "$k" in "$prefix"*) printf '%s\n' "$k" ;; esac; done \
+        | jq -R . | jq -sc .
+    exit 0
+fi
 d="$store/ctx/$3"
 mkdir -p "$d"
 case "$2" in
-    add) [ "${KOTO_FAIL_ADD:-}" = "$4" ] && exit 3; cat > "$d/$4" ;;
-    get) [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
+    add) [ "${KOTO_FAIL_ADD:-}" = "$4" ] && exit 3; mkdir -p "$(dirname "$d/$4")"; cat > "$d/$4" ;;
+    get) [ "${KOTO_FAIL_GET:-}" = "$4" ] && exit 3; [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
     remove) rm -f "$d/$4" ;;
-    exists) [ -f "$d/$4" ] ;;
+    exists) [ "${KOTO_FAIL_EXISTS:-}" = "$4" ] && exit 2; [ -f "$d/$4" ] ;;
     *) exit 9 ;;
 esac
 STUB
@@ -103,15 +139,18 @@ ct_case() {
     CASE="$CT_WORK/cases/$1"
     rm -rf "$CASE"
     mkdir -p "$CASE/scenario/gh" "$CASE/ctx/execute-t"
-    # The run identity execute-open.sh mints at the session's birth, for the
-    # execute-t session the tests drive; the scripts under test only read it.
+    # The run identity record-coord-setup.sh mints when it seals a new run,
+    # for the execute-t session the tests drive; the other scripts under test
+    # only read it.
     printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/execute-t/run_id"
     : > "$CASE/koto-calls.log"
     : > "$CASE/shirabe-calls.log"
+    : > "$CASE/order.log"
     export EVAL_SCENARIO_DIR="$CASE/scenario"
     export GH_CALL_LOG="$CASE/gh.log"
     export KOTO_STORE="$CASE"
-    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD
+    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST
+    unset CT_RECORD_REPOS GH_SHIM_FAIL CT_GH_HOOK
     CT_PRS='[]'
     CT_INDEX=""
     CT_COORD_STATE=OPEN
@@ -122,6 +161,78 @@ ct_case() {
     CT_VIS_B=public
 }
 
+# The run record (run-record-lib.sh's layout), seeded through run-record.sh
+# itself so the record's shape and its checks are defined once. Each helper
+# writes into CT_RECORD_SESSION (execute-t unless a caller sets it) in the
+# case's koto store, and returns nonzero, with run-record.sh's refusal on
+# stderr, when the write is refused.
+CT_RECORD_SESSION=execute-t
+# The default PLAN fixture's nodes, as record-coord-setup.sh seals them.
+CT_NODES_DEFAULT='[{"name":"pr-repo-a-core","kind":"pr","repo":"acme/repo-a","waits_on":[]},{"name":"pr-repo-a-cli","kind":"pr","repo":"acme/repo-a","waits_on":["pr-repo-a-core"]}]'
+
+# ct_nodes_of <plan-file> -- the PLAN's nodes in the run/setup shape.
+ct_nodes_of() {
+    bash "$SCRIPT_DIR/../../plan/scripts/plan-to-tasks.sh" "$1" 2>/dev/null </dev/null \
+        | jq -c '[.[] | {name, kind: (.vars.NODE_KIND // "pr"), repo: (.vars.REPO // ""), waits_on}]'
+}
+
+# ct_record <verb> <json> -- one run-record.sh write.
+ct_record() {
+    local f="$CASE/record-doc.json"
+    printf '%s' "$2" > "$f"
+    bash "$SCRIPT_DIR/run-record.sh" "$1" --session "$CT_RECORD_SESSION" --json "$f" >/dev/null </dev/null \
+        || { echo "ct_record: run-record.sh $1 refused [$2]" >&2; rm -f "$f"; return 1; }
+    rm -f "$f"
+}
+
+# ct_record_setup [store] [coord-pr] [nodes-json] -- seal run/setup: store
+# github, coordination PR #10, and the default PLAN fixture's nodes unless
+# given. repos is CT_RECORD_REPOS (comma-joined) when set, else the PR nodes'
+# repositories.
+ct_record_setup() {
+    local store="${1:-github}" cpr="${2:-10}" nodes="${3:-$CT_NODES_DEFAULT}" repos
+    if [ -n "${CT_RECORD_REPOS:-}" ]; then
+        repos=$(jq -cn --arg r "$CT_RECORD_REPOS" '$r | split(",") | unique')
+    else
+        repos=$(printf '%s' "$nodes" | jq -c '[.[] | select(.kind == "pr") | .repo] | unique')
+    fi
+    ct_record setup "$(jq -cn --arg s "$store" --argjson c "$cpr" --argjson r "$repos" --argjson n "$nodes" \
+        '{"run/setup": {store: $s, coordination_pr: $c, repos: $r, mode: "coordinated", nodes: $n, run_lines: {}}}')"
+}
+
+# ct_record_node <node> <repo> <pr> [head] -- a node's recorded PR and pushed
+# head (CT_HEAD unless given), as node-push.sh records them.
+ct_record_node() {
+    ct_record push "$(jq -cn --arg k "run/node/$1" --arg r "$2" --argjson p "$3" --arg h "${4:-$CT_HEAD}" \
+        '{($k): {repo: $r, pr: $p, head: $h}}')"
+}
+
+# ct_record_follow_up <node> <repo> <pr> [head] [removed] -- a follow-up PR
+# recorded against <node> (run/follow-up/<node>/<pr>), as setup's follow-up
+# step records it; `removed` true marks it removed.
+ct_record_follow_up() {
+    ct_record follow-up "$(jq -cn --arg k "run/follow-up/$1/$3" --arg r "$2" --argjson p "$3" \
+        --arg h "${4:-$CT_HEAD}" --arg rm "${5:-}" \
+        '{($k): ({repo: $r, pr: $p, head: $h} + (if $rm == "true" then {removed: true} else {} end))}')"
+}
+
+# ct_order -- the case's gh and koto calls, interleaved in the order they
+# were made, one per line.
+ct_order() { [ -f "$CASE/order.log" ] && cat "$CASE/order.log"; return 0; }
+
+# ct_record_cascade pushed <sha> | failed <step> -- the cascade's verdict.
+ct_record_cascade() {
+    case "$1" in
+        pushed) ct_record cascade "$(jq -cn --arg h "$2" '{"run/cascade": {verdict: "pushed", head: $h}}')" ;;
+        failed) ct_record cascade "$(jq -cn --arg s "$2" '{"run/cascade": {verdict: "failed", step: $s}}')" ;;
+        *) echo "ct_record_cascade: pushed <sha> or failed <step>" >&2; return 1 ;;
+    esac
+}
+
+# ct_ctx_writes -- the case's koto context writes (add and remove), one per
+# line, from the stub's call log.
+ct_ctx_writes() { grep -E '^context (add|remove) ' "$CASE/koto-calls.log" 2>/dev/null; return 0; }
+
 # ct_index_line <node> <repo> <number> [head] -- append one PR index line.
 ct_index_line() {
     local l="- $1 | $2:docs/plans/PLAN-$CT_SLUG.md#$3 | open"
@@ -131,13 +242,16 @@ ct_index_line() {
 }
 
 # ct_pr <repo> <number> <head-branch> [key=json ...] -- add a PR to the model.
-# Defaults: owned, open, ready, CLEAN, one passing check, head CT_HEAD.
+# Defaults: owned, open, ready, CLEAN, one passing check, head CT_HEAD, titled
+# `feat(t): <head-branch>` with a two-part body (a Part 1, one top-level
+# `---`, the fixed fields), the shape a squash message is built from.
 ct_pr() {
     local repo="$1" n="$2" head="$3" kv obj
     shift 3
     obj=$(jq -nc --arg r "$repo" --argjson n "$n" --arg h "$head" --arg sha "$CT_HEAD" --arg login "$CT_LOGIN" '{
         repo: $r, number: $n, headRefName: $h, baseRefName: "main", author: $login,
-        isCrossRepository: false, state: "OPEN", isDraft: false, title: "t", body: "",
+        isCrossRepository: false, state: "OPEN", isDraft: false, title: ("feat(t): " + $h),
+        body: "Implements the node.\n\n---\n\nCoordinated node.\n",
         headRefOid: $sha, mergeStateStatus: "CLEAN", reviewDecision: "",
         checks: [{name: "build", bucket: "pass"}], files: ["src/x.go"], merge: "ok"}')
     for kv in "$@"; do
@@ -146,15 +260,58 @@ ct_pr() {
     CT_PRS=$(printf '%s' "$CT_PRS" | jq -c --argjson o "$obj" '. + [$o]')
 }
 
-# ct_write_db -- write the case's gh/db.json: the model repository, the
-# coordination PR (#10 on CT_CB carrying the marker and CT_INDEX), and the PRs
+# ct_follow_up_pr <repo> <number> [key=json ...] -- add a follow-up PR to the
+# model: ct_pr's defaults on head branch fix/<number> (a person's branch, not
+# a node's impl/ one), titled `fix(t): follow-up <number>`.
+ct_follow_up_pr() {
+    local repo="$1" n="$2"
+    shift 2
+    ct_pr "$repo" "$n" "fix/$n" "title=\"fix(t): follow-up $n\"" "$@"
+}
+
+# ct_marked_body <id> -- ct_pr's default node PR body carrying <id>'s run
+# marker (run-id.sh's line), as the JSON string ct_pr's body= takes.
+ct_marked_body() {
+    jq -cn --arg id "$1" '"Implements the node.\n\n---\n\nCoordinated node.\n\n<!-- shirabe-run: \($id) -->\n"'
+}
+
+# ct_rendered_body <file> <run> <store> [<node>=<pr> ...] -- the coordination
+# PR's body as coord-render.sh renders it, through the codec's own cb_render:
+# the default PLAN's nodes, run=<run> (left out when empty), store=<store>,
+# and an index line for each <node>=<pr> given, in acme/repo-a with head
+# CT_OTHER, which is never a live head in the model.
+ct_rendered_body() {
+    local f="$1" run="$2" store="$3" recs='{}' kv
+    shift 3
+    for kv in "$@"; do
+        recs=$(jq -cn --argjson m "$recs" --arg n "${kv%%=*}" --argjson p "${kv#*=}" --arg h "$CT_OTHER" \
+            '$m + {($n): {repo: "acme/repo-a", pr: $p, head: $h}}')
+    done
+    jq -cn --arg run "$run" --arg store "$store" --argjson nodes "$CT_NODES_DEFAULT" --argjson recs "$recs" '
+        {topic: "t", part1: null, run_lines: {topic: "t"}, store: $store, run: $run, nodes: $nodes,
+         records: $recs, follow_ups: {}, states: {},
+         home: {repo: "acme/repo-a", pr: 10, visibility: "public"}, visibility: {}}' > "$CASE/render-doc.json"
+    (
+        # shellcheck source=../../../scripts/lib/coordination-body.sh
+        . "$SCRIPT_DIR/../../../scripts/lib/coordination-body.sh" && cb_render "$CASE/render-doc.json"
+    ) > "$f"
+}
+
+# ct_write_db [body-file] -- write the case's gh/db.json: the model
+# repository, the coordination PR (#10 on CT_CB, whose body is /scope's shape
+# carrying the marker and CT_INDEX, or the given file's bytes), and the PRs
 # ct_pr added. CT_VIS_A and CT_VIS_B are the two repositories' `visibility`
 # (public by default); `none` leaves the repository out of the model, so a
 # read of it fails.
 ct_write_db() {
     local body
-    body=$(printf '# Coordination PR: %s\n\n> This is a **coordination PR** for a coordinated effort.\n\n## PR Index\n\n%s\n## Merge Order\n\n```merge-order\n%s | open\n%s | open\n```\n' \
-        "$CT_SLUG" "$CT_INDEX" "$CT_CORE" "$CT_CLI")
+    if [ -n "${1:-}" ]; then
+        body=$(cat -- "$1"; printf x)
+        body="${body%x}"
+    else
+        body=$(printf '# Coordination PR: %s\n\n> This is a **coordination PR** for a coordinated effort.\n\n## PR Index\n\n%s\n## Merge Order\n\n```merge-order\n%s | open\n%s | open\n```\n' \
+            "$CT_SLUG" "$CT_INDEX" "$CT_CORE" "$CT_CLI")
+    fi
     jq -n --arg login "$CT_LOGIN" --argjson prs "$CT_PRS" --arg body "$body" --arg cb "$CT_CB" \
         --arg state "$CT_COORD_STATE" --argjson draft "$CT_COORD_DRAFT" --arg cmerge "$CT_COORD_MERGE" \
         --arg sha "$CT_HEAD" --arg va "$CT_VIS_A" --arg vb "$CT_VIS_B" '
@@ -175,11 +332,12 @@ ct_write_db() {
         > "$CASE/scenario/gh/db.json"
 }
 
-# ct_plan <dir> [two-repo|gated|remote] -- write docs/plans/PLAN-t.md into
-# <dir>: an issue-carrying coordinated PLAN (no tracking_level, so
+# ct_plan <dir> [two-repo|gated|remote|three] -- write docs/plans/PLAN-t.md
+# into <dir>: an issue-carrying coordinated PLAN (no tracking_level, so
 # plan-to-tasks.sh's table path, which needs no shirabe binary). One
 # repository, groups core (issues 1, 2) and cli (issue 3, blocked by 1); with
-# `gated`, the same plus a gate node publish-core after core and before cli;
+# `three`, the same plus an independent group docs (issue 4, pr-repo-a-docs);
+# with `gated`, the same plus a gate node publish-core after core and before cli;
 # with `two-repo`, two independent roots in acme/repo-a and acme/repo-b, Group
 # default; or, with `remote`, the one-repository shape with every node in
 # acme/repo-b (pr-repo-b-core, then pr-repo-b-cli), so a coordination PR in
@@ -189,6 +347,13 @@ ct_plan() {
     if [ "${2:-}" = remote ]; then
         ct_plan "$1"
         sed -i.bak 's#acme/repo-a#acme/repo-b#' "$1/docs/plans/PLAN-t.md" && rm -f "$1/docs/plans/PLAN-t.md.bak"
+        return
+    fi
+    if [ "${2:-}" = three ]; then
+        ct_plan "$1"
+        sed -i.bak 's#^issue_count: 3$#issue_count: 4#' "$1/docs/plans/PLAN-t.md" && rm -f "$1/docs/plans/PLAN-t.md.bak"
+        printf '%s\n' '| [#4: docs](https://example.com/4) | None | testable |' \
+            '| ^_Repo: acme/repo-a \| Group: docs_ | | |' >> "$1/docs/plans/PLAN-t.md"
         return
     fi
     if [ "${2:-}" = gated ]; then

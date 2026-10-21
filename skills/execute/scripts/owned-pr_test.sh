@@ -23,6 +23,10 @@
 #   --state all: closed-unmerged + open owned      the open URL, exit 0
 #   --state all: one merged owned PR alone         its URL, exit 0
 #   --state open: a merged owned PR                empty stdout, exit 0
+#   --state open-else-merged: the open answer       the open URL, exit 0; never
+#     while one is open, else the merged one       an earlier run's merged PR
+#                                                  beside it, and a closed-
+#                                                  unmerged PR is no survivor
 #   failing gh for pr list, and for api user       empty stdout, exit 2
 #   usage errors                                   empty stdout, exit 64, no gh call
 #
@@ -45,7 +49,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 [ -f "$OWNED" ] || { echo "FAIL: $OWNED not found" >&2; exit 1; }
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/owned-pr-test.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/owned-pr-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"
 mkdir -p "$BIN" "$WORK/cases"
@@ -322,6 +326,77 @@ else
     fail "gh pr list does not ask for the body: $(cat "$CASE/calls.log")"
 fi
 
+# --- --state open-else-merged -------------------------------------------------
+
+# The open answer while the branch has an open candidate, the merged one only
+# once it has none (#958): /execute's ci_monitor gates follow the run's PR
+# from open to merged with it.
+OEM=(--repo o/r --head feat/x --state open-else-merged --base main --run-id "$MINE")
+
+new_case oem-open
+list "$(pr 7 OPEN "$(mark "$MINE")")"
+expect "open-else-merged: my open PR alone" "$URL1" 0 "${OEM[@]}"
+
+new_case oem-merged
+list "$(pr 7 MERGED "$(mark "$MINE")")"
+expect "open-else-merged: my merged PR alone" "$URL1" 0 "${OEM[@]}"
+
+new_case oem-merged-unmarked
+list "$(pr 7 MERGED)"
+expect "open-else-merged: an unmarked merged PR falls back to the login-and-branch match" "$URL1" 0 "${OEM[@]}"
+
+new_case oem-closed-only
+list "$(pr 7 CLOSED "$(mark "$MINE")")"
+expect "open-else-merged: a closed-unmerged PR alone is no survivor, as under --state open" "" 0 "${OEM[@]}"
+run --repo o/r --head feat/x --state open --base main --run-id "$MINE"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] \
+    && pass "open-else-merged: --state open gives the same answer on that branch" \
+    || fail "--state open on a closed-only branch: [$OUT] exit $RC"
+
+new_case oem-none
+expect "open-else-merged: no PR on the branch" "" 0 "${OEM[@]}"
+
+new_case oem-earlier-merged-plus-open
+list "$(pr 7 MERGED "$(mark "$OTHER")")" "$(pr 8 OPEN "$(mark "$MINE")")"
+expect "open-else-merged: an earlier run's merged PR beside my open one gives the open one" "$URL2" 0 "${OEM[@]}"
+
+new_case oem-unmarked-merged-plus-open
+list "$(pr 7 MERGED)" "$(pr 8 OPEN "$(mark "$MINE")")"
+expect "open-else-merged: an unmarked merged PR beside my open one gives the open one" "$URL2" 0 "${OEM[@]}"
+
+new_case oem-my-merged-plus-foreign-open
+list "$(pr 7 MERGED "$(mark "$MINE")")" "$(pr 8 OPEN "$(mark "$OTHER")")"
+expect "open-else-merged: my merged PR beside another run's open one is that run's branch (exit 5, as --state open)" "" 5 "${OEM[@]}"
+
+new_case oem-foreign-merged
+list "$(pr 7 MERGED "$(mark "$OTHER")")"
+expect "open-else-merged: another run's merged PR alone is never mine (exit 5)" "" 5 "${OEM[@]}"
+
+new_case oem-merged-other-author
+list "$(pr 7 MERGED "$(mark "$MINE")" '.author.login = "someone-else"')"
+expect "open-else-merged: another author's merged PR is no survivor" "" 0 "${OEM[@]}"
+
+new_case oem-merged-fork
+list "$(pr 7 MERGED "$(mark "$MINE")" '.isCrossRepository = true')"
+expect "open-else-merged: a fork's merged PR is no survivor" "" 0 "${OEM[@]}"
+
+new_case oem-two-merged
+list "$(pr 7 MERGED "$(mark "$MINE")")" "$(pr 8 MERGED "$(mark "$MINE")")"
+expect "open-else-merged: two merged PRs of mine are ambiguous (exit 4)" "" 4 "${OEM[@]}"
+
+new_case oem-closed-plus-merged
+list "$(pr 7 CLOSED "$(mark "$MINE")")" "$(pr 8 MERGED "$(mark "$MINE")")"
+expect "open-else-merged: a closed-unmerged PR never stands beside the merged one" "$URL2" 0 "${OEM[@]}"
+
+new_case oem-state-arg
+list "$(pr 7 MERGED)"
+run "${OEM[@]}"
+if grep -q -- '--state all ' "$CASE/calls.log" && ! grep -q -- 'open-else-merged' "$CASE/calls.log"; then
+    pass "open-else-merged asks gh pr list for --state all"
+else
+    fail "open-else-merged's gh call: $(cat "$CASE/calls.log")"
+fi
+
 # --- taking over ------------------------------------------------------------------
 
 new_case takeover
@@ -428,6 +503,8 @@ expect_usage "empty --run-id" --repo o/r --head a --state open --run-id ''
 expect_usage "repeated --run-id" --repo o/r --head a --state open --run-id "$MINE" --run-id "$MINE"
 expect_usage "--take-over without --run-id" --repo o/r --head a --state open --take-over
 expect_usage "--take-over with --state all" --repo o/r --head a --state all --run-id "$MINE" --take-over
+expect_usage "--take-over with --state open-else-merged" --repo o/r --head a --state open-else-merged --run-id "$MINE" --take-over
+expect_usage "a near miss of open-else-merged" --repo o/r --head a --state open-or-merged
 
 # --- the contract names no caller step ----------------------------------------
 

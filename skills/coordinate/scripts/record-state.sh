@@ -222,7 +222,7 @@ if [ "$MODE" = host ]; then
     done <<EOF
 $HOSTKV
 EOF
-    WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX")
+    WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$WD"' EXIT
     rs_host "${RS_SESSION:-$SESSION}" "$WD/host" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.err")"
     printf '%s' "$HOSTKV" | jq -R -s --slurpfile cur "$WD/host" \
@@ -247,7 +247,7 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || usage
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX")
+WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 rs_record "$WD/parsed.json" body --json body --jq .body
@@ -473,9 +473,10 @@ bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.writ
 printf '%s\n' "$ETEXT" > "$WD/entry.txt"
 # The write core takes over $T and the EXIT trap and removes $WD, so the
 # entries' text is kept outside it.
-ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-entry.XXXXXX")
+ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-entry.XXXXXX") || lib_die2 "cannot make a temporary file"
 cp "$WD/entry.txt" "$ENTRY_FILE"
-LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-leaving.XXXXXX")
+LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-leaving.XXXXXX") \
+    || { rm -f "$ENTRY_FILE"; lib_die2 "cannot make a temporary file"; }
 cp "$WD/leaving.txt" "$LEAVING_FILE"
 
 BODY="$WD/body.md" END= CLOSE=0 CORE_CLEANUP=$WD

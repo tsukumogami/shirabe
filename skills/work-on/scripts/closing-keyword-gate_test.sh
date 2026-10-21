@@ -55,7 +55,7 @@ if [[ -z "$GATE" ]]; then
 fi
 
 # A gh stub that prints $PR_BODY, so the gate can be run against any body.
-STUB_DIR=$(mktemp -d); TMPS+=("$STUB_DIR")
+STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
 # Stands in for `gh pr view --json body --jq .body`.

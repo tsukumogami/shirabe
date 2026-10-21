@@ -13,11 +13,12 @@ description: >
 
   A child's word never moves the run forward on its own. Every progress arm
   needs a promoted, valid result on its leg, and each is re-checked against
-  durable state before the next step: scoped_check (the PLAN tracked, the
-  owned PR recording intent=continue), mode_route (the PLAN's mode),
-  executed_check and merged_check (the owned PR, re-read). The re-checks find
-  the PR themselves through the shared ownership filter and never trust a
-  leg's `pr`.
+  durable state before the next step: scoped_check (/scope's result
+  recording intent continue and naming the owned PR, the PLAN tracked, the
+  branch pushed), mode_route (the PLAN's mode), executed_check and
+  merged_check (the owned PR, re-read). The re-checks find the PR themselves
+  through the shared ownership filter and never take a leg's `pr` as the
+  run's.
 
   Script output reaches routing only through context. A command gate exposes
   an exit code and nothing else, so each re-check runs deliver-probe.sh as a
@@ -36,8 +37,11 @@ description: >
 
   No state pushes, merges, or writes to GitHub as a default action. The
   default actions are open_request, scope_absent and execute_absent, which
-  touch only koto's request store, and the three re-checks, which only read
-  git and GitHub and write only this session's own context keys. Every
+  touch only koto's request store; the three re-checks, which only read git
+  and GitHub and write only this session's own context keys; mode_route's
+  handover read, which reads the PLAN's mode and this session's checked_pr
+  and prints /execute's coordination arguments; and execute_lost, which
+  reads the execute session's status and writes execute_state here. Every
   repository write happens inside /scope and /execute.
 
   Arguments are checked by koto, not by prose: deliver-open.sh maps each flag
@@ -128,6 +132,16 @@ variables:
     pattern: '^(light|standard|full)?$'
     default: ""
     rebind: true
+  STORE:
+    description: >-
+      The --store value forwarded to /execute for a coordinated PLAN only
+      (github or session), or empty for /execute's default. mode_route's
+      handover read appends it, after the coordination PR, only on a
+      coordinated PLAN: a single-pr /execute declares no such variable and
+      would refuse it. Rebindable, as MAX_ROUNDS is.
+    pattern: '^(github|session)?$'
+    default: ""
+    rebind: true
 
 states:
   open_request:
@@ -168,7 +182,8 @@ states:
     # copied: that arm clears the leg-derived keys instead, so a forged `pr`
     # never reaches the result. Every other arm copies the leg's payload keys
     # into context (K2); /scope's `outcome` lands in `scope_outcome`, because
-    # `outcome` is this run's own result key.
+    # `outcome` is this run's own result key, and its `intent` in
+    # `scope_intent`, which scoped_check reads beside `pr`.
     gates:
       scope_leg:
         type: request-leg
@@ -205,6 +220,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -219,6 +235,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -233,6 +250,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -250,6 +268,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -266,6 +285,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -282,6 +302,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -300,6 +321,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -320,6 +342,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -339,6 +362,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -356,6 +380,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -375,6 +400,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -392,6 +418,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -409,6 +436,7 @@ states:
           plan_path: ""
           plan_execution_mode: ""
           pr: ""
+          scope_intent: ""
           pr_state: ""
           startable: ""
           next: ""
@@ -424,6 +452,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -438,6 +467,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -452,6 +482,7 @@ states:
           plan_path: "${gates.scope_leg.payload.plan_path}"
           plan_execution_mode: "${gates.scope_leg.payload.plan_execution_mode}"
           pr: "${gates.scope_leg.payload.pr}"
+          scope_intent: "${gates.scope_leg.payload.intent}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
           next: "${gates.scope_leg.payload.next}"
@@ -474,11 +505,13 @@ states:
 
   scoped_check:
     # The durable re-check behind a scoped or handed-off-multi-pr result:
-    # the PLAN tracked and unchanged at HEAD, the owned scoping PR verified
-    # with intent=continue, found through owned-pr.sh. deliver-probe.sh clears
-    # scoped_verdict, checked_pr and pr, then writes the verdict and, on pass,
-    # the verified PR as checked_pr and pr, replacing the leg's copy. An
-    # absent verdict matches no pass arm.
+    # /scope's own result (the scope_intent and pr scope_run copied from the
+    # leg) recording intent continue and naming the owned PR, the PLAN
+    # tracked and unchanged at HEAD, and the branch pushed at HEAD with one
+    # owned open PR, found through owned-pr.sh. No intent is read off the
+    # PR's body. deliver-probe.sh reads those two keys, clears scoped_verdict,
+    # checked_pr and pr, then writes the verdict and, on pass, the verified PR
+    # as checked_pr and pr. An absent verdict matches no pass arm.
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-probe.sh" scoped --topic "{{TOPIC}}" --session "deliver-{{TOPIC}}"'
       fallback: >-
@@ -520,9 +553,24 @@ states:
           failure_reason: "/deliver stopped: deliver:child-outcome"
 
   mode_route:
-    # Gate-only over plan-mode.sh: single-pr and coordinated go on toward
-    # /execute; a multi-pr PLAN is handed off without starting /execute, with
-    # the startable list scope_run copied; a PLAN without a valid mode stops.
+    # Routes on plan-mode.sh's exit code: single-pr and coordinated go on
+    # toward /execute; a multi-pr PLAN is handed off without starting
+    # /execute, with the startable list scope_run copied; a PLAN without a
+    # valid mode stops. Its default action is the handover read: koto
+    # substitutes a capture into a directive but never a context key, so
+    # deliver-execute-leg.sh reads checked_pr (the PR scoped_check verified)
+    # and prints the arguments execute_run appends to /execute's, captured as
+    # EXEC_HANDOVER: `--coordination-pr <url>` and, when STORE is set,
+    # `--store <value>` on a coordinated PLAN, and `none` on any other.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-execute-leg.sh" handover --topic "{{TOPIC}}" --session "deliver-{{TOPIC}}" --store "{{STORE}}"'
+      capture_stdout_as: EXEC_HANDOVER
+      fallback: >-
+        koto could not read the arguments /execute is handed. Read the
+        command's own output above: exit 66 means a `koto context` read
+        failed, or a coordinated PLAN's run holds no verified PR, and 64 a
+        usage error. There is no evidence to submit. Fix the cause and tick
+        again.
     gates:
       plan_mode:
         type: command
@@ -693,20 +741,24 @@ states:
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
       # koto refused /execute's arguments or its attach (another template,
-      # another worktree, a stale leg) and recorded it on the leg.
-      - target: done_error
+      # another worktree, a stale leg, a session bound to another leg) and
+      # recorded it on the leg: the execute leg is lost. The template can't
+      # tell an attach refusal from an argument one, so every refusal here is
+      # execute-leg-lost:<koto's code>; execute_lost names the execute
+      # session's state on the way to done_error.
+      - target: execute_lost
         when:
           gates.exec_leg.disposition: resolved
           gates.exec_leg.source: refused
         context_assignments:
           outcome: error
-          step: "execute:refused"
-          failure_reason: "/deliver stopped: execute:refused"
+          step: "deliver:child-absent"
+          failure_reason: "/deliver stopped: deliver:child-absent"
           pr: "${gates.exec_leg.payload.pr}"
           repos: "${gates.exec_leg.payload.repos}"
           resume: "${gates.exec_leg.payload.resume}"
           waiting: "${gates.exec_leg.payload.waiting}"
-          reason: "${gates.exec_leg.payload.reason}"
+          reason: "execute-leg-lost:${gates.exec_leg.payload.reason}"
           next: ""
       - target: done_error
         when:
@@ -735,18 +787,21 @@ states:
           waiting: "${gates.exec_leg.payload.waiting}"
           reason: "${gates.exec_leg.payload.reason}"
           next: ""
-      - target: done_error
+      # The request is not in this host's request store: a /deliver session
+      # moved here from a host with another store. The execute leg is lost;
+      # a new /deliver here binds the moved execute session to its own leg.
+      - target: execute_lost
         when:
           gates.exec_leg.disposition: missing
         context_assignments:
           outcome: error
-          step: "deliver:request-abandoned"
-          failure_reason: "/deliver stopped: deliver:request-abandoned"
-          pr: "${gates.exec_leg.payload.pr}"
-          repos: "${gates.exec_leg.payload.repos}"
-          resume: "${gates.exec_leg.payload.resume}"
-          waiting: "${gates.exec_leg.payload.waiting}"
-          reason: "${gates.exec_leg.payload.reason}"
+          step: "deliver:child-absent"
+          failure_reason: "/deliver stopped: deliver:child-absent"
+          pr: ""
+          repos: ""
+          resume: ""
+          waiting: ""
+          reason: "execute-leg-lost:request_not_found"
           next: ""
       - target: execute_absent
         when:
@@ -772,6 +827,26 @@ states:
         to re-run it; there is no evidence to submit here.
     transitions:
       - target: execute_run
+
+  execute_lost:
+    # The execute leg was refused or its request is missing. The edge into
+    # this state has already assigned outcome error, step
+    # deliver:child-absent and the execute-leg-lost:<code> reason; the step
+    # is shared with a child that returned no result, so the reason is what
+    # tells the causes apart. deliver-execute-leg.sh lost reads
+    # `koto status execute-<topic>` (read only) and writes its state as
+    # execute_state, which the result names, then the run ends.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-execute-leg.sh" lost --topic "{{TOPIC}}" --session "deliver-{{TOPIC}}"'
+      fallback: >-
+        koto could not record the execute session's state. Read the command's
+        own output above: exit 66 means the `koto context add` failed, 64 a
+        usage error. Tick again to re-run it; there is no evidence to submit
+        here.
+    transitions:
+      - target: done_error
+        context_assignments:
+          failure_reason: "/deliver stopped: deliver:child-absent"
 
   executed_check:
     # The durable re-check behind /scope's `executed` shortcut: no PLAN, the
@@ -909,6 +984,7 @@ states:
       waiting: "${context.waiting}"
       next: "${context.next}"
       startable: "${context.startable}"
+      execute_state: "${context.execute_state}"
 
   done_stopped:
     terminal: true
@@ -923,6 +999,7 @@ states:
       waiting: "${context.waiting}"
       next: "${context.next}"
       startable: "${context.startable}"
+      execute_state: "${context.execute_state}"
 
   done_error:
     terminal: true
@@ -938,6 +1015,7 @@ states:
       waiting: "${context.waiting}"
       next: "${context.next}"
       startable: "${context.startable}"
+      execute_state: "${context.execute_state}"
 ---
 
 ## open_request
@@ -1013,18 +1091,19 @@ record one.
 
 <!-- details -->
 
-The check confirms that `docs/plans/PLAN-{{TOPIC}}.md` is tracked and unchanged
-at HEAD, that the branch is pushed at HEAD with one owned open PR recording
-`intent=continue`, and it finds that PR itself through the ownership filter.
-The PR it verified replaces the one the leg reported. The gates refuse
-overrides and there is nothing to submit. Read the action's output, fix the
-cause, and tick again.
+The check confirms that /scope's result records intent `continue` and names
+the PR the check finds itself through the ownership filter, that
+`docs/plans/PLAN-{{TOPIC}}.md` is tracked and unchanged at HEAD, and that the
+branch is pushed at HEAD with that one owned open PR. It reads /scope's
+result, never an `intent=` line in the PR's body. The gates refuse overrides
+and there is nothing to submit. Read the action's output, fix the cause, and
+tick again.
 
 ## mode_route
 
 Routing on the PLAN's mode. koto reads `execution_mode:` from
-`docs/plans/PLAN-{{TOPIC}}.md` itself; you only see this state if that read
-could not run.
+`docs/plans/PLAN-{{TOPIC}}.md` itself, and records the arguments /execute is
+handed; you only see this state if one of those could not run.
 
 <!-- details -->
 
@@ -1064,14 +1143,20 @@ Then the review-level bound, from this run's forwarded settings:
 - `--review-ceiling={{REVIEW_CEILING}}`, only when that value after `=` is not
   empty.
 
+Then this run's handover arguments: `{{EXEC_HANDOVER}}`. When that value reads
+`none`, append nothing; otherwise append it exactly as written.
+
 Run /execute to its end exactly as its own directives say, then call
 `koto next {{SESSION_NAME}} --no-cleanup` with no evidence.
 
 <!-- details -->
 
 /execute reports to this run only through the leg, the same way /scope did. On
-a /deliver run it adopts the PR /scope published on this branch. Never relay
-what /execute printed, and never submit an outcome.
+a /deliver run it adopts the PR /scope published on this branch. On a
+coordinated PLAN the handover arguments are `--coordination-pr` with the PR
+scoped_check verified, and `--store` with this run's store when /deliver was
+given one, and /execute's setup verifies both. Never relay what /execute
+printed, and never submit an outcome.
 
 If `koto next` answers that it is still waiting on the leg, /execute has not
 finished; continue it. Submit `child_returned: yes` only when the /execute
@@ -1092,6 +1177,18 @@ The action resolves the `execute` leg with the fixed record
 `{outcome: error, step: deliver:child-absent}`. If /execute bound the leg in
 the meantime, koto refuses the resolve and the run goes back to waiting on it.
 Read the output above and tick again.
+
+## execute_lost
+
+Recording the execute session's state after its leg was lost. koto runs this
+itself; you only see this state if the action failed.
+
+<!-- details -->
+
+The execute leg was refused, or this run's request isn't in this host's
+request store. The action reads the `execute-{{TOPIC}}` session's status and
+records its state, which the report names; the run then ends in an error with
+`reason=execute-leg-lost:<code>`. Read the output above and tick again.
 
 ## executed_check
 

@@ -29,10 +29,11 @@
 #      so the coordinator submits `merge: paused` and the worker is re-briefed
 #      to report again at the resume
 #      (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1);
-#   5. the squash message: squash-message.sh over the pull request's live
-#      title and body (gh pr view --json title,body) must build, so the
-#      commit carries Part 1 and never the reviewer context below it. A
-#      close-out's record pull request has a fixed Part 1, built the same way.
+#   5. the squash message: scripts/lib/squash-message.sh over the pull
+#      request's live title and body (gh pr view --json title,body) must
+#      build, so the commit carries Part 1 and never the reviewer context
+#      below it. A close-out's record pull request has a fixed Part 1, built
+#      the same way.
 # Then it runs merge-exec.sh <repo> <pr> <sha> <message-file>, which
 # recomputes its own verdict and merges with --match-head-commit <sha>, so
 # GitHub refuses a head that moved after the check, and with the message as
@@ -146,7 +147,7 @@ MS=$(mktemp "${TMPDIR:-/tmp}/land-merge.XXXXXX") || refuse "no temporary file"
 trap 'rm -f "$MS" "$MS".*' EXIT
 bl_gh "$MS" pr view "$PR" --repo "$REPO" --json title,body || refuse "the pull request's title and body couldn't be read"
 jq -r '.body // ""' "$MS" > "$MS.body" || refuse "the pull request's body couldn't be read"
-bash "$HERE/squash-message.sh" --title "$(jq -r '.title // ""' "$MS")" "$MS.body" > "$MS.msg" \
+bash "$HERE/../../../scripts/lib/squash-message.sh" --title "$(jq -r '.title // ""' "$MS")" "$MS.body" > "$MS.msg" \
     || refuse "the squash message couldn't be built from the title and Part 1"
 
 OUT=$(bash "$HERE/../../execute/scripts/merge-exec.sh" "$REPO" "$PR" "$SHA" "$MS.msg")

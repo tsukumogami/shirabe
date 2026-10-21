@@ -17,9 +17,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-common-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-common-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */dispatch-common-test.*) rm -rf "$T" ;; esac' EXIT
 
 PASS=0
 FAIL=0
@@ -150,17 +150,96 @@ eq  "deadline: a command past it is 124" 124 "$RC"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "deadline: returns at the deadline"; else bad "deadline: returns at the deadline" ""; fi
 # No watcher sleep outlives a quick command: its sleep length is unique to
 # this run, so any process still running it afterwards is this run's leak.
+# The check runs the moment the call returns, with no pause: the watcher
+# waits on its sleep before it exits, so a sleep still listed here is a leak,
+# not a slow exit. A zombie lists as <defunct> or [sleep] <defunct>, and
+# this grep's own line has grep after its pid, so neither matches.
 LEN=$(( 40000 + $$ % 10000 ))
-dc_with_deadline "$LEN" true
-sleep 1
+# no_watcher_left <case>: the check, run right after a call. grep reads all
+# of ps's output: with grep -q and pipefail, a ps longer than the pipe buffer
+# dies of SIGPIPE at the first match and the match would read as none.
+no_watcher_left() {
+    local left
+    left=$(ps -eo pid,args | grep -E "^ *[0-9]+ sleep $LEN\$")
+    if [ -n "$left" ]; then bad "$1" "$left"; else ok "$1"; fi
+}
 if ! command -v ps >/dev/null 2>&1; then
     ok "deadline: no watcher left behind (not checked: ps isn't on this PATH)"
-elif ps -eo args | grep -q "^sleep $LEN\$"; then
-    bad "deadline: no watcher left behind" "$(ps -eo pid,args | grep "sleep $LEN")"
 else
-    ok "deadline: no watcher left behind"
+    dc_with_deadline "$LEN" true
+    no_watcher_left "deadline: no watcher left behind"
+    # bash drops a TERM that reaches the watcher's sleep before it execs (the
+    # forked child still runs the watcher's trap). A sleep that ignores TERM
+    # stands in for that one, and the command ends only once the sleep is
+    # running, so the watcher has to stop it from its trap. The command fails
+    # if it never sees the sleep, so the case can't pass without testing it.
+    sleep() { if [ "$1" = "$LEN" ]; then trap '' TERM; exec sleep "$@"; fi; command sleep "$@"; }
+    dc_with_deadline "$LEN" sh -c 'i=0; until ps -eo args | grep -q "^sleep $1\$"; do [ "$i" -ge 50 ] && exit 1; sleep 0.1; i=$((i + 1)); done' _ "$LEN"
+    RC=$?
+    unset -f sleep
+    if [ "$RC" -ne 0 ]; then
+        bad "deadline: no watcher left behind when its sleep ignores TERM" "the watcher's sleep was never seen running (status $RC)"
+    else
+        no_watcher_left "deadline: no watcher left behind when its sleep ignores TERM"
+    fi
+fi
+# bash also drops a TERM that reaches the watcher while `trap` installs its
+# handler. A watcher that ignores TERM for a second before its trap goes in
+# stands in for that; the command ends once the watcher is inside that
+# second, so the caller's first TERM is the one dropped, and the call still
+# returns well before its deadline. As in the case above, the command fails
+# if the watcher never gets there.
+trap() { builtin trap '' TERM; : >"$T/ignoring"; command sleep 1; builtin trap "$@"; }
+START=$(date +%s)
+dc_with_deadline 20 sh -c 'i=0; until [ -e "$1" ]; do [ "$i" -ge 50 ] && exit 1; sleep 0.1; i=$((i + 1)); done' _ "$T/ignoring"
+RC=$?
+unset -f trap
+if [ "$RC" -eq 0 ] && [ $(( $(date +%s) - START )) -lt 10 ]; then
+    ok "deadline: a TERM the watcher drops as its trap goes in still stops it"
+else
+    bad "deadline: a TERM the watcher drops as its trap goes in still stops it" "status $RC after $(( $(date +%s) - START ))s"
+fi
+# A watcher that never installs its trap ignores every TERM, and stands in for
+# one that won't stop: after about five seconds of TERMs the caller kills it
+# and returns the command's own status, well before the deadline. The
+# watcher's sleep is left to run out its 30 seconds.
+trap() { builtin trap '' TERM; : >"$T/deaf"; }
+START=$(date +%s)
+dc_with_deadline 30 sh -c 'i=0; until [ -e "$1" ]; do [ "$i" -ge 50 ] && exit 1; sleep 0.1; i=$((i + 1)); done' _ "$T/deaf"
+RC=$?
+unset -f trap
+if [ "$RC" -eq 0 ] && [ $(( $(date +%s) - START )) -lt 20 ]; then
+    ok "deadline: a watcher that won't stop is killed and the call returns"
+else
+    bad "deadline: a watcher that won't stop is killed and the call returns" "status $RC after $(( $(date +%s) - START ))s"
 fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
+# The deadline's TERM reaches only the command's own pid; under dc_tree it
+# reaches the command's children too. The child's stdout goes nowhere, as a
+# git remote helper's goes to git, so nothing holds the $(...) open.
+cat >"$T/forks.sh" <<EOF
+#!/usr/bin/env bash
+sleep 30 >/dev/null & echo \$! >"$T/child"; wait
+EOF
+chmod +x "$T/forks.sh"
+START=$(date +%s)
+OUT=$(dc_with_deadline 1 dc_tree "$T/forks.sh"); RC=$?
+eq  "deadline under dc_tree: a command past it is 124" 124 "$RC"
+if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "deadline under dc_tree: returns at the deadline"; else bad "deadline under dc_tree: returns at the deadline" ""; fi
+CHILD=$(cat "$T/child" 2>/dev/null)
+# A child the TERM reached may not be reaped yet; one that outlived the TERM
+# runs its whole 30 seconds, so a second's grace still catches it.
+i=0
+while [ -n "$CHILD" ] && [ "$i" -lt 20 ] && kill -0 "$CHILD" 2>/dev/null; do sleep 0.05; i=$((i + 1)); done
+if [ -z "$CHILD" ]; then
+    bad "deadline under dc_tree: the command's child is stopped too" "the command never started its child"
+elif kill -0 "$CHILD" 2>/dev/null; then
+    kill -KILL "$CHILD" 2>/dev/null
+    bad "deadline under dc_tree: the command's child is stopped too" "pid $CHILD still running"
+else
+    ok "deadline under dc_tree: the command's child is stopped too"
+fi
+( dc_tree sh -c 'exit 3' ); eq "dc_tree: the command's own status" 3 "$?"
 # The watcher writes its mark before it kills the command. A kill that pauses
 # after every TERM (the watcher's subshell inherits the function) holds the
 # command's end and the caller's TERM to the watcher wide apart, so with the

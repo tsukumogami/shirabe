@@ -21,6 +21,11 @@ on:
       - 'skills/execute/evals/fixtures/bin/gh'
       - 'skills/scope/koto-templates/scope.md'
       - '.github/workflows/check-deliver-scripts.yml'
+      # The move engine test imports sessions with skill-session.sh over the
+      # simulated cloud hosts and their fake S3 server.
+      - 'scripts/skill-session.sh'
+      - 'skills/coordinate/scripts/testdata/cloud-hosts.sh'
+      - 'skills/coordinate/scripts/testdata/fake-s3.py'
       # The macOS leg reaches bash 3.2 through the runner, which reads this
       # suite's scripts from its list, so a change to either has to re-run it.
       - 'scripts/check-bash-floor.sh'
@@ -33,6 +38,14 @@ env:
   # `tsuku install` calls the GitHub API; the token
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
+
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-deliver-scripts:
@@ -59,6 +72,7 @@ jobs:
           bash scripts/plan-mode_test.sh
           bash skills/deliver/scripts/deliver-report_test.sh
           bash skills/deliver/scripts/deliver-probe_test.sh
+          bash skills/deliver/scripts/deliver-execute-leg_test.sh
           bash skills/deliver/scripts/eval-gh-shim_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh
 
@@ -104,4 +118,5 @@ jobs:
           bash skills/deliver/scripts/deliver-absent_test.sh
           bash skills/deliver/scripts/deliver-open_test.sh
           bash skills/deliver/scripts/deliver-engine_test.sh
+          bash skills/deliver/scripts/deliver-move-engine_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh

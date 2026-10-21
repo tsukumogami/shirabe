@@ -24,7 +24,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 # The copied tree: reconcile's scripts, /execute's validators, and the two
@@ -33,7 +33,7 @@ mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$
 cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$HERE"/inventory-common.sh "$HERE"/github-refs.sh "$T/tree/skills/coordinate/scripts/"
 # The record feature's merge check and what it sources, which the merge
 # subcommand calls rather than copies.
-cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$HERE"/record-source.sh "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$HERE"/dispatch-common.sh "$HERE"/record-source.sh "$T/tree/skills/coordinate/scripts/"
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 S="$T/tree/skills/coordinate/scripts/reconcile-check.sh"
 
@@ -428,7 +428,8 @@ expect "a worktree outside the instance is listed, not read" '[.items[] | select
 expect "paths are clone-relative" '[.items[] | .clone, .path] | all(startswith("/") | not)' "$out"
 ALOG="$CASE/log"
 grep -qE '^git .* (fetch|pull|push|checkout|commit|reset|add|stash|gc|update-index|update-ref|config [^-]|config --(add|unset|replace))( |$)' "$ALOG" && bad "the inventory never writes in the clone" "$(grep -E ' (fetch|pull|push|checkout|commit|reset|add) ' "$ALOG")" || ok "the inventory never writes in the clone"
-grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
+unlocked=$(grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never')
+grep -q . <<<"$unlocked" && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
 grep -q 'hash-object --no-filters --stdin-paths' "$ALOG" && ! grep -qE 'hash-object.* -w( |$)' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
 grep -qE '^git .* status( |$)' "$ALOG" && bad "git status is never run" || ok "git status is never run"
 [ "$(cat "$T/idx-before")" = "$(od -An -tx1 < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"

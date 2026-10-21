@@ -12,8 +12,10 @@
 # The PR is always found here, through the shared ownership filter
 # skills/execute/scripts/owned-pr.sh (same repository, the authenticated
 # author, the expected base, the head branch), and never taken from a leg: the
-# PR it finds is written both as `checked_pr` and as the result key `pr`,
-# replacing whatever a leg copied. A lookup that fails leaves both empty.
+# PR it finds is written both as `checked_pr` and as the result key `pr`. A
+# lookup that fails leaves both empty. The scoped re-check also reads /scope's
+# own result, which scope_run copied from the scope leg, and refuses unless the
+# PR it names is the one found here, so a leg's copy is checked, never trusted.
 #
 # Every lookup carries this run's identity (`run-id.sh get <session>`, stored
 # as the session's `run_id`), so a PR another run opened on the topic branch
@@ -30,11 +32,16 @@
 # last):
 #
 #   scoped    scoped_verdict (pass|fail), checked_pr, pr
-#             pass needs all of: docs/plans/PLAN-<topic>.md tracked by git and
-#             unchanged against HEAD; skills/scope/scripts/publish-scoping-pr.sh
-#             --verify --expect-intent continue (the branch pushed at HEAD, one
-#             owned open PR recording intent=continue); and owned-pr.sh
-#             --state open finding that same PR.
+#             Before clearing, it reads /scope's result from this session's
+#             context: `scope_intent` and `pr`, which scope_run copied from the
+#             scope leg's payload (an absent key reads as empty). pass needs
+#             all of: that intent `continue`; that pr a pull request URL;
+#             docs/plans/PLAN-<topic>.md tracked by git and unchanged against
+#             HEAD; skills/scope/scripts/publish-scoping-pr.sh --verify (the
+#             branch pushed at HEAD, one owned open PR; no intent is read off
+#             the PR's body, which a person may edit); and owned-pr.sh --state
+#             open finding that same PR, which must also be the one /scope's
+#             result names.
 #   executed  executed_verdict (merged|open|fail), checked_pr, pr, pr_state
 #             merged or open needs: no PLAN on disk or at HEAD,
 #             docs/designs/current/DESIGN-<topic>.md present, and owned-pr.sh
@@ -64,7 +71,8 @@
 #   0   a verdict was written (any verdict)
 #   64  usage error; nothing read or written
 #   66  a `koto context` call failed (including reading run_id, which
-#       deliver-open.sh minted)
+#       deliver-open.sh minted, and the scoped mode's read of /scope's
+#       result; an absent key is not a failure)
 #
 # Environment:
 #   MERGE_CONFIRM_WAIT_SECS  the confirm window merge-verdict.sh waits for a
@@ -132,6 +140,34 @@ ctx_add() {
     printf '%s: koto context add failed for %s\n' "$PROG" "$1" >&2
     exit 66
 }
+# ctx_read <key> -- the key's value, empty when the session holds none. Only
+# `exists` answering 1 means "none"; any other failure exits 66.
+ctx_read() {
+    local rc v
+    koto context exists "$SESSION" "$1" </dev/null >/dev/null
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) printf '%s: koto context exists failed for %s\n' "$PROG" "$1" >&2; exit 66 ;;
+    esac
+    v=$(koto context get "$SESSION" "$1" </dev/null) || {
+        printf '%s: koto context get failed for %s\n' "$PROG" "$1" >&2
+        exit 66
+    }
+    printf '%s' "$v"
+}
+
+# --- /scope's result, read before the clear removes the leg's pr -------------
+
+LEG_INTENT=""; LEG_PR=""
+if [ "$MODE" = scoped ]; then
+    LEG_INTENT=$(ctx_read scope_intent) || exit 66
+    LEG_PR=$(ctx_read pr) || exit 66
+    # Compared against closed patterns only, never run or printed raw.
+    [[ "$LEG_INTENT" =~ ^(continue|stop)$ ]] || LEG_INTENT=""
+    [[ "$LEG_PR" =~ $RE_PR_URL ]] || LEG_PR=""
+fi
 
 # --- clear, so nothing an earlier tick or a leg wrote is read as current -----
 
@@ -219,16 +255,19 @@ DESIGN_CURRENT="docs/designs/current/DESIGN-$TOPIC.md"
 
 case "$MODE" in
 scoped)
+    [ "$LEG_INTENT" = continue ] || failing "/scope's result records intent [$LEG_INTENT], not continue"
+    [ -n "$LEG_PR" ] || failing "/scope's result names no pull request"
     git ls-files --error-unmatch -- "$PLAN" >/dev/null || failing "$PLAN is not tracked by git"
     git cat-file -e "HEAD:$PLAN" || failing "$PLAN is not in HEAD's tree"
     git diff --quiet HEAD -- "$PLAN" || failing "$PLAN differs from HEAD"
-    VERIFIED=$(bash "$PUBLISH" --topic "$TOPIC" --verify --expect-intent continue --run-id "$RUN_ID" </dev/null) \
-        || failing "the scoping PR did not verify (publish-scoping-pr.sh --verify --expect-intent continue)"
+    VERIFIED=$(bash "$PUBLISH" --topic "$TOPIC" --verify --run-id "$RUN_ID" </dev/null) \
+        || failing "the scoping PR did not verify (publish-scoping-pr.sh --verify)"
     VERIFIED=$(printf '%s\n' "$VERIFIED" | sed -n 's/^pr=//p' | sed -n 1p)
     DEFAULT=$(default_branch)
     [[ "$DEFAULT" =~ $RE_BRANCH ]] || failing "the default branch cannot be read"
     lookup open "$DEFAULT"
     [ "$URL" = "$VERIFIED" ] || failing "the verified PR [$VERIFIED] is not the owned PR [$URL]"
+    [ "$URL" = "$LEG_PR" ] || failing "the /scope result's PR [$LEG_PR] is not the owned PR [$URL]"
     verdict pass "$URL"
     ;;
 executed)

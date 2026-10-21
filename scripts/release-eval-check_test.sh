@@ -40,9 +40,9 @@ FAIL_COUNT=0
 pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/release-eval-check-test.XXXXXX")
-T=$(cd "$T" && pwd -P)
-cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/release-eval-check-test.XXXXXX") || exit 1
+T=$(cd "$T" && pwd -P) || exit 1
+cleanup() { case "${T:-}" in */release-eval-check-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 BIN="$T/bin"
@@ -214,7 +214,7 @@ else
   fail "credential line missing: $OUT"
 fi
 HOST_AT=$(printf '%s\n' "$OUT" | grep -n '^Eval check host:' | cut -d: -f1)
-FIRST_EVAL_AT=$(printf '%s\n' "$OUT" | grep -n '^== brief' | head -n 1 | cut -d: -f1)
+FIRST_EVAL_AT=$(grep -n '^== brief' <<<"$OUT" | cut -d: -f1); FIRST_EVAL_AT=${FIRST_EVAL_AT%%$'\n'*}
 if [ -n "$HOST_AT" ] && [ -n "$FIRST_EVAL_AT" ] && [ "$HOST_AT" -lt "$FIRST_EVAL_AT" ]; then
   pass "the notice comes before any eval runs"
 else

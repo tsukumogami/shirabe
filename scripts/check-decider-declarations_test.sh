@@ -62,7 +62,7 @@ FIX_REL="skills/demo/koto-templates/demo.ask.pick.decider.jsonl"
 ROOT=""
 TABLE=""
 new_tree() {
-    ROOT=$(mktemp -d "$T/root.XXXXXX")
+    ROOT=$(mktemp -d "$T/root.XXXXXX") || exit 1
     mkdir -p "$ROOT/skills/demo/koto-templates"
     TABLE="$ROOT/modes.tsv"
     cat > "$ROOT/$TPL_REL" <<'EOF'

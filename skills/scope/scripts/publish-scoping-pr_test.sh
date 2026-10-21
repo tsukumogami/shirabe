@@ -27,9 +27,9 @@ for bin in git jq; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH"; exit 0; }
 done
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/publish-test.XXXXXX")"
-T="$(cd -P "$T" && pwd -P)"
-trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/publish-test.XXXXXX")" || exit 1
+T="$(cd -P "$T" && pwd -P)" || exit 1
+trap 'case "$T" in */publish-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
@@ -119,7 +119,7 @@ run() {
 }
 calls() { grep -c "^pr $1" "$GHF/calls" 2>/dev/null | tr -d ' '; }
 remote_sha() { git -C "$R" ls-remote origin "refs/heads/$1" | awk '{print $1}'; }
-line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p" | head -1; }
+line() { sed -n "/^$1=/{s///p;q;}" <<<"$OUT"; }
 
 echo "== no PR on the branch =="
 setup single-pr

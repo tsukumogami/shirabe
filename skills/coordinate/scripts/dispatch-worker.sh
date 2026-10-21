@@ -1031,7 +1031,10 @@ case "$HELP" in
         ;;
 esac
 
-# Launch.
+# Launch. The deadline's TERM reaches niwa alone, not its process group
+# (dc_tree): niwa may start the worker's hand-off in that group, and a TERM
+# to it could stop the worker being launched. The git commands niwa runs can
+# outlive it until niwa stops them on TERM itself (tsukumogami/niwa#391).
 LOG="$WORK/niwa.out"
 (cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach ${LINEAGE[@]+"${LINEAGE[@]}"}) >"$LOG"
 RC=$?

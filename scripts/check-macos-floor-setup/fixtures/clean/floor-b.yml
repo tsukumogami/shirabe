@@ -1,0 +1,16 @@
+# A floor workflow with no setup on its macOS leg, and a Linux-only job whose
+# docker floor call is not a macOS floor suite.
+name: floor-b
+on: pull_request
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the suite on the floor
+        run: scripts/check-bash-floor.sh --backend system other
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/check-bash-floor.sh --backend docker linux-only

@@ -21,8 +21,10 @@ only when its `rule_id` is a registered rule, until koto's routing-gate declarat
 ## Fields
 
 Every entry has every field below except `backstop`, which only an eligible gate rule carries,
-and `deny`, which only a rule the plugin's pre-action hook denies carries; `fixtures`,
-`baseline_keys` and `aliases` may be empty lists.
+`deny`, which only a rule the plugin's pre-action hook denies carries, `stage`, `stage_since`
+and `gates`, which every script-checked entry carries and no other entry does,
+`stage_backstops`, which only a script-checked entry may carry, and `jev`, which only a rule
+Jev grades carries; `fixtures`, `baseline_keys` and `aliases` may be empty lists.
 
 | Field | Meaning |
 |---|---|
@@ -30,7 +32,7 @@ and `deny`, which only a rule the plugin's pre-action hook denies carries; `fixt
 | `status` | `active`, or `retired` for a rule that no longer applies. A retired entry keeps its id so old records still join; its text needn't resolve and no script may print it. Entries are never deleted. |
 | `summary` | The short text an agent sees when the rule is broken. Gate scripts print it at the start of a finding's `message`, then `: ` and their own detail. One line, no control characters, no `::`. |
 | `text` | Where the rule's full text is: `path` (a repository-relative file), `first` (a substring of the rule's first line, found on exactly one line of the file) and, for a rule longer than one line, `last` (a substring of its last line, the first line at or after `first` that contains it). A review-shadow entry's `path` is its criterion's `rule_ref`; where that file states no sentence for the rule, the anchors frame the nearest passage and `notes` says so, and the criterion's question is the precise statement. |
-| `check` | What enforces it: `{"kind": "script", "path": ..., "mode": ...}`, `{"kind": "review-shadow", "criterion": "rs-NNN"}`, or `{"kind": "none"}`. |
+| `check` | What enforces it: `{"kind": "script", "path": ..., "mode": ...}`, `{"kind": "review-shadow", "criterion": "rs-NNN"}`, `{"kind": "decider", "template": ..., "state": ..., "gate": ..., "criterion": ...}` (a koto `decider-check` gate's criterion, which Jev grades), or `{"kind": "none"}`. A `decider` entry guards no protected action, so it needs no backstop to sit at `level: gate`. |
 | `fixtures` | Tests and fixture files that exercise the check. |
 | `level` | `gate` (a koto gate holds or reroutes the run on it), `shadow` (graded and recorded beside a panel, never blocking) or `prose` (stated in a skill or template, checked by nothing). |
 | `timing` | Where it applies: `<skill>:<state>` naming a `## <state>` section of that skill's koto template, or `pre-merge` (the review-shadow trial's point, before a pull request's panel). Never empty. |
@@ -38,9 +40,23 @@ and `deny`, which only a rule the plugin's pre-action hook denies carries; `fixt
 | `withhold` | `never` or `eligible`, with no default. Any guard other than `none` forces `never`, and so does `check.kind: none`: a rule nothing checks can't be withheld on trust. A gate rule can be `eligible` only through `backstop`. |
 | `backstop` | Only on a gate rule eligible to withhold: `{"before": <protected action>, "check": <path>}`, the deterministic check that still blocks `before` after the rule's gate, for a rule whose gate runs after the action it would otherwise guard and whose harm a later edit undoes. A gate rule may carry `guards: ["none"]` only with a backstop, and a backstop needs `withhold: eligible` and notes saying why. `pr-body/no-heading-in-part1` is the one such rule: its gate reads the pull request GitHub already has, `gh pr edit` fixes it, and `.github/workflows/validate-pr-body.yml`, a required status check on `main`, keeps the pull request from merging while it fails. |
 | `deny` | Only on a rule a plugin hook denies before a command runs: `{"hook": <path>, "before": [<protected action>, ...]}`, the hook script and the actions it stops when the rule is broken, with no other field. `hook` is a repository-relative path to an existing file, and `before` is a non-empty list from the `guards` vocabulary less `none`. The script lists the rule on its `RULE_IDS` line, and `check-rule-registry.sh` holds the two to each other both ways. A `deny` changes nothing about `withhold`: `pr-body/no-heading-in-part1` carries one and stays `eligible`. |
+| `stage` | A script-checked entry's lifecycle stage: `shadow`, `warn`, `block` or `retired`. Its gate scripts print the rule's finding at `info`, `warning` or `error`, or not at all at `retired`, and only a `block` finding fails the gate. A `status: retired` entry is at `retired`. `rule-registry.sh stage <id>` prints the effective stage, which is `block` for a missing or unknown stage and for a guarded rule below `block` whose `stage_backstops` don't cover every protected guard. |
+| `stage_since` | `YYYY-MM-DD`, the date the current stage was set; a new entry's is the date it was added. A change of stage must set it later than the merge base's value. It opens the window the lifecycle figures read. |
+| `gates` | `<skill>:<state>:<gate>` values naming the koto command gates whose evaluations count as the rule's evaluations. Non-empty on an active script entry. `check-rule-registry.sh` refuses a value whose state isn't in that skill's koto templates, whose gate isn't a command gate of that state, or, on an active entry, whose command runs no script listing the id on its `RULE_IDS` line (`panel-scope.sh` may report any active rule). |
+| `stage_backstops` | Only on a script entry, and required on an active one whose `guards` include a protected action at any stage other than `block`: `[{"before": <protected action>, "check": <path>}, ...]`, one per protected action it guards, each naming an existing deterministic check, other than the entry's own `check.path`, that still blocks `before` when the rule is broken, with `notes` saying why. No entry carries it yet. |
 | `baseline_keys` | The offload baseline's source-location keys (`<path>#L<start>-L<end>` at the pinned commit in `docs/measurement/offload-baseline/template-pin.json`) where the rule's text was at that commit. Entries whose texts shared a range there share the key and say so in `notes`. An empty list says why in `notes`. |
 | `aliases` | Other codes the rule is known by, such as the validator's `PB3` or `R7`. Unique across the registry, never an id, never printed as a `rule_id`. |
 | `notes` | Why a key list is empty, which entries share a key, and anything else a reviewer needs. |
+| `jev` | Only on a rule Jev grades: a `decider` entry, or a review-shadow criterion whose observer is Jev. Its slice contract and trust record: the sources the slice is built from, the script that builds it, its budget, its completeness case, its measured size on real runs, its fixture file, its state (`rejected`, `blocked`, `untrusted` or `trusted`) and any promotion or false-pass record. `check-rule-registry.sh` checks only that it is an object; `scripts/jev-criteria/jev_criteria.py check` holds its contents to the contract `references/jev-criteria.md` describes. |
+
+`stage`, `status` and `level` answer different questions. `status` says whether the rule
+applies at all: a `status: retired` entry leaves every `RULE_IDS` line and no script prints it.
+`stage` says how a script-checked rule's gate check treats its finding while the rule applies,
+so an active entry at stage `retired` keeps its id on its `RULE_IDS` lines and only its gate
+check stops reporting it. `level` says what kind of rule it is (a gate, a review-shadow
+criterion graded beside a panel, or prose), and `level: shadow` has nothing to do with stage
+`shadow`. How a stage changes, the figures a change quotes and the way to dispute a finding are
+in [`references/check-lifecycle.md`](check-lifecycle.md).
 
 ## The reference a finding carries
 
@@ -74,7 +90,9 @@ library calls it for every finding, and the gate scripts' test suites set the va
 the log is honored only for a regular file under `$TMPDIR` (or `/tmp`) that isn't a symlink;
 anything else is ignored. `rule-registry.sh verify-findings <log>` then fails unless the log
 holds at least one finding and every finding's `rule_id` is an active entry whose `rule_ref` is
-the one `ref` computes and whose `message` starts with the entry's summary and `: `. Log only
+the one `ref` computes, whose `message` starts with the entry's summary and `: `, and whose
+`level` is the one the rule's stage prints at (with `--stage-source <id>`, that rule's stage
+instead, as for `panel-scope.sh`). Log only
 what the scripts print: a koto fallback finding carries a gate name, which is not a registered
 rule.
 
@@ -100,7 +118,8 @@ runs the same evaluator on a copy of the registry compiled into the binary.
   or last line, in which case the anchor changes in the same pull request.
 - **Changing what a rule means** is a new id; retire the old one.
 - **Retiring** sets `status: retired`, removes the id from every `RULE_IDS` line and drops the
-  entry's `deny`.
+  entry's `deny`. A script-checked entry moves to stage `retired` in the same change, with a
+  later `stage_since`.
 
 ## Delivering a rule when it applies
 

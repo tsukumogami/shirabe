@@ -3,7 +3,7 @@
 #
 # The agent never composes /execute's exit summary. The template's terminal
 # states declare a `result:` map (outcome, step, reason, pr, repos, resume,
-# waiting), koto resolves it on the tick that lands in the terminal, and this
+# waiting, and on the coordinated envelope body and recovered), koto resolves it on the tick that lands in the terminal, and this
 # script prints the human-facing lines from it. Every value is checked against
 # a closed pattern first, and anything that fails its pattern is dropped rather
 # than printed, so a value an agent or a stale key smuggled into context never
@@ -33,6 +33,19 @@
 #   pr=<url> waiting=<human|predecessor> reason=<condition>
 #                                          per unmerged PR (reason only when
 #                                          the result carries one)
+#   reason=<condition>                     when the result carries a reason
+#                                          and no PR line to put it on (a
+#                                          coordinated setup stop such as
+#                                          store-mismatch or follow-up-repo)
+#   body=<stale|full>                      a coordinated run whose last render
+#                                          of the coordination PR's body
+#                                          could not post it (stale) or found
+#                                          it over the size cap (full);
+#                                          nothing for a posted or unchanged
+#                                          body
+#   recovered=<url>                        a coordinated run whose setup, in
+#                                          this invocation, rebuilt its lost
+#                                          record from that coordination PR
 #   resume=<command>                       on a pause
 #   note=the PR may still be queued and may merge later
 #                                          on reason merge-not-observed
@@ -52,9 +65,12 @@ RE_OUTCOME='^(merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merg
 RE_STEP='^execute:[a-z][a-z0-9_-]*$'
 RE_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
-# The merge decision table's conditions, the two merge-step outcomes, and the
-# coordinated pause conditions.
-RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified)$'
+# The merge decision table's conditions, the merge step's outcomes and
+# refusals, the coordinated pause conditions, coord_setup's typed stops (the
+# five follow-up ones among them: follow-up-node, -repo, -base, -author and
+# -closed), and the loop's follow-up-closed:<url>, a follow-up closed
+# unmerged, which carries that PR's URL.
+RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified|store-mismatch|coordination-pr-missing|coordination-pr-ambiguous|coordination-pr-mismatch|coordination-pr-closed|session-absent|recovery-unproven|recovery-plan-gone|coordination-index-missing|coordination-body-full|adopt-run-refused|follow-up-(node|repo|base|author|closed)|follow-up-closed:https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)$'
 RE_ROLE='^(human|predecessor)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --[a-z][a-z-]*)*$'
 
@@ -101,6 +117,8 @@ PR=$(field pr)
 REPOS=$(field repos)
 RESUME=$(field resume)
 WAITING=$(field waiting)
+BODY=$(field body)
+RECOVERED=$(field recovered)
 
 [ "$OUTCOME" = "refused" ] && refused
 
@@ -116,6 +134,7 @@ fi
 [[ $PR =~ $RE_URL ]] || PR=""
 [[ $REPOS =~ $RE_REPO_LIST ]] || REPOS=""
 [[ $RESUME =~ $RE_RESUME ]] || RESUME=""
+[[ $RECOVERED =~ $RE_URL ]] || RECOVERED=""
 
 printf 'outcome=%s\n' "$OUTCOME"
 if [ "$OUTCOME" = "error" ]; then
@@ -162,8 +181,24 @@ else
         line="pr=$PR waiting=human"
         [ -n "$REASON" ] && line="$line reason=$REASON"
         printf '%s\n' "$line"
+        printed=1
+    fi
+    # A reason no PR line carries (a stop before any PR, such as
+    # coord_setup's store-mismatch) is printed on its own.
+    if [ "$printed" -eq 0 ] && [ -n "$REASON" ]; then
+        printf 'reason=%s\n' "$REASON"
     fi
 fi
+
+# The coordination PR's body behind the record (a post that failed, or a
+# render over the cap): the index a reviewer and the merge-last gate read is
+# older than the run. A posted or unchanged body says nothing.
+case "$BODY" in
+    stale|full) printf 'body=%s\n' "$BODY" ;;
+esac
+
+# This invocation's setup rebuilt the run's record from the coordination PR.
+[ -n "$RECOVERED" ] && printf 'recovered=%s\n' "$RECOVERED"
 
 case "$OUTCOME" in
     paused-for-review|paused-awaiting-merges)

@@ -12,7 +12,7 @@ F="$HERE/testdata/progress/pick.json"
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
-T=$(mktemp -d "${TMPDIR:-/tmp}/progress-view-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/progress-view-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 kinds() { printf '%s\n' "$1" | tail -n +3 | awk -F' \\| ' '{print $1}' | sed 's/^| //' | tr '\n' ','; }
 col() { printf '%s\n' "$1" | tail -n +3 | awk -F' \\| ' -v c="$2" '{print $c}' | tr '\n' ','; }
@@ -159,9 +159,11 @@ POUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-paused.js
     && ok "  ... and the table follows it with its six columns" || bad "  ... and the table follows it" "$POUT"
 grep -qF '| `plugin-sandbox` | [#14](https://github.com/acme/widgets/pull/14) | verified; held by pause s4 |' <<<"$POUT" \
     && ok "a ready pull request a pause holds says so" || bad "a ready pull request a pause holds says so" "$POUT"
-grep -qF '| `plugin-cli` |' <<<"$POUT" && printf '%s\n' "$POUT" | grep -F '| `plugin-cli` |' | grep -qF '| paused (s4) |' \
+cli_rows=$(grep -F '| `plugin-cli` |' <<<"$POUT")
+grep -qF '| `plugin-cli` |' <<<"$POUT" && grep -qF '| paused (s4) |' <<<"$cli_rows" \
     && ok "an ongoing holding a pause holds reads paused" || bad "an ongoing holding a pause holds reads paused" "$POUT"
-printf '%s\n' "$POUT" | grep -F '| Feature 2' | grep -qF '| held by pause s4 |' \
+f2_rows=$(grep -F '| Feature 2' <<<"$POUT")
+grep -qF '| held by pause s4 |' <<<"$f2_rows" \
     && ok "a queued unit a pause holds says so in its next cell" || bad "a queued unit a pause holds says so" "$POUT"
 NOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$F" 2> "$T/err")
 [ "$(head -1 <<<"$NOUT")" = "| Kind | Unit | Session | PR | Status | Next or needs |" ] \

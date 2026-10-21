@@ -1003,19 +1003,25 @@ states:
     # ends the run, so it can't skip the panel, and a run whose round can't be
     # recorded must still have a way to stop.
     #
-    # The decider slot: a later `decider-check` gate named scrutiny_decider,
-    # in `mode: shadow`, goes on this state, carrying the trial's model-graded
-    # criteria (scripts/review-shadow/criteria.json, rs-007 to rs-010) with its
-    # slicers as extraction commands. koto lets no `when`, `skip_if` or
-    # context assignment read a decider check, and a shadow check is never
-    # failed, so adding it can't change which transition this state takes. It
-    # can hold the state, though: a criterion the decider can't answer is
-    # pending until the agent answers it with `koto decider answer` (koto
-    # 0.20.0), in shadow as in veto, so the slot's directive has to give that
-    # command, as review_level_check's does. Any answer then lets a shadow
-    # check through: a shadow fail, the agent's or the decider's, is only
-    # recorded. It is not built yet. The same holds for review,
-    # qa_validation and light_review.
+    # The decider batch: scrutiny_decider, a `decider-check` gate in
+    # `mode: shadow`, asks Jev one closed question about the decisions this
+    # run recorded in analysis and implementation
+    # (work-on/scrutiny-decision-reasons, references/jev-criteria.md). Its
+    # slice is decision-reasons.sh's projection of koto's own session log,
+    # never a context key the agent writes. It runs beside the seats, which
+    # are all still spawned: the other scrutiny questions don't fit a
+    # 2,560-byte slice, and their contracts in the registry say so. koto lets
+    # no `when`, `skip_if` or context assignment read a decider check, and a
+    # shadow check is never failed, so the gate can't change which transition
+    # this state takes. It can hold the state, though: a criterion the
+    # decider can't answer is pending until the agent answers it with
+    # `koto decider answer` (koto 0.20.0), in shadow as in veto and on a
+    # carried round as on a full one, so the directive gives that command, as
+    # review_level_check's does. Any answer then lets the check through: a
+    # shadow fail, the agent's or the decider's, is only recorded. A run with
+    # no recorded decision has an empty slice, which koto records as
+    # not_graded without asking. Fixtures:
+    # scripts/jev-criteria/fixtures/work-on-scrutiny-decision-reasons.jsonl.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan scrutiny "{{SESSION_NAME}}"'
       fallback: >-
@@ -1055,6 +1061,19 @@ states:
       has_commits:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
+      scrutiny_decider:
+        type: decider-check
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decision-reasons.sh" slice "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
+        max_bytes: 2560
+        label: decisions
+        criteria:
+          work-on/scrutiny-decision-reasons:
+            rule_ref: "https://github.com/tsukumogami/shirabe/blob/main/references/jev-criteria.md"
+            question: "Does every decision listed here give, in its reason, why the choice was made: a constraint, a fact about the code or the system, or an alternative it rules out, rather than a restatement of the choice?"
+            pass: "Each decision's reason says why the choice was made, in terms other than the choice itself."
+            fail: "At least one decision's reason only restates or paraphrases its choice, or gives no reason at all."
+            escape: "The list can't be read as decisions, so it can't be judged."
+            mode: shadow
     accepts:
       scrutiny_outcome:
         type: enum
@@ -1105,8 +1124,10 @@ states:
 
   review:
     # The same seat decision as scrutiny's, for this panel, and the same
-    # verdict gate and decider slot: see the comments there. review_carried
-    # exit 0 advances with no spawn.
+    # verdict gate: see the comments there. review_carried exit 0 advances
+    # with no spawn. No decider batch is declared here: none of this panel's
+    # questions has a contract that fits the budget, and a later one would go
+    # on as scrutiny_decider did, with the same pending-answer directive.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan review "{{SESSION_NAME}}"'
       fallback: >-
@@ -1229,8 +1250,9 @@ states:
 
   qa_validation:
     # The same seat decision as scrutiny's, for this panel, and the same
-    # verdict gate and decider slot: see the comments there. qa_carried exit
-    # 0 advances with no spawn.
+    # verdict gate: see the comments there. qa_carried exit 0 advances with
+    # no spawn. No decider batch is declared here: the tester runs the
+    # change, which no closed question over a slice can do.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan qa "{{SESSION_NAME}}"'
       fallback: >-
@@ -1309,7 +1331,9 @@ states:
     # scrutiny, review and QA. It is a fourth panel to panel-scope.sh, so its
     # retries are planned from the findings ledger exactly like the other
     # panels': see the comment on scrutiny. light_carried exit 0 advances with no spawn,
-    # and the verdict gate and decider slot are scrutiny's too.
+    # and the verdict gate is scrutiny's too. No decider batch is declared
+    # here: a `light` run never reaches scrutiny, so its decisions go
+    # ungraded.
     #
     # The verdict route also carries scrutiny's has_commits gate: at `light`
     # scrutiny never runs, and that gate is what stops a code run with no
@@ -1982,14 +2006,26 @@ states:
       # still running isn't green, and a cancelled one returned no verdict.
       # Don't rewrite this as "nothing is in the fail bucket" -- that would let
       # an all-queued PR report green.
-      #   semantics: scripts/ci-gate-expression_test.sh
+      #
+      # One cancel is resolved: when the filter says not green,
+      # ci-cancel-after-merge.sh passes the gate if GitHub reports the PR MERGED
+      # and every non-green check is a cancelled run of a workflow
+      # scripts/check-macos-floor-setup.sh --workflows lists, the runs
+      # cancel-closed-pr-macos-runs.yml cancels when a PR closes (#952). It
+      # records those checks in context as ci_cancelled_after_merge.txt. A
+      # repo without that script, an open PR, a failed or pending check, and
+      # a cancel outside those workflows all still fail. The trailing
+      # `|| exit 1` keeps the gate at 0 or 1, the only codes the edges match,
+      # even when the script can't run.
+      #   semantics: scripts/ci-gate-expression_test.sh,
+      #              skills/work-on/scripts/ci-cancel-after-merge_test.sh
       #   execute.md's counterpart is owned_ci_passing: the same filter over the
       #   PR its ownership filter resolves, under its own name because
       #   scripts/validate-template-mermaid.sh check 4 holds one gate name to one
       #   command across templates
       ci_passing:
         type: command
-        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || exit 1"
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one. `ci_passing` asks whether nothing is failing, and
       # zero check-runs satisfies that, so the same gate fires for a genuinely
@@ -2725,6 +2761,14 @@ The `has_commits` gate also has to pass: the panel does not advance while this r
 
 koto has already decided what this round runs: read `scrutiny_scope.json` and spawn only the decisions that aren't `keep`. In a full round every seat is `full` and is handed its own unclosed findings, which it answers by id. Any other round keeps every seat and plans at most one run, the panel's re-verifier (seat `reverifier`): it answers each due finding by id with `holds` or `reverified` and, when its decision carries `fix_review`, reviews the fix diff against every panel's criteria. It reads the `review-packet.sh recheck --seat reverifier` packet the phase file's commissioning line gives. After the round, record every run with `panel-scope.sh --record scrutiny` (the phase file has the command). When nothing runs and no blocking finding is unclosed, koto carries the verdict and advances without stopping here; a carried panel submits nothing, so it neither spends nor resets the retry count below, and koto's log still records its visit. When nothing runs but a blocking finding the fix didn't touch is still unclosed, `scrutiny_verdict` blocks the panel with no run spent. The `scrutiny_recorded` gate also holds the passing route and `blocking_retry` until the round is recorded.
 
+The decider batch runs beside the seats for a user whose decider is on: the `scrutiny_decider` check asks Jev whether every decision this run recorded in `analysis` and `implementation` gives, in its reason, why the choice was made. It replaces no seat, so spawn the seats as the scope says. Its findings are advisory while the criterion is untrusted: the check runs in shadow, so neither its verdict nor yours can fail the panel or change where it goes. When the `scrutiny_decider` check is `pending` with `work-on/scrutiny-decision-reasons` under its output's `awaiting` list, the decider gave no verdict and the question falls back to you. The check's warning finding gives the reason and the question; read the decisions it asked about with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/decision-reasons.sh" slice "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"` (`koto decisions list` shows only this state's), judge each reason, record your answer, and tick again with nothing submitted:
+
+```bash
+koto decider answer {{SESSION_NAME}} --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons --answer <pass|fail|unclear>
+```
+
+`pass` means every reason says why its choice was made, `fail` that one only restates its choice or gives none, and `unclear` that the list can't be judged; any of them lets the check through. This can hold a carried round too, where no seat runs, so answer it there the same way. Answer only a criterion the response lists under `awaiting`, and don't record an override to get past a waiting check. A run that recorded no decision has nothing to grade, and the check passes without asking.
+
 Submit nothing when the panel passes. While `scrutiny_verdict` exits 1, submit `scrutiny_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. `blocking_escalate` is also taken while the gate exits 2, for a round that can't be recorded at all. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0, and no value advances the panel: only the recorded verdicts do, or a person's override of `scrutiny_verdict`.
 
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" scrutiny` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count`), the same set `scrutiny_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
@@ -3076,6 +3120,16 @@ does not reach the script, or the script failed): the state holds rather than
 choosing either way. Read the gate's stderr, fix the cause, and tick again. A DIRTY
 pull request stops at `done_blocked`, since GitHub runs no checks on one.
 
+A repository that cancels a closed pull request's unfinished macOS floor runs
+(it has `scripts/check-macos-floor-setup.sh`, as shirabe does) can leave a
+MERGED pull request with cancelled checks that nothing failed. `ci_passing`
+passes once GitHub reports the pull request MERGED and every check that isn't
+green is a cancelled run of one of the workflows that script's `--workflows`
+lists. The run then routes as green, and `ci_cancelled_after_merge.txt` in
+context names those checks: mention them in your final report. A cancel on an
+open pull request, a failed or pending check, and a cancel outside those
+workflows still fail the gate.
+
 While checks are still running the state holds on `ci_passing`; tick again once
 they finish. If the gate fails, fix what you can, push, and submit
 `ci_outcome: failing_fixed`: the run comes back to this state, and the gates
@@ -3146,6 +3200,10 @@ tell which shape you have; the verdict alone does not say.
 ## done
 
 The workflow is complete. The PR has been created and CI is passing.
+
+If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds,
+CI passed on a MERGED pull request with cancelled macOS floor checks: read it
+with `koto context get` and name those checks in your final report.
 
 ## done_already_complete
 

@@ -39,7 +39,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v python3 >/dev/null || { echo "FAIL: python3 is required" >&2; exit 1; }
 command -v git >/dev/null || { echo "FAIL: git is required" >&2; exit 1; }
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 # Stubs: shirabe, koto, claude. A second directory holds the same stubs
@@ -98,7 +98,7 @@ RC=0
 # new_tree: a fresh root holding skills/demo with a SKILL.md and a sound
 # evals.json; each case then adds or breaks what it tests.
 new_tree() {
-    ROOT=$(mktemp -d "$WORK/root.XXXXXX")
+    ROOT=$(mktemp -d "$WORK/root.XXXXXX") || exit 1
     mkdir -p "$ROOT/skills/demo/evals"
     printf -- '---\nname: demo\ndescription: A demo skill.\n---\n\n# Demo\n' \
         > "$ROOT/skills/demo/SKILL.md"
@@ -308,6 +308,33 @@ else
     pass "the FAIL lines hold only failures and their detail"
 fi
 
+# The same, for the two other forms a suite prints a failure in: FAIL colored
+# with ANSI codes, as panel-scope_test.sh prints it through echo -e, and TAP's
+# "not ok". Colored PASS lines stay out of the list.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+{
+    printf '#!/bin/sh\n'
+    printf 'printf '"'"'\\033[0;32mPASS\\033[0m: first case\\n'"'"'\n'
+    printf 'printf '"'"'\\033[0;31mFAIL\\033[0m: colored case\\n'"'"'\n'
+    printf 'echo "    colored detail"\n'
+    printf 'echo "not ok 3 - tap case"\n'
+    printf 'i=0; while [ "$i" -lt 100 ]; do printf '"'"'\\033[0;32mPASS\\033[0m: case %%s\\n'"'"' "$i"; i=$((i + 1)); done\n'
+    printf 'echo "1 failed"; exit 1\n'
+} > "$ROOT/skills/demo/scripts/forms_test.sh"
+run_check
+expect "a failing suite lists its colored FAIL and not-ok lines" 1 \
+    "every FAIL line:" "      "$'\033'"[0;31mFAIL"$'\033'"[0m: colored case" "          colored detail" \
+    "      not ok 3 - tap case"
+if awk '/every FAIL line:/ { s = 1; next } /load when it ended:/ { s = 0 } s && /PASS/ { bad = 1 } END { exit !bad }' <<EOF
+$OUT
+EOF
+then
+    fail "colored PASS lines are kept out of the FAIL lines"
+else
+    pass "colored PASS lines are kept out of the FAIL lines"
+fi
+
 new_tree
 mkdir -p "$ROOT/skills/demo/scripts"
 printf '[ -f skills/demo/SKILL.md ] || { echo "not at the root"; exit 1; }\n' \
@@ -395,7 +422,7 @@ else
     mkdir -p "$ROOT/skills/demo/scripts" "$WORK/caller-store"
     export REAL_KOTO_BIN
     cat > "$ROOT/skills/demo/scripts/store_test.sh" <<'SUITE'
-T=$(mktemp -d)
+T=$(mktemp -d) || exit 1
 export HOME="$T/home"; mkdir -p "$HOME"
 printf -- '---\nname: probe\nversion: "1.0"\ndescription: One state.\ninitial_state: done\nstates:\n  done:\n    terminal: true\n---\n\n## done\n\nDone.\n' > "$T/probe.md"
 (cd "$T" && "$REAL_KOTO_BIN" init store-probe --template "$T/probe.md" >/dev/null 2>&1) || { echo "koto init failed"; exit 1; }

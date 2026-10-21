@@ -752,16 +752,34 @@ states:
       # `run-id.sh get` only reads: the id was minted by execute-open.sh, and a
       # failed read fails the gate rather than giving the run a new identity.
       #
+      # All three gates look up with --state open-else-merged (#958): the open
+      # PR while there is one, exactly as --state open answers, and the run's
+      # MERGED PR once it has merged. With --state open, a PR that merged while
+      # the run watched CI was no PR at all: monitor_owned_pr's exit 3 ended
+      # the run at execute:pr-adopt, and owned_merge_state_clean's empty
+      # lookup was a 2 that matches no edge. A MERGED PR's merge state reads
+      # UNKNOWN, which owned_merge_state_clean passes.
+      #
+      # owned_ci_passing keeps the filter above and falls back, only when it
+      # says not green, to work-on's ci-cancel-after-merge.sh, the one copy of
+      # the rule work-on.md's ci_passing uses: since #950, closing a PR cancels
+      # its unfinished macOS floor runs, and a MERGED PR whose only non-green
+      # checks are those cancels passes, with them recorded in context as
+      # ci_cancelled_after_merge.txt. --owned hands it this same lookup, so it
+      # judges the run's own PR and never just the branch's. The trailing
+      # `|| exit 1` holds the gate to 0 or 1 even if the script can't run.
+      #   semantics: skills/execute/scripts/owned-ci-cancel_test.sh
+      #
       # owned_merge_state_clean exits 1 only when GitHub reports DIRTY, since
       # koto routes that answer to escalate_dirty_merge_state with no evidence.
       # A read that returned nothing (a failed lookup or gh call) is 2, which
       # matches no edge, so the run holds and the next tick reads again.
       owned_ci_passing:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
       owned_merge_state_clean:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
       # A routing gate (DESIGN-output-gates Decision 9): the same lookup the
       # two gates above run, through check-pr-output.sh --owned-pr, so its
       # answer routes. 0 is exactly one owned PR; 3 (none or several) and 2 (a
@@ -771,7 +789,7 @@ states:
       monitor_owned_pr:
         type: command
         overridable: false
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open-else-merged --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
     accepts:
       ci_outcome:
         type: enum
@@ -1159,10 +1177,12 @@ states:
     accepts:
       merge_exec:
         type: enum
-        values: [called, refused]
+        values: [called, refused, squash-message]
         description: >-
-          Which line merge-exec.sh printed: `merge-called:<method>:<sha>` is
-          `called`, `merge-refused:<...>` is `refused`.
+          Which line the merge step printed: `merge-called:<method>:<sha>` is
+          `called`, `merge-refused:squash-message` (merge-message.sh refused
+          to build the message, and no merge call was made) is
+          `squash-message`, any other `merge-refused:<...>` is `refused`.
       merge_line:
         type: string
         description: The line merge-exec.sh printed, for the log. Never read.
@@ -1185,6 +1205,15 @@ states:
         context_assignments:
           outcome: ready-awaiting-merge
           reason: merge-call-failed
+      # No message the squash commit may carry (an empty Part 1, a title that
+      # spans lines, an attribution line): no merge call was made.
+      - target: ready_awaiting_merge
+        when:
+          gates.merge_intent.exit_code: 0
+          merge_exec: squash-message
+        context_assignments:
+          outcome: ready-awaiting-merge
+          reason: merge-refused:squash-message
 
   merge_confirm:
     # The confirm read runs as a default action, never as a command gate:
@@ -1610,11 +1639,13 @@ You see this state only while `owned_ci_passing` fails on a clean PR: a check fa
 ```bash
 PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --repo "$(koto context get {{SESSION_NAME}} repos)" \
-  --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open \
+  --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open-else-merged \
   --run-id "$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})")
 ```
 
 Empty output or a non-zero exit means no single owned PR this run can use, or a failed read; tick with nothing submitted, and `monitor_owned_pr` ends the run.
+
+The lookup follows the PR past its merge: once it is MERGED, the three gates read it rather than finding nothing. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels passes `owned_ci_passing` and routes as green without stopping here, and koto records the cancelled checks as `ci_cancelled_after_merge.txt` (the `merged` state says to name them). A MERGED PR with a failed check, or a cancel outside those workflows, still fails the gate here. You can't push a fix to a merged PR, so submit `ci_outcome: failing_unresolvable` naming the check.
 
 If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
@@ -1742,17 +1773,22 @@ The verdict is `mergeable`, and this invocation asked to merge (`--merge`). Run 
 REPO=$(koto context get {{SESSION_NAME}} repos)
 HOME_PR=$(koto context get {{SESSION_NAME}} home_pr)
 EXPECTED=$(koto context get {{SESSION_NAME}} expected_head)
-LINE=$({{PLUGIN_ROOT}}/skills/execute/scripts/merge-exec.sh "$REPO" "${HOME_PR##*/}" "$EXPECTED")
+MSG=$({{PLUGIN_ROOT}}/skills/execute/scripts/merge-message.sh "$REPO" "${HOME_PR##*/}")
+case $? in
+  0) LINE=$({{PLUGIN_ROOT}}/skills/execute/scripts/merge-exec.sh "$REPO" "${HOME_PR##*/}" "$EXPECTED" "$MSG"); rm -f "$MSG" ;;
+  1) LINE=merge-refused:squash-message ;;
+  *) LINE=merge-refused:not-merged:merge-call-failed ;;
+esac
 echo "$LINE"
 ```
 
-The repository is the write set recorded at start, the PR is the one `record-merge-verdict.sh` recorded from the ownership-filtered lookup, and the expected head is the commit this run's own push recorded. Take none of them from anywhere else. `merge-exec.sh` recomputes the verdict itself immediately before the call and merges only when it is still `mergeable` at that expected head, with the one fixed call `gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>`: no `--admin`, no `--auto`, no retry with another method.
+The repository is the write set recorded at start, the PR is the one `record-merge-verdict.sh` recorded from the ownership-filtered lookup, and the expected head is the commit this run's own push recorded. Take none of them from anywhere else. `merge-message.sh` builds the squash commit's message from the PR's live title and its Part 1 (the description above the body's first top-level `---`), so the reviewer context below it never lands on the default branch; it refuses, and no merge call is made, when Part 1 is empty, the title spans lines, or the message carries an attribution line. `merge-exec.sh` recomputes the verdict itself immediately before the call and merges only when it is still `mergeable` at that expected head, with the one fixed call `gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>`, plus `--subject` and `--body-file` from the message for a squash or merge commit (a rebase carries none): no `--admin`, no `--auto`, no retry with another method.
 
-Submit `merge_exec: called` when it printed `merge-called:<method>:<sha>`, or `merge_exec: refused` when it printed `merge-refused:<...>`, with the line as `merge_line`. `called` is not merged: `merge_confirm` re-reads the PR, and only a live `MERGED` read ends the run merged. `refused` ends it ready-awaiting-merge with `reason=merge-call-failed`.
+Submit `merge_exec: called` when it printed `merge-called:<method>:<sha>`, `merge_exec: squash-message` when the line is `merge-refused:squash-message`, or `merge_exec: refused` when it printed any other `merge-refused:<...>`, with the line as `merge_line`. `called` is not merged: `merge_confirm` re-reads the PR, and only a live `MERGED` read ends the run merged. `refused` ends it ready-awaiting-merge with `reason=merge-call-failed`, and `squash-message` with `reason=merge-refused:squash-message`.
 
 Evidence schema:
-- `merge_exec`: `called` or `refused`
-- `merge_line`: the line `merge-exec.sh` printed
+- `merge_exec`: `called`, `refused`, or `squash-message`
+- `merge_line`: the line the merge step printed
 
 ## merge_confirm
 
@@ -1774,6 +1810,8 @@ The PR merged, and a live read confirmed it. Render the exit lines from the term
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
 ```
+
+If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds, the PR merged while `ci_monitor` watched it and its CI passed with cancelled macOS floor checks: read it with `koto context get` and name those checks in your final report.
 
 ## ready_awaiting_merge
 

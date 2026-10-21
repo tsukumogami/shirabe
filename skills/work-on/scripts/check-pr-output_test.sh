@@ -31,9 +31,9 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; exit 2; }
 [ -x "$CHECK" ] || { echo "$CHECK is missing or not executable" >&2; exit 2; }
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output-test.XXXXXX")
-WORKDIR=$(cd -P "$WORKDIR" && pwd -P)
-cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output-test.XXXXXX") || exit 1
+WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
+cleanup() { case "${WORKDIR:-}" in */check-pr-output-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
 trap cleanup EXIT
 
 # A real validator for the PB5 cases near the end, found before the stand-ins
@@ -288,6 +288,77 @@ if [ "$RC" -eq 0 ] && ! grep -q '^::shirabe-rule::' "$WORKDIR/stderr"; then
 else
     fail "--pr-body: conformant: rc $RC, stderr $(cat "$WORKDIR/stderr")"
 fi
+
+# --- --pr-body: stages -----------------------------------------------------------
+#
+# A finding prints at its rule's stage and only a block finding fails the gate.
+# The copies' findings go to logs of their own, verified against each copy's
+# registry, so the suite's log keeps only real-registry findings.
+
+PR_PATHS="skills/work-on/scripts/check-pr-output.sh skills/writing-style/rules.yaml"
+pr_body_in_copy() { # <copy>
+    "$1/skills/work-on/scripts/check-pr-output.sh" --pr-body
+}
+FAKE_SHIRABE_RC=2
+FAKE_SHIRABE_OUT=$(msg_json "$PB2")
+# shellcheck disable=SC2086 # the two paths, split on purpose
+rf_test_stages "--pr-body" pr-body/one-separator 1 "" pr_body_in_copy $PR_PATHS
+
+STAGE_COPY="$RF_TEST_DIR/stage-copy"
+STAGE_LOG="$RF_TEST_DIR/stage-copy.log"
+# run_copy: --pr-body from the copy; sets OUT and RC, stderr to the usual file.
+run_copy() {
+    : > "$STAGE_LOG"
+    OUT=$(SHIRABE_FINDINGS_LOG="$STAGE_LOG" "$STAGE_COPY/skills/work-on/scripts/check-pr-output.sh" --pr-body 2>"$WORKDIR/stderr")
+    RC=$?
+}
+
+# A listed finding below block is still a listed finding: no fallback is added
+# for it, and the gate passes.
+# shellcheck disable=SC2086 # the two paths, split on purpose
+if rf_test_stage_copy "$STAGE_COPY" pr-body/one-separator warn $PR_PATHS; then
+    run_copy
+    if [ "$RC" -eq 0 ] && [ "$(findings | jq -r '.rule_id' | tr '\n' ' ')" = "pr-body/one-separator " ]; then
+        pass "--pr-body: a warn-stage finding as the only listed one exits 0 with no pr-body/conformance finding"
+    else
+        fail "--pr-body: warn-stage only: rc $RC, findings $OUT"
+    fi
+    rf_test_verify_copy "--pr-body warn-only" "$STAGE_COPY" "$STAGE_LOG"
+else
+    fail "--pr-body: could not make a plugin copy with pr-body/one-separator at warn"
+fi
+
+# Violations the validator didn't list still fail the gate, through the
+# fallback rule.
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"violations","findings":[]}'
+run --pr-body
+if [ "$RC" -eq 1 ] && [ "$(findings | jq -r '.rule_id' | tr '\n' ' ')" = "pr-body/conformance " ]; then
+    pass "--pr-body: a validator exit 2 listing no finding prints the pr-body/conformance fallback and exits 1"
+else
+    fail "--pr-body: unlisted violations: rc $RC, findings $OUT"
+fi
+
+# PB4's text is released only when its finding is shown as something to act
+# on: at warn and at block, once; at shadow, not at all.
+FAKE_SHIRABE_OUT=$(msg_json "$PB4" "$PB4")
+for pair in shadow:0:0 warn:0:1 block:1:1; do
+    stage=${pair%%:*}; rest=${pair#*:}; want_rc=${rest%%:*}; want_rel=${rest#*:}
+    # shellcheck disable=SC2086 # the two paths, split on purpose
+    if rf_test_stage_copy "$STAGE_COPY" pr-body/no-heading-in-part1 "$stage" $PR_PATHS; then
+        run_copy
+        if [ "$RC" -eq "$want_rc" ] && [ "$(release_count)" -eq "$want_rel" ] && [ "$(finding_count)" -eq 2 ]; then
+            pass "--pr-body: two PB4 findings at $stage exit $want_rc and release PB4's text $want_rel time(s)"
+        else
+            fail "--pr-body: PB4 at $stage: rc $RC, $(finding_count) findings, $(release_count) releases"
+        fi
+        rf_test_verify_copy "--pr-body PB4 at $stage" "$STAGE_COPY" "$STAGE_LOG"
+    else
+        fail "--pr-body: could not make a plugin copy with pr-body/no-heading-in-part1 at $stage"
+    fi
+done
+rm -rf "$STAGE_COPY" "$STAGE_LOG"
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
 
 # --- --pr-body: the escalation ladder -------------------------------------------
 #
@@ -639,6 +710,7 @@ if [ "$RC_CONTROL" -eq 0 ] && [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ]; t
 else
     fail "--pr-body: missing rules.yaml: control rc $RC_CONTROL, rc $RC, stderr $(cat "$WORKDIR/stderr")"
 fi
+rf_test_drop_plugin "$NORULES"
 
 # --- --pr-body against a real validator -----------------------------------------
 #
@@ -729,6 +801,7 @@ Part two.")
     else
         fail "real validator: empty rules rc $RC, stdout $OUT"
     fi
+    rf_test_drop_plugin "$BROKEN"
 fi
 
 # --- the rule registry ----------------------------------------------------------

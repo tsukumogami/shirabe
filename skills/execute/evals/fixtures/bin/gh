@@ -78,8 +78,11 @@ emit_fixture() {
 #                      isCrossRepository, state, isDraft, title, body,
 #                      headRefOid, mergeStateStatus, reviewDecision, checks
 #                      ([{name, bucket}]), files ([path]), merge
-#                      (ok | fail | stays-open), and remote_url, which the
-#                      shim fills in itself (see below); a seed never sets it
+#                      (ok | fail | stays-open), merge_sha (the merge
+#                      commit `mergeCommit.oid` reports once MERGED; a merge in
+#                      the model sets it when absent, and a seed may), and
+#                      remote_url, which the shim fills in itself (see below);
+#                      a seed never sets it
 #
 # In the seed, @HEAD_SHA@ is the commit checked out in the seed checkout and
 # @BRANCH@ that checkout's branch. The seed checkout is the coordination
@@ -180,7 +183,10 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
          number, state, isDraft, title, body, headRefName, baseRefName,
          isCrossRepository, author: {login: .author}, headRefOid,
          mergeStateStatus, reviewDecision, changedFiles: (.files | length),
-         commits: [{oid: .headRefOid, committedDate: $date}]}' "$DB"
+         commits: [{oid: .headRefOid, committedDate: $date}],
+         mergeCommit: (if .state == "MERGED"
+                       then {oid: (.merge_sha // "6d65726765640000000000000000000000000000")}
+                       else null end)}' "$DB"
   }
   numeric_arg() { # the first all-digit argument
     local a
@@ -212,10 +218,24 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
   }
   refresh_heads
 
+  # merge_sha_of <repo> <number> -- the merge commit a merge in the model
+  # gets: the same 40 hex for the same PR on every run, so a test can predict
+  # the merged head a renderer records.
+  merge_sha_of() {
+    printf 'merge %s#%s' "$1" "$2" | git hash-object --stdin
+  }
+
   if [ "${1:-}" = "shim-mark-merged" ]; then
-    db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .state) = "MERGED"' \
-      --arg r "${2:-}" --arg n "${3:-0}"
+    db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber))) |= (.state = "MERGED" | .merge_sha = (.merge_sha // $m))' \
+      --arg r "${2:-}" --arg n "${3:-0}" --arg m "$(merge_sha_of "${2:-}" "${3:-0}")"
     exit 0
+  fi
+
+  # A test's failure hook: a call whose argument list matches the extended
+  # regular expression GH_SHIM_FAIL fails (exit 1), after it is logged.
+  if [ -n "${GH_SHIM_FAIL:-}" ] && [[ $ARGS =~ $GH_SHIM_FAIL ]]; then
+    echo "gh shim: failing [$ARGS] (GH_SHIM_FAIL)" >&2
+    exit 1
   fi
 
   out=""
@@ -342,8 +362,8 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
       how=$(jq -r --arg r "$repo" --argjson n "$n" '.prs[] | select(.repo == $r and .number == $n) | (.merge // "ok")' "$DB")
       case "$how" in
         ok)
-          db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber)) | .state) = "MERGED"' \
-            --arg r "$repo" --arg n "$n"
+          db_update '(.prs[] | select(.repo == $r and .number == ($n | tonumber))) |= (.state = "MERGED" | .merge_sha = (.merge_sha // $m))' \
+            --arg r "$repo" --arg n "$n" --arg m "$(merge_sha_of "$repo" "$n")"
           exit 0
           ;;
         stays-open) exit 0 ;;

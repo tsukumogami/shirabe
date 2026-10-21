@@ -6,5 +6,6 @@ workflow: .github/workflows/check-deliver-scripts.yml
 scripts/plan-mode_test.sh
 skills/deliver/scripts/deliver-report_test.sh
 skills/deliver/scripts/deliver-probe_test.sh
+skills/deliver/scripts/deliver-execute-leg_test.sh
 skills/deliver/scripts/eval-gh-shim_test.sh
 skills/deliver/scripts/deliver-requires_test.sh

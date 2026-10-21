@@ -40,9 +40,9 @@ for tool in git jq; do
 done
 [ -x "$CHECK" ] || { echo "$CHECK is missing or not executable" >&2; exit 2; }
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document-test.XXXXXX")
-WORKDIR=$(cd -P "$WORKDIR" && pwd -P)
-cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document-test.XXXXXX") || exit 1
+WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
+cleanup() { case "${WORKDIR:-}" in */check-hop-document-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
 trap cleanup EXIT
 
 REAL_SHIRABE=$(command -v shirabe 2>/dev/null || true)
@@ -321,6 +321,14 @@ else
     fail "null line: rc=$RC out=[$(cat "$OUT")]"
 fi
 
+# The same violation against plugin copies with its rule at each stage: it
+# prints at the stage's level, and only at block does it hold the hop.
+hop_in_copy() { # <copy>
+    cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" "$1/skills/scope/scripts/check-hop-document.sh" --topic t --hop prd
+}
+rf_test_stages "--hop prd" docs/required-sections 1 "" hop_in_copy \
+    skills/scope/scripts/check-hop-document.sh skills/writing-style/rules.yaml
+
 LONG=$(awk 'BEGIN { for (i = 0; i < 60; i++) printf "0123456789" }')
 stub_json "{\"schema_version\":\"shirabe-validate/v1\",\"summary\":{\"outcome\":\"violations\",\"errors\":1,\"notices\":0},\"findings\":[{\"code\":\"R6\",\"severity\":\"error\",\"message\":\"[R6] $LONG\",\"file\":\"docs/prds/PRD-t.md\",\"line\":4}]}"
 STUB_RC=2
@@ -400,6 +408,7 @@ rm -f "$PLUGIN_COPY/skills/writing-style/rules.yaml"
 (cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" "$PLUGIN_COPY/skills/scope/scripts/check-hop-document.sh" --topic t --hop prd) > "$OUT" 2> "$ERR"
 RC=$?
 expect_undecided "the plugin's rules file missing"
+rf_test_drop_plugin "$PLUGIN_COPY"
 
 # Odd files at a topic path.
 fixture odd
@@ -607,7 +616,7 @@ if [ "$run_real" -eq 1 ]; then
         fail "mixed: rc=$RC count=$(finding_count) out=[$(cat "$OUT")]"
     fi
     VOUT=$(cd "$REPO" && SHIRABE_RULES="$RULES_FILE" shirabe validate --format json -- docs/designs/DESIGN-t.md 2>/dev/null)
-    vmsg=$(printf '%s' "$VOUT" | jq -r '.findings[] | select(.code == "FC04") | .message' | head -n 1)
+    vmsg=$(jq -r '.findings[] | select(.code == "FC04") | .message' <<<"$VOUT" | head -n 1)
     summary=$(jq -r '.rules[] | select(.id == "docs/required-sections") | .summary' "$SCRIPT_DIR/../../../references/rule-registry.json")
     gmsg=$(findings | jq -r 'select(.rule_id == "docs/required-sections") | .message')
     if [ -n "$vmsg" ] && [ "$gmsg" = "$summary: $vmsg" ]; then

@@ -29,8 +29,50 @@
 #                           ready_awaiting_merge with reason=merge-not-observed,
 #                           never merged
 #   done_error              coord_setup blocked: outcome=error,
-#                           step=execute:coord_setup
-#   overrides               koto refuses `koto overrides record` on
+#                           step=execute:coord_setup; a typed setup stop
+#                           (store-mismatch) assigns its code as the reason
+#   the body at each terminal  coord_verdict's default action renders the
+#                           coordination PR's body: ready_awaiting_merge,
+#                           paused_awaiting_merges, done_blocked (DIRTY) and
+#                           done_blocked (error) each post it once, in their
+#                           own case, with body=posted in the result; merged
+#                           posts nothing (body=unchanged); a setup stop
+#                           (done_error) posts nothing
+#   a render refusal        a record naming a private repository under a
+#                           public coordination PR ends at done_blocked with
+#                           step=execute:visibility and nothing posted
+#   a coordination body that couldn't be posted   coordination:body-stale in
+#                           the attempts, the coordination PR a draft: the run
+#                           ends ready_awaiting_merge with
+#                           reason=merge-refused:body-stale
+#   the record across a pause  a run at paused_awaiting_merges re-invoked
+#                           through execute-open.sh is replaced with its run/
+#                           keys carried byte-equal, the same run_id, and no
+#                           merge_attempts; a carry that fails after the
+#                           replacement keeps its snapshot, and the next open
+#                           carries from it; with the PLAN deleted before the
+#                           re-invocation, the opener still picks
+#                           execute-coordinated.md and setup reads repos from
+#                           run/setup into coord_loop
+#   recovery                no record, a carried run_id, store session:
+#                           done_error with reason=session-absent and no body
+#                           edit; no record on github, the rendered run line
+#                           matching the node PR's marker: setup recovers,
+#                           the run pauses with recovered=<coordination PR>
+#                           in the result, and print-exit.sh prints it; no
+#                           record, no carried run_id, a body with no index
+#                           line, and an owned PR on a node branch (ixmiss):
+#                           done_error with reason=coordination-index-missing,
+#                           nothing posted, commented on, or merged
+#   follow-ups             a --follow-up on a new run: setup stops
+#                           follow-up-node, done_error with that reason,
+#                           nothing posted, no run/setup; a follow-up closed
+#                           unmerged against a node GitHub reports MERGED:
+#                           ready_awaiting_merge with
+#                           reason=follow-up-closed:<url>, the follow-up
+#                           waiting, no merge; an open one without --merge:
+#                           reason=merge-not-requested, the follow-up waiting
+#   overrides              koto refuses `koto overrides record` on
 #                           coord_verdict's and coord_merge_confirm's gates,
 #                           with and without --with-data
 #   retention               a terminal reached with --no-cleanup keeps the
@@ -38,6 +80,16 @@
 #   --koto-leg              the execute leg's promoted payload carries outcome,
 #                           pr, repos, resume, and waiting, and the leg names
 #                           execute-coordinated.md as the template
+#
+# A new run's setup runs the real record-coord-setup.sh, which seals the run
+# record before any node PR exists, as in a real run; the node PRs a case
+# added with ct_pr reach the gh model only after it (open_run), and the case
+# then seeds the heads the run recorded up to its moment through the test
+# helper (run-record.sh itself, on the real koto). The case's fixed run_id is
+# written after setup: one written before it would be a carried id, which
+# makes the start a recovery. Follow-up PRs are held back the same way. The
+# recovery cases (open_recovering) leave their node PRs in the model before
+# setup: there they mean a started run.
 #
 # In a checkout whose path koto's --var allowlist refuses (a `+` in a
 # directory name), the cases run a copy of the template with this checkout's
@@ -107,21 +159,43 @@ fixture() {
 }
 k() { (cd "$REPO" && koto "$@"); }
 
-# open_run <slug> <merge> [extra init args] -- init, record the setup, and
-# tick into coord_loop.
+# open_run <slug> <merge> [extra init args] -- init, record the setup, open
+# the case's node PRs, and tick into coord_loop.
 open_run() {
-    local s="execute-$1" st
+    local s="execute-$1" st seed="$EVAL_SCENARIO_DIR/gh/db.json" live="$GH_CALL_LOG.d/db.json" held rc
     shift
     local merge="$1"
     shift
     # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
-        || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
-    # The run identity execute-open.sh mints at the session's birth.
-    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
+        || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
+    # The node PRs the case added (ct_pr, on impl/ branches) reach the model
+    # only once setup has sealed the record, as in a real run, where
+    # node-push.sh opens them after setup: an owned PR on a node branch at
+    # setup means a run had started, and setup would stop or recover rather
+    # than seal a new one. Follow-up PRs (ct_follow_up_pr, on fix/ branches)
+    # are held back the same way, since a run's follow-ups are opened after
+    # its nodes. They are held out of the seed the shim's first call
+    # (setup's) copies, then added to the model it built, with the
+    # remote_url the shim gives a seeded PR in default_repo.
+    held=$(jq -c '[.prs[] | select(.headRefName | startswith("impl/") or startswith("fix/"))]' "$seed")
+    cp "$seed" "$seed.full"
+    jq '.prs |= map(select(.headRefName | (startswith("impl/") or startswith("fix/")) | not))' "$seed.full" > "$seed"
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
-        >/dev/null 2>"$CASE/setup.err") || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
+        >/dev/null 2>"$CASE/setup.err")
+    rc=$?
+    mv "$seed.full" "$seed"
+    if [ -f "$live" ]; then
+        jq --argjson h "$held" --arg u "$(git -C "$REPO" remote get-url --push origin 2>/dev/null)" \
+            '.default_repo as $home | .prs += ($h | map(if $u != "" and .repo == $home then . + {remote_url: $u} else . end))' \
+            "$live" > "$live.tmp" && mv "$live.tmp" "$live"
+    fi
+    [ "$rc" -eq 0 ] || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
+    # The case's fixed run identity, written over the one setup minted: one
+    # written before setup would be a carried id, which makes the start a
+    # recovery rather than a new run.
+    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
     k next "$s" --no-cleanup >/dev/null 2>&1
     st=$(k status "$s" | jq -r '.current_state')
     [ "$st" = coord_loop ] || { fail "$s stopped at $st, not coord_loop"; return 1; }
@@ -136,8 +210,30 @@ finish() {
     k next "$s" --with-data "{\"loop_exit\":\"$exit_kind\",\"loop_line\":\"$line\"}" $flag >"$CASE/next.json" 2>&1
 }
 
+# record <slug> <helper> [args...] -- seed the run record of execute-<slug>
+# through the test helper (run-record.sh on the real koto), after setup sealed
+# it: the node PRs and heads the run recorded up to the case's moment.
+record() {
+    local slug="$1"
+    shift
+    (cd "$REPO" && CT_RECORD_SESSION="execute-$slug" && "$@") \
+        || fail "seeding execute-$slug's run record: $*"
+}
+
 state_of() { k status "execute-$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
 payload() { k status "execute-$1" 2>/dev/null | jq -r --arg k "$2" '.result.payload[$k] // ""'; }
+
+# body_posts <slug> <count> -- the case made <count> posts of the coordination
+# PR's body (pr edit 10), and the result's body says what the last render did.
+body_posts() {
+    local n
+    n=$(ct_calls | grep -c '^pr edit 10 ')
+    if [ "$n" = "$2" ]; then
+        pass "$1: the coordination PR's body was posted $2 time(s), result body=$(payload "$1" body)"
+    else
+        fail "$1: $n posts of the coordination PR's body, expected $2 (result body=[$(payload "$1" body)])"
+    fi
+}
 
 # expect_terminal <slug> <state> <key=value>... -- the session is retained at
 # <state> and its result payload holds each value (a value of `+` means
@@ -169,7 +265,8 @@ fixture merged two-repo
 CT_COORD_STATE=MERGED
 ct_write_db
 open_run merged true && finish merged "done:merged"
-expect_terminal merged merged outcome=merged "pr=$COORD_URL" "repos=acme/repo-a,acme/repo-b"
+expect_terminal merged merged outcome=merged "pr=$COORD_URL" "repos=acme/repo-a,acme/repo-b" body=unchanged
+body_posts merged 0
 if ct_calls | grep -q -- '--head docs/t --state all' && ! ct_calls | grep -q 'acme/repo-a,acme/repo-b'; then
     pass "the confirm read looked up the coordination branch in home_repo, never the comma-joined repos"
 else
@@ -194,34 +291,40 @@ fi
 
 ct_case ready
 fixture ready two-repo
-ct_index_line pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-a 11 impl/ready-pr-repo-a-default
 ct_pr acme/repo-b 21 impl/ready-pr-repo-b-default
 ct_write_db
-open_run ready false && finish ready "done:ready-awaiting-merge"
+if open_run ready false; then
+    record ready ct_record_node pr-repo-a-default acme/repo-a 11
+    record ready ct_record_node pr-repo-b-default acme/repo-b 21
+    finish ready "done:ready-awaiting-merge"
+fi
 expect_terminal ready ready_awaiting_merge outcome=ready-awaiting-merge "pr=$COORD_URL" waiting=+ \
-    reason=merge-not-requested "repos=acme/repo-a,acme/repo-b"
+    reason=merge-not-requested "repos=acme/repo-a,acme/repo-b" body=posted
+body_posts ready 1
 if ct_calls | grep -q '^pr merge'; then fail "a run without --merge called pr merge"; else pass "no pr merge without --merge"; fi
 
 # --- paused_awaiting_merges -------------------------------------------------------
 
 ct_case paused
 fixture paused
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/paused-$CT_CORE"
 ct_write_db
-open_run paused false && finish paused "pause"
+if open_run paused false; then
+    record paused ct_record_node "$CT_CORE" "$CT_REPO" 11
+    finish paused "pause"
+fi
 expect_terminal paused paused_awaiting_merges outcome=paused-awaiting-merges "pr=$COORD_URL" waiting=+ \
-    "resume=/execute docs/plans/PLAN-paused.md" reason=merge-not-requested
+    "resume=/execute docs/plans/PLAN-paused.md" reason=merge-not-requested body=posted
+body_posts paused 1
 if ct_calls | grep -Eq '^pr (close|create)'; then fail "the pause closed or opened a PR"; else pass "the pause leaves the coordination PR open and opens nothing"; fi
 
 ct_case paused-merge
 fixture pausedm
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/pausedm-$CT_CORE" 'merge="stays-open"'
 ct_write_db
 if open_run pausedm true; then
+    record pausedm ct_record_node "$CT_CORE" "$CT_REPO" 11
     printf '%s' "$CT_CORE:merge-not-observed" | k context add execute-pausedm merge_attempts
     finish pausedm "pause"
 fi
@@ -240,19 +343,25 @@ fi
 
 ct_case dirty
 fixture dirty
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/dirty-$CT_CORE" 'mergeStateStatus="DIRTY"'
 ct_write_db
-open_run dirty true && finish dirty "pause"
-expect_terminal dirty done_blocked outcome=ready-awaiting-merge reason=merge-state:DIRTY "pr=$COORD_URL"
+if open_run dirty true; then
+    record dirty ct_record_node "$CT_CORE" "$CT_REPO" 11
+    finish dirty "pause"
+fi
+expect_terminal dirty done_blocked outcome=ready-awaiting-merge reason=merge-state:DIRTY "pr=$COORD_URL" body=posted
+body_posts dirty 1
 
 ct_case error
 fixture error
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/error-$CT_CORE" 'author="someone-else"'
 ct_write_db
-open_run error true && finish error "error:execute:pr-adopt"
-expect_terminal error done_blocked outcome=error step=execute:pr-adopt
+if open_run error true; then
+    record error ct_record_node "$CT_CORE" "$CT_REPO" 11
+    finish error "error:execute:pr-adopt"
+fi
+expect_terminal error done_blocked outcome=error step=execute:pr-adopt body=posted
+body_posts error 1
 OUT=$(k status execute-error | bash "$SCRIPT_DIR/print-exit.sh")
 if grep -qx 'outcome=error' <<<"$OUT" && grep -qx 'step=execute:pr-adopt' <<<"$OUT"; then
     pass "print-exit.sh renders outcome=error with its step= line"
@@ -264,17 +373,17 @@ fi
 
 ct_case coord-not-observed
 fixture cno
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
-ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/cno-$CT_CORE" 'state="MERGED"'
 ct_pr "$CT_REPO" 12 "impl/cno-$CT_CLI" 'state="MERGED"'
 CT_COORD_DRAFT=false
 CT_COORD_MERGE=stays-open
 ct_write_db
 if open_run cno true; then
-    # The cascade ran (the PLAN is gone), and this run's merge call on the
-    # coordination PR was accepted without landing.
+    # The cascade ran (the PLAN is gone, its pushed head recorded), and this
+    # run's merge call on the coordination PR was accepted without landing.
+    record cno ct_record_node "$CT_CORE" "$CT_REPO" 11
+    record cno ct_record_node "$CT_CLI" "$CT_REPO" 12
+    record cno ct_record_cascade pushed "$CT_HEAD"
     (cd "$REPO" && git rm -q "docs/plans/PLAN-cno.md" && git commit -q -m "chore: cascade")
     printf '%s' "coordination:merge-not-observed" | k context add execute-cno merge_attempts
     finish cno "done:ready-awaiting-merge"
@@ -294,6 +403,40 @@ else
     fail "the exit lines lack the may-still-be-queued note: [$OUT]"
 fi
 
+# --- a render refusal, and a body that couldn't be posted -------------------------
+
+ct_case render-refused
+fixture refused two-repo
+ct_pr acme/repo-a 11 impl/refused-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/refused-pr-repo-b-default
+CT_VIS_B=private
+ct_write_db
+CT_VIS_B=public
+if open_run refused false; then
+    record refused ct_record_node pr-repo-a-default acme/repo-a 11
+    record refused ct_record_node pr-repo-b-default acme/repo-b 21
+    finish refused "done:ready-awaiting-merge"
+fi
+expect_terminal refused done_blocked outcome=error step=execute:visibility body=refused:execute:visibility
+body_posts refused 0
+
+ct_case body-stale
+fixture bstale
+ct_pr "$CT_REPO" 11 "impl/bstale-$CT_CORE" 'state="MERGED"'
+ct_pr "$CT_REPO" 12 "impl/bstale-$CT_CLI" 'state="MERGED"'
+ct_write_db
+if open_run bstale true; then
+    record bstale ct_record_node "$CT_CORE" "$CT_REPO" 11
+    record bstale ct_record_node "$CT_CLI" "$CT_REPO" 12
+    record bstale ct_record_cascade pushed "$CT_HEAD"
+    (cd "$REPO" && git rm -q "docs/plans/PLAN-bstale.md" && git commit -q -m "chore: cascade")
+    # The render before evaluate-coordination couldn't post, and recorded it.
+    printf '%s' "coordination:body-stale" | k context add execute-bstale merge_attempts
+    finish bstale "done:ready-awaiting-merge"
+fi
+expect_terminal bstale ready_awaiting_merge outcome=ready-awaiting-merge reason=merge-refused:body-stale \
+    "pr=$COORD_URL" waiting=+
+
 # --- done_error -------------------------------------------------------------------
 
 ct_case setup-blocked
@@ -301,9 +444,98 @@ fixture blocked
 ct_write_db
 # $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
-    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-blocked: $(cat "$CASE/init.out")"
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal blocked done_error outcome=error step=execute:coord_setup
+body_posts blocked 0
+
+# A typed setup stop ends at done_error with its code as the literal reason.
+ct_case setup-stop
+fixture stop
+ct_write_db
+# $KOTO_LEGACY_ENV_ARG: #483.
+k init execute-stop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-stop.md --var PLAN_SLUG=stop \
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-stop: $(cat "$CASE/init.out")"
+k next execute-stop --with-data '{"setup_status":"store-mismatch","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+expect_terminal stop done_error outcome=error step=execute:coord_setup reason=store-mismatch
+body_posts stop 0
+OUT=$(k status execute-stop | bash "$SCRIPT_DIR/print-exit.sh")
+grep -qx 'reason=store-mismatch' <<<"$OUT" && pass "print-exit.sh renders the setup stop's reason" \
+    || fail "the setup stop's exit lines: [$OUT]"
+
+# --- follow-ups -------------------------------------------------------------------
+#
+# A --follow-up on a new run names no recorded node PR: setup stops
+# follow-up-node, seals nothing, and the run ends at done_error naming it.
+ct_case fu-stop
+fixture fustop
+# No follow-up PR in the model: the stop comes before any read of it.
+ct_write_db
+# FOLLOW_UP carries `<node> <url>`, as execute-open.sh builds it from
+# --follow-up <node>=<url> (koto's own value allowlist has no `=`), and the
+# directive hands it to setup verbatim.
+FU_VAL="$CT_CORE https://github.com/acme/repo-a/pull/21"
+# $KOTO_LEGACY_ENV_ARG: #483.
+k init execute-fustop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-fustop.md --var PLAN_SLUG=fustop \
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false --var FOLLOW_UP="$FU_VAL" >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-fustop: $(cat "$CASE/init.out")"
+FU_SETUP=$(cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session execute-fustop --plan docs/plans/PLAN-fustop.md \
+    --follow-up "$FU_VAL" 2>"$CASE/setup.err"); FU_RC=$?
+if [ "$FU_RC" -eq 71 ] && [ "$FU_SETUP" = stop=follow-up-node ]; then
+    pass "a --follow-up on a new run stops setup follow-up-node"
+    k next execute-fustop --with-data '{"setup_status":"follow-up-node","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+else
+    fail "fu-stop setup: exit $FU_RC, out [$FU_SETUP]; $(cat "$CASE/setup.err")"
+fi
+expect_terminal fustop done_error outcome=error step=execute:coord_setup reason=follow-up-node
+body_posts fustop 0
+if k context exists execute-fustop run/setup >/dev/null 2>&1; then
+    fail "fu-stop: setup sealed run/setup"
+else
+    pass "fu-stop: no run/setup was sealed"
+fi
+
+# fu_run <slug> <merge> <follow-up key=json ...> -- both nodes recorded and
+# MERGED, and follow-up #21 recorded against core, reaching the model (like
+# the node PRs) only after setup sealed the record.
+fu_run() {
+    local slug="$1" merge="$2"
+    shift 2
+    fixture "$slug"
+    ct_pr "$CT_REPO" 11 "impl/$slug-$CT_CORE" 'state="MERGED"'
+    ct_pr "$CT_REPO" 12 "impl/$slug-$CT_CLI" 'state="MERGED"'
+    ct_follow_up_pr "$CT_REPO" 21 "$@"
+    ct_write_db
+    if open_run "$slug" "$merge"; then
+        record "$slug" ct_record_node "$CT_CORE" "$CT_REPO" 11
+        record "$slug" ct_record_node "$CT_CLI" "$CT_REPO" 12
+        record "$slug" ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+        finish "$slug" "done:ready-awaiting-merge"
+    fi
+}
+FU21_URL="https://github.com/acme/repo-a/pull/21"
+
+# A follow-up closed unmerged holds the coordination PR, and the run ends
+# ready naming it.
+ct_case fu-closed
+fu_run fuclosed true 'state="CLOSED"'
+expect_terminal fuclosed ready_awaiting_merge outcome=ready-awaiting-merge "reason=follow-up-closed:$FU21_URL"
+case "$(payload fuclosed waiting)" in
+    *"$FU21_URL:human"*) pass "fu-closed: the closed follow-up waits on a human" ;;
+    *) fail "fu-closed: waiting [$(payload fuclosed waiting)]" ;;
+esac
+if ct_calls | grep -q '^pr merge'; then fail "fu-closed: a merge was called"; else pass "fu-closed: no merge while the follow-up is closed"; fi
+
+# An open one, without --merge, waits on the merge being asked for.
+ct_case fu-open
+fu_run fuopen false
+expect_terminal fuopen ready_awaiting_merge outcome=ready-awaiting-merge reason=merge-not-requested
+case "$(payload fuopen waiting)" in
+    *"$FU21_URL:human"*) pass "fu-open: the open follow-up is among the waiting PRs" ;;
+    *) fail "fu-open: waiting [$(payload fuopen waiting)]" ;;
+esac
 
 # --- overrides are refused --------------------------------------------------------
 
@@ -392,11 +624,222 @@ else
     pass "a terminal reached without --no-cleanup loses its context (control)"
 fi
 
+# --- the record across a pause --------------------------------------------------------
+#
+# A run paused at paused_awaiting_merges, re-invoked through execute-open.sh:
+# koto replaces the finished session, and the opener carries its run/ keys and
+# run_id into the replacement. A second run's carry is made to fail after the
+# replacement (a koto wrapper refusing every `context add` of a run/ key), and
+# the next open carries it from the snapshot the first one kept.
+
+# shellcheck source=run-record-lib.sh
+. "$SCRIPT_DIR/run-record-lib.sh"
+REAL_KOTO=$(command -v koto)
+STATE_ROOT="$CT_WORK/state"
+# opener <slug> [bin dir] -- execute-open.sh in the case's checkout, with the
+# PLAN as its one token. Sets OUT and RC.
+opener() {
+    local d
+    d=$(cd "$REPO" && bash "$REPO_ROOT/scripts/koto-open.sh" --alloc-dir) || { OUT=""; RC=99; return; }
+    jq -nc --arg p "docs/plans/PLAN-$1.md" '[$p]' > "$d/tokens.json"
+    OUT=$(cd "$REPO" && env PATH="${2:+$2:}$PATH" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT_VAR" SHIRABE_STATE_DIR="$STATE_ROOT" \
+        bash "$SCRIPT_DIR/execute-open.sh" "$d/tokens.json" 2>"$CASE/open.err")
+    RC=$?
+}
+record_of() { (cd "$REPO" && rr_record "execute-$1" 2>/dev/null); }
+# paused_run <slug> -- a run whose core node is recorded and awaiting a human,
+# ended at paused_awaiting_merges with a merge attempt recorded.
+paused_run() {
+    ct_pr "$CT_REPO" 11 "impl/$1-$CT_CORE"
+    ct_write_db
+    open_run "$1" false || return 1
+    record "$1" ct_record_node "$CT_CORE" "$CT_REPO" 11
+    printf '%s' "$CT_CORE:merge-not-observed" | k context add "execute-$1" merge_attempts >/dev/null 2>&1
+    finish "$1" "pause"
+    [ "$(state_of "$1")" = paused_awaiting_merges ]
+}
+
+ct_case carry
+fixture pcarry
+if paused_run pcarry; then
+    BEFORE=$(record_of pcarry)
+    ID_BEFORE=$(k context get execute-pcarry run_id 2>/dev/null)
+    opener pcarry
+    AFTER=$(record_of pcarry)
+    if [ "$RC" -eq 0 ] && grep -qx 'opened=replaced' <<<"$OUT" && grep -qx 'carried=2' <<<"$OUT" \
+        && [ "$(state_of pcarry)" = coord_setup ]; then
+        pass "a paused run re-invoked: replaced, and its two run/ keys carried (carried=2)"
+    else
+        fail "carry: exit $RC, out [$OUT], state $(state_of pcarry); $(cat "$CASE/open.err")"
+    fi
+    if [ -n "$BEFORE" ] && [ "$BEFORE" != "{}" ] && [ "$AFTER" = "$BEFORE" ]; then
+        pass "every run/ key in the replacement is byte-equal to the paused session's"
+    else
+        fail "the carried record differs: before [$BEFORE], after [$AFTER]"
+    fi
+    [ "$(k context get execute-pcarry run_id 2>/dev/null)" = "$ID_BEFORE" ] \
+        && pass "the replacement continues with the same run_id" \
+        || fail "run_id after the carry: [$(k context get execute-pcarry run_id 2>/dev/null)], was [$ID_BEFORE]"
+    if k context exists execute-pcarry merge_attempts >/dev/null 2>&1; then
+        fail "the replacement still holds merge_attempts"
+    else
+        pass "the replacement's merge attempts are empty"
+    fi
+    [ ! -e "$STATE_ROOT/execute-carry/execute-pcarry" ] && pass "the snapshot is removed once the carry succeeds" \
+        || fail "the snapshot was left behind after a successful carry"
+    if grep -q 'execute-carry' <<<"$OUT"; then fail "a report line names the snapshot's path"; else pass "no report line names a local path"; fi
+else
+    fail "could not end a run at paused_awaiting_merges (at $(state_of pcarry)): $(head -c 600 "$CASE/next.json")"
+fi
+
+ct_case carry-crash
+fixture pcrash
+if paused_run pcrash; then
+    BEFORE=$(record_of pcrash)
+    ID_BEFORE=$(k context get execute-pcrash run_id 2>/dev/null)
+    CRASH_BIN="$CASE/crash-bin"
+    mkdir -p "$CRASH_BIN"
+    cat > "$CRASH_BIN/koto" <<STUB
+#!/usr/bin/env bash
+case "\$1 \$2 \$4" in "context add run/"*) exit 1 ;; esac
+exec "$REAL_KOTO" "\$@"
+STUB
+    chmod +x "$CRASH_BIN/koto"
+    opener pcrash "$CRASH_BIN"
+    if [ "$RC" -eq 70 ] && grep -qx 'opened=replaced' <<<"$OUT" && grep -qx 'carry=pending' <<<"$OUT" \
+        && grep -qx 'failed=carry' <<<"$OUT" && [ -f "$STATE_ROOT/execute-carry/execute-pcrash/record.json" ] \
+        && ! k context exists execute-pcrash run/setup >/dev/null 2>&1; then
+        pass "a carry that fails after the replacement: failed=carry, exit 70, the snapshot kept, no run/setup"
+    else
+        fail "crash: exit $RC, out [$OUT], snapshot $(ls "$STATE_ROOT/execute-carry" 2>&1); $(cat "$CASE/open.err")"
+    fi
+    opener pcrash
+    if [ "$RC" -eq 0 ] && grep -qx 'carried=2' <<<"$OUT" && [ "$(record_of pcrash)" = "$BEFORE" ] \
+        && [ ! -e "$STATE_ROOT/execute-carry/execute-pcrash" ] \
+        && [ "$(k context get execute-pcrash run_id 2>/dev/null)" = "$ID_BEFORE" ]; then
+        pass "the next open carries the record from the kept snapshot and removes it"
+    else
+        fail "after the crash: exit $RC, out [$OUT], record [$(record_of pcrash)]; $(cat "$CASE/open.err")"
+    fi
+else
+    fail "could not end a run at paused_awaiting_merges (at $(state_of pcrash)): $(head -c 600 "$CASE/next.json")"
+fi
+
+# The same pause, with the cascade having deleted the PLAN before the
+# re-invocation: the opener reads the mode from the record, and setup reads
+# repos from run/setup.
+ct_case carry-plan-gone
+fixture pgone
+if paused_run pgone; then
+    BEFORE=$(record_of pgone)
+    (cd "$REPO" && git rm -q "docs/plans/PLAN-pgone.md" && git commit -q -m "chore: cascade")
+    opener pgone
+    if [ "$RC" -eq 0 ] && grep -qx 'opened=replaced' <<<"$OUT" && grep -qx 'carried=2' <<<"$OUT" \
+        && [ "$(state_of pgone)" = coord_setup ] && [ "$(record_of pgone)" = "$BEFORE" ]; then
+        pass "a paused run whose PLAN is gone re-invokes on the coordinated template, its record carried"
+    else
+        fail "plan gone: exit $RC, out [$OUT], state $(state_of pgone); $(cat "$CASE/open.err")"
+    fi
+    SOUT=$(cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session execute-pgone --plan docs/plans/PLAN-pgone.md 2>"$CASE/setup.err")
+    SRC=$?
+    k next execute-pgone --no-cleanup >/dev/null 2>&1
+    if [ "$SRC" -eq 0 ] && grep -qx record=existing <<<"$SOUT" && grep -qx repos=acme/repo-a <<<"$SOUT" \
+        && [ "$(state_of pgone)" = coord_loop ]; then
+        pass "setup over the carried record with the PLAN gone reads repos from run/setup and reaches coord_loop"
+    else
+        fail "setup with the PLAN gone: exit $SRC, out [$SOUT], state $(state_of pgone); $(cat "$CASE/setup.err")"
+    fi
+else
+    fail "could not end a run at paused_awaiting_merges (at $(state_of pgone)): $(head -c 600 "$CASE/next.json")"
+fi
+
+# --- recovery ----------------------------------------------------------------------------
+#
+# A session with no record. open_recovering inits the session, runs setup with
+# no run_id written by the harness, and ticks; setup's own stdout is kept in
+# $CASE/setup.out and its exit in SETUP_RC.
+open_recovering() { # open_recovering <slug> <merge> [extra init args]
+    local s="execute-$1"
+    shift
+    local merge="$1"
+    shift
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
+        || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
+    [ -n "${CARRIED_ID:-}" ] && printf '%s' "$CARRIED_ID" | k context add "$s" run_id >/dev/null 2>&1
+    (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
+        ${STORE_FLAG:+--store "$STORE_FLAG"} >"$CASE/setup.out" 2>"$CASE/setup.err")
+    SETUP_RC=$?
+    return 0
+}
+REC_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+# On session, a start with no record and a carried run_id stops session-absent
+# and ends at done_error naming it, with no body edit.
+ct_case session-absent
+fixture sabs
+ct_write_db
+CARRIED_ID="$REC_ID" STORE_FLAG=session open_recovering sabs false --var STORE=session
+if [ "$SETUP_RC" -eq 71 ] && [ "$(cat "$CASE/setup.out")" = stop=session-absent ]; then
+    k next execute-sabs --with-data '{"setup_status":"session-absent","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+fi
+expect_terminal sabs done_error outcome=error step=execute:coord_setup reason=session-absent
+if ct_calls | grep -q '^pr edit '; then fail "session-absent: a body was edited"; else pass "session-absent: no gh pr edit"; fi
+
+# On github, a rendered run line every node PR's marker matches recovers; the
+# run continues with the live head, and the result says it recovered.
+ct_case recovered
+fixture rec
+ct_pr "$CT_REPO" 11 "impl/rec-$CT_CORE" "body=$(ct_marked_body "$REC_ID")"
+ct_rendered_body "$CASE/body.md" "$REC_ID" github "$CT_CORE=11"
+ct_write_db "$CASE/body.md"
+open_recovering rec false
+if [ "$SETUP_RC" -eq 0 ] && grep -qx "recovered=$COORD_URL" "$CASE/setup.out"; then
+    pass "setup recovers the run from its rendering (recovered=$COORD_URL)"
+    k next execute-rec --no-cleanup >/dev/null 2>&1
+    finish rec "pause"
+else
+    fail "recovery setup: exit $SETUP_RC, out [$(cat "$CASE/setup.out")]; $(cat "$CASE/setup.err")"
+fi
+expect_terminal rec paused_awaiting_merges outcome=paused-awaiting-merges "recovered=$COORD_URL"
+[ "$(k context get execute-rec run_id 2>/dev/null)" = "$REC_ID" ] && pass "the recovered run's run_id is the run line's" \
+    || fail "recovered run_id: [$(k context get execute-rec run_id 2>/dev/null)]"
+OUT=$(k status execute-rec | bash "$SCRIPT_DIR/print-exit.sh")
+grep -qx "recovered=$COORD_URL" <<<"$OUT" && pass "print-exit.sh prints recovered=" || fail "recovered exit lines: [$OUT]"
+
+# On github, a start with no record, no carried run_id, and a body with no
+# index line, beside an owned PR on a PLAN node's branch, is a run that started
+# and left nothing to rebuild it from: setup stops coordination-index-missing,
+# writes nothing, and the run ends at done_error naming it.
+ct_case index-missing
+fixture ixmiss
+ct_pr "$CT_REPO" 11 "impl/ixmiss-$CT_CORE"
+ct_write_db
+open_recovering ixmiss false
+if [ "$SETUP_RC" -eq 71 ] && [ "$(cat "$CASE/setup.out")" = stop=coordination-index-missing ]; then
+    pass "an owned node PR beside a body with no index line stops setup coordination-index-missing"
+    k next execute-ixmiss --with-data '{"setup_status":"coordination-index-missing","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+else
+    fail "index missing: setup exit $SETUP_RC, out [$(cat "$CASE/setup.out")]; $(cat "$CASE/setup.err")"
+fi
+expect_terminal ixmiss done_error outcome=error step=execute:coord_setup reason=coordination-index-missing
+body_posts ixmiss 0
+if ct_calls | grep -Eq '^(pr (edit|comment|merge|ready|create|close)|issue |api .*comments)'; then
+    fail "index missing: a write reached GitHub: $(ct_calls | grep -E '^(pr (edit|comment|merge|ready|create|close)|issue |api .*comments)')"
+else
+    pass "index missing: no body post, comment, or merge"
+fi
+if k context exists execute-ixmiss run/setup >/dev/null 2>&1; then
+    fail "index missing: setup sealed run/setup"
+else
+    pass "index missing: no run/setup was sealed"
+fi
+
 # --- --koto-leg -----------------------------------------------------------------------
 
 ct_case leg
 fixture leg
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/leg-$CT_CORE"
 ct_write_db
 REQ=$(k request create --with-data '{"legs":[{"name":"execute","role":"execute","template":["execute.md","execute-coordinated.md"],"inputs":{}}]}' \
@@ -405,7 +848,10 @@ REQ=$(k request create --with-data '{"legs":[{"name":"execute","role":"execute",
 if [ -z "$REQ" ] || [ "$REQ" = null ]; then
     fail "koto request create printed no request id"
 else
-    open_run leg false --koto-leg "$REQ:execute" && finish leg "pause"
+    if open_run leg false --koto-leg "$REQ:execute"; then
+        record leg ct_record_node "$CT_CORE" "$CT_REPO" 11
+        finish leg "pause"
+    fi
     LEG=$(k request get "$REQ" 2>/dev/null | jq -c '[.. | objects | select(has("name") and .name == "execute")][0] // {}')
     P=$(printf '%s' "$LEG" | jq -c '[.. | objects | select(has("outcome") and has("repos"))][0] // {}')
     if [ "$(printf '%s' "$P" | jq -r '.outcome')" = paused-awaiting-merges ] \

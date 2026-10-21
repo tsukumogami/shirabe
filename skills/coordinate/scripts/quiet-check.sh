@@ -75,7 +75,7 @@ lib_facts
 NOW_S=$(lib_epoch "$NOW") || usage
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/quiet-check.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/quiet-check.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 if [ "$OVERRIDE" = 1 ]; then

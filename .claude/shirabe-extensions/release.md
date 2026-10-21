@@ -11,6 +11,35 @@ shirabe's declarations for `/shirabe:release`, imported by
 
 - `scripts/release-eval-check.sh --finalize`
 
+## The macOS floor run
+
+Pull requests merge without waiting for their macOS legs, so a commit on
+main may never have run every suite on the bash 3.2 floor. When a pull
+request merges or closes, `cancel-closed-pr-macos-runs.yml` cancels its
+macOS floor runs that are still queued or running, so a merged change's
+own macOS result is often never reported. The `macos-floor.yml` run is the
+only macOS check after merge.
+
+Before dispatching the release workflow, run every floor suite on the
+commit the release is cut from and wait for the result:
+
+```bash
+git fetch origin main
+sha=$(git rev-parse origin/main)
+gh workflow run macos-floor.yml -f ref="$sha"
+# The run is named after its ref; repeat until this prints an id.
+gh run list --workflow macos-floor.yml --event workflow_dispatch --json databaseId,displayTitle \
+  --jq ".[] | select(.displayTitle == \"macOS floor on $sha\") | .databaseId"
+gh run watch <databaseId> --exit-status
+```
+
+A red run stops the release; nothing enforces that but this step. The run
+files an issue titled "CI: the macOS floor run is red", or comments on the
+open one, naming the suites that failed; the release waits until a run on the
+new main commit is green. The same workflow
+runs on main every day, so its latest scheduled run says whether the floor was
+already red before the release started.
+
 ## About the eval check
 
 The check runs the evals of every skill changed since the last release tag,

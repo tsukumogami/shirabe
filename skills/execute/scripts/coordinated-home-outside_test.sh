@@ -11,7 +11,8 @@
 # then coordinated-next.sh in a loop, performing each action it prints
 # (node-cut.sh and node-push.sh for a dispatch, `gh pr ready` for an evaluate,
 # coord-merge.sh for a merge, node-push.sh order and coordination around the
-# cascade). GitHub is the eval gh shim's repository model and koto the context
+# cascade, coord-render.sh --before-coordination before the coordination PR is
+# readied). GitHub is the eval gh shim's repository model and koto the context
 # stub (see coord-test-helpers.sh); both repositories' origins are local bare
 # repositories.
 #
@@ -27,10 +28,13 @@
 #   the home's branches   the home origin gains only the coordination branch,
 #                         never a node branch; the node origin gains both node
 #                         branches and never the coordination branch
-#   the index             the coordination entry names acme/repo-a, the node
-#                         entries acme/repo-b
+#   the index             the rendered body names acme/repo-b for both
+#                         nodes and carries no entry for the coordination PR
 #   visibility            neither public node PR links the private
 #                         coordination PR
+#   the run record        both run/node keys name acme/repo-b, run/cascade
+#                         holds the pushed coordination head, and run/setup
+#                         the coordination PR's number
 #
 # Usage: coordinated-home-outside_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -78,11 +82,17 @@ ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 
 # --- coord_setup ------------------------------------------------------------------
 
+# A new run's session has no run_id before setup (one there would be a
+# carried id, which makes the start a recovery); the case's fixed id is
+# written over the minted one after it.
+rm -f "$CASE/ctx/$S/run_id"
 (cd "$HOMEDIR" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$S" --plan docs/plans/PLAN-t.md \
     >"$CASE/setup.out" 2>"$CASE/setup.err")
 RC=$?
-if [ "$RC" -eq 0 ] && [ "$(ctx repos)" = "$NODE_REPO" ] && [ "$(ctx home_repo)" = "$HOME_REPO" ]; then
-    pass "coord_setup records repos=$NODE_REPO and home_repo=$HOME_REPO"
+printf '%s' "$RUN" > "$CASE/ctx/$S/run_id"
+if [ "$RC" -eq 0 ] && [ "$(ctx repos)" = "$NODE_REPO" ] && [ "$(ctx home_repo)" = "$HOME_REPO" ] \
+    && grep -qx record=new "$CASE/setup.out"; then
+    pass "coord_setup records repos=$NODE_REPO and home_repo=$HOME_REPO on a new run"
 else
     fail "coord_setup: rc=$RC repos=[$(ctx repos)] home=[$(ctx home_repo)] err=[$(cat "$CASE/setup.err")]"
     echo
@@ -96,8 +106,9 @@ REPOS=$(ctx repos)
 TASKS=$(bash "$PLAN_TO_TASKS" "$PLAN" 2>/dev/null)
 node_issues() { printf '%s' "$TASKS" | jq -r --arg n "$1" '.[] | select(.name == $n) | .vars.ISSUES'; }
 index_number() { # index_number <node> -- the PR number the coordination PR's index names
-    jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB" \
-        | sed -n "s/^- $1 | [^:]*:[^#]*#\\([0-9]*\\) .*/\\1/p" | head -1
+    local body
+    body=$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB")
+    sed -n "/^- $1 | [^:]*:[^#]*#\\([0-9]*\\) .*/{s//\\1/p;q;}" <<<"$body"
 }
 
 ACTIONS=""
@@ -105,11 +116,11 @@ step=0
 while [ "$step" -lt 20 ]; do
     step=$((step + 1))
     ATTEMPTS=$(ctx merge_attempts)
-    set -- --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "$REPOS" --home-repo "$(ctx home_repo)" \
+    set -- --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "$REPOS" --home-repo "$(ctx home_repo)" \
         --coord-branch "$(ctx coord_branch)" --merge true --run-id "$RUN"
     [ -n "$ATTEMPTS" ] && set -- "$@" --attempts "$ATTEMPTS"
     # The PLAN path is relative to the coordination checkout; once the cascade
-    # deleted it, the index is the node list.
+    # deleted it, the node list sealed in run/setup.
     ACTION=$(cd "$HOMEDIR" && bash "$SCRIPT_DIR/coordinated-next.sh" "$@" 2>>"$CASE/next.err")
     ACTIONS="$ACTIONS$ACTION "
     case "$ACTION" in
@@ -119,7 +130,7 @@ while [ "$step" -lt 20 ]; do
                 | sed -n 's/^worktree=//p')
             [ -n "$WT" ] && [ -d "$WT" ] || { fail "node-cut.sh made no worktree for $node: $(cat "$CASE/cut.err")"; break; }
             (cd "$WT" && echo "$node" > "$node.txt" && git add "$node.txt" && git commit -q -m "feat: $node")
-            (cd "$WT" && bash "$SCRIPT_DIR/node-push.sh" node --slug "$CT_SLUG" --node "$node" --repo "$NODE_REPO" \
+            (cd "$WT" && bash "$SCRIPT_DIR/node-push.sh" node --session "$S" --slug "$CT_SLUG" --node "$node" --repo "$NODE_REPO" \
                 --issues "$(node_issues "$node")" --home-repo "$(ctx home_repo)" --coord-branch "$(ctx coord_branch)" \
                 --plan "$(ctx plan_abs)" --run-id "$RUN" >>"$CASE/push.out" 2>>"$CASE/push.err") \
                 || { fail "node-push.sh node $node: $(tail -3 "$CASE/push.err")"; break; }
@@ -136,8 +147,8 @@ while [ "$step" -lt 20 ]; do
             grep -qx merged <<<"$out" || { fail "coord-merge.sh $node: [$out] $(tail -2 "$CASE/merge.err")"; break; }
             ;;
         cascade)
-            (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" order --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
-                --coord-branch "$(ctx coord_branch)" --plan "$(ctx plan_abs)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
+            (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" order --session "$S" --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
+                --coord-branch "$(ctx coord_branch)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
                 || { fail "node-push.sh order: $(tail -3 "$CASE/push.err")"; break; }
             # The finalization cascade's own commit and push, standing in for
             # run-cascade.sh --push (a plain push of the coordination branch
@@ -145,7 +156,7 @@ while [ "$step" -lt 20 ]; do
             # the PLAN gone from the coordination branch and the branch pushed
             # to the home origin, not the cascade's document transitions.
             (cd "$HOMEDIR" && git rm -q docs/plans/PLAN-t.md && git commit -q -m "chore: finalize" && git push -q origin "$CT_CB")
-            (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" coordination --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
+            (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" coordination --session "$S" --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
                 --coord-branch "$(ctx coord_branch)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
                 || { fail "node-push.sh coordination: $(tail -3 "$CASE/push.err")"; break; }
             # GitHub now reports the pushed commit as the coordination PR's
@@ -155,6 +166,9 @@ while [ "$step" -lt 20 ]; do
                 "$DB" > "$DB.tmp" && mv "$DB.tmp" "$DB"
             ;;
         evaluate-coordination)
+            out=$(cd "$HOMEDIR" && bash "$SCRIPT_DIR/coord-render.sh" --session "$S" --slug "$CT_SLUG" \
+                --home-repo "$(ctx home_repo)" --coord-branch "$(ctx coord_branch)" --before-coordination 2>>"$CASE/render.err")
+            case "$out" in *merge-refused:*) fail "the render before evaluate-coordination: [$out]"; break ;; esac
             gh pr ready 10 --repo "$(ctx home_repo)" >/dev/null || { fail "gh pr ready 10"; break; }
             ;;
         merge-coordination)
@@ -188,7 +202,7 @@ HOME_WRITES=$(printf '%s\n' "$WRITES" | grep -F -- "--repo $HOME_REPO" || true)
 if [ -z "$HOME_WRITES" ]; then
     fail "no write reached the home repository; the coordination PR was never edited"
 elif grep -Eqv '^pr (edit|ready|merge) 10 ' <<<"$HOME_WRITES"; then
-    fail "a write to the home repository other than the coordination PR's: $(printf '%s\n' "$HOME_WRITES" | grep -Ev '^pr (edit|ready|merge) 10 ' | head -1)"
+    fail "a write to the home repository other than the coordination PR's: $(grep -Ev -m1 '^pr (edit|ready|merge) 10 ' <<<"$HOME_WRITES")"
 else
     pass "every write to $HOME_REPO is an edit, ready, or merge of the coordination PR ($(printf '%s\n' "$HOME_WRITES" | grep -c .) calls)"
 fi
@@ -229,12 +243,26 @@ NODE_REFS=$(git ls-remote --heads "$NODEDIR.origin.git" | awk '{print $2}' | sor
 # --- the index --------------------------------------------------------------------
 
 BODY=$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB")
-if grep -Eq '^- coordination \| acme/repo-a:[^#]*#10 \| ' <<<"$BODY" \
+if ! grep -Eq '^- coordination \||acme/repo-a:[^#]*#10' <<<"$BODY" \
     && [ "$(printf '%s\n' "$BODY" | grep -Ec '^- pr-repo-b-(core|cli) \| acme/repo-b:')" -eq 2 ]; then
-    pass "the index names acme/repo-a for the coordination entry and acme/repo-b for both nodes"
+    pass "the index names acme/repo-b for both nodes and has no entry for the coordination PR"
 else
     fail "the index: $(printf '%s\n' "$BODY" | grep '^- ')"
 fi
+
+# --- the run record ---------------------------------------------------------------
+
+REC_REPOS=$(cat "$CASE/ctx/$S/run/node/pr-repo-b-core" "$CASE/ctx/$S/run/node/pr-repo-b-cli" 2>/dev/null \
+    | jq -rs 'map(.repo) | join(",")')
+[ "$REC_REPOS" = "$NODE_REPO,$NODE_REPO" ] \
+    && pass "the run record's node keys both name $NODE_REPO" || fail "run/node repos: [$REC_REPOS]"
+CSHA=$(git -C "$HOMEDIR" rev-parse HEAD)
+[ "$(ctx run/cascade)" = "{\"head\":\"$CSHA\",\"verdict\":\"pushed\"}" ] \
+    && pass "the run record holds the cascade pushed at the coordination branch's head" \
+    || fail "run/cascade: [$(ctx run/cascade)]"
+[ "$(ctx run/setup | jq -c '[.coordination_pr, .repos]')" = "[10,[\"$NODE_REPO\"]]" ] \
+    && pass "run/setup holds the coordination PR's number and repos=$NODE_REPO" \
+    || fail "run/setup: [$(ctx run/setup)]"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

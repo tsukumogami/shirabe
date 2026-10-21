@@ -475,7 +475,7 @@ What a coordinator keeps on the host today, and where it goes:
 | Progress facts and a script that renders them | `progress-view.sh` over pick's facts, already the skill's |
 | Standing answers in a local file | Standing rows and their entries |
 | A list of stopped workers' session ids, for a resume by hand | The Work rows' next step; resuming a session is the workspace manager's, and a session id is never written to the record |
-| Scripts that read a board, wait on checks, build a squash message and check a teardown | `board-verdict.sh`, `land-check.sh`, `squash-message.sh` and `teardown-inventory.sh`, already the skill's |
+| Scripts that read a board, wait on checks, build a squash message and check a teardown | `board-verdict.sh`, `land-check.sh`, `squash-message.sh` and `teardown-inventory.sh`, already the skill's (`squash-message.sh` now sits in `scripts/lib/`, shared with `/execute`) |
 | Scripts that export a pull request for a merge panel, and a review-trial wrapper | Retired with the merger's panel by the merge policy, or the trial's own tooling; not a coordinator's state |
 | A runbook, friction logs and briefs | The process owner's method and observations: method belongs in the skill (the strategy's first falsifier counts it), observations in issues or record entries; not state |
 

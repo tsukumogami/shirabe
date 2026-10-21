@@ -1,0 +1,46 @@
+# check-mktemp-guards_test.sh's fixtures: <kind>\t<label>\t<shell text>.
+# kind is refused (the check must name the line holding the mktemp, counting
+# the shebang the harness adds as line 1) or fine (it must pass the file). The
+# first refused row also serves the harness's directory case, which expects
+# its mktemp on line 2. <NL> in the shell text is a newline. Kept out of the test
+# script itself because the check scans every tracked *.sh, this suite's own
+# file included.
+refused	cd into the value, then pwd (#924)	T=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX")<NL>T=$(cd -P "$T" && pwd -P)
+refused	cd into the value, then git (#925)	d=$(mktemp -d)<NL>(cd "$d" && git init -q . && git add -A && git commit -qm x)
+refused	git -C on the value (#925)	T=$(mktemp -d)<NL>git -C "$T" init -q repo
+refused	rm on a name built from the value (#922)	F=$(mktemp)<NL>trap 'rm -f "$F" "$F".*' EXIT
+refused	rm on a suffixed name	F=$(mktemp)<NL>rm -f "$F" "$F.one"
+refused	rm under the value	T=$(mktemp -d)<NL>rm -f "$T/log"
+refused	mv under the value	T=$(mktemp -d)<NL>mv "$T/a" "$T/b"
+refused	pushd into the value	T=$(mktemp -d)<NL>pushd "$T" >/dev/null
+refused	a quoted assignment	T="$(mktemp -d)"<NL>cd "$T" || exit 1
+refused	the backtick form	T=`mktemp -d`<NL>cd "$T"
+refused	under umask	T=$(umask 077 && mktemp -d)<NL>rm -rf "$T"/*
+refused	a later statement on the line	d=$(mktemp -d); TMPS+=("$d")<NL>cd "$d"
+refused	a || in a later statement is no check	d=$(mktemp -d); [ -n "$x" ] || x=1<NL>cd "$d"
+refused	after local on the line	local d; d=$(mktemp -d)<NL>cd "$d"
+refused	braced use	T=$(mktemp -d)<NL>rm -rf "${T}/x"
+refused	a use above the assignment	cleanup() { rm -rf "$T"/*; }<NL>T=$(mktemp -d)
+refused	local masks the status under errexit	set -e<NL>f() { local T=$(mktemp -d); cd "$T"; }
+refused	a continued line, named by its first line	T=$(mktemp -d \<NL>    "${TMPDIR:-/tmp}/x.XXXXXX")<NL>cd "$T"
+fine	checked with ||	T=$(mktemp -d) || exit 1<NL>T=$(cd -P "$T" && pwd -P) || exit 1
+fine	checked with || on the continued line	T=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX") \<NL>    || { echo "no temp" >&2; exit 2; }<NL>cd "$T"
+fine	the condition of an if	if ! T=$(mktemp -d); then exit 1; fi<NL>cd "$T"
+fine	the condition of an if, positive	if T=$(mktemp -d); then cd "$T"; fi
+fine	errexit	set -euo pipefail<NL>T=$(mktemp -d)<NL>cd "$T"
+fine	errexit by name	set -o errexit<NL>T=$(mktemp -d)<NL>rm -rf "$T"/*
+fine	a plain rm of the value alone	T=$(mktemp -d)<NL>trap 'rm -rf "$T"' EXIT
+refused	a redirection under the value (#926)	T=$(mktemp -d)<NL>echo x > "$T/f"
+refused	an appending redirection	WORK=$(mktemp -d)<NL>: >> "$WORK/live.flags"
+refused	a stderr redirection	T=$(mktemp -d)<NL>cmd 2>"$T/err"
+refused	a redirection to a suffixed name	F=$(mktemp)<NL>jq . "$F" > "$F.tmp"
+refused	mkdir under the value	T=$(mktemp -d)<NL>mkdir -p "$T/home"
+refused	cp into the value	T=$(mktemp -d)<NL>cp "$src" "$T/copy"
+refused	tee under the value	T=$(mktemp -d)<NL>cmd | tee "$T/log"
+refused	touch under the value	T=$(mktemp -d)<NL>touch "$T/marker"
+fine	a read from under the value	T=$(mktemp -d)<NL>cat "$T/f"
+fine	writes under another name	T=$(mktemp -d)<NL>echo x > "$TT/f"
+fine	writes under a checked value	T=$(mktemp -d) || exit 1<NL>mkdir -p "$T/home"; echo x > "$T/f"
+fine	another name	T=$(mktemp -d)<NL>cd "$TT"
+fine	a comment	# T=$(mktemp -d)<NL>cd "$T"
+fine	mktemp in a string	echo "T=$(mktemp -d) is how"<NL>cd "$T"

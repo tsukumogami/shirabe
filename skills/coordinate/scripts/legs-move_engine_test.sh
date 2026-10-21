@@ -50,7 +50,7 @@ ORIG_PATH=$PATH
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
 printf '#!/bin/sh\nGH_DB=${GH_DB:-%s} exec "%s" "$@"\n' "$GH_DB" "$HERE/testdata/gh" > "$T/bin/gh"
@@ -68,7 +68,7 @@ PR="$T/plugin"
 PS="$PR/skills/coordinate/scripts"
 
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; rm -rf "$T"' EXIT
+trap 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
 s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests legs-move-engine; exit 1; }
 host_make a; host_make b
 for h in a b; do

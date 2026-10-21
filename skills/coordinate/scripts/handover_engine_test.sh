@@ -62,7 +62,7 @@ ORIG_PATH=$PATH
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
 # The gh stand-in finds its DB through GH_DB. koto's import gives the session
@@ -83,7 +83,7 @@ PS="$PR/skills/coordinate/scripts"
 # niwa instance that permits every finishing step, so the posture reads
 # `readable`.
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; rm -rf "$T"' EXIT
+trap 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
 s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests handover-engine; exit 1; }
 host_make a; host_make b; host_make c
 for h in a b c; do

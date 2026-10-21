@@ -6,16 +6,17 @@ stateDiagram-v2
     confirm --> execute_run : decision: proceed, gates.mode_auto.exit_code: 1
     confirm --> done_stopped : decision: stop, gates.mode_auto.exit_code: 1
     execute_absent --> execute_run
+    execute_lost --> done_error
     execute_run --> merged_check : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: merged, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: ready-awaiting-merge, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_stopped : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: paused-for-review, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_stopped : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: paused-awaiting-merges, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.payload.outcome: error, gates.exec_leg.source: promoted, gates.exec_leg.valid: true
     execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.source: promoted, gates.exec_leg.valid: false
-    execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.source: refused
+    execute_run --> execute_lost : gates.exec_leg.disposition: resolved, gates.exec_leg.source: refused
     execute_run --> done_error : gates.exec_leg.disposition: resolved, gates.exec_leg.source: explicit
     execute_run --> done_error : gates.exec_leg.disposition: abandoned
-    execute_run --> done_error : gates.exec_leg.disposition: missing
+    execute_run --> execute_lost : gates.exec_leg.disposition: missing
     execute_run --> execute_absent : child_returned: yes, gates.exec_leg.bound: false, gates.exec_leg.disposition: open
     executed_check --> done : gates.executed_merged.matches: true, gates.executed_open.matches: false, gates.executed_pr.matches: true
     executed_check --> done : gates.executed_merged.matches: false, gates.executed_open.matches: true, gates.executed_pr.matches: true

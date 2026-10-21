@@ -89,7 +89,7 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || usage
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX")
+WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 # The live record, through the seam (record-source.sh), which reads it with

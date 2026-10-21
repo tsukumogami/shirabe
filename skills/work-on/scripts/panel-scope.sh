@@ -180,6 +180,19 @@
 # agent's answer to a criterion the decider couldn't grade is a
 # decider_check_answered event, never decider_checked, so it can't back one.
 #
+# --record also imports every decider_checked event of the panel's state
+# (scrutiny, review, qa_validation or light_review) that no entry used, so a
+# decider batch's verdicts reach the ledger without the agent naming them. Of
+# the events of one (state, visit, gate, criterion, declaration), a fail is the
+# one kept, so the most severe outcome wins, and otherwise the last. A missing
+# session log imports nothing; one that exists and can't be read is exit 65.
+# Every decider entry, named or imported, takes its event's `mode`, and that
+# decides what it does: a fail raises an advisory finding when the mode is
+# exactly shadow and a blocking one otherwise (veto, a missing mode, anything
+# else); a pass adds a reverified record to its own finding; any other outcome
+# (escape, unanswered, not_graded) adds nothing in shadow and otherwise raises
+# or records unverified, as a decider's no-verdict always has.
+#
 # Each finding's id is the first 16 hex characters of `git hash-object` over
 # its panel, raiser kind and name, path and whitespace-collapsed summary, so a
 # finding raised again keeps its id; two findings of one run with one id are
@@ -195,7 +208,7 @@
 # locations are kept beside it, as `finding_locations`. Both carry forward from
 # earlier rounds, so a seat's judged scope only grows; an earlier line range in
 # a file that has changed since is carried as the bare path, because its
-# numbers no longer name the same code. review-shadow.py reads them.
+# numbers no longer name the same code.
 #
 # Every finding carries a `severity`, `blocking` or `advisory`, and a seat is
 # recorded as blocking exactly while it raised an unclosed blocking finding. A
@@ -219,8 +232,7 @@
 #                          findings?}]}]}
 #                         Never cleared by a retry: it is what survives one.
 #                         The seat entries are summaries of the findings, kept
-#                         in the shape review-shadow.py and review-packet.sh
-#                         read.
+#                         in the shape review-packet.sh reads.
 #   <panel>_scope.json    this entry's decisions, for the agent to act on:
 #                         {panel, head, rev, ac_sha, round, full, reason,
 #                          decisions: [{seat, decision, reason, run?,
@@ -254,12 +266,16 @@
 # old id in its message, so a retirement neither prints an inactive id nor
 # wedges the gate. Rules resolve through scripts/lib/rule-findings.sh, which
 # exits 2 when panel/open-finding itself can't be; `path` and `line` only when
-# the finding names them.
+# the finding names them. Every finding prints at panel/open-finding's stage,
+# whichever rule it names (error at block, warning at warn, info at shadow,
+# nothing at retired), and --verdict fails the panel only while that stage is
+# block, after a line on stderr saying how to dispute a finding.
 #
 # Exit codes:
 #   0   -- --plan/--record/--mark-fixed: written. --carried: the panel carries.
 #          --recorded: every planned run was recorded, or there is no scope or
-#          ledger to check. --verdict: every blocking finding is closed.
+#          ledger to check. --verdict: every blocking finding is closed, or
+#          panel/open-finding is below the block stage.
 #          --open-count: the count is printed.
 #   1   -- --carried: something has to run, a blocking finding is unclosed,
 #          the working tree is dirty, or the scope is missing, stale,
@@ -576,11 +592,16 @@ if [ "$MODE" = "--verdict" ] || [ "$MODE" = "--open-count" ]; then
              else {} end)
           + {rule_ref: $rule.ref}') \
         || refuse 2 "could not read the unclosed findings in $LEDGER"
+    # Every finding takes panel/open-finding's stage, whatever rule it cites:
+    # the gate is the panel's, and a cited rule's own stage is about the
+    # script that checks it, not about a reviewer's finding.
     while IFS= read -r f; do
-        [ -n "$f" ] && rf_emit "$f"
+        [ -n "$f" ] && rf_emit "$f" panel/open-finding
     done <<EOF
 $findings
 EOF
+    [ "$RF_BLOCKING" -gt 0 ] || exit 0
+    rf_dispute_hint
     rf_deliver
     exit 1
 fi
@@ -611,31 +632,6 @@ store_ledger() {
     [ "${now:-0}" = "$(printf '%s' "$LEDGER_JSON" | jq -r '.rev // 0')" ] \
         || die 69 "$LEDGER changed while this write was being built (rev ${now:-?}); run it again"
     put "$LEDGER" "$1"
-}
-
-
-# The decider shadow for the round just recorded: review-shadow.py's site
-# command reads these verdicts from the ledger and records the decider's beside
-# them (docs/designs/DESIGN-jev-closed-criteria.md). It runs in the background
-# with its output discarded, so --record's status, ledger and timing are what
-# they would be without it; it runs whether or not REVIEW_SHADOW_SITES opts in,
-# because the site command records an unset opt-in rather than staying silent.
-# REVIEW_SHADOW_SITE_CMD replaces the command, for tests.
-shadow_site() {
-    local cmd root
-    case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
-    # This script lives at skills/work-on/scripts/ under the plugin root.
-    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." && pwd)/scripts/review-shadow/review-shadow.py}"
-    [ -x "$cmd" ] || return 0
-    # A stand-in command needs no python3; the real script does.
-    [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
-    # HEAD resolved above, so this is a work tree and the call can't fail here.
-    root=$(git rev-parse --show-toplevel) || return 0
-    # The shadow's own output is discarded on purpose: nothing reads it, and its
-    # result is the record it writes.
-    ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
-        </dev/null >/dev/null 2>&1 & )
-    return 0
 }
 
 # ---------------------------------------------------------------- --mark-fixed
@@ -774,11 +770,67 @@ if [ "$MODE" = "--record" ]; then
         if grep -q '^MISSING ' "$WORK/decider_events"; then
             die 65 "koto's log holds no decider_checked event for: $(grep '^MISSING ' "$WORK/decider_events" | head -n 1 | cut -c9-)"
         fi
-        dup=$(sort "$WORK/decider_events" | uniq -d | head -n 1)
+        dup=$(sort "$WORK/decider_events" | uniq -d)
+        dup=${dup%%$'\n'*}
         [ -z "$dup" ] || die 65 "decider event [$dup] backs two entries"
-        used=$(printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]' | grep -Fxf "$WORK/decider_events" | head -n 1)
+        used=$(printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]' | grep -Fxf "$WORK/decider_events")
+        used=${used%%$'\n'*}
         [ -z "$used" ] || die 65 "decider event [$used] already backed an earlier entry"
     fi
+
+    # The decider batch's verdicts, imported from koto's own log: every
+    # decider_checked event of the panel's state that no entry used, one per
+    # (state, visit, gate, criterion, declaration), a fail if the group has one.
+    # Each entry, named or imported, then takes its event's mode, which decides
+    # its severity below. The log is read whole, so a line jq can't parse
+    # refuses the round rather than importing part of it.
+    case "$PANEL" in
+        qa) PANEL_STATE=qa_validation ;;
+        light) PANEL_STATE=light_review ;;
+        *) PANEL_STATE=$PANEL ;;
+    esac
+    printf '[]' > "$WORK/imported"
+    printf '{}' > "$WORK/modes"
+    sdir=$(koto session dir "$SESSION") || sdir=""
+    if [ -n "$sdir" ] && [ -e "$sdir/koto-$SESSION.state.jsonl" ]; then
+        slog="$sdir/koto-$SESSION.state.jsonl"
+        [ -r "$slog" ] || die 65 "koto's session log [$slog] can't be read"
+        { printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]'; cat "$WORK/decider_events"; } > "$WORK/skip" \
+            || die 65 "could not read the ledger's decider events"
+        jq -n --arg state "$PANEL_STATE" --rawfile skip "$WORK/skip" '
+            def key: "\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)";
+            ($skip | split("\n") | map(select(. != ""))) as $used
+            | [inputs | select(type == "object" and .type? == "decider_checked") | .payload
+               | select(type == "object" and .state == $state
+                        and (.visit_seq | type) == "number" and (.gate | type) == "string"
+                        and (.rule_id | type) == "string" and (.declaration_hash | type) == "string"
+                        and (.outcome | type) == "string")]
+            | group_by(key)
+            | map((map(select(.outcome == "fail")) | last) // last)
+            | map(select(key as $k | $used | index($k) | not)
+                  | {decider: ({state, visit_seq, gate, rule_id, declaration_hash, outcome}
+                               + (if .input_sha256 then {input_sha256} else {} end)
+                               + (if .mode then {mode} else {} end))})' "$slog" > "$WORK/imported" \
+            2>"$WORK/jq.err" || die 65 "koto's session log [$slog] can't be read: $(head -n 1 "$WORK/jq.err")"
+        # A named entry's mode is its matched event's, never the round file's.
+        jq -n '[inputs | select(type == "object" and .type? == "decider_checked") | .payload
+                | select(type == "object" and (.mode | type) == "string")
+                | {key: "\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)|\(.outcome)|\(.input_sha256 // "")",
+                   value: .mode}] | from_entries' "$slog" > "$WORK/modes" \
+            2>"$WORK/jq.err" || die 65 "koto's session log [$slog] can't be read: $(head -n 1 "$WORK/jq.err")"
+    fi
+    jq --slurpfile imp "$WORK/imported" --slurpfile modes "$WORK/modes" '
+        map(if .decider? != null then
+              .decider |= (del(.mode) + ((($modes[0])["\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)|\(.outcome)|\(.input_sha256 // "")"] // null)
+                                         | if . == null then {} else {mode: .} end))
+            else . end)
+        + $imp[0]' "$ROUND_FILE" > "$WORK/round" || die 65 "could not merge the imported decider events"
+    jq -r '$imp[0][] | .decider | "\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)"' \
+        --slurpfile imp "$WORK/imported" -n >> "$WORK/decider_events" || die 65 "could not read the imported decider events"
+    for rid in $(jq -r '.[] | .decider.rule_id' "$WORK/imported" | sort -u); do
+        "$REGISTRY" ref "$rid" >/dev/null || die 65 "koto's log has a decider verdict on [$rid], which is not an active registry entry"
+    done
+    ROUND_FILE="$WORK/round"
 
     # The id of every finding raised this round: a hash of panel, raiser kind
     # and name, path and whitespace-collapsed summary. jq builds the string and
@@ -867,11 +919,15 @@ if [ "$MODE" = "--record" ]; then
                    ref: ($d | {state, visit_seq, gate, rule_id, declaration_hash} + (if .input_sha256 then {input_sha256} else {} end))} as $raiser
                 | ($e.run // "decider:\($d.visit_seq):\($d.gate):\($d.rule_id)") as $run
                 | .runs[$run] = {panel: $panel, rev: .rev, recorded: true}
+                # Only an event koto marked shadow is advisory: a missing or
+                # unknown mode blocks, as every decider fail did before modes.
+                | (if $d.mode == "shadow" then "advisory" else "blocking" end) as $sev
                 | if $d.outcome == "fail" then
-                    raise($idr.id; $idr.canon; $raiser; $run; {severity: "blocking", summary: $d.rule_id, rule_id: $d.rule_id})
+                    raise($idr.id; $idr.canon; $raiser; $run; {severity: $sev, summary: $d.rule_id, rule_id: $d.rule_id})
                   elif $d.outcome == "pass" then
                     if (.findings[$idr.id] // null) == null then .
                     else .findings[$idr.id].records += [record("reverified"; $raiser + {run: $run}; "")] end
+                  elif $sev == "advisory" then .
                   elif (.findings[$idr.id] // null) == null then
                     raise($idr.id; $idr.canon; $raiser; $run; {severity: "blocking", summary: $d.rule_id, rule_id: $d.rule_id, first_kind: "unverified"})
                   else .findings[$idr.id].records += [record("unverified"; $raiser + {run: $run}; "")] end
@@ -901,8 +957,8 @@ if [ "$MODE" = "--record" ]; then
               end)
         # Every seat summary of the panel follows from the findings: a seat is
         # blocking exactly while it raised an unclosed blocking finding, and its
-        # findings are the unclosed blocking ones it raised, in the shape the readers of
-        # seat entries (review-shadow.py, review-packet.sh) expect.
+        # findings are the unclosed blocking ones it raised, in the shape
+        # review-packet.sh expects of seat entries.
         | . as $L
         | reduce ($seats | split(" "))[] as $s (.;
             ("\($panel)/\($s)") as $k
@@ -922,7 +978,6 @@ if [ "$MODE" = "--record" ]; then
             | .history[$h.key].spawned = (.history[$h.key].runs | length)
           else . end' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     store_ledger "$WORK/ledger"
-    shadow_site
     exit 0
 fi
 

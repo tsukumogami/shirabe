@@ -85,6 +85,14 @@ env:
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
 
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test-work-on-scripts:
     strategy:
@@ -158,6 +166,14 @@ jobs:
       - name: Run ci_monitor role branch tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-monitor-role_test.sh
+
+      # Runs ci_passing's fallback for a MERGED pull request's cancelled macOS
+      # floor checks, alone and through the gate command extracted from the
+      # template, against stubbed gh and koto. No engine needed; the macOS leg
+      # runs it on the floor through the work-on suite.
+      - name: Run CI cancel-after-merge fallback tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/ci-cancel-after-merge_test.sh
 
       # Runs pr_creation's closing-keyword gate expression, extracted from the
       # template, against constructed bodies with gh stubbed. No engine needed;
@@ -268,6 +284,22 @@ jobs:
       - name: Run review level route tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/review-level-routes_test.sh
+
+      # decision-reasons_test.sh pins the scrutiny_decider slice's bytes and
+      # exits, and the directive and phase-file text for a pending batch. jq
+      # only, so the macOS leg runs it on the floor through the work-on suite.
+      - name: Run decision reasons slice tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/decision-reasons_test.sh
+
+      # scrutiny-decider-routes_test.sh drives the shipped work-on.md through a
+      # real koto with the decider in shadow at an unreachable loopback
+      # endpoint: a pending batch on a full and a carried round, the agent's
+      # answer, no decision, an over-budget slice and the decider off. The
+      # engine cases skip without koto, so they run here.
+      - name: Run scrutiny decider route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/scrutiny-decider-routes_test.sh
 
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine

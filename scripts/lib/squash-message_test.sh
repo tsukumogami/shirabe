@@ -8,7 +8,7 @@
 # `text (url)`, blank runs collapsed; Part 1 ending at the first `---` outside
 # a fence; refusals; usage.
 #
-# Usage: bash skills/coordinate/scripts/squash-message_test.sh
+# Usage: bash scripts/lib/squash-message_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)

@@ -56,9 +56,9 @@ if [ -z "$MINIMUM" ]; then
     exit 1
 fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/check-koto-release-test.XXXXXX")
-T=$(cd "$T" && pwd -P)
-cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/check-koto-release-test.XXXXXX") || exit 1
+T=$(cd "$T" && pwd -P) || exit 1
+cleanup() { case "${T:-}" in */check-koto-release-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 # stub <version> <compile-behaviour>: writes $T/koto. Behaviours:

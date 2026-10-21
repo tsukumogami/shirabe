@@ -251,7 +251,8 @@ SRC=$(cat "$KOTO_STORE/context/$S/coord/source.json" 2>/dev/null)
 eq "coord/source.json holds the record's store" github "$(printf '%s' "$SRC" | jq -r .source)"
 eq "  ... and the probe's reading of a koto with neither feature" '{"context_list_prefix":false,"session_import":false}' \
     "$(printf '%s' "$SRC" | jq -c .probe)"
-printf '%s' "$SRC" | jq -r .reason | grep -q 'is ignored: the record decides' \
+src_reason=$(printf '%s' "$SRC" | jq -r .reason)
+grep -q 'is ignored: the record decides' <<<"$src_reason" \
     && ok "  ... and reports the invocation's --store ignored" || bad "  ... and reports the invocation's --store ignored" "$SRC"
 eq "rs_source reads it" github "$(bash "$RS" --session "$S" --source 2>/dev/null)"
 # shirabe#855: a help text longer than a pipe's buffer, naming --prefix on its

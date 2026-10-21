@@ -2,22 +2,22 @@
 #
 # Sourced, never run: coordinated-next.sh and coordination-verdict.sh share
 # the one computation of where a coordinated run stands (coord_compute), and
-# node-push.sh and coord-merge.sh share the coordination-PR lookup and the
-# PR-index parser. Keeping them in one file is what stops the loop's next
-# action and the verdict it ends on from disagreeing about the same GitHub
-# state.
+# node-push.sh and coord-merge.sh share the coordination-PR read. Keeping them
+# in one file is what stops the loop's next action and the verdict it ends on
+# from disagreeing about the same state.
 #
 # Callers set PROG before sourcing and set -uo pipefail themselves.
 #
-# The PR index. Each node's line in the coordination PR body's `## PR Index`
-# section has the shape
+# The run record. The run's control-plane facts (the node list, each node's
+# PR and pushed head, the cascade's verdict, the coordination PR's number)
+# live as `run/` keys in the run's koto session, written only through
+# run-record.sh and read through run-record-lib.sh, which this file sources.
+# coord_compute and coord-merge.sh read them from there, never from the
+# coordination PR's body.
 #
-#   - <node-id> | <owner/repo>:<path>#<number> | <open|merged> | head=<sha>
-#
-# where the `head=` field is present once node-push.sh has pushed the node and
-# is written by nothing else. The coordination PR's own record uses the node
-# id `coordination`. A line in the section that starts `- <word> |` is an
-# entry and must parse; any other line (prose, a blank) is ignored.
+# The coordination PR's body is the record's rendering, built and posted by
+# coord-render.sh through scripts/lib/coordination-body.sh, the one codec of
+# its PR index. Nothing here reads or writes the index.
 #
 # Callers set COORD_SELF_DIR (this directory) before sourcing.
 #
@@ -26,9 +26,20 @@
 # own --run-id flag (coordinated-next.sh, coordination-verdict.sh,
 # node-push.sh), or from its session through run-id.sh (coord-merge.sh,
 # record-coordination-verdict.sh). Empty means a hand run, and owned-pr.sh then
-# matches by login and branch alone.
+# matches by login and branch alone. record-coord-setup.sh's recovery empties
+# it on purpose for its node-branch lookups, so a PR another run marked is
+# found and its marker read rather than refused.
 #
-# Requires: bash 3.2+, jq, gh (through owned-pr.sh and the reads below).
+# Requires: bash 3.2+, jq, gh (through owned-pr.sh and the reads below), koto
+# (the run record's reads).
+
+# The run record's reader. The coordinate skill's reconcile scripts source
+# this file for its patterns alone, and their tests copy it without its
+# siblings, so the reader is sourced only where it sits beside this file.
+if [ -f "$COORD_SELF_DIR/run-record-lib.sh" ]; then
+    # shellcheck source=run-record-lib.sh
+    . "$COORD_SELF_DIR/run-record-lib.sh"
+fi
 
 COORD_MARKER='This is a **coordination PR**'
 COORD_RUN_ID=""
@@ -43,12 +54,22 @@ RE_COORD_BRANCH='^[A-Za-z0-9._/-]+$'
 RE_COORD_SLUG='^[a-z0-9-]+$'
 # plan-to-tasks.sh's node-name pattern (R9).
 RE_COORD_NODE='^[a-z][a-z0-9-]*$'
+# A unit the loop merges: a node, or a follow-up PR recorded against one,
+# named <node>/follow-up-<n> by its own PR number. RE_COORD_FOLLOW_UP_ID
+# captures the node and the number.
+RE_COORD_UNIT='^[a-z][a-z0-9-]*(/follow-up-[1-9][0-9]*)?$'
+RE_COORD_FOLLOW_UP_ID='^([a-z][a-z0-9-]*)/follow-up-([1-9][0-9]*)$'
 RE_COORD_SHA='^[0-9a-f]{40}$'
 RE_COORD_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
-RE_COORD_ENTRY='^- ([a-z][a-z0-9-]*) \| ([A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+):([^ |#]+)#([1-9][0-9]*) \| (open|merged)( \| head=([0-9a-f]{40}))?[[:space:]]*$'
-RE_COORD_ENTRY_LIKE='^- [^|]+\|'
-# merge_attempts: <node>:<result> entries, comma-joined.
-RE_COORD_ATTEMPTS='^([a-z][a-z0-9-]*:(merge-not-observed|merge-call-failed))(,[a-z][a-z0-9-]*:(merge-not-observed|merge-call-failed))*$'
+# merge_attempts: <id>:<result> entries, comma-joined, where <id> is a node,
+# a follow-up's <node>/follow-up-<n>, or `coordination`. merge-not-observed,
+# merge-call-failed and merge-refused come from coord-merge.sh, for any of
+# them; body-stale and body-full only for `coordination`, from coord-render.sh
+# --before-coordination, when the body CI's merge-last gate reads could not
+# be brought up to date with the record.
+RE_COORD_ATTEMPT_VALUE='(merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full)'
+RE_COORD_ATTEMPT_ID='[a-z][a-z0-9-]*(/follow-up-[1-9][0-9]*)?'
+RE_COORD_ATTEMPTS="^($RE_COORD_ATTEMPT_ID:$RE_COORD_ATTEMPT_VALUE)(,$RE_COORD_ATTEMPT_ID:$RE_COORD_ATTEMPT_VALUE)*\$"
 
 coord_valid_repo() {
     [[ $1 =~ $RE_COORD_REPO ]] || return 1
@@ -179,52 +200,6 @@ coord_node_visibility() {
     return 0
 }
 
-# coord_index_entries <body> -- print the PR Index section's entry lines, one
-# per line. Lines outside the section, and lines inside it that are not
-# entry-shaped, are dropped here; entry-shaped lines that fail the full
-# grammar are kept so the caller can refuse them.
-coord_index_entries() {
-    printf '%s\n' "$1" | awk '
-        /^## / { insec = ($0 ~ /^## PR Index[[:space:]]*$/); next }
-        insec && /^- [^|]+\|/ { sub(/\r$/, ""); print }
-    '
-}
-
-# coord_parse_entry <line> -- set E_NODE, E_REPO, E_PATH, E_NUM, E_STATE,
-# E_HEAD (empty when absent). Returns 1 when the line is outside the grammar.
-coord_parse_entry() {
-    E_NODE=""; E_REPO=""; E_PATH=""; E_NUM=""; E_STATE=""; E_HEAD=""
-    [[ $1 =~ $RE_COORD_ENTRY ]] || return 1
-    E_NODE="${BASH_REMATCH[1]}"
-    E_REPO="${BASH_REMATCH[2]}"
-    E_PATH="${BASH_REMATCH[3]}"
-    E_NUM="${BASH_REMATCH[4]}"
-    E_STATE="${BASH_REMATCH[5]}"
-    E_HEAD="${BASH_REMATCH[7]:-}"
-    coord_valid_repo "$E_REPO" || return 1
-    case "/$E_PATH/" in */../*|//*) return 1 ;; esac
-    return 0
-}
-
-# coord_find_entry <entries> <node> -- print the one entry line for <node>.
-# Returns 1 when there is none, 2 when there are several.
-coord_find_entry() {
-    local line found="" count=0
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        case "$line" in
-            "- $2 |"*)
-                count=$((count + 1))
-                found="$line"
-                ;;
-        esac
-    done <<<"$1"
-    [ "$count" -eq 0 ] && return 1
-    [ "$count" -gt 1 ] && return 2
-    printf '%s\n' "$found"
-    return 0
-}
-
 # coord_owned <repo> <head> <state> -- owned-pr.sh, carrying COORD_RUN_ID.
 # Prints its output and returns its exit code.
 coord_owned() {
@@ -236,42 +211,84 @@ coord_owned() {
     fi
 }
 
-# coord_find_pr <home-repo> <coord-branch> <state> -- the coordination PR.
-# Sets C_URL, C_NUM, C_JSON (state,isDraft,body,headRefOid,url). Returns 0 on
-# success, 2 on a failed read, 3 when no single owned PR carries the marker
-# (zero, several, an ambiguous lookup, another run's PR, or the marker
-# missing).
+# coord_find_pr <home-repo> <coord-branch> <state> -- the coordination PR,
+# by the ownership lookup. Only record-coord-setup.sh calls it, once, on a new
+# run; every later step reads the number the run recorded (coord_recorded_pr).
+# Sets C_URL, C_NUM, C_JSON (state,isDraft,body,title,headRefOid,url), and C_WHY to
+# why it failed: none (no owned PR), several (several, or an ambiguous
+# lookup), foreign (another run's PR), marker (the declaration marker
+# missing), or read (a failed read). Returns 0 on success, 2 on a failed
+# read, 3 when no single owned PR carries the marker.
 coord_find_pr() {
     local out rc
-    C_URL=""; C_NUM=""; C_JSON=""
+    C_URL=""; C_NUM=""; C_JSON=""; C_WHY=""
     out=$(coord_owned "$1" "$2" "$3")
     rc=$?
     case "$rc" in
-        0) [ -n "$out" ] || { echo "$PROG: no owned coordination PR on $1 head $2" >&2; return 3; } ;;
-        2) echo "$PROG: the coordination PR lookup failed" >&2; return 2 ;;
-        3|4) echo "$PROG: several owned PRs on $1 head $2, or an ambiguous lookup (owned-pr.sh exit $rc); refusing to pick one" >&2; return 3 ;;
-        5) echo "$PROG: the PR on $1 head $2 was opened by another run" >&2; return 3 ;;
-        *) echo "$PROG: owned-pr.sh exited $rc" >&2; return 2 ;;
+        0) [ -n "$out" ] || { C_WHY=none; echo "$PROG: no owned coordination PR on $1 head $2" >&2; return 3; } ;;
+        2) C_WHY=read; echo "$PROG: the coordination PR lookup failed" >&2; return 2 ;;
+        3|4) C_WHY=several; echo "$PROG: several owned PRs on $1 head $2, or an ambiguous lookup (owned-pr.sh exit $rc); refusing to pick one" >&2; return 3 ;;
+        5) C_WHY=foreign; echo "$PROG: the PR on $1 head $2 was opened by another run" >&2; return 3 ;;
+        *) C_WHY=read; echo "$PROG: owned-pr.sh exited $rc" >&2; return 2 ;;
     esac
     C_URL="$out"
     C_NUM="${out##*/}"
-    coord_gh_read C_JSON pr view "$C_NUM" --repo "$1" --json url,state,isDraft,body,headRefOid \
-        || { echo "$PROG: gh pr view of the coordination PR failed" >&2; return 2; }
+    coord_view_pr "$1" || return $?
+    return 0
+}
+
+# coord_view_pr <home-repo> -- read the coordination PR #C_NUM into C_JSON and
+# check it is a PR object carrying the declaration marker. Returns 2 on a
+# failed read (C_WHY read), 3 when the marker is missing (C_WHY marker).
+coord_view_pr() {
+    coord_gh_read C_JSON pr view "$C_NUM" --repo "$1" --json url,state,isDraft,body,title,headRefOid \
+        || { C_WHY=read; echo "$PROG: gh pr view of the coordination PR failed" >&2; return 2; }
     printf '%s' "$C_JSON" | jq -e 'type == "object" and (.state | type) == "string"' >/dev/null \
-        || { echo "$PROG: the coordination PR read is not a PR object" >&2; return 2; }
+        || { C_WHY=read; echo "$PROG: the coordination PR read is not a PR object" >&2; return 2; }
+    [ -n "$C_URL" ] || C_URL=$(printf '%s' "$C_JSON" | jq -r '.url // ""')
     # A here-string, not a pipe into grep -q: under pipefail an early grep
     # exit can SIGPIPE the producer and fail a match that succeeded.
     local c_body
     c_body=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
     if ! grep -qF "$COORD_MARKER" <<<"$c_body"; then
+        C_WHY=marker
         echo "$PROG: $C_URL does not carry the coordination PR declaration marker" >&2
         return 3
     fi
     return 0
 }
 
+# coord_recorded_pr <session> <home-repo> <open|all> -- the coordination PR
+# whose number the run recorded at setup (run/setup's coordination_pr), read
+# with `gh pr view`: no lookup, so the loop makes no owned-PR read for it.
+# Sets C_URL, C_NUM, C_JSON as coord_find_pr does. Returns 0 on success, 2 on
+# a failed read (the record's or GitHub's), 3 when `open` was asked and the PR
+# is not OPEN, or it no longer carries the marker, and 4 when the session has
+# no run/setup.
+coord_recorded_pr() {
+    local setup rc
+    C_URL=""; C_NUM=""; C_JSON=""; C_WHY=""
+    setup=$(rr_setup "$1")
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) echo "$PROG: session $1 has no run record (run/setup); coord_setup records it" >&2; return 4 ;;
+        *) return 2 ;;
+    esac
+    C_NUM=$(printf '%s' "$setup" | jq -r '.coordination_pr // ""')
+    [[ $C_NUM =~ ^[1-9][0-9]*$ ]] || { echo "$PROG: run/setup in session $1 holds no coordination PR number" >&2; return 2; }
+    coord_view_pr "$2" || return $?
+    C_URL=$(printf '%s' "$C_JSON" | jq -r '.url // ""')
+    [[ $C_URL =~ $RE_COORD_URL ]] || { echo "$PROG: the coordination PR read carries no usable URL" >&2; return 2; }
+    if [ "$3" = open ] && [ "$(printf '%s' "$C_JSON" | jq -r '.state')" != OPEN ]; then
+        echo "$PROG: the recorded coordination PR $C_URL is not open" >&2
+        return 3
+    fi
+    return 0
+}
+
 # coord_attempt_of <attempts> <node> -- print the recorded merge result for
-# <node> (merge-not-observed or merge-call-failed), or nothing.
+# <node> (one of RE_COORD_ATTEMPT_VALUE's), or nothing.
 coord_attempt_of() {
     local rest e
     rest="$1"
@@ -283,32 +300,335 @@ coord_attempt_of() {
     return 0
 }
 
+# coord_record_attempt <session> <node> <result> -- record <node>:<result> in
+# the session's merge_attempts context key, replacing an earlier result for
+# <node> and keeping every other node's: the one writer of that key, called
+# by coord-merge.sh and by coord-render.sh --before-coordination. A stored
+# value outside RE_COORD_ATTEMPTS is dropped rather than kept. Returns 70,
+# with a diagnostic, when the write fails.
+coord_record_attempt() {
+    local old new rest e
+    old=$(koto context get "$1" merge_attempts </dev/null) || old=""
+    [[ $old =~ $RE_COORD_ATTEMPTS ]] || old=""
+    new=""
+    rest="$old"
+    while [ -n "$rest" ]; do
+        e="${rest%%,*}"
+        if [ "$e" = "$rest" ]; then rest=""; else rest="${rest#*,}"; fi
+        case "$e" in "$2":*) continue ;; esac
+        if [ -z "$new" ]; then new="$e"; else new="$new,$e"; fi
+    done
+    if [ -z "$new" ]; then new="$2:$3"; else new="$new,$2:$3"; fi
+    printf '%s' "$new" | koto context add "$1" merge_attempts >/dev/null || {
+        echo "$PROG: could not record merge_attempts in session $1" >&2
+        return 70
+    }
+    return 0
+}
+
+# coord_follow_up_check <repo> <pr> <login> -- one live read of a follow-up
+# PR, and the rule every follow-up is held to: based on <repo>'s default
+# branch, not from a fork, authored by <login>, and not closed unmerged.
+# record-coord-setup.sh calls it when it records a follow-up and when its
+# recovery keeps or drops one, and coord-merge.sh before a follow-up's merge,
+# so a follow-up is judged by the same rule at all three points. Sets FU_URL,
+# FU_STATE (OPEN, MERGED or CLOSED), FU_OID (the live head), FU_MOID (the merge commit when MERGED, else empty) and
+# FU_FAULT: empty when the PR passes, else the first rule it fails, in this
+# order: base (its base is not the default branch), author (a fork, or
+# another author), closed (CLOSED). Returns 0 when the reads succeeded,
+# whatever FU_FAULT says, and 2, with a diagnostic, when a read failed or
+# carried no usable URL, state or head.
+coord_follow_up_check() {
+    local view repo_json def base cross author
+    FU_URL=""; FU_STATE=""; FU_OID=""; FU_MOID=""; FU_FAULT=""
+    coord_gh_read view pr view "$2" --repo "$1" \
+        --json url,number,state,isDraft,baseRefName,isCrossRepository,author,headRefOid,mergeCommit || {
+        echo "$PROG: could not read the follow-up PR #$2 in $1" >&2
+        return 2
+    }
+    printf '%s' "$view" | jq -e 'type == "object"' >/dev/null || {
+        echo "$PROG: the read of the follow-up PR #$2 in $1 is not a PR object" >&2
+        return 2
+    }
+    FU_URL=$(printf '%s' "$view" | jq -r '.url // ""')
+    FU_STATE=$(printf '%s' "$view" | jq -r '.state // ""')
+    FU_OID=$(printf '%s' "$view" | jq -r '.headRefOid // ""')
+    base=$(printf '%s' "$view" | jq -r '.baseRefName // ""')
+    # Not `// true`: jq's alternative treats false as missing.
+    cross=$(printf '%s' "$view" | jq -r 'if .isCrossRepository == false then "false" else "true" end')
+    author=$(printf '%s' "$view" | jq -r '.author.login // ""')
+    if [ "$FU_STATE" = MERGED ]; then
+        FU_MOID=$(printf '%s' "$view" | jq -r '.mergeCommit.oid // ""')
+        [[ $FU_MOID =~ $RE_COORD_SHA ]] || FU_MOID=""
+    fi
+    if ! [[ $FU_URL =~ $RE_COORD_URL ]] || [ "${FU_URL##*/}" != "$2" ]; then
+        echo "$PROG: the follow-up PR #$2 in $1 read with the URL [$FU_URL]" >&2
+        return 2
+    fi
+    case "$FU_STATE" in
+        OPEN|MERGED|CLOSED) ;;
+        *) echo "$PROG: the follow-up PR $FU_URL's state read as [$FU_STATE]" >&2; return 2 ;;
+    esac
+    [[ $FU_OID =~ $RE_COORD_SHA ]] || {
+        echo "$PROG: the follow-up PR $FU_URL's head read as [$FU_OID]" >&2
+        return 2
+    }
+    coord_gh_read repo_json api "repos/$1" || {
+        echo "$PROG: could not read $1's default branch" >&2
+        return 2
+    }
+    def=$(printf '%s' "$repo_json" | jq -r 'if type == "object" then (.default_branch // "") else "" end')
+    [ -n "$def" ] || { echo "$PROG: $1's default branch read as empty" >&2; return 2; }
+    if [ "$base" != "$def" ]; then
+        FU_FAULT=base
+    elif [ "$cross" != false ] || [ "$author" != "$3" ]; then
+        FU_FAULT=author
+    elif [ "$FU_STATE" = CLOSED ]; then
+        FU_FAULT=closed
+    fi
+    return 0
+}
+
+# cc_pr_node -- one PR node's arm of coord_compute: its record, its owned PR,
+# its live state and its merge verdict. Called only from coord_compute's node
+# loop, it reads and sets that function's locals (name, repo, rec, preds_ok,
+# first_unsat, satisfied, the candidates, all_merged, pr_nodes) through bash's
+# dynamic scope. Returns 0 to go on with the loop, 1 once it has set
+# CC_ACTION.
+cc_pr_node() {
+    pr_nodes=$((pr_nodes + 1))
+    if ! coord_in_list "$repo" "$CC_REPOS"; then
+        echo "$PROG: node $name names $repo, outside the write set [$CC_REPOS]" >&2
+        CC_ACTION="error:execute:write-set"; return 1
+    fi
+    node_branch="impl/$CC_SLUG-$name"
+
+    node_rec=$(printf '%s' "$rec" | jq -c --arg k "run/node/$name" '.[$k] // empty') \
+        || { CC_ACTION="error:execute:status-read"; return 1; }
+    if [ -z "$node_rec" ]; then
+        all_merged=0
+        if [ "$plan_present" -eq 0 ]; then
+            CC_ACTION="error:execute:status-read"; return 1
+        fi
+        if [ "$preds_ok" -eq 1 ]; then
+            [ -n "$dispatch_cand" ] || dispatch_cand="$name"
+        else
+            CC_BLOCKED=1
+            if [ -z "$blocked_reason_first" ]; then
+                case "$first_unsat" in
+                    gate-*) blocked_reason_first="gate-unverified" ;;
+                    *) blocked_reason_first="predecessor-unmerged" ;;
+                esac
+            fi
+        fi
+        return 0
+    fi
+    n_repo=$(printf '%s' "$node_rec" | jq -r '.repo // ""')
+    n_pr=$(printf '%s' "$node_rec" | jq -r '.pr // ""')
+    n_sha=$(printf '%s' "$node_rec" | jq -r '.head // ""')
+    if [ "$n_repo" != "$repo" ]; then
+        echo "$PROG: the run record names $n_repo for $name, the PLAN names $repo" >&2
+        CC_ACTION="error:execute:pr-adopt"; return 1
+    fi
+    # The recorded PR must be the one owned PR on this node's branch.
+    out=$(coord_owned "$n_repo" "$node_branch" all)
+    rc=$?
+    case "$rc" in
+        0) ;;
+        2) CC_ACTION="error:execute:status-read"; return 1 ;;
+        *) CC_ACTION="error:execute:pr-adopt"; return 1 ;;
+    esac
+    if [ -z "$out" ] || [ "${out##*/}" != "$n_pr" ]; then
+        echo "$PROG: the run record names #$n_pr for $name, which is not the owned PR on $n_repo $node_branch" >&2
+        CC_ACTION="error:execute:pr-adopt"; return 1
+    fi
+    local url="$out" view
+    coord_gh_read view pr view "$n_pr" --repo "$n_repo" --json state,isDraft \
+        || { CC_ACTION="error:execute:status-read"; return 1; }
+    state=$(printf '%s' "$view" | jq -r '.state // ""')
+    draft=$(printf '%s' "$view" | jq -r '.isDraft // false')
+    case "$state" in
+        MERGED)
+            satisfied="$satisfied$name,"
+            return 0
+            ;;
+        OPEN) ;;
+        CLOSED) CC_ACTION="error:execute:pr-closed"; return 1 ;;
+        *) CC_ACTION="error:execute:status-read"; return 1 ;;
+    esac
+    all_merged=0
+    if [ "$draft" = "true" ]; then
+        local checks
+        if ! coord_gh_read checks pr checks "$n_pr" --repo "$n_repo" --json name,bucket; then
+            checks="[]"
+        fi
+        if printf '%s' "$checks" | jq -e 'type == "array" and any(.[]; .bucket == "fail" or .bucket == "cancel")' >/dev/null; then
+            CC_ACTION="error:execute:ci"; return 1
+        fi
+        [ -n "$eval_cand" ] || eval_cand="$name"
+        return 0
+    fi
+    exp="${n_sha:-none}"
+    verdict=$("$BASH" "$COORD_SELF_DIR/merge-verdict.sh" --repo "$n_repo" --pr "$n_pr" \
+        --merge "$CC_MERGE" --expected-head "$exp" </dev/null) \
+        || { CC_ACTION="error:execute:status-read"; return 1; }
+    local attempt
+    attempt=$(coord_attempt_of "$CC_ATTEMPTS" "$name")
+    cc_verdict_arm "$name" "$url" "$verdict" "$attempt"
+}
+
+# cc_verdict_arm <id> <url> <verdict> <attempt> -- what a node's or a
+# follow-up's merge verdict means for the loop: merged satisfies the id;
+# pending makes it the evaluate candidate; mergeable reports a recorded
+# attempt, or makes it the merge candidate with CC_MERGE true, or reports
+# merge-not-requested; awaiting reports the verdict's reason (a refused merge
+# keeps it, so a moved head stays head-moved) or the recorded attempt; an
+# error ends the pass. Called by cc_pr_node and cc_follow_ups, in
+# coord_compute's scope. Returns 1 once it has set CC_ACTION.
+cc_verdict_arm() {
+    case "$3" in
+        merged) satisfied="$satisfied$1," ;;
+        pending:*) [ -n "$eval_cand" ] || eval_cand="$1" ;;
+        mergeable:*)
+            if [ -n "$4" ]; then
+                CC_UNMERGED="$CC_UNMERGED$2 human $4
+"
+            elif [ "$CC_MERGE" = "true" ]; then
+                [ -n "$merge_cand" ] || merge_cand="$1"
+            else
+                CC_UNMERGED="$CC_UNMERGED$2 human merge-not-requested
+"
+            fi
+            ;;
+        awaiting:*)
+            if [ -n "$4" ] && [ "$4" != merge-refused ]; then
+                CC_UNMERGED="$CC_UNMERGED$2 human $4
+"
+            else
+                CC_UNMERGED="$CC_UNMERGED$2 human ${3#awaiting:}
+"
+            fi
+            ;;
+        error:execute:*) CC_ACTION="$3"; return 1 ;;
+        *) CC_ACTION="error:execute:status-read"; return 1 ;;
+    esac
+    return 0
+}
+
+# cc_follow_ups <node> <node-repo> -- the live follow-ups recorded against
+# <node> (run/follow-up/<node>/<n>, not removed), by number, each a unit
+# named <node>/follow-up-<n> right after its node. Each is read live once.
+# MERGED is nothing; CLOSED waits on a human (follow-up-closed:<url>), never
+# ending the run; OPEN waits on its node until the node is in `satisfied`
+# (predecessor-unmerged), on a human while a draft (merge-state:DRAFT: the
+# run never readies a person's PR), and otherwise takes the node's verdict
+# arms at the head the record holds for it. Any of them unmerged sets fu_open,
+# which holds the cascade and the coordination steps. Called from
+# coord_compute's node loop, in its scope. Returns 1 once it has set
+# CC_ACTION.
+cc_follow_ups() {
+    local rows fu_n fu_repo fu_sha fu_id fu_view fu_state fu_draft fu_url fu_verdict
+    rows=$(printf '%s' "$rec" | jq -r --arg p "run/follow-up/$1/" '
+        [to_entries[] | select(.key | startswith($p)) | .value | select((.removed // false) | not)]
+        | sort_by(.pr)[] | "\(.pr) \(.repo // "") \(.head // "")"') \
+        || { CC_ACTION="error:execute:status-read"; return 1; }
+    while read -r fu_n fu_repo fu_sha; do
+        [ -n "$fu_n" ] || continue
+        if [ "$fu_repo" != "$2" ] || ! coord_in_list "$fu_repo" "$CC_REPOS"; then
+            echo "$PROG: the run record names $fu_repo for a follow-up of $1, outside the write set [$CC_REPOS] or not the node's repository $2" >&2
+            CC_ACTION="error:execute:write-set"; return 1
+        fi
+        fu_id="$1/follow-up-$fu_n"
+        coord_gh_read fu_view pr view "$fu_n" --repo "$fu_repo" --json url,state,isDraft \
+            || { CC_ACTION="error:execute:status-read"; return 1; }
+        fu_url=$(printf '%s' "$fu_view" | jq -r '.url // ""')
+        fu_state=$(printf '%s' "$fu_view" | jq -r '.state // ""')
+        fu_draft=$(printf '%s' "$fu_view" | jq -r '.isDraft // false')
+        [[ $fu_url =~ $RE_COORD_URL ]] || { CC_ACTION="error:execute:status-read"; return 1; }
+        case "$fu_state" in
+            MERGED) continue ;;
+            OPEN|CLOSED) ;;
+            *) CC_ACTION="error:execute:status-read"; return 1 ;;
+        esac
+        if [ "$fu_state" = CLOSED ]; then
+            fu_open=1
+            CC_UNMERGED="$CC_UNMERGED$fu_url human follow-up-closed:$fu_url
+"
+            continue
+        fi
+        if ! coord_in_list "$1" "$satisfied"; then
+            fu_open=1
+            CC_UNMERGED="$CC_UNMERGED$fu_url predecessor predecessor-unmerged
+"
+            continue
+        fi
+        if [ "$fu_draft" = true ]; then
+            fu_open=1
+            CC_UNMERGED="$CC_UNMERGED$fu_url human merge-state:DRAFT
+"
+            continue
+        fi
+        fu_verdict=$("$BASH" "$COORD_SELF_DIR/merge-verdict.sh" --repo "$fu_repo" --pr "$fu_n" \
+            --merge "$CC_MERGE" --expected-head "${fu_sha:-none}" </dev/null) \
+            || { CC_ACTION="error:execute:status-read"; return 1; }
+        # Merged between the two reads: nothing is left of it.
+        [ "$fu_verdict" = merged ] && continue
+        fu_open=1
+        cc_verdict_arm "$fu_id" "$fu_url" "$fu_verdict" "$(coord_attempt_of "$CC_ATTEMPTS" "$fu_id")" || return 1
+    done <<<"$rows"
+    return 0
+}
+
 # coord_compute -- where the coordinated run stands. Inputs (globals):
-#   CC_PLAN CC_SLUG CC_REPOS CC_HOME CC_CB CC_MERGE CC_ATTEMPTS
+#   CC_SESSION CC_PLAN CC_SLUG CC_REPOS CC_HOME CC_CB CC_MERGE CC_ATTEMPTS
+# CC_SESSION is the run's koto session. Its run record is read once per pass
+# (rr_record, local koto reads only): the coordination PR's number, the node
+# list sealed at setup, each node's recorded PR and pushed head, and the
+# cascade's verdict and pushed head. GitHub is read live for every PR's state,
+# checks, and merge verdict, which merge-verdict.sh computes at the recorded
+# head. The coordination PR's body is not read for any of it.
+# Each live follow-up recorded against a node (run/follow-up/<node>/<n>, not
+# removed) is a unit right after its node, named <node>/follow-up-<n>: it is
+# read live, merges only once its node reads MERGED (`merge:<id>`, and only
+# with CC_MERGE true; `evaluate:<id>` while its checks are pending, a wait
+# only), and while any live follow-up is unmerged the run gets no cascade and
+# no coordination step. One closed unmerged waits on a human with reason
+# follow-up-closed:<url>, and a draft one with merge-state:DRAFT: neither ends
+# the run, as a node's would, since a follow-up is a person's PR.
 # Outputs (globals):
 #   CC_ACTION      the one next action, from the closed set
 #   CC_COORD_URL   the coordination PR's URL (empty when it was not found)
 #   CC_UNMERGED    newline-separated `<url> <human|predecessor> <reason>` for
-#                  each unmerged PR, in merge order, the coordination PR last
+#                  each unmerged PR, in merge order (each node's follow-ups
+#                  right after it), the coordination PR last
 #   CC_BLOCKED     1 when some PR node cannot start because a predecessor is
 #                  not satisfied
 #   CC_BLOCK_REASON  the first such predecessor's condition
-#   CC_COORD_ATTEMPT the recorded result of a coordination merge call
+#   CC_COORD_ATTEMPT the recorded result of a coordination merge call, or of
+#                  the render before it (body-stale, body-full)
 # Never writes anything. Returns 0 whenever CC_ACTION is set.
 coord_compute() {
     CC_ACTION=""; CC_COORD_URL=""; CC_UNMERGED=""; CC_BLOCKED=0; CC_BLOCK_REASON=""
     CC_COORD_ATTEMPT=""
-    local rc entries line tasks n i name kind repo issues waits
+    local rc rec tasks n i name kind repo waits
     local satisfied="," blocked_reason_first="" merge_cand="" dispatch_cand="" eval_cand=""
-    local all_merged=1 pr_nodes=0 state draft verdict out node_branch head exp
-    local plan_present=0
+    local all_merged=1 pr_nodes=0 state draft verdict out node_branch exp
+    local plan_present=0 node_rec n_repo n_pr n_sha fu_open=0
 
-    coord_find_pr "$CC_HOME" "$CC_CB" all
+    # The run record, read once for the whole pass.
+    rec=$(rr_record "$CC_SESSION") || { CC_ACTION="error:execute:status-read"; return 0; }
+    if [ "$(rr_q "$rec" 'has("run/setup")')" != true ]; then
+        echo "$PROG: session $CC_SESSION holds no run record (run/setup); coord_setup seals it before the loop runs" >&2
+        CC_ACTION="error:execute:status-read"; return 0
+    fi
+
+    # The coordination PR, by the number setup recorded: no lookup.
+    coord_recorded_pr "$CC_SESSION" "$CC_HOME" all
     rc=$?
     case "$rc" in
         0) ;;
-        2) CC_ACTION="error:execute:status-read"; return 0 ;;
-        *) CC_ACTION="error:execute:pr-adopt"; return 0 ;;
+        3) CC_ACTION="error:execute:pr-adopt"; return 0 ;;
+        *) CC_ACTION="error:execute:status-read"; return 0 ;;
     esac
     CC_COORD_URL="$C_URL"
     local c_state c_draft
@@ -321,38 +641,26 @@ coord_compute() {
     esac
     CC_COORD_ATTEMPT=$(coord_attempt_of "$CC_ATTEMPTS" coordination)
 
-    # The index: every entry parses, names a repository this run owns, and
-    # appears once. A node entry's repository must be in the write set. The
-    # coordination PR's own entry must name the home repository, which need
-    # not be in the write set (a PLAN whose nodes all land in other
-    # repositories). A node entry may name the home only when some node lands
-    # there, which puts the home in the write set.
-    entries=$(coord_index_entries "$(printf '%s' "$C_JSON" | jq -r '.body // ""')")
-    local seen=","
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        if ! coord_parse_entry "$line"; then
-            echo "$PROG: PR index entry outside the grammar: [$line]" >&2
-            CC_ACTION="error:execute:status-read"; return 0
-        fi
-        if [ "$E_NODE" = coordination ]; then
-            if [ "$(coord_lower "$E_REPO")" != "$(coord_lower "$CC_HOME")" ]; then
-                echo "$PROG: the coordination entry names $E_REPO, not the coordination PR's repository $CC_HOME" >&2
-                CC_ACTION="error:execute:write-set"; return 0
-            fi
-        elif ! coord_in_list "$E_REPO" "$CC_REPOS"; then
-            echo "$PROG: PR index entry $E_NODE names $E_REPO, outside the write set [$CC_REPOS]" >&2
+    # Every recorded node PR names a repository in the write set. The
+    # coordination PR is recorded by number in run/setup, not as a node, so
+    # the home repository need not be in the write set (a PLAN whose nodes
+    # all land in other repositories); a node may name the home only when
+    # some node lands there, which puts the home in the write set.
+    local recorded
+    recorded=$(rr_q "$rec" 'to_entries[] | select(.key | startswith("run/node/"))
+        | "\(.key | ltrimstr("run/node/")) \(.value.repo // "")"') \
+        || { CC_ACTION="error:execute:status-read"; return 0; }
+    while read -r name repo; do
+        [ -n "$name" ] || continue
+        if ! coord_in_list "$repo" "$CC_REPOS"; then
+            echo "$PROG: the run record names $repo for node $name, outside the write set [$CC_REPOS]" >&2
             CC_ACTION="error:execute:write-set"; return 0
         fi
-        if coord_in_list "$E_NODE" "$seen"; then
-            echo "$PROG: PR index lists $E_NODE more than once" >&2
-            CC_ACTION="error:execute:status-read"; return 0
-        fi
-        seen="$seen$E_NODE,"
-    done <<<"$entries"
+    done <<<"$recorded"
 
     # The nodes, from the PLAN while it exists. After the cascade deleted it,
-    # the index is the node list, and every node must already be merged.
+    # from the node list run/setup sealed, and every node must already be
+    # merged.
     if [ -f "$CC_PLAN" ]; then
         plan_present=1
         tasks=$("$BASH" "$COORD_PLAN_TO_TASKS" "$CC_PLAN" </dev/null) || {
@@ -363,12 +671,10 @@ coord_compute() {
             CC_ACTION="error:execute:status-read"; return 0
         }
     else
-        tasks=$(printf '%s\n' "$entries" | while IFS= read -r line; do
-            [ -n "$line" ] || continue
-            coord_parse_entry "$line" || continue
-            [ "$E_NODE" = coordination ] && continue
-            jq -nc --arg n "$E_NODE" --arg r "$E_REPO" '{name: $n, vars: {NODE_KIND: "pr", REPO: $r, ISSUES: ""}, waits_on: []}'
-        done | jq -s '.')
+        tasks=$(rr_q "$rec" '[.["run/setup"].nodes // [] | .[]
+            | {name, vars: {NODE_KIND: .kind, REPO: .repo, ISSUES: ""}, waits_on}]') || {
+            CC_ACTION="error:execute:status-read"; return 0
+        }
     fi
 
     n=$(printf '%s' "$tasks" | jq 'length')
@@ -398,111 +704,16 @@ coord_compute() {
         if [ "$kind" = "gate" ]; then
             continue
         fi
-        pr_nodes=$((pr_nodes + 1))
-        if ! coord_in_list "$repo" "$CC_REPOS"; then
-            echo "$PROG: node $name names $repo, outside the write set [$CC_REPOS]" >&2
-            CC_ACTION="error:execute:write-set"; return 0
-        fi
-        node_branch="impl/$CC_SLUG-$name"
-
-        line=$(coord_find_entry "$entries" "$name")
-        if [ -z "$line" ]; then
-            all_merged=0
-            if [ "$plan_present" -eq 0 ]; then
-                CC_ACTION="error:execute:status-read"; return 0
-            fi
-            if [ "$preds_ok" -eq 1 ]; then
-                [ -n "$dispatch_cand" ] || dispatch_cand="$name"
-            else
-                CC_BLOCKED=1
-                if [ -z "$blocked_reason_first" ]; then
-                    case "$first_unsat" in
-                        gate-*) blocked_reason_first="gate-unverified" ;;
-                        *) blocked_reason_first="predecessor-unmerged" ;;
-                    esac
-                fi
-            fi
-            continue
-        fi
-        coord_parse_entry "$line"
-        if [ "$E_REPO" != "$repo" ]; then
-            echo "$PROG: the index names $E_REPO for $name, the PLAN names $repo" >&2
-            CC_ACTION="error:execute:pr-adopt"; return 0
-        fi
-        # The indexed PR must be the one owned PR on this node's branch.
-        out=$(coord_owned "$E_REPO" "$node_branch" all)
-        rc=$?
-        case "$rc" in
-            0) ;;
-            2) CC_ACTION="error:execute:status-read"; return 0 ;;
-            *) CC_ACTION="error:execute:pr-adopt"; return 0 ;;
-        esac
-        if [ -z "$out" ] || [ "${out##*/}" != "$E_NUM" ]; then
-            echo "$PROG: index entry $name names #$E_NUM, which is not the owned PR on $E_REPO $node_branch" >&2
-            CC_ACTION="error:execute:pr-adopt"; return 0
-        fi
-        local url="$out" view
-        coord_gh_read view pr view "$E_NUM" --repo "$E_REPO" --json state,isDraft \
-            || { CC_ACTION="error:execute:status-read"; return 0; }
-        state=$(printf '%s' "$view" | jq -r '.state // ""')
-        draft=$(printf '%s' "$view" | jq -r '.isDraft // false')
-        case "$state" in
-            MERGED)
-                satisfied="$satisfied$name,"
-                continue
-                ;;
-            OPEN) ;;
-            CLOSED) CC_ACTION="error:execute:pr-closed"; return 0 ;;
-            *) CC_ACTION="error:execute:status-read"; return 0 ;;
-        esac
-        all_merged=0
-        if [ "$draft" = "true" ]; then
-            local checks
-            if ! coord_gh_read checks pr checks "$E_NUM" --repo "$E_REPO" --json name,bucket; then
-                checks="[]"
-            fi
-            if printf '%s' "$checks" | jq -e 'type == "array" and any(.[]; .bucket == "fail" or .bucket == "cancel")' >/dev/null; then
-                CC_ACTION="error:execute:ci"; return 0
-            fi
-            [ -n "$eval_cand" ] || eval_cand="$name"
-            continue
-        fi
-        exp="${E_HEAD:-none}"
-        verdict=$("$BASH" "$COORD_SELF_DIR/merge-verdict.sh" --repo "$E_REPO" --pr "$E_NUM" \
-            --merge "$CC_MERGE" --expected-head "$exp" </dev/null) \
-            || { CC_ACTION="error:execute:status-read"; return 0; }
-        local attempt
-        attempt=$(coord_attempt_of "$CC_ATTEMPTS" "$name")
-        case "$verdict" in
-            merged) satisfied="$satisfied$name," ;;
-            pending:*) [ -n "$eval_cand" ] || eval_cand="$name" ;;
-            mergeable:*)
-                if [ -n "$attempt" ]; then
-                    CC_UNMERGED="$CC_UNMERGED$url human $attempt
-"
-                elif [ "$CC_MERGE" = "true" ]; then
-                    [ -n "$merge_cand" ] || merge_cand="$name"
-                else
-                    CC_UNMERGED="$CC_UNMERGED$url human merge-not-requested
-"
-                fi
-                ;;
-            awaiting:*)
-                if [ -n "$attempt" ]; then
-                    CC_UNMERGED="$CC_UNMERGED$url human $attempt
-"
-                else
-                    CC_UNMERGED="$CC_UNMERGED$url human ${verdict#awaiting:}
-"
-                fi
-                ;;
-            error:execute:*) CC_ACTION="$verdict"; return 0 ;;
-            *) CC_ACTION="error:execute:status-read"; return 0 ;;
-        esac
+        # The node, then its follow-ups, whatever arm the node took. Each
+        # returns 1 once it has set CC_ACTION.
+        cc_pr_node || return 0
+        cc_follow_ups "$name" "$repo" || return 0
     done
-    # Every PR node merged, read from the facts rather than tracked above.
+    # Every PR node merged, read from the facts rather than tracked above,
+    # and no live follow-up left unmerged.
     all_merged=1
     [ "$pr_nodes" -gt 0 ] || all_merged=0
+    [ "$fu_open" -eq 0 ] || all_merged=0
     i=0
     while [ "$i" -lt "$n" ]; do
         name=$(printf '%s' "$tasks" | jq -r ".[$i].name")
@@ -518,19 +729,32 @@ coord_compute() {
 
     if [ "$all_merged" -eq 1 ]; then
         # Every node PR merged. The cascade runs once, on the coordination
-        # branch: while the PLAN is present it has not run, and without the
-        # coordination PR's own head= record its push was never recorded.
-        local c_line c_head=""
-        c_line=$(coord_find_entry "$entries" coordination)
-        if [ -n "$c_line" ] && coord_parse_entry "$c_line"; then c_head="$E_HEAD"; fi
-        if [ "$plan_present" -eq 1 ] || [ -z "$c_head" ]; then
+        # branch: while the PLAN is present it has not run, and unless the
+        # run record holds its verdict as pushed (with the head
+        # node-push.sh's coordination mode pushed), it didn't finish. A
+        # `failed` verdict, or none, runs it again.
+        local c_verdict c_sha
+        c_verdict=$(rr_q "$rec" '.["run/cascade"].verdict // "not-run"')
+        c_sha=$(rr_q "$rec" '.["run/cascade"].head // ""')
+        if [ "$plan_present" -eq 1 ] || [ "$c_verdict" != pushed ] || [ -z "$c_sha" ]; then
             CC_ACTION="cascade"; return 0
         fi
+        # The body CI's merge-last gate reads could not be brought up to date
+        # with the record this invocation (coord-render.sh
+        # --before-coordination recorded it): neither the coordination PR's
+        # evaluation nor its merge runs again until the next invocation.
+        case "$CC_COORD_ATTEMPT" in
+            body-stale|body-full)
+                CC_UNMERGED="$CC_UNMERGED$CC_COORD_URL human merge-refused:$CC_COORD_ATTEMPT
+"
+                CC_ACTION="done:ready-awaiting-merge"; return 0
+                ;;
+        esac
         if [ "$c_draft" = "true" ]; then
             CC_ACTION="evaluate-coordination"; return 0
         fi
         verdict=$("$BASH" "$COORD_SELF_DIR/merge-verdict.sh" --repo "$CC_HOME" --pr "$C_NUM" \
-            --merge "$CC_MERGE" --expected-head "$c_head" </dev/null) \
+            --merge "$CC_MERGE" --expected-head "$c_sha" </dev/null) \
             || { CC_ACTION="error:execute:status-read"; return 0; }
         case "$verdict" in
             merged) CC_ACTION="done:merged" ;;
@@ -549,7 +773,7 @@ coord_compute() {
                 fi
                 ;;
             awaiting:*)
-                if [ -n "$CC_COORD_ATTEMPT" ]; then
+                if [ -n "$CC_COORD_ATTEMPT" ] && [ "$CC_COORD_ATTEMPT" != merge-refused ]; then
                     CC_UNMERGED="$CC_UNMERGED$CC_COORD_URL human $CC_COORD_ATTEMPT
 "
                 else

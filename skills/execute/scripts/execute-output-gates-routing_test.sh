@@ -62,9 +62,9 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 [ -f "$TEMPLATE" ] || { echo "template not found: $TEMPLATE" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; exit 2; }
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/execute-output-gates-routing.XXXXXX")
-WORKDIR=$(cd -P "$WORKDIR" && pwd -P)
-cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/execute-output-gates-routing.XXXXXX") || exit 1
+WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
+cleanup() { case "${WORKDIR:-}" in */execute-output-gates-routing.*) rm -rf "$WORKDIR" ;; esac; return 0; }
 trap cleanup EXIT
 
 # extract_state <name>: the state's block from the template's frontmatter.
@@ -444,7 +444,8 @@ if printf '%s' "$PARTIAL_RESP" | jq -e '
           and ([$c[] | .failure.findings[]? | select(.message_source != "koto")] | length) == 0' >/dev/null 2>&1; then
     pass "the failing cascade gates carry no finding but koto's own"
 else
-    fail "a cascade gate carried a finding of its own: $(printf '%s' "$PARTIAL_RESP" | jq -c '[.blocking_conditions[]? | select(.name | test("^cascade_"))]' 2>/dev/null | head -c 400)"
+    CASCADE_CONDS=$(printf '%s' "$PARTIAL_RESP" | jq -c '[.blocking_conditions[]? | select(.name | test("^cascade_"))]' 2>/dev/null)
+    fail "a cascade gate carried a finding of its own: $(head -c 400 <<<"$CASCADE_CONDS")"
 fi
 
 # ci_monitor: green, DIRTY and the lookup route with no evidence.

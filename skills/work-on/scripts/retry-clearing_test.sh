@@ -75,7 +75,7 @@ command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH -- no case ran
 command -v git  >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran"; exit 0; }
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || exit 1
 cleanup() {
     # The broken-store cases leave a directory read-only; restore it so rm can
     # finish, or the harness leaks a temp tree on every run.
@@ -879,7 +879,7 @@ seed broken scrutiny_results.json
 seed broken review_results.json
 seed broken qa_results.json
 
-CTX_DIR=$(find "$HOME/.koto" -type d -name ctx 2>/dev/null | grep broken | head -1)
+CTX_DIR=$(find "$HOME/.koto" -type d -name ctx 2>/dev/null | grep -m1 broken)
 if [ -z "$CTX_DIR" ]; then
     CTX_DIR=$(find "$HOME" -type d -path '*broken*' -name ctx 2>/dev/null | head -1)
 fi
@@ -1109,8 +1109,8 @@ do
     src=${pair#*:}
     eval "blk=\${$var}"
     # The `exists` call must come after the `remove`, never before it.
-    first=$(printf '%s\n' "$blk" | grep -n 'koto context remove' | head -1 | cut -d: -f1)
-    guard=$(printf '%s\n' "$blk" | grep -n 'koto context exists' | head -1 | cut -d: -f1)
+    first=$(grep -n -m1 'koto context remove' <<<"$blk" | cut -d: -f1)
+    guard=$(grep -n -m1 'koto context exists' <<<"$blk" | cut -d: -f1)
     if [ -n "$first" ] && [ -n "$guard" ] && [ "$guard" -gt "$first" ]; then
         pass "$src: the exists check follows the remove, and does not guard it"
     else

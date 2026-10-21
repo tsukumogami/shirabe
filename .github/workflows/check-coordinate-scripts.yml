@@ -18,6 +18,14 @@ on:
 env:
   GITHUB_TOKEN: ${{ github.token }}
 
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # The codec, the check scripts and the write scripts need bash, git and jq,
   # and drive test-local gh and koto stand-ins. run-tests.sh shadows the real
@@ -43,6 +51,12 @@ jobs:
       - name: Run script tests offline (Linux)
         if: runner.os == 'Linux'
         run: bash skills/coordinate/scripts/run-tests.sh
+
+      # The squash-message builder the land step calls lives in scripts/lib/,
+      # outside run-tests.sh's directory, so its suite runs on its own.
+      - name: Run squash-message tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/squash-message_test.sh
 
       # The runner refuses a /bin/bash that is not 3.2 and keeps a nested
       # `bash` on 3.2 as well.

@@ -1,6 +1,8 @@
 # cloud-hosts.sh -- simulated hosts sharing koto's cloud session backend, for
-# /coordinate's engine suites. Sourced by a suite after it sets HERE (the
-# scripts directory) and T (its scratch directory). Not shipped behaviour.
+# /coordinate's engine suites and the move suites of /execute and /deliver.
+# Sourced by a suite after it sets HERE (a scripts directory holding
+# testdata/fake-s3.py, or CLOUD_HOSTS_S3 naming that server) and T (its
+# scratch directory). Not shipped behaviour.
 #
 # One fake S3 server (testdata/fake-s3.py, python3) plays the bucket. Each host
 # is a directory under $T/hosts/<label> with its own HOME, cache and workspace,
@@ -15,10 +17,21 @@
 #
 #   s3_start            start the server; sets S3_ENDPOINT and S3_PID
 #   s3_stop             stop it (only the server this suite started)
-#   host_make <label>   lay a host out; prints nothing
+#   host_make <label>   lay a host out, with its workspace `work`; prints nothing
 #   host_ws <label>     the host's workspace, canonical (the path --from takes)
 #   host_on <label> <command...>
 #                       run a command in the host's workspace, as that host
+#   ws_make <label> <ws>
+#                       lay out a second workspace <ws> on a host host_make made
+#   ws_path <label> <ws>
+#                       that workspace, canonical
+#   ws_on <label> <ws> <command...>
+#                       run a command in that workspace, as that host
+#
+# Two workspaces on one host share HOME, the koto cache and the request store,
+# as two checkouts on one machine do; each has its own .koto/config.toml, so
+# koto keeps its sessions under its own prefix in the bucket. host_on is
+# ws_on in the workspace `work`.
 #
 # Requires: bash 3.2+, python3.
 
@@ -29,7 +42,7 @@ S3_PID=
 s3_start() {
     local i port
     mkdir -p "$T/s3"
-    python3 -I "$HERE/testdata/fake-s3.py" "$S3_BUCKET" "$T/s3/port" > "$T/s3/log" 2>&1 &
+    python3 -I "${CLOUD_HOSTS_S3:-$HERE/testdata/fake-s3.py}" "$S3_BUCKET" "$T/s3/port" > "$T/s3/log" 2>&1 &
     S3_PID=$!
     i=0
     while [ ! -s "$T/s3/port" ]; do
@@ -52,20 +65,35 @@ s3_stop() {
 
 host_make() {
     local b="$T/hosts/$1"
-    mkdir -p "$b/userhome/.koto" "$b/cache" "$b/work/.koto"
-    printf '[session]\nbackend = "cloud"\n\n[session.cloud]\nendpoint = "%s"\nbucket = "%s"\nregion = "us-east-1"\npath_style = true\n' \
-        "$S3_ENDPOINT" "$S3_BUCKET" > "$b/work/.koto/config.toml"
+    mkdir -p "$b/userhome/.koto" "$b/cache"
+    ws_make "$1" work
     # Test-only credentials the fake server ignores; never a real one.
     printf '[session.cloud]\naccess_key = "test-access"\nsecret_key = "test-secret"\n' > "$b/userhome/.koto/config.toml"
 }
 
-host_ws() { (cd "$T/hosts/$1/work" && pwd -P); }
+ws_make() {
+    local w="$T/hosts/$1/$2"
+    mkdir -p "$w/.koto"
+    printf '[session]\nbackend = "cloud"\n\n[session.cloud]\nendpoint = "%s"\nbucket = "%s"\nregion = "us-east-1"\npath_style = true\n' \
+        "$S3_ENDPOINT" "$S3_BUCKET" > "$w/.koto/config.toml"
+}
+
+host_ws() { ws_path "$1" work; }
+
+ws_path() { (cd "$T/hosts/$1/$2" && pwd -P); }
 
 host_on() {
-    local b
-    b=$(cd "$T/hosts/$1" && pwd -P) || return 1
+    local h="$1"
     shift
-    (cd "$b/work" && env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE \
+    ws_on "$h" work "$@"
+}
+
+ws_on() {
+    local b w
+    b=$(cd "$T/hosts/$1" && pwd -P) || return 1
+    w="$2"
+    shift 2
+    (cd "$b/$w" && env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE \
         -u CLAUDE_CODE_SESSION_ID -u XDG_CONFIG_HOME -u KOTO_SESSIONS_BASE \
         HOME="$b/userhome" XDG_CACHE_HOME="$b/cache" "$@")
 }

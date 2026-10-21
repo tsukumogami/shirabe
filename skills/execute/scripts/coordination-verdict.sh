@@ -5,17 +5,18 @@
 # `pause`, or `error:`), koto's `coord_verdict` state runs this script, through
 # record-coordination-verdict.sh, to decide which terminal the run ends at. It
 # recomputes the run's position from the same reads coordinated-next.sh makes
-# (the one shared computation in coord-common.sh), so the verdict never rests
-# on what the agent said the loop printed. It is read-only: it writes neither
-# GitHub nor koto context.
+# (the one shared computation in coord-common.sh, over the session's run
+# record and live gh), so the verdict never rests on what the agent said the
+# loop printed. It is read-only: it writes neither GitHub nor koto context.
 #
 # Usage:
-#   coordination-verdict.sh --plan <path> --slug <slug> --repos <list>
+#   coordination-verdict.sh --session <koto-session> --plan <path>
+#                           --slug <slug> --repos <list>
 #                           --home-repo <owner/repo> --coord-branch <branch>
 #                           --merge true|false [--attempts <list>]
 #                           [--loop-line <line>] [--run-id <id>]
 #
-# The first six flags, --attempts, and --run-id are coordinated-next.sh's. --loop-line is
+# The first seven flags, --attempts, and --run-id are coordinated-next.sh's. --loop-line is
 # the last line the loop reported. It is used for one thing only: when the
 # recomputed action is not a stopping one (the loop stopped while there is
 # still something to do, for example because a child failed), the verdict is
@@ -31,6 +32,12 @@
 #   resume=/execute <plan> [--merge]          on paused only
 #   reason=<condition>                        ready, paused, dirty
 #   step=<execute:step>                       error only
+#   cascade=failed                            only when the loop stopped
+#                                             early while the next action is
+#                                             still `cascade`: the cascade
+#                                             was the step that failed, and
+#                                             record-coordination-verdict.sh
+#                                             records it in run/cascade
 #
 # The routes:
 #
@@ -44,10 +51,19 @@
 # reason is drawn from the merge decision table's conditions
 # (merge-not-requested, head-moved, no-checks, base-unprotected, review,
 # workflow-change, merge-method-unresolved, merge-state:<S>[:review=<R>]),
-# merge-call-failed and merge-not-observed, and the pause conditions
-# predecessor-unmerged and gate-unverified. step is one of execute:pr-closed,
-# ready, ci, ci-timeout, status-read, pr-adopt, write-set, dispatch, push,
-# cascade, merge-gate, coord-loop.
+# merge-call-failed, merge-not-observed and merge-refused (a merge
+# coord-merge.sh refused: the merge-last gate, a missing head, or a squash
+# message it couldn't build), merge-refused:body-stale and
+# merge-refused:body-full (a coordination body the render before the
+# coordination PR's evaluation or merge couldn't post), the pause
+# conditions predecessor-unmerged and gate-unverified, and two a follow-up
+# PR waits on: follow-up-closed:<url> (one recorded against a node and closed
+# unmerged; it holds the coordination PR until it is replaced or removed)
+# and merge-state:DRAFT (one still a draft, which the run never readies). A
+# closed follow-up's reason is the one reported even behind an earlier
+# human-waiting PR, since nothing else names it. step is one of
+# execute:pr-closed, ready, ci, ci-timeout, status-read, pr-adopt, write-set,
+# dispatch, push, cascade, merge-gate, visibility, coord-loop.
 #
 # Exit codes: 0 the verdict is on stdout; 64 usage error.
 #
@@ -60,25 +76,26 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 # shellcheck source=coord-common.sh
 . "$COORD_SELF_DIR/coord-common.sh"
 
-RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|coord-loop)$'
+RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop)$'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: coordination-verdict.sh --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--loop-line <line>] [--run-id <id>]" >&2
+    echo "usage: coordination-verdict.sh --session <koto-session> --plan <path> --slug <slug> --repos <list> --home-repo <owner/repo> --coord-branch <branch> --merge true|false [--attempts <list>] [--loop-line <line>] [--run-id <id>]" >&2
     exit 64
 }
 
-CC_PLAN=""; CC_SLUG=""; CC_REPOS=""; CC_HOME=""; CC_CB=""; CC_MERGE=""; CC_ATTEMPTS=""
+CC_SESSION=""; CC_PLAN=""; CC_SLUG=""; CC_REPOS=""; CC_HOME=""; CC_CB=""; CC_MERGE=""; CC_ATTEMPTS=""
 LOOP_LINE=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--loop-line|--run-id)
+        --session|--plan|--slug|--repos|--home-repo|--coord-branch|--merge|--attempts|--loop-line|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
                 --run-id) COORD_RUN_ID="$2" ;;
+                --session) CC_SESSION="$2" ;;
                 --plan) CC_PLAN="$2" ;;
                 --slug) CC_SLUG="$2" ;;
                 --repos) CC_REPOS="$2" ;;
@@ -94,10 +111,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-for f in --plan --slug --repos --home-repo --coord-branch --merge; do
+for f in --session --plan --slug --repos --home-repo --coord-branch --merge; do
     case "$SEEN" in *" $f "*) ;; *) usage_error "$f is required" ;; esac
 done
 case "$CC_MERGE" in true|false) ;; *) usage_error "--merge must be true or false, got [$CC_MERGE]" ;; esac
+[[ $CC_SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage_error "--session [$CC_SESSION] is not a koto session name"
 [[ $CC_SLUG =~ $RE_COORD_SLUG ]] || usage_error "--slug [$CC_SLUG] is outside ^[a-z0-9-]+\$"
 coord_valid_repo_list "$CC_REPOS" || usage_error "--repos [$CC_REPOS] is not a comma-joined owner/repo list"
 coord_valid_repo "$CC_HOME" || usage_error "--home-repo [$CC_HOME] is not a single owner/repo"
@@ -106,19 +124,20 @@ coord_valid_branch "$CC_CB" || usage_error "--coord-branch [$CC_CB] is not an al
 case "/$CC_PLAN/" in */../*) usage_error "--plan [$CC_PLAN] has a .. segment" ;; esac
 case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a character outside [A-Za-z0-9._/-]" ;; esac
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
-    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed>,..."
+    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full>,..."
 fi
 case "$SEEN" in
     *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;
 esac
 
-emit() { # emit <verdict> <waiting> <resume> <reason> <step>
+emit() { # emit <verdict> <waiting> <resume> <reason> <step> [<cascade>]
     printf 'coord_verdict=%s\n' "$1"
     printf 'pr=%s\n' "$CC_COORD_URL"
     printf 'waiting=%s\n' "$2"
     printf 'resume=%s\n' "$3"
     printf 'reason=%s\n' "$4"
     printf 'step=%s\n' "$5"
+    [ -n "${6:-}" ] && printf 'cascade=%s\n' "$6"
     exit 0
 }
 
@@ -133,6 +152,7 @@ coord_compute
 # PRs in merge order.
 WAITING=""
 FIRST_HUMAN_REASON=""
+FU_CLOSED_REASON=""
 DIRTY=0
 while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -146,8 +166,13 @@ while IFS= read -r line; do
     if [ "$role" = human ] && [ -z "$FIRST_HUMAN_REASON" ]; then
         FIRST_HUMAN_REASON="$reason"
     fi
+    # Only one reason is reported, and a closed follow-up is a PR nobody
+    # will merge: behind an earlier merge-not-requested it would never be
+    # named, so its reason comes first.
+    case "$reason" in follow-up-closed:*) [ -n "$FU_CLOSED_REASON" ] || FU_CLOSED_REASON="$reason" ;; esac
     case "$reason" in merge-state:DIRTY|merge-state:DIRTY:*) DIRTY=1 ;; esac
 done <<<"$CC_UNMERGED"
+FIRST_HUMAN_REASON="${FU_CLOSED_REASON:-$FIRST_HUMAN_REASON}"
 
 RESUME="/execute $CC_PLAN"
 [ "$CC_MERGE" = true ] && RESUME="$RESUME --merge"
@@ -184,6 +209,11 @@ case "$CC_ACTION" in
                 [[ $cand =~ $RE_STEP_SET ]] && step="$cand"
                 ;;
         esac
+        # Stopped with the cascade still the next action: the cascade failed,
+        # and the next invocation runs it again.
+        if [ "$CC_ACTION" = cascade ]; then
+            emit error "" "" "" "$step" failed
+        fi
         emit error "" "" "" "$step"
         ;;
 esac

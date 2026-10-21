@@ -22,7 +22,7 @@ S="$HERE/startable-issues.sh"
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/startable-test.XXXXXX")"
+T="$(mktemp -d "${TMPDIR:-/tmp}/startable-test.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT
 
 PASS=0

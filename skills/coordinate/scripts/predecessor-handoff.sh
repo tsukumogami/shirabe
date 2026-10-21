@@ -80,7 +80,7 @@ if [ -z "$OUT" ]; then
     OUT="$SDIR/predecessor-handoff.md"
 fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/predecessor-handoff.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/predecessor-handoff.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 # The predecessor's record, through the seam (record-source.sh), with its

@@ -16,6 +16,11 @@ on:
       # Wide, because the suites here read other skills' files: run-cascade.sh
       # lives under skills/work-on/, and execute.md materializes work-on.md.
       - 'skills/**'
+      # The coordination body's codec, and the squash-message builder every
+      # /execute merge passes its message through.
+      - 'scripts/lib/coordination-body.sh'
+      - 'scripts/lib/squash-message.sh'
+      - 'scripts/lib/squash-message_test.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -32,6 +37,12 @@ on:
       # its exit 6, and its suite checks the released text against the entry.
       - 'references/rule-registry.json'
       - 'scripts/rule-registry.sh'
+      # The move engine test imports the run with skill-session.sh over the
+      # simulated cloud hosts and their fake S3 server (both also under
+      # skills/** above).
+      - 'scripts/skill-session.sh'
+      - 'skills/coordinate/scripts/testdata/cloud-hosts.sh'
+      - 'skills/coordinate/scripts/testdata/fake-s3.py'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-execute-scripts.yml'
 
@@ -39,6 +50,14 @@ env:
   # `tsuku install` calls the GitHub API; the token
   # keeps shared runners from hitting the unauthenticated rate limit.
   GITHUB_TOKEN: ${{ github.token }}
+
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-execute-scripts:
@@ -102,6 +121,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/owned-pr-callers_test.sh
 
+      # ci_monitor's gates extracted from execute.md, and the MERGED-PR
+      # fallback they share with /work-on, through gh and koto stubs.
+      - name: Run owned CI cancel tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/owned-ci-cancel_test.sh
+
       - name: Run push-and-record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/push-and-record_test.sh
@@ -130,23 +155,30 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/eval-koto-shim_test.sh
 
-      # The coordinated loop's scripts: the next action, the verdict and its
-      # record, the setup record, node branches, node pushes and their head=
-      # records, and the merge. Each drives the eval gh shim's repository
-      # model, a koto context stub, and real git, so none needs the engine.
+      # The coordinated loop's scripts: the run record's writer and reader,
+      # the next action, the verdict and its record, the setup record, node
+      # branches, node pushes and their head records, and the merge. Each
+      # drives the eval gh shim's repository model, a koto context stub, and
+      # real git, so none needs the engine.
       - name: Run coordinated loop script tests (Linux)
         if: runner.os == 'Linux'
         run: |
+          bash skills/execute/scripts/run-record_test.sh
           bash skills/execute/scripts/coordinated-next_test.sh
           bash skills/execute/scripts/coordination-verdict_test.sh
           bash skills/execute/scripts/record-coordination-verdict_test.sh
           bash skills/execute/scripts/record-coord-setup_test.sh
+          bash skills/execute/scripts/record-coord-follow-up_test.sh
           bash skills/execute/scripts/node-cut_test.sh
           bash skills/execute/scripts/node-push_test.sh
           bash skills/execute/scripts/repo-visibility_test.sh
           bash skills/execute/scripts/coordinated-visibility_test.sh
           bash skills/execute/scripts/coord-merge_test.sh
           bash skills/execute/scripts/coordinated-home-outside_test.sh
+          bash skills/execute/scripts/coordination-body_test.sh
+          bash skills/execute/scripts/coord-render_test.sh
+          bash skills/execute/scripts/merge-message_test.sh
+          bash scripts/lib/squash-message_test.sh
 
       # settled-branch-record_test.sh drives real koto sessions -- it asserts
       # that orchestrator_setup's gate holds the state when the settled branch
@@ -207,6 +239,14 @@ jobs:
       - name: Run coordinated envelope engine tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/execute-coordinated-engine_test.sh
+
+      # A coordinated run paused after its first merge call, imported into a
+      # second workspace with skill-session.sh over simulated cloud hosts, and
+      # resumed there to its merge with the same run_id and no recovery, every
+      # read served a body with no index line.
+      - name: Run coordinated move engine tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-coordinated-move-engine_test.sh
 
       # /execute's koto entry: the flags reach koto as variables, and koto's
       # refusals (duplicate or invalid --merge, another template's live

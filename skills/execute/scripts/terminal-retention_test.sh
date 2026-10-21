@@ -255,7 +255,7 @@ koto_legacy_env_enable
 # installs both so the cases genuinely run where it matters.
 command -v jq >/dev/null 2>&1 || skip_engine_cases "jq not on PATH"
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/terminal-retention.XXXXXX")
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/terminal-retention.XXXXXX") || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
@@ -805,6 +805,20 @@ at_ci_monitor stays-open true
 k next execute-stays-open --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
 k next execute-stays-open --with-data '{"merge_exec":"called"}' --no-cleanup >/dev/null 2>&1
 expect_payload "merge called, PR still OPEN" execute-stays-open ready_awaiting_merge ready-awaiting-merge "" "merge-not-observed"
+
+# A squash message merge-message.sh refused to build (an empty Part 1, a title
+# spanning lines, an attribution line): no merge call was made, and the run
+# ends ready-awaiting-merge with the edge's literal reason.
+gh_fixture squash-message
+at_ci_monitor squash-message true
+k next execute-squash-message --with-data '{"ci_outcome":"failing_fixed"}' --no-cleanup >/dev/null 2>&1
+k next execute-squash-message --with-data '{"merge_exec":"squash-message","merge_line":"merge-refused:squash-message"}' --no-cleanup >/dev/null 2>&1
+expect_payload "a squash message refused" execute-squash-message ready_awaiting_merge ready-awaiting-merge "" "merge-refused:squash-message"
+if grep -q '^pr merge' "$GH_FIX/gh.log"; then
+    fail "a refused squash message made a pr merge call"
+else
+    pass "a refused squash message makes no pr merge call"
+fi
 
 # A run stopped at merge_attempt with a recorded mergeable verdict, resumed
 # without --merge: the rebind puts MERGE back to false, the merge_intent gate

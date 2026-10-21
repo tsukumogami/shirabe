@@ -18,7 +18,8 @@
 # entry after the body; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
 # one-writer rule (record-write.sh changing a section refused); a failed entry
-# post after a written body (14); an assignment (an issue or a release a
+# post after a written body (14); a temporary file that can't be made (2,
+# nothing written, the caller's .one left); an assignment (an issue or a release a
 # person assigned) and its refusals; a verdict-owed row (a milestone's
 # verdict owed) listed and kept by every write, --done leaving it and
 # --done --kind verdict-owed and --work --kind verdict-owed refused; a rework
@@ -59,7 +60,8 @@ bash "$RS" "${W[@]}" --run arguments "--roadmap docs/roadmaps/ROADMAP-plugin-sys
 eq "arguments are set" 0 $?
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>"$T/err"; eq "a cap is set" 0 $?
 bash "$RS" "${W[@]}" --run cap 1 --by "the human, via the process owner" >/dev/null 2>"$T/err"; eq "a cap is changed" 0 $?
-eq "  ... one cap row, the new one" "1 the human, via the process owner" "$(live | jq -r '[.run[] | select(.key == "cap")] | "\(.[0].value) \(.[0].set_by)", length' | head -1)"
+cap_rows=$(live | jq -r '[.run[] | select(.key == "cap")] | "\(.[0].value) \(.[0].set_by)", length')
+eq "  ... one cap row, the new one" "1 the human, via the process owner" "${cap_rows%%$'\n'*}"
 eq "  ... and only one" 1 "$(live | jq '[.run[] | select(.key == "cap")] | length')"
 bash "$RS" "${W[@]}" --run cap two --by x >/dev/null 2>"$T/err"; eq "a cap that isn't a number is refused" 65 $?
 bash "$RS" "${W[@]}" --run told worker-f2 --by x >/dev/null 2>"$T/err"; eq "--run doesn't take told" 64 $?
@@ -249,6 +251,21 @@ eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key ==
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
 db '.fail = []'
 
+echo "== a temporary file that can't be made (the #922 shape, found in #924's sweep) =="
+# The leaving lines' file is the last one made before the write. Unchecked,
+# its name was empty: the record was written anyway and the closing
+# `rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"` removed .one from the caller's
+# directory.
+mkdir -p "$T/mkt-bin" "$T/mkt-cwd"
+printf '#!/bin/sh\ncase "$*" in *record-state-leaving*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v mktemp)" > "$T/mkt-bin/mktemp"
+chmod +x "$T/mkt-bin/mktemp"
+printf 'keep\n' > "$T/mkt-cwd/.one"
+BEFORE=$(live | jq -c '.run')
+(cd "$T/mkt-cwd" && PATH="$T/mkt-bin:$PATH" bash "$RS" "${W[@]}" --run cap 4 --by "the human" >/dev/null 2>"$T/err")
+eq "a temporary file that can't be made is a failed read (2)" 2 $?
+eq "  ... before the body is written" "$BEFORE" "$(live | jq -c '.run')"
+eq "  ... and the caller's .one is left" keep "$(cat "$T/mkt-cwd/.one" 2>/dev/null)"
+
 echo "== a session name as the address (shirabe#610) =="
 seed "$TWO"
 bash "$RS" "${W[@]}" --run coordinator lane_owner --by "the human" >/dev/null 2>"$T/err"
@@ -309,7 +326,8 @@ mkdir -p "$KOTO_STORE/requests"
 echo '{"request_id":"req_2","legs":{"deliver":{"disposition":"open"}}}' > "$KOTO_STORE/requests/req_2.json"
 eq "a leg whose request isn't here is leg-unclassified; one held here isn't" "leg-unclassified worker-f2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap | select(startswith("leg-"))] | join(" ")')"
-bash "$RH" "${RM[@]}" | jq -r '.gaps[] | select(.gap == "leg-unclassified worker-f2") | .fix' | grep -q 'reconcile-legs.sh --session <this run> --topic worker-f2 --return-path "leg req_1:deliver"' \
+fix=$(bash "$RH" "${RM[@]}" | jq -r '.gaps[] | select(.gap == "leg-unclassified worker-f2") | .fix')
+grep -q 'reconcile-legs.sh --session <this run> --topic worker-f2 --return-path "leg req_1:deliver"' <<<"$fix" \
     && ok "  ... naming the fix" || bad "  ... naming the fix" "$(bash "$RH" "${RM[@]}" | jq -c .gaps)"
 rm -f "$KOTO_STORE/requests/req_1.gone" "$KOTO_STORE/requests/req_2.json"
 bash "$RH" "${RM[@]}" >/dev/null 2>&1; eq "a leg whose request can't be read fails the read" 2 $?

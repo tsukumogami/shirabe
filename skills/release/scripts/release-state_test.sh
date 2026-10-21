@@ -67,9 +67,9 @@ REAL_JQ=$(command -v jq)
 REAL_GIT=$(command -v git)
 REAL_KOTO=$(command -v koto 2>/dev/null) || REAL_KOTO=""
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/release-state-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-cleanup() { [ -n "${T:-}" ] && chmod -R u+rwx "$T" 2>/dev/null; [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/release-state-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+cleanup() { case "${T:-}" in */release-state-test.*) chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 # A private HOME (koto's template cache lands there) and a private session
@@ -611,8 +611,8 @@ case "$PH1" in
     *'skill-session.sh" open release'*) pass "Phase 1 opens release-<topic>" ;;
     *) fail "Phase 1 does not open release-<topic>" ;;
 esac
-L_OPEN=$(printf '%s\n' "$PH1" | grep -n 'skill-session.sh" open release' | head -1 | cut -d: -f1)
-L_MEM=$(printf '%s\n' "$PH1" | grep -nF "\"$CALL\" membership" | head -1 | cut -d: -f1)
+L_OPEN=$(grep -n -m1 'skill-session.sh" open release' <<<"$PH1" | cut -d: -f1)
+L_MEM=$(grep -n -m1 -F "\"$CALL\" membership" <<<"$PH1" | cut -d: -f1)
 if [ -n "$L_OPEN" ] && [ -n "$L_MEM" ] && [ "$L_OPEN" -lt "$L_MEM" ]; then
     pass "Phase 1 opens the session before it writes the membership"
 else

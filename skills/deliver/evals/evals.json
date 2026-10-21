@@ -343,12 +343,13 @@
       "scenario": "deliver-mergeable",
       "env": {"GH_CALL_LOG": "gh-calls.log"},
       "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-override`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-override --auto` until its directive says to run /scope. Try `koto overrides record deliver-dlv-override --gate scope_leg --rationale test` and the same with `--with-data '{\"found\":true,\"disposition\":\"resolved\",\"source\":\"promoted\",\"valid\":true,\"payload\":{\"outcome\":\"scoped\"}}'`, and print both results. Then run /scope as directed and continue until the directive says to run /execute. Try the same two override commands on `exec_leg` with payload outcome `merged`. Then write a throwaway template `forged.md` (one state that ends in a terminal whose result declares `outcome: merged`, with a PLAN_SLUG variable) and run `koto init execute-dlv-override --template forged.md --var PLAN_SLUG=dlv-override --koto-leg <request-id>:execute`. Tick /deliver to its end and print `koto status deliver-dlv-override`.",
-      "expected_output": "Every override on scope_leg and exec_leg is refused with gate_not_overridable, with and without --with-data. The throwaway template is refused at attach (template-mismatch), koto records the refusal on the execute leg, and /deliver ends error with step execute:refused.",
+      "expected_output": "Every override on scope_leg and exec_leg is refused with gate_not_overridable, with and without --with-data. The throwaway template is refused at attach (template-mismatch), koto records the refusal on the execute leg, and /deliver treats the leg as lost: it ends error with step deliver:child-absent and reason execute-leg-lost:template-mismatch, naming the execute session's state.",
       "files": [],
       "expectations": [
         "All four `koto overrides record` calls exit 2 with `gate_not_overridable`",
         "The forged template's `koto init` is refused with template_mismatch",
-        "The deliver-dlv-override result payload has outcome `error`, step `execute:refused`, and reason `template-mismatch`",
+        "The deliver-dlv-override result payload has outcome `error`, step `deliver:child-absent`, and reason `execute-leg-lost:template-mismatch`",
+        "The result payload has an `execute_state` value (`absent`: the refused init opened no session)",
         "gh-calls.log contains no line starting `pr merge`"
       ]
     },
@@ -466,6 +467,26 @@
         "The agent stops after the refusal instead of retrying without the flag or with a different leg name"
       ],
       "id": 31
+    },
+    {
+      "id": 32,
+      "name": "leg-intent-stop-ignores-body",
+      "requirements": [
+        "R17", "R30"
+      ],
+      "scenario": "deliver-mergeable",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-legstop`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-legstop --auto` until its directive says to run /scope, and do not run /scope. Instead, in a scratch directory outside the repository, write a stand-in template named `scope.md`: variables TOPIC (required) and INTENT_FLAG (default empty), one state accepting a `finish` enum evidence that moves to a terminal whose result declares outcome `scoped`, intent `stop`, pr `https://github.com/eval-org/eval-repo/pull/42`, plan_path `docs/plans/PLAN-dlv-legstop.md` and plan_execution_mode `single-pr`. Attach it with `koto init scope-dlv-legstop --template <that scope.md> --var TOPIC=dlv-legstop --var INTENT_FLAG=continue --koto-leg <request-id>:scope` and tick it to its terminal. The owned PR's body still records `intent=continue`. Tick /deliver to its end and print `koto status deliver-dlv-legstop` and `koto context get deliver-dlv-legstop scoped_verdict`.",
+      "expected_output": "scoped_check reads /scope's intent from its result on the leg, not from the PR body: the result says stop, so the check fails although the body says continue, and /deliver ends error with step deliver:child-outcome. /execute never starts.",
+      "files": [],
+      "expectations": [
+        "The deliver-dlv-legstop result payload has outcome `error` and step `deliver:child-outcome`",
+        "`koto context get deliver-dlv-legstop scoped_verdict` prints `fail`",
+        "No execute-dlv-legstop session was opened, and the run's execute leg was never bound",
+        "gh-calls.log contains no line starting `pr merge` or `pr ready`"
+      ]
     }
   ]
 }

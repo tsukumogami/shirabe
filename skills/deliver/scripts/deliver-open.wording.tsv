@@ -16,6 +16,8 @@ invalid_var:REVIEW_CEILING	`--review-ceiling` must be `light`, `standard` or `fu
 duplicate_var:REVIEW_CEILING	`--review-ceiling` may be given at most once.
 invalid_var:UPSTREAM	`--upstream` requires a path argument naming the upstream artifact the chain consumes, for example `--upstream docs/roadmaps/ROADMAP-<name>.md` (or `owner/repo:docs/roadmaps/ROADMAP-<name>.md`), with no `..` segment; got `{value}`.\nRe-invoke `/deliver <topic-slug> --upstream <path>`.
 duplicate_var:UPSTREAM	`--upstream` may appear at most once.\nRe-invoke with a single `--upstream <path>`.
+invalid_var:STORE	`--store` must be `github` or `session`, got `{value}`.\nRe-invoke with `--store github` or `--store session`, or omit it for /execute's default. It reaches /execute only on a coordinated PLAN.
+duplicate_var:STORE	`--store` may be given at most once.
 invalid_var:PLUGIN_ROOT	The shirabe plugin root `{value}` is not usable: it must be an absolute path with no `..` segment, written only in koto's allowed characters ({constraint}).\nInstall or link the plugin at such a path and re-invoke `/deliver`.
 invalid_var	Invalid value `{value}` for {var}: it must satisfy {constraint}.
 duplicate_var	{var} was given more than once.

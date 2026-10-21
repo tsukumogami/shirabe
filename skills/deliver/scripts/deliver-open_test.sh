@@ -21,7 +21,7 @@
 # alone), the mode from the flags and from the `## Execution Mode:` header,
 # MERGE true unless --no-merge, the forwarded flags (the review-level bound
 # among them, whose absence leaves exactly the pairs a run had before it
-# existed), koto's refusals of bad or repeated values, a token with shell metacharacters, and the args file's
+# existed, and --store), koto's refusals of bad or repeated values, a token with shell metacharacters, and the args file's
 # removal on every path. Under --koto-leg: a malformed value refused with no
 # koto call; an accepted run bound to the leg, ticked to a terminal, and its
 # result read back off the leg; koto's refusals (an invalid topic, a collision
@@ -53,9 +53,9 @@ if ! "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--vars-file'; then
     exit 0
 fi
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-test.XXXXXX")"
-T="$(cd -P "$T" && pwd -P)"
-trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-test.XXXXXX")" || exit 1
+T="$(cd -P "$T" && pwd -P)" || exit 1
+trap 'case "$T" in */deliver-open-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 
 PASS=0
@@ -265,6 +265,12 @@ eq "the review-level bound: exit 0" 0 "$RC"
 eq "--review-floor=standard" '["standard"]' "$(var REVIEW_FLOOR)"
 eq "--review-ceiling=full" '["full"]' "$(var REVIEW_CEILING)"
 eq "the bound session is at open_request" open_request "$(state_of t-bound)"
+open_deliver '["t-store","--store","session"]'
+eq "--store session: exit 0" 0 "$RC"
+eq "--store session reaches the session as STORE" '["session"]' "$(var STORE)"
+eq "the --store session is at open_request" open_request "$(state_of t-store)"
+open_deliver '["t-store2","--store=github"]'
+eq "--store=github: STORE github" '["github"]' "$(var STORE)"
 
 echo "== koto's refusals =="
 open_deliver '["t-dup","--auto","--interactive"]'
@@ -297,6 +303,20 @@ has "names the flag" "--review-ceiling" "$STDERR"
 
 open_deliver '["t-barefloor","--review-floor"]'
 refused "a bare --review-floor"
+
+open_deliver '["t-storebad","--store","bogus"]'
+refused "--store bogus"
+has "refused=invalid_var" "refused=invalid_var" "$STDOUT"
+has "names the flag" "--store" "$STDERR"
+eq "no session" none "$(state_of t-storebad)"
+
+open_deliver '["t-storedup","--store=github","--store","session"]'
+refused "--store twice"
+has "refused=duplicate_var" "refused=duplicate_var" "$STDOUT"
+has "names the flag" "--store" "$STDERR"
+
+open_deliver '["t-barestore","--store"]'
+refused "a bare --store"
 
 open_deliver '["Upper"]'
 refused "an uppercase topic"
@@ -338,7 +358,7 @@ eq "under --koto-leg: exit 0" 0 "$RC"
 has "under --koto-leg: prints session=" "session=deliver-t-leg" "$STDOUT"
 eq "the leg value is not part of TOPIC" '["t-leg"]' "$(var TOPIC)"
 has "the open carried --koto-leg" "--koto-leg $REQ:deliver" "$(grep '^init ' "$T/koto.argv" | tail -1)"
-if grep '^init ' "$T/koto.argv" | head -1 | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
+if grep -m1 '^init ' "$T/koto.argv" | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
 eq "the leg is bound to deliver-t-leg" '"deliver-t-leg"' "$(leg "$REQ" .bound_child)"
 KDIR="$OTHER" to_terminal t-leg
 eq "the run ends at done_error" done_error "$(KDIR="$OTHER" state_of t-leg)"
