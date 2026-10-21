@@ -89,6 +89,7 @@ class	engine	skills/coordinate/scripts/teardown-pass.sh
 class	engine	skills/coordinate/scripts/teardown-verdict.sh
 class	engine	skills/coordinate/scripts/wait-target.sh
 class	engine	skills/deliver/scripts/deliver-absent.sh
+class	engine	skills/deliver/scripts/deliver-execute-leg.sh
 class	engine	skills/deliver/scripts/deliver-open-request.sh
 class	engine	skills/deliver/scripts/deliver-probe.sh
 class	engine	skills/execute/scripts/drift-facts.sh

@@ -27,7 +27,11 @@
 #                                               coord_verdict=error,
 #                                               step=execute:visibility, no post
 #   a failed post                               body=stale, the verdict kept
-#   the new reasons (merge-refused and its causes) pass the pattern
+#   the new reasons (merge-refused and its causes, follow-up-closed:<url>,
+#     merge-state:DRAFT) pass the pattern; follow-up-closed: with no URL
+#     does not
+#   a follow-up closed unmerged (real)          reason=follow-up-closed:<url>
+#   an attempts record with a follow-up id      reaches the verdict whole
 #   stale coord_verdict, pr, waiting, resume, reason, step   each cleared
 #   a failing coordination-verdict.sh           nothing written
 #   a field failing its pattern (verdict, pr, waiting, resume, reason, step,
@@ -201,7 +205,8 @@ else
     fail "a failed post: rc=$RC body=[$(ctx_val body)] verdict=[$(ctx_val coord_verdict)]"
 fi
 
-for r in merge-refused merge-refused:body-stale merge-refused:body-full merge-refused:squash-message; do
+for r in merge-refused merge-refused:body-stale merge-refused:body-full merge-refused:squash-message \
+    "follow-up-closed:https://github.com/acme/repo-a/pull/21" merge-state:DRAFT; do
     setup_case "reason-$(printf '%s' "$r" | tr ':' '-')"
     export VERDICT_OUT="$(good ready "$U11:human" "" "$r" "")"
     run_stub
@@ -248,6 +253,7 @@ bad_case "a pr that is not a PR URL" "$(good ready "" "" review "" | sed 's#^pr=
 bad_case "a waiting entry with a bad role" "$(good ready "$U11:someone" "" review "")"
 bad_case "a resume that is not an /execute command" "$(good paused "$U11:human" "/deliver x.md" review "")"
 bad_case "a reason outside the condition set" "$(good ready "$U11:human" "" "because" "")"
+bad_case "a follow-up-closed reason that is not a URL" "$(good ready "$U11:human" "" "follow-up-closed:not-a-url" "")"
 bad_case "a step outside the step set" "$(good error "" "" "" "execute:whatever")"
 bad_case "an error verdict with no step" "$(good error "" "" "" "")"
 
@@ -293,6 +299,39 @@ case "$ARGS" in
     "--session $S "*) pass "--session reaches coordination-verdict.sh" ;;
     *) fail "no --session in the verdict's arguments [$ARGS]" ;;
 esac
+
+# A follow-up's recorded refusal survives the attempts pattern: dropped, the
+# verdict would recompute its merge and end the run in a coord-loop error.
+setup_case loop-record-follow-up
+ctx merge_attempts "$CT_CORE:merge-not-observed,$CT_CORE/follow-up-21:merge-refused"
+export VERDICT_OUT="$(good ready "$U11:human" "" merge-refused "")"
+run_stub
+case "$(cat "$VERDICT_ARGS_LOG")" in
+    *"--attempts $CT_CORE:merge-not-observed,$CT_CORE/follow-up-21:merge-refused"*)
+        pass "an attempts record holding a follow-up id reaches coordination-verdict.sh whole" ;;
+    *) fail "the follow-up attempts were dropped: [$(cat "$VERDICT_ARGS_LOG")]" ;;
+esac
+
+# End to end: a follow-up closed unmerged is the reason recorded.
+setup_case follow-up-closed
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_node "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
+ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+ct_follow_up_pr "$CT_REPO" 21 'state="CLOSED"'
+ct_write_db
+(cd "$PLANDIR" && bash "$RECORD" --session "$S" --merge true --plan docs/plans/PLAN-t.md --slug t 2>"$CASE/stderr")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(ctx_val coord_verdict)" = ready ] \
+    && [ "$(ctx_val reason)" = "follow-up-closed:https://github.com/acme/repo-a/pull/21" ] \
+    && [ "$(ctx_val waiting)" = "https://github.com/acme/repo-a/pull/21:human,$COORD_URL:predecessor" ]; then
+    pass "a follow-up closed unmerged: coord_verdict=ready, reason=follow-up-closed:<url>, the follow-up waiting"
+else
+    fail "follow-up closed: rc=$RC verdict=[$(ctx_val coord_verdict)] reason=[$(ctx_val reason)] waiting=[$(ctx_val waiting)]"
+    tail -3 "$CASE/stderr"
+fi
 
 # --- a failed cascade, in the run record --------------------------------------------
 

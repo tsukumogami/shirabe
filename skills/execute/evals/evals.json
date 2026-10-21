@@ -167,12 +167,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- the PLAN's execution_mode is coordinated",
-      "expected_output": "The agent reads execution_mode: coordinated, re-validates the enum, and runs the coordinated loop inside the execute-coordinated.md koto envelope, driven by coordinated-next.sh. The durable state lives on the coordination PR (its PR-Index and fenced merge-order block), NOT a shared branch. Cross-unit carry-forward between issue 1 (library repo) and issue 2 (app repo, blocked by issue 1) flows through the coordination PR's durable state -- the coordinated payload, which is not inherited from the single-pr shared-branch path. Each pass reads live gh through coordinated-next.sh; node-push.sh re-validates the coordination body with shirabe validate --coordination-body before editing it; the loop dispatches each unblocked PR node's work items to work-on.md on that node's own impl/<slug>-<node-id> branch, and re-gates with shirabe validate --merge-gate. The agent does NOT write across a repo boundary.",
+      "expected_output": "The agent reads execution_mode: coordinated, re-validates the enum, and runs the coordinated loop inside the execute-coordinated.md koto envelope, driven by coordinated-next.sh. The durable state is the run record: the `run/` keys in the run's koto session, execute-<topic>, NOT a shared branch; the coordination PR's body (its PR-Index and fenced merge-order block) is that record's rendering. Cross-unit carry-forward between issue 1 (library repo) and issue 2 (app repo, blocked by issue 1) flows through that run record -- the coordinated payload, which is not inherited from the single-pr shared-branch path. Each pass reads the record and live gh through coordinated-next.sh; node-push.sh records each node's pushed head through run-record.sh and renders the body through coord-render.sh, which runs shirabe validate --coordination-body before posting it; the loop dispatches each unblocked PR node's work items to work-on.md on that node's own impl/<slug>-<node-id> branch, and re-gates with shirabe validate --merge-gate. The agent does NOT write across a repo boundary.",
       "files": [],
       "expectations": [
         "Agent reads execution_mode: coordinated and re-validates the enum before path interpolation",
         "Agent runs the coordinated loop inside the execute-coordinated.md envelope, taking each action from coordinated-next.sh",
-        "Agent recognizes cross-unit carry-forward flows through the coordination PR's durable state, NOT a shared branch",
+        "Agent recognizes cross-unit carry-forward flows through the run record (the `run/` keys in the run's execute-<topic> koto session, which the coordination PR's body renders), NOT a shared branch",
         "Agent dispatches each unblocked PR node's work items to work-on.md on that node's own impl/<slug>-<node-id> branch",
         "Agent re-gates with shirabe validate --merge-gate and does NOT write across a repo boundary"
       ]
@@ -1557,6 +1557,30 @@
         "The last body posted with `pr edit 10` carries an index line for each of the two nodes, each with a `head=` field",
         "The last body posted with `pr edit 10` begins with `Coordination pull request for coord-outline-test.` and holds no `# Coordination PR:` heading",
         "Every `pr merge` line in gh-calls.log carries both `--subject` and `--body-file`",
+        "The printed exit lines include `outcome=merged`"
+      ]
+    },
+    {
+      "id": 82,
+      "name": "coordinated-follow-up-merges-after-its-node",
+      "tier": 2,
+      "behaviour": "coordinated-follow-up",
+      "release": true,
+      "mode": "execute",
+      "scenario": "coord-follow-up",
+      "requirements": [
+        "R16"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto --follow-up pr-eval-repo-core=https://github.com/eval-org/eval-repo/pull/21 -- The core node's PR (#11) is already MERGED and #21 is an open follow-up to it. The session holds no run record, so setup rebuilds it from the coordination PR. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh. Then show the coordination PR's last posted body that names #21 and every `pr merge` line in gh-calls.log, in order.",
+      "expected_output": "Setup recovers the run from the coordination PR, then checks #21 (in core's repository, based on main, by the invoking login and not a fork, open) and records it against core with its live head, printing follow-up=recorded:https://github.com/eval-org/eval-repo/pull/21, and renders the body: core's index line is followed by `- pr-eval-repo-core/follow-up-21 | ...#21 | open | head=<its head>`. Since core is already MERGED, coordinated-next.sh prints merge:pr-eval-repo-core/follow-up-21, and coord-merge.sh merges #21 at its recorded head with the squash message from its title and Part 1. The cli node then runs and merges, and the coordination PR merges last, after #21; the run ends merged.",
+      "files": [],
+      "expectations": [
+        "A body posted with `pr edit 10` carries a line starting `- pr-eval-repo-core/follow-up-21 |` on the line right after core's index line",
+        "The `pr merge 21` line in gh-calls.log carries `--match-head-commit 3333333333333333333333333333333333333333`, `--subject` and `--body-file`",
+        "In gh-calls.log the coordination PR's `pr merge 10` comes after `pr merge 21`",
         "The printed exit lines include `outcome=merged`"
       ]
     }

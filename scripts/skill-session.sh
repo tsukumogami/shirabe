@@ -178,14 +178,24 @@
 #               tactical    scope- brief- prd- design- plan- explore-<topic>
 #               strategic   charter- vision- strategy- roadmap- explore-<topic>
 #               explore, comp, release   <set>-<topic>
+#               execute     execute-<topic>
+#               deliver     deliver-<topic>
 #             <workspace-path> must be absolute. Never passes --as or
 #             --trust-template, and rests on no parent-child lineage. koto
 #             needs its cloud backend, a stopped source, and each session's
 #             template compiled on this host first (`koto template compile`).
+#             The execute and deliver sets compile their shipped templates
+#             from this plugin root themselves before the first import
+#             (execute: skills/execute/koto-templates/execute.md and
+#             execute-coordinated.md; deliver: skills/deliver/koto-templates/
+#             deliver.md); for the other sets the caller still compiles.
 #             One line per name it reaches:
 #               imported=<name>
 #               skipped=<name> reason=not-found   (koto's import_source_not_found)
 #               failed=<name> code=<koto's error code, or unparseable>
+#             A shipped template that doesn't compile prints
+#               failed=template_compile template=<file name>
+#             with koto's diagnostic on stderr, and imports nothing.
 #             It stops at the first failed line. A re-run after a stop imports
 #             the rest; names already imported report imported. An import koto
 #             has marked at the source can't be undone.
@@ -194,7 +204,8 @@
 #   0    success; has-work: there is work
 #   1    has-work: no work; otherwise a koto operation failed (ingest: at
 #        least one add failed; close-children: at least one close failed;
-#        import: a name koto did not import)
+#        import: a name koto did not import, or a shipped template the
+#        execute or deliver set compiles first did not compile)
 #   2    refused: koto-open.sh's refusal (its exit code passes through),
 #        a session not in the state the subcommand needs, a path that fails
 #        the scratch checks, a key outside work/ and research/
@@ -242,7 +253,7 @@ ALL_CHILDREN="brief prd design plan vision strategy roadmap"
 # Longest first, so review-plan-x is review-plan's and not plan's.
 KNOWN_SKILLS="review-plan decision strategy charter explore release roadmap design vision brief scope comp plan prd"
 # The sets `import` walks; their names are in import_names.
-IMPORT_SETS="tactical strategic explore comp release"
+IMPORT_SETS="tactical strategic explore comp release execute deliver"
 RE_IMPORT_CODE='^[a-z][a-z0-9_]*$'
 
 MAX_BYTES=1048576
@@ -1222,12 +1233,23 @@ import_names() {
     case "$1" in
         tactical) printf '%s' "scope-$2 brief-$2 prd-$2 design-$2 plan-$2 explore-$2" ;;
         strategic) printf '%s' "charter-$2 vision-$2 strategy-$2 roadmap-$2 explore-$2" ;;
-        explore|comp|release) printf '%s' "$1-$2" ;;
+        explore|comp|release|execute|deliver) printf '%s' "$1-$2" ;;
+    esac
+}
+
+# import_templates <set> -- the shipped templates, under this plugin root, that
+# the import compiles before its first `session import`: koto refuses an import
+# whose template this host's cache doesn't hold. The other sets print none.
+import_templates() {
+    case "$1" in
+        execute) printf '%s\n' "$PLUGIN_ROOT/skills/execute/koto-templates/execute.md" \
+            "$PLUGIN_ROOT/skills/execute/koto-templates/execute-coordinated.md" ;;
+        deliver) printf '%s\n' "$PLUGIN_ROOT/skills/deliver/koto-templates/deliver.md" ;;
     esac
 }
 
 cmd_import() {
-    local set topic from name out rc code imported=0
+    local set topic from name out rc code tpl imported=0
     [ "$#" -eq 4 ] && [ "$3" = "--from" ] || usage "import takes <set> <topic> --from <workspace-path>"
     set="$1"
     topic="$2"
@@ -1244,6 +1266,18 @@ cmd_import() {
         say "this koto has no \`session import\`; koto 0.16.0 and later have it"
         exit 69
     fi
+    # koto's diagnostic reaches stderr as it is; the compile's stdout (the
+    # cache path) is not this script's output.
+    while IFS= read -r tpl; do
+        [ -n "$tpl" ] || continue
+        if ! "$KOTO" template compile "$tpl" </dev/null >/dev/null; then
+            printf 'failed=template_compile template=%s\n' "${tpl##*/}"
+            say "koto could not compile the shipped template ${tpl##*/}; nothing was imported"
+            exit 1
+        fi
+    done <<EOF_TEMPLATES
+$(import_templates "$set")
+EOF_TEMPLATES
     for name in $(import_names "$set" "$topic"); do
         rc=0
         out=$("$KOTO" session import "$name" --from "$from" 2>/dev/null) || rc=$?

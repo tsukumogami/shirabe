@@ -30,6 +30,11 @@
 #   a private node under a public home  body=refused:execute:visibility,
 #                                     exit 77, no edit, the repository unnamed
 #   a failed visibility read          body=stale
+#   --rendered-out                    writes the bytes posted on body=posted,
+#                                     the live bytes found equal on
+#                                     body=unchanged, nothing on body=stale;
+#                                     a directory, or no --before-coordination,
+#                                     is a usage error
 #   a MERGED coordination PR          merges observed, nothing posted
 #   the coordination PR on another branch  body=stale, no edit
 #   no run/setup                      body=stale
@@ -303,6 +308,66 @@ if [ "$OUT" = "body=posted" ]; then
     pass "--before-coordination: a body that posts prints no merge-refused line"
 else
     fail "--before-coordination posted [$OUT]"
+fi
+
+# --- --rendered-out hands back the body posted or found equal ----------------------------
+
+base_case rendered-out
+ct_write_db
+# A hook keeps the --body-file the post carried, byte for byte (the shim's
+# model drops its trailing newlines, as GitHub may).
+cat > "$CASE/keep-post.sh" <<'HOOK'
+[ "$1 $2" = "pr edit" ] || exit 0
+prev=""
+for a in "$@"; do
+    if [ "$prev" = --body-file ]; then cp "$a" "$KOTO_STORE/sent-body.md"; fi
+    prev="$a"
+done
+exit 0
+HOOK
+CT_GH_HOOK="$CASE/keep-post.sh" run_render --before-coordination --rendered-out "$CASE/posted.md"
+live_body > "$CASE/live-after-post.md"
+if [ "$OUT" = "body=posted" ] && [ -f "$CASE/posted.md" ] && cmp -s "$CASE/posted.md" "$CASE/sent-body.md" \
+    && grep -qxF -- "- $CT_CORE | $CT_REPO:docs/plans/PLAN-t.md#11 | open | head=$CT_HEAD" "$CASE/posted.md"; then
+    pass "--rendered-out: on body=posted it writes the exact bytes posted"
+else
+    fail "--rendered-out posted [$OUT] [$(sed -n 1,3p "$CASE/posted.md" 2>/dev/null)]"
+fi
+# The live body with a trailing newline GitHub kept: the render finds it equal
+# and hands back the live bytes, not its own.
+printf '\n\n' >> "$CASE/live-after-post.md"
+jq --rawfile b "$CASE/live-after-post.md" '(.prs[] | select(.number == 10) | .body) = $b' \
+    "$GH_CALL_LOG.d/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$GH_CALL_LOG.d/db.json"
+EDITS_BEFORE=$(edits)
+run_render --before-coordination --rendered-out "$CASE/unchanged.md"
+if [ "$OUT" = "body=unchanged" ] && cmp -s "$CASE/unchanged.md" "$CASE/live-after-post.md" && [ "$(edits)" = "$EDITS_BEFORE" ]; then
+    pass "--rendered-out: on body=unchanged it writes the live body it found equal, with no post"
+else
+    fail "--rendered-out unchanged [$OUT], $(edits) edits, file [$(wc -c < "$CASE/unchanged.md" 2>/dev/null)] bytes"
+fi
+
+base_case rendered-out-stale
+ct_write_db
+GH_SHIM_FAIL='^pr edit ' run_render --before-coordination --rendered-out "$CASE/stale.md"
+if [ "$OUT" = "body=stale
+merge-refused:body-stale" ] && ! [ -e "$CASE/stale.md" ]; then
+    pass "--rendered-out: on body=stale nothing is written"
+else
+    fail "--rendered-out stale [$OUT], file present: $([ -e "$CASE/stale.md" ] && echo yes || echo no)"
+fi
+
+mkdir -p "$CASE/a-dir"
+run_render --before-coordination --rendered-out "$CASE/a-dir"
+if [ "$RC" -eq 64 ]; then
+    pass "--rendered-out naming a directory is a usage error (64)"
+else
+    fail "--rendered-out a directory [$RC] [$OUT]"
+fi
+run_render --rendered-out "$CASE/no-before.md"
+if [ "$RC" -eq 64 ] && ! [ -e "$CASE/no-before.md" ]; then
+    pass "--rendered-out without --before-coordination is a usage error (64)"
+else
+    fail "--rendered-out without --before-coordination [$RC] [$OUT]"
 fi
 
 # --- visibility ------------------------------------------------------------------------------

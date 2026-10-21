@@ -44,10 +44,12 @@
 #   no default_action command holds ${context.
 #   STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE and ADOPT_RUN are
 #     optional and rebind, each with its pattern admitting empty; coord_setup
-#     accepts blocked and the eleven typed stops (the five the record's setup
-#     makes, and recovery's session-absent, recovery-unproven,
+#     accepts blocked and the sixteen typed stops (the five the record's
+#     setup makes; recovery's session-absent, recovery-unproven,
 #     recovery-plan-gone, coordination-index-missing, coordination-body-full
-#     and adopt-run-refused), each stop's edge assigning its own code as a
+#     and adopt-run-refused; and the follow-up's follow-up-node,
+#     follow-up-repo, follow-up-base, follow-up-author and follow-up-closed),
+#     each stop's edge assigning its own code as a
 #     literal reason; its directive passes all five variables to
 #     record-coord-setup.sh; every coordinated-next.sh and node-push.sh call in
 #     coord_loop's directive passes --session
@@ -74,6 +76,11 @@
 #     verb resolved through the file's VAR=<literal> assignments, and one that
 #     can't be resolved is a finding (mutations: an observe call in
 #     node-push.sh, a "$1" verb in coord-merge.sh)
+#   the merge-attempt grammar's three copies agree: coord-common.sh's and
+#     record-coordination-verdict.sh's id and value regexes byte-equal, and
+#     coordinated-next.sh's --attempts usage text listing the value regex's
+#     alternatives and the ids node|node/follow-up-n|coordination (mutation:
+#     one value removed from record-coordination-verdict.sh's)
 #   SKILL.md names the run record as the run's store, and its closed
 #     write-target set lists the six run/ keys, run-record.sh, and
 #     coord-render.sh
@@ -227,7 +234,7 @@ FOUND=$(check_head "$SKILL_DIR")
 if [ -z "$FOUND" ] && grep -q 'head=\\(' "$CODEC"; then
     pass "no non-test file under skills/execute/ holds a pattern on head=; the codec builds the field"
 else
-    fail "head= is matched under skills/execute/ (or not built in the codec): $FOUND"
+    fail "a non-comment line holding \`head=\` outside a printf output line (name the variable oid or sha instead), or the codec no longer builds the field: $FOUND"
 fi
 FOUND=$(check_run_writes "$SKILL_DIR")
 [ -z "$FOUND" ] && pass "no non-test file under skills/execute/ adds or removes a run/ key outside run-record.sh" \
@@ -260,6 +267,55 @@ mutated "a run-record.sh observe call in node-push.sh" check_verbs scripts/node-
     '"$BASH" "$COORD_SELF_DIR/run-record.sh" observe --session "$SESSION" --json "$F"'
 mutated "a run-record.sh call whose verb is a positional parameter" check_verbs scripts/coord-merge.sh \
     '"$BASH" "$COORD_SELF_DIR/run-record.sh" "$1" --session "$SESSION" --json "$F"'
+
+# check_attempt_grammar <root> -- the merge-attempt grammar is written three
+# times: coord-common.sh's RE_COORD_ATTEMPT_ID and RE_COORD_ATTEMPT_VALUE,
+# record-coordination-verdict.sh's RE_ATTEMPT_ID and RE_ATTEMPT_VALUE, and the
+# <id>:<value> list coordinated-next.sh's --attempts usage error prints. The
+# two id regexes and the two value regexes must be byte-equal, the usage
+# text's values the value regex's alternatives, and its ids
+# node|node/follow-up-n|coordination. Prints one finding per difference.
+check_attempt_grammar() {
+    local cc="$1/scripts/coord-common.sh" rv="$1/scripts/record-coordination-verdict.sh"
+    local cn="$1/scripts/coordinated-next.sh" id_a val_a id_b val_b usage u_ids u_vals
+    id_a=$(sed -n "s/^RE_COORD_ATTEMPT_ID='\(.*\)'\$/\1/p" "$cc")
+    val_a=$(sed -n "s/^RE_COORD_ATTEMPT_VALUE='\(.*\)'\$/\1/p" "$cc")
+    id_b=$(sed -n "s/^RE_ATTEMPT_ID='\(.*\)'\$/\1/p" "$rv")
+    val_b=$(sed -n "s/^RE_ATTEMPT_VALUE='\(.*\)'\$/\1/p" "$rv")
+    usage=$(sed -n 's/.*--attempts .* is outside <\([^>]*\)>:<\([^>]*\)>.*/\1 \2/p' "$cn")
+    u_ids="${usage%% *}"
+    u_vals="${usage#* }"
+    { [ -n "$id_a" ] && [ "$id_a" = "$id_b" ]; } \
+        || echo "$cc: RE_COORD_ATTEMPT_ID [$id_a] is not $rv's RE_ATTEMPT_ID [$id_b]"
+    { [ -n "$val_a" ] && [ "$val_a" = "$val_b" ]; } \
+        || echo "$cc: RE_COORD_ATTEMPT_VALUE [$val_a] is not $rv's RE_ATTEMPT_VALUE [$val_b]"
+    [ "$u_ids" = "node|node/follow-up-n|coordination" ] \
+        || echo "$cn: the --attempts usage text's ids [$u_ids] are not node|node/follow-up-n|coordination"
+    if [ -z "$usage" ] \
+        || [ "$(printf '%s' "$u_vals" | tr '|' '\n' | LC_ALL=C sort)" != "$(printf '%s' "$val_a" | tr -d '()' | tr '|' '\n' | LC_ALL=C sort)" ]; then
+        echo "$cn: the --attempts usage text's values [$u_vals] are not RE_COORD_ATTEMPT_VALUE's alternatives [$val_a]"
+    fi
+}
+FOUND=$(check_attempt_grammar "$SKILL_DIR")
+[ -z "$FOUND" ] && pass "the merge-attempt grammar's three copies agree (coord-common.sh, record-coordination-verdict.sh, coordinated-next.sh's usage text)" \
+    || fail "the merge-attempt grammar's copies differ: $FOUND"
+# The mutation removes one value from a copy of record-coordination-verdict.sh.
+GRAMMAR_ROOT="$T/mut-check_attempt_grammar"
+rm -rf "$GRAMMAR_ROOT"
+mkdir -p "$GRAMMAR_ROOT"
+if cp -R "$SKILL_DIR/scripts" "$GRAMMAR_ROOT/"; then
+    sed 's/^\(RE_ATTEMPT_VALUE=.*\)|body-full)/\1)/' "$SKILL_DIR/scripts/record-coordination-verdict.sh" \
+        > "$GRAMMAR_ROOT/scripts/record-coordination-verdict.sh"
+    if grep -q '^RE_ATTEMPT_VALUE=.*body-full' "$GRAMMAR_ROOT/scripts/record-coordination-verdict.sh"; then
+        fail "check_attempt_grammar: the mutation did not remove body-full"
+    elif [ -n "$(check_attempt_grammar "$GRAMMAR_ROOT")" ]; then
+        pass "check_attempt_grammar fails on a copy whose RE_ATTEMPT_VALUE lacks one value"
+    else
+        fail "check_attempt_grammar passed a copy whose RE_ATTEMPT_VALUE lacks one value"
+    fi
+else
+    fail "check_attempt_grammar: could not copy the tree"
+fi
 
 # SKILL.md names the run record as a coordinated run's store, and its closed
 # write-target set lists every run/ key.
@@ -329,9 +385,9 @@ CHECKS=(
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""
 "PLUGIN_ROOT is rebindable|.variables.PLUGIN_ROOT.rebind == true"
 "STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE, ADOPT_RUN are optional and rebind|[.variables.STORE, .variables.COORDINATION_PR, .variables.FOLLOW_UP, .variables.FOLLOW_UP_REMOVE, .variables.ADOPT_RUN] | all(. != null and (.required // false) == false and .rebind == true)"
-"the five coordinated variables carry their patterns, each admitting empty|.variables.STORE.pattern == \"^(github|session)?\$\" and .variables.COORDINATION_PR.pattern == \"^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP.pattern == \"^([a-z][a-z0-9-]*=https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP_REMOVE.pattern == \"^(true)?\$\" and .variables.ADOPT_RUN.pattern == \"^([0-9a-f]{32})?\$\""
-"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 11 and all"
-"coord_setup accepts blocked and the eleven typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\"]"
+"the five coordinated variables carry their patterns, each admitting empty|.variables.STORE.pattern == \"^(github|session)?\$\" and .variables.COORDINATION_PR.pattern == \"^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP.pattern == \"^([a-z][a-z0-9-]* https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP_REMOVE.pattern == \"^(true)?\$\" and .variables.ADOPT_RUN.pattern == \"^([0-9a-f]{32})?\$\""
+"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 16 and all"
+"coord_setup accepts blocked and the sixteen typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\",\"follow-up-node\",\"follow-up-repo\",\"follow-up-base\",\"follow-up-author\",\"follow-up-closed\"]"
 "coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
 "every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
 )

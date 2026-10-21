@@ -16,8 +16,10 @@
 #   coordinated: merged / nothing left / a node waits on a predecessor / a
 #     coord_setup stop (its reason on a line of its own) / a body the last
 #     render couldn't post (body=stale, body=full) / the merge refusals /
-#     a render refusal (execute:visibility) / a recovery's stops, and a
-#     recovered run's recovered=<url> line (dropped outside the URL pattern)
+#     a render refusal (execute:visibility) / a recovery's stops and the
+#     five follow-up stops / a follow-up closed unmerged
+#     (follow-up-closed:<url>, dropped without a URL), and a recovered run's
+#     recovered=<url> line (dropped outside the URL pattern)
 #
 # plus the refused case (outcome=error, step=execute:refused), the
 # merge-not-observed note, the three input shapes, and values that fail their
@@ -243,7 +245,8 @@ pr=$URL waiting=human"
 # the reason is printed on a line of its own.
 
 for r in store-mismatch coordination-pr-missing coordination-pr-ambiguous coordination-pr-mismatch coordination-pr-closed \
-    session-absent recovery-unproven recovery-plan-gone coordination-index-missing coordination-body-full adopt-run-refused; do
+    session-absent recovery-unproven recovery-plan-gone coordination-index-missing coordination-body-full adopt-run-refused \
+    follow-up-node follow-up-repo follow-up-base follow-up-author follow-up-closed; do
     STOP=$(jq -nc --arg r "$r" '{action: "done", state: "done_error", result: {status: "failure", summary: "s",
         payload: {outcome: "error", step: "execute:coord_setup", reason: $r, pr: "", repos: "", waiting: "", recovered: ""}}}')
     check "a coord_setup stop: $r" "$STOP" \
@@ -252,6 +255,26 @@ step=execute:coord_setup
 exit=abandonment-forced
 reason=$r"
 done
+
+# --- a follow-up closed unmerged ------------------------------------------------
+#
+# The loop's reason for one carries its URL; a value that isn't a URL is
+# dropped from the PR line.
+
+FU_URL="https://github.com/o/r/pull/21"
+P=$(jq -nc --arg u "$FU_URL" '{outcome: "ready-awaiting-merge", reason: ("follow-up-closed:" + $u), pr: "https://github.com/o/r/pull/10", repos: "o/r", waiting: ($u + ":human,https://github.com/o/r/pull/10:predecessor")}')
+check "a follow-up closed unmerged: reason=follow-up-closed:<url>" "$(result success "$P")" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$FU_URL waiting=human reason=follow-up-closed:$FU_URL
+pr=https://github.com/o/r/pull/10 waiting=predecessor reason=follow-up-closed:$FU_URL"
+P=$(jq -nc --arg u "$FU_URL" '{outcome: "ready-awaiting-merge", reason: "follow-up-closed:not-a-url", pr: "https://github.com/o/r/pull/10", repos: "o/r", waiting: ($u + ":human")}')
+check "follow-up-closed: with no URL is dropped" "$(result success "$P")" \
+"outcome=ready-awaiting-merge
+exit=full-run
+repos=o/r
+pr=$FU_URL waiting=human"
 
 # --- a recovered run ------------------------------------------------------------
 #

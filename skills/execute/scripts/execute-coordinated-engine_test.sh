@@ -64,6 +64,14 @@
 #                           line, and an owned PR on a node branch (ixmiss):
 #                           done_error with reason=coordination-index-missing,
 #                           nothing posted, commented on, or merged
+#   follow-ups             a --follow-up on a new run: setup stops
+#                           follow-up-node, done_error with that reason,
+#                           nothing posted, no run/setup; a follow-up closed
+#                           unmerged against a node GitHub reports MERGED:
+#                           ready_awaiting_merge with
+#                           reason=follow-up-closed:<url>, the follow-up
+#                           waiting, no merge; an open one without --merge:
+#                           reason=merge-not-requested, the follow-up waiting
 #   overrides              koto refuses `koto overrides record` on
 #                           coord_verdict's and coord_merge_confirm's gates,
 #                           with and without --with-data
@@ -79,8 +87,9 @@
 # then seeds the heads the run recorded up to its moment through the test
 # helper (run-record.sh itself, on the real koto). The case's fixed run_id is
 # written after setup: one written before it would be a carried id, which
-# makes the start a recovery. The recovery cases (open_recovering) leave
-# their node PRs in the model before setup: there they mean a started run.
+# makes the start a recovery. Follow-up PRs are held back the same way. The
+# recovery cases (open_recovering) leave their node PRs in the model before
+# setup: there they mean a started run.
 #
 # In a checkout whose path koto's --var allowlist refuses (a `+` in a
 # directory name), the cases run a copy of the template with this checkout's
@@ -159,18 +168,20 @@ open_run() {
     shift
     # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
-        || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
+        || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
     # The node PRs the case added (ct_pr, on impl/ branches) reach the model
     # only once setup has sealed the record, as in a real run, where
     # node-push.sh opens them after setup: an owned PR on a node branch at
     # setup means a run had started, and setup would stop or recover rather
-    # than seal a new one. They are held out of the seed the shim's first
-    # call (setup's) copies, then added to the model it built, with the
+    # than seal a new one. Follow-up PRs (ct_follow_up_pr, on fix/ branches)
+    # are held back the same way, since a run's follow-ups are opened after
+    # its nodes. They are held out of the seed the shim's first call
+    # (setup's) copies, then added to the model it built, with the
     # remote_url the shim gives a seeded PR in default_repo.
-    held=$(jq -c '[.prs[] | select(.headRefName | startswith("impl/"))]' "$seed")
+    held=$(jq -c '[.prs[] | select(.headRefName | startswith("impl/") or startswith("fix/"))]' "$seed")
     cp "$seed" "$seed.full"
-    jq '.prs |= map(select(.headRefName | startswith("impl/") | not))' "$seed.full" > "$seed"
+    jq '.prs |= map(select(.headRefName | (startswith("impl/") or startswith("fix/")) | not))' "$seed.full" > "$seed"
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
         >/dev/null 2>"$CASE/setup.err")
     rc=$?
@@ -433,7 +444,8 @@ fixture blocked
 ct_write_db
 # $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
-    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-blocked: $(cat "$CASE/init.out")"
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal blocked done_error outcome=error step=execute:coord_setup
 body_posts blocked 0
@@ -444,13 +456,86 @@ fixture stop
 ct_write_db
 # $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-stop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-stop.md --var PLAN_SLUG=stop \
-    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-stop: $(cat "$CASE/init.out")"
 k next execute-stop --with-data '{"setup_status":"store-mismatch","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal stop done_error outcome=error step=execute:coord_setup reason=store-mismatch
 body_posts stop 0
 OUT=$(k status execute-stop | bash "$SCRIPT_DIR/print-exit.sh")
 grep -qx 'reason=store-mismatch' <<<"$OUT" && pass "print-exit.sh renders the setup stop's reason" \
     || fail "the setup stop's exit lines: [$OUT]"
+
+# --- follow-ups -------------------------------------------------------------------
+#
+# A --follow-up on a new run names no recorded node PR: setup stops
+# follow-up-node, seals nothing, and the run ends at done_error naming it.
+ct_case fu-stop
+fixture fustop
+# No follow-up PR in the model: the stop comes before any read of it.
+ct_write_db
+# FOLLOW_UP carries `<node> <url>`, as execute-open.sh builds it from
+# --follow-up <node>=<url> (koto's own value allowlist has no `=`), and the
+# directive hands it to setup verbatim.
+FU_VAL="$CT_CORE https://github.com/acme/repo-a/pull/21"
+# $KOTO_LEGACY_ENV_ARG: #483.
+k init execute-fustop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-fustop.md --var PLAN_SLUG=fustop \
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false --var FOLLOW_UP="$FU_VAL" >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-fustop: $(cat "$CASE/init.out")"
+FU_SETUP=$(cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session execute-fustop --plan docs/plans/PLAN-fustop.md \
+    --follow-up "$FU_VAL" 2>"$CASE/setup.err"); FU_RC=$?
+if [ "$FU_RC" -eq 71 ] && [ "$FU_SETUP" = stop=follow-up-node ]; then
+    pass "a --follow-up on a new run stops setup follow-up-node"
+    k next execute-fustop --with-data '{"setup_status":"follow-up-node","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+else
+    fail "fu-stop setup: exit $FU_RC, out [$FU_SETUP]; $(cat "$CASE/setup.err")"
+fi
+expect_terminal fustop done_error outcome=error step=execute:coord_setup reason=follow-up-node
+body_posts fustop 0
+if k context exists execute-fustop run/setup >/dev/null 2>&1; then
+    fail "fu-stop: setup sealed run/setup"
+else
+    pass "fu-stop: no run/setup was sealed"
+fi
+
+# fu_run <slug> <merge> <follow-up key=json ...> -- both nodes recorded and
+# MERGED, and follow-up #21 recorded against core, reaching the model (like
+# the node PRs) only after setup sealed the record.
+fu_run() {
+    local slug="$1" merge="$2"
+    shift 2
+    fixture "$slug"
+    ct_pr "$CT_REPO" 11 "impl/$slug-$CT_CORE" 'state="MERGED"'
+    ct_pr "$CT_REPO" 12 "impl/$slug-$CT_CLI" 'state="MERGED"'
+    ct_follow_up_pr "$CT_REPO" 21 "$@"
+    ct_write_db
+    if open_run "$slug" "$merge"; then
+        record "$slug" ct_record_node "$CT_CORE" "$CT_REPO" 11
+        record "$slug" ct_record_node "$CT_CLI" "$CT_REPO" 12
+        record "$slug" ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+        finish "$slug" "done:ready-awaiting-merge"
+    fi
+}
+FU21_URL="https://github.com/acme/repo-a/pull/21"
+
+# A follow-up closed unmerged holds the coordination PR, and the run ends
+# ready naming it.
+ct_case fu-closed
+fu_run fuclosed true 'state="CLOSED"'
+expect_terminal fuclosed ready_awaiting_merge outcome=ready-awaiting-merge "reason=follow-up-closed:$FU21_URL"
+case "$(payload fuclosed waiting)" in
+    *"$FU21_URL:human"*) pass "fu-closed: the closed follow-up waits on a human" ;;
+    *) fail "fu-closed: waiting [$(payload fuclosed waiting)]" ;;
+esac
+if ct_calls | grep -q '^pr merge'; then fail "fu-closed: a merge was called"; else pass "fu-closed: no merge while the follow-up is closed"; fi
+
+# An open one, without --merge, waits on the merge being asked for.
+ct_case fu-open
+fu_run fuopen false
+expect_terminal fuopen ready_awaiting_merge outcome=ready-awaiting-merge reason=merge-not-requested
+case "$(payload fuopen waiting)" in
+    *"$FU21_URL:human"*) pass "fu-open: the open follow-up is among the waiting PRs" ;;
+    *) fail "fu-open: waiting [$(payload fuopen waiting)]" ;;
+esac
 
 # --- overrides are refused --------------------------------------------------------
 
@@ -680,8 +765,8 @@ open_recovering() { # open_recovering <slug> <merge> [extra init args]
     shift
     # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
-        || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
+        || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
     [ -n "${CARRIED_ID:-}" ] && printf '%s' "$CARRIED_ID" | k context add "$s" run_id >/dev/null 2>&1
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
         ${STORE_FLAG:+--store "$STORE_FLAG"} >"$CASE/setup.out" 2>"$CASE/setup.err")

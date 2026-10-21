@@ -14,7 +14,8 @@
 #
 # Usage:
 #   coord-render.sh --session <S> --slug <slug> --home-repo <owner/repo>
-#                   --coord-branch <branch> [--before-coordination]
+#                   --coord-branch <branch>
+#                   [--before-coordination [--rendered-out <file>]]
 #
 # In order:
 #   1. read the run record (rr_record) and the run's identity (`run-id.sh
@@ -69,6 +70,16 @@
 # ready-awaiting-merge. Without it, a stale or full body never changes a
 # node's decision.
 #
+# --rendered-out <file> (only with --before-coordination) hands the caller the
+# body this run's gate is to read: on body=posted it writes the exact bytes it
+# posted to <file>, and on body=unchanged the live body it found equal (or,
+# for a MERGED coordination PR, the final body it read). It writes nothing on
+# any other result, so the caller reads the file only after one of those two.
+# <file> is the caller's path: one that exists as anything but a regular file
+# (a directory, a symlink, a fifo) is a usage error, and a write that fails
+# is body=stale. coord-merge.sh runs the merge-last gate over this file
+# rather than a re-read of the body.
+#
 # Output (stdout): zero or more `observed=<node>[/follow-up-<n>]:<sha>` lines,
 # then exactly one `body=posted|unchanged|stale|full|refused:execute:visibility`,
 # then, with --before-coordination, the optional `merge-refused:` line. Every
@@ -93,15 +104,15 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: coord-render.sh --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--before-coordination]" >&2
+    echo "usage: coord-render.sh --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--before-coordination [--rendered-out <file>]]" >&2
     exit 64
 }
 
-SESSION=""; SLUG=""; HOME_REPO=""; CB=""; BEFORE=0
+SESSION=""; SLUG=""; HOME_REPO=""; CB=""; BEFORE=0; RENDERED_OUT=""; HAS_OUT=0
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --session|--slug|--home-repo|--coord-branch)
+        --session|--slug|--home-repo|--coord-branch|--rendered-out)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
@@ -110,6 +121,7 @@ while [ $# -gt 0 ]; do
                 --slug) SLUG="$2" ;;
                 --home-repo) HOME_REPO="$2" ;;
                 --coord-branch) CB="$2" ;;
+                --rendered-out) RENDERED_OUT="$2"; HAS_OUT=1 ;;
             esac
             shift 2
             ;;
@@ -126,6 +138,13 @@ done
 [[ $SLUG =~ $RE_COORD_SLUG ]] || usage_error "--slug [$SLUG] is outside ^[a-z0-9-]+\$"
 coord_valid_repo "$HOME_REPO" || usage_error "--home-repo [$HOME_REPO] is not a single owner/repo"
 coord_valid_branch "$CB" || usage_error "--coord-branch [$CB] is not an allowed branch name"
+if [ "$HAS_OUT" -eq 1 ]; then
+    [ "$BEFORE" -eq 1 ] || usage_error "--rendered-out applies only with --before-coordination"
+    [ -n "$RENDERED_OUT" ] || usage_error "--rendered-out needs a file path"
+    if [ -L "$RENDERED_OUT" ] || { [ -e "$RENDERED_OUT" ] && ! [ -f "$RENDERED_OUT" ]; }; then
+        usage_error "--rendered-out [$RENDERED_OUT] exists and is not a regular file"
+    fi
+fi
 command -v jq >/dev/null || usage_error "jq is not on PATH"
 
 WORK=""
@@ -150,6 +169,15 @@ finish() {
     exit 0
 }
 stale() { echo "$PROG: $*; the coordination PR's body was not posted" >&2; finish stale; }
+# hand_out <file> -- with --rendered-out, copy <file>'s bytes (the body posted
+# or found equal) to the caller's path; a failed write is body=stale.
+hand_out() {
+    [ "$HAS_OUT" -eq 1 ] || return 0
+    cat -- "$1" > "$RENDERED_OUT" || {
+        echo "$PROG: the body could not be written to --rendered-out; the merge-last gate has nothing to read" >&2
+        finish stale
+    }
+}
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/coord-render.XXXXXX") || { WORK=""; stale "no temporary directory"; }
 
@@ -222,7 +250,13 @@ if [ "$OBSERVE" != '{}' ]; then
     printf '%s' "$OBSERVED"
     REC=$(rr_record "$SESSION") || stale "the run record could not be read back after the observe"
 fi
-[ "$C_STATE" = MERGED ] && finish unchanged
+if [ "$C_STATE" = MERGED ]; then
+    if [ "$HAS_OUT" -eq 1 ]; then
+        printf '%s' "$CJSON" | jq -j '.body // ""' > "$WORK/live.md" || stale "the final body could not be staged"
+        hand_out "$WORK/live.md"
+    fi
+    finish unchanged
+fi
 
 # 4. Visibility, only when some indexed repository is not the home.
 HOME_LC=$(coord_lower "$HOME_REPO")
@@ -293,7 +327,10 @@ fi
 SAME=$(jq -nr --rawfile a "$WORK/live.md" --rawfile b "$WORK/body.md" \
     'if ($a | sub("\n+$"; "")) == ($b | sub("\n+$"; "")) then "yes" else "no" end') \
     || stale "the rendered body could not be compared with the live one"
-[ "$SAME" = yes ] && finish unchanged
+if [ "$SAME" = yes ]; then
+    hand_out "$WORK/live.md"
+    finish unchanged
+fi
 
 # 9. The body again, just before the post: a Part 1 edited since step 5 is
 # a person's, and is never overwritten.
@@ -312,4 +349,5 @@ fi
 # 10. The post.
 gh pr edit "$C_NUM" --repo "$HOME_REPO" --body-file "$WORK/body.md" </dev/null >&2 \
     || stale "gh pr edit failed"
+hand_out "$WORK/body.md"
 finish posted

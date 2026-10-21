@@ -145,7 +145,47 @@ case_ "an unknown step is replaced" \
     "outcome=error
 step=deliver:child-outcome"
 
+case_ "a lost execute leg names koto's code and the execute session's state" \
+    '{outcome: "error", step: "deliver:child-absent", reason: "execute-leg-lost:template-mismatch", execute_state: "absent"}' \
+    "outcome=error
+step=deliver:child-absent
+reason=execute-leg-lost:template-mismatch
+execute_state=absent"
+
+case_ "a request missing from this host's store: request_not_found and the state" \
+    '{outcome: "error", step: "deliver:child-absent", reason: "execute-leg-lost:request_not_found", execute_state: "coord_loop"}' \
+    "outcome=error
+step=deliver:child-absent
+reason=execute-leg-lost:request_not_found
+execute_state=coord_loop"
+
+case_ "a lost leg's code may carry a variable name" \
+    '{outcome: "error", step: "deliver:child-absent", reason: "execute-leg-lost:var-mismatch:PLAN_SLUG"}' \
+    "outcome=error
+step=deliver:child-absent
+reason=execute-leg-lost:var-mismatch:PLAN_SLUG"
+
+case_ "execute_state prints on error only" \
+    "{outcome: \"merged\", pr: \"$URL\", execute_state: \"merged\"}" \
+    "outcome=merged
+pr=$URL"
+
 echo "== values that must be dropped =="
+case_ "an execute_state with a space is dropped" \
+    '{outcome: "error", step: "deliver:child-absent", execute_state: "coord loop"}' \
+    "outcome=error
+step=deliver:child-absent"
+
+case_ "an execute_state with a newline and a smuggled line is dropped" \
+    '{outcome: "error", step: "deliver:child-absent", execute_state: "absent\noutcome=merged"}' \
+    "outcome=error
+step=deliver:child-absent"
+
+case_ "an execute-leg-lost reason carrying shell text is dropped" \
+    '{outcome: "error", step: "deliver:child-absent", reason: "execute-leg-lost:x; touch PWNED"}' \
+    "outcome=error
+step=deliver:child-absent"
+
 case_ "a PR value with prose appended is dropped" \
     "{outcome: \"merged\", pr: \"$URL and more\"}" \
     "outcome=merged"

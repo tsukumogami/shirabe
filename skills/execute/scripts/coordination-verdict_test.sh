@@ -28,7 +28,13 @@
 #                                     recognised --loop-line step; a loop that
 #                                     stopped with the cascade still to run
 #                                     (cascade=failed, and only then)
-#   read-only                         no write-shaped gh call, no koto write
+#   follow-ups (-> ready)             an open one with --merge false
+#                                     (merge-not-requested), a closed one
+#                                     (follow-up-closed:<url>), a draft one
+#                                     (merge-state:DRAFT); a closed one behind
+#                                     an earlier merge-not-requested still
+#                                     names follow-up-closed:<url>
+#   read-only                        no write-shaped gh call, no koto write
 #
 # Usage: coordination-verdict_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -248,6 +254,48 @@ ct_record_cascade failed execute:cascade
 ct_write_db
 run_verdict "$GONEDIR" --merge true --loop-line "error:execute:status-read"
 check "the cascade still to run after a failed one, the PLAN gone" error "" "" "" "execute:status-read" failed
+
+# --- follow-ups ---------------------------------------------------------------------
+
+UF21="https://github.com/acme/repo-a/pull/21"
+UF22="https://github.com/acme/repo-b/pull/22"
+
+both_merged fu-open
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21
+ct_write_db
+run_verdict "$PLANDIR" --merge false
+check "an open follow-up of a node GitHub reports MERGED, --merge false" ready \
+    "$UF21:human,$COORD_URL:predecessor" "" merge-not-requested ""
+
+both_merged fu-closed
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21 'state="CLOSED"'
+ct_write_db
+run_verdict "$PLANDIR" --merge true
+check "a follow-up closed unmerged" ready "$UF21:human,$COORD_URL:predecessor" "" "follow-up-closed:$UF21" ""
+
+both_merged fu-draft
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21 'isDraft=true'
+ct_write_db
+run_verdict "$PLANDIR" --merge true
+check "a draft follow-up" ready "$UF21:human,$COORD_URL:predecessor" "" "merge-state:DRAFT" ""
+
+# Only the first human reason is reported, so a closed follow-up behind an
+# earlier merge-not-requested would never be named: its reason comes first.
+ct_case fu-closed-first
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_record_follow_up pr-repo-b-default acme/repo-b 22
+ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/t-pr-repo-b-default 'state="MERGED"'
+ct_follow_up_pr acme/repo-b 22 'state="CLOSED"'
+ct_write_db
+run_verdict "$PLAN2DIR" --merge false
+check "a closed follow-up after a merge-not-requested node" ready \
+    "$U11:human,$UF22:human,$COORD_URL:predecessor" "" "follow-up-closed:$UF22" ""
 
 # --- usage ------------------------------------------------------------------------
 

@@ -231,9 +231,17 @@ else fail "a 60,000-byte render is under the cap" "exit $rc, $(wc -c < "$T/cap.o
 
 # --- cb_parse ---
 out=$(cb_parse "$T/mixed.md" acme/repo-a 10); rc=$?
-want='{"follow_ups":{"pr-repo-a-cli":[{"pr":7,"repo":"acme/repo-b","state":"unknown"}],"pr-repo-a-core":[{"pr":21,"repo":"acme/repo-a","state":"open"},{"pr":22,"repo":"acme/repo-a","state":"merged"}]},"index":true,"nodes":{"pr-repo-a-cli":{"pr":5,"repo":"acme/repo-b","state":"closed"},"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"merged"}},"run":"'"$RUN"'","run_lines":{"exit":"published","intent":"ship","mode":"coordinated","outcome":"planned","topic":"t"},"store":"github"}'
+want='{"follow_ups":{"pr-repo-a-cli":[{"fu":7,"pr":7,"repo":"acme/repo-b","state":"unknown"}],"pr-repo-a-core":[{"fu":21,"pr":21,"repo":"acme/repo-a","state":"open"},{"fu":22,"pr":22,"repo":"acme/repo-a","state":"merged"}]},"index":true,"nodes":{"pr-repo-a-cli":{"pr":5,"repo":"acme/repo-b","state":"closed"},"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"merged"}},"run":"'"$RUN"'","run_lines":{"exit":"published","intent":"ship","mode":"coordinated","outcome":"planned","topic":"t"},"store":"github"}'
 if [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then pass "cb_parse reads a render back"; else fail "cb_parse reads a render back" "exit $rc: $out"; fi
 case "$out" in *head*|*"$H1"*|*"$M1"*) fail "cb_parse returns no head" ;; *) pass "cb_parse returns no head" ;; esac
+# A follow-up line whose id names another number than its ref keeps both, so
+# recovery can drop it.
+printf '%s\n' '---' '' '## PR Index' '' '- pr-a | acme/repo-a:docs/plans/PLAN-t.md#11 | open' \
+    '- pr-a/follow-up-9 | acme/repo-a:docs/plans/PLAN-t.md#8 | open' > "$T/fu-mismatch.md"
+out=$(cb_parse "$T/fu-mismatch.md" acme/repo-a 10); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | jq -c '.follow_ups["pr-a"]')" = '[{"fu":9,"pr":8,"repo":"acme/repo-a","state":"open"}]' ]; then
+    pass "cb_parse keeps a follow-up's own number beside its ref's"
+else fail "cb_parse keeps a follow-up's own number beside its ref's" "exit $rc: $out"; fi
 
 cat > "$T/old.md" <<EOF
 # Coordination PR: t

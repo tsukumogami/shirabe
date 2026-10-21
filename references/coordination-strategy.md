@@ -162,7 +162,9 @@ The coordinated lifecycle has four phases, in order:
    read of it. A post that fails leaves the body behind the record until the
    next transition renders it again; before the coordination PR's own
    evaluation and merge, which CI's merge-last gate reads the body for, the run
-   stops that step instead.
+   stops that step instead. Both of those steps run their own merge-last gate
+   over the body they just posted, never over a re-read of the live body, so
+   an edit between the render and the gate can't change what the run checks.
 3. **Finalize.** Each repo finalizes its own artifacts in its own PR (writes
    stay repo-local). The boundary between node PRs is a **read-only
    verification gate**: "all upstreams terminal, all indexed PRs merged." No

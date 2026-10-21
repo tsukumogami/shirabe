@@ -25,7 +25,9 @@
 #     once, empty without its flag and the given value (either spelling) with
 #     it, a flag's separate value never read as the PLAN; a single-pr PLAN
 #     passes one only when its flag was given; a valueless flag and --remove
-#     without --follow-up are own refusals (error=usage)
+#     without --follow-up are own refusals (error=usage); --follow-up's
+#     <node>=<url> reaches koto as `<node> <url>`, and a value with no `=` is
+#     an own refusal
 #     a live coordinated session at coord_loop given --store,
 #     --coordination-pr, --follow-up or --adopt-run: error=flag-needs-setup,
 #     exit 64, no koto init; at coord_setup, or without the flags, the open
@@ -64,6 +66,8 @@
 #       name, no run_id minted before setup, the five variables bound empty;
 #       --store session then an attach without it: STORE rebound to empty;
 #       a malformed --adopt-run on a coordinated PLAN: koto's invalid_var;
+#       --follow-up <node>=<url> on a coordinated PLAN: accepted by koto's
+#       value allowlist and the template's pattern, FOLLOW_UP=`<node> <url>`;
 #       --store on a single-pr PLAN: koto's unknown_var, worded for the flag;
 #       on a live execute.md session koto's template_mismatch (session
 #       unchanged, outcome=error step=execute:refused, recorded on the leg
@@ -252,8 +256,8 @@ pairs_of '["docs/plans/PLAN-cpairs.md"]'
 pairs_eq "a coordinated PLAN with none of the flags: each of the five variables once, empty" \
     '[["STORE",""],["COORDINATION_PR",""],["FOLLOW_UP",""],["FOLLOW_UP_REMOVE",""],["ADOPT_RUN",""]]' "$coord_pairs"
 pairs_of '["docs/plans/PLAN-cpairs.md","--store","session","--coordination-pr=https://github.com/o/r/pull/10","--follow-up","pr-a=https://github.com/o/r/pull/11","--remove","--adopt-run","0123456789abcdef0123456789abcdef"]'
-pairs_eq "a coordinated PLAN with every flag, in both spellings: each value once" \
-    '[["STORE","session"],["COORDINATION_PR","https://github.com/o/r/pull/10"],["FOLLOW_UP","pr-a=https://github.com/o/r/pull/11"],["FOLLOW_UP_REMOVE","true"],["ADOPT_RUN","0123456789abcdef0123456789abcdef"]]' \
+pairs_eq "a coordinated PLAN with every flag, in both spellings: each value once, --follow-up's first = a space" \
+    '[["STORE","session"],["COORDINATION_PR","https://github.com/o/r/pull/10"],["FOLLOW_UP","pr-a https://github.com/o/r/pull/11"],["FOLLOW_UP_REMOVE","true"],["ADOPT_RUN","0123456789abcdef0123456789abcdef"]]' \
     "$coord_pairs"
 pairs_eq "a flag's separate value is never read as the PLAN" '"docs/plans/PLAN-cpairs.md"' 'map(select(.[0] == "PLAN_DOC"))[0][1]'
 pairs_of '["docs/plans/PLAN-cpairs.md","--store","github","--store=session"]'
@@ -266,6 +270,8 @@ pairs_eq "a single-pr PLAN with --store passes it, for koto's unknown_var" '[["S
 own_refusal "a --store with no value" '["docs/plans/PLAN-cpairs.md","--store"]'
 own_refusal "a --coordination-pr followed by another flag" '["docs/plans/PLAN-cpairs.md","--coordination-pr","--merge"]'
 own_refusal "--remove without --follow-up" '["docs/plans/PLAN-cpairs.md","--remove"]'
+own_refusal "a --follow-up value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up","core"]'
+own_refusal "a --follow-up= value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up=core"]'
 
 # A live coordinated session past coord_setup refuses the setup-only flags:
 # setup has run, so they would be accepted and never applied.
@@ -701,6 +707,17 @@ fi
 coord_plan cadopt
 refusal "a malformed --adopt-run on a coordinated PLAN" '["docs/plans/PLAN-cadopt.md","--adopt-run","XYZ"]' \
     invalid_var execute-cadopt
+# --follow-up <node>=<url>: koto's own value allowlist has no `=`, so the
+# opener carries it as `<node> <url>`, which that allowlist and the template's
+# FOLLOW_UP pattern both accept.
+coord_plan cfollow
+run_open '["docs/plans/PLAN-cfollow.md","--follow-up","core=https://github.com/acme/repo/pull/7"]'
+if [ "$RC" -eq 0 ] && line 'opened=new' \
+    && [ "$(session_var execute-cfollow FOLLOW_UP)" = "core https://github.com/acme/repo/pull/7" ]; then
+    pass "--follow-up core=<url> on a coordinated PLAN: koto init accepts it, FOLLOW_UP=\"core <url>\""
+else
+    fail "cfollow open: exit $RC, out [$OUT], FOLLOW_UP [$(session_var execute-cfollow FOLLOW_UP)]; $ERR"
+fi
 run_open '["docs/plans/PLAN-t.md","--store","session"]'
 if [ "$RC" -eq 2 ] && line 'refused=unknown_var' && grep -q -- '--store applies only to a coordinated PLAN' <<<"$ERR"; then
     pass "--store on a single-pr PLAN is koto's unknown_var, worded for the flag"

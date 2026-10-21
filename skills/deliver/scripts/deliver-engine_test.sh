@@ -3,11 +3,11 @@
 # route that matters, with the outcome asserted from `koto status` on the
 # deliver-<topic> session.
 #
-# The children are stand-ins: throwaway templates named scope.md and
-# execute.md (the file names the legs accept), each a single state whose
-# evidence becomes its terminal result, so a case can make a child promote any
-# payload it needs. They attach to this run's legs with `koto init
-# --koto-leg`, exactly as /scope and /execute do. The re-checks run for real
+# The children are stand-ins (testdata/engine-lib.sh): throwaway templates
+# named scope.md and execute.md (the file names the legs accept), each a
+# single state whose evidence becomes its terminal result, so a case can make
+# a child promote any payload it needs. They attach to this run's legs with
+# `koto init --koto-leg`, exactly as /scope and /execute do. The re-checks run for real
 # (deliver-probe.sh, owned-pr.sh, publish-scoping-pr.sh --verify,
 # merge-verdict.sh --confirm) against real git with a local bare origin and
 # the gh stand-in in testdata/gh.
@@ -31,7 +31,17 @@
 #     state; a child bound in the meantime keeps the run waiting
 #   - refusals on the leg: an invalid INTENT_FLAG (scope:refused), a live
 #     intent=stop session (deliver:intent-mismatch), a throwaway template on
-#     the execute leg (execute:refused); a promoted intent-mismatch refusal
+#     the execute leg (the leg lost: deliver:child-absent,
+#     execute-leg-lost:template-mismatch, execute_state absent, as the
+#     refused child opened no session); a promoted intent-mismatch refusal
+#   - the start gate reads /scope's intent and PR from its leg: a result of
+#     stop fails it while the body says continue; a body with no intent=
+#     line, or one recording intent=stop, beside a result of continue
+#     passes; a result naming another PR fails
+#   - the handover: execute_run's directive appends nothing (`none`) on a
+#     single-pr PLAN, with or without STORE, and `--coordination-pr <the
+#     verified PR>`, plus `--store session` when STORE is set, on a
+#     coordinated one
 #   - /scope stopping early (scope-ended-early naming which), its errors, an
 #     unrecognised outcome (deliver:child-outcome), the multi-pr hand-off with
 #     no /execute leg bound, the interactive confirmation (stop and proceed),
@@ -108,207 +118,9 @@ cp "$HERE/testdata/gh" "$BIN/gh"
 chmod +x "$BIN/gh"
 export PATH="$BIN:$PATH"
 
-# --- stand-in children ------------------------------------------------------------
-
-mkdir -p "$T/tpl"
-child_template() { # child_template <file> <name> <variables block>
-    cat >"$1" <<TPL
----
-name: $2
-version: "1.0"
-description: a stand-in child for deliver-engine_test.sh
-initial_state: work
-variables:
-$3
-states:
-  work:
-    accepts:
-      finish:
-        type: enum
-        values: [go]
-        required: true
-      outcome:
-        type: string
-      step:
-        type: string
-      reason:
-        type: string
-      pr:
-        type: string
-      pr_state:
-        type: string
-      plan_path:
-        type: string
-      plan_execution_mode:
-        type: string
-      startable:
-        type: string
-      next:
-        type: string
-      repos:
-        type: string
-      resume:
-        type: string
-      waiting:
-        type: string
-    transitions:
-      - target: done
-        when:
-          finish: go
-        context_assignments:
-          outcome: "\${evidence.outcome}"
-          step: "\${evidence.step}"
-          reason: "\${evidence.reason}"
-          pr: "\${evidence.pr}"
-          pr_state: "\${evidence.pr_state}"
-          plan_path: "\${evidence.plan_path}"
-          plan_execution_mode: "\${evidence.plan_execution_mode}"
-          startable: "\${evidence.startable}"
-          next: "\${evidence.next}"
-          repos: "\${evidence.repos}"
-          resume: "\${evidence.resume}"
-          waiting: "\${evidence.waiting}"
-  done:
-    terminal: true
-    result:
-      outcome: "\${context.outcome}"
-      step: "\${context.step}"
-      reason: "\${context.reason}"
-      pr: "\${context.pr}"
-      pr_state: "\${context.pr_state}"
-      plan_path: "\${context.plan_path}"
-      plan_execution_mode: "\${context.plan_execution_mode}"
-      startable: "\${context.startable}"
-      next: "\${context.next}"
-      repos: "\${context.repos}"
-      resume: "\${context.resume}"
-      waiting: "\${context.waiting}"
----
-## work
-Stand-in.
-## done
-Done.
-TPL
-}
-child_template "$T/tpl/scope.md" scope "  TOPIC:
-    required: true
-  INTENT_FLAG:
-    pattern: '^(continue|stop)?\$'
-    default: \"\""
-child_template "$T/tpl/execute.md" execute "  PLAN_SLUG:
-    required: true"
-mkdir -p "$T/forged"
-child_template "$T/forged/forged.md" forged "  PLAN_SLUG:
-    required: true"
-
-# --- fixtures -----------------------------------------------------------------------
-
-# fixture <topic> <single-pr|multi-pr|coordinated|executed|private> -- a
-# repository on docs/<topic>, pushed to a bare origin (`private` is a
-# single-pr PLAN in a repository declaring Private). Sets R, TOPIC, URL,
-# GH_DB (one owned open PR on the topic branch recording intent=continue).
-fixture() {
-    TOPIC="$1"
-    R="$T/repo-$TOPIC"
-    local o="$T/origin-$TOPIC.git" vis="Public"
-    [ "$2" = private ] && vis="Private"
-    git init -q --bare -b main "$o"
-    git init -q -b main "$R"
-    printf '# r\n\n## Repo Visibility: %s\n' "$vis" >"$R/CLAUDE.md"
-    g add CLAUDE.md
-    g commit -q -m init
-    g remote add origin "$o"
-    g push -q origin main
-    g checkout -q -b "docs/$TOPIC"
-    mkdir -p "$R/docs/plans" "$R/docs/designs/current"
-    case "$2" in
-        executed)
-            printf '# DESIGN\n' >"$R/docs/designs/current/DESIGN-$TOPIC.md"
-            ;;
-        *)
-            local mode="$2"
-            [ "$mode" = private ] && mode=single-pr
-            printf -- '---\nstatus: Active\nexecution_mode: %s\n---\n# PLAN\n' "$mode" >"$R/docs/plans/PLAN-$TOPIC.md"
-            ;;
-    esac
-    g add docs
-    g commit -q -m "docs: $TOPIC"
-    g push -q origin "HEAD:refs/heads/docs/$TOPIC"
-    URL="https://github.com/acme/widgets/pull/42"
-    export GH_DB="$T/db-$TOPIC.json"
-    jq -n --arg h "docs/$TOPIC" '{login: "me", repo: "acme/widgets", default_branch: "main",
-        prs: [{url: "https://github.com/acme/widgets/pull/42", number: 42, state: "OPEN",
-               author: "me", isCrossRepository: false, baseRefName: "main", headRefName: $h,
-               body: "# PR\n\nintent=continue\n"},
-              {url: "https://github.com/acme/widgets/pull/77", number: 77, state: "MERGED",
-               author: "me", isCrossRepository: false, baseRefName: "main", headRefName: "unrelated",
-               body: ""}],
-        fail: {}}' >"$GH_DB"
-    : >"$GH_DB.calls"
-}
-g() { git -C "$R" -c user.email=t@example.invalid -c user.name=t "$@"; }
-k() { (cd "$R" && koto "$@"); }
-db_set() { local tmp="$GH_DB.tmp"; jq "$1" "$GH_DB" >"$tmp" && mv "$tmp" "$GH_DB"; }
-OTHER_MERGED="https://github.com/acme/widgets/pull/77"
-FORGED="https://github.com/acme/widgets/pull/666"
-
-# start <mode> [merge] -- init deliver-<topic> and tick into scope_run. Sets REQ.
-# START_EXTRA, when set, adds its --var arguments to the init.
-START_EXTRA=()
-start() {
-    # $KOTO_LEGACY_ENV_ARG (#483) is unquoted on purpose: when the knob is off it is
-    # empty and must expand to no argument at all, not to an empty one.
-    k init "deliver-$TOPIC" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var TOPIC="$TOPIC" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
-        --var MODE="${1:-auto}" --var MERGE="${2:-true}" ${START_EXTRA[@]+"${START_EXTRA[@]}"} >/dev/null 2>"$T/init.err" \
-        || { fail "$TOPIC: koto init deliver" "$(cat "$T/init.err")"; return 1; }
-    # The run identity deliver-open.sh mints at the session's birth; the
-    # probes only read it.
-    printf '00112233445566778899aabbccddeeff' | k context add "deliver-$TOPIC" run_id >/dev/null 2>&1
-    tick
-    REQ=$(k request list --coordinator-of-record "deliver-$TOPIC" --state open | jq -r '.requests[0].request_id // ""')
-}
-tick() { k next "deliver-$TOPIC" --no-cleanup "$@" >"$T/next.json" 2>&1; }
-state() { k status "deliver-$TOPIC" 2>/dev/null | jq -r '.current_state // "gone"'; }
-result() { k status "deliver-$TOPIC" 2>/dev/null | jq -r --arg k "$1" '.result.payload[$k] // ""'; }
-ctx() { local v; v=$(k context get "deliver-$TOPIC" "$1" 2>/dev/null) && printf '%s' "$v"; }
-# child <scope|execute> <evidence-json> [extra init args] -- a stand-in child
-# attached to this run's leg, driven to its terminal.
-child() {
-    local leg="$1" ev="$2" sess tplf
-    shift 2
-    if [ "$leg" = scope ]; then
-        sess="scope-$TOPIC"; tplf="$T/tpl/scope.md"
-        set -- --var TOPIC="$TOPIC" --var INTENT_FLAG=continue "$@"
-    else
-        sess="execute-$TOPIC"; tplf="$T/tpl/execute.md"
-        set -- --var PLAN_SLUG="$TOPIC" "$@"
-    fi
-    k init "$sess" --template "$tplf" "$@" --koto-leg "$REQ:$leg" >/dev/null 2>"$T/child.err" \
-        || { fail "$TOPIC: the $leg child attaches" "$(cat "$T/child.err")"; return 1; }
-    k next "$sess" --no-cleanup --with-data "$(jq -c '. + {finish: "go"}' <<<"$ev")" >/dev/null 2>&1
-}
-expect() { # expect <label> <state> <key=value>...
-    local label="$1" want="$2" kv key val got ok=1
-    shift 2
-    if [ "$(state)" != "$want" ]; then
-        fail "$label: stops at $want" "at $(state): $(head -c 600 "$T/next.json")"
-        return
-    fi
-    for kv in "$@"; do
-        key="${kv%%=*}"; val="${kv#*=}"
-        got=$(result "$key")
-        if [ "$val" = "+" ]; then
-            [ -n "$got" ] || { fail "$label: result $key is empty"; ok=0; }
-        elif [ "$got" != "$val" ]; then
-            fail "$label: result $key" "want [$val], got [$got]"; ok=0
-        fi
-    done
-    [ "$ok" -eq 1 ] && pass "$label: $want with $*"
-}
-to_execute_run() { # a scope child reports scoped, the re-check passes, auto mode
-    child scope "{\"outcome\":\"scoped\",\"pr\":\"$FORGED\",\"plan_path\":\"docs/plans/PLAN-$TOPIC.md\",\"plan_execution_mode\":\"single-pr\"}"
-    tick
-}
+# The stand-in children, the fixture and the helpers: testdata/engine-lib.sh.
+# shellcheck source=testdata/engine-lib.sh
+. "$HERE/testdata/engine-lib.sh"
 
 # --- the three paths into done ----------------------------------------------------------
 
@@ -317,7 +129,8 @@ fixture happy single-pr
 start auto && to_execute_run
 eq "happy: at execute_run after scoped_check, mode_route and confirm" execute_run "$(state)"
 eq "happy: scoped_check left checked_pr non-empty, the owned PR" "$URL" "$(ctx checked_pr)"
-eq "happy: the leg's pr was replaced by the owned PR" "$URL" "$(ctx pr)"
+eq "happy: the verified PR equals the leg's pr" "$URL" "$(ctx pr)"
+eq "happy: /scope's intent was copied from its leg" continue "$(ctx scope_intent)"
 db_set '(.prs[] | select(.number == 42) | .state) = "MERGED"'
 child execute "{\"outcome\":\"merged\",\"pr\":\"$OTHER_MERGED\",\"repos\":\"acme/widgets\"}"
 tick
@@ -348,6 +161,52 @@ case "$DIRECTIVE" in
         pass "unbounded: both flags render empty, so the directive appends neither" ;;
     *) fail "unbounded: both flags render empty" "$(printf '%s' "$DIRECTIVE" | grep -n review)" ;;
 esac
+
+echo "== the start gate reads /scope's intent from its leg, not the body =="
+fixture leg-stop single-pr
+start auto
+child scope "{\"outcome\":\"scoped\",\"intent\":\"stop\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-$TOPIC.md\",\"plan_execution_mode\":\"single-pr\"}"
+tick
+expect "/scope's result says stop while the body says continue" done_error outcome=error step=deliver:child-outcome
+eq "leg-stop: scoped_check failed" fail "$(ctx scoped_verdict)"
+if k request get "$REQ" | jq -e '.legs.execute.bound_child == null' >/dev/null; then pass "leg-stop: /execute never started"; else fail "leg-stop: /execute never started"; fi
+
+fixture body-no-intent single-pr
+db_set '(.prs[] | select(.number == 42) | .body) = "# PR\n\nno intent line here\n"'
+start auto && to_execute_run
+eq "a body with no intent= line, the leg's intent continue: execute_run" execute_run "$(state)"
+
+fixture body-stop single-pr
+db_set '(.prs[] | select(.number == 42) | .body) = "# PR\n\nintent=stop\n"'
+start auto && to_execute_run
+eq "a body recording intent=stop, the leg's intent continue: execute_run" execute_run "$(state)"
+
+fixture leg-other-pr single-pr
+start auto
+child scope "{\"outcome\":\"scoped\",\"intent\":\"continue\",\"pr\":\"$FORGED\",\"plan_path\":\"docs/plans/PLAN-$TOPIC.md\",\"plan_execution_mode\":\"single-pr\"}"
+tick
+expect "/scope's result naming a PR other than the owned one" done_error outcome=error step=deliver:child-outcome
+
+echo "== the handover to /execute =="
+# handover_line -- the handover arguments in execute_run's directive.
+handover_line() { jq -r '.directive // ""' "$T/next.json" 2>/dev/null | tr '\n' ' ' | sed -n 's/.*handover arguments: `\([^`]*\)`.*/\1/p'; }
+fixture hand-single single-pr
+start auto && to_execute_run
+eq "a single-pr PLAN: the handover reads none" none "$(handover_line)"
+fixture hand-coord coordinated
+start auto && to_execute_run
+eq "hand-coord: at execute_run" execute_run "$(state)"
+eq "a coordinated PLAN: --coordination-pr is the PR scoped_check verified" "--coordination-pr https://github.com/acme/widgets/pull/42" "$(handover_line)"
+fixture hand-store coordinated
+START_EXTRA=(--var STORE=session)
+start auto && to_execute_run
+START_EXTRA=()
+eq "a coordinated PLAN with --store session: both flags" "--coordination-pr https://github.com/acme/widgets/pull/42 --store session" "$(handover_line)"
+fixture hand-store-single single-pr
+START_EXTRA=(--var STORE=session)
+start auto && to_execute_run
+START_EXTRA=()
+eq "a single-pr PLAN ignores --store: none" none "$(handover_line)"
 
 echo "== ready-awaiting-merge carries the /execute leg's own pr =="
 fixture ready single-pr
@@ -491,7 +350,14 @@ fixture forged-tpl single-pr
 start auto && to_execute_run
 k init "execute-$TOPIC" --template "$T/forged/forged.md" --var PLAN_SLUG="$TOPIC" --koto-leg "$REQ:execute" >/dev/null 2>&1
 tick
-expect "a throwaway template declaring merged is refused at attach" done_error outcome=error step=execute:refused reason=template-mismatch
+expect "a throwaway template declaring merged is refused at attach: the execute leg is lost" done_error outcome=error \
+    step=deliver:child-absent reason=execute-leg-lost:template-mismatch execute_state=absent
+if k status "execute-$TOPIC" >/dev/null 2>&1; then fail "forged-tpl: the refused child opened no session"; else pass "forged-tpl: the refused child opened no session"; fi
+REPORT=$(k status "deliver-$TOPIC" 2>/dev/null | bash "$HERE/deliver-report.sh")
+eq "forged-tpl: the report names the lost leg and the execute state" "outcome=error
+step=deliver:child-absent
+reason=execute-leg-lost:template-mismatch
+execute_state=absent" "$REPORT"
 
 echo "== /scope's other outcomes =="
 for which in re-evaluation abandonment cancelled; do
@@ -516,7 +382,7 @@ expect "an outcome /deliver doesn't recognise" done_error outcome=error step=del
 
 fixture multi multi-pr
 start auto
-child scope "{\"outcome\":\"handed-off-multi-pr\",\"pr\":\"$URL\",\"startable\":\"#101 First\\n#102 Second\",\"next\":\"/work-on #101\"}"
+child scope "{\"outcome\":\"handed-off-multi-pr\",\"intent\":\"continue\",\"pr\":\"$URL\",\"startable\":\"#101 First\\n#102 Second\",\"next\":\"/work-on #101\"}"
 tick
 expect "a multi-pr PLAN" done_stopped outcome=handed-off-multi-pr "pr=$URL" "next=/work-on #101"
 eq "multi-pr: the startable list is relayed" "#101 First

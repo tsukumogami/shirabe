@@ -49,6 +49,7 @@ skills/execute/scripts/coordinated-next_test.sh
 skills/execute/scripts/coordination-verdict_test.sh
 skills/execute/scripts/record-coordination-verdict_test.sh
 skills/execute/scripts/record-coord-setup_test.sh
+skills/execute/scripts/record-coord-follow-up_test.sh
 skills/execute/scripts/node-cut_test.sh
 skills/execute/scripts/node-push_test.sh
 skills/execute/scripts/repo-visibility_test.sh
@@ -57,6 +58,7 @@ skills/execute/scripts/coord-merge_test.sh
 skills/execute/scripts/coordinated-home-outside_test.sh
 skills/execute/scripts/execute-coordinated-structure_test.sh
 skills/execute/scripts/execute-coordinated-engine_test.sh
+skills/execute/scripts/execute-coordinated-move-engine_test.sh
 # The coordination body's codec, its poster, and the squash-message
 # builder every /execute merge passes its message through: jq, awk
 # and the same stubs, so every case runs on 3.2.

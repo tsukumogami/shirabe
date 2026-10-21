@@ -12,7 +12,7 @@ description: >-
   knows where the topic stopped. Do NOT use it to write only the documents
   (`/scope`), to run a PLAN that already exists and needs no re-scoping
   (`/execute`), or to fix one known issue (`/work-on`).
-argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--review-floor=<level>] [--review-ceiling=<level>] [--koto-leg=<request-id>:deliver]'
+argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--review-floor=<level>] [--review-ceiling=<level>] [--store github|session] [--koto-leg=<request-id>:deliver]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -37,7 +37,7 @@ child checks its writes against the repository it writes to, so `/deliver`
 runs in private repositories as well as public ones. What `/deliver` adds is the sequence and the checks
 between the two, and those live in its template,
 `skills/deliver/koto-templates/deliver.md`, not in this file. koto's request
-store is local, so a `/deliver` run, children included, happens on one machine.
+store is local to a machine; Moving a Run, below, says what survives a move.
 
 ## Flags
 
@@ -47,19 +47,51 @@ store is local, so a `/deliver` run, children included, happens on one machine.
 | `--no-merge` | `/execute` runs without `--merge`, so the run ends at best `ready-awaiting-merge`. Without it, `/execute` gets `--merge`. |
 | `--upstream <path>`, `--max-rounds=N`, `--coordinated` / `--no-coordinated` | Forwarded to `/scope` unchanged. |
 | `--review-floor=<level>`, `--review-ceiling=<level>` | The review-level bound (`light`, `standard` or `full`), forwarded to `/execute` unchanged, which hands it to every `/work-on` run it starts. Without them `/execute` gets neither. |
+| `--store github\|session` | Where a coordinated run keeps its record, forwarded to `/execute` on a coordinated PLAN only, beside the PR `/scope` published, which `/execute` gets as `--coordination-pr`; its setup checks both. A single-pr PLAN gets neither, so `--store` is ignored there. |
 | `--koto-leg=<request-id>:deliver` | Binds this run's `deliver-<topic>` session to a leg of a caller's koto request; see Answering a Caller's Leg. Not forwarded to either child. |
 
 koto checks every argument a koto variable can express, not this file: a
 repeated flag, both mode flags, both coordination flags, a malformed topic or
-upstream, a `--max-rounds` outside 1 to 50, or a `--review-floor` or
-`--review-ceiling` that isn't `light`, `standard` or `full` is refused at `koto init` with
-exit 2 and no session. `--koto-leg` is the one exception: `deliver-open.sh`
+upstream, a `--max-rounds` outside 1 to 50, a `--review-floor` or
+`--review-ceiling` that isn't `light`, `standard` or `full`, or a `--store`
+that isn't `github` or `session` is refused at `koto init` with exit 2 and no
+session. `--koto-leg` is the one exception: `deliver-open.sh`
 checks it before any koto call, because without a well-formed value there is
 no leg to record a refusal on (see Answering a Caller's Leg).
 
 `--merge` and the mode belong to one invocation. Nothing is remembered from an
 earlier run: a re-invocation without `--no-merge` merges, and one with it
 doesn't, whatever the previous run did.
+
+## Moving a Run
+
+A `/deliver` run's sessions move between workspaces with session import, each
+under its own name: `skill-session.sh import execute <topic> --from
+<workspace>` for `/execute`'s, `skill-session.sh import deliver <topic> --from
+<workspace>` for this one's, and `skill-session.sh import tactical <topic>
+--from <workspace>` for `/scope`'s (the script is
+`${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh`; the execute and deliver sets
+compile their own templates first). Stop the run on the source first.
+
+On one machine the two workspaces share one session store, so session names
+are the machine's, not a workspace's. Import `deliver-<topic>` along with
+`execute-<topic>`, or remove the source's: while the source's
+`deliver-<topic>` still holds the name, a new `/deliver <topic>` in the second
+workspace is refused with `origin_mismatch`. After a same-machine import, a
+`koto status` from the source workspace reaches the moved copy, and ticking it
+there is refused with `execution_anchor_mismatch`.
+
+A new `/deliver <topic>` after the import opens a request of its own, which
+abandons the old one, and binds the moved execute session to its new
+`execute` leg when `/execute` runs again, so the new run gets `/execute`'s
+result. A `/deliver` session resumed in place on the same machine keeps its
+leg, since the request store it was opened in is still there. On a machine
+whose request store doesn't hold the run's request, the next tick ends the run
+`error` with `step=deliver:child-absent`,
+`reason=execute-leg-lost:request_not_found` and `execute_state=<state>`, the
+state the execute session was in; a new `/deliver <topic>` there picks the run
+up. A refused execute leg ends the same way, with koto's code after
+`execute-leg-lost:`.
 
 ## Answering a Caller's Leg
 

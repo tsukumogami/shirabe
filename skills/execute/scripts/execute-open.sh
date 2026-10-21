@@ -29,9 +29,9 @@
 # is recorded on the leg by koto itself. This script's own refusals are only
 # the ones where no koto call can be built at all, or would change a run it
 # must not: a malformed --koto-leg value, a coordinated flag with no value or
-# a --remove with no --follow-up, a tokens file it cannot read, a multi-pr
-# PLAN, which /work-on runs rather than /execute (`error=multi-pr`), a
-# setup-only flag on a live coordinated session past coord_setup
+# a --remove with no --follow-up, a --follow-up value with no `=`, a tokens
+# file it cannot read, a multi-pr PLAN, which /work-on runs rather than
+# /execute (`error=multi-pr`), a setup-only flag on a live coordinated session past coord_setup
 # (`error=flag-needs-setup`), a session another opener holds
 # (`error=session-busy`), and a run record it could not read or carry
 # (`failed=carry`). koto-open.sh adds the other two: an args file inside the
@@ -67,7 +67,11 @@
 #   REVIEW_CEILING         `--review-ceiling=<level>`, the same way.
 #   STORE                  `--store <v>` or `--store=<v>`
 #   COORDINATION_PR        `--coordination-pr <url>`
-#   FOLLOW_UP              `--follow-up <node>=<url>`
+#   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
+#                          first `=` becomes a space, since koto's own value
+#                          allowlist has no `=`; a value with no `=` is
+#                          refused here (error=usage) (the jq
+#                          `sub("="; " ")` in the pairs builder below)
 #   FOLLOW_UP_REMOVE       `--remove` -> true
 #   ADOPT_RUN              `--adopt-run <id>`
 #
@@ -215,6 +219,11 @@ FLAGS=$(printf '%s' "$TOKENS" | jq -c '. as $t
      "--remove": [$t[] | select(. == "--remove") | {v: "true"}]}')
 BAD_FLAG=$(printf '%s' "$FLAGS" | jq -r '[.[][] | .bad // empty][0] // ""')
 [ -z "$BAD_FLAG" ] || own_refusal "$BAD_FLAG needs a value (--flag <value> or --flag=<value>)"
+# --follow-up's value is <node>=<url>, and koto carries it as `<node> <url>`
+# (its own value allowlist has no `=`). A value with no `=` has no node to
+# split off, so there is no FOLLOW_UP to build.
+FU_NO_SEP=$(printf '%s' "$FLAGS" | jq -r 'first(."--follow-up"[] | .v | select(contains("=") | not)) | "[\(.)]"')
+[ -z "$FU_NO_SEP" ] || own_refusal "--follow-up takes <node>=<url>, got $FU_NO_SEP"
 if [ "$(printf '%s' "$FLAGS" | jq '(."--remove" | length) > 0 and (."--follow-up" | length) == 0')" = true ]; then
     own_refusal "--remove applies only with --follow-up <node>=<url>"
 fi
@@ -282,6 +291,12 @@ elif [ -n "$PLAN" ] && [ "$NAMED" -eq 1 ]; then
         && [ "$(jq -r '(.["run/setup"] // {}).mode // ""' "$CR/$SESSION/record.json")" = coordinated ]; then
         MODE=coordinated
     else
+        # The fallback's limits: it finds only the latest commit reachable
+        # from HEAD that deleted exactly this path, and follows no rename. A
+        # shallow clone, or a checkout without that commit, finds nothing and
+        # stays on execute.md. A relative PLAN path is resolved against the
+        # current directory. Only the frontmatter of the version just before
+        # that deletion is read.
         GONE_AT=$(git log -1 --diff-filter=D --format=%H -- "$PLAN") || GONE_AT=""
         if [[ $GONE_AT =~ ^[0-9a-f]{40}$ ]]; then
             case "$PLAN" in
@@ -458,6 +473,7 @@ fi
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
+# FOLLOW_UP's first `=` becomes a space: see FOLLOW_UP in the header.
 PAIRS_FILE="$DIR/execute-vars.json"
 printf '%s' "$TOKENS" | jq -c \
     --arg plan "$PLAN" --arg slug "$SLUG" --arg root "$ROOT" \
@@ -484,7 +500,8 @@ printf '%s' "$TOKENS" | jq -c \
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
       + $floors + $ceilings
       + coord("--store"; "STORE") + coord("--coordination-pr"; "COORDINATION_PR")
-      + coord("--follow-up"; "FOLLOW_UP") + coord("--remove"; "FOLLOW_UP_REMOVE")
+      + (coord("--follow-up"; "FOLLOW_UP") | map(.[1] |= sub("="; " ")))
+      + coord("--remove"; "FOLLOW_UP_REMOVE")
       + coord("--adopt-run"; "ADOPT_RUN")
     ' > "$PAIRS_FILE" || own_refusal "could not write the variables file"
 
