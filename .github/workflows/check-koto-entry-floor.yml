@@ -171,6 +171,7 @@ jobs:
           bash skills/work-on/scripts/has-commits_test.sh
           bash skills/work-on/scripts/check-staleness_test.sh
           bash skills/work-on/scripts/work-on-open_test.sh
+          bash skills/work-on/scripts/leg-result_test.sh
           bash skills/work-on/scripts/work-on-requires_test.sh
 
       - name: Run /coordinate's koto-backed suites

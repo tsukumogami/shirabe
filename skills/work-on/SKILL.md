@@ -311,7 +311,7 @@ below applies and the run is unchanged.
 
 Once bound, the run is still a root session: every tick carries `--no-cleanup`
 as always, and the terminal tick still promotes the result onto the leg. That
-result is koto's own for a terminal with no result map: `status` (`success`, or
+result is `status` (`success`, or
 `failure` for `done_blocked`) and the terminal state, which the leg records as
 `result_final_state` and a `request-leg` gate exposes as `final_state` (`done`,
 `done_already_complete`, `done_blocked`, `validation_exit`). koto 0.13.0 defines
@@ -319,9 +319,16 @@ that gate output, empty for explicit and refused results, in its koto-author
 template-format reference (the `request-leg` rows of the gate output table). A coordinator routes a
 promoted `work-on` leg on both, since `validation_exit` is a success too, and routes
 a refusal on its source rather than on the payload: the leg records
-`result_source: refused`, which a `request-leg` gate exposes as `source`. work-on.md
-declares no `result:` map and no `outcome`, so koto's own status and final state
-are the whole result.
+`result_source: refused`, which a `request-leg` gate exposes as `source`.
+
+The payload is `pr` alone. `done` and `done_already_complete` declare a `result:`
+map whose one key, `pr`, is the URL submitted as `pr_url` with `pr_status: created`.
+A run that opened no pull request (an already-complete issue, or a child on
+`/execute`'s shared branch) resolves `pr` to `""`, and koto lists it under
+`missing`. The payload carries no head: a coordinator reads that from GitHub when
+it verifies. `done_blocked` and `validation_exit` declare no map, so their payload
+is koto's own. work-on.md declares no `outcome`, so a coordinator still routes on
+status and final state, and reads the pull request from `pr`.
 
 Some exits never reach the leg, which stays open and unbound: an `error=usage` from
 `work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a

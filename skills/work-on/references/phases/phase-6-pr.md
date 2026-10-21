@@ -68,7 +68,8 @@ the cap. An unattended run never asks the user instead.
 
 ## Evidence (pr_creation)
 
-- `pr_status: created` + `pr_url`
+- `pr_status: created` + `pr_url` — always send `pr_url`: it is the `pr` a
+  caller's leg reads from this run's result
 - `pr_status: shared` — set when running as a plan-backed child with `SHARED_BRANCH`
   set. No PR is created or monitored; the phase routes directly to done. Using
   `created` instead would enter `ci_monitor` and monitor the orchestrator's PR,
