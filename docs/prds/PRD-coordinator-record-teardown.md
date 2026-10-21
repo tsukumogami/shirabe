@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The coordinate skill keeps a coordinator's state in two stores: the GitHub
   record (an issue body and comment stream at roadmap scope, a committed handoff
@@ -30,7 +30,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 The completeness, clarity and testability reviewers passed it over two rounds.
 The downstream DESIGN owns the approach.
