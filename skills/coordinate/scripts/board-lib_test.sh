@@ -63,9 +63,14 @@ sleep() {
 gh() { local i=0; until [ -s "$T/sleeps" ]; do [ "$i" -ge 50 ] && return 1; command sleep 0.1; i=$((i + 1)); done; }
 : >"$T/sleeps"
 BL_START=$SECONDS
+if [ -n "${BOARD_LIB_XTRACE-}" ]; then exec 9>"$BOARD_LIB_XTRACE"; BASH_XTRACEFD=9; set -x; fi
 bl_gh "$T/out" api x
-eq "a read whose deadline sleep ignores TERM returns 0" 0 "$?"
+DIAG_RC=$?
+set +x
+echo "diag: case 1 rc=$DIAG_RC after $((SECONDS - BL_START))s; T exists: $([ -d "$T" ] && echo yes || echo no)"
+eq "a read whose deadline sleep ignores TERM returns 0" 0 "$DIAG_RC"
 sleeps_left "no deadline sleep left running when it ignores TERM"
+echo "diag: after sleeps_left T exists: $([ -d "$T" ] && echo yes || echo no)"
 # A gh that returns at once is the case that left the old watchdog's sleep
 # running most often: its TERM landed before the watchdog had the sleep's pid.
 sleep() {

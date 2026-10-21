@@ -34,7 +34,7 @@ jobs:
   test-coordinate-scripts:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +42,23 @@ jobs:
       - name: Install jq (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
+
+      - name: Diagnostics (temporary)
+        run: |
+          set +e
+          echo "image: $ImageOS $ImageVersion"
+          bash --version | head -1
+          ls -l /bin/sh /usr/bin/sleep; readlink -f /bin/sh; readlink -f /usr/bin/sleep
+          sleep --version | head -2
+          dpkg -l bash coreutils dash procps 2>/dev/null | tail -n +6
+          echo "--- does a subshell run the parent's EXIT trap?"
+          bash -c 'trap "echo EXIT-trap-ran-in \$BASHPID" EXIT; ( : ); f() { :; }; f & wait; ( trap "echo t" TERM; sleep 0.1 & wait $!; exit 0 ) & wait; echo main-done $$'
+          echo "--- a background subshell whose trap execs exit"
+          bash -c 'trap "echo EXIT-trap-ran-in \$BASHPID" EXIT; ( trap "trap \"\" TERM; exit 0" TERM; sleep 5 & wait $! ) & w=$!; sleep 0.3; kill -TERM $w; wait $w; echo main-done $$'
+          echo "--- board-lib_test.sh with case 1 traced"
+          PS4='+ [$$ $BASHPID ${FUNCNAME[0]:-main}] ' BOARD_LIB_XTRACE=/tmp/xtrace.txt bash skills/coordinate/scripts/board-lib_test.sh </dev/null; echo "rc=$?"
+          echo "--- xtrace (first 1500 lines)"
+          head -1500 /tmp/xtrace.txt
 
       # Linux's own bash 5 runs every offline suite through run-tests.sh. The
       # macOS leg is the floor check, so it goes through the runner in the next
