@@ -569,7 +569,7 @@ coord-render.sh --cb_render--> scripts/lib/coordination-body.sh --> gh pr edit (
 ### Key Interfaces
 
 ```
-run-record.sh <verb> --session <S> [--node <n>] [--json <file>]   # exit 0 | 64 usage | 65 not-owner | 66 invalid
+run-record.sh <verb> --session <S> [--node <n>] [--json <file>]   # exit 0 | 64 usage | 65 not-owner | 66 invalid | 67 conflict
 run-record-lib.sh: rr_setup S | rr_nodes S | rr_node S <n> | rr_follow_ups S <n> | rr_cascade S
 coord-render.sh --session <S> --slug <slug> --home-repo <r> --coord-branch <b>
 cb_render <doc.json>  -> body on stdout          cb_parse <body-file> -> {nodes, follow_ups, run}
@@ -669,7 +669,9 @@ the renderer posts only what the index already showed, and never on a `session`-
 that found no session.
 
 **Untrusted input.** The coordination body and the run markers are editable by anyone with
-write access, and after this change only recovery reads the body. `cb_parse` keeps today's
+write access, and after this change only recovery takes run state from the body; the
+renderer reads the live body only to keep its Part 1 and to skip a post that changes
+nothing, and both merge-last gates read the body the run just posted. `cb_parse` keeps today's
 grammar (node ids `^[a-z][a-z0-9-]*$`, `owner/repo`, plan paths with `..` and `//`
 refused, 40-hex heads ignored) and reads at most the renderer's 60,000-byte cap. Recovered
 values reach `run-record.sh` as JSON data, never as shell text. A recovered pull request is
