@@ -21,6 +21,7 @@
 #      terminal, and koto's record of the leg is read:
 #        - created + pr_url, CI green, no anchor: done, payload.pr the URL;
 #        - the same as a child (ci_monitor straight to done): the URL;
+#        - created with no pr_url: pr "", read as naming none;
 #        - done_already_complete with pr_url in context: the URL;
 #        - done_already_complete with none: pr "" listed under `missing`,
 #          which lib_report_pr reads as naming no pull request;
@@ -251,7 +252,21 @@ if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
 fi
 rm -f "$RC_DIR/role"
 
-# 3. done_already_complete with a pull request recorded (an earlier lap
+# 3. created sent without pr_url: the edge writes an empty value, so the
+# payload's pr is empty (not listed as missing, since the key was written),
+# and a coordinator reads it as naming no pull request, today's fallback.
+if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
+    tick --with-data '{"go":"pr"}'
+    tick --with-data '{"pr_status":"created"}'
+    eq "no pr_url: created with CI green still ends at done" "done" "$(state)"
+    eq "no pr_url: the leg's status is success" '"success"' "$(leg .result.status)"
+    eq "no pr_url: pr is empty" '""' "$(leg .result.payload.pr)"
+    if [ -f "$COORD_SCRIPTS/record-common.sh" ]; then
+        eq "no pr_url: lib_report_pr reads no pull request" "" "$(report_pr)"
+    fi
+fi
+
+# 4. done_already_complete with a pull request recorded (an earlier lap
 # opened one).
 if open_leg; then
     printf '%s' "$URL" | (cd "$REPO" && koto context add "$S" pr_url) >/dev/null 2>&1
@@ -261,7 +276,7 @@ if open_leg; then
     eq "already, with a pull request: the payload carries it" "\"$URL\"" "$(leg .result.payload.pr)"
 fi
 
-# 4. done_already_complete with none: pr is empty and koto names it missing,
+# 5. done_already_complete with none: pr is empty and koto names it missing,
 # which a coordinator reads as naming no pull request.
 if open_leg; then
     tick --with-data '{"go":"already"}'
@@ -274,7 +289,7 @@ if open_leg; then
     fi
 fi
 
-# 5. done_blocked: a body without the closing keyword. Its result is koto's
+# 6. done_blocked: a body without the closing keyword. Its result is koto's
 # own, with no pr.
 if open_leg closing_keyword=1 ci_passing=0 merge_state_clean=0; then
     tick --with-data '{"go":"pr"}'

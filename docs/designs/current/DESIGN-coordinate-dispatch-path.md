@@ -75,8 +75,8 @@ Four facts about the tools shape the design:
   that take literals or `{{VAR}}` substitutions. A capture delivers one value
   per state. Result shapes differ by skill: `/scope`, `/execute` and
   `/deliver` put `outcome`, `step`, `reason` and `pr` in the payload; `/work-on`'s
-  success terminals put only `pr` there (shirabe#995; before it they carried no
-  result map), so its leg is routed on koto's `status` and `final_state`.
+  success terminals put only `pr` there, so its leg is routed on koto's `status`
+  and `final_state`.
 - **koto session names are machine-wide.** `scope-<topic>` started from a
   second instance is refused as an origin mismatch while the first is live.
 
