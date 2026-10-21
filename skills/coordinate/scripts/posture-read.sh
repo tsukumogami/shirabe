@@ -35,8 +35,13 @@
 # step); a hook the reader can't locate and read (an interpreter's script
 # with no path, a bare PATH command other than a text tool like jq or grep,
 # an absolute path outside the two roots, a missing file, a command
-# substitution) makes every step not already `deny` `unread`. With no root
-# found, every step is `unread`.
+# substitution) makes every step not already `deny` `unread`. A
+# `command -v NAME` lookup runs nothing and is read past. One exemption by
+# name: niwa's own worktree hook, exactly as niwa writes it
+# (`command -v niwa ... && exec niwa worktree guard; exec '<abs>' worktree guard`,
+# or `worktree from-hook`), gates no step, since niwa's guard decides only
+# worktree builds and git; any other niwa call is a PATH command like the
+# rest. With no root found, every step is `unread`.
 #
 # Verdict token: `readable merge:<v> close:<v> teardown:<v>` when no step is
 # unread, else `unread merge:<v> close:<v> teardown:<v>`, with each <v> one of
@@ -196,9 +201,10 @@ canon_root() { [ -n "$1" ] && (cd "$1" 2> /dev/null && pwd -P); }
 ROOTS_P="$(canon_root "$IROOT")
 $(canon_root "$WROOT")"
 unreadable() { HOOK_UNREAD=1; printf '%s\n' "$1" >> "$T/unreadable"; }
-# expand_path <root> <token>: the token with $CLAUDE_PROJECT_DIR and ~/ expanded.
+# expand_path <root> <token>: the token with $CLAUDE_PROJECT_DIR and ~/ expanded
+# (~/ only when HOME is set, so a missing HOME leaves a path nothing resolves).
 expand_path() {
-    printf '%s' "$2" | sed -e "s|\${CLAUDE_PROJECT_DIR}|$1|g" -e "s|\$CLAUDE_PROJECT_DIR|$1|g" -e "s|^~/|$HOME/|"
+    printf '%s' "$2" | sed -e "s|\${CLAUDE_PROJECT_DIR}|$1|g" -e "s|\$CLAUDE_PROJECT_DIR|$1|g" -e "s|^~/|${HOME:-~}/|"
 }
 # read_script <root> <token>: append the script's text, or record it unreadable.
 # It must name a path (hold a `/`), resolve under a root, and be a readable file.
@@ -230,7 +236,12 @@ classify_segment() {
             env|/usr/bin/env) shift; while [ $# -gt 0 ]; do case "$1" in -*|[A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
             # Shell keywords that lead into a command: the command follows them.
             # Quoted: bash 3.2 can't parse a bare keyword as a case pattern.
-            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time'|'exec'|'command'|'nohup') shift ;;
+            'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time'|'exec'|'nohup') shift ;;
+            # `command -v NAME` and `command -V NAME` look one NAME up and run
+            # nothing; any other `command` leads into the command after it.
+            # One name only: the hook's newlines arrive here as spaces, so a
+            # word after NAME may be a command on the next line.
+            'command') [ $# -eq 3 ] && case "$2" in -v|-V) return 0 ;; esac; shift ;;
             # `case WORD in PATTERN) command`: the command follows the pattern.
             'case') shift; while [ $# -gt 0 ]; do w=$1; shift; case "$w" in *')') break ;; esac; done ;;
             *')') shift ;;
@@ -289,26 +300,76 @@ classify_segment() {
             read_script "$root" "$w" ;;
     esac
 }
-while IFS='	' read -r root cmd; do
-    [ -n "$cmd" ] || continue
-    printf '%s\n' "$cmd" >> "$T/hooktext"
-    case "$cmd" in *'$('*|*'`'*|*'<('*) unreadable "$cmd (a command substitution)"; continue ;; esac
-    # One simple command per line, split on the shell's list and pipe operators.
-    printf '%s\n' "$cmd" | awk '{ gsub(/&&|\|\||[|;&]/, "\n"); print }' | tr -d "\"'" > "$T/segments"
-    # Split on whitespace without globbing: a hook's `*` must stay text.
-    set -f
+# is_niwa_hook <root> <words...>: the words are one of niwa's own worktree
+# hooks, exactly as niwa writes them: the bare `niwa` or the
+# $HOME/.tsuku/tools/current/niwa it installs, then `worktree guard` or
+# `worktree from-hook` and nothing else. Safe to pass unread: niwa's guard
+# refuses only worktree builds and git, never a merge, close or teardown
+# command (niwa's internal/cli/worktree_guard.go, added in niwa 0.34.0). If
+# niwa's guard ever decides more than that, this exemption goes. A bare
+# `niwa` is trusted by name because the reader models what a hook gates, not
+# whether PATH is sound, as it already does for the text tools.
+is_niwa_hook() {
+    local root=$1 w=$2
+    shift 2
+    case "$(expand_path "$root" "$w")" in
+        niwa|"${HOME:-/nonexistent-home}/.tsuku/tools/current/niwa") ;;
+        *) return 1 ;;
+    esac
+    case "$*" in 'worktree guard'|'worktree from-hook') return 0 ;; esac
+    return 1
+}
+# niwa_shaped <root> <words-file>: the hook is niwa's own, as niwa writes it:
+# every simple command is either a `command -v niwa` / `command -V niwa`
+# lookup or, after an optional `exec`, one of niwa's worktree hooks. Anything
+# else anywhere in the hook (an assignment, `env`, `cd`, another command)
+# could change which niwa runs, so the hook is then classified like any other
+# and niwa is just a PATH command. This is a whitelist of one shape, kept
+# apart from classify_segment's general lead-in rules on purpose: widening
+# those must never widen this.
+niwa_shaped() {
+    local root=$1 words=$2 seg
     while IFS= read -r seg; do
         # shellcheck disable=SC2086
         set -- $seg
-        # Redirections are not words the command runs.
-        n=$#; i=0
-        while [ $i -lt $n ]; do
-            w=$1; shift
-            case "$w" in *'>'*|*'<'*) ;; *) set -- "$@" "$w" ;; esac
-            i=$((i + 1))
-        done
-        classify_segment "$root" "$@"
+        [ $# -gt 0 ] || continue
+        [ "$1" = exec ] && shift
+        [ $# -eq 3 ] && [ "$1" = command ] && [ "$3" = niwa ] && case "$2" in -v|-V) continue ;; esac
+        [ $# -gt 0 ] && is_niwa_hook "$root" "$@" && continue
+        return 1
+    done < "$words"
+    return 0
+}
+while IFS='	' read -r root cmd; do
+    [ -n "$cmd" ] || continue
+    printf '%s\n' "$cmd" >> "$T/hooktext"
+    case "$cmd" in *'$('*|*'`'*|*'<('*|*'>('*) unreadable "$cmd (a command substitution)"; continue ;; esac
+    # One simple command per line, split on the shell's list and pipe operators.
+    # A redirection that duplicates or closes a descriptor (`2>&1`, `>&2`,
+    # `<&0`, `>&-`) names no file, so it goes first: its `&` is not a list
+    # operator. The descriptor number before it counts only as a word of its own.
+    printf '%s\n' "$cmd" | awk '{
+        gsub(/(^|[ \t])[0-9]+[<>]&([0-9]+-?|-)/, " "); gsub(/[<>]&([0-9]+-?|-)/, " ")
+        gsub(/&&|\|\||[|;&]/, "\n"); print }' | tr -d "\"'" > "$T/segments"
+    # Split on whitespace without globbing: a hook's `*` must stay text.
+    # Redirections are not words the command runs, so each segment's words
+    # are written once without them, for both readings below.
+    set -f
+    : > "$T/words"
+    while IFS= read -r seg; do
+        # shellcheck disable=SC2086
+        set -- $seg
+        kept=
+        for w in "$@"; do case "$w" in *'>'*|*'<'*) ;; *) kept="$kept $w" ;; esac; done
+        printf '%s\n' "${kept# }" >> "$T/words"
     done < "$T/segments"
+    # niwa's own worktree hook gates no step; see is_niwa_hook.
+    if niwa_shaped "$root" "$T/words"; then set +f; continue; fi
+    while IFS= read -r seg; do
+        # shellcheck disable=SC2086
+        set -- $seg
+        classify_segment "$root" "$@"
+    done < "$T/words"
     set +f
 done < "$T/hooks"
 # A second copy with shell and regex spellings of a space made plain, so
