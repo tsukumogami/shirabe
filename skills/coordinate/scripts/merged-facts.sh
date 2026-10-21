@@ -23,16 +23,22 @@
 # same check as merge-confirm.sh, from GitHub's record of the merge: the pull
 # request's state and, when MERGED, that the head it merged is <sha> and its
 # merge commit is on the default branch (board-lib.sh's bl_merge_compare).
+# With no verified head in this run (no VERIFIED capture for the pull request,
+# or the latest one isn't `verified <pr> <sha>`: verified by an earlier run,
+# or accepted by a decision), there is nothing to compare with, and one read
+# of the pull request decides instead (shirabe#560): merged is
+# `unconfirmed <pr> <the head GitHub merged>`, open or closed is
+# `not-merged <pr>`, each with the reason in coord/merged_facts.json.
 #
 # Token: `merged <pr> <sha>`, `unconfirmed <pr> <sha>` (merged, but from
-# another head, or its merge commit isn't on the default branch),
-# `not-merged <pr>`, or `unknown-topic`;
+# another head, or its merge commit isn't on the default branch, or from a
+# head this run never verified), `not-merged <pr>`, or `unknown-topic`;
 # sealed to the latest entry into merged_facts (captured as MERGED_FACTS).
 # --pr with --repo skip the holding read, for tests; --no-seal (tests) prints
 # the bare token.
 #
-# Exit codes: 0 a token printed; 2 no valid verify capture for the pull
-# request in this run, or a read failed; 64 usage.
+# Exit codes: 0 a token printed; 2 a read failed (the log, the record or
+# GitHub), which the next tick may get past; 64 usage.
 set -uo pipefail
 
 PROG=merged-facts
@@ -66,7 +72,9 @@ refuse_unit() {
         | jq -c -L "$HERE" 'include "record-codec"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
         echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
-    # The script's only EXIT trap; lib_emit exits through it.
+    # lib_emit exits through this trap. no_verified_head sets the only other
+    # one; both functions end the script, so one invocation reaches at most
+    # one of the two and neither trap replaces the other's file.
     trap 'rm -f "$DETAIL"' EXIT
     jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
         --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
@@ -100,12 +108,59 @@ else
     PR=$LINK_NUM
 fi
 
-CAP=$(bl_capture "$SESSION" VERIFIED verify_board --any-visit --for "$PR") || {
-    echo "$PROG: no valid verify capture for #$PR in this run" >&2; exit 2; }
+# no_verified_head <why>: this run holds no verified head for #$PR (it was
+# verified by an earlier run, or accepted by a decision, or the latest verify
+# read it unverified; shirabe#560), so there is nothing to compare a merge
+# with. Re-ticking would read the same log, so the run is not left here: one
+# read of GitHub's record of the pull request decides where it goes, sealed
+# like any verdict, with the reason in context key coord/merged_facts.json.
+# MERGED is `unconfirmed <pr> <the head GitHub merged>`: a merge this run
+# can't confirm, written down as the Side effects row any unconfirmed merge
+# gets, at the head GitHub merged so a later reconcile's merge check can
+# confirm that row. A head an earlier run verified isn't compared: the head
+# comes from this run's capture, never from the record. Open or closed is
+# `not-merged <pr>`, back to wait: an open one is verified before the merged
+# event is submitted again, a closed one has no merge to record. A failed
+# read exits 2, since it may succeed on the next tick. It never returns: every
+# path ends the script, through lib_emit or an exit, like refuse_unit.
+no_verified_head() {
+    local d state head token next
+    d=$(mktemp -d "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
+    trap 'rm -rf "$d"' EXIT
+    bl_gh "$d/pr" pr view "$PR" --repo "$REPO" --json state,headRefOid || { echo "$PROG: a read failed" >&2; exit 2; }
+    state=$(jq -r '.state // "" | tostring' "$d/pr")
+    head=$(jq -r '.headRefOid // "" | tostring' "$d/pr")
+    case "$state" in
+        MERGED)
+            bl_sha_ok "$head" || { echo "$PROG: #$PR merged head [$head] is not a sha" >&2; exit 2; }
+            token="unconfirmed $PR $head"
+            next="GitHub merged #$PR at $head, which this run never verified: record it as a Side effects row for $REPO#$PR at $head" ;;
+        OPEN)
+            bl_sha_ok "$head" || head=
+            token="not-merged $PR"
+            next="#$PR is still open on GitHub: drive it through verify (a report event for its unit, classified done) before submitting the merged event again" ;;
+        CLOSED)
+            bl_sha_ok "$head" || head=
+            token="not-merged $PR"
+            next="#$PR was closed on GitHub without merging: there is no merge to record" ;;
+        *) echo "$PROG: pull request state [$state]" >&2; exit 2 ;;
+    esac
+    jq -n --arg v "${token%% *}" --argjson pr "$PR" --arg repo "$REPO" --arg head "$head" --arg why "$1" --arg next "$next" \
+        '{verdict: $v, pr: $pr, repo: $repo, head: (if $head == "" then null else $head end),
+          reason: ($why + "; " + $next)}' > "$d/detail" || exit 2
+    echo "$PROG: $(jq -r .reason "$d/detail")" >&2
+    lib_emit merged_facts "$token" coord/merged_facts.json "$d/detail"
+}
+
+CAP=$(bl_capture "$SESSION" VERIFIED verify_board --any-visit --for "$PR")
+case $? in
+    0) ;;
+    1) no_verified_head "no verify capture for #$PR in this run" ;;
+    *) echo "$PROG: the verify capture for #$PR could not be read" >&2; exit 2 ;;
+esac
 set -f; set -- $CAP; set +f
 if [ $# -ne 3 ] || [ "$1" != verified ] || [ "$2" != "$PR" ] || ! bl_sha_ok "$3"; then
-    echo "$PROG: the verify capture for #$PR reads [$CAP], not a verified head" >&2
-    exit 2
+    no_verified_head "the verify capture for #$PR reads [$CAP], not a verified head"
 fi
 SHA=$3
 

@@ -17,6 +17,8 @@
 #      totalCount. A merge state of UNKNOWN is re-read once after 2 s.
 #   2. runs:  repos/R/actions/runs?head_sha=H (every event and branch); the
 #      count must equal total_count; runs for another sha are ignored.
+#      Each run needs its workflow_id, event and created_at, the key and the
+#      order supersession reads (below).
 #   3. jobs:  repos/R/actions/runs/<id>/jobs, the default latest-attempt
 #      filter, six reads at a time, for every completed run that isn't
 #      skipped or startup_failure. For each job that never ran (below), at
@@ -82,6 +84,30 @@
 # whose only failures are such jobs isn't a run-conclusion, and a required
 # check that is only such a job is required-not-run. A job with steps that
 # failed is still job-conclusion, cancelled included.
+# A later run supersedes an earlier one (shirabe#784). GitHub's own re-run
+# is a later attempt of the same run, and only its latest attempt is read; but
+# a pull request event after the first (a body edit, say) starts a new run of
+# the same workflow at the same head, and re-running the old run replays its
+# old event payload, so its failure would stay red for good. Runs are keyed by
+# workflow_id and event, and ordered by created_at, then id; a re-run keeps its
+# run's place, since it replays that run's payload. A run without the three
+# fields can't be keyed, so it fails the runs read rather than being judged
+# alone. Within a key, a job of an earlier run that finished is superseded
+# when a later run that wasn't skipped is still going (its jobs aren't read
+# yet, so the board reads pending, never verified, until it finishes) or has a
+# job of the same name that ran (not skipped, not a job that never ran). An
+# earlier run still going is never superseded: it may run a job the later run
+# doesn't, so the board waits for it. A finished run whose every job is
+# superseded (a run with no job read, a startup failure say, has none left)
+# drops out whole.
+# A superseded job's check run (its id is the job's) drops from the required
+# set's contexts too, and a run whose only red jobs are superseded or never
+# ran isn't a run-conclusion. Different workflows, or the same workflow on
+# another event, never supersede each other, and an earlier green never hides
+# a later red. `superseded` holds three shapes: {run, name, latest_attempt,
+# earlier} for a run with later attempts, {run, name, by} for a run superseded
+# whole and {run, job, name, by} for a job of a run superseded in part, `by`
+# being the latest run that superseded it.
 # Reason codes (class): board-empty, run-startup-failure,
 # run-conclusion, job-conclusion, job-no-runner, job-no-succeeded-step,
 # merge-state-dirty (unverified); job-not-run, required-not-run (not-run);
@@ -157,8 +183,10 @@ ACTIONS_APP=15368
 actions_contexts() {
     local st=${1:-/dev/null} base=$TMPD/snap.json
     [ -f "$base" ] || { echo '{"head": null, "merge_state": null}' > "$TMPD/snap.base"; base=$TMPD/snap.base; }
-    jq -c --slurpfile j "$TMPD/jobs.json" --slurpfile st "$st" --argjson app "$ACTIONS_APP" '
+    [ -f "$TMPD/sup.json" ] || echo '{"jobs": []}' > "$TMPD/sup.json"
+    jq -c --slurpfile j "$TMPD/jobs.json" --slurpfile st "$st" --slurpfile sup "$TMPD/sup.json" --argjson app "$ACTIONS_APP" '
         .contexts = ([ ($j[0] // {}) | to_entries[] | .value[]
+            | select(.id as $i | $sup[0].jobs | index($i) | not)
             | {kind: "check", name, done: (.status == "completed"),
                result: ((if .status == "completed" then (.conclusion // "none") else .status end) | ascii_upcase),
                required: false, app: $app} ]
@@ -187,16 +215,22 @@ def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
   "run-pending":"p", "job-pending":"p", "required-pending":"p",
   "merge-state-unknown":"p", "head-moved":"p",
   "read-failed":"e", "required-set-unreadable":"e", "deadline":"e"};
-slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
+def red: ((.conclusion // "") | IN("success", "skipped")) | not;
+slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
 | slurp1($req) as $req | slurp1($ref) as $ref | slurp1($files) as $files
 | (slurp1($ann) // {}) as $ann
+| (slurp1($sup) // {}) as $sup | ($sup.runs // []) as $sruns | ($sup.jobs // []) as $sjobs
 | $reads as $early
 | (if $mode == "sha" then $sha else ($s.head // null) end) as $H
-# jobs that never ran, and the runs whose every red job is one of them
+# what is judged: the runs and jobs no later run superseded
+| (if $runs0 == null then null else [ $runs0[] | select(.id as $i | $sruns | index($i) | not) ] end) as $runs
+| (if $jobs0 == null then null else ($jobs0 | with_entries(select((.key | tonumber) as $k | $sruns | index($k) | not)
+     | .value |= map(select(.id as $i | $sjobs | index($i) | not)))) end) as $jobs
+# jobs that never ran, and the runs whose every red job is one of them or was
+# superseded: no run-conclusion for those
 | [ ($jobs // {}) | to_entries[] | .key as $rid | .value[] | . + {run: ($rid | tonumber)} | select(not_run) ] as $NR
-| [ ($jobs // {}) | to_entries[]
-    | select((.value | length) > 0 and any(.value[]; not_run)
-             and all(.value[]; not_run or ((.conclusion // "") | IN("success", "skipped"))))
+| [ ($jobs0 // {}) | to_entries[]
+    | select(any(.value[]; red) and all(.value[]; (red | not) or not_run or (.id as $i | $sjobs | index($i) != null)))
     | .key | tonumber ] as $nr_runs
 # runs
 | ($runs // []) as $R
@@ -228,8 +262,8 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
    elif ($R | length) == 0 then [{code: "board-empty", detail: "no workflow run at the head"}]
    elif ($ran | length) == 0 and ($running | not) and ($NR | length) == 0 then [{code: "board-empty", detail: "every job at the head was skipped"}]
    else [] end) as $empty
-# the required set
-| ($s.contexts // []) as $ctx
+# the required set, without the check runs of superseded jobs
+| [ ($s.contexts // [])[] | select(.kind != "check" or ((.id // null) as $i | $i == null or ($sjobs | index($i)) == null)) ] as $ctx
 | (if $req == null then [] else
     ($req + [ $ctx[] | select(.required) | {name, source: "rollup", app: null} ])
     | group_by(.name)
@@ -285,7 +319,8 @@ slurp1($snap) as $s | slurp1($runs) as $runs | slurp1($jobs) as $jobs
    merge_state: $ms,
    reasons: [ $allc[] | del(.cls) ],
    skipped: ($rskip + $jskip),
-   superseded: [ $R[] | select((.run_attempt // 1) > 1) | {run: .id, name, latest_attempt: .run_attempt, earlier: [range(1; .run_attempt)]} ],
+   superseded: ([ ($runs0 // [])[] | select((.run_attempt // 1) > 1) | {run: .id, name, latest_attempt: .run_attempt, earlier: [range(1; .run_attempt)]} ]
+                + ($sup.list // [])),
    required: [ $reqj[] | {name, source, result} ],
    counts: {runs: ($R | length), jobs: ($J | length), jobs_ran: ($ran | length), required: ($reqj | length)},
    notes: ((if ($wf | length) > 0 then [{code: "workflows-changed", paths: ($wf | unique)}] else [] end) + $cnotes)}
@@ -295,13 +330,13 @@ $JUDGE"
 
 emit() {
     local f
-    for f in snap runs jobs req ref files ann; do [ -f "$TMPD/$f.json" ] || : > "$TMPD/$f.json"; done
+    for f in snap runs jobs req ref files ann sup; do [ -f "$TMPD/$f.json" ] || : > "$TMPD/$f.json"; done
     jq -nc --arg mode "$MODE" --arg sha "$SHA" --arg stopped "$STOPPED" --arg source "$SOURCE" \
         --argjson actions_app "$ACTIONS_APP" --slurpfile ann "$TMPD/ann.json" \
         --slurpfile cnotes "$TMPD/notes.jsonl" \
         --slurpfile snap "$TMPD/snap.json" --slurpfile runs "$TMPD/runs.json" \
         --slurpfile jobs "$TMPD/jobs.json" --slurpfile req "$TMPD/req.json" \
-        --slurpfile ref "$TMPD/ref.json" --slurpfile files "$TMPD/files.json" \
+        --slurpfile ref "$TMPD/ref.json" --slurpfile files "$TMPD/files.json" --slurpfile sup "$TMPD/sup.json" \
         --slurpfile reads "$TMPD/reasons.jsonl" "$JUDGE" || { echo "$PROG: internal: the judgement failed" >&2; exit 1; }
     exit 0
 }
@@ -315,7 +350,7 @@ query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
       commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100, after: $endCursor) {
         totalCount pageInfo { hasNextPage endCursor }
         nodes { __typename
-          ... on CheckRun { name status conclusion isRequired(pullRequestNumber: $number) checkSuite { app { databaseId } } }
+          ... on CheckRun { databaseId name status conclusion isRequired(pullRequestNumber: $number) checkSuite { app { databaseId } } }
           ... on StatusContext { context state isRequired(pullRequestNumber: $number) } } } } } } }
     }
   }
@@ -338,7 +373,7 @@ read -r -d '' NORM_SNAP <<'JQ'
 def pr: .data.repository.pullRequest;
 def norm:
   if .__typename == "CheckRun" then
-    {kind: "check", name, done: (.status == "COMPLETED"),
+    {kind: "check", id: (.databaseId // null), name, done: (.status == "COMPLETED"),
      result: (if .status == "COMPLETED" then (.conclusion // "NONE") else (.status // "NONE") end),
      required: (.isRequired == true), app: (.checkSuite.app.databaseId // null)}
   elif .__typename == "StatusContext" then
@@ -448,8 +483,10 @@ if ! jq -sc --arg h "$H" '
     if length == 0 then error("empty") else . end
     | (.[0].total_count) as $t | [ .[].workflow_runs[]? ] as $all
     | if ($t | type) != "number" or ($all | length) != $t then error("\($all | length) runs of \($t)")
-      elif any($all[]; (.id | type) != "number" or (.status | type) != "string" or ((.run_attempt // 1) | type) != "number") then error("a run outside its pattern")
-      else [ $all[] | select(.head_sha == $h) | {id, name: (.name // "" | tostring), status, conclusion, run_attempt: (.run_attempt // 1)} ] end' \
+      elif any($all[]; (.id | type) != "number" or (.status | type) != "string" or ((.run_attempt // 1) | type) != "number"
+                       or (.workflow_id | type) != "number" or (.event | type) != "string" or (.created_at | type) != "string") then error("a run outside its pattern")
+      else [ $all[] | select(.head_sha == $h) | {id, name: (.name // "" | tostring), status, conclusion, run_attempt: (.run_attempt // 1),
+                                                 workflow_id, event, created_at} ] end' \
     "$TMPD/runs.raw" > "$TMPD/runs.json" 2>"$TMPD/runs.jqerr"; then
     rm -f "$TMPD/runs.json"
     reason read-failed "runs: $(sed 's/^jq: error.*): //' "$TMPD/runs.jqerr" | head -1)"; emit
@@ -481,6 +518,34 @@ for id in $IDS; do
     jq -c --arg id "$id" --slurpfile j "$TMPD/jobs-$id.json" '. + {($id): $j[0]}' "$TMPD/jobs.acc" > "$TMPD/jobs.tmp" && mv "$TMPD/jobs.tmp" "$TMPD/jobs.acc"
 done
 mv "$TMPD/jobs.acc" "$TMPD/jobs.json"
+# Supersession, worked out once from the runs and the jobs read (the header
+# has the rule): {runs: [whole runs], jobs: [every superseded job, those of
+# whole runs included], list: [the superseded entries]}, read by the
+# judgement and by the Actions jobs as checks.
+read -r -d '' SUPERSEDE <<'JQ'
+def ran: .status == "completed" and .conclusion != "skipped" and (not_run | not);
+.[0] as $R | .[1] as $J
+| [ $R[] | select((.status == "completed" and .conclusion == "skipped") | not) ] as $live
+| [ $live[] | select(.status == "completed") | . as $r
+    | [ $live[] | select(.workflow_id == $r.workflow_id and .event == $r.event
+                         and ([.created_at, .id] > [$r.created_at, $r.id])) ] as $later
+    | select(($later | length) > 0)
+    | ($J[$r.id | tostring] // []) as $mine
+    | [ $mine[] | . as $j
+        | [ $later[] | select(.status != "completed" or any(($J[.id | tostring] // [])[]; .name == $j.name and ran)) ]
+        | select(length > 0)
+        | {job: $j.id, name: $j.name, by: (max_by([.created_at, .id]) | .id)} ] as $sj
+    | {run: $r.id, name: $r.name, by: ($later | max_by([.created_at, .id]) | .id), jobs: $sj,
+       whole: (($sj | length) == ($mine | length))} ] as $s
+| {runs: [ $s[] | select(.whole) | .run ],
+   jobs: [ $s[] | .jobs[].job ],
+   list: [ $s[] | if .whole then {run, name, by} else (.run as $r | .jobs[] | {run: $r, job, name, by}) end ]}
+JQ
+if ! jq -sc "$NOT_RUN_DEF
+$SUPERSEDE" "$TMPD/runs.json" "$TMPD/jobs.json" > "$TMPD/sup.json" 2>"$TMPD/sup.jqerr"; then
+    rm -f "$TMPD/sup.json"
+    reason read-failed "supersession: $(sed 's/^jq: error.*): //' "$TMPD/sup.jqerr" | head -1)"; emit
+fi
 # The reason GitHub gives for each job that never ran, from its check run's
 # annotations: one read each, at most ten, inside the board's deadline. It
 # only words the reason: a job whose annotations weren't read (past the ten,
@@ -560,7 +625,7 @@ if [ "$MODE" = sha ]; then
         | if ($ct | type) != "number" or ($c | length) != $ct then error("check runs short")
           elif ($stt | type) != "number" or ($s | length) != $stt then error("statuses short")
           else {head: null, merge_state: null, contexts: (
-            [ $c[] | {kind: "check", name, done: (.status == "completed"),
+            [ $c[] | {kind: "check", id: (.id // null), name, done: (.status == "completed"),
                       result: ((if .status == "completed" then (.conclusion // "none") else (.status // "none") end) | ascii_upcase),
                       required: false, app: (.app.id // null)} ]
             + [ $s[] | {kind: "status", name: .context, done: ((.state // "pending") != "pending"),

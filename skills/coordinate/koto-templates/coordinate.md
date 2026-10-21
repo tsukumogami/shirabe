@@ -26,8 +26,10 @@ version: "1.0"
 #                               decider input; progress-view.sh's input)
 #   coord/dispatch_check.json   dispatch_check: the verdict, the checked
 #                               choice and topic, open deferrals, counts
-#   coord/merged_facts.json     merged_facts, on unknown-topic only: the
-#                               refused unit, the accepted topics and why
+#   coord/merged_facts.json     merged_facts, on unknown-topic: the refused
+#                               unit, the accepted topics and why; with no
+#                               verified head in this run: the verdict, the
+#                               pull request, the head GitHub merged and why
 #   coord/record_confirm.json   record, verified_confirm: the source state, the
 #                               expectation and why it isn't met yet
 #   coord/report.json           report_facts: the unit's holding and pull
@@ -3807,7 +3809,8 @@ was recorded after that read.
 ## merged_facts
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
-the unit's own verified head.
+the head this run verified for the unit, or GitHub's record when there is
+none.
 
 <!-- details -->
 
@@ -3816,8 +3819,15 @@ and clears its Pull request cell (`record-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
 record step waits for; the row goes only at the teardown's destroy step. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
-verified head. A holding at Phase `scoping` gets its follow-up row, as at
-`merge_confirm`. What the roadmap needs once a unit's work lands depends on
+head its verdict names. When this run never verified the pull request (an
+earlier run did, or a decision accepted it), the check reads GitHub instead,
+and `coord/merged_facts.json` says why: merged is unconfirmed at the head
+GitHub merged, which gets that same Side effects row; still open is
+not-merged, so drive it through verify (a report event for its unit,
+classified done) before you submit the merged event again; closed without
+merging is not-merged too, with no merge to record. A holding
+at Phase `scoping` gets its follow-up row, as at `merge_confirm`. What the
+roadmap needs once a unit's work lands depends on
 its form: read
 `{{PLUGIN_ROOT}}/skills/coordinate/references/landing-{{ROADMAP_FORM}}-roadmap.md`
 and do what it says.

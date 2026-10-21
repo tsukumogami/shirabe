@@ -4,9 +4,15 @@
 def H: "0123456789abcdef0123456789abcdef01234567";
 def OTHER: "fedcba9876543210fedcba9876543210fedcba98";
 def MOVED: "1111111111111111111111111111111111111111";
+# Each run is its own workflow (workflow_id = id) unless a case says otherwise,
+# so no base run supersedes another; later(...) builds one that does.
 def run(id; status; conclusion; attempt):
-  {id: id, name: "wf-\(id)", event: "pull_request", head_branch: "feat/x", head_sha: H,
-   status: status, conclusion: conclusion, run_attempt: attempt};
+  {id: id, name: "wf-\(id)", workflow_id: id, event: "pull_request", head_branch: "feat/x", head_sha: H,
+   status: status, conclusion: conclusion, run_attempt: attempt, created_at: "2026-10-21T07:00:00Z"};
+# later(of; id; status; conclusion; at): a later run of run <of>'s workflow,
+# created at <at>, on the same event.
+def later(of; id; status; conclusion; at):
+  run(id; status; conclusion; 1) | .workflow_id = of | .name = "wf-\(of)" | .created_at = at;
 def step(c): {name: "step", conclusion: c};
 def job(id; name; conclusion; runner; steps):
   {id: id, name: name, status: "completed", conclusion: conclusion, run_attempt: 1,
@@ -17,6 +23,8 @@ def jobs(list): {total_count: (list | length), jobs: list};
 def check(name; status; conclusion; req):
   {__typename: "CheckRun", name: name, status: status, conclusion: conclusion, isRequired: req,
    checkSuite: {app: {databaseId: 15368}}};
+# check_of(job; ...): the check run an Actions job reports, carrying its id.
+def check_of(job; name; status; conclusion; req): check(name; status; conclusion; req) | .databaseId = job;
 def status_ctx(name; state; req): {__typename: "StatusContext", context: name, state: state, isRequired: req};
 def snapshot(ms; contexts):
   {data: {repository: {pullRequest: {state: "OPEN", isDraft: false, headRefOid: H, headRefName: "feat/x",

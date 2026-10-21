@@ -255,6 +255,18 @@ for src in merge_confirm merged_facts; do
     body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se')"
     eq "$src unconfirmed: without the unit's row the repository can't be told, so it waits" waiting "$(confirm)"
 done
+# merged_facts with no verified head in this run seals unconfirmed at the head
+# GitHub merged (shirabe#560): the same token, so the same Side effects row
+# confirms it, at that head and not at the one the record last held.
+session
+log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+sealed_capture merged_facts MERGED_FACTS "unconfirmed 12 $SHA_OTHER"
+log_to "$S" merged_facts record "$EVT"
+SE=$(jq -nc --arg s "$SHA_OTHER" '[{action: "merge", target: "acme/widgets#12", verified_head: $s, attempted: "2026-09-26T09:58Z", how_to_confirm: "compare blobs"}]')
+body "$(rec | jq -c --argjson se "$SE" --argjson a "$(holding alpha)" '.side_effects = $se | .holdings = [$a]')"
+eq "merged_facts unconfirmed at a head this run never verified: the Side effects row at that head confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson se "$SE" --argjson a "$(holding alpha)" --arg h "$SHA_HEAD" '.side_effects = $se | .holdings = [$a] | .side_effects[0].verified_head = $h')"
+eq "merged_facts unconfirmed at a head this run never verified: a row at the record's head waits" waiting "$(confirm)"
 
 echo "== a merge made while a hold stood =="
 # hold <name> <until> [lifted]: a hold on acme/widgets#12.
