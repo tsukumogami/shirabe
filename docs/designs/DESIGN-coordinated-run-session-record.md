@@ -472,7 +472,10 @@ Resolved inline.
 
 #### Chosen: `--follow-up <node>=<url> [--remove]`, recorded at setup, merged after its node
 
-`execute-open.sh` maps the flag to a rebind variable, `FOLLOW_UP`. Setup, after the record
+`execute-open.sh` maps the flag to a rebind variable, `FOLLOW_UP`. koto checks every
+variable's value against its own allowlist before a template's pattern, and that allowlist
+has no `=`, so the variable carries the value as `<node> <url>`: the opener turns the flag's
+first `=` into a space and refuses a value with no `=` before koto sees it. Setup, after the record
 is loaded or recovered, checks it (the node in `run/setup`, the pull request in the node's
 repository, based on its default branch, not from a fork, authored by the invoking GitHub
 login, not closed unmerged) and records it through
