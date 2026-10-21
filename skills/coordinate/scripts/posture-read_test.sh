@@ -201,11 +201,29 @@ for c in 'niwa worktree guard --force' 'niwa worktree' 'niwa destroy x' 'niwa wo
          '/usr/local/bin/niwa worktree guard' "$NHOME/.tsuku/tools/0.34.1/niwa worktree guard" \
          "$T/niwa worktree guard" "command -v niwa >/dev/null 2>&1 && exec niwa worktree guard; exec '/opt/niwa' worktree guard" \
          'command -v niwa && exec niwa instance context' 'command -p merge-guard-hook' 'command merge-guard-hook' \
-         'command -v merge-guard-hook; merge-guard-hook' 'merge-guard-hook 2>&1' 'merge-guard-hook>&2' 'true 2>&1 && merge-guard-hook'; do
+         'command -v merge-guard-hook; merge-guard-hook' 'merge-guard-hook 2>&1' 'merge-guard-hook>&2' 'true 2>&1 && merge-guard-hook' \
+         'PATH=/tmp niwa worktree guard' 'env PATH=/tmp niwa worktree guard' 'exec env niwa worktree guard' \
+         'command -v niwa merge-guard-hook' "$(printf 'command -v niwa\nmerge-guard-hook')"; do
     fresh
     in_settings "$(hook Bash "$c" bypassPermissions)"
     eq "hook [$c] leaves every step unread" "$UNREAD_ALL" "$(read_home)"
 done
+fresh
+# shellcheck disable=SC2088 # the hook's own text, which the reader expands
+in_settings "$(hook Bash '~/.tsuku/tools/current/niwa worktree guard' bypassPermissions)"
+eq "niwa's installed path written with ~/ is niwa's too" "readable merge:permit close:permit teardown:permit" "$(read_home)"
+# Without a HOME the installed path can't be told from any other, so only the
+# bare niwa passes; an empty HOME doesn't make /.tsuku/... niwa's.
+fresh
+in_settings "$(hook 'EnterWorktree|Bash' "$(niwa_hook 'worktree guard')" bypassPermissions)"
+eq "with HOME unset the installed path is unread" "$UNREAD_ALL" \
+    "$(seen "$(env -u HOME bash "$PRD" --instance-root "$IN" --workspace-root "$WS" --no-seal 2>"$T/err")")"
+eq "with HOME empty the installed path is unread" "$UNREAD_ALL" \
+    "$(seen "$(HOME='' bash "$PRD" --instance-root "$IN" --workspace-root "$WS" --no-seal 2>"$T/err")")"
+fresh
+in_settings "$(hook Bash 'exec niwa worktree guard' bypassPermissions)"
+eq "with HOME unset the bare niwa still passes" "readable merge:permit close:permit teardown:permit" \
+    "$(seen "$(env -u HOME bash "$PRD" --instance-root "$IN" --workspace-root "$WS" --no-seal 2>"$T/err")")"
 # A plain `command` or `exec` still leads into the script it runs, read as before.
 for lead in command exec; do
     fresh
@@ -213,6 +231,10 @@ for lead in command exec; do
     in_settings "$(hook Bash "$lead $IN/hooks/g.sh --check" bypassPermissions)"
     eq "[$lead <path> args] still reads the script" "readable merge:confirm close:permit teardown:permit" "$(read_home)"
 done
+fresh
+printf 'gh pr close\n' > "$IN/hooks/g.sh"
+in_settings "$(hook Bash "exec $IN/hooks/g.sh" bypassPermissions)"
+eq "a bare [exec <path>] still reads the script" "readable merge:permit close:confirm teardown:permit" "$(read_home)"
 fresh
 in_settings "$(hook Bash 'jq -r .tool_input.command 2>&1 | grep -q "gh pr close" >&2 && exit 2' bypassPermissions)"
 eq "a descriptor redirection isn't a command" "readable merge:permit close:confirm teardown:permit" "$(read_home)"

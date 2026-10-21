@@ -196,9 +196,10 @@ canon_root() { [ -n "$1" ] && (cd "$1" 2> /dev/null && pwd -P); }
 ROOTS_P="$(canon_root "$IROOT")
 $(canon_root "$WROOT")"
 unreadable() { HOOK_UNREAD=1; printf '%s\n' "$1" >> "$T/unreadable"; }
-# expand_path <root> <token>: the token with $CLAUDE_PROJECT_DIR and ~/ expanded.
+# expand_path <root> <token>: the token with $CLAUDE_PROJECT_DIR and ~/ expanded
+# (~/ only when HOME is set, so a missing HOME leaves a path nothing resolves).
 expand_path() {
-    printf '%s' "$2" | sed -e "s|\${CLAUDE_PROJECT_DIR}|$1|g" -e "s|\$CLAUDE_PROJECT_DIR|$1|g" -e "s|^~/|$HOME/|"
+    printf '%s' "$2" | sed -e "s|\${CLAUDE_PROJECT_DIR}|$1|g" -e "s|\$CLAUDE_PROJECT_DIR|$1|g" -e "s|^~/|${HOME:-~}/|"
 }
 # read_script <root> <token>: append the script's text, or record it unreadable.
 # It must name a path (hold a `/`), resolve under a root, and be a readable file.
@@ -221,19 +222,21 @@ ROOTS
 }
 # classify_segment <root> <words...>: one simple command, quotes stripped.
 classify_segment() {
-    local root=$1 w base script= inline=0 rest icode
+    local root=$1 w base script= inline=0 rest icode env_set=0
     shift
     # Leading assignments, then `env` with its options and assignments.
     while [ $# -gt 0 ]; do
         case "$1" in
-            [A-Za-z_]*=*) shift ;;
-            env|/usr/bin/env) shift; while [ $# -gt 0 ]; do case "$1" in -*|[A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
+            [A-Za-z_]*=*) env_set=1; shift ;;
+            env|/usr/bin/env) env_set=1; shift; while [ $# -gt 0 ]; do case "$1" in -*|[A-Za-z_]*=*) shift ;; *) break ;; esac; done ;;
             # Shell keywords that lead into a command: the command follows them.
             # Quoted: bash 3.2 can't parse a bare keyword as a case pattern.
             'if'|'then'|'else'|'elif'|'do'|'while'|'until'|'!'|'{'|'}'|'('|'time'|'exec'|'nohup') shift ;;
-            # `command -v NAME` and `command -V NAME` look NAME up and run
+            # `command -v NAME` and `command -V NAME` look one NAME up and run
             # nothing; any other `command` leads into the command after it.
-            'command') case "${2-}" in -v|-V) return 0 ;; esac; shift ;;
+            # One name only: the hook's newlines arrive here as spaces, so a
+            # word after NAME may be a command on the next line.
+            'command') [ $# -eq 3 ] && case "$2" in -v|-V) return 0 ;; esac; shift ;;
             # `case WORD in PATTERN) command`: the command follows the pattern.
             'case') shift; while [ $# -gt 0 ]; do w=$1; shift; case "$w" in *')') break ;; esac; done ;;
             *')') shift ;;
@@ -293,12 +296,17 @@ classify_segment() {
             # bare `niwa` or the ~/.tsuku/tools/current/niwa it installs, then
             # `worktree guard` or `worktree from-hook` and nothing else. Safe
             # to pass unread: niwa's guard refuses only worktree builds and
-            # git, never a merge, close or teardown command. Any other niwa
-            # path, subcommand or argument is read like any other command.
-            case "$(expand_path "$root" "$w")" in
-                niwa|"$HOME/.tsuku/tools/current/niwa")
-                    case "$*" in 'worktree guard'|'worktree from-hook') return 0 ;; esac ;;
-            esac
+            # git, never a merge, close or teardown command (niwa's
+            # internal/cli/worktree_guard.go, added in niwa 0.34.0). An
+            # assignment or `env` before it can change which niwa runs, so
+            # that, and any other niwa path, subcommand or argument, is read
+            # like any other command.
+            if [ "$env_set" = 0 ]; then
+                case "$(expand_path "$root" "$w")" in
+                    niwa|"${HOME:-/nonexistent-home}/.tsuku/tools/current/niwa")
+                        case "$*" in 'worktree guard'|'worktree from-hook') return 0 ;; esac ;;
+                esac
+            fi
             read_script "$root" "$w" ;;
         *)
             read_script "$root" "$w" ;;
