@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   The coordinate skill reads and writes a coordinator's state through sixteen
   record-*.sh scripts and a markdown codec that serve two stores, the GitHub
@@ -40,7 +40,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 Five decision questions were resolved inline under `/scope`; the list of
 documents to amend and supersede was mechanical and is settled in Solution
@@ -349,9 +349,8 @@ R20 lets changes that remove nothing a running coordinator reads land first,
 holds every change that removes a reader or writer of the GitHub record until no
 coordinator runs on one, and puts the script rename and the documents last.
 
-**Chosen: five additive changes, one gated removal (with the legacy importer
-in the same pull request), a rename, then the
-documents.** The early changes add the session path beside the GitHub one and
+**Chosen: five additive changes and the legacy importer, one gated removal,
+a rename, then the documents.** The early changes add the session path beside the GitHub one and
 pick between them by the run's sealed store, so a coordinator on its GitHub
 record keeps today's behaviour, which its unchanged suites prove: the JSON
 validation (the GitHub path renders
@@ -401,8 +400,9 @@ entries keep their marker and text and go on the pull request they concern, or
 on the roadmap pull request that records a status change. Nothing on GitHub is
 deleted or edited, and old progress links stay accepted. The work lands in
 eight changes: five additive ones that leave a GitHub-record coordinator's
-behaviour as it is today, one removal behind a precondition (which carries the
-legacy importer in the same pull request), the rename, and the documents.
+behaviour as it is today, one removal behind a precondition (with the legacy
+importer landed just before it, dormant), the rename, and the documents. The
+PLAN files each as its own issue and pull request.
 
 ## Solution Architecture
 
@@ -696,9 +696,11 @@ deletes them.
   an open issue with the record title in the roadmap's repository whose body
   isn't in the moved shape, at discipline scope an open rotation pull request.
   It calls none of the record writers the removal deletes.
-- **When it loads.** `coordinate-open.sh` calls it once, on a fresh start (no
-  `record/meta` for the scope on this host). A resume, a carry-across or an
-  import of a session never calls it.
+- **When it loads.** It lands before step 6 with no caller, since it removes
+  nothing a running coordinator reads and isn't held by the precondition; step
+  6 adds the one call. From then, `coordinate-open.sh` calls it once, on a
+  fresh start (no `record/meta` for the scope on this host). A resume, a
+  carry-across or an import of a session never calls it.
 - **What it does, in an order that survives a crash.** It parses the body,
   dropping any `store` Run row (the session is the store now), and writes each
   section key and each writer-authored entry (`record/entries/<n>`) through the
@@ -736,8 +738,8 @@ rewritten to start from a predecessor session.
 
 ## Implementation Approach
 
-**Before the precondition**, in any order their dependencies allow; the PLAN
-lands steps 1 and 5 in one pull request and steps 3 and 4 in another:
+**Before the precondition**, in any order their dependencies allow, each as
+its own pull request:
 
 Every step before the precondition is additive: it adds the session-store
 path and leaves the GitHub-store path exactly as it is, choosing between them
@@ -771,8 +773,8 @@ its GitHub record runs the code it runs today.
 5. **The transitional structure test.**
 
 **The precondition** (R20). The PLAN's gate block carries the same commands
-and governs if the two ever differ (design step 6 is PLAN Issues 6 and 7,
-step 7 is Issue 8). The gate is spent once step 6 merges; its moved-shape test
+and governs if the two ever differ (design step 6 is the PLAN's #984, with
+the importer #983 landed before it; step 7 is #985). The gate is spent once step 6 merges; its moved-shape test
 stops being runnable once step 7 deletes the parser it uses. No coordinator runs on the
 GitHub record when these pass, for every organization a coordinator writes to,
 run with a token that can read every repository in it, private ones included:
@@ -819,8 +821,9 @@ next start, by letting a rotation end, or by closing the issue or pull request.
    it, the discipline handoff and rotation pull request machinery, and
    `docs/disciplines/performance.md`. The koto feature probe moves into
    `coordinate-open.sh` as the start-up check that refuses
-   `store-unsupported`. The legacy importer lands in the same pull request, so
-   no release removes the GitHub record without it.
+   `store-unsupported`. The legacy importer has already landed, dormant; this
+   step adds the opener's one call into it, so no release removes the GitHub
+   record without it.
 7. **Remove the codec's markdown half and rename.** Convert the writers and the
    core to `--state-file` first, in the same pull request, since the parse and
    render scripts can't go while a writer still hands the core a body; then

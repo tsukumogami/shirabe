@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Accepted
 problem: |
   The coordinate skill keeps a coordinator's state in two stores: the GitHub
   record (an issue body and comment stream at roadmap scope, a committed handoff
@@ -30,7 +30,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Accepted
 
 The completeness, clarity and testability reviewers passed it over two rounds.
 The downstream DESIGN owns the approach.
@@ -561,8 +561,9 @@ transition, and a rotation's carry), and each has a named session test.
 - [ ] A start that resumes or imports a session never calls the importer, and a
       body that doesn't parse stops the start with nothing written.
 - [ ] The importer lives under `skills/coordinate/legacy-import/` and calls no
-      script R16 removes; the PLAN issue that removes the GitHub backend lands
-      it in the same pull request.
+      script R16 removes; it lands before the PLAN issue that removes the
+      GitHub backend, which adds its one call, so no release removes the record
+      without it.
 
 ## Out of Scope
 
