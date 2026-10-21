@@ -35,8 +35,13 @@
 # step); a hook the reader can't locate and read (an interpreter's script
 # with no path, a bare PATH command other than a text tool like jq or grep,
 # an absolute path outside the two roots, a missing file, a command
-# substitution) makes every step not already `deny` `unread`. With no root
-# found, every step is `unread`.
+# substitution) makes every step not already `deny` `unread`. A
+# `command -v NAME` lookup runs nothing and is read past. One exemption by
+# name: niwa's own worktree hook, exactly as niwa writes it
+# (`command -v niwa ... && exec niwa worktree guard; exec '<abs>' worktree guard`,
+# or `worktree from-hook`), gates no step, since niwa's guard decides only
+# worktree builds and git; any other niwa call is a PATH command like the
+# rest. With no root found, every step is `unread`.
 #
 # Verdict token: `readable merge:<v> close:<v> teardown:<v>` when no step is
 # unread, else `unread merge:<v> close:<v> teardown:<v>`, with each <v> one of
@@ -291,12 +296,6 @@ classify_segment() {
             fi
             [ -n "$script" ] || { unreadable "$w with no script"; return 0; }
             read_script "$root" "$script" ;;
-        niwa)
-            # niwa's own worktree hook passes only inside a hook that is
-            # niwa's shape throughout (see niwa_shaped); any other niwa call is
-            # read like any other command.
-            if [ "$NIWA_HOOK" = 1 ] && is_niwa_hook "$root" "$w" "$@"; then return 0; fi
-            read_script "$root" "$w" ;;
         *)
             read_script "$root" "$w" ;;
     esac
@@ -306,9 +305,10 @@ classify_segment() {
 # ~/.tsuku/tools/current/niwa it installs, then `worktree guard` or
 # `worktree from-hook` and nothing else. Safe to pass unread: niwa's guard
 # refuses only worktree builds and git, never a merge, close or teardown
-# command (niwa's internal/cli/worktree_guard.go, added in niwa 0.34.0). A
-# bare `niwa` is trusted by name because the reader models what a hook gates,
-# not whether PATH is sound, as it already does for the text tools.
+# command (niwa's internal/cli/worktree_guard.go, added in niwa 0.34.0). If
+# niwa's guard ever decides more than that, this exemption goes. A bare
+# `niwa` is trusted by name because the reader models what a hook gates, not
+# whether PATH is sound, as it already does for the text tools.
 is_niwa_hook() {
     local root=$1 w=$2
     shift 2
@@ -319,28 +319,25 @@ is_niwa_hook() {
     case "$*" in 'worktree guard'|'worktree from-hook') return 0 ;; esac
     return 1
 }
-# niwa_shaped <root> <segments-file>: every simple command of the hook is
-# either a `command -v niwa` / `command -V niwa` lookup or, after an optional
-# `exec`, one of niwa's worktree hooks. Anything else anywhere in the hook (an
-# assignment, `env`, `cd`, another command) could change which niwa runs, so
-# the whole hook is then read the ordinary way.
+# niwa_shaped <root> <words-file>: the hook is niwa's own, as niwa writes it:
+# every simple command is either a `command -v niwa` / `command -V niwa`
+# lookup or, after an optional `exec`, one of niwa's worktree hooks. Anything
+# else anywhere in the hook (an assignment, `env`, `cd`, another command)
+# could change which niwa runs, so the hook is then classified like any other
+# and niwa is just a PATH command. This is a whitelist of one shape, kept
+# apart from classify_segment's general lead-in rules on purpose: widening
+# those must never widen this.
 niwa_shaped() {
-    local root=$1 segments=$2 seg w n i
+    local root=$1 words=$2 seg
     while IFS= read -r seg; do
         # shellcheck disable=SC2086
         set -- $seg
-        n=$#; i=0
-        while [ $i -lt $n ]; do
-            w=$1; shift
-            case "$w" in *'>'*|*'<'*) ;; *) set -- "$@" "$w" ;; esac
-            i=$((i + 1))
-        done
         [ $# -gt 0 ] || continue
         [ "$1" = exec ] && shift
         [ $# -eq 3 ] && [ "$1" = command ] && [ "$3" = niwa ] && case "$2" in -v|-V) continue ;; esac
         [ $# -gt 0 ] && is_niwa_hook "$root" "$@" && continue
         return 1
-    done < "$segments"
+    done < "$words"
     return 0
 }
 while IFS='	' read -r root cmd; do
@@ -355,21 +352,24 @@ while IFS='	' read -r root cmd; do
         gsub(/(^|[ \t])[0-9]+[<>]&([0-9]+-?|-)/, " "); gsub(/[<>]&([0-9]+-?|-)/, " ")
         gsub(/&&|\|\||[|;&]/, "\n"); print }' | tr -d "\"'" > "$T/segments"
     # Split on whitespace without globbing: a hook's `*` must stay text.
+    # Redirections are not words the command runs, so each segment's words
+    # are written once without them, for both readings below.
     set -f
-    NIWA_HOOK=0
-    niwa_shaped "$root" "$T/segments" && NIWA_HOOK=1
+    : > "$T/words"
     while IFS= read -r seg; do
         # shellcheck disable=SC2086
         set -- $seg
-        # Redirections are not words the command runs.
-        n=$#; i=0
-        while [ $i -lt $n ]; do
-            w=$1; shift
-            case "$w" in *'>'*|*'<'*) ;; *) set -- "$@" "$w" ;; esac
-            i=$((i + 1))
-        done
-        classify_segment "$root" "$@"
+        kept=
+        for w in "$@"; do case "$w" in *'>'*|*'<'*) ;; *) kept="$kept $w" ;; esac; done
+        printf '%s\n' "${kept# }" >> "$T/words"
     done < "$T/segments"
+    # niwa's own worktree hook gates no step; see is_niwa_hook.
+    if niwa_shaped "$root" "$T/words"; then set +f; continue; fi
+    while IFS= read -r seg; do
+        # shellcheck disable=SC2086
+        set -- $seg
+        classify_segment "$root" "$@"
+    done < "$T/words"
     set +f
 done < "$T/hooks"
 # A second copy with shell and regex spellings of a space made plain, so
