@@ -383,11 +383,11 @@ session. Arguments, phases, prompts, printed output, and retention are
 identical either way, so the flag passes the test above: it works
 when no parent is present, and it's a shipped mode rather than a
 per-parent input. `/scope`, `/execute`, `/deliver`, and `/work-on`
-own it. A child whose terminals declare no result map, as `/work-on`'s
-don't, has koto's own result promoted instead: a status and the
-terminal state, with no `outcome` key, so its caller routes that leg
-on the final state; `/work-on` promotes koto's own result because its
-floor predates result maps. The driver that uses it is described
+own it. A child whose result map declares no `outcome`, as `/work-on`'s
+doesn't, is routed by its caller on the status and the terminal state;
+`/work-on`'s success terminals declare only `pr`, the pull request the
+run opened, and its other terminals declare no map, so koto's own
+result is promoted for them. The driver that uses it is described
 under Parent-of-the-Parent Binding in the Dispatch Contract below.
 
 ## Named Substitution Surfaces

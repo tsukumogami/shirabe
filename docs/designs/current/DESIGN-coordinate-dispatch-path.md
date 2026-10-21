@@ -74,9 +74,9 @@ Four facts about the tools shape the design:
 - **A `request-leg` gate reads one leg,** named by `request` and `leg` fields
   that take literals or `{{VAR}}` substitutions. A capture delivers one value
   per state. Result shapes differ by skill: `/scope`, `/execute` and
-  `/deliver` put `outcome`, `step`, `reason` and `pr` in the payload; `/work-on`
-  terminals carry no result map, so its leg reports only koto's `status` and
-  `final_state`.
+  `/deliver` put `outcome`, `step`, `reason` and `pr` in the payload; `/work-on`'s
+  success terminals put only `pr` there (shirabe#995; before it they carried no
+  result map), so its leg is routed on koto's `status` and `final_state`.
 - **koto session names are machine-wide.** `scope-<topic>` started from a
   second instance is refused as an origin mismatch while the first is live.
 
@@ -181,8 +181,8 @@ instead of a gate the engine evaluates.
 **Chosen: both paths write one context key, `worker_report`,** and converge on
 `take_report`. The leg path's transition writes it from the gate's output
 (`status`, `final_state`, `outcome`, `step`, `reason`, and `payload.pr`),
-which covers both the payload-carrying skills and `/work-on`'s map-less
-terminals. On the message path the coordinator submits the message on
+which covers both the payload-carrying skills and `/work-on`'s terminals, whose
+payload holds only `pr`. On the message path the coordinator submits the message on
 `wait`'s `report` event, and that edge writes its text to the key. A
 non-overridable `context-matches` gate requires the key to be non-empty
 before `take_report` moves on.

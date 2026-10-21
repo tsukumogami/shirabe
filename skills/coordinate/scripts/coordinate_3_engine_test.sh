@@ -22,7 +22,9 @@
 #      naming its pull request and a leg result carrying `pr` each go through
 #      report_link, where holding-link.sh writes the pull request and its
 #      headRefName, and on to verify_board reading that pull request with no
-#      hand write; a restart's reconcile then reports it open; `done` for a
+#      hand write, including a /work-on leg whose done result map reads the
+#      pull request from context, which never reaches rebrief; a restart's
+#      reconcile then reports it open; `done` for a
 #      report naming none goes back to wait, never to verify, and the next
 #      report naming one gets through; blocked and needs_fix still route with
 #      no pull request, and a leg-bound worker whose result names none takes
@@ -104,6 +106,53 @@ if [ -n "$LREQ" ] && empty_run linkleg 126 "leg $LREQ:deliver"; then
     link_through leg 126
 else
     bad "16 leg: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# A /work-on worker's leg (shirabe#995): its pull request reaches the leg the
+# way work-on.md carries it, written into context on the created edge and read
+# back by done's result map, and the run goes on to verify with no re-brief.
+cat > "$T/tpl/work-on.md" <<'EOF'
+---
+name: work-on
+version: "1.0"
+description: a stand-in /work-on worker for coordinate_3_engine_test.sh
+initial_state: pr_creation
+states:
+  pr_creation:
+    accepts:
+      pr_status:
+        type: enum
+        values: [created]
+        required: true
+      pr_url:
+        type: string
+    transitions:
+      - target: done
+        when:
+          pr_status: created
+        context_assignments:
+          pr_url: "${evidence.pr_url}"
+  done:
+    terminal: true
+    result:
+      pr: "${context.pr_url}"
+---
+## pr_creation
+Stand-in.
+## done
+Done.
+EOF
+WREQ=$(cd "$T/work" && koto request create --role work-on --template work-on.md --inputs '{}' \
+    --requested-by coord --coordinator-of-record coordinate-linkworkon | jq -r .request_id)
+if [ -n "$WREQ" ] && empty_run linkworkon 132 "leg $WREQ:work-on"; then
+    (cd "$T" && koto init work-on-feat-1 --template "$T/tpl/work-on.md" --koto-leg "$WREQ:work-on" > /dev/null 2> "$T/child.err" \
+        && koto next work-on-feat-1 --no-cleanup --with-data '{"pr_status":"created","pr_url":"https://github.com/acme/widgets/pull/12"}' > /dev/null 2>&1) \
+        || bad "16 work-on leg: the stand-in worker promotes its result" "$(cat "$T/child.err")"
+    eq "16 work-on leg: a done result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
+    link_through "work-on leg" 132
+    eq "16 work-on leg: rebrief is never entered" 0 "$(entered rebrief)"
+else
+    bad "16 work-on leg: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 # done for a report naming no pull request goes back to the hub, never to a

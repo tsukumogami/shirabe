@@ -1952,11 +1952,17 @@ states:
           gates.pr_body_conformant.exit_code: 1
         context_assignments:
           failure_reason: "check_exit at pr_creation: pr_body_conformant could not be satisfied: ${evidence.check_exit_reason}"
+      # The run's one record of its pull request: done's and
+      # done_already_complete's result maps read pr_url, and koto carries it
+      # to a caller's leg as `pr` (#995). A `created` sent without pr_url
+      # writes an empty value, which a caller reads as naming no pull request.
       - target: ci_monitor
         when:
           pr_status: created
           gates.closing_keyword.exit_code: 0
           gates.pr_body_conformant.exit_code: 0
+        context_assignments:
+          pr_url: "${evidence.pr_url}"
       # A body without the keyword stops here. Fail-closed: the gate also exits
       # non-zero when it cannot read the pull request at all, and both readings
       # are named in the reason, because the exit code cannot tell them apart.
@@ -2316,11 +2322,24 @@ states:
         context_assignments:
           failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
 
+  # The success terminals' result is the payload koto promotes onto a caller's
+  # leg (--koto-leg), so a coordinator reads the pull request from koto's
+  # record instead of asking the worker for it (#995). pr_url is written on
+  # pr_creation's created edge. A run that opened none (a child on
+  # /execute's shared branch, or an already-complete issue) resolves pr to ""
+  # and koto lists it under `missing`. There is no head: nothing on the run's
+  # path records one after a CI fix is pushed, so it would go stale, and a
+  # coordinator's verify reads the head from GitHub. done_blocked declares no
+  # map, so its payload stays koto's own.
   done:
     terminal: true
+    result:
+      pr: "${context.pr_url}"
 
   done_already_complete:
     terminal: true
+    result:
+      pr: "${context.pr_url}"
 
   done_blocked:
     terminal: true
@@ -3067,6 +3086,10 @@ Check if a PR already exists: `gh pr list --head {{BRANCH}}`
 Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
 
 `gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications.
+
+Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
+records it, and when this run answers a caller's leg it is the `pr` the caller
+reads from the run's result.
 
 `pr_status: created` advances only when the `pr_body_conformant` gate passes. It
 runs `check-pr-output.sh --pr-body`, which reads the pull request's title and body
