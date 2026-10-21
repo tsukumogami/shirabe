@@ -55,10 +55,17 @@ jobs:
           bash -c 'trap "echo EXIT-trap-ran-in \$BASHPID" EXIT; ( : ); f() { :; }; f & wait; ( trap "echo t" TERM; sleep 0.1 & wait $!; exit 0 ) & wait; echo main-done $$'
           echo "--- a background subshell whose trap execs exit"
           bash -c 'trap "echo EXIT-trap-ran-in \$BASHPID" EXIT; ( trap "trap \"\" TERM; exit 0" TERM; sleep 5 & wait $! ) & w=$!; sleep 0.3; kill -TERM $w; wait $w; echo main-done $$'
-          echo "--- board-lib_test.sh with case 1 traced"
-          PS4='+ [$$ $BASHPID ${FUNCNAME[0]:-main}] ' BOARD_LIB_XTRACE=/tmp/xtrace.txt bash skills/coordinate/scripts/board-lib_test.sh </dev/null; echo "rc=$?"
-          echo "--- xtrace (first 1500 lines)"
-          head -1500 /tmp/xtrace.txt
+          echo "--- board-lib_test.sh through run-tests.sh, whole suite traced"
+          RUN_TESTS_ONLY=board-lib_test.sh BOARD_LIB_XTRACE_ALL=/tmp/xtrace-all.txt bash skills/coordinate/scripts/run-tests.sh </dev/null; echo "rc=$?"
+          echo "--- trace lines naming rm, mktemp, exit or the EXIT trap"
+          grep -nE "rm -|mktemp|exit|EXIT|board-lib-test\.[A-Za-z0-9]+ *$" /tmp/xtrace-all.txt | grep -v "kill -0" | head -300
+          wc -l /tmp/xtrace-all.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: board-lib-xtrace
+          path: /tmp/xtrace-all.txt
 
       # Linux's own bash 5 runs every offline suite through run-tests.sh. The
       # macOS leg is the floor check, so it goes through the runner in the next
@@ -67,7 +74,7 @@ jobs:
       # scripts/check-bash-floor.sh too.
       - name: Run script tests offline (Linux)
         if: runner.os == 'Linux'
-        run: bash skills/coordinate/scripts/run-tests.sh
+        run: RUN_TESTS_ONLY=board-lib_test.sh bash skills/coordinate/scripts/run-tests.sh
 
       # The squash-message builder the land step calls lives in scripts/lib/,
       # outside run-tests.sh's directory, so its suite runs on its own.

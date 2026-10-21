@@ -50,6 +50,7 @@ rc=0
 n=0
 for t in "$HERE"/*_test.sh; do
     [ -e "$t" ] || continue
+    if [ -n "${RUN_TESTS_ONLY-}" ] && [ "$(basename "$t")" != "$RUN_TESTS_ONLY" ]; then continue; fi
     case "$t" in
         *_engine_test.sh) [ "$ENGINE" = 1 ] || continue ;;
         *) [ "$ENGINE" = 1 ] && continue ;;

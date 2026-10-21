@@ -16,7 +16,9 @@ PROG=board-lib-test
 . "$HERE/board-lib.sh"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/board-lib-test.XXXXXX") || exit 1
-trap 'case "$T" in */board-lib-test.*) rm -rf "$T" ;; esac' EXIT
+trap 'echo "diag: EXIT trap runs in pid $$ bashpid $BASHPID" >&2; case "$T" in */board-lib-test.*) rm -rf "$T" ;; esac' EXIT
+if [ -n "${BOARD_LIB_XTRACE_ALL-}" ]; then exec 8>"$BOARD_LIB_XTRACE_ALL"; BASH_XTRACEFD=8; PS4='+ [$$ $BASHPID ${FUNCNAME[0]:-main}] '; set -x; fi
+echo "diag: PATH=$PATH; trap -p EXIT: $(trap -p EXIT)"
 
 PASS=0
 FAIL=0
