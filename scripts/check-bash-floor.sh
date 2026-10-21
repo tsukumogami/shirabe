@@ -167,6 +167,11 @@ mktempdir() {
 #       CI automation that cancels a closed pull request's floor runs through
 #       gh, on ubuntu runners only. No skill invokes it, so it never reaches
 #       a macOS /bin/bash.
+#   scripts/macos-floor-watchdog.sh (macos-floor-watchdog.yml),
+#   scripts/macos-floor-watchdog_test.sh (check-macos-floor-legs.yml)
+#       CI automation that flags and replaces a missing daily floor run
+#       through gh, on ubuntu runners only. No skill invokes it, so it never
+#       reaches a macOS /bin/bash.
 #   scripts/check-koto-release.sh (check-koto-entry-floor.yml)
 #       The decider check on the koto minimum. It runs for real only on the
 #       ubuntu runner that installs exactly that release, and no skill invokes

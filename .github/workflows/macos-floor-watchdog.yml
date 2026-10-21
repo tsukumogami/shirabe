@@ -1,0 +1,58 @@
+name: macOS floor watchdog
+
+# macos-floor.yml runs every macOS floor suite on main once a day, from a
+# schedule, and a red run files an issue. A run that never happens files
+# nothing, and GitHub's scheduler fires late and can drop a fire under load:
+# this repository's scheduled runs have started from 49 minutes to over seven
+# hours after their cron (shirabe#993). This notices a day with no completed
+# floor run on main, files or comments on "CI: the macOS floor run is
+# missing", and dispatches one floor run to replace the missing one. The rules
+# (36 hours, at most one dispatch a day, never while a floor run is queued or
+# running, one open issue closed by the next completed run) are in
+# scripts/macos-floor-watchdog.sh, and its harness pins each one.
+#
+# It runs on a cron of its own, every four hours, so one late or dropped fire
+# of it doesn't matter, and on every push to main, which doesn't go through the
+# scheduler at all. On a pull request that changes it, it runs as a dry run
+# against the live runs: it decides and prints, and writes nothing.
+
+on:
+  schedule:
+    - cron: '43 */4 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/macos-floor-watchdog.yml'
+      - 'scripts/macos-floor-watchdog.sh'
+
+# Watchdog runs on main never overlap, so two can't both dispatch; a newer
+# pending run replaces an older pending one, which loses nothing. A pull
+# request's dry run gets a group of its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Listing and dispatching floor runs, and the tracking issue. The checkout
+    # needs no contents permission because the repository is public; a
+    # private copy would need contents: read.
+    permissions:
+      actions: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check for a missing macOS floor run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WATCHDOG_DRY_RUN: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+        run: scripts/macos-floor-watchdog.sh

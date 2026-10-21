@@ -38,7 +38,11 @@ files an issue titled "CI: the macOS floor run is red", or comments on the
 open one, naming the suites that failed; the release waits until a run on the
 new main commit is green. The same workflow
 runs on main every day, so its latest scheduled run says whether the floor was
-already red before the release started.
+already red before the release started. When no run named "macOS floor on
+main" (the scheduled run, or a dispatch with `ref=main`) has finished green or
+red for 36 hours, `macos-floor-watchdog.yml` files an issue titled "CI: the
+macOS floor run is missing" and dispatches one; an open one means the floor's
+state on main is unknown. A release run on a commit doesn't close it.
 
 ## About the eval check
 
