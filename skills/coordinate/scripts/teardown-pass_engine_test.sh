@@ -335,7 +335,7 @@ has "the pass's last line says done" "$(tail -1 "$T/pass.out")" "teardown-pass: 
 A=$(archive)
 [ -n "$A" ] && pass "the archive is under the data home, named by date, topic and job" || fail "the archive is under the data home" "$(ls -R "$HOME/.local" 2>&1)"
 for f in "claude-projects/$SLUG/$SID.jsonl" "claude-projects/$SLUG/$SID/subagents/a.jsonl" job/state.json job/timeline.jsonl job/tmp/draft.md \
-    koto/wk-inst/koto-wk-inst.state.jsonl koto/wk-tmp/koto-wk-tmp.state.jsonl teardown.json README.md MANIFEST RESULT; do
+    koto/wk-inst/koto-wk-inst.state.jsonl koto/wk-tmp/koto-wk-tmp.state.jsonl teardown.json README.md MANIFEST MANIFEST.sha256 RESULT; do
     [ -f "$A/$f" ] && pass "archived: $f" || fail "archived: $f" "$(cd "$A" 2>/dev/null && find . -type f)"
 done
 [ -e "$A/koto/wk-other" ] && fail "a koto session run elsewhere is not archived" "" || pass "a koto session run elsewhere is not archived"
@@ -546,7 +546,7 @@ eq  "the removed pass is done" 0 "$(agent_pass "$KSEAL")"
 has "its last line says done" "$(tail -1 "$T/pass.out")" "teardown-pass: done"
 A=$(rarchive "$RJOB")
 [ -n "$A" ] && pass "the archive is keyed by the session's job id" || fail "the archive is keyed by the session's job id" "$(ls -R "$HOME/.local/share" 2>&1)"
-for f in "claude-projects/${RPD##*/}/$RSID.jsonl" "claude-projects/${RPD##*/}/$RSID/subagents/a.jsonl" koto/wk-rm/koto-wk-rm.state.jsonl teardown.json README.md MANIFEST RESULT unit-cost.json; do
+for f in "claude-projects/${RPD##*/}/$RSID.jsonl" "claude-projects/${RPD##*/}/$RSID/subagents/a.jsonl" koto/wk-rm/koto-wk-rm.state.jsonl teardown.json README.md MANIFEST MANIFEST.sha256 RESULT unit-cost.json; do
     [ -f "$A/$f" ] && pass "removed, archived: $f" || fail "removed, archived: $f" "$(cd "$A" 2>/dev/null && find . -type f)"
 done
 [ -e "$A/job" ] && fail "removed: no job files are archived (the job is gone)" "" || pass "removed: no job files are archived (the job is gone)"

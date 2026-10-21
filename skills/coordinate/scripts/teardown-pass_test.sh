@@ -35,6 +35,15 @@
 # job's directory or its row is still there, or niwa still lists the
 # instance, or any other rm failure, ends it incomplete at remove.
 #
+# And `confirm` over an archive of 3,000 files: it confirms inside its
+# archive read's bound, reading sizes with a few stat runs rather than one
+# process per file; a file cut short, gone or replaced by a link, a MANIFEST
+# cut short or added to after the pass, a missing MANIFEST.sha256, a RESULT
+# that isn't done, and either listing still naming the unit are each
+# incomplete with the reason; a size read held past its deadline is
+# incomplete at the deadline and leaves nothing running. A whole pass writes
+# MANIFEST.sha256 with the MANIFEST's digest.
+#
 # Usage: bash skills/coordinate/scripts/teardown-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure. bash 3.2.
 set -uo pipefail
@@ -47,6 +56,7 @@ trap 'case "$T" in */teardown-pass-test.*) rm -rf "$T" ;; esac' EXIT
 
 PASS=0
 FAIL=0
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 
@@ -310,6 +320,9 @@ eq_ "the archive keeps unit-cost.json, keyed by its name" "unit-cost/1 ${ARCHD##
 grep -qxF '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.' "$ARCHD/README.md" \
     && ok "the README says what unit-cost.json is" || bad "the README says what unit-cost.json is" "$(cat "$ARCHD/README.md")"
 grep -q 'unit-cost.json' "$ARCHD/MANIFEST" && bad "unit-cost.json is not in the MANIFEST" || ok "unit-cost.json is not in the MANIFEST"
+eq_ "MANIFEST.sha256 records the MANIFEST's digest" "$(sha256 <"$ARCHD/MANIFEST")  MANIFEST" "$(cat "$ARCHD/MANIFEST.sha256" 2>&1)"
+grep -q '^`MANIFEST.sha256` holds the MANIFEST' "$ARCHD/README.md" \
+    && ok "the README says what MANIFEST.sha256 is" || bad "the README says what MANIFEST.sha256 is" "$(cat "$ARCHD/README.md")"
 eq_ "the posted text opens with the summary line" "Cost of w5 (${ARCHD##*/}): 1 sessions, 17 output tokens, dispatch to merge 151.0 min." \
     "$(head -n 1 "$ST/posted.txt")"
 for f in "$ENC/$SID.jsonl" "$ENC/$SID/subagents/agent-1.jsonl" "$ENC-wt/$SID/subagents/agent-2.jsonl" "$ENC-wt/$SID/subagents/agent-3.jsonl" "$ENC-wt/$COPY.jsonl"; do
@@ -450,6 +463,131 @@ TEARDOWN_CAPTURE_SECS=2 run_pass
 unchanged "a capture past the deadline"
 case "$ERR" in *"(status 124)"*) ok "  ... the warning names the deadline" ;; *) bad "  ... the warning names the deadline" "$ERR" ;; esac
 [ $(($(date +%s) - START)) -lt 15 ] && ok "  ... the pass returns at the deadline" || bad "  ... the pass returns at the deadline" "$(($(date +%s) - START))s"
+
+# ---------------------------------------------------------------------------
+# confirm over an archive of a few thousand files (shirabe#999: a per-file
+# check outran koto's 30-second action bound). The real pass and library;
+# stand-ins for the verdict reader, coord-log's seal (it prints the token),
+# koto's context add (it keeps the detail), the two listings, and a stat
+# that logs each run and can be made slow, so a case can count the processes
+# the size check starts and hold it past its deadline.
+echo "== confirm over a large archive =="
+P3="$T/plugin3/skills/coordinate/scripts"
+B3="$T/bin3"
+C3="$T/c3"
+mkdir -p "$P3" "$B3" "$C3"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$S/teardown-handoff.sh" "$P3/"
+cat >"$P3/coord-log.sh" <<'EOF'
+#!/usr/bin/env bash
+while [ $# -gt 0 ]; do [ "$1" = --token ] && echo "$2"; shift; done
+EOF
+cat >"$B3/koto" <<'EOF'
+#!/usr/bin/env bash
+[ "$1 $2" = "context add" ] && [ "$5" = --from-file ] || exit 64
+cp "$6" "$C3/detail.json"
+EOF
+printf '#!/bin/sh\ncat "$C3/niwa.json"\n' >"$B3/niwa"
+printf '#!/bin/sh\ncat "$C3/agents.json"\n' >"$B3/claude"
+REALSTAT=$(command -v stat)
+cat >"$B3/stat" <<EOF
+#!/bin/sh
+echo \$\$ >>"\$C3/stat.log"
+[ -f "\$C3/slow" ] && exec sleep 30
+exec "$REALSTAT" "\$@"
+EOF
+chmod +x "$P3"/*.sh "$B3"/*
+export C3
+CA="$T/carchive/2026-10-21-w5-4b3597d2"
+NFILES=3000
+# setup_confirm: a done archive of NFILES files, with the MANIFEST and the
+# digest the pass writes, both listings without the unit, and a fresh log.
+setup_confirm() {
+    rm -rf "$T/carchive" "$C3/slow" "$C3/detail.json"
+    mkdir -p "$CA/job/tmp"
+    : >"$C3/stat.log"
+    echo '[]' >"$C3/niwa.json"
+    echo '[]' >"$C3/agents.json"
+    printf 'topic w5\ninstance tsuku+w5 /i/w5\njob 4b3597d2 4b3597d2-6184-4a48\ntranscript /t/x.jsonl\npr acme/widgets#600 0123456789012345678901234567890123456789\nhandoff https://github.com/acme/widgets/pull/600#issuecomment-1\nkeyseal %s\n' \
+        "$KS" >"$T/cverdict"
+    local i=0 d=""
+    : >"$CA/MANIFEST"
+    while [ "$i" -lt "$NFILES" ]; do
+        [ $((i % 500)) = 0 ] && { d="job/tmp/d$((i / 500))"; mkdir -p "$CA/$d"; }
+        printf 'file %05d\n' "$i" >"$CA/$d/f $i"
+        printf '%064d 11 %s\n' 0 "$d/f $i" >>"$CA/MANIFEST"
+        i=$((i + 1))
+    done
+    printf '%s  MANIFEST\n' "$(sha256 <"$CA/MANIFEST")" >"$CA/MANIFEST.sha256"
+    printf 'done 2026-10-21T00:00:00Z\n' >"$CA/RESULT"
+}
+# run_confirm: one confirm; CRC, COUT (the sealed word), CWHY (the reason
+# stored), CSECS.
+run_confirm() {
+    local s
+    s=$(date +%s)
+    COUT=$(cd "$T/ws" && PATH="$B3:$PATH" VERDICT_FILE="$T/cverdict" TEARDOWN_ARCHIVE_DIR="$T/carchive" \
+        DC_COORD_LOG="$P3/coord-log.sh" bash "$P3/teardown-pass.sh" confirm --session s 2>/dev/null)
+    CRC=$?
+    CSECS=$(($(date +%s) - s))
+    CWHY=$(jq -r '.reason' "$C3/detail.json" 2>&1)
+}
+# refuses <label> <reason>: confirm says incomplete with the reason.
+refuses() {
+    run_confirm
+    [ "$CRC" = 0 ] && [ "$COUT" = teardown-incomplete ] && ok "$1: incomplete" || bad "$1: incomplete" "exit $CRC: $COUT"
+    case "$CWHY" in *"$2"*) ok "  ... says why" ;; *) bad "  ... says why" "$CWHY" ;; esac
+}
+
+setup_confirm
+run_confirm
+[ "$CRC" = 0 ] && [ "$COUT" = teardown-confirmed ] && ok "$NFILES files, the unit gone: confirmed" || bad "$NFILES files, the unit gone: confirmed" "exit $CRC: $COUT ($CWHY)"
+[ "$CSECS" -lt 15 ] && ok "  ... within the archive read's own bound (${CSECS}s)" || bad "  ... within the archive read's own bound" "${CSECS}s"
+NSTAT=$(grep -c . "$C3/stat.log")
+[ "$NSTAT" -ge 1 ] && [ "$NSTAT" -le 40 ] && ok "  ... the sizes come from a listing, not a process per file ($NSTAT stat runs)" \
+    || bad "  ... the sizes come from a listing, not a process per file" "$NSTAT stat runs for $NFILES files"
+
+setup_confirm
+printf 'file\n' >"$CA/job/tmp/d3/f 1700"
+refuses "a file cut short" "job/tmp/d3/f 1700 in the archive is not the size the MANIFEST records"
+setup_confirm
+rm "$CA/job/tmp/d5/f 2999"
+refuses "a file gone" "job/tmp/d5/f 2999 is missing from the archive"
+setup_confirm
+rm "$CA/job/tmp/d0/f 7"
+ln -s "$CA/job/tmp/d0/f 8" "$CA/job/tmp/d0/f 7"
+refuses "a file replaced by a link to one of its size" "job/tmp/d0/f 7 is missing from the archive"
+setup_confirm
+sed -i.bak '$d' "$CA/MANIFEST" && rm -f "$CA/MANIFEST.bak"
+refuses "a MANIFEST cut short after the pass" "the archive's MANIFEST is not the one the pass recorded"
+setup_confirm
+printf '%064d 5 job/tmp/d0/f 1\n' 0 >>"$CA/MANIFEST"
+refuses "a MANIFEST line added after the pass" "the archive's MANIFEST is not the one the pass recorded"
+setup_confirm
+rm "$CA/MANIFEST.sha256"
+refuses "no MANIFEST.sha256" "the archive has no MANIFEST.sha256"
+setup_confirm
+printf 'refused at preserve: x\n' >"$CA/RESULT"
+refuses "a RESULT that isn't done" "RESULT doesn't say done"
+setup_confirm
+echo '[{"name":"tsuku+w5","path":"/i/w5"}]' >"$C3/niwa.json"
+refuses "niwa still lists the instance" "niwa still lists tsuku+w5"
+setup_confirm
+echo '[{"id":"4b3597d2"}]' >"$C3/agents.json"
+refuses "claude still lists the job" "claude agents still lists job 4b3597d2"
+
+setup_confirm
+: >"$C3/slow"
+TEARDOWN_CONFIRM_SECS=1 refuses "a size read past its deadline" "could not be checked within 1 seconds"
+[ "$CSECS" -lt 10 ] && ok "  ... returns at the deadline (${CSECS}s)" || bad "  ... returns at the deadline" "${CSECS}s"
+tries=0
+while :; do
+    left=""
+    for p in $(cat "$C3/stat.log"); do kill -0 "$p" 2>/dev/null && left="$left $p"; done
+    [ -z "$left" ] || [ "$tries" -ge 20 ] && break
+    tries=$((tries + 1))
+    sleep 0.1
+done
+[ -z "$left" ] && ok "  ... and leaves no read running" || { bad "  ... and leaves no read running" "$left"; for p in $left; do kill "$p" 2>/dev/null; done; }
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
