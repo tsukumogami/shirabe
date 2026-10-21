@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   The coordinate skill reads and writes a coordinator's state through sixteen
   record-*.sh scripts and a markdown codec that serve two stores, the GitHub
@@ -40,7 +40,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 Five decision questions were resolved inline under `/scope`; the list of
 documents to amend and supersede was mechanical and is settled in Solution
