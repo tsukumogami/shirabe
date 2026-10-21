@@ -32,8 +32,8 @@
 # And the remove step after niwa destroy took the job itself: `claude rm`
 # printing No job matching for a job with no directory and no row ends the
 # pass done, RESULT saying destroy already removed it; the same rm while the
-# job's directory or its row is still there, or any other rm failure, ends it
-# incomplete at remove.
+# job's directory or its row is still there, or niwa still lists the
+# instance, or any other rm failure, ends it incomplete at remove.
 #
 # Usage: bash skills/coordinate/scripts/teardown-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure. bash 3.2.
@@ -189,8 +189,11 @@ case "$1" in
         echo "niwa $*" >>"$ST/log"; echo '[]' >"$ST/niwa.json"
         # niwa 0.34.1 on: destroy removes the instance's owning job too, its
         # directory and its row; a case can leave the row behind.
-        [ -f "$ST/destroy-takes-job" ] && rm -rf "$HOME/.claude/jobs/4b3597d2"
+        [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/dir-stays" ] && rm -rf "$HOME/.claude/jobs/4b3597d2"
         [ -f "$ST/destroy-takes-job" ] && [ ! -f "$ST/row-stays" ] && echo '[]' >"$ST/agents.json"
+        # And a case can have the instance outlive its destroy: the
+        # listing it saved there is put back.
+        [ -f "$ST/instance-stays" ] && cp "$ST/instance-stays" "$ST/niwa.json"
         : ;;
     *) exit 64 ;;
 esac
@@ -355,6 +358,16 @@ printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
 : >"$ST/destroy-takes-job"
 : >"$ST/row-stays"
 rm_fails "rm finds no job while the agents listing still has it" "claude agents still lists job $JID"
+setup_run
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+: >"$ST/destroy-takes-job"
+: >"$ST/dir-stays"
+rm_fails "rm finds no job while its directory is still there, its row gone" "jobs/$JID is still there"
+setup_run
+printf "No job matching '%s'\n" "$JID" >"$ST/rm-says"
+: >"$ST/destroy-takes-job"
+cp "$ST/niwa.json" "$ST/instance-stays"
+rm_fails "rm finds no job while niwa still lists the instance" "niwa still lists tsuku+w5"
 setup_run
 : >"$ST/destroy-takes-job"
 printf 'permission denied\n' >"$ST/rm-says"

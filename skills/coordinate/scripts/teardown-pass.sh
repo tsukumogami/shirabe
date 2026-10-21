@@ -500,15 +500,18 @@ if ! "$CLAUDE_CLI" rm "$JOB" >"$T/rm" 2>&1; then
     # on), leaving rm nothing to find. That is done only when rm said so and
     # the job is gone everywhere it is read: niwa no longer lists the
     # instance, the job has no directory and the agents listing has no row.
+    # A wording change in rm's message only brings back the old incomplete.
     rmerr="claude rm failed: $(tail -1 "$T/rm")"
     grep -q 'No job matching' "$T/rm" || incomplete "$rmerr"
     NL=$(niwa_list) || incomplete "$rmerr; niwa list could not be read"
     printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'type == "array" and (any(.[]; .name == $n or .path == $p) | not)' >/dev/null \
         || incomplete "$rmerr; niwa still lists $INAME"
+    # -e is false for a dangling link; a link left there is not a removal.
     if [ -e "$J" ] || [ -L "$J" ]; then incomplete "$rmerr; $J is still there"; fi
     AG=$(agents) || incomplete "$rmerr; claude agents could not be read"
     printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null \
         || incomplete "$rmerr; claude agents still lists job $JOB"
+    # On RESULT's one line: confirm and the suites read its first word.
     GONE=" (remove: job $JOB was already removed by niwa destroy)"
     say "job $JOB was already removed by niwa destroy"
 fi
