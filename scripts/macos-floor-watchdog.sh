@@ -76,7 +76,11 @@ R=$GITHUB_REPOSITORY
 SERVER=${GITHUB_SERVER_URL:-https://github.com}
 
 # The newest 100 floor runs on main: a daily run and the release dispatches
-# are a few a day, so the last completed one is well inside them.
+# are a few a day, so the last completed one is well inside them. A run's
+# updated_at stands for when it finished, since the API gives no completed_at.
+# Only a run titled "macOS floor on main" is a verdict on main; a release
+# dispatch, titled after its commit, still counts as unfinished and as created,
+# so it holds a dispatch back while it runs.
 gh api -X GET "repos/$R/actions/workflows/$FLOOR_WORKFLOW/runs" \
     -f branch=main -f per_page=100 --jq '.workflow_runs' >"$T/runs" \
     || fail "could not list the $FLOOR_WORKFLOW runs on main"
@@ -105,15 +109,16 @@ recent=$(jq -r '.recent | length' "$T/state")
 echo "Last completed floor run on main: $last_desc"
 
 # open_issue: the number of the open issue titled exactly TRACKING_TITLE, or
-# nothing. The search matches words, so the title is compared exactly here.
+# nothing. It lists the open issues rather than searching them: the search
+# index lags, so a watchdog run right after the one that filed the issue
+# would not find it and would file a second.
 open_issue() {
-    gh api -X GET search/issues \
-        -f q="repo:$R is:issue is:open in:title \"$TRACKING_TITLE\"" \
-        --jq '.items' >"$T/issues" || return 1
-    jq -r --arg t "$TRACKING_TITLE" '[.[] | select(.title == $t)][0].number // empty' "$T/issues"
+    gh api --paginate -X GET "repos/$R/issues" -f state=open -f per_page=100 \
+        --jq '.[] | select(.pull_request == null) | {number, title}' >"$T/issues" || return 1
+    jq -r -s --arg t "$TRACKING_TITLE" '[.[] | select(.title == $t)] | min_by(.number).number // empty' "$T/issues"
 }
 
-number=$(open_issue) || fail "could not search for the open \"$TRACKING_TITLE\" issue"
+number=$(open_issue) || fail "could not list the open issues"
 
 if [ -n "$last_age" ] && [ "$last_age" -lt "$STALE_HOURS" ]; then
     echo "The floor is current: the last completed run finished ${last_age}h ago, under ${STALE_HOURS}h."

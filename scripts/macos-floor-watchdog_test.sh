@@ -53,9 +53,9 @@ case "$*" in
     *"/actions/workflows/macos-floor.yml/dispatches"*)
         fails dispatch
         echo dispatched >>"$STUB_DIR/dispatched" ;;
-    *"search/issues"*)
-        fails search
-        jq -s '{items: .}' "$STUB_DIR/issues" | out ;;
+    *"-X GET repos/"*"/issues "*)
+        fails issues
+        jq -s '.' "$STUB_DIR/issues" | out ;;
     *"-X POST repos/"*"/issues/"*"/comments"*)
         fails comment
         cat "$body" >>"$STUB_DIR/commented" ;;
@@ -116,9 +116,10 @@ add() {
           html_url: "https://github.com/owner/repo/actions/runs/\($id)"}' >>"$CASE/runs"
 }
 
-issue() { # issue <number> [title]: an open issue the search returns
-    jq -n -c --argjson n "$1" --arg t "${2:-CI: the macOS floor run is missing}" \
-        '{number: $n, title: $t}' >>"$CASE/issues"
+issue() { # issue <number> [title] [pr]: an open issue the listing returns;
+    # a third argument makes it a pull request, as the issues API lists them
+    jq -n -c --argjson n "$1" --arg t "${2:-CI: the macOS floor run is missing}" --arg pr "${3:-}" \
+        '{number: $n, title: $t} + (if $pr == "" then {} else {pull_request: {url: "x"}} end)' >>"$CASE/issues"
 }
 
 comment() { # comment <body>: a comment on the open issue
@@ -369,12 +370,33 @@ fi
 
 fresh
 add 1 50 finished=49
-: >"$CASE/fail-search"
+: >"$CASE/fail-issues"
 run
-if [ "$RC" -eq 1 ] && has "could not search" && none dispatched created; then
-    pass "a failed issue search exits 1 before any write"
+if [ "$RC" -eq 1 ] && has "could not list the open issues" && none dispatched created; then
+    pass "a failed issue listing exits 1 before any write"
 else
-    fail "search failure (rc=$RC): $OUT"
+    fail "issue listing failure (rc=$RC): $OUT"
+fi
+
+fresh
+add 1 50 finished=49
+run
+if [ "$RC" -eq 0 ] && grep -q -- "--paginate -X GET repos/owner/repo/issues -f state=open" "$CASE/calls" \
+    && ! grep -q "search/" "$CASE/calls"; then
+    pass "the tracking issue is found by listing open issues, paginated, not through the lagging search"
+else
+    fail "issue listing (rc=$RC, calls: $(cat "$CASE/calls")): $OUT"
+fi
+
+fresh
+add 1 50 finished=49
+add 2 3 status=queued
+issue 14 "CI: the macOS floor run is missing" pr
+run
+if [ "$RC" -eq 0 ] && did created && none commented; then
+    pass "an open pull request with the tracking title is not the tracking issue"
+else
+    fail "pull request title (rc=$RC): $OUT"
 fi
 
 fresh
