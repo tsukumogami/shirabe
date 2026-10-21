@@ -203,7 +203,10 @@ for c in 'niwa worktree guard --force' 'niwa worktree' 'niwa destroy x' 'niwa wo
          'command -v niwa && exec niwa instance context' 'command -p merge-guard-hook' 'command merge-guard-hook' \
          'command -v merge-guard-hook; merge-guard-hook' 'merge-guard-hook 2>&1' 'merge-guard-hook>&2' 'true 2>&1 && merge-guard-hook' \
          'PATH=/tmp niwa worktree guard' 'env PATH=/tmp niwa worktree guard' 'exec env niwa worktree guard' \
-         'command -v niwa merge-guard-hook' "$(printf 'command -v niwa\nmerge-guard-hook')"; do
+         'command -v niwa merge-guard-hook' "$(printf 'command -v niwa\nmerge-guard-hook')" \
+         'PATH=/tmp; niwa worktree guard' 'PATH=/tmp && exec niwa worktree guard' 'export PATH=/tmp; exec niwa worktree guard' \
+         'cd /tmp && niwa worktree guard' 'true; niwa worktree guard' 'bash -c "niwa worktree guard"' \
+         'command -v niwa >(merge-guard-hook)' 'true >(merge-guard-hook)'; do
     fresh
     in_settings "$(hook Bash "$c" bypassPermissions)"
     eq "hook [$c] leaves every step unread" "$UNREAD_ALL" "$(read_home)"
