@@ -2,6 +2,10 @@
 # A gh stand-in for /coordinate's script tests. Not shipped behaviour: a test
 # puts this directory first on PATH.
 #
+# The engine suites' gh wrapper (coordinate-engine-lib.sh) sources this file
+# rather than starting it, so it must stay source-safe: no top-level `return`
+# or `local`, and no use of $0 or BASH_SOURCE.
+#
 # It serves repositories from the JSON file $GH_DB, appends every call's
 # arguments to "$GH_DB.calls", and applies writes to the DB so a later read
 # sees them. It exits 9 on any search form (--search, -S, a `search`

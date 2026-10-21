@@ -73,6 +73,8 @@ case "${1-} ${2-}" in
     "pr view") key="prview-${3-}" ;;
 esac
 if [ -n "$key" ] && has "$GH_BOARD_DIR/$key."; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
+# The stand-in runs in this shell, so it starts with none of this wrapper's
+# names set, as it did when it was started on its own.
 unset -f has; unset key p i
 . "$COORD_TESTDATA/gh" "$@"
 EOF
@@ -357,7 +359,10 @@ pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
 # run instead of driving its own: snap_save keeps the koto store, the gh DB
 # with its call log and the board directory as they stand, with S and WD, and
 # snap_load puts them back byte for byte, so the loaded run is the one the
-# earlier case drove. Everything a case did since is discarded with it.
+# earlier case drove. Everything a case did since is discarded with it. The
+# work/ and bare/ trees, the clock and the files a case writes under $T are
+# not saved, so a case that loads a run must not depend on them having been
+# left as the saving case left them.
 #
 # A saved run is only as good as the build that drove it. Saved runs live in
 # $T, so they never outlive the suite, but the tree can still change under a
