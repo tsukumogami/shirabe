@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   The coordinate skill reads and writes a coordinator's state through sixteen
   record-*.sh scripts and a markdown codec that serve two stores, the GitHub
@@ -40,7 +40,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 Five decision questions were resolved inline under `/scope`; the list of
 documents to amend and supersede was mechanical and is settled in Solution
@@ -764,8 +764,16 @@ and nothing outside the store can contradict them. The same holds for a
 coordinator whose state is still on an unmoved GitHub record and is started on
 the release after step 6: it starts empty, without that record's holds, and
 could merge past one. The precondition (Implementation Approach) is what keeps
-that from happening; the design keeps no start-up guard, because a guard that
-finds a coordinator issue needs the title search the removal exists to delete.
+that from happening. The design keeps no permanent start-up guard, because a
+guard that finds a coordinator issue needs the title search the removal exists
+to delete. Whether one release should carry such a guard is the owner's call,
+not yet made; the PLAN carries it as a separate item that lands with step 6 and
+is removed by step 7, so it ships in exactly one release, and that can be
+dropped without changing any other item. When it lands, its one open-issue
+search on a fresh roadmap start is the single exception to step 6's removal of
+the title search. It recognises the moved shape with its own check on the body
+rather than the codec, and it lives in one file the transitional structure test
+allows by name until step 7 removes both.
 
 **`--confirm` reads a comment by id within one repository.** Widening
 `posted_entry` from one issue to any comment of the roadmap's repository is
