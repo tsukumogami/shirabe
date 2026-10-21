@@ -1,0 +1,652 @@
+---
+schema: design/v1
+status: Proposed
+upstream: docs/prds/PRD-coordinator-record-teardown.md
+decision_provenance: inline-resolved
+problem: |
+  The coordinate skill reads and writes a coordinator's state through sixteen
+  record-*.sh scripts and a markdown codec that serve two stores, the GitHub
+  record and the coordinator's koto session. The session path still renders the
+  state to an issue body and parses it back to validate a write, the codec's
+  validators run only inside its renderer, discipline scope refuses the session
+  in six places, four entry kinds are posted on a coordinator issue that outside
+  readers depend on, and about twenty shipped documents name the GitHub record
+  as the store. Removing the record means taking all of that out without losing
+  a guarantee and without touching a coordinator that still runs on it.
+decision: |
+  Split the codec's checks into a JSON validation module, state-schema.jq, and
+  have the write core take the next state as JSON, so no write renders or
+  parses a body. Rename every surviving record-*.sh to a state-* script that
+  serves the session alone, delete the GitHub backend, the store choice, the
+  move, the codec's markdown half and the discipline handoff machinery, and
+  keep the session's key layout, adding only record/rotation and
+  record/reasoning for discipline scope. Post cost and goal-fit entries on the
+  pull request they concern and verdicts and failures on the roadmap pull
+  request that records them. Land the changes that remove nothing first, hold
+  the removal behind a precondition anyone can check on GitHub, and land the
+  rename, the amendments and the supersession last.
+rationale: |
+  The removal's acceptance is a grep, so the survivors need a namespace the
+  grep can't confuse with the record's. Validating JSON directly keeps every
+  refusal the codec makes while deleting the round trip that only existed to
+  reach them through a renderer. The session layout stays because sessions
+  already on it must resume across the change. Outward entries go where their
+  readers already look, on items GitHub owns. Ordering the work by what a
+  running coordinator reads lets most of it land before the external gate
+  opens.
+---
+
+# DESIGN: Tear down the GitHub coordinator record
+
+## Status
+
+Proposed
+
+Five decision questions were resolved inline under `/scope`; the list of
+documents to amend and supersede was mechanical and is settled in Solution
+Architecture. The reasoning that survived the decision reports is carried in
+Considered Options below.
+
+## Context and Problem Statement
+
+`docs/prds/PRD-coordinator-record-teardown.md` requires the GitHub coordinator
+record removed and everything that exists only because of it, with the
+coordinator's koto session as the one store (R1). This section restates the
+technical picture its requirements land on, read from `skills/coordinate/` at
+the head of `main` on 2026-10-21.
+
+**The record scripts serve both stores.** Sixteen non-test `record-*.sh` scripts
+and `record-codec.jq` sit under the skill. `record-source.sh` is the one reader:
+`rs_record` returns the state as the codec's JSON from either store, and on the
+session it gets there by assembling the `record/*` keys, rendering them to an
+issue body at `record/meta`'s written time and parsing that body back. Every
+writer (`record-holding.sh`, `record-hold.sh`, `record-state.sh`,
+`record-decision.sh`, `roadmap-status.sh`) builds a markdown body with
+`record-render.sh` and hands it to `record-write-core.sh`, which parses it
+(the canonical check), re-renders it with its own written time, checks it
+against `RECORD_BUDGET=60000`, and on the session parses it back once more to
+find the sections whose JSON changed. The codec's checks (`check_top`,
+`check_row`, `check_cell`, `check_worker`, `check_holds`, `check_state`,
+`check_decisions`, `text_problem`, `text_named_repos`) run inside
+`render_record`, so the renderer is the only route to them. About thirty-six
+other scripts read or write the state through the record scripts; none outside
+`skills/coordinate/` does.
+
+**The GitHub record's own machinery.** `record-find.sh` lists open issues by the
+exact title `Coordinator record: ROADMAP-<name>` (`record-common.sh`'s
+`lib_open_issues`), judges the declaration line, then the author's authority
+through a collaborator-permission read (`lib_authority`), and seals a
+`RECORD_FIND` token that `coord-log.sh run-facts` and `run-store` read for the
+issue number and the store. `record-open.sh` creates the issue, or at discipline
+scope the `coordinate/discipline-<name>` branch, a commit and a draft pull
+request. `record-append.sh` posts and lists marked comments
+(`<!-- coordinator-record-entry v1 kind=<kind> -->`) and counts only those by an
+author with write access (`lib_has_write_access`). `record-move.sh` and the
+template's `record_move` state move a GitHub record onto the session, leaving
+a moved-shape stub issue that outward entries are still posted on. The
+`store` Run row, `--store` and the `STORE` template variable choose the store
+per run.
+
+**Discipline scope is GitHub-only.** `coordinate-open.sh`, `record-open.sh`,
+`record-find.sh`, `record-append.sh`, `record-write-core.sh` and
+`record-move.sh` refuse the session at discipline scope (`store-discipline`).
+A rotation's window lives in its pull request's title, its host in the branch's
+repository, and what it hands its successor in `docs/disciplines/<name>.md`,
+committed by `rotation-close.sh` and read by `closeout-read.sh`,
+`decision-next.sh`, `deferral-check.sh`, `record-decision.sh --carry` and
+`reconcile-read.sh`. `predecessor-handoff.sh` renders that file from an expired
+predecessor's pull request body. The template's `rotation_close`,
+`rotation_step`, `rotation_done` and five `predecessor_*` states drive those
+steps.
+
+**Outward entries depend on the issue.** `record-append.sh` writes the
+`cost`, `milestone-verdict`, `milestone-failure` and `goal-fit` kinds to the
+session and posts them on the record issue, keeping the comment URL in
+`record/posted/<n>`. The cost reading guide in
+`skills/coordinate/references/unit-cost.md` lists one issue's comments.
+`roadmap-status.sh --verdict`, `--reopen` and `--confirm` read an entry back
+through `posted_entry`, which accepts only a comment on `issues/<record>`, and a
+roadmap's `## Progress` line carries that comment's URL and the entry's hash.
+
+**The documents.** `DESIGN-coordinate-record-container.md` exists to choose the
+GitHub container. Ten other designs and eight requirements documents name the
+record on GitHub as where their facts live. The PRD's R19 asks for the first to
+be superseded and the rest amended.
+
+## Decision Drivers
+
+- **The removal is grep-shaped.** PRD R16 and R17: after the last change no file
+  under `skills/coordinate/scripts/` or `koto-templates/` is named `record-*.sh`
+  or `record-codec.jq`, names the record libraries, the title, a collaborator
+  endpoint or `docs/disciplines/`, and a structure test keeps it that way.
+- **Every guarantee survives, on JSON.** R8: one writer per key, the compare
+  that refuses a changed state as `record-changed` (exit 12), the field,
+  column, hold, stored-set and Decisions rules, and the private-repository,
+  home-path and token refusals, with no markdown rendered or parsed.
+- **Sessions already on the store must not notice.** R14: every existing key
+  keeps its name and JSON shape, so a coordinator on its session resumes and
+  imports across the change.
+- **Nothing touches a live run.** R20: a change that removes a reader or writer
+  of the GitHub record waits until no coordinator runs on one; what removes
+  nothing may land first, and the scripts come out last.
+- **Readers outside the coordinator keep their entries.** R5 to R7: the four
+  outward kinds keep their marker line and text, posted on the item each is
+  about; old progress links keep being accepted; nothing on GitHub is deleted,
+  closed or edited.
+- **Discipline scope gets a store.** R10 and R11: a rotation's window, host and
+  reasoning move into the session, and a rotation finds and carries its
+  predecessor there.
+- **The skill's floor.** R21: bash 3.2 and jq, no new koto feature, no raised
+  koto floor.
+- **One reviewable change at a time.** The removal touches about fifty scripts,
+  the template, a dozen references and twenty documents; the order should let
+  each piece be reviewed and land on its own.
+
+## Considered Options
+
+### Decision 1: The shape of the session-only state code
+
+The record scripts serve two stores and validate through a renderer. After the
+removal they serve one store, and R16's grep has to tell a survivor from a
+leftover.
+
+**Chosen: a `state-` namespace, a JSON validation module, and a write core that
+takes JSON.** Each surviving `record-*.sh` becomes a `state-*.sh` script with the
+same job on the session alone (the table in Solution Architecture). The
+codec's checks move into `state-schema.jq`, a jq module whose functions take a
+state as JSON and refuse with the same `refused: ` messages; the markdown
+encoding, the table renderers, the parsers, the canonical comparison and the
+handoff format are deleted with `record-parse.sh` and `record-render.sh`. A
+writer builds the next state as JSON, as its jq already does before it
+renders today, and hands the core a state file (`--state-file`) instead of a
+body. The core validates it with `state-schema.jq`, runs the owner diffs and
+the compare against `record/meta`, scans for private repositories, and writes
+the changed keys. `state-read.sh` keeps `rs_record` returning the state's JSON
+and drops the `.md` and `.raw` outputs, `rs_view`, `rs_record_api` and
+`--show`. The template keeps its `record_*` state names and the `RECORD_FIND`
+capture: they name the coordinator's record, which the session still is, and
+they aren't scripts.
+
+*Keep the `record-*` names and strip their GitHub halves.* The least churn, and
+rejected because it fails R16 by construction: "no file named `record-*`" is the
+one form of the check that can't drift, and a maintainer can't tell a stripped
+survivor from a forgotten script.
+
+*One combined state library.* Fewer files, and rejected because the one writer
+per key that R8 keeps is enforced per script by the writer flags
+(`DECISIONS_WRITER`, `HOLDS_WRITER`, `STATE_WRITER`, `VERDICT_WRITER`) and the
+structure test that holds each to one script.
+
+*Keep a renderer for a person to read the state.* Rejected by R13: koto's
+session view is the human surface, signed off by the owner.
+
+### Decision 2: How outward entries reach their items
+
+R5 fixes the item per kind: a unit's pull request (or issue) for `cost`, the
+named pull request for `goal-fit`, the roadmap pull request for
+`milestone-verdict` and `milestone-failure`.
+
+**Chosen: an explicit target, and `roadmap-status.sh` posting its own
+entries.** `state-entry.sh` (today's `record-append.sh`) takes `--on
+<owner/repo#n>` for `cost` and `goal-fit` and refuses a `goal-fit` whose text
+names a different pull request; `unit-cost.sh` passes the holding's Pull
+request, or the unit's issue, or no target, in which case the entry stays in the
+session and the archive and the capture's output says so. A verdict or failure
+can only be posted once its roadmap pull request exists, and the progress line
+needs the comment's URL, so `roadmap-status.sh --verdict` and `--reopen` change
+order: commit the milestone edit to the branch, open the pull request with the
+whole entry in its body as today, post the session entry as a comment on that
+pull request, then commit the progress line with the comment's URL and hash and
+push it before printing the result. They take `--entry <n>` (the session
+entry) instead of `--entry-url`. `posted_entry` reads a comment by id through
+`repos/<roadmap repo>/issues/comments/<id>`, which serves issue and pull request
+conversation comments alike, so `--confirm` accepts both a new progress line
+and one written before the removal. A retry deduplicates on
+`record/posted/<n>`, then on a comment on the target with the same marker and
+text, created at or after the entry's stamp by the login `gh api user`
+returns; nothing reads a collaborator permission.
+
+*Post a verdict on the unit's pull request.* Rejected: a verdict judges a
+milestone, which may cover several pull requests or none.
+
+*Cite the roadmap pull request instead of a comment.* Rejected: the progress
+line is written before the pull request's number exists, and a pull request
+body can be edited after the fact, while the hash in the progress line is
+checked against a comment's text.
+
+*A per-scope GitHub issue for outward entries only.* Rejected: a coordinator
+issue under another name.
+
+### Decision 3: Discipline scope on the session
+
+R10 and R11 put a rotation's window, host and reasoning in the session and have
+a rotation find and carry its predecessor there.
+
+**Chosen: two keys, the predecessor found by slug and stamp, carried through the
+core.** `record/rotation` holds `{start, end, host_repo, predecessor}` (the
+predecessor's session name, or null for a first rotation) and
+`record/reasoning` holds the reasoning for the next rotation as text. Both are
+written by `state-stored-set.sh` (today's `record-state.sh`) under
+`STATE_WRITER`, which already owns Run, Standing and Work. At a discipline
+start, `state-find.sh` lists the discipline's sessions with `koto session list`
+by the scope's slug, as `coord-log.sh` already does for a roadmap scope's
+earlier runs, and takes the one with the latest stamp earlier than this run's
+that holds `record/meta`. It seals one of: `found` (this run's own state
+exists, a resume), `predecessor <session>`, `first` (no earlier rotation) or
+`unreadable <session>` (the predecessor's `record/meta` or a section key fails
+`state-schema.jq`). A new `predecessor_carry` state runs `state-open.sh
+--carry-from <session>`, which copies the predecessor's Holdings, Deferrals,
+Side effects, Reversals, Holds, Run, Standing, Work, unsettled Decisions and
+next decision number into this run through `core_carry`, and records the
+predecessor in `record/rotation`. Reconcile reads `record/reasoning` from the
+predecessor's session and classifies it `present` or `not_recorded` with the
+rule it applies to the handoff file today. An expired predecessor that never
+closed has no `record/reasoning`, so it reads as `not_recorded`. Closing a
+rotation writes `record/reasoning` and ends the run; nothing is committed and
+no pull request is opened. A predecessor on another host is imported first by
+its owner with `coordinate-open.sh --import`, which this change allows at
+discipline scope. A second live session of the same discipline on one host is
+refused with the opener's existing `session-live` refusal.
+
+*One session per discipline across all rotations.* Rejected: each rotation's
+run stamp is what its Decisions stamps key on, and a template change would
+carry everything into a new session anyway.
+
+*A rotation index in a shared, well-known session.* Rejected: new state, in a
+store nobody owns.
+
+### Decision 4: Size bounds, `record-full` and the decisions archive
+
+R9 removes every bound that came from GitHub's body limit.
+
+**Chosen: one bound survives, with a new reason.** The 60,000-byte record budget,
+the 65,536-byte `MAX_BYTES`, `record-full` (exit 13) and the template's
+`record_conflict` route on it are removed. An outward entry is still posted as a
+GitHub comment, whose limit is 65,536 characters, so `state-entry.sh` keeps its
+60,000-byte cap on an outward kind's text, now justified by the comment limit;
+session-only kinds have no cap beyond koto's. `record-decision.sh --archive`,
+which only fires within 4,096 bytes of the budget, is removed with
+`decision-next.sh`'s `archive` move. Restoring an archived row stays: a session
+moved from a GitHub record may carry an Archived line and `decisions` entries,
+and an arrival naming one of those rows still brings it back.
+
+*A new per-key session budget.* Rejected: a limit with no consumer, which R9
+asks not to invent.
+
+*Keep the archive with a session-size trigger.* Rejected: a new state policy the
+PRD rules out.
+
+### Decision 5: The order, and the live-run precondition
+
+R20 lets changes that remove nothing a running coordinator reads land first,
+holds every change that removes a reader or writer of the GitHub record until no
+coordinator runs on one, and puts the scripts last.
+
+**Chosen: five early changes, one gated removal, one last rename.** The early
+changes keep both stores working: the JSON validation (the GitHub path renders
+from validated JSON), the outward targets (old links stay accepted), discipline
+on the session (a rotation on GitHub keeps its machinery until it ends), the
+session as the default store for a scope with no record, and the structure test
+in a transitional form. Then, behind the precondition, the GitHub backend and the
+store choice come out at both scopes. Last, the codec's markdown half goes and
+the survivors are renamed, with the registries, the CI path filters, the
+amendments and the supersession in the same change. The precondition is two
+searches anyone can run (Implementation Approach).
+
+*One pull request after the gate.* Rejected: too large to review, and it holds
+the safe changes behind an external gate for no reason.
+
+*Remove the GitHub backend before discipline scope runs on the session.*
+Rejected: a discipline rotation would have no store.
+
+### The documents (mechanical)
+
+`DESIGN-coordinate-record-container.md` is superseded; its decisions are about
+the container, and the stored set it introduced (Run, Standing, Work) and its
+landed-feature write-back are restated in Solution Architecture so they keep a
+current statement. Every other document whose text makes the GitHub record the
+store gets an amendment in the fold-record removal's pinned form, keeping its
+status. A document that mentions the record only in passing, or is about what
+stays GitHub's, gets nothing.
+
+## Decision Outcome
+
+The coordinate skill keeps a coordinator's state in its session and nowhere
+else. Its scripts read and write that state as JSON through a `state-`
+namespace, validated by `state-schema.jq` with every refusal the codec made
+except markdown layout and GitHub's body limit, and written by the same writers
+with the same owner flags through a core that takes JSON. The session layout is
+unchanged apart from `record/rotation` and `record/reasoning`, which give
+discipline scope its window, host and handoff, and a rotation finds and carries
+its predecessor through `koto session list` and the core's carry. Outward
+entries keep their marker and text and go on the pull request they concern, or
+on the roadmap pull request that records a status change. Nothing on GitHub is
+deleted or edited, and old progress links stay accepted. The work lands in
+seven changes: five that remove nothing, one removal behind a precondition, and
+one rename that also carries the documents.
+
+## Solution Architecture
+
+### What each record script becomes
+
+| Today | After | What changes |
+|---|---|---|
+| `record-common.sh` | `state-common.sh` | loses `lib_open_issues`, `lib_discipline_read`, `lib_authority`, `lib_has_write_access`, `ISSUE_TITLE`, `lib_rotation_dates` and `lib_file_at`; keeps `ENTRY_MARKER_PREFIX` for outward posts |
+| `record-source.sh` | `state-read.sh` | session backend only; `rs_record` returns JSON, no `.md` or `.raw`; `rs_view`, `rs_record_api`, `rs_probe`'s store choice and `--show` removed; `rs_facts`, `rs_source` (always `session`) and the resume and carry candidates stay |
+| `record-codec.jq` | `state-schema.jq` | the `check_*`, `text_*`, `pr_link`, `d_*` and `rework_problem` functions over JSON; no `enc`, `dec`, table renderer, parser, `normalized` or handoff format |
+| `record-parse.sh`, `record-render.sh` | removed | |
+| `record-write-core.sh` | `state-write-core.sh` | takes `--state-file`; validates with `state-schema.jq`; no budget, no render, no `gh issue edit` or `gh pr edit`, no `store-moved`; `core_carry` and `core_write_host` stay |
+| `record-write.sh` | `state-write.sh` | no `--close` (it closed the issue); `--end` and `--pushed-head` stay |
+| `record-holding.sh` | `state-holding.sh` | builds JSON instead of a body |
+| `record-hold.sh` | `state-hold.sh` | as above |
+| `record-state.sh` | `state-stored-set.sh` | as above; no `store` Run key; writes `record/rotation` and `record/reasoning` |
+| `record-decision.sh` | `state-decision.sh` | as above; no `--archive`; `--carry` reads the predecessor's session instead of the handoff file |
+| `record-append.sh` | `state-entry.sh` | no issue read before an append; `--on` target for outward kinds; dedup by `record/posted/<n>` and the coordinator's login |
+| `record-confirm.sh` | `state-confirm.sh` | compares `record/meta`'s written time instead of a body's `Written:` line |
+| `record-handover.sh` | `state-handover.sh` | reads through `state-read.sh` |
+| `record-find.sh` | `state-find.sh` | reads the session only: `found`, `none`, `malformed`, and at discipline scope `predecessor`, `first`, `unreadable`; no title search, authority read or store token |
+| `record-open.sh` | `state-open.sh` | seeds the session's keys; at discipline scope writes `record/rotation` and runs `--carry-from` |
+| `record-move.sh` | removed | |
+| `rotation-close.sh`, `predecessor-handoff.sh` | removed | closing a rotation is `state-stored-set.sh --reasoning` and `state-write.sh --end` |
+
+Every caller changes the name it calls and, where it read a body, reads JSON:
+`reconcile-read.sh` drops `rs_view` and `reconcile-salvage.jq`'s body parse;
+`pick-facts.sh`, `closeout-read.sh` and `deferral-check.sh` read
+`rs_record`'s JSON; `progress-view.sh` and `milestone.sh` include
+`state-schema`. `coord-log.sh run-facts` returns `{scope, name, repo}` with no
+issue number, and `run-store` is removed; `unit-cost.sh` reads the unit's
+milestone from those facts and its pull request from the holding.
+
+### The session layout
+
+Unchanged from the session store (R14): `record/meta`, `record/holdings`,
+`record/deferrals`, `record/side-effects`, `record/reversals`, `record/holds`,
+`record/run`, `record/standing`, `record/work`, `record/decisions`,
+`record/host`, `record/entries/<n>`, `record/posted/<n>` and
+`legs/<request-id>/<leg>`, each with today's JSON. Added for discipline scope
+(R10): `record/rotation` and `record/reasoning`, both owned by
+`state-stored-set.sh`. The writer of each key:
+
+| Key | Writer (flag) |
+|---|---|
+| `record/meta` | `state-write-core.sh`, for every writer |
+| `record/holdings`, `deferrals`, `side-effects`, `reversals` | `state-write.sh` via `state-holding.sh` (general writer); `roadmap-status.sh` adds Side effects rows |
+| `record/holds` | `state-hold.sh` (`HOLDS_WRITER`) |
+| `record/run`, `standing`, `work`, `rotation`, `reasoning` | `state-stored-set.sh` (`STATE_WRITER`); `verdict-owed` and `rework` rows by `roadmap-status.sh` (`VERDICT_WRITER`) |
+| `record/decisions` | `state-decision.sh` (`DECISIONS_WRITER`) |
+| `record/host` | `state-stored-set.sh --host` |
+| `record/entries/<n>`, `record/posted/<n>` | `state-entry.sh` |
+| `legs/<request>/<leg>` | `dispatch-worker.sh`, `wait-target.sh`, `reconcile-legs.sh` |
+
+`coordinate-template-structure_engine_test.sh`, which holds each writer flag to
+one script today, gains a row per key in this table and fails when a script
+other than the key's writer writes it.
+
+### The write path
+
+```
+writer: rs_record -> jq builds next state JSON -> state file -> core_write --state-file
+core_write: lib_write_guard -> state-schema.jq validate (65) -> rs_record (live)
+            -> compare record/meta written (12) -> owner diffs (65) -> private-repo scan (65)
+            -> record/meta pending -> changed section keys -> record/meta written
+```
+
+The refusals kept, from `record-codec.jq` and `record-write-core.sh` at the
+PLAN's base commit (R8), each with a session test: a changed state
+(`record-changed`, 12); a second writer of an owned key; an unknown top-level
+field; a control character in a cell; an empty required column; a column that
+records what GitHub recomputes; a malformed worker or address; a malformed pull
+request link; a malformed hold or an illegal hold change; an unknown Run key or
+a stored-set row breaking its rules (rework, pause-until); an illegal Decisions
+state, transition or stamp; and a private repository name, a home-directory
+path or a token-shaped string in a value that can leave the host. The
+private-repository scan still reads each named repository's visibility and
+counts one it can't read as private.
+
+### The start
+
+`coordinate-open.sh` loses `--store`, the `STORE` variable and the
+`store-discipline` refusals, and keeps its resume, carry-across and `--import`
+at both scopes. A koto without the session store's features is refused at
+start with `store-unsupported`, as the probe does today. The template's
+`record_find` runs `state-find.sh`: `found` goes to `reconcile_pass`, `none`
+to `record_open`, `malformed` to `record_conflict`, `predecessor` to the new
+`predecessor_carry`, `first` to `record_open`, and `unreadable` to
+`record_conflict` with the predecessor named. `record_move`,
+`predecessor_handoff`, `predecessor_close`, `predecessor_step`,
+`predecessor_done`, `predecessor_handed_over`, `rotation_close`,
+`rotation_step` and `rotation_done` are removed; the rotation's end becomes a
+step of the existing close-out that writes `record/reasoning` and ends the run.
+The terminal results' `record:` field names the session instead of an issue
+URL.
+
+### Outward entries
+
+| Kind | Target | Who posts | Read back by |
+|---|---|---|---|
+| `cost` | the holding's pull request; else the unit's issue; else none | `unit-cost.sh` via `state-entry.sh --on` | the reading guide in `references/unit-cost.md`, which lists a scope's units from the session's Holdings (or the roadmap's Delivered lines) and reads each pull request's comments with today's marker filter |
+| `goal-fit` | the pull request the entry names | the coordinator via `state-entry.sh --on` | people on that pull request |
+| `milestone-verdict` | the roadmap pull request `roadmap-status.sh --verdict` opens | `roadmap-status.sh` | `roadmap-status.sh --confirm`, through the progress line |
+| `milestone-failure` | the roadmap pull request `roadmap-status.sh --reopen` opens | `roadmap-status.sh` | as above |
+
+### Discipline scope
+
+```
+start --> record_find
+  found                --> reconcile_pass            (resume of this rotation)
+  predecessor <s>      --> predecessor_carry --> reconcile_pass
+  first                --> record_open       --> reconcile_pass
+  unreadable <s>       --> record_conflict          (stop for the person)
+rotation end: state-stored-set.sh --reasoning; state-write.sh --end
+```
+
+### What stays on GitHub
+
+Pull request state, head, checks, reviews, mergeability and the merge; the
+review panel table a worker writes in its pull request body; issues used as
+units of work; the roadmap at the default branch and the roadmap pull requests
+`roadmap-status.sh` opens; the merge-order block a person reads; the CI
+merge-last gate's reads; the worker's handoff comment on its merged pull
+request; and the outward entries posted on the items above (R15). The scripts
+that read these (`board-verdict.sh`, `panel-evidence.sh`, `squash-message.sh`,
+`github-refs.sh`, `teardown-inventory.sh`, `merge-confirm.sh`,
+`merged-facts.sh`, `teardown-handoff.sh`) change only where they called a
+record script.
+
+### The stored set and the write-back, restated
+
+`DESIGN-coordinate-record-container.md` introduced three sections and a
+write-back that outlive its container. **Run** holds the run's arguments, its
+cap, the coordinator's address and one `told` row per party that has been given
+it; **Standing** holds the events only a person owns that still bind the run
+(pause, go-ahead, approval, answer, assignment), each with its owner, who
+relayed it and when; **Work** holds a next step for every holding and a row for
+work outside the holdings, local agents included. `state-stored-set.sh` is their
+one writer and appends the matching entry. The handover gate on `reconcile`
+holds a start while a holding has no next step or a live worker hasn't been
+told the current address. A landed feature's Status and Outcome reach the
+roadmap through `roadmap-status.sh`, run from the `landed` event: it opens the
+roadmap pull request and records it as a side effect in flight, which pick reads
+so the feature isn't offered again while the pull request waits. All of this is
+unchanged; only its store is the session.
+
+### The documents
+
+Superseded, moved to `docs/designs/archive/` with `superseded_by` naming this
+design once it is Current:
+
+- `docs/designs/current/DESIGN-coordinate-record-container.md`
+
+Amended, each with a `## Amendment — <date>` section appended whose first
+paragraph is "`DESIGN-coordinator-record-teardown.md` removes the GitHub
+coordinator record. The original text above is left unedited; this section
+records what no longer holds.", followed by what moved:
+
+| Document | What the amendment records |
+|---|---|
+| `DESIGN-coordinate-record.md` | the find, open, write and confirm funnel reads and writes the session; no issue or pull request container, declaration-line authority, `Written:` compare or committed handoff; the codec's checks are `state-schema.jq` over JSON |
+| `DESIGN-coordinate-skill.md` | Decision 2's layout on GitHub and both containers no longer hold; the rest stands |
+| `DESIGN-coordinate-reconcile.md` | the reader reads the session, and the predecessor's handoff is its session's `record/reasoning` |
+| `DESIGN-coordinate-merge-policy.md` | Holds are the session's `record/holds`; a rotation's carry moves them; no record pull request's Part 1 |
+| `DESIGN-coordinate-paused-state.md` | Standing and Work are session keys; a person's resume reaches the coordinator by message, not a comment on the record |
+| `DESIGN-coordinate-decisions.md` | Decisions are the session's `record/decisions`; no body limit, `record-full` or archive; `--carry` reads the predecessor's session |
+| `DESIGN-coordinate-dispatch-path.md` | the holding's reader and writer are `state-holding.sh` over the session |
+| `DESIGN-coordinate-teardown-agent.md` | the record row the coordinator clears last is a session key |
+| `DESIGN-milestone-verdicts.md` | decisions are made from the session plus the default branch; verdict and failure entries are posted on the roadmap pull request |
+| `DESIGN-coordinator-session-record.md` | the GitHub backend, the store choice (Decision 2), the moved shape (Decision 10) and the move (Decision 11) are removed; discipline scope runs on the session |
+| `PRD-coordinate-skill.md` | R27's record on GitHub no longer holds |
+| `PRD-coordinate-record.md` | the glossary's Record, R14's body and R17 to R20's find, open, close-out and rotation title no longer hold |
+| `PRD-coordinate-reconcile.md` | R1's issue or pull request read and the handoff file read move to the session |
+| `PRD-coordinate-decisions.md` | R6's take-over and handoff carry read the predecessor's session |
+| `PRD-coordinator-session-record.md` | discipline scope, deferred to this removal by R4, is settled |
+| `PRD-milestone-verdicts.md` | the glossary's record body and entry move to the session and the roadmap pull request |
+| `PRD-coordinate-dispatch-path.md` | "the record on GitHub" is the coordinator's session |
+| `BRIEF-coordinate-record.md` | the container question it framed is answered by the session |
+
+Not changed: `DESIGN-coordinated-run-session-record.md` and its PRD (the
+coordination pull request is out of scope), `DESIGN-settled-branch-record.md`
+(an unrelated record), and the passing mentions in the milestone format
+documents.
+
+### The structure test
+
+`state-read_test.sh` replaces `record-source_test.sh`'s `body_readers` with a
+check over every file under `skills/coordinate/scripts/` and
+`skills/coordinate/koto-templates/`: no file named `record-*.sh` or
+`record-codec.jq`; no file naming `record-(common|source|parse|render)\.sh`,
+`record-codec`, `Coordinator record:`, `collaborators/`, `docs/disciplines/` or
+the five removed `store-*` codes; only its own fixtures may match, and each
+pattern has one. Its transitional form, which lands early, refuses any new file
+matching the patterns and allows the existing ones by name, so the list can
+only shrink.
+
+### Registries and CI
+
+The rename updates `scripts/bash-floor/coordinate.list`, the check-skill rows,
+`scripts/testdata/rule-coverage.tsv` (the record-find and record-open rows, the
+body grammar rows, the discipline handoff rows and the store rows S1 to S19,
+retired or repointed), `skills/coordinate/scripts/requires.tsv` (the GitHub
+write and codec comments, `koto session import`'s mode), and the path filter
+`skills/coordinate/scripts/record-*` in
+`.github/workflows/check-coordinate-reconcile-scripts.yml`, which becomes
+`skills/coordinate/scripts/state-*`. `docs/disciplines/performance.md` is
+removed and the eval fixture
+`skills/coordinate/evals/fixtures/rotation-start-carries-reasoning/` is
+rewritten to start from a predecessor session.
+
+## Implementation Approach
+
+**Before the precondition**, in any order, each its own pull request:
+
+1. **JSON validation.** Split `record-codec.jq`'s checks into `state-schema.jq`;
+   the write core validates the next state's JSON with it, and the renderer
+   calls the same functions, so the GitHub path is unchanged. Port each refusal
+   case of `record-codec_test.sh` to a JSON case.
+2. **Outward targets.** `--on` for `cost` and `goal-fit`; `roadmap-status.sh`
+   posting verdict and failure entries on its pull request and pushing the
+   progress line after; `posted_entry` reading any comment of the roadmap's
+   repository; dedup by the coordinator's login; the cost reading guide.
+3. **Discipline on the session.** Lift `store-discipline`; `record/rotation`
+   and `record/reasoning`; the predecessor find and `predecessor_carry`; the
+   rotation end; `--import` at discipline scope. A rotation on GitHub keeps its
+   machinery until it ends.
+4. **The session as the default.** A scope with no record starts on its
+   session; a GitHub record a start finds stays on GitHub until its owner moves
+   it.
+5. **The transitional structure test.**
+
+**The precondition** (R20). No coordinator runs on the GitHub record when both
+of these return nothing, for every organization a coordinator writes to:
+
+```bash
+gh search issues --owner <org> --state open --match title "Coordinator record:" \
+  --json repository,number,body \
+  --jq '.[] | select(.body | test("\\| store \\| session \\|") | not) | "\(.repository.nameWithOwner)#\(.number)"'
+gh search prs --owner <org> --state open --match title "rotation" \
+  --json repository,number,title \
+  --jq '.[] | select(.title | test("^docs\\(coordinate\\): .+ rotation [0-9]{4}-[0-9]{2}-[0-9]{2} to ")) | "\(.repository.nameWithOwner)#\(.number)"'
+```
+
+The first lists roadmap records not in the moved shape; the second, open
+rotation pull requests. An owner ends either by moving the coordinator at its
+next start, by letting a rotation end, or by closing the issue or pull request.
+
+**After the precondition:**
+
+6. **Remove the GitHub backend and the store choice.** The title search, the
+   authority read, issue and pull request creation and edits, the comment
+   listing and the permission read, the moved shape, `record-move.sh` and
+   `record_move`, `--store`, `STORE` and the `store` Run key, the discipline
+   handoff and rotation pull request machinery, `docs/disciplines/performance.md`.
+7. **Remove the codec's markdown half and rename.** Delete `record-parse.sh` and
+   `record-render.sh`; rename every survivor to its `state-*` name with its
+   callers, tests, registries and CI filters; the full structure test; the
+   skill's text and references; the amendments and the supersession.
+
+Verification for each: the coordinate suites (`run-tests.sh`, and `--engine`
+where the change touches a start or a move), the bash-floor leg, and `shirabe
+validate` over the changed documents.
+
+## Security Considerations
+
+**The private-repository and token checks keep their reach.** They move from
+the renderer to `state-schema.jq` and the write core, and still run on every
+value that can leave the host. After the removal fewer values leave it: only
+outward entries, which `state-entry.sh` checks before posting, as
+`record-append.sh` does today.
+
+**The collaborator-permission read goes, and its job is narrower.** It decided
+which comments on a coordinator issue were entries; with no comment stream
+there is nothing to authorise. The one place a GitHub comment still stands in
+for an entry, the retry's dedup, accepts only the coordinator's own login, which
+is stricter than write access.
+
+**The bucket and the local store are now the only store.** The session store's
+residual risk, recorded in `DESIGN-coordinator-session-record.md`, stays: anyone
+holding the bucket's credentials or able to write the local store can rewrite a
+session. The removal takes away the GitHub copy that a hand edit couldn't touch
+without leaving a trace. The coordinator's reconcile pass still re-checks every
+claim against GitHub before acting, so a forged holding can't merge anything
+GitHub doesn't show.
+
+**`--confirm` reads a comment by id within one repository.** Widening
+`posted_entry` from one issue to any comment of the roadmap's repository is
+bounded by the marker, kind, text and hash checks it already makes, so a comment
+elsewhere in the repository can't confirm an entry it doesn't reproduce byte for
+byte.
+
+**No new input reaches a command.** The new keys hold dates, a repository, a
+session name and prose; the session name is checked against the scope's
+`coordinate-<slug>-<stamp>` pattern before it reaches `koto`, and the prose is
+only ever read as JSON.
+
+## Consequences
+
+### Positive
+
+- One store: a change to what a coordinator remembers is made and tested once,
+  with no renderer, parser or body budget.
+- Discipline coordinators get the session, its resume and its import.
+- The grep and the structure test make the removal checkable and keep it.
+- Outward entries sit on the item a person reviewing that change already reads.
+
+### Negative
+
+- A large rename touches nearly every coordinate script and test, in one change.
+- A cost reviewer reads one pull request per unit instead of one issue per
+  scope, and a unit with no pull request or issue has its cost only in the
+  session and the archive.
+- A coordinator whose state is still on an unmoved record and is started on the
+  new release starts empty.
+- A roadmap pull request for a verdict carries two commits instead of one.
+
+### Mitigations
+
+- The rename lands last and alone with its registries, when nothing reads the
+  old names, and the transitional structure test stops new `record-*` files
+  meanwhile.
+- The cost reading guide gives the command for a scope's set.
+- The precondition is checked before the removal merges, and the removal touches
+  no GitHub record, so an owner can go back to the earlier release and move.
+- `roadmap-status.sh` pushes the progress commit before it reports, so the pull
+  request is never handed over without it.
