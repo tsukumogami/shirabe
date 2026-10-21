@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 upstream: docs/briefs/BRIEF-coordinator-record-teardown.md
 problem: |
   The coordinate skill keeps a coordinator's state in two stores: the GitHub
@@ -29,7 +29,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
