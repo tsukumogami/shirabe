@@ -189,7 +189,8 @@
 #       call returns, leaving the watcher's sleep to run out. `timeout` isn't
 #       on macOS, whose /bin/bash is the floor these scripts target.
 #       The deadline's TERM reaches only the command's own pid; a command
-#       whose children must stop with it runs through dc_tree.
+#       whose children must stop with it runs through dc_tree. The caller's
+#       EXIT and TERM traps never run in the watcher it forks.
 #
 #   dc_tree <command...>
 #       Runs the command in a process group of its own and waits for it. A
@@ -585,6 +586,7 @@ dc_with_deadline() {
         sp=""
         stop=""
         trap 'trap "" TERM; stop=1; if [ -n "$sp" ]; then kill -KILL "$sp" >/dev/null 2>&1; wait "$sp"; exit 0; fi' TERM
+        : >"$mark.ready"
         sleep "$secs" &
         sp=$!
         if [ -n "$stop" ]; then kill -KILL "$sp" >/dev/null 2>&1; wait "$sp"; exit 0; fi
@@ -600,6 +602,21 @@ dc_with_deadline() {
     watcher=$!
     wait "$pid"
     rc=$?
+    # bash 5 runs a parent's trap in a subshell it has just forked when a
+    # signal lands before the subshell has run its first command: a TERM sent
+    # to the watcher the moment a quick command ended ran the caller's EXIT
+    # trap there, which in board-lib_test.sh deleted the suite's temporary
+    # directory mid-run (about one call in a hundred), and would run a
+    # caller's TERM trap the same way. So the watcher marks itself ready once
+    # its own trap is in, and no TERM goes to it before that: the wait below
+    # spins on builtins only, for the millisecond or two a fork takes, and
+    # gives up if the watcher is gone or after a bounded count. bash 3.2
+    # never showed the race; the wait costs it the same millisecond.
+    while [ ! -e "$mark.ready" ] && [ "$tries" -lt 200000 ] && kill -0 "$watcher" >/dev/null 2>&1; do
+        tries=$((tries + 1))
+    done
+    tries=0
+    rm -f "$mark.ready"
     # bash ignores a signal while `trap` installs its handler, so a TERM that
     # lands as the watcher sets its trap is lost, and the watcher would run to
     # the deadline. A watcher that got the TERM is gone within a millisecond
