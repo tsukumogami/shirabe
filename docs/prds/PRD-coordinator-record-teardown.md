@@ -268,8 +268,11 @@ could fill up (`record-full`, the settled-decisions archive), whether it is
 removed or kept and why.
 
 **R10. Discipline scope runs on the session.** A discipline coordinator opens,
-resumes and imports its session as a roadmap coordinator does, and a second live
-session of the same discipline on one host is refused. The session holds, beyond
+resumes and imports its session as a roadmap coordinator does. A start while
+the current rotation is open (its end date hasn't passed and it hasn't closed)
+continues that rotation, resuming it or carrying it across as at roadmap scope;
+a start after it ended or closed opens the next rotation. One discipline never
+has two rotations open on a host. The session holds, beyond
 the roadmap scope's keys, the rotation window (start and end dates) and the host
 repository, which the rotation pull request's title and branch hold today, and
 the reasoning for the next rotation, which the handoff file holds today.
@@ -447,7 +450,9 @@ transition, and a rotation's carry), and each has a named session test.
       a malformed `record/meta` gets the unreadable outcome and stops; one whose
       predecessor's window ended without closing carries it with reasoning
       `not_recorded`.
-- [ ] A second live session of the same discipline on one host is refused.
+- [ ] A start inside an open rotation continues it (resumed, or carried across
+      with the live run cancelled) and opens no second rotation; a start after
+      the end date, or after the rotation closed, opens the next rotation.
 - [ ] `koto-templates/coordinate.md` declares no `rotation_close`,
       `rotation_step`, `rotation_done`, `record_move` or `predecessor_*` state
       that commits a file, opens or readies a pull request, or deletes a branch.

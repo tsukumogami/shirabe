@@ -205,15 +205,20 @@ pull request, while a rotation already on GitHub keeps its machinery until it
 ends.
 
 **Acceptance Criteria**:
-- [ ] The `store-discipline` refusals are lifted for a new rotation. A start
-      while the newest session's `record/rotation` window is open is a restart:
-      it resumes that session when live with a matching template, otherwise it
-      carries the whole record across and cancels the live run, as at roadmap
-      scope, and no second rotation is opened; a start after the window ended
-      opens a new run with a new window and goes to the predecessor path, never
-      the whole-record carry. A suite proves both. A discipline session imported with
-      `coordinate-open.sh --import` into a fresh workspace resumes there
-      (`resumed=1`) and its `record/rotation` reads the same as on the source.
+- [ ] The `store-discipline` refusals are lifted for a new rotation, and the
+      opener's resume and carry-across path, which today runs only when the
+      scope is a roadmap, runs at discipline scope too.
+- [ ] A rotation is open while the start's UTC date is on or before its end date
+      and it holds no `record/reasoning`. A suite starts inside an open rotation
+      and gets a restart: a resume when the run is live with a matching
+      template, otherwise a carry of the whole record with the live run
+      cancelled, and no second rotation. It starts on the day after the end
+      date, on the end date itself, and after an early close inside the
+      window, and the first and third open the next rotation through the
+      predecessor path while the second is a restart.
+- [ ] A discipline session imported with `coordinate-open.sh --import` into a
+      fresh workspace resumes there (`resumed=1`) and its `record/rotation`
+      reads the same as on the source.
 - [ ] `record-state.sh` writes `record/rotation` (`{start, end, host_repo,
       predecessor}`) and `record/reasoning` under `STATE_WRITER`; an accepted
       write reads back as the same JSON; reasoning of 16 KiB plus one byte, a
@@ -225,9 +230,10 @@ ends.
       session that breaks exactly one rule (a name not matching
       `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>`, a failed `coord-log.sh provenance`,
       a different `DISCIPLINE`, a different `HOST_REPO`, a predecessor another
-      session's `record/rotation` already names, two candidates at one stamp);
-      each ends `unreadable <session>`,
-      stops at `record_conflict`, and carries nothing.
+      session's `record/rotation` already names, two candidates at one stamp,
+      and, called directly, a candidate whose rotation is still open); each
+      ends `unreadable <session>`, stops at `record_conflict`, and carries
+      nothing.
 - [ ] A third rotation after a carried second one carries the second, never
       the first.
 - [ ] A suite starts a second rotation after a first that wrote a hold, a Standing
@@ -354,10 +360,10 @@ Every discipline whose last rotation ran on GitHub has started a rotation on
 its session, or its owner has retired it. A search error, a result count at the
 limit or an organization the token can't read leaves the gate shut. Both
 searches run again immediately before Issue 6 merges, at least an hour after the
-last owner closed or moved a record. The gate is spent once Issue 6 merges:
-Issue 8 deletes the parser its moved-shape test runs. Their output, which can
-name private
-repositories, goes in a report, not in a public pull request or issue.
+last owner closed or moved a record. The gate is spent once Issues 6 and 7
+merge; its moved-shape test stops being runnable once Issue 8 deletes the
+parser it uses. The searches' output, which can name private repositories, goes
+in a report, not in a public pull request or issue.
 
 ### Issue 6: refactor(coordinate)!: remove the GitHub coordinator record
 
@@ -469,8 +475,8 @@ nothing else to GitHub. A later cleanup feature, outside this PLAN, removes it.
       records no body edit, no close, no other comment and no pull request
       change.
 - [ ] It writes the sections and entries, then posts the note, then writes
-      `record/meta` last. A suite crashes it after the sections and again after
-      the note: each time the next start is still fresh, calls the importer
+      `record/meta` last. A suite crashes it partway through the entries, after
+      the sections and entries, and again after the note: each time the next start is still fresh, calls the importer
       again, rewrites the same sections whole, and ends with exactly one note
       and one `record/meta`; once `record/meta` exists, the next start is a
       resume and makes no lookup.
@@ -596,7 +602,7 @@ graph TD
     I4 --> G1
     I5 --> G1
     G1 --> I6
-    I6 --> I7
+    I6 -->|same pull request| I7
     I6 --> I8
     I7 --> I8
     I8 --> I9

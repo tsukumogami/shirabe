@@ -271,12 +271,13 @@ that holds `record/meta`. A candidate is the predecessor only when its name
 matches `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` whole, it passes the provenance
 check a resume applies today (`coord-log.sh provenance`, built from the shipped
 template, or a template the carry-across already accepted), its own
-`DISCIPLINE` and `HOST_REPO` variables equal this run's, its
-`record/rotation` window has ended, and no other session of the discipline
-already names it as its predecessor (one predecessor is never carried twice). Two candidates with
-the same stamp, or a candidate that fails any of these, is `unreadable`. It
-seals one of: `found` (this run's own state
-exists, a resume), `predecessor <session>`, `first` (no earlier rotation) or
+`DISCIPLINE` and `HOST_REPO` variables equal this run's, its rotation has
+ended (the same rule as below; the opener never hands the find an open one, and
+a direct call on one is `unreadable`), and no other session of the discipline
+already names it as its predecessor (one predecessor is never carried
+twice). Two candidates with the same stamp, or a candidate that fails any of
+these, is `unreadable`. It seals one of: `found` (this run's own state exists,
+a resume), `predecessor <session>`, `first` (no earlier rotation) or
 `unreadable <session>` (the predecessor's `record/meta` or a section key fails
 `state-schema.jq`). A new `predecessor_carry` state runs `state-open.sh
 --carry-from <session>`, which copies the predecessor's Holdings, Deferrals,
@@ -285,8 +286,8 @@ next decision number into this run through `core_carry`, and records the
 predecessor in `record/rotation`. The carry's output lists what it carried
 (the holds, and the Standing rows by kind and owner), which the start reports
 up, so the owner sees an approval or a missing hold that came from the
-predecessor before anything acts on it. Reconcile reads `record/reasoning` from the
-predecessor's session and classifies it `present` or `not_recorded` with the
+predecessor before anything acts on it. Reconcile reads `record/reasoning`
+from the predecessor's session and classifies it `present` or `not_recorded` with the
 rule it applies to the handoff file today. An expired predecessor that never
 closed has no `record/reasoning`, so it reads as `not_recorded`. Closing a
 rotation writes `record/reasoning` and ends the run; nothing is committed and
@@ -296,12 +297,15 @@ discipline scope.
 
 **A restart and a new rotation are told apart by the window.** At discipline
 scope the opener looks at the newest session of the discipline that holds
-`record/meta`. While that session's `record/rotation` window is open, a start
+`record/meta`. A rotation is open while the current UTC date is on or before
+its `record/rotation` end date and it holds no `record/reasoning` (closing a
+rotation writes that key), and ended otherwise; the check is made against the
+time of the start. While that session's rotation is open, a start
 is a restart of the same rotation, so the opener's existing resume and
 carry-across apply as at roadmap scope: resume it when it is live and its
 template matches, otherwise open a new run, cancel the live one as the opener
-does today, and carry the whole record across, window included. Once the window
-has ended, a start is a new rotation: the opener opens a new run with a new
+does today, and carry the whole record across, window included. Once the
+rotation has ended, by date or by closing, a start is a new rotation: the opener opens a new run with a new
 window and the find goes to the predecessor path above, never to the
 whole-record carry-across. So there is never a second rotation of one
 discipline open on a host: a start inside the window continues the current
@@ -539,9 +543,9 @@ action, capturing the carry's report as `PREDECESSOR_CARRY`; its gate passes on
 exit 0 and goes to `reconcile_pass`, and any refusal goes to `record_conflict`
 with the predecessor named. The handover gate (`state-handover.sh`) then lists
 `carry-unacknowledged` until a Standing go-ahead whose Set time is after this
-run's start exists (the start is the run log's `workflow_initialized` time,
-which `coord-log.sh` already reads, not any time stored in the session's
-keys), so a carried rotation dispatches and merges nothing first;
+run's start exists (the start is the timestamp the run log already carries
+on its `workflow_initialized` event, read by a `coord-log.sh` subcommand the
+gate adds, not any time stored in the session's keys), so a carried rotation dispatches and merges nothing first;
 `handover_engine_test.sh` gains that case.
 
 Step 3's bridge for a discipline whose last rotation ran on GitHub: when
@@ -767,8 +771,9 @@ its GitHub record runs the code it runs today.
 5. **The transitional structure test.**
 
 **The precondition** (R20). The PLAN's gate block carries the same commands
-and governs if the two ever differ; the gate is spent once step 6 merges, since
-step 7 deletes the parser its moved-shape test runs. No coordinator runs on the
+and governs if the two ever differ (design step 6 is PLAN Issues 6 and 7,
+step 7 is Issue 8). The gate is spent once step 6 merges; its moved-shape test
+stops being runnable once step 7 deletes the parser it uses. No coordinator runs on the
 GitHub record when these pass, for every organization a coordinator writes to,
 run with a token that can read every repository in it, private ones included:
 
