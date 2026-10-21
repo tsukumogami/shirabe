@@ -21,7 +21,8 @@
 #     a floor run on main was created in the last 24 hours (so it dispatches
 #     at most once a day, and a run it dispatched that was cancelled is not
 #     replaced before then).
-#   - It files an issue titled TRACKING_TITLE, or comments on the open one,
+#   - It files an issue titled "CI: the macOS floor run is missing" (the red
+#     run's issue is macos-floor.yml's own), or comments on the open one,
 #     naming the last completed run, how long ago it finished, the unfinished
 #     run if any, and the dispatch if it made one. Each flag carries a hidden
 #     marker naming the last completed run, so a gap already flagged is not
@@ -39,7 +40,6 @@
 #   STALE_HOURS         hours since the last completed run before a day
 #                       counts as missed; default 36 (a day, plus the latest
 #                       start seen from GitHub's scheduler, plus the run)
-#   TRACKING_TITLE      default "CI: the macOS floor run is missing"
 #   WATCHDOG_DRY_RUN    1 to decide and print without writing; default 0
 #   WATCHDOG_NOW        the current time in epoch seconds (the tests)
 #
@@ -56,9 +56,12 @@ die() { echo "macos-floor-watchdog: $*" >&2; exit 2; }
 fail() { echo "macos-floor-watchdog: $*" >&2; exit 1; }
 
 FLOOR_WORKFLOW=macos-floor.yml
+# macos-floor.yml's run-name, "macOS floor on <ref>", for a scheduled run and
+# a dispatch with ref=main. Rewording that run-name without this would leave
+# the watchdog seeing no verdict and dispatching every day.
 FLOOR_TITLE="macOS floor on main"
+MISSING_TITLE="CI: the macOS floor run is missing"
 STALE_HOURS=${STALE_HOURS:-36}
-TRACKING_TITLE=${TRACKING_TITLE:-CI: the macOS floor run is missing}
 DRY_RUN=${WATCHDOG_DRY_RUN:-0}
 NOW=${WATCHDOG_NOW:-$(date -u +%s)}
 
@@ -108,14 +111,14 @@ unfinished=$(jq -r '.unfinished[] | "- \(.display_title), \(.status): \(.html_ur
 recent=$(jq -r '.recent | length' "$T/state")
 echo "Last completed floor run on main: $last_desc"
 
-# open_issue: the number of the open issue titled exactly TRACKING_TITLE, or
+# open_issue: the number of the open issue titled exactly MISSING_TITLE, or
 # nothing. It lists the open issues rather than searching them: the search
 # index lags, so a watchdog run right after the one that filed the issue
 # would not find it and would file a second.
 open_issue() {
     gh api --paginate -X GET "repos/$R/issues" -f state=open -f per_page=100 \
         --jq '.[] | select(.pull_request == null) | {number, title}' >"$T/issues" || return 1
-    jq -r -s --arg t "$TRACKING_TITLE" '[.[] | select(.title == $t)] | min_by(.number).number // empty' "$T/issues"
+    jq -r -s --arg t "$MISSING_TITLE" '[.[] | select(.title == $t)] | min_by(.number).number // empty' "$T/issues"
 }
 
 number=$(open_issue) || fail "could not list the open issues"
@@ -188,11 +191,11 @@ if [ -n "$number" ]; then
     echo "Commented on #$number."
 else
     if [ "$DRY_RUN" = 1 ]; then
-        echo "Dry run: would file \"$TRACKING_TITLE\"."
+        echo "Dry run: would file \"$MISSING_TITLE\"."
         exit 0
     fi
     printf '\nLater fires comment here while this issue is open, and the first completed run closes it.\n' >>"$T/body"
-    gh api -X POST "repos/$R/issues" -f title="$TRACKING_TITLE" -F body=@"$T/body" --jq '.html_url' \
-        || fail "could not file \"$TRACKING_TITLE\""
+    gh api -X POST "repos/$R/issues" -f title="$MISSING_TITLE" -F body=@"$T/body" --jq '.html_url' \
+        || fail "could not file \"$MISSING_TITLE\""
 fi
 exit 0

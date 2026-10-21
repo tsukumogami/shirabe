@@ -33,6 +33,8 @@ cat >"$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 # The stub gh: answers the calls macos-floor-watchdog.sh makes from the files
 # under $STUB_DIR, and records each write. --jq is applied with the real jq.
+# The patterns match in order: each write, and the open-issues listing, comes
+# before the catch-all read of one issue at the end.
 printf '%s\n' "$*" >>"$STUB_DIR/calls"
 jqf=""
 body=""

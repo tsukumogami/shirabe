@@ -27,7 +27,9 @@ name: macOS floor
 # github.sha, so their groups would collide and GitHub would cancel all but
 # one pending run.
 
-# The ref is in the run's name so a dispatcher can find its own run.
+# The ref is in the run's name so a dispatcher can find its own run, and
+# scripts/macos-floor-watchdog.sh takes a run named "macOS floor on main" as
+# the floor's verdict on main; change the two together.
 run-name: macOS floor on ${{ inputs.ref || github.ref_name }}
 
 on:

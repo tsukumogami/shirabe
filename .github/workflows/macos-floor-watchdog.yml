@@ -27,8 +27,9 @@ on:
       - '.github/workflows/macos-floor-watchdog.yml'
       - 'scripts/macos-floor-watchdog.sh'
 
-# Watchdog runs on main queue rather than overlap, so two can't both dispatch.
-# A pull request's dry run gets a group of its own.
+# Watchdog runs on main never overlap, so two can't both dispatch; a newer
+# pending run replaces an older pending one, which loses nothing. A pull
+# request's dry run gets a group of its own.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: false
@@ -40,7 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Listing and dispatching floor runs, and the tracking issue. The checkout
-    # needs no contents permission: the repository is public.
+    # needs no contents permission because the repository is public; a
+    # private copy would need contents: read.
     permissions:
       actions: write
       issues: write
