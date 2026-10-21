@@ -36,17 +36,24 @@ coordinator is touched.
 ## Decomposition Strategy
 
 **Horizontal, around one gate.** The design's eight steps become nine work
-items in six pull request groups (the ninth is a one-way importer for a GitHub
-record nobody moved, which the owner chose and a later cleanup feature removes), all in this repository. The first five items
-are additive: each adds the session path beside the GitHub one and chooses
-between them by the run's sealed store, so a coordinator still on its GitHub
-record runs exactly the code it runs today. They may land in any order their
-dependencies allow. The gate `no-record-coordinators` then holds everything that
-removes a reader or writer of the GitHub record until no coordinator runs on
-one. After it, the backend comes out, then the survivors are renamed and the
-markdown codec deleted, and last the documents are amended and the record
-container design superseded, so each amendment describes code that has landed.
-The scripts come out last, when nothing reads them.
+items in six pull request groups, all in this repository. Design steps 1 to 5
+are Issues 1 to 5, design step 6 is Issues 6 and 7 (the backend removal and,
+by the owner's ruling, a one-way importer for a GitHub record nobody moved,
+landing in one pull request), design step 7 is Issue 8 and design step 8 is
+Issue 9.
+
+The first five items are additive: each adds the session path beside the
+GitHub one and chooses between them by the run's sealed store, so a
+coordinator still on its GitHub record keeps today's behaviour, which its
+unchanged suites prove. They may land in any order their dependencies allow.
+Issues 1 and 5 create files with the `state-` prefix before Issue 8 renames the
+rest; that is deliberate, so the new files never need renaming. The gate
+`no-record-coordinators` then holds everything that removes a reader or writer
+of the GitHub record until no coordinator runs on one. After it, the backend
+comes out with the importer beside it, then the old record scripts are renamed
+and the markdown codec deleted (Issue 8), and last the documents are amended
+and the record container design superseded (Issue 9), so each amendment
+describes code that has landed.
 
 **The precondition, in public terms.** No item that removes a reader or a
 writer of the GitHub record merges while any coordinator still runs on that
@@ -102,8 +109,10 @@ unchanged.
 - [ ] The private-repository, home-path and token scan walks every string in the
       state recursively, and a test fails when a state with a new string-bearing
       field is not scanned.
-- [ ] `state-schema.jq` accepts a `store` Run row reading `session` (which every
-      session on the store holds) and refuses any other `store` value.
+- [ ] `state-schema.jq` accepts a `store` Run row reading `github` or `session`,
+      as the codec does today, and refuses any other value; Issue 6 narrows it.
+- [ ] The reconcile workflow's path filter adds
+      `skills/coordinate/scripts/state-*`, so CI runs on this item's new files.
 - [ ] On the session store, through `record-write.sh` and the core: a next state
       that breaks a schema rule is refused with its `refused: ` message and
       exit 65, and a listing of the session's keys and values taken before and
@@ -262,7 +271,8 @@ until its owner moves it.
 **Acceptance Criteria**:
 - [ ] A suite starts a roadmap coordinator with no record and no `--store`: it
       opens a session-store record (the moved-shape issue and the session's
-      keys, as `--store session` does today).
+      keys, as `--store session` does today). Until Issue 6 a new roadmap scope
+      still gets that stub issue; Issue 6 stops creating it.
 - [ ] A suite starts a discipline coordinator with no record and no `--store`:
       it starts on its session.
 - [ ] A start that finds an existing GitHub record with no `store` row stays on
@@ -316,12 +326,26 @@ only shrink.
 **Before**: Issue 6
 
 **Condition**: No coordinator runs on a GitHub record. For every organization
-a coordinator writes to, run with a token that can read every repository in it,
-both of these return nothing:
-`gh search issues --owner <org> --state open --match title "Coordinator record:" --limit 1000 --json repository,number,body --jq '.[] | select(.body | test("\\| store \\| session \\|") | not) | "\(.repository.nameWithOwner)#\(.number)"'`
-and
-`gh search prs --owner <org> --state open --match title "rotation" --limit 1000 --json repository,number,title --jq '.[] | select(.title | test("^docs\\(coordinate\\): .+ rotation [0-9]{4}-[0-9]{2}-[0-9]{2} to ")) | "\(.repository.nameWithOwner)#\(.number)"'`.
-Every discipline whose last rotation ran on GitHub has started a rotation on its
+a coordinator writes to, run with a token that can read every repository in it:
+every open roadmap record the first search lists passes the moved-shape test
+below it, and the second search lists nothing.
+
+```bash
+gh search issues --owner <org> --state open --match title "Coordinator record:" --limit 1000 \
+  --json repository,number --jq '.[] | "\(.repository.nameWithOwner) \(.number)"'
+# for each <repo> <n> it lists, from a checkout of main before Issue 6 merges:
+gh issue view <n> --repo <repo> --json body --jq .body \
+  | bash skills/coordinate/scripts/record-parse.sh --container issue - \
+  | jq -e '([.holdings, .deferrals, .side_effects, .reversals, .holds, .standing, .work] | all(. == null or . == []))
+           and (has("decisions") | not)
+           and ([(.run // [])[] | "\(.key)=\(.value)"] == ["store=session"])'
+gh search prs --owner <org> --state open --match title "rotation" --limit 1000 \
+  --json repository,number,title \
+  --jq '.[] | select(.title | test("^docs\\(coordinate\\): .+ rotation [0-9]{4}-[0-9]{2}-[0-9]{2} to ")) | "\(.repository.nameWithOwner)#\(.number)"'
+```
+
+A record with the `store session` row but state still in its sections fails the
+test: it moves at its next start, not before. Every discipline whose last rotation ran on GitHub has started a rotation on its
 session, or its owner has retired it. A search error, a result count at the
 limit or an organization the token can't read leaves the gate shut. Both
 searches run again immediately before Issue 6 merges, at least an hour after the
@@ -347,7 +371,8 @@ comment, rotation pull request or committed handoff file.
       `record-move.sh` no longer exists.
 - [ ] `record-state.sh --run store session` is refused as an unknown Run key
       (exit 65), and a write carrying a new `store` row is refused while the
-      legacy row an existing session holds is accepted.
+      legacy `store session` row an existing session holds is accepted;
+      `state-schema.jq` now refuses a `store github` row.
 - [ ] `coordinate-open.sh --store session <roadmap>` exits 64 naming `--store`,
       and the template declares no `STORE` variable; with a koto stand-in that
       lacks `session import`, a start is refused with `store-unsupported`.
@@ -391,6 +416,7 @@ comment, rotation pull request or committed handoff file.
 **Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>
 
 **Type**: code
+**Files**: every file under `skills/coordinate/` that `grep -l` finds for the removed readers and writers at this item's base commit
 
 ### Issue 7: feat(coordinate): import an unmoved GitHub record into the session
 
@@ -435,6 +461,9 @@ nothing else to GitHub. A later cleanup feature, outside this PLAN, removes it.
 
 **Dependencies**: Blocked by <<ISSUE:6>>
 
+Issues 6 and 7 land in the same pull request (the `removal` group), so no
+release removes the record without the importer.
+
 **Type**: code
 **Files**: `skills/coordinate/legacy-import/`, `skills/coordinate/scripts/coordinate-open.sh`
 
@@ -456,7 +485,7 @@ make the structure test refuse every match.
 - [ ] The write core takes `--state-file`: a test checks the file a writer hands
       it is mode 0600 inside the writer's private directory and is gone after
       the write. No write renders or parses a markdown body; a state whose
-      rendered body would exceed 60,000 bytes is written, and an outward entry
+      JSON is larger than 60,000 bytes is written, and an outward entry
       over 60,000 bytes is refused.
 - [ ] Issue 1's session write-core scenarios pass unchanged through
       `--state-file` and the renamed scripts: schema refusal with no key

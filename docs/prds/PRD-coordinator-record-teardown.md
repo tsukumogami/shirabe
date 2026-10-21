@@ -192,7 +192,9 @@ koto without them is refused at start with `store-unsupported`, as today.
 edits, closes or reads a coordinator issue, and no longer creates, edits,
 readies or reads a rotation pull request, commits to its branch or deletes it.
 The open-issue search by title and the moved-shape stub issue go with it. A
-start after the removal doesn't look at GitHub for a record at all.
+start after the removal doesn't look at GitHub for a record in the skill's
+normal path; the one exception is the legacy importer's lookup on a fresh start
+(R23).
 
 **R4. The comment stream goes.** The skill no longer posts or lists marked
 record comments on a coordinator issue, and no longer reads collaborator

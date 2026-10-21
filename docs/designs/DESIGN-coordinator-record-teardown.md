@@ -68,7 +68,10 @@ against `RECORD_BUDGET=60000`, and on the session parses it back once more to
 find the sections whose JSON changed. The codec's checks (`check_top`,
 `check_row`, `check_cell`, `check_worker`, `check_holds`, `check_state`,
 `check_decisions`, `text_problem`, `text_named_repos`) run inside
-`render_record`, so the renderer is the only route to them. About thirty-six
+`render_record`, and a few callers reach some of them directly
+(`record-append.sh` and `roadmap-status.sh` call `text_problem`, and
+`reconcile-salvage.jq` calls `check_decisions`), so splitting them out has to
+keep those callers working too. About thirty-six
 other scripts read or write the state through the record scripts; none outside
 `skills/coordinate/` does.
 
@@ -88,8 +91,8 @@ a moved-shape stub issue that outward entries are still posted on. The
 per run.
 
 **Discipline scope is GitHub-only.** `coordinate-open.sh`, `record-open.sh`,
-`record-find.sh`, `record-append.sh`, `record-write-core.sh` and
-`record-move.sh` refuse the session at discipline scope (`store-discipline`).
+`record-find.sh` and `record-state.sh` refuse the session at discipline scope
+(`store-discipline`), and `record-append.sh` refuses it in its own words.
 A rotation's window lives in its pull request's title, its host in the branch's
 repository, and what it hands its successor in `docs/disciplines/<name>.md`,
 committed by `rotation-close.sh` and read by `closeout-read.sh`,
@@ -224,7 +227,18 @@ text, created at or after the entry's stamp by the login `gh api user` returns,
 compared without case, and not already claimed by another entry's
 `record/posted/`. When `gh api user` can't answer (an App token has no user),
 the retry posts nothing and exits 2 naming the entry, so a duplicate is never
-risked. Nothing reads a collaborator permission.
+risked. Nothing in the skill's normal path reads a collaborator permission;
+the one read left is inside the legacy importer (Solution Architecture), for
+entries written before the removal.
+
+The three readers that consume outward entries today, and what each reads
+after the removal:
+
+| Reader | Today | After the removal |
+|---|---|---|
+| `roadmap-status.sh`'s check that a verdict was posted before a Done edit (`--verdict`, `--reopen`, and `--confirm` at merge) | reads the comment on the record issue by the URL it is given | `--verdict` and `--reopen` read the entry from the session (`--entry <n>`), post it on their roadmap pull request and refuse to finish (exit 14) until it is posted and the progress line names it; the Done edit reaches the default branch only through that pull request, and `--confirm` re-reads the cited comment by id and checks its author, marker, kind, text and hash |
+| `unit-cost.sh`'s dedupe (one `cost` entry per capture key) | lists the record's entries through `record-append.sh --list` | lists the session's entries (`record/entries/`, kind `cost`) through `state-entry.sh --list`, which a session-store run already reads today; nothing on GitHub |
+| the cost join (`references/unit-cost.md`, "Reading entries") | lists one record issue's comments with the `kind=cost` marker | lists a scope's units from the session's Holdings, or the roadmap's Delivered lines, and reads each unit's pull request (or issue) comments with the same marker filter and an author filter on the coordinator's login |
 
 *Post a verdict on the unit's pull request.* Rejected: a verdict judges a
 milestone, which may cover several pull requests or none.
@@ -320,10 +334,12 @@ R20 lets changes that remove nothing a running coordinator reads land first,
 holds every change that removes a reader or writer of the GitHub record until no
 coordinator runs on one, and puts the scripts last.
 
-**Chosen: five additive changes, one gated removal, a rename, then the
+**Chosen: five additive changes, one gated removal (with the legacy importer
+in the same pull request), a rename, then the
 documents.** The early changes add the session path beside the GitHub one and
 pick between them by the run's sealed store, so a coordinator on its GitHub
-record runs exactly today's code: the JSON validation (the GitHub path renders
+record keeps today's behaviour, which its unchanged suites prove: the JSON
+validation (the GitHub path renders
 from validated JSON), the outward targets for session-store runs, discipline on
 the session (a rotation on GitHub keeps its machinery until it ends, and the
 first session rotation carries its handoff file once), the session as the
@@ -369,8 +385,9 @@ its predecessor through `koto session list` and the core's carry. Outward
 entries keep their marker and text and go on the pull request they concern, or
 on the roadmap pull request that records a status change. Nothing on GitHub is
 deleted or edited, and old progress links stay accepted. The work lands in
-eight changes: five additive ones that leave a GitHub-record coordinator on
-today's code, one removal behind a precondition, the rename, and the documents.
+eight changes: five additive ones that leave a GitHub-record coordinator's
+behaviour as it is today, one removal behind a precondition (which carries the
+legacy importer in the same pull request), the rename, and the documents.
 
 ## Solution Architecture
 
@@ -379,7 +396,7 @@ today's code, one removal behind a precondition, the rename, and the documents.
 | Today | After | What changes |
 |---|---|---|
 | `record-common.sh` | `state-common.sh` | loses `lib_open_issues`, `lib_discipline_read`, `lib_authority`, `lib_has_write_access`, `ISSUE_TITLE`, `lib_rotation_dates` and `lib_file_at`; keeps `ENTRY_MARKER_PREFIX` for outward posts |
-| `record-source.sh` | `state-read.sh` | session backend only; `rs_record` returns JSON, no `.md` or `.raw`; `rs_view`, `rs_record_api`, `rs_probe`'s store choice and `--show` removed; `rs_facts`, `rs_source` (always `session`) and the resume and carry candidates stay |
+| `record-source.sh` | `state-read.sh` | session backend only; `rs_record` returns JSON, no `.md` or `.raw`; `rs_view`, `rs_record_api`, the store choice in `rs_source` and `--show` removed; `rs_facts`, the resume and carry candidates stay, and `rs_probe` (which reports koto's features) moves into the opener |
 | `record-codec.jq` | `state-schema.jq` | the `check_*`, `text_*`, `pr_link`, `d_*` and `rework_problem` functions over JSON; no `enc`, `dec`, table renderer, parser, `normalized` or handoff format |
 | `record-parse.sh`, `record-render.sh` | removed | |
 | `record-write-core.sh` | `state-write-core.sh` | takes `--state-file`; validates with `state-schema.jq`; no budget, no render, no `gh issue edit` or `gh pr edit`, no `store-moved`; `core_carry` and `core_write_host` stay |
@@ -425,7 +442,8 @@ section holds that `store session` row, a gate that kept them off GitHub
 records. With one store the gate has nothing to guard: `state-schema.jq` allows
 the crash-set rows in any session, and a test opens a fresh session after step
 6 (with no `store` row) and writes each of them. Until step 6 the gate stays as
-it is, and a session-default scope from step 4 gets the `store session` row
+it is, and a scope that starts on the session by default from step 4 gets the
+`store session` row
 the opener writes today.
 
 ### The session layout
@@ -444,6 +462,7 @@ Unchanged from the session store (R14): `record/meta`, `record/holdings`,
 | `record/holdings`, `deferrals`, `side-effects`, `reversals` | `state-write.sh` via `state-holding.sh` (general writer); `roadmap-status.sh` adds Side effects rows |
 | `record/holds` | `state-hold.sh` (`HOLDS_WRITER`) |
 | `record/run`, `standing`, `work`, `rotation`, `reasoning` | `state-stored-set.sh` (`STATE_WRITER`); `verdict-owed` and `rework` rows by `roadmap-status.sh` (`VERDICT_WRITER`) |
+| any section key, through the core's carry | `state-open.sh` (seeding a new run, `--carry-from` a predecessor) and the legacy importer, under the carry's own flag, as `record-move.sh` and the carry-across write today |
 | `record/decisions` | `state-decision.sh` (`DECISIONS_WRITER`) |
 | `record/host` | `state-stored-set.sh --host` |
 | `record/entries/<n>`, `record/posted/<n>` | `state-entry.sh` |
@@ -476,8 +495,10 @@ walks every string in the state recursively, `record/rotation` and
 when a state with a new string-bearing field isn't scanned. The
 private-repository scan still reads each named repository's visibility and
 counts one it can't read as private. `record/reasoning` keeps a 16 KiB cap,
-the size an entry text has today, so one rotation's prose can't grow without
-limit across carries.
+the size an entry text has today. It is the one new bound, a deliberate
+exception to R9's rule against inventing limits: it is prose an agent writes,
+carried into every later rotation and shown to the owner in the carry report,
+so its size is read by a person each time.
 
 ### The start
 
@@ -529,7 +550,7 @@ request or a progress line without its comment.
 | Kind | Target | Who posts | Read back by |
 |---|---|---|---|
 | `cost` | the holding's pull request; else the unit's issue; else none | `unit-cost.sh` via `state-entry.sh --on` | the reading guide in `references/unit-cost.md`, which lists a scope's units from the session's Holdings (or the roadmap's Delivered lines) and reads each pull request's comments with today's marker filter and an author filter on the coordinator's login, which replaces the permission read |
-| `goal-fit` | the pull request the entry names | the coordinator via `state-entry.sh --on` | people on that pull request |
+| `goal-fit` | the pull request the entry names | the coordinator via `state-entry.sh --on` | people reviewing that pull request; `milestone.sh check-goal-fit` reads the session entry, not the comment |
 | `milestone-verdict` | the roadmap pull request `roadmap-status.sh --verdict` opens | `roadmap-status.sh` | `roadmap-status.sh --confirm`, through the progress line |
 | `milestone-failure` | the roadmap pull request `roadmap-status.sh --reopen` opens | `roadmap-status.sh` | as above |
 
@@ -614,7 +635,8 @@ documents.
 
 ### The structure test
 
-`state-read_test.sh` replaces `record-source_test.sh`'s `body_readers` with a
+`state-structure_test.sh`, added early by step 5, replaces
+`record-source_test.sh`'s `body_readers` (removed with that suite's rename) with a
 check over every file under `skills/coordinate/scripts/` and
 `skills/coordinate/koto-templates/`: no file named `record-*.sh` or
 `record-codec.jq`; no file naming `record-(common|source|parse|render)\.sh`,
@@ -631,6 +653,18 @@ that nobody moved, started on the release that removes the record) is a slim,
 one-way importer rather than a start-up guard. A guard would tell the operator
 to move the record on the earlier release, which means downgrading to migrate;
 keeping today's move path would keep most of what this removal deletes.
+
+By the gate's own terms the importer should never fire: the gate holds step 6
+until no record still runs on GitHub. It exists for the cases where the gate
+fails or is bypassed: a search that misses a record (an organization the
+token can't read, an index that lags), a record whose owner reopens or never
+closes it, or an operator who starts an old coordinator on the new release
+anyway. It is the second protection, not the first, and the removal's grep is
+deliberately scoped around it: R16 and the structure test cover
+`skills/coordinate/scripts/` and `koto-templates/`, and the importer lives
+beside them so that its parser and its one collaborator-permission read stay
+out of the skill's normal path, with one call site, until the cleanup feature
+deletes them.
 
 - **Where it lives.** `skills/coordinate/legacy-import/`, outside the
   `scripts/` and `koto-templates/` directories the removal's grep and structure
@@ -682,9 +716,11 @@ its GitHub record runs the code it runs today.
 1. **JSON validation.** Split `record-codec.jq`'s checks into `state-schema.jq`;
    the write core validates the next state's JSON with it, and the renderer
    calls the same functions, so the GitHub path is unchanged. Port each refusal
-   case of `record-codec_test.sh` to a JSON case. The schema accepts a legacy
-   `store` Run row reading `session`, which every moved session holds, and no
-   other `store` value.
+   case of `record-codec_test.sh` to a JSON case. The schema accepts a `store`
+   Run row reading `github` or `session`, as the codec does today; step 6
+   narrows it to the legacy `session` row. The same change adds
+   `skills/coordinate/scripts/state-*` to the reconcile workflow's path filter,
+   so CI runs on the new files from the start.
 2. **Outward targets, for session-store runs.** `--on` for `cost` and
    `goal-fit`; `roadmap-status.sh --verdict` and `--reopen` taking `--entry
    <n>` and posting on their roadmap pull request, then pushing the progress
@@ -709,15 +745,25 @@ with a token that can read every repository in it, private ones included:
 
 ```bash
 gh search issues --owner <org> --state open --match title "Coordinator record:" --limit 1000 \
-  --json repository,number,body \
-  --jq '.[] | select(.body | test("\\| store \\| session \\|") | not) | "\(.repository.nameWithOwner)#\(.number)"'
+  --json repository,number --jq '.[] | "\(.repository.nameWithOwner) \(.number)"'
+# for each <repo> <n> it lists, from a checkout of main before step 6 merges:
+gh issue view <n> --repo <repo> --json body --jq .body \
+  | bash skills/coordinate/scripts/record-parse.sh --container issue - \
+  | jq -e '([.holdings, .deferrals, .side_effects, .reversals, .holds, .standing, .work] | all(. == null or . == []))
+           and (has("decisions") | not)
+           and ([(.run // [])[] | "\(.key)=\(.value)"] == ["store=session"])'
 gh search prs --owner <org> --state open --match title "rotation" --limit 1000 \
   --json repository,number,title \
   --jq '.[] | select(.title | test("^docs\\(coordinate\\): .+ rotation [0-9]{4}-[0-9]{2}-[0-9]{2} to ")) | "\(.repository.nameWithOwner)#\(.number)"'
 ```
 
-The first lists roadmap records not in the moved shape; the second, open
-rotation pull requests. A third condition can't be searched: every discipline
+The first search lists every open roadmap record; each must then pass the
+moved-shape test that follows it, the same test `record-source.sh`'s `rs_moved`
+applies (every section empty, Decisions absent, and a Run section holding only
+the `store session` row), because a record whose owner wrote the `store
+session` row still holds its state until its next start moves it. A record that
+fails the test, or a body that doesn't parse, keeps the gate shut. The second
+search lists open rotation pull requests. A third condition can't be searched: every discipline
 whose last rotation ran on GitHub has started a rotation on the session (which
 carried its handoff file through step 3's bridge), or its owner has retired it.
 GitHub's search index can lag an edit, so both searches run again immediately
@@ -741,8 +787,10 @@ next start, by letting a rotation end, or by closing the issue or pull request.
    `coordinate-open.sh` as the start-up check that refuses
    `store-unsupported`. The legacy importer lands in the same pull request, so
    no release removes the GitHub record without it.
-7. **Remove the codec's markdown half and rename.** Delete `record-parse.sh` and
-   `record-render.sh`; rename every survivor to its `state-*` name with its
+7. **Remove the codec's markdown half and rename.** Convert the writers and the
+   core to `--state-file` first, in the same pull request, since the parse and
+   render scripts can't go while a writer still hands the core a body; then
+   delete `record-parse.sh` and `record-render.sh` and rename every survivor to its `state-*` name with its
    callers, tests, registries and CI filters; the full structure test; the
    skill's text, `references/record-template.md` rewritten as
    `references/state-keys.md` (each key's JSON and its writer), and the other
