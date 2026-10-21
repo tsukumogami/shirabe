@@ -36,7 +36,7 @@
 # instance, or any other rm failure, ends it incomplete at remove.
 #
 # And `confirm` over an archive of 3,000 files: it confirms inside its
-# archive read's bound, reading sizes with a few stat runs rather than one
+# archive read's bound, reading sizes with a few wc runs rather than one
 # process per file; a file cut short, gone or replaced by a link, a MANIFEST
 # cut short or added to after the pass, a missing MANIFEST.sha256, a RESULT
 # that isn't done, and either listing still naming the unit are each
@@ -469,7 +469,7 @@ case "$ERR" in *"(status 124)"*) ok "  ... the warning names the deadline" ;; *)
 # confirm over an archive of a few thousand files (shirabe#999: a per-file
 # check outran koto's 30-second action bound). The real pass and library;
 # stand-ins for the verdict reader, coord-log's seal (it prints the token),
-# koto's context add (it keeps the detail), the two listings, and a stat
+# koto's context add (it keeps the detail), the two listings, and a wc
 # that logs each run and can be made slow, so a case can count the processes
 # the size check starts and hold it past its deadline.
 echo "== confirm over a large archive =="
@@ -489,14 +489,16 @@ cp "$6" "$C3/detail.json"
 EOF
 printf '#!/bin/sh\ncat "$C3/niwa.json"\n' >"$B3/niwa"
 printf '#!/bin/sh\ncat "$C3/agents.json"\n' >"$B3/claude"
-REALSTAT=$(command -v stat)
-cat >"$B3/stat" <<EOF
+REALWC=$(command -v wc)
+cat >"$B3/wc" <<EOF
 #!/bin/sh
-echo \$\$ >>"\$C3/stat.log"
-# Past its three arguments a run is the listing, not the format probe.
-[ -f "\$C3/slow" ] && [ \$# -gt 3 ] && exec sleep 30
-[ -f "\$C3/fails" ] && [ \$# -gt 3 ] && { echo "stat: cannot stat './x': Input/output error" >&2; exit 1; }
-exec "$REALSTAT" "\$@"
+# A wc -c run over more than one file is the size listing; any other passes.
+if [ "\$1" = -c ] && [ \$# -gt 2 ]; then
+    echo \$\$ >>"\$C3/wc.log"
+    [ -f "\$C3/slow" ] && exec sleep 30
+    [ -f "\$C3/fails" ] && { echo "wc: ./x: Input/output error" >&2; exit 1; }
+fi
+exec "$REALWC" "\$@"
 EOF
 chmod +x "$P3"/*.sh "$B3"/*
 export C3
@@ -507,7 +509,7 @@ NFILES=3000
 setup_confirm() {
     rm -rf "$T/carchive" "$C3/slow" "$C3/fails" "$C3/detail.json"
     mkdir -p "$CA/job/tmp"
-    : >"$C3/stat.log"
+    : >"$C3/wc.log"
     echo '[]' >"$C3/niwa.json"
     echo '[]' >"$C3/agents.json"
     printf 'topic w5\ninstance tsuku+w5 /i/w5\njob 4b3597d2 4b3597d2-6184-4a48\ntranscript /t/x.jsonl\npr acme/widgets#600 0123456789012345678901234567890123456789\nhandoff https://github.com/acme/widgets/pull/600#issuecomment-1\nkeyseal %s\n' \
@@ -545,9 +547,9 @@ setup_confirm
 run_confirm
 [ "$CRC" = 0 ] && [ "$COUT" = teardown-confirmed ] && ok "$NFILES files, the unit gone: confirmed" || bad "$NFILES files, the unit gone: confirmed" "exit $CRC: $COUT ($CWHY)"
 [ "$CSECS" -lt 15 ] && ok "  ... within the archive read's own bound (${CSECS}s)" || bad "  ... within the archive read's own bound" "${CSECS}s"
-NSTAT=$(grep -c . "$C3/stat.log")
-[ "$NSTAT" -ge 1 ] && [ "$NSTAT" -le 40 ] && ok "  ... the sizes come from a listing, not a process per file ($NSTAT stat runs)" \
-    || bad "  ... the sizes come from a listing, not a process per file" "$NSTAT stat runs for $NFILES files"
+NWC=$(grep -c . "$C3/wc.log")
+[ "$NWC" -ge 1 ] && [ "$NWC" -le 40 ] && ok "  ... the sizes come from a listing, not a process per file ($NWC wc runs)" \
+    || bad "  ... the sizes come from a listing, not a process per file" "$NWC wc runs for $NFILES files"
 
 setup_confirm
 printf 'file\n' >"$CA/job/tmp/d3/f 1700"
@@ -580,7 +582,7 @@ refuses "claude still lists the job" "claude agents still lists job 4b3597d2"
 
 setup_confirm
 : >"$C3/fails"
-refuses "a listing that fails" "the archive's files could not be listed: stat: cannot stat './x': Input/output error"
+refuses "a listing that fails" "the archive's files could not be listed: wc: ./x: Input/output error"
 
 setup_confirm
 : >"$C3/slow"
@@ -589,7 +591,7 @@ TEARDOWN_CONFIRM_SECS=1 refuses "a size read past its deadline" "could not be ch
 tries=0
 while :; do
     left=""
-    for p in $(cat "$C3/stat.log"); do kill -0 "$p" 2>/dev/null && left="$left $p"; done
+    for p in $(cat "$C3/wc.log"); do kill -0 "$p" 2>/dev/null && left="$left $p"; done
     [ -z "$left" ] || [ "$tries" -ge 20 ] && break
     tries=$((tries + 1))
     sleep 0.1

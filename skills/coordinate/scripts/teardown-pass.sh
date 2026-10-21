@@ -226,21 +226,16 @@ if [ "$MODE" = confirm ]; then
     # file, whatever the archive holds. It writes $T/sizes, confirm's scratch.
     # shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
     archive_whole() {
-        local sf=-f fmt='%z %N' st
-        # dc_tree turns job control on before it forks this function, and a
-        # forked function keeps it, unlike a command it would exec: off
-        # again, so find and awk run as plain children.
-        set +m 2>/dev/null
-        # GNU stat takes -c and prints the raw name with %n (%N quotes it);
-        # BSD stat takes -f, which GNU reads as "file system", so GNU is
-        # probed first, on a file known to exist.
-        stat -c %s "$1/MANIFEST" >/dev/null 2>&1 && { sf=-c fmt='%s %n'; }
-        (cd "$1" && find . -type f -exec stat "$sf" "$fmt" {} +) >"$T/sizes" || return 2
-        # Each size line is `<bytes> ./<path>` and each MANIFEST line
-        # `<sha256> <bytes> <path>`; a path may hold spaces, so both split at
-        # the first spaces only.
+        local st
+        # wc -c takes a regular file's size from fstat on GNU and BSD alike,
+        # and is on the restricted PATH the tests run under, which stat isn't.
+        # Each batch prints `<padding><bytes> ./<path>` per file and, past
+        # one file, a `<bytes> total` line no path collides with.
+        (cd "$1" && find . -type f -exec wc -c {} +) >"$T/sizes" || return 2
+        # Each MANIFEST line is `<sha256> <bytes> <path>`; a path may hold
+        # spaces, so both inputs split at their leading fields only.
         awk '
-            FILENAME == ARGV[1] { i = index($0, " "); size[substr($0, i + 1)] = substr($0, 1, i - 1); next }
+            FILENAME == ARGV[1] { sub(/^ +/, ""); i = index($0, " "); size[substr($0, i + 1)] = substr($0, 1, i - 1); next }
             {
                 rel = $0
                 if (!sub(/^[^ ]+ [^ ]+ /, "", rel) || rel == "") next
