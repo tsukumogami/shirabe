@@ -128,6 +128,8 @@ KOTO_SESSIONS="${TEARDOWN_KOTO_SESSIONS:-$HOME/.koto/sessions}"
 ARCHIVE_ROOT="${TEARDOWN_ARCHIVE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive}"
 FETCH_SECS="${TEARDOWN_FETCH_SECS:-8}"
 CAPTURE_SECS="${TEARDOWN_CAPTURE_SECS:-120}"
+# confirm's archive read gets half of koto's 30-second action bound; the
+# listings, the RESULT read and the MANIFEST digest before it get the rest.
 CONFIRM_SECS="${TEARDOWN_CONFIRM_SECS:-15}"
 
 usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -218,14 +220,25 @@ if [ "$MODE" = confirm ]; then
     }
     # archive_whole <archive>: 0 when every MANIFEST line's file is in the
     # archive at its size; 1 with the first that isn't on stdout; 2 when the
-    # archive can't be listed. One listing of every file's size (find never
-    # follows a link, so a link is no file) and one awk over it and the
-    # MANIFEST: no process per file, whatever the archive holds.
+    # archive can't be listed, 3 when the join can't run, the cause on
+    # stderr. One listing of every file's size (find never follows a link, so
+    # a link is no file) and one awk over it and the MANIFEST: no process per
+    # file, whatever the archive holds. It writes $T/sizes, confirm's scratch.
     # shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
     archive_whole() {
-        local sf=-f fmt='%z %N'
+        local sf=-f fmt='%z %N' st
+        # dc_tree turns job control on before it forks this function, and a
+        # forked function keeps it, unlike a command it would exec: off
+        # again, so find and awk run as plain children.
+        set +m 2>/dev/null
+        # GNU stat takes -c and prints the raw name with %n (%N quotes it);
+        # BSD stat takes -f, which GNU reads as "file system", so GNU is
+        # probed first, on a file known to exist.
         stat -c %s "$1/MANIFEST" >/dev/null 2>&1 && { sf=-c fmt='%s %n'; }
-        (cd "$1" && find . -type f -exec stat "$sf" "$fmt" {} +) >"$T/sizes" 2>/dev/null || return 2
+        (cd "$1" && find . -type f -exec stat "$sf" "$fmt" {} +) >"$T/sizes" || return 2
+        # Each size line is `<bytes> ./<path>` and each MANIFEST line
+        # `<sha256> <bytes> <path>`; a path may hold spaces, so both split at
+        # the first spaces only.
         awk '
             FILENAME == ARGV[1] { i = index($0, " "); size[substr($0, i + 1)] = substr($0, 1, i - 1); next }
             {
@@ -236,6 +249,9 @@ if [ "$MODE" = confirm ]; then
             }
             END { exit bad }
         ' "$T/sizes" "$1/MANIFEST"
+        st=$?
+        [ "$st" -le 1 ] && return "$st"
+        return 3
     }
     read_verdict || verdict teardown-incomplete "$(cat "$T/why")"
     ROOT=$(dc_workspace_root) || verdict teardown-incomplete "no workspace root found"
@@ -264,12 +280,15 @@ if [ "$MODE" = confirm ]; then
     # Every file it lists is in the archive at its size, read under a
     # deadline inside koto's 30-second command bound: past it the archive is
     # not confirmed, never left holding the state.
-    dc_with_deadline "$CONFIRM_SECS" dc_tree archive_whole "$ARCH" >"$T/whole" 2>/dev/null
-    case $? in
+    dc_with_deadline "$CONFIRM_SECS" dc_tree archive_whole "$ARCH" >"$T/whole" 2>"$T/whole.err"
+    rc=$?
+    err=$(grep . "$T/whole.err" | tail -n 1 | cut -c1-200)
+    case $rc in
         0) ;;
         1) verdict teardown-incomplete "$(head -1 "$T/whole")" ;;
         124) verdict teardown-incomplete "the archive's files could not be checked within $CONFIRM_SECS seconds" ;;
-        *) verdict teardown-incomplete "the archive's files could not be listed" ;;
+        2) verdict teardown-incomplete "the archive's files could not be listed${err:+: $err}" ;;
+        *) verdict teardown-incomplete "the archive's sizes could not be checked (status $rc)${err:+: $err}" ;;
     esac
     verdict teardown-confirmed "the instance and the job are gone and the archive is whole"
 fi

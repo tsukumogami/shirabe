@@ -40,8 +40,9 @@
 # process per file; a file cut short, gone or replaced by a link, a MANIFEST
 # cut short or added to after the pass, a missing MANIFEST.sha256, a RESULT
 # that isn't done, and either listing still naming the unit are each
-# incomplete with the reason; a size read held past its deadline is
-# incomplete at the deadline and leaves nothing running. A whole pass writes
+# incomplete with the reason; a listing that fails is incomplete with its
+# cause; a size read held past its deadline is incomplete at the deadline
+# and leaves nothing running. A whole pass writes
 # MANIFEST.sha256 with the MANIFEST's digest.
 #
 # Usage: bash skills/coordinate/scripts/teardown-pass_test.sh
@@ -492,7 +493,9 @@ REALSTAT=$(command -v stat)
 cat >"$B3/stat" <<EOF
 #!/bin/sh
 echo \$\$ >>"\$C3/stat.log"
-[ -f "\$C3/slow" ] && exec sleep 30
+# Past its three arguments a run is the listing, not the format probe.
+[ -f "\$C3/slow" ] && [ \$# -gt 3 ] && exec sleep 30
+[ -f "\$C3/fails" ] && [ \$# -gt 3 ] && { echo "stat: cannot stat './x': Input/output error" >&2; exit 1; }
 exec "$REALSTAT" "\$@"
 EOF
 chmod +x "$P3"/*.sh "$B3"/*
@@ -502,7 +505,7 @@ NFILES=3000
 # setup_confirm: a done archive of NFILES files, with the MANIFEST and the
 # digest the pass writes, both listings without the unit, and a fresh log.
 setup_confirm() {
-    rm -rf "$T/carchive" "$C3/slow" "$C3/detail.json"
+    rm -rf "$T/carchive" "$C3/slow" "$C3/fails" "$C3/detail.json"
     mkdir -p "$CA/job/tmp"
     : >"$C3/stat.log"
     echo '[]' >"$C3/niwa.json"
@@ -574,6 +577,10 @@ refuses "niwa still lists the instance" "niwa still lists tsuku+w5"
 setup_confirm
 echo '[{"id":"4b3597d2"}]' >"$C3/agents.json"
 refuses "claude still lists the job" "claude agents still lists job 4b3597d2"
+
+setup_confirm
+: >"$C3/fails"
+refuses "a listing that fails" "the archive's files could not be listed: stat: cannot stat './x': Input/output error"
 
 setup_confirm
 : >"$C3/slow"
