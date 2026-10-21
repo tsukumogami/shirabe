@@ -4,7 +4,9 @@
 # coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
 # share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
 # by side under scripts/check-skill.sh; the cases are split in file order, so a
-# case that reuses an earlier case's fixtures stays in that case's part.
+# case that reuses an earlier case's fixtures stays in that case's part. Case
+# 16's second run loads the run its first one drove to pick (snap_save,
+# snap_load), rather than driving the same prefix again.
 #
 # Proves, one line per case:
 #  16. a unit's tag in place of its dispatch topic (shirabe#492): pick's
@@ -41,6 +43,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # ---- 16. a unit that isn't a topic is refused where it is read ----------------
 echo "== 16. a unit's tag in place of its topic goes back to be submitted again =="
 if to_pick untopic "$(record_json roadmap untopic | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 960; then
+    snap_save unit-pick
     # pick's unit is a dispatch topic, never the unit's tag (shirabe#492).
     eq "16: dispatch with unit \"Feature 1\" comes back to pick" pick "$(at --with-data '{"choice":"dispatch","unit":"Feature 1"}')"
     from_to dispatch_check pick_facts && ok "16: the route was dispatch_check -> pick_facts" || bad "16: the route was dispatch_check -> pick_facts"
@@ -53,8 +56,8 @@ if to_pick untopic "$(record_json roadmap untopic | jq -c --argjson h "$(unit_ro
 else
     bad "16: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
-if to_pick unmerged "$(record_json roadmap unmerged | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 961 \
-    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+# The run above, as it first reached pick.
+if snap_load unit-pick && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
     # A merged event naming the unit's title rather than its topic (shirabe#547).
     eq "16: merged with a unit's title comes back to wait" wait "$(at --with-data '{"event":"merged","unit":"Feature 16: example"}')"
     from_to merged_facts wait && ok "16: the route was merged_facts -> wait" || bad "16: the route was merged_facts -> wait"

@@ -4,7 +4,10 @@
 # coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
 # share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
 # by side under scripts/check-skill.sh; the cases are split in file order, so a
-# case that reuses an earlier case's fixtures stays in that case's part.
+# case that reuses an earlier case's fixtures stays in that case's part. Cases
+# 7 and 8 start from runs cases 1, 4 and 6 drove and saved (snap_save), and
+# case 9's later events from the run its first event drove to wait, rather
+# than driving the same prefix again.
 #
 # Proves, one line per case:
 #   1. dispatch is unreachable without exactly one record (none stops at
@@ -40,6 +43,7 @@ echo "== 1. dispatch needs exactly one record =="
 seed_roadmap one
 if open_run one; then
     eq "1: no record stops at record_open" record_open "$(at)"
+    snap_save record-open
     tick --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
     eq "1: record_open refuses pick's evidence and stays" record_open "$(now_at)"
     eq "1: dispatch is never entered without a record" 0 "$(entered dispatch)"
@@ -128,8 +132,9 @@ fi
 
 # ---- 4. the record step holds until the Holdings row shows -------------------
 echo "== 4. dispatch reaches wait only through a recorded holding =="
-if to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ]; then
+if SAVE_RECONCILE=empty-reconcile to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ]; then
     eq "4: dispatched without a row holds at dispatch" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    snap_save dispatch-held
     eq "4: another tick still holds" dispatch "$(at)"
     eq "4: record is unreachable before the row" 0 "$(entered record)"
     eq "4: wait is unreachable before the row" 0 "$(entered wait)"
@@ -162,6 +167,7 @@ seed_roadmap unread
 seed_record unread 60
 if open_run unread "$T/bare"; then
     eq "6: the found record still reaches reconcile" reconcile "$(at)"
+    snap_save bare-reconcile
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name POSTURE)" in
         unread*) ok "6: the posture captured is unread" ;;
         *) bad "6: the posture captured is unread" ;;
@@ -174,9 +180,8 @@ fi
 
 # ---- 7. no override on a check gate ------------------------------------------
 echo "== 7. overrides are refused on check gates =="
-seed_roadmap ovr
-seed_record ovr 70
-if open_run ovr && [ "$(at)" = reconcile ]; then
+# Case 4's run, as it reached reconcile with one empty record.
+if snap_load empty-reconcile && [ "$(now_at)" = reconcile ]; then
     try_override() { # try_override <label> <gate> [data]
         local rc
         if [ -n "${3-}" ]; then
@@ -206,24 +211,23 @@ fi
 
 # ---- 8. evidence can't change a check's route --------------------------------
 echo "== 8. contradicting evidence doesn't move a check =="
-seed_roadmap contra
-if open_run contra && [ "$(at)" = record_open ]; then
+# Each part starts from a run an earlier case drove and asserted the same
+# way: case 1's at record_open with no record, case 6's at reconcile with an
+# unread posture, and case 4's held at dispatch with no Holdings row.
+if snap_load record-open && [ "$(now_at)" = record_open ]; then
     eq "8: 'opened' with no record on GitHub routes record_find back to record_open" record_open "$(at --with-data '{"opened":"opened"}')"
     eq "8: record_find read none twice" 2 "$(jq -s '[.[] | select(.type == "variable_captured" and .payload.key == "RECORD_FIND" and (.payload.value | startswith("none ")))] | length' "$(logf)")"
 else
     bad "8: reach record_open" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
-seed_roadmap contra2
-seed_record contra2 80
-if open_run contra2 "$T/bare" && [ "$(at)" = reconcile ]; then
+if snap_load bare-reconcile && [ "$(now_at)" = reconcile ]; then
     R=$(tick --with-data '{"reconciled":"reported","merge":"permitted"}')
     [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: reconcile refuses a field it doesn't accept" || bad "8: reconcile refuses a field it doesn't accept" "$R"
     eq "8: an unread posture routes to posture_ask whatever the evidence says" posture_ask "$(at --with-data '{"reconciled":"reported"}')"
 else
     bad "8: reach reconcile with an unread posture" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
-if to_pick contra3 "$(record_json roadmap contra3)" 81 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ] \
-    && [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = dispatch ]; then
+if snap_load dispatch-held && [ "$(now_at)" = dispatch ]; then
     R=$(tick --with-data '{"dispatched":"sent","topic":"feat-1","confirmed":"yes"}')
     [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: dispatch refuses evidence claiming it is confirmed" || bad "8: dispatch refuses evidence claiming it is confirmed" "$R"
     eq "8: and stays at dispatch, the row not on GitHub" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
@@ -233,10 +237,12 @@ fi
 
 # ---- 9. every wait event reaches its spoke -----------------------------------
 echo "== 9. every wait event reaches its spoke =="
-# Each value is submitted from a fresh wait visit: a run of its own, driven to
-# wait the legitimate way (pick -> hold). No `koto next --to` is used: koto
-# 0.13 only directs along a declared edge, and most spokes have none back to
-# wait.
+# Each value is submitted from a fresh wait visit. The first event's run is
+# driven to wait the legitimate way (pick -> hold) and saved there; each later
+# event loads that saved run, so every value is submitted from the same wait
+# visit, never from a spoke an earlier event reached. No `koto next --to` is
+# used: koto 0.13 only directs along a declared edge, and most spokes have
+# none back to wait.
 #
 # Only the events no other engine test drives from wait to the state it lands
 # in are driven here (shirabe#841). The others, each with its cover:
@@ -274,17 +280,19 @@ if [ -n "$J" ] && [ -r "$J" ]; then
     for ev in $KEEP $COVERED; do
         case "$ALL1" in *" $ev "*) ;; *) bad "9: listed event $ev is one wait accepts" "remove it from KEEP or COVERED" ;; esac
     done
-    # Record numbers from 901 up, one per event, clear of every other case's
-    # record however many events wait accepts.
-    n=900
+    # Record 901 is clear of every other case's record.
+    WAIT9=
     for ev in $EVENTS; do
-        n=$((n + 1))
         # The expected spoke: the arm for this value, and for a `vars.` guard
         # the one that holds at roadmap scope (DISCIPLINE unset).
         WANT=$(jq -r --arg e "$ev" '[.states.wait.transitions[] | select(.when.event == $e)
             | select((.when["vars.DISCIPLINE"] // null) == null or .when["vars.DISCIPLINE"].is_set == false) | .target][0] // ""' "$J")
-        if ! to_pick "spoke-$ev" "$(record_json roadmap "spoke-$ev" | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" "$n" \
-            || [ "$(at --with-data '{"choice":"hold"}')" != wait ]; then
+        if [ -n "$WAIT9" ]; then
+            snap_load wait9 || continue
+        elif to_pick spoke "$(record_json roadmap spoke | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 901 \
+            && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+            snap_save wait9 && WAIT9=1
+        else
             bad "9: reach wait for $ev" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"; continue
         fi
         SEQ=$(jq -s 'map(.seq) | max' "$(logf)")

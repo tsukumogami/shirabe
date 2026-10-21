@@ -45,9 +45,12 @@ mkdir -p "$GH_BOARD_DIR"
 # makes (runs, jobs, rules, branch, the ref, files, checks), and the merge
 # confirmation's reads (the pull request's record, the repository, and the
 # comparison of the default branch with the merge commit) when the case
-# directory holds them.
+# directory holds them. The DB stand-in is sourced rather than started, and
+# the case directory is read with a glob rather than ls, so a call costs one
+# shell.
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
+has() { local f; for f in "$1"*; do [ -e "$f" ] && return 0; done; return 1; } # has <prefix>: a file starts with it
 key=
 case "${1-} ${2-}" in
     "api graphql") case "$*" in *"editor {"*) ;; *) key=snapshot ;; esac ;;
@@ -62,33 +65,43 @@ case "${1-} ${2-}" in
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
-            repos/*/*/contents/*) ls "$GH_BOARD_DIR"/contents-* >/dev/null 2>&1 && exec "$COORD_TESTDATA/gh-board" "$@" ;;
+            repos/*/*/contents/*) has "$GH_BOARD_DIR/contents-" && exec "$COORD_TESTDATA/gh-board" "$@" ;;
             repos/*/*/compare/*) key="compare-${p##*/compare/}" ;;
             repos/*/*/*) ;;
             repos/*/*) key=repo ;;
         esac ;;
     "pr view") key="prview-${3-}" ;;
 esac
-if [ -n "$key" ] && ls "$GH_BOARD_DIR/$key".* >/dev/null 2>&1; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
-exec "$COORD_TESTDATA/gh" "$@"
+if [ -n "$key" ] && has "$GH_BOARD_DIR/$key."; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
+# The stand-in runs in this shell, so it starts with none of this wrapper's
+# names set, as it did when it was started on its own.
+unset -f has; unset key p i
+. "$COORD_TESTDATA/gh" "$@"
 EOF
 chmod +x "$T/bin/gh"
 # The land check runs the repository's PR-body rule through the shirabe
 # binary; the stand-in answers clean, so the run never needs a real one.
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 
-# A clock the quiet case can move forward: with $T/clock holding a number of
-# seconds, `date` without -d/-r reads that much later. Every other case runs
-# on the real clock. GNU date reads an epoch as `-d @N`, BSD date (macOS) as
-# `-r N`, so the stub is written with whichever this host's date takes.
+# A clock the quiet case can move forward: set_clock <seconds> makes `date`
+# without -d/-r read that much later, and clear_clock puts the real clock
+# back. The stub is on PATH only while a clock is set, so every other `date`
+# is the real one and starts no shell. GNU date reads an epoch as `-d @N`, BSD
+# date (macOS) as `-r N`, so the stub is written with whichever this host's
+# date takes.
 if "$REAL_DATE" -d @0 +%s >/dev/null 2>&1; then AT_FLAG=-d AT_PREFIX=@; else AT_FLAG=-r AT_PREFIX=; fi
-cat > "$T/bin/date" <<EOF
+set_clock() { # set_clock <seconds>
+    printf '%s\n' "$1" > "$T/clock"
+    cat > "$T/bin/date" <<EOF
 #!/usr/bin/env bash
-off=\$(cat "$T/clock" 2>/dev/null) || exec "$REAL_DATE" "\$@"
+read -r off < "$T/clock" || exec "$REAL_DATE" "\$@"
 for a in "\$@"; do case "\$a" in -d*|--date*|-r*|--reference*) exec "$REAL_DATE" "\$@" ;; esac; done
 exec "$REAL_DATE" $AT_FLAG "$AT_PREFIX\$(( \$("$REAL_DATE" +%s) + off ))" "\$@"
 EOF
-chmod +x "$T/bin/date"
+    chmod +x "$T/bin/date"
+    hash -r
+}
+clear_clock() { rm -f "$T/clock" "$T/bin/date"; hash -r; }
 PATH="$T/bin:$ORIG_PATH"
 export PATH
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
@@ -189,11 +202,13 @@ live_body() { # live_body <n>: the stand-in's record body, parsed
 
 # to_pick <name> <record-json> [number]: seed the roadmap and one record,
 # open a run and drive it to pick. Returns non-zero if it doesn't get there.
+# With SAVE_RECONCILE set, the run is saved under that label at reconcile.
 to_pick() {
     seed_roadmap "$1"
     seed_record "$1" "${3:-7}" "$2"
     open_run "$1" || return 1
     [ "$(at)" = reconcile ] || return 1
+    [ -z "${SAVE_RECONCILE-}" ] || snap_save "$SAVE_RECONCILE"
     [ "$(at --with-data '{"reconciled":"reported"}')" = pick ]
 }
 
@@ -336,5 +351,48 @@ three_features() { # three_features <name>: three independent features
 }
 
 pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
+
+# ---- saved runs ----------------------------------------------------------------
+# Opening a run and driving it to pick costs some 800 process starts, nearly
+# all in the shipped actions and gates. A case whose run starts from a state
+# an earlier case already drove there, and asserted on the way, can load that
+# run instead of driving its own: snap_save keeps the koto store, the gh DB
+# with its call log and the board directory as they stand, with S and WD, and
+# snap_load puts them back byte for byte, so the loaded run is the one the
+# earlier case drove. Everything a case did since is discarded with it. The
+# work/ and bare/ trees, the clock and the files a case writes under $T are
+# not saved, so a case that loads a run must not depend on them having been
+# left as the saving case left them.
+#
+# A saved run is only as good as the build that drove it. Saved runs live in
+# $T, so they never outlive the suite, but the tree can still change under a
+# running suite (a branch switch, a plugin rewritten in place). So both record
+# a fingerprint of the template, the shipped scripts, the gh stand-ins and the
+# koto binary (its size and time, not its bytes), and a load under a different
+# one fails as a check of its own rather than loading.
+snap_build() {
+    { cat "$TPL" "$PS"/*.sh "$PS"/*.jq "$REPO_ROOT"/scripts/lib/*.sh "$HERE/testdata/gh" "$HERE/testdata/gh-board"
+      ls -lL "$(command -v koto)"; } | $SHA256
+}
+
+snap_save() { # snap_save <label>
+    local d="$T/snap/$1"
+    rm -rf "$d" && mkdir -p "$d" \
+        && cp -Rp "$HOME/.koto" "$d/koto" && cp -p "$GH_DB" "$GH_DB.calls" "$d/" && cp -Rp "$GH_BOARD_DIR" "$d/ghb" \
+        && printf '%s\n%s\n%s\n' "$S" "$WD" "$(snap_build)" > "$d/meta"
+}
+
+snap_load() { # snap_load <label>: sets S and WD; a failed load is a FAIL
+    local d="$T/snap/$1" s w b
+    [ -f "$d/meta" ] && { read -r s && read -r w && read -r b; } < "$d/meta" \
+        || { bad "load the run saved as $1" "nothing was saved as $1"; return 1; }
+    [ "$b" = "$(snap_build)" ] \
+        || { bad "load the run saved as $1" "it was saved from another template, script or koto build"; return 1; }
+    rm -rf "$HOME/.koto" "$GH_BOARD_DIR" \
+        && cp -Rp "$d/koto" "$HOME/.koto" && cp -Rp "$d/ghb" "$GH_BOARD_DIR" \
+        && cp -p "$d/${GH_DB##*/}" "$GH_DB" && cp -p "$d/${GH_DB##*/}.calls" "$GH_DB.calls" \
+        || { bad "load the run saved as $1" "the copy failed"; return 1; }
+    S=$s WD=$w
+}
 
 work_rows() { live_body "$1" | jq -r '[(.work // [])[] | "\(.item):\(.kind):\(.who)"] | join(" ")'; }

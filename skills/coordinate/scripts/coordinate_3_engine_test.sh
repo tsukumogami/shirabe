@@ -4,7 +4,9 @@
 # coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
 # share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
 # by side under scripts/check-skill.sh; the cases are split in file order, so a
-# case that reuses an earlier case's fixtures stays in that case's part.
+# case that reuses an earlier case's fixtures stays in that case's part. Case
+# 16's later message-path runs load the run its first one drove to wait
+# (snap_save, snap_load), rather than driving the same prefix again.
 #
 # Proves, one line per case:
 #  12. a restart takes over every decision entry before its first dispatch:
@@ -40,7 +42,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # ---- 16. a report's pull request reaches the holding --------------------------
 echo "== 16. a report's pull request reaches an empty holding; done with none doesn't stick =="
 LINKED='{"branch":"feat/w-head","pull_request":"[#12](https://github.com/acme/widgets/pull/12)"}'
+# The message-path runs below start from this one, saved at wait.
 if empty_run linkmsg 125; then
+    snap_save empty-wait
     eq "16 message: a report naming its pull request goes to report_link" report_link \
         "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is ready","pull_request":"https://github.com/acme/widgets/pull/12"}')"
     link_through message 125
@@ -104,7 +108,7 @@ fi
 
 # done for a report naming no pull request goes back to the hub, never to a
 # verify_board that can't leave; the next report naming one gets through.
-if empty_run linknone 127; then
+if snap_load empty-wait; then
     eq "16 none: a report naming no pull request reaches classify_report" classify_report \
         "$(at --with-data '{"event":"report","unit":"feat-1","report":"all done"}')"
     eq "16 none: done with no pull request goes back to wait" wait "$(at --with-data '{"classification":"done"}')"
@@ -112,7 +116,7 @@ if empty_run linknone 127; then
     eq "16 none: verify_board is never entered" 0 "$(entered verify_board)"
     eq "16 none: the worker's next report, naming it, reaches report_link" report_link \
         "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is up","pull_request":"acme/widgets#12"}')"
-    link_through none 127
+    link_through none 125
 else
     bad "16 none: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -138,9 +142,9 @@ else
 fi
 # blocked and needs_fix don't route on report_pr, so a holding with no pull
 # request still takes them.
-for c in "blocked surface 128" "needs_fix rebrief 129"; do
+for c in "blocked surface" "needs_fix rebrief"; do
     set -- $c
-    if empty_run "linkno$1" "$3"; then
+    if snap_load empty-wait; then
         at --with-data '{"event":"report","unit":"feat-1","report":"stuck before any PR"}' > /dev/null
         eq "16 none: $1 with no pull request reaches $2" "$2" "$(at --with-data "{\"classification\":\"$1\"}")"
     else
