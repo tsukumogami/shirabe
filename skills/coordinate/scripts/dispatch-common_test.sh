@@ -144,6 +144,26 @@ eq  "repo visibility: a failed read is 2, nothing printed" "2:" "$RC:$OUT"
 
 dc_with_deadline 5 true; eq "deadline: a quick command's status" 0 "$?"
 dc_with_deadline 5 false; eq "deadline: a failing command's status" 1 "$?"
+# A caller's EXIT and TERM traps run in the caller alone. bash 5 ran them in
+# the watcher when the TERM that stops it landed before the watcher had run
+# its first command, which a quick command makes likely: in about one call in
+# a hundred, the caller's EXIT trap ran in the watcher. Each trap appends a
+# line, so over 1000 quick calls the file must end up with the caller's one
+# EXIT line and nothing else; at that rate the old code fails the case nearly
+# every run. bash 3.2 never showed it, so on the macOS floor the case passes
+# either way; Linux CI's bash 5 is what checks it.
+TRAPS="$T/caller-traps"
+: >"$TRAPS"
+(
+    trap 'echo exit >>"$TRAPS"' EXIT
+    trap 'echo term >>"$TRAPS"; exit 143' TERM
+    i=0
+    while [ "$i" -lt 1000 ]; do
+        dc_with_deadline 30 true
+        i=$((i + 1))
+    done
+)
+eq "deadline: a caller's EXIT and TERM traps never run in the watcher" "exit" "$(cat "$TRAPS")"
 START=$(date +%s)
 dc_with_deadline 1 sleep 20; RC=$?
 eq  "deadline: a command past it is 124" 124 "$RC"
