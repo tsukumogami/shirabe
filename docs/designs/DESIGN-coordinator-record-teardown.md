@@ -257,8 +257,10 @@ that holds `record/meta`. A candidate is the predecessor only when its name
 matches `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` whole, it passes the provenance
 check a resume applies today (`coord-log.sh provenance`, built from the shipped
 template, or a template the carry-across already accepted), its own
-`DISCIPLINE` and `HOST_REPO` variables equal this run's, and its
-`record/rotation` window has ended or it has no live run. Two candidates with
+`DISCIPLINE` and `HOST_REPO` variables equal this run's, its
+`record/rotation` window has ended or it has no live run, and no other session
+of the discipline already names it as its predecessor (one predecessor is never
+carried twice). Two candidates with
 the same stamp, or a candidate that fails any of these, is `unreadable`. It
 seals one of: `found` (this run's own state
 exists, a resume), `predecessor <session>`, `first` (no earlier rotation) or
@@ -413,10 +415,18 @@ calls or sources a removed name changes: about forty today, among them
 from `grep -l` over the removed names at its base commit, so nothing is missed
 by a list written earlier.
 
-A session moved from a GitHub record holds a `store` Run row reading
-`session`. `state-schema.jq` accepts that one legacy row, nothing writes a new
-`store` row, and `state-stored-set.sh --run store` is refused, so every session
-already on the store resumes unchanged (R14).
+Every session on the store today holds a `store` Run row reading `session`
+(`record-open.sh --store session` and the move both write it).
+`state-schema.jq` accepts that one legacy row, nothing writes a new `store`
+row, and `state-stored-set.sh --run store` is refused, so every session already
+on the store resumes unchanged (R14). The codec's `check_state` refuses the
+crash-set Run rows (`rules`, `briefs`, `friction`, `reports-to`) unless the Run
+section holds that `store session` row, a gate that kept them off GitHub
+records. With one store the gate has nothing to guard: `state-schema.jq` allows
+the crash-set rows in any session, and a test opens a fresh session after step
+6 (with no `store` row) and writes each of them. Until step 6 the gate stays as
+it is, and a session-default scope from step 4 gets the `store session` row
+the opener writes today.
 
 ### The session layout
 
@@ -481,15 +491,28 @@ to `record_open`, `malformed` to `record_conflict`, `predecessor` to the new
 `record_conflict` with the predecessor named. `record_move`,
 `predecessor_handoff`, `predecessor_close`, `predecessor_step`,
 `predecessor_done`, `predecessor_handed_over`, `rotation_close`,
-`rotation_step` and `rotation_done` are removed; the rotation's end becomes a
-step of the existing close-out that writes `record/reasoning` and ends the run.
-The terminal results' `record:` field names the session instead of an issue
-URL.
+`rotation_step` and `rotation_done` are removed. One new state, `rotation_end`,
+takes their place where `rotation_close` was entered: the coordinator writes the
+reasoning for the next rotation with `state-stored-set.sh --reasoning`, and the
+state's action runs `state-write.sh --end`. The terminal results' `record:`
+field names the session instead of an issue URL.
 
 `predecessor_carry` runs `state-open.sh --carry-from <session>` as its default
-action, capturing the carry's report; its gate passes on exit 0 and goes to
-`reconcile_pass`, and any refusal goes to `record_conflict` with the
-predecessor named. The template change also updates
+action, capturing the carry's report as `PREDECESSOR_CARRY`; its gate passes on
+exit 0 and goes to `reconcile_pass`, and any refusal goes to `record_conflict`
+with the predecessor named. The handover gate (`state-handover.sh`) then lists
+`carry-unacknowledged` until a Standing go-ahead whose Set time is after this
+run's start exists, so a carried rotation dispatches and merges nothing first;
+`handover_engine_test.sh` gains that case.
+
+Step 3's bridge for a discipline whose last rotation ran on GitHub: when
+`state-find.sh` finds no earlier session of the discipline, it reads
+`docs/disciplines/<name>.md` at the host's default branch with today's handoff
+reader. A file it finds is sealed as `predecessor handoff:<sha>`; `state-open.sh
+--carry-from handoff:<sha>` copies the file's sections into this run as the
+handoff carry does today, and reconcile reads its reasoning from the file. No
+file is `first`. The bridge is removed in step 6, after the precondition's
+third condition has held. The template change also updates
 `coordinate.mermaid.md`, the decider declarations that name a removed state
 (`coordinate.*.decider.jsonl`, checked by `check-decider-declarations`), and
 the rule-coverage rows for the removed and added states.
