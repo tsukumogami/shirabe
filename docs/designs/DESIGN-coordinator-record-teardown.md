@@ -187,24 +187,37 @@ named pull request for `goal-fit`, the roadmap pull request for
 `milestone-verdict` and `milestone-failure`.
 
 **Chosen: an explicit target, and `roadmap-status.sh` posting its own
-entries.** `state-entry.sh` (today's `record-append.sh`) takes `--on
-<owner/repo#n>` for `cost` and `goal-fit` and refuses a `goal-fit` whose text
-names a different pull request; `unit-cost.sh` passes the holding's Pull
+entries through the entry script.** `state-entry.sh` (today's
+`record-append.sh`) takes `--on <owner/repo#n>` for `cost` and `goal-fit`,
+checks it against `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$`, refuses a
+repository that isn't one of the run's (the host repository or a holding's),
+and refuses a `goal-fit` whose text names a different pull request. The
+private-repository, home-path and token scan of the entry's text runs against
+the destination's visibility, not the host's: an entry bound for a public
+repository may name no private one, and a repository whose visibility can't be
+read counts as private; `unit-cost.sh` passes the holding's Pull
 request, or the unit's issue, or no target, in which case the entry stays in the
 session and the archive and the capture's output says so. A verdict or failure
 can only be posted once its roadmap pull request exists, and the progress line
 needs the comment's URL, so `roadmap-status.sh --verdict` and `--reopen` change
 order: commit the milestone edit to the branch, open the pull request with the
 whole entry in its body as today, post the session entry as a comment on that
-pull request, then commit the progress line with the comment's URL and hash and
-push it before printing the result. They take `--entry <n>` (the session
-entry) instead of `--entry-url`. `posted_entry` reads a comment by id through
+pull request by calling `state-entry.sh --repost <n> --on <roadmap pull
+request>` (so the content checks and the `@` escaping apply), then commit the
+progress line with the comment's URL and hash and push it before printing the
+result. They take `--entry <n>` (the session entry) instead of `--entry-url`.
+`posted_entry` reads a comment by id through
 `repos/<roadmap repo>/issues/comments/<id>`, which serves issue and pull request
-conversation comments alike, so `--confirm` accepts both a new progress line
-and one written before the removal. A retry deduplicates on
+conversation comments alike, so `--confirm` accepts both a new progress line (a
+`/pull/<n>#issuecomment-<id>` URL, which must be on the pull request the row's
+Side effects entry names) and one written before the removal (an
+`/issues/<n>#issuecomment-<id>` URL). A retry deduplicates on
 `record/posted/<n>`, then on a comment on the target with the same marker and
-text, created at or after the entry's stamp by the login `gh api user`
-returns; nothing reads a collaborator permission.
+text, created at or after the entry's stamp by the login `gh api user` returns,
+compared without case, and not already claimed by another entry's
+`record/posted/`. When `gh api user` can't answer (an App token has no user),
+the retry posts nothing and exits 2 naming the entry, so a duplicate is never
+risked. Nothing reads a collaborator permission.
 
 *Post a verdict on the unit's pull request.* Rejected: a verdict judges a
 milestone, which may cover several pull requests or none.
@@ -231,14 +244,24 @@ written by `state-stored-set.sh` (today's `record-state.sh`) under
 start, `state-find.sh` lists the discipline's sessions with `koto session list`
 by the scope's slug, as `coord-log.sh` already does for a roadmap scope's
 earlier runs, and takes the one with the latest stamp earlier than this run's
-that holds `record/meta`. It seals one of: `found` (this run's own state
+that holds `record/meta`. A candidate is the predecessor only when its name
+matches `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` whole, it passes the provenance
+check a resume applies today (`coord-log.sh provenance`, built from the shipped
+template, or a template the carry-across already accepted), its own
+`DISCIPLINE` and `HOST_REPO` variables equal this run's, and its
+`record/rotation` window has ended or it has no live run. Two candidates with
+the same stamp, or a candidate that fails any of these, is `unreadable`. It
+seals one of: `found` (this run's own state
 exists, a resume), `predecessor <session>`, `first` (no earlier rotation) or
 `unreadable <session>` (the predecessor's `record/meta` or a section key fails
 `state-schema.jq`). A new `predecessor_carry` state runs `state-open.sh
 --carry-from <session>`, which copies the predecessor's Holdings, Deferrals,
 Side effects, Reversals, Holds, Run, Standing, Work, unsettled Decisions and
 next decision number into this run through `core_carry`, and records the
-predecessor in `record/rotation`. Reconcile reads `record/reasoning` from the
+predecessor in `record/rotation`. The carry's output lists what it carried
+(the holds, and the Standing rows by kind and owner), which the start reports
+up, so the owner sees an approval or a missing hold that came from the
+predecessor before anything acts on it. Reconcile reads `record/reasoning` from the
 predecessor's session and classifies it `present` or `not_recorded` with the
 rule it applies to the handoff file today. An expired predecessor that never
 closed has no `record/reasoning`, so it reads as `not_recorded`. Closing a
@@ -399,9 +422,14 @@ records what GitHub recomputes; a malformed worker or address; a malformed pull
 request link; a malformed hold or an illegal hold change; an unknown Run key or
 a stored-set row breaking its rules (rework, pause-until); an illegal Decisions
 state, transition or stamp; and a private repository name, a home-directory
-path or a token-shaped string in a value that can leave the host. The
+path or a token-shaped string in a value that can leave the host. The scan
+walks every string in the state recursively, `record/rotation` and
+`record/reasoning` included, rather than a list of columns, and a test fails
+when a state with a new string-bearing field isn't scanned. The
 private-repository scan still reads each named repository's visibility and
-counts one it can't read as private.
+counts one it can't read as private. `record/reasoning` keeps a 16 KiB cap,
+the size an entry text has today, so one rotation's prose can't grow without
+limit across carries.
 
 ### The start
 
@@ -424,7 +452,7 @@ URL.
 
 | Kind | Target | Who posts | Read back by |
 |---|---|---|---|
-| `cost` | the holding's pull request; else the unit's issue; else none | `unit-cost.sh` via `state-entry.sh --on` | the reading guide in `references/unit-cost.md`, which lists a scope's units from the session's Holdings (or the roadmap's Delivered lines) and reads each pull request's comments with today's marker filter |
+| `cost` | the holding's pull request; else the unit's issue; else none | `unit-cost.sh` via `state-entry.sh --on` | the reading guide in `references/unit-cost.md`, which lists a scope's units from the session's Holdings (or the roadmap's Delivered lines) and reads each pull request's comments with today's marker filter and an author filter on the coordinator's login, which replaces the permission read |
 | `goal-fit` | the pull request the entry names | the coordinator via `state-entry.sh --on` | people on that pull request |
 | `milestone-verdict` | the roadmap pull request `roadmap-status.sh --verdict` opens | `roadmap-status.sh` | `roadmap-status.sh --confirm`, through the progress line |
 | `milestone-failure` | the roadmap pull request `roadmap-status.sh --reopen` opens | `roadmap-status.sh` | as above |
@@ -556,19 +584,21 @@ rewritten to start from a predecessor session.
 5. **The transitional structure test.**
 
 **The precondition** (R20). No coordinator runs on the GitHub record when both
-of these return nothing, for every organization a coordinator writes to:
+of these return nothing, for every organization a coordinator writes to, run
+with a token that can read every repository in it, private ones included:
 
 ```bash
-gh search issues --owner <org> --state open --match title "Coordinator record:" \
+gh search issues --owner <org> --state open --match title "Coordinator record:" --limit 1000 \
   --json repository,number,body \
   --jq '.[] | select(.body | test("\\| store \\| session \\|") | not) | "\(.repository.nameWithOwner)#\(.number)"'
-gh search prs --owner <org> --state open --match title "rotation" \
+gh search prs --owner <org> --state open --match title "rotation" --limit 1000 \
   --json repository,number,title \
   --jq '.[] | select(.title | test("^docs\\(coordinate\\): .+ rotation [0-9]{4}-[0-9]{2}-[0-9]{2} to ")) | "\(.repository.nameWithOwner)#\(.number)"'
 ```
 
 The first lists roadmap records not in the moved shape; the second, open
-rotation pull requests. An owner ends either by moving the coordinator at its
+rotation pull requests. Both run again immediately before step 6 merges, not
+only when the build is dispatched. An owner ends either by moving the coordinator at its
 next start, by letting a rotation end, or by closing the issue or pull request.
 
 **After the precondition:**
@@ -589,31 +619,42 @@ validate` over the changed documents.
 
 ## Security Considerations
 
-**The private-repository and token checks keep their reach.** They move from
-the renderer to `state-schema.jq` and the write core, and still run on every
-value that can leave the host. After the removal fewer values leave it: only
-outward entries, which `state-entry.sh` checks before posting, as
-`record-append.sh` does today.
+**The private-repository and token checks keep their reach, and follow the
+destination.** They move from the renderer to `state-schema.jq` and the write
+core, walk every string in the state rather than a list of columns, and still
+run on every value that can leave the host. After the removal fewer values leave
+it: only outward entries, which `state-entry.sh` checks before posting. Since an
+entry can now go to any of the run's repositories, the check keys on the
+destination's visibility, so an entry naming a private repository is refused
+for a public destination even when the host is private. `roadmap-status.sh`
+posts through `state-entry.sh` for the same reason. `--on` and every stored
+comment URL are checked against fixed patterns before they reach `gh`.
 
 **The collaborator-permission read goes, and its job is narrower.** It decided
 which comments on a coordinator issue were entries; with no comment stream
-there is nothing to authorise. The one place a GitHub comment still stands in
-for an entry, the retry's dedup, accepts only the coordinator's own login, which
-is stricter than write access.
+there is nothing to authorise. The places a GitHub comment still stands in for
+an entry (the retry's dedup, a new progress line's comment, the cost reading
+guide) accept only the coordinator's own login, which is stricter than write
+access, and the dedup fails closed when the login can't be read.
 
 **The bucket and the local store are now the only store.** The session store's
 residual risk, recorded in `DESIGN-coordinator-session-record.md`, stays: anyone
 holding the bucket's credentials or able to write the local store can rewrite a
-session. The removal takes away the GitHub copy that a hand edit couldn't touch
-without leaving a trace. The coordinator's reconcile pass still re-checks every
-claim against GitHub before acting, so a forged holding can't merge anything
-GitHub doesn't show.
+session, and the store needs the same access control as the repositories whose
+work it holds. The removal takes away the GitHub copy that a hand edit couldn't
+touch without leaving a trace. The reconcile pass re-checks Holdings against
+GitHub before acting, so a forged holding can't merge anything GitHub doesn't
+show. It can't re-check a Standing approval or a hold's absence, so a
+discipline carry binds its predecessor by name pattern, provenance, discipline
+and host, stops on any ambiguity, and reports every hold and Standing row it
+carried to the owner before the run acts on them.
 
 **`--confirm` reads a comment by id within one repository.** Widening
 `posted_entry` from one issue to any comment of the roadmap's repository is
-bounded by the marker, kind, text and hash checks it already makes, so a comment
-elsewhere in the repository can't confirm an entry it doesn't reproduce byte for
-byte.
+bounded by the marker, kind, text and hash checks it already makes, and a new
+progress line's comment must sit on the roadmap pull request its Side effects
+row names. A comment elsewhere in the repository can't confirm an entry it
+doesn't reproduce byte for byte.
 
 **No new input reaches a command.** The new keys hold dates, a repository, a
 session name and prose; the session name is checked against the scope's
