@@ -773,6 +773,25 @@
         "No acceptance criterion in steps 1 and 2 is file-shaped (a path or identifier with add, create, implement, define, update, remove or rename and no observable result)",
         "The shim's call log contains zero `issue create` lines"
       ]
+    },
+    {
+      "id": 50,
+      "name": "plan-version-default-gives-way-on-coordinated-split",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --intent=continue --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (schema, execution_mode, split_mode_source, tracking_level, status), whether it has a `## Steps` section, its `**Repo**:` and `**Group**:` lines, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --plan-version=v2 --intent=continue --auto`. Afterwards print whether docs/plans/ exists and `git status --short`.",
+      "expected_output": "The forced-split DESIGN splits and --intent=continue resolves the split to coordinated. In run 1 no version was asked for, so the default v2 gives way: resolve-plan-version.sh --needs-v1=coordinated prints v1 with one stderr line, /plan repeats that line to the author, and the run writes a plan/v1 coordinated PLAN (schema: plan/v1, execution_mode: coordinated, split_mode_source: intent, **Repo**: and **Group**: lines, no ## Steps) that shirabe validate accepts. In run 2 v2 was asked for explicitly, so the run stops with \"coordinated plans use --plan-version=v1\" and writes nothing.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers the default giving way to plan/v1 on a coordinated split, and an explicit v2 still stopping. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "Run 1's transcript tells the author that no plan version was asked for and the default v2 gave way to v1 because a coordinated split is planned under v1",
+        "Run 1 runs skills/plan/scripts/resolve-plan-version.sh with --needs-v1=coordinated rather than choosing the version by judgment",
+        "Run 1's PLAN has schema: plan/v1, execution_mode: coordinated and no ## Steps section",
+        "shirabe validate on run 1's PLAN exits 0",
+        "Run 2 stops with a message naming --plan-version=v1 for coordinated plans, and docs/plans/ does not exist"
+      ]
     }
   ]
 }

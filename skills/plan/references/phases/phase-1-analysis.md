@@ -38,20 +38,27 @@ yourself:
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
   [--plan-version=<value>] \
-  [--claude-md <repo-root>/CLAUDE.md]
+  [--claude-md <repo-root>/CLAUDE.md] \
+  [--needs-v1=roadmap]
 ```
 
 Pass `--plan-version` with the value exactly as the run was given it, when it
-was given, and `--claude-md` when the repository root has a `CLAUDE.md`. The
-script prints one line, `v1` or `v2`: the flag wins, then a
-`## Plan Version: v1|v2` header in that CLAUDE.md (outside fenced code), then
-the default, which is `v2`. A run that needs a `plan/v1` plan (a roadmap, a
-coordinated split, issues filed per entry) asks for it with the flag or the
-header.
+was given, `--claude-md` when the repository root has a `CLAUDE.md`, and
+`--needs-v1=roadmap` when `input_type` is `roadmap`. The script prints one
+line, `v1` or `v2`: the flag wins, then a `## Plan Version: v1|v2` header in
+that CLAUDE.md (outside fenced code), then the default, which is `v2`.
+
+**The default gives way to `v1` where a step plan can't run.** On roadmap
+input with no version asked for, the script prints `v1` and one stderr line
+saying so; repeat that line to the author as it stands, so nobody is surprised
+by a `plan/v1` plan. Step 3.6's step 5a does the same for a split that
+resolves to `coordinated`. A flag or header that asks for `v2` never gives way.
 
 **A non-zero exit stops the run** with the script's stderr line: a value other
-than `v1` or `v2` (an empty one included), or two `## Plan Version:` headers in
-CLAUDE.md. Nothing has been written at that point and nothing is. A run given
+than `v1` or `v2` (an empty one included), two `## Plan Version:` headers in
+CLAUDE.md, or roadmap input with `v2` asked for by flag or header ("a roadmap
+is planned with --plan-version=v1; step plans are for designs, PRDs and
+topics"). Nothing has been written at that point and nothing is. A run given
 `--plan-version` never reads the header, so a bad header does not stop it.
 
 Store the version for every later phase:
@@ -60,11 +67,9 @@ Store the version for every later phase:
   describes. Phases 3, 4 and 7 take their `plan/v1` paths.
 - **`v2`** -- the run writes a `plan/v2` step plan. Phase 3 decomposes into
   steps, Phase 4 details steps 1 and 2 only, and Phase 7 writes
-  `schema: plan/v2`. Roadmap input does not apply: a roadmap plans one
-  planning issue per feature, which a step plan has no form for, so with
-  `input_type: roadmap` and `v2` stop with "a roadmap is planned with
-  `--plan-version=v1`; step plans are for designs, PRDs and topics" before
-  anything is written.
+  `schema: plan/v2`. A roadmap never reaches it: a roadmap plans one
+  planning issue per feature, which a step plan has no form for, so the
+  resolver either gave way to `v1` or stopped the run above.
 
 ### 1.1 Validate Source Document Status
 

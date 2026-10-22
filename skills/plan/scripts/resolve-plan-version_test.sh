@@ -106,6 +106,12 @@ expect "no flag and no CLAUDE.md gives the default" v2 "$RESOLVER"
 
 # --- header matching ----------------------------------------------------------
 
+# Every case here names v1, the version that is not the default, in the text
+# under test. A header that must be ignored then shows up as a v2 answer, and
+# one that must count as a v1 answer; with v2 in that text, a case would pass
+# whether the header was read or not. The same holds for the fenced header in
+# testdata/plan-version/CLAUDE-fenced-header.md.
+
 printf '## Plan Version: \t v1  \r\n' > "$TEST_DIR/padded.md"
 expect "header value is trimmed, CRLF included" v1 "$RESOLVER" --claude-md "$TEST_DIR/padded.md"
 
@@ -147,6 +153,9 @@ reject "missing CLAUDE.md path" "not a file" --claude-md "$TEST_DIR/absent.md"
 reject "--claude-md given twice" "more than once" \
     --claude-md "$DATA/CLAUDE-flag-only.md" --claude-md "$DATA/CLAUDE-flag-only.md"
 reject "unknown argument" "unknown argument" --plan-versions=v2
+reject "--needs-v1 with an unknown reason" "must be roadmap or coordinated" --needs-v1=steps
+reject "--needs-v1 with no value" "roadmap or coordinated" --needs-v1
+reject "--needs-v1 given twice" "more than once" --needs-v1=roadmap --needs-v1=roadmap
 
 printf '## Plan Version: v2\x1b[31m%s\n' "$(printf 'x%.0s' $(seq 1 80))" > "$TEST_DIR/hostile.md"
 reject "a quoted header value has control characters stripped" "must be v1 or v2" \
@@ -186,6 +195,49 @@ expect "flipped default: no header in CLAUDE.md resolves to v1" v1 "$FLIPPED" \
 expect "flipped default: an explicit v2 flag still wins" v2 "$FLIPPED" --plan-version=v2
 expect "flipped default: a v2 header still wins" v2 "$FLIPPED" \
     --claude-md "$DATA/CLAUDE-header-only.md"
+
+# --- what only v1 can plan ------------------------------------------------------
+
+# expect_note <name> <version> <text stderr must contain> <args...>
+# The default giving way: exit 0, the version on stdout, one stderr line.
+expect_note() {
+    local name="$1" want="$2" needle="$3"
+    shift 3
+    local out rc=0
+    out=$("$BASH" "$RESOLVER" "$@" 2>"$TEST_DIR/stderr") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        fail "$name" "exit $rc, stderr: $(cat "$TEST_DIR/stderr")"
+    elif [ "$out" != "$want" ]; then
+        fail "$name" "got '$out', want '$want'"
+    elif ! grep -qF -- "$needle" "$TEST_DIR/stderr"; then
+        fail "$name" "stderr does not say '$needle': $(cat "$TEST_DIR/stderr")"
+    elif [ "$(wc -l < "$TEST_DIR/stderr" | tr -d ' ')" -ne 1 ]; then
+        fail "$name" "expected one stderr line, got: $(cat "$TEST_DIR/stderr")"
+    else
+        pass "$name"
+    fi
+}
+
+# A single-pr or multi-pr step plan never passes --needs-v1, so the default
+# stands; the no-flag cases under "precedence" above are that path.
+expect_note "default gives way to v1 for a roadmap" v1 "a roadmap input is planned under v1" \
+    --needs-v1=roadmap
+expect_note "default gives way to v1 for a coordinated split" v1 \
+    "a coordinated split is planned under v1" --needs-v1=coordinated
+expect_note "default gives way with a CLAUDE.md that has no header" v1 "gives way to v1" \
+    --needs-v1=coordinated --claude-md "$DATA/CLAUDE-flag-only.md"
+reject "an explicit v2 flag still stops on a coordinated split" \
+    "coordinated plans use --plan-version=v1" --plan-version=v2 --needs-v1=coordinated
+reject "an explicit v2 flag still stops on a roadmap" \
+    "a roadmap is planned with --plan-version=v1" --plan-version=v2 --needs-v1=roadmap
+reject "a v2 header still stops on a coordinated split" \
+    "coordinated plans use --plan-version=v1" --needs-v1=coordinated \
+    --claude-md "$DATA/CLAUDE-header-only.md"
+expect "an explicit v1 flag needs no fallback" v1 "$RESOLVER" --plan-version=v1 \
+    --needs-v1=coordinated
+expect "a v1 header needs no fallback" v1 "$RESOLVER" --needs-v1=roadmap \
+    --claude-md "$TEST_DIR/header-v1.md"
+expect "flipped default: a v1 default needs no fallback" v1 "$FLIPPED" --needs-v1=coordinated
 
 # --- the step plan example validates -------------------------------------------
 

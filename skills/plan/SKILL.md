@@ -107,9 +107,11 @@ The version resolves on a `flag > CLAUDE.md-header > default` stack, through
 
 Any other value, or two `## Plan Version:` headers, stops the run before
 anything is written, naming `v1` and `v2`. A step plan is `single-pr` or
-`multi-pr` only: a split that resolves to `coordinated` stops the run, and a
-roadmap is planned under `v1`. A run that needs either asks for `v1` with
-`--plan-version=v1` or a `## Plan Version: v1` header.
+`multi-pr` only, so a roadmap input and a split that resolves to
+`coordinated` need `v1`. When the `v2` came from the default, it gives way:
+the run writes `plan/v1` and says so, naming why (the resolver's
+`--needs-v1`, called in Phase 1 for a roadmap and in step 5a for a coordinated
+split). When a flag or header asked for `v2`, the run stops instead.
 
 ## Decomposition Strategies
 
@@ -259,10 +261,10 @@ forwards them verbatim when its caller passed them):
 - `--intent=continue|stop` -- the caller's intent for the work after planning.
   Read only by step 5a, and only when the work splits: `continue` resolves a
   split to `coordinated`, `stop` to `multi-pr`. It never changes whether the work
-  splits, and a PLAN that doesn't split is `single-pr` either way. Under plan
-  version `v2`, the default, a split that resolves to `coordinated` stops the
-  run (see Plan Version), so a caller that wants a coordinated plan also passes
-  `--plan-version=v1`.
+  splits, and a PLAN that doesn't split is `single-pr` either way. A split
+  that resolves to `coordinated` under the default version is planned as
+  `plan/v1`; under a `v2` a flag or header asked for, it stops the run (see
+  Plan Version).
 - `--coordinated` -- resolve a split to `coordinated`, outranking `--intent` and
   the `CLAUDE.md` header.
 - `--no-coordinated` -- resolve a split to `multi-pr`, outranking `--intent` and

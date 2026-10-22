@@ -22,19 +22,31 @@
 # read only when no flag is given: the flag wins, and a run given the flag is
 # not stopped by a duplicated or malformed header it never reads.
 #
+# --needs-v1=<roadmap|coordinated> says the run needs something only plan/v1
+# has: a roadmap input, or a split that resolved to `coordinated`. A step plan
+# can hold neither. When the version came from the default, the default gives
+# way: the script prints v1 and says why in one stderr line, still exit 0, and
+# /plan repeats that line to the author. When a flag or header asked for v2,
+# the run stops instead (exit 2), since the author chose a step plan. A v1 from
+# any level is printed as usual.
+#
 # Usage:
 #   resolve-plan-version.sh [--plan-version <v1|v2>] [--claude-md <path>]
+#                           [--needs-v1 <roadmap|coordinated>]
 #
 #   Each option also accepts the `--opt=value` form. Without --claude-md no
 #   header is consulted.
 #
-# Output: exactly one line on stdout, `v1` or `v2`, then exit 0.
+# Output: exactly one line on stdout, `v1` or `v2`, then exit 0. Only the
+# default giving way to --needs-v1 also writes to stderr.
 #
 # Rejections (exit 2, nothing on stdout, one stderr line):
 #   a --plan-version value other than v1 or v2, empty included; a header value
 #   other than v1 or v2; two `## Plan Version:` headers outside fenced code
-#   (naming both lines); an option given twice; a --claude-md path that is not
-#   a file; an unknown argument; an option missing its value. A value is never
+#   (naming both lines); a --needs-v1 value other than roadmap or coordinated;
+#   a flag or header asking for v2 when --needs-v1 is given; an option given
+#   twice; a --claude-md path that is not a file; an unknown argument; an
+#   option missing its value. A value is never
 #   echoed back raw: control characters are stripped and it is cut to 40
 #   characters first
 #   (200 for a path).
@@ -74,6 +86,8 @@ FLAG=""
 FLAG_SEEN=false
 CLAUDE_MD=""
 CLAUDE_MD_SEEN=false
+NEEDS_V1=""
+NEEDS_V1_SEEN=false
 
 while [ $# -gt 0 ]; do
     arg="$1"
@@ -89,10 +103,11 @@ while [ $# -gt 0 ]; do
     esac
 
     case "$opt" in
-        --plan-version|--claude-md)
+        --plan-version|--claude-md|--needs-v1)
             if ! $has_inline; then
                 if [ $# -lt 2 ]; then
                     [ "$opt" = "--plan-version" ] && die "--plan-version requires a value: v1 or v2"
+                    [ "$opt" = "--needs-v1" ] && die "--needs-v1 requires a value: roadmap or coordinated"
                     die "$opt requires a value"
                 fi
                 val="$2"
@@ -119,12 +134,46 @@ while [ $# -gt 0 ]; do
             [ -f "$val" ] || die "--claude-md is not a file: $(quote "$val" 200)"
             CLAUDE_MD="$val"
             ;;
+        --needs-v1)
+            $NEEDS_V1_SEEN && die "--needs-v1 given more than once"
+            NEEDS_V1_SEEN=true
+            case "$val" in
+                roadmap|coordinated) ;;
+                *) die "--needs-v1 must be roadmap or coordinated, got '$(quote "$val")'" ;;
+            esac
+            NEEDS_V1="$val"
+            ;;
     esac
 done
 
-if [ -n "$FLAG" ]; then
-    printf '%s\n' "$FLAG"
+# finish <version> <from>: print the version, or let --needs-v1 overrule a
+# v2 that came from the default, or stop on a v2 a flag or header asked for.
+# <from> is `flag`, `header` or `default`.
+finish() {
+    local version="$1" from="$2" why stop
+    if [ -n "$NEEDS_V1" ] && [ "$version" = "v2" ]; then
+        case "$NEEDS_V1" in
+            roadmap)
+                why="a roadmap input is planned under v1"
+                stop="a roadmap is planned with --plan-version=v1; step plans are for designs, PRDs and topics"
+                ;;
+            coordinated)
+                why="a coordinated split is planned under v1"
+                stop="coordinated plans use --plan-version=v1; a step plan lands as single-pr or multi-pr"
+                ;;
+        esac
+        if [ "$from" != "default" ]; then
+            die "$stop"
+        fi
+        echo "resolve-plan-version.sh: no plan version was asked for, so the default v2 gives way to v1: $why" >&2
+        version=v1
+    fi
+    printf '%s\n' "$version"
     exit 0
+}
+
+if [ -n "$FLAG" ]; then
+    finish "$FLAG" flag
 fi
 
 # header_scan <file>
@@ -192,9 +241,8 @@ if [ -n "$CLAUDE_MD" ]; then
         fi
         value="${headers#* }"
         check_version "the '## Plan Version:' header in $(quote "$CLAUDE_MD" 200)" "$value"
-        printf '%s\n' "$value"
-        exit 0
+        finish "$value" header
     fi
 fi
 
-printf '%s\n' "$DEFAULT_PLAN_VERSION"
+finish "$DEFAULT_PLAN_VERSION" default

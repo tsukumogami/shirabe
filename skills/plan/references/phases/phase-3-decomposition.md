@@ -58,7 +58,8 @@ Read `input_type` and `Plan Version` from key `work/analysis.md`:
 
 - **Plan Version `v2`**: Follow the step decomposition flow (steps 3.S1 through
   3.S5) in place of steps 3.0 through 3.5, then step 3.5a and step 3.6.
-  Phase 1 has already stopped a roadmap under `v2`.
+  A roadmap never runs under `v2`: Phase 1 already moved it to `v1` or
+  stopped it.
 - **design** or **prd** (`v1`): Follow the standard decomposition flow (steps 3.0 through 3.6)
 - **roadmap**: Follow the roadmap decomposition flow (steps 3.R1 through 3.R4), then skip to step 3.6
 
@@ -719,13 +720,18 @@ for applying it.
    Step 5a also runs on roadmap input (whose split branch is Incremental Value)
    and again after a step 6 override whose confirmed mode splits.
 
-   **Under plan version `v2`, a `coordinated` outcome stops the run** before
-   anything is written, with "coordinated plans use `--plan-version=v1`; a step
-   plan lands as `single-pr` or `multi-pr`". A step plan has no Repo or Group
-   per step and files no issues, so none of the coordinated steps below apply
-   to it. To keep the step plan, re-run with `--no-coordinated`, which resolves
-   the split to `multi-pr`. Step 6's override offers only `single-pr` and
-   `multi-pr` under `v2`.
+   **Under plan version `v2`, a `coordinated` outcome re-runs the version
+   resolver** with Phase 1's arguments plus `--needs-v1=coordinated`, since a
+   step plan has no Repo or Group per step and files no issues. When the `v2`
+   came from the default, the script prints `v1` and one stderr line: repeat
+   that line to the author, set `Plan Version: v1` in key `work/analysis.md`,
+   remove key `work/decomposition.md`, and run Phase 3 again from the top on
+   the `plan/v1` path. When a flag or header asked for `v2`, it exits non-zero
+   with "coordinated plans use --plan-version=v1; a step plan lands as
+   single-pr or multi-pr": stop with that line before anything is written. To
+   keep the step plan, re-run with `--no-coordinated`, which resolves the split
+   to `multi-pr`. Step 6's override offers only `single-pr` and `multi-pr`
+   under `v2`.
 
    **On a `coordinated` outcome**, step 5a also does three things before
    Phase 4 runs:
