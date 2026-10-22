@@ -1,14 +1,16 @@
 name: Check coordinate scripts
 
-# It runs on a pull request and again on the push its merge makes to main. A
-# merge leaves the pull request's run where it is: its macOS leg, the coordinate
-# suite on the bash 3.2 floor, is often still queued or running, and
-# cancel-closed-pr-macos-runs.yml cancels it once the pull request closes. The
-# push run is the merge commit's own, on both platforms, so nothing lands on
-# main without the floor finishing against it (shirabe#1077).
+# This workflow runs on a pull request and again on the push its merge makes
+# to main. A merge leaves the pull request's own run behind: its macOS leg, the
+# coordinate suite on the bash 3.2 floor, may still be queued or running, and
+# cancel-closed-pr-macos-runs.yml cancels it once the pull request closes,
+# giving that result up on purpose, with macos-floor.yml checking main once a
+# day. The push run is the merge commit's own run on both platforms, so a
+# change to these paths is checked on the floor as it lands rather than at
+# the next daily run (shirabe#1077).
 
 on:
-  # The two paths: lists below must match; edit both together.
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/coordinate/**'
@@ -24,7 +26,7 @@ on:
       - 'scripts/assert-koto-floor.sh'
   push:
     branches: [main]
-    # Must match the pull_request paths: list above.
+    # Must match the pull_request paths list above.
     paths:
       - 'skills/coordinate/**'
       - 'scripts/koto-open.sh'
