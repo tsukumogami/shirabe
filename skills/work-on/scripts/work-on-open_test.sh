@@ -509,8 +509,10 @@ else
     pass "allowlist agreement: the reason class read from work-on-open.sh is $CLASS_RE"
     ALLOWED=$(printf '%s' "$CANDIDATES" | jq -c --arg re "$CLASS_RE" 'map(select(test($re)))')
     REFUSED=$(printf '%s' "$CANDIDATES" | jq -c --arg re "$CLASS_RE" 'map(select(test($re) | not))')
+    # The issue's sample, by code point: an apostrophe, a comma, ;, $, a
+    # backtick and a newline.
     eq "allowlist agreement: the class refuses an apostrophe, a comma, ;, \$, a backtick and a newline" '[]' \
-        "$(jq -nc --argjson r "$REFUSED" '["'", ",", ";", "$", "`", "\n"] - $r')"
+        "$(jq -nc --argjson r "$REFUSED" '[39, 44, 59, 36, 96, 10] | map([.] | implode) - $r')"
 
     # Every allowed character at once. When either side refuses the value, each
     # character is tried alone to name the ones it refuses.
