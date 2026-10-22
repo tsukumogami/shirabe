@@ -184,16 +184,9 @@ These terms mean the same thing everywhere below.
   by `create`, `new` or `edit`, or `git` followed later by `push`. It is a
   superset of guarded: everything guarded is named in the text, and
   some unguarded commands are too (`echo "git push"`). The same test,
-  applied to one segment's text, decides a wrapped guarded command
-  behind every wrapper but `env`.
-- **Wrapped guarded command**: a segment whose head is `env` and whose
-  command, after env's options `-i`, `-`, `--ignore-environment`, `-0`,
-  `--null`, `-v`, `--debug`, `-u NAME`, `--unset NAME` and `--` and its
-  `NAME=value` operands, is guarded or wrapped guarded, so `env -u
-  GH_TOKEN gh pr merge --body "..."` is a merge whatever its body says
-  (any other env option, a word the shell expands before the command,
-  or `env` nested more than eight deep falls back to the text test); a
-  segment whose head is `command`,
+  applied to one segment's text, decides a wrapped guarded command,
+  with the one `env` exception below.
+- **Wrapped guarded command**: a segment whose head is `env`, `command`,
   `builtin`, `exec`, `eval`, `bash`, `sh`, `zsh`, `dash`, `xargs`,
   `sudo`, `time`, `nohup`, `timeout`, `nice`, `ssh`, `docker`,
   `podman`, `mise`, `nix`, `python`, `python3`, `perl`, `ruby` or
@@ -207,6 +200,20 @@ These terms mean the same thing everywhere below.
   "$(cat <<'EOF' ... git push ... EOF)"` holds none; with an unquoted
   delimiter the shell still runs a `$(...)` or backquotes in them, and
   those count as command substitutions.
+- **The `env` exception**: when an `env` segment runs `gh`, `git` or
+  another wrapper on the list, the text test doesn't decide it. Past
+  env's own options (the classifier's `env_command` lists the ones it
+  reads) and every operand holding a `=`, which env takes as an
+  assignment whether or not it is a shell name, the command is
+  classified as a segment of its own, and the `env` segment is a
+  wrapped guarded command when that command is guarded or wrapped
+  guarded. So `env -u GH_TOKEN gh pr merge --body "..."` is a merge
+  whatever its body says, and `env -u GH_TOKEN gh pr create ...` is
+  still a wrapped guarded command. An option the hook doesn't read, a
+  word the shell expands before the command, any other program as the
+  command (an unlisted launcher, or `GH` on a case-insensitive
+  filesystem), or `env` nested more than eight deep leaves the segment
+  to the text test.
 
 ### Functional
 
@@ -695,11 +702,13 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 - With the binary missing, the coarse test may deny an unguarded command
   that mentions a guarded action (R8). The reason says the binary is
   missing, which is the thing to fix.
-- Behind a wrapper other than `env`, the text test reads quoted
-  arguments as words, so an unguarded command whose argument mentions a
-  guarded action is denied as wrapped (`sudo gh issue create --title
-  "... gh pr create"`, `nohup gh pr merge --body "a new path"`). Run it
-  without the wrapper, or behind `env`.
+- Wherever the text test decides (a wrapper other than `env`, or an
+  `env` the exception doesn't cover), it reads quoted arguments as
+  words, so an unguarded command whose argument mentions a guarded
+  action is denied as wrapped (`sudo gh issue create --title "... gh pr
+  create"`, `nohup gh pr merge --body "a new path"`, `env -u X koto ...
+  "gh pr edit"`). Run it without the wrapper, or as `env ... gh` or
+  `env ... git`.
 - A guarded action run inside a script file isn't seen (R2) and runs
   unchecked. So does a pull request opened through `gh api` or an MCP
   tool, and a wrapped command whose text hides the guarded action (a

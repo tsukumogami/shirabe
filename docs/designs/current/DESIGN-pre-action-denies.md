@@ -478,17 +478,23 @@ find). All are fail-closed cases.
 commands with `env -u GH_TOKEN` routinely, and the coarse test over the
 whole segment reads quoted arguments as words: a `gh pr merge` whose
 `--body` says "new", or a `gh issue create` whose title mentions `gh pr
-create`, would read as a wrapped create. So the classifier skips env's
-listed options (`-i`, `-`, `-0`, `-v`, `-u NAME`, `--unset`, `--`) and
-its `NAME=value` operands and classifies the rest as a segment of its
-own: a guarded or wrapped guarded command there makes the `env` segment
-a wrapped guarded command, and anything else is no guarded action. An
-option not on that list (`-S` splits a string into a command, `-C`
-changes directory), a word the shell expands before the command, or
-`env` nested more than eight deep falls back to the text test. The other
-wrappers keep it: each takes a shell string (`bash -c`, `eval`, `ssh`) or
-an option grammar of its own (`sudo -u`, `timeout 5`, `xargs`) that can
-carry a guarded command where a word-by-word reading would miss it.
+create`, would read as a wrapped create. So the classifier skips the env
+options it reads (`env_command` lists them: `-i`, `-u NAME`, `--` and a
+few that take no value) and every operand holding a `=`, since env takes
+any of those as an assignment (`a-b=1` and `'X Y=1'` included, not only
+shell names). When the command left is `gh`, `git` or another listed
+wrapper, it is classified as a segment of its own: a guarded or wrapped
+guarded command there makes the `env` segment a wrapped guarded command,
+and anything else is no guarded action. Any other program falls back to
+the text test, because it may be a launcher the wrapper list lacks
+(`stdbuf`, `arch`, `ksh -c`) or another spelling of `gh` on a
+case-insensitive filesystem, and only the text test reads past it. So does
+an option the hook doesn't read (`-S` splits a string into a command, `-C`
+changes directory), a word the shell expands before the command, or `env`
+nested more than eight deep. The other wrappers keep the text test: each
+takes a shell string (`bash -c`, `eval`, `ssh`) or an option grammar of
+its own (`sudo -u`, `timeout 5`, `xargs`) that can carry a guarded command
+where a word-by-word reading would miss it.
 
 Before a guarded segment the classifier looks at every earlier segment
 of the same command. Before a `gh pr` segment, one that names the body

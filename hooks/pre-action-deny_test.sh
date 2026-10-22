@@ -255,10 +255,14 @@ for c in 'gh issue create --title \"hook refuses gh pr create\" --body \"x\"' \
     run_hook "$c"
     expect_none "quoted mention: $c gives no decision"
 done
-# A create or edit behind env is still wrapped, whatever its body.
+# A create or edit behind env is still wrapped, whatever its body, after an
+# operand env takes as an assignment or behind a launcher env runs.
 for c in "env -u GH_TOKEN $BAD_CREATE" \
     "env -u GH_TOKEN gh pr create --title \\\"feat: x\\\" --body $GOOD" \
-    "env GH_TOKEN= gh pr edit 12 --body $BAD"; do
+    "env GH_TOKEN= gh pr edit 12 --body $BAD" \
+    "env a-b=1 gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    "env stdbuf -oL gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    'env caffeinate git push'; do
     run_hook "$c"
     expect_deny "env-wrapped: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done
