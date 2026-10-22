@@ -310,8 +310,9 @@ fi
 cat > "$WORK/coord-handoff.txt" <<'EOF'
 `work-on-<plan-slug>-<node>-<item>`
 in the node's worktree
-koto init {{CHILD}} --template {{PLUGIN_ROOT}}/skills/work-on/koto-templates/work-on.md --var ARTIFACT_PREFIX={{CHILD}} --var ISSUE_SOURCE={{ISSUE_SOURCE}} --var ISSUE_NUMBER={{ISSUE_NUMBER}} --var PLAN_DOC={{PLAN_DOC}} --var SHARED_BRANCH={{SHARED_BRANCH}} --var PLUGIN_ROOT={{PLUGIN_ROOT}} {{BOUND_VARS}}
+koto init {{CHILD}} --template {{PLUGIN_ROOT}}/skills/work-on/koto-templates/work-on.md --var ARTIFACT_PREFIX={{CHILD}} --var ISSUE_SOURCE={{ISSUE_SOURCE}} --var ISSUE_NUMBER={{ISSUE_NUMBER}} --var PLAN_DOC={{PLAN_DOC}} --var SHARED_BRANCH={{SHARED_BRANCH}} --var PLUGIN_ROOT={{PLUGIN_ROOT}} {{BOUND_VARS}} {{DEFERRAL_VARS}}
 `--var REVIEW_FLOOR=<floor>` and `--var REVIEW_CEILING=<ceiling>`
+`--var VERIFICATION=hosted-ci --var 'VERIFICATION_DEFERRAL_REASON=<reason>'`
 the `plan_abs` value
 You make no push and no `gh` write
 --no-cleanup

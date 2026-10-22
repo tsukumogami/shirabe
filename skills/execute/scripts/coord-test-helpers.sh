@@ -15,7 +15,8 @@
 # gh call lands in the case's call log.
 #
 # koto is a stub whose context store is a directory, so reads, clears, and
-# writes are observable without an engine.
+# writes are observable without an engine; `workflows --roots` lists the
+# sessions the store holds a directory for.
 #
 # Callers set SCRIPT_DIR (this directory) before sourcing, and define nothing
 # these names use.
@@ -56,7 +57,14 @@ cat > "$CT_BIN/koto" <<'STUB'
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto-calls.log"
 printf 'koto %s\n' "$*" >> "$store/order.log"
-[ "$1" = context ] || { echo "koto stub: only context is served" >&2; exit 9; }
+# workflows --roots: every session the store holds a context directory for.
+if [ "$1 ${2:-}" = "workflows --roots" ]; then
+    [ -n "${KOTO_FAIL_WORKFLOWS:-}" ] && exit 3
+    (cd "$store/ctx" && find . -mindepth 1 -maxdepth 1 -type d | sed 's#^\./##' | LC_ALL=C sort) \
+        | jq -R '{name: .}' | jq -sc .
+    exit 0
+fi
+[ "$1" = context ] || { echo "koto stub: only context and workflows --roots are served" >&2; exit 9; }
 if [ "$2" = list ]; then
     # list [--prefix <p>] <session>, the flag on either side.
     shift 2
@@ -149,7 +157,7 @@ ct_case() {
     export EVAL_SCENARIO_DIR="$CASE/scenario"
     export GH_CALL_LOG="$CASE/gh.log"
     export KOTO_STORE="$CASE"
-    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST
+    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST KOTO_FAIL_WORKFLOWS
     unset CT_RECORD_REPOS GH_SHIM_FAIL CT_GH_HOOK
     CT_PRS='[]'
     CT_INDEX=""
