@@ -184,8 +184,19 @@ trap 'rm -rf "$WD"' EXIT
 STORE=$(rs_source)
 ES=${RS_SESSION:-$SESSION}
 if [ "$STORE" = session ]; then
-    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: the session store is for a roadmap record" >&2; exit 65; }
+    [ "$SCOPE" = roadmap ] || lib_session_rotation || { echo "$PROG: refused: the session store is for a roadmap record" >&2; exit 65; }
     [ -n "$ES" ] || { echo "$PROG: refused: the session store needs the run's session" >&2; exit 10; }
+fi
+# A discipline rotation on the session store has no record to post on: its
+# outward entries go on an item (--on owner/repo#n) or stay in the session
+# (--on none).
+if [ -z "$REF" ] && [ -z "$ON" ] && [ "$MODE" != list ]; then
+    if [ "$MODE" = repost ]; then
+        echo "$PROG: refused: a session rotation has no record to post on: --repost takes --on owner/repo#n" >&2; exit 65
+    fi
+    case "$OUTWARD_KINDS" in
+        *" $KIND "*) echo "$PROG: refused: a session rotation has no record to post a $KIND entry on: --on owner/repo#n, or --on none" >&2; exit 65 ;;
+    esac
 fi
 [ "$MODE" != repost ] || [ "$STORE" = session ] || { echo "$PROG: --repost is for a record on the session store" >&2; exit 64; }
 [ -z "$ON" ] || [ "$STORE" = session ] || { echo "$PROG: --on is for a record on the session store; a GitHub record's entries are posted on it" >&2; exit 64; }
@@ -197,7 +208,7 @@ PREPO=$REPO PNUM=$REF
 # The target, re-read now: open, and this scope's record. An entry bound for
 # an item (--on) doesn't go on the record, so the record isn't read for it.
 STATE=OPEN
-if [ -z "$ON" ]; then
+if [ -z "$ON" ] && [ -n "$REF" ]; then
     if [ "$SCOPE" = roadmap ]; then
         gh issue view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/r.err")"
     else

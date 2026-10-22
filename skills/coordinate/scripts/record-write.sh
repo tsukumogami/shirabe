@@ -95,7 +95,7 @@ if [ -n "$END" ]; then
 fi
 [ "$CLOSE" = 0 ] || [ "$SCOPE" = roadmap ] || { echo "$PROG: --close is for a roadmap record" >&2; exit 64; }
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
 fi

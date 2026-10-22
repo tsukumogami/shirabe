@@ -38,11 +38,15 @@
 #   coord-log.sh run-facts --session S
 #       Prints {"scope","name","repo","ref"}. Exit 0; 1 no found record in the
 #       run (the find's token is `found <n>`, `found <n> session` or, for a
-#       record the run is moving onto the session store, `move <n>`); 2 read
+#       record the run is moving onto the session store, `move <n>`; at
+#       discipline scope also a rotation on the session, `found`, `first`,
+#       `predecessor coordinate-<slug>-<stamp>` or `predecessor
+#       handoff:<sha>`, whose ref is "": it has no pull request); 2 read
 #       failure.
 #   coord-log.sh run-store --session S
 #       Prints the run's store from the sealed RECORD_FIND token: `session` for
-#       a token reading `found <n> session` or `move <n>`, else `github` (a run
+#       a token reading `found <n> session` or `move <n>`, or a discipline
+#       rotation on the session (the four tokens above), else `github` (a run
 #       with no found record, or a token that doesn't check, included). Exit 0.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
 #   coord-log.sh chain-start --session S
@@ -285,6 +289,24 @@ cmd_check() {
 
 # cmd_capture: the `capture` subcommand, on SESSION, NAME, FOR, STATE and ANY,
 # as cmd_check is for `check`.
+# session_rotation_token <token> <scope>: 0 when the find's token, its seal
+# stripped, is a discipline rotation on the session store: `found` alone (the
+# run's own session holds the rotation), `first` (the rotation record_open
+# opens there), `predecessor coordinate-<slug>-<stamp>` or `predecessor
+# handoff:<40 hex>` (the predecessor the run carries). Such a rotation has no
+# pull request, so no record number. `predecessor <n>`, a rotation still on
+# GitHub, is not one.
+session_rotation_token() {
+    [ "$2" = discipline ] || return 1
+    case "$1" in
+        found|first) return 0 ;;
+        "predecessor "*)
+            local p=${1#predecessor }
+            [[ $p =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || [[ $p =~ ^handoff:[0-9a-f]{40}$ ]] ;;
+        *) return 1 ;;
+    esac
+}
+
 cmd_capture() {
     need SESSION NAME
     [ -n "$LOG" ] || LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
@@ -355,10 +377,14 @@ run-facts)
     VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
     [ -n "$VARS" ] || die "no workflow_initialized event"
     FOUND=$(NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture) || exit 1
-    case "$FOUND" in found\ *|move\ *) ;; *) exit 1 ;; esac
+    case "$FOUND" in found\ *|move\ *|predecessor\ *|first\ *) ;; *) exit 1 ;; esac
     (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || exit 1
-    REF=$(printf '%s' "$FOUND" | cut -d' ' -f2)
-    case "$REF" in ''|*[!0-9]*) exit 1 ;; esac
+    if session_rotation_token "${FOUND% sealed:*}" "$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')"; then
+        REF=
+    else
+        REF=$(printf '%s' "$FOUND" | cut -d' ' -f2)
+        case "$REF" in ''|*[!0-9]*) exit 1 ;; esac
+    fi
     printf '%s' "$VARS" | jq -c --arg ref "$REF" '{
         scope: .SCOPE,
         name: (if .SCOPE == "roadmap" then (.ROADMAP | split("/") | last | sub("^ROADMAP-"; "") | sub("\\.md$"; "")) else .DISCIPLINE end),
@@ -374,7 +400,9 @@ run-store)
     LOG=$(session_log "$SESSION" 2>/dev/null) || { echo github; exit 0; }
     FOUND=$({ NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture; } 2>/dev/null) || { echo github; exit 0; }
     (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || { echo github; exit 0; }
-    case "${FOUND% sealed:*}" in "found "*" session"|"move "*) echo session ;; *) echo github ;; esac
+    case "${FOUND% sealed:*}" in "found "*" session"|"move "*) echo session; exit 0 ;; esac
+    RS_SCOPE=$(jq -r 'select(.type == "workflow_initialized") | .payload.variables.SCOPE // ""' "$LOG" 2>/dev/null | head -1)
+    if session_rotation_token "${FOUND% sealed:*}" "$RS_SCOPE"; then echo session; else echo github; fi
     ;;
 provenance)
     need SESSION

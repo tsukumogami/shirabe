@@ -220,16 +220,29 @@ if [ "$SCOPE" = roadmap ]; then
         VERDICT=scope-complete
     fi
 else
-    # The title came with the record, except from a session store, which keeps
-    # none: then it's read from the pull request.
-    TITLE=$(jq -r '.title // empty' "$T/rec.json.raw") || lib_die2 "jq failed"
-    if [ -z "$TITLE" ]; then
-        gh pr view "$REF" --repo "$REPO" --json title > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
-            || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
-        TITLE=$(jq -r '.title // ""' "$T/pr.json") || lib_die2 "jq failed"
+    if lib_session_rotation; then
+        # A rotation on the session store keeps its window in record/rotation and
+        # is over by the window rule: past its end date, or closed early (its
+        # record/reasoning written).
+        rs_rotation_open "${RS_SESSION:-$SESSION}" "$TODAY"
+        case $? in
+            0) ;;
+            1) VERDICT=rotation-over ;;
+            3) lib_die2 "the rotation's session holds no record/rotation" ;;
+            *) lib_die2 "cannot read the rotation's window (record/rotation)" ;;
+        esac
+    else
+        # The title came with the record, except from a session store, which keeps
+        # none: then it's read from the pull request.
+        TITLE=$(jq -r '.title // empty' "$T/rec.json.raw") || lib_die2 "jq failed"
+        if [ -z "$TITLE" ]; then
+            gh pr view "$REF" --repo "$REPO" --json title > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
+                || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
+            TITLE=$(jq -r '.title // ""' "$T/pr.json") || lib_die2 "jq failed"
+        fi
+        lib_rotation_dates "$TITLE" || lib_die2 "the record's title is not a rotation title"
+        [ "$ROT_END" \< "$TODAY" ] && VERDICT=rotation-over
     fi
-    lib_rotation_dates "$TITLE" || lib_die2 "the record's title is not a rotation title"
-    [ "$ROT_END" \< "$TODAY" ] && VERDICT=rotation-over
     gh issue list --repo "$REPO" --state open --label "$NAME" --json number,title --limit 200 > "$T/issues.json" 2> "$T/issues.err" < /dev/null \
         || lib_die2 "cannot list $REPO's $NAME issues: $(lib_scrub < "$T/issues.err")"
     jq -c --slurpfile h "$T/counted.json" --arg r "$REPO" 'sort_by(.number) | map(. as $i

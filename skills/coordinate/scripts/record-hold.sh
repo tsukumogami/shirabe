@@ -77,7 +77,7 @@ esac
 . "$HERE/record-common.sh"
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
@@ -87,7 +87,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT

@@ -294,6 +294,18 @@ states:
       - target: record_move
         when:
           gates.record_find_verdict.exit_code: 19  # move
+      # A discipline rotation on the session store (record-find.sh session_find):
+      # the discipline's first rotation opens, an ended predecessor's state is
+      # carried, and a predecessor that fails a rule stops for the person.
+      - target: record_open
+        when:
+          gates.record_find_verdict.exit_code: 205  # first
+      - target: predecessor_carry
+        when:
+          gates.record_find_verdict.exit_code: 206  # predecessor-session
+      - target: record_conflict
+        when:
+          gates.record_find_verdict.exit_code: 172  # unreadable
 
   record_move:
     accepts:
@@ -342,6 +354,26 @@ states:
           resolution: stop
         context_assignments:
           outcome: stopped
+
+  # The carry writes, so it is agent-run, never an action (no write script runs
+  # as an action or a gate). Once it lands, the find runs again and reads this
+  # run's own session as the rotation (`found`).
+  predecessor_carry:
+    accepts:
+      carry:
+        type: enum
+        values: [carried, refused]
+        required: true
+        description: carried after record-open.sh --carry printed carried=<predecessor>; refused after it refused, with its reason as the detail.
+      detail:
+        type: string
+    transitions:
+      - target: record_find
+        when:
+          carry: carried
+      - target: record_conflict
+        when:
+          carry: refused
 
   predecessor_handoff:
     default_action:
@@ -2304,6 +2336,33 @@ states:
       - target: record_conflict
         when:
           gates.rotation_close_verdict.exit_code: 125  # closed-unmerged
+      - target: rotation_end
+        when:
+          gates.rotation_close_verdict.exit_code: 208  # session-rotation
+
+  # A rotation on the session store ends here: the coordinator writes its
+  # reasoning for the next rotation (record-state.sh --reasoning-file), which
+  # closes the rotation by the window rule, and the run ends. Nothing is
+  # committed and no pull request is opened.
+  rotation_end:
+    accepts:
+      reasoning:
+        type: enum
+        values: [written]
+        required: true
+        description: Submit after record-state.sh --reasoning-file wrote the reasoning for the next rotation into record/reasoning.
+    gates:
+      reasoning_written:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session "{{SESSION_NAME}}" --reasoning-check'
+        overridable: false
+    transitions:
+      - target: done
+        when:
+          reasoning: written
+          gates.reasoning_written.exit_code: 0
+        context_assignments:
+          outcome: closed
 
   rotation_step:
     accepts:
@@ -2463,6 +2522,22 @@ Where this goes next:
 - a record whose owner moved it onto the session store (its `store session`
   row) and whose body still holds its state: the move (`record_move`).
 
+At discipline scope a rotation with no open pull request on the record branch is
+on the session store, and the find reads this host's sessions of the discipline
+instead (the rotation's window and its reasoning are its session's
+`record/rotation` and `record/reasoning`):
+
+- found (bare): this run's own session holds the rotation; the run reconciles.
+- first: the discipline has no earlier rotation anywhere: `record_open`.
+- predecessor `<session>`: the latest earlier rotation ended, and its state is
+  carried into this run (`predecessor_carry`); predecessor `handoff:<sha>`: the
+  discipline's last rotation ran on GitHub, and its committed
+  `docs/disciplines/<name>.md` is carried once, the same way.
+- unreadable `<session>`: the latest earlier rotation fails a rule (its name,
+  provenance, discipline or host, an open window, another rotation already
+  carried it, or a record that doesn't read back): `record_conflict`, carrying
+  nothing.
+
 ## record_move
 
 This scope's record moves from GitHub onto the session store ({{RECORD_FIND}}).
@@ -2513,6 +2588,12 @@ restart that finds its record never opens one), builds the title itself, and
 prints `record=<url>`. Report the record's number or URL up with every report,
 so a successor is handed it as a decision.
 
+When the find read `first` (a discipline's first rotation, on the session
+store), the same command with `--start` and `--end` opens the rotation in this
+run's session: no branch, no commit, no pull request. It writes the window to
+`record/rotation` and prints `record=<this session>`; report the session name up
+as the record.
+
 ## record_conflict
 
 The record can't be adopted as it stands. Report what you found to the human
@@ -2534,6 +2615,34 @@ workflow refused to render (`refused`: the entry no longer owes it as
 recorded, so the record changed underneath). Don't pick among
 candidates and don't repair a record by hand: the human decides. A pull request
 on the record's branch that isn't a record is a scope question.
+
+At discipline scope on the session store it is also reached from a predecessor
+the find read as `unreadable <session>` (the reason is in coord/record_find.json),
+and from a carry that was refused (coord/predecessor_carry.json); nothing was
+carried. The human decides whether that session is the predecessor; never carry
+it by hand.
+
+## predecessor_carry
+
+Carry the predecessor's state into this rotation ({{RECORD_FIND}}), then submit
+`carry: carried` when it prints `carried=<predecessor>`, or `carry: refused`
+with its reason as the detail when it refuses; the find then runs again.
+
+```bash
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}" --carry
+```
+
+<!-- details -->
+
+The carry copies the predecessor's Holdings, Deferrals, Side effects, Reversals,
+Holds, Run, Standing, Work, its unsettled decisions and its next decision number
+into this run's session through the write core, and writes this rotation's
+window to `record/rotation`, naming the predecessor. `coord/predecessor_carry.json`
+lists the holds and the Standing rows (by kind and owner) it carried: report
+them up before anything acts on them, since an approval or a hold that came
+from the predecessor binds this rotation too. Until a person answers with a
+go-ahead, the handover gate lists `carry-unacknowledged`, so nothing dispatches
+or merges first. A refused carry stops at `record_conflict`.
 
 ## predecessor_handoff
 
@@ -4377,6 +4486,25 @@ Take the step the stage named ({{ROTATION_CLOSE}}), then submit `step_result`.
 
 The record merged. Delete its branch with `rotation-close.sh --step
 delete-branch` and submit `deleted: deleted`.
+
+## rotation_end
+
+This rotation is on the session store, so it ends here: nothing to commit and no
+pull request. Write the reasoning for the next rotation, then submit
+`reasoning: written`.
+
+```bash
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session "{{SESSION_NAME}}" --reasoning-file <reasoning.md>
+```
+
+<!-- details -->
+
+The reasoning is what this rotation learned that its tables can't say, written
+fresh for the next rotation and never appended to the previous one's, at most
+16 KiB. Writing it closes the rotation: the next start finds it ended and carries
+its state, holds, Standing rows and unsettled decisions into the next rotation,
+which reads this reasoning at its reconcile. The state holds until
+`record/reasoning` is there.
 
 ## done
 

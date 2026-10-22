@@ -7,6 +7,9 @@
 # Usage:
 #   record-state.sh --session S --run KEY VALUE --by WHO
 #   record-state.sh --session S --host KEY VALUE [--host KEY VALUE]...
+#   record-state.sh --session S --rotation FILE
+#   record-state.sh --session S --reasoning-file FILE
+#   record-state.sh --session S --reasoning-check
 #   record-state.sh --session S --told WHO --by WHO
 #   record-state.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
 #   record-state.sh --session S --end ID --by WHO
@@ -49,6 +52,23 @@
 # character or a token-shaped string is refused (65); a workspace path may be
 # a home-directory path, which a table cell never is. It prints the record/host
 # object.
+#
+# A discipline rotation on the session store keeps two keys of its own beside
+# its tables (docs/designs/current/DESIGN-coordinator-record-teardown.md,
+# Decision 3), and only this script writes them, with STATE_WRITER open:
+# --rotation FILE writes record/rotation, the JSON object in FILE,
+# {start, end, host_repo, predecessor}: start and end real dates, end not
+# before start, host_repo this run's host, predecessor null (a first rotation)
+# or the predecessor's session, coordinate-<slug>-<YYYYMMDDTHHMMSSZ> with this
+# discipline's slug. --reasoning-file FILE writes record/reasoning, FILE's text
+# as a JSON string: what this rotation leaves the next one, at most 16 KiB
+# (16384 bytes) with no control character but a newline or a tab and no
+# token-shaped string. Writing it closes the rotation (the window rule reads a
+# rotation holding it as ended). A value that breaks a rule, or a run that isn't
+# a discipline rotation on the session store, is refused (65) before any key is
+# written. Each prints the key's JSON as written. --reasoning-check exits 0
+# when the rotation holds record/reasoning and 1 when it doesn't (the
+# rotation_end state's gate).
 #
 # --standing records an event only a person owns that still binds the run:
 # KIND is pause, go-ahead, approval, answer or assignment, OWNER is the person who decided
@@ -134,7 +154,7 @@ set -uo pipefail
 PROG=record-state
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= MODE=
-KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL=
+KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
 HOSTKV=
@@ -152,6 +172,9 @@ while [ $# -gt 0 ]; do
         --host) [ $# -ge 3 ] || usage; [ "$MODE" = host ] || setmode host
                 case "$2$3" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --host key or value holds a tab or a newline" >&2; exit 65 ;; esac
                 HOSTKV="$HOSTKV$2"$'\t'"$3"$'\n'; shift 3 ;;
+        --rotation) [ $# -ge 2 ] || usage; setmode rotation; RFILE=$2; shift 2 ;;
+        --reasoning-file) [ $# -ge 2 ] || usage; setmode reasoning; RFILE=$2; shift 2 ;;
+        --reasoning-check) setmode reasoning-check; shift ;;
         --told) [ $# -ge 2 ] || usage; setmode told; WHO=$2; shift 2 ;;
         --standing) [ $# -ge 2 ] || usage; setmode standing; KIND=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; setmode end; ID=$2; shift 2 ;;
@@ -176,6 +199,8 @@ case "$MODE" in
          case "$KEY" in arguments|cap|coordinator|store|rules|briefs|friction|reports-to) ;;
              *) echo "$PROG: --run takes arguments, cap, coordinator, store, rules, briefs, friction or reports-to" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     told) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     standing) [ -n "$WHAT" ] && [ -n "$OWNER" ] && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -234,8 +259,63 @@ EOF
     jq -c . "$WD/host.next"
     exit 0
 fi
+# A discipline rotation's own keys on the session store: its window and its
+# reasoning for the next rotation. Every rule is checked before any key is
+# written.
+if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-check ]; then
+    lib_session_rotation || { echo "$PROG: refused: record/rotation and record/reasoning are kept only by a discipline rotation on the session store" >&2; exit 65; }
+    WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    trap 'rm -rf "$WD"' EXIT
+    RS=${RS_SESSION:-$SESSION}
+    if [ "$MODE" = reasoning-check ]; then
+        rs_reasoning "$RS" "$WD/reasoning"
+        case $? in 0) exit 0 ;; 1) echo "$PROG: the rotation holds no record/reasoning yet" >&2; exit 1 ;; *) lib_die2 "cannot read record/reasoning" ;; esac
+    fi
+    if [ "$MODE" = rotation ]; then
+        SLUG=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || lib_die2 "cannot derive the scope's slug"
+        jq -e 'type == "object"' "$RFILE" > /dev/null 2>&1 || { echo "$PROG: refused: the rotation is not a JSON object" >&2; exit 65; }
+        EXTRA=$(jq -r '[keys[] | select(IN("start", "end", "host_repo", "predecessor") | not)] | first // ""' "$RFILE")
+        [ -z "$EXTRA" ] || { echo "$PROG: refused: rotation.$EXTRA is not a field of a rotation (start, end, host_repo, predecessor)" >&2; exit 65; }
+        for f in start end host_repo; do
+            jq -e --arg f "$f" '(.[$f] | type) == "string" and .[$f] != ""' "$RFILE" > /dev/null \
+                || { echo "$PROG: refused: rotation.$f is missing" >&2; exit 65; }
+        done
+        R_START=$(jq -r .start "$RFILE") R_END=$(jq -r .end "$RFILE") R_HOST=$(jq -r .host_repo "$RFILE")
+        lib_valid_date "$R_START" || { echo "$PROG: refused: rotation.start is not a YYYY-MM-DD date" >&2; exit 65; }
+        lib_valid_date "$R_END" || { echo "$PROG: refused: rotation.end is not a YYYY-MM-DD date" >&2; exit 65; }
+        [ "$R_END" \< "$R_START" ] && { echo "$PROG: refused: rotation.end $R_END is before its start $R_START" >&2; exit 65; }
+        [ "$(printf '%s' "$R_HOST" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$REPO" | tr 'A-Z' 'a-z')" ] \
+            || { echo "$PROG: refused: rotation.host_repo $R_HOST is not this run's host, $REPO" >&2; exit 65; }
+        if ! jq -e '.predecessor == null' "$RFILE" > /dev/null; then
+            R_PRED=$(jq -r '.predecessor | if type == "string" then . else "" end' "$RFILE")
+            [[ $R_PRED =~ ^coordinate-${SLUG}-[0-9]{8}T[0-9]{6}Z$ ]] \
+                || { echo "$PROG: refused: rotation.predecessor is not a session of this discipline, coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>" >&2; exit 65; }
+        fi
+        jq -c '{start, end, host_repo, predecessor: (.predecessor // null)}' "$RFILE" > "$WD/value.json" || lib_die2 "jq failed"
+        KEYNAME=record/rotation
+    else
+        # 16 KiB: the reasoning is prose a person reads in every carry report.
+        RSIZE=$(wc -c < "$RFILE" | tr -d ' ')
+        [ "$RSIZE" -le 16384 ] || { echo "$PROG: refused: the reasoning is $RSIZE bytes, over the 16384-byte (16 KiB) limit" >&2; exit 65; }
+        [ -n "$(tr -d ' \t\n\r' < "$RFILE")" ] || { echo "$PROG: refused: the reasoning is empty" >&2; exit 65; }
+        LC_ALL=C tr -d '\n\t' < "$RFILE" > "$WD/flat" || lib_die2 "cannot read the reasoning"
+        if LC_ALL=C grep -q '[[:cntrl:]]' "$WD/flat"; then
+            echo "$PROG: refused: the reasoning holds a control character" >&2; exit 65
+        fi
+        TOKEN_RE='(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})'
+        if grep -Eq "$TOKEN_RE" "$RFILE"; then echo "$PROG: refused: the reasoning holds a token-shaped string" >&2; exit 65; fi
+        jq -R -s -c . "$RFILE" > "$WD/value.json" || lib_die2 "jq failed"
+        KEYNAME=record/reasoning
+    fi
+    lib_write_guard
+    . "$HERE/record-write-core.sh"
+    STATE_WRITER=1
+    core_write_rotation "$KEYNAME" "$WD/value.json"
+    cat "$WD/value.json"
+    exit 0
+fi
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
@@ -245,7 +325,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT

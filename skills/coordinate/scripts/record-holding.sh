@@ -98,7 +98,7 @@ esac
 if [ -n "$TOPIC" ] && ! [[ $TOPIC =~ $RE_TOPIC ]]; then usage; fi
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
@@ -108,7 +108,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT

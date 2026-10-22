@@ -113,6 +113,8 @@ stateDiagram-v2
     pick_facts --> decision_next : gates.pick_facts_verdict.exit_code: 136
     posture_ask --> record : merge: permitted
     posture_ask --> record : merge: reserved
+    predecessor_carry --> record_find : carry: carried
+    predecessor_carry --> record_conflict : carry: refused
     predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 120
     predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 122
     predecessor_close --> predecessor_done : gates.predecessor_close_verdict.exit_code: 90
@@ -149,6 +151,9 @@ stateDiagram-v2
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 17
     record_find --> predecessor_handoff : gates.record_find_verdict.exit_code: 18
     record_find --> record_move : gates.record_find_verdict.exit_code: 19
+    record_find --> record_open : gates.record_find_verdict.exit_code: 205
+    record_find --> predecessor_carry : gates.record_find_verdict.exit_code: 206
+    record_find --> record_conflict : gates.record_find_verdict.exit_code: 172
     record_move --> record_find : move: done
     record_move --> record_conflict : move: refused
     record_open --> record_find : opened: opened
@@ -188,7 +193,9 @@ stateDiagram-v2
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 122
     rotation_close --> rotation_done : gates.rotation_close_verdict.exit_code: 90
     rotation_close --> record_conflict : gates.rotation_close_verdict.exit_code: 125
+    rotation_close --> rotation_end : gates.rotation_close_verdict.exit_code: 208
     rotation_done --> done : deleted: deleted
+    rotation_end --> done : gates.reasoning_written.exit_code: 0, reasoning: written
     rotation_step --> rotation_close : step_result: done
     rotation_step --> done_handed_over : step_result: handed_over
     start --> start_posture : gates.start_verdict.exit_code: 20
@@ -357,6 +364,9 @@ stateDiagram-v2
     end note
     note left of rotation_close
         gate: rotation_close_verdict
+    end note
+    note left of rotation_end
+        gate: reasoning_written
     end note
     note left of start
         gate: start_verdict

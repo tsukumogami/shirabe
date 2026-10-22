@@ -33,7 +33,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX") || exit 1; trap 'rm -rf 
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts milestone_reopen milestone_verdict pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_move record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
+WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts milestone_reopen milestone_verdict pick pick_facts posture_ask predecessor_carry predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_move record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_close rotation_done rotation_end rotation_step start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
 
@@ -278,6 +278,23 @@ grep -qE '^[^#]*VERDICT_WRITER=1' "$HERE/roadmap-status.sh" && pass "roadmap-sta
 printf '\nVERDICT_WRITER=1\n' >> "$T/openers/record-write.sh"
 [ "$(verdict_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the verdict-owed rows" ||
     fail "the check names another script that opens the verdict-owed rows" "$(verdict_writers "$T/openers")"
+
+# A discipline rotation's own keys on the session store, record/rotation and
+# record/reasoning (docs/designs/current/DESIGN-coordinator-record-teardown.md,
+# Decision 3): only record-state.sh writes them, through core_write_rotation,
+# and no other script names either key in a koto context write.
+rotation_writers() {
+    grep -lE '^[^#]*core_write_rotation' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
+        | grep -v '/record-state\.sh$' | grep -v '/record-write-core\.sh$' || true
+    grep -lE '^[^#]*context add[^#]*record/(rotation|reasoning)' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' || true
+}
+ROPENERS=$(rotation_writers "$HERE")
+[ -z "$ROPENERS" ] && pass "only record-state.sh writes record/rotation and record/reasoning" \
+    || fail "only record-state.sh writes record/rotation and record/reasoning" "$ROPENERS"
+grep -qE '^[^#]*core_write_rotation' "$HERE/record-state.sh" && pass "record-state.sh writes them" || fail "record-state.sh writes them"
+printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/openers/record-write.sh"
+[ "$(rotation_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that writes a rotation key" ||
+    fail "the check names another script that writes a rotation key" "$(rotation_writers "$T/openers")"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
 for r in loop.md brief-template.md verification-checklist.md record-template.md; do
