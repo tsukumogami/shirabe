@@ -4,8 +4,8 @@ The text `/execute`'s owning session gives each step agent under the lead
 shape (`spawn_and_await` in `koto-templates/execute.md`, the `dispatch:<node>`
 action in `koto-templates/execute-coordinated.md`, and "The lead shape" in
 `SKILL.md`). It is the whole of what a step agent is told: the owning session
-fills the four substitutions below (and, on the coordinated path, the dispatch
-variables) and composes nothing else per run.
+fills the template's substitutions (four on the single-pr path, eight on the
+coordinated one) and composes nothing else per run.
 
 What the template holds a step agent to: it drives one child, with
 `--no-cleanup` on every tick; it may spawn its step's review seats, and those
