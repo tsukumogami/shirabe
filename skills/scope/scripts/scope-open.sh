@@ -81,7 +81,10 @@
 # new session, before the run identity or anything else. That key is how a
 # finished run's intent, exit and failed publish step reach this run; see
 # resume-probe.sh and resolve-intent.sh. A failed write prints a warning and
-# the run goes on without it.
+# the run goes on without it. When the replaced run was an abandonment-forced
+# exit whose publish failed, its result's forced_artifact (one of the four
+# upstream document paths for this topic) is also written as the new session's
+# forced_artifact key, since the retry skips the step that records it.
 #
 # Output. stdout carries koto-open.sh's machine-readable lines, then:
 #
@@ -335,6 +338,33 @@ EOF_OUT
     fi
     if ! printf '%s\n' "$doc" | "${KOTO_BIN:-koto}" context add "$session" work/prior-run.md >/dev/null 2>&1; then
         printf '%s: could not write work/prior-run.md in %s; a failed publish of the replaced run will not be retried\n' "$PROG" "$session" >&2
+    fi
+    write_forced_artifact "$session" "$result"
+    return 0
+}
+
+# write_forced_artifact <session> <replaced-result> -- an abandonment-forced run
+# whose publish failed is retried in a fresh session that routes straight to
+# publish_abandonment, past the exit_abandonment step that records which
+# document was force-materialized. So that document's path, the replaced
+# result's forced_artifact, becomes the new session's forced_artifact key, and
+# the retry's result and exit block still name it. Only on that retry (exit
+# abandonment-forced with a failed publish step), and only a path of the four
+# upstream documents for this topic; anything else is dropped. A failed write is
+# a warning: the retry then prints artifact=none.
+write_forced_artifact() {
+    local session="$1" result="$2" forced
+    forced=$(printf '%s' "$result" | jq -r --arg topic "$TOPIC" '
+        (if type == "object" and (.payload | type) == "object" then .payload else . end)
+        | if type == "object"
+             and .exit == "abandonment-forced"
+             and ((.step | type) == "string" and (.step | test("^scope:(push|pr-create)$")))
+             and ((.forced_artifact | type) == "string")
+             and (.forced_artifact | test("^docs/(briefs/BRIEF|prds/PRD|designs/DESIGN|designs/current/DESIGN)-" + $topic + "\\.md$"))
+          then .forced_artifact else empty end' 2>/dev/null) || forced=""
+    [ -n "$forced" ] || return 0
+    if ! printf '%s' "$forced" | "${KOTO_BIN:-koto}" context add "$session" forced_artifact >/dev/null 2>&1; then
+        printf '%s: could not write forced_artifact in %s; the retried abandonment will print artifact=none\n' "$PROG" "$session" >&2
     fi
     return 0
 }

@@ -986,6 +986,19 @@ per-child schema variation that would expand the validator
 surface. Single-line keeps the marker safe across artifacts
 that strip or reformat multi-line comments.
 
+**Amendment (2026-10-21): the run no longer reads the marker
+back.** The marker stays, written exactly as above, as a note
+for whoever opens the document. Which document the run
+force-materialized is now the session key `forced_artifact`
+in `scope-<topic>`, recorded once the marker is on it:
+`exit_abandonment`'s gate matches that key against the four
+upstream paths, and the printed exit block takes its
+`artifact=` from the terminal result, which carries the key.
+Reading the marker back out of a committed document let a
+person editing the Status section, or a merge rewriting it,
+change what the gate saw, for a question only the running
+session can answer.
+
 #### Alternatives Considered
 
 **Option B: Per-artifact-type tailored marker prose.** Each

@@ -47,6 +47,8 @@ cp "$STUB" "$SHIM/gh"
 cat >"$SHIM/koto" <<'KOTO'
 #!/usr/bin/env bash
 [ "$1" = context ] || exit 2
+# KOTO_FAIL_KEY makes every call on that key fail the way an unreadable store does.
+[ -n "${KOTO_FAIL_KEY:-}" ] && [ "${4:-}" = "$KOTO_FAIL_KEY" ] && exit 3
 d="$STORE/$3"
 case "$2" in
     add) mkdir -p "$d"; cat >"$d/$4" ;;
@@ -135,18 +137,48 @@ fi
 eq "pr= names the created PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
 eq "the branch was pushed: origin equals HEAD" "$(git -C "$R" rev-parse HEAD)" "$(remote_sha docs/topic)"
 if [ -f "$STORE/s-new/publish_step" ]; then bad "--session: no publish_step on success"; else ok "--session: no publish_step on success"; fi
+eq "--session: the publish records published_intent" "continue" "$(cat "$STORE/s-new/published_intent" 2>/dev/null)"
 BODY=$(jq -r '.[0].body' "$GHF/prs.json")
 case "$BODY" in *"intent=continue"*) ok "the body records intent=continue" ;; *) bad "the body records intent=continue" "$BODY" ;; esac
 case "$BODY" in *"docs/plans/PLAN-topic.md"*"#31"*) ok "the body lists the PLAN and its work items" ;; *) bad "the body lists the PLAN and its work items" "$BODY" ;; esac
 
 echo "== a second run after a successful one =="
 BEFORE=$(remote_sha docs/topic)
-run --topic topic --exit full-run --intent continue
+run --topic topic --exit full-run --intent continue --session s-new
 eq "second run: exit 0" "0" "$RC"
 eq "second run: still one pr create" "1" "$(calls create)"
-eq "second run: no pr edit (intent unchanged)" "0" "$(calls edit)"
+eq "second run: no pr edit (published_intent already continue)" "0" "$(calls edit)"
 eq "second run: no new push" "$BEFORE" "$(remote_sha docs/topic)"
 eq "second run: the same PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
+
+echo "== the rewrite keys on the session, never on the body =="
+# The body says intent=continue, but this session last published stop: the
+# session decides, so the body is rewritten.
+printf 'stop' >"$STORE/s-new/published_intent"
+run --topic topic --exit full-run --intent continue --session s-new
+eq "published_intent stop, --intent continue: one pr edit" "1" "$(calls edit)"
+eq "published_intent stop, --intent continue: the key now says continue" "continue" "$(cat "$STORE/s-new/published_intent" 2>/dev/null)"
+# The body is edited to say stop by hand; the session says continue, so the
+# run leaves the body alone. The line is text for people, not run state.
+jq '.[0].body = "intent=stop\n"' "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
+run --topic topic --exit full-run --intent continue --session s-new
+eq "a hand-edited intent= line: no pr edit (the session already says continue)" "1" "$(calls edit)"
+# No session at all (a hand run): there is no run state to compare against,
+# so the reused PR's body is left as it is, whatever its intent= line says.
+run --topic topic --exit full-run --intent continue
+eq "no --session: the body is left alone" "1" "$(calls edit)"
+eq "no --session: exit 0" "0" "$RC"
+# A session without the key (a new run republishing) has published nothing
+# yet, so it rewrites.
+run --topic topic --exit full-run --intent continue --session s-fresh
+eq "a session with no published_intent: the body is rewritten" "2" "$(calls edit)"
+eq "a session with no published_intent: the key is recorded" "continue" "$(cat "$STORE/s-fresh/published_intent" 2>/dev/null)"
+export KOTO_FAIL_KEY=published_intent
+run --topic topic --exit full-run --intent continue --session s-new
+unset KOTO_FAIL_KEY
+eq "an unreadable published_intent: scope:pr-create" "scope:pr-create" "$(line step)"
+eq "an unreadable published_intent: exit 11" "11" "$RC"
+eq "an unreadable published_intent: no pr edit" "2" "$(calls edit)"
 
 echo "== a successful publish consumes the prior-run facts =="
 setup single-pr
@@ -326,12 +358,14 @@ fi
 
 echo "== --verify =="
 setup single-pr
-run --topic topic --exit full-run --intent continue
+run --topic topic --exit full-run --intent continue --session s-v
 run --topic topic --verify
 eq "verify after a publish: exit 0" "0" "$RC"
 eq "verify: pr=" "https://github.com/acme/widgets/pull/100" "$(line pr)"
-run --topic topic --verify --expect-intent continue
+run --topic topic --verify --expect-intent continue --session s-v
 eq "verify --expect-intent continue: exit 0" "0" "$RC"
+run --topic topic --verify --expect-intent stop --session s-v
+eq "verify --expect-intent stop against published_intent continue: exit 1" "1" "$RC"
 : >"$GHF/calls"
 printf 'more\n' >>"$R/README.md"; git -C "$R" commit -q -am more
 run --topic topic --verify
@@ -341,19 +375,32 @@ eq "verify makes no write call" "0" "$(( $(calls create) + $(calls edit) ))"
 setup single-pr
 seed_pr "https://github.com/acme/widgets/pull/7" false me main stop
 git -C "$R" push -q origin HEAD:refs/heads/docs/topic
-run --topic topic --verify --expect-intent continue
-eq "verify --expect-intent continue against intent=stop: exit 1" "1" "$RC"
-run --topic topic --exit full-run --intent continue
+run --topic topic --verify --expect-intent continue --session s-rp
+eq "verify --expect-intent before any publish in the session: exit 1" "1" "$RC"
+case "$(cat "$T/err")" in *"no published_intent"*) ok "the refusal says the session records no published intent" ;; *) bad "the refusal says the session records no published intent" "$(cat "$T/err")" ;; esac
+run --topic topic --exit full-run --intent continue --session s-rp
 eq "republish over intent=stop: no pr create" "0" "$(calls create)"
 eq "republish over intent=stop: one pr edit --body-file" "1" "$(grep -c '^pr edit https://github.com/acme/widgets/pull/7 --body-file ' "$GHF/calls" | tr -d ' ')"
-run --topic topic --verify --expect-intent continue
+run --topic topic --verify --expect-intent continue --session s-rp
 eq "after the rewrite, verify --expect-intent continue passes" "0" "$RC"
-run --topic topic --verify --expect-intent continue --run-id "$MINE"
+# verify never reads the body: a body edited back to intent=stop by hand
+# still verifies, because the session recorded what the run published.
+jq 'map(if .url == "https://github.com/acme/widgets/pull/7" then .body = "intent=stop\n" else . end)' \
+    "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
+: >"$GHF/calls"
+run --topic topic --verify --expect-intent continue --session s-rp
+eq "a hand-edited intent= line does not change the verdict" "0" "$RC"
+if grep -q -- '--json body' "$GHF/calls"; then bad "verify reads no PR body" "$(cat "$GHF/calls")"; else ok "verify reads no PR body"; fi
+export KOTO_FAIL_KEY=published_intent
+run --topic topic --verify --expect-intent continue --session s-rp
+unset KOTO_FAIL_KEY
+eq "verify with an unreadable published_intent: exit 2" "2" "$RC"
+run --topic topic --verify --run-id "$MINE"
 eq "verify --run-id: an unmarked PR verifies on the fallback" "0" "$RC"
 mark "https://github.com/acme/widgets/pull/7" "$FOREIGN"
-run --topic topic --verify --expect-intent continue --run-id "$MINE"
+run --topic topic --verify --run-id "$MINE"
 eq "verify --run-id: another run's PR does not verify (exit 1)" "1" "$RC"
-mkdir -p "$STORE/s-verify"; printf '%s' "$FOREIGN" >"$STORE/s-verify/run_id"
+mkdir -p "$STORE/s-verify"; printf '%s' "$FOREIGN" >"$STORE/s-verify/run_id"; printf 'continue' >"$STORE/s-verify/published_intent"
 run --topic topic --verify --expect-intent continue --session s-verify
 eq "verify --session: the session's own run verifies" "0" "$RC"
 
@@ -429,6 +476,10 @@ run --topic topic --verify --session s --run-id "$MINE"
 eq "--verify with both --session and --run-id is a usage error" "64" "$RC"
 run --topic topic --verify --run-id ABC
 eq "a malformed --run-id is a usage error" "64" "$RC"
+run --topic topic --verify --expect-intent continue
+eq "--expect-intent without --session is a usage error (it reads the session)" "64" "$RC"
+run --topic topic --verify --expect-intent continue --run-id "$MINE"
+eq "--expect-intent with --run-id is a usage error" "64" "$RC"
 eq "usage errors make no gh call" "" "$(cat "$GHF/calls")"
 
 echo "== flags a publish never uses, anywhere under skills/scope/ =="

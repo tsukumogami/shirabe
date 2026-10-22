@@ -107,10 +107,26 @@ intent=none" "$OUT"
 render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"brief","pr":""}'
 eq "re-evaluation at the brief boundary names the BRIEF rejection record" "/scope finished: exit=re-evaluation; artifact=docs/decisions/DECISION-brief-t-rejection-2026-06-01.md
 intent=none" "$OUT"
-render done_abandonment "{\"outcome\":\"abandonment\",\"exit\":\"abandonment-forced\",\"intent\":\"continue\",\"pr\":\"$URL\"}"
+render done_abandonment "{\"outcome\":\"abandonment\",\"exit\":\"abandonment-forced\",\"intent\":\"continue\",\"pr\":\"$URL\",\"forced_artifact\":\"docs/prds/PRD-t.md\"}"
 eq "abandonment with intent: no outcome=, the draft PR" "/scope finished: exit=abandonment-forced; artifact=docs/prds/PRD-t.md
 intent=continue
 pr=$URL" "$OUT"
+# The artifact comes from the result's forced_artifact, never from the tree:
+# the marked PRD on disk names nothing when the result carries no key (a run
+# force-materialized before the key existed), and a key naming a document that
+# carries no marker is still the one printed.
+render done_abandonment '{"outcome":"abandonment","exit":"abandonment-forced","intent":"none","pr":""}'
+eq "abandonment without forced_artifact: artifact=none, the marked PRD is not read" "/scope finished: exit=abandonment-forced; artifact=none
+intent=none" "$OUT"
+render done_abandonment '{"outcome":"abandonment","exit":"abandonment-forced","intent":"none","pr":"","forced_artifact":"docs/designs/current/DESIGN-t.md"}'
+eq "abandonment: the key's path, though no document there carries the marker" "/scope finished: exit=abandonment-forced; artifact=docs/designs/current/DESIGN-t.md
+intent=none" "$OUT"
+for p in docs/plans/PLAN-t.md docs/prds/PRD-other.md ../docs/prds/PRD-t.md "docs/prds/PRD-t.md
+x"; do
+    render done_abandonment "$(jq -nc --arg p "$p" '{outcome:"abandonment",exit:"abandonment-forced",intent:"none",pr:"",forced_artifact:$p}')"
+    eq "abandonment: a forced_artifact outside the four paths is dropped (${p%%$'\n'*})" "/scope finished: exit=abandonment-forced; artifact=none
+intent=none" "$OUT"
+done
 render done_cancelled '{"outcome":"cancelled","intent":"none","via":"bail"}'
 eq "cancelled" "/scope cancelled: no exit was recorded and nothing was force-materialized
 intent=none" "$OUT"
@@ -141,6 +157,13 @@ outcome=error
 step=scope:pr-create" "$OUT"
 render done_error '{"outcome":"error","step":"scope:push","exit":"re-evaluation","intent":"stop"}'
 case "$OUT" in *"exit=re-evaluation"*"step=scope:push"*) ok "a re-evaluation publish failure" ;; *) bad "a re-evaluation publish failure" "$OUT" ;; esac
+render done_error '{"outcome":"error","step":"scope:pr-create","exit":"abandonment-forced","intent":"continue","forced_artifact":"docs/prds/PRD-t.md"}'
+eq "an abandonment publish failure: the artifact from forced_artifact" "/scope finished: exit=abandonment-forced; artifact=docs/prds/PRD-t.md
+intent=continue
+outcome=error
+step=scope:pr-create" "$OUT"
+render done_error '{"outcome":"error","step":"scope:pr-create","exit":"abandonment-forced","intent":"continue"}'
+case "$OUT" in "/scope finished: exit=abandonment-forced; artifact=none"*) ok "an abandonment publish failure without the key: artifact=none" ;; *) bad "an abandonment publish failure without the key: artifact=none" "$OUT" ;; esac
 render done_error '{"outcome":"error","step":"scope:intake","intent":"none"}'
 eq "an intake error: no exit" "/scope stopped before recording an exit
 intent=none

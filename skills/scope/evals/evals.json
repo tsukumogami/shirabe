@@ -190,7 +190,8 @@
         "Plan emits the HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the force-materialized artifact's existing Status section, NOT in a new required section",
         "Plan ensures the marker uses the literal substring 'scope-status-block: abandonment-forced' as the grep-checkable prefix (not 'charter-status-block:' — the uniform marker text is parent-specific to /scope)",
         "Plan ensures the marker uses hyphenated field names (triggering-child, partial-phase-reached, chain-started) per the marker convention; this differs from the underscored YAML state-schema field names (triggering_child, partial_phase_reached, chain_started) by design",
-        "Plan keeps the host artifact type's schema validator passing by using HTML-comment syntax (the marker is invisible to schema validation; greppable for tools and human readers)",
+        "Plan keeps the host artifact type's schema validator passing by using HTML-comment syntax (the marker is invisible to schema validation and is a note for human readers)",
+        "Plan records the marked document's path as the session key forced_artifact in scope-test-topic once the marker is on it, and the abandonment gate reads that key rather than grepping the document for the marker",
         "Plan writes the state record with exit: abandonment-forced, triggering_child set to the resolved child name, partial_phase_reached set to the phase pointer the triggering child had reached, chain_completed set to the abandonment timestamp",
         "Plan keeps boundary and decision_record_sub_shape ABSENT from the state record per R9 conditional-field gating; abandonment-forced exits do not carry Decision Record discriminators",
         "Plan accepts BRIEF, PRD or DESIGN as the host artifact type for the marker per R8's tie-break resolution, never writes a PLAN on abandonment, and keeps the marker uniform across the three"
@@ -841,8 +842,8 @@
       "expectations": [
         "gh-calls.log contains exactly one line starting `pr create`, carrying `--draft`",
         "`git ls-remote origin` lists refs/heads/docs/abandon-topic",
-        "The printed block starts `/scope finished: exit=abandonment-forced` and has no `outcome=` line",
-        "`koto status scope-abandon-topic` shows result.payload.outcome `abandonment`"
+        "The printed block starts `/scope finished: exit=abandonment-forced; artifact=docs/briefs/BRIEF-abandon-topic.md` and has no `outcome=` line",
+        "`koto status scope-abandon-topic` shows result.payload.outcome `abandonment` and result.payload.forced_artifact `docs/briefs/BRIEF-abandon-topic.md`"
       ]
     },
     {
@@ -1043,7 +1044,7 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh stop-then-continue --docs all --mode single-pr`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. The owned PR on the branch records intent=stop from an earlier finished run. Run `/scope stop-then-continue --intent=continue --auto`. Print gh-calls.log, the PR body afterwards (from gh-calls.log.d/prs.json), and the printed exit block.",
-      "expected_output": "A finished run whose PR records intent=stop, re-invoked with --intent=continue, is not a mismatch: republish rewrites the PR body's intent= field with one gh pr edit --body-file, and publish-scoping-pr.sh --verify --expect-intent continue passes. No new PR is opened.",
+      "expected_output": "A finished run whose PR records intent=stop, re-invoked with --intent=continue, is not a mismatch: the new session has published nothing, so republish rewrites the PR body's intent= field with one gh pr edit --body-file, records published_intent=continue in the session, and publish-scoping-pr.sh --verify --expect-intent continue passes on that key. No new PR is opened.",
       "files": [],
       "notes": "Covers R17 and the Decision Outcome seam 'Intent mismatch'.",
       "expectations": [

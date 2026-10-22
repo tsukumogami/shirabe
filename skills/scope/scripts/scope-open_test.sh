@@ -371,9 +371,15 @@ states:
     accepts:
       pick:
         type: enum
-        values: [publish_fail, hostile, clean, plain]
+        values: [publish_fail, hostile, clean, plain, abandon_fail, abandon_done]
         required: true
     transitions:
+      - target: done_abandon_fail
+        when:
+          pick: abandon_fail
+      - target: done_abandon_done
+        when:
+          pick: abandon_done
       - target: done_publish_fail
         when:
           pick: publish_fail
@@ -411,6 +417,22 @@ states:
       intent: continue
   done_plain:
     terminal: true
+  done_abandon_fail:
+    terminal: true
+    failure: true
+    result:
+      outcome: error
+      exit: abandonment-forced
+      intent: continue
+      step: "scope:pr-create"
+      forced_artifact: docs/prds/PRD-t-ab.md
+  done_abandon_done:
+    terminal: true
+    result:
+      outcome: abandonment
+      exit: abandonment-forced
+      intent: continue
+      forced_artifact: docs/prds/PRD-t-ad.md
 ---
 
 ## start
@@ -430,6 +452,14 @@ Done.
 Done.
 
 ## done_plain
+
+Done.
+
+## done_abandon_fail
+
+Done.
+
+## done_abandon_done
 
 Done.
 FAKE
@@ -476,6 +506,23 @@ FAKE
     if k context exists scope-t-pl work/prior-run.md >/dev/null 2>&1; then bad "a result with no keys: no prior-run key" ""; else ok "a result with no keys: no prior-run key"; fi
     rc=0; (cd "$R" && HOME="$KH" bash "$PROBE" --topic t-pl --intent continue >/dev/null 2>&1) || rc=$?
     eq "a result with no keys: the probe falls through to the artifact rows (row 10)" "10" "$rc"
+
+    # An abandonment whose publish failed is retried in a fresh session that
+    # skips the step recording the forced document, so its path is carried.
+    forced_key() { k context get "scope-$1" forced_artifact 2>/dev/null; }
+    prior_case t-ab abandon_fail
+    eq "a failed abandonment publish: forced_artifact reaches the new session" "docs/prds/PRD-t-ab.md" "$(forced_key t-ab)"
+    rc=0; (cd "$R" && HOME="$KH" bash "$PROBE" --topic t-ab --intent continue >/dev/null 2>&1) || rc=$?
+    eq "a failed abandonment publish: the probe fires the abandonment publish-retry row (29)" "29" "$rc"
+    # The result names another topic's document: never carried.
+    PLUGIN_ARG="$FP" open_scope '["t-ax"]'
+    k next scope-t-ax --no-cleanup --with-data '{"pick":"abandon_fail"}' >/dev/null 2>&1
+    PLUGIN_ARG="$FP" open_scope '["t-ax"]'
+    if k context exists scope-t-ax forced_artifact >/dev/null 2>&1; then bad "another topic's forced_artifact is not carried" "$(forced_key t-ax)"; else ok "another topic's forced_artifact is not carried"; fi
+    # A finished abandonment has nothing to retry: the next run starts over.
+    prior_case t-ad abandon_done
+    if k context exists scope-t-ad forced_artifact >/dev/null 2>&1; then bad "a finished abandonment's forced_artifact is not carried" "$(forced_key t-ad)"; else ok "a finished abandonment's forced_artifact is not carried"; fi
+    if k context exists scope-t-pf forced_artifact >/dev/null 2>&1; then bad "a failed full-run publish carries no forced_artifact" ""; else ok "a failed full-run publish carries no forced_artifact"; fi
 
     # A failing write is a warning, not a failure.
     BADKOTO="$T/bin/koto-nocontext"

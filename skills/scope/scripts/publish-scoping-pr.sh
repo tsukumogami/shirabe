@@ -21,10 +21,11 @@
 #      option, never a `+` refspec                           -> scope:push
 #   4. look the PR up through skills/execute/scripts/owned-pr.sh, unchanged,
 #      with --state open, --base <default>, and this run's identity:
-#        one survivor   reused; its body is rewritten with
-#                       `gh pr edit --body-file` only when its intent= field
-#                       differs from --intent, keeping any run marker line
-#                       the live body carries (`run-id.sh carry`)
+#        one survivor   reused; with --session, its body is rewritten with
+#                       `gh pr edit --body-file` unless the session's
+#                       published_intent key already equals --intent,
+#                       keeping any run marker line the live body carries
+#                       (`run-id.sh carry`)
 #        zero           one `gh pr create --head <branch> --base <default>
 #                       --title <title> --body-file <file>` (a foreign-only
 #                       branch counts as zero), then looked up again
@@ -55,17 +56,32 @@
 # body starts with the fixed coordination-PR declaration prefix and is checked
 # with `shirabe validate --coordination-body` before it is posted.
 #
+# The intent last published. The body's `intent=` line is text for people; no
+# step reads it back. With --session, a successful publish writes the intent
+# it published to the session's context key published_intent, and that key is
+# what both modes compare against:
+#
+#   publish   rewrites a reused PR's body when the key is absent or differs
+#             from --intent. A session without the key (a new run
+#             republishing, or one from before the key existed) always
+#             rewrites: the body is a fixed template and the run marker is
+#             carried, so a rewrite that changes nothing is harmless. With no
+#             --session (a hand run) there is no run state to compare, so a
+#             reused PR's body is left as it is.
+#   verify    --expect-intent <v> passes only when the key equals <v>. It
+#             needs --session; an absent key is "not verified" (exit 1).
+#
 # --verify exits 0 only when `git ls-remote origin refs/heads/<branch>` equals
 # `git rev-parse HEAD`, exactly one owned open PR exists on the branch, and,
-# with --expect-intent, that PR's body records `intent=<value>`. It makes no
-# GitHub or git write, and no koto context write: given --session, it only
-# reads the session's run identity (run-id.sh get).
+# with --expect-intent, the session's published_intent equals <value>. It
+# makes no GitHub or git write, and no koto context write: given --session, it
+# only reads the session's run identity (run-id.sh get) and published_intent.
 #
 # Usage:
 #   publish-scoping-pr.sh --topic <slug> --exit <full-run|re-evaluation|abandonment-forced>
 #                         --intent <continue|stop> [--session <name>]
-#   publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>]
-#                         [--session <name> | --run-id <id>]
+#   publish-scoping-pr.sh --topic <slug> --verify [--session <name> [--expect-intent <continue|stop>]
+#                         | --run-id <id>]
 #
 # With --session in publish mode, the script clears the context key
 # publish_step when it starts and writes it (scope:push or scope:pr-create)
@@ -80,8 +96,8 @@
 # Exit codes:
 #   publish:  0 published; 10 scope:push; 11 scope:pr-create; 64 usage;
 #             66 a koto context call failed
-#   verify:   0 verified; 1 not verified; 2 could not read; 64 usage;
-#             66 the run identity could not be read
+#   verify:   0 verified; 1 not verified; 2 could not read (published_intent
+#             included); 64 usage; 66 the run identity could not be read
 #
 # Requires: bash 3.2+, git, gh, jq; shirabe for a coordinated body; koto with
 # --session.
@@ -102,7 +118,7 @@ DECLARATION='> This is a **coordination PR** for a coordinated effort. It is doc
 usage() {
     printf '%s: %s\n' "$PROG" "$1" >&2
     printf 'usage: publish-scoping-pr.sh --topic <slug> --exit <exit> --intent <continue|stop> [--session <name>]\n' >&2
-    printf '       publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>] [--session <name> | --run-id <id>]\n' >&2
+    printf '       publish-scoping-pr.sh --topic <slug> --verify [--session <name> [--expect-intent <continue|stop>] | --run-id <id>]\n' >&2
     exit 64
 }
 
@@ -135,7 +151,9 @@ done
 if [ "$VERIFY" -eq 1 ]; then
     [ -z "$EXIT$INTENT" ] || usage "--verify takes only --topic, --expect-intent, and --session or --run-id"
     case "$SEEN" in
-        *" --expect-intent "*) case "$EXPECT" in continue|stop) ;; *) usage "--expect-intent must be continue or stop" ;; esac ;;
+        *" --expect-intent "*)
+            case "$EXPECT" in continue|stop) ;; *) usage "--expect-intent must be continue or stop" ;; esac
+            case "$SEEN" in *" --session "*) ;; *) usage "--expect-intent reads the session's published_intent; give --session" ;; esac ;;
     esac
     case "$SEEN" in *" --session "*) case "$SEEN" in *" --run-id "*) usage "--session and --run-id are exclusive" ;; esac ;; esac
     if [ -n "$SESSION" ] && ! [[ "$SESSION" =~ $RE_SESSION ]]; then
@@ -208,11 +226,20 @@ repo_name() {
     printf '%s' "$r"
 }
 
-# body_intent <url> -- the value of the PR body's `intent=` line.
-body_intent() {
-    local body
-    body=$(gh pr view "$1" --json body --jq .body </dev/null) || return 1
-    printf '%s\n' "$body" | tr -d '\r' | sed -nE 's/^intent=(continue|stop|none)$/\1/p' | sed -n '1p'
+# published_intent -- the session's published_intent key, empty when the key is
+# absent or there is no --session. Only `exists` answering 1 means "absent";
+# any other failure returns 1.
+published_intent() {
+    local sess rc
+    [ -n "$SESSION" ] || return 0
+    sess="${KOTO_TICK_SESSION:-$SESSION}"
+    koto context exists "$sess" published_intent </dev/null >/dev/null
+    rc=$?
+    case "$rc" in
+        0) koto context get "$sess" published_intent </dev/null || return 1 ;;
+        1) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # --- verify ---------------------------------------------------------------------------
@@ -243,8 +270,9 @@ if [ "$VERIFY" -eq 1 ]; then
     [ -n "$URL" ] || not_verified "no owned open PR on $BRANCH"
     [[ "$URL" =~ $RE_PR_URL ]] || unreadable "owned-pr.sh printed a URL outside the pattern"
     if [ -n "$EXPECT" ]; then
-        GOT=$(body_intent "$URL") || unreadable "the PR body cannot be read"
-        [ "$GOT" = "$EXPECT" ] || not_verified "the PR body records intent=[$GOT], expected $EXPECT"
+        GOT=$(published_intent) || unreadable "the session's published_intent cannot be read"
+        [ -n "$GOT" ] || not_verified "the session records no published_intent; no publish has succeeded in it"
+        [ "$GOT" = "$EXPECT" ] || not_verified "the session's published_intent is [$GOT], expected $EXPECT"
     fi
     printf 'pr=%s\n' "$URL"
     exit 0
@@ -442,8 +470,9 @@ esac
 
 if [ -n "$URL" ]; then
     [[ "$URL" =~ $RE_PR_URL ]] || fail scope:pr-create "owned-pr.sh printed a URL outside the pattern"
-    GOT=$(body_intent "$URL") || fail scope:pr-create "the owned PR's body cannot be read"
-    if [ "$GOT" != "$INTENT" ]; then
+    LAST=$(published_intent) || fail scope:pr-create "the session's published_intent cannot be read"
+    # No --session: no run state to compare against, so the PR is reused as is.
+    if [ -n "$SESSION" ] && [ "$LAST" != "$INTENT" ]; then
         # A full-body rewrite keeps whatever run marker the live body carries.
         gh pr view "$URL" --json body --jq .body </dev/null > "$SCRATCH/live-body.md" \
             || fail scope:pr-create "the owned PR's body cannot be read"
@@ -467,6 +496,11 @@ else
         || fail scope:pr-create "the created PR is not found as the one owned open PR on $BRANCH"
     [[ "$URL" =~ $RE_PR_URL ]] || fail scope:pr-create "owned-pr.sh printed a URL outside the pattern"
 fi
+
+# The PR now carries this run's intent; record it as the intent last published.
+# The publish gates' --verify --expect-intent reads it, so a failed write is
+# reported (exit 66) rather than left for the gate to find.
+ctx add published_intent "$INTENT"
 
 # A successful publish consumes the prior-run facts: the retry they exist for
 # has happened, and leaving the key would let it fire twice. Genuinely

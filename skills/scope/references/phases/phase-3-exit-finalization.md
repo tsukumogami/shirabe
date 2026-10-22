@@ -373,9 +373,22 @@ Four contract rules bind the marker:
   `brief | prd | design | plan`, resolved by R8's tie-break.
 
 The marker uniformly applies to the three upstream artifact
-types without per-child variation. The grep-checkable literal
-substring downstream consumers assert against is
+types without per-child variation. Its literal substring is
 `scope-status-block: abandonment-forced`.
+
+The marker is a note for whoever opens the document; no step of
+the run reads it back. Once it is on the document, the run records
+that document's path as the session key `forced_artifact` in
+`scope-<topic>`. The `exit_abandonment` gate passes only when that
+key names one of the four upstream paths (never the PLAN's), and
+the abandonment and error terminals carry it in their result as
+`forced_artifact`, which the printed exit block names as its
+`artifact=`. When the abandonment's publish failed, the next run's
+fresh session retries the publish without passing through
+`exit_abandonment`, so `scope-open.sh` carries the replaced result's
+`forced_artifact` into the new session's key. A result without the
+key, from a run force-materialized before the key existed, prints
+`artifact=none`.
 
 ## R9 Hard-Finalization Check
 

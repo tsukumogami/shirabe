@@ -142,9 +142,11 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode intent 2>&1 || tru
 Two re-invocations with intent take shortcuts rather than re-scoping.
 A topic whose PLAN already exists goes to `republish`, which re-runs
 the publish step for the PLAN's mode, reuses or opens the owned PR,
-and rewrites the PR body's `intent=` field to this run's intent, so a
-finished `--intent=stop` run re-invoked with `--intent=continue` is
-not a mismatch. A topic whose PLAN was executed and removed goes to
+and rewrites the PR body for this run's intent, so a finished
+`--intent=stop` run re-invoked with `--intent=continue` is not a
+mismatch. The intent a publish last wrote is the session key
+`published_intent`, which the rewrite and the publish gates read; the
+body's `intent=` line is for people and nothing reads it back. A topic whose PLAN was executed and removed goes to
 `executed_report`, which names the owned PR and whether it is merged
 or open. Without intent, an Active PLAN is refused with a redirect to
 `/execute docs/plans/PLAN-<topic>.md` (`single-pr`, `coordinated`) or
@@ -392,6 +394,9 @@ Every run ends at exactly one, recorded in `exit:`:
   materializes that child's intermediate as a Draft artifact, except that it
   never writes a PLAN: when `/plan` was running it marks the nearest upstream
   document instead and removes any PLAN `/plan` left at the canonical path.
+  The marked document's path is recorded as the session key
+  `forced_artifact`, which the exit's gate and the printed exit block read;
+  the marker stays in the document for whoever opens it.
 
 The R9 hard-finalization check refuses a run that cannot record a valid exit,
 in `--auto` as much as interactively. The per-path required fields, the
@@ -500,7 +505,8 @@ runs in the publish states and in `republish` and never as a default action:
   <title> --body-file <file>`, only when the ownership filter finds no owned PR
   on the branch
 - **edit** — `gh pr edit --body-file` on the one owned PR, only to rewrite its
-  `intent=` field
+  body for this run's intent, when the session's `published_intent` key does
+  not already record that intent
 
 `gh pr create` and that `gh pr edit` are the publish step's only `gh` writes.
 The run makes two others, and no more:

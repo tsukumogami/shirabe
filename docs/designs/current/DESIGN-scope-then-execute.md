@@ -541,7 +541,11 @@ which is idempotent (D6).
 The two `--intent` shortcuts in `/scope`'s resume ladder run as template
 states rather than prose. When a PLAN already exists, `republish` re-runs the
 publish script, which rewrites the PR body's `intent=` field, verifies it,
-and ends at `done_republished`. When the PLAN was executed and removed,
+and ends at `done_republished`. (Amended 2026-10-21: the intent a publish
+last wrote is the session key `published_intent`, not the body. Publish
+rewrites the body when that key is absent or differs from the run's intent,
+and the `--verify --expect-intent` gate compares the key; the body's
+`intent=` line stays for people and nothing reads it back.) When the PLAN was executed and removed,
 `executed_report`'s default action reads the owned PR, writes its URL and
 state to koto context, and the state ends at `done_executed` with that
 `pr` and `pr_state`.
@@ -743,7 +747,7 @@ The decisions meet at these seams:
   session is gone is refused by `intake` (`intent-mismatch`). `/deliver` maps
   both to `deliver:intent-mismatch`. A finished run whose PR records
   `intent=stop` isn't a mismatch: the re-run republishes and rewrites the
-  PR's `intent=` field.
+  PR's `intent=` field (its new session has no `published_intent` yet).
 - **Per-run settings on a shared session.** `/scope`'s `EXEC_MODE` and
   `/execute`'s `PAUSE_BEFORE_FINALIZE` and `MERGE` are `rebind: true`, so a
   run `/deliver` picks up takes this invocation's mode and merge setting
