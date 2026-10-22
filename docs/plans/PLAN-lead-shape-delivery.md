@@ -102,25 +102,26 @@ Design: `docs/designs/DESIGN-lead-shape-delivery.md`
 
 Relevant code: `skills/work-on/scripts/review-level.sh` (`facts`, around lines 600-640) and the `review_level_check` default action in `skills/work-on/koto-templates/work-on.md` (around line 915).
 
+What Issue 1 landed that this issue builds on: `skills/execute/references/step-agent-handoff.md` (the step agent's hand-off, which the `/work-on` paragraph below should name), the `unit-agent-spawns-own-reviewers` value in `references/parent-skill-pattern.md`, and a `template`-class entry for the hand-off file in `skills/work-on/references/review-level-rules.tsv`, which this issue leaves in place. `review-level_test.sh` passed 258 cases after Issue 1. `/work-on`'s verification gate runs `scripts/check-skill.sh` for any `skills/**` change, which the host this plan runs on must not run: record the koto decision that hosted CI is the build of record for it before the tick that enters verification.
+
 **Acceptance Criteria**:
 
-- [ ] E2E flow still works (do not break the skeleton)
+- [ ] The skeleton still holds: `/bin/bash skills/execute/scripts/lead-shape-text_test.sh` passes unchanged.
 - [ ] `review-level.sh facts <session> <level> [--shared-branch <branch>]` accepts the option after the two positionals, `<level>` may be empty, and `usage()` names the option.
 - [ ] A `--shared-branch` value that fails `git check-ref-format --branch`, or that starts with `-`, makes `facts` exit 64.
 - [ ] With a non-empty `--shared-branch`, `facts` skips `default_merge_base`, measures the `impl_base` diff only, and writes `base_source: impl_base` and `shared_branch` (the branch string) to `review_facts.json`.
 - [ ] With a non-empty `--shared-branch` and no stored `impl_base`, `facts` exits 64 with the message `no base resolves on a shared branch: impl_base is unset`, and does not fall back to the merge-base.
 - [ ] With an empty or absent `--shared-branch`, behaviour is unchanged: the larger-diff rule applies, and `shared_branch` is an empty string in `review_facts.json`. The 40-line, 400-line and 12-file thresholds are unchanged.
-- [ ] The header comment of `review-level.sh` documents the option.
-- [ ] The `review_level_check` default action in `skills/work-on/koto-templates/work-on.md` appends `--shared-branch "{{SHARED_BRANCH}}"` to its `facts` call.
+- [ ] `grep -F 'review-level.sh facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}" --shared-branch "{{SHARED_BRANCH}}"' skills/work-on/koto-templates/work-on.md` prints the `review_level_check` default action's command, and the template-consistency and `review-level_test.sh` checks that read the template's commands still pass.
 - [ ] `skills/work-on/scripts/review-level_test.sh` has a case where, on a shared branch, an earlier sibling committed a `koto-templates/` file and 500 lines and the step's own `impl_base` diff is a 20-line `SKILL.md` change: `facts` records `base_source: impl_base` and floor `standard`.
 - [ ] `review-level_test.sh` has a case off a shared branch with the same commits and an `impl_base` recorded after them: `facts` records `base_source: merge_base` and floor `full`, as today.
 - [ ] `review-level_test.sh` has a case on a shared branch with no `impl_base`: `facts` exits 64 and the output names `impl_base`.
 - [ ] `review-level_test.sh` has a case where `--shared-branch` is given a value that fails `git check-ref-format --branch`: `facts` exits 64.
 - [ ] The existing base-choice cases in `review-level_test.sh` pass unchanged.
 - [ ] `skills/work-on/references/review-levels.md`: "The facts floor" bullet on bases says the merge-base candidate is skipped on a shared branch, and a new section "A step's level under the lead shape" names `impl_base` as the only base on a shared branch, says the step's own `/work-on` chooses its level inside the bound and its own commits floor it, lists `ci`, `security`, `template` and `engine` as the classes that floor a step at `full`, and says a step touching none of them within 400 lines and 12 files floors no higher than `standard`.
-- [ ] `skills/work-on/SKILL.md` Plan-Backed Child Mode has a paragraph that contains "lead shape" and "may spawn its step's review seats", and says the seats spawn nothing and a step agent never edits a step's entry.
-- [ ] `skills/work-on/evals/evals.json` has a scenario in which a shared-branch child's facts record `base_source: impl_base`, with its `behaviour` field set per the repo's eval shape rules.
-- [ ] `scripts/check-skill.sh --changed work-on` passes.
+- [ ] `skills/work-on/SKILL.md` Plan-Backed Child Mode has a paragraph that contains "lead shape" and "may spawn its step's review seats", names `skills/execute/references/step-agent-handoff.md`, and says the seats spawn nothing and a step agent never edits a step's entry.
+- [ ] `skills/work-on/evals/evals.json` has a scenario in which a shared-branch child's facts record `base_source: impl_base`, with its `behaviour` field set per the repo's eval shape rules (checked locally by reading the shape rules; `scripts/check-skill.sh` is left to hosted CI on this host).
+- [ ] Hosted CI's "Check work-on scripts", "Check skill gate" and "Check skill evals exist" pass on the pushed head.
 - [ ] Bash 3.2 compatible (no associative arrays, no `mapfile`); no change to koto or niwa.
 - [ ] No private repository names or URLs in any changed file (public repo).
 
