@@ -1056,22 +1056,25 @@ Pass nothing else. Who makes the call depends on this run's mode, which reads
   arguments above directly in this session, because /scope asks the author
   its own questions here.
 
+Under `auto`, tell the scope agent: run the /scope Skill call above to its
+terminal, ticking every `koto next` with `--no-cleanup`; never open, read or
+search a settings or credential file; the agents /scope's children start
+(juries, researchers, issue-body agents) spawn nothing further, except where
+`references/parent-skill-pattern.md` names an exception; and return at most
+ten lines. None of those lines is used by this run: the owning session ticks
+`deliver-{{TOPIC}}` to read the leg and reads the PLAN and the scoping
+documents from disk.
+
 Either way /scope runs to its end exactly as its own directives say -- it
-opens or resumes `scope-{{TOPIC}}`, asks its own questions, and prints its own
-exit block -- then call `koto next {{SESSION_NAME}} --no-cleanup` with no
-evidence.
+opens or resumes `scope-{{TOPIC}}` and prints its own exit block -- then call
+`koto next {{SESSION_NAME}} --no-cleanup` with no evidence.
 
 <!-- details -->
 
-**The scope agent.** Under `auto`, tell the scope agent: run the /scope Skill
-call above to its terminal, ticking every `koto next` with `--no-cleanup`;
-never open, read or search a settings or credential file; the agents
-/scope's children start (juries, researchers, issue-body agents) spawn
-nothing further, except where `references/parent-skill-pattern.md` names an
-exception; and return at most ten lines. None of those lines is used by this
-run: the owning session ticks `deliver-{{TOPIC}}` to read the leg and reads
-the PLAN and the scoping documents from disk. Scoping stays in the agent, so
-this session starts /execute without the scoping conversation in its context.
+**Why a scope agent under `auto`.** Scoping stays in the agent, so this
+session starts /execute without the scoping conversation in its context. An
+interactive /scope asks the author questions that a subagent cannot reach, so
+under `interactive` the call stays here.
 
 /scope reports to this run only through the leg: its session attaches to it
 with `--koto-leg`, and its terminal result -- or koto's refusal of its

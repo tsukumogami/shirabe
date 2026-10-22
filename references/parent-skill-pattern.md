@@ -422,10 +422,11 @@ spawning goes.
   unit of a run (a step agent driving one `/work-on` child under `/execute`'s
   lead shape, a scope agent, or the session itself) may spawn that unit's own
   reviewers, jurors and research agents, and those agents spawn nothing. Spawn
-  depth stops at two: the session starts a unit's agent, the unit's agent
-  starts its reviewers. Consequence 2 names the one exception: `/design`'s
-  critical-tier deciders follow `/decision`, whose phases start their own
-  agents, so under a scope agent those agents sit at a third level. Four operational consequences follow from this value:
+  depth stops at two, with the one exception consequence 2 names: the session
+  starts a unit's agent and the unit's agent starts its reviewers, except
+  that `/design`'s critical-tier deciders follow `/decision`, whose phases
+  start their own agents, so under a scope agent those agents sit at a third
+  level. Four operational consequences follow from this value:
   1. **Helpers are spawned at the phase that needs them.** A unit's agent
      starts its reviewers, jurors and researchers when the phase that uses
      them runs, and waits on them itself. Nothing is materialized ahead of
