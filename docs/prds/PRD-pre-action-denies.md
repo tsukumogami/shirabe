@@ -695,6 +695,11 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 - With the binary missing, the coarse test may deny an unguarded command
   that mentions a guarded action (R8). The reason says the binary is
   missing, which is the thing to fix.
+- Behind a wrapper other than `env`, the text test reads quoted
+  arguments as words, so an unguarded command whose argument mentions a
+  guarded action is denied as wrapped (`sudo gh issue create --title
+  "... gh pr create"`, `nohup gh pr merge --body "a new path"`). Run it
+  without the wrapper, or behind `env`.
 - A guarded action run inside a script file isn't seen (R2) and runs
   unchecked. So does a pull request opened through `gh api` or an MCP
   tool, and a wrapped command whose text hides the guarded action (a

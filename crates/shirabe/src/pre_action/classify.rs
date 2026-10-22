@@ -1112,7 +1112,23 @@ mod tests {
 
     #[test]
     fn an_env_merge_still_blocks_a_later_push() {
-        assert!(same_command("env -u GH_TOKEN gh pr merge 1 --squash && git push"));
+        assert!(same_command(
+            "env -u GH_TOKEN gh pr merge 1 --squash && git push"
+        ));
+    }
+
+    #[test]
+    fn the_other_wrappers_keep_the_text_test() {
+        // Only `env` is read by the command it runs: behind any other
+        // wrapper a quoted mention still reads as a wrapped create.
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            "sudo gh issue create --title \"hook refuses gh pr create\"",
+            "nohup gh pr merge 1 --body \"Adds a new path.\"",
+            "env -u X sudo gh pr merge 1 --body new",
+        ] {
+            assert_eq!(fails(cmd), wrapped, "{cmd}");
+        }
     }
 
     #[test]
