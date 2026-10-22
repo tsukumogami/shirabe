@@ -120,6 +120,14 @@ never a silent skip:
   `--verification=hosted-ci --verification-reason=<why>`). Neither is rebindable, so
   the choice is fixed before any state runs. The default, `VERIFICATION=local`, is
   the gate described above, unchanged.
+- **The reason's characters.** koto accepts a variable value only within its
+  allowlist, `^[a-zA-Z0-9._/:@+ \-]*$`: letters, digits, spaces and `. _ / : @ + -`.
+  Apostrophes and commas are not among them, so `host can't run suites, CI only` is
+  refused; `host is in a measurement window until 02:40Z` fits. The reason must also
+  start with a letter or digit. Under `--koto-leg`, `work-on-open.sh` refuses a
+  reason with any other character before koto runs, and before its own checks of
+  the flag (`error=usage`, exit 64), naming the characters; a direct `koto init`
+  gets koto's `invalid_var`. Either way, reword the reason and start again.
 - **The map never launches.** Every edge that would enter `verification` goes to
   `verification_deferred` instead. koto runs a state's entry action before anything
   else in it, so the deferral is decided on the way in: `run-verification.sh` never
@@ -296,10 +304,13 @@ add `--var VERIFICATION=hosted-ci` and
 `--verification-reason=<why>` exactly as typed, to either init above (see
 **Deferring Verification to Hosted CI**). A deferral without a reason is not a
 deferral: stop and say so rather than init without one, since the run would end at
-`done_blocked` before opening its pull request. koto refuses a `VERIFICATION` other
-than `local` or `hosted-ci`, and a reason that doesn't start with a letter or digit
-or carries a character outside its variable allowlist (`invalid_var`); report the
-refusal and stop. Without the flag add nothing. For example:
+`done_blocked` before opening its pull request. The reason may use only letters,
+digits, spaces and `. _ / : @ + -`, starting with a letter or digit: no apostrophes,
+no commas (see **Deferring Verification to Hosted CI**). Check it before the init,
+and when it has any other character, stop and say which, rather than init. koto
+refuses a `VERIFICATION` other than `local` or `hosted-ci`, and a reason outside its
+pattern or its variable allowlist (`invalid_var`); report the refusal and stop.
+Without the flag add nothing. For example:
 
 ```bash
 koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
@@ -378,8 +389,10 @@ below applies and the run is unchanged.
    review-level bound or the verification deferral as `--var`: the script reads
    `--review-floor=`, `--review-ceiling=`, `--verification=` and
    `--verification-reason=` from the tokens itself, and refuses
-   `--verification=hosted-ci` without a reason (`error=usage`, exit 64, no koto
-   call). It adds `PLUGIN_ROOT`, and on a
+   `--verification=hosted-ci` without a reason, and a reason with a character
+   outside letters, digits, spaces and `. _ / : @ + -` (an apostrophe or a comma,
+   say), naming the characters (`error=usage`, exit 64, no koto call). It adds
+   `PLUGIN_ROOT`, and on a
    live session the `REVIEW_LEVEL` its ledger last recorded (an attach resets
    every rebind variable it isn't passed), and makes one `koto init` with
    `--attach-live --koto-leg`: no
