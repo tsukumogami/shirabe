@@ -201,24 +201,24 @@ These terms mean the same thing everywhere below.
   "$(cat <<'EOF' ... git push ... EOF)"` holds none; with an unquoted
   delimiter the shell still runs a `$(...)` or backquotes in them, and
   those count as command substitutions.
-- **The `env` exception**: when an `env` segment runs `gh` or another
-  wrapper on the list, the text test over the whole segment doesn't
-  decide it. Past env's own options (the classifier's `env_command` lists
-  the ones it reads) and every operand holding a `=`, which env takes as
-  an assignment whether or not it is a shell name, the command is
-  classified as a segment of its own (a wrapper there is still judged by
-  its own text test), and the text test runs over env's own option and
-  assignment words, since the program can run what an assignment carries
-  (`BASH_FUNC_f%%=() { ... }`, `PS4=$(...)`, `GH_BROWSER=...`). The `env`
-  segment is a wrapped guarded command when either finds a guarded
-  action. So `env -u GH_TOKEN gh pr merge --body "..."` is a merge
-  whatever its body says, and `env -u GH_TOKEN gh pr create ...` is
-  still a wrapped guarded command. An option the hook doesn't read, a
-  word the shell expands before the command, any other program as the
-  command (an unlisted launcher, `GH` on a case-insensitive filesystem,
-  or `git`, whose aliases can hide a push from the subcommand reading),
-  or `env` nested more than eight deep leaves the segment to the text
-  test.
+- **The `env` exception**: when an `env` segment runs `gh`, the text
+  test over the whole segment doesn't decide it. Past env's own options
+  (the classifier's `env_command` lists the ones it reads) and every
+  operand holding a `=`, which env takes as an assignment whether or not
+  it is a shell name, the `gh` command is classified as a segment of its
+  own, and the text test runs over env's own option and assignment words,
+  since gh can run what an assignment carries (`GH_BROWSER=...`,
+  `GH_EDITOR=...`). The `env` segment is a wrapped guarded command when
+  either finds a guarded action. So `env -u GH_TOKEN gh pr merge --body
+  "..."` is a merge whatever its body says, and `env -u GH_TOKEN gh pr
+  create ...` is still a wrapped guarded command. Any other command
+  leaves the segment to the text test: an unlisted launcher, `GH` on a
+  case-insensitive filesystem, `git` (whose aliases can hide a push from
+  the subcommand reading), and any listed wrapper, a nested `env`
+  included, since a wrapper can join env's words with its own (`env
+  'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr create'`). So do an
+  option the hook doesn't read and a word the shell expands before the
+  command.
 
 ### Functional
 
@@ -712,7 +712,9 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
   words, so an unguarded command whose argument mentions a guarded
   action is denied as wrapped (`sudo gh issue create --title "... gh pr
   create"`, `nohup gh pr merge --body "a new path"`, `env -u X koto ...
-  "gh pr edit"`). Run it without the wrapper, or as `env ... gh`.
+  "gh pr edit"`). Run it without the wrapper, or as `env ... gh`. env's
+  own assignment words get the text test even before `gh`, so
+  `env NOTE='gh pr create' gh pr merge 1` is denied too.
 - A guarded command behind a launcher that isn't on the wrapper list
   (`stdbuf`, `arch`, `ksh -c`), or spelled another way on a
   case-insensitive filesystem (`GH pr create`), gets no decision when no

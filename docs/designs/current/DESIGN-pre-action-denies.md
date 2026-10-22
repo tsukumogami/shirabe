@@ -483,22 +483,24 @@ create`, would read as a wrapped create. So the classifier skips the env
 options it reads (`env_command` lists them: `-i`, `-u NAME`, `--` and a
 few that take no value) and every operand holding a `=`, since env takes
 any of those as an assignment (`a-b=1` and `'X Y=1'` included, not only
-shell names). When the command left is `gh` or another listed wrapper,
-it is classified as a segment of its own, and the skipped words get the
-text test, since the program can run what an assignment carries (bash
-imports `BASH_FUNC_f%%=() { ... }` as a function and expands `PS4` under
-`-x`; gh runs `GH_BROWSER`). A guarded or wrapped guarded command in
-either makes the `env` segment a wrapped guarded command, and anything
-else is no guarded action; a merge body comes after the command, so the
-text test never reads it. Any other program falls back to the
-text test, because it may be a launcher the wrapper list lacks (`stdbuf`,
-`arch`, `ksh -c`) or another spelling of `gh` on a case-insensitive
-filesystem, and only the text test reads past it. `git` falls back too:
-the classifier reads a git subcommand by its name, so `git -c
-'alias.p=!git push' p` names no push, which the text test still sees. So
-does an option the hook doesn't read (`-S` splits a string into a command, `-C`
-changes directory), a word the shell expands before the command, or `env`
-nested more than eight deep. The other wrappers keep the text test: each
+shell names). When the command left is `gh`, it is classified as a
+segment of its own, and the skipped words get the text test, since gh
+can run what an assignment carries (`GH_BROWSER`, `GH_EDITOR`). A guarded
+command in either makes the `env` segment a wrapped guarded command, and
+anything else is no guarded action; a merge body comes after `gh`, so the
+text test never reads it, and gh is no wrapper, so nothing joins the two
+halves. Any other command gets the text test over the whole segment. It
+may be a launcher the wrapper list lacks (`stdbuf`, `arch`, `ksh -c`) or
+another spelling of `gh` on a case-insensitive filesystem, which only the
+text test reads past. It may be `git`, which the classifier reads by its
+subcommand's name, so `git -c 'alias.p=!git push' p` names no push. Or it
+may be a listed wrapper, a nested `env` included, which can join env's
+words with its own: in `env 'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr
+create'` env's words hold only `gh` and bash's only `pr create`, and
+bash imports the function and runs the create. So does an option the
+hook doesn't read (`-S` splits a string into a command, `-C` changes
+directory) and a word the shell expands before the command. The other
+wrappers keep the text test: each
 takes a shell string (`bash -c`, `eval`, `ssh`) or an option grammar of
 its own (`sudo -u`, `timeout 5`, `xargs`) that can carry a guarded command
 where a word-by-word reading would miss it.

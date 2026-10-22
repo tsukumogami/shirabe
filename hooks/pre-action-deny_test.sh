@@ -265,7 +265,9 @@ for c in "env -u GH_TOKEN $BAD_CREATE" \
     "env stdbuf -oL gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     'env caffeinate git push' \
     "env git -c 'alias.p=!git push' p" \
-    "env 'BASH_FUNC_f%%=() { gh pr create --title x --body y; }' bash -c f"; do
+    "env 'BASH_FUNC_f%%=() { gh pr create --title x --body y; }' bash -c f" \
+    "env 'BASH_FUNC_f%%=() { gh \\\"\$@\\\"; }' bash -c 'f pr create'" \
+    "env 'BASH_FUNC_f%%=() { git \\\"\$@\\\"; }' bash -c 'f push'"; do
     run_hook "$c"
     expect_deny "env-wrapped: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done
