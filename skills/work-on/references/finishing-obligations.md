@@ -15,7 +15,7 @@ this table exists.
 
 | Obligation | State | Gate | Fails when |
 |---|---|---|---|
-| The pull request body closes its issue | `pr_creation` | `closing_keyword` | The body GitHub actually has carries no closing keyword for this issue number. Free-form work has no issue and the gate passes without consulting the body. |
+| The pull request body closes its issue | `pr_creation` | `closing_keyword` | The body GitHub actually has carries no closing keyword for this issue number. For an issue in another repository (`ISSUE_REPO` set), the body lacks `Fixes <owner/repo>#<N>` for that repository, or carries a bare `#<N>`, which names this repository's issue. Free-form work has no issue and the gate passes without consulting the body. |
 | The pull request is mergeable | `ci_monitor` | `merge_state_clean` | GitHub reports `DIRTY`, whatever the CI gate reads. Necessary because a conflicted pull request gets no new check-runs, so the CI gate says nothing about one. |
 | CI is green | `ci_monitor` | `ci_passing` | The pull request has no checks at all, unless its repository declares no hosted CI on the default branch and the body records it (`ci-none-declared.sh`); or any check is outside the pass and skipping buckets, unless GitHub reports the PR MERGED and each such check is a cancelled run of one of the repo's macOS floor workflows (`ci-cancel-after-merge.sh`). |
 | The summary has the required shape | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `summary_shape` | `summary.md` has no `## Changes Made` section. |

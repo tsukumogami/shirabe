@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # closing-keyword-gate_test.sh — does pr_creation's gate recognise a closing
-# keyword, and refuse a body that lacks one?
+# keyword, and refuse a body that lacks one? For an issue in another
+# repository (ISSUE_REPO set), does it take only `Fixes owner/repo#N` for that
+# repository and refuse a bare `#N`?
 #
 # The gate is a shell expression inside the template, so the cases run the
 # expression EXTRACTED FROM THE TEMPLATE rather than a copy pasted here. A copy
@@ -55,24 +57,37 @@ if [[ -z "$GATE" ]]; then
 fi
 
 # A gh stub that prints $PR_BODY, so the gate can be run against any body.
+# Asked for the url too (check-closing-keyword.sh's `--json url,body --jq
+# '.url, .body'`), it prints $PR_URL on the first line, as gh does.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
-# Stands in for `gh pr view --json body --jq .body`.
+# Stands in for `gh pr view --json body --jq .body` and
+# `gh pr view --json url,body --jq '.url, .body'`.
+[[ -z "${GH_LOG:-}" ]] || echo "$*" >> "$GH_LOG"
 if [[ "${GH_FAIL:-0}" == "1" ]]; then
     echo "gh: could not resolve to a PullRequest" >&2
     exit 1
 fi
+[[ " $* " == *" url,body "* ]] && printf '%s\n' "${PR_URL:-https://github.com/acme/app/pull/7}"
 printf '%s\n' "${PR_BODY:-}"
 STUB
 chmod +x "$STUB_DIR/gh"
 
-# run_gate <issue-number> <body> — substitute {{ISSUE_NUMBER}} as koto would,
-# then run the expression with the stub ahead of the real gh.
+# The plugin root the gate reaches check-closing-keyword.sh through.
+PLUGIN_DIR=$(cd "$SKILL_DIR/../.." && pwd)
+
+# run_gate <issue-number> <body> [<gh-fails>] — substitute {{ISSUE_NUMBER}},
+# {{ISSUE_REPO}} (from $ISSUE_REPO, empty by default, as an unset variable
+# resolves) and {{PLUGIN_ROOT}} as koto would, then run the expression with
+# the stub ahead of the real gh.
 run_gate() {
     local issue="$1" body="$2"
     local cmd="${GATE//\{\{ISSUE_NUMBER\}\}/$issue}"
-    PATH="$STUB_DIR:$PATH" PR_BODY="$body" GH_FAIL="${3:-0}" sh -c "$cmd" >/dev/null 2>&1
+    cmd="${cmd//\{\{ISSUE_REPO\}\}/${ISSUE_REPO:-}}"
+    cmd="${cmd//\{\{PLUGIN_ROOT\}\}/$PLUGIN_DIR}"
+    PATH="$STUB_DIR:$PATH" PR_BODY="$body" PR_URL="${PR_URL:-}" GH_FAIL="${3:-0}" \
+        sh -c "$cmd" >/dev/null 2>&1
 }
 
 expect() {
@@ -119,6 +134,94 @@ expect "an empty issue number passes without consulting the body" 0 "" "no keywo
 # --- fail-closed -------------------------------------------------------------
 # An unreadable pull request must NOT read as satisfied.
 expect "an unreadable pull request fails rather than passing" 1 42 "Fixes #42" 1
+
+# --- same repository: ISSUE_REPO empty runs the expression unchanged ----------
+# The run above had ISSUE_REPO empty throughout. This pins that it never asked
+# gh for the url, which only check-closing-keyword.sh does, so a
+# same-repository run never starts the script.
+GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
+export GH_LOG
+run_gate 42 "Fixes #42"
+if ! grep -q 'url' "$GH_LOG" && grep -qx 'pr view --json body --jq .body' "$GH_LOG"; then
+    pass "an empty ISSUE_REPO reads only the body, as before"
+else
+    fail "an empty ISSUE_REPO made gh calls: $(cat "$GH_LOG")"
+fi
+unset GH_LOG
+
+# --- an issue in another repository -------------------------------------------
+# The pull request is in acme/app (the stub's default url); the issue lives in
+# acme/tracker. GitHub closes it only through `acme/tracker#42`, and a bare
+# `#42` here would close acme/app#42 instead.
+export ISSUE_REPO=acme/tracker
+expect "cross-repo: Fixes owner/repo#N passes" 0 42 "Fixes acme/tracker#42"
+expect "cross-repo: lowercase closes passes" 0 42 "closes acme/tracker#42"
+expect "cross-repo: Resolved passes" 0 42 "Resolved acme/tracker#42"
+expect "cross-repo: owner/repo matches in any case" 0 42 "Fixes ACME/Tracker#42"
+expect "cross-repo: mid-body after Part 1 passes" 0 42 "Part 1
+
+---
+
+Fixes acme/tracker#42"
+expect "cross-repo: a bare Fixes #N fails" 1 42 "Fixes #42"
+expect "cross-repo: a bare #N beside the right reference still fails" 1 42 "Fixes acme/tracker#42
+Fixes #42"
+expect "cross-repo: no closing keyword fails" 1 42 "Refs acme/tracker#42"
+expect "cross-repo: an empty body fails" 1 42 ""
+expect "cross-repo: an unreadable pull request fails" 1 42 "Fixes acme/tracker#42" 1
+
+# A closing keyword the old gate refused must not pass the new one for the
+# wrong issue: another repository, a name that only contains the right one,
+# or a longer number.
+expect "cross-repo: another owner's repo of the same name fails" 1 42 "Fixes other/tracker#42"
+expect "cross-repo: another repo of the same owner fails" 1 42 "Fixes acme/app#42"
+expect "cross-repo: a longer repo name fails" 1 42 "Fixes acme/tracker2#42"
+expect "cross-repo: a prefixed owner fails" 1 42 "Fixes xacme/tracker#42"
+expect "cross-repo: a path that ends in the repo fails" 1 42 "Fixes evil/acme/tracker#42"
+expect "cross-repo: #N running into more digits fails" 1 42 "Fixes acme/tracker#421"
+expect "cross-repo: another issue number fails" 1 42 "Fixes acme/tracker#43"
+expect "cross-repo: a keyword inside a word fails" 1 42 "prefixes acme/tracker#42"
+expect "cross-repo: the keyword split from the reference by a newline fails" 1 42 "Fixes
+acme/tracker#42"
+
+# A `.` in the recorded name is a literal dot, not any character.
+export ISSUE_REPO=acme/.github
+expect "a dotted repo name passes for itself" 0 7 "Fixes acme/.github#7"
+expect "a dotted repo name does not match any character there" 1 7 "Fixes acme/xgithub#7"
+
+# ISSUE_REPO naming the pull request's own repository is a same-repository run:
+# a bare #N and the qualified form both close the issue.
+export ISSUE_REPO=acme/app
+expect "ISSUE_REPO equal to the PR's repo: a bare Fixes #N passes" 0 42 "Fixes #42"
+expect "ISSUE_REPO equal to the PR's repo: the qualified form passes" 0 42 "Fixes acme/app#42"
+expect "ISSUE_REPO equal to the PR's repo: no keyword fails" 1 42 "See #42"
+PR_URL=https://github.com/ACME/App/pull/7 \
+    expect "ISSUE_REPO equal to the PR's repo in another case: a bare Fixes #N passes" 0 42 "Fixes #42"
+
+# A url the script can't read a repository from fails closed.
+export ISSUE_REPO=acme/tracker
+PR_URL=not-a-url expect "an unreadable PR url fails closed" 1 42 "Fixes acme/tracker#42"
+
+# Free-form mode still passes without reading anything, whatever ISSUE_REPO.
+expect "an empty issue number passes with ISSUE_REPO set" 0 "" "no keyword here"
+unset ISSUE_REPO
+
+# --- the script's own usage refusals ------------------------------------------
+# Exit 2, which no pr_creation edge routes, so the state holds rather than
+# reaching done_blocked or ci_monitor.
+SCRIPT="$SCRIPT_DIR/check-closing-keyword.sh"
+for args in "" "--issue 42" "--repo acme/tracker" "--issue 042 --repo acme/tracker" \
+            "--issue 4x2 --repo acme/tracker" "--issue 42 --repo acme" \
+            "--issue 42 --repo acme/tracker/extra" "--issue 42 --repo acme/tr;cker" \
+            "--issue 42 --repo acme/tracker --bogus"; do
+    # shellcheck disable=SC2086
+    PATH="$STUB_DIR:$PATH" PR_BODY="Fixes acme/tracker#42" "$SCRIPT" $args >/dev/null 2>&1; got=$?
+    if [[ "$got" == 2 ]]; then pass "usage [$args] exits 2"
+    else fail "usage [$args]: expected exit 2, got $got"; fi
+done
+PATH="$STUB_DIR:$PATH" PR_BODY="Fixes acme/tracker#42" "$SCRIPT" --issue 42 --repo "acme/tracker
+evil/x" >/dev/null 2>&1; got=$?
+[[ "$got" == 2 ]] && pass "a repo value with a newline exits 2" || fail "a repo value with a newline: exit $got"
 
 echo
 echo "closing-keyword-gate_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

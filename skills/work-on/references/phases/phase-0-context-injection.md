@@ -14,7 +14,11 @@ ${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/scripts/extract-context.sh <N> -
 
 The script stores the extracted context directly into koto context under
 the key `context.md`, prints the full content to stdout, and ends with a JSON
-summary whose `status` decides the evidence for this state:
+summary whose `status` decides the evidence for this state. For an issue in
+another repository (the run was initialized with `ISSUE_REPO`) it reads the
+issue from that repository itself, from the session, and skips this
+repository's design docs, whose `#<N>` names a different issue; the command is
+the same.
 
 - `success` or `degraded` — the context is stored (`degraded` means it came
   from the issue body alone). Read and summarize it below, then submit

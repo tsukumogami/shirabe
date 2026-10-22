@@ -53,7 +53,10 @@ itself, and the agent submits no evidence on any answered path.
 | 2 | usage error: anything but `--issue <positive integer>` | nowhere: the state holds, and the agent submits `staleness_signal: blocked` (the template passed a bad argument) or, only when the user said to skip the check, `override` |
 
 The gate also exits 3 itself when the script isn't executable at
-`{{PLUGIN_ROOT}}`, and koto reports -1 when it couldn't run the gate to
+`{{PLUGIN_ROOT}}`, and without running the script when the run's issue is in
+another repository (`ISSUE_REPO` is set): the script reads the issue from the
+current repository, where that number names a different issue or none. koto
+reports -1 when it couldn't run the gate to
 completion (the gate timed out or failed to start), which routes to
 `analysis` like 3.
 

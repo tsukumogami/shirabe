@@ -29,7 +29,11 @@ Your goal is to work on a GitHub issue and deliver a high-quality, well-tested p
 
 The input `$ARGUMENTS` can be an issue reference or a milestone reference.
 
-**Issue inputs**: `71`, `#71`, or issue URL - resolve directly to the issue number.
+**Issue inputs**: `71`, `#71`, `owner/repo#71`, or issue URL - resolve directly to the issue number.
+When an `owner/repo#71` or a URL names a repository other than the one you're working
+in, the issue lives elsewhere: read it with `gh issue view <N> --repo <owner/repo>`
+and record the repository at init as `ISSUE_REPO` (see **An issue in another
+repository** under **Initialize**).
 
 **Milestone inputs**: `M3`, `M#3`, milestone URL, or `"Milestone Name"` - list open issues in the milestone and select the first unblocked one (an issue is blocked if its Dependencies section references open issues). If multiple unblocked issues exist, pick the one with lowest number. Report to the user which issue was selected and why (e.g., "Selected issue #N — lowest-numbered unblocked issue in milestone M3"). If no unblocked issues exist, report which issues are blocked and stop.
 
@@ -306,6 +310,26 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
   --var "VERIFICATION_DEFERRAL_REASON=host is in a measurement window until 02:40Z"
 ```
 
+**An issue in another repository.** When the issue reference names a repository other
+than the one you're working in (an `owner/repo#N` or a URL, as **Input Resolution**
+says), add `--var ISSUE_REPO=<owner/repo>` to the issue-backed init, with the owner and
+repository from the reference. Leave it off for an issue in this repository, which is
+every bare `#N`: an empty `ISSUE_REPO` is the run as it was before the variable
+existed. With it set, `extract-context.sh` and the review packet
+(`review-packet.sh --issue`) read the issue from that repository on their own, from the
+session, and `pr_creation`'s `closing_keyword` gate asks for `Fixes <owner/repo>#<N>`
+and refuses a bare `#<N>`, which would close this repository's issue `<N>` on merge.
+koto refuses a value that isn't `owner/repo` (`invalid_var`); report the refusal and
+stop. For example:
+
+```bash
+koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+  --var ISSUE_NUMBER=<N> \
+  --var ARTIFACT_PREFIX=issue_<N> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
+  --var ISSUE_REPO=acme/tracker
+```
+
 **Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
 `SHARED_BRANCH`, `ISSUE_TYPE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when the `/execute`
 run was given a bound) and enters with `mode: plan_backed` (see **Plan-Backed Child
@@ -346,7 +370,8 @@ below applies and the run is unchanged.
    ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
      --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
    ```
-   Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. Don't pass the
+   An issue in another repository also passes `--var ISSUE_REPO=<owner/repo>`, as
+   under **Initialize**. Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. Don't pass the
    review-level bound or the verification deferral as `--var`: the script reads
    `--review-floor=`, `--review-ceiling=`, `--verification=` and
    `--verification-reason=` from the tokens itself, and refuses
@@ -494,6 +519,13 @@ leg, since one leg answers one session.
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
+- `scripts/check-closing-keyword.sh --issue <N> --repo <owner/repo>` — run by
+  koto, never by the agent, as `pr_creation`'s `closing_keyword` gate when the
+  run has `ISSUE_REPO`: 0 when the body closes the issue with
+  `<keyword> <owner/repo>#<N>`, 1 when it doesn't, carries a bare `#<N>` for an
+  issue elsewhere, or the pull request can't be read, 2 usage. With
+  `ISSUE_REPO` empty the gate's own expression runs and this script doesn't.
+  `scripts/closing-keyword-gate_test.sh` is its harness.
 - `scripts/check-branch-output.sh`, `scripts/check-pr-output.sh`,
   `scripts/run-verification.sh` and `scripts/check-verification.sh` — the
   output gates, run by koto, never by the agent: `commit_convention` at
@@ -636,7 +668,8 @@ and an unattended run never asks the user instead. Use
 `koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an
-issue number, read the issue with `gh issue view <issue-number>`. Apply the Handling
+issue number, read the issue with `gh issue view <issue-number>` (adding
+`--repo <owner/repo>` for an issue in another repository). Apply the Handling
 Blocking Labels rules (including `needs-design` universal check) and stop if any
 blocking label is present.
 

@@ -284,6 +284,8 @@ run_gate() {
     local root="$1" extra="$2"; shift 2
     local cmd="${GATE//\{\{PLUGIN_ROOT\}\}/$root}"
     cmd="${cmd//\{\{ISSUE_NUMBER\}\}/7}"
+    # Empty unless a case sets ISSUE_REPO, as an unset variable resolves.
+    cmd="${cmd//\{\{ISSUE_REPO\}\}/${ISSUE_REPO:-}}"
     (cd "$REPO" && env PATH="$extra:$STUB_DIR:$PATH" "$@" sh -c "$cmd" >/dev/null 2>&1)
     RC=$?
 }
@@ -313,6 +315,12 @@ STUB
 chmod +x "$DECOY/check-staleness.sh"
 run_gate "$PLUGIN_ROOT_DIR" "$DECOY" STUB_ISSUE="$(issue_json 2 '' '')"
 gate_expect "a same-named script on PATH that rejects --issue doesn't change a fresh result" 0
+
+# An issue in another repository: the check would read this repository's
+# issue 7, so the gate is unavailable without running it. The stub issue is
+# stale, so a gate that ran the check would exit 1.
+ISSUE_REPO=acme/tracker run_gate "$PLUGIN_ROOT_DIR" "" STUB_ISSUE="$(issue_json 30 '' '')"
+gate_expect "gate for an issue in another repository is unavailable, never a verdict on this repository's issue" 3
 
 echo "== the state, driven through koto =="
 

@@ -168,6 +168,7 @@ build() {
             'description: Fixture driving work-on.md to its terminals on a leg.' 'initial_state: start' \
             'variables:' \
             '  ISSUE_NUMBER:' '    description: issue' '    required: false' \
+            '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  PLAN_DOC:' '    description: plan' '    required: false' \
