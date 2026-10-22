@@ -451,7 +451,9 @@ document.
 **Text tests.** `skills/execute/scripts/lead-shape-text_test.sh` and
 `skills/deliver/scripts/lead-shape-text_test.sh`, bash 3.2, `grep -F` per
 phrase, failing with the missing phrase. Wired into "Check execute scripts"
-and "Check deliver scripts".
+and "Check deliver scripts", and listed in `scripts/bash-floor/execute.list`
+and `scripts/bash-floor/deliver.list` so their macOS legs run them on the
+bash 3.2 floor.
 
 **Eval scenarios.** One `skills/execute/evals/evals.json` scenario (a
 three-step `plan/v1` plan: a step agent per step, `step_refine/` keys for
@@ -463,7 +465,9 @@ child's facts record `base_source: impl_base`).
 ### Key Interfaces
 
 - The hand-off report: line 1 `child=<session> state=<terminal state>`, line 2
-  `seats=spawned` or `seats=unavailable`, at most eight more lines.
+  `seats=spawned` or `seats=unavailable`, at most eight more lines. Only line
+  2 is acted on; a missing or malformed line 2 counts as `seats=unavailable`.
+  The child's state is always read from `koto status`, never from line 1.
 - `step_refine/<step>.md` in `execute-<topic>`: the step's full entry as
   committed. `<step>` is the substring after `.o-` in the child's session
   name, or the whole name when it has none.
@@ -504,14 +508,16 @@ Deliverables:
 - `skills/execute/koto-templates/execute.md`
 - `skills/execute/SKILL.md`
 - `skills/execute/scripts/lead-shape-text_test.sh`
-- `.github/workflows/check-execute-scripts.yml`
+- `.github/workflows/check-execute-scripts.yml`, `scripts/bash-floor/execute.list`
 - `skills/execute/evals/evals.json`
 
 ### Phase 2: a step's review level counts its own commits
 
 `facts --shared-branch`, the template call, the review-levels section, the
-`/work-on` SKILL.md paragraph, three `review-level_test.sh` cases and the
-work-on eval scenario.
+`/work-on` SKILL.md paragraph, four `review-level_test.sh` cases (the
+shared-branch floor, the unchanged off-branch case, no `impl_base` on a shared
+branch, and a `--shared-branch` value that fails `git check-ref-format`) and
+the work-on eval scenario.
 
 Deliverables:
 - `skills/work-on/scripts/review-level.sh`, `review-level_test.sh`
@@ -542,7 +548,7 @@ into CI and the deliver eval scenario.
 Deliverables:
 - `skills/deliver/koto-templates/deliver.md`, `skills/deliver/SKILL.md`
 - `skills/deliver/scripts/lead-shape-text_test.sh`
-- `.github/workflows/check-deliver-scripts.yml`
+- `.github/workflows/check-deliver-scripts.yml`, `scripts/bash-floor/deliver.list`
 - `skills/deliver/evals/evals.json`
 
 ### Phase 5: coordinated work items go to step agents
@@ -559,7 +565,58 @@ Nothing under `skills/coordinate/` changes in any phase.
 
 ## Security Considerations
 
-Pending the Phase 5 review.
+This design adds no download, no executable dependency and no network call.
+It changes directive text, adds a hand-off template, adds one
+`review-level.sh` option and deletes unread `team.yaml` files. The risks come
+from text moving between agents and from what those agents may do.
+
+**Untrusted text.** Issue bodies, PLAN entries, earlier steps' `summary.md`
+files and step-agent reports can carry instructions aimed at an agent. The
+owning session rewrites the next step's entry from them, which could turn
+injected text into a committed PLAN entry a step agent then follows. The
+hand-off template and the `spawn_and_await` directive therefore state that
+this material is data: it informs a rewrite of the step's own goal, criteria
+and check, and never adds commands, tool calls, files to read, or scope. The
+execute text test pins that sentence. Between steps the owning session checks
+that its PLAN commit touches only the entries it meant to rewrite.
+
+**Reports.** `koto status` on the child decides the step's state; the report
+never does. The owning session reads only the report's second line, against
+the fixed pattern `seats=spawned` or `seats=unavailable`, and treats a
+missing or malformed line as `seats=unavailable`, which stops the run with
+the forced-stop summary. The other lines are status text for display.
+
+**Substitution values.** The owning session fills `{{CHILD}}`, `{{CHECKOUT}}`,
+`{{SHARED_BRANCH}}` and `{{PLUGIN_ROOT}}` from values it computed (koto's child
+name, its own checkout, the settled branch, the resolved plugin path), never
+from PLAN or issue text. `review-level.sh facts` takes `--shared-branch` as one
+quoted argument and refuses a value that fails `git check-ref-format --branch`
+or starts with `-`; a test covers a hostile value. The `<step>` part of a
+`step_refine/<step>.md` key comes only from koto's child session name, whose
+characters koto already limits, and the directive says so.
+
+**Permissions.** A step agent and a scope agent have the session's own tools;
+nothing here widens them, and the design moves work the session already did
+inline into subagents with the same authority. Spawn depth is 2: the owning
+session starts a step or scope agent, which starts reviewers, jurors or
+researchers, and those spawn nothing. That cap is stated in the nesting rule
+and in the hand-off; it is prompt text, not a harness limit. Every hand-off
+carries the ban on reading settings or credential files, which is also
+advisory: the harness's permission model is the enforcement. Step agents run
+one at a time in the shared checkout, so no two write at once. Remote writes
+and run-record writes on the coordinated path stay in the owning session.
+
+**Data exposure.** shirabe and many adopting repositories are public. A
+rewritten PLAN entry copies detail from issue bodies and summaries into
+committed text, so the directive tells the owning session to copy no private
+repository names, URLs or issue content into an entry or a `step_refine` key
+in a public repository; `pr_finalization`'s existing `docs/` visibility check
+still runs on the branch before the PR is ready. Reports carry status only,
+not file contents, environment values or command output. A `step_refine` key
+repeats committed text and lives in the local koto store.
+
+**Dependencies.** No package, action or binary is added. koto and niwa are
+used as installed.
 
 ## Consequences
 
