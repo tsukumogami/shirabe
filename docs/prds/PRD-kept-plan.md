@@ -15,7 +15,8 @@ goals: |
   its proof. Each of those PRs names the plan. Nothing in shirabe deletes the
   plan, every reference states the same lifecycle, and a design that names
   its plan validates.
-upstream: docs/briefs/BRIEF-kept-plan.md
+absorbed:
+  - docs/briefs/BRIEF-kept-plan.md
 ---
 
 # PRD: Kept plan
@@ -27,6 +28,22 @@ Accepted
 Accepted under `/scope`'s non-interactive mode on a three-seat jury that passed
 on its third round; the first two rounds failed on undefined formats, timing
 and coverage, which the requirements now settle.
+
+Absorbed [BRIEF-kept-plan](docs/briefs/BRIEF-kept-plan.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so the plan a feature's work followed is still there, and
+still reachable, after that work merges. The brief framed who loses when it
+isn't: a reviewer judging finished work against what was agreed, a maintainer
+starting from one merged pull request, a session picking up related work, and a
+design author who can't point a design at its plan without failing
+validation. It also framed shirabe's own disagreement about the plan's
+lifecycle, and left one question downstream: shirabe's classification of the
+plan as a working document changes here, while the same classification held
+outside the repository is its owner's call, which nothing here waits on. This
+document's Problem Statement, User Stories and Decisions and Trade-offs carry
+each of these in full.
 
 ## Problem Statement
 
