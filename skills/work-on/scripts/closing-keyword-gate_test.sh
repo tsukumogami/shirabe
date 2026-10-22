@@ -314,6 +314,14 @@ expect "cross-repo: the right text pointing at another issue fails" 1 42 "Fixes 
 expect "cross-repo: the right text pointing at a page that isn't an issue fails" 1 42 "Fixes [acme/tracker#42](https://example.com/notes)"
 expect "cross-repo: the right text pointing elsewhere passes beside the plain reference" 0 42 "Fixes acme/tracker#42
 See [acme/tracker#42](https://example.com/notes)"
+# The keyword moved inside the link's text is the same link.
+expect "cross-repo: the right reference inside a link's text pointing elsewhere fails" 1 42 "[Fixes acme/tracker#42](https://example.com/notes)"
+expect "cross-repo: the right reference in parentheses passes" 0 42 "(Fixes acme/tracker#42)"
+# A URL right after a parenthesis reads as a link's target.
+expect "cross-repo: this repo's issue URL right after a parenthesis fails" 1 42 "Fixes acme/tracker#42
+Compare the app's own bug (https://github.com/acme/app/issues/42)."
+expect "cross-repo: this repo's issue URL later in a parenthesis passes" 0 42 "Fixes acme/tracker#42
+Compare the app's own bug (see https://github.com/acme/app/issues/42)."
 # A link to this repository's issue N fails with or without a keyword: which
 # keyword governs a link would take a markdown parser to tell. Plain text
 # naming it, without a keyword, still passes.
@@ -442,6 +450,22 @@ expect "cross-repo: a link without a keyword to this repo's old name fails" 1 42
 See [the history](https://github.com/acme/old-app/issues/42)"
 expect "cross-repo: a link without a keyword to a third repository passes" 0 42 "Fixes acme/tracker#42
 See [the docs gap](https://github.com/acme/docs/issues/42)"
+# An old name right after another reference: the match that ends at N
+# mustn't eat the next one's first character.
+expect "cross-repo: an old-name autolink right after the right reference fails" 1 42 "Fixes acme/tracker#42<https://github.com/acme/old-app/issues/42>"
+expect "cross-repo: an old-name target right after the right reference fails" 1 42 "Fixes acme/tracker#42(https://github.com/acme/old-app/issues/42)"
+expect "cross-repo: an old-name reference run into another fails" 1 42 "Fixes acme/tracker#42
+Fixes x/y#42Fixes acme/old-app#42"
+# The name is the URL's two path segments, whatever the case of /issues/.
+expect "cross-repo: an old-name URL with /ISSUES/ fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/old-app/ISSUES/42"
+export GH_RENAMED="acme/old-app=acme/app acme/issues=acme/app"
+expect "cross-repo: an old name that is itself 'issues' fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/issues/issues/42"
+export GH_RENAMED="acme/old-app=acme/app jdoe_acme/app=acme/app"
+expect "cross-repo: an old name under an owner with an underscore fails" 1 42 "Fixes acme/tracker#42
+Fixes jdoe_acme/app#42"
+export GH_RENAMED="acme/old-app=acme/app"
 expect "cross-repo: this repo's old name without a keyword passes" 0 42 "Fixes acme/tracker#42
 See acme/old-app#42"
 expect "cross-repo: this repo's old name with another issue passes" 0 42 "Fixes acme/tracker#42

@@ -17,6 +17,8 @@
 #   - `<keyword> <ISSUE_REPO>#N` passes, and for an issue elsewhere so does
 #     a markdown link with that text pointing at that issue,
 #     `<keyword> [<ISSUE_REPO>#N](https://<host>/<ISSUE_REPO>/issues/N)`;
+#     the plain reference inside a link's text, `[Fixes <ISSUE_REPO>#N](...)`,
+#     doesn't count there;
 #   - when ISSUE_REPO is the pull request's own repository (read from the URL
 #     `gh pr view` reports), a bare `<keyword> #N` passes too;
 #   - when the issue is elsewhere, any closing reference to issue N of the
@@ -32,7 +34,8 @@
 #     (`<https://...>`). Which keyword governs a link, if any, would take a
 #     markdown parser to tell, and a body that links to this repository's
 #     issue with the very number of the issue it fixes elsewhere is rare and
-#     cheap to reword. A plain URL in prose, with no keyword, still passes.
+#     cheap to reword. A plain URL in prose, with no keyword, still passes,
+#     unless it stands right after a `(`, which reads as a link's target.
 #     So a pull request can't close issue N in both repositories at once;
 #     close the local one by hand;
 #   - so does `<owner>/<name>#N`, or its issue URL, in either of those
@@ -216,6 +219,10 @@ HOST_RE=$(literal "$PR_HOST")
 # known, and with both naming ISSUE_REPO#N either reading closes it. The
 # same-repository case keeps QUALIFIED as it was.
 QUALIFIED_LINK="(^|[^[:alnum:]_])${KW}${SEP_PASS}\\[$(literal "$REPO")#${ISSUE}\\]\\(https?://(www\\.)?${HOST_RE}/$(literal "$REPO")/issues/${ISSUE}\\)"
+# And for an issue elsewhere the plain reference passes only outside a
+# link's text: `[Fixes <ISSUE_REPO>#N](<elsewhere>)` is the same link as
+# above with the keyword moved inside it.
+QUALIFIED_PLAIN="(^|[^[:alnum:]_[])${KW}${SEP_PASS}$(literal "$REPO")#${ISSUE}([^]0-9]|\$)"
 # Issue N's URL in the repository whose name expression is $1, up to N.
 issue_url() { printf '%s' "https?://(www\\.)?${HOST_RE}/${1}/issues/"; }
 # In front of a reference that fails, after SEP_FAIL: any run of `[`, `<`
@@ -234,9 +241,9 @@ PR_REPO_RE=$(literal "$PR_REPO")
 OWN="${KW}${SEP_FAIL}${OPEN}(#|gh-|${PR_REPO_RE}#|$(issue_url "$PR_REPO_RE"))0*${ISSUE}${END}"
 # Any link to that issue, keyword or not (see the header).
 OWN_LINK="(${DEST})$(issue_url "$PR_REPO_RE")0*${ISSUE}${END}"
-# An owner is letters, digits and `-`, starting with a letter or digit; a
-# repository may also hold `.` and `_`.
-NAME_RE='[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+'
+# An owner is letters, digits, `-` and `_` (an enterprise's managed users),
+# starting with a letter or digit; a repository may also hold `.`.
+NAME_RE='[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9_.-]+'
 
 # The body with its lines joined, made once.
 JOINED=$(printf '%s' "$BODY" | tr '\n' ' ')
@@ -261,11 +268,11 @@ if has_joined "$OWN"; then
     refuse "a closing reference to #$ISSUE, GH-$ISSUE, $PR_REPO#$ISSUE or its issue URL (a markdown link's text included) closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
 fi
 if has_joined "$OWN_LINK"; then
-    refuse "a markdown link to $PR_REPO's issue $ISSUE fails in this pull request, with a keyword in front of it or not, since a keyword anywhere around it could close $PR_REPO#$ISSUE: name it in plain text instead (if $PR_REPO#$ISSUE should close too, close it by hand)"
+    refuse "a markdown link to $PR_REPO's issue $ISSUE (its URL as a link's target, a reference definition's, in <...>, or right after a parenthesis) fails in this pull request, with a keyword in front of it or not, since a keyword anywhere around it could close $PR_REPO#$ISSUE: name it in plain text instead (if $PR_REPO#$ISSUE should close too, close it by hand)"
 fi
 # Without the right reference the answer is no whatever the lookups below
 # would say, so it is given before any of them.
-has "$QUALIFIED" || has "$QUALIFIED_LINK" \
+has "$QUALIFIED_PLAIN" || has "$QUALIFIED_LINK" \
     || refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"
 
 # Every other repository the body closes issue N in or links to issue N of,
@@ -273,11 +280,19 @@ has "$QUALIFIED" || has "$QUALIFIED_LINK" \
 # finds each such reference in the shapes above; the names inside it are then
 # cut out, all in one pipeline whatever the body's length, so only what
 # follows a keyword or is a link's destination costs anything.
+#
+# grep -o's matches don't overlap, and END takes the character after N, which
+# can be where the next reference starts (`#42<https://...`). So the pass
+# reads the joined body with a space put after every N first, for END to take
+# instead. The name is the two path segments after the host, whatever the
+# case of `/issues/` or the repository's name.
 NAMED="${KW}${SEP_FAIL}${OPEN}(${NAME_RE}#|$(issue_url "$NAME_RE"))0*${ISSUE}${END}|(${DEST})$(issue_url "$NAME_RE")0*${ISSUE}${END}"
 NAME_REF="$(issue_url "$NAME_RE")0*${ISSUE}${END}|${NAME_RE}#0*${ISSUE}${END}"
 other_names() {
-    grep -oiE "$NAMED" <<<"$JOINED" | grep -oiE "$NAME_REF" \
-        | sed -E -e 's|^[A-Za-z]+://[^/]+/||' -e 's|/issues/.*$||' -e 's/#.*$//' | sort -fu
+    local spaced
+    spaced=$(sed -E "s/(#|\\/[Ii][Ss][Ss][Uu][Ee][Ss]\\/)(0*${ISSUE})([^0-9])/\\1\\2 \\3/g" <<<"$JOINED ")
+    grep -oiE "$NAMED" <<<"$spaced" | grep -oiE "$NAME_REF" \
+        | sed -E -e 's|^[A-Za-z]+://[^/]+/([^/]+/[^/]+)/.*$|\1|' -e 's/#.*$//' | sort -fu
 }
 
 # One lookup, given the seconds it may take: gh runs in the background and is
