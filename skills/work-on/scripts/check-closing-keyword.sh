@@ -42,12 +42,31 @@
 # GitHub keeps no list of a repository's old names, but it redirects an old
 # name to the repository, and `gh api repos/<owner>/<name>` follows that
 # redirect. So every other `<owner>/<name>` the body closes issue N in is
-# looked up, and one that resolves to the pull request's repository fails. A
-# 404 doesn't count: the token reads this repository, so a name it can't see
-# isn't one of its old names. Any other failure to look one up fails the
-# gate. The limit is GitHub's own: an old name that another repository has
-# since taken resolves to that repository, here and when GitHub reads the
-# body alike.
+# looked up, and one that resolves to the pull request's repository fails.
+# The limit is GitHub's own: an old name that another repository has since
+# taken resolves to that repository, here and when GitHub reads the body
+# alike.
+#
+# The lookup reads the network, so what it does when that goes wrong is
+# chosen case by case:
+#
+#   - a 404, which is also what GitHub answers for a private repository the
+#     token can't read, doesn't count: the token just read this pull request,
+#     so it can read this repository, and an old name of this repository
+#     redirects for it. A name it can't see isn't one of its old names;
+#   - any other failure (a rate limit, a network error, a 5xx) and a lookup
+#     still running when the lookups' time is up decide nothing, so the gate
+#     neither passes nor refuses: exit 3, which no pr_creation edge routes,
+#     so the state holds and the next tick looks again, rather than a
+#     passing gate that never checked or a run stopped at done_blocked by a
+#     blip. Fail-closed: the pull request can't move on;
+#   - the lookups get LOOKUP_SECS seconds in all (20, which with the
+#     pull request read stays inside koto's 30-second gate default), polled
+#     so no stray timer outlives the script;
+#   - at most MAX_LOOKUPS repositories (5) are looked up. A body that closes
+#     issue N in more fails the gate, so its size can't turn into calls.
+#
+# The tests set CHECK_CLOSING_KEYWORD_LOOKUP_SECS to shorten the time.
 #
 # The keywords are the gate's own: close, closes, closed, fix, fixes, fixed,
 # resolve, resolves, resolved, in any case. GitHub's documentation also lets
@@ -74,17 +93,21 @@
 # Exit codes, which the gate routes on:
 #   0  the body closes the issue
 #   1  it doesn't, it also closes issue N of the pull request's own
-#      repository (for an issue elsewhere), or the pull request, its
-#      repository or another repository the body names couldn't be read.
-#      Fail-closed, like the inline
-#      expression: pr_creation routes 1 to done_blocked. The reason goes to
-#      stderr.
+#      repository (for an issue elsewhere, under an old name too), it closes
+#      issue N in more than MAX_LOOKUPS other repositories, or the pull
+#      request or its repository couldn't be read. Fail-closed, like the
+#      inline expression: pr_creation routes 1 to done_blocked. The reason
+#      goes to stderr.
 #   2  usage: a missing, unknown or malformed argument; no edge routes it,
 #      so pr_creation holds
+#   3  a repository lookup failed other than with a 404, or ran out of time;
+#      no edge routes it either, so pr_creation holds. The reason goes to
+#      stderr.
 #
 # Needs gh, authenticated, run from the repository the pull request is in.
 # One gh call, plus one per other repository the body closes issue N in
-# (usually none). Bash 3.2: no associative arrays, no mapfile.
+# (usually none, at most MAX_LOOKUPS). Bash 3.2: no associative arrays, no
+# mapfile.
 set -u
 
 usage() {
@@ -96,6 +119,17 @@ refuse() {
     echo "check-closing-keyword: $1" >&2
     exit 1
 }
+
+undecided() {
+    echo "check-closing-keyword: $1" >&2
+    exit 3
+}
+
+MAX_LOOKUPS=5
+LOOKUP_SECS=${CHECK_CLOSING_KEYWORD_LOOKUP_SECS:-20}
+case "$LOOKUP_SECS" in
+    ''|*[!0-9]*|0) usage ;;
+esac
 
 ISSUE=""
 REPO=""
@@ -208,9 +242,38 @@ other_names() {
     } | sort -fu
 }
 
+# One lookup, given the seconds it may take: gh runs in the background and is
+# polled, so nothing is left running when this returns. Prints gh's output
+# and returns gh's status, or 124 when the time ran out.
+lookup() {
+    local out pid st end
+    end=$((SECONDS + $2))
+    out=$(mktemp) || return 125
+    # </dev/null: the caller's loop reads the list of names on stdin.
+    gh api --hostname "$PR_HOST" "repos/$1" --jq .full_name >"$out" 2>&1 </dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$SECONDS" -ge "$end" ]; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            rm -f "$out"
+            return 124
+        fi
+        sleep 0.1
+    done
+    wait "$pid"
+    st=$?
+    cat "$out"
+    rm -f "$out"
+    return "$st"
+}
+
 # An old name of this repository still closes its issue N (see the header),
 # so each name the body closes issue N in is looked up, unless it is
-# ISSUE_REPO or this repository by its current name.
+# ISSUE_REPO or this repository by its current name. The names are collected
+# and counted first, so a body over the limit makes no call at all.
+LOOKUP_NAMES=""
+LOOKUPS=0
 while read -r NAME; do
     [ -n "$NAME" ] || continue
     case "$(lower "$NAME")" in
@@ -219,15 +282,32 @@ while read -r NAME; do
     # Not a repository GitHub could have, and `repos/../x` is another path.
     case "/$NAME/" in */./*|*/../*) continue ;; esac
     has_joined "$(closes_in "$NAME")" || continue
-    # </dev/null: the loop's own input is the list of names.
-    FULL=$(gh api --hostname "$PR_HOST" "repos/$NAME" --jq .full_name 2>&1 </dev/null) || {
-        case "$FULL" in *"(HTTP 404)"*) continue ;; esac
-        refuse "could not check whether $NAME is an old name of $PR_REPO, which would make $NAME#$ISSUE close $PR_REPO#$ISSUE: $FULL"
-    }
+    LOOKUP_NAMES="$LOOKUP_NAMES$NAME$NL"
+    LOOKUPS=$((LOOKUPS + 1))
+    # Stop at the first name past the limit, so a long body costs no more.
+    [ "$LOOKUPS" -le "$MAX_LOOKUPS" ] \
+        || refuse "the body closes issue $ISSUE in more than $MAX_LOOKUPS repositories besides $REPO, the most this gate looks up to rule out an old name of $PR_REPO: keep Fixes $REPO#$ISSUE and drop the others"
+done <<<"$(other_names)"
+
+DEADLINE=$((SECONDS + LOOKUP_SECS))
+while read -r NAME; do
+    [ -n "$NAME" ] || continue
+    LEFT=$((DEADLINE - SECONDS))
+    [ "$LEFT" -gt 0 ] \
+        || undecided "ran out of the ${LOOKUP_SECS}s for looking up repositories before $NAME: tick again"
+    FULL=$(lookup "$NAME" "$LEFT")
+    case $? in
+        0) ;;
+        124) undecided "looking up $NAME, to rule out an old name of $PR_REPO, took longer than the ${LOOKUP_SECS}s it had: tick again" ;;
+        *)
+            case "$FULL" in *"(HTTP 404)"*) continue ;; esac
+            undecided "could not check whether $NAME is an old name of $PR_REPO, which would make $NAME#$ISSUE close $PR_REPO#$ISSUE: $FULL (tick again once GitHub answers)"
+            ;;
+    esac
     if [ "$(lower "$FULL")" = "$(lower "$PR_REPO")" ]; then
         refuse "$NAME is an old name of $PR_REPO, so a closing reference to $NAME#$ISSUE closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
     fi
-done <<<"$(other_names)"
+done <<<"$LOOKUP_NAMES"
 
 has "$QUALIFIED_LINK" && exit 0
 refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"

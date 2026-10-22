@@ -542,7 +542,9 @@ leg, since one leg answers one session.
   `<keyword> <owner/repo>#<N>`, 1 when it doesn't, also closes issue `<N>` of the
   pull request's own repository (`#<N>`, `GH-<N>`, `owner/repo#<N>` or its URL,
   as a markdown link too, or under an old name of the repository) for an issue
-  elsewhere, or the pull request can't be read, 2 usage. With
+  elsewhere, or the pull request can't be read, 2 usage, 3 a lookup of another
+  repository the body closes the issue in failed or ran out of time, which
+  holds the state like 2. With
   `ISSUE_REPO` empty the gate's own expression runs and this script doesn't.
   `scripts/closing-keyword-gate_test.sh` is its harness.
 - `scripts/check-branch-output.sh`, `scripts/check-pr-output.sh`,

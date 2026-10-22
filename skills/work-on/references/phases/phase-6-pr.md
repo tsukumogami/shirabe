@@ -61,7 +61,10 @@ reference. So does any of them as a markdown link (a link whose text is a
 bare `#<N>` fails wherever it points), and a name this repository had before
 a rename, which GitHub still resolves. A qualified reference to any other
 repository doesn't count, and `[<owner/repo>#<N>](<its issue URL>)` passes
-like the plain reference. A colon
+like the plain reference. The gate looks up each such other repository on
+GitHub to rule out an old name; when a lookup fails (a rate limit, the
+network) or runs out of time, the gate exits 3 and the state holds, so
+submit `pr_status: created` again once GitHub answers. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
 

@@ -62,8 +62,10 @@ fi
 # a repository (`gh api --hostname <host> repos/<owner>/<name> --jq
 # .full_name`), it prints the name it was asked for, the new name when
 # $GH_RENAMED lists the name as `old=new` (GitHub's rename redirect, which gh
-# follows), gh's 404 when $GH_MISSING lists it, and another error when
-# $GH_API_FAIL is 1.
+# follows), and gh's 404 when $GH_MISSING lists it. $GH_API_FAIL makes every
+# lookup fail the way gh does: `rate` (403, rate limit), `limit` (429),
+# `net` (no connection) or `5xx` (502). $GH_API_SLEEP makes it wait that many
+# seconds before it answers.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -75,10 +77,13 @@ if [[ "${1:-}" == "api" ]]; then
     name=""
     for a in "$@"; do [[ "$a" == repos/* ]] && name=${a#repos/}; done
     lname=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
-    if [[ "${GH_API_FAIL:-0}" == "1" ]]; then
-        echo "gh: Bad Gateway (HTTP 502)" >&2
-        exit 1
-    fi
+    [[ -z "${GH_API_SLEEP:-}" ]] || sleep "$GH_API_SLEEP"
+    case "${GH_API_FAIL:-}" in
+        rate) echo '{"message":"API rate limit exceeded for user ID 1.","status":"403"}gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1 ;;
+        limit) echo 'gh: You have exceeded a secondary rate limit. (HTTP 429)' >&2; exit 1 ;;
+        net) echo 'error connecting to api.github.com' >&2; exit 1 ;;
+        5xx) echo 'gh: Bad Gateway (HTTP 502)' >&2; exit 1 ;;
+    esac
     for m in ${GH_MISSING:-}; do
         if [[ "$m" == "$lname" ]]; then
             echo '{"message":"Not Found","status":"404"}gh: Not Found (HTTP 404)' >&2
@@ -113,7 +118,7 @@ run_gate() {
     cmd="${cmd//\{\{ISSUE_REPO\}\}/${ISSUE_REPO:-}}"
     cmd="${cmd//\{\{PLUGIN_ROOT\}\}/$PLUGIN_DIR}"
     PATH="$STUB_DIR:$PATH" PR_BODY="$body" PR_URL="${PR_URL:-}" GH_FAIL="${3:-0}" \
-        GH_RENAMED="${GH_RENAMED:-}" GH_MISSING="${GH_MISSING:-}" GH_API_FAIL="${GH_API_FAIL:-0}" \
+        GH_RENAMED="${GH_RENAMED:-}" GH_MISSING="${GH_MISSING:-}" GH_API_FAIL="${GH_API_FAIL:-}" \
         sh -c "$cmd" >/dev/null 2>&1
 }
 
@@ -325,12 +330,45 @@ expect "cross-repo: a repository that doesn't exist doesn't count" 0 42 "Fixes a
 Fixes acme/gone#42"
 expect "cross-repo: a third repository's issue passes" 0 42 "Fixes acme/tracker#42
 Fixes acme/other#42"
-export GH_API_FAIL=1
-expect "cross-repo: a lookup that fails fails closed" 1 42 "Fixes acme/tracker#42
+# A private repository the token can't read answers 404 as well, and doesn't
+# count either: the token reads this repository, so it isn't an old name.
+export GH_MISSING="acme/gone acme/private-thing"
+expect "cross-repo: a private repository the token can't read doesn't count" 0 42 "Fixes acme/tracker#42
+Fixes acme/private-thing#42"
+
+# Any other failure decides nothing: exit 3, which no pr_creation edge
+# routes, so the state holds. Not a pass, and not done_blocked for a blip.
+for kind in rate limit net 5xx; do
+    GH_API_FAIL=$kind expect "cross-repo: a lookup failing with $kind holds the gate" 3 42 "Fixes acme/tracker#42
 Fixes acme/other#42"
-expect "cross-repo: no lookup is needed for the right reference alone" 0 42 "Fixes acme/tracker#42
+done
+GH_API_FAIL=rate expect "cross-repo: a failed lookup of an old name holds rather than passing" 3 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+GH_API_FAIL=rate expect "cross-repo: no lookup is needed for the right reference alone" 0 42 "Fixes acme/tracker#42
 See acme/other#42"
-unset GH_RENAMED GH_MISSING GH_API_FAIL
+GH_API_FAIL=rate expect "cross-repo: this repo's own reference still fails before any lookup" 1 42 "Fixes acme/tracker#42
+Fixes acme/other#42
+Fixes #42"
+
+# A slow answer is cut off at the lookups' time, and the gate holds well
+# inside koto's 30-second gate default instead of being killed by it.
+START=$SECONDS
+GH_API_SLEEP=5 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=1 \
+    expect "cross-repo: a lookup slower than its time holds the gate" 3 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+if (( SECONDS - START <= 3 )); then
+    pass "cross-repo: the slow lookup was cut off after about its time ($((SECONDS - START))s)"
+else
+    fail "cross-repo: the slow lookup ran $((SECONDS - START))s against a 1s limit"
+fi
+GH_API_SLEEP=1 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=5 \
+    expect "cross-repo: a slow lookup inside its time still answers" 1 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+for bad in 0 x 1s; do
+    CHECK_CLOSING_KEYWORD_LOOKUP_SECS=$bad \
+        expect "a lookup time of [$bad] is a usage error" 2 42 "Fixes acme/tracker#42"
+done
+unset GH_RENAMED GH_MISSING
 
 # The lookup runs only for another repository the body closes issue N in, on
 # the pull request's host.
@@ -350,6 +388,50 @@ if [[ "$(grep -c '^api' "$GH_LOG")" == 1 ]] && grep -qx 'api --hostname github.c
     pass "cross-repo: another repository is looked up once, on the PR's host"
 else
     fail "cross-repo: unexpected lookups: $(cat "$GH_LOG")"
+fi
+
+# The body's size can't turn into calls: a name is looked up once however
+# often it appears, in whatever case or form, and a body that closes issue N
+# in more than five other repositories fails with no lookup at all.
+: > "$GH_LOG"
+run_gate 42 "Fixes acme/tracker#42
+Fixes acme/other#42, fixes ACME/Other#42, closes https://github.com/acme/other/issues/42
+Fixes [acme/other#42](https://github.com/acme/other/issues/42)"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 1 ]]; then
+    pass "cross-repo: one repository named many ways is looked up once"
+else
+    fail "cross-repo: one repository made $(grep -c '^api' "$GH_LOG") lookups"
+fi
+FIVE="Fixes acme/tracker#42"
+for i in 1 2 3 4 5; do FIVE="$FIVE
+Fixes acme/r$i#42"; done
+SIX="$FIVE
+Fixes acme/r6#42"
+expect "cross-repo: five other repositories are looked up and pass" 0 42 "$FIVE"
+: > "$GH_LOG"
+expect "cross-repo: six other repositories fail" 1 42 "$SIX"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "cross-repo: six other repositories fail before any lookup"
+else
+    fail "cross-repo: six other repositories made lookups: $(cat "$GH_LOG")"
+fi
+MANY="Fixes acme/tracker#42"
+for i in $(seq 1 200); do MANY="$MANY
+Fixes acme/r$i#42 and see acme/s$i#42"; done
+: > "$GH_LOG"
+expect "cross-repo: a body naming 200 other repositories fails" 1 42 "$MANY"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "cross-repo: a body naming 200 other repositories makes no lookup"
+else
+    fail "cross-repo: a body naming 200 other repositories made $(grep -c '^api' "$GH_LOG") lookups"
+fi
+: > "$GH_LOG"
+expect "cross-repo: mentions without a keyword don't count toward the limit" 0 42 "$FIVE
+See acme/s1#42, acme/s2#42, acme/s3#42 and https://github.com/acme/s4/issues/42"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 5 ]]; then
+    pass "cross-repo: only the five closing references were looked up"
+else
+    fail "cross-repo: expected 5 lookups, got $(grep -c '^api' "$GH_LOG")"
 fi
 unset GH_LOG
 

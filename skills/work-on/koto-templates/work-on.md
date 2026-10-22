@@ -2084,7 +2084,8 @@ states:
       # the repository's old name, would close this repository's issue N, so
       # check-closing-keyword.sh decides that case: it exits 0 closed, 1 not
       # closed, closing the wrong issue too, or unreadable (done_blocked, like
-      # the expression here), 2 usage (holds). With ISSUE_REPO empty the
+      # the expression here), 2 usage (holds), 3 a repository lookup it needed
+      # failed or ran out of time (holds; tick again). With ISSUE_REPO empty the
       # expression runs and the script is never started.
       closing_keyword:
         type: command
