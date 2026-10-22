@@ -27,6 +27,12 @@
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
+# Before the body is rendered, the next state's JSON passes state-schema.jq's
+# check_record (core_validate): every column's grammar, the worker and pull
+# request link shapes, the Holds, stored set and Decisions rules, and the
+# private-repository, home-path and token checks, each refused with the
+# module's `refused: ` message (exit 65), on either store and before any key
+# or body is written. The renderer runs the same functions.
 #
 # On the session store (docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 4) every check above runs the same way, against the live record the
@@ -366,6 +372,26 @@ core_carry() {
     rm -rf "$d"
 }
 
+# core_validate <state-file>: the next state's JSON checked by state-schema.jq's
+# check_record, with the repositories the host can't show public ($PRIVATE),
+# before anything is rendered or written on either store. A state that breaks a
+# rule is refused with the module's `refused: ` message (exit 65); the renderer
+# runs the same functions, so a state that passes here renders. A tree that
+# holds record-codec.jq without the module (some suites copy the codec alone)
+# runs the codec's verbatim copy of it instead.
+core_validate() {
+    local mod=state-schema
+    [ -f "$HERE/state-schema.jq" ] || mod=record-codec
+    if jq -n -L "$HERE" --slurpfile s "$1" --arg private "$PRIVATE" "include \"$mod\";"'
+            $s[0] | check_record($private | split(",") | map(select(. != ""))) | empty' 2> "$T/schema.err" < /dev/null; then
+        return 0
+    fi
+    grep -q 'refused: ' "$T/schema.err" || lib_die2 "$mod.jq failed: $(lib_scrub < "$T/schema.err")"
+    echo "$PROG: refused: $(sed -n 's/.*refused: //p' "$T/schema.err" | head -1 | lib_scrub)" >&2
+    [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
+    exit 65
+}
+
 core_write() {
     if [ -z "$REF" ]; then
         FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
@@ -467,6 +493,7 @@ core_write() {
     if lib_dispatched && lib_drop_disposed "$T/parsed.json" "$T/dropped.json"; then
         mv "$T/dropped.json" "$T/next.json"
     fi
+    core_validate "$T/next.json"
     jq 'del(.written)' "$T/next.json" | bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(lib_now)" --private-repos "$PRIVATE" \
         > "$T/body.md" 2> "$T/render.err" || {
         echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2
