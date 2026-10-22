@@ -92,8 +92,12 @@ SHIM_STORE="$WORKDIR/shim-store"
 mkdir -p "$SHIM_BIN" "$SHIM_STORE"
 cat > "$SHIM_BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
-# `koto session dir <s>` names a directory a case may hold a fixture log in.
-if [ "$1" = session ] && [ "$2" = dir ]; then echo "$SHIM_STORE/$3/sessiondir"; exit 0; fi
+# `koto session dir <s>` names a directory a case may hold a fixture log in; a
+# session named `sdfail-*` makes it fail, as a session-store error would.
+if [ "$1" = session ] && [ "$2" = dir ]; then
+    case "$3" in sdfail-*) echo "koto shim: the session store is unavailable" >&2; exit 3 ;; esac
+    echo "$SHIM_STORE/$3/sessiondir"; exit 0
+fi
 # review-level.sh report asks for a session's overrides; none here.
 if [ "$1" = overrides ] && [ "$2" = list ]; then echo '{}'; exit 0; fi
 [ "$1" = context ] || { echo "koto shim: unsupported: $*" >&2; exit 2; }
@@ -1454,6 +1458,35 @@ dc 5 rs-007 pass
 record scrutiny "[$(dent 5 rs-007 pass)]"
 led -e --arg id "$D1" '.findings[$id].records[-1] | .kind == "reverified" and .writer.kind == "decider"' >/dev/null \
     && pass "a decider pass closes its own finding" || fail "rs-007 last $(led -c --arg id "$D1" '.findings[$id].records[-1]')"
+
+echo "--- script: a failed koto session dir is not a missing log"
+
+# A session with no log yet imports no decider verdict and records the round;
+# a `koto session dir` that fails is not read as a missing log: --record exits
+# 66 with koto's error and writes nothing, so the round can't pass on a log it
+# never read.
+fixture nolog-record
+run --plan scrutiny "$SESSION"
+printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with no session log yet" 0
+fixture sdfail-record
+run --plan scrutiny "$SESSION"
+expect_rc "--plan for a session whose koto session dir fails" 0
+snap
+printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record when koto session dir fails" 66
+grep -qF 'koto session dir failed' "$WORKDIR/stderr" \
+    && grep -qF 'koto shim: the session store is unavailable' "$WORKDIR/stderr" \
+    && pass "--record names the failed koto session dir and passes koto's error on" \
+    || fail "--record's stderr: $(cat "$WORKDIR/stderr")"
+unchanged "--record when koto session dir fails"
+printf '%s\n' '[{"decider":{"state":"scrutiny","visit_seq":1,"gate":"scrutiny_decider","rule_id":"rs-007","declaration_hash":"abcd1234","outcome":"escape"}}]' \
+    > "$WORKDIR/round.json"
+NO_AUTORUN=1 run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record of a named decider entry when koto session dir fails" 66
+unchanged "--record of a named decider entry when koto session dir fails"
 
 echo "--- script: a decider batch's verdicts, imported from koto's log by mode"
 

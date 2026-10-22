@@ -502,7 +502,8 @@ cmd_log_finding() {
 # stage_level <stage>: the finding level a stage prints at, nothing for
 # retired, and error for anything else. The same mapping as
 # scripts/lib/rule-findings.sh's rf_level, repeated because this reader never
-# sources the library; change both together.
+# sources the library; scripts/rule-registry_test.sh fails when it, rf_level
+# and the test library's rf_test_level differ.
 stage_level() {
     case "$1" in
         warn) printf 'warning' ;;

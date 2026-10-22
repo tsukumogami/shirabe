@@ -253,6 +253,13 @@ class CheckTest(unittest.TestCase):
         self.t.save()
         self.assertProblem("jev.measured.population 'my-laptop'")
 
+    def test_bad_empty_count(self):
+        for bad in (-1, "3", True):
+            with self.subTest(value=bad):
+                self.jev("rs-007")["measured"]["empty"] = bad
+                self.t.save()
+                self.assertProblem("rs-007: jev.measured.empty is not a non-negative integer")
+
     def test_local_path_in_command(self):
         # Split so the public-content check doesn't read this line as a leak.
         self.jev("rs-007")["measured"]["command"] = "measure records --dir /" + "Users/me/store"
@@ -586,6 +593,15 @@ class PromotionTest(unittest.TestCase):
                 self.t.save()
                 self.assertProblem("promotion.live.not_graded is not a non-negative integer")
 
+    def test_bad_counts_never_crash_the_bar(self):
+        # A bad count is reported by the shape checks; the shares read it as
+        # 0, so the bar is still computed beside that report.
+        for bad in (-1, "3", True, None):
+            with self.subTest(value=bad):
+                met, reasons = jc.live_bar({"evaluations": 30, "sessions": 5, "answered": 30, "not_graded": bad},
+                                           2560, {"runs": 150, "empty": bad})
+                self.assertEqual((met, reasons), (True, []))
+
     def test_live_bar_evaluations(self):
         self.promo()["live"]["evaluations"] = 29
         self.promo()["live"]["answered"] = 28
@@ -596,6 +612,31 @@ class PromotionTest(unittest.TestCase):
         self.promo()["live"]["answered"] = 28
         self.t.save()
         self.assertProblem("28 of 30 evaluations answered, under 95%")
+
+    def test_not_graded_share_against_the_measured_one(self):
+        # 10 not graded beside 30 graded is 25%; the contract measured none.
+        self.promo()["live"]["not_graded"] = 10
+        self.t.save()
+        self.assertProblem("the live figures miss the bar: 25% of evaluations not graded, more than 10 points "
+                           "from the 0% of runs the contract measured with an empty slice")
+        # 50 empty beside 150 runs is the same 25%.
+        self.t.entry(RULE)["jev"]["measured"]["empty"] = 50
+        self.t.save()
+        rc, out = self.t.check()
+        self.assertEqual(rc, 0, out)
+
+    def test_live_bar_counts_above_evaluations(self):
+        # An evaluation is answered once and has one session, so neither count
+        # can pass the evaluations; a record that says so wasn't read from events.
+        for key in ("answered", "sessions"):
+            with self.subTest(key=key):
+                saved = self.promo()["live"][key]
+                self.promo()["live"][key] = 31
+                self.t.save()
+                self.assertProblem("31 %s, more than its 30 evaluations" % key)
+                self.promo()["live"][key] = saved
+                self.t.save()
+        self.assertEqual(jc.live_bar({"evaluations": 30, "sessions": 30, "answered": 30}, 2560), (True, []))
 
     def test_stale_slice_script(self):
         write(self.t.root, SLICE, "#!/bin/sh\necho changed\n")
@@ -672,6 +713,28 @@ class HistoryTest(unittest.TestCase):
         self.t.save()
         rc, out = self.t.check("HEAD")
         self.assertIn("a false pass recorded at the base was changed or removed", out)
+
+    def test_false_pass_edited_in_place(self):
+        # The list keeps its length and only one field changes: that's still
+        # a change to the record, and appending a new false pass is not.
+        fp = {"evaluated": "2026-10-25", "recorded": "2026-10-26", "oracle": "human",
+              "evidence": "https://github.com/o/r/issues/1"}
+        self.t.entry("rs-007")["jev"]["false_passes"] = [dict(fp)]
+        self.t.save()
+        git(self.t.root, "add", "-A")
+        git(self.t.root, "commit", "-q", "-m", "fp")
+        for key, value in (("evaluated", "2026-10-24"), ("oracle", "ci"),
+                           ("evidence", "https://github.com/o/r/issues/2")):
+            with self.subTest(key=key):
+                self.t.entry("rs-007")["jev"]["false_passes"] = [dict(fp, **{key: value})]
+                self.t.save()
+                rc, out = self.t.check("HEAD")
+                self.assertIn("rs-007: a false pass recorded at the base was changed or removed", out)
+        later = dict(fp, evaluated="2026-10-27", recorded="2026-10-28")
+        self.t.entry("rs-007")["jev"]["false_passes"] = [dict(fp), later]
+        self.t.save()
+        rc, out = self.t.check("HEAD")
+        self.assertNotIn("a false pass recorded at the base was changed or removed", out)
 
     def test_removed_declaration(self):
         del self.t.entry(RULE)["jev"]["declared"]
@@ -810,10 +873,15 @@ class MeasureTest(unittest.TestCase):
     def test_decision_reasons_slice(self):
         # Two roots, as a live store and its archive would be: a gzipped log,
         # a session whose log is in both (counted once, at its longer slice),
-        # a session with no decision (an empty slice, so not a graded run),
-        # and a log with no session_id (skipped and counted).
-        def log(sid, decisions):
+        # a session with no decision (an empty slice, so not a graded run, and
+        # counted as empty because it reached scrutiny), one with no decision
+        # that never reached scrutiny (neither), and a log with no session_id
+        # (skipped and counted).
+        def log(sid, decisions, reached=False):
             lines = [json.dumps({"schema_version": 1, "session_id": sid} if sid else {"schema_version": 1})]
+            if reached:
+                lines.append(json.dumps({"type": "transitioned", "payload": {"from": "implementation",
+                                                                              "to": "scrutiny"}}))
             for state, choice, reason in decisions:
                 lines.append(json.dumps({"type": "decision_recorded", "payload": {
                     "state": state, "decision": {"choice": choice, "rationale": reason,
@@ -832,7 +900,9 @@ class MeasureTest(unittest.TestCase):
             write(a, "s1/koto-s1.state.jsonl", log("id-1", one))
             write(a, "s2/koto-s2.state.jsonl", log("id-2", both[:1]))
             write(b, "s2/koto-s2.state.jsonl", log("id-2", both))
-            write(a, "s3/koto-s3.state.jsonl", log("id-3", [("verification", "x", "y")]))
+            write(a, "s3/koto-s3.state.jsonl", log("id-3", [("verification", "x", "y")], reached=True))
+            write(a, "s6/koto-s6.state.jsonl", log("id-6", []))
+            write(a, "s7/koto-s7.state.jsonl", log("id-7", one, reached=True))
             write(a, "s4/koto-s4.state.jsonl", log(None, one))
             os.makedirs(os.path.join(b, "s5"))
             with gzip.open(os.path.join(b, "s5", "koto-s5.state.jsonl.gz"), "wt", encoding="utf-8") as f:
@@ -840,8 +910,8 @@ class MeasureTest(unittest.TestCase):
             rc, got, err = self.measure_slice([a, b], "decision-reasons")
             self.assertEqual(rc, 0, err)
             sizes = sorted([size(one), size(both), size(gz)])
-            self.assertEqual((got["runs"], got["max"], got["over_budget"], got["population"]),
-                             (3, sizes[-1], 1, "koto-sessions"))
+            self.assertEqual((got["runs"], got["max"], got["over_budget"], got["population"], got["empty"]),
+                             (4, sizes[-1], 1, "koto-sessions", 1))
             self.assertGreater(size(both), 2560)
             self.assertIn("--slice decision-reasons --budget 2560", got["command"])
             self.assertIn("skipped 1 log(s) with no session_id", err)
@@ -1170,6 +1240,11 @@ class FiguresTest(unittest.TestCase):
                          for v in range(n)])
 
     def test_the_bar_counts_graded_evaluations_only(self):
+        # The contract measured 250 empty slices beside its 150 runs (62.5%),
+        # about the share of not-graded evaluations the cases below add, so
+        # the not-graded share alone decides none of them.
+        self.t.entry(RULE)["jev"]["measured"]["empty"] = 250
+        self.t.save()
         cases = [("29 graded beside 50 not graded", dict(sessions=29, per_session=1, answered_total=29), 50, 0, 1),
                  ("4 graded sessions beside 10 not-graded ones",
                   dict(sessions=4, per_session=10, answered_total=40), 0, 10, 1),
@@ -1189,6 +1264,29 @@ class FiguresTest(unittest.TestCase):
                 rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21", "--bar")
                 self.assertEqual(rc, want, out)
                 self.assertEqual(live["not_graded"], extra_evals + extra_sessions, out)
+
+    def test_the_bar_holds_a_not_graded_share_far_from_the_measured_one(self):
+        # 30 graded evaluations across 5 sessions, all answered, meet every
+        # other bar. 20 not-graded ones beside them are 40%.
+        cases = [("no empty slice measured", None, 1), ("25% measured", 50, 1),
+                 ("about 39% measured", 96, 0), ("about 48% measured", 140, 0), ("60% measured", 225, 1)]
+        for name, empty, want in cases:
+            with self.subTest(name):
+                shutil.rmtree(self.dir)
+                os.makedirs(self.dir)
+                m = self.t.entry(RULE)["jev"]["measured"]
+                m.pop("empty", None)
+                if empty is not None:
+                    m["empty"] = empty
+                self.t.save()
+                self.bar_log(sessions=5, per_session=6, answered_total=30)
+                self.not_graded_log("ng", 20)
+                rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21", "--bar")
+                self.assertEqual(rc, want, out)
+                self.assertIn("not graded: 20 of 50 (40%)", out)
+                self.assertIn("answered: 30 of 30 evaluations (100%)", out)
+                if want:
+                    self.assertIn("40% of evaluations not graded, more than 10 points from the", out)
 
     def test_window_edges(self):
         self.log("a", event(2, "2026-10-20", "decider_checked", outcome="pass", visit_seq=1),
@@ -1371,6 +1469,8 @@ class ReferenceTest(unittest.TestCase):
                 flat = " ".join(body.split())
                 self.assertIn("`koto.decider.outcome` `not_graded`", flat)
                 self.assertIn("graded evaluations only", flat)
+                # The guard on the share, at the number the code holds.
+                self.assertIn("within %d points" % int(jc.NOT_GRADED_DRIFT * 100), flat)
 
     def test_the_lower_bounds_say_so(self):
         for rid in ("rs-019", "rs-020"):

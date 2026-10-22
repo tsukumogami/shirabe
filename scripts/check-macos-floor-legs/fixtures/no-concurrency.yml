@@ -1,0 +1,19 @@
+# Fails: the macOS leg reaches the floor correctly, but the workflow has no
+# concurrency block, so a superseded pull request run keeps its place in the
+# macOS queue (shirabe#941).
+name: no-concurrency
+on: pull_request
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/demo/scripts/one_test.sh
+      - name: Run tests on the floor (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system demo

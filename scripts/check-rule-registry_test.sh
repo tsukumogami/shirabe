@@ -501,11 +501,18 @@ expect_problem "a gate whose script does not list the id" "$G: gate work-on:veri
 reg "$(sel $R).gates = [\"execute:no_such_state:x\"]"
 expect_problem "a retired entry's gate is still checked by name" "$R: gate execute:no_such_state:x names no state"
 
+# A review-panel gate runs panel-scope.sh, which prints any active rule, so
+# only panel/open-finding may list one; rule-lifecycle.sh counts every
+# finding there for it.
 reg "$(sel $G).gates += [\"work-on:scrutiny:scrutiny_verdict\", \"work-on:light_review:light_verdict\"]"
+expect_problem "a review-panel gate on another entry" "$G: gate work-on:scrutiny:scrutiny_verdict is a panel gate; only panel/open-finding may list one"
+
+reg "$(sel $R).gates = [\"work-on:review:review_verdict\"]"
+expect_problem "a review-panel gate on a retired entry" "$R: gate work-on:review:review_verdict is a panel gate; only panel/open-finding may list one"
+
 run_check
-[ "$RC" = 0 ] && pass "a review-panel gate passes for any active rule" \
-    || fail "a review-panel gate passes for any active rule" "rc=$RC: $OUT"
-reset_copy
+[ "$RC" = 0 ] && pass "panel/open-finding lists the review-panel gates and passes" \
+    || fail "panel/open-finding lists the review-panel gates and passes" "rc=$RC: $OUT"
 
 sed 's/^      owned_pr_body_conformant:/      owned_pr_body_renamed:/' \
     "$WORK/orig/skills/execute/koto-templates/execute.md" > "$S/skills/execute/koto-templates/execute.md"

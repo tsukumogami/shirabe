@@ -3,7 +3,10 @@
 
 The six script criteria (rs-001 to rs-006) run locally over a branch with
 `scan`, which writes nothing. The slicers cut the bounded slices that the Jev
-criteria's contracts in references/rule-registry.json name this script for;
+criteria's contracts in references/rule-registry.json name this script for:
+slice_pr_text, slice_pr_summary, slice_code_hunks and slice_doc_pairs for a
+pull request, and slice_brief_journeys, slice_summary_pairs, slice_prd_acs,
+slice_plan_ac_blocks and slice_ac_hunks for the artifact a site judges;
 references/jev-criteria.md describes those contracts and pass trust, and
 scripts/jev-criteria/jev_criteria.py measures slices with these functions.
 The review-shadow trial's local store, its grader and the decider shadow at
@@ -458,14 +461,6 @@ def slice_pr_text(pr):
     return {"body": pr["body"], "part1": part1(pr["body"]), "added": added,
             "texts": pr["texts"], "tree": pr["tree"], "public": pr["public"],
             "paths": [f["path"] for f in pr["files"]]}
-
-
-def build_slices(pr):
-    """Slices per slice kind, plus the doc-pair counts: dropped by the cap, and
-    candidate pairs left out because the two passages together exceed the bound."""
-    doc, pair_meta = slice_doc_pairs(pr)
-    return {"pr-summary": slice_pr_summary(pr), "code-hunks": slice_code_hunks(pr),
-            "doc-pairs": doc}, pair_meta
 
 
 # --- Local files that must stay out of every repository ----------------------

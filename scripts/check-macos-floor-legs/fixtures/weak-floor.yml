@@ -6,6 +6,9 @@
 # names every suite, and a trailing comment is not read as suite names.
 name: weak-floor
 on: pull_request
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   allowed-to-fail:
     strategy:

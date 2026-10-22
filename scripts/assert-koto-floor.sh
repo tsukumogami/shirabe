@@ -38,7 +38,11 @@
 # output.awaiting until `koto decider answer` records the agent's answer, for a
 # shadow user as well as a veto one, where an older koto passed it unjudged.
 # /work-on's review_level_check tells the agent to answer, and an older koto
-# has no such command. Raise it in the pull request that adopts a feature from a
+# has no such command. 0.21.0 is the release that journals a check's findings
+# and disputes and returns a passing check's warn-stage findings to the agent
+# as advisories (tsukumogami/koto#393), which is what makes a rule at warn
+# reach the agent rather than behave as shadow (references/check-lifecycle.md).
+# Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
 # release brings.
@@ -76,7 +80,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.20.0}"
+FLOOR="${KOTO_FLOOR:-0.21.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically
