@@ -361,6 +361,30 @@ Reason: $REASON" -- none
 run_script -- sess
 expect_exit "the line is matched without regard to case" 0
 
+# The reason must be its own `Reason:` line: a short reason would otherwise
+# match almost any body.
+fixture
+declare_ci '{"hosted_ci": "none", "reason": "docs"}'
+pr 7 OPEN "$MINE" "This repository declares no hosted CI. See the docs folder." -- none
+run_script -- sess
+expect_exit "a reason that only appears inside another line is not a record" 1
+
+fixture
+declare_ci '{"hosted_ci": "none", "reason": "docs"}'
+pr 7 OPEN "$MINE" "This repository declares no hosted CI.
+Reason: docs and more" -- none
+run_script -- sess
+expect_exit "a Reason line must carry the reason exactly" 1
+
+# A body edited on the web ends its lines in CRLF.
+fixture
+declare_ci "$DECLARED"
+pr 7 OPEN "$MINE" "This repository declares no hosted CI."$'\r'"
+Reason: $REASON"$'\r'"
+" -- none
+run_script -- sess
+expect_exit "a CRLF body still records the exception" 0
+
 # --- declared, but the PR has checks: the gate filter's answer, not this one's --
 fixture
 declare_ci "$DECLARED"

@@ -3379,7 +3379,8 @@ exception is a repository that has no hosted CI and says so: its default
 branch carries `.claude/shirabe-extensions/hosted-ci.json` with
 `"hosted_ci": "none"` and a one-line `"reason"`. Then the gate passes a pull
 request with no checks once its body records the exception (a line saying the
-repository declares no hosted CI, and the reason verbatim), and
+repository declares no hosted CI, and the line `Reason: <reason>` with the
+reason verbatim), and
 `ci_none_declared.txt` in context names it: mention it in your final report.
 The gate's stderr says what the body is missing. Never add or edit that file to
 get past this gate; a pull request can't declare itself, since the gate reads

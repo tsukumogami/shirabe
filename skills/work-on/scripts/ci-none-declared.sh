@@ -32,7 +32,8 @@
 #     pkg/cmd/pr/checks/checks.go, v2.76.2 through v2.103.0), or an empty
 #     JSON list. A pull request with any check is the gate filter's to judge.
 #   - the pull request body records the exception: a line saying the
-#     repository declares no hosted CI, and the declaration's reason verbatim.
+#     repository declares no hosted CI, and the line `Reason: <reason>` with
+#     the declaration's reason verbatim.
 #
 # Which pull request depends on the caller, as in ci-cancel-after-merge.sh:
 #   /work-on (no --owned): the current branch's, found the way the gate finds
@@ -156,11 +157,15 @@ PR=$(jq -R -s -r '(try fromjson catch null)
       else "" end' "$TMP/pr") || PR=""
 IFS=$'\t' read -r NUMBER URL HEAD <<<"$PR"
 [ -n "$NUMBER" ] && [ -n "$URL" ] && [ -n "$HEAD" ] || no "could not read the pull request's number, URL and head"
-jq -R -s -r '(try fromjson catch null) | if type == "object" then (.body // "" | tostring) else "" end' \
-    "$TMP/pr" >"$TMP/body" || no "could not read the pull request's body"
+# The body as lines, carriage returns dropped: a body edited on the web ends
+# its lines in CRLF.
+jq -R -s -r '(try fromjson catch null) | if type == "object" then (.body // "" | tostring) else "" end
+    | gsub("\r"; "")' "$TMP/pr" >"$TMP/body" || no "could not read the pull request's body"
 
-if ! grep -qi 'declares no hosted CI' "$TMP/body" || ! grep -qF -- "$REASON" "$TMP/body"; then
-    no "#$NUMBER has no checks and the repository declares no hosted CI, but the pull request body doesn't record it: add a line saying the repository declares no hosted CI, and the reason verbatim: $REASON"
+# The reason must be a whole line, `Reason: <reason>`, not just appear
+# somewhere: a short reason would otherwise match almost any body.
+if ! grep -qi 'declares no hosted CI' "$TMP/body" || ! grep -qxF -- "Reason: $REASON" "$TMP/body"; then
+    no "#$NUMBER has no checks and the repository declares no hosted CI, but the pull request body doesn't record it: add a line saying the repository declares no hosted CI, and the line: Reason: $REASON"
 fi
 
 {

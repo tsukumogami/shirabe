@@ -100,8 +100,12 @@ Reason: <the declaration's reason>
 
 `ci_passing` passes a pull request with no checks only when the declaration is
 on the default branch and the body has both: a line saying the repository
-declares no hosted CI (matched without regard to case) and the reason exactly.
-A repository without the file needs no section. Never add the file on the
+declares no hosted CI (matched without regard to case) and the line
+`Reason: <reason>` with the reason exactly.
+A repository without the file needs no section. The change that adds a
+workflow to such a repository deletes the file too: a stale declaration would
+let a pull request with no checks yet pass in the window just after a push.
+Never add the file on the
 branch you're working on to get past the gate: the gate reads the default
 branch, so the declaration is a change someone reviews and merges first.
 
