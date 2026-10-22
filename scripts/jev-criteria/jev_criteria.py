@@ -85,6 +85,11 @@ GOOD_PASS_SHARE = 0.8
 LIVE_MIN_EVALUATIONS = 30
 LIVE_MIN_SESSIONS = 5
 LIVE_MIN_ANSWERED = 0.95
+# How far, in points of share, the live window's not-graded share may sit from
+# the empty-slice share the contract measured. Not-graded evaluations are left
+# out of the bar, so a slice script that starts printing nothing where the
+# criterion applies would otherwise make those runs vanish instead of failing.
+NOT_GRADED_DRIFT = 0.10
 
 STATES = {"rejected", "blocked", "untrusted", "trusted"}
 WRITERS = {"git", "gate-script", "graded-artifact", "slice-script"}
@@ -155,12 +160,15 @@ def nearest_rank(values, p):
     return xs[k - 1]
 
 
-def figures(sizes, budget, population, command):
-    return {"population": population, "runs": len(sizes),
-            "max": max(sizes) if sizes else 0, "p90": nearest_rank(sizes, 0.9),
-            "over_budget": sum(1 for s in sizes if s > budget),
-            "on": datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
-            "command": command}
+def figures(sizes, budget, population, command, empty=None):
+    out = {"population": population, "runs": len(sizes),
+           "max": max(sizes) if sizes else 0, "p90": nearest_rank(sizes, 0.9),
+           "over_budget": sum(1 for s in sizes if s > budget),
+           "on": datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
+           "command": command}
+    if empty is not None:
+        out["empty"] = empty
+    return out
 
 
 # --- Templates ----------------------------------------------------------------
@@ -324,9 +332,37 @@ def fixture_bar(counts):
     return not reasons, reasons
 
 
-def live_bar(live, budget):
-    """(met, reasons) for recorded or computed live figures."""
+def share(record, part, rest):
+    """part / (part + rest) for two counts of a record, 0.0 when both are 0.
+    A count that isn't a non-negative integer reads as 0: check_contract and
+    check_promotion report the bad value, and the bar must still be computed
+    beside that report rather than raise."""
+    r = record if isinstance(record, dict) else {}
+    a, b = (r.get(k, 0) for k in (part, rest))
+    a, b = (v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0 for v in (a, b))
+    return a / (a + b) if a + b else 0.0
+
+
+def not_graded_share(live):
+    """The share of a live window's evaluations that had nothing to grade."""
+    return share(live, "not_graded", "evaluations")
+
+
+def empty_share(measured):
+    """The share of measured runs whose slice was empty. A measurement with no
+    `empty` count found none: a slice that is never empty records nothing."""
+    return share(measured, "empty", "runs")
+
+
+def live_bar(live, budget, measured=None):
+    """(met, reasons) for recorded or computed live figures, against the
+    contract's `measured` record for the not-graded share."""
     reasons = []
+    ng, empty = not_graded_share(live), empty_share(measured)
+    if abs(ng - empty) > NOT_GRADED_DRIFT:
+        reasons.append("%.0f%% of evaluations not graded, more than %d points from the %.0f%% of runs "
+                       "the contract measured with an empty slice"
+                       % (100 * ng, int(NOT_GRADED_DRIFT * 100), 100 * empty))
     ev = live.get("evaluations", 0)
     if ev < LIVE_MIN_EVALUATIONS:
         reasons.append("%d evaluations, fewer than %d" % (ev, LIVE_MIN_EVALUATIONS))
@@ -434,6 +470,8 @@ def check_contract(root, entry, jev, criteria, cache, declared):
                     p("jev.measured.%s is not a non-negative integer" % k)
             if isinstance(m.get("runs"), int) and isinstance(m.get("over_budget"), int) and m["over_budget"] > m["runs"]:
                 p("jev.measured.over_budget is more than its runs")
+            if "empty" in m and (not isinstance(m["empty"], int) or isinstance(m["empty"], bool) or m["empty"] < 0):
+                p("jev.measured.empty is not a non-negative integer")
             if not isinstance(m.get("on"), str) or not DATE.match(m["on"]):
                 p("jev.measured.on is not a YYYY-MM-DD date")
             cmd = m.get("command")
@@ -563,7 +601,7 @@ def check_promotion(root, jev, promo, fps, budget):
         ng = live.get("not_graded")
         if "not_graded" in live and (not isinstance(ng, int) or isinstance(ng, bool) or ng < 0):
             out.append("promotion.live.not_graded is not a non-negative integer")
-        out += ["the live figures miss the bar: %s" % r for r in live_bar(live, budget)[1]]
+        out += ["the live figures miss the bar: %s" % r for r in live_bar(live, budget, jev.get("measured"))[1]]
         frm, to = live.get("from", ""), live.get("to", "")
         d = jev.get("declared") if isinstance(jev.get("declared"), dict) else {}
         if isinstance(d.get("since"), str) and frm < d["since"]:
@@ -804,6 +842,28 @@ def log_session_id(path):
     return sid if isinstance(sid, str) and sid else None
 
 
+def log_entered(path, state):
+    """Whether a session log records a transition into the state, which is
+    where a criterion's gate runs. A log that can't be read entered nothing."""
+    opener = gzip.open if path.endswith(".gz") else open
+    needle = '"%s"' % state
+    try:
+        with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if needle not in line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(ev, dict) and ev.get("type") in ("transitioned", "directed_transition") \
+                        and isinstance(ev.get("payload"), dict) and ev["payload"].get("to") == state:
+                    return True
+    except (OSError, EOFError):
+        return False
+    return False
+
+
 def decision_slice_bytes(script, path):
     """The byte length of decision-reasons.sh's slice of one log, or None when
     the script can't read it. A gzipped log goes through a temporary file, so
@@ -836,7 +896,7 @@ SKIP_MESSAGES = {
 
 def measure_sessions(args):
     root = os.path.realpath(args.root)
-    sizes, skipped = [], {}
+    sizes, skipped, empty = [], {}, None
     if args.slice == "review-facts":
         script = os.path.join(root, REVIEW_LEVEL_SH)
         for path in work_on_sessions(args.dir):
@@ -851,9 +911,11 @@ def measure_sessions(args):
         # A run is a graded session: one per session_id, however many roots
         # or copies hold its log, and only when its slice isn't empty, since
         # koto grades nothing for an empty one. Copies of one session take
-        # the largest slice, the latest log being the longest.
+        # the largest slice, the latest log being the longest. `empty` counts
+        # the sessions that reached scrutiny, where the gate runs, with an
+        # empty slice: the share the live bar's not-graded share is held to.
         script = os.path.join(root, DECISION_REASONS_SH)
-        by_id = {}
+        by_id, reached = {}, set()
         for path in session_logs(args.dir):
             sid = log_session_id(path)
             if sid is None:
@@ -864,7 +926,10 @@ def measure_sessions(args):
                 skipped["unsliced"] = skipped.get("unsliced", 0) + 1
                 continue
             by_id[sid] = max(n, by_id.get(sid, 0))
+            if log_entered(path, "scrutiny"):
+                reached.add(sid)
         sizes = [n for n in by_id.values() if n]
+        empty = sum(1 for sid, n in by_id.items() if not n and sid in reached)
         slice_arg = " --slice decision-reasons"
     else:
         for path in work_on_sessions(args.dir):
@@ -879,7 +944,7 @@ def measure_sessions(args):
         print("%s: %s" % (PROG, SKIP_MESSAGES[why] % n), file=sys.stderr)
     return figures(sizes, args.budget, "koto-sessions",
                    "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions>%s --budget %d"
-                   % (slice_arg, args.budget))
+                   % (slice_arg, args.budget), empty)
 
 
 def load_review_shadow(root):
@@ -1281,7 +1346,13 @@ def cmd_figures(args):
         print("%s: skipped %d line(s) or log(s) it couldn't read" % (PROG, unread), file=sys.stderr)
     print(json.dumps({"live": live}, sort_keys=True))
     if args.bar:
-        met, reasons = live_bar(live, jev.get("budget", BUDGET_CEILING))
+        ev = live["evaluations"]
+        print("answered: %d of %d evaluations (%.0f%%); not graded: %d of %d (%.0f%%), against %.0f%% "
+              "of measured runs with an empty slice"
+              % (live["answered"], ev, 100 * live["answered"] / ev if ev else 0,
+                 live["not_graded"], ev + live["not_graded"], 100 * not_graded_share(live),
+                 100 * empty_share(jev.get("measured"))))
+        met, reasons = live_bar(live, jev.get("budget", BUDGET_CEILING), jev.get("measured"))
         for r in reasons:
             print("bar not met: %s" % r)
         return 0 if met else 1

@@ -313,10 +313,22 @@ event timestamp.
   `koto.decider.outcome` `pass` or `fail`. A tuple whose only events are
   fallbacks, or `decider_checked` with any other outcome, is unanswered, and
   an agent's own answer (`decider_check_answered`) never makes it answered.
+- Amended by Decision 4 of
+  `docs/designs/current/DESIGN-jev-scrutiny-batches.md`, which supersedes the
+  bullet above for one case: a tuple whose every event is a `decider_checked`
+  with outcome `not_graded` (an empty slice, which the slice script decides)
+  had nothing to grade. It is left out of the evaluations, the sessions and
+  the answered share, counted on its own as `not_graded`, and never counts as
+  a pass. A tuple with a `not_graded` event and any other event is graded and
+  follows the bullet above.
 - The bar is met with at least 30 evaluations across at least 5 sessions, at
   least 95% of them answered, no `decider_fallback` whose `koto.decider.reason`
   is `over_budget`, and no `koto.decider.input_bytes` on either event above
-  the budget.
+  the budget. The minimums count graded evaluations only (Decision 4 above),
+  and the share of not-graded evaluations may sit no more than 10 points from
+  the share of runs the contract measured with an empty slice, so a slice
+  script that prints nothing where the criterion applies can't hide those runs
+  from the bar.
 
 A guide states queries that compute these figures from the exported events,
 and a shipped reference reader computes the same figures from koto session

@@ -21,7 +21,7 @@ Every entry Jev grades carries a `jev` object:
 | `slice_script` | The script that prints the slice. For a koto decider check, the gate's command runs it. |
 | `budget` | The slice's byte budget: the gate's `max_bytes`, and never above 2,560, about the 2,507 bytes the Jev accuracy spike validated. A criterion with no gate is measured against 2,560. |
 | `completeness` | `path` and `heading` of its written case on this page, and the `verdict`, `sufficient` or `insufficient`, which the contract's author sets and its pull request's reviewers check. |
-| `measured` | The slice's size on real runs: `population` (`koto-sessions`, `merged-prs` or `review-shadow-records`), `runs`, `max`, `p90` (nearest rank), `over_budget` (runs over the budget), `on` and the `command` that took it, which prints the same figures given the same inputs. Or instead `not_measured: no-real-run-record`. |
+| `measured` | The slice's size on real runs: `population` (`koto-sessions`, `merged-prs` or `review-shadow-records`), `runs`, `max`, `p90` (nearest rank), `over_budget` (runs over the budget), `on` and the `command` that took it, which prints the same figures given the same inputs. Optionally `empty`: the runs that reached the criterion's state with an empty slice, which `runs` leaves out (`measure sessions --slice decision-reasons` prints it). With no `empty`, the measurement found no empty slice. Or instead `not_measured: no-real-run-record`. |
 | `fixtures` | The fixture file, from `untrusted` on. |
 | `declared` | For a koto decider check: `sha256` of its declaration and `since`, the date that declaration took effect. `jev_criteria.py declared-hash` prints both the declaration and its hash. |
 | `false_passes` | Confirmed false passes: `evaluated` and `recorded` dates, `oracle` (`review`, `ci` or `human`) and an `evidence` link. Never removed. |
@@ -73,6 +73,20 @@ The minimums (30 evaluations across 5 sessions) count graded evaluations only.
 An evaluation with a `not_graded` event and any other event is graded and
 follows the rule above, so a fallback for any reason, `over_budget` included,
 and an `escape` still count against the bar. This holds for every criterion.
+
+Because they are left out, nothing else would notice a slice script that
+wrongly prints nothing on runs the criterion applies to: those runs would
+vanish from the bar instead of counting against it. So the live bar also
+holds the not-graded share (the not-graded evaluations over those and the
+graded ones together) to within 10 points of the share the contract measured
+with an empty slice (`measured.empty` over `measured.empty` plus
+`measured.runs`, and 0% for a contract that records no `empty`). A promotion
+whose share is further off isn't met until the slice script is explained and
+the contract re-measured. The two shares are close cousins, not the same
+count: the measurement counts sessions, and the live figures count
+evaluations, so a session that visits the state twice adds two. The
+tolerance is what absorbs that difference, and it holds either way, so a
+share well below the measured one is held too.
 `jev_criteria.py figures <rule-id> --sessions <dir>` computes the same figures
 from local koto session logs, as a tested reference for their definitions.
 
@@ -188,6 +202,12 @@ is held to, since the live bar counts graded evaluations only. The fit is
 marginal: 119 graded runs is just past the 100-run minimum, and the live
 figures, not this measurement, decide whether the criterion earns trust. A run
 over budget falls back for `over_budget` and the agent answers it.
+
+The live bar allows no over-budget fallback at all. At 3 in 119, a
+30-evaluation window more likely than not holds one, so as built the
+criterion probably can't earn trust; its slice would have to shrink first.
+The figures also record no `empty` count, so a promotion would wait on a
+re-measure that counts the sessions that reached `scrutiny` with no decision.
 
 **State.** `untrusted`: it runs in shadow for a user whose decider is on, its
 answers are recorded and never block the panel, and no fixture run or live
