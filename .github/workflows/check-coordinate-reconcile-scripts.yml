@@ -7,6 +7,9 @@ on:
       # The record feature's parser and session-log helpers, which the
       # reader's contract cases and the pass run for real.
       - 'skills/coordinate/scripts/record-*'
+      # The state schema the codec includes, and the session-only state- files
+      # that follow it.
+      - 'skills/coordinate/scripts/state-*'
       - 'skills/coordinate/scripts/coord-log.sh'
       - 'skills/coordinate/scripts/coord-verdict.sh'
       # reconcile-deps.sh sources /execute's validators.
