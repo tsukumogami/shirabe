@@ -18,12 +18,34 @@
 # outside the coordinator read from GitHub, are then also posted as the comment
 # below, and the comment's URL kept in record/posted/<n>.
 #
+# --on puts an outward entry on the item it concerns instead
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2),
+# on the session store only; without it a run posts as above. <owner/repo#n>
+# is a pull request or an issue in the host repository or a holding's (its
+# Repo, or its pull request's repository), compared without case; `none`
+# writes the session entry and posts it nowhere. A cost entry takes either; a
+# goal-fit entry takes the pull request its first line names (`Goal fit:
+# <owner/repo#n> -- `) and nothing else; a milestone-verdict or
+# milestone-failure entry is written with `--on none` and reaches its roadmap
+# pull request only through roadmap-status.sh, whose `--repost N --on` is
+# admitted when record/side-effects holds the roadmap edit row naming that
+# pull request and `(entry N)`. With --on the record issue isn't read, and the
+# text is scanned when it is posted, against the destination's visibility read
+# then: a destination whose visibility can't be read counts as public, and a
+# repository the text names whose visibility can't be read counts as private.
+# A scan that refuses leaves the session entry where it is (exit 65, naming
+# it). A retry with --on posts nothing when record/posted/N names a comment on
+# the item, or when the item holds a comment of the same kind and text, by the
+# login `gh api user` answers (compared without case), created at or after the
+# entry's stamp and not kept as another entry's post; when that login can't be
+# read it exits 2 and posts nothing.
+#
 # Usage:
-#   record-append.sh --session S --text-file F [--kind K]
+#   record-append.sh --session S --text-file F [--kind K] [--on <owner/repo#n>|none]
 #   record-append.sh --scope roadmap|discipline --name N --repo O/R --ref N
-#                    --text-file F [--kind K]
+#                    --text-file F [--kind K] [--on <owner/repo#n>|none]
 #   record-append.sh (--session S | --scope ... --ref N) --list
-#   record-append.sh (--session S | --scope ... --ref N) --repost N
+#   record-append.sh (--session S | --scope ... --ref N) --repost N [--on <owner/repo#n>]
 #
 # The session gives the scope, name, host and record number (coord-log.sh
 # vars and run-facts). The addressed form names them instead, for a writer
@@ -94,15 +116,19 @@
 #           gh api --method GET repos/<repo> --jq .private   (the host, then each repository the text names)
 #           gh api --method GET repos/R/issues/N/comments?per_page=100 --paginate
 #           gh api --method GET repos/R/collaborators/<login>/permission --jq .permission
+#           gh api --method GET repos/<item repo> --jq .private, and each repository the text names (--on)
+#           gh api user --jq .login, gh api --method GET repos/<item repo>/issues/<n>/comments (--repost --on)
 #   writes: gh api --method POST repos/R/issues/N/comments --input <json>
+#           (with --on, repos/<item repo>/issues/<n>/comments)
 # koto calls (session store): context list --prefix record/entries/ and
 #   record/posted/, context list --prefix for each key the seam's rs_key reads,
-#   context get, context add (record/entries/<n>, record/posted/<n>).
+#   context get, context add (record/entries/<n>, record/posted/<n>); with
+#   --on, record/holdings and record/side-effects through the seam's rs_key.
 set -uo pipefail
 
 PROG=record-append
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TEXTFILE= KIND=entry REPOST=
+SESSION= SCOPE= NAME= REPO= REF= TEXTFILE= KIND=entry REPOST= ON=
 MODE=append
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -117,6 +143,7 @@ while [ $# -gt 0 ]; do
         --kind) [ $# -ge 2 ] || usage; KIND=$2; shift 2 ;;
         --list) MODE=list; shift ;;
         --repost) [ $# -ge 2 ] || usage; MODE=repost; REPOST=$2; shift 2 ;;
+        --on) [ $# -ge 2 ] || usage; ON=$2; shift 2 ;;
         *) usage ;;
     esac
 done
@@ -131,6 +158,18 @@ case "$MODE" in
     list) [ -z "$TEXTFILE" ] || usage ;;
     repost) [ -z "$TEXTFILE" ] && [[ $REPOST =~ ^[0-9]{1,6}$ ]] || usage ;;
 esac
+# The item --on names, checked against its fixed pattern before it reaches gh.
+ON_REPO= ON_NUM=
+if [ -n "$ON" ]; then
+    [ "$MODE" != list ] || usage
+    if [ "$ON" = none ]; then
+        [ "$MODE" = append ] || { echo "$PROG: --repost posts on an item: --on owner/repo#n" >&2; exit 64; }
+    else
+        [[ $ON =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$ ]] || { echo "$PROG: --on is owner/repo#n or none" >&2; exit 64; }
+        ON_REPO=${ON%#*} ON_NUM=${ON##*#}
+    fi
+    [ "$MODE" = repost ] || case "$OUTWARD_KINDS" in *" $KIND "*) ;; *) echo "$PROG: --on is for an outward kind:$OUTWARD_KINDS" >&2; exit 64 ;; esac
+fi
 # The largest entry posted, in bytes: the record body's own budget.
 ENTRY_BUDGET=60000
 
@@ -149,16 +188,25 @@ if [ "$STORE" = session ]; then
     [ -n "$ES" ] || { echo "$PROG: refused: the session store needs the run's session" >&2; exit 10; }
 fi
 [ "$MODE" != repost ] || [ "$STORE" = session ] || { echo "$PROG: --repost is for a record on the session store" >&2; exit 64; }
+[ -z "$ON" ] || [ "$STORE" = session ] || { echo "$PROG: --on is for a record on the session store; a GitHub record's entries are posted on it" >&2; exit 64; }
 
-# The target, re-read now: open, and this scope's record.
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/r.err")"
-else
-    gh pr view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$WD/r.err")"
+# Where a comment goes: the record, or the item --on names.
+PREPO=$REPO PNUM=$REF
+[ -z "$ON_REPO" ] || PREPO=$ON_REPO PNUM=$ON_NUM
+
+# The target, re-read now: open, and this scope's record. An entry bound for
+# an item (--on) doesn't go on the record, so the record isn't read for it.
+STATE=OPEN
+if [ -z "$ON" ]; then
+    if [ "$SCOPE" = roadmap ]; then
+        gh issue view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/r.err")"
+    else
+        gh pr view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$WD/r.err")"
+    fi
+    jq -r '.body // ""' "$WD/target.json" | tr -d '\r' > "$WD/live.md" || lib_die2 "the target read is not JSON"
+    STATE=$(jq -r '.state' "$WD/target.json")
+    grep -xF -- "$DECL" "$WD/live.md" > /dev/null || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
 fi
-jq -r '.body // ""' "$WD/target.json" | tr -d '\r' > "$WD/live.md" || lib_die2 "the target read is not JSON"
-STATE=$(jq -r '.state' "$WD/target.json")
-grep -xF -- "$DECL" "$WD/live.md" > /dev/null || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
 
 # gh_marked <out>: the record's entry comments, as JSON lines {id, html_url,
 # created_at, updated_at, user, body}, from authors with write access only.
@@ -201,11 +249,84 @@ comment_md() {
     # `&` first, so the reader's decoding gives back exactly what was written.
     sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' "$3"
 }
-# post_comment <comment-file>: posts it; prints the comment's URL. Returns 1 when
-# the post failed, the reason in $WD/w.err.
+# post_comment <comment-file>: posts it on the record, or on the --on item;
+# prints the comment's URL. Returns 1 when the post failed, the reason in
+# $WD/w.err.
 post_comment() {
     jq -n --rawfile b "$1" '{body: $b}' > "$WD/post.json" || lib_die2 "jq failed"
-    gh api --method POST "repos/$REPO/issues/$REF/comments" --input "$WD/post.json" --jq .html_url 2> "$WD/w.err" < /dev/null
+    gh api --method POST "repos/$PREPO/issues/$PNUM/comments" --input "$WD/post.json" --jq .html_url 2> "$WD/w.err" < /dev/null
+}
+# lc <text>: lower case, for the comparisons GitHub makes without case
+# (repository names, logins).
+lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+# on_url_ok <url>: 0 when URL is a comment on the --on item, an issue's or a
+# pull request's (GitHub answers /pull/ for a pull request's conversation).
+on_url_ok() {
+    [[ $(lc "$1") =~ ^https://github\.com/([a-z0-9_.-]+/[a-z0-9_.-]+)/(issues|pull)/([1-9][0-9]*)#issuecomment-[0-9]+$ ]] \
+        && [ "${BASH_REMATCH[1]}" = "$(lc "$ON_REPO")" ] && [ "${BASH_REMATCH[3]}" = "$ON_NUM" ]
+}
+# on_admitted: refuses (65) an --on item outside the run's repositories: the
+# host, or a holding's Repo or pull request repository.
+on_admitted() {
+    [ "$(lc "$ON_REPO")" = "$(lc "$REPO")" ] && return 0
+    rs_key "$ES" record/holdings "$WD/holdings.json"
+    case $? in
+        0) jq -e -L "$HERE" --arg r "$(lc "$ON_REPO")" 'include "record-codec";
+               [.[] | (.repo // ""), ((.pull_request // "") | pr_link | .repo)] | map(ascii_downcase) | index($r) != null' \
+               "$WD/holdings.json" > /dev/null && return 0 ;;
+        1) ;;
+        *) lib_die2 "cannot read record/holdings: $(lib_scrub < "$WD/holdings.json.err")" ;;
+    esac
+    echo "$PROG: refused: $ON_REPO is neither the host, $REPO, nor a holding's repository" >&2; exit 65
+}
+# goal_fit_names <text-file>: the owner/repo#n a goal-fit entry's first line
+# names (`Goal fit: <owner/repo#n> -- <tag>`), or nothing.
+goal_fit_names() {
+    head -1 "$1" | sed -n 's|^Goal fit: \([A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*#[1-9][0-9]*\) -- .*$|\1|p'
+}
+# goal_fit_check <text-file>: refuses (65) a goal-fit entry whose first line
+# names no pull request, or one other than the --on item.
+goal_fit_check() {
+    local named
+    named=$(goal_fit_names "$1")
+    [ -n "$named" ] || { echo "$PROG: refused: the goal-fit entry names no pull request (its first line is \`Goal fit: <owner/repo#n> -- <tag>\`)" >&2; exit 65; }
+    [ "$(lc "$named")" = "$(lc "$ON")" ] || { echo "$PROG: refused: the goal-fit entry names $named, not $ON" >&2; exit 65; }
+}
+# dest_problem <text-file>: why TEXT can't be posted on the --on item, or
+# nothing. The destination's visibility is read now, at post time; one that
+# can't be read counts as public. On a public destination each repository the
+# text names is read too, and one that can't be read counts as private; the
+# codec decides, as it does for the record's own text columns.
+dest_problem() {
+    local p r priv=
+    p=$(gh api --method GET "repos/$ON_REPO" --jq .private 2> /dev/null < /dev/null) || p=unreadable
+    [ "$p" = true ] && return 0
+    jq -R -s -r -L "$HERE" 'include "record-codec"; text_named_repos | .[]' < "$1" > "$WD/named" || lib_die2 "jq failed"
+    while IFS= read -r r; do
+        [ "$(lc "$r")" = "$(lc "$ON_REPO")" ] && continue
+        [[ $r =~ $RE_REPO ]] || continue
+        p=$(gh api --method GET "repos/$r" --jq .private 2> /dev/null < /dev/null) || p=unreadable
+        [ "$p" = false ] || priv="$priv${priv:+,}$r"
+    done < "$WD/named"
+    jq -R -s -r -L "$HERE" --arg p "$priv" \
+        'include "record-codec"; text_problem($p | split(",") | map(select(. != ""))) // empty' < "$1" || lib_die2 "jq failed"
+}
+# roadmap_row_check <n> <kind>: refuses (65) a milestone-verdict or
+# milestone-failure entry's post unless roadmap-status.sh opened its roadmap
+# pull request: record/side-effects holds that edit's row, its Target the --on
+# pull request on the host and its How to confirm ending `(entry <n>)`.
+roadmap_row_check() {
+    local acts
+    case "$2" in milestone-verdict) acts="milestone-done milestone-verdict" ;; *) acts=milestone-reopen ;; esac
+    if [ "$(lc "$ON_REPO")" = "$(lc "$REPO")" ] && rs_key "$ES" record/side-effects "$WD/se.json"; then
+        jq -e --arg a "$acts" --arg t "(https://github.com/$(lc "$REPO")/pull/$ON_NUM)" --arg num "[#$ON_NUM]" --arg h "(entry $1)" '
+            ($a | split(" ")) as $acts
+            | any(.[]; (.action as $x | $acts | index($x)) != null
+                and ((.target // "" | ascii_downcase) | endswith(" " + $num + $t))
+                and ((.how_to_confirm // "") | endswith($h)))' "$WD/se.json" > /dev/null && return 0
+    fi
+    echo "$PROG: refused: a $2 entry is posted on the roadmap pull request roadmap-status.sh opens for it (--verdict or --reopen with --entry $1), not by hand" >&2
+    exit 65
 }
 # s_entries <out>: the session's entries, one key per line, in sequence order.
 s_entries() {
@@ -214,10 +335,14 @@ s_entries() {
     jq -r '.[] | select(test("^record/entries/[0-9]{6}$"))' "$WD/keys.json" | LC_ALL=C sort > "$1" || lib_die2 "the key list is not JSON"
 }
 # s_record_posted <n> <url>: keeps an outward entry's comment URL, which must be
-# a comment on this record.
+# a comment on this record, or with --on on its item.
 s_record_posted() {
-    [[ $2 =~ ^https://github\.com/${REPO}/issues/${REF}#issuecomment-[0-9]+$ ]] \
-        || { echo "$PROG: refused: $2 is not a comment on #$REF in $REPO" >&2; exit 65; }
+    if [ -n "$ON_REPO" ]; then
+        on_url_ok "$2" || { echo "$PROG: refused: $2 is not a comment on $ON" >&2; exit 65; }
+    else
+        [[ $2 =~ ^https://github\.com/${REPO}/issues/${REF}#issuecomment-[0-9]+$ ]] \
+            || { echo "$PROG: refused: $2 is not a comment on #$REF in $REPO" >&2; exit 65; }
+    fi
     printf '%s\n' "$2" > "$WD/posted"
     "$KOTO" context add "$ES" "record/posted/$1" --from-file "$WD/posted" < /dev/null > /dev/null 2> "$WD/k.err" \
         || { echo "$PROG: the comment was posted ($2) but record/posted/$1 wasn't written: $(lib_scrub < "$WD/k.err")" >&2; exit 11; }
@@ -253,17 +378,40 @@ if [ "$MODE" = repost ]; then
     case $? in 0) ;; 1) echo "$PROG: refused: no entry $N" >&2; exit 65 ;; *) lib_die2 "cannot read record/entries/$N" ;; esac
     EKIND=$(jq -r '.kind' "$WD/entry.json") || lib_die2 "record/entries/$N is not JSON"
     case "$OUTWARD_KINDS" in *" $EKIND "*) ;; *) echo "$PROG: refused: entry $N is a $EKIND entry, which stays in the session" >&2; exit 65 ;; esac
+    jq -r '.text' "$WD/entry.json" > "$WD/text"
+    if [ -n "$ON" ]; then
+        on_admitted
+        case "$EKIND" in
+            goal-fit) goal_fit_check "$WD/text" ;;
+            milestone-*) roadmap_row_check "$((10#$N))" "$EKIND" ;;
+        esac
+    fi
     if rs_key "$ES" "record/posted/$N" "$WD/posted.now"; then
+        if [ -n "$ON" ] && ! on_url_ok "$(head -1 "$WD/posted.now")"; then
+            echo "$PROG: refused: entry $N is already posted at $(head -1 "$WD/posted.now"), not on $ON" >&2; exit 65
+        fi
         cat "$WD/posted.now"
         exit 0
     fi
-    jq -r '.text' "$WD/entry.json" > "$WD/text"
     ESTAMP=$(jq -r '.stamp' "$WD/entry.json")
     # A post that landed before a crash: the same kind and text, by a writer,
     # created at or after the entry's stamp, and not already kept as another
     # entry's post (two identical entries, a verdict repeated after a reopen,
-    # each have their own comment).
-    gh_marked "$WD/writers.jsonl"
+    # each have their own comment). On the record a writer is an author with
+    # write access; on an --on item, anyone may comment, so it is the login
+    # this run posts as, and only that login.
+    if [ -n "$ON" ]; then
+        LOGIN=$(gh api user --jq .login 2> "$WD/u.err" < /dev/null) && [[ $LOGIN =~ $RE_LOGIN ]] \
+            || { echo "$PROG: cannot read the login this run posts as, so whether entry $N already landed on $ON can't be told; nothing posted: $(lib_scrub < "$WD/u.err")" >&2; exit 2; }
+        gh api --method GET "repos/$ON_REPO/issues/$ON_NUM/comments?per_page=100" --paginate \
+            --jq '.[] | {id, html_url, created_at, updated_at, user: (.user.login // ""), body: (.body // "")}' \
+            > "$WD/comments.jsonl" 2> "$WD/c.err" < /dev/null || lib_die2 "cannot read $ON's comments: $(lib_scrub < "$WD/c.err")"
+        jq -c --arg m "$ENTRY_MARKER_PREFIX" --arg l "$(lc "$LOGIN")" \
+            'select((.body | gsub("\r"; "") | startswith($m)) and ((.user | ascii_downcase) == $l))' \
+            "$WD/comments.jsonl" > "$WD/writers.jsonl" || lib_die2 "the comments read is not JSON"
+    else
+        gh_marked "$WD/writers.jsonl"
+    fi
     gh_entries "$WD/writers.jsonl" > "$WD/gh-entries.json"
     "$KOTO" context list --prefix record/posted/ "$ES" < /dev/null > "$WD/posted-keys.json" 2> "$WD/k.err" \
         || lib_die2 "cannot list $ES's posted entries: $(lib_scrub < "$WD/k.err")"
@@ -281,6 +429,10 @@ if [ "$MODE" = repost ]; then
         s_record_posted "$N" "$HIT"
         printf '%s\n' "$HIT"
         exit 0
+    fi
+    if [ -n "$ON" ]; then
+        dest_problem "$WD/text" > "$WD/problem"
+        [ ! -s "$WD/problem" ] || { echo "$PROG: refused: entry $N stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
     fi
     comment_md "$ESTAMP" "$EKIND" "$WD/text" > "$WD/comment.md"
     URL=$(post_comment "$WD/comment.md") || { echo "$PROG: the post failed: $(lib_scrub < "$WD/w.err")" >&2; exit 14; }
@@ -304,8 +456,11 @@ fi
 # github.com link, owner/repo#n), each read for visibility; the codec decides
 # whether the text names one that isn't public, as it does for the Decisions
 # columns.
+# An entry bound for an item (--on) is scanned against the item's visibility
+# when it is posted, below, instead.
 PRIVATE=
-HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"
+HOST_PRIVATE=
+[ -n "$ON" ] || { HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"; }
 if [ "$HOST_PRIVATE" = false ]; then
     printf '%s' "$TEXT" | jq -R -s -r -L "$HERE" 'include "record-codec"; text_named_repos | .[]' > "$WD/named" || lib_die2 "jq failed"
     while IFS= read -r r; do
@@ -332,6 +487,17 @@ SIZE=$(wc -c < "$WD/comment.md" | tr -d ' ')
 if [ "$SIZE" -gt "$ENTRY_BUDGET" ]; then
     echo "$PROG: refused: the entry is $SIZE bytes, over the $ENTRY_BUDGET-byte budget; split it" >&2; exit 65
 fi
+# Which item an entry may go on, checked before anything is written.
+if [ "$ON" = none ]; then
+    [ "$KIND" != goal-fit ] || { echo "$PROG: refused: a goal-fit entry goes on the pull request it names: --on owner/repo#n" >&2; exit 65; }
+elif [ -n "$ON" ]; then
+    case "$KIND" in
+        milestone-verdict|milestone-failure)
+            echo "$PROG: refused: a $KIND entry is written with --on none and posted on its roadmap pull request by roadmap-status.sh (--verdict or --reopen with --entry), not by hand" >&2; exit 65 ;;
+        goal-fit) goal_fit_check "$WD/text.clean" ;;
+    esac
+    on_admitted
+fi
 
 if [ "$STORE" = session ]; then
     # The next sequence number, one above the highest key; a key another writer
@@ -354,10 +520,18 @@ if [ "$STORE" = session ]; then
         break
     done
     [ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
+    if [ "$ON" = none ]; then
+        printf 'record/entries/%s\n' "$WRITTEN"
+        exit 0
+    fi
+    if [ -n "$ON" ]; then
+        dest_problem "$WD/text.clean" > "$WD/problem"
+        [ ! -s "$WD/problem" ] || { echo "$PROG: refused: the entry was written as record/entries/$WRITTEN and stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
+    fi
     case "$OUTWARD_KINDS" in
         *" $KIND "*)
             URL=$(post_comment "$WD/comment.md") \
-                || { echo "$PROG: the entry was written as record/entries/$WRITTEN, but its post failed: $(lib_scrub < "$WD/w.err"); post it later with record-append.sh --repost $((10#$WRITTEN))" >&2; exit 14; }
+                || { echo "$PROG: the entry was written as record/entries/$WRITTEN, but its post failed: $(lib_scrub < "$WD/w.err"); post it later with record-append.sh --repost $((10#$WRITTEN))${ON:+ --on $ON}" >&2; exit 14; }
             s_record_posted "$WRITTEN" "$URL"
             printf '%s\n' "$URL"
             ;;

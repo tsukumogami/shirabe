@@ -45,6 +45,17 @@ renamed; it is not in the MANIFEST, and the archive's README says so) and
 posts one `cost` entry through `record-append.sh`. A record that already
 holds a `cost` entry with the same capture key gets nothing new.
 
+Where the entry is posted depends on the run's store. A run on a GitHub
+record posts it on the record issue. A run on the session store writes it
+to the session and posts it on the item the unit is about, with
+`record-append.sh --on`: the holding's pull request (its Pull request cell,
+else the first pull request of the sealed verdict), else the unit's issue
+(a Unit of `#n: ...` on the host, or `owner/repo#n: ...`), else nowhere. A
+unit with neither keeps its entry in the session and the capture's last
+line says so. The text is checked against the destination's visibility when
+it is posted, so an entry naming a private repository is not posted on a
+public pull request; it stays in the session, and in the archive.
+
 The capture has 90 seconds for its reads, each GitHub read bounded on its
 own, and the pass stops it at 120. Whatever it hasn't taken when time runs
 out is posted as `not recoverable` with reason `time limit`; a missing
@@ -271,8 +282,9 @@ computed what the archive holds, not that the archive holds what happened.
 
 ## Reading entries
 
-The entries are ordinary record comments. With `gh` and `jq`, for a record
-`owner/repo#n`:
+The entries are ordinary comments carrying the `kind=cost` marker. A run on
+a GitHub record posts them all on its record; with `gh` and `jq`, for a
+record `owner/repo#n`:
 
 ```bash
 gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
@@ -283,6 +295,34 @@ gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
               minutes: .figures.summed_session_span_min.value,
               output_tokens: .tokens.worker.output, complete}'
 ```
+
+A run on the session store has no issue that collects them: each entry is on
+its unit's pull request or issue. List the scope's units (the pull requests
+in the session's Holdings, or the ones the roadmap's Delivered lines name),
+one `owner/repo#n` per line in `units.txt`, and read each one's comments.
+Anyone can comment on a pull request, so keep only the comments the
+coordinator posted: filter on the login it posts as (`gh api user` on its
+host), compared without case.
+
+```bash
+# gh's --jq takes no arguments, so the login goes into the filter; a login
+# is letters, digits and hyphens (and `[bot]`), nothing a filter misreads.
+login=$(printf '%s' '<the coordinator login>' | tr 'A-Z' 'a-z')
+while read -r unit; do
+  gh api "repos/${unit%#*}/issues/${unit##*#}/comments" --paginate \
+    --jq '.[] | select((.user.login | ascii_downcase) == "'"$login"'")
+          | select(.body | startswith("<!-- coordinator-record-entry v1 kind=cost -->")) | .body'
+done < units.txt \
+  | sed -n '/^```json$/,/^```$/p' | grep -v '^```' \
+  | jq -c 'select(.schema == "unit-cost/1")
+           | {key, unit, plan_shape: .plan_shape.value,
+              minutes: .figures.summed_session_span_min.value,
+              output_tokens: .tokens.worker.output, complete}'
+```
+
+A unit with no pull request or issue has its entry only in the session
+(`record-append.sh --list`, kind `cost`) and in its archive's
+`unit-cost.json`.
 
 A record can hold the same key twice (a capture that couldn't list the
 record posts anyway); keep the latest and report the repeat. Read a figure's

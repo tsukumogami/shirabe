@@ -27,7 +27,13 @@
 #       entry per key, so a duplicate is harmless and a skipped post loses
 #       the unit. An object over 50,000 bytes is posted without the
 #       per-session `states` maps (`sessions.states`, `entry size`);
-#       unit-cost.json keeps them.
+#       unit-cost.json keeps them. A run on the GitHub store posts it on its
+#       record issue. A run on the session store (coord-log.sh run-store)
+#       posts it with record-append.sh --on on the item it is about: the
+#       holding's pull request (the row's Pull request cell, else the sealed
+#       verdict's first), else the Unit's issue (`#n` on the host or
+#       `owner/repo#n`), else `--on none`, which keeps it in the session,
+#       posted nowhere; the last stderr line says which.
 #   unit-cost.sh gh-check <gh arguments...>
 #       Runs nothing: 0 when the capture's GitHub wrapper would make that
 #       call, 1 when it refuses it. The suite's view of the wrapper.
@@ -132,7 +138,8 @@
 # budget; once it is spent, what is not yet taken is `time limit` and the
 # capture goes straight to writing and posting what it has.
 #
-# Exit codes: 0 printed (compute), posted or already posted (capture), or
+# Exit codes: 0 printed (compute), posted, kept in the session (a
+# session-store unit with no pull request or issue) or already posted (capture), or
 # admitted (gh-check); 1 not posted, or refused (gh-check); 64 usage; 65 the
 # archive's name is not a capture key for the topic.
 #
@@ -1218,7 +1225,7 @@ if [ "$MODE" = compute ]; then
 fi
 
 # capture: the record's facts and the Holdings row, while the row is there.
-RECW=""
+RECW="" ROW_OK=0
 B=$(uc_bound "$FETCH_SECS")
 if [ "$B" -le 0 ]; then
     RECW="time limit"
@@ -1230,7 +1237,8 @@ elif uc_run "$B" "$WD/facts.json" bash "$DC_COORD_LOG" run-facts --session "$SES
     else
         uc_run "$B" "$WD/row.json" bash "$DC_RECORD_HOLDING" --read --topic "$TOPIC" --session "$SESSION"
         case $? in
-            0) uc_jq -c --slurpfile r "$WD/row.json" '. + {unit: ($r[0].unit // null)}' "$WD/facts.json" >"$WD/unit.json" \
+            0) ROW_OK=1
+                uc_jq -c --slurpfile r "$WD/row.json" '. + {unit: ($r[0].unit // null)}' "$WD/facts.json" >"$WD/unit.json" \
                 || jq -c '. + {unit: null, unit_reason: "invalid input"}' "$WD/facts.json" >"$WD/unit.json" ;;
             1) jq -c '. + {unit: null, unit_reason: "no source"}' "$WD/facts.json" >"$WD/unit.json" ;;
             *) jq -c '. + {unit: null, unit_reason: "read failed"}' "$WD/facts.json" >"$WD/unit.json" ;;
@@ -1240,6 +1248,30 @@ else
     RECW="read failed"
 fi
 [ -z "$RECW" ] || jq -n -c --arg r "$RECW" '{unit_reason: $r}' >"$WD/unit.json"
+
+# Where the entry goes. A GitHub-store run posts it on its record, as it
+# always has. A session-store run posts it on the item it is about
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2): the
+# holding's pull request (its Pull request cell, else the first of the sealed
+# verdict's), else the Unit's issue (`#n` on the host, or `owner/repo#n`), else
+# nowhere, the entry kept in the session. The store is read locally, so it
+# takes nothing from the reads' budget.
+ON=""
+uc_run "$FETCH_SECS" "$WD/store" bash "$DC_COORD_LOG" run-store --session "$SESSION"
+if [ "$(head -n 1 "$WD/store" 2>/dev/null)" = session ]; then
+    ON=none
+    RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
+    [ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
+    [[ $ON =~ $RE_ITEM ]] || ON=$(awk -v re="$RE_ITEM" '$1 ~ re { print $1; exit }' "$PRS_FILE")
+    if ! [[ $ON =~ $RE_ITEM ]]; then
+        ON=none
+        U=$(uc_jq -r '.unit // "" | if type == "string" then split(": ")[0] else "" end' "$WD/unit.json")
+        H=$(uc_jq -r '.repo // ""' "$WD/unit.json")
+        if [[ $U =~ ^#[1-9][0-9]*$ ]] && repo_ok "$H"; then ON="$H$U"
+        elif [[ $U =~ $RE_ITEM ]]; then ON=$U
+        fi
+    fi
+fi
 
 uc_compute || { say "the entry could not be computed"; exit 1; }
 
@@ -1276,10 +1308,15 @@ fi
 
 uc_posted || { say "the entry text could not be written"; exit 1; }
 uc_text >"$WD/text" || { say "the entry text could not be written"; exit 1; }
-uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text"
+if [ -n "$ON" ]; then set -- --on "$ON"; else set --; fi
+uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
 RC=$?
 if [ "$RC" = 0 ]; then
-    say "posted the cost entry"
+    case "$ON" in
+        "") say "posted the cost entry" ;;
+        none) say "kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere" ;;
+        *) say "posted the cost entry on $ON" ;;
+    esac
     exit 0
 fi
 case "$RC" in
