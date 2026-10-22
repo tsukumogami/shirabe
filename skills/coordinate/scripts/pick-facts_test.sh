@@ -547,6 +547,10 @@ eq "  ... with the facts beside it" "Feature 5 false" "$(facts | jq -r '.units[4
 FX="$HERE/../koto-templates/coordinate.pick.choice.decider.jsonl"
 eq "every pick fixture's input is a slice" 0 \
     "$(jq -L "$HERE" 'include "pick-slice"; .inputs.pick_facts | fromjson | select(pick_slice != .) | 1' "$FX" | wc -l | tr -d ' ')"
+eq "no pick fixture keeps a Done row pick-facts.sh would have collapsed" 0 \
+    "$(jq -r '.inputs.pick_facts | fromjson | .units[] | select(.status == "Done" and .done != true and .holding == null) | .unit' "$FX" | wc -l | tr -d ' ')"
+eq "every blocker a pick fixture names is a unit it lists or a done one" 0 \
+    "$(jq -r '.inputs.pick_facts | fromjson | ([.units[].unit] + .done) as $k | .units[] | select((.blocked_by | type) == "array") | .blocked_by[] | select(IN($k[]) | not)' "$FX" | wc -l | tr -d ' ')"
 eq "fixtures cover a slice with a long done list, for every value but scope and await_decision" "ask_up,dispatch,hold,scope_ahead,send_execution" \
     "$(jq -r 'select((.inputs.pick_facts | fromjson | .done | length) >= 150) | .expected' "$FX" | sort | paste -sd, -)"
 

@@ -231,8 +231,9 @@ covers, that isn't owed a verdict and that wasn't sent back: it can't be
 dispatched, scoped or sent its execution, and what a dependent needs from it
 is already in the dependent's own `blocked`, `blocked_by` and
 `blocker_landed`. Confirming a done unit's `landed` row is the agent's
-upkeep, read from the full facts, and no `choice` turns on it. A done unit that is held, owed a verdict or reworked keeps
-its full row, since the rules name each of those. A field left out reads the
+upkeep, read from the full facts, and no `choice` turns on it. A done unit
+that is held, owed a verdict or reworked keeps its full row, since the rules
+name each of those. A field left out reads the
 same as its null or false value, and the counts, the cap, the bound, the
 pauses and the decisions are passed whole. The verdict is `sufficient`.
 
