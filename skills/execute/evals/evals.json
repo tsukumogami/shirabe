@@ -1599,6 +1599,22 @@
         "The owning session never runs koto next on a child session (any execute-lead-shape-test.o-* name); its koto next calls name only execute-lead-shape-test",
         "No step agent is told to edit a step's entry in the PLAN; the PLAN edits between steps come from the owning session and change only the PLAN path"
       ]
+    },
+    {
+      "id": 84,
+      "name": "verification-deferral-reaches-children-and-shared-pr",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto --verification=hosted-ci \"--verification-reason=host is in a measurement window until 02:40Z\" -- what does each child get, and what must pr_finalization put in the shared PR before the run goes on?",
+      "expected_output": "execute-open.sh maps --verification and --verification-reason to the koto variables VERIFICATION and VERIFICATION_DEFERRAL_REASON, after checking with /work-on's own checks (scripts/lib/verification-deferral.sh) that the reason uses only koto's allowed characters and that hosted-ci has a reason. spawn_and_await's jq gives every child task VERIFICATION=hosted-ci and the reason beside SHARED_BRANCH and PLUGIN_ROOT, so each child goes to verification_deferred instead of running the verification map and records the reason in its context as verification_deferral; each child still submits pr_status: shared. At pr_finalization the agent adds a Verification section to Part 2 of the shared PR body, in the words phase-6-pr.md gives: local verification did not run, Reason: followed by the reason verbatim, and hosted CI is the build of record for this change. The deferral_recorded gate (shared-deferral-record.sh, which runs check-pr-output.sh --deferral-record on the owned PR with every reason the run and its children carry) holds the run in pr_finalization until the body has all three parts. Without the flags the tasks and the routes are what they were before.",
+      "files": [],
+      "expectations": [
+        "Every child task carries VERIFICATION=hosted-ci and the reason verbatim, beside SHARED_BRANCH and PLUGIN_ROOT, so each child goes to verification_deferred and never runs the verification map",
+        "The shared PR's Part 2 gets a Verification section saying local verification did not run, Reason: with the reason verbatim, and that hosted CI is the build of record, in phase-6-pr.md's words",
+        "pr_finalization's deferral_recorded gate holds the run until the owned PR's body records the deferral; the agent fixes the body and submits finalization_status: updated again rather than routing around it",
+        "The agent does not run local tests or the verification map for the children; hosted CI on the shared PR is the build of record",
+        "A run without --verification builds the same child tasks and passes pr_finalization exactly as before"
+      ]
     }
   ]
 }

@@ -112,6 +112,22 @@ Two more flags, on both paths:
   remaining children unbounded, and children already spawned keep the bound they
   started with. A value outside the three names is koto's `invalid_var`, a
   repeat its `duplicate_var`, each with exit 2 and no session.
+- `--verification=<local|hosted-ci>` and `--verification-reason=<text>`
+  (default `local`, no reason), on a single-pr PLAN — the verification
+  deferral `/work-on` takes (`skills/work-on/SKILL.md`), for the whole plan.
+  They become the koto variables `VERIFICATION` and
+  `VERIFICATION_DEFERRAL_REASON`, passed only when given. With `hosted-ci`,
+  every child task gets both, so each child goes to `verification_deferred`
+  instead of running the verification map, and `pr_finalization` holds until
+  the shared PR's body records the deferral: that local verification did not
+  run, the reason verbatim, and that hosted CI is the build of record, in the
+  section `/work-on`'s `phase-6-pr.md` gives. Unlike the bound, both are fixed
+  for the run, as in `/work-on`: a resume that leaves them out keeps them, and
+  one that passes another value is koto's refusal. A reason uses only letters,
+  digits, spaces and `. _ / : @ + -` and starts with a letter or digit, for
+  example `--verification-reason=host is in a measurement window until
+  02:40Z`. On a coordinated PLAN either flag is koto's `unknown_var`: node PRs
+  don't carry a deferral record yet.
 - Five more, on a coordinated PLAN only (on a single-pr PLAN each is koto's
   `unknown_var`), each `--flag <value>` or `--flag=<value>`. They become the
   koto variables `STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE` and
@@ -167,8 +183,11 @@ the mode, and the PLAN slug are all constrained variables, so under `--koto-leg`
 every argument refusal is koto's and koto records it on the leg. `/execute`'s own
 pre-init refusals are only those where no koto call can be built at all: a
 malformed `--koto-leg` value, a coordinated flag with no value, a `--remove`
-without `--follow-up`, or a `--follow-up` value with no `=` (`error=usage`), an
-args file inside the work tree, or a missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
+without `--follow-up`, a `--follow-up` value with no `=`, a
+`--verification-reason` with a character koto doesn't accept in a value, or
+`--verification=hosted-ci` with no reason (`error=usage`, the last two with
+`/work-on`'s own checks and words), an args file inside the work tree, or a
+missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
 `execute-open.sh` refuses with `error=multi-pr` (exit 64) and a message naming
 `/work-on <PLAN>` as the entry point (per
 `docs/decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md`).
@@ -220,7 +239,8 @@ maps them to the session's variables with `jq` (never `eval`) and makes the one
 ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
 # The invocation's tokens, one JSON string each, in order: the PLAN path and any
 # of --auto, --interactive, --merge, --review-floor=<level>,
-# --review-ceiling=<level>, --koto-leg=<request-id>:execute, and on a
+# --review-ceiling=<level>, --verification=<local|hosted-ci>,
+# --verification-reason=<text>, --koto-leg=<request-id>:execute, and on a
 # coordinated PLAN --store, --coordination-pr, --follow-up [--remove],
 # --adopt-run with their values.
 jq -n '$ARGS.positional' --args -- <token> <token> ... > "$ARGS_DIR/tokens.json"
@@ -281,7 +301,8 @@ status` shows where it landed.
 those answers through gates and routes on them itself: which PR the run owns
 (`orchestrator_setup`, `pr_finalization`, `plan_completion` and `ci_monitor`
 each look it up through `check-pr-output.sh --owned-pr`), whether the PR body,
-the shared branch's commits and its `docs/` visibility pass
+the shared branch's commits and its `docs/` visibility pass, and whether the
+body records every verification deferral the run carries
 (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
 state (`ci_monitor`), and the pause (`PAUSE_BEFORE_FINALIZE`). A failing output

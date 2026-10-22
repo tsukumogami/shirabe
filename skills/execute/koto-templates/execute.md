@@ -133,6 +133,33 @@ variables:
     required: false
     pattern: ^(light|standard|full)?$
     rebind: true
+  # The verification deferral every work-on child carries (#1017), the same
+  # two variables work-on.md declares, with the same values and pattern. Not
+  # rebind, as in work-on.md and unlike the bound: a run never changes where
+  # its children's verification runs partway through, so an attach that
+  # leaves them out keeps what the run started with. pr_finalization's
+  # deferral_recorded gate reads both.
+  VERIFICATION:
+    description: >-
+      Where every work-on child's definition-of-done gate runs, from
+      /execute's --verification flag. `local` (the default) leaves the
+      children's tasks as they were. `hosted-ci` gives every child task
+      VERIFICATION=hosted-ci and this run's VERIFICATION_DEFERRAL_REASON, so
+      each child goes to verification_deferred as a standalone run does, and
+      pr_finalization holds until the shared PR's body records the deferral.
+      Not rebindable.
+    required: false
+    default: local
+    values: [local, hosted-ci]
+  VERIFICATION_DEFERRAL_REASON:
+    description: >-
+      Why verification is deferred to hosted CI, from --verification-reason:
+      the reason every child carries and the shared PR's body records
+      verbatim. koto accepts only letters, digits, spaces and . _ / : @ + -
+      in a variable value, and the pattern refuses a value that does not
+      start with a letter or digit, as in work-on.md. Not rebindable.
+    required: false
+    pattern: ^([a-zA-Z0-9].*)?$
 
 states:
   write_set_record:
@@ -612,6 +639,8 @@ states:
     #   settled_commits           every non-merge commit on the shared branch
     #   settled_docs_visibility   the branch's docs/ changes at the declared
     #                             visibility (R7, R8, R9)
+    #   deferral_recorded         the owned PR's body records every
+    #                             verification deferral the run carries
     # These are the checks /work-on's children skip on SHARED_BRANCH, run once
     # here over the whole branch. The base is origin's default branch, read
     # from refs/remotes/origin/HEAD, with origin/main when that ref is absent.
@@ -648,6 +677,18 @@ states:
       settled_docs_visibility:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --base-ref "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)"'
+      # The verification deferral the children carry (#1017). A child on the
+      # shared branch submits pr_status: shared and never meets work-on's
+      # verification_deferral_recorded gate, so the shared PR is checked here
+      # instead. shared-deferral-record.sh collects this run's reason (when
+      # VERIFICATION is hosted-ci) and every child's verification_deferral,
+      # and with none exits 0 before any GitHub read; otherwise it runs
+      # work-on's check-pr-output.sh --deferral-record over the owned PR: 0
+      # recorded, 1 a part missing, 2 could not decide. 1 and 2 hold here like
+      # the other output gates.
+      deferral_recorded:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/execute/scripts/shared-deferral-record.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/execute/scripts/shared-deferral-record.sh" --session execute-{{PLAN_SLUG}} --verification "{{VERIFICATION}}" --reason "{{VERIFICATION_DEFERRAL_REASON}}" -- --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
     accepts:
       finalization_status:
         type: enum
@@ -675,6 +716,7 @@ states:
           gates.owned_pr_body_conformant.exit_code: 0
           gates.settled_commits.exit_code: 0
           gates.settled_docs_visibility.exit_code: 0
+          gates.deferral_recorded.exit_code: 0
           finalization_status: updated
           vars.PAUSE_BEFORE_FINALIZE: "true"
         context_assignments:
@@ -686,6 +728,7 @@ states:
           gates.owned_pr_body_conformant.exit_code: 0
           gates.settled_commits.exit_code: 0
           gates.settled_docs_visibility.exit_code: 0
+          gates.deferral_recorded.exit_code: 0
           finalization_status: updated
           vars.PAUSE_BEFORE_FINALIZE: "false"
       - target: done_blocked
@@ -1546,13 +1589,13 @@ existing approval behavior is unchanged.
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" --arg f "{{REVIEW_FLOOR}}" --arg c "{{REVIEW_CEILING}}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p | if $f != "" then .vars.REVIEW_FLOOR = $f else . end | if $c != "" then .vars.REVIEW_CEILING = $c else . end]')
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" --arg f "{{REVIEW_FLOOR}}" --arg c "{{REVIEW_CEILING}}" --arg v "{{VERIFICATION}}" --arg r "{{VERIFICATION_DEFERRAL_REASON}}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p | if $f != "" then .vars.REVIEW_FLOOR = $f else . end | if $c != "" then .vars.REVIEW_CEILING = $c else . end | if $v == "hosted-ci" then .vars.VERIFICATION = $v | .vars.VERIFICATION_DEFERRAL_REASON = $r else . end]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
-koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. When this run was given a review-level bound (`--review-floor`, `--review-ceiling`), every child also receives it as `REVIEW_FLOOR` and `REVIEW_CEILING`; an empty one is left off the task, so a run without the flags builds exactly the tasks it did before.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. When this run was given a review-level bound (`--review-floor`, `--review-ceiling`), every child also receives it as `REVIEW_FLOOR` and `REVIEW_CEILING`; an empty one is left off the task, so a run without the flags builds exactly the tasks it did before. When this run defers verification to hosted CI (`--verification=hosted-ci`), every child also receives `VERIFICATION=hosted-ci` and this run's `VERIFICATION_DEFERRAL_REASON`, and goes to `verification_deferred` instead of running the verification map, as a standalone `/work-on` run with the same flags does; a run with `VERIFICATION=local` (the default) adds neither, so its tasks are the ones it built before. Don't add either variable to a task by hand: the deferral is the run's, and `pr_finalization` checks the shared PR records it.
 
 **The lead shape.** Each child goes to one step agent: a subagent the owning session (the one ticking `{{SESSION_NAME}}`) starts in the foreground, in this checkout, from the hand-off template in `${CLAUDE_PLUGIN_ROOT}/skills/execute/references/step-agent-handoff.md`. The step agent drives the child from where it stands to its terminal under `/work-on`'s plan-backed child mode, panels included. The owning session never runs `koto next` on a child. The loop:
 
@@ -1593,6 +1636,7 @@ Author the title and body to the mechanical rule in `references/pr-body-conforma
    - **Part 1 — factual change paragraph** (becomes the squash commit body): a concise paragraph of what the PLAN's PR changed in the codebase, derived from the PLAN's own validated framing plus the child-outcome metadata. `/execute` is metadata-only (R14/R15) — do NOT read child PR bodies or diffs. No `Fixes #N` here.
    - A `---` separator.
    - **Part 2 — reviewer context** (deleted at merge): the per-child outcome table — for each child `name`, `outcome` (`success`/`failure`/`skipped`), `reason`, `reason_source`, `skipped_because_chain`. Append `Fixes #<N>` lines **only** when the children are GitHub issues (`ISSUE_SOURCE` is a real issue, not `plan_outline`); for single-pr outline children there is no issue to close, so omit `Fixes #N` entirely.
+   - **A deferred verification, in Part 2.** When this run defers verification to hosted CI (`VERIFICATION` is `{{VERIFICATION}}`), or any child recorded a deferral (a child that has the key answers `koto context exists <child> verification_deferral` with exit 0; `koto context get <child> verification_deferral` reads it, once per child), add the `## Verification` section `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-6-pr.md` gives under "Verification deferred to hosted CI", in its words: that local verification did not run, `Reason: ` followed by the reason verbatim, and that hosted CI is the build of record for this change. Give each distinct reason its own `Reason: ` line, and name the children that deferred. A run with no deferral adds no section.
 
 **3. Apply via `--body-file`/stdin, never inline interpolation.** Write the assembled body to a temp file (or heredoc to stdin) and pass it with `--body-file`, so prose is never spliced into the shell command line:
 
@@ -1642,6 +1686,7 @@ Run this title+body edit **unconditionally** on every finalization (clean and at
 - `owned_pr_body_conformant` runs `shirabe validate --pr-body --writing-style` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`, `pr-body/banned-word`).
 - `settled_commits` checks every non-merge commit on the shared branch, against origin's default branch: a Conventional Commits subject and no AI-attribution trailer (`commit/conventional-subject`, `commit/no-ai-trailer`).
 - `settled_docs_visibility` checks every `docs/` document the branch changed against the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`).
+- `deferral_recorded` runs `shared-deferral-record.sh`, which collects this run's deferral reason and every child's `verification_deferral`. With none it passes without reading GitHub. Otherwise it runs `check-pr-output.sh --deferral-record` on the owned PR, the check a standalone `/work-on` run's `pr_creation` makes, and holds until the body says local verification did not run, carries every reason verbatim, and says hosted CI is the build of record. Its stderr names each part that is missing; fix the body with the edit above and submit `updated` again.
 
 The /work-on children skip the docs check on the shared branch, because they open no PR of their own; this is where the branch is checked, once, before the PR is finalized.
 

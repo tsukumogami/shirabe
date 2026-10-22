@@ -29,7 +29,9 @@
 # is recorded on the leg by koto itself. This script's own refusals are only
 # the ones where no koto call can be built at all, or would change a run it
 # must not: a malformed --koto-leg value, a coordinated flag with no value or
-# a --remove with no --follow-up, a --follow-up value with no `=`, a tokens
+# a --remove with no --follow-up, a --follow-up value with no `=`, a
+# verification deferral koto would refuse in words nobody can act on or can't
+# check at all (below), a tokens
 # file it cannot read, a multi-pr PLAN, which /work-on runs rather than
 # /execute (`error=multi-pr`), a setup-only flag on a live coordinated session past coord_setup
 # (`error=flag-needs-setup`), a session another opener holds
@@ -65,7 +67,10 @@
 #                          occurrence (a bare --review-floor is the literal
 #                          token, which the pattern refuses); none -> no pair.
 #   REVIEW_CEILING         `--review-ceiling=<level>`, the same way.
-#   STORE                  `--store <v>` or `--store=<v>`
+#   VERIFICATION           `--verification=<local|hosted-ci>`, the same way.
+#   VERIFICATION_DEFERRAL_REASON
+#                          `--verification-reason=<text>`, the same way.
+#   STORE                 `--store <v>` or `--store=<v>`
 #   COORDINATION_PR        `--coordination-pr <url>`
 #   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
 #                          first `=` becomes a space, since koto's own value
@@ -82,6 +87,16 @@
 # from then on by this invocation's flags, never an earlier one's. koto refuses
 # a value outside light, standard and full (invalid_var) and a repeat
 # (duplicate_var).
+#
+# The verification deferral's two variables are passed only when their flag is
+# too, so a run without them initialises exactly what it did before. They
+# exist in execute.md alone: on a coordinated PLAN koto refuses either one as
+# unknown_var. Unlike the bound they are not rebind, as in /work-on: an attach
+# that passes none keeps what the run started with, and one that passes another
+# value is koto's refusal. Before any koto call this script refuses, with
+# /work-on's opener's checks (scripts/lib/verification-deferral.sh), a reason
+# with a character outside koto's value allowlist and --verification=hosted-ci
+# with no reason (error=usage, exit 64).
 #
 # The five coordinated variables (STORE through ADOPT_RUN) are passed on every
 # coordinated invocation, one pair per occurrence, and `""` when the flag is
@@ -163,6 +178,8 @@ WORDING="$SELF_DIR/execute-open-wording.tsv"
 PRINT_EXIT="$SELF_DIR/print-exit.sh"
 # shellcheck source=run-record-lib.sh
 . "$SELF_DIR/run-record-lib.sh"
+# shellcheck source=../../../scripts/lib/verification-deferral.sh
+. "$PLUGIN_DIR/scripts/lib/verification-deferral.sh" || exit 64
 
 TOKENS_FILE="${1:-}"
 own_refusal() {
@@ -181,6 +198,13 @@ jq -e 'type == "array" and all(.[]; type == "string")' "$TOKENS_FILE" >/dev/null
 TOKENS=$(cat -- "$TOKENS_FILE")
 DIR=$(dirname -- "$TOKENS_FILE")
 rm -f -- "$TOKENS_FILE"
+
+# The verification deferral's two refusals, /work-on's own (see VERIFICATION in
+# the header): a reason koto would refuse, and hosted-ci with no reason.
+REFUSAL=$(vd_reason_chars_refusal "$TOKENS")
+[ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
+REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
+[ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
 
 # --koto-leg: the one flag this script checks itself, because without a
 # well-formed value there is no leg for koto to record a refusal on.
@@ -490,6 +514,8 @@ printf '%s' "$TOKENS" | jq -c \
         | if ($p | length) == 0 and $coordinated == 1 then [[$var, ""]] else $p end;
     bound("--review-floor"; "REVIEW_FLOOR") as $floors
     | bound("--review-ceiling"; "REVIEW_CEILING") as $ceilings
+    | bound("--verification"; "VERIFICATION") as $verifications
+    | bound("--verification-reason"; "VERIFICATION_DEFERRAL_REASON") as $reasons
     | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
     | [ .[] | select(. == "--auto" or . == "--interactive") ] as $modes
     | (if $plan == "" then [] else [["PLAN_DOC", $plan], ["PLAN_SLUG", $slug]] end)
@@ -498,7 +524,7 @@ printf '%s' "$TOKENS" | jq -c \
          else [ $merges[] | ["MERGE", (if . == "--merge" then "true" else ltrimstr("--merge=") end)] ] end)
       + (if ($modes | length) == 0 then [["PAUSE_BEFORE_FINALIZE", pause_of($header)]]
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
-      + $floors + $ceilings
+      + $floors + $ceilings + $verifications + $reasons
       + coord("--store"; "STORE") + coord("--coordination-pr"; "COORDINATION_PR")
       + (coord("--follow-up"; "FOLLOW_UP") | map(.[1] |= sub("="; " ")))
       + coord("--remove"; "FOLLOW_UP_REMOVE")

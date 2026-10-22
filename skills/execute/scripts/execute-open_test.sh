@@ -230,6 +230,36 @@ pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to 
     '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
     'map(select(.[0] | startswith("REVIEW_")))'
 
+# The verification deferral (#1017): one pair per flag given, none without
+# them (the no-flag case above already pins the list), and /work-on's own two
+# refusals before any koto call.
+pairs_of '["docs/plans/PLAN-t.md","--verification=hosted-ci","--verification-reason=host is in a measurement window until 02:40Z"]'
+pairs_eq "--verification=hosted-ci with a reason: one pair each, the reason unchanged" \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is in a measurement window until 02:40Z"]]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+pairs_of '["docs/plans/PLAN-t.md","--verification=local"]'
+pairs_eq "--verification=local alone: one pair, no reason" '[["VERIFICATION","local"]]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+pairs_of '["docs/plans/PLAN-t.md","--verification=sometimes","--verification-reason=x"]'
+pairs_eq "a value outside local and hosted-ci is passed through for koto's invalid_var" \
+    '[["VERIFICATION","sometimes"],["VERIFICATION_DEFERRAL_REASON","x"]]' 'map(select(.[0] | startswith("VERIFICATION")))'
+own_refusal "--verification=hosted-ci with no reason" '["docs/plans/PLAN-t.md","--verification=hosted-ci"]'
+own_refusal "--verification=hosted-ci with an empty reason" '["docs/plans/PLAN-t.md","--verification=hosted-ci","--verification-reason="]'
+own_refusal "a reason with an apostrophe and a comma" \
+    "[\"docs/plans/PLAN-t.md\",\"--verification=hosted-ci\",\"--verification-reason=host can't run suites, CI only\"]"
+own_refusal "a bad reason with --verification=local" \
+    "[\"docs/plans/PLAN-t.md\",\"--verification=local\",\"--verification-reason=can't\"]"
+# The words are /work-on's: the refusal names the characters and the allowlist.
+tokens "[\"docs/plans/PLAN-t.md\",\"--verification=hosted-ci\",\"--verification-reason=host can't run suites, CI only\"]"
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+if [ "$OUT" = "error=usage" ] && grep -qF "\"'\" \",\"" "$WORK/stderr" \
+    && grep -qF "apostrophes and commas are not among them" "$WORK/stderr" \
+    && grep -q '^execute-open: --verification-reason has characters' "$WORK/stderr"; then
+    pass "a bad reason: execute-open names the characters in /work-on's words"
+else
+    fail "bad reason wording: out [$OUT], stderr [$(cat "$WORK/stderr")]"
+fi
+
 # A retained paused_for_review session makes the invocation the finalize
 # resume, which passes PAUSE_BEFORE_FINALIZE=false. From koto 0.17.0 `koto
 # status` also answers for a session koto removed at that terminal, with

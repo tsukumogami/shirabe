@@ -43,6 +43,9 @@
 #          never calls run-verification.sh;
 #        - koto refuses a VERIFICATION outside its values and a reason that is
 #          a bare flag;
+#        - a child on /execute's shared branch (SHARED_BRANCH set) defers
+#          and records its reason the same way, and its `pr_status: shared`
+#          reaches done whatever the record gate answers (#1017);
 #        - on a `work-on` leg, pr_creation holds a deferred run's
 #          `pr_status: created` while the body lacks the record, then reaches
 #          done with the pull request in the leg's payload once it has it; a
@@ -493,6 +496,48 @@ run_entry qa_validation --var VERIFICATION=sometimes
 case "$STATE" in init-failed*) pass "koto refuses VERIFICATION=sometimes" ;; *) fail "VERIFICATION=sometimes was accepted ($STATE)" ;; esac
 run_entry qa_validation --var VERIFICATION=hosted-ci --var VERIFICATION_DEFERRAL_REASON=--verification-reason
 case "$STATE" in init-failed*) pass "koto refuses a bare flag as the reason" ;; *) fail "a bare flag was accepted as the reason ($STATE)" ;; esac
+
+# --- a child on /execute's shared branch (#1017) ---------------------------------------
+#
+# /execute gives every child task VERIFICATION, VERIFICATION_DEFERRAL_REASON
+# and SHARED_BRANCH. The shared branch changes nothing on the way in: the
+# child defers and records the reason like a standalone run. On the way out it
+# opens no pull request: `pr_status: shared` goes to done without the record
+# gate, so the reason reaches the shared PR only through /execute's
+# pr_finalization (skills/execute/scripts/shared-deferral-record_test.sh).
+
+echo "--- a deferred child on a shared branch"
+
+reset_rc
+run_entry qa_validation --var SHARED_BRANCH=impl/shared --var VERIFICATION=hosted-ci \
+    --var "VERIFICATION_DEFERRAL_REASON=$REASON"
+eq "shared branch, hosted-ci: reaches finalization" finalization "$STATE"
+eq "shared branch, hosted-ci: the reason is in context as verification_deferral" "$REASON" "$(ctx verification_deferral)"
+eq "shared branch, hosted-ci: run-verification.sh is never called" 0 "$(calls run-verification.sh)"
+
+N=$((N + 1))
+DIR="$WORKDIR/s$N"
+S="vd-shared-$N"
+mkdir -p "$DIR"
+build "$DIR/fixture.md" verification-deferral-fixture pr_creation \
+    "pr_creation done done_blocked" closing_keyword=0
+reset_rc
+set_rc check-pr-output.sh--deferral-record 1
+if (cd "$REPO" && koto init "$S" --template "$DIR/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" \
+    --var SHARED_BRANCH=impl/shared --var VERIFICATION=hosted-ci \
+    --var "VERIFICATION_DEFERRAL_REASON=$REASON") >"$DIR/init.out" 2>&1; then
+    : > "$LOG"
+    (cd "$REPO" && koto next "$S" --no-cleanup --with-data '{"go":"pr"}') >"$DIR/tick1.out" 2>&1
+    (cd "$REPO" && koto next "$S" --no-cleanup --with-data '{"pr_status":"shared"}') >"$DIR/tick2.out" 2>&1
+    STATE=$( (cd "$REPO" && koto status "$S" 2>/dev/null) | jq -r '.current_state // "none"')
+    # The record gate answers 1 (no record in any body) and the child still
+    # ends: the shared edge doesn't read it, which is why the shared PR needs
+    # a check of its own.
+    eq "shared branch, hosted-ci, no record anywhere: pr_status shared ends the child at done" "done" "$STATE"
+else
+    fail "shared branch pr_creation fixture: koto init: $(head -c 300 "$DIR/init.out")"
+fi
+reset_rc
 
 # --- the leg -------------------------------------------------------------------------
 

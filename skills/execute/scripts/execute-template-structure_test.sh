@@ -52,6 +52,12 @@
 #     REVIEW_FLOOR and REVIEW_CEILING when they are set, and exactly the tasks
 #     it built before (SHARED_BRANCH and PLUGIN_ROOT added, nothing else) when
 #     they are empty; one set and one empty adds only the set one
+#   VERIFICATION (local by default, or hosted-ci) and
+#     VERIFICATION_DEFERRAL_REASON are optional and not rebind, as in
+#     work-on.md; the spawn gives every child task both when VERIFICATION is
+#     hosted-ci and neither when it is local; pr_finalization's two forward
+#     edges need deferral_recorded at 0, and its command passes both
+#     variables to shared-deferral-record.sh
 #
 # and, so the checks are known to bite, that each fails on a mutated copy: an
 # assignment writing home_pr, an overridable merge_intent gate, an edge into
@@ -123,6 +129,10 @@ CHECKS=(
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""
 "REVIEW_FLOOR and REVIEW_CEILING are optional, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
+"VERIFICATION is optional, local by default, values [local, hosted-ci], not rebind|.variables.VERIFICATION | ((.required // false) == false and .default == \"local\" and .values == [\"local\",\"hosted-ci\"] and (.rebind // false) == false)"
+"VERIFICATION_DEFERRAL_REASON is optional, starts with a letter or digit, not rebind|.variables.VERIFICATION_DEFERRAL_REASON | ((.required // false) == false and .pattern == \"^([a-zA-Z0-9].*)?\$\" and (.rebind // false) == false)"
+"pr_finalization's two forward edges need deferral_recorded at 0|[.states.pr_finalization.transitions[] | select(.target == \"paused_for_review\" or .target == \"plan_completion\") | .when[\"gates.deferral_recorded.exit_code\"] == 0] | (length == 2 and all)"
+"deferral_recorded runs shared-deferral-record.sh with the run's two variables|(.states.pr_finalization.gates.deferral_recorded.command // \"\") | (contains(\"/skills/execute/scripts/shared-deferral-record.sh\\\" --session execute-\") and contains(\"--verification \\\"\") and contains(\"--reason \\\"\"))"
 "worktree_sync merges origin/main in|.states.worktree_sync.default_action.command == \"git merge --no-edit origin/main\""
 "no default action or gate runs git rebase|[.states[] | ((.default_action.command // \"\"), ((.gates // {})[] | (.command // \"\"))) | contains(\"git rebase\")] | any | not"
 "worktree_sync's gate tests ancestry with no merge in progress|(.states.worktree_sync.gates.current_with_main.command // \"\") | (contains(\"/skills/work-on/scripts/check-branch-output.sh\\\" --synced\") and (contains(\"--base-ref\") | not))"
@@ -179,10 +189,13 @@ else
     pass "spawn_and_await's directive has one TASKS_WITH_BRANCH line"
 fi
 FIXTURE_TASKS='[{"name":"a","vars":{"ISSUE_SOURCE":"plan_outline","ARTIFACT_PREFIX":"a","ISSUE_TYPE":"code"},"waits_on":[]},{"name":"b","vars":{"ISSUE_SOURCE":"plan_outline","ARTIFACT_PREFIX":"b","ISSUE_TYPE":"docs"},"waits_on":["a"]}]'
-# spawn_tasks <floor> <ceiling> -> the task array the rendered line builds
+# spawn_tasks <floor> <ceiling> [<verification> <reason>] -> the task array the
+# rendered line builds. VERIFICATION renders as its default, local, when not
+# given, as koto renders an unset variable with a default.
 spawn_tasks() {
     local line
-    line=$(printf '%s' "$SPAWN_LINE" | sed -e "s/{{REVIEW_FLOOR}}/$1/g" -e "s/{{REVIEW_CEILING}}/$2/g")
+    line=$(printf '%s' "$SPAWN_LINE" | sed -e "s/{{REVIEW_FLOOR}}/$1/g" -e "s/{{REVIEW_CEILING}}/$2/g" \
+        -e "s/{{VERIFICATION}}/${3:-local}/g" -e "s/{{VERIFICATION_DEFERRAL_REASON}}/${4:-}/g")
     TASKS="$FIXTURE_TASKS" SETTLED_BRANCH=impl/x CLAUDE_PLUGIN_ROOT=/plugin \
         bash -c "$line"' && printf "%s" "$TASKS_WITH_BRANCH"'
 }
@@ -199,6 +212,17 @@ GOT=$(spawn_tasks light "" | jq -c '[.[] | .vars | [has("REVIEW_FLOOR"), has("RE
 spawn_eq "a floor without a ceiling: only REVIEW_FLOOR is set" '[[true,false,"light"],[true,false,"light"]]' "$GOT"
 GOT=$(spawn_tasks "" full | jq -c '[.[] | .vars | [has("REVIEW_FLOOR"), .REVIEW_CEILING]]')
 spawn_eq "a ceiling without a floor: only REVIEW_CEILING is set" '[[false,"full"],[false,"full"]]' "$GOT"
+# The verification deferral (#1017): hosted-ci gives every child both
+# variables; local, the default, gives none, so the tasks are the old ones.
+GOT=$(spawn_tasks "" "" hosted-ci "host is in a measurement window until 02:40Z" \
+    | jq -c '[.[] | [.vars.VERIFICATION, .vars.VERIFICATION_DEFERRAL_REASON]]')
+spawn_eq "a deferred run: every child task carries VERIFICATION=hosted-ci and the reason" \
+    '[["hosted-ci","host is in a measurement window until 02:40Z"],["hosted-ci","host is in a measurement window until 02:40Z"]]' "$GOT"
+GOT=$(spawn_tasks "" "" local "" | jq -c '.')
+spawn_eq "a run with VERIFICATION=local: the tasks are exactly the ones built before the deferral existed" "$WANT" "$GOT"
+GOT=$(spawn_tasks standard "" hosted-ci "CI only" | jq -c '[.[] | .vars | [.REVIEW_FLOOR, .VERIFICATION, .VERIFICATION_DEFERRAL_REASON, .SHARED_BRANCH]]')
+spawn_eq "a bound and a deferral together: each child carries both" \
+    '[["standard","hosted-ci","CI only","impl/x"],["standard","hosted-ci","CI only","impl/x"]]' "$GOT"
 
 # --- each check bites -----------------------------------------------------------
 #
