@@ -122,8 +122,11 @@ Two more flags, on both paths:
   the shared PR's body records the deferral: that local verification did not
   run, the reason verbatim, and that hosted CI is the build of record, in the
   section `/work-on`'s `phase-6-pr.md` gives. Unlike the bound, both are fixed
-  for the run, as in `/work-on`: a resume that leaves them out keeps them, and
-  one that passes another value is koto's refusal. A reason uses only letters,
+  for a live run, as in `/work-on`: a resume that attaches to it and leaves them
+  out keeps them, and one that passes another value is koto's refusal. A
+  finished run that `/execute` replaces (the finalize resume of a
+  `paused_for_review` run among them) starts from this invocation's flags
+  alone, so pass the same two flags again there. A reason uses only letters,
   digits, spaces and `. _ / : @ + -` and starts with a letter or digit, for
   example `--verification-reason=host is in a measurement window until
   02:40Z`. On a coordinated PLAN either flag is refused before any koto call
