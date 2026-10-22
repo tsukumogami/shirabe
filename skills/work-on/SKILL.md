@@ -315,10 +315,13 @@ than the one you're working in (an `owner/repo#N` or a URL, as **Input Resolutio
 says), add `--var ISSUE_REPO=<owner/repo>` to the issue-backed init, with the owner and
 repository from the reference. Leave it off for an issue in this repository, which is
 every bare `#N`: an empty `ISSUE_REPO` is the run as it was before the variable
-existed. With it set, `extract-context.sh` and the review packet
-(`review-packet.sh --issue`) read the issue from that repository on their own, from the
-session, and `pr_creation`'s `closing_keyword` gate asks for `Fixes <owner/repo>#<N>`
-and refuses a bare `#<N>`, which would close this repository's issue `<N>` on merge.
+existed. The state directives then give `extract-context.sh` and the review packet
+(`review-packet.sh --issue`) the value as `--issue-repo`, so both read the issue from
+that repository; pass the flag as the directive writes it, empty or not. Neither
+script looks the value up or falls back to this repository without it.
+`pr_creation`'s `closing_keyword` gate asks for `Fixes <owner/repo>#<N>` and refuses
+any closing reference to this repository's issue `<N>`, which would close on merge: a
+bare `#<N>`, this repository's `owner/repo#<N>`, or its issue URL.
 koto refuses a value that isn't `owner/repo` (`invalid_var`); report the refusal and
 stop. For example:
 
@@ -522,7 +525,8 @@ leg, since one leg answers one session.
 - `scripts/check-closing-keyword.sh --issue <N> --repo <owner/repo>` — run by
   koto, never by the agent, as `pr_creation`'s `closing_keyword` gate when the
   run has `ISSUE_REPO`: 0 when the body closes the issue with
-  `<keyword> <owner/repo>#<N>`, 1 when it doesn't, carries a bare `#<N>` for an
+  `<keyword> <owner/repo>#<N>`, 1 when it doesn't, also closes issue `<N>` of the
+  pull request's own repository (`#<N>`, `owner/repo#<N>` or its URL) for an
   issue elsewhere, or the pull request can't be read, 2 usage. With
   `ISSUE_REPO` empty the gate's own expression runs and this script doesn't.
   `scripts/closing-keyword-gate_test.sh` is its harness.

@@ -2,7 +2,7 @@
 # extract-context.sh - Extract and inject design context for a GitHub issue
 # Part of /work-on Phase 0: Context Injection
 #
-# Usage: ./extract-context.sh <issue-number> --session <name>
+# Usage: ./extract-context.sh <issue-number> --session <name> --issue-repo <owner/repo>
 #
 # This script performs the complete context injection:
 # 1. Searches for design docs containing this issue
@@ -19,23 +19,26 @@
 #                     on PATH, the script prints a failed JSON summary
 #                     (context_available false) whose warning names koto, and
 #                     stores nothing.
+#   --issue-repo <owner/repo>
+#                     The repository the issue lives in: the run's ISSUE_REPO,
+#                     which the context_injection directive passes as written.
+#                     Required, and empty for an issue in this repository.
+#                     Missing, or not owner/repo, is a failed JSON summary
+#                     that stores nothing, never a guess at this repository:
+#                     reading the wrong repository's issue N would put another
+#                     issue's acceptance criteria in front of the run.
 #
-# An issue in another repository: when the session was created with
-# ISSUE_REPO (owner/repo), the issue is read from that repository with
+# An issue in another repository (a non-empty --issue-repo) is read with
 # `gh issue view <N> --repo <owner/repo>`, and this repository's design docs
-# are not searched, since a `#N` in them names this repository's issue N. The
-# value is read from the session's koto state log, the way review-packet.sh
-# reads ISSUE_SOURCE, so no caller passes it. A log that can't be read leaves
-# ISSUE_REPO empty, reads the issue from this repository as before, and says
-# so on stderr.
+# are not searched, since a `#N` in them names this repository's issue N.
 #
 # Environment:
 #   KOTO_BIN          The koto binary to run (default: koto on PATH).
 #
 # Exit codes:
 #   0 - Every outcome the JSON summary reports: success, degraded, and failed,
-#       including a missing issue number or session, no koto, and a failed
-#       koto context add
+#       including a missing issue number, session or issue repository, no
+#       koto, and a failed koto context add
 #   non-zero - an unexpected error under set -e, with no JSON summary
 #
 # Output: Human-readable display followed by JSON summary
@@ -55,8 +58,6 @@
 #   json_success()          - Emit success JSON summary
 #   json_failed()           - Emit failure JSON summary
 #   check_prerequisites()   - Verify gh and jq are available
-#   session_issue_repo()    - Read the session's ISSUE_REPO from its koto state log
-#   resolve_issue_repo()    - Set ISSUE_REPO from the session, or say why not
 #   find_design_doc()       - Search docs/ for design doc referencing the issue
 #   parse_table_agent()     - Parse implementation issues table via agent
 #   parse_table_regex()     - Parse implementation issues table via regex fallback
@@ -71,8 +72,9 @@ set -euo pipefail
 declare -a WARNINGS
 STATUS="success"
 SESSION=""
-# The issue's repository, from the session; empty for a same-repository run.
+# The issue's repository, from --issue-repo; empty for a same-repository run.
 ISSUE_REPO=""
+ISSUE_REPO_GIVEN=0
 # The koto binary, overridable for tests the way the sibling state scripts allow.
 KOTO="${KOTO_BIN:-koto}"
 
@@ -153,38 +155,6 @@ check_prerequisites() {
   if ! gh auth status &>/dev/null; then
     json_failed "gh CLI not authenticated"
     exit 0
-  fi
-}
-
-# Print the ISSUE_REPO variable the session was created with (empty when it
-# has none), read from the workflow_initialized event in its koto state log.
-# Returns 1 when the log can't be found or read, or has a header this reader
-# doesn't know, so the caller can say the lookup failed. koto's and jq's own
-# errors go to stderr, beside the caller's message.
-session_issue_repo() {
-  local dir log first
-  dir=$("$KOTO" session dir "$SESSION" </dev/null) || return 1
-  log="$dir/koto-$SESSION.state.jsonl"
-  [ -r "$log" ] || return 1
-  first=$(head -n 1 "$log")
-  [ "$(jq -c '.schema_version' <<<"$first")" = 1 ] || return 1
-  jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_REPO // empty' \
-    "$log" | sed -n 1p
-}
-
-# Set ISSUE_REPO from the session. koto checks the variable's pattern at init;
-# the check is repeated because the value reaches a gh argument.
-resolve_issue_repo() {
-  local repo re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
-  if ! repo=$(session_issue_repo); then
-    echo "extract-context: could not read ISSUE_REPO from session ${SESSION}'s state log; reading the issue from this repository" >&2
-    return 0
-  fi
-  [ -n "$repo" ] || return 0
-  if [[ $repo =~ $re ]]; then
-    ISSUE_REPO="$repo"
-  else
-    echo "extract-context: session ${SESSION} has ISSUE_REPO [$repo], which is not owner/repo; reading the issue from this repository" >&2
   fi
 }
 
@@ -356,7 +326,6 @@ main() {
   local issue="$1"
 
   check_prerequisites
-  resolve_issue_repo
 
   # 1. Find design doc. An issue in another repository skips the search: this
   # repository's design docs number its own issues, so a `#N` there is not it.
@@ -454,6 +423,17 @@ while [ $# -gt 0 ]; do
       shift
       [ $# -gt 0 ] && shift
       ;;
+    --issue-repo)
+      # An empty value is a real answer (this repository), so whether a value
+      # came at all is kept apart from the value. A trailing flag with no
+      # argument after it gave none.
+      if [ $# -ge 2 ]; then
+        ISSUE_REPO_GIVEN=1
+        ISSUE_REPO="$2"
+        shift
+      fi
+      shift
+      ;;
     *)
       ISSUE="$1"
       shift
@@ -470,6 +450,19 @@ fi
 # koto to reach it with, is a failure the caller reads from the JSON.
 if [ -z "$SESSION" ]; then
   json_failed "No session given (--session <name>)" "koto session required: this script stores context in koto and writes no file, and no session name was given"
+  exit 0
+fi
+# No guess at the issue's repository: the template knows it, so a caller that
+# leaves it out, or passes something that isn't owner/repo, stops here. koto
+# checks ISSUE_REPO's pattern at init; it is checked again because the value
+# reaches a gh argument.
+if [ "$ISSUE_REPO_GIVEN" -eq 0 ]; then
+  json_failed "No issue repository given (--issue-repo <owner/repo>, empty for this repository)" "the issue's repository is required: pass the run's ISSUE_REPO as the context_injection directive gives it"
+  exit 0
+fi
+RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+if [ -n "$ISSUE_REPO" ] && ! [[ $ISSUE_REPO =~ $RE_REPO ]]; then
+  json_failed "--issue-repo [$ISSUE_REPO] is not owner/repo"
   exit 0
 fi
 if ! command -v "$KOTO" &>/dev/null; then

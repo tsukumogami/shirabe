@@ -15,20 +15,33 @@
 # issue, and merging would close that one. So:
 #
 #   - `<keyword> <ISSUE_REPO>#N` passes;
-#   - a bare `<keyword> #N` passes only when ISSUE_REPO is the pull request's
-#     own repository (read from the URL `gh pr view` reports); when the issue
-#     is elsewhere a bare reference fails the gate, even next to the
-#     qualified one, because it would still close the wrong issue;
+#   - when ISSUE_REPO is the pull request's own repository (read from the URL
+#     `gh pr view` reports), a bare `<keyword> #N` passes too;
+#   - when the issue is elsewhere, any closing reference to issue N of the
+#     pull request's own repository fails the gate, even next to the
+#     qualified one, because merging would still close that issue: a bare
+#     `#N`, `<PR repo>#N`, and `https://<host>/<PR repo>/issues/N`. So a pull
+#     request can't close issue N in both repositories at once; close the
+#     local one by hand;
 #   - a qualified reference to any other repository doesn't count.
 #
 # The keywords are the gate's own: close, closes, closed, fix, fixes, fixed,
-# resolve, resolves, resolved, in any case. The repository is matched
-# literally: its `.` is escaped before it reaches the expression (`.github`
-# must not match `xgithub`), the keyword and the reference are separated by
-# whitespace only, so nothing can stand in front of the owner, and `#N` must
-# not run into more digits (`#12` is not `#123`). The qualified form also
-# needs the keyword to start a word, so `prefixes owner/repo#N` doesn't count;
-# the bare form is kept exactly as the gate's inline expression has it.
+# resolve, resolves, resolved, in any case. GitHub's documentation also lets
+# a colon follow the keyword (`Closes: #10`), so every form here takes one.
+#
+# The two sides read the space after the keyword differently, on purpose. A
+# reference that passes needs whitespace after the optional colon, the forms
+# GitHub documents. A reference that fails needs only a colon or whitespace
+# (`Fixes:#42` counts), because missing one of those closes the wrong issue
+# while refusing one too many costs a reworded line.
+#
+# The repository is matched literally: its `.` is escaped before it reaches
+# the expression (`.github` must not match `xgithub`), the separator after the
+# keyword holds no other character, so nothing can stand in front of the
+# owner, and `#N` must not run into more digits (`#12` is not `#123`). The
+# qualified form that passes also needs the keyword to start a word, so
+# `prefixes owner/repo#N` doesn't count; the forms that fail don't, so
+# `prefixes #N` fails too, erring toward refusing as above.
 #
 # Usage: check-closing-keyword.sh --issue <N> --repo <owner/repo>
 #
@@ -91,19 +104,32 @@ case "$OUT" in
     *)       BODY="" ;;
 esac
 
-# https://<host>/<owner>/<repo>/pull/<n> -> <owner>/<repo>
-PR_REPO=$(printf '%s\n' "${URL#*://}" | awk -F/ 'NF == 5 && $4 == "pull" { print $2 "/" $3 }')
-[ -n "$PR_REPO" ] || refuse "could not read the pull request's repository from [$URL]"
+# https://<host>/<owner>/<repo>/pull/<n> -> <host> <owner>/<repo>
+read -r PR_HOST PR_REPO \
+    <<<"$(printf '%s\n' "${URL#*://}" | awk -F/ 'NF == 5 && $4 == "pull" { print $1 " " $2 "/" $3 }')"
+# Both reach an expression below, so each must be the plain name it should be.
+RE_HOST='^[A-Za-z0-9.-]+(:[0-9]+)?$'
+[[ $PR_REPO =~ $RE_REPO ]] && [[ $PR_HOST =~ $RE_HOST ]] \
+    || refuse "could not read the pull request's repository from [$URL]"
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
+# `.` is the one character a host or the repository pattern allows that means
+# something in an extended expression. sed rather than ${REPO//./...}, whose
+# backslash handling in the replacement differs between bash 3.2 and 5.2.
+literal() { printf '%s' "$1" | sed 's/\./\\./g'; }
+
 KW='(close[sd]?|fix(es|ed)?|resolve[sd]?)'
-# `.` is the one character the repository pattern allows that means something
-# in an extended expression. sed rather than ${REPO//./...}, whose backslash
-# handling in the replacement differs between bash 3.2 and 5.2.
-REPO_RE=$(printf '%s' "$REPO" | sed 's/\./\\./g')
-BARE="${KW}[[:space:]]+#${ISSUE}([^0-9]|\$)"
-QUALIFIED="(^|[^[:alnum:]_])${KW}[[:space:]]+${REPO_RE}#${ISSUE}([^0-9]|\$)"
+# After the keyword: what a passing reference needs, and the wider separator
+# that makes a reference to the wrong issue fail (see the header).
+SEP_PASS=':?[[:space:]]+'
+SEP_FAIL='(:[[:space:]]*|[[:space:]]+)'
+END="([^0-9]|\$)"
+BARE="${KW}${SEP_PASS}#${ISSUE}${END}"
+QUALIFIED="(^|[^[:alnum:]_])${KW}${SEP_PASS}$(literal "$REPO")#${ISSUE}${END}"
+# Issue N of the pull request's own repository, in each form that closes it.
+PR_REPO_RE=$(literal "$PR_REPO")
+OWN="${KW}${SEP_FAIL}(#|${PR_REPO_RE}#|https?://$(literal "$PR_HOST")/${PR_REPO_RE}/issues/)${ISSUE}${END}"
 
 # A here-string rather than a pipe: grep -q stops at the first match, and a
 # writer still filling the pipe would then fail.
@@ -117,8 +143,8 @@ if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     refuse "the body has no closing keyword for #$ISSUE: add Fixes #$ISSUE"
 fi
 
-if has "$BARE"; then
-    refuse "a bare closing reference to #$ISSUE closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the bare one"
+if has "$OWN"; then
+    refuse "a closing reference to #$ISSUE, $PR_REPO#$ISSUE or its issue URL closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one"
 fi
 has "$QUALIFIED" && exit 0
 refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"

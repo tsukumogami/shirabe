@@ -17,7 +17,10 @@
 #                                           working directory, and no
 #                                           context_file field
 #
-# It also checks the script's header and source carry no context_file.
+# It also checks the script's header and source carry no context_file, and
+# that the issue's repository comes from --issue-repo alone: a value reads the
+# issue there, an empty one reads it here, and a missing or malformed one is a
+# failed summary with no gh call.
 #
 # Usage: extract-context_test.sh
 #
@@ -93,7 +96,7 @@ echo
 run_script 123
 check_failed_json "without --session"
 
-run_script 123 --session some-session
+run_script 123 --session some-session --issue-repo ""
 check_failed_json "with --session and no koto on PATH"
 
 # A trailing --session with no value: the flag is consumed alone, set -e does
@@ -123,24 +126,23 @@ exit 1
 EOF
 chmod +x "$STUBS/gh" "$STUBS/koto"
 RC=0
-OUT=$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session 2>/dev/null) || RC=$?
+OUT=$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session --issue-repo "" 2>/dev/null) || RC=$?
 JSON=$(printf '%s\n' "$OUT" | sed -n '/^{/,$p')
 OUT="$JSON"
 check_failed_json "a koto context add that fails"
-if grep -q 'Context stored' <<<"$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session 2>/dev/null)"; then
+if grep -q 'Context stored' <<<"$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session --issue-repo "" 2>/dev/null)"; then
     fail "a koto context add that fails: the 'Context stored' banner printed anyway"
 else
     pass "a koto context add that fails: no 'Context stored' banner"
 fi
 
-# An issue in another repository. A koto stub answers `session dir` from a
-# directory holding the session's state log, as koto lays it out, and stores
-# `context add` into a file; a gh stub logs every call. The working directory
-# holds a design doc that names #123, so a run that searched this repository's
-# docs would find it.
+# An issue in another repository, named by --issue-repo. A koto stub logs
+# every call and stores `context add` into a file; a gh stub logs every call.
+# The working directory holds a design doc that names #123, so a run that
+# searched this repository's docs would find it. No session has a state log:
+# the repository comes from the flag and nowhere else.
 XREPO="$WORKDIR/xrepo"
-SESSIONS="$WORKDIR/sessions"
-mkdir -p "$XREPO/docs" "$SESSIONS"
+mkdir -p "$XREPO/docs"
 printf '# DESIGN: local\n\n| [#123: a local issue](x) | None | simple |\n' > "$XREPO/docs/DESIGN-local.md"
 cat >"$STUBS/gh-log" <<'EOF'
 #!/usr/bin/env bash
@@ -153,8 +155,8 @@ esac
 EOF
 cat >"$STUBS/koto-store" <<'EOF'
 #!/usr/bin/env bash
+echo "$*" >> "$KOTO_LOG"
 case "$1 $2" in
-    "session dir") echo "$KOTO_SESSIONS/$3" ;;
     "context add") cat > "$KOTO_STORED" ;;
     *) exit 2 ;;
 esac
@@ -163,30 +165,22 @@ chmod +x "$STUBS/gh-log" "$STUBS/koto-store"
 mkdir -p "$WORKDIR/ghbin"
 ln -sf "$STUBS/gh-log" "$WORKDIR/ghbin/gh"
 
-# state_log <session> <variables-json>: the header line, then
-# workflow_initialized with the session's variables.
-state_log() {
-    mkdir -p "$SESSIONS/$1"
-    printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":%s}}\n' \
-        "$1" "$2" > "$SESSIONS/$1/koto-$1.state.jsonl"
-}
-state_log xrepo '{"ISSUE_NUMBER":"123","ISSUE_REPO":"acme/tracker"}'
-state_log samerepo '{"ISSUE_NUMBER":"123"}'
-
-# run_xrepo <session>: sets OUT (the JSON summary), RC, GH_CALLS, STORED.
+# run_xrepo <arg>...: run the script on issue 123 with the given arguments
+# after it; sets OUT (the JSON summary), RC, GH_CALLS, KOTO_CALLS, STORED.
 run_xrepo() {
-    local log="$WORKDIR/gh.log" stored="$WORKDIR/stored"
-    rm -f "$log" "$stored"
+    local log="$WORKDIR/gh.log" klog="$WORKDIR/koto.log" stored="$WORKDIR/stored"
+    rm -f "$log" "$klog" "$stored"
     RC=0
-    OUT=$(cd "$XREPO" && GH_LOG="$log" KOTO_SESSIONS="$SESSIONS" KOTO_STORED="$stored" \
+    OUT=$(cd "$XREPO" && GH_LOG="$log" KOTO_LOG="$klog" KOTO_STORED="$stored" \
         KOTO_BIN="$STUBS/koto-store" PATH="$BIN:$WORKDIR/ghbin:/usr/bin:/bin" \
-        "$BASH" "$SCRIPT" 123 --session "$1" 2>/dev/null) || RC=$?
+        "$BASH" "$SCRIPT" 123 "$@" 2>/dev/null) || RC=$?
     OUT=$(printf '%s\n' "$OUT" | sed -n '/^{/,$p')
     GH_CALLS=$(cat "$log" 2>/dev/null)
+    KOTO_CALLS=$(cat "$klog" 2>/dev/null)
     STORED=$(cat "$stored" 2>/dev/null)
 }
 
-run_xrepo xrepo
+run_xrepo --session xrepo --issue-repo acme/tracker
 expect "cross-repo: exits 0" "0" "$RC"
 expect "cross-repo: status is degraded" "degraded" "$(printf '%s' "$OUT" | jq -r '.status' 2>/dev/null)"
 if grep -qx 'issue view 123 --repo acme/tracker --json body --jq .body' <<<"$GH_CALLS"; then
@@ -200,10 +194,15 @@ if printf '%s' "$OUT" | jq -e '[.warnings[] | select(test("acme/tracker") and te
 else
     fail "cross-repo: no warning names the skipped search: $OUT"
 fi
+if [ "$KOTO_CALLS" = "context add xrepo context.md" ]; then
+    pass "cross-repo: koto is asked only to store the context, never for the session's log"
+else
+    fail "cross-repo: koto calls were [$KOTO_CALLS]"
+fi
 
-# The same-repository run in the same directory finds the local design doc
-# and never passes --repo.
-run_xrepo samerepo
+# The same-repository run in the same directory, with the empty value the
+# template passes, finds the local design doc and never passes --repo.
+run_xrepo --session samerepo --issue-repo ""
 expect "same-repo: exits 0" "0" "$RC"
 if ! grep -q -- '--repo' <<<"$GH_CALLS"; then
     pass "same-repo: no gh call names a repository"
@@ -216,14 +215,31 @@ else
     fail "same-repo: the stored context does not come from the local design doc: $STORED"
 fi
 
-# A session whose log can't be found reads the issue from this repository,
-# as before ISSUE_REPO existed.
-run_xrepo no-such-session
-if [ "$RC" = 0 ] && ! grep -q -- '--repo' <<<"$GH_CALLS"; then
-    pass "no readable session log: the issue is read from this repository"
+# Without a usable --issue-repo the script never guesses this repository: it
+# reports failed, reads no issue and stores nothing.
+check_no_guess() { # check_no_guess <label>
+    local label="$1"
+    expect "$label: exits 0" "0" "$RC"
+    expect "$label: status is failed" "failed" "$(printf '%s' "$OUT" | jq -r '.status' 2>/dev/null)"
+    expect "$label: no gh call" "" "$GH_CALLS"
+    expect "$label: nothing stored" "" "$STORED"
+}
+run_xrepo --session xrepo
+check_no_guess "no --issue-repo"
+if printf '%s' "$OUT" | jq -e '.error | test("--issue-repo")' >/dev/null 2>&1; then
+    pass "no --issue-repo: the error names the flag"
 else
-    fail "no readable session log: exit $RC, gh calls [$GH_CALLS]"
+    fail "no --issue-repo: the error does not name the flag: $OUT"
 fi
+run_xrepo --session xrepo --issue-repo
+check_no_guess "a trailing --issue-repo with no value"
+run_xrepo --session xrepo --issue-repo acme
+check_no_guess "an --issue-repo that is not owner/repo"
+run_xrepo --session xrepo --issue-repo 'acme/tr;cker'
+check_no_guess "an --issue-repo with a character outside owner/repo"
+run_xrepo --session xrepo --issue-repo 'acme/tracker
+evil/x'
+check_no_guess "an --issue-repo with a newline"
 
 # The header, usage line and JSON contract carry no fallback. The old file's
 # name is built from two pieces so this file doesn't name it either.
