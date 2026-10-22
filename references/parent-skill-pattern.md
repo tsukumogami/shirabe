@@ -418,9 +418,13 @@ itself, so no parent writes the file.
 **`team_primitive`.** How a parent's team is spawned and how nested teams
 are handled.
 
-- **v1 value:** `single-team-per-leader-no-nested` — a single team per
-  leader, no nested team creation, no sub-agent spawning sub-agents. Three
-  operational consequences follow from this value:
+- **v1 value:** `unit-agent-spawns-own-reviewers` — an agent driving one
+  unit of a run (a step agent driving one `/work-on` child under `/execute`'s
+  lead shape, a scope agent, or the session itself) may spawn that unit's own
+  reviewers, jurors and research agents, and those agents spawn nothing. Spawn
+  depth stops at two: the session starts a unit's agent, the unit's agent
+  starts its reviewers. Three operational consequences follow from this
+  value:
   1. **Inline-decision walks.** A parent that decomposes a problem into N
      decision questions cannot spawn N persistent validator sub-teams; each
      decision-researcher walks the decision protocol inline.
@@ -452,7 +456,7 @@ includes:
 
 The shape declaration is **contract**; the **spawn timing** is
 substrate-specific (determined by `team_primitive`). v1's
-`single-team-per-leader-no-nested` requires the parent-of-the-parent to
+`unit-agent-spawns-own-reviewers` requires the parent-of-the-parent to
 materialize the full roster at team-creation time. Amplifier-layer
 implementations MAY support lazy spawning by the coordinator, but the
 shape declaration remains the same.
@@ -548,7 +552,7 @@ the dispatch mechanism as Layer-1 and its binding as Layer-2, so a
 second binding is what the split was built for; naming the third
 parent a variance would read a conforming parent as an exception and
 would put the pattern's own layering to no use. Both bindings sit
-under `team_primitive: single-team-per-leader-no-nested`, and all
+under `team_primitive: unit-agent-spawns-own-reviewers`, and all
 three parents are single-agent at their own layer. The four remaining
 elements are written against the inline binding because it came
 first; where they name the Skill-tool call, read it as the dispatch

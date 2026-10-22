@@ -185,7 +185,7 @@ rather than re-authoring the body.
 
 The "Analyzer actor" column reflects the team-primitive substitution
 surface (see `parent-skill-pattern.md`). In v1's
-`single-team-per-leader-no-nested` substrate, the parent skill is
+`unit-agent-spawns-own-reviewers` substrate, the parent skill is
 single-agent and does the impact analysis itself. In an amplifier-
 layer substrate where the parent can dispatch sub-agents, the
 analysis can be delegated to a worktree-sync-analyzer sub-agent that

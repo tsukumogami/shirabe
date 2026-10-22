@@ -294,6 +294,38 @@ not it carried the flag, so the per-child record a `needs_attention` batch most
 wants is readable afterwards: `koto status <child>` for where it stopped, and
 `koto context get <child> failure_reason` for why.
 
+### The lead shape
+
+A single-pr run takes the lead shape: the owning session, the one ticking
+`execute-<plan-slug>`, hands each `/work-on` child to its own step agent and
+spends its own context on the plan, not on the steps. The step agent is a
+subagent started in the foreground, in this checkout, from the one hand-off
+template in
+[`references/step-agent-handoff.md`](references/step-agent-handoff.md), and it
+drives its child from where it stands to its terminal, panels included. The
+owning session never runs `koto next` on a child.
+
+Steps go one at a time, in PLAN order, even when `waits_on` would let two start
+together. The next step starts only after `koto status` on the previous child
+shows a terminal; the step agent's report never decides that. Before each step
+after the first, after the previous step's child reaches its terminal and
+before the next step's agent starts, the owning session details that step: it
+reads what the previous step landed, rewrites the step's entry in the PLAN to
+match it, commits that one path on the shared branch, and records the entry as
+`step_refine/<step>.md` in `execute-<plan-slug>`. No step agent edits a step's
+entry. The `spawn_and_await` directive in `koto-templates/execute.md` carries
+the whole loop: the report's two fixed lines, the one retry for a child left
+non-terminal, the outline case, and what counts as data.
+
+**Lost context?** After a compaction, run `koto status` on `execute-<topic>`,
+on each child (`koto workflows --children execute-<topic>` names them), and,
+under `/deliver`, on `deliver-<topic>`, before the next action, and go on from
+the state each reports. Step agents run in the foreground, so none is still
+running once the owning session acts again: a non-terminal child goes to a new
+step agent, which resumes it from its current state. An outline child at
+`validation_exit` is detailed, rewound with `koto rewind <child>`, and handed
+off to a step agent.
+
 ## Coordinated Execution Path
 
 A `coordinated` PLAN spans one or more repositories. Its work is split into PR

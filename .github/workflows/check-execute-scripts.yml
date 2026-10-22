@@ -43,6 +43,8 @@ on:
       - 'scripts/skill-session.sh'
       - 'skills/coordinate/scripts/testdata/cloud-hosts.sh'
       - 'skills/coordinate/scripts/testdata/fake-s3.py'
+      # lead-shape-text_test.sh pins the nesting rule's team_primitive value.
+      - 'references/parent-skill-pattern.md'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-execute-scripts.yml'
 
@@ -86,6 +88,13 @@ jobs:
       - name: Check merged wording (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/check-merged-wording.sh
+
+      # The lead shape lives in directive prose, so its phrases are pinned in
+      # SKILL.md, execute.md's spawn_and_await, the step-agent hand-off and the
+      # nesting rule. Text only, so it runs before any toolchain installs.
+      - name: Run lead-shape text tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/lead-shape-text_test.sh
 
       - name: Run cascade tests (Linux)
         if: runner.os == 'Linux'
