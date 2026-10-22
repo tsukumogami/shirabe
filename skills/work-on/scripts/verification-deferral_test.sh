@@ -34,6 +34,11 @@
 #        - the same states with the default `local` enter verification, whose
 #          action calls run-verification.sh --start, and reach finalization on
 #          its verdict;
+#        - issue_type_routing's docs and task edges the same way, both ways,
+#          from a fixture whose start gates the two context keys the
+#          issue_type decider reads (koto compiles a decider input only when
+#          a context-exists gate checks its key); and a deferred docs run with
+#          no commits holds there;
 #        - hosted-ci with no reason ends at done_blocked, saying why, and
 #          never calls run-verification.sh;
 #        - koto refuses a VERIFICATION outside its values and a reason that is
@@ -280,6 +285,9 @@ echo "--- the routes"
 # $HOME/.koto.
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
+# No decider: issue_type_routing's issue_type then takes the submitted answer
+# as it would with its decider off.
+unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (cd "$REPO" && git init -q . && git config user.email t@example.com && git config user.name t \
@@ -330,6 +338,17 @@ build() {
             printf '%s\n' '    accepts:' '      go:' '        type: enum' '        values: [pr]' \
                 '        required: true' '    transitions:' '      - target: pr_creation' \
                 '        when:' '          go: pr'
+        elif [ "$initial" = issue_type_routing ]; then
+            # issue_type's decider reads context.md and changed_paths.txt, and
+            # koto compiles a decider input only when some context-exists gate
+            # in the template checks its key. In work-on.md context_injection
+            # and changed_paths_record hold those gates; here start does, so
+            # the shipped block goes in unchanged.
+            printf '%s\n' '    gates:' '      issue_context:' '        type: context-exists' \
+                '        key: context.md' '      changed_paths:' '        type: context-exists' \
+                '        key: changed_paths.txt' '    transitions:' '      - target: issue_type_routing' \
+                '        when:' '          gates.issue_context.exists: true' \
+                '          gates.changed_paths.exists: true'
         else
             printf '%s\n' '    transitions:' "      - target: $initial"
         fi
@@ -396,6 +415,67 @@ for src in qa_validation light_review review; do
         pass "$src, default local: nothing records a deferral"
     fi
 done
+
+# run_routing <issue_type> <var>...: builds a fixture from the shipped
+# issue_type_routing, verification, verification_deferred and done_blocked,
+# inits it with the given --var arguments, adds the two keys issue_type's
+# decider reads, ticks into issue_type_routing and submits <issue_type>. Sets
+# S, ROUTED (the state after the first tick) and STATE; the fakes' calls are
+# in $LOG.
+run_routing() {
+    local type="$1"; shift
+    N=$((N + 1))
+    local dir="$WORKDIR/r$N"
+    S="vd-route-$N"
+    mkdir -p "$dir"
+    build "$dir/fixture.md" verification-deferral-fixture issue_type_routing \
+        "issue_type_routing verification verification_deferred done_blocked"
+    : > "$LOG"
+    if ! (cd "$REPO" && koto init "$S" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" "$@") \
+        >"$dir/init.out" 2>&1; then
+        ROUTED=""; STATE="init-failed: $(head -c 300 "$dir/init.out")"; return
+    fi
+    printf '# Issue\n' | (cd "$REPO" && koto context add "$S" context.md) >/dev/null 2>&1
+    printf 'M\tguide.md\n' | (cd "$REPO" && koto context add "$S" changed_paths.txt) >/dev/null 2>&1
+    (cd "$REPO" && koto next "$S" --no-cleanup) >"$dir/tick1.out" 2>&1
+    ROUTED=$( (cd "$REPO" && koto status "$S" 2>/dev/null) | jq -r '.current_state // "none"')
+    (cd "$REPO" && koto next "$S" --no-cleanup --with-data "{\"issue_type\":\"$type\"}") >"$dir/tick2.out" 2>&1
+    STATE=$( (cd "$REPO" && koto status "$S" 2>/dev/null) | jq -r '.current_state // "none"')
+}
+
+# The docs and task edges out of issue_type_routing, driven through koto like
+# the panels' edges above. docs also needs has_commits, which the fake passes.
+reset_rc
+for type in docs task; do
+    run_routing "$type" --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$REASON"
+    eq "$type, hosted-ci: the fixture waits at issue_type_routing for the type" issue_type_routing "$ROUTED"
+    eq "$type, hosted-ci with a reason: reaches finalization" finalization "$STATE"
+    eq "$type, hosted-ci: the reason is in context as verification_deferral" "$REASON" "$(ctx verification_deferral)"
+    eq "$type, hosted-ci: run-verification.sh is never called" 0 "$(calls run-verification.sh)"
+    eq "$type, hosted-ci: check-verification.sh is never called" 0 "$(calls check-verification.sh)"
+
+    run_routing "$type"
+    eq "$type, default local: reaches finalization through verification" finalization "$STATE"
+    n=$(calls "run-verification.sh --start")
+    if [ "$n" -ge 1 ]; then
+        pass "$type, default local: verification's action starts the map"
+    else
+        fail "$type, default local: run-verification.sh --start was not called"
+    fi
+    if (cd "$REPO" && koto context exists "$S" verification_deferral) >/dev/null 2>&1; then
+        fail "$type, default local: verification_deferral is in context"
+    else
+        pass "$type, default local: nothing records a deferral"
+    fi
+done
+
+# The docs twin keeps has_commits: with no commit a deferred docs run holds at
+# issue_type_routing, as a local one does, and still runs nothing.
+set_rc has-commits.sh 1
+run_routing docs --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$REASON"
+eq "docs, hosted-ci, no commits: holds at issue_type_routing" issue_type_routing "$STATE"
+eq "docs, hosted-ci, no commits: run-verification.sh is never called" 0 "$(calls run-verification.sh)"
+reset_rc
 
 run_entry qa_validation --var VERIFICATION=hosted-ci
 eq "hosted-ci with no reason: ends at done_blocked" done_blocked "$STATE"

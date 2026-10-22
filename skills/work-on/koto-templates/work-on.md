@@ -150,7 +150,11 @@ variables:
       Ignored when VERIFICATION is local. A hosted-ci run without it ends at
       done_blocked rather than running the map or skipping it silently. The
       pattern refuses a value that does not start with a letter or digit, so a
-      bare flag can't pass for a reason. Not rebindable, like VERIFICATION.
+      bare flag can't pass for a reason. koto accepts only letters, digits,
+      spaces and . _ / : @ + - in any variable value
+      (^[a-zA-Z0-9._/:@+ \-]*$), so a reason with an apostrophe or a comma is
+      refused as invalid_var; write it without them, for example "host is in a
+      measurement window until 02:40Z". Not rebindable, like VERIFICATION.
     required: false
     pattern: ^([a-zA-Z0-9].*)?$
 

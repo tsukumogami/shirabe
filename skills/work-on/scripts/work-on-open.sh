@@ -70,11 +70,23 @@
 #
 # koto refuses a value outside VERIFICATION's values, and a reason that does
 # not start with a letter or digit (a bare flag among them), as invalid_var.
-# This script refuses one shape itself, since koto can't relate two
-# variables: --verification=hosted-ci with no non-empty --verification-reason
-# exits 64 with error=usage before any koto call, so a run can't defer
-# verification without saying why. Like the bound, both are not rebind: an
-# attach that passes none keeps what the session started with.
+# This script refuses two shapes itself, each with error=usage and exit 64
+# before any koto call:
+#
+#   - --verification=hosted-ci with no non-empty --verification-reason, since
+#     koto can't relate two variables, so a run can't defer verification
+#     without saying why;
+#   - a --verification-reason with a character outside koto's variable
+#     allowlist, ^[a-zA-Z0-9._/:@+ \-]*$: letters, digits, spaces and
+#     . _ / : @ + -. A natural reason such as "host can't run suites, CI only"
+#     has an apostrophe and a comma, and koto's own invalid_var names neither,
+#     so the message names the characters that aren't allowed. This check runs
+#     before the --koto-leg checks, so a caller gets the same answer with or
+#     without the flag. A reason inside the allowlist passes through
+#     unchanged.
+#
+# Like the bound, both variables are not rebind: an attach that passes none
+# keeps what the session started with.
 #
 # PLUGIN_ROOT is added by this script: $CLAUDE_PLUGIN_ROOT, else the plugin
 # root this script ships in. The template is this skill's work-on.md.
@@ -173,6 +185,17 @@ jq -e 'type == "array" and all(.[]; type == "string")' "$TOKENS_FILE" >/dev/null
 TOKENS=$(cat -- "$TOKENS_FILE")
 DIR=$(dirname -- "$TOKENS_FILE")
 rm -f -- "$TOKENS_FILE"
+
+# A deferral reason koto would refuse, refused here first in words a caller can
+# act on. Every occurrence is checked, since every one becomes a pair. The bad
+# characters are listed once each, JSON-quoted, so a newline or a tab shows.
+# The class must stay koto's VALUE_PATTERN (src/engine/substitute.rs).
+BAD_CHARS=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--verification-reason="))
+    | ltrimstr("--verification-reason=") | explode[] | [.] | implode
+    | select(test("^[a-zA-Z0-9._/:@+ -]$") | not)] | unique | map(@json) | join(" ")')
+if [ -n "$BAD_CHARS" ]; then
+    own_refusal "--verification-reason has characters koto does not accept in a variable value: $BAD_CHARS. A reason may use only letters, digits, spaces and . _ / : @ + - (koto's allowlist, ^[a-zA-Z0-9._/:@+ \\-]*\$); apostrophes and commas are not among them. Reword it, for example: --verification-reason=host is in a measurement window until 02:40Z"
+fi
 
 # --koto-leg: exactly once, naming the one leg /work-on answers.
 LEGS=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i

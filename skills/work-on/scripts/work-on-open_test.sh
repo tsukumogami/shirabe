@@ -14,6 +14,11 @@
 #     pairs are exactly ISSUE_NUMBER, ARTIFACT_PREFIX and PLUGIN_ROOT, as
 #     before the flags existed, and no REVIEW_LEVEL is passed for a session
 #     with no ledger
+#     a --verification-reason with a character outside koto's variable
+#     allowlist (an apostrophe, a comma, a newline, a non-ASCII dash) is
+#     refused the same way, with or without --koto-leg and in any occurrence,
+#     and the message names the characters and the rule; a reason using every
+#     allowed punctuation mark passes through unchanged
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     an issue-backed run opened under --koto-leg is bound to the leg, driven
@@ -125,6 +130,44 @@ own_refusal "--koto-leg on a .md file with plan/v2 frontmatter" '["step-plan.md"
 own_refusal "--verification=hosted-ci with no reason" '["7","--verification=hosted-ci","--koto-leg=r1:work-on"]'
 own_refusal "--verification=hosted-ci with an empty reason" '["7","--verification=hosted-ci","--verification-reason=","--koto-leg=r1:work-on"]'
 
+# A reason with a character outside koto's variable allowlist (#1019): refused
+# before any koto call, and the message names the characters, JSON-quoted and
+# sorted, and the rule.
+# reason_refusal <label> <reason> <the characters as the message lists them> [token]...
+# The tokens are "7", the given tokens, then --verification-reason=<reason>.
+reason_refusal() {
+    local label="$1" reason="$2" want="$3"
+    shift 3
+    : > "$WORK/stub.log"
+    tokens "$(jq -nc --arg r "$reason" '$ARGS.positional + ["--verification-reason=" + $r]' --args 7 "$@")"
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
+        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "reason refusal: $label (exit 64, no koto call, tokens file and its directory removed)"
+    else
+        fail "reason refusal: $label: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
+    fi
+    case "$ERR" in
+        *"in a variable value: $want. A reason may use only letters, digits, spaces and . _ / : @ + -"*"apostrophes and commas are not among them"*)
+            pass "reason refusal: $label: the message names $want and the allowed characters" ;;
+        *) fail "reason refusal: $label: want $want named, message [$ERR]" ;;
+    esac
+}
+reason_refusal "an apostrophe and a comma, under --koto-leg" "host can't run suites, CI only" '"'"'"'" ","' \
+    --verification=hosted-ci --koto-leg=r1:work-on
+reason_refusal "the same reason without --koto-leg" "host can't run suites, CI only" '"'"'"'" ","' \
+    --verification=hosted-ci
+reason_refusal "a newline" "$(printf 'two\nlines')" '"\n"' --verification=hosted-ci --koto-leg=r1:work-on
+EMDASH=$(printf '\342\200\224')
+reason_refusal "a non-ASCII dash" "host in a window $EMDASH CI only" "\"$EMDASH\"" \
+    --verification=hosted-ci --koto-leg=r1:work-on
+reason_refusal "a reason given with --verification=local" "CI only; see #1019" '"#" ";"' \
+    --verification=local --koto-leg=r1:work-on
+reason_refusal "an earlier occurrence, though the last one fits" "host is in a measurement window" '","' \
+    --verification=hosted-ci --verification-reason=x,y --koto-leg=r1:work-on
+
 : > "$WORK/stub.log"
 OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
     bash "$OPEN" --workflow issue_7 "$WORK/missing.json" 2>/dev/null)
@@ -166,6 +209,10 @@ eq "a repeat is two pairs and a bare flag its literal token, both left to koto" 
 pairs_of '["7","--verification=hosted-ci","--verification-reason=host is in a measurement window","--koto-leg=r1:work-on"]'
 eq "--verification=hosted-ci with a reason: the deferral pairs, the reason one value" \
     '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is in a measurement window"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--verification=hosted-ci","--verification-reason=CI only: v1.2_rc+build@host/x - 02:40Z","--koto-leg=r1:work-on"]'
+eq "a reason using every allowed punctuation mark passes through unchanged" \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","CI only: v1.2_rc+build@host/x - 02:40Z"]]' \
     "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
 pairs_of '["7","--verification=local","--koto-leg=r1:work-on"]'
 eq "--verification=local needs no reason" \
