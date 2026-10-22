@@ -46,7 +46,9 @@
 #   0  every checked document passes, or none exists, or every violation is
 #      of a rule below the `block` stage (printed, at its stage's level)
 #   1  at least one violation of a rule at `block`; one `::koto-finding::`
-#      line per violation, and a line on stderr saying how to dispute one
+#      line per violation, a line on stderr saying how to dispute one, and,
+#      when the template supplies its context, the escalation ladder's
+#      output on stderr (rf_deliver, scripts/lib/rule-findings.sh)
 #   2  could not decide: a usage error; git, jq or shirabe missing; a shirabe
 #      that resolves inside the repository; the rules file unreadable or with
 #      no words; a failed canary; a validator exit other than 0 or 2; an
@@ -326,7 +328,6 @@ for id in $(sort -u "$WORK/ids"); do
     rf_require "$id"
 done
 
-printed=0
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     code=$(printf '%s' "$hit" | jq -r '.code // ""')
@@ -337,18 +338,20 @@ while IFS= read -r hit; do
         msg="${msg:0:$((MESSAGE_CAP - 3))}..."
     fi
     rf_finding "$(code_to_id "$code")" "$msg" "$file" "$line"
-    printed=$((printed + 1))
 done < "$WORK/hits"
 
 checked=$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' "$WORK/checked")
 # Only a finding of a rule at block holds the hop; one below block printed at
-# its stage's level and leaves the gate passing.
+# its stage's level and leaves the gate passing, and one at retired printed
+# nothing, so RF_PRINTED, not the number of violations, says whether any
+# finding is above this line.
 if [ "$RF_BLOCKING" -gt 0 ]; then
     echo "check-hop-document: $RF_BLOCKING violation(s) in $checked" >&2
     rf_dispute_hint
+    rf_deliver
     exit 1
 fi
-if [ "$printed" -gt 0 ]; then
+if [ "$RF_PRINTED" -gt 0 ]; then
     echo "check-hop-document: $checked pass; no violation is of a rule at block" >&2
 else
     echo "check-hop-document: $checked pass" >&2

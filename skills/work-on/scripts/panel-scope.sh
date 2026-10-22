@@ -186,6 +186,9 @@
 # the events of one (state, visit, gate, criterion, declaration), a fail is the
 # one kept, so the most severe outcome wins, and otherwise the last. A missing
 # session log imports nothing; one that exists and can't be read is exit 65.
+# A `koto session dir` that fails is exit 66 with koto's error, never an empty
+# import, so a round whose log was never read can't pass as one with no
+# decider verdict.
 # Every decider entry, named or imported, takes its event's `mode`, and that
 # decides what it does: a fail raises an advisory finding when the mode is
 # exactly shadow and a blocking one otherwise (veto, a missing mode, anything
@@ -300,7 +303,8 @@
 #          doesn't hold), or --mark-fixed names an id that is unknown, advisory
 #          or closed; or (--plan or --record) jq could not merge the result
 #          into the ledger. A refused write leaves the ledger byte-identical
-#   66  -- a `koto context add` failed; koto's own stderr says why
+#   66  -- a `koto context add` failed, or --record's `koto session dir`
+#          did; koto's own stderr says why
 #   67  -- a mode, panel or argument is missing or unrecognised
 #   68  -- --record only: HEAD moved since the panel's scope was planned, so
 #          the round's verdicts are about a commit that is no longer HEAD
@@ -323,6 +327,21 @@ die() {
     # $1 exit code, $2 message
     echo "panel-scope: $2" >&2
     exit "$1"
+}
+
+# session_dir <why>: sets SDIR to the session's directory from
+# `koto session dir`, or exits 66 with <why> and koto's own last line of
+# error. koto's error is read on a line of its own, because
+# scripts/check-skill-requires.sh reads any flag on a line that calls koto as
+# one of koto's flags.
+SDIR=""
+session_dir() {
+    local err
+    if SDIR=$(koto session dir "$SESSION" 2>"$WORK/session-dir.err"); then
+        return 0
+    fi
+    err=$(tail -n 1 "$WORK/session-dir.err")
+    die 66 "$1, and koto session dir failed: $err"
 }
 
 MODE="${1:-}"
@@ -752,8 +771,8 @@ if [ "$MODE" = "--record" ]; then
     # round file alone can't mint a decider verdict.
     : > "$WORK/decider_events"
     if jq -e 'any(.[]; .decider? != null)' "$ROUND_FILE" >/dev/null; then
-        sdir=$(koto session dir "$SESSION") || die 65 "a decider entry needs koto's session log, and koto session dir failed"
-        slog="$sdir/koto-$SESSION.state.jsonl"
+        session_dir "a decider entry needs koto's session log"
+        slog="$SDIR/koto-$SESSION.state.jsonl"
         [ -r "$slog" ] || die 65 "a decider entry needs koto's session log, and [$slog] can't be read"
         jq -c '.[] | .decider? // empty' "$ROUND_FILE" | while IFS= read -r dec; do
             key=$(printf '%s' "$dec" | jq -r '"\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)"')
@@ -791,9 +810,13 @@ if [ "$MODE" = "--record" ]; then
     esac
     printf '[]' > "$WORK/imported"
     printf '{}' > "$WORK/modes"
-    sdir=$(koto session dir "$SESSION") || sdir=""
-    if [ -n "$sdir" ] && [ -e "$sdir/koto-$SESSION.state.jsonl" ]; then
-        slog="$sdir/koto-$SESSION.state.jsonl"
+    # A log that isn't there imports nothing, but a `koto session dir` that
+    # failed (koto missing, a session-store error) has read nothing, and
+    # importing nothing then would look like a session that never consulted
+    # the decider: the round is refused with koto's own error instead.
+    session_dir "koto's log can't be read for decider verdicts"
+    if [ -n "$SDIR" ] && [ -e "$SDIR/koto-$SESSION.state.jsonl" ]; then
+        slog="$SDIR/koto-$SESSION.state.jsonl"
         [ -r "$slog" ] || die 65 "koto's session log [$slog] can't be read"
         { printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]'; cat "$WORK/decider_events"; } > "$WORK/skip" \
             || die 65 "could not read the ledger's decider events"

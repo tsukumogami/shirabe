@@ -3,6 +3,9 @@
 # can't read the suite; check-macos-floor-setup.sh checks those.
 name: runtime-suite
 on: workflow_dispatch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   floor:
     strategy:

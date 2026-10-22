@@ -175,17 +175,30 @@ EOF
 # The line rf_dispute_hint prints, as far as a suite needs to find it.
 RF_TEST_HINT='to dispute a finding you believe is wrong, run '
 
+# rf_test_level <stage>: the level a finding of a rule at <stage> prints at,
+# as the suites expect it; nothing for retired, and error for a stage this
+# library doesn't know. The third copy of the stage-to-level map, beside
+# scripts/lib/rule-findings.sh's rf_level and scripts/rule-registry.sh's
+# stage_level; scripts/rule-registry_test.sh holds the three to each other.
+rf_test_level() {
+    case "$1" in
+        warn) printf 'warning' ;;
+        shadow) printf 'info' ;;
+        retired) ;;
+        *) printf 'error' ;;
+    esac
+}
+
 rf_test_stages() {
     local label=$1 id=$2 block_rc=$3 source=$4 runner=$5 stage want_rc want_level
     local d="$RF_TEST_DIR/stages.$$" log="$RF_TEST_DIR/stages.$$.log"
     local out="$RF_TEST_DIR/stages.$$.out" err="$RF_TEST_DIR/stages.$$.err" rc levels hints
     shift 5
     for stage in block warn shadow retired; do
+        want_level=$(rf_test_level "$stage")
         case "$stage" in
-            block) want_rc=$block_rc; want_level=error ;;
-            warn) want_rc=0; want_level=warning ;;
-            shadow) want_rc=0; want_level=info ;;
-            retired) want_rc=0; want_level="" ;;
+            block) want_rc=$block_rc ;;
+            *) want_rc=0 ;;
         esac
         if ! rf_test_stage_copy "$d" "$id" "$stage" "$@" 2>"$err"; then
             fail "$label: could not make a plugin copy with $id at $stage: $(cat "$err")"

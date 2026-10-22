@@ -4,6 +4,9 @@
 # suite and is not a *_test.sh, so it is not a floor script and passes.
 name: drift
 on: pull_request
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     strategy:

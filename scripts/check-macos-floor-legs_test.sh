@@ -118,6 +118,24 @@ else
     fail "runtime-suite fixture (rc=$RC): $OUT"
 fi
 
+lint "$FIXTURES/no-concurrency.yml"
+if [ "$RC" -eq 1 ] && has "no-concurrency.yml: concurrency: the workflow runs shell suites on macOS (job test)" \
+    && has "cancel-in-progress: \${{ github.event_name == 'pull_request' }}" \
+    && [ "$(count 'step "')" -eq 0 ]; then
+    pass "a workflow that runs suites on macOS without the concurrency block fails, naming the block"
+else
+    fail "no-concurrency fixture (rc=$RC): $OUT"
+fi
+
+# A block that differs from #941's, here one that never cancels, fails too.
+sed "s/cancel-in-progress: .*/cancel-in-progress: false/" "$FIXTURES/clean.yml" >"$T/weak-concurrency.yml"
+lint "$T/weak-concurrency.yml"
+if [ "$RC" -eq 1 ] && has "weak-concurrency.yml: concurrency:"; then
+    pass "a concurrency block that never cancels a superseded run fails"
+else
+    fail "weak-concurrency workflow (rc=$RC): $OUT"
+fi
+
 lint "$FIXTURES/clean.yml" "$FIXTURES/plain-bash.yml"
 if [ "$RC" -eq 1 ] && has "plain-bash.yml" && ! has "clean.yml:"; then
     pass "several workflows at once: only the failing one is named"

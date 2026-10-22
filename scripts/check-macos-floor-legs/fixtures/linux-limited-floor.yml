@@ -2,6 +2,9 @@
 # macOS leg runs no suite at all and still reports green.
 name: linux-limited-floor
 on: pull_request
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     strategy:

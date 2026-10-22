@@ -414,7 +414,13 @@ the template declares, not the registry id), within the window by
 (session id, `visit_seq`, gate, rule id), marks one answered when any of its
 `decider_checked` events has outcome `pass` or `fail`, and counts sessions,
 `over_budget` fallbacks, the largest `input_bytes` and the lines it couldn't
-parse. `decider_check_answered` events are read only to be ignored. Without
+parse. `decider_check_answered` events are read only to be ignored. Decision 4
+of `docs/designs/current/DESIGN-jev-scrutiny-batches.md` amends this count: an
+evaluation whose every event is a `decider_checked` with outcome `not_graded`
+is left out of the evaluations, the sessions and the answered share, and is
+counted as `not_graded`, a field the promotion's `live` record carries; the
+bar then holds that share to within 10 points of the empty-slice share the
+contract's `measured` record states (`references/jev-criteria.md`). Without
 `--from`, the window starts on the later of `declared.since` and the day
 after the latest false pass; without `--to`, it ends today (UTC).
 

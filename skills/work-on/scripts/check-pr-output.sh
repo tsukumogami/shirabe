@@ -307,7 +307,13 @@ check_pr_body() {
         rf_deliver
         exit 1
     fi
-    echo "check-pr-output: the PR title and body break no rule at block; the findings above are of rules below it" >&2
+    # A finding of a retired rule printed nothing, so "above" holds only when
+    # one printed.
+    if [ "$RF_PRINTED" -gt 0 ]; then
+        echo "check-pr-output: the PR title and body break no rule at block; the findings above are of rules below it" >&2
+    else
+        echo "check-pr-output: the PR title and body break no rule at block; every finding is of a retired rule, so none printed" >&2
+    fi
     exit 0
 }
 
