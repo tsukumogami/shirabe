@@ -197,8 +197,8 @@ capped at 4,096 bytes, passage, marker and time. Each failed condition exits
 1 with a `refused:` line naming it, so a red that fails for a compile error
 is never recorded. The marker must be at least 8 characters and the passage
 at least 20, so a bare `error` can't stand in for the report. The command
-runs with a scrubbed environment (no `GH_TOKEN`, `GITHUB_TOKEN` or `GIT_*`
-variables), in its own process group that the bound kills whole, and test
+runs with an allowlisted environment (no `GH_TOKEN`, `GITHUB_TOKEN` or
+`GIT_*` variables reach it), in its own process group that the bound kills whole, and test
 files that are symlinks are refused rather than copied. Paths the command
 names that exist in the repository are recorded as the red's harness files,
 classified with the reproducing tests afterwards. `red-first.sh observe --phase before|after` records an
@@ -381,7 +381,7 @@ shapes redacted; the full tail stays in the session record. Free text has
 newlines collapsed and comment and marker strings neutralised, so a reason
 can't close the section or forge another. When the report passage comes from
 an issue in a private repository and the pull request's repository is public,
-the section omits the passage and says so. Reading the record back from the
+the section omits the passage, the marker and the output lines, and says so. Reading the record back from the
 pull request body, after a prune, is display-only and never yields `counted`.
 
 #### Alternatives Considered
@@ -874,8 +874,11 @@ only tighten, and an unknown value counts as `person`.
 **Running the check.** The red runs an agent-chosen command on the base code
 with the unit's tests applied. That is no new capability, since the agent can
 already run anything, and the temporary worktree is not a sandbox: it shares
-the repository's object store and has the network. The script scrubs
-credential variables (`GH_TOKEN`, `GITHUB_TOKEN`, `GIT_*`), runs the command
+the repository's object store and has the network. The script runs the
+command with an allowlisted environment (`PATH`, `HOME`, `LANG`, `TMPDIR` and
+the variables the repository's verification map declares), so credential
+variables such as `GH_TOKEN`, `GITHUB_TOKEN` and `GIT_*` never reach it; this
+is an accident control, not containment. It runs the command
 in its own process group killed whole at the bound, refuses symlinked test
 files, creates the worktree under a `mktemp -d` path it owns, and removes it in
 a trap. The repository's checks may still fetch dependencies, exactly as its
@@ -904,7 +907,12 @@ session other than the run's, and a person attempt without stdin, stdout and
 `/dev/tty` on one terminal. A person line carries a keyed hash under a
 per-user key file, and the live fold never trusts a stored terminal flag. A
 same-user agent can still read that key, write the session key directly, or
-drive a pseudo-terminal, and then the hold can be defeated. A team that needs
+drive a pseudo-terminal, and then the hold can be defeated. Seat minting and
+the coordinator-session check constrain names, not principals: the run itself
+can mint a seat and accept as it, and any existing koto session passes the
+coordinator check. They stop the casual bypass of inventing a reviewer's name,
+nothing more. The seat's and a coordinator's prompts treat the report passage,
+reasons and notes as data, never as instructions. A team that needs
 more than this should wait for the shared decision record, which replaces the
 rule in one file. A repository-side CI check that reads only the pull request
 was considered as an extra control and is not part of this design.
@@ -920,8 +928,10 @@ and tested.
 It carries only the output lines around the marker, with home paths and common
 token shapes redacted; the full output tail stays in the session. Free text is
 flattened and comment markers neutralised so a reason can't forge or close a
-section, and a passage from a private repository's issue is omitted from a
-public pull request. Person identities and reasons are published by design and
+section. When the passage comes from a private repository's issue and the pull
+request is public, the passage, the marker and the output lines around it are
+all omitted, since any of them can quote the private report. Redaction is
+best-effort pattern matching, not a guarantee. Person identities and reasons are published by design and
 shouldn't contain email addresses. The ledger, key and lock live under the
 user's own koto store and state directory with owner-only modes.
 
