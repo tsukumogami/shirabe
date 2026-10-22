@@ -67,7 +67,7 @@ eq "  ... with today's marker and stamp lines" "<!-- coordinator-record-entry v1
     "$(cost_on 22 | jq -r '.[0] | split("\n") | "\(.[0])|\(.[1] | sub("^\\*\\*[0-9TZ:-]+\\*\\* \\(host clock\\) "; ""))"')"
 eq "  ... and the entry the archive keeps" "$(jq -r .key "$A/unit-cost.json")" "$(cost_on 22 | jq -r '.[0] | split("\n") | .[6] | fromjson | .key')"
 eq "  ... its URL kept in the session" "https://github.com/acme/widgets/pull/22#issuecomment-1001" \
-    "$(koto context get "$S" "record/posted/$(costs | jq -r '.[0].n' | xargs printf '%06d')")"
+    "$(koto context get "$S" "record/posted/$(printf '%06d' "$(costs | jq -r '.[0].n')")")"
 eq "  ... and nothing on the record issue" "[]" "$(cost_on 7)"
 
 echo "== the sealed verdict's pull request =="
