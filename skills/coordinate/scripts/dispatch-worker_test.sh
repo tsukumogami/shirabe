@@ -501,6 +501,22 @@ ERR=$(run 2>&1 >/dev/null); RC=$?
 eq  "pause: a new dispatch of a unit pick marked paused exits 10" 10 "$RC"
 has "pause: naming the pause and the value to submit" "$ERR" "pause s4 holds this unit"
 nothing_written "pause, unit"
+# A roadmap moved to roadmap/v3: pick lists `Milestone N`, and a pause written
+# on `Feature 2` before the move still holds `Milestone 2`. Each unit's
+# `paused` is pause-read.sh's covers for it, as pick-facts.sh sets it.
+jq -nc '{standing: [{standing: "s4", kind: "pause", on: "Feature 2", until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]}' >"$W/v3-standing.json"
+jq -nc '["Milestone 1", "Milestone 2"]' >"$W/v3-units.json"
+bash "$HERE/pause-read.sh" --standing "$W/v3-standing.json" --units "$W/v3-units.json" >"$W/v3-pauses.json"
+PICK_V3=$(printf '%s' "$PICK_ROADMAP" | jq -c --slurpfile p "$W/v3-pauses.json" '.units |= map(.unit |= sub("^Feature "; "Milestone ") | .paused = $p[0].covers[.unit])')
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 2: the plugin API"')"
+printf '%s' "$PICK_V3" >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "pause: on v3, a pause written on Feature 2 refuses a new dispatch of Milestone 2 (10)" 10 "$RC"
+has "pause: ... naming that pause" "$ERR" "pause s4 holds this unit"
+nothing_written "pause, v3 unit"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 1"')"
+printf '%s' "$PICK_V3" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "pause: ... and doesn't hold Milestone 1" 0 "$?"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = "s5" | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "pause: under a pause on all any new dispatch exits 10" 10 "$?"
