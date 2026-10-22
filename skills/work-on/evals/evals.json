@@ -677,6 +677,24 @@
         "Agent does NOT submit scrutiny_outcome or route back to implementation because of the batch",
         "Agent does NOT use koto overrides record to get past the waiting check"
       ]
+    },
+    {
+      "id": 49,
+      "name": "shared-branch-step-floors-on-own-commits",
+      "tier": 2,
+      "behaviour": "plan-backed-child",
+      "mode": "execute",
+      "scenario": "shared-branch-step-facts",
+      "prompt": "/work-on #42 -- this run is a plan-backed child of /execute on the shared branch feat/plan, at level standard. An earlier step on the same branch committed a 500-line file under koto-templates/. The run has just reached review_level_check.",
+      "expected_output": "Agent reads review_facts.json from koto context. Its facts record base_source: impl_base and shared_branch: feat/plan, with a 20-line, one-file change to a SKILL.md and a floor of standard; bases.merge_base is null. The agent explains that on a shared branch the facts are measured from impl_base alone, so the earlier step's koto-templates commit and its 500 lines are not this step's and do not floor it at full. It keeps the level at standard, does not raise it on account of the earlier step's work, and ticks koto next again with nothing submitted.",
+      "files": [],
+      "expectations": [
+        "Agent reads review_facts.json and reports base_source: impl_base for this shared-branch child",
+        "Agent says the earlier step's koto-templates commit is not counted because on a shared branch impl_base is the only base",
+        "Agent does NOT raise the level to full because of the earlier step's commits",
+        "Agent does NOT submit level_status: blocked or record an override at review_level_check",
+        "Agent ticks koto next again with nothing submitted to go on to the first panel"
+      ]
     }
   ]
 }

@@ -14,7 +14,7 @@
 # Usage:
 #   review-level.sh init   <session> <floor> <ceiling>
 #   review-level.sh set    <session> <level> [--reason <text>] [--cause veto:<criterion>]
-#   review-level.sh facts  <session> [<level>]
+#   review-level.sh facts  <session> [<level>] [--shared-branch <branch>]
 #   review-level.sh check  <session> <level>
 #   review-level.sh agree  <session> <level>
 #   review-level.sh slice  <session> <level>
@@ -54,12 +54,17 @@
 #           bases, the stored impl_base and the merge-base with the default
 #           branch (origin/HEAD's branch, else origin/main, else main), and
 #           keeps the larger diff (more changed lines, then more files; a tie
-#           keeps impl_base; with no merge-base, impl_base alone). Classifies
-#           every path (both sides of a rename) with the stored rules copy,
-#           writes `review_facts.json` (`base_source` names the base that
-#           won), and appends a `check` line when the head, level or floor
-#           differs from the last one, or an `unset` line when the level is
-#           empty.
+#           keeps impl_base; with no merge-base, impl_base alone). With a
+#           non-empty --shared-branch (the run is a step on a branch its
+#           siblings also commit to) the merge-base is never computed: the
+#           impl_base diff is the only one, so earlier steps' commits don't
+#           count, and an unset impl_base exits 64. An empty value is the
+#           same as no option. Classifies every path (both sides of a rename)
+#           with the stored rules copy, writes `review_facts.json`
+#           (`base_source` names the base that won, `shared_branch` the
+#           branch or ""), and appends a `check` line when the head, level or
+#           floor differs from the last one, or an `unset` line when the level
+#           is empty.
 #   check   the level-check gate. Read-only.
 #   agree   the ledger-agreement gate on the states after the level check
 #           that route on the level (review, light_review). Read-only. Passes
@@ -110,7 +115,8 @@
 #         route, a session from an earlier template). An empty level over a
 #         ledger that has one holds (1): the variable was reset
 #   64 -- usage: unknown subcommand, a bad level, session name, flag or rules
-#         file, or no git base to diff
+#         file, a --shared-branch that isn't a branch name, or no git base to
+#         diff (on a shared branch, no impl_base)
 #   66 -- a koto call failed: the rebind, or a context read or write (for
 #         level, a ledger that exists but can't be read). After
 #         set exits 66 neither the variable nor the ledger has changed. (check
@@ -145,7 +151,7 @@ usage() {
     die 64 "$1
 usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh set    <session> <level> [--reason <text>] [--cause veto:<criterion>]
-       review-level.sh facts  <session> [<level>]
+       review-level.sh facts  <session> [<level>] [--shared-branch <branch>]
        review-level.sh check  <session> <level>
        review-level.sh agree  <session> <level>
        review-level.sh slice  <session> <level>
@@ -592,10 +598,29 @@ path_classes() {
 }
 
 cmd_facts() {
-    [ $# -ge 1 ] && [ $# -le 2 ] || usage "facts takes <session> [<level>]"
-    local s="$1" level="${2:-}"
+    [ $# -ge 1 ] || usage "facts takes <session> [<level>] [--shared-branch <branch>]"
+    local s="$1" level="" shared=""
+    shift
+    case "${1:-}" in
+        --shared-branch) ;;
+        *) [ $# -eq 0 ] || { level="$1"; shift; } ;;
+    esac
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --shared-branch) [ $# -ge 2 ] || usage "--shared-branch needs a value"; shared="$2"; shift 2 ;;
+            *) usage "facts takes <session> [<level>] [--shared-branch <branch>]; unknown argument [$1]" ;;
+        esac
+    done
     valid_session "$s" || usage "bad session name [$s]"
     level_or_empty "$level" level
+    # An empty value is no shared branch: the template passes an unset
+    # SHARED_BRANCH as "". A value that starts with `-` is refused before git
+    # sees it, so it can't be read as an option.
+    if [ -n "$shared" ]; then
+        case "$shared" in -*) usage "--shared-branch [$shared] is not a branch name" ;; esac
+        git check-ref-format --branch "$shared" >/dev/null 2>&1 \
+            || usage "--shared-branch [$shared] is not a branch name"
+    fi
     git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
     local head
     head=$(git rev-parse --verify -q "HEAD^{commit}") || die 64 "HEAD does not name a commit"
@@ -615,9 +640,17 @@ cmd_facts() {
     # branch. impl_base alone can be recorded after some of the work, which
     # shrinks the diff and lowers the floor. With no shared history there is
     # no merge-base, and impl_base is used alone. A tie keeps impl_base.
+    #
+    # On a shared branch the merge-base diff holds every earlier step's
+    # commits, so it is never taken: impl_base is the only base, the rule
+    # record-changed-paths.sh applies too, and without it there is no base.
     local ibase="" mbase="" base="" source="" lines=0 files=0
     ibase=$(stored_base "$s") || ibase=""
-    mbase=$(default_merge_base) || mbase=""
+    if [ -n "$shared" ]; then
+        [ -n "$ibase" ] || die 64 "no base resolves on a shared branch: impl_base is unset"
+    else
+        mbase=$(default_merge_base) || mbase=""
+    fi
     [ -n "$ibase" ] || [ -n "$mbase" ] \
         || die 64 "no base resolves: impl_base is unset and HEAD shares no history with origin's default branch or main"
     if [ -n "$ibase" ]; then
@@ -704,6 +737,7 @@ cmd_facts() {
         --argjson unclassified "$unclassified" \
         --arg floor "$floor" --arg rule "$rule" --arg head "$head" --arg base "$base" \
         --arg base_source "$source" --arg impl_base "$ibase" --arg merge_base "$mbase" \
+        --arg shared_branch "$shared" \
         --rawfile classes "$WORK/classes" --rawfile fired "$WORK/fired" '
         {lines: $lines, files: $files,
          classes: ($classes | split("\n") | map(select(length > 0))),
@@ -712,6 +746,7 @@ cmd_facts() {
          floor: $floor, rule: (if $rule == "" then null else $rule end),
          rules_fired: ($fired | split("\n") | map(select(length > 0))),
          head: $head, base: $base, base_source: $base_source,
+         shared_branch: $shared_branch,
          bases: {impl_base: (if $impl_base == "" then null else $impl_base end),
                  merge_base: (if $merge_base == "" then null else $merge_base end)}}
     ' > "$WORK/facts.json" || die 66 "could not build $FACTS_KEY"

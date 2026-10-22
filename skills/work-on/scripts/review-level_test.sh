@@ -641,6 +641,80 @@ expect_rc "facts on a branch with no history shared with main" 0
 [ "$(fact '[.floor, .base_source, (.bases.merge_base | tostring), (.lines | tostring)] | join(" ")')" = '"light impl_base null 1"' ] \
     && pass "with no merge-base, impl_base is used alone" || fail "facts are $(fact '{floor, base_source, bases, lines}')"
 
+echo "--- script: a step on a shared branch"
+
+# sibling_then_step <name>: a branch feat/plan off main where an earlier step
+# committed a koto-templates file of 500 lines, impl_base recorded after that
+# commit, and this step's own commit, a 20-line SKILL.md.
+sibling_then_step() {
+    fixture "$1"
+    (cd "$FX/repo" && git checkout -q -b feat/plan) || fail "setup: branch"
+    commit sibling 'mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md'
+    (cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+    commit step 'mkdir -p skills/y && seq 1 20 > skills/y/SKILL.md'
+    run init "$SESSION" "" ""
+}
+
+# On the shared branch the sibling's template file and its 500 lines are
+# behind impl_base, and only the step's own SKILL.md counts.
+sibling_then_step shared-own
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "facts on a shared branch" 0
+[ "$(fact '[.floor, .base_source, .shared_branch, (.lines | tostring), (.files | tostring)] | join(" ")')" = '"standard impl_base feat/plan 20 1"' ] \
+    && pass "a shared-branch step floors on its own impl_base diff, not the sibling's template" \
+    || fail "facts are $(fact '{floor, base_source, shared_branch, lines, files, classes}')"
+[ "$(fact '.bases.merge_base')" = null ] \
+    && pass "on a shared branch the merge-base is never computed" || fail "bases are $(fact .bases)"
+[ "$(fact '.classes | index("template")')" = null ] \
+    && pass "the sibling's template path is not classified" || fail "classes are $(fact .classes)"
+
+# The same commits off a shared branch: the merge-base diff is larger and
+# carries the template, so the floor is full, as before.
+sibling_then_step shared-off
+run facts "$SESSION" standard
+expect_rc "facts off a shared branch, no option" 0
+[ "$(fact '[.floor, .base_source, .shared_branch] | join(" ")')" = '"full merge_base "' ] \
+    && pass "off a shared branch the larger-diff rule still picks the merge-base and floors at full" \
+    || fail "facts are $(fact '{floor, base_source, shared_branch, rule}')"
+
+# An empty --shared-branch is no shared branch: the template passes an unset
+# SHARED_BRANCH as "".
+sibling_then_step shared-empty
+run facts "$SESSION" "" --shared-branch ""
+expect_rc "facts with an empty --shared-branch" 0
+[ "$(fact '[.floor, .base_source, .shared_branch] | join(" ")')" = '"full merge_base "' ] \
+    && pass "an empty --shared-branch keeps the larger-diff rule" \
+    || fail "facts are $(fact '{floor, base_source, shared_branch}')"
+
+# No impl_base on a shared branch: no fallback to the merge-base.
+sibling_then_step shared-nobase
+rm -f "$(store impl_base)"
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "facts on a shared branch with no impl_base" 64
+case "$ERR" in
+    *"no base resolves on a shared branch: impl_base is unset"*) pass "the refusal names impl_base" ;;
+    *) fail "the refusal is [$ERR]" ;;
+esac
+[ ! -f "$(store review_facts.json)" ] && pass "no facts are written without impl_base on a shared branch" \
+    || fail "facts were written: $(fact .)"
+
+# A value that is not a branch name, or reads as an option, is refused.
+sibling_then_step shared-bad
+run facts "$SESSION" standard --shared-branch 'feat..plan'
+expect_rc "a --shared-branch that fails check-ref-format" 64
+run facts "$SESSION" standard --shared-branch '-x'
+expect_rc "a --shared-branch that starts with a dash" 64
+run facts "$SESSION" standard --shared-branch
+expect_rc "a --shared-branch with no value" 64
+run facts "$SESSION" standard --bogus x
+expect_rc "an unknown facts argument" 64
+[ ! -f "$(store review_facts.json)" ] && pass "a refused --shared-branch writes no facts" \
+    || fail "facts were written: $(fact .)"
+run facts "$SESSION" --shared-branch feat/plan
+expect_rc "facts with no level and a shared branch" 0
+[ "$(fact '.base_source')" = '"impl_base"' ] && pass "the option may follow the session alone" \
+    || fail "facts are $(fact '{base_source, shared_branch}')"
+
 echo "--- script: thresholds"
 
 # threshold_case <label> <command> <expected floor>

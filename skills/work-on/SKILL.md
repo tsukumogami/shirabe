@@ -204,6 +204,16 @@ When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new b
 
 **PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
 
+**A child under the lead shape.** When `/execute` runs a plan in the lead shape, a
+step agent drives this child to its terminal from the hand-off in
+`skills/execute/references/step-agent-handoff.md`, not the session that owns the
+plan. The step agent may spawn its step's review seats, the panels the run's level
+calls for; the seats spawn nothing themselves. A step agent never edits a step's
+entry in the PLAN: the owning session details each step. The level is this child's
+own choice inside the run's bound, and `review_level_check` floors it on the
+child's own commits: on a shared branch `impl_base` is the only base, so earlier
+steps' commits don't raise it (see `references/review-levels.md`).
+
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
 The plan-level orchestrator — shared branch and draft PR, child spawning, escalation and PR finalization — lives in `/execute` (`skills/execute/`), which delegates each single issue back to `/work-on` through Plan-Backed Child Mode above. The completion cascade is shared rather than owned by either: its script lives here, at `scripts/run-cascade.sh`, because `/work-on` runs it for a standalone issue in its `cascade_run` state, and `/execute` reaches across to run it once per plan from `plan_completion`.
