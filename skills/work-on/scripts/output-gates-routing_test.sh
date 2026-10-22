@@ -215,12 +215,15 @@ esac
 EOF
 chmod +x "$STUB/gh"
 
-# render <cmd>: the gate command with the real plugin root and a test session.
+# render <cmd>: the gate command with the real plugin root and a test session,
+# for an issue in this repository (ISSUE_REPO empty, as an unset variable
+# resolves).
 render() {
     local c="$1"
     c=${c//\{\{PLUGIN_ROOT\}\}/$REAL_ROOT}
     c=${c//\{\{SESSION_NAME\}\}/no-such-session-$$}
     c=${c//\{\{ISSUE_NUMBER\}\}/7}
+    c=${c//\{\{ISSUE_REPO\}\}/}
     printf '%s' "$c"
 }
 
