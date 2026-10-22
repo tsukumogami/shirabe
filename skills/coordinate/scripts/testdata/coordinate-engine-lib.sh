@@ -22,7 +22,6 @@ done
 # koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
-REAL_DATE=$(command -v date)
 ORIG_PATH=$PATH
 
 # test-lib.sh gives the GitHub DB helpers, the record renderer and the
@@ -83,25 +82,9 @@ chmod +x "$T/bin/gh"
 # binary; the stand-in answers clean, so the run never needs a real one.
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 
-# A clock the quiet case can move forward: set_clock <seconds> makes `date`
-# without -d/-r read that much later, and clear_clock puts the real clock
-# back. The stub is on PATH only while a clock is set, so every other `date`
-# is the real one and starts no shell. GNU date reads an epoch as `-d @N`, BSD
-# date (macOS) as `-r N`, so the stub is written with whichever this host's
-# date takes.
-if "$REAL_DATE" -d @0 +%s >/dev/null 2>&1; then AT_FLAG=-d AT_PREFIX=@; else AT_FLAG=-r AT_PREFIX=; fi
-set_clock() { # set_clock <seconds>
-    printf '%s\n' "$1" > "$T/clock"
-    cat > "$T/bin/date" <<EOF
-#!/usr/bin/env bash
-read -r off < "$T/clock" || exec "$REAL_DATE" "\$@"
-for a in "\$@"; do case "\$a" in -d*|--date*|-r*|--reference*) exec "$REAL_DATE" "\$@" ;; esac; done
-exec "$REAL_DATE" $AT_FLAG "$AT_PREFIX\$(( \$("$REAL_DATE" +%s) + off ))" "\$@"
-EOF
-    chmod +x "$T/bin/date"
-    hash -r
-}
-clear_clock() { rm -f "$T/clock" "$T/bin/date"; hash -r; }
+# A clock the quiet case can move forward: set_clock <seconds> and clear_clock
+# (testdata/date-stand-in.sh).
+. "$HERE/testdata/date-stand-in.sh"
 PATH="$T/bin:$ORIG_PATH"
 export PATH
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
