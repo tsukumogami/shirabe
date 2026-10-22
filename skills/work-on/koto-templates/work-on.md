@@ -3337,12 +3337,13 @@ The body closes the issue in Part 2, and the `closing_keyword` gate reads it fro
 GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
 `ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
 repository and no other closing reference to `<N>`: a bare `#<N>`, `GH-<N>`, this
-repository's `owner/repo#<N>` or its issue URL, as a markdown link too, or a name this
-repository had before a rename would close this repository's issue `<N>`. When the
-gate holds because a lookup of another repository failed or ran out of time (its
-script exits 3), submit `pr_status: created` again; if that repository keeps failing,
-drop the closing keyword in front of the reference the message names, and close
-that issue by hand if it should close.
+repository's `owner/repo#<N>` or its issue URL, as a markdown link's text too, or a name
+this repository had before a rename would close this repository's issue `<N>`. Any
+markdown link to this repository's issue `<N>` fails too, keyword or not: name it in
+plain text. When the gate holds because a lookup of another repository failed or ran
+out of time (its script exits 3), submit `pr_status: created` again; if that
+repository keeps failing, turn the reference or link the message names into plain
+text, and close that issue by hand if it should close.
 `references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto

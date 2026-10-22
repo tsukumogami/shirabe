@@ -333,7 +333,8 @@ script looks the value up or falls back to this repository without it.
 `pr_creation`'s `closing_keyword` gate asks for `Fixes <owner/repo>#<N>` and refuses
 any closing reference to this repository's issue `<N>`, which would close on merge: a
 bare `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL, any of
-them as a markdown link, and a name this repository had before a rename.
+them as a markdown link's text, any markdown link to that issue with or without a
+keyword, and a name this repository had before a rename.
 koto refuses a value that isn't `owner/repo` (`invalid_var`); report the refusal and
 stop. For example:
 

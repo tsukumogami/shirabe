@@ -314,8 +314,13 @@ expect "cross-repo: the right text pointing at another issue fails" 1 42 "Fixes 
 expect "cross-repo: the right text pointing at a page that isn't an issue fails" 1 42 "Fixes [acme/tracker#42](https://example.com/notes)"
 expect "cross-repo: the right text pointing elsewhere passes beside the plain reference" 0 42 "Fixes acme/tracker#42
 See [acme/tracker#42](https://example.com/notes)"
-expect "cross-repo: a link to this repo's issue without a keyword passes" 0 42 "Fixes acme/tracker#42
+# A link to this repository's issue N fails with or without a keyword: which
+# keyword governs a link would take a markdown parser to tell. Plain text
+# naming it, without a keyword, still passes.
+expect "cross-repo: a link to this repo's issue without a keyword fails" 1 42 "Fixes acme/tracker#42
 See [#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: this repo's issue URL in prose without a keyword passes" 0 42 "Fixes acme/tracker#42
+History: https://github.com/acme/app/issues/42 has the first report."
 
 # Every spelling of a link whose target is this repository's issue: a space
 # or a newline before the target, the target in <...>, brackets nested or
@@ -338,10 +343,47 @@ expect "cross-repo: a shortcut reference link to this repo's issue fails" 1 42 "
 Fixes [the bug]
 
 [the bug]: <https://github.com/acme/app/issues/42>"
-expect "cross-repo: a definition with no keyword in front of a bracket passes" 0 42 "Fixes acme/tracker#42
+expect "cross-repo: a definition with no keyword in front of a bracket fails too" 1 42 "Fixes acme/tracker#42
 See [the bug][1]
 
 [1]: https://github.com/acme/app/issues/42"
+# The spellings a pattern for link text would miss: emphasis around the link,
+# a parenthesis or 300 characters in its text, a definition whose target is
+# on the next line, with an escaped bracket in its label, or inside a quote
+# or a list item.
+expect "cross-repo: a link in bold to this repo's issue fails" 1 42 "Fixes acme/tracker#42
+Fixes **[the bug](https://github.com/acme/app/issues/42)**"
+expect "cross-repo: a link with a parenthesis in its text fails" 1 42 "Fixes acme/tracker#42
+Fixes [the bug (crash)](https://github.com/acme/app/issues/42)"
+LONG_TEXT=$(printf 'x%.0s' $(seq 1 300))
+expect "cross-repo: a link with 300 characters of text fails" 1 42 "Fixes acme/tracker#42
+Fixes [$LONG_TEXT](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a definition with its target on the next line fails" 1 42 "Fixes acme/tracker#42
+Fixes [the issue][1]
+
+[1]:
+https://github.com/acme/app/issues/42"
+expect "cross-repo: a definition with an escaped bracket in its label fails" 1 42 'Fixes acme/tracker#42
+Fixes [a\]b]
+
+[a\]b]: https://github.com/acme/app/issues/42'
+expect "cross-repo: a definition inside a quote fails" 1 42 "Fixes acme/tracker#42
+> Fixes [1]
+>
+> [1]: https://github.com/acme/app/issues/42"
+expect "cross-repo: a definition inside a list item fails" 1 42 "Fixes acme/tracker#42
+- Fixes [1]
+- [1]: https://github.com/acme/app/issues/42"
+# Emphasis around the keyword, and strikethrough around the reference.
+expect "cross-repo: a keyword in bold fails" 1 42 "Fixes acme/tracker#42
+**Fixes** #42"
+expect "cross-repo: a keyword in bold with its colon fails" 1 42 "Fixes acme/tracker#42
+**Fixes:** #42"
+expect "cross-repo: a reference in strikethrough fails" 1 42 "Fixes acme/tracker#42
+Fixes ~~#42~~"
+# Without the right reference the gate says no before any lookup, so a
+# failing lookup can't turn a plain no into a hold.
+GH_API_FAIL=rate expect "cross-repo: a body without the right reference fails before any lookup" 1 42 "Fixes acme/other#42"
 expect "cross-repo: a link to a heading on the page passes" 0 42 "Fixes acme/tracker#42
 See the section it fixes [below](#42-notes)."
 # Emphasis around the reference: GitHub's reading isn't known, so it fails.
@@ -387,6 +429,19 @@ expect "cross-repo: this repo's old name in italics fails" 1 42 "Fixes acme/trac
 Fixes _acme/old-app#42_"
 GH_API_WARN=1 expect "cross-repo: a lookup that also writes to stderr still finds the old name" 1 42 "Fixes acme/tracker#42
 Fixes acme/old-app#42"
+expect "cross-repo: this repo's old name in a link in bold fails" 1 42 "Fixes acme/tracker#42
+Fixes **[x](https://github.com/acme/old-app/issues/42)**"
+expect "cross-repo: this repo's old name in a link with a parenthesis fails" 1 42 "Fixes acme/tracker#42
+Fixes [x (y)](https://github.com/acme/old-app/issues/42)"
+expect "cross-repo: this repo's old name in a definition on the next line fails" 1 42 "Fixes acme/tracker#42
+Fixes [the issue][1]
+
+[1]:
+https://github.com/acme/old-app/issues/42"
+expect "cross-repo: a link without a keyword to this repo's old name fails" 1 42 "Fixes acme/tracker#42
+See [the history](https://github.com/acme/old-app/issues/42)"
+expect "cross-repo: a link without a keyword to a third repository passes" 0 42 "Fixes acme/tracker#42
+See [the docs gap](https://github.com/acme/docs/issues/42)"
 expect "cross-repo: this repo's old name without a keyword passes" 0 42 "Fixes acme/tracker#42
 See acme/old-app#42"
 expect "cross-repo: this repo's old name with another issue passes" 0 42 "Fixes acme/tracker#42
