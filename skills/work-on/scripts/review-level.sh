@@ -601,6 +601,8 @@ cmd_facts() {
     [ $# -ge 1 ] || usage "facts takes <session> [<level>] [--shared-branch <branch>]"
     local s="$1" level="" shared=""
     shift
+    # <level> is optional and may be empty, so the slot after the session
+    # takes the next word unless that word is the option itself.
     case "${1:-}" in
         --shared-branch) ;;
         *) [ $# -eq 0 ] || { level="$1"; shift; } ;;
