@@ -20,6 +20,10 @@
 #     a parallel edge into the matching publish state, and each publish state
 #     verifies with --verify --expect-intent and routes the failed step on a
 #     non-overridable publish_step gate;
+#   - exit_abandonment's gate matches the session key forced_artifact against
+#     the four upstream paths (never the PLAN's), the abandonment and error
+#     terminals carry that key, and no /scope script or gate greps the
+#     abandonment marker or reads a PR body for its intent;
 #   - executed_report takes no evidence and routes on non-overridable
 #     context-matches gates; /scope ships no owned-pr script of its own;
 #   - the frontmatter description's state count matches the states declared.
@@ -147,7 +151,7 @@ eq "done_refused's result carries the coordinator's keys" \
     '["intent","next","outcome","plan_execution_mode","plan_path","reason","recorded","requested","step"]' \
     "$(q '.states.done_refused.result | keys')"
 eq "done_error's result carries the coordinator's keys" \
-    '["exit","intent","outcome","reason","recorded","requested","step"]' \
+    '["exit","forced_artifact","intent","outcome","reason","recorded","requested","step"]' \
     "$(q '.states.done_error.result | keys')"
 
 # --- terminals and their results -----------------------------------------------------
@@ -158,7 +162,7 @@ eq "every terminal declares a result with outcome" '[]' \
     "$(q '[.states | to_entries[] | select(.value.terminal == true) | select((.value.result.outcome // "") == "") | .key]')"
 eq "every result key is drawn from the documented set" '[]' \
     "$(q '[.states[] | select(.terminal == true) | .result | keys[]] | unique
-          - ["outcome","exit","intent","next","pr","pr_state","plan_path","plan_execution_mode","startable","boundary","via","reason","recorded","requested","step"]')"
+          - ["outcome","exit","intent","next","pr","pr_state","plan_path","plan_execution_mode","startable","boundary","via","reason","recorded","requested","step","forced_artifact"]')"
 
 # Walk every edge into every terminal. A terminal whose result reads
 # ${context.outcome} needs every edge landing there to assign outcome, from the
@@ -315,18 +319,38 @@ for pair in hop_brief:brief_document hop_prd:prd_document hop_design:design_docu
     done
 done
 
-# An abandoned run writes no PLAN (a committed Draft PLAN fails the lifecycle
-# check), so the abandonment gate must not accept a marker on the PLAN's path.
-eq "exit_abandonment's marker gate never reads the PLAN's path" 'false' \
-    "$(q '.states.exit_abandonment.gates.forced_artifact_present.command | contains("docs/plans/")')"
-FORCED=$(awk '/^forced_artifact\(\)/{f=1} f{print} f&&/^}/{exit}' "$HERE/print-scope-exit.sh")
-if [ -z "$FORCED" ]; then
-    bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() not found"
-elif FORCED_CODE=$(grep -v '^[[:space:]]*#' <<<"$FORCED"); grep -q 'docs/plans/' <<<"$FORCED_CODE"; then
-    bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() names docs/plans/"
-else
-    ok "print-scope-exit.sh never reports a PLAN as the abandoned artifact"
-fi
+# The force-materialized artifact is the session key forced_artifact, never the
+# marker read back out of a committed document. An abandoned run writes no
+# PLAN (a committed Draft PLAN fails the lifecycle check), so neither the gate
+# nor the exit block accepts the PLAN's path.
+eq "exit_abandonment's gate is context-matches on forced_artifact" '["context-matches","forced_artifact"]' \
+    "$(q '.states.exit_abandonment.gates.forced_artifact_present | [.type, .key]')"
+FPAT=$(q '.states.exit_abandonment.gates.forced_artifact_present.pattern' | jq -r . | sed 's/{{TOPIC}}/t/g')
+for p in docs/briefs/BRIEF-t.md docs/prds/PRD-t.md docs/designs/DESIGN-t.md docs/designs/current/DESIGN-t.md; do
+    if printf '%s' "$p" | grep -Eq -- "$FPAT"; then ok "forced_artifact_present accepts $p"; else bad "forced_artifact_present accepts $p" "pattern [$FPAT]"; fi
+done
+for p in docs/plans/PLAN-t.md docs/prds/PRD-tt.md docs/prds/PRD-t.mdx x/docs/prds/PRD-t.md; do
+    if printf '%s' "$p" | grep -Eq -- "$FPAT"; then bad "forced_artifact_present refuses $p" "pattern [$FPAT]"; else ok "forced_artifact_present refuses $p"; fi
+done
+eq "exit_abandonment routes on the gate's matches, never an exit code" '[false,true,true]' \
+    "$(q '[.states.exit_abandonment.transitions[] | .when["gates.forced_artifact_present.matches"] | select(. != null)] | sort')"
+for s in done_abandonment done_error; do
+    eq "$s's result carries forced_artifact from context" '"${context.forced_artifact}"' "$(q ".states.$s.result.forced_artifact")"
+done
+EPAT=$(sed -n 's/^FORCED=\$(get forced_artifact "\(.*\)")$/\1/p' "$HERE/print-scope-exit.sh")
+case "$EPAT" in
+    "") bad "print-scope-exit.sh takes the abandoned artifact from the result's forced_artifact" "no FORCED=\$(get forced_artifact ...) line" ;;
+    *docs/plans/*) bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "$EPAT" ;;
+    *) ok "print-scope-exit.sh takes the abandoned artifact from the result's forced_artifact, never a PLAN" ;;
+esac
+# Neither read-back survives in /scope's scripts or gates: nothing greps the
+# abandonment marker, and nothing reads the scoping PR's body for its intent.
+HITS=$(grep -rn 'scope-status-block' "$HERE"/*.sh 2>/dev/null | grep -v '_test\.sh:' || true)
+eq "no /scope script reads the abandonment marker" "" "$HITS"
+eq "no gate in scope.md reads the abandonment marker" '[]' \
+    "$(q '[.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select((.value.command // "") | contains("scope-status-block")) | "\($s).\(.key)"]')"
+HITS=$(grep -n -- '--json body' "$HERE/publish-scoping-pr.sh" | grep -v 'live-body' || true)
+eq "publish-scoping-pr.sh reads a PR body only to carry its run marker" "" "$HITS"
 
 # An intent-changing upstream change is the running agent's call, recorded as a
 # decision, with a concrete escalation target for every way a run is set up.

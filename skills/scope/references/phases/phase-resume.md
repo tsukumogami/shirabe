@@ -64,8 +64,9 @@ shortcuts; they fire only when the run's effective intent is
   exists at Active or Draft and the run has an intent. `/scope`
   re-publishes rather than re-scoping: the `republish` state re-runs
   the publish script for the PLAN's mode, which reuses or opens the
-  owned PR and rewrites its body's `intent=` field, and the run ends
-  at `done_republished`. No child runs and no BRIEF, PRD or DESIGN
+  owned PR and rewrites its body for this run's intent (the new
+  session has no `published_intent` key yet), and the run ends at
+  `done_republished`. No child runs and no BRIEF, PRD or DESIGN
   commit is made. A finished run whose PR records `intent=stop`,
   re-invoked with `--intent=continue`, is not a mismatch.
 - **5.1 PLAN-Active detected [41].** `docs/plans/PLAN-<topic>.md`

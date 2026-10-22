@@ -24,9 +24,9 @@ stateDiagram-v2
     executed_report --> done_executed : gates.executed_live.matches: true, gates.executed_one.matches: true
     executed_report --> done_error : gates.executed_live.matches: false, gates.executed_one.matches: true
     executed_report --> done_error : gates.executed_one.matches: false
-    exit_abandonment --> publish_abandonment : gates.forced_artifact_present.exit_code: 0, gates.intent_declared.exit_code: 0, retry_or_cancel: retry
-    exit_abandonment --> cleanup_abandonment : gates.forced_artifact_present.exit_code: 0, gates.intent_declared.exit_code: 1, retry_or_cancel: retry
-    exit_abandonment --> exit_abandonment : gates.forced_artifact_present.exit_code: 1, retry_or_cancel: retry
+    exit_abandonment --> publish_abandonment : gates.forced_artifact_present.matches: true, gates.intent_declared.exit_code: 0, retry_or_cancel: retry
+    exit_abandonment --> cleanup_abandonment : gates.forced_artifact_present.matches: true, gates.intent_declared.exit_code: 1, retry_or_cancel: retry
+    exit_abandonment --> exit_abandonment : gates.forced_artifact_present.matches: false, retry_or_cancel: retry
     exit_abandonment --> done_cancelled : retry_or_cancel: cancel
     exit_full_run --> publish_full_run : evidence.exit_artifacts: present, gates.chain_complete.exit_code: 0, gates.intent_declared.exit_code: 0
     exit_full_run --> cleanup_full_run : evidence.exit_artifacts: present, gates.chain_complete.exit_code: 0, gates.intent_declared.exit_code: 1

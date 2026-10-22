@@ -1376,16 +1376,21 @@ states:
   exit_abandonment:
     # phase: 3
     gates:
-      # The force-materialized artifact is identified by the marker Phase 3
-      # appends to its Status section, not by mere existence at a canonical
-      # path: an artifact that was produced normally sits at the same path and
-      # means something else. Both DESIGN locations are listed for the same
-      # reason the design hop's gate reads the pair. The PLAN's path is not
-      # listed: an abandoned run writes no PLAN, and when /plan triggered the
-      # marker goes on the nearest upstream document instead.
+      # The force-materialized artifact is identified by the session key
+      # forced_artifact, which this state's directive records once the marker
+      # is on the document -- not by mere existence at a canonical path (an
+      # artifact that was produced normally sits at the same path and means
+      # something else), and not by reading the marker back out of a committed
+      # document, which a person or a merge can edit. The gate cannot read
+      # exit_artifacts: evidence submitted on this tick is invisible to it.
+      # Both DESIGN locations are accepted for the same reason the design
+      # hop's gate reads the pair. The PLAN's path is not: an abandoned run
+      # writes no PLAN, and when /plan triggered the marker goes on the
+      # nearest upstream document instead.
       forced_artifact_present:
-        type: command
-        command: 'grep -lF -- "scope-status-block: abandonment-forced" "docs/briefs/BRIEF-{{TOPIC}}.md" "docs/prds/PRD-{{TOPIC}}.md" "docs/designs/DESIGN-{{TOPIC}}.md" "docs/designs/current/DESIGN-{{TOPIC}}.md" 2>/dev/null | grep -q .'
+        type: context-matches
+        key: forced_artifact
+        pattern: '^docs/(briefs/BRIEF|prds/PRD|designs/DESIGN|designs/current/DESIGN)-{{TOPIC}}\.md$'
       intent_declared:
         type: command
         command: 'test "{{RUN_INTENT}}" != none'
@@ -1406,21 +1411,21 @@ states:
       - target: publish_abandonment
         when:
           retry_or_cancel: retry
-          gates.forced_artifact_present.exit_code: 0
+          gates.forced_artifact_present.matches: true
           gates.intent_declared.exit_code: 0
         context_assignments:
           exit: abandonment-forced
       - target: cleanup_abandonment
         when:
           retry_or_cancel: retry
-          gates.forced_artifact_present.exit_code: 0
+          gates.forced_artifact_present.matches: true
           gates.intent_declared.exit_code: 1
         context_assignments:
           exit: abandonment-forced
       - target: exit_abandonment
         when:
           retry_or_cancel: retry
-          gates.forced_artifact_present.exit_code: 1
+          gates.forced_artifact_present.matches: false
       # The escape, for the same reason exit_re_evaluation has one.
       - target: done_cancelled
         when:
@@ -1707,10 +1712,12 @@ states:
     # The `--intent` shortcut for a topic whose PLAN already exists (ladder
     # row 40). Agent-run, never a default action: it re-runs
     # publish-scoping-pr.sh for the PLAN's mode, which reuses or opens the
-    # owned PR and rewrites the body's intent= field to this run's intent. No
-    # child runs and no BRIEF, PRD or DESIGN commit is made. A finished run
-    # whose PR records intent=stop, re-invoked with --intent=continue, is not a
-    # mismatch: the rewrite is what makes the verify below pass.
+    # owned PR, rewrites its body for this run's intent, and records that
+    # intent as the session key published_intent. No child runs and no BRIEF,
+    # PRD or DESIGN commit is made. A finished run whose PR records
+    # intent=stop, re-invoked with --intent=continue, is not a mismatch: the
+    # new session has no published_intent, so the body is rewritten, and the
+    # key the publish records is what makes the verify below pass.
     gates:
       published:
         type: command
@@ -2001,9 +2008,10 @@ states:
   # `exit`, `reason`, `boundary` and `via` are written by the edge that lands
   # here, as literals or a variable; the PLAN facts, `pr` and the
   # executed PR are written by a script with `koto context add` and read here
-  # as ${context.<key>}, because an assignment cannot read context. No agent
-  # evidence supplies any of them. `intent` is the effective intent intake
-  # resolved.
+  # as ${context.<key>}, because an assignment cannot read context.
+  # `forced_artifact` is the key exit_abandonment's directive records and its
+  # gate checks against the four upstream paths. No agent evidence supplies
+  # any of them. `intent` is the effective intent intake resolved.
   done_full_run:
     # phase: 4
     terminal: true
@@ -2057,6 +2065,7 @@ states:
       exit: "${context.exit}"
       intent: "{{RUN_INTENT}}"
       pr: "${context.pr}"
+      forced_artifact: "${context.forced_artifact}"
 
   done_cancelled:
     # phase: 4
@@ -2099,6 +2108,7 @@ states:
       recorded: "${context.recorded}"
       requested: "${context.requested}"
       exit: "${context.exit}"
+      forced_artifact: "${context.forced_artifact}"
 ---
 
 ## intake
@@ -2948,10 +2958,21 @@ intent is `{{RUN_INTENT}}`, and anything but `none` is one: an intent run never
 creates a coordination PR up front, so none exists before exit, and there is
 nothing to close.
 
-The `forced_artifact_present` gate looks for that marker in the four upstream
-artifact paths, both DESIGN locations included, and never in the PLAN's. It is the marker rather than the
-file that identifies a force-materialized artifact: a normally produced artifact
-sits at the same path and means something else.
+Once the marker is on the document, record which document carries it, as the
+session key `forced_artifact` (the path alone, for example
+`docs/prds/PRD-{{TOPIC}}.md`):
+
+```bash
+printf '%s' "<path of the marked document>" | koto context add "scope-{{TOPIC}}" forced_artifact
+```
+
+The `forced_artifact_present` gate reads that key, not the document: it passes
+when the key names one of the four upstream artifact paths, both DESIGN
+locations included, and never the PLAN's. The key rather than the file
+identifies a force-materialized artifact, since a normally produced artifact
+sits at the same path and means something else, and the marker stays in the
+document as a note for whoever opens it. The run's exit block names the same
+key's path as its `artifact=`.
 
 `retry_or_cancel: retry` is the ordinary submission. `retry_or_cancel: cancel`
 ends the run at the cancelled terminal, so an agent that cannot materialize the
@@ -3045,8 +3066,10 @@ file.
 
 Submit `publish_result: attempted` either way. The `published` gate re-checks
 with the script's `--verify`, which writes nothing to GitHub or git -- origin's branch equals `HEAD`, exactly
-one owned open PR exists, and its body records `intent={{RUN_INTENT}}` -- and
-that decides whether the run goes to cleanup or to the error terminal.
+one owned open PR exists, and this session's `published_intent` key, which a
+successful publish records, is `{{RUN_INTENT}}` -- and that decides whether
+the run goes to cleanup or to the error terminal. The body's `intent=` line is
+for people reading the PR; nothing reads it back.
 
 Evidence schema:
 - `publish_result`: `attempted`
@@ -3107,10 +3130,12 @@ script for the PLAN's mode, then submit `publish_result: attempted`.
 <!-- details -->
 
 The script reuses the owned PR on this branch, or opens it when there is none,
-and rewrites the PR body's `intent=` field to `{{RUN_INTENT}}` when it records
-something else. A finished run whose PR says `intent=stop`, re-invoked with
-`--intent=continue`, is not a mismatch: the rewrite is the point. The
-`published` gate verifies the push, the one owned PR, and the `intent=` field.
+and rewrites the PR body for `{{RUN_INTENT}}` unless this session's
+`published_intent` key already says it published that intent. A finished run
+whose PR says `intent=stop`, re-invoked with `--intent=continue`, is not a
+mismatch: this session has published nothing yet, so the body is rewritten,
+which is the point. A successful publish records `published_intent`, and the
+`published` gate verifies the push, the one owned PR, and that key.
 There is no state file to update on this path.
 
 Evidence schema:

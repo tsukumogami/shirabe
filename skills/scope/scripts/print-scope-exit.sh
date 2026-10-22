@@ -40,9 +40,14 @@
 # result, which is all the block needs. A name koto has no session or record
 # for answers "not found", and the script exits 1.
 #
-# The artifact path of a re-evaluation (the Decision Record) and an
-# abandonment (the file carrying the abandonment marker) is read from the tree
-# in the working directory, composed from the validated slug.
+# The artifact path of a re-evaluation (the Decision Record) is read from the
+# tree in the working directory, composed from the validated slug. An
+# abandonment's (the force-materialized document) is the result's
+# forced_artifact, which the template resolves from the session key the
+# exit_abandonment step records; it must be one of the four upstream paths for
+# this slug, never the PLAN's. No document is read for it, so the marker in
+# the document is text for people only. A result without the key (a run
+# force-materialized before the key existed) prints artifact=none.
 #
 # Exit codes: 0 printed; 1 the result could not be read, or the session is not
 # at a /scope terminal; 64 usage. Requires: bash 3.2+, jq; koto with --session.
@@ -114,6 +119,9 @@ REASON=$(get reason '^(invalid-var:[A-Z_]+|duplicate-var:[A-Z_]+|var-mismatch:[A
 RECORDED=$(get recorded '^(continue|stop|none)$')
 REQUESTED=$(get requested '^(continue|stop)$')
 BOUNDARY=$(get boundary '^(brief|prd|design)$')
+# Never the PLAN: an abandoned run writes no PLAN, and when /plan triggered
+# the marker sits on the nearest upstream document.
+FORCED=$(get forced_artifact "^docs/(briefs/BRIEF|prds/PRD|designs/DESIGN|designs/current/DESIGN)-${TOPIC}\\.md\$")
 
 # startable: `#<N> <title>` lines, each dropped when it holds anything else.
 STARTABLE=$(printf '%s' "$PAYLOAD" | jq -r '.startable // "" | strings' \
@@ -132,17 +140,6 @@ decision_record() {
         done
     done
     printf '%s' "$last"
-}
-forced_artifact() {
-    local p
-    # Never the PLAN: an abandoned run writes no PLAN, and when /plan triggered
-    # the marker sits on the nearest upstream document.
-    for p in "docs/designs/current/DESIGN-${TOPIC}.md" \
-             "docs/designs/DESIGN-${TOPIC}.md" "docs/prds/PRD-${TOPIC}.md" "docs/briefs/BRIEF-${TOPIC}.md"; do
-        if [ -f "$p" ] && grep -qF -- "scope-status-block: abandonment-forced" "$p"; then
-            printf '%s' "$p"; return
-        fi
-    done
 }
 
 finished() { # finished <exit> <artifact>
@@ -210,7 +207,7 @@ case "$STATE" in
         pr_line
         ;;
     done_abandonment)
-        finished abandonment-forced "$(forced_artifact)"
+        finished abandonment-forced "$FORCED"
         intent_line
         pr_line
         ;;
@@ -230,7 +227,7 @@ case "$STATE" in
             case "$EXITV" in
                 full-run) finished full-run "${PLAN_PATH:-docs/plans/PLAN-${TOPIC}.md}" ;;
                 re-evaluation) finished re-evaluation "$(decision_record)" ;;
-                abandonment-forced) finished abandonment-forced "$(forced_artifact)" ;;
+                abandonment-forced) finished abandonment-forced "$FORCED" ;;
             esac
         else
             printf '/scope stopped before recording an exit\n'

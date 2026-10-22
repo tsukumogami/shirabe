@@ -16,13 +16,17 @@
 #     a cross-repository-only PR ends done_error scope:pr-create with no URL
 #   - an Active PLAN without intent: done_refused plan-active, next by mode
 #   - a republish over a PR recording intent=stop: done_republished, the body
-#     rewritten, no second PR
+#     rewritten (the new session has no published_intent), no second PR
 #   - a full-run exit, with and without intent: intent_declared sends the intent
 #     run through publish_full_run and the no-intent run straight to cleanup,
 #     with no gh call at all
 #   - a publish that fails at pr create: done_error scope:pr-create with the exit
 #     recorded; after the scenario is fixed, the next session routes through
 #     resume_route back to publish_full_run and reaches done_full_run
+#   - an abandonment-forced exit: exit_abandonment holds on a marked document
+#     with no forced_artifact key and on a key naming the PLAN, passes once the
+#     key names the marked DESIGN, and the result and the printed block carry
+#     that path even after the marker is removed from the document
 #
 # koto admits a --var value only inside ^[a-zA-Z0-9._/:@ \-]*$. When this
 # checkout's path falls outside it, the cases run a copy of scope.md with the
@@ -319,6 +323,36 @@ tick pf '{"publish_result":"attempted"}' >/dev/null
 tick pf '{"cleanup_result":"done"}' >/dev/null
 eq "the retry reaches done_full_run" "done_full_run" "$(state_of pf)"
 eq "the retry: one PR, created on the retry" "1" "$(jq 'length' "$GHF/prs.json")"
+
+echo "== an abandonment-forced exit reads the forced artifact from the session =="
+repo ab
+every_hop ab single-pr
+open ab
+state3 ab none
+tick ab >/dev/null
+eq "abandonment: pointer 3 resumes at finalize" "finalize" "$(state_of ab)"
+tick ab '{"exit":"abandonment-forced"}' >/dev/null
+eq "abandonment: finalize routes to exit_abandonment" "exit_abandonment" "$(state_of ab)"
+# The marker is on the DESIGN, as the directive says; the gate never reads it.
+printf '\n<!-- scope-status-block: abandonment-forced; triggering-child: design; partial-phase-reached: 2; chain-started: 2026-10-01T14:32:08Z -->\n' \
+    >>"$R/docs/designs/DESIGN-ab.md"
+EV='{"triggering_child":"design","exit_artifacts":"docs/designs/DESIGN-ab.md: Draft","retry_or_cancel":"retry"}'
+tick ab "$EV" >/dev/null
+eq "abandonment: the marker alone, with no forced_artifact key, does not pass the gate" "exit_abandonment" "$(state_of ab)"
+printf 'docs/plans/PLAN-ab.md' | k context add scope-ab forced_artifact >/dev/null
+tick ab "$EV" >/dev/null
+eq "abandonment: a forced_artifact naming the PLAN does not pass the gate" "exit_abandonment" "$(state_of ab)"
+printf 'docs/designs/DESIGN-ab.md' | k context add scope-ab forced_artifact >/dev/null
+tick ab "$EV" >/dev/null
+eq "abandonment: the recorded forced_artifact passes the gate; no intent goes to cleanup" "cleanup_abandonment" "$(state_of ab)"
+tick ab '{"cleanup_result":"done"}' >/dev/null
+eq "abandonment: done_abandonment" "done_abandonment" "$(state_of ab)"
+eq "abandonment: the result carries forced_artifact" "docs/designs/DESIGN-ab.md" "$(result ab forced_artifact)"
+# The exit block names the key's path even once the marker is gone from the
+# document: nothing reads the document back.
+sed -i.bak '/scope-status-block/d' "$R/docs/designs/DESIGN-ab.md" && rm -f "$R/docs/designs/DESIGN-ab.md.bak"
+OUT=$(printed ab)
+has "abandonment: prints the forced artifact from the result" "/scope finished: exit=abandonment-forced; artifact=docs/designs/DESIGN-ab.md" "$OUT"
 
 echo
 echo "passed: $PASS   failed: $FAIL"
