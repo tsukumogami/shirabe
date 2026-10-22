@@ -32,8 +32,9 @@
 #   the `dispatch:<node>` action in koto-templates/execute-coordinated.md
 #     (its bullet under `## coord_loop`) names the hand-off template, one at a
 #     time, the node's worktree, koto status on the child it names,
-#     step_refine/, plan_abs and the local refine commit, and still has the
-#     owning session run repo-visibility.sh, node-cut.sh and node-push.sh;
+#     step_refine/, plan_abs and the local refine commit, and still carries
+#     the repo-visibility.sh, node-cut.sh and node-push.sh calls (the
+#     owning session's, since the step agent's block never names node-push.sh);
 #   the hand-off's coordinated template names the session the step agent
 #     opens, the dispatch variables, and that it makes no push and no gh
 #     write, and its fenced block never tells the agent to run node-push.sh;
@@ -247,7 +248,12 @@ grep -qxF -- "$RULE_LINE" "$RULES" \
 
 # dispatch_flat <execute-coordinated.md> <out> -> the `dispatch:<node>` bullet
 # of its `## coord_loop` section, joined into one line. The bullet runs from
-# its own line to the next bullet, blank line or heading.
+# its own line to the next bullet, blank line or heading. Its push half sits on
+# an indented continuation line on purpose: execute-coordinated-structure_test.sh
+# flags any line holding both `koto context add` and a `run/` key, and the
+# step_refine record and node-push.sh's `run/node/<node>` would otherwise share
+# one. A blank or unindented line there cuts the extraction short, and the
+# check below then reports the node-push.sh phrase missing.
 dispatch_flat() {
     section "$1" "## coord_loop" > "$WORK/coord-loop.md"
     awk '
