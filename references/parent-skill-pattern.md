@@ -415,82 +415,42 @@ The v1 value was once `wip-yaml-md`, a file at
 session driving its phases. Both parents now keep that state in the session
 itself, so no parent writes the file.
 
-**`team_primitive`.** How a parent's team is spawned and how nested teams
-are handled.
+**`team_primitive`.** Which agent spawns a unit's helpers, and how deep
+spawning goes.
 
 - **v1 value:** `unit-agent-spawns-own-reviewers` — an agent driving one
   unit of a run (a step agent driving one `/work-on` child under `/execute`'s
   lead shape, a scope agent, or the session itself) may spawn that unit's own
   reviewers, jurors and research agents, and those agents spawn nothing. Spawn
   depth stops at two: the session starts a unit's agent, the unit's agent
-  starts its reviewers. Three operational consequences follow from this
+  starts its reviewers. Four operational consequences follow from this
   value:
-  1. **Inline-decision walks.** A parent that decomposes a problem into N
-     decision questions cannot spawn N persistent validator sub-teams; each
-     decision-researcher walks the decision protocol inline.
-  2. **File-handoff between parents.** Downstream parents read upstream
+  1. **Helpers are spawned at the phase that needs them.** A unit's agent
+     starts its reviewers, jurors and researchers when the phase that uses
+     them runs, and waits on them itself. Nothing is materialized ahead of
+     time and nothing declares a roster: the count is whatever the phase
+     decides at runtime (one issue-body agent per outline, one decider per
+     question). Each skill's `## Team Shape` section says in prose which
+     agents it spawns and at which phase.
+  2. **Inline walks below the helpers.** A helper spawns nothing, so any
+     fan-out it would want it does inline instead. `/design`'s critical-tier
+     deciders are the one known exception: they follow `/decision`, whose
+     own phases start research and validator agents, and `/design`'s Team
+     Shape section says so.
+  3. **File-handoff between parents.** Downstream parents read upstream
      parents' artifacts from `docs/<type>/<TYPE>-<topic>.md` and (when the
      terminal artifact is not yet committed) from the upstream's state file
      under the same substrate convention. There is no live-team query
      interface in v1.
-  3. **Upfront upper-bound team roster.** A parent that needs
-     variable-cardinality peers declares the upper bound at team-creation
-     time; the parent-of-the-parent materializes the full roster, and the
-     coordinator dispatches a subset at runtime.
+  4. **A harness that can't spawn.** When the harness can't spawn subagents
+     at all, the unit's agent does its helpers' work itself, one after
+     another; the serial-self-jury shape in
+     [`fixes/sub-agent-dispatch.md`](fixes/sub-agent-dispatch.md) is the
+     canonical form.
 - **Alternate values** (amplifier-layer): substrate identifiers such as a
-  nested-team-capable primitive or a live-team-query primitive. The
-  amplifier-layer implementation MAY support nested teams, sub-agent
-  spawning, and live-team queries.
-
-## Team-Shape Declarator
-
-Each parent skill declares its team shape so a parent-of-the-parent (the
-agent invoking the skill) can materialize peers upfront. The declaration
-includes:
-
-- **Fixed roles** — peer names and responsibilities present in every
-  invocation.
-- **Variable-cardinality role types with an upper bound** — peer role
-  *types* whose runtime count is determined by an earlier phase, with an
-  upper bound declared in the SKILL.md.
-
-The shape declaration is **contract**; the **spawn timing** is
-substrate-specific (determined by `team_primitive`). v1's
-`unit-agent-spawns-own-reviewers` requires the parent-of-the-parent to
-materialize the full roster at team-creation time. Amplifier-layer
-implementations MAY support lazy spawning by the coordinator, but the
-shape declaration remains the same.
-
-**v1 core layer — prose declaration.** Each parent's SKILL.md declares its
-team shape in free-form prose alongside the existing Workflow Phases and
-Reference Files sections. The parent-of-the-parent reads the prose and
-manually translates it into a team-creation call before invoking the child
-skill.
-
-**v2 amplifier layer — structured metadata.** When the amplifier-layer
-substrate ships, parent skills MAY declare their team shape as a structured
-metadata block (YAML or JSON, in SKILL.md frontmatter or a fenced section)
-the substrate parses mechanically. The substrate spawns the upfront roster
-from the declaration without human translation.
-
-The two forms serve different layer concerns. Prose fits the manual-spawn
-pattern of v1 (a human reads the declaration; an agent translates to a
-roster spawn). Structured metadata fits the substrate-driven pattern of v2.
-Migrating prose to structured metadata at v2 boundaries is a known
-operation, not a contract change.
-
-**Reviewer-shaped roles vs variable-cardinality worker role types.** The
-team-shape declaration MUST distinguish two role-cardinality shapes so a
-coordinator knows how to dispatch correctly. **Reviewer-shaped roles**
-iterate over work items themselves: ONE architecture-reviewer reviews ALL
-N work items in one pass; the reviewer is materialized once regardless of
-N. **Variable-cardinality worker role types** spawn one peer per work
-item: `/design`'s `decision-researcher` role type spawns one researcher
-per decision question; `/plan`'s `decomposer` role type spawns one
-decomposer per outline. The team-shape declarator section above lists the
-two cardinality shapes separately so the parent-of-the-parent knows
-whether to materialize a single instance (reviewer) or N instances
-(worker) at team-creation time.
+  live-team-query primitive or one with a deeper spawn budget. The
+  amplifier-layer implementation MAY support spawning past depth two and
+  live-team queries.
 
 ## Dispatch Contract
 
@@ -510,21 +470,17 @@ two authoring parents' non-feeder children only, which left `/comp`
 out and said nothing about `/work-on`. The roster counts invocation
 rather than artifact altitude: a child a parent dispatches is bound by
 this contract whether it authors a durable doc, runs a competitive
-analysis, or implements an issue. Seven of the nine ship the
-`team.yaml` the Child Team-Shape Declaration element below requires;
-`/comp` and `/work-on` do not, which is a conformance gap in those two
-children rather than a per-binding exemption in the contract.
+analysis, or implements an issue. No child declares its team in a
+separate file: what a child spawns is prose in its SKILL.md's
+`## Team Shape` section, which the contract doesn't read.
 
-The contract has five labelled elements: a dispatch mechanism, a
-pre-dispatch state, an observability surface, a hand-back contract,
-and a child team-shape declaration. The four Layer-1 elements
-(mechanism, pre-dispatch state, observability surface, hand-back)
-are substrate-agnostic — every future substrate names them. The
-specific bindings (the two dispatch bindings named below, the
-dedicated `team.yaml` file path, the YAML schema, the
-`work/state.md` session key) are Layer 2 (substrate-bound,
-replaceable when the amplifier layer ships via the `team_primitive`
-substitution surface above).
+The contract has four labelled elements: a dispatch mechanism, a
+pre-dispatch state, an observability surface, and a hand-back
+contract. All four are Layer 1, substrate-agnostic — every future
+substrate names them. The specific bindings (the two dispatch
+bindings named below and the `work/state.md` session key) are Layer 2
+(substrate-bound, replaceable when the amplifier layer ships via the
+`team_primitive` substitution surface above).
 
 ### Dispatch Mechanism
 
@@ -536,8 +492,8 @@ parent layer. v1 carries **two** Layer-2 bindings for that element:
   `/charter`) call the Skill tool from their own agent context with
   the child's name and the topic slug, the same way a user typing
   `/<child-name> <topic-slug>` would. The child runs in the parent's
-  agent context and constructs whatever team it needs at the child
-  layer.
+  agent context and spawns whatever reviewers, jurors and researchers
+  its own SKILL.md names, from that same agent.
 - **Materialized `/work-on` runs.** `/execute` submits its per-issue
   children to a koto session that materializes one child per issue
   against `/work-on`'s child template, and drives that loop rather
@@ -552,11 +508,13 @@ the dispatch mechanism as Layer-1 and its binding as Layer-2, so a
 second binding is what the split was built for; naming the third
 parent a variance would read a conforming parent as an exception and
 would put the pattern's own layering to no use. Both bindings sit
-under `team_primitive: unit-agent-spawns-own-reviewers`, and all
-three parents are single-agent at their own layer. The four remaining
-elements are written against the inline binding because it came
-first; where they name the Skill-tool call, read it as the dispatch
-under whichever binding the parent uses.
+under `team_primitive: unit-agent-spawns-own-reviewers`, and none of
+the three parents spawns peers at its own layer: a step agent under
+`/execute`'s lead shape drives one child as that unit's agent, and is
+not a peer. The three remaining elements are written against the
+inline binding because it came first; where they name the
+Skill-tool call, read it as the dispatch under whichever binding the
+parent uses.
 
 R14 child-isolation is preserved by construction under both. The
 parent reads only the child's durable artifact (per the hand-back
@@ -605,7 +563,7 @@ directly, so it has no parent of its own in this pattern.
 ### Pre-Dispatch State
 
 Before invoking the child, the parent SHALL have written the
-following four pre-dispatch state elements:
+following three pre-dispatch state elements:
 
 1. **The `chain/dispatch` key** in the parent's own session, written
    immediately before the invocation with `skill-session.sh dispatch
@@ -630,11 +588,6 @@ following four pre-dispatch state elements:
    did lands in `chain_ran` and `chain_skipped` instead (see
    Chain-tracking in
    [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
-4. **Child-side team-shape declaration glob marker** — the file
-   `skills/<name>/team.yaml` exists and parses against the schema
-   below. The marker is the contract surface; the parent does NOT
-   parse the file at dispatch time in v1 (see Child Team-Shape
-   Declaration below for the v1 read semantics).
 
 The dispatch key is the canonical pre-dispatch state element and is
 described as the pre-dispatch state element of the dispatch contract
@@ -713,50 +666,7 @@ hand-back steps in order:
    `{status, content_hash, commit_sha}` to the parent's state file
    for the per-child snapshot dual-check.
 
-### Child Team-Shape Declaration
-
-Every child SHALL declare its team shape at the well-known per-skill
-path `skills/<name>/team.yaml`. The file is the contract surface for
-the child's team — its path is the glob marker, its content is the
-declaration. The schema:
-
-```yaml
-parent_layer:
-  # Peers the parent-of-the-parent materializes upfront.
-  # Empty for every child in v1 (the parent owns no team).
-  peers: []
-
-child_layer:
-  # Peers the child itself spawns during its phases.
-  # An empty list is a valid declaration meaning "no team."
-  peers:
-    - role: <kebab-case-role-name>
-      cardinality: reviewer | worker
-      upper_bound: <integer>  # required iff cardinality: worker
-      phase: <phase-slug>     # e.g., phase-4-validate
-      purpose: <one-line description>
-```
-
-The schema mirrors the Team-Shape Declarator section's
-reviewer-shaped-vs-variable-cardinality vocabulary verbatim;
-`reviewer` cardinality means one peer reviews all N work items
-(`upper_bound` omitted; one is implicit), `worker` cardinality means
-one peer per work item (`upper_bound` names the maximum N). The
-`phase:` value is a kebab-case slug matching the child's phase
-reference filename without extension (e.g., `phase-4-validate`,
-`phase-2-execution`, `phase-6-final-review`).
-
-**v1 runtime read semantics.** The parent does NOT parse
-`team.yaml` at dispatch time in v1. The substrate has no team.yaml
-parser; the inline Skill-tool dispatch mechanism passes only the
-topic-slug argument. The file is consumed in v1 by: (a) reviewers
-verifying that the declaration matches the child's actual peer
-roster, (b) the future Phase D validator extension when it ships,
-and (c) the future amplifier-layer substrate when it ships
-TeamCreate semantics under `team_primitive`'s Layer-2 substitution.
-The contract surface (file at well-known path; fixed schema;
-glob-checkable presence via `skills/*/team.yaml`) exists in v1; the
-runtime read is a v2 binding.
+### Scope of the Contract
 
 v1 has no per-parent override slot — the contract applies verbatim
 to all three parents and to the nine children counted above. The
@@ -982,17 +892,23 @@ exits, timing table, idle-pings rule, nudge content rule, `ci_outcome`
 semantics — is unchanged; what changes is the layer the binding fires at.
 
 - **At the parent-itself layer:** the binding is vacuous in v1. All
-  three parents run as single-agent skills (see each parent's SKILL.md
-  Team Shape section); no peers are dispatched at the parent-itself
-  layer, so the loop has zero dispatched tasks to drive. `/execute`'s
-  orchestrator loop is not a counterexample: what it drives is children,
-  not peers.
+  three parents dispatch no peers of their own (`/scope` and `/charter`
+  say so in their SKILL.md Team Shape sections), so the loop has zero
+  dispatched tasks to drive. `/execute`'s orchestrator loop is not a
+  counterexample: what it drives is children, not peers. Under its lead
+  shape the owning session hands each child to a foreground step agent,
+  which is the agent driving that unit in the `team_primitive` sense; the
+  session waits on the step agent's return and confirms the child's
+  terminal from koto, which is not a sleep-check-nudge loop either.
 - **At the child-itself layer:** the discipline binds inside each child
-  against the child's own peers. Each child constructs its own team (when
-  it has one) per the Dispatch Contract's Child Team-Shape Declaration;
-  the child is the team-lead in the discipline sense, driving its own
-  peers' dispatched tasks to terminal exits. The child-skill invocation
-  task class is the implementation pass class above (120s window,
+  against the child's own peers. Each child spawns its own reviewers,
+  jurors and researchers (when it has any) at the phases its SKILL.md
+  names (for the seven authoring children, in their Team Shape
+  sections), from whichever agent is running it. The child is the
+  team-lead in the discipline sense, driving its own peers' dispatched
+  tasks to terminal exits, and those peers spawn nothing (the one
+  exception is named under `team_primitive` above). The child-skill
+  invocation task class is the implementation pass class above (120s window,
   10-cycle patience budget) as seen from the parent's wait on the
   child, synchronous under the inline binding and loop-driven under
   the materialized one. When ESCALATE fires inside a child invocation, the

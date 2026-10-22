@@ -94,8 +94,9 @@ Questions covering the four named items:
 
 The reviewer dereferences references/fixes/sub-agent-dispatch.md
 when this run is under a parent (the Resume Logic's first row found a
-`chain/dispatch` key naming `design` in `scope-<topic>`), and the
-serial-self-jury fallback applies when parallel spawn is not available.
+`chain/dispatch` key naming `design` in `scope-<topic>`). Running
+under a parent still spawns the jury; the serial-self-jury fallback
+applies only when the harness can't spawn subagents.
 
 [Include all nine required sections plus the frontmatter]
 

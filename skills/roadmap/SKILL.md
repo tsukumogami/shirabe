@@ -630,13 +630,19 @@ what the subcommand will write before the gate is reached; under
 
 ## Team Shape
 
-`/roadmap`'s team shape is declared in [`team.yaml`](./team.yaml) as
-the machine-readable contract surface. The child layer spawns three
-reviewer peers at Phase 4 (`theme-coherence-reviewer`,
-`sequencing-and-dependency-reviewer`,
-`annotation-and-boundary-reviewer`) to validate the drafted ROADMAP.
+`/roadmap` spawns agents in two phases. At Phase 2 it starts its three
+fixed research agents in parallel to investigate candidate features, and
+ingests their findings. At Phase 4 it starts three reviewers in parallel, a
+theme-coherence reviewer (do the features belong under one theme), a
+sequencing-and-dependency reviewer (the dependency graph between features)
+and an annotation-and-boundary reviewer (per-feature annotations and the
+roadmap's scope boundary), and folds their verdicts. The researchers and
+reviewers spawn nothing: each reads what it is given and writes one file.
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+Under `/charter` these agents run from whichever agent is running
+`/charter`; the nesting rule in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`) says why that is allowed.
 
 ## Reference Files
 

@@ -358,12 +358,17 @@ After acceptance, suggest next steps:
 
 ## Team Shape
 
-`/strategy`'s team shape is declared in [`team.yaml`](./team.yaml) as
-the machine-readable contract surface. The child layer spawns three
-reviewer peers at Phase 4 (`bet-quality-reviewer`, `altitude-reviewer`,
-`structural-format-reviewer`) to validate the drafted STRATEGY.
+`/strategy` spawns agents in one phase only. At Phase 4 it starts three
+reviewers in parallel, a bet-quality reviewer (does the strategy name a
+falsifiable bet), an altitude reviewer (does it stay in its altitude band)
+and a structural-format reviewer (conformance to `strategy-format.md`), and
+folds their verdicts. Every other phase runs in your own context. The three
+reviewers spawn nothing: each reads the draft and writes one verdict file.
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+Under `/charter` the same reviewers run from whichever agent is running
+`/charter`; the nesting rule in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`) says why that is allowed.
 
 ## Reference Files
 

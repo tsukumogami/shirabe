@@ -178,16 +178,17 @@ rather than re-authoring the body.
 
 | Parent | Status | Chain length | Bail target | Analyzer actor |
 |--------|--------|--------------|-------------|----------------|
-| `/scope` v1 | load-bearing | 4 children (longest chain in shirabe) | the parent's own bail-handling rule in `skills/scope/SKILL.md` | parent itself (solo mode); team-lead-spawned sub-agent (amplifier mode) |
-| `/charter` | load-bearing (back-edit) | 3 children | the parent's own bail-handling rule in `skills/charter/SKILL.md` | parent itself (solo); team-lead-spawned sub-agent (amplifier) |
+| `/scope` v1 | load-bearing | 4 children (longest chain in shirabe) | the parent's own bail-handling rule in `skills/scope/SKILL.md` | the parent itself, in whichever agent runs `/scope` |
+| `/charter` | load-bearing (back-edit) | 3 children | the parent's own bail-handling rule in `skills/charter/SKILL.md` | the parent itself, in whichever agent runs `/charter` |
 | `/work-on` | future | TBD | binding deferred to the amplifier-layer parent migration | binding deferred |
 | `/execute` | not bound | n/a | its `drift_facts` and `worktree_sync` states fetch and catch up themselves, and its `worktree_discipline_check` directive carries the two-class rule; intent-changing ends the run at `done_blocked` | the orchestrator, from the precomputed drift facts |
 
-The "Analyzer actor" column reflects the team-primitive substitution
-surface (see `parent-skill-pattern.md`). In v1's
-`unit-agent-spawns-own-reviewers` substrate, the parent skill is
-single-agent and does the impact analysis itself. In an amplifier-
-layer substrate where the parent can dispatch sub-agents, the
-analysis can be delegated to a worktree-sync-analyzer sub-agent that
-reports back to the parent. The discipline is identical across
-substrates; only the actor changes.
+The "Analyzer actor" column names the agent that does the impact
+analysis. Under v1's `unit-agent-spawns-own-reviewers` rule (see
+`team_primitive` in `parent-skill-pattern.md`) that is the parent
+itself: the session when the parent runs there, or the agent a
+caller handed the parent to (a scope agent, for `/scope`). The rule
+would let that agent spawn a helper for the analysis, but no parent
+does; the analysis reads the parent's own state and the upstream
+commits, which is work the parent already holds. The discipline is
+the same whichever agent runs it.

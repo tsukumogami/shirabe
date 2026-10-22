@@ -257,9 +257,16 @@ Final artifact: `docs/prds/PRD-<topic>.md`, transitioning from "Draft" to
 
 ## Team Shape
 
-`/prd`'s team shape is declared in [`team.yaml`](./team.yaml) as the
-machine-readable contract surface. The child layer spawns three
-reviewer peers at Phase 4 (`completeness-reviewer`, `clarity-reviewer`,
-`testability-reviewer`) to validate the drafted PRD.
+`/prd` spawns agents in two phases. At Phase 2 it starts two or three
+research agents in parallel, with roles picked from the feature type, and
+ingests their findings. At Phase 4 it starts three reviewers in parallel, a
+completeness reviewer (requirements against the problem), a clarity
+reviewer (wording and ambiguity) and a testability reviewer (whether each
+acceptance criterion can be checked), and folds their verdicts. The
+researchers and reviewers spawn nothing: each reads what it is given and
+writes one file.
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+Under `/scope` these agents run from whichever agent is running `/scope`;
+the nesting rule in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`) says why that is allowed.

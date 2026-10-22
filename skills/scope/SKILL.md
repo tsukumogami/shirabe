@@ -38,9 +38,15 @@ is invoked **inline through the Skill tool, in your own context**. No
 subagent, no roster to materialize, nothing to poll or wait on. Each
 hop's directive says so again at the point of invocation.
 
-R19's Team-Lead Operating Discipline binds at the child-dispatch layer
-and is vacuous here for the same reason: there are no peers whose
-terminal exits a team lead drives.
+The children spawn their own researchers, reviewers and deciders, from
+the same agent that is running `/scope`, as each child's Team Shape
+section says; those agents spawn nothing, apart from the one exception
+`/design`'s section names. The nesting rule that allows
+this is `team_primitive` in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`. The
+pattern's Team-Lead Operating Discipline binds inside each child for the
+same reason and is vacuous at `/scope`'s own layer: there are no peers
+whose terminal exits `/scope` drives.
 
 ## Input Modes
 

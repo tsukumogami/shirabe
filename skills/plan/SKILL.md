@@ -626,15 +626,17 @@ Final artifacts depend on execution mode:
 
 ## Team Shape
 
-`/plan`'s team shape is declared in [`team.yaml`](./team.yaml) as the
-machine-readable contract surface. The child layer spawns one worker
-peer role: `decomposer` (worker, upper_bound 20, phase-4-agent-
-generation), one decomposer per outline emitted by Phase 3. `/plan`'s
-Phase 6 also invokes `/review-plan` as a sub-skill via inline
-Skill-tool dispatch; this is a CHILD invocation under the Dispatch
-Contract, NOT a peer, and is therefore not declared in team.yaml.
+`/plan` spawns agents in one phase of its own. At Phase 4 it starts one
+issue-body agent per outline Phase 3 emitted, all in a single message, and
+validates what each returns. Those agents spawn nothing: each writes one
+issue body and never calls koto.
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+Phase 6 runs `/review-plan` through the Skill tool, in your own context,
+so it is a sub-skill rather than an agent `/plan` spawns. Any validator
+agents `/review-plan` starts are its own, described in its SKILL.md, and
+they spawn nothing either. The nesting rule behind both is in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`).
 
 ## Reference Files
 

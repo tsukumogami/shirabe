@@ -281,13 +281,19 @@ After acceptance, suggest next steps:
 
 ## Team Shape
 
-`/vision`'s team shape is declared in [`team.yaml`](./team.yaml) as the
-machine-readable contract surface. The child layer spawns three
-reviewer peers at Phase 4 (`thesis-quality-reviewer`,
-`content-boundary-reviewer`, `section-guidance-reviewer`) to validate
-the drafted VISION.
+`/vision` spawns agents in two phases. At Phase 2 it starts two to four
+research agents in parallel, with roles matched to the research leads, and
+ingests their findings. At Phase 4 it starts three reviewers in parallel, a
+thesis-quality reviewer (is the thesis a falsifiable bet), a
+content-boundary reviewer (audience and value-proposition framing) and a
+section-guidance reviewer (conformance to `vision-format.md`), and folds
+their verdicts. The researchers and reviewers spawn nothing: each reads
+what it is given and writes one file.
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+Under `/charter` these agents run from whichever agent is running
+`/charter`; the nesting rule in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`) says why that is allowed.
 
 ## Reference Files
 
