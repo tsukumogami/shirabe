@@ -54,6 +54,30 @@ consulting the body.
 If `deferral_approval` approved a deferral, name the deferred criterion and the
 recorded approval in Part 2.
 
+### Verification deferred to hosted CI
+
+A run started with `VERIFICATION=hosted-ci` passed through
+`verification_deferred` instead of `verification`: the verification map never
+ran on this host, and the reason it gave is in context as
+`verification_deferral`. Record that in Part 2 with this section, the reason
+copied verbatim:
+
+```markdown
+## Verification
+
+Local verification did not run: it was deferred to hosted CI.
+Reason: <the verification_deferral value>
+Hosted CI is the build of record for this change.
+```
+
+`pr_creation`'s `verification_deferral_recorded` gate reads the body GitHub has
+(`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
+finds all three: a line saying local verification did not run, the reason
+verbatim, and a line saying hosted CI is the build of record. The wording is
+matched without regard to case; the reason is matched exactly. A run that
+didn't defer passes the gate without the section. On a deferred run, don't
+re-run tests locally after merging main either: the push is what CI checks.
+
 ## CI Monitoring
 
 If checks fail:

@@ -125,6 +125,34 @@ variables:
     required: false
     default: "on"
     values: ["on", "off"]
+  VERIFICATION:
+    description: >-
+      Where the definition-of-done gate runs. `local` (the default) enters the
+      verification state, which runs the repository's verification map on this
+      host. `hosted-ci` defers verification to the pull request's hosted CI:
+      every edge into verification goes to verification_deferred instead, so
+      the map is never launched, and the run still finalizes and opens its
+      pull request. A deferral needs VERIFICATION_DEFERRAL_REASON, and
+      pr_creation holds until the pull request body records it. Set at init
+      (`--var VERIFICATION=hosted-ci`, or `--verification=hosted-ci` through
+      work-on-open.sh) and not rebindable: a run never changes where its
+      verification runs partway through, and an attach that leaves it out
+      keeps the value the run started with.
+    required: false
+    default: local
+    values: [local, hosted-ci]
+  VERIFICATION_DEFERRAL_REASON:
+    description: >-
+      Why verification is deferred to hosted CI, in one line: the stated reason
+      a VERIFICATION=hosted-ci run carries into context
+      (verification_deferral) and into its pull request body, where
+      pr_creation's verification_deferral_recorded gate looks for it verbatim.
+      Ignored when VERIFICATION is local. A hosted-ci run without it ends at
+      done_blocked rather than running the map or skipping it silently. The
+      pattern refuses a value that does not start with a letter or digit, so a
+      bare flag can't pass for a reason. Not rebindable, like VERIFICATION.
+    required: false
+    pattern: ^([a-zA-Z0-9].*)?$
 
 states:
   entry:
@@ -867,13 +895,26 @@ states:
       - target: review_level_check
         when:
           issue_type: code
+      # Every edge into verification has a twin into verification_deferred,
+      # split on VERIFICATION; see that state's comment.
       - target: verification
         when:
           issue_type: docs
           gates.has_commits.exit_code: 0
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          issue_type: docs
+          gates.has_commits.exit_code: 0
+          vars.VERIFICATION: hosted-ci
       - target: verification
         when:
           issue_type: task
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          issue_type: task
+          vars.VERIFICATION: hosted-ci
 
   review_level_check:
     # Between the issue-type question and the first panel of a code change, on
@@ -1193,6 +1234,13 @@ states:
           gates.review_carried.exit_code: 0
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.review_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          vars.REVIEW_LEVEL: standard
+          vars.VERIFICATION: hosted-ci
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 0
@@ -1212,6 +1260,15 @@ states:
           gates.review_recorded.exit_code: 0
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.review_carried.exit_code: 1
+          gates.review_verdict.exit_code: 0
+          gates.review_recorded.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          vars.REVIEW_LEVEL: standard
+          vars.VERIFICATION: hosted-ci
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 1
@@ -1299,12 +1356,24 @@ states:
       - target: verification
         when:
           gates.qa_carried.exit_code: 0
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.qa_carried.exit_code: 0
+          vars.VERIFICATION: hosted-ci
       # The round is recorded and the tester is not blocking: koto advances.
       - target: verification
         when:
           gates.qa_carried.exit_code: 1
           gates.qa_verdict.exit_code: 0
           gates.qa_recorded.exit_code: 0
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.qa_carried.exit_code: 1
+          gates.qa_verdict.exit_code: 0
+          gates.qa_recorded.exit_code: 0
+          vars.VERIFICATION: hosted-ci
       - target: implementation
         when:
           gates.qa_carried.exit_code: 1
@@ -1395,6 +1464,12 @@ states:
         when:
           gates.light_carried.exit_code: 0
           gates.level_unchanged.exit_code: 0
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.light_carried.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          vars.VERIFICATION: hosted-ci
       # The round is recorded and the seat is not blocking: koto advances.
       - target: verification
         when:
@@ -1403,6 +1478,15 @@ states:
           gates.light_recorded.exit_code: 0
           gates.has_commits.exit_code: 0
           gates.level_unchanged.exit_code: 0
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.light_carried.exit_code: 1
+          gates.light_verdict.exit_code: 0
+          gates.light_recorded.exit_code: 0
+          gates.has_commits.exit_code: 0
+          gates.level_unchanged.exit_code: 0
+          vars.VERIFICATION: hosted-ci
       - target: implementation
         when:
           gates.light_carried.exit_code: 1
@@ -1479,6 +1563,10 @@ states:
     # The return to implementation on exit 1 used to be the agent's, which
     # cleared the panel and summary keys first. koto now takes the edge
     # itself, so those keys are implementation's clear_on_entry.
+    #
+    # Only a VERIFICATION=local run enters this state. A hosted-ci run goes to
+    # verification_deferred on every edge that would lead here, so the action
+    # below never runs for it.
     default_action:
       command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --start --session "{{SESSION_NAME}}"'
       fallback: >-
@@ -1546,6 +1634,46 @@ states:
         context_assignments:
           failure_reason: "verification blocked: ${evidence.detail}"
 
+  verification_deferred:
+    # Where a VERIFICATION=hosted-ci run goes instead of verification (#1012).
+    # Every edge into verification has a twin here, split on the variable's
+    # value, so a `local` run (the default) takes exactly the routes it took
+    # before the twins existed.
+    #
+    # The split sits on the edges, not inside verification, because koto runs
+    # a state's default_action before its skip_if and its transitions: once a
+    # run enters verification, run-verification.sh --start has already
+    # launched the map, in a detached supervisor or in line. Never entering it
+    # is the only way the map never starts. This state has no action and no
+    # gates, so nothing here runs a command.
+    #
+    # The deferral is explicit and leaves three records: VERIFICATION and its
+    # reason are fixed at init (neither is rebindable), the edge in records
+    # `vars_matched: VERIFICATION=hosted-ci` on its transition event, and the
+    # edge out writes the reason to context as verification_deferral. It is
+    # never silent either: pr_creation's verification_deferral_recorded gate
+    # holds the created edge until the pull request body says local
+    # verification did not run, gives this reason, and names hosted CI as the
+    # build of record; ci_monitor then requires that CI green as always.
+    #
+    # A hosted-ci run with no reason stops at done_blocked. It does not fall
+    # back to running the map, which is what the run chose not to do, and it
+    # does not go on, which would be a deferral nobody explained. The reason
+    # can't be added to a live session, since the variable is fixed at init.
+    transitions:
+      - target: finalization
+        when:
+          vars.VERIFICATION_DEFERRAL_REASON:
+            is_set: true
+        context_assignments:
+          verification_deferral: "{{VERIFICATION_DEFERRAL_REASON}}"
+      - target: done_blocked
+        when:
+          vars.VERIFICATION_DEFERRAL_REASON:
+            is_set: false
+        context_assignments:
+          failure_reason: "verification_deferred: VERIFICATION=hosted-ci was chosen without VERIFICATION_DEFERRAL_REASON. A deferral to hosted CI needs a stated reason, and the variable is fixed at init: start the run again with both, or without the deferral."
+
   finalization:
     gates:
       summary_exists:
@@ -1599,6 +1727,10 @@ states:
         #   means the verification_verdict gate exited 0 (verification
         #   only transitions to finalization on that exit), so ready_for_pr is backed by run
         #   verification evidence -- there is no clean finalization without it.
+        #   The one other way in is verification_deferred, for a run that chose
+        #   VERIFICATION=hosted-ci with a reason: its evidence is the pull
+        #   request's hosted CI, which pr_creation makes the body record and
+        #   ci_monitor requires green.
         # deferral_requested: an acceptance criterion is unmet/deferred. There is NO clean
         #   self-reported deferral terminal here (the old deferred_items_noted loophole is
         #   removed). This routes to the blocking deferral_approval human gate instead.
@@ -1624,7 +1756,8 @@ states:
         context_assignments:
           failure_reason: "check_exit at finalization: commit_convention could not be satisfied: ${evidence.check_exit_reason}"
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
-      # passed, since finalization is only reachable on verification_verdict exit 0.
+      # passed, since finalization is only reachable on verification_verdict exit 0,
+      # or deferred to hosted CI with a reason (verification_deferred).
       # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
@@ -1929,6 +2062,19 @@ states:
       pr_body_conformant:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
+      # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
+      # verification_deferred) records the deferral where a reviewer reads it.
+      # check-pr-output.sh --deferral-record reads the pull request body from
+      # GitHub and exits 0 when it says local verification did not run, gives
+      # the reason verbatim, and names hosted CI as the build of record; 1
+      # when any of the three is missing; 2 when it could not decide. It gates
+      # the created edge only, so 1 and 2 hold here, like pr_body_conformant:
+      # fix the body with `gh pr edit` and submit again. A local run never
+      # starts the script: the test short-circuits to 0, with no process and
+      # no GitHub read.
+      verification_deferral_recorded:
+        type: command
+        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
     accepts:
       pr_status:
         type: enum
@@ -1961,6 +2107,7 @@ states:
           pr_status: created
           gates.closing_keyword.exit_code: 0
           gates.pr_body_conformant.exit_code: 0
+          gates.verification_deferral_recorded.exit_code: 0
         context_assignments:
           pr_url: "${evidence.pr_url}"
       # A body without the keyword stops here. Fail-closed: the gate also exits
@@ -2890,6 +3037,21 @@ Evidence schema (only when the run can't settle):
 - `verification_status`: `blocked`
 - `detail`: why verification could not run or be read
 
+## verification_deferred
+
+koto passes through this state without stopping, and nothing here runs a
+command. The run was started with `VERIFICATION=hosted-ci`, so it came here
+instead of `verification`: local verification did not run, and the verification
+map was never launched. The stated reason, `VERIFICATION_DEFERRAL_REASON`, is in
+context as `verification_deferral`
+(`koto context get {{SESSION_NAME}} verification_deferral`).
+
+The run goes on to `finalization`. The pull request's hosted CI is the build of
+record: `pr_creation` holds until the pull request body records the deferral, and
+`ci_monitor` requires that CI green. A run that chose the deferral without a
+reason stops at `done_blocked` instead; start it again with both variables, or
+without the deferral.
+
 ## finalization
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
@@ -3101,6 +3263,20 @@ instead. Fix the title or body with `gh pr edit` and submit `pr_status: created`
 again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
+
+A run that deferred verification to hosted CI (it passed through
+`verification_deferred`, and `verification_deferral` is in context) records the
+deferral in the body, in Part 2, under a `Verification` heading, with the three
+lines `references/phases/phase-6-pr.md` gives: that local verification did not
+run, `Reason: ` followed by the `verification_deferral` value verbatim, and that
+hosted CI is the build of record for this change.
+
+`pr_status: created` also needs the `verification_deferral_recorded` gate to
+pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`, which
+reads the body from GitHub and holds the state until it says local verification
+did not run, carries the reason verbatim, and says hosted CI is the build of
+record. Fix the body with `gh pr edit` and submit `pr_status: created` again.
+On a run that didn't defer the gate passes without running anything.
 
 The gate's output escalates. The first time a rule fails here, its finding
 carries the rule's summary. From the second failed evaluation of the same

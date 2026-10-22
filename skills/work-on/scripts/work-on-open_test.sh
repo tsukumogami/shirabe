@@ -121,6 +121,9 @@ own_refusal "--koto-leg on a .md file with plan/v1 frontmatter" '["roadmap-plan.
 # start with PLAN-.
 cp "$SCRIPT_DIR/testdata/PLAN-v2-single-pr.md" "$FIXREPO/step-plan.md"
 own_refusal "--koto-leg on a .md file with plan/v2 frontmatter" '["step-plan.md","--koto-leg=r1:work-on"]'
+# A deferral to hosted CI needs its reason (#1012).
+own_refusal "--verification=hosted-ci with no reason" '["7","--verification=hosted-ci","--koto-leg=r1:work-on"]'
+own_refusal "--verification=hosted-ci with an empty reason" '["7","--verification=hosted-ci","--verification-reason=","--koto-leg=r1:work-on"]'
 
 : > "$WORK/stub.log"
 OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
@@ -160,6 +163,14 @@ pairs_of '["7","--review-floor=light","--review-floor=full","--review-ceiling","
 eq "a repeat is two pairs and a bare flag its literal token, both left to koto" \
     '[["REVIEW_FLOOR","light"],["REVIEW_FLOOR","full"],["REVIEW_CEILING","--review-ceiling"]]' \
     "$(jq -c 'map(select(.[0] | startswith("REVIEW_")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--verification=hosted-ci","--verification-reason=host is in a measurement window","--koto-leg=r1:work-on"]'
+eq "--verification=hosted-ci with a reason: the deferral pairs, the reason one value" \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is in a measurement window"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--verification=local","--koto-leg=r1:work-on"]'
+eq "--verification=local needs no reason" \
+    '[["VERIFICATION","local"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
 
 # --- engine-backed ------------------------------------------------------------
 

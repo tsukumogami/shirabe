@@ -60,6 +60,10 @@ skills/work-on/scripts/work-on-open_test.sh
 # The result map's static checks read the shipped template and run
 # on the floor; its leg cases drive real koto and skip without it.
 skills/work-on/scripts/leg-result_test.sh
+# The verification deferral's static checks and record gate run
+# on the floor; its route and leg cases drive real koto and skip
+# without it.
+skills/work-on/scripts/verification-deferral_test.sh
 # Preflight against a stand-in koto; the at-floor case skips
 # without a real one.
 skills/work-on/scripts/work-on-requires_test.sh
