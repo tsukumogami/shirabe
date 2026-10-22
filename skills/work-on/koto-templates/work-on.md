@@ -3330,7 +3330,8 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 The body closes the issue in Part 2, and the `closing_keyword` gate reads it from
 GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
 `ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
-repository and no bare `#<N>`, which would close this repository's issue `<N>`.
+repository and no other closing reference to `<N>`: a bare `#<N>`, this repository's
+`owner/repo#<N>` or its issue URL would close this repository's issue `<N>`.
 `references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
