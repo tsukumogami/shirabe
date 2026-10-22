@@ -71,7 +71,7 @@
 #   VERIFICATION           `--verification=<local|hosted-ci>`, the same way.
 #   VERIFICATION_DEFERRAL_REASON
 #                          `--verification-reason=<text>`, the same way.
-#   STORE                 `--store <v>` or `--store=<v>`
+#   STORE                  `--store <v>` or `--store=<v>`
 #   COORDINATION_PR        `--coordination-pr <url>`
 #   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
 #                          first `=` becomes a space, since koto's own value
