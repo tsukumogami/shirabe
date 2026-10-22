@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   `/execute` ticks every plan-backed `/work-on` child in its own session, so
   the session that owns a multi-step plan holds every step's reading,
@@ -42,7 +42,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

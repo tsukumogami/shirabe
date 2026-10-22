@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   `/execute` drives every step of a plan through a `/work-on` child in its own
   context, so a session running a multi-step plan, often after a scoping
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-lead-shape-delivery](docs/briefs/BRIEF-lead-shape-delivery.md); carried in Absorbed Brief.
 
