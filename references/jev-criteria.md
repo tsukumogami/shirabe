@@ -213,7 +213,7 @@ branch or the discipline's issues, and the pauses; and `PARKED_BOUND`, a
 session variable. The agent writes neither.
 
 **Slice.** `pick-facts.sh` runs `pick-slice.jq`'s `pick_slice` over the
-`coord/pick.json` it just wrote and stores the result as
+`coord/pick.json` it built on that visit and stores the result as
 `coord/pick_slice.json`, before it seals its verdict, so a sealed verdict
 means both keys came from that visit. The decider reads the slice; the agent
 keeps reading the full facts. A unit whose `done` is true, with no holding

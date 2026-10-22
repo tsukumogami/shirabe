@@ -39,7 +39,7 @@
 # facts are over the 12,000-byte cap and the slice under it, the Done units
 # collapsed to a done list, a blocker named by its tag, null, false and
 # empty-list fields left out of units and holdings, the counts, bounds,
-# pauses and decisions the facts'; a done unit owed a verdict, with rework or
+# pauses and decisions the facts', and its key set pinned; a done unit owed a verdict, with rework or
 # covered by a holding keeps its row; a second visit rewrites the slice; every
 # coordinate.pick.choice fixture's input is a slice, and some carry a long
 # done list.
@@ -521,6 +521,11 @@ eq "  ... null, false and empty-list fields are left out of units" 'number,statu
 eq "  ... and out of holdings" 'dispatch_status,phase,pull_request,unit,worker' "$(slice | jq -r '.holdings[0] | keys | join(",")')"
 eq "  ... the counts, bounds, pauses and decisions are the facts'" "$(facts | jq -c '[.scope, .name, .host, .cap, .active, .parked, .parked_bound, .paused_all, .pauses, .go_aheads, .decisions]')" \
     "$(slice | jq -c '[.scope, .name, .host, .cap, .active, .parked, .parked_bound, .paused_all, .pauses, .go_aheads, .decisions]')"
+# A key added to the facts fails here until pick-slice.jq says whether the
+# decider sees it.
+eq "  ... the slice has every key of the facts, and done" \
+    "active,cap,decisions,go_aheads,holdings,host,name,parked,parked_bound,paused_all,pauses,scope,units|active,cap,decisions,done,go_aheads,holdings,host,name,parked,parked_bound,paused_all,pauses,scope,units" \
+    "$(facts | jq -r 'keys | join(",")')|$(slice | jq -r 'keys | join(",")')"
 eq "  ... the slice is pick-slice.jq's of the facts this visit wrote" "$(facts | jq -c -L "$HERE" 'include "pick-slice"; pick_slice')" "$(slice)"
 
 # A done unit keeps its row while a verdict is owed on it, a rework row names

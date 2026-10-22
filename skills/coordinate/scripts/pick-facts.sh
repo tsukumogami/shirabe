@@ -111,10 +111,12 @@
 # decisions is the record's unsettled entries (record-decision.sh --list),
 # the rows the progress table renders.
 # Their slice goes to context key coord/pick_slice.json, pick's decider input:
-# pick-slice.jq's pick_slice of the facts this visit wrote, done units
-# collapsed to their tags and null, false and empty-list fields left out. It
-# is written before the verdict is sealed, so a sealed verdict means both keys
-# were written on this visit.
+# pick-slice.jq's pick_slice of the facts this visit built, done units
+# collapsed to their tags and null, false and empty-list fields left out. The
+# slice is stored first and the facts second (lib_emit), and only then is the
+# verdict sealed, so a sealed verdict means both keys were written on this
+# visit; the context-exists gates on them can't tell a stale key from a fresh
+# one, and the seal can. Under --no-seal neither key is stored.
 #
 # Usage:
 #   pick-facts.sh --session S

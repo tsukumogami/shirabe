@@ -554,12 +554,13 @@ states:
     # choice carries a decider in shadow mode: its answer is recorded beside the
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
-    # Inputs: coord/pick_slice.json, the slice of coord/pick.json pick_facts
-    # writes beside it before sealing its verdict (pick-slice.jq) and gates
-    # (pick_slice_input), which carries
-    # the cap in force (the record's Run section's, when it has one, over the
-    # CAP variable), and the PARKED_BOUND variable. The directive reads the full
-    # coord/pick.json, which pick_input gates. Fixtures:
+    # Inputs: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json,
+    # and the PARKED_BOUND variable. The slice carries the cap in force (the
+    # record's Run section's, when it has one, over the CAP variable).
+    # pick_facts stores the slice and the facts before it seals its verdict, so
+    # a sealed verdict means both are this visit's; its pick_slice_input and
+    # pick_input gates only say each exists. The directive reads the full
+    # coord/pick.json. Fixtures:
     # coordinate.pick.choice.decider.jsonl; declarations:
     # scripts/decider-declarations.tsv; the slice's contract:
     # references/jev-criteria.md, coordinate/pick-choice.
