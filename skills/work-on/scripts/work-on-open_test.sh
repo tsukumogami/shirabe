@@ -422,6 +422,9 @@ eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
 # refuses, and a newline, a tab and a non-ASCII dash, goes through alone. koto
 # and the script must agree on each, and a character they disagree on is named.
 CLASS_RE=$(sed -n 's/.*select(test("\(\^\[[^"]*]\$\)").*/\1/p' "$OPEN")
+# THROWAWAY, reverted by the next commit: a comma in the class, to show the
+# case fails naming the character koto refuses.
+CLASS_RE=$(sed 's/+ -]/+ ,-]/' <<<"$CLASS_RE")
 CANDIDATES=$(jq -nc --arg em "$EMDASH" '[range(32; 127)] | map([.] | implode) + ["\n", "\t", $em]')
 
 PROBE_TPL="$WORK/allowlist-probe.md"
