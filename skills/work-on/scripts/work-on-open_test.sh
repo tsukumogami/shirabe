@@ -42,6 +42,12 @@
 #       keeps REVIEW_LEVEL at that level (an attach resets every rebind
 #       variable it isn't passed), where a bare attach empties it; a resume
 #       naming a different floor is koto's var_mismatch
+#     the reason check's class, read out of work-on-open.sh, agrees with
+#       koto's value allowlist: a value of every character it allows is
+#       accepted by koto init on a scratch template and passed through by the
+#       script, and each printable ASCII character it refuses, a newline, a
+#       tab and a non-ASCII dash is refused by both (koto's invalid_var
+#       against the allowlist); a character they disagree on is named
 #
 # Usage: work-on-open_test.sh
 # Exit codes: 0 all pass (or koto absent), 1 a failure
@@ -227,6 +233,7 @@ eq "--verification=local needs no reason" \
 if ! command -v koto >/dev/null 2>&1 || ! koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
     echo
     echo "SKIP: no koto with --koto-leg on PATH -- the engine-backed cases did not run"
+    echo "SKIP: the reason check's agreement with koto's value allowlist did not run"
     echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
     [ "$FAIL_COUNT" -eq 0 ] || exit 1
     exit 0
@@ -404,6 +411,143 @@ eq "a resume with a different floor: exit 2" 2 "$RC"
 eq "koto's refusal code" "refused=var_mismatch" "$OUT"
 eq "the session keeps its floor" standard "$(session_var issue_43 REVIEW_FLOOR)"
 eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
+
+# --- the reason check against koto's value allowlist (#1040) --------------------
+
+# The reason check's class is a hand copy of koto's VALUE_PATTERN
+# (src/engine/substitute.rs), and the engine-free cases above run it against a
+# stub. Here it meets the real koto. The class is read out of work-on-open.sh,
+# so the check is against the script as shipped. Every character it allows goes
+# through one koto init in a single value; every printable ASCII character it
+# refuses, and a newline, a tab and a non-ASCII dash, goes through alone. koto
+# and the script must agree on each, and a character they disagree on is named.
+CLASS_RE=$(sed -n 's/.*select(test("\(\^\[[^"]*]\$\)").*/\1/p' "$OPEN")
+CANDIDATES=$(jq -nc --arg em "$EMDASH" '[range(32; 127)] | map([.] | implode) + ["\n", "\t", $em]')
+
+PROBE_TPL="$WORK/allowlist-probe.md"
+cat > "$PROBE_TPL" <<'EOF'
+---
+name: allowlist-probe
+version: "1.0"
+description: one variable, to hold a value up to koto's allowlist
+initial_state: start
+variables:
+  VALUE:
+    description: the value under test
+    required: false
+states:
+  start:
+    accepts:
+      go:
+        type: enum
+        values: [go]
+    transitions:
+      - target: done
+        when:
+          go: go
+  done:
+    terminal: true
+---
+
+## start
+
+Start.
+
+## done
+
+Done.
+EOF
+
+# char_at <json array> <index> -- C is the character, its trailing newline
+# kept, and NAME is it JSON-quoted, so a newline or a tab shows.
+char_at() {
+    C=$(printf '%s' "$1" | jq -j ".[$2]"; printf '.')
+    C="${C%.}"
+    NAME=$(printf '%s' "$1" | jq -c ".[$2]")
+}
+# koto_verdict <value> -- KV is accepts, refuses (invalid_var against the
+# allowlist), or what koto said otherwise. Each probe gets its own session.
+PROBE_N=0
+koto_verdict() {
+    local out rc
+    PROBE_N=$((PROBE_N + 1))
+    out=$(k init "allowlist-probe-$PROBE_N" --template "$PROBE_TPL" --var "VALUE=$1" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        KV=accepts
+    elif [ "$(printf '%s' "$out" | jq -r '"\(.code // "")/\(.constraint // "")"' 2>/dev/null)" = invalid_var/allowlist ]; then
+        KV=refuses
+    else
+        KV="exits $rc with [$(printf '%s' "$out" | head -c 300)]"
+    fi
+}
+# script_verdict <value> -- SV is passes (the value reaches koto unchanged as
+# VERIFICATION_DEFERRAL_REASON), refuses (exit 64, error=usage, no koto call),
+# or what the script did otherwise.
+script_verdict() {
+    local out rc
+    rm -f "$WORK/vars.json"
+    tokens "$(jq -nc --arg r "$1" '["7", "--verification=hosted-ci", "--verification-reason=" + $r, "--koto-leg=r1:work-on"]')"
+    out=$(cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" PATH="$PAIRS_BIN:$PATH" \
+        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>/dev/null)
+    rc=$?
+    if [ -f "$WORK/vars.json" ] \
+        && jq -e --arg v "$1" 'any(.[]; . == ["VERIFICATION_DEFERRAL_REASON", $v])' "$WORK/vars.json" >/dev/null 2>&1; then
+        SV=passes
+    elif [ "$rc" -eq 64 ] && [ "$out" = "error=usage" ] && [ ! -f "$WORK/vars.json" ]; then
+        SV=refuses
+    else
+        SV="exits $rc with [$out]"
+    fi
+}
+
+if [ "$(printf '%s\n' "$CLASS_RE" | grep -c '^\^\[')" -ne 1 ]; then
+    fail "allowlist agreement: want one reason class in work-on-open.sh, found [$CLASS_RE]"
+elif ! koto template compile "$PROBE_TPL" >/dev/null 2>"$WORK/compile.err"; then
+    fail "allowlist agreement: the scratch template does not compile: $(cat "$WORK/compile.err")"
+else
+    pass "allowlist agreement: the reason class read from work-on-open.sh is $CLASS_RE"
+    ALLOWED=$(printf '%s' "$CANDIDATES" | jq -c --arg re "$CLASS_RE" 'map(select(test($re)))')
+    REFUSED=$(printf '%s' "$CANDIDATES" | jq -c --arg re "$CLASS_RE" 'map(select(test($re) | not))')
+    eq "allowlist agreement: the class refuses an apostrophe, a comma, ;, \$, a backtick and a newline" '[]' \
+        "$(jq -nc --argjson r "$REFUSED" '["'", ",", ";", "$", "`", "\n"] - $r')"
+
+    # Every allowed character at once. When either side refuses the value, each
+    # character is tried alone to name the ones it refuses.
+    ALL=$(printf '%s' "$ALLOWED" | jq -j 'join("")')
+    koto_verdict "$ALL"
+    script_verdict "$ALL"
+    if [ "$KV" = accepts ] && [ "$SV" = passes ]; then
+        pass "allowlist agreement: koto accepts, and the script passes through, a value of every character the class allows [$ALL]"
+    else
+        fail "allowlist agreement: a value of every character the class allows [$ALL]: koto $KV, the script $SV"
+        i=0
+        N=$(printf '%s' "$ALLOWED" | jq length)
+        while [ "$i" -lt "$N" ]; do
+            char_at "$ALLOWED" "$i"
+            koto_verdict "a${C}b"
+            script_verdict "a${C}b"
+            [ "$KV" = accepts ] && [ "$SV" = passes ] \
+                || fail "allowlist agreement: $NAME, which the script's class allows: koto $KV, the script $SV"
+            i=$((i + 1))
+        done
+    fi
+
+    # Every refused character alone, between two allowed ones.
+    i=0
+    N=$(printf '%s' "$REFUSED" | jq length)
+    while [ "$i" -lt "$N" ]; do
+        char_at "$REFUSED" "$i"
+        koto_verdict "a${C}b"
+        script_verdict "a${C}b"
+        if [ "$KV" = refuses ] && [ "$SV" = refuses ]; then
+            pass "allowlist agreement: $NAME is refused by koto (invalid_var, allowlist) and by the script"
+        else
+            fail "allowlist agreement: $NAME, which the script's class refuses: koto $KV, the script $SV"
+        fi
+        i=$((i + 1))
+    done
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
