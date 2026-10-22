@@ -76,11 +76,13 @@ case "$VERIFICATION" in
     ""|local|hosted-ci) ;;
     *) undecided "--verification must be local or hosted-ci, got [$VERIFICATION]" ;;
 esac
-command -v jq >/dev/null 2>&1 || undecided "jq is not on PATH"
-command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH"
+command -v jq >/dev/null || undecided "jq is not on PATH"
+command -v koto >/dev/null || undecided "koto is not on PATH"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/shared-deferral-record.XXXXXX") || undecided "cannot create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT
+# koto_err: the last line koto wrote to stderr on the call just made.
+koto_err() { tail -n 1 "$WORK/koto.err"; }
 
 REASONS=()
 # add_reason <reason>: keeps the first occurrence of each reason.
@@ -98,7 +100,7 @@ if [ "$VERIFICATION" = hosted-ci ]; then
 fi
 
 koto workflows --children "$SESSION" > "$WORK/children.json" 2> "$WORK/koto.err" < /dev/null \
-    || undecided "koto workflows --children $SESSION failed: $(tail -n 1 "$WORK/koto.err")"
+    || undecided "koto workflows --children $SESSION failed: $(koto_err)"
 jq -e 'type == "array" and all(.[]; (.name | type) == "string")' "$WORK/children.json" >/dev/null \
     || undecided "koto workflows --children $SESSION did not answer a list of sessions"
 jq -r '.[].name' "$WORK/children.json" > "$WORK/children.txt"
@@ -110,10 +112,10 @@ while IFS= read -r child; do
     case "$rc" in
         0) ;;
         1) continue ;;
-        *) undecided "koto context exists $child verification_deferral failed (exit $rc): $(tail -n 1 "$WORK/koto.err")" ;;
+        *) undecided "koto context exists $child verification_deferral failed (exit $rc): $(koto_err)" ;;
     esac
     koto context get "$child" verification_deferral > "$WORK/reason" 2> "$WORK/koto.err" < /dev/null \
-        || undecided "koto context get $child verification_deferral failed: $(tail -n 1 "$WORK/koto.err")"
+        || undecided "koto context get $child verification_deferral failed: $(koto_err)"
     reason=$(cat "$WORK/reason")
     [ -n "$reason" ] || undecided "$child recorded an empty verification_deferral"
     add_reason "$reason"

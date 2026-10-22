@@ -125,6 +125,9 @@ stateDiagram-v2
         gate: ready_owned_pr
     end note
     note left of pr_finalization
+        gate: deferral_recorded
+    end note
+    note left of pr_finalization
         gate: final_owned_pr
     end note
     note left of pr_finalization
