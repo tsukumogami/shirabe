@@ -45,9 +45,10 @@
 # request, its head and the reason. A failed write is exit 1, so a pass is
 # never unrecorded.
 #
-# Nothing on stdout. Diagnostics go to stderr, and only once the repository
-# has declared: a malformed declaration, a body that doesn't record it, a
-# read that failed.
+# Nothing on stdout. Diagnostics go to stderr: a declaration read that failed
+# other than with a 404, a malformed declaration, a body that doesn't record
+# it, a later read that failed. No diagnostic is discarded: gh's stderr goes to
+# a file whose first line the message quotes, and jq parses with `try`.
 #
 # Usage: ci-none-declared.sh <koto-session-name> [--owned <owned-pr.sh arguments>...]
 #
@@ -95,13 +96,29 @@ trap 'rm -rf "$TMP"' EXIT
 # The declaration, from the default branch: the contents API with no ref reads
 # it there. Without --owned, gh fills {owner}/{repo} from the working tree's
 # remote, the same repository the gate's own `gh pr checks` reads.
-gh api "repos/$REPO/contents/$DECLARATION" -H 'Accept: application/vnd.github.raw' \
-    </dev/null >"$TMP/decl" 2>/dev/null || no
-jq -e 'type == "object" and has("hosted_ci")' "$TMP/decl" >/dev/null 2>&1 || no
-REASON=$(jq -r 'select(.hosted_ci == "none" and (.reason | type) == "string"
-        and (.reason | test("\\S")) and (.reason | test("[\\r\\n]") | not)) | .reason' \
-    "$TMP/decl" 2>/dev/null)
-[ -n "$REASON" ] || no "$DECLARATION on the default branch must say \"hosted_ci\": \"none\" and give a non-empty, one-line \"reason\""
+# A 404 is the common answer, a repository with no declaration, and exits
+# quietly; any other failed read is named.
+if ! gh api "repos/$REPO/contents/$DECLARATION" -H 'Accept: application/vnd.github.raw' \
+    </dev/null >"$TMP/decl" 2>"$TMP/err"; then
+    grep -q -e '404' -e 'Not Found' "$TMP/err" && no
+    no "could not read $DECLARATION from the default branch: $(head -n 1 "$TMP/err")"
+fi
+# The file is parsed with `try`, so text that isn't JSON is no declaration
+# rather than a jq error. A file that names hosted_ci is a declaration, and one
+# that says anything but "none" with a usable reason is named.
+DECL=$(jq -R -s -r '(try fromjson catch null) as $d
+    | if ($d | type) != "object" then "absent"
+      elif ($d | has("hosted_ci") | not) then "absent"
+      elif $d.hosted_ci != "none" then "malformed"
+      elif ($d.reason | type) != "string" then "malformed"
+      elif ($d.reason | test("\\S") | not) then "malformed"
+      elif ($d.reason | test("[\\r\\n]")) then "malformed"
+      else "reason:" + $d.reason end' "$TMP/decl") || no "could not parse $DECLARATION"
+case "$DECL" in
+    absent) no ;;
+    reason:*) REASON="${DECL#reason:}" ;;
+    *) no "$DECLARATION on the default branch must say \"hosted_ci\": \"none\" and give a non-empty, one-line \"reason\"" ;;
+esac
 
 if [ "$OWNED" = 1 ]; then
     # The rest of the arguments are owned-pr.sh's, passed as given. Its answer
@@ -121,21 +138,26 @@ fi
 # Zero checks. gh answers an empty rollup with an error, not with `[]`; an
 # empty list is read the same way in case a gh release starts printing one.
 if gh pr checks ${SELECTOR:+"$SELECTOR"} --json bucket </dev/null >"$TMP/checks" 2>"$TMP/err"; then
-    COUNT=$(jq 'if type == "array" then length else error("not a list") end' "$TMP/checks" 2>/dev/null) \
-        || no "could not read the pull request's checks"
+    COUNT=$(jq -R -s -r '(try fromjson catch null)
+        | if type == "array" then length else "unreadable" end' "$TMP/checks") || COUNT=unreadable
+    case "$COUNT" in
+        ''|*[!0-9]*) no "could not read the pull request's checks: gh printed no JSON list" ;;
+    esac
 else
     grep -q 'no checks reported' "$TMP/err" || no "could not read the pull request's checks: $(head -n 1 "$TMP/err")"
     COUNT=0
 fi
 [ "$COUNT" = 0 ] || no
 
-gh pr view ${SELECTOR:+"$SELECTOR"} --json number,url,headRefOid,body </dev/null >"$TMP/pr" 2>/dev/null \
-    || no "could not read the pull request"
-NUMBER=$(jq -r '.number // empty' "$TMP/pr" 2>/dev/null)
-URL=$(jq -r '.url // empty' "$TMP/pr" 2>/dev/null)
-HEAD=$(jq -r '.headRefOid // empty' "$TMP/pr" 2>/dev/null)
+gh pr view ${SELECTOR:+"$SELECTOR"} --json number,url,headRefOid,body </dev/null >"$TMP/pr" 2>"$TMP/err" \
+    || no "could not read the pull request: $(head -n 1 "$TMP/err")"
+PR=$(jq -R -s -r '(try fromjson catch null)
+    | if type == "object" then [.number, .url, .headRefOid] | map(. // "" | tostring) | @tsv
+      else "" end' "$TMP/pr") || PR=""
+IFS=$'\t' read -r NUMBER URL HEAD <<<"$PR"
 [ -n "$NUMBER" ] && [ -n "$URL" ] && [ -n "$HEAD" ] || no "could not read the pull request's number, URL and head"
-jq -r '.body // ""' "$TMP/pr" >"$TMP/body" 2>/dev/null || no "could not read the pull request's body"
+jq -R -s -r '(try fromjson catch null) | if type == "object" then (.body // "" | tostring) else "" end' \
+    "$TMP/pr" >"$TMP/body" || no "could not read the pull request's body"
 
 if ! grep -qi 'declares no hosted CI' "$TMP/body" || ! grep -qF -- "$REASON" "$TMP/body"; then
     no "#$NUMBER has no checks and the repository declares no hosted CI, but the pull request body doesn't record it: add a line saying the repository declares no hosted CI, and the reason verbatim: $REASON"
