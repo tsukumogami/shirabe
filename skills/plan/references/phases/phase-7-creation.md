@@ -538,8 +538,9 @@ filing approval, no Implementation Issues table. The tracking level is always
 `none`. A repository whose CLAUDE.md declares `## Tracking Level: issues` or
 `issues-and-milestone` reaches this section only when the flag or a
 `## Plan Version: v2` header asked for the step plan; with no version asked
-for, Phase 1 moved the run to `v1` so the header's filing applies. When it
-does reach here (or the run was given a filing level), do not apply the level:
+for, Phase 1 moved the run to `v1` so the header's filing applies. Only that
+header moves a default run; a filing level that reaches a step plan any other
+way is handled here too. When one does reach here, do not apply the level:
 write `tracking_level: none` and say so in the run's output, in these words or
 close to them: "CLAUDE.md asks for `<level>`; this PLAN is a step plan, which
 files no issues, so it was written with `tracking_level: none`." Under `--auto`,

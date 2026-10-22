@@ -299,6 +299,12 @@ expect "a stored v1 the default gave way to stays v1" v1 "$RESOLVER" \
     --stored-version=v1 --stored-source=default --needs-v1=coordinated
 expect "a resume may repeat the stored version" v2 "$RESOLVER" \
     --stored-version=v2 --stored-source=flag --plan-version=v2
+expect "a resume that repeats the version makes the flag its source" \
+    $'plan_version=v2\nplan_version_source=flag' "$RESOLVER" --with-source \
+    --stored-version=v2 --stored-source=default --plan-version=v2
+reject "a default v2 confirmed by the flag on a resume no longer gives way" \
+    "coordinated plans use --plan-version=v1" \
+    --stored-version=v2 --stored-source=default --plan-version=v2 --needs-v1=coordinated
 reject "a resume can't change the version" "this run started with plan version v2" \
     --stored-version=v2 --stored-source=default --plan-version=v1
 reject "a resume can't change a v1 either" "resume it with --plan-version=v1" \

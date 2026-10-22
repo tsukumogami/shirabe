@@ -418,8 +418,8 @@ The default plan version (`DEFAULT_PLAN_VERSION=v1`) and the brief template's
 checkpoint wording stay as they are until that record exists.
 
 2026-10-22: the default plan version has now flipped to `v2`, once the step
-format had been exercised, and the paragraph above is history for the plan
-version. `/plan` writes a step plan when no version is asked for, and still
+format had been exercised. The paragraph above describes the plan version as
+it stood before the flip. `/plan` writes a step plan when no version is asked for, and still
 writes `plan/v1` when `--plan-version=v1` or a `## Plan Version: v1` header
 asks for it. Where a step plan can't run (a roadmap input, a split that
 resolves to `coordinated`, or a CLAUDE.md `## Tracking Level:` header that

@@ -66,12 +66,14 @@ are not read a second time. If the new invocation carries `--plan-version`,
 check it against the record:
 
 ```bash
-${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
+${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh --with-source \
   --stored-version=<Plan Version> --stored-source=<Plan Version Source> \
   --plan-version=<value>
 ```
 
-A different version exits non-zero ("this run started with plan version ...;
+The same version prints it back with source `flag`: the author has now asked
+for it, so write `Plan Version Source: flag` into `work/analysis.md`, and a
+`v2` that came from the default no longer gives way. A different version exits non-zero ("this run started with plan version ...;
 resume it with ... or start a fresh run"). Stop with that line and change
 nothing. A fresh run starts once the interrupted session is closed, with
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close plan-<topic> abandoned`:

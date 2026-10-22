@@ -42,7 +42,8 @@
 # version and source a run recorded when it started. They replace the flag and
 # header stack, so a resumed run keeps its version and --needs-v1 decides from
 # where that version first came. A --plan-version given with them must name
-# the stored version. --claude-md can't be combined with them. A record
+# the stored version, and makes the source `flag` from then on.
+# --claude-md can't be combined with them. A record
 # written before the source was kept has no source; /plan passes `flag` for
 # it, since a v2 could only be asked for then and a v1 never gives way.
 #
@@ -254,6 +255,12 @@ finish() {
 if [ -n "$STORED_VERSION" ]; then
     if [ -n "$FLAG" ] && [ "$FLAG" != "$STORED_VERSION" ]; then
         die "this run started with plan version $STORED_VERSION (from the $STORED_SOURCE); resume it with --plan-version=$STORED_VERSION or no --plan-version, or start a fresh run"
+    fi
+    # A resume that names the stored version has now asked for it, so its
+    # source is the flag: a default v2 confirmed by --plan-version=v2 no
+    # longer gives way.
+    if [ -n "$FLAG" ]; then
+        finish "$STORED_VERSION" flag
     fi
     finish "$STORED_VERSION" "$STORED_SOURCE"
 fi
