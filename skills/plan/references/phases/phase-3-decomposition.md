@@ -721,17 +721,25 @@ for applying it.
    and again after a step 6 override whose confirmed mode splits.
 
    **Under plan version `v2`, a `coordinated` outcome re-runs the version
-   resolver** with Phase 1's arguments plus `--needs-v1=coordinated`, since a
-   step plan has no Repo or Group per step and files no issues. When the `v2`
-   came from the default, the script prints `v1` and one stderr line: repeat
-   that line to the author, set `Plan Version: v1` in key `work/analysis.md`,
-   remove key `work/decomposition.md`, and run Phase 3 again from the top on
-   the `plan/v1` path. When a flag or header asked for `v2`, it exits non-zero
+   resolver** from what Phase 1 recorded, not from this invocation's flags,
+   since a step plan has no Repo or Group per step and files no issues:
+
+   ```bash
+   ${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
+     --stored-version=<Plan Version> --stored-source=<Plan Version Source> \
+     --needs-v1=coordinated
+   ```
+
+   Both values come from key `work/analysis.md` (a missing source line reads
+   as `flag`). When the source is `default`, the script prints `v1` and one
+   stderr line. Repeat that line to the author, set `Plan Version: v1` in
+   `work/analysis.md` and leave its source `default`, remove key
+   `work/decomposition.md`, and run Phase 3 again from the top on the
+   `plan/v1` path. When the source is `flag` or `header`, it exits non-zero
    with "coordinated plans use --plan-version=v1; a step plan lands as
    single-pr or multi-pr": stop with that line before anything is written. To
    keep the step plan, re-run with `--no-coordinated`, which resolves the split
-   to `multi-pr`. Step 6's override offers only `single-pr` and `multi-pr`
-   under `v2`.
+   to `multi-pr`.
 
    **On a `coordinated` outcome**, step 5a also does three things before
    Phase 4 runs:
@@ -794,6 +802,12 @@ Use <recommended mode>, or override?
    the option chosen, in place of any coordination flag on the command line, so
    the record reads `split_mode_source: flag`. Copy the output as in step 5a; do
    not write the mode by hand.
+
+   **Under plan version `v2`, what the override offers follows the recorded
+   source.** When `Plan Version Source` is `flag` or `header`, offer only
+   `single-pr` and `multi-pr`: the author chose a step plan. When it is
+   `default`, offer `coordinated` too, and say that choosing it plans the work
+   as `plan/v1`; step 5a then gives way to `v1` as above.
 
 7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
    block in key `work/decisions.md` if the rationale is clear, or

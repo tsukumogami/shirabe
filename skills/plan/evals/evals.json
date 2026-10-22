@@ -792,6 +792,43 @@
         "shirabe validate on run 1's PLAN exits 0",
         "Run 2 stops with a message naming --plan-version=v1 for coordinated plans, and docs/plans/ does not exist"
       ]
+    },
+    {
+      "id": 51,
+      "name": "plan-version-default-gives-way-on-roadmap",
+      "prompt": "/plan docs/roadmaps/ROADMAP-q4-platform.md --auto, in a repository whose CLAUDE.md has no `## Plan Version:` header and no `## Tracking Level:` header, and no --plan-version flag. Then describe what changes when the same run is given --plan-version=v2.",
+      "expected_output": "Detects input_type as roadmap. Phase 1 runs resolve-plan-version.sh with --with-source and --needs-v1=roadmap; with no version asked for, the default v2 gives way: the script prints plan_version=v1 and plan_version_source=default with one stderr line saying a roadmap input is planned under v1, /plan repeats that line to the author, and work/analysis.md records Plan Version: v1 and Plan Version Source: default. The run then takes the roadmap decomposition path. With --plan-version=v2 the script exits non-zero with \"a roadmap is planned with --plan-version=v1\" and the run stops before anything is written.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "notes": "Covers the default giving way to plan/v1 on roadmap input, and an explicit v2 still stopping.",
+      "expectations": [
+        "The transcript runs (or describes running) resolve-plan-version.sh with --needs-v1=roadmap in Phase 1 rather than choosing the version by judgment",
+        "The transcript tells the author that no plan version was asked for and the default v2 gave way to v1 because a roadmap input is planned under v1",
+        "work/analysis.md records Plan Version: v1 and Plan Version Source: default",
+        "The run follows the roadmap decomposition path (planning issues per feature), not the step decomposition path",
+        "With --plan-version=v2 the run stops with a message naming --plan-version=v1 before anything is written"
+      ]
+    },
+    {
+      "id": 52,
+      "name": "plan-version-default-gives-way-on-tracking-level",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-tracking-issues.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=stop`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (schema, execution_mode, tracking_level, status), whether it has a `## Steps` section and a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, any milestone call in the log, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-tracking-issues.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --plan-version=v2 --auto --intent=stop`. Afterwards print the same things.",
+      "expected_output": "The repository states `## Tracking Level: issues`. In run 1 no version was asked for, so resolve-plan-version.sh gives way to v1 in Phase 1 with one stderr line naming the tracking level, and /plan repeats it. The run writes a plan/v1 PLAN with tracking_level: issues, files one issue per work item behind the header's standing approval, and creates no milestone. In run 2 v2 was asked for, so the run writes a plan/v2 step plan with tracking_level: none, says that CLAUDE.md asks for issues but a step plan files none, and files nothing. shirabe validate exits 0 on both.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers the default giving way to plan/v1 for a filing Tracking Level header, and an explicit v2 keeping the step plan. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "Run 1's transcript tells the author the default v2 gave way to v1 because CLAUDE.md asks for tracking level issues",
+        "Run 1's PLAN has schema: plan/v1 and tracking_level: issues, and no ## Steps section",
+        "Run 1's shim call log contains at least one `issue create` line and no milestone call",
+        "Run 2's PLAN has schema: plan/v2 and tracking_level: none, and its call log contains zero `issue create` lines",
+        "Run 2's transcript says CLAUDE.md asks for issues but a step plan files none",
+        "shirabe validate on each written PLAN exits 0"
+      ]
     }
   ]
 }

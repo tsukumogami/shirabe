@@ -107,11 +107,15 @@ The version resolves on a `flag > CLAUDE.md-header > default` stack, through
 
 Any other value, or two `## Plan Version:` headers, stops the run before
 anything is written, naming `v1` and `v2`. A step plan is `single-pr` or
-`multi-pr` only, so a roadmap input and a split that resolves to
-`coordinated` need `v1`. When the `v2` came from the default, it gives way:
-the run writes `plan/v1` and says so, naming why (the resolver's
-`--needs-v1`, called in Phase 1 for a roadmap and in step 5a for a coordinated
-split). When a flag or header asked for `v2`, the run stops instead.
+`multi-pr` only and files nothing, so a roadmap input, a split that resolves
+to `coordinated`, and a `## Tracking Level: issues|issues-and-milestone`
+header need `v1`. When the `v2` came from the default, it gives way: the run
+writes `plan/v1` and says so, naming why. When a flag or header asked for
+`v2`, a roadmap or a coordinated split stops the run instead, and a Tracking
+Level header is reported and not applied. Phase 1 records where the version
+came from (`Plan Version Source`), and later steps and a resumed run decide
+from that record: a resume keeps its recorded version, and one that asks for
+a different version stops.
 
 ## Decomposition Strategies
 

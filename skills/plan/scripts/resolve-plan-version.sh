@@ -22,34 +22,60 @@
 # read only when no flag is given: the flag wins, and a run given the flag is
 # not stopped by a duplicated or malformed header it never reads.
 #
-# --needs-v1=<roadmap|coordinated> says the run needs something only plan/v1
-# has: a roadmap input, or a split that resolved to `coordinated`. A step plan
-# can hold neither. When the version came from the default, the default gives
-# way: the script prints v1 and says why in one stderr line, still exit 0, and
-# /plan repeats that line to the author. When a flag or header asked for v2,
-# the run stops instead (exit 2), since the author chose a step plan. A v1 from
-# any level is printed as usual.
+# Where a step plan can't run, a v2 that came from the default gives way to v1.
+# The script prints v1 and says why in one stderr line, still exit 0, and /plan
+# repeats that line to the author. There are three such cases:
+#
+#   --needs-v1=roadmap      the input is a roadmap
+#   --needs-v1=coordinated  the split resolved to `coordinated`
+#   a Tracking Level header the first `## Tracking Level:` line in the
+#                           --claude-md file, outside fenced code, names
+#                           `issues` or `issues-and-milestone`; a step plan
+#                           files nothing
+#
+# A v2 that a flag or header asked for never gives way. With --needs-v1 the run
+# stops instead (exit 2), since the author chose a step plan; a Tracking Level
+# header is left for /plan's Phase 7 to report. A v1 from any level is printed
+# as usual.
+#
+# Resuming a run: --stored-version and --stored-source, given together, are the
+# version and source a run recorded when it started. They replace the flag and
+# header stack, so a resumed run keeps its version and --needs-v1 decides from
+# where that version first came. A --plan-version given with them must name
+# the stored version. --claude-md can't be combined with them.
 #
 # Usage:
 #   resolve-plan-version.sh [--plan-version <v1|v2>] [--claude-md <path>]
-#                           [--needs-v1 <roadmap|coordinated>]
+#                           [--needs-v1 <roadmap|coordinated>] [--with-source]
+#   resolve-plan-version.sh --stored-version <v1|v2>
+#                           --stored-source <flag|header|default>
+#                           [--plan-version <v1|v2>]
+#                           [--needs-v1 <roadmap|coordinated>] [--with-source]
 #
-#   Each option also accepts the `--opt=value` form. Without --claude-md no
-#   header is consulted.
+#   Each option that takes a value also accepts the `--opt=value` form.
+#   Without --claude-md no header is consulted.
 #
-# Output: exactly one line on stdout, `v1` or `v2`, then exit 0. Only the
-# default giving way to --needs-v1 also writes to stderr.
+# Output: exactly one line on stdout, `v1` or `v2`, then exit 0. With
+# --with-source, two lines instead:
+#
+#   plan_version=<v1|v2>
+#   plan_version_source=<flag|header|default>
+#
+# The source stays `default` when the default gave way. Only the default
+# giving way writes to stderr.
 #
 # Rejections (exit 2, nothing on stdout, one stderr line):
-#   a --plan-version value other than v1 or v2, empty included; a header value
-#   other than v1 or v2; two `## Plan Version:` headers outside fenced code
-#   (naming both lines); a --needs-v1 value other than roadmap or coordinated;
-#   a flag or header asking for v2 when --needs-v1 is given; an option given
-#   twice; a --claude-md path that is not a file; an unknown argument; an
-#   option missing its value. A value is never
+#   a --plan-version or --stored-version value other than v1 or v2, empty
+#   included; a header value other than v1 or v2; two `## Plan Version:`
+#   headers outside fenced code (naming both lines); a --needs-v1 value other
+#   than roadmap or coordinated; a --stored-source value other than flag,
+#   header or default; a flag or header asking for v2 when --needs-v1 is
+#   given; one of --stored-version and --stored-source without the other, or
+#   either with --claude-md; a --plan-version that differs from
+#   --stored-version; an option given twice; a --claude-md path that is not a
+#   file; an unknown argument; an option missing its value. A value is never
 #   echoed back raw: control characters are stripped and it is cut to 40
-#   characters first
-#   (200 for a path).
+#   characters first (200 for a path).
 #
 # The script reads only its arguments and the named CLAUDE.md, makes no network
 # call, and runs under bash 3.2.
@@ -88,6 +114,11 @@ CLAUDE_MD=""
 CLAUDE_MD_SEEN=false
 NEEDS_V1=""
 NEEDS_V1_SEEN=false
+WITH_SOURCE=false
+STORED_VERSION=""
+STORED_VERSION_SEEN=false
+STORED_SOURCE=""
+STORED_SOURCE_SEEN=false
 
 while [ $# -gt 0 ]; do
     arg="$1"
@@ -103,16 +134,22 @@ while [ $# -gt 0 ]; do
     esac
 
     case "$opt" in
-        --plan-version|--claude-md|--needs-v1)
+        --plan-version|--claude-md|--needs-v1|--stored-version|--stored-source)
             if ! $has_inline; then
                 if [ $# -lt 2 ]; then
-                    [ "$opt" = "--plan-version" ] && die "--plan-version requires a value: v1 or v2"
-                    [ "$opt" = "--needs-v1" ] && die "--needs-v1 requires a value: roadmap or coordinated"
+                    case "$opt" in
+                        --plan-version|--stored-version) die "$opt requires a value: v1 or v2" ;;
+                        --needs-v1) die "--needs-v1 requires a value: roadmap or coordinated" ;;
+                        --stored-source) die "--stored-source requires a value: flag, header or default" ;;
+                    esac
                     die "$opt requires a value"
                 fi
                 val="$2"
                 shift
             fi
+            ;;
+        --with-source)
+            $has_inline && die "--with-source takes no value"
             ;;
         *)
             die "unknown argument: $(quote "$arg")"
@@ -143,15 +180,46 @@ while [ $# -gt 0 ]; do
             esac
             NEEDS_V1="$val"
             ;;
+        --with-source)
+            $WITH_SOURCE && die "--with-source given more than once"
+            WITH_SOURCE=true
+            ;;
+        --stored-version)
+            $STORED_VERSION_SEEN && die "--stored-version given more than once"
+            STORED_VERSION_SEEN=true
+            check_version "--stored-version" "$val"
+            STORED_VERSION="$val"
+            ;;
+        --stored-source)
+            $STORED_SOURCE_SEEN && die "--stored-source given more than once"
+            STORED_SOURCE_SEEN=true
+            case "$val" in
+                flag|header|default) ;;
+                *) die "--stored-source must be flag, header or default, got '$(quote "$val")'" ;;
+            esac
+            STORED_SOURCE="$val"
+            ;;
     esac
 done
 
-# finish <version> <from>: print the version, or let --needs-v1 overrule a
-# v2 that came from the default, or stop on a v2 a flag or header asked for.
-# <from> is `flag`, `header` or `default`.
+if $STORED_VERSION_SEEN || $STORED_SOURCE_SEEN; then
+    { $STORED_VERSION_SEEN && $STORED_SOURCE_SEEN; } \
+        || die "--stored-version and --stored-source are given together"
+    $CLAUDE_MD_SEEN \
+        && die "--claude-md can't be combined with --stored-version: a resumed run keeps the version it started with"
+fi
+
+# TRACKING is set below to a filing level a Tracking Level header names, when
+# one counts; finish() lets it overrule a default v2 like --needs-v1 does.
+TRACKING=""
+
+# finish <version> <from>: print the version and exit, or let --needs-v1 or a
+# Tracking Level header overrule a v2 that came from the default, or stop on a
+# v2 a flag or header asked for when --needs-v1 is given. <from> is `flag`,
+# `header` or `default`. Never returns.
 finish() {
-    local version="$1" from="$2" why stop
-    if [ -n "$NEEDS_V1" ] && [ "$version" = "v2" ]; then
+    local version="$1" from="$2" why="" stop=""
+    if [ "$version" = "v2" ]; then
         case "$NEEDS_V1" in
             roadmap)
                 why="a roadmap input is planned under v1"
@@ -162,25 +230,41 @@ finish() {
                 stop="coordinated plans use --plan-version=v1; a step plan lands as single-pr or multi-pr"
                 ;;
         esac
-        if [ "$from" != "default" ]; then
+        if [ -n "$stop" ] && [ "$from" != "default" ]; then
             die "$stop"
         fi
-        echo "resolve-plan-version.sh: no plan version was asked for, so the default v2 gives way to v1: $why" >&2
-        version=v1
+        if [ -z "$why" ] && [ -n "$TRACKING" ] && [ "$from" = "default" ]; then
+            why="CLAUDE.md asks for tracking level $TRACKING, and a step plan files no issues"
+        fi
+        if [ -n "$why" ]; then
+            echo "resolve-plan-version.sh: no plan version was asked for, so the default v2 gives way to v1: $why" >&2
+            version=v1
+        fi
     fi
-    printf '%s\n' "$version"
+    if $WITH_SOURCE; then
+        printf 'plan_version=%s\nplan_version_source=%s\n' "$version" "$from"
+    else
+        printf '%s\n' "$version"
+    fi
     exit 0
 }
+
+if [ -n "$STORED_VERSION" ]; then
+    if [ -n "$FLAG" ] && [ "$FLAG" != "$STORED_VERSION" ]; then
+        die "this run started with plan version $STORED_VERSION (from the $STORED_SOURCE); resume it with --plan-version=$STORED_VERSION or no --plan-version, or start a fresh run"
+    fi
+    finish "$STORED_VERSION" "$STORED_SOURCE"
+fi
 
 if [ -n "$FLAG" ]; then
     finish "$FLAG" flag
 fi
 
-# header_scan <file>
-# Prints "<line-number> <trimmed value>" for every `## Plan Version:` line
-# outside a fenced code block.
+# header_scan <file> <prefix>
+# Prints "<line-number> <trimmed value>" for every line that starts with
+# <prefix> outside a fenced code block.
 header_scan() {
-    local file="$1" line n=0 in_fence=false fence_char="" fence_len=0
+    local file="$1" prefix="$2" line n=0 in_fence=false fence_char="" fence_len=0
     local re_fence='^ {0,3}(`{3,}|~{3,})(.*)$'
     local run rest value
     while IFS= read -r line || [ -n "$line" ]; do
@@ -221,8 +305,8 @@ header_scan() {
         fi
         $in_fence && continue
         case "$line" in
-            '## Plan Version:'*)
-                value="${line#'## Plan Version:'}"
+            "$prefix"*)
+                value="${line#"$prefix"}"
                 value="${value#"${value%%[![:space:]]*}"}"
                 value="${value%"${value##*[![:space:]]}"}"
                 printf '%s %s\n' "$n" "$value"
@@ -232,7 +316,7 @@ header_scan() {
 }
 
 if [ -n "$CLAUDE_MD" ]; then
-    headers=$(header_scan "$CLAUDE_MD")
+    headers=$(header_scan "$CLAUDE_MD" '## Plan Version:')
     if [ -n "$headers" ]; then
         count=$(printf '%s\n' "$headers" | wc -l | tr -d ' ')
         if [ "$count" -gt 1 ]; then
@@ -243,6 +327,12 @@ if [ -n "$CLAUDE_MD" ]; then
         check_version "the '## Plan Version:' header in $(quote "$CLAUDE_MD" 200)" "$value"
         finish "$value" header
     fi
+    # The first Tracking Level header counts, as /scope's check-plan-filing.sh
+    # reads it; a value that names no filing level gives no answer here.
+    tracking=$(header_scan "$CLAUDE_MD" '## Tracking Level:' | sed -n '1s/^[0-9]* //p')
+    case "$tracking" in
+        issues|issues-and-milestone) TRACKING="$tracking" ;;
+    esac
 fi
 
 finish "$DEFAULT_PLAN_VERSION" default

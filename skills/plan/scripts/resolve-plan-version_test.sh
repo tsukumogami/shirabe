@@ -4,7 +4,9 @@
 #
 # Covers the version precedence (flag over header over default), the header
 # rules (whole line, outside fenced code, one header only, v1 or v2 exactly),
-# every refusal, the one-line default and what flipping it changes, and that
+# every refusal, the one-line default and what flipping it changes, the
+# default giving way to v1 (--needs-v1 and a Tracking Level header), the
+# reported source and a resumed run's stored version and source, and that
 # the step plan example in references/quality/plan-doc-examples.md validates
 # clean as a PLAN file.
 #
@@ -238,6 +240,80 @@ expect "an explicit v1 flag needs no fallback" v1 "$RESOLVER" --plan-version=v1 
 expect "a v1 header needs no fallback" v1 "$RESOLVER" --needs-v1=roadmap \
     --claude-md "$TEST_DIR/header-v1.md"
 expect "flipped default: a v1 default needs no fallback" v1 "$FLIPPED" --needs-v1=coordinated
+
+# A Tracking Level header that names a filing level is the third case: a step
+# plan files nothing. It counts only against the default, and only the first
+# such header outside fenced code counts.
+printf '# Repo\n\n## Tracking Level: issues\n' > "$TEST_DIR/tracking-issues.md"
+printf '# Repo\n\n## Tracking Level: issues-and-milestone\n' > "$TEST_DIR/tracking-milestone.md"
+printf '# Repo\n\n## Tracking Level: none\n' > "$TEST_DIR/tracking-none.md"
+printf '# Repo\n\n## Tracking Level: everything\n' > "$TEST_DIR/tracking-unknown.md"
+printf '```\n## Tracking Level: issues\n```\n' > "$TEST_DIR/tracking-fenced.md"
+printf '## Tracking Level: none\n\n## Tracking Level: issues\n' > "$TEST_DIR/tracking-first.md"
+printf '## Plan Version: v2\n\n## Tracking Level: issues\n' > "$TEST_DIR/tracking-header-v2.md"
+expect_note "default gives way to v1 for a Tracking Level of issues" v1 \
+    "CLAUDE.md asks for tracking level issues" --claude-md "$TEST_DIR/tracking-issues.md"
+expect_note "default gives way to v1 for a Tracking Level of issues-and-milestone" v1 \
+    "tracking level issues-and-milestone" --claude-md "$TEST_DIR/tracking-milestone.md"
+expect "a Tracking Level of none keeps the default" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-none.md"
+expect "an unrecognized Tracking Level keeps the default" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-unknown.md"
+expect "a fenced Tracking Level header is ignored" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-fenced.md"
+expect "only the first Tracking Level header counts" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-first.md"
+expect "a v2 header keeps v2 whatever the Tracking Level" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-header-v2.md"
+expect "a v2 flag keeps v2 whatever the Tracking Level" v2 "$RESOLVER" \
+    --plan-version=v2 --claude-md "$TEST_DIR/tracking-issues.md"
+expect "flipped default: a Tracking Level needs no fallback" v1 "$FLIPPED" \
+    --claude-md "$TEST_DIR/tracking-issues.md"
+
+# --- the source, and resuming a run ---------------------------------------------
+
+expect "--with-source names the default" $'plan_version=v2\nplan_version_source=default' \
+    "$RESOLVER" --with-source
+expect "--with-source names the flag" $'plan_version=v1\nplan_version_source=flag' \
+    "$RESOLVER" --with-source --plan-version=v1
+expect "--with-source names the header" $'plan_version=v1\nplan_version_source=header' \
+    "$RESOLVER" --with-source --claude-md "$TEST_DIR/header-v1.md"
+expect_note "--with-source keeps the default as the source when it gives way" \
+    $'plan_version=v1\nplan_version_source=default' "gives way to v1" \
+    --with-source --needs-v1=roadmap
+
+# A resumed run passes what it recorded at the start. Its flag and header are
+# not read again, so where the version first came from decides the fallback.
+expect "a stored v2 from the flag stays v2 on a resume with no flag" v2 "$RESOLVER" \
+    --stored-version=v2 --stored-source=flag
+reject "a stored v2 from the flag still stops on a coordinated split" \
+    "coordinated plans use --plan-version=v1" \
+    --stored-version=v2 --stored-source=flag --needs-v1=coordinated
+reject "a stored v2 from the header still stops on a roadmap" \
+    "a roadmap is planned with --plan-version=v1" \
+    --stored-version=v2 --stored-source=header --needs-v1=roadmap
+expect_note "a stored v2 from the default gives way on a coordinated split" v1 \
+    "a coordinated split is planned under v1" \
+    --stored-version=v2 --stored-source=default --needs-v1=coordinated
+expect "a stored v1 the default gave way to stays v1" v1 "$RESOLVER" \
+    --stored-version=v1 --stored-source=default --needs-v1=coordinated
+expect "a resume may repeat the stored version" v2 "$RESOLVER" \
+    --stored-version=v2 --stored-source=flag --plan-version=v2
+reject "a resume can't change the version" "this run started with plan version v2" \
+    --stored-version=v2 --stored-source=default --plan-version=v1
+reject "a resume can't change a v1 either" "resume it with --plan-version=v1" \
+    --stored-version=v1 --stored-source=flag --plan-version=v2
+expect "--with-source repeats the stored source" $'plan_version=v2\nplan_version_source=header' \
+    "$RESOLVER" --with-source --stored-version=v2 --stored-source=header
+reject "--stored-version needs --stored-source" "given together" --stored-version=v2
+reject "--stored-source needs --stored-version" "given together" --stored-source=flag
+reject "a stored run reads no CLAUDE.md" "can't be combined" \
+    --stored-version=v2 --stored-source=flag --claude-md "$DATA/CLAUDE-flag-only.md"
+reject "--stored-source with an unknown source" "must be flag, header or default" \
+    --stored-version=v2 --stored-source=caller
+reject "--stored-version with an unknown version" "must be v1 or v2" \
+    --stored-version=v3 --stored-source=flag
+reject "--with-source takes no value" "takes no value" --with-source=yes
 
 # --- the step plan example validates -------------------------------------------
 
