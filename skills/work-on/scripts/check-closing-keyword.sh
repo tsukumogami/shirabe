@@ -14,16 +14,68 @@
 # names this repository's issue N, which is either missing or a different
 # issue, and merging would close that one. So:
 #
-#   - `<keyword> <ISSUE_REPO>#N` passes;
+#   - `<keyword> <ISSUE_REPO>#N` passes, and for an issue elsewhere so does
+#     a markdown link with that text pointing at that issue,
+#     `<keyword> [<ISSUE_REPO>#N](https://<host>/<ISSUE_REPO>/issues/N)`.
+#     The plain reference is read wherever it stands, inside a link's text,
+#     a code span or a comment included, as it was before;
 #   - when ISSUE_REPO is the pull request's own repository (read from the URL
 #     `gh pr view` reports), a bare `<keyword> #N` passes too;
-#   - when the issue is elsewhere, any closing reference to issue N of the
-#     pull request's own repository fails the gate, even next to the
-#     qualified one, because merging would still close that issue: a bare
-#     `#N`, `<PR repo>#N`, and `https://<host>/<PR repo>/issues/N`. So a pull
-#     request can't close issue N in both repositories at once; close the
-#     local one by hand;
+#   - when the issue is elsewhere, a closing reference to issue N of the pull
+#     request's own repository fails the gate, even next to the qualified
+#     one, because merging would still close that issue. The forms are the
+#     ones measured to close: a bare `#N`, `<PR repo>#N` and
+#     `https://<host>/<PR repo>/issues/N` (#1041), `GH-N`, and the markdown
+#     link `[#N](https://<host>/<PR repo>/issues/N)`, whose text may be any of
+#     the first three spellings (#1044). So a pull request can't close issue
+#     N in both repositories at once; close the local one by hand;
+#   - so does `<owner>/<name>#N`, its issue URL, or that link, when that
+#     name is an old one of the pull request's repository, which GitHub
+#     still resolves after a rename (below);
 #   - a qualified reference to any other repository doesn't count.
+#
+# GitHub closed the issue on each of `Fixes GH-N`, `Fixes [#N](<this
+# repository's issue URL>)` and `Fixes <owner>/<old name>#N`, measured on a
+# scratch repository (#1044). A refusal blocks a pull request, so only forms
+# measured to close are refused. Other spellings GitHub renders as this
+# repository's issue (owner shorthand `<owner>#N`, issue paths without a
+# scheme or host, a link with other text or no keyword, emphasis around the
+# reference) aren't known to close and pass; #1065 measures them. Code
+# blocks and HTML aren't read specially, as before.
+#
+# GitHub keeps no list of a repository's old names, but it redirects an old
+# name to the repository, and `gh api repos/<owner>/<name>` follows that
+# redirect (measured: `gh api repos/mozilla/rust --jq .full_name` prints
+# `rust-lang/rust`). So every other `<owner>/<name>` the body closes issue N
+# in, in those forms, is looked up, and one that resolves to the pull
+# request's repository fails.
+# The limit is GitHub's own: an old name that another repository has since
+# taken resolves to that repository, here and when GitHub reads the body
+# alike.
+#
+# The lookup reads the network, so what it does when that goes wrong is
+# chosen case by case:
+#
+#   - a 404, which is also what GitHub answers for a private repository the
+#     token can't read, doesn't count: the token just read this pull request,
+#     so it can read this repository, and an old name of this repository
+#     redirects for it. A name it can't see isn't one of its old names;
+#   - any other failure (a rate limit, a network error, a 5xx) and a lookup
+#     still running when the lookups' time is up decide nothing, so the gate
+#     neither passes nor refuses: exit 3, which no pr_creation edge routes,
+#     so the state holds and the next tick looks again, rather than a
+#     passing gate that never checked or a run stopped at done_blocked by a
+#     blip. Fail-closed: the pull request can't move on. A failure that
+#     doesn't clear (a 403 from an organization's SSO, say) ends when the
+#     body stops closing issue N in that repository: its message names it;
+#   - the lookups must end LOOKUP_SECS seconds (20) after the script
+#     started, the pull request read included, inside koto's 30-second gate
+#     default. Each is polled, so no stray timer outlives the script. The
+#     read itself has no bound of its own; koto's kill covers it, as before;
+#   - at most MAX_LOOKUPS repositories (5) are looked up. A body that closes
+#     issue N in more fails the gate, so its size can't turn into calls.
+#
+# The tests set CHECK_CLOSING_KEYWORD_LOOKUP_SECS to shorten the time.
 #
 # The keywords are the gate's own: close, closes, closed, fix, fixes, fixed,
 # resolve, resolves, resolved, in any case. GitHub's documentation also lets
@@ -50,15 +102,21 @@
 # Exit codes, which the gate routes on:
 #   0  the body closes the issue
 #   1  it doesn't, it also closes issue N of the pull request's own
-#      repository (for an issue elsewhere), or the pull request or its
-#      repository couldn't be read. Fail-closed, like the inline
-#      expression: pr_creation routes 1 to done_blocked. The reason goes to
-#      stderr.
+#      repository (for an issue elsewhere, under an old name too), it closes
+#      issue N in more than MAX_LOOKUPS other repositories, or the pull
+#      request or its repository couldn't be read. Fail-closed, like the
+#      inline expression: pr_creation routes 1 to done_blocked. The reason
+#      goes to stderr.
 #   2  usage: a missing, unknown or malformed argument; no edge routes it,
 #      so pr_creation holds
+#   3  a repository lookup failed other than with a 404, or ran out of time;
+#      no edge routes it either, so pr_creation holds. The reason goes to
+#      stderr.
 #
 # Needs gh, authenticated, run from the repository the pull request is in.
-# One gh call. Bash 3.2: no associative arrays, no mapfile.
+# One gh call, plus one per other repository the body closes issue N in
+# (usually none, at most MAX_LOOKUPS). Bash 3.2: no associative arrays, no
+# mapfile.
 set -u
 
 usage() {
@@ -70,6 +128,17 @@ refuse() {
     echo "check-closing-keyword: $1" >&2
     exit 1
 }
+
+undecided() {
+    echo "check-closing-keyword: $1" >&2
+    exit 3
+}
+
+MAX_LOOKUPS=5
+LOOKUP_SECS=${CHECK_CLOSING_KEYWORD_LOOKUP_SECS:-20}
+case "$LOOKUP_SECS" in
+    ''|*[!0-9]*|0) usage ;;
+esac
 
 ISSUE=""
 REPO=""
@@ -130,14 +199,31 @@ SEP_FAIL='(:[[:space:]]*|[[:space:]]+)'
 END="([^0-9]|\$)"
 BARE="${KW}${SEP_PASS}#${ISSUE}${END}"
 QUALIFIED="(^|[^[:alnum:]_])${KW}${SEP_PASS}$(literal "$REPO")#${ISSUE}${END}"
-# Issue N of the pull request's own repository, in each form that closes it.
-# Deliberately wider than BARE and QUALIFIED, and not anchored to a word
-# start: this side refuses, so it errs toward matching (see the header). Along
-# the same line it also takes a `www.` host and leading zeros on N, spellings
-# GitHub doesn't document either way.
+HOST_RE=$(literal "$PR_HOST")
+# For an issue elsewhere, the qualified reference may also be a markdown
+# link's text, but only when the link points at that same issue: whether
+# GitHub closes the issue a link's text names or the one it points at isn't
+# known, and with both naming ISSUE_REPO#N either reading closes it. The
+# same-repository case keeps QUALIFIED as it was.
+QUALIFIED_LINK="(^|[^[:alnum:]_])${KW}${SEP_PASS}\\[$(literal "$REPO")#${ISSUE}\\]\\(https?://(www\\.)?${HOST_RE}/$(literal "$REPO")/issues/${ISSUE}\\)"
+# Issue N's URL in the repository whose name expression is $1, up to N.
+issue_url() { printf '%s' "https?://(www\\.)?${HOST_RE}/${1}/issues/"; }
+# Issue N of the pull request's own repository, in each form measured to
+# close it (see the header). Deliberately wider than BARE and QUALIFIED, and
+# not anchored to a word start: this side refuses, so it errs toward matching.
+# Along the same line it also takes a `www.` host and leading zeros on N, as
+# #1041 did, and `gh-N` in lower case.
 PR_REPO_RE=$(literal "$PR_REPO")
-OWN="${KW}${SEP_FAIL}(#|${PR_REPO_RE}#|https?://(www\\.)?$(literal "$PR_HOST")/${PR_REPO_RE}/issues/)0*${ISSUE}${END}"
+OWN="${KW}${SEP_FAIL}(#|gh-|${PR_REPO_RE}#|$(issue_url "$PR_REPO_RE"))0*${ISSUE}${END}"
+# The markdown link GitHub closed it on: a reference to it as the link's
+# text and its URL as the target.
+OWN_LINK="${KW}${SEP_FAIL}\\[(#|gh-|${PR_REPO_RE}#|$(issue_url "$PR_REPO_RE"))0*${ISSUE}\\]\\($(issue_url "$PR_REPO_RE")0*${ISSUE}${END}"
+# An owner is letters, digits, `-` and `_` (an enterprise's managed users),
+# starting with a letter or digit; a repository may also hold `.`.
+NAME_RE='[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9_.-]+'
 
+# The body with its lines joined, made once.
+JOINED=$(printf '%s' "$BODY" | tr '\n' ' ')
 # A here-string rather than a pipe: grep -q stops at the first match, and a
 # writer still filling the pipe would then fail.
 has() { grep -qiE "$1" <<<"$BODY"; }
@@ -145,7 +231,7 @@ has() { grep -qiE "$1" <<<"$BODY"; }
 # line and this repository's reference on the next still fails: grep reads a
 # line at a time, and whether GitHub joins them isn't documented. The pass
 # side keeps to single lines.
-has_joined() { grep -qiE "$1" <<<"$(printf '%s' "$BODY" | tr '\n' ' ')"; }
+has_joined() { grep -qiE "$1" <<<"$JOINED"; }
 
 if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     # The issue is in this repository after all: either form closes it.
@@ -155,8 +241,110 @@ if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     refuse "the body has no closing keyword for #$ISSUE: add Fixes #$ISSUE"
 fi
 
-if has_joined "$OWN"; then
-    refuse "a closing reference to #$ISSUE, $PR_REPO#$ISSUE or its issue URL closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
+if has_joined "$OWN" || has_joined "$OWN_LINK"; then
+    refuse "a closing reference to #$ISSUE, GH-$ISSUE, $PR_REPO#$ISSUE or its issue URL (a markdown link to it included) closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
 fi
-has "$QUALIFIED" && exit 0
-refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"
+# Without the right reference the answer is no whatever the lookups below
+# would say, so it is given before any of them.
+has "$QUALIFIED" || has "$QUALIFIED_LINK" \
+    || refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"
+
+# Every other repository the body closes issue N in, one `owner/name` a line,
+# each spelling once. One pass over the joined body finds each closing
+# reference in the forms above (the link's text and target both name one);
+# the names inside it are then cut out, all in one pipeline whatever the
+# body's length, so only what follows a keyword costs anything.
+#
+# grep -o's matches don't overlap, and END takes the character after N, which
+# can be where the next reference starts (`#42<https://...`). So the pass
+# reads the joined body with a space put after every N first, for END to take
+# instead. The name is cut out lower-cased (GitHub's names are), with the
+# scheme and host dropped first: the two path segments in front of
+# `/issues/` or `#`, whatever the case of `/issues/` or the repository's name.
+REF_NAMED="(#|gh-|${NAME_RE}#|$(issue_url "$NAME_RE"))0*${ISSUE}"
+# The space the pass puts after N may stand before the link text's `]`.
+NAMED="${KW}${SEP_FAIL}(${NAME_RE}#|$(issue_url "$NAME_RE"))0*${ISSUE}${END}|${KW}${SEP_FAIL}\\[${REF_NAMED} ?\\]\\($(issue_url "$NAME_RE")0*${ISSUE}${END}"
+NAME_REF="$(issue_url "$NAME_RE")0*${ISSUE}${END}|${NAME_RE}#0*${ISSUE}${END}"
+HOST_LOWER_RE=$(literal "$(lower "$PR_HOST")")
+other_names() {
+    local spaced
+    spaced=$(sed -E "s/(#|\\/[Ii][Ss][Ss][Uu][Ee][Ss]\\/)(0*${ISSUE})([^0-9])/\\1\\2 \\3/g" <<<"$JOINED ")
+    # A repository named `.` or `..` isn't one GitHub could have, and
+    # `repos/../x` is another path: dropped here, so the loop below reads at
+    # most a handful of names whatever the body holds.
+    grep -oiE "$NAMED" <<<"$spaced" | grep -oiE "$NAME_REF" | tr '[:upper:]' '[:lower:]' \
+        | sed -E -e 's|^[a-z]+://||' -e "s|^(www\\.)?${HOST_LOWER_RE}/||" -e 's|^([^/#]+/[^/#]+)[/#].*$|\1|' \
+        | grep -vE '/\.\.?$' | sort -u
+}
+
+# One lookup, given the seconds it may take: gh runs in the background and is
+# polled, so nothing is left running when this returns. Prints gh's answer,
+# and after a failure its error too, and returns gh's status, or 124 when
+# the time ran out. The error is kept apart from the answer, so a warning gh
+# writes on a lookup that worked can't change the name it answered.
+lookup() {
+    local out err pid st end
+    end=$((SECONDS + $2))
+    out=$(mktemp) || return 125
+    err=$(mktemp) || { rm -f "$out"; return 125; }
+    # </dev/null: the caller's loop reads the list of names on stdin.
+    gh api --hostname "$PR_HOST" "repos/$1" --jq .full_name >"$out" 2>"$err" </dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$SECONDS" -ge "$end" ]; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            rm -f "$out" "$err"
+            return 124
+        fi
+        sleep 0.1
+    done
+    wait "$pid"
+    st=$?
+    if [ "$st" -eq 0 ]; then cat "$out"; else cat "$out" "$err"; fi
+    rm -f "$out" "$err"
+    return "$st"
+}
+
+# An old name of this repository still closes its issue N (see the header),
+# so each name the body closes issue N in is looked up, unless it is
+# ISSUE_REPO or this repository by its current name. The names are collected
+# and counted first, so a body over the limit makes no call at all.
+LOOKUP_NAMES=""
+LOOKUPS=0
+while read -r NAME; do
+    [ -n "$NAME" ] || continue
+    case "$(lower "$NAME")" in
+        "$(lower "$REPO")"|"$(lower "$PR_REPO")") continue ;;
+    esac
+    LOOKUP_NAMES="$LOOKUP_NAMES$NAME$NL"
+    LOOKUPS=$((LOOKUPS + 1))
+    # Stop at the first name past the limit, so a long body costs no more.
+    [ "$LOOKUPS" -le "$MAX_LOOKUPS" ] \
+        || refuse "the body closes or links to issue $ISSUE in more than $MAX_LOOKUPS repositories besides $REPO, the most this gate looks up to rule out an old name of $PR_REPO: keep Fixes $REPO#$ISSUE and turn the others into plain text"
+done <<<"$(other_names)"
+
+# SECONDS counts from the script's start, so the time the pull request read
+# took is spent too.
+DEADLINE=$LOOKUP_SECS
+while read -r NAME; do
+    [ -n "$NAME" ] || continue
+    LEFT=$((DEADLINE - SECONDS))
+    [ "$LEFT" -gt 0 ] \
+        || undecided "ran out of the ${LOOKUP_SECS}s for looking up repositories before $NAME: tick again"
+    FULL=$(lookup "$NAME" "$LEFT")
+    case $? in
+        0) ;;
+        124) undecided "looking up $NAME, to rule out an old name of $PR_REPO, took longer than the ${LOOKUP_SECS}s it had: tick again" ;;
+        *)
+            case "$FULL" in *"(HTTP 404)"*) continue ;; esac
+            undecided "could not check whether $NAME is an old name of $PR_REPO, which would make $NAME#$ISSUE close $PR_REPO#$ISSUE: $FULL (tick again once GitHub answers; if it keeps failing, turn the closing reference or the link to $NAME#$ISSUE into plain text and close that issue by hand)"
+            ;;
+    esac
+    FULL=${FULL%%"$NL"*}
+    if [ "$(lower "$FULL")" = "$(lower "$PR_REPO")" ]; then
+        refuse "$NAME is an old name of $PR_REPO, so a closing reference or a link to $NAME#$ISSUE closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
+    fi
+done <<<"$LOOKUP_NAMES"
+
+exit 0

@@ -31,7 +31,13 @@
 #     scripts, and without this a script added to a Linux step would silently
 #     never reach the macOS floor. A script in no suite that is not a
 #     `*_test.sh` (assert-koto-floor.sh, say) is not a floor script and is
-#     outside this rule.
+#     outside this rule;
+#   - a workflow with such a job carries, at the workflow level, the
+#     concurrency block every macOS suite workflow has had since shirabe#941
+#     (group `${{ github.workflow }}-${{ github.event.pull_request.number ||
+#     github.sha }}`, cancel-in-progress `${{ github.event_name ==
+#     'pull_request' }}`), so a newer push to a pull request cancels the run
+#     it supersedes instead of queueing behind it.
 #
 # Not suite runs, so not checked: `bash -c`, and an installer piped into
 # `| bash`.
@@ -174,7 +180,17 @@ def logical_lines(script):
             yield line
 
 
+# The workflow-level block shirabe#941 gave every workflow that runs a suite
+# on macOS: a newer push to a pull request cancels the superseded run, so it
+# doesn't hold a place in the macOS queue. A workflow added without it would
+# queue every superseded run behind the new one again.
+CONCURRENCY = {
+    "group": "${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}",
+    "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+}
+
 violations = []
+suite_jobs = []  # the macOS jobs that run floor scripts
 for job_name, job in (wf.get("jobs") or {}).items():
     if not isinstance(job, dict):
         continue
@@ -239,6 +255,8 @@ for job_name, job in (wf.get("jobs") or {}).items():
                     violations.append((job_name, name, script,
                         "a floor script run outside the floor runner gets whatever bash "
                         "runs it, and " + BASH5))
+    if runs_suites:
+        suite_jobs.append(job_name)
     if runs_suites and not floor_suites:
         violations.append((job_name, "(whole job)", "no floor step",
             "the job runs shell suites and has a macOS leg, but no step that can run "
@@ -259,10 +277,22 @@ for job_name, job in (wf.get("jobs") or {}).items():
                 + ", ".join(sorted(floor_suites)) + "), so the macOS leg never runs it "
                 "on 3.2; add it to the suite's list, scripts/bash-floor/<suite>.list"))
 
+concurrency_problem = ""
+if suite_jobs and wf.get("concurrency") != CONCURRENCY:
+    concurrency_problem = (
+        f"{label}: concurrency: the workflow runs shell suites on macOS (job "
+        + ", job ".join(suite_jobs) + ") without the workflow-level block\n"
+        "    concurrency:\n"
+        f"      group: {CONCURRENCY['group']}\n"
+        f"      cancel-in-progress: {CONCURRENCY['cancel-in-progress']}\n"
+        "    so a superseded pull request run keeps its place in the macOS queue")
+
 for job_name, name, command, why in violations:
     print(f"{label}: job {job_name}: step \"{name}\": {command}")
     print(f"    {why}")
-sys.exit(1 if violations else 0)
+if concurrency_problem:
+    print(concurrency_problem)
+sys.exit(1 if violations or concurrency_problem else 0)
 PY
     if [ "$rc" -eq 1 ] && [ "$status" -eq 0 ]; then
         status=1

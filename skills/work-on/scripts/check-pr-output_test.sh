@@ -324,8 +324,28 @@ if rf_test_stage_copy "$STAGE_COPY" pr-body/one-separator warn $PR_PATHS; then
         fail "--pr-body: warn-stage only: rc $RC, findings $OUT"
     fi
     rf_test_verify_copy "--pr-body warn-only" "$STAGE_COPY" "$STAGE_LOG"
+    if grep -qF 'the findings above are of rules below it' "$WORKDIR/stderr"; then
+        pass "--pr-body: a passing run that printed a finding points at the findings above"
+    else
+        fail "--pr-body: warn-stage only: stderr $(cat "$WORKDIR/stderr")"
+    fi
 else
     fail "--pr-body: could not make a plugin copy with pr-body/one-separator at warn"
+fi
+
+# A finding of a retired rule prints nothing, so the closing line must not
+# point at findings above it.
+# shellcheck disable=SC2086 # the two paths, split on purpose
+if rf_test_stage_copy "$STAGE_COPY" pr-body/one-separator retired $PR_PATHS; then
+    run_copy
+    if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && ! grep -qF 'findings above' "$WORKDIR/stderr" \
+        && grep -qF 'every finding is of a retired rule, so none printed' "$WORKDIR/stderr"; then
+        pass "--pr-body: a retired-only finding prints nothing and the closing line says none printed"
+    else
+        fail "--pr-body: retired only: rc $RC, out [$OUT], stderr $(cat "$WORKDIR/stderr")"
+    fi
+else
+    fail "--pr-body: could not make a plugin copy with pr-body/one-separator at retired"
 fi
 
 # Violations the validator didn't list still fail the gate, through the

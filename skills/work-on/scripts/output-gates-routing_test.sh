@@ -514,6 +514,14 @@ for rc in 1 2; do
     drive pr_creation "" '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/1"}' closing_keyword=0
     holds "pr_body_conformant exit $rc" pr_creation pr_body_conformant
 done
+# closing_keyword exit 2 (usage) and 3 (check-closing-keyword.sh's repository
+# lookup failed or ran out of time) hold too: neither ci_monitor nor
+# done_blocked.
+for rc in 2 3; do
+    reset_rc
+    drive pr_creation "" '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/1"}' closing_keyword=$rc
+    holds "closing_keyword exit $rc" pr_creation closing_keyword
+done
 reset_rc
 drive pr_creation "" '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/1"}' closing_keyword=0
 expect "pr_body_conformant exit 0" ci_monitor
