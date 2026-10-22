@@ -383,8 +383,12 @@ that document's path as the session key `forced_artifact` in
 key names one of the four upstream paths (never the PLAN's), and
 the abandonment and error terminals carry it in their result as
 `forced_artifact`, which the printed exit block names as its
-`artifact=`. A result without the key, from a run force-materialized
-before the key existed, prints `artifact=none`.
+`artifact=`. When the abandonment's publish failed, the next run's
+fresh session retries the publish without passing through
+`exit_abandonment`, so `scope-open.sh` carries the replaced result's
+`forced_artifact` into the new session's key. A result without the
+key, from a run force-materialized before the key existed, prints
+`artifact=none`.
 
 ## R9 Hard-Finalization Check
 
