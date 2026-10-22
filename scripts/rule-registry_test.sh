@@ -857,6 +857,48 @@ want="docs/private-only-type docs/visibility-strategy-sections docs/visibility-v
 [ "$refused" = "$want" ] && pass "ladder: the /work-on gate rules release refuses are the five the design names" \
     || fail "ladder unreleasable set" "got [$refused] want [$want]"
 
+# --- the stage-to-level map, in its three copies ------------------------------
+#
+# rule-registry.sh's stage_level (for verify-findings), rule-findings.sh's
+# rf_level (what a gate prints) and the test library's rf_test_level (what the
+# suites expect) each map a stage to a finding level. Each function is read
+# out of its file and run on its own, so a copy that drifts fails here rather
+# than as a verify-findings mismatch nobody can place.
+
+# fn_body <file> <name>: the function's definition, from its `<name>() {` line
+# to the first line that is a lone `}`.
+fn_body() {
+    awk -v start="$2() {" '$0 == start { on = 1 } on { print } on && $0 == "}" { exit }' "$1"
+}
+# level_of <file> <name> <stage>: what the copy prints for <stage>.
+level_of() {
+    local body
+    body=$(fn_body "$1" "$2")
+    [ -n "$body" ] || { printf '<no %s in %s>' "$2" "$1"; return; }
+    ( eval "$body"; "$2" "$3" ) 2>/dev/null
+}
+parity_ok=1
+for stage in block warn shadow retired unknown-stage ""; do
+    a=$(level_of "$SUT" stage_level "$stage")
+    b=$(level_of "$REPO_ROOT/scripts/lib/rule-findings.sh" rf_level "$stage")
+    c=$(level_of "$REPO_ROOT/scripts/lib/rule-findings-testlib.sh" rf_test_level "$stage")
+    if [ "$a" != "$b" ] || [ "$a" != "$c" ]; then
+        parity_ok=0
+        fail "stage-to-level parity" "stage [$stage]: stage_level [$a], rf_level [$b], rf_test_level [$c]"
+    fi
+done
+want_map="block=$(level_of "$SUT" stage_level block) warn=$(level_of "$SUT" stage_level warn) shadow=$(level_of "$SUT" stage_level shadow) retired=$(level_of "$SUT" stage_level retired)"
+[ "$want_map" = "block=error warn=warning shadow=info retired=" ] \
+    || { parity_ok=0; fail "stage-to-level map" "got [$want_map]"; }
+[ "$parity_ok" = 1 ] && pass "stage_level, rf_level and rf_test_level map every stage alike: block error, warn warning, shadow info, retired nothing, anything else error"
+
+# The check above reads real functions: a copy renamed or reshaped so the
+# reader finds nothing must fail, not pass as three empty answers.
+printf 'other() {\n    :\n}\n' > "$T/no-level.sh"
+[ "$(level_of "$T/no-level.sh" stage_level warn)" = "<no stage_level in $T/no-level.sh>" ] \
+    && pass "stage-to-level parity: a file without the function is reported, not read as empty" \
+    || fail "stage-to-level parity reader" "read a level from a file with no stage_level"
+
 # --- the real registry's shape -----------------------------------------------
 
 REG="$REPO_ROOT/references/rule-registry.json"

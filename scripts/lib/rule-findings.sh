@@ -229,7 +229,8 @@ rf_stage() {
 # caller passes gets error, block's level, so a value this library doesn't know
 # never prints a finding softer than every finding printed before stages.
 # scripts/rule-registry.sh's stage_level holds the same mapping for
-# verify-findings; change both together.
+# verify-findings, and rule-findings-testlib.sh's rf_test_level the suites'
+# copy; scripts/rule-registry_test.sh fails when the three differ.
 rf_level() {
     case "$1" in
         warn) printf 'warning' ;;
