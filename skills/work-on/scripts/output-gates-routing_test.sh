@@ -326,6 +326,9 @@ build() {
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
+            '  VERIFICATION:' '    description: verification' '    required: false' \
+            '    default: local' '    values: [local, hosted-ci]' \
+            '  VERIFICATION_DEFERRAL_REASON:' '    description: deferral reason' '    required: false' \
             'states:' '  start:' '    transitions:' "      - target: $state"
         printf '%s\n' "$block"
         for t in $targets; do

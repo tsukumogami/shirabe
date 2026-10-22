@@ -480,5 +480,20 @@ seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s4 pause all "
 pr 25 OPEN true
 session "$(roadmap_vars plugin-system)" 7 send_execution a5
 eq "a pause whose minute has passed holds nothing" "ok a5" "$(check)"
+# A roadmap moved to roadmap/v3: the holding names the unit `Milestone 2`, the
+# pause was written on `Feature 2` before the move.
+ms_holding() { with_holdings "$(scoping a5 25)" | jq -c '.holdings[0].unit = "Milestone 2"'; }
+seed "$(with_pauses "$(ms_holding)" "$(prow s2 pause "Feature 2" lifted)")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a pause on Feature 2 holds sending the execution to the holding under Milestone 2" "paused s2" "$(check)"
+seed "$(with_pauses "$(ms_holding)" "$(prow s2 pause "Feature 2" lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "  ... and a go-ahead on Feature 2 lets it through" "ok a5" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)" | jq -c '.holdings[0].unit = "Milestone 12"')" "$(prow s2 pause "Feature 2" lifted)")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a pause on Feature 2 doesn't hold a holding under Milestone 12" "ok a5" "$(check)"
 
 done_tests deferral-check

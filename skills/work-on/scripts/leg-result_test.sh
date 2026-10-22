@@ -171,6 +171,9 @@ build() {
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  PLAN_DOC:' '    description: plan' '    required: false' \
+            '  VERIFICATION:' '    description: verification' '    required: false' \
+            '    default: local' '    values: [local, hosted-ci]' \
+            '  VERIFICATION_DEFERRAL_REASON:' '    description: deferral reason' '    required: false' \
             'states:' '  start:' '    accepts:' '      go:' '        type: enum' \
             '        values: [pr, already]' '        required: true' '    transitions:' \
             '      - target: pr_creation' '        when:' '          go: pr' \

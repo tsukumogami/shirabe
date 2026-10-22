@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--koto-leg=<request-id>:work-on]'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--verification=hosted-ci --verification-reason=<why>] [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -104,6 +104,33 @@ two cannot-verify, ending at `done_blocked`. Each violation names its rule
 (`verification/...`) in a koto finding, and the result is recorded in context as
 `verification_results.json`.
 
+### Deferring Verification to Hosted CI
+
+Some hosts must not run a repository's suites: a host in a measurement window, or
+one too small for the map's commands. A run started there can defer verification to
+the pull request's hosted CI instead, and the deferral is explicit and recorded,
+never a silent skip:
+
+- **Chosen at init, with a reason.** `VERIFICATION=hosted-ci` names the choice and
+  `VERIFICATION_DEFERRAL_REASON` states why (see **Initialize**; under `--koto-leg`,
+  `--verification=hosted-ci --verification-reason=<why>`). Neither is rebindable, so
+  the choice is fixed before any state runs. The default, `VERIFICATION=local`, is
+  the gate described above, unchanged.
+- **The map never launches.** Every edge that would enter `verification` goes to
+  `verification_deferred` instead. koto runs a state's entry action before anything
+  else in it, so the deferral is decided on the way in: `run-verification.sh` never
+  runs and no supervisor starts. The reason is recorded in context as
+  `verification_deferral`. A deferral with no reason ends at `done_blocked`; it
+  neither runs the map nor goes on unexplained.
+- **The run still finishes.** From `verification_deferred` the run goes through
+  `finalization` and opens its pull request as any other, and its result carries
+  `pr`.
+- **The PR body records it.** `pr_creation`'s `verification_deferral_recorded` gate
+  holds `pr_status: created` until the body says local verification did not run,
+  gives the reason verbatim, and says hosted CI is the build of record
+  (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
+  that CI green, as it does for every run.
+
 ### Finalization and No Silent Deferral
 
 When an acceptance criterion is unmet, finalization reports `deferral_requested`, which
@@ -155,9 +182,11 @@ Detect the mode on `$ARGUMENTS` with any `--koto-leg` token (and its value, when
 given separately) set aside: it names a caller's request leg (see **Answering a
 Caller's Leg**) and is never part of an issue reference, a PLAN path, or a task
 description. Set aside the review-level bound the same way, `--review-floor=<level>`
-and `--review-ceiling=<level>` (see **Review Level**). Set aside only for
+and `--review-ceiling=<level>` (see **Review Level**), and the verification deferral,
+`--verification=<value>` and `--verification-reason=<why>` (see **Deferring
+Verification to Hosted CI**). Set aside only for
 detection: the tokens file `work-on-open.sh` reads is the original `$ARGUMENTS`,
-`--koto-leg` and the bound included.
+`--koto-leg`, the bound and the deferral included.
 
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` or `schema: plan/v2` — **plan dispatcher mode** (see Plan Input above). `plan/v1` plans carry issue outlines; `plan/v2` plans carry steps (see `skills/plan/references/plan-format.md`)
@@ -257,6 +286,26 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
   --var REVIEW_FLOOR=standard
 ```
 
+**The verification deferral.** When `$ARGUMENTS` carries `--verification=hosted-ci`,
+add `--var VERIFICATION=hosted-ci` and
+`--var VERIFICATION_DEFERRAL_REASON=<why>`, the reason from
+`--verification-reason=<why>` exactly as typed, to either init above (see
+**Deferring Verification to Hosted CI**). A deferral without a reason is not a
+deferral: stop and say so rather than init without one, since the run would end at
+`done_blocked` before opening its pull request. koto refuses a `VERIFICATION` other
+than `local` or `hosted-ci`, and a reason that doesn't start with a letter or digit
+or carries a character outside its variable allowlist (`invalid_var`); report the
+refusal and stop. Without the flag add nothing. For example:
+
+```bash
+koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+  --var ISSUE_NUMBER=<N> \
+  --var ARTIFACT_PREFIX=issue_<N> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
+  --var VERIFICATION=hosted-ci \
+  --var "VERIFICATION_DEFERRAL_REASON=host is in a measurement window until 02:40Z"
+```
+
 **Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
 `SHARED_BRANCH`, `ISSUE_TYPE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when the `/execute`
 run was given a bound) and enters with `mode: plan_backed` (see **Plan-Backed Child
@@ -298,8 +347,11 @@ below applies and the run is unchanged.
      --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
    ```
    Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. Don't pass the
-   review-level bound as `--var`: the script reads `--review-floor=` and
-   `--review-ceiling=` from the tokens itself. It adds `PLUGIN_ROOT`, and on a
+   review-level bound or the verification deferral as `--var`: the script reads
+   `--review-floor=`, `--review-ceiling=`, `--verification=` and
+   `--verification-reason=` from the tokens itself, and refuses
+   `--verification=hosted-ci` without a reason (`error=usage`, exit 64, no koto
+   call). It adds `PLUGIN_ROOT`, and on a
    live session the `REVIEW_LEVEL` its ledger last recorded (an attach resets
    every rebind variable it isn't passed), and makes one `koto init` with
    `--attach-live --koto-leg`: no
@@ -454,12 +506,27 @@ Repeat:
 1. Run `koto next <WF> --no-cleanup`
 2. If `action: "execute"` with `advanced: true` — run it again
 3. If `action: "execute"` with `expects` — do the work described in `directive`,
-   read any phase file it references, then submit evidence:
+   read any phase file it references, then submit evidence from a file:
+   write the JSON object (`{"field_name": "value", ...}`) to `evidence.json` in
+   the run's scratch directory with the Write tool, tick, and remove the file:
    ```bash
-   koto next <WF> --with-data '{"field_name": "value", ...}' --no-cleanup
+   koto next <WF> --with-data @<scratch>/evidence.json --no-cleanup
+   rm <scratch>/evidence.json
    ```
    Provide the fields listed in `expects`. Check `expects.options` for valid values.
 4. If `action: "done"` — report the outcome and stop.
+
+**Evidence goes in a file, never inline.** Every command in this workflow that
+passes `--with-data` (`koto next`, `koto decisions record`) passes `@<file>`,
+not a quoted JSON argument. Claude Code's worktree-isolation check refuses a
+quoted argument after a token-stripping prefix such as `env -u GH_TOKEN`,
+reading the JSON as the program `env` runs, and the file form gives it
+nothing to misread. The scratch directory is the run's own, from
+`${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh scratch` (private, outside the
+work tree; `references/skill-session-convention.md`): allocate it once, write
+each evidence file there, remove each after its tick, and remove the directory
+when the run ends. The JSON is the same object the inline form would have
+passed. Never reword evidence to get a command past a refusal.
 
 **Retention: every `koto next` in this workflow carries `--no-cleanup` — every
 tick of the loop above, the entry-evidence tick, and the Resume tick below —
@@ -531,10 +598,13 @@ Ticking is not a substitute for the state read: a finished session answers
 
 ### Decision Capture
 
-During analysis and implementation, record non-obvious decisions:
+During analysis and implementation, record non-obvious decisions. Write
+`{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}` to
+`decision.json` in the run's scratch directory, then:
 
 ```bash
-koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'
+koto decisions record <WF> --with-data @<scratch>/decision.json
+rm <scratch>/decision.json
 ```
 
 ## Output
@@ -575,10 +645,14 @@ Then:
    `--koto-leg`, on a found workflow apply the **Resume** guard first,
    then open through `work-on-open.sh` (see **Answering a Caller's Leg**),
    fresh or resumed.
-2. On a fresh workflow, submit entry evidence, with `--no-cleanup` like every
-   later tick:
-   - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}' --no-cleanup`
-   - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}' --no-cleanup`
+2. On a fresh workflow, submit entry evidence from a file (see the execution
+   loop), with `--no-cleanup` like every later tick. Write the object to
+   `<scratch>/evidence.json`:
+   - Issue-backed: `{"mode": "issue_backed", "issue_number": "<N>"}`
+   - Free-form: `{"mode": "free_form", "task_description": "..."}`
+
+   then run `koto next <WF> --with-data @<scratch>/evidence.json --no-cleanup`
+   and remove the file.
 3. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill

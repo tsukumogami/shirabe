@@ -63,6 +63,19 @@
 # a different bound than the session recorded is koto's var_mismatch, and one
 # that passes none keeps the recorded bound.
 #
+# The verification deferral (#1012) is mapped the same way:
+#
+#   --verification=<local|hosted-ci>   VERIFICATION=<value>
+#   --verification-reason=<text>       VERIFICATION_DEFERRAL_REASON=<text>
+#
+# koto refuses a value outside VERIFICATION's values, and a reason that does
+# not start with a letter or digit (a bare flag among them), as invalid_var.
+# This script refuses one shape itself, since koto can't relate two
+# variables: --verification=hosted-ci with no non-empty --verification-reason
+# exits 64 with error=usage before any koto call, so a run can't defer
+# verification without saying why. Like the bound, both are not rebind: an
+# attach that passes none keeps what the session started with.
+#
 # PLUGIN_ROOT is added by this script: $CLAUDE_PLUGIN_ROOT, else the plugin
 # root this script ships in. The template is this skill's work-on.md.
 #
@@ -200,6 +213,16 @@ done <<TOKENS_EOF
 $(printf '%s' "$REST" | jq -r '.[] | select(endswith(".md") and (startswith("-") | not))')
 TOKENS_EOF
 
+# A deferral to hosted CI needs its reason. Only the last occurrence of each
+# flag is looked at here; a repeat still reaches koto, which refuses it.
+DEFER=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--verification="))
+    | ltrimstr("--verification=")] | last // ""')
+REASON=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--verification-reason="))
+    | ltrimstr("--verification-reason=")] | last // ""')
+if [ "$DEFER" = hosted-ci ] && [ -z "$REASON" ]; then
+    own_refusal "--verification=hosted-ci needs --verification-reason=<why>: a deferral to hosted CI has to say why local verification does not run"
+fi
+
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
 # The level the live session's ledger last recorded, or nothing.
@@ -221,6 +244,8 @@ jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
     ($ARGS.positional | map([(split("=")[0]), (.[(index("=") + 1):])]))
     + [ $tokens[] | bound(.; "--review-floor"; "REVIEW_FLOOR")[] ]
     + [ $tokens[] | bound(.; "--review-ceiling"; "REVIEW_CEILING")[] ]
+    + [ $tokens[] | bound(.; "--verification"; "VERIFICATION")[] ]
+    + [ $tokens[] | bound(.; "--verification-reason"; "VERIFICATION_DEFERRAL_REASON")[] ]
     + [["PLUGIN_ROOT", $root]]
     + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
     || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }

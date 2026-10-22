@@ -31,7 +31,10 @@
 # saying `Feature N` naming the item tagged `Milestone N`; holdings, a landed
 # row and verdict-owed and follow-up rows written under `Feature N` cover
 # `Milestone N`, a holding naming `Milestone 2` covers a v2 `Feature 2`, and
-# `Milestone 03`, `feature 2` and `#2` cover nothing.
+# `Milestone 03`, `feature 2` and `#2` cover nothing; a pause written on
+# `Feature 3` marks the v3 unit `Milestone 3` paused and no other, a go-ahead
+# on `Feature 4` lets `Milestone 4` through a pause on all, and a pause on
+# `Milestone 2` holds a v2 `Feature 2`.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -422,6 +425,25 @@ eq "v3: one naming Feature 3: Registry, another title, covers nothing" none "$(c
 eq "v3: one naming Feature 03 covers nothing" none "$(covered_in roadmap/v3 "Feature 03")"
 eq "v3: one naming feature 2 covers nothing" none "$(covered_in roadmap/v3 "feature 2")"
 eq "v3: one naming #2, an issue, covers nothing" none "$(covered_in roadmap/v3 "#2")"
+# paused_in <schema> <standing-rows-json>: the facts with those Standing rows
+# over the fixture's holdings, on a roadmap of that schema.
+paused_in() {
+    seed "$(printf '%s' "$REC" | jq -c --argjson s "$2" '.standing = $s')"; pr 21 OPEN true; pr 23 OPEN false
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(rmv "$1" Done 'In progress' 'Not started' 'Not started' 'Not started')"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    bash "$PF" --session "$S" > /dev/null 2>&1
+}
+paused_in roadmap/v3 "[$(pause_row s1 pause "Feature 3" lifted)]"
+eq "v3: a pause written on Feature 3 holds Milestone 3, and not Milestones 2 or 4" "s1 null null" \
+    "$(facts | jq -r '. as $f | ["Milestone 3", "Milestone 2", "Milestone 4"] | map(. as $u | $f.units[] | select(.unit == $u) | .paused | tostring) | join(" ")')"
+eq "  ... nor the holdings under Feature 2 and Feature 4" "null null" \
+    "$(facts | jq -r '[.holdings[] | select(.worker == "alpha" or .worker == "beta") | .paused] | map(tostring) | join(" ")')"
+paused_in roadmap/v3 "[$(pause_row s1 pause all "time 2099-01-01T00:00Z"), $(pause_row s2 go-ahead "Feature 4" "")]"
+eq "v3: a go-ahead written on Feature 4 lets Milestone 4 through an all pause; Milestone 3 stays held" "null s1" \
+    "$(facts | jq -r '[(.units[] | select(.unit == "Milestone 4") | .paused), (.units[] | select(.unit == "Milestone 3") | .paused)] | map(tostring) | join(" ")')"
+paused_in roadmap/v2 "[$(pause_row s1 pause "Milestone 2" lifted)]"
+eq "v2: a pause on Milestone 2 holds Feature 2 and the holding under it" "s1 s1" \
+    "$(facts | jq -r '[(.units[] | select(.unit == "Feature 2") | .paused), (.holdings[] | select(.worker == "alpha") | .paused)] | map(tostring) | join(" ")')"
 
 echo "== the dispatch path's unit forms are the ones pick reads =="
 # dispatch-common.sh dc_unit_forms lists, from coord/pick.json, the Unit cells

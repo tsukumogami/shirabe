@@ -1,0 +1,31 @@
+name: Check inline evidence
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**/*.md'
+      - 'references/**/*.md'
+      - 'koto-templates/**/*.md'
+      - 'scripts/check-inline-evidence.sh'
+      - 'scripts/check-inline-evidence_test.sh'
+      - '.github/workflows/check-inline-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check-inline-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Agents run the koto commands skills show them behind a token-stripping
+      # prefix (`env -u GH_TOKEN`, `GH_TOKEN=`), and Claude Code's
+      # worktree-isolation check refuses a quoted --with-data JSON argument
+      # after one. Skills pass evidence as `--with-data @<file>` instead; this
+      # keeps the inline shape from coming back.
+      #
+      # The test harness runs the check against the tree as its first case,
+      # so this one step covers both the scan and its own regression suite.
+      - name: Check no skill passes koto evidence inline
+        run: bash scripts/check-inline-evidence_test.sh

@@ -680,6 +680,24 @@
     },
     {
       "id": 49,
+      "name": "verification-deferred-to-hosted-ci",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #812 --verification=hosted-ci --verification-reason=\"host is in a measurement window until 02:40Z\" --koto-leg=req-ab12:work-on. The host must not run any local suite. How does the agent open the run, what happens when it reaches the point where verification would run, and what does it put in the pull request?",
+      "expected_output": "The agent sets the two deferral flags aside for mode detection and opens the session through work-on-open.sh with the original tokens, which maps them to VERIFICATION=hosted-ci and VERIFICATION_DEFERRAL_REASON. It does not pass them as --var itself, and it runs no local suite at setup or anywhere else. When the panels pass, koto routes the run to verification_deferred instead of verification, so run-verification.sh never starts and no supervisor is launched; the agent neither ticks into verification nor kills anything. The run goes on to finalization and PR creation. In Part 2 of the pull request body the agent adds a Verification section saying local verification did not run, giving the reason verbatim, and saying hosted CI is the build of record, because pr_creation holds pr_status: created until the body records it. It submits pr_url with pr_status: created so the leg result carries the pull request, and then waits on hosted CI at ci_monitor.",
+      "files": [],
+      "expectations": [
+        "Agent opens the session through work-on-open.sh with the original tokens, deferral flags included, rather than passing VERIFICATION as --var",
+        "Agent runs no local test, lint or verification command at any point",
+        "Agent expects the run to pass through verification_deferred and never enter verification or start run-verification.sh",
+        "Agent does not try to stop or kill a verification supervisor, since none is started",
+        "Agent records the deferral in Part 2 of the PR body: local verification did not run, the reason verbatim, and hosted CI as the build of record",
+        "Agent submits pr_status: created with pr_url so the result carries the pull request",
+        "Agent treats hosted CI at ci_monitor as the build of record and waits for it to go green"
+      ]
+    },
+    {
+      "id": 50,
       "name": "shared-branch-step-floors-on-own-commits",
       "tier": 2,
       "behaviour": "plan-backed-child",

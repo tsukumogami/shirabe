@@ -158,7 +158,11 @@ columns between Kind and What:
 
 **On** is the pause's scope: `all`, the whole coordinator, or one unit named as
 pick lists units, a roadmap feature's heading tag (`Feature 2`, `ED1`) or an
-issue (`#12`, `owner/repo#12`). The roadmap's block speaks of "one lane"; a run
+issue (`#12`, `owner/repo#12`). A heading tag is compared by its tag key, as
+holdings and Work rows are, so a pause on `Feature 2` still holds the unit after
+the roadmap moves to roadmap/v3 and pick lists it as `Milestone 2`, and a pause
+on `Milestone 2` holds a v2 `Feature 2`; `Feature 2` never holds `Milestone 12`.
+A go-ahead's On matches the same way. The roadmap's block speaks of "one lane"; a run
 of this skill drives one lane, its roadmap or discipline, so pausing the lane is
 `all`. A lane that is itself a unit, a nested coordinator a parent dispatched,
 is paused in the parent's record by its unit and in its own record as `all`.

@@ -28,9 +28,13 @@
 #                                          match readers print, never their own
 # A unit is covered by the first in-force or unreadable pause on `all` or on
 # that unit, unless a go-ahead names it: a go-ahead lets its unit through any
-# pause, `all` or its own. A pause's On matches a unit when they are equal,
-# when the unit is `<On>: <title>`, or when one is `#<n>` and the other
-# `<owner/repo>#<n>`.
+# pause, `all` or its own. A pause's On, and a go-ahead's, matches a unit
+# when they are equal or share a tag key (record-common.sh tag_key), when the
+# unit is `<tag>: <title>` and its tag matches the On either way, or when one
+# is `#<n>` and the other `<owner/repo>#<n>`. The key makes `Feature 3` and
+# `Milestone 3` one unit, so a pause written before a roadmap moved to
+# roadmap/v3 still holds its milestone, while `Feature 2` never matches
+# `Milestone 12`.
 #
 # Conditions are read live through board-lib.sh's bl_condition_state, under
 # its deadline. BL_NOW (YYYY-MM-DDTHH:MMZ) stands in for the clock in tests.
@@ -85,9 +89,11 @@ while [ "$i" -lt "$n" ]; do
 done
 
 jq -R -s 'split("\n") | map(select(. != ""))' "$D/states" > "$D/states.json" || exit 2
-jq -c -n --slurpfile p "$D/pauses" --slurpfile s "$D/states.json" --slurpfile u "$D/units" --slurpfile all "$STANDING" '
+jq -c -n --slurpfile p "$D/pauses" --slurpfile s "$D/states.json" --slurpfile u "$D/units" --slurpfile all "$STANDING" "$JQ_TAG_KEY"'
     def matches($on; $u):
         $on == $u or ($u | startswith($on + ": "))
+        or ($on | tag_key) == ($u | tag_key)
+        or ($u | index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($on | tag_key))
         or (($on | startswith("#")) and ($u | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+" + $on + "$")))
         or (($u | startswith("#")) and ($on | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+" + $u + "$")));
     ($p[0] | to_entries | map(.value + {state: $s[0][.key]})) as $pauses

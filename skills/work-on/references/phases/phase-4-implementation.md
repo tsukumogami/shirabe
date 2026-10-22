@@ -154,7 +154,12 @@ for KEY in plan.md scrutiny_results.json review_results.json qa_results.json lig
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_expanded_retry\"}" --no-cleanup
+EV=$(mktemp -d) || exit 1
+printf '{"%s": "scope_expanded_retry"}\n' "$OUTCOME_FIELD" > "$EV/evidence.json"
+koto next <WF> --with-data @"$EV/evidence.json" --no-cleanup
+NEXT_STATUS=$?
+rm -rf "$EV"
+exit "$NEXT_STATUS"
 ```
 
 The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent. Why the block checks both signals is in `phase-4a-scrutiny.md`.
