@@ -123,7 +123,8 @@ reviewer's finding that cites a rule under the cited rule's id, at a panel
 gate and at `panel/open-finding`'s stage, so at the panel gates every finding
 and dispute counts for `panel/open-finding`, whatever `koto.rule.id` it
 carries, and never for the cited rule, whose gates don't include a panel
-gate. A rate is per evaluation of the rule's gates, not per case
+gate: `scripts/check-rule-registry.sh` refuses a panel gate on any entry but
+`panel/open-finding`. A rate is per evaluation of the rule's gates, not per case
 the rule applies to.
 
 ## Criteria
