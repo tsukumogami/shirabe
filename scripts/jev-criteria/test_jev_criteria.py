@@ -597,6 +597,19 @@ class PromotionTest(unittest.TestCase):
         self.t.save()
         self.assertProblem("28 of 30 evaluations answered, under 95%")
 
+    def test_live_bar_counts_above_evaluations(self):
+        # An evaluation is answered once and has one session, so neither count
+        # can pass the evaluations; a record that says so wasn't read from events.
+        for key in ("answered", "sessions"):
+            with self.subTest(key=key):
+                saved = self.promo()["live"][key]
+                self.promo()["live"][key] = 31
+                self.t.save()
+                self.assertProblem("31 %s, more than its 30 evaluations" % key)
+                self.promo()["live"][key] = saved
+                self.t.save()
+        self.assertEqual(jc.live_bar({"evaluations": 30, "sessions": 30, "answered": 30}, 2560), (True, []))
+
     def test_stale_slice_script(self):
         write(self.t.root, SLICE, "#!/bin/sh\necho changed\n")
         self.assertProblem("promotion.slice_script_blob differs")
@@ -672,6 +685,28 @@ class HistoryTest(unittest.TestCase):
         self.t.save()
         rc, out = self.t.check("HEAD")
         self.assertIn("a false pass recorded at the base was changed or removed", out)
+
+    def test_false_pass_edited_in_place(self):
+        # The list keeps its length and only one field changes: that's still
+        # a change to the record, and appending a new false pass is not.
+        fp = {"evaluated": "2026-10-25", "recorded": "2026-10-26", "oracle": "human",
+              "evidence": "https://github.com/o/r/issues/1"}
+        self.t.entry("rs-007")["jev"]["false_passes"] = [dict(fp)]
+        self.t.save()
+        git(self.t.root, "add", "-A")
+        git(self.t.root, "commit", "-q", "-m", "fp")
+        for key, value in (("evaluated", "2026-10-24"), ("oracle", "ci"),
+                           ("evidence", "https://github.com/o/r/issues/2")):
+            with self.subTest(key=key):
+                self.t.entry("rs-007")["jev"]["false_passes"] = [dict(fp, **{key: value})]
+                self.t.save()
+                rc, out = self.t.check("HEAD")
+                self.assertIn("rs-007: a false pass recorded at the base was changed or removed", out)
+        later = dict(fp, evaluated="2026-10-27", recorded="2026-10-28")
+        self.t.entry("rs-007")["jev"]["false_passes"] = [dict(fp), later]
+        self.t.save()
+        rc, out = self.t.check("HEAD")
+        self.assertNotIn("a false pass recorded at the base was changed or removed", out)
 
     def test_removed_declaration(self):
         del self.t.entry(RULE)["jev"]["declared"]

@@ -332,6 +332,11 @@ def live_bar(live, budget):
         reasons.append("%d evaluations, fewer than %d" % (ev, LIVE_MIN_EVALUATIONS))
     if live.get("sessions", 0) < LIVE_MIN_SESSIONS:
         reasons.append("%d sessions, fewer than %d" % (live.get("sessions", 0), LIVE_MIN_SESSIONS))
+    # An evaluation is answered at most once and belongs to one session, so a
+    # record with more of either than evaluations was not read from events.
+    for k in ("answered", "sessions"):
+        if live.get(k, 0) > ev:
+            reasons.append("%d %s, more than its %d evaluations" % (live[k], k, ev))
     if ev and live.get("answered", 0) < LIVE_MIN_ANSWERED * ev:
         reasons.append("%d of %d evaluations answered, under %d%%"
                        % (live.get("answered", 0), ev, int(LIVE_MIN_ANSWERED * 100)))
