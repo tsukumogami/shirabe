@@ -312,7 +312,8 @@ core_write_host() {
 # this scope's record (SCOPE, NAME), fits RECORD_BUDGET, and holds only
 # well-formed pushed heads. The target must hold no record. Each key's name is
 # checked against the session store's names and its value checked (JSON, or for
-# record/posted/<n> a comment URL on REPO's issues), then copied, and
+# record/posted/<n> a comment URL on an issue or pull request: REPO's record
+# issue, or the item record-append.sh --on posted it on), then copied, and
 # record/meta goes last, with the source's written time: until it lands the new
 # run holds no record, so a carry cut short leaves nothing a start would resume,
 # and the next start carries again. Only coordinate-open.sh calls it, which a
@@ -352,8 +353,8 @@ core_carry() {
         "$KOTO" context get "$from" "$k" < /dev/null > "$d/v" 2> "$d/k.err" || { rm -rf "$d"; lib_die2 "cannot read $k: $(lib_scrub < "$d/k.err")"; }
         case "$k" in
             record/posted/*)
-                [[ $(cat "$d/v") =~ ^https://github\.com/${REPO}/issues/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
-                    || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on $REPO's issues" >&2; exit 65; } ;;
+                [[ $(cat "$d/v") =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
+                    || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on an issue or a pull request" >&2; exit 65; } ;;
             *) jq -e . "$d/v" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
         esac
         "$KOTO" context add "$to" "$k" --from-file "$d/v" < /dev/null > /dev/null 2> "$d/k.err" \
