@@ -214,6 +214,18 @@ expect "cross-repo: this repo's reference on the same line fails" 1 42 "Fixes ac
 PR_URL=https://ghe.example.com/acme/app/pull/7 \
     expect "cross-repo: this repo's issue URL on another host fails" 1 42 "Fixes acme/tracker#42
 Fixes https://ghe.example.com/acme/app/issues/42"
+# Spellings GitHub doesn't document either way fail too, on the safe side:
+# a www. host, leading zeros, and a keyword whose reference is on the next line.
+expect "cross-repo: this repo's www. issue URL fails" 1 42 "Fixes acme/tracker#42
+Fixes https://www.github.com/acme/app/issues/42"
+expect "cross-repo: this repo's #N with leading zeros fails" 1 42 "Fixes acme/tracker#42
+Fixes #042"
+expect "cross-repo: this repo's reference on the line after the keyword fails" 1 42 "Fixes acme/tracker#42
+Fixes
+acme/app#42"
+expect "cross-repo: a bare #N on the line after a colon fails" 1 42 "Fixes acme/tracker#42
+Fixes:
+#42"
 
 # What closes nothing in this repository, or another issue there, still passes.
 expect "cross-repo: a mention of this repo's issue without a keyword passes" 0 42 "Fixes acme/tracker#42

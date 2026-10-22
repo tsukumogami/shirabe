@@ -343,6 +343,8 @@ else
     # The flag is the only source: a session log that still carries an
     # ISSUE_REPO is not read for it, so an empty --issue-repo reads this
     # repository's issue, with the same call a same-repository run makes.
+    # repo_log <session> <issue-repo> plants that decoy log; the script must
+    # ignore it. (no-log, below, is a session with no log at all.)
     repo_log() {
         mkdir -p "$ROOT/sessions/$1"
         printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":{"ISSUE_NUMBER":"12","ISSUE_REPO":"%s"}}}\n' \

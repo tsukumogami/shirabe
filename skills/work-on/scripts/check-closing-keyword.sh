@@ -49,8 +49,9 @@
 #
 # Exit codes, which the gate routes on:
 #   0  the body closes the issue
-#   1  it doesn't, a bare reference names the wrong issue, or the pull request
-#      or its repository couldn't be read. Fail-closed, like the inline
+#   1  it doesn't, it also closes issue N of the pull request's own
+#      repository (for an issue elsewhere), or the pull request or its
+#      repository couldn't be read. Fail-closed, like the inline
 #      expression: pr_creation routes 1 to done_blocked. The reason goes to
 #      stderr.
 #   2  usage: a missing, unknown or malformed argument; no edge routes it,
@@ -130,12 +131,21 @@ END="([^0-9]|\$)"
 BARE="${KW}${SEP_PASS}#${ISSUE}${END}"
 QUALIFIED="(^|[^[:alnum:]_])${KW}${SEP_PASS}$(literal "$REPO")#${ISSUE}${END}"
 # Issue N of the pull request's own repository, in each form that closes it.
+# Deliberately wider than BARE and QUALIFIED, and not anchored to a word
+# start: this side refuses, so it errs toward matching (see the header). Along
+# the same line it also takes a `www.` host and leading zeros on N, spellings
+# GitHub doesn't document either way.
 PR_REPO_RE=$(literal "$PR_REPO")
-OWN="${KW}${SEP_FAIL}(#|${PR_REPO_RE}#|https?://$(literal "$PR_HOST")/${PR_REPO_RE}/issues/)${ISSUE}${END}"
+OWN="${KW}${SEP_FAIL}(#|${PR_REPO_RE}#|https?://(www\\.)?$(literal "$PR_HOST")/${PR_REPO_RE}/issues/)0*${ISSUE}${END}"
 
 # A here-string rather than a pipe: grep -q stops at the first match, and a
 # writer still filling the pipe would then fail.
 has() { grep -qiE "$1" <<<"$BODY"; }
+# The refusal also reads the body with its lines joined, so a keyword on one
+# line and this repository's reference on the next still fails: grep reads a
+# line at a time, and whether GitHub joins them isn't documented. The pass
+# side keeps to single lines.
+has_joined() { grep -qiE "$1" <<<"$(printf '%s' "$BODY" | tr '\n' ' ')"; }
 
 if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     # The issue is in this repository after all: either form closes it.
@@ -145,7 +155,7 @@ if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     refuse "the body has no closing keyword for #$ISSUE: add Fixes #$ISSUE"
 fi
 
-if has "$OWN"; then
+if has_joined "$OWN"; then
     refuse "a closing reference to #$ISSUE, $PR_REPO#$ISSUE or its issue URL closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
 fi
 has "$QUALIFIED" && exit 0

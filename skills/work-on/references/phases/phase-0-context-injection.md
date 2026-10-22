@@ -28,8 +28,10 @@ repository's design docs, whose `#<N>` names a different issue.
   `status: completed`.
 - `failed` — nothing was stored. The JSON's `error` and `warnings` say why:
   no session, no `--issue-repo` or one that isn't `owner/repo`, no koto on
-  PATH, a failed `koto context add`, or a missing `gh`. Submit `status: blocked` with that reason as `detail`, which ends
-  the run at `done_blocked`. If the context comes another way instead (you
+  PATH, a failed `koto context add`, or a missing `gh`. A missing or
+  malformed `--issue-repo` means the command wasn't run as the directive
+  gives it: run that command again. Otherwise submit `status: blocked` with
+  the reason as `detail`, which ends the run at `done_blocked`. If the context comes another way instead (you
   gather it from the issue and store it under `context.md` yourself, say),
   submit `status: override` with `detail` naming where it came from.
 
