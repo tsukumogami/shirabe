@@ -378,6 +378,24 @@ fi
 [ "$(grep -c '^Reason: ' <<<"$P2")" -eq 1 ] && pass "one child's reason: one Reason: line" \
     || fail "Reason: lines: [$(grep '^Reason: ' <<<"$P2")]"
 
+# An --issues that leaves a work item out can't hide that item's deferral:
+# the node's work items in the PLAN are read too.
+np_case defer-subset
+ct_write_db
+fresh_repo defer-subset
+defer_child 2 "$REASON2"
+push_node_issues() { # push_node_issues <issues>
+    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues "$1" \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
+    RC=$?
+}
+push_node_issues 1
+if [ "$RC" -eq 0 ] && part2 | grep -qxF "Reason: $REASON2"; then
+    pass "--issues 1 on a node whose PLAN items are 1,2: item 2's deferral is still recorded"
+else
+    fail "defer-subset: rc=$RC part2=[$(part2)]"
+fi
+
 np_case defer-run
 ct_write_db
 fresh_repo defer-run

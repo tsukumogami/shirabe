@@ -486,16 +486,27 @@ cc_pr_node() {
 # local koto reads, and only when one deferred reads the PR's body from
 # GitHub, so a node with no deferral costs no GitHub read. The run's own
 # reason is not passed here: every child the run deferred holds it, and
-# node-push.sh wrote it into the body. No items (the PLAN gone, after the
-# cascade) checks nothing. Called from cc_pr_node, in coord_compute's scope.
+# node-push.sh wrote it into the body. With no items (the PLAN gone, so the
+# node list comes from run/setup, which records none) the children are the
+# root sessions named `work-on-<slug>-<node>-<number>` that `koto workflows
+# --roots` lists: the cascade deletes the PLAN only once every node merged,
+# so this is a node left open with its PLAN missing, which must not be read
+# as having no deferral. Called from cc_pr_node, in coord_compute's scope.
 # Returns 1 once it has set CC_ACTION: error:execute:deferral-record when the
 # body misses a part, error:execute:status-read when it can't be decided.
 cc_deferral_record() {
-    [ -n "$2" ] || return 0
-    local item rc err args oldifs=$IFS
+    local items="$2" item rc err args roots oldifs=$IFS
+    if [ -z "$items" ]; then
+        roots=$(koto workflows --roots </dev/null 2>/dev/null) \
+            && items=$(printf '%s' "$roots" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
+                '[.[] | .name | select(type == "string" and startswith($p)) | ltrimstr($p)
+                  | select(test("^[1-9][0-9]*$"))] | join(",")') \
+            || { CC_ACTION="error:execute:status-read"; return 1; }
+        [ -n "$items" ] || return 0
+    fi
     args=(--session "$CC_SESSION" --verification "")
     IFS=,
-    for item in $2; do
+    for item in $items; do
         args+=(--child "work-on-$CC_SLUG-$1-$item")
     done
     IFS=$oldifs

@@ -80,7 +80,8 @@
 # transition renders again.
 #
 # The verification deferral (node mode). A node's work items are /work-on
-# children, `work-on-<slug>-<node-id>-<item>` for each --issues item, and a
+# children, `work-on-<slug>-<node-id>-<item>` for each --issues item and each
+# work item the PLAN lists for the node, and a
 # child that deferred verification to hosted CI holds its reason as
 # `verification_deferral`. The node's reasons are the run's own (--reason,
 # when --verification is hosted-ci) and each of those children's, collected
@@ -92,7 +93,13 @@
 # the node branch is adopted only when its body records every reason
 # (shared-deferral-record.sh over it, the check /execute's single-pr gate
 # makes): one that doesn't is refused with 80 before the push, so a node PR
-# carrying a deferred work item never gets a push it doesn't record.
+# carrying a deferred work item never gets a push it doesn't record. It is
+# refused rather than repaired: this script writes a body only when it opens
+# the PR, and an adopted body may hold a person's edits, so fixing it is left
+# to the caller, as pr_finalization's gate leaves the shared PR's body to the
+# run that owns it. The section's three lines are phase-6-pr.md's; a change
+# to that wording changes the text below, and node-push_test.sh runs work-on's
+# own check over the body written here.
 #
 # In order:
 #   1. check every value against its closed pattern (slug ^[a-z0-9-]+$, node
@@ -397,13 +404,21 @@ if [ "$MODE" = node ]; then
 fi
 
 # The node's verification deferral (see the header), read before anything is
-# pushed: the run's reason and each work item's child's, one per line.
+# pushed: the run's reason and each work item's child's, one per line. The
+# work items are --issues and the node's own ISSUES in the PLAN, so an
+# --issues that leaves an item out can't hide that item's deferral.
 DEFERRAL_ARGS=()
 DEFERRAL=""
 if [ "$MODE" = node ]; then
     DEFERRAL_ARGS=(--session "$SESSION" --verification "$VERIFICATION" --reason "$RUN_REASON")
+    PLAN_ISSUES=$(printf '%s' "$TASKS" | jq -r --arg n "$NODE" \
+        '[.[] | select(.name == $n) | .vars.ISSUES // empty] | first // ""')
     OLDIFS=$IFS; IFS=,
-    for item in $ISSUES; do
+    SEEN_ITEMS=,
+    for item in $ISSUES $PLAN_ISSUES; do
+        case "$item" in ''|*[!0-9]*) continue ;; esac
+        case "$SEEN_ITEMS" in *",$item,"*) continue ;; esac
+        SEEN_ITEMS="$SEEN_ITEMS$item,"
         DEFERRAL_ARGS+=(--child "work-on-$SLUG-$NODE-$item")
     done
     IFS=$OLDIFS
@@ -535,6 +550,8 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
 trap 'rm -rf "$WORK"' EXIT
 REC_PR=""
 if [ "$MODE" = node ]; then
+    # owned-pr-callers_test.sh matches this line to check the lookup comes
+    # before the push.
     OWNED_NOW=$(coord_owned "$REPO" "$BRANCH" open)
     case $? in
         0) ;;

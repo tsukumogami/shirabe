@@ -25,8 +25,11 @@
 #                            verification and whose body lacks the record
 #                            (evaluate and merge once it has it; another
 #                            node's deferral doesn't hold this one; a failed
-#                            key read is status-read; no deferral evaluates
-#                            as before with no body read and no stderr)
+#                            key read is status-read; with the PLAN gone the
+#                            node's children come from koto's root sessions,
+#                            an unreadable list is status-read; no deferral
+#                            evaluates as before with no body read and no
+#                            stderr)
 #   evaluate:<root>          a ready root PR whose checks are pending
 #   merge:<root>             a ready, mergeable root with --merge true, at the
 #                            recorded head; a body index head= that differs
@@ -315,6 +318,25 @@ ct_write_db
 defer_child 2 "$DREASON"
 out=$(KOTO_FAIL_EXISTS=verification_deferral run_next "$PLANDIR" --merge true)
 expect "a child's key read that fails" "error:execute:status-read" "$out"
+
+# The PLAN gone with a node PR still open (the cascade deletes it only after
+# every node merged, so the PLAN went missing some other way): the node's
+# children are found among koto's root sessions, and the hold still holds.
+ct_case defer-plan-gone
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_node "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+ct_write_db
+defer_child 2 "$DREASON"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, an open draft node PR whose child deferred, no record" "error:execute:deferral-record" "$out"
+out=$(KOTO_FAIL_WORKFLOWS=1 run_next "$GONEDIR" --merge true)
+expect "the PLAN gone and koto's session list unreadable" "error:execute:status-read" "$out"
+rm -rf "$CASE/ctx/work-on-t-$CT_CORE-2"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, no child session of the node" "evaluate:$CT_CORE" "$out"
 
 ct_case defer-none
 ct_record_setup

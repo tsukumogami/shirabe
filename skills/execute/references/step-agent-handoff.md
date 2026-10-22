@@ -92,7 +92,7 @@ push, `gh` write and run-record write (`repo-visibility.sh`, `node-cut.sh`,
 | `{{ISSUE_NUMBER}}` | the work item, as `ISSUES` lists it |
 | `{{PLAN_DOC}}` | the `plan_abs` value, the PLAN in the coordination checkout |
 | `{{BOUND_VARS}}` | `--var REVIEW_FLOOR=<floor>` and `--var REVIEW_CEILING=<ceiling>` for the run's review-level bound, leaving out whichever is empty |
-| `{{DEFERRAL_VARS}}` | `--var VERIFICATION=hosted-ci --var 'VERIFICATION_DEFERRAL_REASON=<reason>'` when the run's `VERIFICATION` is `hosted-ci`, the reason its `VERIFICATION_DEFERRAL_REASON` holds, verbatim inside the single quotes; empty when it is `local` |
+| `{{DEFERRAL_VARS}}` | `--var VERIFICATION=hosted-ci --var 'VERIFICATION_DEFERRAL_REASON=<reason>'` when the run's `VERIFICATION` is `hosted-ci`, the reason its `VERIFICATION_DEFERRAL_REASON` holds, verbatim inside the single quotes (safe: koto's value allowlist admits no quote); empty when it is `local` |
 
 The owning session starts no step agent when `{{CHILD}}` has a character
 outside letters, digits, `.`, `_` and `-`, or the node branch one outside

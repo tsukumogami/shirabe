@@ -77,6 +77,7 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 # shellcheck source=coord-common.sh
 . "$COORD_SELF_DIR/coord-common.sh"
 
+# The same step set as record-coordination-verdict.sh's RE_STEP: add a step to both.
 RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop|deferral-record)$'
 
 usage_error() {
