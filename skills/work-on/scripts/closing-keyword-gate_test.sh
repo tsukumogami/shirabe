@@ -109,6 +109,12 @@ expect "Resolved is recognised" 0 42 "Resolved #42"
 expect "the keyword mid-body is recognised" 0 42 "Some context.
 Fixes #42
 More context."
+# GitHub's documentation: "The keywords can be followed by colons or in
+# uppercase. For example: Closes: #10, CLOSES #10, or CLOSES: #10."
+expect "a colon after the keyword is recognised" 0 42 "Fixes: #42"
+expect "an uppercase keyword with a colon is recognised" 0 42 "CLOSES: #42"
+# The documented forms only: a colon with nothing after it isn't one.
+expect "a colon with no space before #N is not recognised" 1 42 "Fixes:#42"
 
 # --- bodies that must fail ---------------------------------------------------
 expect "a body with no closing keyword fails" 1 42 "Part 1
@@ -125,6 +131,7 @@ expect "an empty body fails" 1 42 ""
 expect "Fixes #123 does NOT satisfy issue 12" 1 12 "Fixes #123"
 expect "Fixes #12 DOES satisfy issue 12 at end of body" 0 12 "Fixes #12"
 expect "Fixes #1234 does NOT satisfy issue 123" 1 123 "Fixes #1234"
+expect "Fixes: #123 does NOT satisfy issue 12" 1 12 "Fixes: #123"
 
 # --- free-form mode ----------------------------------------------------------
 # No issue number means no issue to close, so the gate passes rather than
@@ -183,6 +190,52 @@ expect "cross-repo: another issue number fails" 1 42 "Fixes acme/tracker#43"
 expect "cross-repo: a keyword inside a word fails" 1 42 "prefixes acme/tracker#42"
 expect "cross-repo: the keyword split from the reference by a newline fails" 1 42 "Fixes
 acme/tracker#42"
+expect "cross-repo: a colon after the keyword passes" 0 42 "Fixes: acme/tracker#42"
+expect "cross-repo: a bare Fixes: #N fails" 1 42 "Fixes: #42"
+
+# Any closing reference to issue N of the pull request's own repository closes
+# that issue on merge, so it fails next to the right reference, in each form.
+expect "cross-repo: this repo's owner/repo#N beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes acme/app#42"
+expect "cross-repo: this repo's issue URL beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/app/issues/42"
+expect "cross-repo: this repo's issue URL alone fails" 1 42 "Closes https://github.com/acme/app/issues/42"
+expect "cross-repo: this repo's reference in another case fails" 1 42 "Fixes acme/tracker#42
+fixes ACME/App#42"
+expect "cross-repo: this repo's http issue URL fails" 1 42 "Fixes acme/tracker#42
+Resolves http://github.com/acme/app/issues/42"
+expect "cross-repo: this repo's reference after a colon fails" 1 42 "Fixes acme/tracker#42
+Fixes: acme/app#42"
+expect "cross-repo: a bare #N after a colon and no space fails" 1 42 "Fixes acme/tracker#42
+Fixes:#42"
+expect "cross-repo: this repo's URL after a colon and no space fails" 1 42 "Fixes acme/tracker#42
+Fixes:https://github.com/acme/app/issues/42"
+expect "cross-repo: this repo's reference on the same line fails" 1 42 "Fixes acme/tracker#42, fixes acme/app#42"
+PR_URL=https://ghe.example.com/acme/app/pull/7 \
+    expect "cross-repo: this repo's issue URL on another host fails" 1 42 "Fixes acme/tracker#42
+Fixes https://ghe.example.com/acme/app/issues/42"
+# Spellings GitHub doesn't document either way fail too, on the safe side:
+# a www. host, leading zeros, and a keyword whose reference is on the next line.
+expect "cross-repo: this repo's www. issue URL fails" 1 42 "Fixes acme/tracker#42
+Fixes https://www.github.com/acme/app/issues/42"
+expect "cross-repo: this repo's #N with leading zeros fails" 1 42 "Fixes acme/tracker#42
+Fixes #042"
+expect "cross-repo: this repo's reference on the line after the keyword fails" 1 42 "Fixes acme/tracker#42
+Fixes
+acme/app#42"
+expect "cross-repo: a bare #N on the line after a colon fails" 1 42 "Fixes acme/tracker#42
+Fixes:
+#42"
+
+# What closes nothing in this repository, or another issue there, still passes.
+expect "cross-repo: a mention of this repo's issue without a keyword passes" 0 42 "Fixes acme/tracker#42
+See acme/app#42 and https://github.com/acme/app/issues/42"
+expect "cross-repo: this repo's issue N with more digits passes" 0 42 "Fixes acme/tracker#42
+Fixes acme/app#421 and https://github.com/acme/app/issues/420"
+expect "cross-repo: the issue's own URL beside the right reference passes" 0 42 "Fixes acme/tracker#42
+Fixes https://github.com/acme/tracker/issues/42"
+expect "cross-repo: an issue URL that only ends in this repo passes" 0 42 "Fixes acme/tracker#42
+Fixes https://github.com/xacme/app/issues/42"
 
 # A `.` in the recorded name is a literal dot, not any character.
 export ISSUE_REPO=acme/.github
@@ -195,6 +248,7 @@ export ISSUE_REPO=acme/app
 expect "ISSUE_REPO equal to the PR's repo: a bare Fixes #N passes" 0 42 "Fixes #42"
 expect "ISSUE_REPO equal to the PR's repo: the qualified form passes" 0 42 "Fixes acme/app#42"
 expect "ISSUE_REPO equal to the PR's repo: no keyword fails" 1 42 "See #42"
+expect "ISSUE_REPO equal to the PR's repo: a colon after the keyword passes" 0 42 "Fixes: #42"
 PR_URL=https://github.com/ACME/App/pull/7 \
     expect "ISSUE_REPO equal to the PR's repo in another case: a bare Fixes #N passes" 0 42 "Fixes #42"
 

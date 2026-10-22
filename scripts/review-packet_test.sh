@@ -14,8 +14,9 @@
 # prints a canned issue body, so every case runs on a bare runner. The cases
 # pin the packet's sections, the base order (impl_base, then the merge-base),
 # the caps and their trailers, that a failure leaves no packet behind, that a
-# plan-outline child's session never reaches `gh issue view`, and that a
-# session with ISSUE_REPO reads its issue from that repository.
+# plan-outline child's session never reaches `gh issue view`, and that
+# --issue reads its issue from the repository --issue-repo names and refuses
+# to run without it.
 # The recheck cases also need jq, as the script's recheck kind does, and
 # fail without it. The spawn-site cases then check that every
 # review spawn site still names a model, a call budget and the packet command,
@@ -192,7 +193,7 @@ printf '## Design excerpt\nThe component does X.\n' > "$STORE/context.md"
 BODY="$ROOT/body.md"
 printf '## Goal\nDo it.\n\n## Acceptance Criteria\n- [ ] first\n- [ ] second\n\n## Dependencies\nNone.\n' > "$BODY"
 
-GH_BODY="$BODY" run "$STORE" code --session s --issue 12
+GH_BODY="$BODY" run "$STORE" code --session s --issue 12 --issue-repo ""
 if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
     pass "code: exit 0 and a packet path on stdout"
     grep -q "^base: $FIRST_SHA (impl_base)\$" "$OUT" \
@@ -243,7 +244,7 @@ fi
 
 # An issue body with no acceptance-criteria heading is carried whole.
 printf 'Just a paragraph.\n' > "$ROOT/plain.md"
-GH_BODY="$ROOT/plain.md" run "$STORE" code --session s --issue 12
+GH_BODY="$ROOT/plain.md" run "$STORE" code --session s --issue 12 --issue-repo ""
 if [ "$CODE" -eq 0 ] && grep -q '^## Acceptance criteria (issue #12, whole body' "$OUT" \
     && grep -q '^Just a paragraph\.$' "$OUT"; then
     pass "code: a body with no AC heading is carried whole and labelled so"
@@ -253,7 +254,7 @@ fi
 [ "$CODE" -eq 0 ] && rm -f "$OUT"
 
 # gh failing is a read failure, and leaves no packet.
-GH_FAIL=1 GH_BODY="$BODY" run "$STORE" code --session s --issue 12
+GH_FAIL=1 GH_BODY="$BODY" run "$STORE" code --session s --issue 12 --issue-repo ""
 [ "$CODE" -eq 66 ] && pass "code: gh failure: exit 66" || fail "code: gh failure: exit $CODE"
 
 # A plan-outline child's issue number names an item in its PLAN, not a GitHub
@@ -273,7 +274,7 @@ else
     state_log github-child github
     rm -f "$ROOT/gh.log"
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session outline-child --issue 1
+        run "$STORE" code --session outline-child --issue 1 --issue-repo ""
     if [ "$CODE" -eq 67 ] && [ ! -s "$ROOT/gh.log" ] \
         && grep -q 'plan-outline child' <<<"$ERR" \
         && grep -q -- '--criteria <file>' <<<"$ERR"; then
@@ -290,7 +291,7 @@ else
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
     rm -f "$ROOT/gh.log"
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session github-child --issue 12
+        run "$STORE" code --session github-child --issue 12 --issue-repo ""
     if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log" \
         && grep -q '^- \[ \] second$' "$OUT"; then
         pass "code: a github-sourced plan child still reads its issue"
@@ -302,7 +303,7 @@ else
     # reading its issue: an issue-backed run must not lose its packet.
     rm -f "$ROOT/gh.log"
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session no-log --issue 12
+        run "$STORE" code --session no-log --issue 12 --issue-repo ""
     if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log"; then
         pass "code: a session with no readable log still reads its issue"
     else
@@ -317,7 +318,7 @@ else
     mv "$ROOT/sessions/new-format/log.tmp" "$ROOT/sessions/new-format/koto-new-format.state.jsonl"
     rm -f "$ROOT/gh.log"
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session new-format --issue 12
+        run "$STORE" code --session new-format --issue 12 --issue-repo ""
     if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log" \
         && grep -q 'schema_version 2; this reader knows 1' <<<"$ERR"; then
         pass "code: an unknown log schema reads its issue and warns that the check is off"
@@ -326,18 +327,11 @@ else
     fi
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
 
-    # An issue in another repository: a session created with ISSUE_REPO
-    # reads its issue from there, and the packet names it owner/repo#N.
-    # repo_log <session> <issue-repo>: a log whose variables carry ISSUE_REPO.
-    repo_log() {
-        mkdir -p "$ROOT/sessions/$1"
-        printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":{"ISSUE_NUMBER":"12","ISSUE_REPO":"%s"}}}\n' \
-            "$1" "$2" > "$ROOT/sessions/$1/koto-$1.state.jsonl"
-    }
-    repo_log xrepo acme/tracker
+    # An issue in another repository: --issue-repo names it, the issue is
+    # read from there, and the packet names it owner/repo#N.
     rm -f "$ROOT/gh.log"
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session xrepo --issue 12
+        run "$STORE" code --session github-child --issue 12 --issue-repo acme/tracker
     if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --repo acme/tracker --json body -q .body' "$ROOT/gh.log" \
         && grep -q '^## Acceptance criteria (issue acme/tracker#12, acceptance-criteria section)$' "$OUT" \
         && grep -q '^- \[ \] second$' "$OUT"; then
@@ -346,35 +340,57 @@ else
         fail "code: cross-repo --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
     fi
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
-    # A same-repository session (no ISSUE_REPO) still reads without --repo:
-    # the github-child case above pins the exact call.
+    # The flag is the only source: a session log that still carries an
+    # ISSUE_REPO is not read for it, so an empty --issue-repo reads this
+    # repository's issue, with the same call a same-repository run makes.
+    # repo_log <session> <issue-repo> plants that decoy log; the script must
+    # ignore it. (no-log, below, is a session with no log at all.)
+    repo_log() {
+        mkdir -p "$ROOT/sessions/$1"
+        printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":{"ISSUE_NUMBER":"12","ISSUE_REPO":"%s"}}}\n' \
+            "$1" "$2" > "$ROOT/sessions/$1/koto-$1.state.jsonl"
+    }
+    repo_log xrepo acme/tracker
     rm -f "$ROOT/gh.log"
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session github-child --issue 12
-    if [ "$CODE" -eq 0 ] && ! grep -q -- '--repo' "$ROOT/gh.log"; then
-        pass "code: a session without ISSUE_REPO passes no --repo"
+        run "$STORE" code --session xrepo --issue 12 --issue-repo ""
+    if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log"; then
+        pass "code: an empty --issue-repo reads this repository's issue, whatever the session's log says"
     else
-        fail "code: same-repo --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null)"
+        fail "code: empty --issue-repo: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
     fi
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
-    # A malformed ISSUE_REPO never reaches gh.
-    repo_log badrepo 'acme/tracker --web'
-    rm -f "$ROOT/gh.log"
-    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
-        run "$STORE" code --session badrepo --issue 12
-    if [ "$CODE" -eq 64 ] && [ ! -s "$ROOT/gh.log" ] && grep -q 'not owner/repo' <<<"$ERR"; then
-        pass "code: a malformed ISSUE_REPO exits 64 with no gh call"
-    else
-        fail "code: malformed ISSUE_REPO: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
-    fi
-    # --criteria never consults the session's repository.
-    KOTO_SESSIONS="$ROOT/sessions" run "$STORE" code --session badrepo --criteria "$BODY"
-    if [ "$CODE" -eq 0 ]; then
-        pass "code: --criteria builds its packet whatever the session's ISSUE_REPO"
-    else
-        fail "code: --criteria with a malformed ISSUE_REPO: exit $CODE, stderr: $ERR"
-    fi
-    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    # Without --issue-repo, --issue never guesses this repository: exit 67
+    # before any gh call, with a session log or without one.
+    for sess in xrepo no-log; do
+        rm -f "$ROOT/gh.log"
+        GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+            run "$STORE" code --session "$sess" --issue 12
+        if [ "$CODE" -eq 67 ] && [ ! -s "$ROOT/gh.log" ] && grep -q -- '--issue needs --issue-repo' <<<"$ERR"; then
+            pass "code: --issue without --issue-repo exits 67 with no gh call ($sess)"
+        else
+            fail "code: --issue without --issue-repo ($sess): exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
+        fi
+    done
+    # A malformed --issue-repo never reaches gh.
+    for bad in 'acme/tracker --web' acme 'acme/tr;cker' 'acme/tracker
+evil/x'; do
+        rm -f "$ROOT/gh.log"
+        GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+            run "$STORE" code --session github-child --issue 12 --issue-repo "$bad"
+        if [ "$CODE" -eq 67 ] && [ ! -s "$ROOT/gh.log" ] && grep -q 'not owner/repo' <<<"$ERR"; then
+            pass "code: a malformed --issue-repo [$bad] exits 67 with no gh call"
+        else
+            fail "code: malformed --issue-repo [$bad]: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
+        fi
+    done
+    # --issue-repo belongs to --issue; --criteria takes none.
+    KOTO_SESSIONS="$ROOT/sessions" run "$STORE" code --session github-child --criteria "$BODY" --issue-repo acme/tracker
+    [ "$CODE" -eq 67 ] && pass "code: --issue-repo with --criteria exits 67" \
+        || fail "code: --issue-repo with --criteria: exit $CODE, stderr: $ERR"
+    run "$STORE" code --session s --issue 12 --issue-repo
+    [ "$CODE" -eq 67 ] && pass "code: a trailing --issue-repo with no value exits 67" \
+        || fail "code: trailing --issue-repo: exit $CODE"
 fi
 
 run "$STORE" code --session s --criteria "$ROOT/nope"
@@ -435,7 +451,7 @@ else
             || fail "recheck: carries sections a re-check does not read"
         RECHECK_BYTES=$(wc -c < "$OUT" | tr -d ' ')
         rm -f "$OUT"
-        GH_BODY="$BODY" run "$RS" code --session s --issue 12
+        GH_BODY="$BODY" run "$RS" code --session s --issue 12 --issue-repo ""
         CODE_BYTES=$(wc -c < "$OUT" | tr -d ' ')
         rm -f "$OUT"
         [ "$RECHECK_BYTES" -lt "$CODE_BYTES" ] \
@@ -588,7 +604,7 @@ else
     # packet lists them.
     printf '{"panel":"scrutiny","head":"%s","rev":2,"full":true,"decisions":[{"seat":"completeness","decision":"full","run":"scrutiny-r2-completeness","reason":"r","findings":[{"id":"fedcba9876543210","severity":"blocking","summary":"b.txt is wrong","raiser":"completeness","status":"open","path":"b.txt"}]},{"seat":"intent","decision":"full","run":"scrutiny-r2-intent","reason":"r","findings":[]}]}\n' \
         "$HEAD_SHA" > "$RS/scrutiny_scope.json"
-    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat completeness
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --issue-repo "" --panel scrutiny --seat completeness
     OWN=$( [ "$CODE" -eq 0 ] && section_of "Your unclosed findings, by id" "$OUT")
     if grep -q '"id": "fedcba9876543210"' <<<"$OWN" && grep -q '"summary": "b.txt is wrong"' <<<"$OWN" \
         && grep -q '^## Diff$' "$OUT"; then
@@ -597,21 +613,21 @@ else
         fail "code: own findings: exit $CODE, section [$OWN], stderr: $ERR"
     fi
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
-    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat intent
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --issue-repo "" --panel scrutiny --seat intent
     [ "$CODE" -eq 0 ] && [ "$(section_of "Your unclosed findings, by id" "$OUT" | grep -c .)" = 1 ] \
         && section_of "Your unclosed findings, by id" "$OUT" | grep -q '^\[none\]$' \
         && pass "code: a seat with no unclosed findings is told it has none" \
         || fail "code: no own findings: exit $CODE, stderr: $ERR"
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
-    GH_BODY="$BODY" run "$RS" code --session s --issue 12
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --issue-repo ""
     [ "$CODE" -eq 0 ] && ! grep -q '^## Your unclosed findings' "$OUT" \
         && pass "code: without --seat, no findings section" || fail "code: no --seat: exit $CODE"
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
     run "$RS" code --session s --panel scrutiny
     [ "$CODE" -eq 67 ] && pass "code: --panel without --seat: exit 67" || fail "code: --panel alone: exit $CODE"
-    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat justification
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --issue-repo "" --panel scrutiny --seat justification
     [ "$CODE" -eq 64 ] && pass "code: a seat the scope has no decision for: exit 64" || fail "code: absent seat: exit $CODE"
-    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel review --seat pragmatic
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --issue-repo "" --panel review --seat pragmatic
     [ "$CODE" -eq 64 ] && pass "code: --seat with no scope for the panel: exit 64" || fail "code: no scope: exit $CODE"
 
     # The re-check prompt asks for answers by id and no longer says a passing
@@ -750,7 +766,28 @@ for entry in $CODE_SITES; do
         && grep -q 'plan-outline child' <<<"$line" \
         && pass "spawn site $site: gives --criteria for a plan-outline child" \
         || fail "spawn site $site: no --criteria form for a run with no GitHub issue"
+    # --issue goes with the repository the directive gives, never without it.
+    grep -q -- 'code --session <WF> --issue <N> --issue-repo "<ISSUE_REPO>"' <<<"$line" \
+        && pass "spawn site $site: --issue carries --issue-repo" \
+        || fail "spawn site $site: the code packet's --issue has no --issue-repo"
 done
+
+# The phase files say `<ISSUE_REPO>`; the value comes from the state's
+# directive in the work-on template, so each state that builds a code packet
+# or runs extract-context.sh must give it. A directive that dropped it would
+# leave the agent a command the scripts refuse.
+TEMPLATE="$REPO_ROOT/skills/work-on/koto-templates/work-on.md"
+directive() { # directive <state>: the template's `## <state>` section
+    awk -v h="## $1" '$0 == h { on = 1; next } on && /^## / { exit } on' "$TEMPLATE"
+}
+for state in implementation scrutiny review qa_validation light_review; do
+    grep -qF -- 'review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`' <<<"$(directive "$state")" \
+        && pass "directive $state: gives --issue-repo \"{{ISSUE_REPO}}\" for the code packet" \
+        || fail "directive $state: no --issue-repo \"{{ISSUE_REPO}}\" for the code packet"
+done
+grep -qF -- 'extract-context.sh" {{ISSUE_NUMBER}} --session {{SESSION_NAME}} --issue-repo "{{ISSUE_REPO}}"' <<<"$(directive context_injection)" \
+    && pass "directive context_injection: gives the extract-context.sh command with --issue-repo" \
+    || fail "directive context_injection: no extract-context.sh command with --issue-repo"
 
 # grep -vxF rather than a case inside $(...): bash 3.2 misparses the latter.
 unlisted=$(cd "$REPO_ROOT" && grep -rl '^\*\*Seat commissioning\*\*' skills \

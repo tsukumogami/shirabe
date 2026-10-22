@@ -31,10 +31,11 @@ variables:
       at init only when the issue reference (a URL or owner/repo#N) names a
       repository other than the one being worked in. Empty is a
       same-repository run, and every reader keeps its old behaviour on empty.
-      extract-context.sh and review-packet.sh read it from the session and
-      pass it to `gh issue view --repo`; pr_creation's closing_keyword gate
-      then asks for `Fixes owner/repo#N` and refuses a bare `#N`, which would
-      close this repository's issue N. The pattern is GitHub's owner/repo
+      The directives hand it to extract-context.sh and review-packet.sh as
+      `--issue-repo`, which pass it to `gh issue view --repo`; neither reads
+      it back from the session. pr_creation's closing_keyword gate then asks
+      for `Fixes owner/repo#N` and refuses any closing reference to issue N
+      of this repository, which merging would close. The pattern is GitHub's owner/repo
       character set, so only a plain name reaches a gate command. Not
       rebindable: the issue doesn't move partway through a run.
     required: false
@@ -2074,17 +2075,19 @@ states:
       #
       # Free-form work has no issue to close, so an empty ISSUE_NUMBER passes
       # rather than blocking: the obligation does not exist for that mode. The
-      # trailing character class stops `#12` matching in `#123`.
+      # trailing character class stops `#12` matching in `#123`. GitHub lets a
+      # colon follow the keyword (`Fixes: #42`), so the expression takes one.
       #
       # An issue in another repository (ISSUE_REPO set) is closed only by
-      # `Fixes owner/repo#N`, and a bare `#N` there names this repository's
-      # issue N, so check-closing-keyword.sh decides that case: it exits 0
-      # closed, 1 not closed or unreadable (done_blocked, like the expression
-      # here), 2 usage (holds). With ISSUE_REPO empty the expression runs
-      # unchanged and the script is never started.
+      # `Fixes owner/repo#N`, and `#N`, this repository's `owner/repo#N` or
+      # its issue URL there would close this repository's issue N, so
+      # check-closing-keyword.sh decides that case: it exits 0 closed, 1 not
+      # closed, closing the wrong issue too, or unreadable (done_blocked, like
+      # the expression here), 2 usage (holds). With ISSUE_REPO empty the
+      # expression runs and the script is never started.
       closing_keyword:
         type: command
-        command: 'test -z "{{ISSUE_NUMBER}}" || if test -z "{{ISSUE_REPO}}"; then gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"; else test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}"; fi'
+        command: 'test -z "{{ISSUE_NUMBER}}" || if test -z "{{ISSUE_REPO}}"; then gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?):?[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"; else test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}"; fi'
       # The pull request's title and body against the PR-body conformance
       # rules (references/pr-body-conformance.md, PB1 to PB4) and the banned
       # words of skills/writing-style/rules.yaml (PB5, pr-body/banned-word),
@@ -2592,7 +2595,13 @@ Evidence schema:
 
 ## context_injection
 
-Read `references/phases/phase-0-context-injection.md` for detailed steps.
+Read `references/phases/phase-0-context-injection.md` for detailed steps. Run
+the extraction with this command as written, the `--issue-repo` value
+included even when it is empty (an issue in this repository):
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/references/scripts/extract-context.sh" {{ISSUE_NUMBER}} --session {{SESSION_NAME}} --issue-repo "{{ISSUE_REPO}}"
+```
 
 If the gate fails (artifact missing), submit `status: completed` after creating
 the artifact, `status: override` if providing context differently, or
@@ -2858,7 +2867,9 @@ read its message and run it again. If no level can be recorded, submit
 ## implementation
 
 Read `references/phases/phase-4-implementation.md` for the implementation cycle,
-code review guidance, and commit patterns.
+code review guidance, and commit patterns. An agent review's
+`review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`,
+as written here, empty or not.
 
 Submit `implementation_status: complete` when the work is committed. The issue's
 type is not part of this submission: koto records the changed paths next and then
@@ -2987,7 +2998,7 @@ reader counts it. If the run can't go on, submit `level_status: blocked` with
 
 ## scrutiny
 
-Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. The round's record is the verdict ledger, written by `panel-scope.sh --record scrutiny`; `scrutiny_results.json` is optional, the round's summary for a reader, and no gate reads it.
+Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Its `review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`, as written here, empty or not. The round's record is the verdict ledger, written by `panel-scope.sh --record scrutiny`; `scrutiny_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
 koto decides whether the panel passed, from the ledger: the `scrutiny_verdict` gate runs `panel-scope.sh --verdict scrutiny`. Every finding a seat returns carries `severity: blocking` or `severity: advisory`, `--record` refuses a round with a finding that has neither, and a seat is blocking exactly when one of its findings is `blocking`. Exit 0 (every seat recorded, every blocking finding closed by a record its writer may write) advances to `review` with nothing submitted: record the round and tick again. Exit 1 (a blocking finding is unclosed) prints one finding per unclosed blocking finding, under the rule it cites or `panel/open-finding`, and waits for `scrutiny_outcome`. Exit 2 holds: a run the round planned is not recorded, a seat has no verdict, or the ledger can't be read; record the round and tick again.
 
@@ -3009,7 +3020,7 @@ Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_vali
 
 ## review
 
-Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. The round's record is the verdict ledger, written by `panel-scope.sh --record review`; `review_results.json` is optional, the round's summary for a reader, and no gate reads it.
+Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. Its `review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`, as written here, empty or not. The round's record is the verdict ledger, written by `panel-scope.sh --record review`; `review_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
 koto decides whether the panel passed, from the ledger, as at scrutiny: the `review_verdict` gate runs `panel-scope.sh --verdict review`, and each finding's `severity` decides its seat's verdict. Exit 0 advances with nothing submitted, exit 1 (a blocking finding is unclosed) prints one finding per unclosed blocking finding, under the rule it cites or `panel/open-finding`, and waits for `review_outcome`, and exit 2 holds until the round is recorded.
 
@@ -3024,7 +3035,7 @@ Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_vali
 
 ## qa_validation
 
-Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. The round's record is the verdict ledger, written by `panel-scope.sh --record qa`; `qa_results.json` is optional, the round's summary for a reader, and no gate reads it.
+Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. Its `review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`, as written here, empty or not. The round's record is the verdict ledger, written by `panel-scope.sh --record qa`; `qa_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
 koto decides whether the panel passed, from the ledger, as at scrutiny: the `qa_verdict` gate runs `panel-scope.sh --verdict qa`. Each failed scenario is a finding marked `severity: blocking`. Exit 0 advances to `verification` with nothing submitted, exit 1 (a failed scenario is unclosed) prints one finding per unclosed failed scenario, under the rule it cites or `panel/open-finding`, and waits for `qa_outcome`, and exit 2 holds until the round is recorded.
 
@@ -3036,7 +3047,7 @@ Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_vali
 
 ## light_review
 
-Run the light panel, the one panel of the `light` review level: a single reviewer seat in place of scrutiny, review and QA. Read `references/phases/phase-4d-light.md` for the seat's commissioning and prompt. The round's record is the verdict ledger, written by `panel-scope.sh --record light`; `light_results.json` is optional, the round's summary for a reader, and no gate reads it.
+Run the light panel, the one panel of the `light` review level: a single reviewer seat in place of scrutiny, review and QA. Read `references/phases/phase-4d-light.md` for the seat's commissioning and prompt. Its `review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`, as written here, empty or not. The round's record is the verdict ledger, written by `panel-scope.sh --record light`; `light_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
 koto decides whether the panel passed, from the ledger, as at scrutiny: the `light_verdict` gate runs `panel-scope.sh --verdict light`, and each finding's `severity` decides the seat's verdict. Exit 0 advances to `verification` with nothing submitted, exit 1 (a blocking finding is unclosed) prints one finding per unclosed blocking finding, under the rule it cites or `panel/open-finding`, and waits for `light_outcome`, and exit 2 holds until the round is recorded.
 
@@ -3323,7 +3334,8 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 The body closes the issue in Part 2, and the `closing_keyword` gate reads it from
 GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
 `ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
-repository and no bare `#<N>`, which would close this repository's issue `<N>`.
+repository and no other closing reference to `<N>`: a bare `#<N>`, this repository's
+`owner/repo#<N>` or its issue URL would close this repository's issue `<N>`.
 `references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto

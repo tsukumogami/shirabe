@@ -11,7 +11,8 @@
 #
 # Three kinds:
 #
-#   code --session <koto-session> [--issue <N> | --criteria <file>]
+#   code --session <koto-session>
+#        [--issue <N> --issue-repo <owner/repo> | --criteria <file>]
 #        [--panel <panel> --seat <seat>]
 #       For /work-on's code seats (scrutiny, review, QA, the implementation
 #       agent review). Sections, in order:
@@ -21,9 +22,12 @@
 #           --issue is refused when the session is a plan-outline child
 #           (created with ISSUE_SOURCE=plan_outline): its issue number is an
 #           item in the PLAN, so its criteria come in through --criteria.
-#           When the session was created with ISSUE_REPO (an issue in
-#           another repository, as owner/repo), the issue is read from
-#           there, `gh issue view <N> --repo <owner/repo>`
+#           --issue needs --issue-repo, the run's ISSUE_REPO as the panel's
+#           directive gives it: empty for an issue in this repository, and
+#           owner/repo for one elsewhere, which is read from there with
+#           `gh issue view <N> --repo <owner/repo>`. The value is never
+#           looked up or guessed: reading this repository's issue N for an
+#           issue elsewhere would hand the seats another issue's criteria
 #         - design context: the session's `context.md`, which phase 0 wrote
 #           from the design doc that names the issue, when present
 #         - changed paths: `git diff --name-status -M <base> HEAD`
@@ -95,16 +99,17 @@
 #   0  -- packet written; its path is on stdout
 #   64 -- an input the packet needs does not exist: --doc, --format or
 #         --criteria is not a file, or no base resolves (not a git repository,
-#         no commit at HEAD, no impl_base and no merge-base); for code with
-#         --issue, the session's ISSUE_REPO is not owner/repo; for recheck,
+#         no commit at HEAD, no impl_base and no merge-base); for recheck,
 #         `<panel>_scope.json` is absent or not JSON, or it does not mark
 #         --seat `recheck` (commission that seat with the code packet); for
 #         code with --seat, `<panel>_scope.json` is absent or not JSON, or has
 #         no decision for --seat
 #   66 -- a read or write failed: `gh issue view`, `git diff`, or the packet
 #         file could not be created or written
-#   67 -- usage: missing or unrecognised kind, flag, or flag value, or
-#         --issue for a plan-outline child's session
+#   67 -- usage: missing or unrecognised kind, flag, or flag value,
+#         --issue without --issue-repo or the other way round, an
+#         --issue-repo that is neither empty nor owner/repo, or --issue for
+#         a plan-outline child's session
 #   127 -- recheck, or code with --seat: jq is not on PATH
 #
 # On any non-zero exit no packet file is left behind.
@@ -140,7 +145,7 @@ die() {
 
 usage() {
     die 67 "$1
-usage: review-packet.sh code --session <koto-session> [--issue <N> | --criteria <file>] [--panel <panel> --seat <seat>]
+usage: review-packet.sh code --session <koto-session> [--issue <N> --issue-repo <owner/repo> | --criteria <file>] [--panel <panel> --seat <seat>]
        review-packet.sh recheck --session <koto-session> --panel <panel> --seat <seat>
        review-packet.sh doc --doc <path> --format <reference> [--extra <path>]..."
 }
@@ -169,14 +174,13 @@ emit_capped() {
     echo "[truncated: kept $kept of $total bytes; read the source directly if a finding needs the rest]"
 }
 
-# session_vars: print the ISSUE_SOURCE and ISSUE_REPO variables the session
-# was created with as `<source>|<repo>` (either may be empty; neither can hold
-# a `|`, ISSUE_SOURCE being an enum and ISSUE_REPO owner/repo), read from
-# the workflow_initialized event in its koto state log. Prints nothing when
-# the log can't be found or read, or jq is absent: the caller then treats
-# --issue as it always has, a same-repository issue, since an issue-backed
-# run must not lose its packet to a failed lookup.
-session_vars() {
+# session_source: print the ISSUE_SOURCE variable the session was created
+# with, read from the workflow_initialized event in its koto state log.
+# Prints nothing when the session has none, the log can't be found or read,
+# or jq is absent: the caller then treats --issue as it always has, a GitHub
+# issue, since an issue-backed run must not lose its packet to a failed
+# lookup.
+session_source() {
     local dir log v
     command -v jq >/dev/null 2>&1 || return 0
     dir=$(koto session dir "$SESSION" 2>/dev/null) || return 0
@@ -184,13 +188,11 @@ session_vars() {
     [ -r "$log" ] || return 0
     v=$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)
     if [ "$v" != 1 ]; then
-        # Loud, because the plan-outline check and the issue's repository go
-        # quiet with it.
-        echo "review-packet: $SESSION's log header has schema_version ${v:-none}; this reader knows 1, so --issue is not checked against ISSUE_SOURCE and is read from this repository" >&2
+        # Loud, because the plan-outline check goes quiet with it.
+        echo "review-packet: $SESSION's log header has schema_version ${v:-none}; this reader knows 1, so --issue is not checked against ISSUE_SOURCE" >&2
         return 0
     fi
-    jq -r 'select(.type? == "workflow_initialized") | .payload.variables
-           | "\(.ISSUE_SOURCE // "")|\(.ISSUE_REPO // "")"' \
+    jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_SOURCE // ""' \
         "$log" 2>/dev/null | head -n 1
 }
 
@@ -203,9 +205,11 @@ esac
 
 SESSION=""
 ISSUE=""
-# The issue's repository, read from the session with --issue; empty for an
-# issue in this repository.
+# The issue's repository, from --issue-repo; empty for an issue in this
+# repository. An empty value is a real answer, so whether the flag came at
+# all is kept apart from it.
 ISSUE_REPO=""
+ISSUE_REPO_GIVEN=0
 CRITERIA=""
 DOC=""
 FORMAT=""
@@ -222,11 +226,15 @@ while [ $# -gt 0 ]; do
         code:--session|code:--issue|code:--criteria|code:--panel|code:--seat|recheck:--session|recheck:--panel|recheck:--seat|doc:--doc|doc:--format|doc:--extra)
             [ $# -ge 1 ] && [ -n "$1" ] || usage "$flag needs a value"
             ;;
+        code:--issue-repo)
+            [ $# -ge 1 ] || usage "$flag needs a value, empty for an issue in this repository"
+            ;;
         *) usage "unrecognised flag [$flag] for $KIND" ;;
     esac
     case "$flag" in
         --session)  SESSION="$1" ;;
         --issue)    ISSUE="$1" ;;
+        --issue-repo) ISSUE_REPO="$1"; ISSUE_REPO_GIVEN=1 ;;
         --criteria) CRITERIA="$1" ;;
         --panel)    PANEL="$1" ;;
         --seat)     SEAT="$1" ;;
@@ -279,25 +287,24 @@ else
     esac
     [ -z "$CRITERIA" ] || [ -f "$CRITERIA" ] || die 64 "criteria file [$CRITERIA] is not a file"
     if [ -n "$ISSUE" ]; then
-        VARS=$(session_vars)
-        ISSUE_SOURCE=${VARS%%|*}
-        case "$VARS" in
-            *"|"*) ISSUE_REPO=${VARS#*|} ;;
-            *)     ISSUE_REPO="" ;;
-        esac
+        [ "$ISSUE_REPO_GIVEN" = 1 ] \
+            || usage "--issue needs --issue-repo: the run's ISSUE_REPO as the panel's directive gives it, empty for an issue in this repository"
+        # koto checks ISSUE_REPO's pattern at init; checked again because the
+        # value reaches a gh argument. [[ =~ ]] anchors on the whole string,
+        # so a value with a newline can't pass on its first line alone.
+        RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+        if [ -n "$ISSUE_REPO" ] && ! [[ $ISSUE_REPO =~ $RE_REPO ]]; then
+            usage "--issue-repo [$ISSUE_REPO] is not owner/repo"
+        fi
         # A plan-outline child's ISSUE_NUMBER is the item's number in its
         # PLAN, not a GitHub issue, so `gh issue view` on it reads whatever
         # unrelated issue or pull request the repository has under that
         # number.
-        if [ "$ISSUE_SOURCE" = plan_outline ]; then
+        if [ "$(session_source)" = plan_outline ]; then
             usage "session [$SESSION] is a plan-outline child: its issue number [$ISSUE] names an item in the PLAN, not a GitHub issue. Write the outline's acceptance criteria to a file and pass --criteria <file> instead of --issue"
         fi
-        # koto checks ISSUE_REPO's pattern at init; checked again because the
-        # value reaches a gh argument.
-        RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
-        if [ -n "$ISSUE_REPO" ] && ! [[ $ISSUE_REPO =~ $RE_REPO ]]; then
-            die 64 "session [$SESSION] has ISSUE_REPO [$ISSUE_REPO], which is not owner/repo"
-        fi
+    elif [ "$ISSUE_REPO_GIVEN" = 1 ]; then
+        usage "--issue-repo goes with --issue"
     fi
 fi
 
