@@ -45,7 +45,9 @@ Pass `--plan-version` with the value exactly as the run was given it, when it
 was given, and `--claude-md` when the repository root has a `CLAUDE.md`. The
 script prints one line, `v1` or `v2`: the flag wins, then a
 `## Plan Version: v1|v2` header in that CLAUDE.md (outside fenced code), then
-the default, which is `v1`.
+the default, which is `v2`. A run that needs a `plan/v1` plan (a roadmap, a
+coordinated split, issues filed per entry) asks for it with the flag or the
+header.
 
 **A non-zero exit stops the run** with the script's stderr line: a value other
 than `v1` or `v2` (an empty one included), or two `## Plan Version:` headers in

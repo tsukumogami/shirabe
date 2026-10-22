@@ -87,13 +87,14 @@ authored at `Active`. A coordinated PLAN at `issues` or
 
 ### Plan Version
 
-`/plan` writes one of two plan versions. `plan/v1` -- the default, and
-everything else in this file unless it says otherwise -- has issues as its
-entries. `plan/v2` has functional steps: step 1 a walking skeleton whose check
-runs it end to end, steps 1 and 2 detailed with behavioural criteria and a
-check each, every later step a one-line outline the plan's owner details when
-its turn comes, and no issue or milestone filed. The format and its rules are
-in `references/plan-format.md` under "plan/v2: Step Plans".
+`/plan` writes one of two plan versions. `plan/v2` -- the default -- has
+functional steps: step 1 a walking skeleton whose check runs it end to end,
+steps 1 and 2 detailed with behavioural criteria and a check each, every later
+step a one-line outline the plan's owner details when its turn comes, and no
+issue or milestone filed. The format and its rules are in
+`references/plan-format.md` under "plan/v2: Step Plans". `plan/v1` -- written
+when asked for, and everything else in this file unless it says otherwise --
+has issues as its entries.
 
 The version resolves on a `flag > CLAUDE.md-header > default` stack, through
 `scripts/resolve-plan-version.sh` in Phase 1:
@@ -101,13 +102,14 @@ The version resolves on a `flag > CLAUDE.md-header > default` stack, through
 - `--plan-version=v1|v2` on the command line;
 - else a `## Plan Version: v1|v2` line in the repository root's CLAUDE.md
   (outside fenced code);
-- else the default, `v1`, held as `DEFAULT_PLAN_VERSION` on one line of that
+- else the default, `v2`, held as `DEFAULT_PLAN_VERSION` on one line of that
   script and nowhere else.
 
 Any other value, or two `## Plan Version:` headers, stops the run before
 anything is written, naming `v1` and `v2`. A step plan is `single-pr` or
 `multi-pr` only: a split that resolves to `coordinated` stops the run, and a
-roadmap is planned under `v1`.
+roadmap is planned under `v1`. A run that needs either asks for `v1` with
+`--plan-version=v1` or a `## Plan Version: v1` header.
 
 ## Decomposition Strategies
 
@@ -268,9 +270,10 @@ forwards them verbatim when its caller passed them):
   above). Passed verbatim to `scripts/resolve-plan-version.sh` in Phase 1,
   which refuses any other value, an empty one included, before anything is
   written. Without it, a `## Plan Version:` CLAUDE.md header decides, then the
-  default `v1`; a run given the flag never reads the header, so a malformed
-  header does not stop it. With `v2`, `--no-skeleton` is refused in Phase 3: a
-  step plan always starts from a walking skeleton. Neither check is part of the
+  default `v2`; a run given the flag never reads the header, so a malformed
+  header does not stop it. With `v2`, the default included, `--no-skeleton` is
+  refused in Phase 3: a step plan always starts from a walking skeleton, so a
+  horizontal plan asks for `v1`. Neither check is part of the
   up-front validation below, but both stop the run before any file is written.
 
 A run with none of the three behaves exactly as before they existed. Validate

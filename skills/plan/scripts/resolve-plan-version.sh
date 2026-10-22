@@ -44,7 +44,7 @@
 
 set -euo pipefail
 
-DEFAULT_PLAN_VERSION=v1
+DEFAULT_PLAN_VERSION=v2
 
 die() {
     echo "resolve-plan-version.sh: $1" >&2

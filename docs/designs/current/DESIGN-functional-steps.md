@@ -413,6 +413,10 @@ plans or from how a brief words its checkpoints.
 The default plan version (`DEFAULT_PLAN_VERSION=v1`) and the brief template's
 checkpoint wording stay as they are until that record exists.
 
+2026-10-22: the default plan version has now flipped to `v2`. `/plan` writes a
+step plan when no version is asked for, and still writes `plan/v1` when
+`--plan-version=v1` or a `## Plan Version: v1` header asks for it.
+
 #### Replay 1: koto template evidence routing
 
 - **Repository and start.** tsukumogami/koto. The plan and the code landed in

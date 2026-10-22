@@ -34,7 +34,7 @@ PASS_COUNT=0
 FAIL_COUNT=0
 
 # The setting's name, kept apart from its value so this file never spells the
-# assignment out: `git grep -n "<name>=v1" skills/plan/scripts/` must match
+# assignment out: `git grep -n "<name>=v2" skills/plan/scripts/` must match
 # exactly once, the script's own line, to show the default lives in one place.
 DEFAULT_NAME="DEFAULT_PLAN_VERSION"
 
@@ -95,38 +95,41 @@ expect "flag v1 wins over a v2 header" v1 "$RESOLVER" \
 expect "flag v2 with a CLAUDE.md that has no header" v2 "$RESOLVER" \
     --plan-version=v2 --claude-md "$DATA/CLAUDE-flag-only.md"
 expect "header v2 with no flag" v2 "$RESOLVER" --claude-md "$DATA/CLAUDE-header-only.md"
-expect "header inside a fenced block is ignored" v1 "$RESOLVER" \
+printf '# Repo\n\n## Plan Version: v1\n' > "$TEST_DIR/header-v1.md"
+expect "header v1 with no flag wins over the default" v1 "$RESOLVER" \
+    --claude-md "$TEST_DIR/header-v1.md"
+expect "header inside a fenced block is ignored" v2 "$RESOLVER" \
     --claude-md "$DATA/CLAUDE-fenced-header.md"
-expect "no header falls through to the default" v1 "$RESOLVER" \
+expect "no header falls through to the default" v2 "$RESOLVER" \
     --claude-md "$DATA/CLAUDE-flag-only.md"
-expect "no flag and no CLAUDE.md gives the default" v1 "$RESOLVER"
+expect "no flag and no CLAUDE.md gives the default" v2 "$RESOLVER"
 
 # --- header matching ----------------------------------------------------------
 
-printf '## Plan Version: \t v2  \r\n' > "$TEST_DIR/padded.md"
-expect "header value is trimmed, CRLF included" v2 "$RESOLVER" --claude-md "$TEST_DIR/padded.md"
+printf '## Plan Version: \t v1  \r\n' > "$TEST_DIR/padded.md"
+expect "header value is trimmed, CRLF included" v1 "$RESOLVER" --claude-md "$TEST_DIR/padded.md"
 
-printf '### Plan Version: v2\n' > "$TEST_DIR/h3.md"
-expect "an h3 line is not the header" v1 "$RESOLVER" --claude-md "$TEST_DIR/h3.md"
+printf '### Plan Version: v1\n' > "$TEST_DIR/h3.md"
+expect "an h3 line is not the header" v2 "$RESOLVER" --claude-md "$TEST_DIR/h3.md"
 
-printf 'Set ## Plan Version: v2 to opt in.\n' > "$TEST_DIR/inline.md"
-expect "the header text inside a sentence is not the header" v1 "$RESOLVER" \
+printf 'Set ## Plan Version: v1 to opt out.\n' > "$TEST_DIR/inline.md"
+expect "the header text inside a sentence is not the header" v2 "$RESOLVER" \
     --claude-md "$TEST_DIR/inline.md"
 
-printf '~~~~\n```\n## Plan Version: v2\n~~~\n~~~~~\n\n## Plan Version: v2\n' > "$TEST_DIR/tilde.md"
-expect "a tilde fence closes only on a run at least as long" v2 "$RESOLVER" \
+printf '~~~~\n```\n## Plan Version: v2\n~~~\n~~~~~\n\n## Plan Version: v1\n' > "$TEST_DIR/tilde.md"
+expect "a tilde fence closes only on a run at least as long" v1 "$RESOLVER" \
     --claude-md "$TEST_DIR/tilde.md"
 
-printf '```\n## Plan Version: v1\n```\n\n## Plan Version: v2\n' > "$TEST_DIR/fence-then-header.md"
-expect "a header after a closed fence counts, the fenced one does not" v2 "$RESOLVER" \
+printf '```\n## Plan Version: v2\n```\n\n## Plan Version: v1\n' > "$TEST_DIR/fence-then-header.md"
+expect "a header after a closed fence counts, the fenced one does not" v1 "$RESOLVER" \
     --claude-md "$TEST_DIR/fence-then-header.md"
 
-printf '```\n## Plan Version: v2\n' > "$TEST_DIR/unclosed.md"
-expect "an unclosed fence runs to the end of the file" v1 "$RESOLVER" \
+printf '```\n## Plan Version: v1\n' > "$TEST_DIR/unclosed.md"
+expect "an unclosed fence runs to the end of the file" v2 "$RESOLVER" \
     --claude-md "$TEST_DIR/unclosed.md"
 
-printf '## Plan Version: v2' > "$TEST_DIR/no-newline.md"
-expect "a header on a last line with no newline counts" v2 "$RESOLVER" \
+printf '## Plan Version: v1' > "$TEST_DIR/no-newline.md"
+expect "a header on a last line with no newline counts" v1 "$RESOLVER" \
     --claude-md "$TEST_DIR/no-newline.md"
 
 # --- refusals -----------------------------------------------------------------
@@ -161,26 +164,28 @@ fi
 # --- the default --------------------------------------------------------------
 
 count=$(grep -c "^${DEFAULT_NAME}=" "$RESOLVER" || true)
-if [ "$count" = "1" ] && grep -qx "${DEFAULT_NAME}=v1" "$RESOLVER"; then
-    pass "the default is assigned on exactly one line, to v1"
+if [ "$count" = "1" ] && grep -qx "${DEFAULT_NAME}=v2" "$RESOLVER"; then
+    pass "the default is assigned on exactly one line, to v2"
 else
-    fail "the default is assigned on exactly one line, to v1" "found $count assignment lines"
+    fail "the default is assigned on exactly one line, to v2" "found $count assignment lines"
 fi
 
 # Flip the default in a copy with a one-line substitution and nothing else.
 FLIPPED="$TEST_DIR/flipped/resolve-plan-version.sh"
 mkdir -p "$(dirname "$FLIPPED")"
-sed "s/^${DEFAULT_NAME}=v1\$/${DEFAULT_NAME}=v2/" "$RESOLVER" > "$FLIPPED"
+sed "s/^${DEFAULT_NAME}=v2\$/${DEFAULT_NAME}=v1/" "$RESOLVER" > "$FLIPPED"
 changed=$(diff "$RESOLVER" "$FLIPPED" | grep -c '^[<>]' || true)
 if [ "$changed" = "2" ]; then
     pass "the flip changes one line"
 else
     fail "the flip changes one line" "diff shows $changed changed lines"
 fi
-expect "flipped default: no flag, no header resolves to v2" v2 "$FLIPPED"
-expect "flipped default: no header in CLAUDE.md resolves to v2" v2 "$FLIPPED" \
+expect "flipped default: no flag, no header resolves to v1" v1 "$FLIPPED"
+expect "flipped default: no header in CLAUDE.md resolves to v1" v1 "$FLIPPED" \
     --claude-md "$DATA/CLAUDE-flag-only.md"
-expect "flipped default: an explicit v1 flag still wins" v1 "$FLIPPED" --plan-version=v1
+expect "flipped default: an explicit v2 flag still wins" v2 "$FLIPPED" --plan-version=v2
+expect "flipped default: a v2 header still wins" v2 "$FLIPPED" \
+    --claude-md "$DATA/CLAUDE-header-only.md"
 
 # --- the step plan example validates -------------------------------------------
 

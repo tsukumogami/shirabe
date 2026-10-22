@@ -10,8 +10,8 @@ as its entries: a walking-skeleton first step, behavioural criteria
 and a check per detailed step, and one-line outline steps that the
 plan's owner details one at a time. Its rules are in
 [plan/v2: Step Plans](#planv2-step-plans); where they differ from
-`plan/v1`, that section wins. `/plan` writes `plan/v1` unless
-`plan/v2` is selected.
+`plan/v1`, that section wins. `/plan` writes `plan/v2` unless
+`plan/v1` is asked for.
 
 ## Table of Contents
 
@@ -423,9 +423,9 @@ A `plan/v2` plan's entries are steps. Each step adds one behaviour a
 person can observe by running something, and the first step is a
 walking skeleton that crosses the whole path the design opens, end to
 end. Only the near steps are written in full; the rest are one line
-each until their turn comes. `/plan` writes this version when it is
-selected (`--plan-version=v2`, or `## Plan Version: v2` in the
-repository's CLAUDE.md); the default is `plan/v1`.
+each until their turn comes. `/plan` writes this version by default,
+and `plan/v1` when it is asked for (`--plan-version=v1`, or
+`## Plan Version: v1` in the repository's CLAUDE.md).
 
 ### Format
 
