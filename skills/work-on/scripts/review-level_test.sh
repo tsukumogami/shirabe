@@ -1089,6 +1089,9 @@ variables:
     description: bound ceiling
     required: false
     pattern: "^(light|standard|full)?\$"
+  SHARED_BRANCH:
+    description: the plan's shared branch, empty off one
+    required: false
 states:
   start:
     accepts:
@@ -1119,7 +1122,7 @@ states:
           level_status: blocked
   review_level_check:
     default_action:
-      command: '"$RL" facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
+      command: '"$RL" facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}" --shared-branch "{{SHARED_BRANCH}}"'
     gates:
       level_floor:
         type: command
@@ -1328,6 +1331,29 @@ tick "$S" '{"entry":"skip"}'
 [ "$STATE" = unset_panels ] && pass "an unset level takes the unset route" || fail "the run is at [$STATE]"
 [ "$(kevents "$S")" = unset ] && pass "the ledger records unset" || fail "events are [$(kevents "$S")]"
 
+echo "--- engine: a step on a shared branch"
+
+# The action passes SHARED_BRANCH through. An earlier step's template commit
+# sits behind impl_base, so a light run whose own commit is one docs line
+# takes the light route; the cases above, with SHARED_BRANCH unset, are the
+# empty value reaching the script as "".
+S=rl-shared
+engine_repo "$S"
+git checkout -q -b feat/plan
+koto init "$S" --template "$TPL" --var SHARED_BRANCH=feat/plan >/dev/null 2>&1 || fail "$S: koto init failed"
+tick "$S" '{"entry":"choose"}'
+mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md
+git add -A && git commit -q -m "feat: an earlier step"
+git rev-parse HEAD | koto context add "$S" impl_base >/dev/null 2>&1
+printf 'x\n' >> docs/readme.md && git commit -q -am "docs: this step"
+kset "$S" light
+tick "$S"
+[ "$STATE" = light_panel ] && pass "a shared-branch step floors on its own commit through the real action" \
+    || fail "the run is at [$STATE] ($NEXT_OUT)"
+GOT=$(koto context get "$S" review_facts.json 2>/dev/null | jq -c '[.base_source, .shared_branch, .floor]')
+[ "$GOT" = '["impl_base","feat/plan","light"]' ] && pass "the engine run's facts name impl_base and the branch" \
+    || fail "facts are $GOT"
+
 echo "--- engine: report"
 
 cd "$WORKDIR/eng-rl-light" || exit 1
@@ -1342,12 +1368,12 @@ expect_rc "report on real sessions" 0
     && pass "the unset run has a ledger but no choice and no final level" || fail "row is [$(printf '%s\n' "$OUT" | sed -n 4p)]"
 OUT=$("$RL" report 2>/dev/null)
 N=$(printf '%s\n' "$OUT" | grep -c '^rl-')
-[ "$N" = 4 ] && pass "report with no session lists every work-on session koto reports" || fail "report listed $N sessions: $OUT"
+[ "$N" = 5 ] && pass "report with no session lists every work-on session koto reports" || fail "report listed $N sessions: $OUT"
 
 echo "--- engine: every ledger line is well-formed"
 
 BAD=0
-for s in rl-light rl-floor rl-full rl-unset; do
+for s in rl-light rl-floor rl-full rl-unset rl-shared; do
     while IFS= read -r l; do
         printf '%s\n' "$l" | jq -e '
             (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
