@@ -42,7 +42,8 @@
 # sources scripts/lib/verification-deferral.sh, whose reason checks use jq.
 # On a coordinated plan node-push.sh and the loop (coord-common.sh) run the
 # same script over a node's named children (`--child`), with the same koto,
-# gh and jq calls and no `koto workflows`.
+# gh and jq calls and no `koto workflows`. With the PLAN gone the loop finds a
+# node's children with `koto workflows --roots`.
 #
 # The coordinated path adds the two coordination modes of the same subcommand:
 # `--coordination-body` for offline authoring feedback on the PR body, and
@@ -131,7 +132,7 @@ koto	context get	-	always
 koto	context remove	-	always
 koto	context exists	-	always
 koto	status	-	always
-koto	workflows	--children	always
+koto	workflows	--children,--roots	always
 koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
