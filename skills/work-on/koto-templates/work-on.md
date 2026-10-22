@@ -2166,6 +2166,15 @@ states:
       # Don't rewrite this as "nothing is in the fail bucket" -- that would let
       # an all-queued PR report green.
       #
+      # Zero checks is not green (#1018): the filter asks for at least one
+      # check before it asks that none is outside pass and skipping. No checks
+      # yet is the window just after a push, before Actions creates the check
+      # suites, and a list that stays empty is CI that never ran. gh answers an
+      # empty rollup with a `no checks reported` error and no JSON, which fails
+      # the grep the same way; `length > 0` holds the line if a gh release
+      # starts printing `[]` instead. The state holds as it does on a running
+      # check, and the directive bounds the wait.
+      #
       # One cancel is resolved: when the filter says not green,
       # ci-cancel-after-merge.sh passes the gate if GitHub reports the PR MERGED
       # and every non-green check is a cancelled run of a workflow
@@ -2173,23 +2182,33 @@ states:
       # cancel-closed-pr-macos-runs.yml cancels when a PR closes (#952). It
       # records those checks in context as ci_cancelled_after_merge.txt. A
       # repo without that script, an open PR, a failed or pending check, and
-      # a cancel outside those workflows all still fail. The trailing
-      # `|| exit 1` keeps the gate at 0 or 1, the only codes the edges match,
-      # even when the script can't run.
+      # a cancel outside those workflows all still fail.
+      #
+      # A repository with genuinely no hosted CI is the one way zero checks
+      # passes, and it is stated, never inferred from an empty list:
+      # ci-none-declared.sh, the last fallback, passes a PR with no checks
+      # only when the default branch's .claude/shirabe-extensions/hosted-ci.json
+      # says "hosted_ci": "none" with a reason, and the PR body records that
+      # reason. It records ci_none_declared.txt in context. The default branch
+      # is out of the PR's reach, so no PR can declare itself out of CI. The
+      # trailing `|| exit 1` keeps the gate at 0 or 1, the only codes the
+      # edges match, even when neither script can run.
       #   semantics: scripts/ci-gate-expression_test.sh,
-      #              skills/work-on/scripts/ci-cancel-after-merge_test.sh
+      #              skills/work-on/scripts/ci-cancel-after-merge_test.sh,
+      #              skills/work-on/scripts/ci-none-declared_test.sh
       #   execute.md's counterpart is owned_ci_passing: the same filter over the
       #   PR its ownership filter resolves, under its own name because
       #   scripts/validate-template-mermaid.sh check 4 holds one gate name to one
       #   command across templates
       ci_passing:
         type: command
-        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || exit 1"
+        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
-      # check-runs for one. `ci_passing` asks whether nothing is failing, and
-      # zero check-runs satisfies that, so the same gate fires for a genuinely
-      # green PR and for a DIRTY one whose checks never ran. This gate is what
-      # tells the two apart (#162). execute.md carries the same check as
+      # check-runs for one, so its CI gate says nothing about the change: it
+      # can read green on checks from an earlier head, or red on zero checks
+      # (#1018). This gate is what stops it, whatever ci_passing says (#162):
+      # a DIRTY edge exists for each ci_passing answer, and the evidence edges
+      # need a clean merge state. execute.md carries the same check as
       # owned_merge_state_clean, over the PR its ownership filter resolves; the
       # name differs because validate-template-mermaid.sh check 4 holds a gate
       # name shared across templates to one command.
@@ -2242,28 +2261,39 @@ states:
           gates.merge_state_clean.exit_code: 0
           gates.is_root.exit_code: 1
       # A DIRTY pull request stops, and stops explicitly, with a reason that
-      # names the merge conflicts: GitHub runs no checks on one, so the CI gate
-      # alone would read it as green.
+      # names the merge conflicts, whatever the CI gate reads: GitHub runs no
+      # checks on one, so ci_passing can read green on an earlier head's
+      # checks, or red on none at all. One edge per ci_passing answer keeps
+      # every edge naming the CI gate; without the red one, a DIRTY PR whose
+      # new head has no checks would hold here instead of stopping.
       - target: done_blocked
         when:
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 1
         context_assignments:
-          failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so a green-looking CI gate means nothing here. Resolve the conflicts and re-run."
+          failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so its CI gate means nothing here. Resolve the conflicts and re-run."
+      - target: done_blocked
+        when:
+          gates.ci_passing.exit_code: 1
+          gates.merge_state_clean.exit_code: 1
+        context_assignments:
+          failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so its CI gate means nothing here. Resolve the conflicts and re-run."
       # failing_fixed: the agent pushed a fix. The run comes back here rather
       # than finishing, so the gates poll CI on the new push before anything
       # can reach done: the skill promises a pull request with passing CI,
       # and a fix nobody re-checked does not keep that promise. The directive's
       # retry cap bounds the loop. Both evidence edges name ci_passing's
-      # failure, which is when they apply and what lets koto prove them
-      # exclusive of the green ones.
+      # failure and a clean merge state, which is when they apply and what
+      # lets koto prove them exclusive of the green and DIRTY ones.
       - target: ci_monitor
         when:
           gates.ci_passing.exit_code: 1
+          gates.merge_state_clean.exit_code: 0
           ci_outcome: failing_fixed
       - target: done_blocked
         when:
           gates.ci_passing.exit_code: 1
+          gates.merge_state_clean.exit_code: 0
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
@@ -3326,7 +3356,8 @@ that owns it, while a child that wrongly cascades deletes a PLAN its siblings ar
 still working from. When the gate exits 2 the role was never decided (PLUGIN_ROOT
 does not reach the script, or the script failed): the state holds rather than
 choosing either way. Read the gate's stderr, fix the cause, and tick again. A DIRTY
-pull request stops at `done_blocked`, since GitHub runs no checks on one.
+pull request stops at `done_blocked` whatever its CI reads, since GitHub runs no
+checks on one.
 
 A repository that cancels a closed pull request's unfinished macOS floor runs
 (it has `scripts/check-macos-floor-setup.sh`, as shirabe does) can leave a
@@ -3338,12 +3369,30 @@ context names those checks: mention them in your final report. A cancel on an
 open pull request, a failed or pending check, and a cancel outside those
 workflows still fail the gate.
 
+A pull request with no checks at all is not green. Just after a push, before
+GitHub creates the check suites, `gh pr checks` answers `no checks reported`:
+that is pending, and the state holds on `ci_passing` exactly as it does while a
+check runs. If no check has appeared 10 minutes after the push, CI is not
+running for this pull request: submit `ci_outcome: failing_unresolvable` with a
+rationale saying no checks were reported on the head and since when. The one
+exception is a repository that has no hosted CI and says so: its default
+branch carries `.claude/shirabe-extensions/hosted-ci.json` with
+`"hosted_ci": "none"` and a one-line `"reason"`. Then the gate passes a pull
+request with no checks once its body records the exception (a line saying the
+repository declares no hosted CI, and the line `Reason: <reason>` with the
+reason verbatim), and
+`ci_none_declared.txt` in context names it: mention it in your final report.
+The gate's stderr says what the body is missing. Never add or edit that file to
+get past this gate; a pull request can't declare itself, since the gate reads
+the default branch.
+
 While checks are still running the state holds on `ci_passing`; tick again once
 they finish. If the gate fails, fix what you can, push, and submit
 `ci_outcome: failing_fixed`: the run comes back to this state, and the gates
 re-check CI on the new push.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
-Both values are accepted only while `ci_passing` fails.
+Both values are accepted only while `ci_passing` fails on a pull request that
+isn't DIRTY.
 
 Retry cap: 3 fix pushes. When CI is still failing after the third, submit
 `ci_outcome: failing_unresolvable` with rationale, which ends the run at

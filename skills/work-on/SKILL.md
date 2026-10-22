@@ -440,6 +440,16 @@ leg, since one leg answers one session.
   which judges the PR that run owns instead of the current branch's, so the
   rule has one copy. `scripts/ci-cancel-after-merge_test.sh` is its harness, and
   `skills/execute/scripts/owned-ci-cancel_test.sh` covers `--owned`.
+- `scripts/ci-none-declared.sh <session-name> [--owned <owned-pr.sh arguments>]`
+  — run by koto, never by the agent, as `ci_passing`'s and `owned_ci_passing`'s
+  last fallback. Both gates read a pull request with no checks as not green; this
+  passes one only when the repository's default branch carries
+  `.claude/shirabe-extensions/hosted-ci.json` saying `"hosted_ci": "none"` with
+  a one-line `"reason"`, and the pull request body records it as a
+  `Reason: <reason>` line. It then
+  records `ci_none_declared.txt` in context; otherwise 1. The default branch is
+  read through the GitHub API, so a pull request can't declare itself.
+  `scripts/ci-none-declared_test.sh` is its harness, and drives both gates.
 - `scripts/record-changed-paths.sh --base|--write <session-name>` — run by koto
   itself, never by the agent: `analysis` runs `--base` on entry to record
   `impl_base` once, and `changed_paths_record` runs `--write` to put

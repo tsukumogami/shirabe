@@ -18,6 +18,10 @@ skills/work-on/scripts/ci-monitor-role_test.sh
 # Needs no engine: it runs the ci_passing fallback, and the live gate
 # expression, against stubbed gh and koto, so every case runs on the floor.
 skills/work-on/scripts/ci-cancel-after-merge_test.sh
+# Needs no engine: it runs the no-hosted-CI fallback, and both CI gates'
+# live expressions, against stubbed gh and koto, so every case runs on the
+# floor.
+skills/work-on/scripts/ci-none-declared_test.sh
 # Needs no engine: it runs the gate expression against stubbed gh.
 skills/work-on/scripts/closing-keyword-gate_test.sh
 # Drives real koto sessions, and skips cleanly without them.
