@@ -44,12 +44,11 @@ checks it. The checker and the reference sweep come last.
 
 **Complexity**: critical
 
-**Goal**: The validator treats a plan as a durable document, expects a plan at Done where it expected none, reports a transition instead of a deletion, and checks a design's `plan:` field.
+**Goal**: The validator treats a plan as a durable document, expects a plan at Done where it expected none, and checks a design's `plan:` field. finalize-chain's transition and `FC23` wait for Issue 4.
 
 **Acceptance Criteria**:
 - [ ] `shirabe validate` reports no `R11` for a design, PRD or brief whose `upstream:` names a plan; still reports `R11` for a design naming a roadmap and for a Done plan naming a roadmap; and reports none for an Active plan naming a roadmap.
 - [ ] Lifecycle tests cover each row of PRD R16's posture table with the result it gives, including a Done plan whose design is Superseded and a chain with no plan file and its design at Current.
-- [ ] `shirabe finalize-chain` JSON for a chain rooted at a plan lists the plan with `transition_plan` to `Done` and no `delete_plan` action.
 - [ ] A Current design whose `plan:` names its Done plan validates; one whose `plan:` names a missing file, a path outside `docs/plans/`, or a plan whose `upstream:` names another design fails `R12` naming both documents.
 - [ ] `references/rule-registry.json` carries `docs/plan-link` for `R12`, and `cargo test` passes.
 
@@ -108,6 +107,9 @@ checks it. The checker and the reference sweep come last.
 **Acceptance Criteria**:
 - [ ] `run-cascade_test.sh` has a scenario per execution mode and plan version in which the plan is present at `status: Done` after the cascade and no cascade commit deletes it; a second run makes no commit.
 - [ ] `verify-cascade-commit.sh` passes on a kept Done plan and fails on a deleted one.
+- [ ] `shirabe finalize-chain` JSON for a chain rooted at a plan lists the plan with `transition_plan` to `Done` and no `delete_plan` action, and `run-cascade.sh` accepts it.
+- [ ] A coordinated fixture whose cascade has pushed, with the plan kept at Done, does not run the cascade again (`coord-common.sh` reads `run/cascade`, not the plan file's presence).
+- [ ] With a dropped step and an issue closed with a `no-change` outcome, `landing` for the last open issue exits 0 and the landing run writes `PRs: none (dropped)` and `PRs: none (no-change)` for them; `### Plan` is never counted.
 - [ ] After the cascade on a fixture plan naming a roadmap, its `upstream:` names the roadmap's strategy, its Status prose names the roadmap, the design at Current has `plan:` naming the plan, and after the roadmap is deleted the plan validates.
 - [ ] In a three-issue `multi-pr` fixture the plan is Active after the first two PRs and Done in the third PR's diff; `plan-record.sh landing` exits 2 on an unreadable plan and `cascade_entry` routes that to `done_blocked`.
 - [ ] With issue 2's entry still missing from the default branch, `landing` for issue 3 exits 1 and the cascade does not run.

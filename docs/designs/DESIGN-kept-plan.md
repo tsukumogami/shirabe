@@ -201,7 +201,8 @@ to the default branch outside any PR, and a search can miss or over-match.
 
 *Provenance: resolved inline under `/scope`, standard tier.*
 
-A new script, `skills/plan/scripts/plan-record.sh`, has three subcommands:
+A new script, `skills/plan/scripts/plan-record.sh`, has four subcommands
+(the fourth, `landing`, is Decision 4's gate):
 
 - `path <topic>` prints the plan path (Decision 1's one place).
 - `entry --plan <path> --key <entry key> --pr <owner/repo#N>... --session
@@ -216,6 +217,8 @@ A new script, `skills/plan/scripts/plan-record.sh`, has three subcommands:
 - `pr-part --plan <path> --key <entry key>...` prints the PR's `Run record`
   part from the entries already in the plan, so the PR copy is the plan's
   bytes, not a second rendering.
+- `landing --plan <path> --key <entry key>` decides whether this run's PR is
+  the landing PR (Decision 4).
 
 A piece session is the `/execute` child session for a step (its name ends
 `.o-<step>`) or the `/work-on` session for an issue; a piece retried in a
@@ -264,18 +267,23 @@ stages nothing and commits nothing.
 
 The landing PR is the one PR (`single-pr`), the coordination PR
 (`coordinated`), or for `multi-pr` the PR whose run finds, after merging the
-default branch in, that every other entry key already has a Run Record entry
-on the default branch. Today a `multi-pr` run's `cascade_run` reaches the
-cascade on every issue and the cascade's pre-probe skips it while the plan is
-Active, so nothing ever marks such a plan Done. `/work-on`'s `cascade_entry`
-gains one gate, `plan-record.sh landing --plan <path> --key <key>`, which
-reads the default branch's copy of the plan (`git show
-origin/<default>:<path>`, after the run's existing catch-up merge) and exits 0
-when this run's entry is the last missing one; only then does `cascade_run`
-run the cascade. Entries whose work had no PR
-(`dropped`, `skipped`, `no-change`) are written by the landing run from the
-owning record or the plan. A `multi-pr` plan has no owning session, so its
-landing run writes `### Plan` with `Decisions: none recorded.`. `landing`
+default branch in, that no other piece of work is still open. Today a
+`multi-pr` run's `cascade_run` reaches the cascade on every issue and the
+cascade's pre-probe skips it while the plan is Active, so nothing ever marks
+such a plan Done. `/work-on`'s `cascade_entry` gains one gate,
+`plan-record.sh landing --plan <path> --key <key>`, which reads the default
+branch's copy of the plan (`git show origin/<default>:<path>`, after the
+run's existing catch-up merge) and exits 0 when every entry key other than
+this run's own is settled, and only then does `cascade_run` run the cascade.
+`### Plan` is never an entry key for this test. A key is settled when the
+default branch's copy already has its entry, or when its work is closed
+without one: its GitHub issue is closed, or the plan marks the step dropped.
+The landing run writes the entries for every key settled the second way:
+`PRs: none (dropped)` for a dropped step, `PRs: none (skipped)` or
+`PRs: none (no-change)` for an issue closed with that outcome recorded on it,
+and, for an issue closed by a PR before this shipped, the in-flight entry
+below. A `multi-pr` plan has no owning session, so its landing run writes
+`### Plan` with `Decisions: none recorded.`. `landing`
 exits 2 when it can't parse the plan or read the default branch's copy, and
 `cascade_entry` routes exit 2 to `done_blocked`, never to the cascade.
 
@@ -303,6 +311,13 @@ Run Record is complete:
    `Sequenced in` line, and set the plan to Done.
 5. Stage the plan with the other transitioned paths, commit, push, and run
    the post-verify probe, which now expects a Done plan.
+
+A coordinated run reads whether its cascade ran from the plan file today:
+`skills/execute/scripts/coord-common.sh` treats a present plan as "the
+cascade hasn't run" and re-runs it. That test becomes the run record alone
+(`run/cascade` pushed, with a head), and while the plan is present the node
+list is still read from it, so a kept Done plan neither re-runs the cascade
+nor loses the nodes.
 
 `resolve_anchor` gains a rung that resolves to the kept plan itself, ahead of
 its existing rungs for a deleted plan, and the cascade's
@@ -339,7 +354,8 @@ and the plan sits deleted or Active on the default branch until it merges.
    the entry rather than writing it.
 3. **A design names its plan.** `design/v1` gains an optional `plan:` field.
    finalize-chain writes it when it moves the design to Current. A new check,
-   `R12` (registry id `docs/plan-link`), confirms the field is a repo-relative
+   `R12` (registry id `docs/plan-link`; the validator code, unrelated to the
+   PRD's requirement of the same number), confirms the field is a repo-relative
    path under `docs/plans/` with no `..`, names a `PLAN-*.md` file that
    exists, and that the plan's `upstream:` names the design, and reports both
    paths when not (PRD R15).
@@ -349,10 +365,13 @@ and the plan sits deleted or Active on the default branch until it merges.
    under a Done plan, and keeps today's results for an absent plan and for an
    Active plan at merge (PRD R16's table). `finalize.rs` replaces
    `NodeAction::DeletePlan` with `NodeAction::TransitionPlan` reporting
-   `transition_plan` to `Done` (PRD R18). A new format check, `FC23`
-   (registry id `plan/run-record-shape`), checks a Done plan's Run Record
-   against PRD R7's grammar: one entry per entry key in plan order, the
-   `### Plan` entry, and each line's shape.
+   `transition_plan` to `Done` (PRD R18); this rename lands with the cascade
+   change (build step 4), because `run-cascade.sh` refuses any action it
+   doesn't know. A new format check, `FC23` (registry id
+   `plan/run-record-shape`), checks the Run Record against PRD R7's grammar.
+   On any plan it checks the shape of every line in the section; on a Done
+   plan it also checks completeness: one entry per entry key in plan order,
+   then the `### Plan` entry.
 
 #### Alternatives considered
 
@@ -473,13 +492,16 @@ later reader: check-plan-record.sh plan --> gh pr view (PR copy)
   owner/repo#N...]` or `PRs: none (dropped|skipped|no-change)`, then for a
   completed plan/v2 step `Proof: <check> -> <result line>` or
   `Proof: not reported.`, then `Decisions:` with `- <session>#<seq>: <choice>
-  -- <reason>` lines or `Decisions: none recorded.`. Any rendered line that
-  trips the visibility or secret filter is written as `<citation or key>:
-  withheld (private content)` (PRD R13; the filters, input patterns and caps
-  are in Security Considerations).
-- **`plan-record.sh landing`** exits 0 when the named key is the only entry
-  key without an entry in the default branch's copy of the plan, 1 otherwise,
-  2 on a parse failure.
+  -- <reason>` lines or `Decisions: none recorded.`. A line that trips the
+  visibility or secret filter keeps its label and loses its text: a decision
+  becomes `- <session>#<seq>: withheld (private content)`, a PR reference in
+  a `PRs:` line becomes `withheld (private content)`, and a proof becomes
+  `Proof: withheld (private content)` (PRD R13; the filters, input patterns
+  and caps are in Security Considerations).
+- **`plan-record.sh landing`** exits 0 when every entry key other than the
+  named one is settled in the default branch's copy of the plan, as Decision
+  4 defines it (`### Plan` never counts), 1 otherwise, 2 on a parse failure
+  or an unreadable copy.
 - **`check-plan-record.sh`** exits 0, 1 or 2 as Decision 3 says.
 - **Design `plan:`**: one repo-relative path, scalar.
 - **finalize-chain JSON**: the plan node's `action` becomes `transition_plan`
@@ -491,10 +513,13 @@ The work is one plan, built in this order so each step leaves the tree
 passing:
 
 1. **Validator accepts a kept plan.** Lifetime, `R11` exemption, lifecycle
-   passing states, `TransitionPlan`, `transition.rs` wording, `R12`, rule
-   registry, and their Rust tests. Nothing writes a kept plan yet, so the
-   change is invisible, and a chain whose plan was deleted still passes.
-   `FC23` waits for step 4, because until then a Done plan has no Run Record.
+   passing states, `transition.rs` wording, `R12` and its listing in
+   `validate.rs`'s emitted codes, rule registry, and their Rust tests.
+   Nothing writes a kept plan yet, so the change is invisible, and a chain
+   whose plan was deleted still passes. finalize-chain's `TransitionPlan`
+   and `FC23` wait for step 4: the first because `run-cascade.sh` only knows
+   `delete_plan`, the second because until then a Done plan has no Run
+   Record.
 2. **Lookups and resume.** The five lookups skip Done plans; `/scope` and
    `/deliver` route a Done plan to executed. Safe ahead of the cascade change,
    since no Done plan exists on any branch yet.
@@ -503,9 +528,11 @@ passing:
    written into the plan and the PR even though the cascade still deletes the
    plan at this point, which the next step ends.
 4. **The cascade keeps the plan.** `run-cascade.sh`,
-   `verify-cascade-commit.sh`, finalize-chain's `plan:` write and repoint,
-   the roadmap rewrite, `FC23`, and in the same change every test and eval
-   that asserted deletion, so nothing on the tree expects both behaviours.
+   `verify-cascade-commit.sh`, finalize-chain's `TransitionPlan`, `plan:`
+   write and repoint, the roadmap rewrite, `coord-common.sh`'s cascade test,
+   `FC23` and its listing in `validate.rs`, and in the same change every test
+   and eval that asserted deletion, so nothing on the tree expects both
+   behaviours.
 5. **Readers can check it.** `check-plan-record.sh` and its test.
 6. **References agree.** Every document PRD R19 lists, the design format's
    `plan:` field, and a dated note on `DESIGN-completion-cascade.md`.
@@ -544,12 +571,21 @@ Cascade, record and lookups:
 - `skills/execute/scripts/drift-facts_test.sh`
 - `skills/execute/scripts/execute-open.sh`
 - `skills/execute/scripts/execute-open_test.sh`
+- `skills/execute/scripts/coord-common.sh`
+- `skills/execute/scripts/coordinated-next_test.sh`
+- `skills/execute/scripts/execute-coordinated-engine_test.sh`
+- `skills/execute/scripts/coordinated-home-outside_test.sh`
+- `skills/execute/scripts/node-push_test.sh`
+- `skills/execute/scripts/coordination-verdict_test.sh`
+- `skills/execute/scripts/execute-output-gates-routing_test.sh`
 - `skills/execute/evals/evals.json`
 - `skills/execute/evals/fixtures/plans/` (the `PLAN-cascade-test-*.md`
   fixtures that assert deletion)
 - `skills/scope/evals/evals.json`
 - `skills/scope/scripts/resume-probe.sh`
 - `skills/scope/scripts/resume-probe_test.sh`
+- `skills/scope/scripts/record-executed-report.sh` (an executed topic may now
+  have its plan at Done)
 - `skills/scope/koto-templates/scope.md`
 - `skills/deliver/scripts/deliver-probe.sh`
 - `skills/deliver/scripts/deliver-probe_test.sh`
@@ -578,7 +614,16 @@ References and skill prose:
   cascade now keeps the plan, pointing here)
 - `.github/workflows/lifecycle.yml` (comment only)
 
-Nothing under `skills/coordinate/` changes. The coordinator already depends on
+Four more scope and deliver scripts test whether the plan file exists:
+`skills/scope/scripts/check-hop-document.sh`, `publish-scoping-pr.sh`,
+`hop-complete.sh` and `skills/deliver/scripts/deliver-execute-leg.sh`. Each
+runs only after `resume-probe.sh` has routed the topic, and a Done plan
+routes to the executed report before any of them is reached, so they are not
+on the list; the execution confirms that against their tests and adds any
+that a Done plan does reach.
+
+Nothing under `skills/coordinate/` changes (the coordinated-run changes above
+are all in `skills/execute/scripts/`). The coordinator already depends on
 the plan being on the default branch after scoping, which this only makes
 stronger, and none of its scripts assert that a plan is deleted.
 
@@ -601,8 +646,8 @@ and machine-local text (token prefixes such as `ghp_`, `gho_`,
 JWTs; `-----BEGIN` key blocks; `Bearer ` headers; home paths `/Users/` and
 `/home/`; email addresses; IPv4 and IPv6 addresses). The filters run on the
 full text before the length cap, so truncation can't cut a match in half.
-A line that trips either is written as `<citation or key>: withheld (private
-content)`. The filter fails closed: when the validator is missing or errors,
+A line that trips either keeps its label and loses its text, in the forms
+the Interfaces list gives. The filter fails closed: when the validator is missing or errors,
 or the repository's visibility can't be read, every free-text line is
 withheld. It runs when the entry is first rendered, which is before the
 run's first push of it, so nothing unfiltered reaches a remote branch.

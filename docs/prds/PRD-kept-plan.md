@@ -134,8 +134,10 @@ it.
   session name and `<seq>` is the sequence number koto gave the
   `decision_recorded` event in that session's log.
 - **Landing PR**: for `single-pr`, the one PR; for `multi-pr`, the PR whose
-  merge leaves every other entry key already recorded in the default branch's
-  copy of the plan; for `coordinated`, the coordination PR.
+  run finds every other entry key settled in the default branch's copy of the
+  plan, a key being settled when it already has an entry or its work is
+  closed without one (its issue closed, or its step dropped), with `### Plan`
+  never counted; for `coordinated`, the coordination PR.
 
 ### Functional
 
@@ -216,8 +218,9 @@ it.
 - **R13.** In a repository whose CLAUDE.md declares `Repo Visibility:
   Public`, a decision whose choice or reason `shirabe validate
   --visibility=Public` would flag as naming private content is written as
-  `- <session>#<seq>: withheld (private content)` in both plan and PR, and a
-  PR reference to a private repository as `withheld (private content)`. The
+  `- <session>#<seq>: withheld (private content)` in both plan and PR, a
+  PR reference to a private repository as `withheld (private content)`, and
+  a proof naming private content as `Proof: withheld (private content)`. The
   check in R12 compares a withheld entry by citation only.
 
 **Validation**
@@ -263,9 +266,12 @@ it.
   `skills/plan/SKILL.md`, `skills/plan/references/plan-format.md`,
   `skills/plan/references/quality/plan-doc-structure.md`,
   `skills/plan/references/phases/phase-7-creation.md`,
-  `skills/execute/SKILL.md`, `skills/scope/SKILL.md`,
-  `skills/scope/references/phases/phase-0-setup.md`,
-  `skills/roadmap/SKILL.md` and `docs/guides/lifecycle-posture.md`.
+  `skills/execute/SKILL.md`, `skills/work-on/SKILL.md`,
+  `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-0-setup.md`,
+  `skills/scope/references/phases/phase-resume.md`,
+  `skills/scope/koto-templates/scope.md`,
+  `skills/design/references/design-format.md`, `skills/roadmap/SKILL.md`,
+  `docs/guides/lifecycle-posture.md` and `docs/guides/doc-validation.md`.
 - **R20.** These lookups skip a Done plan when resolving work to run, so a
   Done plan never causes an ambiguous match and never receives new work:
   `find-anchor-plan.sh`, `drift-facts.sh`, `/execute`'s setup and its
