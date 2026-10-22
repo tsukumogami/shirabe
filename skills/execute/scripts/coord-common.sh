@@ -497,7 +497,7 @@ cc_pr_node() {
 cc_deferral_record() {
     local items="$2" item rc err args roots oldifs=$IFS
     if [ -z "$items" ]; then
-        roots=$(koto workflows --roots </dev/null 2>/dev/null) \
+        roots=$(koto workflows --roots </dev/null) \
             && items=$(printf '%s' "$roots" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
                 '[.[] | .name | select(type == "string" and startswith($p)) | ltrimstr($p)
                   | select(test("^[1-9][0-9]*$"))] | join(",")') \
