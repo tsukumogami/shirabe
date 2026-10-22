@@ -770,6 +770,23 @@ for entry in $CODE_SITES; do
         || fail "spawn site $site: the code packet's --issue has no --issue-repo"
 done
 
+# The phase files say `<ISSUE_REPO>`; the value comes from the state's
+# directive in the work-on template, so each state that builds a code packet
+# or runs extract-context.sh must give it. A directive that dropped it would
+# leave the agent a command the scripts refuse.
+TEMPLATE="$REPO_ROOT/skills/work-on/koto-templates/work-on.md"
+directive() { # directive <state>: the template's `## <state>` section
+    awk -v h="## $1" '$0 == h { on = 1; next } on && /^## / { exit } on' "$TEMPLATE"
+}
+for state in implementation scrutiny review qa_validation light_review; do
+    grep -qF -- 'review-packet.sh code --issue` packet takes `--issue-repo "{{ISSUE_REPO}}"`' <<<"$(directive "$state")" \
+        && pass "directive $state: gives --issue-repo \"{{ISSUE_REPO}}\" for the code packet" \
+        || fail "directive $state: no --issue-repo \"{{ISSUE_REPO}}\" for the code packet"
+done
+grep -qF -- 'extract-context.sh" {{ISSUE_NUMBER}} --session {{SESSION_NAME}} --issue-repo "{{ISSUE_REPO}}"' <<<"$(directive context_injection)" \
+    && pass "directive context_injection: gives the extract-context.sh command with --issue-repo" \
+    || fail "directive context_injection: no extract-context.sh command with --issue-repo"
+
 # grep -vxF rather than a case inside $(...): bash 3.2 misparses the latter.
 unlisted=$(cd "$REPO_ROOT" && grep -rl '^\*\*Seat commissioning\*\*' skills \
     | grep -vxF "$(printf '%s\n' $SITES)")

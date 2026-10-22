@@ -33,7 +33,9 @@
 # reference that passes needs whitespace after the optional colon, the forms
 # GitHub documents. A reference that fails needs only a colon or whitespace
 # (`Fixes:#42` counts), because missing one of those closes the wrong issue
-# while refusing one too many costs a reworded line.
+# while refusing one too many costs a reworded line. Whether GitHub closes on
+# `Fixes:#42`, with no space, isn't documented; refusing it is the safe side
+# either way.
 #
 # The repository is matched literally: its `.` is escaped before it reaches
 # the expression (`.github` must not match `xgithub`), the separator after the
@@ -144,7 +146,7 @@ if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
 fi
 
 if has "$OWN"; then
-    refuse "a closing reference to #$ISSUE, $PR_REPO#$ISSUE or its issue URL closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one"
+    refuse "a closing reference to #$ISSUE, $PR_REPO#$ISSUE or its issue URL closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
 fi
 has "$QUALIFIED" && exit 0
 refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"

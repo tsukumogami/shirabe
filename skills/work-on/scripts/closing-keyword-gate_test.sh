@@ -113,6 +113,8 @@ More context."
 # uppercase. For example: Closes: #10, CLOSES #10, or CLOSES: #10."
 expect "a colon after the keyword is recognised" 0 42 "Fixes: #42"
 expect "an uppercase keyword with a colon is recognised" 0 42 "CLOSES: #42"
+# The documented forms only: a colon with nothing after it isn't one.
+expect "a colon with no space before #N is not recognised" 1 42 "Fixes:#42"
 
 # --- bodies that must fail ---------------------------------------------------
 expect "a body with no closing keyword fails" 1 42 "Part 1
