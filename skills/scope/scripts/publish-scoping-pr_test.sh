@@ -163,11 +163,16 @@ eq "published_intent stop, --intent continue: the key now says continue" "contin
 jq '.[0].body = "intent=stop\n"' "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
 run --topic topic --exit full-run --intent continue --session s-new
 eq "a hand-edited intent= line: no pr edit (the session already says continue)" "1" "$(calls edit)"
-# No session at all (a hand run): there is no record of what was published,
-# so the body is always rewritten, run marker carried.
+# No session at all (a hand run): there is no run state to compare against,
+# so the reused PR's body is left as it is, whatever its intent= line says.
 run --topic topic --exit full-run --intent continue
-eq "no --session: the body is rewritten" "2" "$(calls edit)"
+eq "no --session: the body is left alone" "1" "$(calls edit)"
 eq "no --session: exit 0" "0" "$RC"
+# A session without the key (a new run republishing) has published nothing
+# yet, so it rewrites.
+run --topic topic --exit full-run --intent continue --session s-fresh
+eq "a session with no published_intent: the body is rewritten" "2" "$(calls edit)"
+eq "a session with no published_intent: the key is recorded" "continue" "$(cat "$STORE/s-fresh/published_intent" 2>/dev/null)"
 export KOTO_FAIL_KEY=published_intent
 run --topic topic --exit full-run --intent continue --session s-new
 unset KOTO_FAIL_KEY

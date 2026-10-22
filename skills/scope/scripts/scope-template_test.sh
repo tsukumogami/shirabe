@@ -327,10 +327,10 @@ eq "exit_abandonment's gate is context-matches on forced_artifact" '["context-ma
     "$(q '.states.exit_abandonment.gates.forced_artifact_present | [.type, .key]')"
 FPAT=$(q '.states.exit_abandonment.gates.forced_artifact_present.pattern' | jq -r . | sed 's/{{TOPIC}}/t/g')
 for p in docs/briefs/BRIEF-t.md docs/prds/PRD-t.md docs/designs/DESIGN-t.md docs/designs/current/DESIGN-t.md; do
-    if printf '%s' "$p" | grep -Eq -- "$FPAT"; then ok "forced_artifact_present accepts $p"; else bad "forced_artifact_present accepts $p" "pattern [$FPAT]"; fi
+    if grep -Eq -- "$FPAT" <<<"$p"; then ok "forced_artifact_present accepts $p"; else bad "forced_artifact_present accepts $p" "pattern [$FPAT]"; fi
 done
 for p in docs/plans/PLAN-t.md docs/prds/PRD-tt.md docs/prds/PRD-t.mdx x/docs/prds/PRD-t.md; do
-    if printf '%s' "$p" | grep -Eq -- "$FPAT"; then bad "forced_artifact_present refuses $p" "pattern [$FPAT]"; else ok "forced_artifact_present refuses $p"; fi
+    if grep -Eq -- "$FPAT" <<<"$p"; then bad "forced_artifact_present refuses $p" "pattern [$FPAT]"; else ok "forced_artifact_present refuses $p"; fi
 done
 eq "exit_abandonment routes on the gate's matches, never an exit code" '[false,true,true]' \
     "$(q '[.states.exit_abandonment.transitions[] | .when["gates.forced_artifact_present.matches"] | select(. != null)] | sort')"

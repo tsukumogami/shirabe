@@ -124,7 +124,7 @@ intent=none" "$OUT"
 for p in docs/plans/PLAN-t.md docs/prds/PRD-other.md ../docs/prds/PRD-t.md "docs/prds/PRD-t.md
 x"; do
     render done_abandonment "$(jq -nc --arg p "$p" '{outcome:"abandonment",exit:"abandonment-forced",intent:"none",pr:"",forced_artifact:$p}')"
-    eq "abandonment: a forced_artifact outside the four paths is dropped ($(printf '%s' "$p" | head -1))" "/scope finished: exit=abandonment-forced; artifact=none
+    eq "abandonment: a forced_artifact outside the four paths is dropped (${p%%$'\n'*})" "/scope finished: exit=abandonment-forced; artifact=none
 intent=none" "$OUT"
 done
 render done_cancelled '{"outcome":"cancelled","intent":"none","via":"bail"}'

@@ -21,7 +21,7 @@
 #      option, never a `+` refspec                           -> scope:push
 #   4. look the PR up through skills/execute/scripts/owned-pr.sh, unchanged,
 #      with --state open, --base <default>, and this run's identity:
-#        one survivor   reused; its body is rewritten with
+#        one survivor   reused; with --session, its body is rewritten with
 #                       `gh pr edit --body-file` unless the session's
 #                       published_intent key already equals --intent,
 #                       keeping any run marker line the live body carries
@@ -62,10 +62,12 @@
 # what both modes compare against:
 #
 #   publish   rewrites a reused PR's body when the key is absent or differs
-#             from --intent. Without the key (no --session, or a session from
-#             before the key existed) it always rewrites: the body is a fixed
-#             template and the run marker is carried, so a rewrite that
-#             changes nothing is harmless.
+#             from --intent. A session without the key (a new run
+#             republishing, or one from before the key existed) always
+#             rewrites: the body is a fixed template and the run marker is
+#             carried, so a rewrite that changes nothing is harmless. With no
+#             --session (a hand run) there is no run state to compare, so a
+#             reused PR's body is left as it is.
 #   verify    --expect-intent <v> passes only when the key equals <v>. It
 #             needs --session; an absent key is "not verified" (exit 1).
 #
@@ -469,7 +471,8 @@ esac
 if [ -n "$URL" ]; then
     [[ "$URL" =~ $RE_PR_URL ]] || fail scope:pr-create "owned-pr.sh printed a URL outside the pattern"
     LAST=$(published_intent) || fail scope:pr-create "the session's published_intent cannot be read"
-    if [ "$LAST" != "$INTENT" ]; then
+    # No --session: no run state to compare against, so the PR is reused as is.
+    if [ -n "$SESSION" ] && [ "$LAST" != "$INTENT" ]; then
         # A full-body rewrite keeps whatever run marker the live body carries.
         gh pr view "$URL" --json body --jq .body </dev/null > "$SCRATCH/live-body.md" \
             || fail scope:pr-create "the owned PR's body cannot be read"
