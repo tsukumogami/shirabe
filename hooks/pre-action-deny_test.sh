@@ -245,7 +245,8 @@ done
 for c in 'gh pr merge 123 -R o/r --squash --subject \"fix: x\" --body \"Adds a new edit path.\"' \
     'GH_TOKEN= gh pr merge 123 --squash --body \"Adds a new edit path.\"' \
     'env -u GH_TOKEN gh pr merge 123 -R o/r --squash --subject \"fix: x\" --body \"Adds a new edit path.\"' \
-    'env GH_TOKEN= gh pr merge 123 --squash --body \"Creates a new thing.\"'; do
+    'env GH_TOKEN= gh pr merge 123 --squash --body \"Creates a new thing.\"' \
+    'env -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new path\"'; do
     run_hook "$c"
     expect_none "merge: $c gives no decision"
 done
@@ -263,7 +264,8 @@ for c in "env -u GH_TOKEN $BAD_CREATE" \
     "env a-b=1 gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     "env stdbuf -oL gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     'env caffeinate git push' \
-    "env git -c 'alias.p=!git push' p"; do
+    "env git -c 'alias.p=!git push' p" \
+    "env 'BASH_FUNC_f%%=() { gh pr create --title x --body y; }' bash -c f"; do
     run_hook "$c"
     expect_deny "env-wrapped: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done

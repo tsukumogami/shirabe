@@ -484,16 +484,19 @@ options it reads (`env_command` lists them: `-i`, `-u NAME`, `--` and a
 few that take no value) and every operand holding a `=`, since env takes
 any of those as an assignment (`a-b=1` and `'X Y=1'` included, not only
 shell names). When the command left is `gh` or another listed wrapper,
-it is classified as a segment of its own: a guarded or wrapped guarded
-command there makes the `env` segment a wrapped guarded command, and
-anything else is no guarded action. Any other program falls back to the
+it is classified as a segment of its own, and the skipped words get the
+text test, since the program can run what an assignment carries (bash
+imports `BASH_FUNC_f%%=() { ... }` as a function and expands `PS4` under
+`-x`; gh runs `GH_BROWSER`). A guarded or wrapped guarded command in
+either makes the `env` segment a wrapped guarded command, and anything
+else is no guarded action; a merge body comes after the command, so the
+text test never reads it. Any other program falls back to the
 text test, because it may be a launcher the wrapper list lacks (`stdbuf`,
 `arch`, `ksh -c`) or another spelling of `gh` on a case-insensitive
 filesystem, and only the text test reads past it. `git` falls back too:
 the classifier reads a git subcommand by its name, so `git -c
 'alias.p=!git push' p` names no push, which the text test still sees. So
-does
-an option the hook doesn't read (`-S` splits a string into a command, `-C`
+does an option the hook doesn't read (`-S` splits a string into a command, `-C`
 changes directory), a word the shell expands before the command, or `env`
 nested more than eight deep. The other wrappers keep the text test: each
 takes a shell string (`bash -c`, `eval`, `ssh`) or an option grammar of

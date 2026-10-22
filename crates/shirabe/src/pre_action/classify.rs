@@ -17,7 +17,8 @@
 //! a listed wrapper: past env's own options and assignment operands,
 //! it is classified the way it would be unwrapped, so `env -u GH_TOKEN gh pr
 //! merge --body "a new path"` is a merge, not a create. A guarded command found
-//! there still makes the `env` segment a wrapped guarded command. Every other
+//! there, or named in env's own option and assignment words (which the program
+//! may run), still makes the `env` segment a wrapped guarded command. Every other
 //! wrapper, and an `env` whose arguments the hook can't read or whose command
 //! is any other program (`env_command`), is judged by the coarse test on its
 //! text.
@@ -490,7 +491,16 @@ fn kind_words(ws: &[Word], depth: u8) -> Kind {
             None
         };
         let named = match command_at {
-            Some(j) => named_by(&kind_words(&rest[j..], depth + 1)),
+            // env's own words still get the text test: an assignment can
+            // carry a command the program after it runs (bash imports
+            // `BASH_FUNC_f%%=() { ... }` as a function, runs `PS4=$(...)`
+            // under `-x`, and gh runs `GH_BROWSER`). A merge body comes after
+            // the command, so it isn't among them.
+            Some(j) => {
+                let mut named = named_in_text(&text_of(&rest[..j]));
+                named |= named_by(&kind_words(&rest[j..], depth + 1));
+                named
+            }
             None => named_in_text(&text_of(&ws[i..])),
         };
         return Kind::Wrapper {
@@ -1063,6 +1073,9 @@ mod tests {
             "env 2>/dev/null -u GH_TOKEN gh pr merge 1 --body new",
             "env -u GH_TOKEN gh issue create --title \"hook refuses gh pr create\" --body x",
             "env a-b=1 'X Y=1' =1 gh pr merge 1 --body new",
+            // The body comes after the command, so the text test on env's
+            // own words never sees it.
+            "env -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new path\"",
             "env",
             "env -i",
         ] {
@@ -1108,12 +1121,18 @@ mod tests {
             // as its name, as GNU env does.
             "env A=1 -u X gh pr create",
             "env -u -- gh pr create",
+            // An assignment can carry a command the program after it runs,
+            // so env's own words are text-tested too.
+            "env 'BASH_FUNC_f%%=() { gh pr create --title x --body y; }' bash -c f",
+            "env 'PS4=$(gh pr create)' bash -xc true",
+            "env 'GH_BROWSER=sh -c \"gh pr create --fill\"' gh pr view 1 --web",
         ] {
             assert_eq!(fails(cmd), wrapped, "{cmd}");
             assert!(ghs(cmd).is_empty(), "{cmd}");
         }
-        // git behind env always goes to the text test: an alias can hide a
-        // push from the subcommand reading.
+        // A push behind env stays wrapped: git there always goes to the text
+        // test, since an alias can hide a push from the subcommand reading,
+        // and so do an unlisted launcher and env's own words.
         for cmd in [
             "env -u X git push",
             "env GIT_DIR=/x git push",
@@ -1122,6 +1141,7 @@ mod tests {
             "env a-b=1 git push",
             "env caffeinate git push",
             "env git -c 'alias.p=!git push' p",
+            "env 'BASH_FUNC_f%%=() { git push; }' bash -c f",
         ] {
             assert_eq!(fails(cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
             assert!(pushes(cmd).is_empty(), "{cmd}");

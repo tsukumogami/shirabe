@@ -202,13 +202,16 @@ These terms mean the same thing everywhere below.
   delimiter the shell still runs a `$(...)` or backquotes in them, and
   those count as command substitutions.
 - **The `env` exception**: when an `env` segment runs `gh` or another
-  wrapper on the list, the text test doesn't decide it. Past
-  env's own options (the classifier's `env_command` lists the ones it
-  reads) and every operand holding a `=`, which env takes as an
-  assignment whether or not it is a shell name, the command is
-  classified as a segment of its own, and the `env` segment is a
-  wrapped guarded command when that command is guarded or wrapped
-  guarded. So `env -u GH_TOKEN gh pr merge --body "..."` is a merge
+  wrapper on the list, the text test over the whole segment doesn't
+  decide it. Past env's own options (the classifier's `env_command` lists
+  the ones it reads) and every operand holding a `=`, which env takes as
+  an assignment whether or not it is a shell name, the command is
+  classified as a segment of its own (a wrapper there is still judged by
+  its own text test), and the text test runs over env's own option and
+  assignment words, since the program can run what an assignment carries
+  (`BASH_FUNC_f%%=() { ... }`, `PS4=$(...)`, `GH_BROWSER=...`). The `env`
+  segment is a wrapped guarded command when either finds a guarded
+  action. So `env -u GH_TOKEN gh pr merge --body "..."` is a merge
   whatever its body says, and `env -u GH_TOKEN gh pr create ...` is
   still a wrapped guarded command. An option the hook doesn't read, a
   word the shell expands before the command, any other program as the
