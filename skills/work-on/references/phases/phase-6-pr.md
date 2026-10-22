@@ -54,10 +54,14 @@ consulting the body.
 An issue in another repository (the run was initialized with `ISSUE_REPO`) is
 closed only by its qualified reference: write `Fixes <owner/repo>#<N>`, with
 the run's own `ISSUE_REPO`, and no other closing reference to `<N>`. A bare
-`#<N>`, this repository's `owner/repo#<N>` or its issue URL after a closing
-keyword names this repository's issue `<N>`, which merging would close, so
-the gate fails a body that carries one even beside the qualified reference,
-and a qualified reference to any other repository doesn't count. A colon
+`#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL after a
+closing keyword names this repository's issue `<N>`, which merging would
+close, so the gate fails a body that carries one even beside the qualified
+reference. So does any of them as a markdown link (a link whose text is a
+bare `#<N>` fails wherever it points), and a name this repository had before
+a rename, which GitHub still resolves. A qualified reference to any other
+repository doesn't count, and `[<owner/repo>#<N>](<its issue URL>)` passes
+like the plain reference. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
 

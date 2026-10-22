@@ -2079,8 +2079,9 @@ states:
       # colon follow the keyword (`Fixes: #42`), so the expression takes one.
       #
       # An issue in another repository (ISSUE_REPO set) is closed only by
-      # `Fixes owner/repo#N`, and `#N`, this repository's `owner/repo#N` or
-      # its issue URL there would close this repository's issue N, so
+      # `Fixes owner/repo#N`, and `#N`, `GH-N`, this repository's
+      # `owner/repo#N` or its issue URL there, as a markdown link too or under
+      # the repository's old name, would close this repository's issue N, so
       # check-closing-keyword.sh decides that case: it exits 0 closed, 1 not
       # closed, closing the wrong issue too, or unreadable (done_blocked, like
       # the expression here), 2 usage (holds). With ISSUE_REPO empty the
@@ -3334,8 +3335,9 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 The body closes the issue in Part 2, and the `closing_keyword` gate reads it from
 GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
 `ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
-repository and no other closing reference to `<N>`: a bare `#<N>`, this repository's
-`owner/repo#<N>` or its issue URL would close this repository's issue `<N>`.
+repository and no other closing reference to `<N>`: a bare `#<N>`, `GH-<N>`, this
+repository's `owner/repo#<N>` or its issue URL, as a markdown link too, or a name this
+repository had before a rename would close this repository's issue `<N>`.
 `references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto

@@ -58,13 +58,39 @@ fi
 
 # A gh stub that prints $PR_BODY, so the gate can be run against any body.
 # Asked for the url too (check-closing-keyword.sh's `--json url,body --jq
-# '.url, .body'`), it prints $PR_URL on the first line, as gh does.
+# '.url, .body'`), it prints $PR_URL on the first line, as gh does. Asked for
+# a repository (`gh api --hostname <host> repos/<owner>/<name> --jq
+# .full_name`), it prints the name it was asked for, the new name when
+# $GH_RENAMED lists the name as `old=new` (GitHub's rename redirect, which gh
+# follows), gh's 404 when $GH_MISSING lists it, and another error when
+# $GH_API_FAIL is 1.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
-# Stands in for `gh pr view --json body --jq .body` and
-# `gh pr view --json url,body --jq '.url, .body'`.
+# Stands in for `gh pr view --json body --jq .body`,
+# `gh pr view --json url,body --jq '.url, .body'` and
+# `gh api --hostname <host> repos/<owner>/<name> --jq .full_name`.
 [[ -z "${GH_LOG:-}" ]] || echo "$*" >> "$GH_LOG"
+if [[ "${1:-}" == "api" ]]; then
+    name=""
+    for a in "$@"; do [[ "$a" == repos/* ]] && name=${a#repos/}; done
+    lname=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+    if [[ "${GH_API_FAIL:-0}" == "1" ]]; then
+        echo "gh: Bad Gateway (HTTP 502)" >&2
+        exit 1
+    fi
+    for m in ${GH_MISSING:-}; do
+        if [[ "$m" == "$lname" ]]; then
+            echo '{"message":"Not Found","status":"404"}gh: Not Found (HTTP 404)' >&2
+            exit 1
+        fi
+    done
+    for r in ${GH_RENAMED:-}; do
+        if [[ "${r%%=*}" == "$lname" ]]; then printf '%s\n' "${r#*=}"; exit 0; fi
+    done
+    printf '%s\n' "$name"
+    exit 0
+fi
 if [[ "${GH_FAIL:-0}" == "1" ]]; then
     echo "gh: could not resolve to a PullRequest" >&2
     exit 1
@@ -87,6 +113,7 @@ run_gate() {
     cmd="${cmd//\{\{ISSUE_REPO\}\}/${ISSUE_REPO:-}}"
     cmd="${cmd//\{\{PLUGIN_ROOT\}\}/$PLUGIN_DIR}"
     PATH="$STUB_DIR:$PATH" PR_BODY="$body" PR_URL="${PR_URL:-}" GH_FAIL="${3:-0}" \
+        GH_RENAMED="${GH_RENAMED:-}" GH_MISSING="${GH_MISSING:-}" GH_API_FAIL="${GH_API_FAIL:-0}" \
         sh -c "$cmd" >/dev/null 2>&1
 }
 
@@ -115,6 +142,10 @@ expect "a colon after the keyword is recognised" 0 42 "Fixes: #42"
 expect "an uppercase keyword with a colon is recognised" 0 42 "CLOSES: #42"
 # The documented forms only: a colon with nothing after it isn't one.
 expect "a colon with no space before #N is not recognised" 1 42 "Fixes:#42"
+# GitHub closes on these too (#1044), but the same-repository expression is
+# left as it was: it still asks for `Fixes #N`.
+expect "a same-repository GH-N is still not recognised" 1 42 "Fixes GH-42"
+expect "a same-repository markdown link is still not recognised" 1 42 "Fixes [#42](https://github.com/acme/app/issues/42)"
 
 # --- bodies that must fail ---------------------------------------------------
 expect "a body with no closing keyword fails" 1 42 "Part 1
@@ -236,6 +267,91 @@ expect "cross-repo: the issue's own URL beside the right reference passes" 0 42 
 Fixes https://github.com/acme/tracker/issues/42"
 expect "cross-repo: an issue URL that only ends in this repo passes" 0 42 "Fixes acme/tracker#42
 Fixes https://github.com/xacme/app/issues/42"
+
+# GitHub closes this repository's issue on `Fixes GH-N` and on a markdown
+# link whose text is `#N` (#1044), so both fail, alone and beside the right
+# reference, as do the link's other spellings.
+expect "cross-repo: GH-N alone fails" 1 42 "Fixes GH-42"
+expect "cross-repo: GH-N beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes GH-42"
+expect "cross-repo: GH-N in lower case fails" 1 42 "Fixes acme/tracker#42
+fixes gh-42"
+expect "cross-repo: GH-N after a colon fails" 1 42 "Fixes acme/tracker#42
+Fixes: GH-42"
+expect "cross-repo: GH-N on the same line fails" 1 42 "Fixes acme/tracker#42, fixes GH-42"
+expect "cross-repo: GH-N with more digits passes" 0 42 "Fixes acme/tracker#42
+Fixes GH-421"
+expect "cross-repo: a markdown link to this repo's issue alone fails" 1 42 "Fixes [#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a markdown link to this repo's issue beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes [#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a link with text #N fails wherever it points" 1 42 "Fixes acme/tracker#42
+Fixes [#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: a link with other text to this repo's issue fails" 1 42 "Fixes acme/tracker#42
+Fixes [the bug](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a link with the right text to this repo's issue fails" 1 42 "Fixes [acme/tracker#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a link with text GH-N fails" 1 42 "Fixes acme/tracker#42
+Fixes [GH-42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: this repo's issue URL in angle brackets fails" 1 42 "Fixes acme/tracker#42
+Fixes <https://github.com/acme/app/issues/42>"
+expect "cross-repo: a link with text this repo's owner/repo#N fails" 1 42 "Fixes acme/tracker#42
+Fixes [acme/app#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: a link with the right text and target passes" 0 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: the right link beside the right reference passes" 0 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)
+Fixes acme/tracker#42"
+expect "cross-repo: a link to this repo's issue without a keyword passes" 0 42 "Fixes acme/tracker#42
+See [#42](https://github.com/acme/app/issues/42)"
+
+# A name the repository had before a rename still closes its issue N (#1044).
+# The stub answers the lookup as GitHub's redirect does.
+export GH_RENAMED="acme/old-app=acme/app"
+expect "cross-repo: this repo's old name alone fails" 1 42 "Fixes acme/old-app#42"
+expect "cross-repo: this repo's old name beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+expect "cross-repo: this repo's old name in another case fails" 1 42 "Fixes acme/tracker#42
+Fixes ACME/Old-App#42"
+expect "cross-repo: this repo's old-name issue URL fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/old-app/issues/42"
+expect "cross-repo: this repo's old name as a link's text fails" 1 42 "Fixes acme/tracker#42
+Fixes [acme/old-app#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: this repo's old name on the line after the keyword fails" 1 42 "Fixes acme/tracker#42
+Fixes
+acme/old-app#42"
+expect "cross-repo: this repo's old name without a keyword passes" 0 42 "Fixes acme/tracker#42
+See acme/old-app#42"
+expect "cross-repo: this repo's old name with another issue passes" 0 42 "Fixes acme/tracker#42
+Fixes acme/old-app#43"
+export GH_MISSING="acme/gone"
+expect "cross-repo: a repository that doesn't exist doesn't count" 0 42 "Fixes acme/tracker#42
+Fixes acme/gone#42"
+expect "cross-repo: a third repository's issue passes" 0 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+export GH_API_FAIL=1
+expect "cross-repo: a lookup that fails fails closed" 1 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+expect "cross-repo: no lookup is needed for the right reference alone" 0 42 "Fixes acme/tracker#42
+See acme/other#42"
+unset GH_RENAMED GH_MISSING GH_API_FAIL
+
+# The lookup runs only for another repository the body closes issue N in, on
+# the pull request's host.
+GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
+export GH_LOG
+run_gate 42 "Fixes acme/tracker#42
+See acme/other#42 and Fixes acme/app#421"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "cross-repo: the right reference alone makes no lookup"
+else
+    fail "cross-repo: the right reference alone made a lookup: $(cat "$GH_LOG")"
+fi
+: > "$GH_LOG"
+run_gate 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 1 ]] && grep -qx 'api --hostname github.com repos/acme/other --jq .full_name' "$GH_LOG"; then
+    pass "cross-repo: another repository is looked up once, on the PR's host"
+else
+    fail "cross-repo: unexpected lookups: $(cat "$GH_LOG")"
+fi
+unset GH_LOG
 
 # A `.` in the recorded name is a literal dot, not any character.
 export ISSUE_REPO=acme/.github
