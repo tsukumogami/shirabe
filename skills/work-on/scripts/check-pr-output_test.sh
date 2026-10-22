@@ -897,6 +897,77 @@ run --deferral-record --reason "$DREASON"
     || fail "--deferral-record: gh failure rc $RC"
 FAKE_GH_RC=0
 
+# --- --deferral-record with several reasons and --owned (/execute's shared PR, #1017)
+
+DREASON2="CI only while the runner pool is down"
+FAKE_GH_OWNED_JSON=$(pr_json "feat: a shared change" "A change.
+
+---
+
+## Verification
+
+Local verification did not run: it was deferred to hosted CI.
+Reason: $DREASON
+Reason: $DREASON2
+Hosted CI is the build of record for this change.")
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: the branch PR" "Branch body.
+
+---
+
+Context.")
+export FAKE_OWNED_OUT FAKE_OWNED_RC
+FAKE_OWNED_OUT="$URL1"
+FAKE_OWNED_RC=0
+
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --reason "$DREASON2" --owned $OWNED_ARGS
+if [ "$RC" -eq 0 ] && [ "$(cat "$LOG/gh/arg.3" 2>/dev/null)" = "$URL1" ]; then
+    pass "--deferral-record --owned: reads the owned PR's body and passes with both reasons"
+else
+    fail "--deferral-record --owned: two reasons rc $RC, gh arg 3 [$(cat "$LOG/gh/arg.3" 2>/dev/null)], stderr [$(cat "$WORKDIR/stderr")]"
+fi
+if [ "$(cat "$LOG/owned/arg.1" "$LOG/owned/arg.2" 2>/dev/null | tr -d '\n')" = "--repoacme/widgets" ]; then
+    pass "--deferral-record --owned: hands the arguments after --owned to owned-pr.sh"
+else
+    fail "--deferral-record --owned: owned-pr.sh got [$(cat "$LOG/owned/arg.1" "$LOG/owned/arg.2" 2>/dev/null)]"
+fi
+
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --reason "a reason no child gave" --owned $OWNED_ARGS
+if [ "$RC" -eq 1 ] && grep -q 'verbatim: a reason no child gave' "$WORKDIR/stderr" \
+    && ! grep -q "verbatim: $DREASON\$" "$WORKDIR/stderr"; then
+    pass "--deferral-record: a second reason the body lacks fails (1), naming only that reason"
+else
+    fail "--deferral-record: missing second reason rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+run --deferral-record --reason "$DREASON" --reason "$DREASON2"
+[ "$RC" -eq 1 ] && pass "--deferral-record without --owned reads the checked-out branch's PR, not the owned one (1)" \
+    || fail "--deferral-record without --owned: rc $RC"
+
+FAKE_OWNED_RC=3
+FAKE_OWNED_OUT=""
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --owned $OWNED_ARGS
+[ "$RC" -eq 2 ] && pass "--deferral-record --owned: no single owned PR can't be decided (2)" \
+    || fail "--deferral-record --owned: lookup 3 rc $RC"
+FAKE_OWNED_RC=0
+FAKE_OWNED_OUT="$URL1"
+
+run --deferral-record --reason "$DREASON" --owned
+[ "$RC" -eq 2 ] && pass "--deferral-record: --owned with no arguments is a usage error (2)" \
+    || fail "--deferral-record: bare --owned rc $RC"
+run --deferral-record --reason "$DREASON" --reason
+[ "$RC" -eq 2 ] && pass "--deferral-record: a --reason with no value is a usage error (2)" \
+    || fail "--deferral-record: dangling --reason rc $RC"
+run --deferral-record --reason "$DREASON" --reason ""
+[ "$RC" -eq 2 ] && pass "--deferral-record: an empty second reason can't be decided (2)" \
+    || fail "--deferral-record: empty second reason rc $RC"
+# shellcheck disable=SC2086
+run --deferral-record --owned $OWNED_ARGS
+[ "$RC" -eq 2 ] && pass "--deferral-record: --owned with no --reason is a usage error (2)" \
+    || fail "--deferral-record: --owned without a reason rc $RC"
+
 # --- the rule registry ----------------------------------------------------------
 
 # The stand-in validator reports a PB3 violation, so the unaltered copy's

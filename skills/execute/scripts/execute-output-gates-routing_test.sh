@@ -9,7 +9,7 @@
 #   orchestrator_setup  setup_owned_pr          which PR the run owns (routing)
 #   pr_finalization     final_owned_pr          the same lookup (routing)
 #                       owned_pr_body_conformant, settled_commits,
-#                       settled_docs_visibility
+#                       settled_docs_visibility, deferral_recorded
 #                                               the output the state presents
 #                       finalization_status: updated, vars.PAUSE_BEFORE_FINALIZE
 #                                               the pause, routed by koto once
@@ -233,6 +233,13 @@ cat > "$FAKE_ROOT/skills/execute/scripts/run-id.sh" <<'EOF'
 #!/usr/bin/env bash
 echo 00112233445566778899aabbccddeeff
 EOF
+cat > "$FAKE_ROOT/skills/execute/scripts/shared-deferral-record.sh" <<EOF
+#!/usr/bin/env bash
+f="$RC_DIR/shared-deferral-record.sh\$1"
+rc=0
+[ -f "\$f" ] && rc=\$(cat "\$f")
+exit "\$rc"
+EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/* "$FAKE_ROOT"/skills/execute/scripts/*
 
 set_rc() { printf '%s\n' "$2" > "$RC_DIR/$1"; }
@@ -265,6 +272,9 @@ build() {
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  PAUSE_BEFORE_FINALIZE:' '    description: pause' '    required: false' \
             '    default: "false"' '    values: ["true", "false"]' \
+            '  VERIFICATION:' '    description: verification' '    required: false' \
+            '    default: local' '    values: [local, hosted-ci]' \
+            '  VERIFICATION_DEFERRAL_REASON:' '    description: reason' '    required: false' \
             'states:' '  start:' '    transitions:' "      - target: $state"
         printf '%s\n' "$block"
         for t in $targets; do
@@ -387,7 +397,8 @@ expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE true" paused_for_revi
 PAUSE=false drive pr_finalization "$UPDATED"
 expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE false" plan_completion
 for key in check-pr-output.sh--pr-body:owned_pr_body_conformant check-branch-output.sh--commits:settled_commits \
-           check-branch-output.sh--docs-visibility:settled_docs_visibility; do
+           check-branch-output.sh--docs-visibility:settled_docs_visibility \
+           shared-deferral-record.sh--session:deferral_recorded; do
     for rc in 1 2; do
         for p in true false; do
             reset_rc; set_rc "${key%%:*}" "$rc"

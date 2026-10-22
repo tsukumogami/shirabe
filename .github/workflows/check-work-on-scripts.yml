@@ -44,6 +44,8 @@ on:
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
       - 'Cargo.lock'
+      # work-on-open.sh sources the verification deferral's opener checks.
+      - 'scripts/lib/verification-deferral.sh'
       # The verification map schema test reads shirabe's map and the
       # extension file that points at it.
       - '.claude/shirabe-extensions/verification-map.json'
@@ -76,6 +78,7 @@ on:
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
       - 'Cargo.lock'
+      - 'scripts/lib/verification-deferral.sh'
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
       - '.github/workflows/check-work-on-scripts.yml'
