@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-red-first-fixes.md
 problem: |
   /work-on can't tell a fix from other work, records no failing check before
@@ -37,7 +37,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
