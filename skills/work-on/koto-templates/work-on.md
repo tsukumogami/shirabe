@@ -485,9 +485,15 @@ states:
       # 0 fresh, 1 stale, 3 unavailable, 2 usage. The test -x guard turns an
       # empty or wrong PLUGIN_ROOT into 3 rather than 127. No pipe, so koto
       # running gates without pipefail can't mask the script's status.
+      #
+      # An issue in another repository (ISSUE_REPO set) is also 3: the check
+      # reads the issue and its milestone from the current repository, where
+      # issue N is a different issue or none, so a verdict there would be on
+      # the wrong issue. Reading it from ISSUE_REPO is shirabe#1033. With
+      # ISSUE_REPO empty the command runs as before.
       staleness_fresh:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-staleness.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-staleness.sh" --issue "{{ISSUE_NUMBER}}"'
+        command: 'test -z "{{ISSUE_REPO}}" || exit 3; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-staleness.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-staleness.sh" --issue "{{ISSUE_NUMBER}}"'
         override_default:
           exit_code: 0
           error: ""
@@ -2715,9 +2721,10 @@ time you read this:
   against current code.
 - **exit 3, or -1 (koto could not run the gate to completion: it timed out or
   failed to start)**: unavailable. The check could not reach a verdict: the
-  plugin root was not passed, `gh` is unauthenticated or unreachable, or a read
-  failed. The run goes to `analysis` with staleness not assessed. This is not
-  an override; nobody chose to skip the check.
+  plugin root was not passed, `gh` is unauthenticated or unreachable, a read
+  failed, or the run's issue is in another repository (`ISSUE_REPO` is set),
+  which the check can't read yet. The run goes to `analysis` with staleness
+  not assessed. This is not an override; nobody chose to skip the check.
 
 You only see this state on **exit 2**: the gate passed the check a bad argument,
 which is a template defect. Submit `staleness_signal: blocked` with the detail,

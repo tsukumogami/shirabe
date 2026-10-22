@@ -104,7 +104,9 @@ REPO_RE=$(printf '%s' "$REPO" | sed 's/\./\\./g')
 BARE="${KW}[[:space:]]+#${ISSUE}([^0-9]|\$)"
 QUALIFIED="(^|[^[:alnum:]_])${KW}[[:space:]]+${REPO_RE}#${ISSUE}([^0-9]|\$)"
 
-has() { printf '%s\n' "$BODY" | grep -qiE "$1"; }
+# A here-string rather than a pipe: grep -q stops at the first match, and a
+# writer still filling the pipe would then fail.
+has() { grep -qiE "$1" <<<"$BODY"; }
 
 if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     # The issue is in this repository after all: either form closes it.

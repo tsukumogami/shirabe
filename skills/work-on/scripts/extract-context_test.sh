@@ -46,7 +46,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 [ -f "$SCRIPT" ] || { echo "FAIL: extract-context.sh not found at $SCRIPT" >&2; exit 1; }
 REAL_JQ=$(command -v jq 2>/dev/null) || { echo "SKIP: jq not on PATH -- no case ran"; exit 0; }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || { echo "FAIL: could not create a temporary directory" >&2; exit 1; }
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
