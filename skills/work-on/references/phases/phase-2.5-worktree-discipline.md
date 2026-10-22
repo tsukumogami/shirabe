@@ -69,20 +69,36 @@ conflict can be in a file the PLAN doesn't care about.
 
 ### 2.5.3 Submit Evidence
 
-Submit `impact` to the `worktree_discipline_check` state:
+Submit `impact` to the `worktree_discipline_check` state, from a file. Write
+the object to `evidence.json` in a private scratch directory, for example
+
+```json
+{"impact": "informational", "rationale": "main reformatted docs/guide.md, which the PLAN only cites"}
+```
+
+or
+
+```json
+{"impact": "intent-changing", "rationale": "main deleted references/worktree-discipline.md that this PLAN renames to; PLAN must be re-planned against new main"}
+```
+
+then submit it and remove the file:
 
 ```bash
-koto next {{SESSION_NAME}} --with-data '{"impact": "informational", "rationale": "main reformatted docs/guide.md, which the PLAN only cites"}' --no-cleanup
-# or
-koto next {{SESSION_NAME}} --with-data '{"impact": "intent-changing", "rationale": "main deleted references/worktree-discipline.md that this PLAN renames to; PLAN must be re-planned against new main"}' --no-cleanup
+koto next {{SESSION_NAME}} --with-data @<scratch>/evidence.json --no-cleanup
+rm <scratch>/evidence.json
 ```
+
+The evidence goes in a file rather than inline because Claude Code's
+worktree-isolation check refuses a quoted JSON argument after a
+token-stripping prefix such as `env -u GH_TOKEN`.
 
 `informational` routes forward to `spawn_and_await`. `intent-changing` routes
 to `escalate_upstream_drift` → `done_blocked` carrying the rationale as the
 actionable failure reason -- **inside the same `koto next` call**, because
 `escalate_upstream_drift` declares required evidence but exits to
 `done_blocked` unconditionally, so koto chains straight through it. That is
-why every line above carries `--no-cleanup`: without it, the `intent-changing`
+why the tick above carries `--no-cleanup`: without it, the `intent-changing`
 tick disposes of the orchestrator's session and destroys the record of why the
 chain was stopped.
 
