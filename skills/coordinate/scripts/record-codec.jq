@@ -55,8 +55,8 @@ def re_topic: "^[A-Za-z0-9][A-Za-z0-9._-]*$";
 
 # pr_link_parts: a Pull request cell `[#a](https://github.com/o/r/pull/b)` as
 # {a, r, b}, or nothing for any other value. The one jq parser of the cell
-# (record-common.sh lib_pr_link is the bash one); scripts outside the codec
-# reach it with `jq -L <scripts dir> 'include "record-codec"; ...'`.
+# (record-common.sh lib_pr_link is the bash one); a script reaches it with
+# `jq -L <scripts dir> 'include "state-schema"; ...'`, or through record-codec.jq.
 def pr_link_parts:
   strings | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$");
 # pr_link: the cell as {repo, number} when its two numbers agree, else nothing.
