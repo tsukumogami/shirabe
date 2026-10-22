@@ -1,0 +1,31 @@
+name: Check skill declarations
+
+# No paths filter, on purpose. The declaration scan reads every file under
+# every skill (SKILL.md, references/, koto-templates/, scripts/), so it, not a
+# trigger list, knows where a koto or shirabe call can be written. A paths
+# filter here would have to track all of those places and would fall behind.
+# Check preflight scripts runs the same scan, but only when a declaration or a
+# preflight script changes: a pull request that added an undeclared call to a
+# skill's templates without touching its requires.tsv (#1011) never ran it, and
+# the drift sat on main until unrelated pull requests ran the scan and failed
+# on it (#1035).
+#
+# Push to main is here so drift that lands anyway shows on the push that lands
+# it, rather than on the next pull request.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check-skill-requires:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The scan alone, against the committed tree: bash and the repository's
+      # own files, no shirabe build, no koto, no macOS leg. Its harness and the
+      # bash 3.2 floor run stay in check-preflight-scripts.yml, which keeps its
+      # own trigger.
+      - name: Check every koto and shirabe flag a skill uses is declared
+        run: bash scripts/check-skill-requires.sh
