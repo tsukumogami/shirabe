@@ -68,7 +68,8 @@ submit `pr_status: created` again once GitHub answers. If the same
 repository keeps failing (a 403 from an organization's SSO, say), the hold
 ends when the body stops closing `<N>` there: drop the closing keyword in
 front of the reference its message names, with `gh pr edit`, and submit
-again. A colon
+again. That issue then won't close on merge, so close it by hand if it
+should. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
 

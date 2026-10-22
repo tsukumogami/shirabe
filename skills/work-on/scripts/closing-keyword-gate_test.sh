@@ -66,6 +66,7 @@ fi
 # lookup fail the way gh does: `rate` (403, rate limit), `limit` (429),
 # `net` (no connection) or `5xx` (502). $GH_API_SLEEP makes it wait that many
 # seconds before it answers, and $GH_PR_SLEEP the pull request read.
+# $GH_API_WARN makes a lookup that works also write to stderr.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -78,6 +79,8 @@ if [[ "${1:-}" == "api" ]]; then
     for a in "$@"; do [[ "$a" == repos/* ]] && name=${a#repos/}; done
     lname=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
     [[ -z "${GH_API_SLEEP:-}" ]] || sleep "$GH_API_SLEEP"
+    # gh writes debug output to stderr when GH_DEBUG is set, even on success.
+    [[ -z "${GH_API_WARN:-}" ]] || echo "[git remote -v] debug: request took 0.2s" >&2
     case "${GH_API_FAIL:-}" in
         rate) echo '{"message":"API rate limit exceeded for user ID 1.","status":"403"}gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1 ;;
         limit) echo 'gh: You have exceeded a secondary rate limit. (HTTP 429)' >&2; exit 1 ;;
@@ -304,8 +307,61 @@ Fixes [acme/app#42](https://github.com/acme/tracker/issues/42)"
 expect "cross-repo: a link with the right text and target passes" 0 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)"
 expect "cross-repo: the right link beside the right reference passes" 0 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)
 Fixes acme/tracker#42"
+# Which part of a link GitHub closes on isn't known, so the right text alone
+# doesn't pass: the link must point at the same issue.
+expect "cross-repo: the right text pointing at another repository's issue fails" 1 42 "Fixes [acme/tracker#42](https://github.com/acme/other/issues/42)"
+expect "cross-repo: the right text pointing at another issue fails" 1 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/43)"
+expect "cross-repo: the right text pointing at a page that isn't an issue fails" 1 42 "Fixes [acme/tracker#42](https://example.com/notes)"
+expect "cross-repo: the right text pointing elsewhere passes beside the plain reference" 0 42 "Fixes acme/tracker#42
+See [acme/tracker#42](https://example.com/notes)"
 expect "cross-repo: a link to this repo's issue without a keyword passes" 0 42 "Fixes acme/tracker#42
 See [#42](https://github.com/acme/app/issues/42)"
+
+# Every spelling of a link whose target is this repository's issue: a space
+# or a newline before the target, the target in <...>, brackets nested or
+# escaped in the text, and a reference-style link with its definition below.
+expect "cross-repo: a link target after a space fails alone" 1 42 "Fixes [acme/tracker#42]( https://github.com/acme/app/issues/42)"
+expect "cross-repo: a link target in angle brackets fails" 1 42 "Fixes acme/tracker#42
+Fixes [x](<https://github.com/acme/app/issues/42>)"
+expect "cross-repo: a link with nested brackets in its text fails" 1 42 "Fixes acme/tracker#42
+Fixes [[x]](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a link with an escaped bracket in its text fails" 1 42 'Fixes acme/tracker#42
+Fixes [a\]b](https://github.com/acme/app/issues/42)'
+expect "cross-repo: a link target on the next line fails" 1 42 "Fixes acme/tracker#42
+Fixes [x](
+https://github.com/acme/app/issues/42)"
+expect "cross-repo: a reference-style link to this repo's issue fails" 1 42 "Fixes acme/tracker#42
+Fixes [the bug][1]
+
+[1]: https://github.com/acme/app/issues/42"
+expect "cross-repo: a shortcut reference link to this repo's issue fails" 1 42 "Fixes acme/tracker#42
+Fixes [the bug]
+
+[the bug]: <https://github.com/acme/app/issues/42>"
+expect "cross-repo: a definition with no keyword in front of a bracket passes" 0 42 "Fixes acme/tracker#42
+See [the bug][1]
+
+[1]: https://github.com/acme/app/issues/42"
+expect "cross-repo: a link to a heading on the page passes" 0 42 "Fixes acme/tracker#42
+See the section it fixes [below](#42-notes)."
+# Emphasis around the reference: GitHub's reading isn't known, so it fails.
+expect "cross-repo: #N in bold fails" 1 42 "Fixes acme/tracker#42
+Fixes **#42**"
+expect "cross-repo: #N in italics fails" 1 42 "Fixes acme/tracker#42
+Fixes _#42_"
+expect "cross-repo: this repo's owner/repo#N in italics fails" 1 42 "Fixes acme/tracker#42
+Fixes *acme/app#42*"
+# A body of plain mentions costs nothing to read: no keyword, no lookup.
+MENTIONS="Fixes acme/tracker#42
+"
+for i in $(seq 1 1000); do MENTIONS="${MENTIONS}a/b$i#42 "; done
+START=$SECONDS
+expect "cross-repo: a body with 1000 plain mentions passes" 0 42 "$MENTIONS"
+if (( SECONDS - START <= 5 )); then
+    pass "cross-repo: 1000 plain mentions were read in $((SECONDS - START))s"
+else
+    fail "cross-repo: 1000 plain mentions took $((SECONDS - START))s"
+fi
 
 # A name the repository had before a rename still closes its issue N (#1044).
 # The stub answers the lookup as GitHub's redirect does.
@@ -322,6 +378,15 @@ Fixes [acme/old-app#42](https://github.com/acme/tracker/issues/42)"
 expect "cross-repo: this repo's old name on the line after the keyword fails" 1 42 "Fixes acme/tracker#42
 Fixes
 acme/old-app#42"
+expect "cross-repo: this repo's old name as a link target after a space fails" 1 42 "Fixes [acme/tracker#42]( https://github.com/acme/old-app/issues/42)"
+expect "cross-repo: this repo's old name in a reference-style link fails" 1 42 "Fixes acme/tracker#42
+Fixes [the bug][1]
+
+[1]: https://github.com/acme/old-app/issues/42"
+expect "cross-repo: this repo's old name in italics fails" 1 42 "Fixes acme/tracker#42
+Fixes _acme/old-app#42_"
+GH_API_WARN=1 expect "cross-repo: a lookup that also writes to stderr still finds the old name" 1 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
 expect "cross-repo: this repo's old name without a keyword passes" 0 42 "Fixes acme/tracker#42
 See acme/old-app#42"
 expect "cross-repo: this repo's old name with another issue passes" 0 42 "Fixes acme/tracker#42
