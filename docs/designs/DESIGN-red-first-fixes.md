@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-red-first-fixes.md
 problem: |
   /work-on can't tell a fix from other work, records no failing check before
@@ -37,7 +37,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -699,7 +699,14 @@ engine` line in `skills/work-on/references/review-level-rules.tsv`, so a
 change to the rule or the classifier floors at `full`; a template change
 regenerates `work-on.mermaid.md` and updates the route tests that assert the
 edges it moves; and each new finding rule gets a `references/rule-registry.json`
-entry and an eval. `FIX_REPORT` needs no change to `/execute`: it is declared
+entry and an eval. Each step runs the whole `/work-on` suite and the
+`/execute` template tests before its pull request, since other suites
+(`pre-pr-evidence_test.sh`, `run-verification_test.sh`,
+`terminal-retention_test.sh`, `work-on-open_test.sh`,
+`check-branch-output_test.sh`, `skills/execute/scripts/shared-deferral-record_test.sh`)
+read the states these steps touch; a suite that turns out to assert a moved
+edge joins that step's file list. The walkthroughs need all four steps, since
+they use step 3's `record` and `render`. `FIX_REPORT` needs no change to `/execute`: it is declared
 in `work-on.md`, and `/execute` passes each task's variables to the child
 unchanged.
 
@@ -710,7 +717,8 @@ records, the shared classifier the red uses to find its reproducing tests, and
 `pass_counting` with only its `fix_green` gate. In this step `check-green`
 refuses an `after` observation with a `refused:` line saying observations wait
 for acceptance, so a unit recorded by observation stays held at
-`pass_counting` until step 3 lands.
+`pass_counting` until step 2 lands. `scripts/check-init-site-vars.sh` is run
+for the new `FIX_REPORT` init-site variable; it shouldn't need a change.
 
 New files:
 
@@ -804,6 +812,7 @@ Changed files:
 - `skills/work-on/scripts/check-pr-output_test.sh`
 - `skills/work-on/scripts/ci-monitor-role_test.sh`
 - `skills/work-on/scripts/cascade-chaining_test.sh`
+- `skills/work-on/scripts/leg-result_test.sh`
 - `skills/work-on/references/red-first.md`
 - `skills/work-on/references/phases/phase-5-finalization.md`
 - `skills/work-on/references/phases/phase-6-pr.md`
