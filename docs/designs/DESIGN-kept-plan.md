@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   shirabe treats a plan as a working document: the completion cascade flips it
   to Done and removes it with git rm, a single-PR plan is added and removed on
@@ -35,7 +35,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 Accepted under `/scope`'s non-interactive mode. The security researcher's
 findings were folded into Security Considerations, and the architecture,
