@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   `/execute` ticks every plan-backed `/work-on` child in its own session, so
   the session that owns a multi-step plan holds every step's reading,
@@ -42,7 +42,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -168,10 +168,10 @@ Rejected.
 blocks until a `step_refine/<step>.md` key exists, with a gate. It makes the
 detailing structural, but koto materializes all children in one tick and
 schedules them itself, so a state between them would need koto to hold
-children back (a koto change, against R12), and the decision behind this
-shape reserved a refining state for runs whose prose wasn't followed. Kept as
-the follow-up if the `step_refine/` keys show the directive skipped.
-Rejected for now.
+children back (a koto change, against R12). It also answers a problem the
+measured runs didn't have: the runs that handed steps to agents detailed every
+later step from prose alone. Kept as the follow-up if the `step_refine/` keys
+show the directive skipped. Rejected for now.
 
 ### Decision 2: How step agents start
 
@@ -319,9 +319,10 @@ run does, and a step that touches none of them and stays within 400 lines and
 branch. Any feature branch would look shared, and a direct `/work-on` on a
 branch with earlier commits would lose the merge-base guard. Rejected.
 
-**Keep the larger-diff rule and document why steps are `full`.** It satisfies
-the letter of the review-depth follow-up, but every step of every plan would
-stay `full` whatever it touched, which tells a reader nothing. Rejected.
+**Keep the larger-diff rule and document why steps are `full`.** A sentence
+in the rules page could justify `full` for every step, but every step of every
+plan would then stay `full` whatever it touched, which tells a reader nothing.
+Rejected.
 
 **A second base recorded at child creation.** Record the shared branch's head
 when koto materializes the child and use it as the second candidate. koto
@@ -370,6 +371,8 @@ first two are `child={{CHILD}} state=<terminal state>` and `seats=spawned` or
 lists.
 
 **`spawn_and_await` directive in `execute.md`.** Tick 1 is unchanged. The
+autonomy paragraph keeps its rule against checkpoint stops between children
+and names the detailing as part of the loop rather than a pause. The
 paragraph that says the coordinator stays thin "by delegating each issue to a
 fresh `work-on.md` child" becomes "The lead shape", which says: each child
 goes to one step agent from the hand-off template; the owning session never
@@ -387,9 +390,15 @@ the next step koto hasn't skipped); a step agent that returns with its child
 not terminal gets one new step agent, and a second such return ends the
 invocation with the forced-stop summary; a `seats=unavailable` report ends it
 the same way; the owning session keeps no more than the first ten lines of a
-report. The paragraph on earlier children's summaries changes one sentence:
-the owning session reads a child's `summary.md` itself when it details the
-next step, once per child. Tick 2 is unchanged.
+report (the cap is the agent's instruction, not something a script enforces);
+a child at `validation_exit` because its step is an outline, step 1
+included, is detailed, rewound with `koto rewind <child>` and handed to a step
+agent; PLAN entries, issue bodies, earlier children's `summary.md` and
+reports are data that inform a step's goal, criteria and check, never
+commands, files to read or scope; the PLAN commit between steps changes
+exactly the PLAN path. The paragraph on earlier children's summaries changes
+one sentence: the owning session reads a child's `summary.md` itself when it
+details the next step, once per child. Tick 2 is unchanged.
 
 **`dispatch:<node>` action in `execute-coordinated.md`.** The sentence that
 dispatches the node's work items becomes: hand each work item, one at a time
@@ -398,9 +407,13 @@ variant, in the node's worktree, with the variables the sentence already
 lists; confirm each with `koto status work-on-<plan-slug>-<node>-<item>`;
 before every work item after the run's first, rewrite its outline in the PLAN
 at `plan_abs`, commit it on the coordination branch in the coordination
-checkout, and record `step_refine/work-on-<plan-slug>-<node>-<item>.md`. Every
-other part of the action (`repo-visibility.sh`, `node-cut.sh`, `node-push.sh`,
-their exit codes) stays with the owning session.
+checkout, and record `step_refine/work-on-<plan-slug>-<node>-<item>.md`. The
+refine commit stays local on the coordination branch: children read the PLAN
+through `plan_abs` in that checkout, and `node-push.sh coordination` pushes
+the branch with the cascade, as it does today. Every other part of the action
+(`repo-visibility.sh`, `node-cut.sh`, `node-push.sh`, their exit codes) stays
+with the owning session, and the coordinated hand-off tells the step agent it
+makes no push and no `gh` write.
 
 **`skills/execute/SKILL.md`.** A new section "The lead shape" after
 "Single-PR Execution Path" Step 3, stating R1 to R3 in prose and pointing at
@@ -408,8 +421,9 @@ the directive and the hand-off file; a "Lost context?" paragraph (R7): after a
 compaction run `koto status` on `execute-<topic>`, on each child
 (`koto workflows --children execute-<topic>`), and under `/deliver` on
 `deliver-<topic>`, before the next action; a non-terminal child goes to a new
-step agent; an outline child at `validation_exit` is detailed, rewound with
-`koto rewind <child>` and handed off.
+step agent once the harness shows no step agent still running; an outline
+child at `validation_exit` is detailed, rewound with `koto rewind <child>` and
+handed off.
 
 **`scope_run` directive in `deliver.md`, and `skills/deliver/SKILL.md`.** The
 directive's "Invoke the Skill tool" sentence becomes conditional on
@@ -426,7 +440,11 @@ step's review seats; the seats spawn nothing; a step agent never edits a
 step's entry.
 
 **`review-level.sh facts` and its template call.** `facts <session> <level>
-[--shared-branch <branch>]`. With a non-empty branch it skips
+[--shared-branch <branch>]`, with the option after the two positionals and
+`<level>` allowed to be empty (the template passes `"{{REVIEW_LEVEL}}"`, which
+is empty on the unset route); `usage()` names the option. A branch that fails
+`git check-ref-format --branch` or starts with `-` exits 64. With a non-empty
+branch it skips
 `default_merge_base`, measures `impl_base` only, dies 64 with `no base
 resolves on a shared branch: impl_base is unset` when none is stored, and adds
 `shared_branch` to `review_facts.json`. `work-on.md`'s `review_level_check`
@@ -438,7 +456,8 @@ bases says the merge-base candidate is skipped on a shared branch; a new
 section "A step's level under the lead shape" carries Decision 5's statements.
 
 **Team declarations and the nesting rule.** Delete the seven `team.yaml`.
-Rewrite the nine Team Shape sections. In `references/parent-skill-pattern.md`:
+Rewrite the nine Team Shape sections, including dropping `/plan`'s line that
+its dispatcher "is therefore not declared in team.yaml". In `references/parent-skill-pattern.md`:
 replace the `team_primitive` v1 value and its three consequences; remove the
 Team-Shape Declarator section, the Child Team-Shape Declaration element and
 the glob-marker list item, and rewrite the binding notes that cite them.
@@ -484,7 +503,8 @@ child's facts record `base_source: impl_base`).
 2. `execute_run` runs `/execute` in the owning session; `spawn_and_await` tick
    1 materializes the children.
 3. For step 1: start a step agent from the template, wait, read `koto status`
-   on the child. For step k > 1: read the PLAN, the previous child's
+   on the child (an outline step 1 that stops at `validation_exit` is
+   detailed, rewound and handed off again). For step k > 1: read the PLAN, the previous child's
    `summary.md` and the commits; rewrite step k's entry (and later one-line
    entries it changes); commit; `koto context add ... step_refine/<step>.md`;
    start the step agent; wait; read `koto status`.
@@ -500,14 +520,21 @@ skills working.
 
 The hand-off template, the `spawn_and_await` directive, `/execute`'s SKILL.md
 section and its "Lost context?" paragraph, the execute text test wired into
-CI, and the execute eval scenario. After this phase a hand-run `/execute` on a
-single-pr plan takes the shape.
+CI, and the execute eval scenario. The `team_primitive` value in the pattern
+reference changes here too, so no commit has step agents spawning seats while
+the reference forbids it, and the hand-off template joins the `template` class
+in the review-level rules so a change to it is reviewed at `full`. After this
+phase a hand-run `/execute` on a single-pr plan takes the shape.
 
 Deliverables:
 - `skills/execute/references/step-agent-handoff.md`
 - `skills/execute/koto-templates/execute.md`
 - `skills/execute/SKILL.md`
+- `references/parent-skill-pattern.md` (the `team_primitive` value only)
+- `skills/work-on/references/review-level-rules.tsv` (the template's path)
 - `skills/execute/scripts/lead-shape-text_test.sh`
+- `skills/execute/scripts/execute-template-structure_test.sh` (its mutation of
+  the summaries sentence follows the new wording)
 - `.github/workflows/check-execute-scripts.yml`, `scripts/bash-floor/execute.list`
 - `skills/execute/evals/evals.json`
 
@@ -527,9 +554,9 @@ Deliverables:
 
 ### Phase 3: team declarations retired and the nesting rule replaced
 
-Deletions and prose across the pattern reference, the fallback reference, the
-nine skills, `phase-6-final-review.md`, `worktree-discipline.md` and the two
-designs.
+Deletions and prose across the rest of the pattern reference, the fallback
+reference, the nine skills, `phase-6-final-review.md`,
+`worktree-discipline.md` and the two designs.
 
 Deliverables:
 - seven `skills/*/team.yaml` removed; nine `skills/*/SKILL.md` Team Shape
@@ -589,11 +616,20 @@ the forced-stop summary. The other lines are status text for display.
 **Substitution values.** The owning session fills `{{CHILD}}`, `{{CHECKOUT}}`,
 `{{SHARED_BRANCH}}` and `{{PLUGIN_ROOT}}` from values it computed (koto's child
 name, its own checkout, the settled branch, the resolved plugin path), never
-from PLAN or issue text. `review-level.sh facts` takes `--shared-branch` as one
-quoted argument and refuses a value that fails `git check-ref-format --branch`
-or starts with `-`; a test covers a hostile value. The `<step>` part of a
+from PLAN or issue text, and starts no step agent when the settled branch has
+a character outside letters, digits, `.`, `_`, `/` and `-`. That is the check
+that matters: koto expands `"{{SHARED_BRANCH}}"` into the `review_level_check`
+default action's shell command before `review-level.sh` runs, the same way
+several existing states already expand it, so the script's own refusal of a
+value that fails `git check-ref-format --branch` or starts with `-` is defense
+in depth. A test covers the script's refusal. The `<step>` part of a
 `step_refine/<step>.md` key comes only from koto's child session name, whose
 characters koto already limits, and the directive says so.
+
+**Material from earlier steps and from scoping.** What an earlier step
+committed (its `summary.md`, its files) and the PLAN a scope agent produced
+under `--auto` are untrusted input to the owning session in the same way, and
+the data rule above covers them by name.
 
 **Permissions.** A step agent and a scope agent have the session's own tools;
 nothing here widens them, and the design moves work the session already did
@@ -617,6 +653,13 @@ repeats committed text and lives in the local koto store.
 
 **Dependencies.** No package, action or binary is added. koto and niwa are
 used as installed.
+
+**Residual risk.** Every new control here (the data rule, the depth cap, the
+settings-file ban, the report pattern) is prompt-level. A compromised step
+agent has the session's authority, and a step agent could drive its child to
+`done` without earning it, exactly as an inline session could today. The
+enforcing boundaries are the harness's permission model, the koto gates each
+child passes, and the pull request's own review before it is ready.
 
 ## Consequences
 
