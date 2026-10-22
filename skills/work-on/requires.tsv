@@ -32,6 +32,9 @@
 #                   that would report it done; analysis reads a sibling's
 #                   state from it before reading that sibling's summary
 #   session cleanup the Resume step's recovery once that record has been read
+#   session dir     references/scripts/extract-context.sh finds the session's
+#                   state log with it, to read the ISSUE_REPO the run was
+#                   initialized with, no flag
 #   rewind          step back after a failed gate, no flag
 #   context add     --from-file for the file-backed keys (context.md,
 #                   introspection.md, plan.md); the stdin heredoc form of the
@@ -137,6 +140,7 @@ koto	workflows	--children	always
 koto	session list	-	always
 koto	status	-	always
 koto	session cleanup	-	always
+koto	session dir	-	always
 koto	rewind	-	always
 koto	context add	--from-file	always
 koto	context get	-	always

@@ -133,6 +133,98 @@ else
     pass "a koto context add that fails: no 'Context stored' banner"
 fi
 
+# An issue in another repository. A koto stub answers `session dir` from a
+# directory holding the session's state log, as koto lays it out, and stores
+# `context add` into a file; a gh stub logs every call. The working directory
+# holds a design doc that names #123, so a run that searched this repository's
+# docs would find it.
+XREPO="$WORKDIR/xrepo"
+SESSIONS="$WORKDIR/sessions"
+mkdir -p "$XREPO/docs" "$SESSIONS"
+printf '# DESIGN: local\n\n| [#123: a local issue](x) | None | simple |\n' > "$XREPO/docs/DESIGN-local.md"
+cat >"$STUBS/gh-log" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >> "$GH_LOG"
+case "$1 $2" in
+    "auth status") exit 0 ;;
+    "issue view") echo "the cross-repo issue body" ;;
+    *) exit 1 ;;
+esac
+EOF
+cat >"$STUBS/koto-store" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+    "session dir") echo "$KOTO_SESSIONS/$3" ;;
+    "context add") cat > "$KOTO_STORED" ;;
+    *) exit 2 ;;
+esac
+EOF
+chmod +x "$STUBS/gh-log" "$STUBS/koto-store"
+mkdir -p "$WORKDIR/ghbin"
+ln -sf "$STUBS/gh-log" "$WORKDIR/ghbin/gh"
+
+# state_log <session> <variables-json>: the header line, then
+# workflow_initialized with the session's variables.
+state_log() {
+    mkdir -p "$SESSIONS/$1"
+    printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":%s}}\n' \
+        "$1" "$2" > "$SESSIONS/$1/koto-$1.state.jsonl"
+}
+state_log xrepo '{"ISSUE_NUMBER":"123","ISSUE_REPO":"acme/tracker"}'
+state_log samerepo '{"ISSUE_NUMBER":"123"}'
+
+# run_xrepo <session>: sets OUT (the JSON summary), RC, GH_CALLS, STORED.
+run_xrepo() {
+    local log="$WORKDIR/gh.log" stored="$WORKDIR/stored"
+    rm -f "$log" "$stored"
+    RC=0
+    OUT=$(cd "$XREPO" && GH_LOG="$log" KOTO_SESSIONS="$SESSIONS" KOTO_STORED="$stored" \
+        KOTO_BIN="$STUBS/koto-store" PATH="$BIN:$WORKDIR/ghbin:/usr/bin:/bin" \
+        "$BASH" "$SCRIPT" 123 --session "$1" 2>/dev/null) || RC=$?
+    OUT=$(printf '%s\n' "$OUT" | sed -n '/^{/,$p')
+    GH_CALLS=$(cat "$log" 2>/dev/null)
+    STORED=$(cat "$stored" 2>/dev/null)
+}
+
+run_xrepo xrepo
+expect "cross-repo: exits 0" "0" "$RC"
+expect "cross-repo: status is degraded" "degraded" "$(printf '%s' "$OUT" | jq -r '.status' 2>/dev/null)"
+if grep -qx 'issue view 123 --repo acme/tracker --json body --jq .body' <<<"$GH_CALLS"; then
+    pass "cross-repo: the issue is read from its own repository"
+else
+    fail "cross-repo: gh calls were [$GH_CALLS]"
+fi
+expect "cross-repo: the issue body is stored as context.md" "the cross-repo issue body" "$STORED"
+if printf '%s' "$OUT" | jq -e '[.warnings[] | select(test("acme/tracker") and test("design doc search skipped"))] | length == 1' >/dev/null 2>&1; then
+    pass "cross-repo: the skipped design doc search is a warning naming the repository"
+else
+    fail "cross-repo: no warning names the skipped search: $OUT"
+fi
+
+# The same-repository run in the same directory finds the local design doc
+# and never passes --repo.
+run_xrepo samerepo
+expect "same-repo: exits 0" "0" "$RC"
+if ! grep -q -- '--repo' <<<"$GH_CALLS"; then
+    pass "same-repo: no gh call names a repository"
+else
+    fail "same-repo: gh calls were [$GH_CALLS]"
+fi
+if grep -q 'Source\*\*: docs/DESIGN-local.md' <<<"$STORED"; then
+    pass "same-repo: the local design doc is still searched and used"
+else
+    fail "same-repo: the stored context does not come from the local design doc: $STORED"
+fi
+
+# A session whose log can't be found reads the issue from this repository,
+# as before ISSUE_REPO existed.
+run_xrepo no-such-session
+if [ "$RC" = 0 ] && ! grep -q -- '--repo' <<<"$GH_CALLS"; then
+    pass "no readable session log: the issue is read from this repository"
+else
+    fail "no readable session log: exit $RC, gh calls [$GH_CALLS]"
+fi
+
 # The header, usage line and JSON contract carry no fallback. The old file's
 # name is built from two pieces so this file doesn't name it either.
 OLD_FILE="IMPLEMENTATION""_CONTEXT"

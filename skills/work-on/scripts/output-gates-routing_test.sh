@@ -323,6 +323,7 @@ build() {
             'description: Fixture driving one shipped work-on state.' 'initial_state: start' \
             'variables:' \
             '  ISSUE_NUMBER:' '    description: issue' '    required: false' \
+            '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  REVIEW_LEVEL:' '    description: review level' '    required: false' \

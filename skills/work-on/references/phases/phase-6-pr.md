@@ -51,6 +51,13 @@ issue, so this is an obligation the workflow enforces rather than a convention
 it asks for. Free-form work has no issue to close and the gate passes without
 consulting the body.
 
+An issue in another repository (the run was initialized with `ISSUE_REPO`) is
+closed only by its qualified reference: write `Fixes <owner/repo>#<N>`, with
+the run's own `ISSUE_REPO`, and no bare `Fixes #<N>`. A bare `#<N>` in this
+pull request names this repository's issue `<N>`, which merging would close,
+so the gate fails a body that carries one even beside the qualified
+reference, and a qualified reference to any other repository doesn't count.
+
 If `deferral_approval` approved a deferral, name the deferred criterion and the
 recorded approval in Part 2.
 

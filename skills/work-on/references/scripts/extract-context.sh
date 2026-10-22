@@ -20,6 +20,15 @@
 #                     (context_available false) whose warning names koto, and
 #                     stores nothing.
 #
+# An issue in another repository: when the session was created with
+# ISSUE_REPO (owner/repo), the issue is read from that repository with
+# `gh issue view <N> --repo <owner/repo>`, and this repository's design docs
+# are not searched, since a `#N` in them names this repository's issue N. The
+# value is read from the session's koto state log, the way review-packet.sh
+# reads ISSUE_SOURCE, so no caller passes it. A log that can't be read leaves
+# ISSUE_REPO empty, reads the issue from this repository as before, and says
+# so on stderr.
+#
 # Environment:
 #   KOTO_BIN          The koto binary to run (default: koto on PATH).
 #
@@ -46,6 +55,8 @@
 #   json_success()          - Emit success JSON summary
 #   json_failed()           - Emit failure JSON summary
 #   check_prerequisites()   - Verify gh and jq are available
+#   session_issue_repo()    - Read the session's ISSUE_REPO from its koto state log
+#   resolve_issue_repo()    - Set ISSUE_REPO from the session, or say why not
 #   find_design_doc()       - Search docs/ for design doc referencing the issue
 #   parse_table_agent()     - Parse implementation issues table via agent
 #   parse_table_regex()     - Parse implementation issues table via regex fallback
@@ -60,6 +71,8 @@ set -euo pipefail
 declare -a WARNINGS
 STATUS="success"
 SESSION=""
+# The issue's repository, from the session; empty for a same-repository run.
+ISSUE_REPO=""
 # The koto binary, overridable for tests the way the sibling state scripts allow.
 KOTO="${KOTO_BIN:-koto}"
 
@@ -70,7 +83,7 @@ display_context() {
 
   echo ""
   echo "---------------------------------------------------"
-  echo "Design Context for Issue #${issue}"
+  echo "Design Context for Issue ${ISSUE_REPO}#${issue}"
   echo "---------------------------------------------------"
   echo ""
   echo "$context"
@@ -140,6 +153,36 @@ check_prerequisites() {
   if ! gh auth status &>/dev/null; then
     json_failed "gh CLI not authenticated"
     exit 0
+  fi
+}
+
+# Print the ISSUE_REPO variable the session was created with (empty when it
+# has none), read from the workflow_initialized event in its koto state log.
+# Returns 1 when the log can't be found or read, or has a header this reader
+# doesn't know, so the caller can say the lookup failed.
+session_issue_repo() {
+  local dir log
+  dir=$("$KOTO" session dir "$SESSION" </dev/null 2>/dev/null) || return 1
+  log="$dir/koto-$SESSION.state.jsonl"
+  [ -r "$log" ] || return 1
+  [ "$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)" = 1 ] || return 1
+  jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_REPO // empty' \
+    "$log" 2>/dev/null | head -n 1
+}
+
+# Set ISSUE_REPO from the session. koto checks the variable's pattern at init;
+# the check is repeated because the value reaches a gh argument.
+resolve_issue_repo() {
+  local repo re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+  if ! repo=$(session_issue_repo); then
+    echo "extract-context: could not read ISSUE_REPO from session ${SESSION}'s state log; reading the issue from this repository" >&2
+    return 0
+  fi
+  [ -n "$repo" ] || return 0
+  if [[ $repo =~ $re ]]; then
+    ISSUE_REPO="$repo"
+  else
+    echo "extract-context: session ${SESSION} has ISSUE_REPO [$repo], which is not owner/repo; reading the issue from this repository" >&2
   fi
 }
 
@@ -311,17 +354,27 @@ main() {
   local issue="$1"
 
   check_prerequisites
+  resolve_issue_repo
 
-  # 1. Find design doc
-  local design_doc
-  if ! design_doc=$(find_design_doc "$issue"); then
+  # 1. Find design doc. An issue in another repository skips the search: this
+  # repository's design docs number its own issues, so a `#N` there is not it.
+  local design_doc found=1
+  if [ -n "$ISSUE_REPO" ]; then
+    WARNINGS+=("Issue is in ${ISSUE_REPO}: design doc search skipped - using issue body only")
+    found=0
+  elif ! design_doc=$(find_design_doc "$issue"); then
     WARNINGS+=("Design doc not found - using issue body only")
+    found=0
+  fi
+  if [ "$found" -eq 0 ]; then
     STATUS="degraded"
 
-    # Use issue body as context
+    # Use issue body as context, read from the issue's own repository.
     local issue_body
-    issue_body=$(gh issue view "$issue" --json body --jq '.body' 2>/dev/null) || {
-      json_failed "Failed to fetch issue"
+    local -a repo_args=()
+    [ -z "$ISSUE_REPO" ] || repo_args=(--repo "$ISSUE_REPO")
+    issue_body=$(gh issue view "$issue" ${repo_args[@]+"${repo_args[@]}"} --json body --jq '.body' 2>/dev/null) || {
+      json_failed "Failed to fetch issue${ISSUE_REPO:+ from $ISSUE_REPO}"
       exit 0
     }
 

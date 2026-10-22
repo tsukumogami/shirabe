@@ -20,7 +20,10 @@
 #           section when the body has one, the whole body otherwise).
 #           --issue is refused when the session is a plan-outline child
 #           (created with ISSUE_SOURCE=plan_outline): its issue number is an
-#           item in the PLAN, so its criteria come in through --criteria
+#           item in the PLAN, so its criteria come in through --criteria.
+#           When the session was created with ISSUE_REPO (an issue in
+#           another repository, as owner/repo), the issue is read from
+#           there, `gh issue view <N> --repo <owner/repo>`
 #         - design context: the session's `context.md`, which phase 0 wrote
 #           from the design doc that names the issue, when present
 #         - changed paths: `git diff --name-status -M <base> HEAD`
@@ -92,7 +95,8 @@
 #   0  -- packet written; its path is on stdout
 #   64 -- an input the packet needs does not exist: --doc, --format or
 #         --criteria is not a file, or no base resolves (not a git repository,
-#         no commit at HEAD, no impl_base and no merge-base); for recheck,
+#         no commit at HEAD, no impl_base and no merge-base); for code with
+#         --issue, the session's ISSUE_REPO is not owner/repo; for recheck,
 #         `<panel>_scope.json` is absent or not JSON, or it does not mark
 #         --seat `recheck` (commission that seat with the code packet); for
 #         code with --seat, `<panel>_scope.json` is absent or not JSON, or has
@@ -165,13 +169,14 @@ emit_capped() {
     echo "[truncated: kept $kept of $total bytes; read the source directly if a finding needs the rest]"
 }
 
-# session_issue_source: print the ISSUE_SOURCE variable the session was
-# created with (`github`, `plan_outline`, or nothing), read from the
-# workflow_initialized event in its koto state log. Prints nothing when the
-# log can't be found or read, or jq is absent: the caller then treats --issue
-# as it always has, since an issue-backed run must not lose its packet to a
-# failed lookup.
-session_issue_source() {
+# session_vars: print the ISSUE_SOURCE and ISSUE_REPO variables the session
+# was created with as `<source>|<repo>` (either may be empty; neither can hold
+# a `|`, ISSUE_SOURCE being an enum and ISSUE_REPO owner/repo), read from
+# the workflow_initialized event in its koto state log. Prints nothing when
+# the log can't be found or read, or jq is absent: the caller then treats
+# --issue as it always has, a same-repository issue, since an issue-backed
+# run must not lose its packet to a failed lookup.
+session_vars() {
     local dir log v
     command -v jq >/dev/null 2>&1 || return 0
     dir=$(koto session dir "$SESSION" 2>/dev/null) || return 0
@@ -179,11 +184,13 @@ session_issue_source() {
     [ -r "$log" ] || return 0
     v=$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)
     if [ "$v" != 1 ]; then
-        # Loud, because the plan-outline check goes quiet with it.
-        echo "review-packet: $SESSION's log header has schema_version ${v:-none}; this reader knows 1, so --issue is not checked against ISSUE_SOURCE" >&2
+        # Loud, because the plan-outline check and the issue's repository go
+        # quiet with it.
+        echo "review-packet: $SESSION's log header has schema_version ${v:-none}; this reader knows 1, so --issue is not checked against ISSUE_SOURCE and is read from this repository" >&2
         return 0
     fi
-    jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_SOURCE // empty' \
+    jq -r 'select(.type? == "workflow_initialized") | .payload.variables
+           | "\(.ISSUE_SOURCE // "")|\(.ISSUE_REPO // "")"' \
         "$log" 2>/dev/null | head -n 1
 }
 
@@ -196,6 +203,9 @@ esac
 
 SESSION=""
 ISSUE=""
+# The issue's repository, read from the session with --issue; empty for an
+# issue in this repository.
+ISSUE_REPO=""
 CRITERIA=""
 DOC=""
 FORMAT=""
@@ -268,11 +278,26 @@ else
         *[!0-9]*) usage "--issue must be a number, got [$ISSUE]" ;;
     esac
     [ -z "$CRITERIA" ] || [ -f "$CRITERIA" ] || die 64 "criteria file [$CRITERIA] is not a file"
-    # A plan-outline child's ISSUE_NUMBER is the item's number in its PLAN,
-    # not a GitHub issue, so `gh issue view` on it reads whatever unrelated
-    # issue or pull request the repository has under that number.
-    if [ -n "$ISSUE" ] && [ "$(session_issue_source)" = plan_outline ]; then
-        usage "session [$SESSION] is a plan-outline child: its issue number [$ISSUE] names an item in the PLAN, not a GitHub issue. Write the outline's acceptance criteria to a file and pass --criteria <file> instead of --issue"
+    if [ -n "$ISSUE" ]; then
+        VARS=$(session_vars)
+        ISSUE_SOURCE=${VARS%%|*}
+        case "$VARS" in
+            *"|"*) ISSUE_REPO=${VARS#*|} ;;
+            *)     ISSUE_REPO="" ;;
+        esac
+        # A plan-outline child's ISSUE_NUMBER is the item's number in its
+        # PLAN, not a GitHub issue, so `gh issue view` on it reads whatever
+        # unrelated issue or pull request the repository has under that
+        # number.
+        if [ "$ISSUE_SOURCE" = plan_outline ]; then
+            usage "session [$SESSION] is a plan-outline child: its issue number [$ISSUE] names an item in the PLAN, not a GitHub issue. Write the outline's acceptance criteria to a file and pass --criteria <file> instead of --issue"
+        fi
+        # koto checks ISSUE_REPO's pattern at init; checked again because the
+        # value reaches a gh argument.
+        RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+        if [ -n "$ISSUE_REPO" ] && ! [[ $ISSUE_REPO =~ $RE_REPO ]]; then
+            die 64 "session [$SESSION] has ISSUE_REPO [$ISSUE_REPO], which is not owner/repo"
+        fi
     fi
 fi
 
@@ -487,8 +512,17 @@ if [ -n "$CRITERIA" ]; then
     cp "$CRITERIA" "$WORK/ac" || die 66 "could not read criteria file [$CRITERIA]"
     AC_SOURCE="$CRITERIA"
 elif [ -n "$ISSUE" ]; then
-    gh issue view "$ISSUE" --json body -q .body > "$WORK/body" 2>"$WORK/gh.err" \
-        || die 66 "gh issue view $ISSUE failed: $(cat "$WORK/gh.err")"
+    # An issue in another repository is read from there, and named with its
+    # repository wherever the packet names it.
+    if [ -n "$ISSUE_REPO" ]; then
+        ISSUE_REF="$ISSUE_REPO#$ISSUE"
+        gh issue view "$ISSUE" --repo "$ISSUE_REPO" --json body -q .body > "$WORK/body" 2>"$WORK/gh.err" \
+            || die 66 "gh issue view $ISSUE --repo $ISSUE_REPO failed: $(cat "$WORK/gh.err")"
+    else
+        ISSUE_REF="#$ISSUE"
+        gh issue view "$ISSUE" --json body -q .body > "$WORK/body" 2>"$WORK/gh.err" \
+            || die 66 "gh issue view $ISSUE failed: $(cat "$WORK/gh.err")"
+    fi
     # The section under an `Acceptance Criteria` or `Done when` heading, up to
     # the next heading at the same level or above. No such heading: the body.
     if awk '
@@ -502,10 +536,10 @@ elif [ -n "$ISSUE" ]; then
         inside { print }
         END { exit found ? 0 : 3 }
     ' "$WORK/body" > "$WORK/ac"; then
-        AC_SOURCE="issue #$ISSUE, acceptance-criteria section"
+        AC_SOURCE="issue $ISSUE_REF, acceptance-criteria section"
     else
         cp "$WORK/body" "$WORK/ac"
-        AC_SOURCE="issue #$ISSUE, whole body (no acceptance-criteria heading)"
+        AC_SOURCE="issue $ISSUE_REF, whole body (no acceptance-criteria heading)"
     fi
 else
     : > "$WORK/ac"

@@ -20,8 +20,11 @@ those lines have in common, so it is said once.
    `mktemp` file and pass `--criteria <file>` instead. A plan-outline child's
    `<N>` numbers an item in its PLAN, not an issue, so the script refuses
    `--issue` for its session with exit 67 rather than read an unrelated issue
-   under that number. An exit of 64 from a
-   code packet means no base resolved: record `impl_base` as `analysis`'s
+   under that number. A run initialized with `ISSUE_REPO`, an issue in
+   another repository, passes the same `--issue <N>`: the script reads the
+   repository from the session and the issue from there. An exit of 64 from a
+   code packet means no base resolved, or the session's `ISSUE_REPO` is not
+   `owner/repo` (its message says which): record `impl_base` as `analysis`'s
    fallback says and run it again. Don't spawn a seat without a packet.
    A `/work-on` panel's re-verifier, the `reverifier` decision its
    `<panel>_scope.json` marks `recheck`, gets its own `recheck` packet

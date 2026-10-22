@@ -25,6 +25,20 @@ variables:
   ISSUE_NUMBER:
     description: GitHub issue number for issue-backed workflows
     required: false
+  ISSUE_REPO:
+    description: >-
+      The repository an issue-backed run's issue lives in, as owner/repo, set
+      at init only when the issue reference (a URL or owner/repo#N) names a
+      repository other than the one being worked in. Empty is a
+      same-repository run, and every reader keeps its old behaviour on empty.
+      extract-context.sh and review-packet.sh read it from the session and
+      pass it to `gh issue view --repo`; pr_creation's closing_keyword gate
+      then asks for `Fixes owner/repo#N` and refuses a bare `#N`, which would
+      close this repository's issue N. The pattern is GitHub's owner/repo
+      character set, so only a plain name reaches a gate command. Not
+      rebindable: the issue doesn't move partway through a run.
+    required: false
+    pattern: ^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$
   ISSUE_TYPE:
     description: >
       Issue type hint supplied by the plan orchestrator (code, docs, or task).
@@ -2051,9 +2065,16 @@ states:
       # Free-form work has no issue to close, so an empty ISSUE_NUMBER passes
       # rather than blocking: the obligation does not exist for that mode. The
       # trailing character class stops `#12` matching in `#123`.
+      #
+      # An issue in another repository (ISSUE_REPO set) is closed only by
+      # `Fixes owner/repo#N`, and a bare `#N` there names this repository's
+      # issue N, so check-closing-keyword.sh decides that case: it exits 0
+      # closed, 1 not closed or unreadable (done_blocked, like the expression
+      # here), 2 usage (holds). With ISSUE_REPO empty the expression runs
+      # unchanged and the script is never started.
       closing_keyword:
         type: command
-        command: 'test -z "{{ISSUE_NUMBER}}" || gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"'
+        command: 'test -z "{{ISSUE_NUMBER}}" || if test -z "{{ISSUE_REPO}}"; then gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"; else test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}"; fi'
       # The pull request's title and body against the PR-body conformance
       # rules (references/pr-body-conformance.md, PB1 to PB4) and the banned
       # words of skills/writing-style/rules.yaml (PB5, pr-body/banned-word),
@@ -2124,7 +2145,7 @@ states:
           pr_status: created
           gates.closing_keyword.exit_code: 1
         context_assignments:
-          failure_reason: "pr_creation: the pull request body does not close issue #{{ISSUE_NUMBER}} — add a closing keyword (Fixes #{{ISSUE_NUMBER}}) so the issue closes when this merges. If the body does carry it, the gate could not read the pull request."
+          failure_reason: "pr_creation: the pull request body does not close issue {{ISSUE_REPO}}#{{ISSUE_NUMBER}} — add a closing keyword (Fixes {{ISSUE_REPO}}#{{ISSUE_NUMBER}}) so the issue closes when this merges. An issue in another repository also fails on a bare #{{ISSUE_NUMBER}}, which names this repository's issue. If the body does carry it, the gate could not read the pull request."
       # Only a run on /execute's shared branch opens no pull request of its
       # own, so the edge also needs SHARED_BRANCH set: a root run that
       # submitted `shared` would otherwise end at done past the closing-keyword
@@ -3257,6 +3278,12 @@ Check if a PR already exists: `gh pr list --head {{BRANCH}}`
 Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
 
 `gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications.
+
+The body closes the issue in Part 2, and the `closing_keyword` gate reads it from
+GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
+`ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
+repository and no bare `#<N>`, which would close this repository's issue `<N>`.
+`references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
 records it, and when this run answers a caller's leg it is the `pr` the caller
