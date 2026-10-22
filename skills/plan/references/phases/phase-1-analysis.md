@@ -5,7 +5,9 @@ Understand the source document's scope and identify implementation components or
 ## Resume Check
 
 If key `work/analysis.md` exists in `plan-<topic>`, read it (`koto context get
-plan-<topic> work/analysis.md`) and skip to Phase 2.
+plan-<topic> work/analysis.md`), check a `--plan-version` the new invocation
+carries against its recorded version (step 1.0a, "On a resume"), and skip to
+Phase 2.
 
 ## Goal
 
@@ -36,20 +38,58 @@ written. Run the resolver and copy its answer; do not apply the precedence
 yourself:
 
 ```bash
-${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
+${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh --with-source \
   [--plan-version=<value>] \
-  [--claude-md <repo-root>/CLAUDE.md]
+  [--claude-md <repo-root>/CLAUDE.md] \
+  [--needs-v1=roadmap]
 ```
 
 Pass `--plan-version` with the value exactly as the run was given it, when it
-was given, and `--claude-md` when the repository root has a `CLAUDE.md`. The
-script prints one line, `v1` or `v2`: the flag wins, then a
-`## Plan Version: v1|v2` header in that CLAUDE.md (outside fenced code), then
-the default, which is `v1`.
+was given, `--claude-md` when the repository root has a `CLAUDE.md`, and
+`--needs-v1=roadmap` when `input_type` is `roadmap`. The script prints two
+lines, `plan_version=<v1|v2>` and `plan_version_source=<flag|header|default>`:
+the flag wins, then a `## Plan Version: v1|v2` header in that CLAUDE.md
+(outside fenced code), then the default, which is `v2`. Record both in
+`work/analysis.md` as `Plan Version:` and `Plan Version Source:`.
+
+**The default gives way to `v1` where a step plan can't run:** on roadmap
+input, or when that CLAUDE.md's `## Tracking Level:` header names `issues` or
+`issues-and-milestone`. The script then prints `v1` with the source still
+`default`, and one stderr line saying why; repeat that line to the author as
+it stands, so nobody is surprised by a `plan/v1` plan. Step 3.6's step 5a does
+the same for a split that resolves to `coordinated`. A flag or header that
+asks for `v2` never gives way.
+
+**On a resume the recorded version stands.** When the Resume Check above
+finds `work/analysis.md`, don't resolve the version again; the flag and header
+are not read a second time. If the new invocation carries `--plan-version`,
+check it against the record. This check runs on every resume, at whichever
+phase SKILL.md's Resume Logic re-enters, not only when the run comes back
+through Phase 1:
+
+```bash
+${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh --with-source \
+  --stored-version=<Plan Version> --stored-source=<Plan Version Source> \
+  --plan-version=<value>
+```
+
+The same version prints it back with source `flag`: the author has now asked
+for it, so write `Plan Version Source: flag` into `work/analysis.md`, and a
+`v2` that came from the default no longer gives way. A different version exits non-zero ("this run started with plan version ...;
+resume it with ... or start a fresh run"). Stop with that line and change
+nothing. A fresh run starts once the interrupted session is closed, with
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close plan-<topic> abandoned`:
+the next `/plan` on the topic then opens a new session instead of resuming.
+Say so to the author, and leave the closing to them; the run itself never
+discards its own record. An analysis with no `Plan Version Source:` line was written before
+the source was recorded. Read it as `flag`, since `v2` could only be asked for
+then and a `v1` never gives way.
 
 **A non-zero exit stops the run** with the script's stderr line: a value other
-than `v1` or `v2` (an empty one included), or two `## Plan Version:` headers in
-CLAUDE.md. Nothing has been written at that point and nothing is. A run given
+than `v1` or `v2` (an empty one included), two `## Plan Version:` headers in
+CLAUDE.md, or roadmap input with `v2` asked for by flag or header ("a roadmap
+is planned with --plan-version=v1; step plans are for designs, PRDs and
+topics"). Nothing has been written at that point and nothing is. A run given
 `--plan-version` never reads the header, so a bad header does not stop it.
 
 Store the version for every later phase:
@@ -58,11 +98,9 @@ Store the version for every later phase:
   describes. Phases 3, 4 and 7 take their `plan/v1` paths.
 - **`v2`** -- the run writes a `plan/v2` step plan. Phase 3 decomposes into
   steps, Phase 4 details steps 1 and 2 only, and Phase 7 writes
-  `schema: plan/v2`. Roadmap input does not apply: a roadmap plans one
-  planning issue per feature, which a step plan has no form for, so with
-  `input_type: roadmap` and `v2` stop with "a roadmap is planned with
-  `--plan-version=v1`; step plans are for designs, PRDs and topics" before
-  anything is written.
+  `schema: plan/v2`. A roadmap never reaches it: a roadmap plans one
+  planning issue per feature, which a step plan has no form for, so the
+  resolver either gave way to `v1` or stopped the run above.
 
 ### 1.1 Validate Source Document Status
 
@@ -168,6 +206,7 @@ Path: <path-to-doc>
 Status: Accepted
 Input Type: <design|prd>
 Plan Version: <v1|v2>
+Plan Version Source: <flag|header|default>
 
 ## Scope Summary
 <1-2 sentence summary of what this design delivers>
@@ -198,6 +237,7 @@ Path: <path-to-roadmap>
 Status: Active
 Input Type: roadmap
 Plan Version: v1
+Plan Version Source: <flag|header|default>
 
 ## Scope Summary
 <1-2 sentence summary from Theme and Scope>
@@ -227,7 +267,7 @@ Before proceeding:
 - [ ] Source document status is valid ("Accepted" for design/prd, "Active" for roadmap)
 - [ ] Full source document read
 - [ ] `input_type` field recorded (design, prd, or roadmap)
-- [ ] `Plan Version` recorded, copied from `resolve-plan-version.sh`
+- [ ] `Plan Version` and `Plan Version Source` recorded, copied from `resolve-plan-version.sh --with-source`
 
 ## Next Phase
 

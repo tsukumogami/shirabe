@@ -16,7 +16,8 @@ decision: |
   scripts built on them read both versions through one walk. /work-on refuses
   an outline step at its plan-validation state; a new lifecycle check (L10)
   blocks completion while an outline step remains. /plan selects the version
-  by flag, then a CLAUDE.md header, then a default of v1 held in one script.
+  by flag, then a CLAUDE.md header, then a default held in one script, now
+  v2; a default v2 gives way to v1 where a step plan can't run.
   /review-plan gains a fifth category for step shape.
 rationale: |
   Following the roadmap/v2 precedent keeps prefix routing and every plan/v1
@@ -24,8 +25,8 @@ rationale: |
   than each reader avoids the drift the parser was created to end. Refusing
   outline steps where the step's work starts matches when the plan's owner
   details it: tasks are spawned up front, but each child reads its step from
-  the plan at start. A one-place default lets the flip wait for the
-  checkpoint-wording comparison as a one-line change.
+  the plan at start. A one-place default let the flip wait for the
+  checkpoint-wording comparison as a one-line change, which it was.
 upstream: docs/prds/PRD-functional-steps.md
 decision_provenance: inline-resolved
 ---
@@ -168,8 +169,10 @@ Alternatives considered:
 **Chosen: `--plan-version=v1|v2`, then `## Plan Version: v1|v2` in CLAUDE.md,
 then the default.** A new script, `skills/plan/scripts/resolve-plan-version.sh`,
 resolves the three in that order, refuses any other value naming `v1` and
-`v2`, and holds the default as `DEFAULT_PLAN_VERSION=v1` on one line. `/plan`
-runs it in Phase 1 and records the result; Phases 3, 4 and 7 branch on it.
+`v2`, and holds the default as `DEFAULT_PLAN_VERSION` on one line (`v1` when
+this design was written, `v2` since the flip noted under the comparison
+below). `/plan` runs it in Phase 1 and records the result and its source;
+Phases 3, 4 and 7 branch on it.
 Provenance: inline.
 
 Alternatives considered:
@@ -225,8 +228,9 @@ Alternatives considered:
 
 `plan/v2` lands as a second schema of the existing Plan format. One parser
 reads both versions' entries, so the validator, `shirabe plan outlines`, task
-extraction and the shell readers agree on what a step is. `/plan` writes
-`plan/v2` only when asked until the default flips. `/execute` drives a step
+extraction and the shell readers agree on what a step is. `/plan` wrote
+`plan/v2` only when asked until the default flipped; it now writes `plan/v2`
+unless `plan/v1` is asked for or a step plan can't run. `/execute` drives a step
 plan with the graph it already builds; each step's child refuses to start
 from an outline, which is where the owner's detailing has to have happened.
 Completion waits until no outline is left. `/review-plan` flags layer shape
@@ -335,7 +339,7 @@ and a number outside that range is a non-conforming heading;
 | Script | Change |
 |---|---|
 | `skills/plan/scripts/plan-to-tasks.sh` | accept `plan/v2`; build tasks from `plan outlines` for both supported modes; name tasks `step-<N>`; report `detailed` through `shirabe plan outlines` (a task variable the work-on template does not declare is refused by koto) |
-| `skills/plan/scripts/resolve-plan-version.sh` (new) | flag > header > `DEFAULT_PLAN_VERSION=v1`; refuse other values |
+| `skills/plan/scripts/resolve-plan-version.sh` (new) | flag > header > `DEFAULT_PLAN_VERSION` (now `v2`); refuse other values; a default `v2` gives way to `v1` for a roadmap, a coordinated split or a filing Tracking Level header |
 | `skills/scope/scripts/hop-complete.sh` | plan hop accepts `plan/v1` or `plan/v2` |
 | `skills/scope/scripts/startable-issues.sh` | read titles of both heading forms; report step titles |
 | `skills/scope/scripts/publish-scoping-pr.sh` | list `### Step N:` titles in the PR body |
@@ -413,6 +417,17 @@ plans or from how a brief words its checkpoints.
 The default plan version (`DEFAULT_PLAN_VERSION=v1`) and the brief template's
 checkpoint wording stay as they are until that record exists.
 
+2026-10-22: the default plan version has now flipped to `v2`, once the step
+format had been exercised. The paragraph above describes the plan version as
+it stood before the flip. `/plan` writes a step plan when no version is asked for, and still
+writes `plan/v1` when `--plan-version=v1` or a `## Plan Version: v1` header
+asks for it. Where a step plan can't run (a roadmap input, a split that
+resolves to `coordinated`, or a CLAUDE.md `## Tracking Level:` header that
+asks for issues), a `v2` that came only from the default gives way to `v1`,
+and `/plan` says so. A `v2` asked for by flag or header still stops on a
+roadmap or a coordinated split, as designed above. `/plan` records where the
+version came from, so a resumed run decides from that record.
+
 #### Replay 1: koto template evidence routing
 
 - **Repository and start.** tsukumogami/koto. The plan and the code landed in
@@ -487,8 +502,9 @@ Build it as functional steps, each leaving the tools working:
 2. **Step rules:** FC22 and the version-aware FC01/FC04/FC15 refuse every
    invalid fixture with a message naming the step and rule.
 3. **Authoring:** `/plan --plan-version=v2` (or the header) writes a step
-   plan, the default stays `v1`, and the format reference states the horizon,
-   owner rule and report rule.
+   plan, the default is still `v1` at this step (it flipped to `v2` later,
+   as the dated note above records), and the format reference states the
+   horizon, owner rule and report rule.
 4. **Execution:** `/execute` and `/work-on` drive a step plan, and an
    outline step's child stops naming the step.
 5. **Readers:** the `/scope` and `/execute` shell readers report step titles
@@ -556,7 +572,8 @@ Positive:
 - A step plan can be written, validated, executed and reviewed, and no
   `plan/v1` plan changes behaviour.
 - One parser still owns what an entry is, now for both versions.
-- The default flips with one line once the comparison reports.
+- The default flips with one line once the comparison reports; it has since
+  flipped to `v2`.
 
 Negative:
 - The Plan spec carries version branches in several checks, as the Roadmap
