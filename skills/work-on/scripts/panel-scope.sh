@@ -329,6 +329,21 @@ die() {
     exit "$1"
 }
 
+# session_dir <why>: sets SDIR to the session's directory from
+# `koto session dir`, or exits 66 with <why> and koto's own last line of
+# error. koto's error is read on a line of its own, because
+# scripts/check-skill-requires.sh reads any flag on a line that calls koto as
+# one of koto's flags.
+SDIR=""
+session_dir() {
+    local err
+    if SDIR=$(koto session dir "$SESSION" 2>"$WORK/session-dir.err"); then
+        return 0
+    fi
+    err=$(tail -n 1 "$WORK/session-dir.err")
+    die 66 "$1, and koto session dir failed: $err"
+}
+
 MODE="${1:-}"
 PANEL="${2:-}"
 SESSION="${3:-}"
@@ -756,9 +771,8 @@ if [ "$MODE" = "--record" ]; then
     # round file alone can't mint a decider verdict.
     : > "$WORK/decider_events"
     if jq -e 'any(.[]; .decider? != null)' "$ROUND_FILE" >/dev/null; then
-        sdir=$(koto session dir "$SESSION" 2>"$WORK/koto.err") \
-            || die 66 "a decider entry needs koto's session log, and koto session dir failed: $(tail -n 1 "$WORK/koto.err")"
-        slog="$sdir/koto-$SESSION.state.jsonl"
+        session_dir "a decider entry needs koto's session log"
+        slog="$SDIR/koto-$SESSION.state.jsonl"
         [ -r "$slog" ] || die 65 "a decider entry needs koto's session log, and [$slog] can't be read"
         jq -c '.[] | .decider? // empty' "$ROUND_FILE" | while IFS= read -r dec; do
             key=$(printf '%s' "$dec" | jq -r '"\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)"')
@@ -800,10 +814,9 @@ if [ "$MODE" = "--record" ]; then
     # failed (koto missing, a session-store error) has read nothing, and
     # importing nothing then would look like a session that never consulted
     # the decider: the round is refused with koto's own error instead.
-    sdir=$(koto session dir "$SESSION" 2>"$WORK/koto.err") \
-        || die 66 "koto session dir failed, so koto's log could not be read for decider verdicts: $(tail -n 1 "$WORK/koto.err")"
-    if [ -n "$sdir" ] && [ -e "$sdir/koto-$SESSION.state.jsonl" ]; then
-        slog="$sdir/koto-$SESSION.state.jsonl"
+    session_dir "koto's log can't be read for decider verdicts"
+    if [ -n "$SDIR" ] && [ -e "$SDIR/koto-$SESSION.state.jsonl" ]; then
+        slog="$SDIR/koto-$SESSION.state.jsonl"
         [ -r "$slog" ] || die 65 "koto's session log [$slog] can't be read"
         { printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]'; cat "$WORK/decider_events"; } > "$WORK/skip" \
             || die 65 "could not read the ledger's decider events"
