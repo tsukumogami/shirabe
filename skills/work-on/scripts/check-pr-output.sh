@@ -39,6 +39,23 @@
 #         owned-pr.sh exit 2, 64, a timeout, or anything else -> 2
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
+#   --deferral-record --reason <reason>
+#       For a run that deferred verification to hosted CI (work-on.md's
+#       VERIFICATION=hosted-ci, #1012). Reads the checked-out branch's pull
+#       request body with `gh pr view --json body` and checks that it records
+#       the deferral, in three parts:
+#         a line saying "local verification did not run"
+#         the reason, verbatim (a fixed-string match on <reason>)
+#         a line saying "hosted CI is the build of record"
+#       The two phrases are matched without regard to case; the reason
+#       exactly, since it is the one the run was started with.
+#         all three present                          -> 0
+#         any missing                                -> 1, one stderr line each
+#         an empty reason, gh missing or failing, no body -> 2
+#       It prints no ::koto-finding:: line. Like pr_creation's closing
+#       keyword, the obligation is the template's own, with no registry rule
+#       behind it, and the stderr lines say what is missing.
+#
 # owned-pr.sh is always the execute skill's copy beside this one
 # (skills/execute/scripts/owned-pr.sh under the same plugin root), never one
 # found on PATH. A gate runs with the PATH recorded when the session was
@@ -53,7 +70,9 @@
 #   1  at least one violation of a rule at the `block` stage; one
 #      `::koto-finding::` line per violation on stdout, and a line on stderr
 #      saying how to dispute one (--pr-body only). Findings of rules below
-#      block print at their stage's level and leave the exit at 0
+#      block print at their stage's level and leave the exit at 0.
+#      --deferral-record: the body does not record the deferral (stderr
+#      only, no finding)
 #   2  could not decide: a usage error, a missing tool, a read that failed, a
 #      validator that failed to run
 #   3  --owned-pr only: the lookup answered, and the answer is not one PR
@@ -84,9 +103,11 @@ usage() {
     cat >&2 <<'EOF'
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
+       check-pr-output.sh --deferral-record --reason <reason>
 
---pr-body:  exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
---owned-pr: exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
+--pr-body:         exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
+--owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
+--deferral-record: exit 0 the body records the deferral, 1 it does not, 2 could not decide.
 EOF
 }
 
@@ -284,6 +305,44 @@ check_pr_body() {
     exit 0
 }
 
+check_deferral_record() {
+    if [ $# -ne 2 ] || [ "$1" != --reason ]; then
+        usage
+        exit 2
+    fi
+    reason=$2
+    [ -n "$reason" ] || undecided "--deferral-record needs a non-empty --reason"
+    for tool in gh jq; do
+        command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
+    done
+    make_work
+    gh pr view --json body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
+        || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
+    jq -e 'type == "object" and (.body | type == "string")' "$WORK/pr.json" >/dev/null \
+        || undecided "gh pr view did not return a body"
+    jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
+
+    missing=0
+    if ! grep -qiF -- "local verification did not run" "$WORK/body.md"; then
+        echo "check-pr-output: the PR body does not say that local verification did not run" >&2
+        missing=$((missing + 1))
+    fi
+    if ! grep -qF -- "$reason" "$WORK/body.md"; then
+        echo "check-pr-output: the PR body does not carry the deferral reason verbatim: $reason" >&2
+        missing=$((missing + 1))
+    fi
+    if ! grep -qiF -- "hosted CI is the build of record" "$WORK/body.md"; then
+        echo "check-pr-output: the PR body does not say that hosted CI is the build of record" >&2
+        missing=$((missing + 1))
+    fi
+    if [ "$missing" -gt 0 ]; then
+        echo "check-pr-output: the PR body does not record the verification deferral ($missing part(s) missing); add the Verification section phase-6-pr.md gives, with gh pr edit" >&2
+        exit 1
+    fi
+    echo "check-pr-output: the PR body records the verification deferral" >&2
+    exit 0
+}
+
 check_owned_pr() {
     [ $# -gt 0 ] || { usage; exit 2; }
     make_work
@@ -308,6 +367,7 @@ case "$MODE" in
         check_pr_body "$@"
         ;;
     --owned-pr) check_owned_pr "$@" ;;
+    --deferral-record) check_deferral_record "$@" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac

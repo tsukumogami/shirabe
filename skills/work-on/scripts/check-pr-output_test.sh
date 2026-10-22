@@ -804,6 +804,99 @@ Part two.")
     rf_test_drop_plugin "$BROKEN"
 fi
 
+# --- --deferral-record: the verification deferral in the body (#1012) -----------
+
+DREASON="host is in a measurement window until 02:40Z"
+FAKE_GH_RC=0
+export FAKE_GH_RC
+deferral_body() {
+    # deferral_body <local line> <reason line> <record line>
+    pr_json "feat: a deferred change" "A change.
+
+---
+
+## Verification
+
+$1
+$2
+$3
+
+Fixes #12"
+}
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $DREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$DREASON"
+if [ "$RC" -eq 0 ] && [ -z "$(findings)" ]; then
+    pass "--deferral-record: a body with all three parts passes, with no finding"
+else
+    fail "--deferral-record: complete body rc $RC, stdout [$OUT]"
+fi
+if [ "$(cat "$LOG/gh/arg.1" "$LOG/gh/arg.2" "$LOG/gh/arg.3" "$LOG/gh/arg.4" 2>/dev/null | tr -d '\n')" = "prview--jsonbody" ] \
+    && [ "$(cat "$LOG/gh/argc")" = 4 ]; then
+    pass "--deferral-record: reads the checked-out branch's body with gh pr view --json body"
+else
+    fail "--deferral-record: gh was called with $(cat "$LOG/gh/argc" 2>/dev/null) argument(s)"
+fi
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "LOCAL VERIFICATION DID NOT RUN." \
+    "Reason: $DREASON" "hosted ci is the build of record.")
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 0 ] && pass "--deferral-record: the two phrases match without regard to case" \
+    || fail "--deferral-record: case-folded phrases rc $RC"
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: the host was busy" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$DREASON"
+if [ "$RC" -eq 1 ] && [ -z "$(findings)" ] && grep -q 'deferral reason verbatim' "$WORKDIR/stderr"; then
+    pass "--deferral-record: a body with another reason fails (1), naming the reason, with no finding"
+else
+    fail "--deferral-record: wrong reason rc $RC, stdout [$OUT], stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $DREASON" "CI will run on the pull request.")
+run --deferral-record --reason "$DREASON"
+if [ "$RC" -eq 1 ] && grep -q 'build of record' "$WORKDIR/stderr"; then
+    pass "--deferral-record: a body that doesn't name hosted CI as the build of record fails (1)"
+else
+    fail "--deferral-record: no build-of-record line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Tests were skipped." \
+    "Reason: $DREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$DREASON"
+if [ "$RC" -eq 1 ] && grep -q 'local verification did not run' "$WORKDIR/stderr"; then
+    pass "--deferral-record: a body that doesn't say local verification did not run fails (1)"
+else
+    fail "--deferral-record: no local line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: a plain change" "A change.
+
+---
+
+Fixes #12")
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 1 ] && pass "--deferral-record: a body with no Verification section fails (1)" \
+    || fail "--deferral-record: no section rc $RC"
+
+run --deferral-record --reason ""
+[ "$RC" -eq 2 ] && pass "--deferral-record: an empty reason can't be decided (2)" \
+    || fail "--deferral-record: empty reason rc $RC"
+run --deferral-record
+[ "$RC" -eq 2 ] && pass "--deferral-record: no --reason is a usage error (2)" \
+    || fail "--deferral-record: no --reason rc $RC"
+run --deferral-record --because "$DREASON"
+[ "$RC" -eq 2 ] && pass "--deferral-record: an unknown flag is a usage error (2)" \
+    || fail "--deferral-record: unknown flag rc $RC"
+
+FAKE_GH_RC=1
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 2 ] && pass "--deferral-record: a failed gh read can't be decided (2)" \
+    || fail "--deferral-record: gh failure rc $RC"
+FAKE_GH_RC=0
+
 # --- the rule registry ----------------------------------------------------------
 
 # The stand-in validator reports a PB3 violation, so the unaltered copy's
