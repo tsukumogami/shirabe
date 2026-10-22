@@ -53,8 +53,8 @@ to advance it, what it never does, and how it ends.
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
-| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. `session` keeps the new record's state in the coordinator's session; roadmap scope only. |
-| `--import <session> --from <workspace path>` | Move a session-store run here from another host: koto imports the session from the bucket both hosts share, and the run continues as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, and no other setting. |
+| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. `session` keeps the new record's state in the coordinator's session. At discipline scope it decides nothing: a new rotation runs on its session. |
+| `--import <session> --from <workspace path>` | Move a session-store run here from another host: koto imports the session from the bucket both hosts share, and the run continues as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
@@ -245,8 +245,12 @@ as a side effect in flight so pick never offers the feature again meanwhile.
 That write-back is a feature roadmap's; on a milestone roadmap a merge sets
 nothing, and a verdict does (see Verdicts).
 At roadmap scope the record is an issue in the roadmap's repository titled
-`Coordinator record: ROADMAP-<name>`, closed when the roadmap is done; at discipline scope it is a draft
-pull request per rotation, whose diff is the dated handoff file. The workflow
+`Coordinator record: ROADMAP-<name>`, closed when the roadmap is done; at discipline scope a
+rotation already on GitHub is a draft pull request, whose diff is the dated
+handoff file, until it ends, and a new rotation runs on the coordinator's
+session: no pull request, nothing committed, its window and the reasoning it
+leaves the next rotation in its session (`record/rotation`,
+`record/reasoning`), and the next rotation carries its state. The workflow
 finds it, checks it, and confirms every change you make to it on GitHub; you
 write it only through the scripts its states name. Its body, written by
 `record-render.sh`, starts with the declaration line (`> This is a

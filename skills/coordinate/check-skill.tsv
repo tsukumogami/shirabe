@@ -47,15 +47,18 @@ cost	report-questions_test.sh	100
 cost	milestone-verdict_engine_test.sh	71
 cost	report-facts_test.sh	63
 cost	reconcile-pass_test.sh	59
+cost	roadmap-status-entry_test.sh	56
 cost	record-write_test.sh	57
 cost	dispatch-worker_test.sh	56
 cost	teardown-pass_engine_test.sh	55
+cost	discipline-session_engine_test.sh	55
 cost	land-merge_test.sh	53
 cost	holding-link_test.sh	48
 cost	board-land_engine_test.sh	47
 cost	quiet-check_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
+cost	discipline-session_test.sh	40
 cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
@@ -77,7 +80,9 @@ cost	record-move_test.sh	14
 cost	rotation-close_test.sh	14
 cost	coord-log_test.sh	13
 cost	roadmap-features_test.sh	13
+cost	unit-cost-on_test.sh	11
 cost	posture-read_test.sh	11
+cost	record-append-on_test.sh	10
 cost	merge-confirm_test.sh	10
 cost	record-open_test.sh	10
 cost	skill-hygiene_test.sh	10
@@ -94,6 +99,7 @@ cost	coordinate-open_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
 cost	teardown-handoff_test.sh	4
+cost	state-structure_test.sh	3
 cost	coord-log_engine_test.sh	3
 cost	coord-verdict-table_test.sh	3
 cost	rule-coverage_test.sh	3

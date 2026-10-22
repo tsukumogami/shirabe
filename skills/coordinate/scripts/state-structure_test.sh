@@ -117,11 +117,14 @@ disciplines scripts/decision-next.sh
 disciplines scripts/decision-next_test.sh
 disciplines scripts/deferral-check.sh
 disciplines scripts/deferral-check_test.sh
+disciplines scripts/discipline-session_test.sh
 disciplines scripts/pick-facts_test.sh
 disciplines scripts/reconcile-read.sh
 disciplines scripts/reconcile-read_test.sh
 disciplines scripts/record-decision.sh
 disciplines scripts/record-decision_test.sh
+disciplines scripts/record-find.sh
+disciplines scripts/record-open.sh
 disciplines scripts/rotation-close.sh
 disciplines scripts/rotation-close_test.sh
 disciplines scripts/testdata/rule-coverage.tsv
@@ -144,6 +147,8 @@ libs scripts/decision-render.sh
 libs scripts/decisions-replay_engine_test.sh
 libs scripts/deferral-check.sh
 libs scripts/deferral-check_test.sh
+libs scripts/discipline-session_engine_test.sh
+libs scripts/discipline-session_test.sh
 libs scripts/dispatch-common.sh
 libs scripts/handover_engine_test.sh
 libs scripts/holding-link.sh
@@ -245,12 +250,10 @@ name scripts/record-write-core.sh
 name scripts/record-write.sh
 name scripts/record-write_test.sh
 store-codes koto-templates/coordinate.md
-store-codes scripts/coordinate-open.sh
 store-codes scripts/coordinate-open_engine_test.sh
 store-codes scripts/record-codec.jq
 store-codes scripts/record-find.sh
 store-codes scripts/record-move_test.sh
-store-codes scripts/record-open.sh
 store-codes scripts/record-source_test.sh
 store-codes scripts/record-state.sh
 store-codes scripts/record-write-core.sh

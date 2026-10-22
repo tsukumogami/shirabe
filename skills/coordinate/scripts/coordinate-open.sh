@@ -25,9 +25,9 @@
 # holding no record, and the next start carries again.
 #
 # An import (PRD R14) moves a run another host started here: `--import
-# <session> --from <workspace path>` with the roadmap path, and no setting.
-# Before koto runs, the opener refuses, in this order: discipline scope
-# (`refused=store-discipline`, as the arguments are read), a name that isn't a
+# <session> --from <workspace path>` with the roadmap path, or a discipline's
+# --discipline and --host, and no other setting. Before koto runs, the opener
+# refuses, in this order: a name that isn't a
 # run of this scope (`refused=session-name`), another live run of the scope
 # here (`refused=session-live`; the import's own target may be live, after
 # koto's import_unmarked, since the same import run again only marks the
@@ -64,11 +64,13 @@
 #   --store github|session       where a new scope's record keeps its state
 #                                (STORE); a found record's own store row decides
 #                                for an existing one, and this flag is then
-#                                reported ignored. Roadmap scope only; without
-#                                it a new record is on GitHub
+#                                reported ignored. Without it a new roadmap
+#                                record is on GitHub; at discipline scope a new
+#                                rotation runs on its session whatever it says
 #   --import <session>, --from <workspace path>, [--trust-template]
-#                                import that run from the bucket (roadmap scope,
-#                                no other setting)
+#                                import that run from the bucket (with the
+#                                roadmap path, or a discipline's --discipline
+#                                and --host; no other setting)
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file

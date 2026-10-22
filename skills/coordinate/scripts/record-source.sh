@@ -5,7 +5,9 @@
 # Every script that needs the record's state reads it here, whichever store the
 # run is on (docs/designs/DESIGN-coordinator-session-record.md, Decision 1). A
 # record's store is `github` (the issue or pull request body) or `session` (one
-# key per section in the coordinator's own koto session, roadmap scope only).
+# key per section in the coordinator's own koto session: a roadmap record, or a
+# discipline rotation, which then has no pull request and no record number,
+# its window and reasoning in record/rotation and record/reasoning).
 #
 # On the GitHub store each read keeps its caller's own call shape, because what
 # a caller reads beside the body (the container's state, its title, its head
