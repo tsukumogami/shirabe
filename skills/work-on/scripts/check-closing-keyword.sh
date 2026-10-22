@@ -37,11 +37,15 @@
 # repository's issue URL>)` and `Fixes <owner>/<old name>#N`, measured on a
 # scratch repository (#1044). Whether a markdown link closes the issue its
 # text names or the one it points at isn't known, so a link whose text is a
-# bare `#N` fails wherever it points.
+# bare `#N` fails wherever it points. The other spellings that fail here (a
+# link to this repository's issue with other text, `<...>`) weren't measured;
+# they fail on the refusing side's rule, since refusing one too many costs a
+# reworded line.
 #
 # GitHub keeps no list of a repository's old names, but it redirects an old
 # name to the repository, and `gh api repos/<owner>/<name>` follows that
-# redirect. So every other `<owner>/<name>` the body closes issue N in is
+# redirect (measured: `gh api repos/mozilla/rust --jq .full_name` prints
+# `rust-lang/rust`). So every other `<owner>/<name>` the body closes issue N in is
 # looked up, and one that resolves to the pull request's repository fails.
 # The limit is GitHub's own: an old name that another repository has since
 # taken resolves to that repository, here and when GitHub reads the body
@@ -59,10 +63,13 @@
 #     neither passes nor refuses: exit 3, which no pr_creation edge routes,
 #     so the state holds and the next tick looks again, rather than a
 #     passing gate that never checked or a run stopped at done_blocked by a
-#     blip. Fail-closed: the pull request can't move on;
-#   - the lookups get LOOKUP_SECS seconds in all (20, which with the
-#     pull request read stays inside koto's 30-second gate default), polled
-#     so no stray timer outlives the script;
+#     blip. Fail-closed: the pull request can't move on. A failure that
+#     doesn't clear (a 403 from an organization's SSO, say) ends when the
+#     body stops closing issue N in that repository: its message names it;
+#   - the lookups must end LOOKUP_SECS seconds (20) after the script
+#     started, the pull request read included, inside koto's 30-second gate
+#     default. Each is polled, so no stray timer outlives the script. The
+#     read itself has no bound of its own; koto's kill covers it, as before;
 #   - at most MAX_LOOKUPS repositories (5) are looked up. A body that closes
 #     issue N in more fails the gate, so its size can't turn into calls.
 #
@@ -289,7 +296,9 @@ while read -r NAME; do
         || refuse "the body closes issue $ISSUE in more than $MAX_LOOKUPS repositories besides $REPO, the most this gate looks up to rule out an old name of $PR_REPO: keep Fixes $REPO#$ISSUE and drop the others"
 done <<<"$(other_names)"
 
-DEADLINE=$((SECONDS + LOOKUP_SECS))
+# SECONDS counts from the script's start, so the time the pull request read
+# took is spent too.
+DEADLINE=$LOOKUP_SECS
 while read -r NAME; do
     [ -n "$NAME" ] || continue
     LEFT=$((DEADLINE - SECONDS))
@@ -301,7 +310,7 @@ while read -r NAME; do
         124) undecided "looking up $NAME, to rule out an old name of $PR_REPO, took longer than the ${LOOKUP_SECS}s it had: tick again" ;;
         *)
             case "$FULL" in *"(HTTP 404)"*) continue ;; esac
-            undecided "could not check whether $NAME is an old name of $PR_REPO, which would make $NAME#$ISSUE close $PR_REPO#$ISSUE: $FULL (tick again once GitHub answers)"
+            undecided "could not check whether $NAME is an old name of $PR_REPO, which would make $NAME#$ISSUE close $PR_REPO#$ISSUE: $FULL (tick again once GitHub answers; if it keeps failing, drop the closing keyword in front of $NAME#$ISSUE)"
             ;;
     esac
     if [ "$(lower "$FULL")" = "$(lower "$PR_REPO")" ]; then

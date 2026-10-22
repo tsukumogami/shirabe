@@ -65,7 +65,7 @@ fi
 # follows), and gh's 404 when $GH_MISSING lists it. $GH_API_FAIL makes every
 # lookup fail the way gh does: `rate` (403, rate limit), `limit` (429),
 # `net` (no connection) or `5xx` (502). $GH_API_SLEEP makes it wait that many
-# seconds before it answers.
+# seconds before it answers, and $GH_PR_SLEEP the pull request read.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -96,6 +96,7 @@ if [[ "${1:-}" == "api" ]]; then
     printf '%s\n' "$name"
     exit 0
 fi
+[[ -z "${GH_PR_SLEEP:-}" ]] || sleep "$GH_PR_SLEEP"
 if [[ "${GH_FAIL:-0}" == "1" ]]; then
     echo "gh: could not resolve to a PullRequest" >&2
     exit 1
@@ -364,6 +365,15 @@ fi
 GH_API_SLEEP=1 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=5 \
     expect "cross-repo: a slow lookup inside its time still answers" 1 42 "Fixes acme/tracker#42
 Fixes acme/old-app#42"
+# The time counts from the script's start, so a slow pull request read
+# leaves the lookups less of it.
+GH_PR_SLEEP=2 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=1 \
+    expect "cross-repo: a slow pull request read spends the lookups' time" 3 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+# A failure that doesn't clear ends once the body stops closing the issue in
+# that repository, as the message says.
+GH_API_FAIL=rate expect "cross-repo: dropping the keyword ends a lookup that keeps failing" 0 42 "Fixes acme/tracker#42
+Refs acme/other#42"
 for bad in 0 x 1s; do
     CHECK_CLOSING_KEYWORD_LOOKUP_SECS=$bad \
         expect "a lookup time of [$bad] is a usage error" 2 42 "Fixes acme/tracker#42"
