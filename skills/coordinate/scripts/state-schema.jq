@@ -19,6 +19,9 @@
 # $private, wherever a function takes it, is the list of repositories the host
 # can't show as public (record-write-core.sh reads each named repository's
 # visibility); a value naming one is refused. A private host passes [].
+#
+# The copy in record-codec.jq starts at the next comment line, which
+# state-schema_test.sh finds by its text: keep that line's wording.
 
 # The four sections every record has, in order, with their columns.
 def sections: [

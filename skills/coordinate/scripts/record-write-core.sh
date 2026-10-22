@@ -385,7 +385,7 @@ core_validate() {
             $s[0] | check_record($private | split(",") | map(select(. != ""))) | empty' 2> "$T/schema.err" < /dev/null; then
         return 0
     fi
-    grep -q 'refused: ' "$T/schema.err" || lib_die2 "state-schema.jq failed: $(lib_scrub < "$T/schema.err")"
+    grep -q 'refused: ' "$T/schema.err" || lib_die2 "$mod.jq failed: $(lib_scrub < "$T/schema.err")"
     echo "$PROG: refused: $(sed -n 's/.*refused: //p' "$T/schema.err" | head -1 | lib_scrub)" >&2
     [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
     exit 65

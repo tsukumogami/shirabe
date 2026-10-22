@@ -98,7 +98,8 @@ sed -n '/^# The four sections every record has/,$p' "$HERE/state-schema.jq" > "$
 sed -n '/^# ---- state-schema.jq, verbatim -/,/^# ---- end of state-schema.jq -/p' "$HERE/record-codec.jq" | sed '1d;$d' > "$T/copy.jq"
 [ -s "$T/module.jq" ] && cmp -s "$T/module.jq" "$T/copy.jq" \
     && ok "record-codec.jq's copy of state-schema.jq is the module, byte for byte" \
-    || bad "record-codec.jq's copy of state-schema.jq is the module, byte for byte" "$(diff "$T/module.jq" "$T/copy.jq" | head -10)"
+    || bad "record-codec.jq's copy of state-schema.jq is the module, byte for byte" \
+        "copy state-schema.jq from its '# The four sections every record has' line to the end into record-codec.jq, between the two marker lines; first differences: $(diff "$T/module.jq" "$T/copy.jq" | head -10)"
 sed '/^# ---- state-schema.jq, verbatim -/,/^# ---- end of state-schema.jq -/d' "$HERE/record-codec.jq" > "$T/codec-rest.jq"
 eq "  ... and the codec defines none of the module's names outside it" "" \
     "$(defs "$T/codec-rest.jq" | grep -xF -f <(printf '%s\n' "$SCHEMA_DEFS"))"
