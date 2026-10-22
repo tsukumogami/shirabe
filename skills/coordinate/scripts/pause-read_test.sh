@@ -7,8 +7,10 @@
 # live, met, unmet and unreadable (an unreadable condition holds); coverage by
 # an `all` pause and by a unit's own pause, with the `<tag>: <title>` and
 # `<owner/repo>#<n>` forms; a go-ahead letting its unit through an `all`
-# pause and through its own pause; rows of other kinds ignored; and a file
-# that isn't Standing rows (2).
+# pause and through its own pause; a pause or go-ahead on `Feature N` and
+# the unit `Milestone N` (and the reverse) matching by tag key, while
+# `Feature 2` matches no `Milestone 12`, `Feature 02` or `#2`; rows of other
+# kinds ignored; and a file that isn't Standing rows (2).
 #
 # Runs offline on the gh-board stand-in.
 # Usage: bash skills/coordinate/scripts/pause-read_test.sh
@@ -87,6 +89,26 @@ eq "  ... and named as what lets Feature 2 through, for readers to print" '{"Fea
 standing "$(row s1 pause all lifted)" "$(row s3 go-ahead "#12" "")"
 units "acme/widgets#12"
 eq "a go-ahead on #12 lets owner/repo#12 through, and through says so" 'null {"acme/widgets#12":"s3"}' "$(read_ | jq -c '[.covers["acme/widgets#12"], .through] | map(tojson) | join(" ")' -r)"
+
+echo "== Feature/Milestone rename =="
+standing "$(row s1 pause "Feature 3" lifted)"
+units "Milestone 3" "Milestone 3: Sandbox" "Feature 3" "Milestone 13" "Milestone 13: x"
+eq "a pause on Feature 3 holds Milestone 3, in both forms, and Feature 3; never Milestone 13" "s1 s1 s1 null null" \
+    "$(read_ | jq -r '[.covers["Milestone 3", "Milestone 3: Sandbox", "Feature 3", "Milestone 13", "Milestone 13: x"]] | map(. // "null") | join(" ")')"
+standing "$(row s1 pause "Milestone 3" lifted)"
+units "Feature 3" "Feature 3: Sandbox" "Feature 4"
+eq "a pause on Milestone 3 holds Feature 3, in both forms, and no other feature" "s1 s1 null" \
+    "$(read_ | jq -r '[.covers["Feature 3", "Feature 3: Sandbox", "Feature 4"]] | map(. // "null") | join(" ")')"
+standing "$(row s1 pause "Feature 2" lifted)"
+units "Milestone 12" "Milestone 12: x" "Feature 02" "#2" "acme/widgets#2"
+eq "a pause on Feature 2 holds no Milestone 12, Feature 02 or issue #2" "null null null null null" \
+    "$(read_ | jq -r '[.covers["Milestone 12", "Milestone 12: x", "Feature 02", "#2", "acme/widgets#2"]] | map(. // "null") | join(" ")')"
+standing "$(row s1 pause all lifted)" "$(row s2 pause "Milestone 3" lifted)" "$(row s3 go-ahead "Feature 3" "")"
+units "Milestone 3" "Milestone 4"
+OUT=$(read_)
+eq "a go-ahead on Feature 3 lets Milestone 3 through all and its own pause; not Milestone 4" "null s1" \
+    "$(printf '%s' "$OUT" | jq -r '[.covers["Milestone 3", "Milestone 4"]] | map(. // "null") | join(" ")')"
+eq "  ... and through names it for Milestone 3" '{"Milestone 3":"s3"}' "$(printf '%s' "$OUT" | jq -c '.through')"
 
 echo "== refusals =="
 echo '"not rows"' > "$T/bad.json"

@@ -413,7 +413,7 @@ lib_roadmap_words() {
 # JQ_TAG_KEY: the jq def `tag_key`, a tag's key, through which every match of
 # a unit to a roadmap heading compares (a holding, a landed row, a Work row,
 # a verdict, goal-fit or failure entry, a follow-up, an amendment, a
-# reopen): `ms:<N>` for exactly `Feature <N>` or `Milestone <N>` (one space,
+# reopen, a pause's or go-ahead's On): `ms:<N>` for exactly `Feature <N>` or `Milestone <N>` (one space,
 # the decimal digits as written, nothing after them, case-sensitive), so a
 # record written under `Feature 2` matches the heading `Milestone 2`; any
 # other text is its own key. The key is a string: `Feature 03` keys `ms:03`

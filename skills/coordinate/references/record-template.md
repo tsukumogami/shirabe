@@ -217,7 +217,9 @@ pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
 carried it to you, blank when they told you directly. A pause names its
 scope in On, `all` (the whole coordinator) or one unit as pick lists it
-(`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`), and its resume
+(`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`; `Feature 2` and
+`Milestone 2` are one unit, so a pause written before the roadmap moved to
+roadmap/v3 still holds it), and its resume
 condition in Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
 `merged owner/repo#n` or `tag owner/repo <tag>`. pick, the dispatch check, the
 land check and the merge read every pause live (`scripts/pause-read.sh`) and
