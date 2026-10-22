@@ -70,3 +70,5 @@ garbage collected or timed out), use its Phase 3 position as its final word.
 ## Next Phase
 
 Proceed to Phase 5: Cross-Examination (`phase-5-examination.md`)
+
+Throwaway drift probe, reverted in the next commit: `koto context get <WF> revision.md --drift-probe`
