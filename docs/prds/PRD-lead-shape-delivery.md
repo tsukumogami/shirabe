@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   `/execute` drives every step of a plan through a `/work-on` child in its own
   context, so a session running a multi-step plan, often after a scoping
@@ -20,7 +20,7 @@ upstream: docs/briefs/BRIEF-lead-shape-delivery.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -126,11 +126,15 @@ next step koto hasn't skipped (`skip_dependents` skips that child's
 dependents, as today), so the batch reaches its terminal and
 `spawn_and_await` routes it to `escalate` as it does today. A child at
 `validation_exit` because its step is still an outline is handled as R7 says,
-not as a failure.
+not as a failure. When a step agent returns and `koto status` shows its child
+not yet terminal, the owning session hands the child to one new step agent,
+which resumes it from its current state; when that agent also returns with
+the child not terminal, the owning session stops handing off and ends the
+invocation with the forced-stop summary, leaving the run resumable.
 
 **R3. The owning session details each next step.** Before handing off any step
-after the first, and after the previous child reached its terminal, the owning
-session details that step: it rewrites the step's entry in the PLAN (its
+after the first, and after the previous child reached its terminal (whichever
+terminal it was), the owning session details that step: it rewrites the step's entry in the PLAN (its
 `### Step N:` block on a `plan/v2` plan, its outline on a `plan/v1` plan, and
 also the GitHub issue body when the step is an issue) so that the entry's
 goal, criteria and check are consistent with the code the landed steps left.
@@ -163,8 +167,8 @@ in the node's `ISSUES` order, in that node's worktree, with the R4 hand-off.
 The owning session keeps every step that reads or writes the run record, the
 coordination PR or a node branch's remote: `repo-visibility.sh`, `node-cut.sh`,
 `node-push.sh` and the exit handling around them. It confirms each work item's
-child with `koto status` before the next, and details each work item after the
-node's first as R3 says, committing the PLAN edit on the coordination branch
+child with `koto status` before the next, and details every work item after
+the run's first as R3 says, committing the PLAN edit on the coordination branch
 in the coordination checkout, where `plan_abs` points.
 
 **R6. Scoping in its own agent under `--auto`.** An `--auto` `/deliver` hands
@@ -221,8 +225,8 @@ chosen under the lead shape: the step's own `/work-on` chooses it inside the
 bound, and the step's own facts floor it. It states that a step whose own
 commits touch the `ci`, `security`, `template` or `engine` class floors at
 `full` because those paths change what every later run does, and that a step
-touching only `instruction`, `executable`, `test` or `manifest` paths, under
-the size thresholds, floors at `standard`.
+whose own commits touch no path in those four classes and stay within 400
+lines and 12 files floors no higher than `standard`.
 
 **R11. The shape is stated where it runs.** `skills/deliver/SKILL.md`,
 `skills/execute/SKILL.md` and `skills/work-on/SKILL.md` each contain the
@@ -247,6 +251,10 @@ as before.
 
 ## Acceptance Criteria
 
+A "text test" below is a shell test that checks each quoted phrase is present
+as a fixed, case-sensitive substring (`grep -F`) of the named file or
+section, and fails naming the phrase that is missing.
+
 - [ ] A text test under `skills/execute/scripts/` asserts that
       `skills/execute/SKILL.md` and the `## spawn_and_await` section of
       `execute.md` each contain "step agent", "one at a time", "koto status",
@@ -256,14 +264,19 @@ as before.
       `step_refine/`, "after `.o-`", "whole session name", "even when the
       entry didn't change", the `skip_dependents` sentence of R2, and "No step
       agent edits".
-- [ ] Exactly one file under `skills/` holds the step-agent hand-off template
-      (`git grep -l 'seats=unavailable' -- skills` lists one template file,
-      plus only the files that cite it), and that template contains
+- [ ] The step-agent hand-off template is
+      `skills/execute/references/step-agent-handoff.md`, whose first line is
+      `# Step agent hand-off`; `git grep -l '^# Step agent hand-off' --
+      skills` lists only that file, and the template contains
       `--no-cleanup`, "may spawn its step's review seats",
       `child=<session> state=`, `seats=spawned`, `seats=unavailable`, and a
       ban on reading settings or credential files.
 - [ ] The text test asserts that `execute.md` says a report with
-      `seats=unavailable` stops the hand-offs with the forced-stop summary.
+      `seats=unavailable` stops the hand-offs with the forced-stop summary,
+      that a child left non-terminal by a returned step agent gets one new
+      step agent and then the forced-stop summary, and that the owning
+      session keeps no more than the first ten lines of a report; and that
+      the hand-off template contains "at most ten lines".
 - [ ] The text test asserts that `execute-coordinated.md`'s `dispatch:<node>`
       action names the hand-off template, "one at a time", the node's
       worktree, `koto status`, `step_refine/` and `plan_abs`, and that
@@ -289,9 +302,12 @@ as before.
       Declaration' -e 'single-team-per-leader-no-nested' -- references skills`
       prints nothing, and `references/parent-skill-pattern.md` contains "may
       spawn" and "spawn nothing".
-- [ ] `references/fixes/sub-agent-dispatch.md` still describes the
-      serial-self-jury fallback, and states it applies when the harness can't
-      spawn subagents, not because a subagent may not spawn.
+- [ ] `references/fixes/sub-agent-dispatch.md` and
+      `skills/design/references/phases/phase-6-final-review.md` still
+      describe the serial-self-jury fallback, and each states it applies when
+      the harness can't spawn subagents, not because a subagent may not
+      spawn; and `git grep -n 'team-lead-spawned' --
+      references/worktree-discipline.md` prints nothing.
 - [ ] `review-level_test.sh` has a case where, on a shared branch, an earlier
       sibling committed a `koto-templates/` file and 500 lines, and the step's
       own `impl_base` diff is a 20-line `SKILL.md` change: `facts` records
@@ -313,9 +329,10 @@ as before.
       whose expectations name a step agent per step and a `step_refine/` key
       for steps two and three, and `skills/deliver/evals/evals.json` has an
       `--auto` scenario whose expectations name a scope agent.
-- [ ] CI's jobs that run the `execute`, `work-on`, `deliver` and `plan` script
-      suites, the skill checks, and the bash-floor check all pass on the pull
-      request.
+- [ ] The CI workflows "Check execute scripts", "Check work-on scripts",
+      "Check deliver scripts", "Check plan scripts", "Check skill gate",
+      "Check skill evals exist" and "Check bash floor" all pass on the pull
+      request's head.
 - [ ] `git diff --name-only` against the default branch lists no file under
       `skills/scope/koto-templates/`, `skills/charter/koto-templates/` or
       `skills/coordinate/`.
