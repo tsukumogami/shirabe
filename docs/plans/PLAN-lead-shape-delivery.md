@@ -199,9 +199,12 @@ No change under `skills/scope/koto-templates/` or `skills/charter/koto-templates
 - [ ] The test runs on bash 3.2: it is listed in `scripts/bash-floor/deliver.list` and wired into "Check deliver scripts" in `.github/workflows/check-deliver-scripts.yml`.
 - [ ] Mutating the directive (removing the scope-agent phrase) makes the test fail.
 - [ ] `skills/deliver/evals/evals.json` has an `--auto` scenario whose expectations name a scope agent.
-- [ ] The CI workflows "Check deliver scripts", "Check skill gate", "Check skill evals exist" and "Check bash floor" pass on the pull request's head.
-- [ ] `scripts/check-skill.sh --changed deliver` passes.
-- [ ] E2E flow still works (do not break the skeleton)
+- [ ] The directive's instruction to the scope agent says it must not read settings or credential files, and that the agents `/scope`'s children start (juries, researchers, issue-body agents) spawn nothing further except where `references/parent-skill-pattern.md` names an exception.
+- [ ] `references/parent-skill-pattern.md`'s `team_primitive` value no longer says flatly that "Spawn depth stops at two": the sentence names the exception its consequence 2 already describes (`/design`'s critical-tier deciders follow `/decision`, whose phases start their own agents, which under a scope agent is a third level), so the value and its consequences agree; `/bin/bash skills/execute/scripts/lead-shape-text_test.sh` still passes.
+- [ ] The CI workflows "Check deliver scripts", "Check skill gate", "Check skill evals exist" and "Check bash floor" pass on the pull request's head; `scripts/check-skill.sh --changed deliver` is left to that CI on the host this plan runs on.
+- [ ] The skeleton still holds: `/bin/bash skills/execute/scripts/lead-shape-text_test.sh` exits 0, and nothing under `skills/execute/` or `skills/work-on/` changes in this step.
+
+Notes from the steps already landed: Issue 3 rewrote the nine Team Shape sections and the pattern reference to say that the agent running `/scope` (for example a scope agent) spawns the children's juries; build on that wording rather than restating it. Step 1's text test pins phrases in `skills/execute/` and the pattern reference; this step adds its own test under `skills/deliver/scripts/`. `/work-on`'s verification gate starts `scripts/check-skill.sh` for any `skills/**` change, and the last panel's pass enters verification by itself: record the koto decision that hosted CI is the build of record before ticking past the last panel, then move with directed transitions. `setup_plan_backed` may need `status: override` although `SHARED_BRANCH` is set.
 
 **Dependencies**: Issue 1
 
