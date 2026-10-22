@@ -825,7 +825,7 @@ koto_stub() {
         printf '  "init --help") printf "Options:\\n%s  -h, --help  Print help\\n" ;;\n' "$init_opts"
         printf '  "next --help") printf "Options:\\n      --with-data <DATA>  Evidence\\n      --no-cleanup  Keep\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "status --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
-        printf '  "workflows --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
+        printf '  "workflows --help") printf "Options:\\n      --children <NAME>  Children\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "session --help") printf "Commands:\\n  cleanup  Cleanup\\n  dir  Dir\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "session cleanup --help") printf "Options:\\n  -h, --help  Print help\\n" ;;\n'
         printf '  "context --help") printf "Commands:\\n  add  Store\\n  get  Get\\n  exists  Exists\\n  remove  Remove\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
