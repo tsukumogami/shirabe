@@ -89,6 +89,10 @@
 #     repeated here: it is the template's pattern, its one source, and SKILL.md
 #     states it.
 #
+# Both checks live in scripts/lib/verification-deferral.sh, which /execute's
+# opener sources too, so the two skills refuse the same reasons in the same
+# words.
+#
 # Like the bound, both variables are not rebind: an attach that passes none
 # keeps what the session started with.
 #
@@ -125,6 +129,8 @@ SKILL_DIR=$(CDPATH='' cd "$SELF_DIR/.." && pwd) || exit 64
 PLUGIN_DIR=$(CDPATH='' cd "$SKILL_DIR/../.." && pwd) || exit 64
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
 KOTO_OPEN="$PLUGIN_DIR/scripts/koto-open.sh"
+# shellcheck source=../../../scripts/lib/verification-deferral.sh
+. "$PLUGIN_DIR/scripts/lib/verification-deferral.sh" || exit 64
 
 RE_LEG='^[a-z0-9_][a-z0-9_-]{0,63}:work-on$'
 RE_VAR='^[A-Z][A-Z0-9_]*='
@@ -191,15 +197,9 @@ DIR=$(dirname -- "$TOKENS_FILE")
 rm -f -- "$TOKENS_FILE"
 
 # A deferral reason koto would refuse, refused here first in words a caller can
-# act on. Every occurrence is checked, since every one becomes a pair. The bad
-# characters are listed once each, JSON-quoted, so a newline or a tab shows.
-# The class must stay koto's VALUE_PATTERN (src/engine/substitute.rs).
-BAD_CHARS=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--verification-reason="))
-    | ltrimstr("--verification-reason=") | explode[] | [.] | implode
-    | select(test("^[a-zA-Z0-9._/:@+ -]$") | not)] | unique | map(@json) | join(" ")')
-if [ -n "$BAD_CHARS" ]; then
-    own_refusal "--verification-reason has characters koto does not accept in a variable value: $BAD_CHARS. A reason may use only letters, digits, spaces and . _ / : @ + - (koto's allowlist, ^[a-zA-Z0-9._/:@+ \\-]*\$); apostrophes and commas are not among them. Reword it, for example: --verification-reason=host is in a measurement window until 02:40Z"
-fi
+# act on. The check is shared with /execute's opener.
+REFUSAL=$(vd_reason_chars_refusal "$TOKENS")
+[ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
 
 # --koto-leg: exactly once, naming the one leg /work-on answers.
 LEGS=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
@@ -240,15 +240,9 @@ done <<TOKENS_EOF
 $(printf '%s' "$REST" | jq -r '.[] | select(endswith(".md") and (startswith("-") | not))')
 TOKENS_EOF
 
-# A deferral to hosted CI needs its reason. Only the last occurrence of each
-# flag is looked at here; a repeat still reaches koto, which refuses it.
-DEFER=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--verification="))
-    | ltrimstr("--verification=")] | last // ""')
-REASON=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--verification-reason="))
-    | ltrimstr("--verification-reason=")] | last // ""')
-if [ "$DEFER" = hosted-ci ] && [ -z "$REASON" ]; then
-    own_refusal "--verification=hosted-ci needs --verification-reason=<why>: a deferral to hosted CI has to say why local verification does not run"
-fi
+# A deferral to hosted CI needs its reason (shared with /execute's opener).
+REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
+[ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 

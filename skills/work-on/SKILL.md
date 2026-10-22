@@ -243,7 +243,7 @@ Skip staleness checks in plan-backed mode.
 
 When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. koto skips `setup_plan_backed` (its `skip_if` records `status: override`), so the response arrives with `advanced: true`: submit nothing for that state, call `koto next` again, and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
 
-**PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
+**PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete. A child that deferred verification records its reason as `verification_deferral`, as a standalone run does, but its `shared` edge skips `verification_deferral_recorded`: `pr_finalization` reads each child's reason and holds until the shared PR's body records it.
 
 **A child under the lead shape.** When `/execute` runs a plan in the lead shape, a
 step agent drives this child to its terminal from the hand-off in
@@ -346,8 +346,9 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
 ```
 
 **Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
-`SHARED_BRANCH`, `ISSUE_TYPE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when the `/execute`
-run was given a bound) and enters with `mode: plan_backed` (see **Plan-Backed Child
+`SHARED_BRANCH`, `ISSUE_TYPE`, `REVIEW_FLOOR`/`REVIEW_CEILING` when the `/execute`
+run was given a bound, and `VERIFICATION`/`VERIFICATION_DEFERRAL_REASON` when it
+was given `--verification=hosted-ci`) and enters with `mode: plan_backed` (see **Plan-Backed Child
 Mode**), which routes to `plan_context_injection`.
 
 **Under `--koto-leg`** (issue-backed or free-form), don't run `koto init` yourself; open

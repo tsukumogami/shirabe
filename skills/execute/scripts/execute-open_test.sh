@@ -230,6 +230,36 @@ pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to 
     '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
     'map(select(.[0] | startswith("REVIEW_")))'
 
+# The verification deferral (#1017): one pair per flag given, none without
+# them (the no-flag case above already pins the list), and /work-on's own two
+# refusals before any koto call.
+pairs_of '["docs/plans/PLAN-t.md","--verification=hosted-ci","--verification-reason=host is in a measurement window until 02:40Z"]'
+pairs_eq "--verification=hosted-ci with a reason: one pair each, the reason unchanged" \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is in a measurement window until 02:40Z"]]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+pairs_of '["docs/plans/PLAN-t.md","--verification=local"]'
+pairs_eq "--verification=local alone: one pair, no reason" '[["VERIFICATION","local"]]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+pairs_of '["docs/plans/PLAN-t.md","--verification=sometimes","--verification-reason=x"]'
+pairs_eq "a value outside local and hosted-ci is passed through for koto's invalid_var" \
+    '[["VERIFICATION","sometimes"],["VERIFICATION_DEFERRAL_REASON","x"]]' 'map(select(.[0] | startswith("VERIFICATION")))'
+own_refusal "--verification=hosted-ci with no reason" '["docs/plans/PLAN-t.md","--verification=hosted-ci"]'
+own_refusal "--verification=hosted-ci with an empty reason" '["docs/plans/PLAN-t.md","--verification=hosted-ci","--verification-reason="]'
+own_refusal "a reason with an apostrophe and a comma" \
+    "[\"docs/plans/PLAN-t.md\",\"--verification=hosted-ci\",\"--verification-reason=host can't run suites, CI only\"]"
+own_refusal "a bad reason with --verification=local" \
+    "[\"docs/plans/PLAN-t.md\",\"--verification=local\",\"--verification-reason=can't\"]"
+# The words are /work-on's: the refusal names the characters and the allowlist.
+tokens "[\"docs/plans/PLAN-t.md\",\"--verification=hosted-ci\",\"--verification-reason=host can't run suites, CI only\"]"
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+if [ "$OUT" = "error=usage" ] && grep -qF "\"'\" \",\"" "$WORK/stderr" \
+    && grep -qF "apostrophes and commas are not among them" "$WORK/stderr" \
+    && grep -q '^execute-open: --verification-reason has characters' "$WORK/stderr"; then
+    pass "a bad reason: execute-open names the characters in /work-on's words"
+else
+    fail "bad reason wording: out [$OUT], stderr [$(cat "$WORK/stderr")]"
+fi
+
 # A retained paused_for_review session makes the invocation the finalize
 # resume, which passes PAUSE_BEFORE_FINALIZE=false. From koto 0.17.0 `koto
 # status` also answers for a session koto removed at that terminal, with
@@ -272,6 +302,20 @@ own_refusal "a --coordination-pr followed by another flag" '["docs/plans/PLAN-cp
 own_refusal "--remove without --follow-up" '["docs/plans/PLAN-cpairs.md","--remove"]'
 own_refusal "a --follow-up value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up","core"]'
 own_refusal "a --follow-up= value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up=core"]'
+# The verification deferral is single-pr only (#1047): either flag on a
+# coordinated PLAN is refused here, naming the limit, never a bare unknown_var.
+own_refusal "--verification=hosted-ci on a coordinated PLAN" \
+    '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
+own_refusal "--verification=local on a coordinated PLAN" '["docs/plans/PLAN-cpairs.md","--verification=local"]'
+own_refusal "--verification-reason alone on a coordinated PLAN" '["docs/plans/PLAN-cpairs.md","--verification-reason=CI only"]'
+tokens '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+if [ "$OUT" = "error=usage" ] && grep -q 'apply to a single-pr PLAN only' "$WORK/stderr" \
+    && grep -q 'shirabe#1047' "$WORK/stderr"; then
+    pass "a coordinated PLAN with the deferral: the refusal names the single-pr limit and the follow-up issue"
+else
+    fail "coordinated deferral refusal: out [$OUT], stderr [$(cat "$WORK/stderr")]"
+fi
 
 # A live coordinated session past coord_setup refuses the setup-only flags:
 # setup has run, so they would be accepted and never applied.

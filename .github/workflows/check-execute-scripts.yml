@@ -21,6 +21,9 @@ on:
       - 'scripts/lib/coordination-body.sh'
       - 'scripts/lib/squash-message.sh'
       - 'scripts/lib/squash-message_test.sh'
+      # The verification deferral's opener checks, which execute-open.sh
+      # shares with /work-on's opener.
+      - 'scripts/lib/verification-deferral.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -231,6 +234,14 @@ jobs:
       - name: Run execute output gate routing tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/execute-output-gates-routing_test.sh
+
+      # pr_finalization's deferral_recorded gate: its script through koto, gh
+      # and owned-pr.sh stubs with the real check-pr-output.sh, then over real
+      # child sessions, one deferring through work-on.md's shipped
+      # verification_deferred state.
+      - name: Run shared deferral record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/shared-deferral-record_test.sh
 
       # The coordinated envelope's shape, read from the compiled
       # execute-coordinated.md: every edge into `merged` from

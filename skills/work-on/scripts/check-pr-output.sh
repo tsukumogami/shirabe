@@ -39,19 +39,25 @@
 #         owned-pr.sh exit 2, 64, a timeout, or anything else -> 2
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
-#   --deferral-record --reason <reason>
+#   --deferral-record --reason <reason> [--reason <reason>]...
+#                     [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
-#       VERIFICATION=hosted-ci, #1012). Reads the checked-out branch's pull
-#       request body with `gh pr view --json body` and checks that it records
-#       the deferral, in three parts:
+#       VERIFICATION=hosted-ci, #1012). Reads the pull request body with
+#       `gh pr view --json body` and checks that it records the deferral, in
+#       three parts:
 #         a line saying "local verification did not run"
-#         the reason, verbatim (a fixed-string match on <reason>)
+#         each reason, verbatim (a fixed-string match on every <reason>)
 #         a line saying "hosted CI is the build of record"
-#       The two phrases are matched without regard to case; the reason
-#       exactly, since it is the one the run was started with.
-#         all three present                          -> 0
+#       The two phrases are matched without regard to case; each reason
+#       exactly, since it is the one its run was started with. Without
+#       --owned the pull request is the checked-out branch's (/work-on's
+#       pr_creation, one reason); with --owned it is the one owned-pr.sh
+#       resolves, as --pr-body --owned reads it (/execute's shared PR, whose
+#       children may each have deferred, through shared-deferral-record.sh).
+#         all present                                -> 0
 #         any missing                                -> 1, one stderr line each
-#         an empty reason, gh missing or failing, no body -> 2
+#         an empty reason, no single owned pull request, gh missing or
+#         failing, no body                           -> 2
 #       It prints no ::koto-finding:: line. Like pr_creation's closing
 #       keyword, the obligation is the template's own, with no registry rule
 #       behind it, and the stderr lines say what is missing.
@@ -103,9 +109,9 @@ usage() {
     cat >&2 <<'EOF'
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
-       check-pr-output.sh --deferral-record --reason <reason>
+       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--owned <owned-pr.sh arguments>]
 
---pr-body:         exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
+--pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
 --deferral-record: exit 0 the body records the deferral, 1 it does not, 2 could not decide.
 EOF
@@ -306,18 +312,34 @@ check_pr_body() {
 }
 
 check_deferral_record() {
-    if [ $# -ne 2 ] || [ "$1" != --reason ]; then
-        usage
-        exit 2
+    reasons=()
+    while [ $# -gt 0 ] && [ "$1" = --reason ]; do
+        [ $# -ge 2 ] || { usage; exit 2; }
+        [ -n "$2" ] || undecided "--deferral-record needs a non-empty --reason"
+        reasons+=("$2")
+        shift 2
+    done
+    [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
+    if [ $# -gt 0 ]; then
+        [ "$1" = --owned ] || { usage; exit 2; }
+        shift
+        [ $# -gt 0 ] || { usage; exit 2; }
+        OWNED=1
     fi
-    reason=$2
-    [ -n "$reason" ] || undecided "--deferral-record needs a non-empty --reason"
     for tool in gh jq; do
         command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
     done
     make_work
-    gh pr view --json body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
-        || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
+    if [ "$OWNED" = 1 ]; then
+        lookup "$@"
+        rc=$?
+        [ "$rc" -eq 0 ] || undecided "--owned: no single owned pull request to read (lookup answered $rc)"
+        gh pr view "$URL" --json body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
+            || undecided "gh pr view $URL failed: $(tail -n 1 "$WORK/gh.err")"
+    else
+        gh pr view --json body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
+            || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
+    fi
     jq -e 'type == "object" and (.body | type == "string")' "$WORK/pr.json" >/dev/null \
         || undecided "gh pr view did not return a body"
     jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
@@ -327,10 +349,12 @@ check_deferral_record() {
         echo "check-pr-output: the PR body does not say that local verification did not run" >&2
         missing=$((missing + 1))
     fi
-    if ! grep -qF -- "$reason" "$WORK/body.md"; then
-        echo "check-pr-output: the PR body does not carry the deferral reason verbatim: $reason" >&2
-        missing=$((missing + 1))
-    fi
+    for reason in "${reasons[@]}"; do
+        if ! grep -qF -- "$reason" "$WORK/body.md"; then
+            echo "check-pr-output: the PR body does not carry the deferral reason verbatim: $reason" >&2
+            missing=$((missing + 1))
+        fi
+    done
     if ! grep -qiF -- "hosted CI is the build of record" "$WORK/body.md"; then
         echo "check-pr-output: the PR body does not say that hosted CI is the build of record" >&2
         missing=$((missing + 1))

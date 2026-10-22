@@ -33,6 +33,14 @@
 # check-pr-output.sh on every plan, which calls `validate --pr-body
 # --pr-title --format --writing-style`, so those flags are always records too.
 #
+# Its deferral_recorded gate runs shared-deferral-record.sh on every plan:
+# `koto workflows --children` lists the run's children, and
+# `koto context exists`/`get` read each one's verification_deferral. When the
+# run or a child deferred verification, it runs check-pr-output.sh
+# --deferral-record --owned, which reads the owned PR's body with `gh pr view`
+# and jq. Each falls under the koto, gh and jq records below. execute-open.sh
+# sources scripts/lib/verification-deferral.sh, whose reason checks use jq.
+#
 # The coordinated path adds the two coordination modes of the same subcommand:
 # `--coordination-body` for offline authoring feedback on the PR body, and
 # `--merge-gate` for the live merge-last gate. Neither runs on a single-pr
