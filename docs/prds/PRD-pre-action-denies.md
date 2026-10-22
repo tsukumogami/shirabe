@@ -184,8 +184,16 @@ These terms mean the same thing everywhere below.
   by `create`, `new` or `edit`, or `git` followed later by `push`. It is a
   superset of guarded: everything guarded is named in the text, and
   some unguarded commands are too (`echo "git push"`). The same test,
-  applied to one segment's text, decides a wrapped guarded command.
-- **Wrapped guarded command**: a segment whose head is `env`, `command`,
+  applied to one segment's text, decides a wrapped guarded command
+  behind every wrapper but `env`.
+- **Wrapped guarded command**: a segment whose head is `env` and whose
+  command, after env's options `-i`, `-`, `--ignore-environment`, `-0`,
+  `--null`, `-v`, `--debug`, `-u NAME`, `--unset NAME` and `--` and its
+  `NAME=value` operands, is guarded or wrapped guarded, so `env -u
+  GH_TOKEN gh pr merge --body "..."` is a merge whatever its body says
+  (any other env option, a word the shell expands before the command,
+  or `env` nested more than eight deep falls back to the text test); a
+  segment whose head is `command`,
   `builtin`, `exec`, `eval`, `bash`, `sh`, `zsh`, `dash`, `xargs`,
   `sudo`, `time`, `nohup`, `timeout`, `nice`, `ssh`, `docker`,
   `podman`, `mise`, `nix`, `python`, `python3`, `perl`, `ruby` or

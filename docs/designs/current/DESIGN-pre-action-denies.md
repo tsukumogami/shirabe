@@ -474,6 +474,22 @@ starts with `$` and that has a later word `push` or `pr` followed by
 `create`, `new` or `edit` (`$G push` names no `git` for the coarse test to
 find). All are fail-closed cases.
 
+`env` is the one wrapper read by the command it runs. Agents prefix
+commands with `env -u GH_TOKEN` routinely, and the coarse test over the
+whole segment reads quoted arguments as words: a `gh pr merge` whose
+`--body` says "new", or a `gh issue create` whose title mentions `gh pr
+create`, would read as a wrapped create. So the classifier skips env's
+listed options (`-i`, `-`, `-0`, `-v`, `-u NAME`, `--unset`, `--`) and
+its `NAME=value` operands and classifies the rest as a segment of its
+own: a guarded or wrapped guarded command there makes the `env` segment
+a wrapped guarded command, and anything else is no guarded action. An
+option not on that list (`-S` splits a string into a command, `-C`
+changes directory), a word the shell expands before the command, or
+`env` nested more than eight deep falls back to the text test. The other
+wrappers keep it: each takes a shell string (`bash -c`, `eval`, `ssh`) or
+an option grammar of its own (`sudo -u`, `timeout 5`, `xargs`) that can
+carry a guarded command where a word-by-word reading would miss it.
+
 Before a guarded segment the classifier looks at every earlier segment
 of the same command. Before a `gh pr` segment, one that names the body
 file, compared after resolving both relative paths against the tracked
