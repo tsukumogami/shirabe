@@ -1,7 +1,8 @@
 # date-stand-in.sh -- a clock the coordinate engine suites can move forward,
 # for coordinate-engine-lib.sh (the quiet case) and
 # reconcile-pass_engine_test.sh (the listing re-read). Sourced by a suite after
-# it sets T (its scratch directory). Not shipped behaviour.
+# it sets T (its scratch directory). Not shipped behaviour. Sourcing it sets
+# REAL_DATE, AT_FLAG and AT_PREFIX and makes $T/bin.
 #
 #   set_clock <seconds>   write $T/bin/date, which reads <seconds> later than
 #                         the real clock
@@ -10,10 +11,11 @@
 # The suite puts $T/bin first on PATH itself, before koto starts, so the
 # commands koto runs see the stand-in. It is there only while a clock is set,
 # so every other `date` is the real one and starts no shell. REAL_DATE is the
-# date on PATH when this file is sourced. GNU date reads an epoch as `-d @N`,
-# BSD date (macOS) as `-r N`, so the stand-in is written with whichever this
-# host's date takes, and a call that names its own time (-d, --date, -r,
-# --reference) goes to the real date unchanged.
+# date on PATH when this file is sourced, so source it while no stand-in date
+# is on PATH, or the stand-in would run itself. GNU date reads an epoch as
+# `-d @N`, BSD date (macOS) as `-r N`, so the stand-in is written with
+# whichever this host's date takes, and a call that names its own time (-d,
+# --date, -r, --reference) goes to the real date unchanged.
 #
 # Two things to know while a clock is set:
 #   - every plain `date` call reads ahead, not only the script under test's,
