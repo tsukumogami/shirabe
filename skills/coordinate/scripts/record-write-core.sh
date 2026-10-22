@@ -27,6 +27,12 @@
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
+# Before the body is rendered, the next state's JSON passes state-schema.jq's
+# check_record (core_validate): every column's grammar, the worker and pull
+# request link shapes, the Holds, stored set and Decisions rules, and the
+# private-repository, home-path and token checks, each refused with the
+# module's `refused: ` message (exit 65), on either store and before any key
+# or body is written. The renderer runs the same functions.
 #
 # On the session store (docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 4) every check above runs the same way, against the live record the
@@ -312,7 +318,8 @@ core_write_host() {
 # this scope's record (SCOPE, NAME), fits RECORD_BUDGET, and holds only
 # well-formed pushed heads. The target must hold no record. Each key's name is
 # checked against the session store's names and its value checked (JSON, or for
-# record/posted/<n> a comment URL on REPO's issues), then copied, and
+# record/posted/<n> a comment URL on an issue or pull request: REPO's record
+# issue, or the item record-append.sh --on posted it on), then copied, and
 # record/meta goes last, with the source's written time: until it lands the new
 # run holds no record, so a carry cut short leaves nothing a start would resume,
 # and the next start carries again. Only coordinate-open.sh calls it, which a
@@ -352,8 +359,8 @@ core_carry() {
         "$KOTO" context get "$from" "$k" < /dev/null > "$d/v" 2> "$d/k.err" || { rm -rf "$d"; lib_die2 "cannot read $k: $(lib_scrub < "$d/k.err")"; }
         case "$k" in
             record/posted/*)
-                [[ $(cat "$d/v") =~ ^https://github\.com/${REPO}/issues/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
-                    || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on $REPO's issues" >&2; exit 65; } ;;
+                [[ $(cat "$d/v") =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
+                    || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on an issue or a pull request" >&2; exit 65; } ;;
             *) jq -e . "$d/v" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
         esac
         "$KOTO" context add "$to" "$k" --from-file "$d/v" < /dev/null > /dev/null 2> "$d/k.err" \
@@ -363,6 +370,26 @@ core_carry() {
     "$KOTO" context add "$to" record/meta --from-file "$d/meta" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the carry into $to failed at record/meta: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     rm -rf "$d"
+}
+
+# core_validate <state-file>: the next state's JSON checked by state-schema.jq's
+# check_record, with the repositories the host can't show public ($PRIVATE),
+# before anything is rendered or written on either store. A state that breaks a
+# rule is refused with the module's `refused: ` message (exit 65); the renderer
+# runs the same functions, so a state that passes here renders. A tree that
+# holds record-codec.jq without the module (some suites copy the codec alone)
+# runs the codec's verbatim copy of it instead.
+core_validate() {
+    local mod=state-schema
+    [ -f "$HERE/state-schema.jq" ] || mod=record-codec
+    if jq -n -L "$HERE" --slurpfile s "$1" --arg private "$PRIVATE" "include \"$mod\";"'
+            $s[0] | check_record($private | split(",") | map(select(. != ""))) | empty' 2> "$T/schema.err" < /dev/null; then
+        return 0
+    fi
+    grep -q 'refused: ' "$T/schema.err" || lib_die2 "$mod.jq failed: $(lib_scrub < "$T/schema.err")"
+    echo "$PROG: refused: $(sed -n 's/.*refused: //p' "$T/schema.err" | head -1 | lib_scrub)" >&2
+    [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
+    exit 65
 }
 
 core_write() {
@@ -466,6 +493,7 @@ core_write() {
     if lib_dispatched && lib_drop_disposed "$T/parsed.json" "$T/dropped.json"; then
         mv "$T/dropped.json" "$T/next.json"
     fi
+    core_validate "$T/next.json"
     jq 'del(.written)' "$T/next.json" | bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(lib_now)" --private-repos "$PRIVATE" \
         > "$T/body.md" 2> "$T/render.err" || {
         echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2

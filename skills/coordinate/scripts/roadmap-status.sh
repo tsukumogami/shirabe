@@ -11,7 +11,9 @@
 # Usage:
 #   roadmap-status.sh --session S --unit TAG [--outcome TEXT]
 #   roadmap-status.sh --session S --verdict TAG --entry-file F --entry-url URL [--follow-ups FILE]
+#   roadmap-status.sh --session S --verdict TAG --entry N [--follow-ups FILE]     (session store)
 #   roadmap-status.sh --session S --reopen TAG --entry-file F --entry-url URL
+#   roadmap-status.sh --session S --reopen TAG --entry N                          (session store)
 #   roadmap-status.sh --session S --confirm TAG
 #   roadmap-status.sh --session S --drop TAG --reason TEXT
 #   roadmap-status.sh --session S --list
@@ -153,6 +155,24 @@
 # a holding covers: that worker's milestone reads blocked again once the
 # edit lands, and the coordinator tells its owner.
 #
+# On the session store --verdict and --reopen also take --entry N instead of
+# --entry-file and --entry-url (docs/designs/current/DESIGN-coordinator-record-teardown.md,
+# Decision 2): the entry is record/entries/N, written with record-append.sh
+# --on none, of the kind each takes, and they post it on the roadmap pull
+# request they open rather than reading a comment already posted. The order
+# changes so the Progress line can name that comment: the edit without its
+# Progress lines is committed on the new branch, the pull request opens with
+# the entry in its body, the Side effects row is written (its How to confirm
+# ends `(entry N)`), the entry is posted on the pull request with
+# record-append.sh --repost N --on <host>#<pull request> (so the content
+# checks and the `@` escaping apply), and a second commit adds the Progress
+# lines with the comment's URL and hash. When the post or that commit fails,
+# it exits 14 naming the pull request; run with the same entry again it finds
+# its row, posts once (record-append.sh's retry finds a post that landed) and
+# pushes only the missing commit, so no second pull request opens. An entry
+# already posted anywhere else is refused, so after --drop the edit opens
+# again from the same verdict or failure written as a new entry.
+#
 # --confirm removes TAG's row once the roadmap on the default branch shows
 # it, by the row's Action: `roadmap-status` and `milestone-done` read Done,
 # Shipped or Dropped for TAG, annotated or not (`Done -- shipped in #12`);
@@ -177,6 +197,13 @@
 # for a pull request closed unmerged, and leaves a verdict-owed row
 # standing; the entry is still on the record, so --verdict or --reopen can
 # open the edit again from it.
+# A comment --confirm reads is found by id in the host repository, and the
+# issue or pull request it sits on is read from the API's `issue_url`: one on
+# this run's record issue is accepted as before, and one on the roadmap pull
+# request the row names only when its author is the login `gh api user`
+# answers, compared without case. A milestone-verdict row whose How to
+# confirm ends `(entry N)` finds its entry's URL in record/posted/N, and a
+# reopen line may cite a comment on the row's pull request.
 # --list prints the pending rows as a JSON array of {unit, pull_request,
 # attempted, action}, record-codec.jq pending_list, the projection pick-facts.sh
 # also takes from its own parse to mark landed units.
@@ -207,15 +234,19 @@
 #           gh api --method GET repos/R/compare/<Source>...<head sha>       (--verdict)
 #           gh api --method GET repos/R/issues/comments/<id>               (--verdict, --reopen, --confirm)
 #           gh api --method GET repos/R/contents/<roadmap>?ref=<default>    (--confirm)
+#           gh api user --jq .login                                        (--confirm, a pull request's comment)
+#           gh pr view N --repo R --json state,headRefName                 (--entry, run again)
+#           gh api --method GET repos/R/contents/<roadmap>?ref=<branch>    (--entry: the Progress commit)
 #   writes: gh api --method POST repos/R/git/refs -f ref=... -f sha=...
 #           gh api --method PUT repos/R/contents/<roadmap> (message, content, sha, branch)
 #           gh pr create --repo R --head <branch> --base <default> --title T --body-file F
 #           the record, through record-write-core.sh; the entry, through record-append.sh
+#           (with --entry, the posted entry too, through record-append.sh --repost --on)
 set -uo pipefail
 
 PROG=roadmap-status
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= ROADMAP= MODE= TAG= OUTCOME= REASON= ENTRY_IN= ENTRY_URL= FOLLOW_UPS=
+SESSION= SCOPE= NAME= REPO= REF= ROADMAP= MODE= TAG= OUTCOME= REASON= ENTRY_IN= ENTRY_URL= FOLLOW_UPS= ENTRY_N=
 SKIP_CHECKS=0
 ARG_ROADMAP=
 OUTCOME_SET=0
@@ -247,17 +278,27 @@ while [ $# -gt 0 ]; do
         --reason) [ $# -ge 2 ] || usage; REASON=$2; shift 2 ;;
         --entry-file) [ $# -ge 2 ] || usage; ENTRY_IN=$2; shift 2 ;;
         --entry-url) [ $# -ge 2 ] || usage; ENTRY_URL=$2; shift 2 ;;
+        --entry) [ $# -ge 2 ] || usage; ENTRY_N=$2; shift 2 ;;
         --follow-ups) [ $# -ge 2 ] || usage; FOLLOW_UPS=$2; shift 2 ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
     esac
 done
+# entry_given: the entry as a file and its posted URL, or as a session entry
+# by number, never both.
+entry_given() {
+    if [ -n "$ENTRY_N" ]; then
+        [ -z "$ENTRY_IN$ENTRY_URL" ] && [[ $ENTRY_N =~ ^[0-9]{1,6}$ ]] && [ "$((10#$ENTRY_N))" -gt 0 ]
+    else
+        [ -n "$ENTRY_IN" ] && [ -n "$ENTRY_URL" ]
+    fi
+}
 case "$MODE" in
-    open) [ -z "$REASON$ENTRY_IN$ENTRY_URL$FOLLOW_UPS" ] || usage ;;
-    verdict) [ -n "$ENTRY_IN" ] && [ -n "$ENTRY_URL" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON" ] || usage ;;
-    reopen) [ -n "$ENTRY_IN" ] && [ -n "$ENTRY_URL" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS" ] || usage ;;
-    drop) [ -n "$REASON" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$ENTRY_IN$ENTRY_URL$FOLLOW_UPS" ] || usage ;;
-    confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$ENTRY_IN$ENTRY_URL$FOLLOW_UPS" ] || usage ;;
+    open) [ -z "$REASON$ENTRY_IN$ENTRY_URL$FOLLOW_UPS$ENTRY_N" ] || usage ;;
+    verdict) entry_given && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON" ] || usage ;;
+    reopen) entry_given && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS" ] || usage ;;
+    drop) [ -n "$REASON" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$ENTRY_IN$ENTRY_URL$FOLLOW_UPS$ENTRY_N" ] || usage ;;
+    confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$ENTRY_IN$ENTRY_URL$FOLLOW_UPS$ENTRY_N" ] || usage ;;
     *) usage ;;
 esac
 . "$HERE/record-common.sh"
@@ -266,6 +307,18 @@ lib_facts
 [ "$SCOPE" = roadmap ] || { echo "$PROG: a feature's status is a roadmap's; this run's scope is $SCOPE" >&2; exit 64; }
 lib_roadmap_path
 lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
+# The record's address, for record-append.sh.
+if [ "$OVERRIDE" = 1 ]; then ADDR=(--scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF")
+else ADDR=(--session "$SESSION"); fi
+# --entry N reads the session's entry N (EN its key's six digits, ENUM the
+# number), so it needs the session store.
+ES=${RS_SESSION:-$SESSION} EN= ENUM=
+if [ -n "$ENTRY_N" ]; then
+    [ "$(rs_source)" = session ] && [ -n "$ES" ] \
+        || { echo "$PROG: --entry is for a record on the session store; a GitHub record's entry is posted on it first, then given with --entry-file and --entry-url" >&2; exit 64; }
+    ENUM=$((10#$ENTRY_N))
+    EN=$(printf '%06d' "$ENUM")
+fi
 RE_HEADING_TAG='^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
 case "$MODE" in
     list) ;;
@@ -416,20 +469,45 @@ sha8() {
     if command -v sha256sum > /dev/null 2>&1; then sha256sum < "$1" | cut -c1-8
     else shasum -a 256 < "$1" | cut -c1-8; fi
 }
-# posted_entry <comment-id> <out> <kind>: the text of record comment ID, as
-# record-append.sh --list reads it back, normalised as norm_entry does. The
-# comment must be on this run's record issue and carry KIND's entry marker
-# (milestone-verdict or milestone-failure); anything else is refused (65),
-# and a failed read exits 2.
+# lc <text>: lower case, for the comparisons GitHub makes without case.
+lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+# coordinator_login: LOGIN, the login this run posts as (gh api user), read
+# once; a failed read exits 2.
+coordinator_login() {
+    [ -n "${LOGIN:-}" ] && return 0
+    LOGIN=$(gh api user --jq .login 2> "$WD/u.err" < /dev/null) && [[ $LOGIN =~ $RE_LOGIN ]] \
+        || lib_die2 "cannot read the login this run posts as: $(lib_scrub < "$WD/u.err")"
+}
+# posted_entry <comment-id> <out> <kind> [<pull request>]: the text of comment
+# ID, as record-append.sh --list reads it back, normalised as norm_entry does.
+# The issue or pull request it sits on is the API's issue_url, never the
+# URL's path. It must be this run's record issue, or the roadmap pull request
+# given, where its author must also be the coordinator's login (anyone can
+# comment on a pull request; a comment on the record was posted by a writer).
+# It must carry KIND's entry marker (milestone-verdict or milestone-failure);
+# anything else is refused (65), and a failed read exits 2.
 posted_entry() {
-    local c
+    local c on
     if ! c=$(gh api --method GET "repos/$REPO/issues/comments/$1" 2> "$WD/pc.err" < /dev/null); then
         grep -q 'HTTP 404' "$WD/pc.err" && refuse "no comment $1 on $REPO: the entry URL names no posted entry"
         lib_die2 "cannot read comment $1: $(lib_scrub < "$WD/pc.err")"
     fi
-    printf '%s' "$c" | jq -e --arg u "https://github.com/$REPO/issues/$REF#issuecomment-$1" \
-        '(.html_url // "" | ascii_downcase) == ($u | ascii_downcase)' > /dev/null \
-        || refuse "comment $1 is not on this run's record, issue #$REF"
+    on=$(printf '%s' "$c" | jq -r '.issue_url // ""') || lib_die2 "comment $1 is not JSON"
+    if [[ $(lc "$on") =~ ^https://api\.github\.com/repos/([a-z0-9_.-]+/[a-z0-9_.-]+)/issues/([1-9][0-9]*)$ ]] \
+        && [ "${BASH_REMATCH[1]}" = "$(lc "$REPO")" ]; then
+        on=${BASH_REMATCH[2]}
+    else
+        on=
+    fi
+    if [ -n "$on" ] && [ "$on" = "$REF" ]; then
+        :
+    elif [ -n "$on" ] && [ "$on" = "${4:-}" ]; then
+        coordinator_login
+        [ "$(lc "$(printf '%s' "$c" | jq -r '.user.login // ""')")" = "$(lc "$LOGIN")" ] \
+            || refuse "comment $1 on the roadmap pull request #$4 is not by the coordinator's login, $LOGIN"
+    else
+        refuse "comment $1 is not on this run's record, issue #$REF${4:+, nor on its roadmap pull request #$4}"
+    fi
     printf '%s' "$c" | jq -r '.body // ""' | tr -d '\r' > "$WD/pc.body" || lib_die2 "comment $1 is not JSON"
     [ "$(head -1 "$WD/pc.body")" = "${ENTRY_MARKER_PREFIX}$3 -->" ] \
         || refuse "comment $1 is not a $3 entry (one record-append.sh --kind $3 posted)"
@@ -437,6 +515,107 @@ posted_entry() {
     # its reader's order, the text comes back as written.
     tail -n +4 "$WD/pc.body" | sed -e 's/&#64;/@/g' -e 's/&amp;/\&/g' > "$WD/pc.raw"
     norm_entry "$WD/pc.raw" "$2"
+}
+
+# ---- --entry N: the session's entry, posted on the roadmap pull request ------
+# session_entry <kind>: ENTRY, session entry N's text normalised as
+# norm_entry does, after checking its kind and size; refused (65) otherwise.
+session_entry() {
+    rs_key "$ES" "record/entries/$EN" "$WD/sentry.json"
+    case $? in
+        0) ;;
+        1) refuse "the session holds no entry $ENUM" ;;
+        *) lib_die2 "cannot read record/entries/$EN: $(lib_scrub < "$WD/sentry.json.err")" ;;
+    esac
+    local k
+    k=$(jq -r '.kind // ""' "$WD/sentry.json") || lib_die2 "record/entries/$EN is not JSON"
+    [ "$k" = "$1" ] || refuse "entry $ENUM is a ${k:-kindless} entry, not a $1 entry (record-append.sh --kind $1 --on none writes one)"
+    jq -r '.text // ""' "$WD/sentry.json" > "$WD/sentry.txt" || lib_die2 "record/entries/$EN is not JSON"
+    local size
+    size=$(wc -c < "$WD/sentry.txt" | tr -d ' ')
+    [ "$size" -le "$ENTRY_MAX" ] || refuse "entry $ENUM is $size bytes, over $ENTRY_MAX"
+    norm_entry "$WD/sentry.txt" "$ENTRY"
+}
+# own_row <action>...: RESUME 1, with PRL, PR_NUM and PR_URL, when a pending
+# row of one of these Actions for TAG ends its How to confirm `(entry N)`:
+# this entry's edit, opened by an earlier run that stopped before its post or
+# its Progress commit. Otherwise RESUME 0, and an entry already posted
+# anywhere is refused: its comment isn't on a pull request this run opens.
+own_row() {
+    local row
+    RESUME=0
+    row=$(jq -c --arg t "$TAG" --arg a "$*" --arg h "(entry $ENUM)" "$JQ_TAG_KEY"'
+        [.[] | select((.unit | tag_key) == ($t | tag_key) and (.action as $x | $a | split(" ") | index($x)) != null
+                      and (.how_to_confirm | endswith($h)))][0] // empty' "$WD/pending.json") || lib_die2 "jq failed"
+    if [ -n "$row" ]; then
+        RESUME=1
+        PRL=$(printf '%s' "$row" | jq -r .pull_request)
+        PR_NUM=$(printf '%s' "$PRL" | sed -n 's/^\[#\([1-9][0-9]*\)\](.*$/\1/p')
+        PR_URL=$(printf '%s' "$PRL" | sed -n 's/^\[#[0-9]*\](\(https:[^)]*\))$/\1/p')
+        [ -n "$PR_NUM" ] && [ -n "$PR_URL" ] || lib_die2 "$TAG's row names no pull request: $PRL"
+        return 0
+    fi
+    rs_key "$ES" "record/posted/$EN" "$WD/already"
+    case $? in
+        0) refuse "entry $ENUM is already posted, at $(head -n 1 "$WD/already"); a roadmap edit posts its entry on the pull request it opens, so write the entry again with --on none" ;;
+        1) ;;
+        *) lib_die2 "cannot read record/posted/$EN: $(lib_scrub < "$WD/already.err")" ;;
+    esac
+}
+# post_session_entry: ENTRY_URL, the comment entry N becomes on PR_NUM,
+# posted through record-append.sh so its content checks, its `@` escaping and
+# its retry (a post that landed before a crash stands) apply. A failure exits
+# 14 naming the pull request, which a run with the same entry finishes.
+post_session_entry() {
+    if ! ENTRY_URL=$(bash "$HERE/record-append.sh" "${ADDR[@]}" --repost "$ENUM" --on "$REPO#$PR_NUM" 2> "$WD/pe.err" < /dev/null); then
+        echo "$PROG: the roadmap pull request $PR_URL is open and its row written, but entry $ENUM wasn't posted on it: $(lib_scrub < "$WD/pe.err"); run this again with --entry $ENUM, which posts it once and pushes its Progress line" >&2
+        exit 14
+    fi
+    ENTRY_URL=${ENTRY_URL%%$'\n'*}
+    [[ $(lc "$ENTRY_URL") =~ ^https://github\.com/([a-z0-9_.-]+/[a-z0-9_.-]+)/pull/([1-9][0-9]*)#issuecomment-[1-9][0-9]*$ ]] \
+        && [ "${BASH_REMATCH[1]}" = "$(lc "$REPO")" ] && [ "${BASH_REMATCH[2]}" = "$PR_NUM" ] \
+        || { echo "$PROG: entry $ENUM's comment, $ENTRY_URL, is not on the roadmap pull request $PR_URL" >&2; exit 14; }
+}
+# progress_commit <message>: PROGRESS's lines added to `## Progress` on the
+# pull request's branch, as a second commit; nothing when the branch already
+# carries them all (a run that stopped after pushing it). The branch is
+# BRANCH_NEW on a first run, else the pull request's, which must still be
+# open. A failure exits 14 naming the pull request.
+progress_commit() {
+    local branch st pl missing=0 crlf=0 blob
+    if [ "$RESUME" = 1 ]; then
+        gh pr view "$PR_NUM" --repo "$REPO" --json state,headRefName > "$WD/pr.json" 2> "$WD/pv.err" < /dev/null \
+            || lib_die2 "cannot read pull request #$PR_NUM: $(lib_scrub < "$WD/pv.err")"
+        st=$(jq -r '.state // ""' "$WD/pr.json") branch=$(jq -r '.headRefName // ""' "$WD/pr.json")
+        [ "$st" = OPEN ] || refuse "the roadmap pull request $PR_URL is $st without its Progress line; drop its row with --drop $TAG, then run this again"
+    else
+        branch=$BRANCH_NEW
+    fi
+    [[ $branch =~ ^coordinate/roadmap-(verdict|reopen)-[a-z0-9-]+-[0-9]{12,14}$ ]] \
+        || lib_die2 "pull request #$PR_NUM's branch, $branch, is not one this script opens"
+    gh api --method GET "repos/$REPO/contents/$ROADMAP?ref=$branch" > "$WD/bcontents.json" 2> "$WD/bc.err" < /dev/null \
+        || { echo "$PROG: the roadmap pull request $PR_URL is open and entry $ENUM posted ($ENTRY_URL), but $ROADMAP on $branch can't be read: $(lib_scrub < "$WD/bc.err"); run this again with --entry $ENUM" >&2; exit 14; }
+    blob=$(jq -r '.sha // empty' "$WD/bcontents.json")
+    [[ $blob =~ $RE_SHA ]] || lib_die2 "$ROADMAP's blob sha on $branch is not a sha"
+    jq -r '.content // ""' "$WD/bcontents.json" > "$WD/branch.b64" && lib_b64d "$WD/branch.b64" "$WD/branch.md" || lib_die2 "cannot decode $ROADMAP on $branch"
+    while IFS= read -r pl; do
+        bash "$HERE/milestone.sh" progress-has "$WD/branch.md" "$pl" || missing=1
+    done <<EOF
+$PROGRESS
+EOF
+    [ "$missing" = 1 ] || return 0
+    grep -q $'\r$' "$WD/branch.md" && crlf=1
+    BE_SRC="$WD/branch.md" block_edit "$WD/branch.new" "" 0 "" "$PROGRESS"
+    while IFS= read -r pl; do
+        bash "$HERE/milestone.sh" progress-has "$WD/branch.new" "$pl" || refuse "the Progress line could not be written into $ROADMAP"
+    done <<EOF
+$PROGRESS
+EOF
+    if [ "$crlf" = 1 ]; then sed 's/$/\r/' "$WD/branch.new" > "$WD/branch.crlf" && mv "$WD/branch.crlf" "$WD/branch.new"; fi
+    base64 < "$WD/branch.new" | tr -d '\n\r ' > "$WD/bcontent"
+    gh api --method PUT "repos/$REPO/contents/$ROADMAP" -f "message=$1" \
+        -f "content=$(cat "$WD/bcontent")" -f "sha=$blob" -f "branch=$branch" > /dev/null 2> "$WD/w.err" < /dev/null \
+        || { echo "$PROG: the roadmap pull request $PR_URL is open and entry $ENUM posted ($ENTRY_URL), but the commit of its Progress line to $branch failed: $(lib_scrub < "$WD/w.err"); run this again with --entry $ENUM" >&2; exit 14; }
 }
 # rework_of <entry>: the rework text a changes-needed verdict leaves for the
 # milestone's next brief: the not-held clause numbers, a strategy that
@@ -631,7 +810,8 @@ failure_rework_of() {
 }
 # reopen_line <roadmap>: the last `## Progress` line naming TAG (its tag
 # compared by key, so `Feature 2` and `Milestone 2` are one), when it is a
-# reopen line --reopen writes for a failure posted on this run's record. Sets
+# reopen line --reopen writes for a failure posted on this run's record, or
+# on the row's own pull request (ROW_PR). Sets
 # RL_CLAUSE, RL_URL, RL_ID and RL_HASH; returns 1 otherwise. The key and the
 # record's URL are compared as text, never as patterns.
 reopen_line() {
@@ -654,25 +834,32 @@ reopen_line() {
     re='^([1-9][0-9]*) failed, reported by .+ \((https://github\.com/[^ ]+#issuecomment-([1-9][0-9]*)), ([0-9a-f]{8})\)$'
     [[ $rest =~ $re ]] || return 1
     RL_CLAUSE=${BASH_REMATCH[1]} RL_URL=${BASH_REMATCH[2]} RL_ID=${BASH_REMATCH[3]} RL_HASH=${BASH_REMATCH[4]}
-    [ "$RL_URL" = "https://github.com/$REPO/issues/$REF#issuecomment-$RL_ID" ]
+    # A comment on the record issue, or (--entry) on the reopen's own pull
+    # request, ROW_PR.
+    [ "$RL_URL" = "https://github.com/$REPO/issues/$REF#issuecomment-$RL_ID" ] \
+        || { [ -n "${ROW_PR:-}" ] && [ "$(lc "$RL_URL")" = "$(lc "https://github.com/$REPO/pull/$ROW_PR#issuecomment-$RL_ID")" ]; }
 }
 
 # block_edit <out> <status> <done> <deliver> <progress>: the roadmap at
 # $WD/roadmap.md with TAG's block and the Progress section edited, and
 # nothing else before the populate: STATUS, when not empty, replaces TAG's
 # Status; DONE 1 also drops its Needs field and adds DELIVER to its Delivered
-# field; PROGRESS (one line or more) goes after the last line of `## Progress`.
+# field; PROGRESS (one line or more) goes after the last line of `## Progress`,
+# and an empty PROGRESS adds nothing there (--entry's first commit, whose
+# Progress lines wait for the comment they name).
 # Values reach awk through the environment, which takes them as written.
 # TAG's block is its heading as the roadmap spells it (HEAD_TAG) under the
-# roadmap's items section; call words_read on $WD/roadmap.md first.
+# roadmap's items section; call words_read on $WD/roadmap.md first. BE_SRC
+# names another copy of the roadmap to edit (the pull request's branch).
 block_edit() {
-    tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_STATUS="$2" RS_DONE="$3" RS_DELIVER="$4" RS_PROGRESS="$5" awk '
+    tr -d '\r' < "${BE_SRC:-$WD/roadmap.md}" | RS_TAG="$HEAD_TAG" RS_SECTION="## $RM_SECTION" RS_STATUS="$2" RS_DONE="$3" RS_DELIVER="$4" RS_PROGRESS="$5" awk '
         BEGIN { tag = ENVIRON["RS_TAG"]; sect = ENVIRON["RS_SECTION"]; status = ENVIRON["RS_STATUS"]; done = ENVIRON["RS_DONE"] == "1"; deliver = ENVIRON["RS_DELIVER"]; progress = ENVIRON["RS_PROGRESS"] }
         function field_end() { return ($0 ~ /^[ \t]*$/ || $0 ~ /^\*\*[A-Z][A-Za-z ]*:\*\*/ || $0 ~ /^#+([ \t]|$)/) }
         # The Delivered field held back, so the last of its lines takes the new items.
         function flush_delivered() { if (nd) { dl[nd] = dl[nd] ", " deliver; for (i = 1; i <= nd; i++) print dl[i]; nd = 0 } }
         # The Progress section held back, so the new line goes after its last non-blank line.
         function flush_progress(   i, last) {
+            if (progress == "") { for (i = 1; i <= np; i++) print pl[i]; np = 0; inprog = 0; wrote = 1; return }
             last = 0; for (i = 1; i <= np; i++) if (pl[i] !~ /^[ \t]*$/) last = i
             if (last == 0) { print ""; print progress; for (i = 1; i <= np; i++) print pl[i]; if (np == 0 && more) print "" }
             else { for (i = 1; i <= last; i++) print pl[i]; print progress; for (i = last + 1; i <= np; i++) print pl[i]; if (last == np && more) print "" }
@@ -707,11 +894,24 @@ confirm|drop)
     [ -n "$ROW" ] || refuse "no roadmap pull request is pending for $TAG"
     ACTION=$(printf '%s' "$ROW" | jq -r .action)
     PRL=$(printf '%s' "$ROW" | jq -r .pull_request)
+    # The roadmap pull request's number, where an --entry edit posted its entry.
+    ROW_PR=$(printf '%s' "$PRL" | sed -n 's/^\[#\([1-9][0-9]*\)\](.*$/\1/p')
     if [ "$MODE" = confirm ]; then
         lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$WD/roadmap.md"
         case $? in 0) ;; 1) lib_die2 "$ROADMAP is not on $DEFAULT_BRANCH" ;; *) lib_die2 "cannot read $ROADMAP" ;; esac
         if [ "$ACTION" = milestone-verdict ]; then
             URL=$(printf '%s' "$ROW" | jq -r '.how_to_confirm | capture(" carries (?<u>[^ ]+) in Progress$").u // empty')
+            # An --entry edit's row names its entry, whose comment URL the
+            # session keeps in record/posted/<n>.
+            RN=$(printf '%s' "$ROW" | jq -r '.how_to_confirm | capture(" \\(entry (?<n>[1-9][0-9]{0,5})\\)$").n // empty')
+            if [ -z "$URL" ] && [ -n "$RN" ]; then
+                rs_key "${RS_SESSION:-$SESSION}" "record/posted/$(printf '%06d' "$RN")" "$WD/rowposted"
+                case $? in
+                    0) URL=$(head -n 1 "$WD/rowposted") ;;
+                    1) echo "$PROG: entry $RN, $TAG's verdict, isn't posted on $PRL yet; run --verdict $TAG --entry $RN again, which posts it and pushes its Progress line" >&2; exit 1 ;;
+                    *) lib_die2 "cannot read record/posted/$RN: $(lib_scrub < "$WD/rowposted.err")" ;;
+                esac
+            fi
             [ -n "$URL" ] || lib_die2 "$TAG's milestone-verdict row names no entry URL in its How to confirm"
             bash "$HERE/milestone.sh" progress-has "$WD/roadmap.md" "$URL"
             case $? in
@@ -725,7 +925,7 @@ confirm|drop)
             # hashed: a comment edited since is not the judgment the person
             # who merged the edit reviewed.
             [[ ${URL##*#issuecomment-} =~ $RE_NUM ]] || lib_die2 "$TAG's milestone-verdict row names no comment"
-            posted_entry "${URL##*#issuecomment-}" "$WD/posted.txt" milestone-verdict
+            posted_entry "${URL##*#issuecomment-}" "$WD/posted.txt" milestone-verdict "$ROW_PR"
             PH=$(tr -d '\r' < "$WD/roadmap.md" | RS_URL="$URL" awk '
                 BEGIN { u = "(" ENVIRON["RS_URL"] ", " }
                 /^## / { inprog = ($0 ~ /^## Progress[ \t]*$/); next }
@@ -748,7 +948,7 @@ confirm|drop)
                 || { echo "$PROG: $ROADMAP on $DEFAULT_BRANCH reads $TAG In progress, but its last Progress line about $TAG is no reopen on this run's record; its reopen pull request, $PRL, hasn't landed" >&2; exit 1; }
             # The failure as reported, which must still be the text the
             # Progress line hashed, name TAG and name the line's clause.
-            posted_entry "$RL_ID" "$WD/posted.txt" milestone-failure
+            posted_entry "$RL_ID" "$WD/posted.txt" milestone-failure "$ROW_PR"
             [ "$RL_HASH" = "$(sha8 "$WD/posted.txt")" ] \
                 || refuse "the entry at $RL_URL is not the text its Progress line hashed ($RL_HASH); it changed since its reopen edit, so nothing is confirmed: check the comment's history"
             FL=$(sed -n 1p "$WD/posted.txt")
@@ -799,25 +999,36 @@ esac
 
 if [ "$MODE" = verdict ]; then
     # ---- --verdict: the roadmap edit a checked verdict calls for ----------
-    [ -r "$ENTRY_IN" ] && [ -f "$ENTRY_IN" ] || refuse "cannot read the entry file $ENTRY_IN"
-    SIZE=$(wc -c < "$ENTRY_IN" | tr -d ' ')
-    [ "$SIZE" -le "$ENTRY_MAX" ] || refuse "the entry file is $SIZE bytes, over $ENTRY_MAX"
-    case "$ENTRY_URL" in
-        "https://github.com/$REPO/issues/$REF#issuecomment-"*) ;;
-        *) refuse "--entry-url is not a comment on this run's record, https://github.com/$REPO/issues/$REF#issuecomment-<id>" ;;
-    esac
-    [[ ${ENTRY_URL##*#issuecomment-} =~ ^[1-9][0-9]*$ ]] || refuse "--entry-url's comment id is not a number"
-    [ -n "$OWED_WHO" ] || refuse "$TAG has no verdict-owed row: tick landed for it first, which writes one"
-    pending_refuse
-    # The entry is the comment at URL, as posted: on this run's record, with
-    # the milestone-verdict marker, and the entry file's text exactly, so the
-    # judgment the edit carries is the one the record shows. ENTRY is the
-    # text from here on.
     ENTRY="$WD/entry.txt"
-    norm_entry "$ENTRY_IN" "$ENTRY"
-    posted_entry "${ENTRY_URL##*#issuecomment-}" "$WD/posted.txt" milestone-verdict
-    cmp -s "$ENTRY" "$WD/posted.txt" \
-        || refuse "the entry file differs from the comment at $ENTRY_URL; give the file that was posted, or post this one and use its URL"
+    RESUME=0
+    if [ -n "$ENTRY_N" ]; then
+        # The session's entry, which this run posts on the pull request it
+        # opens; or, when its row is already pending, the edit an earlier run
+        # opened, which this run finishes.
+        session_entry milestone-verdict
+        own_row milestone-done milestone-verdict
+        [ -n "$OWED_WHO" ] || refuse "$TAG has no verdict-owed row: tick landed for it first, which writes one"
+        [ "$RESUME" = 1 ] || pending_refuse
+    else
+        [ -r "$ENTRY_IN" ] && [ -f "$ENTRY_IN" ] || refuse "cannot read the entry file $ENTRY_IN"
+        SIZE=$(wc -c < "$ENTRY_IN" | tr -d ' ')
+        [ "$SIZE" -le "$ENTRY_MAX" ] || refuse "the entry file is $SIZE bytes, over $ENTRY_MAX"
+        case "$ENTRY_URL" in
+            "https://github.com/$REPO/issues/$REF#issuecomment-"*) ;;
+            *) refuse "--entry-url is not a comment on this run's record, https://github.com/$REPO/issues/$REF#issuecomment-<id>" ;;
+        esac
+        [[ ${ENTRY_URL##*#issuecomment-} =~ ^[1-9][0-9]*$ ]] || refuse "--entry-url's comment id is not a number"
+        [ -n "$OWED_WHO" ] || refuse "$TAG has no verdict-owed row: tick landed for it first, which writes one"
+        pending_refuse
+        # The entry is the comment at URL, as posted: on this run's record, with
+        # the milestone-verdict marker, and the entry file's text exactly, so the
+        # judgment the edit carries is the one the record shows. ENTRY is the
+        # text from here on.
+        norm_entry "$ENTRY_IN" "$ENTRY"
+        posted_entry "${ENTRY_URL##*#issuecomment-}" "$WD/posted.txt" milestone-verdict
+        cmp -s "$ENTRY" "$WD/posted.txt" \
+            || refuse "the entry file differs from the comment at $ENTRY_URL; give the file that was posted, or post this one and use its URL"
+    fi
     # The roadmap at the entry's Source commit, the copy its clauses were
     # judged against: a commit the default branch contains, so the judgment
     # was made on Evidence that was on the roadmap, not on a branch.
@@ -882,13 +1093,22 @@ if [ "$MODE" = verdict ]; then
     # The hash of the entry as posted (the text --confirm re-reads), so a
     # later edit of the comment shows.
     HASH=$(sha8 "$ENTRY")
-    PROGRESS="- $CHECKED_ON: $HEAD_TAG -- $VERDICT, checked by $CHECKER ($ENTRY_URL, $HASH)"
-    # Each amendment a follow-up makes is named in Progress, as the format
-    # asks of an Outcome, Evidence or Left open changed in place.
-    while IFS='	' read -r k i at; do
-        [ "$k" = amend ] || continue
-        PROGRESS="$PROGRESS"$'\n'"- $CHECKED_ON: $(lib_heading_tag "$at") amended -- a follow-up of the verified verdict on $HEAD_TAG ($ENTRY_URL)"
-    done < "$WD/fu-plan.tsv"
+    # verdict_progress: PROGRESS, the verdict's line and each amendment's,
+    # naming the entry's comment at ENTRY_URL.
+    verdict_progress() {
+        local k i at
+        PROGRESS="- $CHECKED_ON: $HEAD_TAG -- $VERDICT, checked by $CHECKER ($ENTRY_URL, $HASH)"
+        # Each amendment a follow-up makes is named in Progress, as the format
+        # asks of an Outcome, Evidence or Left open changed in place.
+        while IFS='	' read -r k i at; do
+            [ "$k" = amend ] || continue
+            PROGRESS="$PROGRESS"$'\n'"- $CHECKED_ON: $(lib_heading_tag "$at") amended -- a follow-up of the verified verdict on $HEAD_TAG ($ENTRY_URL)"
+        done < "$WD/fu-plan.tsv"
+    }
+    # With --entry the comment doesn't exist yet: the first commit carries no
+    # Progress line, and the second adds them once the entry is posted.
+    PROGRESS=
+    [ -n "$ENTRY_N" ] || verdict_progress
     DONE=0 DELIVER=
     if [ "$VERDICT" != "changes needed" ]; then
         DONE=1
@@ -938,11 +1158,13 @@ if [ "$MODE" = verdict ]; then
         mv "$DOC.1" "$DOC"
     fi
     [ ! -s "$WD/fu-plan.tsv" ] || follow_ups_apply "$DOC"
-    while IFS= read -r pl; do
-        bash "$HERE/milestone.sh" progress-has "$DOC" "$pl" || refuse "the Progress line could not be written into $ROADMAP"
-    done <<EOF
+    if [ -n "$PROGRESS" ]; then
+        while IFS= read -r pl; do
+            bash "$HERE/milestone.sh" progress-has "$DOC" "$pl" || refuse "the Progress line could not be written into $ROADMAP"
+        done <<EOF
 $PROGRESS
 EOF
+    fi
     if [ "$DONE" = 1 ]; then
         bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e '.status == "Done"' > /dev/null \
             || refuse "$TAG's Status could not be set to Done (its block has no **Status:** line?)"
@@ -953,56 +1175,87 @@ EOF
         MSG="docs(roadmap): record the changes-needed verdict on $HEAD_TAG, $TITLE"
     fi
     BRANCH_STAMP=%Y%m%d%H%M%S
-    populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-verdict "$MSG"
-    {
-        if [ "$DONE" = 1 ]; then
-            printf 'Records the %s verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$HEAD_TAG" "$TITLE"
+    if [ "$RESUME" = 0 ]; then
+        populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-verdict "$MSG"
+        {
+            if [ "$DONE" = 1 ]; then
+                printf 'Records the %s verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$HEAD_TAG" "$TITLE"
+            else
+                printf 'Records the changes-needed verdict on %s of the roadmap, %s: a Progress line names the verdict, who checked it and the entry. Its Status and Delivered line are unchanged; the milestone stays open for the changes the verdict names.\n' "$HEAD_TAG" "$TITLE"
+            fi
+            if [ -s "$WD/fu-plan.tsv" ]; then
+                printf '\nIts follow-ups, in the same edit:\n\n'
+                while IFS='	' read -r k i at; do
+                    if [ "$k" = new ]; then printf -- '- adds %s, Not started, after the last milestone\n' "$(head -1 "$WD/fu/$i.md" | sed -e 's/^### //' -e 's/&/\&amp;/g' -e 's/@/\&#64;/g')"
+                    else printf -- '- amends %s: its Outcome, Evidence and Left open are the follow-up'"'"'s, with a Progress line naming the amendment\n' "$at"; fi
+                done < "$WD/fu-plan.tsv"
+            fi
+            if [ -n "$ENTRY_N" ]; then
+                printf '\nThe verdict entry, as the coordinator recorded it; it is posted as a comment on this pull request, and a Progress line names that comment:\n\n'
+            else
+                printf '\nThe verdict entry, as posted on the record (%s):\n\n' "$ENTRY_URL"
+            fi
+            sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
+            printf '\n---\n\n'
+            if [ -n "$ENTRY_N" ]; then
+                printf 'Opened by the coordinator for %s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, and the coordinator never merges it.\n' "$NAME"
+            else
+                printf 'Opened by the coordinator for %s from its record, issue #%s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, and the coordinator never merges it.\n' "$NAME" "$REF"
+            fi
+        } > "$WD/prbody.md"
+        open_pr "$MSG"
+        # An --entry edit's row names its entry, which a run that stopped short
+        # finds it by, and whose comment --confirm reads from record/posted.
+        if [ -n "$ENTRY_N" ]; then
+            if [ "$DONE" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG Done (entry $ENUM)"
+            else ACTION=milestone-verdict HOW="the roadmap on $DEFAULT_BRANCH carries its entry's comment in Progress (entry $ENUM)"; fi
+            CITED="entry $ENUM"
         else
-            printf 'Records the changes-needed verdict on %s of the roadmap, %s: a Progress line names the verdict, who checked it and the entry. Its Status and Delivered line are unchanged; the milestone stays open for the changes the verdict names.\n' "$HEAD_TAG" "$TITLE"
+            if [ "$DONE" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG Done"
+            else ACTION=milestone-verdict HOW="the roadmap on $DEFAULT_BRANCH carries $ENTRY_URL in Progress"; fi
+            CITED=$ENTRY_URL
         fi
-        if [ -s "$WD/fu-plan.tsv" ]; then
-            printf '\nIts follow-ups, in the same edit:\n\n'
-            while IFS='	' read -r k i at; do
-                if [ "$k" = new ]; then printf -- '- adds %s, Not started, after the last milestone\n' "$(head -1 "$WD/fu/$i.md" | sed -e 's/^### //' -e 's/&/\&amp;/g' -e 's/@/\&#64;/g')"
-                else printf -- '- amends %s: its Outcome, Evidence and Left open are the follow-up'"'"'s, with a Progress line naming the amendment\n' "$at"; fi
-            done < "$WD/fu-plan.tsv"
-        fi
-        printf '\nThe verdict entry, as posted on the record (%s):\n\n' "$ENTRY_URL"
-        sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
-        printf '\n---\n\n'
-        printf 'Opened by the coordinator for %s from its record, issue #%s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, and the coordinator never merges it.\n' "$NAME" "$REF"
-    } > "$WD/prbody.md"
-    open_pr "$MSG"
-    if [ "$DONE" = 1 ]; then ACTION=milestone-done HOW="the roadmap on $DEFAULT_BRANCH reads $TAG Done"
-    else ACTION=milestone-verdict HOW="the roadmap on $DEFAULT_BRANCH carries $ENTRY_URL in Progress"; fi
-    jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg a "$ACTION" --arg h "$HOW" '
-        del(.written) | .side_effects += [{action: $a, target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
-        "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
-    URL_OUT=$PR_URL
-    write_record "$WD/next.json" "$TAG's verdict, $VERDICT, checked by $CHECKER ($ENTRY_URL), is on its roadmap pull request $PR_URL. Its verdict stays owed, and pick passes over $TAG, until that merges and is confirmed."
-    printf '%s\n' "$URL_OUT"
+        jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg a "$ACTION" --arg h "$HOW" '
+            del(.written) | .side_effects += [{action: $a, target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
+            "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
+        write_record "$WD/next.json" "$TAG's verdict, $VERDICT, checked by $CHECKER ($CITED), is on its roadmap pull request $PR_URL. Its verdict stays owed, and pick passes over $TAG, until that merges and is confirmed."
+    fi
+    if [ -n "$ENTRY_N" ]; then
+        post_session_entry
+        verdict_progress
+        progress_commit "docs(roadmap): name the verdict entry on $HEAD_TAG in Progress"
+    fi
+    printf '%s\n' "$PR_URL"
     exit 0
 fi
 
 if [ "$MODE" = reopen ]; then
     # ---- --reopen: the roadmap edit a failure after Done calls for ----------
-    [ -r "$ENTRY_IN" ] && [ -f "$ENTRY_IN" ] || refuse "cannot read the entry file $ENTRY_IN"
-    SIZE=$(wc -c < "$ENTRY_IN" | tr -d ' ')
-    [ "$SIZE" -le "$ENTRY_MAX" ] || refuse "the entry file is $SIZE bytes, over $ENTRY_MAX"
-    case "$ENTRY_URL" in
-        "https://github.com/$REPO/issues/$REF#issuecomment-"*) ;;
-        *) refuse "--entry-url is not a comment on this run's record, https://github.com/$REPO/issues/$REF#issuecomment-<id>" ;;
-    esac
-    [[ ${ENTRY_URL##*#issuecomment-} =~ ^[1-9][0-9]*$ ]] || refuse "--entry-url's comment id is not a number"
-    # One roadmap edit at a time: a second failure recorded while this
-    # milestone's reopen edit (or any other) is pending opens nothing.
-    pending_refuse
-    # The entry is the comment at URL, as posted, as --verdict binds its own.
     ENTRY="$WD/entry.txt"
-    norm_entry "$ENTRY_IN" "$ENTRY"
-    posted_entry "${ENTRY_URL##*#issuecomment-}" "$WD/posted.txt" milestone-failure
-    cmp -s "$ENTRY" "$WD/posted.txt" \
-        || refuse "the entry file differs from the comment at $ENTRY_URL; give the file that was posted, or post this one and use its URL"
+    RESUME=0
+    if [ -n "$ENTRY_N" ]; then
+        # The session's entry, as --verdict --entry takes its own.
+        session_entry milestone-failure
+        own_row milestone-reopen
+        [ "$RESUME" = 1 ] || pending_refuse
+    else
+        [ -r "$ENTRY_IN" ] && [ -f "$ENTRY_IN" ] || refuse "cannot read the entry file $ENTRY_IN"
+        SIZE=$(wc -c < "$ENTRY_IN" | tr -d ' ')
+        [ "$SIZE" -le "$ENTRY_MAX" ] || refuse "the entry file is $SIZE bytes, over $ENTRY_MAX"
+        case "$ENTRY_URL" in
+            "https://github.com/$REPO/issues/$REF#issuecomment-"*) ;;
+            *) refuse "--entry-url is not a comment on this run's record, https://github.com/$REPO/issues/$REF#issuecomment-<id>" ;;
+        esac
+        [[ ${ENTRY_URL##*#issuecomment-} =~ ^[1-9][0-9]*$ ]] || refuse "--entry-url's comment id is not a number"
+        # One roadmap edit at a time: a second failure recorded while this
+        # milestone's reopen edit (or any other) is pending opens nothing.
+        pending_refuse
+        # The entry is the comment at URL, as posted, as --verdict binds its own.
+        norm_entry "$ENTRY_IN" "$ENTRY"
+        posted_entry "${ENTRY_URL##*#issuecomment-}" "$WD/posted.txt" milestone-failure
+        cmp -s "$ENTRY" "$WD/posted.txt" \
+            || refuse "the entry file differs from the comment at $ENTRY_URL; give the file that was posted, or post this one and use its URL"
+    fi
     # Checked against the roadmap the edit changes, at the default branch's
     # head: TAG reads Done there, and the clause is one of its Evidence's.
     head_read
@@ -1033,7 +1286,10 @@ if [ "$MODE" = reopen ]; then
         | $p[0].holdings[] | select(.unit | covers($f.id; $f.title))
         | "held-dependent \($f.id) \(.worker)"' "$WD/features.json") || lib_die2 "jq failed"
     HASH=$(sha8 "$ENTRY")
-    PROGRESS="- $SEEN_ON: $HEAD_TAG -- reopened: clause $CLAUSE failed, reported by $REPORTER ($ENTRY_URL, $HASH)"
+    # With --entry the Progress line waits for the comment it names, as
+    # --verdict's does.
+    PROGRESS=
+    [ -n "$ENTRY_N" ] || PROGRESS="- $SEEN_ON: $HEAD_TAG -- reopened: clause $CLAUSE failed, reported by $REPORTER ($ENTRY_URL, $HASH)"
     mkdir -p "$WD/doc"
     DOC="$WD/doc/$(basename "$ROADMAP")"
     CRLF=0
@@ -1043,24 +1299,40 @@ if [ "$MODE" = reopen ]; then
     block_edit "$DOC" "In progress" 0 "" "$PROGRESS"
     bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e '.status == "In progress"' > /dev/null \
         || refuse "$TAG's Status could not be set to In progress (its block has no **Status:** line?)"
-    bash "$HERE/milestone.sh" progress-has "$DOC" "$PROGRESS" || refuse "the Progress line could not be written into $ROADMAP"
+    [ -z "$PROGRESS" ] || bash "$HERE/milestone.sh" progress-has "$DOC" "$PROGRESS" || refuse "the Progress line could not be written into $ROADMAP"
     MSG="docs(roadmap): reopen $HEAD_TAG, $TITLE, on a reported failure"
     BRANCH_STAMP=%Y%m%d%H%M%S
-    populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-reopen "$MSG"
-    {
-        printf 'Reopens %s of the roadmap, %s, on a failure reported after it read Done: its Status goes back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$HEAD_TAG" "$TITLE"
-        printf '\nThe failure entry, as posted on the record (%s):\n\n' "$ENTRY_URL"
-        sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
-        printf '\n---\n\n'
-        printf 'Opened by the coordinator for %s from its record, issue #%s. Check the report against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sends a Done milestone back to work, and the coordinator never merges it.\n' "$NAME" "$REF"
-    } > "$WD/prbody.md"
-    open_pr "$MSG"
-    jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg h "the roadmap on $DEFAULT_BRANCH reads $TAG In progress" '
-        del(.written) | .side_effects += [{action: "milestone-reopen", target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
-        "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
-    URL_OUT=$PR_URL
-    write_record "$WD/next.json" "A failure of Evidence clause $CLAUSE of $TAG, reported by $REPORTER ($ENTRY_URL), is on its reopen pull request $PR_URL. Until that merges and is confirmed, $TAG reads Done and pick passes over it."
-    printf '%s\n' "$URL_OUT"
+    if [ "$RESUME" = 0 ]; then
+        populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-reopen "$MSG"
+        {
+            printf 'Reopens %s of the roadmap, %s, on a failure reported after it read Done: its Status goes back to In progress and a Progress line names the failed clause, who reported it and the entry. Its Delivered line, Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$HEAD_TAG" "$TITLE"
+            if [ -n "$ENTRY_N" ]; then
+                printf '\nThe failure entry, as the coordinator recorded it; it is posted as a comment on this pull request, and the Progress line names that comment:\n\n'
+            else
+                printf '\nThe failure entry, as posted on the record (%s):\n\n' "$ENTRY_URL"
+            fi
+            sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
+            printf '\n---\n\n'
+            if [ -n "$ENTRY_N" ]; then
+                printf 'Opened by the coordinator for %s. Check the report against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sends a Done milestone back to work, and the coordinator never merges it.\n' "$NAME"
+            else
+                printf 'Opened by the coordinator for %s from its record, issue #%s. Check the report against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sends a Done milestone back to work, and the coordinator never merges it.\n' "$NAME" "$REF"
+            fi
+        } > "$WD/prbody.md"
+        open_pr "$MSG"
+        HOW="the roadmap on $DEFAULT_BRANCH reads $TAG In progress" CITED=$ENTRY_URL
+        [ -z "$ENTRY_N" ] || HOW="$HOW (entry $ENUM)" CITED="entry $ENUM"
+        jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --arg h "$HOW" '
+            del(.written) | .side_effects += [{action: "milestone-reopen", target: $t, verified_head: "", attempted: $at, how_to_confirm: $h}]' \
+            "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
+        write_record "$WD/next.json" "A failure of Evidence clause $CLAUSE of $TAG, reported by $REPORTER ($CITED), is on its reopen pull request $PR_URL. Until that merges and is confirmed, $TAG reads Done and pick passes over it."
+    fi
+    if [ -n "$ENTRY_N" ]; then
+        post_session_entry
+        PROGRESS="- $SEEN_ON: $HEAD_TAG -- reopened: clause $CLAUSE failed, reported by $REPORTER ($ENTRY_URL, $HASH)"
+        progress_commit "docs(roadmap): name the failure entry on $HEAD_TAG in Progress"
+    fi
+    printf '%s\n' "$PR_URL"
     [ -z "$HELD" ] || printf '%s\n' "$HELD"
     exit 0
 fi

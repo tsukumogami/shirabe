@@ -31,7 +31,9 @@
 # Issue comments (on an issue or a pull request, as GitHub serves both) live in
 # "comments": [{"repo", "number", "id", "body", "user", "created_at",
 # "updated_at"}]; GET repos/R/issues/N/comments pages them, and POST adds one
-# from --input's JSON body, stamped with "now" when the DB sets it.
+# from --input's JSON body, stamped with "now" when the DB sets it. A comment on
+# a pull request answers a /pull/<n>#issuecomment-<id> html_url, as GitHub
+# does, and one on an issue /issues/<n>. GET user answers {login}, the DB's.
 #
 # One comment by id: GET repos/R/issues/comments/<id> (404 when absent), with
 # its html_url and issue_url. GET repos/R/compare/<base>...<head> answers
@@ -316,9 +318,10 @@ case "$W1 $W2" in
         id=${path##*/issues/comments/}
         case "$id" in ''|*[!0-9]*) unexpected ;; esac
         need_repo "$r"
-        out=$(jq -c --arg r "$r" --argjson i "$id" '[(.comments // [])[] | select(.repo == $r and .id == $i)][0] // empty
+        out=$(jq -c --arg r "$r" --argjson i "$id" '. as $db | [(.comments // [])[] | select(.repo == $r and .id == $i)][0] // empty
+            | (.repo as $cr | .number as $cn | if any($db.prs[]?; .repo == $cr and .number == $cn) then "pull" else "issues" end) as $k
             | {id, body, created_at, updated_at, user: {login: .user},
-               html_url: "https://github.com/\(.repo)/issues/\(.number)#issuecomment-\(.id)",
+               html_url: "https://github.com/\(.repo)/\($k)/\(.number)#issuecomment-\(.id)",
                issue_url: "https://api.github.com/repos/\(.repo)/issues/\(.number)"}' "$GH_DB")
         [ -n "$out" ] || notfound
         emit "$out"
@@ -348,9 +351,10 @@ case "$W1 $W2" in
         n=${path#*/issues/}; n=${n%%/comments*}
         need_repo "$r"
         per=$(printf '%s' "$path" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p'); [ -n "$per" ] || per=30
-        items=$(jq -c --arg r "$r" --argjson n "$n" '[(.comments // [])[] | select(.repo == $r and .number == $n)
+        items=$(jq -c --arg r "$r" --argjson n "$n" '(if any(.prs[]?; .repo == $r and .number == $n) then "pull" else "issues" end) as $k
+            | [(.comments // [])[] | select(.repo == $r and .number == $n)
             | {id, body, created_at, updated_at, user: {login: .user},
-               html_url: "https://github.com/\(.repo)/issues/\(.number)#issuecomment-\(.id)"}]' "$GH_DB")
+               html_url: "https://github.com/\(.repo)/\($k)/\(.number)#issuecomment-\(.id)"}]' "$GH_DB")
         total=$(printf '%s' "$items" | jq length)
         p=0
         while :; do
@@ -371,8 +375,11 @@ case "$W1 $W2" in
         dbset '.comments = ((.comments // []) + [{repo: $r, number: $n, id: $i, body: $in[0].body, user: $l,
                 created_at: $t, updated_at: $t}])' \
             --arg r "$r" --argjson n "$n" --argjson i "$id" --slurpfile in "$INPUT" --arg l "$LOGIN" --arg t "$now"
-        emit "$(jq -nc --arg r "$r" --argjson n "$n" --argjson i "$id" '{id: $i,
-            html_url: "https://github.com/\($r)/issues/\($n)#issuecomment-\($i)"}')"
+        emit "$(jq -c --arg r "$r" --argjson n "$n" --argjson i "$id" '(if any(.prs[]?; .repo == $r and .number == $n) then "pull" else "issues" end) as $k
+            | {id: $i, html_url: "https://github.com/\($r)/\($k)/\($n)#issuecomment-\($i)"}' "$GH_DB")"
+        ;;
+    "GET user")
+        emit "$(jq -nc --arg l "$LOGIN" '{login: $l}')"
         ;;
     "GET repos/"*/issues/*)
         r=${path#repos/}; r=${r%%/issues/*}
