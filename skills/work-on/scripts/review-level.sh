@@ -617,10 +617,11 @@ cmd_facts() {
     level_or_empty "$level" level
     # An empty value is no shared branch: the template passes an unset
     # SHARED_BRANCH as "". A value that starts with `-` is refused before git
-    # sees it, so it can't be read as an option.
+    # sees it, so it can't be read as an option. Only stdout (the normalized
+    # name) is dropped: git's own reason for refusing a name reaches stderr.
     if [ -n "$shared" ]; then
         case "$shared" in -*) usage "--shared-branch [$shared] is not a branch name" ;; esac
-        git check-ref-format --branch "$shared" >/dev/null 2>&1 \
+        git check-ref-format --branch "$shared" >/dev/null \
             || usage "--shared-branch [$shared] is not a branch name"
     fi
     git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
