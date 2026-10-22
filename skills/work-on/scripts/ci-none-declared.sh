@@ -23,10 +23,10 @@
 # the agent never runs it. It passes only when every one of these holds:
 #
 #   - the default branch carries the file, and it says "hosted_ci": "none"
-#     with a non-empty, one-line "reason". It is read first, so a repository
-#     without one (nearly all of them) costs one API call and exits 1
-#     quietly. A file that names hosted_ci but says anything else is a
-#     diagnostic and exit 1.
+#     with a non-empty, one-line "reason". It is read before the checks, so a
+#     repository without one (nearly all of them) exits 1 quietly after the
+#     pull request lookup and one API call. A file that names hosted_ci but
+#     says anything else is a diagnostic and exit 1.
 #   - the pull request has zero checks: gh's `no checks reported` error,
 #     which is what gh prints for an empty check rollup (cli/cli
 #     pkg/cmd/pr/checks/checks.go, v2.76.2 through v2.103.0), or an empty
@@ -37,8 +37,11 @@
 #
 # Which pull request depends on the caller, as in ci-cancel-after-merge.sh:
 #   /work-on (no --owned): the current branch's, found the way the gate finds
-#   it (`gh pr list --head`, else gh's own current-branch lookup), in the
-#   repository the working tree's remote names.
+#   it (`gh pr list --head`, else gh's own current-branch lookup). It is
+#   looked up first, by URL, and the declaration is read from the repository
+#   that URL names, so the declaration and the pull request come from one
+#   repository even in a fork clone, where gh api's {owner}/{repo} would name
+#   the first remote's (#1036).
 #   /execute (--owned <owned-pr.sh arguments>): the one owned-pr.sh resolves
 #   with those arguments, in the repository their --repo names.
 #
@@ -75,14 +78,13 @@ SESSION="${1:-}"
 [ -n "$SESSION" ] || no "$USAGE"
 shift
 OWNED=0
-REPO='{owner}/{repo}'
+REPO=""
 if [ $# -gt 0 ]; then
     [ "$1" = --owned ] && [ $# -gt 1 ] || no "$USAGE"
     OWNED=1
     shift
     # owned-pr.sh's --repo names the repository the run recorded, the one its
     # pull request lives in, so the declaration is read from there.
-    REPO=""
     prev=""
     for a in "$@"; do
         [ "$prev" = --repo ] && REPO="$a"
@@ -94,11 +96,29 @@ fi
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ci-none-declared.XXXXXX") || no
 trap 'rm -rf "$TMP"' EXIT
 
+if [ "$OWNED" = 0 ]; then
+    # The gate's own lookup, by URL: the open pull request on this branch, and
+    # when there is none, gh's current-branch lookup, the one the gate's
+    # `gh pr checks` falls back to. gh api fills {owner}/{repo} from the first
+    # git remote and ignores `gh repo set-default`, while gh pr resolves the
+    # repository the way the gate does, so the repository is taken from the
+    # URL, as ci-cancel-after-merge.sh does, and never from the placeholders.
+    BRANCH=$(git rev-parse --abbrev-ref HEAD) || no
+    SELECTOR=$(gh pr list --head "$BRANCH" --json url --jq '.[0].url // empty' </dev/null) || no
+    if [ -z "$SELECTOR" ]; then
+        SELECTOR=$(gh pr view --json url --jq .url </dev/null) || no
+    fi
+    case "$SELECTOR" in
+        https://*/*/*/pull/*) ;;
+        *) no "could not read the pull request's URL: gh answered [$SELECTOR]" ;;
+    esac
+    REPO_URL="${SELECTOR%/pull/*}"
+    REPO="${REPO_URL#*://*/}"
+fi
+
 # The declaration, from the default branch: the contents API with no ref reads
-# it there. Without --owned, gh fills {owner}/{repo} from the working tree's
-# remote, the same repository the gate's own `gh pr checks` reads.
-# A 404 is the common answer, a repository with no declaration, and exits
-# quietly; any other failed read is named.
+# it there. A 404 is the common answer, a repository with no declaration, and
+# exits quietly; any other failed read is named.
 if ! gh api "repos/$REPO/contents/$DECLARATION" -H 'Accept: application/vnd.github.raw' \
     </dev/null >"$TMP/decl" 2>"$TMP/err"; then
     grep -q -e '404' -e 'Not Found' "$TMP/err" && no
@@ -129,16 +149,12 @@ if [ "$OWNED" = 1 ]; then
     [ -x "$OWNED_PR" ] || no "owned-pr.sh not found at $OWNED_PR"
     SELECTOR=$("$OWNED_PR" "$@" </dev/null) || no
     [ -n "$SELECTOR" ] || no
-else
-    # The gate's own lookup: the open pull request on this branch, and when
-    # there is none, an empty selector leaves gh to resolve the branch.
-    BRANCH=$(git rev-parse --abbrev-ref HEAD) || no
-    SELECTOR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty' </dev/null) || no
 fi
 
 # Zero checks. gh answers an empty rollup with an error, not with `[]`; an
 # empty list is read the same way in case a gh release starts printing one.
-if gh pr checks ${SELECTOR:+"$SELECTOR"} --json bucket </dev/null >"$TMP/checks" 2>"$TMP/err"; then
+# Both modes read the pull request by its URL from here on.
+if gh pr checks "$SELECTOR" --json bucket </dev/null >"$TMP/checks" 2>"$TMP/err"; then
     COUNT=$(jq -R -s -r '(try fromjson catch null)
         | if type == "array" then length else "unreadable" end' "$TMP/checks") || COUNT=unreadable
     case "$COUNT" in
@@ -150,7 +166,7 @@ else
 fi
 [ "$COUNT" = 0 ] || no
 
-gh pr view ${SELECTOR:+"$SELECTOR"} --json number,url,headRefOid,body </dev/null >"$TMP/pr" 2>"$TMP/err" \
+gh pr view "$SELECTOR" --json number,url,headRefOid,body </dev/null >"$TMP/pr" 2>"$TMP/err" \
     || no "could not read the pull request: $(head -n 1 "$TMP/err")"
 PR=$(jq -R -s -r '(try fromjson catch null)
     | if type == "object" then [.number, .url, .headRefOid] | map(. // "" | tostring) | @tsv

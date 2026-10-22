@@ -6,7 +6,9 @@
 # Two parts:
 #
 #   script   ci-none-declared.sh, with and without --owned (against the real
-#            owned-pr.sh), in a throwaway git repository
+#            owned-pr.sh), in a throwaway git repository, and without --owned
+#            in a fork clone whose first remote isn't the PR's repository,
+#            with the gh calls each path costs
 #   wiring   work-on.md's ci_passing and execute.md's owned_ci_passing
 #            EXTRACTED FROM THE TEMPLATES, with {{PLUGIN_ROOT}},
 #            {{SESSION_NAME}} and {{PLAN_SLUG}} substituted as koto would, so
@@ -76,8 +78,12 @@ mkdir -p "$T/bin" || exit 1
 
 # gh:
 #   api user                           {"login": $ME}
-#   api repos/<r>/contents/<path>      $FIX/decl, else a 404; the path is
-#                                      logged to $FIX/contents.log
+#   api repos/<r>/contents/<path>      $FIX/decl when <r> is the repository
+#                                      named in $FIX/decl-repo, else a 404.
+#                                      {owner}/{repo} is filled from the first
+#                                      git remote, as gh api does, ignoring
+#                                      `gh repo set-default`. The path as asked
+#                                      is logged to $FIX/contents.log
 #   api repos/<r>                      its default branch, main
 #   pr list --state <s>                $FIX/prs.json, filtered by state as gh
 #                                      does (open by default)
@@ -117,8 +123,21 @@ case "$1 ${2:-}" in
     "api user") echo '{"login": "octo"}' | out ;;
     "api repos/"*/contents/*)
         echo "$2" >> "$FIX/contents.log"
-        [ -f "$FIX/decl" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
-        cat "$FIX/decl"
+        path="$2"
+        placeholders='repos/{owner}/{repo}/'
+        case "$path" in
+            "$placeholders"*)
+                remote=$(git remote | head -n 1)
+                url=$(git remote get-url "$remote" 2>/dev/null) \
+                    || { echo "gh: unable to determine base repository" >&2; exit 1; }
+                url="${url%.git}"
+                path="repos/${url#*://*/}/${path#"$placeholders"}"
+                ;;
+        esac
+        case "$path" in
+            "repos/$(cat "$FIX/decl-repo" 2>/dev/null)/contents/"*) cat "$FIX/decl" ;;
+            *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+        esac
         ;;
     "api repos/"*) echo '{"default_branch": "main"}' | out ;;
     "pr list")
@@ -196,8 +215,11 @@ fixture() {
     : > "$FIX/koto.log"
 }
 
-# declare_ci <json>: the default branch's hosted-ci.json, as the API serves it.
-declare_ci() { printf '%s\n' "$1" > "$FIX/decl"; }
+# declare_ci <json>: the default branch's hosted-ci.json, as the API serves it
+# for the pull requests' repository. declare_ci_in <repo> <json>: the same file,
+# held by <repo> only.
+declare_ci_in() { printf '%s' "$1" > "$FIX/decl-repo" && printf '%s\n' "$2" > "$FIX/decl"; }
+declare_ci() { declare_ci_in "$R" "$1"; }
 DECLARED=$(jq -cn --arg r "$REASON" '{hosted_ci: "none", reason: $r}')
 
 # pr <n> <state> <run-id> <body> -- [none | <check-json>...]: one PR on the
@@ -237,13 +259,15 @@ pr() {
 
 LOOKUP=(--repo "$R" --head "$BRANCH" --state open-else-merged --run-id "$MINE")
 
-# run_script [env assignments...] -- [args...]: the script, in the repository,
-# with the stubs on PATH. Sets GOT, OUT and ERR.
+# run_script [env assignments...] -- [args...]: the script, in $CLONE (the
+# repository unless a case says otherwise), with the stubs on PATH. Sets GOT,
+# OUT and ERR.
+CLONE="$REPO"
 run_script() {
     local envs=()
     while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done
     [ "${1:-}" = -- ] && shift
-    (cd "$REPO" && env PATH="$T/bin:$PATH" GH_FIXTURE="$FIX" ${envs[@]+"${envs[@]}"} \
+    (cd "$CLONE" && env PATH="$T/bin:$PATH" GH_FIXTURE="$FIX" ${envs[@]+"${envs[@]}"} \
         "$SCRIPT" "$@") >"$T/out" 2>"$T/err"
     GOT=$?
     OUT=$(cat "$T/out")
@@ -280,22 +304,36 @@ gh_calls() { grep -c -- "$1" "$FIX/gh.log"; }
 # The script, for /work-on (no --owned)
 # ---------------------------------------------------------------------------
 
-# --- no declaration: one API call, quiet, not green --------------------------
+# --- no declaration: the PR lookup and one API call, quiet, not green ---------
+# The lookup is the gate's own `gh pr list --head`, which the script made
+# before #1036 too, only after the declaration; it now comes first so the
+# declaration can be read from the pull request's repository.
 fixture
 pr 7 OPEN "$MINE" "Fixes #1." -- none
 run_script -- sess
 expect_exit "no declaration, no checks: not green" 1
 expect_quiet "no declaration"
 expect_no_note "no declaration records no note"
-if [ "$(grep -c . "$FIX/gh.log")" = 1 ] && [ "$(gh_calls "api repos/")" = 1 ]; then
-    pass "a repository without the file costs one API call"
+if [ "$(grep -c . "$FIX/gh.log")" = 2 ] && [ "$(gh_calls "^pr list --head $BRANCH ")" = 1 ] \
+    && [ "$(gh_calls "^api repos/")" = 1 ]; then
+    pass "a repository without the file costs the PR lookup and one API call"
 else
     fail "unexpected gh calls without a declaration: $(cat "$FIX/gh.log")"
 fi
-if grep -qx "repos/{owner}/{repo}/contents/$DECL_PATH" "$FIX/contents.log" 2>/dev/null; then
-    pass "the declaration is read from the working tree's repository, with no ref (the default branch)"
+if [ "$(gh_calls "^pr checks")" = 0 ] && [ "$(gh_calls "^pr view")" = 0 ]; then
+    pass "a repository without the file never reads the PR's checks or body"
+else
+    fail "the PR's checks or body were read without a declaration: $(cat "$FIX/gh.log")"
+fi
+if grep -qx "repos/$R/contents/$DECL_PATH" "$FIX/contents.log" 2>/dev/null; then
+    pass "the declaration is read from the PR's repository, with no ref (the default branch)"
 else
     fail "the declaration was read from: $(cat "$FIX/contents.log" 2>/dev/null)"
+fi
+if grep -qF '{owner}' "$FIX/contents.log" 2>/dev/null; then
+    fail "the declaration read leaves the repository to gh api: $(cat "$FIX/contents.log")"
+else
+    pass "the declaration read never leaves the repository to gh api's {owner}/{repo}"
 fi
 if grep -q -e 'ref=' -e '--ref' "$FIX/gh.log"; then
     fail "the declaration read names a ref: $(cat "$FIX/gh.log")"
@@ -393,6 +431,14 @@ run_script -- sess
 expect_exit "declared, a failed check: not green" 1
 expect_no_note "a PR with checks records no note"
 expect_quiet "declared, with checks"
+# The PR lookup, the declaration and the checks: the three calls it cost
+# before #1036, in another order. The repository with no declaration above
+# costs less than this.
+if [ "$(grep -c . "$FIX/gh.log")" = 3 ] && [ "$(gh_calls "^pr checks $REPO_URL/pull/7 ")" = 1 ]; then
+    pass "declared, a failed check: the PR lookup, the declaration and the checks, by URL"
+else
+    fail "unexpected gh calls for a declared PR with a failed check: $(cat "$FIX/gh.log")"
+fi
 
 fixture
 declare_ci "$DECLARED"
@@ -444,6 +490,85 @@ declare_ci "$DECLARED"
 pr 7 OPEN "$MINE" "$RECORD" -- none
 run_script KOTO_FAIL=1 -- sess
 expect_exit "a failed context write is not green" 1
+
+# --- no open PR on the branch: gh's current-branch lookup names it ------------
+fixture
+declare_ci "$DECLARED"
+pr 7 MERGED "$MINE" "$RECORD" -- none
+printf '7\n' > "$FIX/current"
+run_script -- sess
+expect_exit "no open PR, declared, no checks, recorded: green through the current-branch lookup" 0
+if [ "$(gh_calls "^pr view --json url ")" = 1 ] && grep -qx "repos/$R/contents/$DECL_PATH" "$FIX/contents.log" 2>/dev/null; then
+    pass "no open PR: the URL comes from gh's current-branch lookup, and the declaration from its repository"
+else
+    fail "no open PR: unexpected reads: $(cat "$FIX/gh.log")"
+fi
+
+fixture
+pr 7 MERGED "$MINE" "$RECORD" -- none
+printf '7\n' > "$FIX/current"
+run_script -- sess
+expect_exit "no open PR, no declaration: not green" 1
+expect_quiet "no open PR, no declaration"
+if [ "$(grep -c . "$FIX/gh.log")" = 3 ]; then
+    pass "no open PR, no declaration: two lookups and one API call"
+else
+    fail "no open PR, no declaration: unexpected gh calls: $(cat "$FIX/gh.log")"
+fi
+
+fixture
+declare_ci "$DECLARED"
+run_script -- sess
+expect_exit "no pull request at all: not green" 1
+expect_stderr "no pull request at all: gh's answer passes through" "no pull requests found"
+if [ "$(gh_calls "^api repos/")" = 0 ]; then pass "no pull request at all: no declaration read"
+else fail "no pull request at all: the declaration was read: $(cat "$FIX/gh.log")"; fi
+
+# --- a fork clone: the first remote is not the PR's repository (#1036) --------
+# origin is the fork and upstream the parent, where the pull request lives.
+# gh api would fill {owner}/{repo} from origin, the first remote; gh pr, which
+# the gate uses, resolves the parent. The stub serves the pull request as gh pr
+# does and fills the placeholders as gh api does, so a declaration read through
+# {owner}/{repo} would reach the fork.
+FORK="$T/fork"
+mkdir -p "$FORK" || exit 1
+git -C "$FORK" init -q || exit 1
+git -C "$FORK" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init || exit 1
+git -C "$FORK" checkout -q -b "$BRANCH" || exit 1
+git -C "$FORK" remote add origin "https://github.com/$ME/widgets.git" || exit 1
+git -C "$FORK" remote add upstream "$REPO_URL.git" || exit 1
+CLONE="$FORK"
+
+# The stub itself: a placeholder read reaches the fork, as gh api's would.
+fixture
+declare_ci_in "$ME/widgets" "$DECLARED"
+if (cd "$FORK" && env PATH="$T/bin:$PATH" GH_FIXTURE="$FIX" \
+    gh api "repos/{owner}/{repo}/contents/$DECL_PATH") >/dev/null 2>&1; then
+    pass "fork clone: the stub fills {owner}/{repo} from the first remote, the fork"
+else
+    fail "fork clone: the stub did not fill {owner}/{repo} from the fork"
+fi
+
+fixture
+declare_ci "$DECLARED"
+pr 7 OPEN "$MINE" "$RECORD" -- none
+run_script -- sess
+expect_exit "fork clone: the parent declares no hosted CI, recorded in the PR: green" 0
+expect_note "fork clone: the pass records the note"
+if [ "$(cat "$FIX/contents.log" 2>/dev/null)" = "repos/$R/contents/$DECL_PATH" ]; then
+    pass "fork clone: the declaration is read from the PR's repository, not the first remote's"
+else
+    fail "fork clone: the declaration was read from: $(cat "$FIX/contents.log" 2>/dev/null)"
+fi
+
+fixture
+declare_ci_in "$ME/widgets" "$DECLARED"
+pr 7 OPEN "$MINE" "$RECORD" -- none
+run_script -- sess
+expect_exit "fork clone: a declaration only the fork carries is not the PR's: not green" 1
+expect_quiet "fork clone, declared only on the fork"
+expect_no_note "fork clone: the fork's declaration records no note"
+CLONE="$REPO"
 
 # --- usage ------------------------------------------------------------------------
 fixture
