@@ -187,7 +187,8 @@
 #       push and the record write, with nothing posted (the caller's
 #       execute:visibility)
 #   78  node mode: a public node under a private coordination PR whose
-#       commits or description carry private-repository markers, or whose
+#       commits, description or deferral reasons carry private-repository
+#       markers, or whose
 #       commits the check couldn't read; nothing was pushed or edited
 #       (execute:visibility)
 #   79  node mode: the node names a repository other than the coordination
@@ -504,8 +505,9 @@ if [ "$MODE" = node ]; then
         fi
         grep '^+' "$SCAN_DIR/diff" | grep -v '^+++ ' >>"$SCAN_DIR/text"
         # The node PR's description comes from the same private PLAN, and a
-        # new node PR publishes it.
+        # new node PR publishes it, with any deferral reason it records.
         printf '%s\n' "$NODE_DESC" >>"$SCAN_DIR/text"
+        [ -z "$DEFERRAL" ] || printf '%s\n' "$DEFERRAL" >>"$SCAN_DIR/text"
         SCAN=0
         grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCAN_DIR/text" || SCAN=$?
         rm -rf "$SCAN_DIR"

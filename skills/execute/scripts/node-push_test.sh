@@ -90,7 +90,8 @@
 #     a public node under a private home whose commits carry a private/ path
 #     or a Repo Visibility: Private line         exit 78, nothing pushed; no
 #                                                scan for any other pair
-#     the same pair, a work item's goal in the PLAN naming a private/ path
+#     the same pair, a work item's goal in the PLAN naming a private/ path,
+#     or a deferral reason the node PR would record naming one
 #                                                exit 78, nothing pushed
 #   a node in another repository than the coordination PR's, pushed from the
 #   coordination checkout:
@@ -404,7 +405,8 @@ np_case defer-none
 ct_write_db
 fresh_repo defer-none
 push_node --verification local --reason ""
-if [ "$RC" -eq 0 ] && ! db_pr 50 | jq -r '.body' | grep -qi 'verification'; then
+NBODY=$(db_pr 50 | jq -r '.body')
+if [ "$RC" -eq 0 ] && ! grep -qi 'verification' <<<"$NBODY"; then
     pass "a node with no deferral: the body carries no Verification section"
 else
     fail "defer-none: rc=$RC body=[$(db_pr 50 | jq -r '.body')]"
@@ -1092,6 +1094,23 @@ if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; th
     pass "a work item's goal naming a private/ path, public node under a private home: 78, nothing pushed"
 else
     fail "vis-goal: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
+fi
+
+# A deferral reason the new node PR would record is published with it, so it
+# is scanned too.
+np_case vis-reason
+CT_VIS_A=private
+CT_VIS_B=public
+ct_write_db
+fresh_repo vis-reason
+node_clone vis-reason
+OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" \
+    --verification hosted-ci --reason "see private/plans/notes.md" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "a deferral reason naming a private/ path, public node under a private home: 78, nothing pushed"
+else
+    fail "vis-reason: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
 fi
 
 # The visibility check runs before the ownership read, whose diagnostics name
