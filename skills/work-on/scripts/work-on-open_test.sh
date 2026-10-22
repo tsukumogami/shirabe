@@ -478,7 +478,7 @@ koto_verdict() {
     elif [ "$(printf '%s' "$out" | jq -r '"\(.code // "")/\(.constraint // "")"' 2>/dev/null)" = invalid_var/allowlist ]; then
         KV=refuses
     else
-        KV="exits $rc with [$(printf '%s' "$out" | head -c 300)]"
+        KV="exits $rc with [$(head -c 300 <<<"$out")]"
     fi
 }
 # script_verdict <value> -- SV is passes (the value reaches koto unchanged as
