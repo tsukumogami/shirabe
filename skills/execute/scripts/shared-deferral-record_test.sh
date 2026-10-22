@@ -19,7 +19,12 @@
 #          the run and a child is asked for once;
 #        - hosted-ci with no reason, a failed child listing, a failed or odd
 #          key read, an empty key, no single owned PR, and bad usage can't be
-#          decided (2).
+#          decided (2);
+#        - --child reads exactly the named sessions (a coordinated node's
+#          work items) with no child listing, holding the PR on a named
+#          child's reason and ignoring a listed child it doesn't name;
+#        - --list prints the run's reason and each named child's, once each,
+#          with no GitHub read, and nothing with no deferral.
 #   2. Engine: a parent session and two children made with `koto init
 #      --parent`, one from a fixture holding work-on.md's SHIPPED
 #      verification_deferred state (extracted at run time) with
@@ -246,6 +251,84 @@ RC=$?
 expect "no --verification: usage" 2
 run_stub sometimes ""
 expect "a VERIFICATION outside local and hosted-ci" 2
+
+echo "--- a coordinated node's children (--child) and the reasons alone (--list)"
+
+# run_child <verification> <reason> <child>... -- the gate over an explicit
+# child list, with the owned-PR arguments after it.
+run_child() {
+    local v="$1" r="$2" c args=()
+    shift 2
+    for c in "$@"; do args+=(--child "$c"); done
+    # shellcheck disable=SC2086 # OWNED_ARGS is a word list
+    (PATH="$BIN:$PATH" SDR_STUB="$STUB" CHECK_PR_OUTPUT_OWNED_PR="$BIN/owned-pr.sh" \
+        "$GATE" --session execute-x --verification "$v" --reason "$r" "${args[@]}" -- $OWNED_ARGS) \
+        >"$WORKDIR/out" 2>"$WORKDIR/err"
+    RC=$?
+}
+# run_list <verification> <reason> <child>... -- --list over an explicit child
+# list; the reasons on $WORKDIR/out.
+run_list() {
+    local v="$1" r="$2" c args=()
+    shift 2
+    for c in ${1+"$@"}; do args+=(--child "$c"); done
+    (PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification "$v" --reason "$r" \
+        ${args[@]+"${args[@]}"} --list) >"$WORKDIR/out" 2>"$WORKDIR/err"
+    RC=$?
+}
+
+reset_stub
+children execute-x.o-a
+child_deferred work-on-t-core-2 "$REASON2"
+run_child local "" work-on-t-core-1 work-on-t-core-2
+expect "--child: a named child deferred, no record: holds" 1
+if grep -q 'workflows' "$STUB/koto.calls"; then
+    fail "--child still listed the session's children: $(cat "$STUB/koto.calls")"
+else
+    pass "--child reads exactly the named sessions, with no child listing"
+fi
+body "$REASON2"
+run_child local "" work-on-t-core-1 work-on-t-core-2
+expect "--child: the body records the named child's reason: passes" 0
+
+reset_stub
+child_deferred execute-x.o-a "$REASON"
+children execute-x.o-a
+run_child local "" work-on-t-core-1
+expect "--child: a listed child's deferral outside the named ones isn't read" 0
+[ "$(count gh.calls)" = 0 ] && pass "--child, no named child deferred: no gh call" \
+    || fail "--child, no deferral: gh calls $(count gh.calls)"
+
+reset_stub
+child_deferred work-on-t-core-1 "$REASON"
+child_deferred work-on-t-core-2 "$REASON2"
+run_list hosted-ci "$REASON" work-on-t-core-1 work-on-t-core-2 work-on-t-core-3
+expect "--list: listed" 0
+if [ "$(cat "$WORKDIR/out")" = "$(printf '%s\n%s' "$REASON" "$REASON2")" ]; then
+    pass "--list prints each reason once, the run's first"
+else
+    fail "--list printed [$(cat "$WORKDIR/out")]"
+fi
+[ "$(count gh.calls)" = 0 ] && [ "$(count owned.calls)" = 0 ] \
+    && pass "--list reads nothing from GitHub" \
+    || fail "--list: gh calls $(count gh.calls), owned calls $(count owned.calls)"
+
+reset_stub
+run_list local "" work-on-t-core-1
+expect "--list with no deferral" 0
+[ -s "$WORKDIR/out" ] && fail "--list with no deferral printed [$(cat "$WORKDIR/out")]" \
+    || pass "--list with no deferral prints nothing"
+
+reset_stub
+printf '3\n' > "$STUB/exists.rc"
+run_list local "" work-on-t-core-1
+expect "--list: a child's key check failed" 2
+reset_stub
+run_list hosted-ci "" work-on-t-core-1
+expect "--list: hosted-ci with no reason" 2
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification local --child) >/dev/null 2>"$WORKDIR/err"
+RC=$?
+expect "--child with no session name: usage" 2
 
 # --- 2. engine --------------------------------------------------------------------------
 

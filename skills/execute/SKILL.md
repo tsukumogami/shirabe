@@ -113,25 +113,32 @@ Two more flags, on both paths:
   started with. A value outside the three names is koto's `invalid_var`, a
   repeat its `duplicate_var`, each with exit 2 and no session.
 - `--verification=<local|hosted-ci>` and `--verification-reason=<text>`
-  (default `local`, no reason), on a single-pr PLAN — the verification
-  deferral `/work-on` takes (`skills/work-on/SKILL.md`), for the whole plan.
-  They become the koto variables `VERIFICATION` and
-  `VERIFICATION_DEFERRAL_REASON`, passed only when given. With `hosted-ci`,
-  every child task gets both, so each child goes to `verification_deferred`
-  instead of running the verification map, and `pr_finalization` holds until
-  the shared PR's body records the deferral: that local verification did not
-  run, the reason verbatim, and that hosted CI is the build of record, in the
-  section `/work-on`'s `phase-6-pr.md` gives. Unlike the bound, both are fixed
+  (default `local`, no reason) — the verification deferral `/work-on` takes
+  (`skills/work-on/SKILL.md`), for the whole plan. They become the koto
+  variables `VERIFICATION` and `VERIFICATION_DEFERRAL_REASON`, passed only
+  when given. With `hosted-ci`, every child gets both, so each child goes to
+  `verification_deferred` instead of running the verification map, and each
+  pull request the children land in records the deferral in its body: that
+  local verification did not run, each reason verbatim, and that hosted CI is
+  the build of record, in the section `/work-on`'s `phase-6-pr.md` gives. On
+  a single-pr PLAN every child task gets both through the spawn, and
+  `pr_finalization` holds until the shared PR's body records it. On a
+  coordinated PLAN the dispatch step gives both to every work item's child on
+  every node; `node-push.sh` writes the section into each node PR it opens
+  and refuses to push to a node PR already open that doesn't carry it (exit
+  80), and the loop neither readies nor merges a node PR whose children
+  deferred until its body records it (`error:execute:deferral-record`).
+  Unlike the bound, both are fixed
   for a live run, as in `/work-on`: a resume that attaches to it and leaves them
   out keeps them, and one that passes another value is koto's refusal. A
   finished run that `/execute` replaces (the finalize resume of a
-  `paused_for_review` run among them) starts from this invocation's flags
-  alone, so pass the same two flags again there. A reason uses only letters,
-  digits, spaces and `. _ / : @ + -` and starts with a letter or digit, for
-  example `--verification-reason=host is in a measurement window until
-  02:40Z`. On a coordinated PLAN either flag is refused before any koto call
-  (`error=usage`, exit 64), with a message that names the limit: node PRs
-  don't record a deferral yet (#1047).
+  `paused_for_review` run, or a coordinated run's `paused_awaiting_merges`
+  one, among them) starts from this invocation's flags alone, so pass the
+  same two flags again there. A node already pushed keeps its record either
+  way: the loop reads each node's children for it, not the run's flags. A
+  reason uses only letters, digits, spaces and `. _ / : @ + -` and starts
+  with a letter or digit, for example `--verification-reason=host is in a
+  measurement window until 02:40Z`.
 - Five more, on a coordinated PLAN only (on a single-pr PLAN each is koto's
   `unknown_var`), each `--flag <value>` or `--flag=<value>`. They become the
   koto variables `STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE` and
@@ -190,8 +197,7 @@ malformed `--koto-leg` value, a coordinated flag with no value, a `--remove`
 without `--follow-up`, a `--follow-up` value with no `=`, a
 `--verification-reason` with a character koto doesn't accept in a value,
 `--verification=hosted-ci` with no reason (these two with `/work-on`'s own
-checks and words), or either verification flag on a coordinated PLAN
-(`error=usage`), an args file inside the work tree, or a
+checks and words) (`error=usage`), an args file inside the work tree, or a
 missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
 `execute-open.sh` refuses with `error=multi-pr` (exit 64) and a message naming
 `/work-on <PLAN>` as the entry point (per

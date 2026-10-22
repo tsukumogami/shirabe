@@ -27,8 +27,8 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 Plans turn accepted designs into implementable work. They define the decomposition
 strategy, issue sequencing, and dependency graph that guide implementation through
-/work-on. When planning a roadmap, the output is planning issues
-(one per feature) rather than code-level issues.
+/work-on. When planning a roadmap (plan version `v1`), the output is planning
+issues (one per feature) rather than code-level issues.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -87,13 +87,14 @@ authored at `Active`. A coordinated PLAN at `issues` or
 
 ### Plan Version
 
-`/plan` writes one of two plan versions. `plan/v1` -- the default, and
-everything else in this file unless it says otherwise -- has issues as its
-entries. `plan/v2` has functional steps: step 1 a walking skeleton whose check
-runs it end to end, steps 1 and 2 detailed with behavioural criteria and a
-check each, every later step a one-line outline the plan's owner details when
-its turn comes, and no issue or milestone filed. The format and its rules are
-in `references/plan-format.md` under "plan/v2: Step Plans".
+`/plan` writes one of two plan versions. `plan/v2` -- the default -- has
+functional steps: step 1 a walking skeleton whose check runs it end to end,
+steps 1 and 2 detailed with behavioural criteria and a check each, every later
+step a one-line outline the plan's owner details when its turn comes, and no
+issue or milestone filed. The format and its rules are in
+`references/plan-format.md` under "plan/v2: Step Plans". `plan/v1` -- written
+when asked for, and everything else in this file unless it says otherwise --
+has issues as its entries.
 
 The version resolves on a `flag > CLAUDE.md-header > default` stack, through
 `scripts/resolve-plan-version.sh` in Phase 1:
@@ -101,13 +102,20 @@ The version resolves on a `flag > CLAUDE.md-header > default` stack, through
 - `--plan-version=v1|v2` on the command line;
 - else a `## Plan Version: v1|v2` line in the repository root's CLAUDE.md
   (outside fenced code);
-- else the default, `v1`, held as `DEFAULT_PLAN_VERSION` on one line of that
+- else the default, `v2`, held as `DEFAULT_PLAN_VERSION` on one line of that
   script and nowhere else.
 
 Any other value, or two `## Plan Version:` headers, stops the run before
 anything is written, naming `v1` and `v2`. A step plan is `single-pr` or
-`multi-pr` only: a split that resolves to `coordinated` stops the run, and a
-roadmap is planned under `v1`.
+`multi-pr` only and files nothing, so a roadmap input, a split that resolves
+to `coordinated`, and a `## Tracking Level: issues|issues-and-milestone`
+header need `v1`. When the `v2` came from the default, it gives way: the run
+writes `plan/v1` and says so, naming why. When a flag or header asked for
+`v2`, a roadmap or a coordinated split stops the run instead, and a Tracking
+Level header is reported and not applied. Phase 1 records where the version
+came from (`Plan Version Source`), and later steps and a resumed run decide
+from that record: a resume keeps its recorded version, and one that asks for
+a different version stops.
 
 ## Decomposition Strategies
 
@@ -206,7 +214,7 @@ When invoked as `/plan`, this skill drives decomposition of a source document in
 implementable issues. The source can be a design doc, PRD, or roadmap. The workflow
 produces either GitHub artifacts (multi-pr) or a self-contained PLAN document
 (single-pr), depending on execution mode. Roadmaps produce planning issues (one per
-feature) rather than code-level issues.
+feature) rather than code-level issues, and are planned under plan version `v1`.
 
 ### Input Detection
 
@@ -257,7 +265,10 @@ forwards them verbatim when its caller passed them):
 - `--intent=continue|stop` -- the caller's intent for the work after planning.
   Read only by step 5a, and only when the work splits: `continue` resolves a
   split to `coordinated`, `stop` to `multi-pr`. It never changes whether the work
-  splits, and a PLAN that doesn't split is `single-pr` either way.
+  splits, and a PLAN that doesn't split is `single-pr` either way. A split
+  that resolves to `coordinated` under the default version is planned as
+  `plan/v1`; under a `v2` a flag or header asked for, it stops the run (see
+  Plan Version).
 - `--coordinated` -- resolve a split to `coordinated`, outranking `--intent` and
   the `CLAUDE.md` header.
 - `--no-coordinated` -- resolve a split to `multi-pr`, outranking `--intent` and
@@ -268,13 +279,15 @@ forwards them verbatim when its caller passed them):
   above). Passed verbatim to `scripts/resolve-plan-version.sh` in Phase 1,
   which refuses any other value, an empty one included, before anything is
   written. Without it, a `## Plan Version:` CLAUDE.md header decides, then the
-  default `v1`; a run given the flag never reads the header, so a malformed
-  header does not stop it. With `v2`, `--no-skeleton` is refused in Phase 3: a
-  step plan always starts from a walking skeleton. Neither check is part of the
+  default `v2`; a run given the flag never reads the header, so a malformed
+  header does not stop it. With `v2`, the default included, `--no-skeleton` is
+  refused in Phase 3: a step plan always starts from a walking skeleton, so a
+  horizontal plan asks for `v1`. Neither check is part of the
   up-front validation below, but both stop the run before any file is written.
 
-A run with none of the three behaves exactly as before they existed. Validate
-them before anything else runs, and before the `plan-<topic>` session is
+A run with none of `--intent`, `--coordinated` and `--no-coordinated` resolves
+its split exactly as before those three existed. Validate them before anything
+else runs, and before the `plan-<topic>` session is
 opened or any key is written. Each of these is a rejection with an error naming the offending flag,
 and the run stops without writing anything:
 
@@ -478,6 +491,13 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 
 Each key row is `koto context exists plan-<topic> <key>`. When resuming, read
 the existing key (`koto context get`) to restore context before continuing.
+
+**The recorded plan version, on every resume.** Whichever row a resume enters
+at, once key `work/analysis.md` exists and this invocation carries
+`--plan-version`, run Phase 1's version check for a resume (step 1.0a, "On a
+resume") before going on. A different version stops the run. The same version
+makes `Plan Version Source: flag` in `work/analysis.md`, so a later step 5a
+reads the version as asked for. The rows above never skip this check.
 
 **Running under a parent.** The first row runs
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read plan <topic>`

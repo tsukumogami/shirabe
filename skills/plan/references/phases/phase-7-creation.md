@@ -528,14 +528,19 @@ per PR node, opens the coordination PR, and lands the nodes in merge order.
 ## plan/v2 Step Plan
 
 Steps 7.V1 and 7.V2 apply when the decomposition artifact records
-`plan_version: v2`, in `single-pr` and `multi-pr` alike (Phase 3 has already
-stopped a `coordinated` step plan). The format is `../plan-format.md` under
-"plan/v2: Step Plans".
+`plan_version: v2`, in `single-pr` and `multi-pr` alike. A `coordinated` split
+never reaches them: Phase 3's step 5a either stopped the run (a `v2` the flag
+or a header asked for) or moved it to `v1` (a `v2` from the default). The format
+is `../plan-format.md` under "plan/v2: Step Plans".
 
 **A step plan files nothing.** No `gh issue create`, no milestone call, no
 filing approval, no Implementation Issues table. The tracking level is always
-`none`. When the repository's CLAUDE.md declares `## Tracking Level: issues` or
-`issues-and-milestone` (or the run was given a filing level), do not apply it:
+`none`. A repository whose CLAUDE.md declares `## Tracking Level: issues` or
+`issues-and-milestone` reaches this section only when the flag or a
+`## Plan Version: v2` header asked for the step plan; with no version asked
+for, Phase 1 moved the run to `v1` so the header's filing applies. Only that
+header moves a default run; a filing level that reaches a step plan any other
+way is handled here too. When one does reach here, do not apply the level:
 write `tracking_level: none` and say so in the run's output, in these words or
 close to them: "CLAUDE.md asks for `<level>`; this PLAN is a step plan, which
 files no issues, so it was written with `tracking_level: none`." Under `--auto`,

@@ -302,19 +302,33 @@ own_refusal "a --coordination-pr followed by another flag" '["docs/plans/PLAN-cp
 own_refusal "--remove without --follow-up" '["docs/plans/PLAN-cpairs.md","--remove"]'
 own_refusal "a --follow-up value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up","core"]'
 own_refusal "a --follow-up= value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up=core"]'
-# The verification deferral is single-pr only (#1047): either flag on a
-# coordinated PLAN is refused here, naming the limit, never a bare unknown_var.
-own_refusal "--verification=hosted-ci on a coordinated PLAN" \
-    '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
-own_refusal "--verification=local on a coordinated PLAN" '["docs/plans/PLAN-cpairs.md","--verification=local"]'
-own_refusal "--verification-reason alone on a coordinated PLAN" '["docs/plans/PLAN-cpairs.md","--verification-reason=CI only"]'
+# The verification deferral on a coordinated PLAN (#1047): the two pairs pass
+# as on a single-pr one, only when their flag is given (no empty pair: neither
+# is rebind, and an empty VERIFICATION is outside its values), and /work-on's
+# two refusals still come first.
+pairs_of '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
+pairs_eq "a coordinated PLAN with --verification=hosted-ci and a reason: one pair each, the reason unchanged" \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","CI only"]]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+pairs_of '["docs/plans/PLAN-cpairs.md","--verification=local"]'
+pairs_eq "a coordinated PLAN with --verification=local alone: one pair, no reason" '[["VERIFICATION","local"]]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+pairs_of '["docs/plans/PLAN-cpairs.md"]'
+pairs_eq "a coordinated PLAN without the flags: no verification pair at all" '[]' \
+    'map(select(.[0] | startswith("VERIFICATION")))'
+own_refusal "--verification=hosted-ci with no reason on a coordinated PLAN" \
+    '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci"]'
+own_refusal "a reason with an apostrophe on a coordinated PLAN" \
+    "[\"docs/plans/PLAN-cpairs.md\",\"--verification=hosted-ci\",\"--verification-reason=can't\"]"
 tokens '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
-OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
-if [ "$OUT" = "error=usage" ] && grep -q 'apply to a single-pr PLAN only' "$WORK/stderr" \
-    && grep -q 'shirabe#1047' "$WORK/stderr"; then
-    pass "a coordinated PLAN with the deferral: the refusal names the single-pr limit and the follow-up issue"
+: > "$WORK/stub.log"
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+if [ "$OUT" != "error=usage" ] && ! grep -q 'single-pr PLAN only' "$WORK/stderr" \
+    && grep -q '^init execute-cpairs --template .*/execute-coordinated.md' "$WORK/stub.log"; then
+    pass "a coordinated PLAN with the deferral reaches koto init on execute-coordinated.md, with no refusal of its own"
 else
-    fail "coordinated deferral refusal: out [$OUT], stderr [$(cat "$WORK/stderr")]"
+    fail "coordinated deferral open: out [$OUT], stub log [$(cat "$WORK/stub.log")], stderr [$(cat "$WORK/stderr")]"
 fi
 
 # A live coordinated session past coord_setup refuses the setup-only flags:

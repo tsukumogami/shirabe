@@ -4,7 +4,9 @@
 #
 # Covers the version precedence (flag over header over default), the header
 # rules (whole line, outside fenced code, one header only, v1 or v2 exactly),
-# every refusal, the one-line default and what flipping it changes, and that
+# every refusal, the one-line default and what flipping it changes, the
+# default giving way to v1 (--needs-v1 and a Tracking Level header), the
+# reported source and a resumed run's stored version and source, and that
 # the step plan example in references/quality/plan-doc-examples.md validates
 # clean as a PLAN file.
 #
@@ -34,7 +36,7 @@ PASS_COUNT=0
 FAIL_COUNT=0
 
 # The setting's name, kept apart from its value so this file never spells the
-# assignment out: `git grep -n "<name>=v1" skills/plan/scripts/` must match
+# assignment out: `git grep -n "<name>=v2" skills/plan/scripts/` must match
 # exactly once, the script's own line, to show the default lives in one place.
 DEFAULT_NAME="DEFAULT_PLAN_VERSION"
 
@@ -95,38 +97,47 @@ expect "flag v1 wins over a v2 header" v1 "$RESOLVER" \
 expect "flag v2 with a CLAUDE.md that has no header" v2 "$RESOLVER" \
     --plan-version=v2 --claude-md "$DATA/CLAUDE-flag-only.md"
 expect "header v2 with no flag" v2 "$RESOLVER" --claude-md "$DATA/CLAUDE-header-only.md"
-expect "header inside a fenced block is ignored" v1 "$RESOLVER" \
+printf '# Repo\n\n## Plan Version: v1\n' > "$TEST_DIR/header-v1.md"
+expect "header v1 with no flag wins over the default" v1 "$RESOLVER" \
+    --claude-md "$TEST_DIR/header-v1.md"
+expect "header inside a fenced block is ignored" v2 "$RESOLVER" \
     --claude-md "$DATA/CLAUDE-fenced-header.md"
-expect "no header falls through to the default" v1 "$RESOLVER" \
+expect "no header falls through to the default" v2 "$RESOLVER" \
     --claude-md "$DATA/CLAUDE-flag-only.md"
-expect "no flag and no CLAUDE.md gives the default" v1 "$RESOLVER"
+expect "no flag and no CLAUDE.md gives the default" v2 "$RESOLVER"
 
 # --- header matching ----------------------------------------------------------
 
-printf '## Plan Version: \t v2  \r\n' > "$TEST_DIR/padded.md"
-expect "header value is trimmed, CRLF included" v2 "$RESOLVER" --claude-md "$TEST_DIR/padded.md"
+# Every case here names v1, the version that is not the default, in the text
+# under test. A header that must be ignored then shows up as a v2 answer, and
+# one that must count as a v1 answer; with v2 in that text, a case would pass
+# whether the header was read or not. The same holds for the fenced header in
+# testdata/plan-version/CLAUDE-fenced-header.md.
 
-printf '### Plan Version: v2\n' > "$TEST_DIR/h3.md"
-expect "an h3 line is not the header" v1 "$RESOLVER" --claude-md "$TEST_DIR/h3.md"
+printf '## Plan Version: \t v1  \r\n' > "$TEST_DIR/padded.md"
+expect "header value is trimmed, CRLF included" v1 "$RESOLVER" --claude-md "$TEST_DIR/padded.md"
 
-printf 'Set ## Plan Version: v2 to opt in.\n' > "$TEST_DIR/inline.md"
-expect "the header text inside a sentence is not the header" v1 "$RESOLVER" \
+printf '### Plan Version: v1\n' > "$TEST_DIR/h3.md"
+expect "an h3 line is not the header" v2 "$RESOLVER" --claude-md "$TEST_DIR/h3.md"
+
+printf 'Set ## Plan Version: v1 to opt out.\n' > "$TEST_DIR/inline.md"
+expect "the header text inside a sentence is not the header" v2 "$RESOLVER" \
     --claude-md "$TEST_DIR/inline.md"
 
-printf '~~~~\n```\n## Plan Version: v2\n~~~\n~~~~~\n\n## Plan Version: v2\n' > "$TEST_DIR/tilde.md"
-expect "a tilde fence closes only on a run at least as long" v2 "$RESOLVER" \
+printf '~~~~\n```\n## Plan Version: v2\n~~~\n~~~~~\n\n## Plan Version: v1\n' > "$TEST_DIR/tilde.md"
+expect "a tilde fence closes only on a run at least as long" v1 "$RESOLVER" \
     --claude-md "$TEST_DIR/tilde.md"
 
-printf '```\n## Plan Version: v1\n```\n\n## Plan Version: v2\n' > "$TEST_DIR/fence-then-header.md"
-expect "a header after a closed fence counts, the fenced one does not" v2 "$RESOLVER" \
+printf '```\n## Plan Version: v2\n```\n\n## Plan Version: v1\n' > "$TEST_DIR/fence-then-header.md"
+expect "a header after a closed fence counts, the fenced one does not" v1 "$RESOLVER" \
     --claude-md "$TEST_DIR/fence-then-header.md"
 
-printf '```\n## Plan Version: v2\n' > "$TEST_DIR/unclosed.md"
-expect "an unclosed fence runs to the end of the file" v1 "$RESOLVER" \
+printf '```\n## Plan Version: v1\n' > "$TEST_DIR/unclosed.md"
+expect "an unclosed fence runs to the end of the file" v2 "$RESOLVER" \
     --claude-md "$TEST_DIR/unclosed.md"
 
-printf '## Plan Version: v2' > "$TEST_DIR/no-newline.md"
-expect "a header on a last line with no newline counts" v2 "$RESOLVER" \
+printf '## Plan Version: v1' > "$TEST_DIR/no-newline.md"
+expect "a header on a last line with no newline counts" v1 "$RESOLVER" \
     --claude-md "$TEST_DIR/no-newline.md"
 
 # --- refusals -----------------------------------------------------------------
@@ -144,6 +155,9 @@ reject "missing CLAUDE.md path" "not a file" --claude-md "$TEST_DIR/absent.md"
 reject "--claude-md given twice" "more than once" \
     --claude-md "$DATA/CLAUDE-flag-only.md" --claude-md "$DATA/CLAUDE-flag-only.md"
 reject "unknown argument" "unknown argument" --plan-versions=v2
+reject "--needs-v1 with an unknown reason" "must be roadmap or coordinated" --needs-v1=steps
+reject "--needs-v1 with no value" "roadmap or coordinated" --needs-v1
+reject "--needs-v1 given twice" "more than once" --needs-v1=roadmap --needs-v1=roadmap
 
 printf '## Plan Version: v2\x1b[31m%s\n' "$(printf 'x%.0s' $(seq 1 80))" > "$TEST_DIR/hostile.md"
 reject "a quoted header value has control characters stripped" "must be v1 or v2" \
@@ -161,26 +175,151 @@ fi
 # --- the default --------------------------------------------------------------
 
 count=$(grep -c "^${DEFAULT_NAME}=" "$RESOLVER" || true)
-if [ "$count" = "1" ] && grep -qx "${DEFAULT_NAME}=v1" "$RESOLVER"; then
-    pass "the default is assigned on exactly one line, to v1"
+if [ "$count" = "1" ] && grep -qx "${DEFAULT_NAME}=v2" "$RESOLVER"; then
+    pass "the default is assigned on exactly one line, to v2"
 else
-    fail "the default is assigned on exactly one line, to v1" "found $count assignment lines"
+    fail "the default is assigned on exactly one line, to v2" "found $count assignment lines"
 fi
 
 # Flip the default in a copy with a one-line substitution and nothing else.
 FLIPPED="$TEST_DIR/flipped/resolve-plan-version.sh"
 mkdir -p "$(dirname "$FLIPPED")"
-sed "s/^${DEFAULT_NAME}=v1\$/${DEFAULT_NAME}=v2/" "$RESOLVER" > "$FLIPPED"
+sed "s/^${DEFAULT_NAME}=v2\$/${DEFAULT_NAME}=v1/" "$RESOLVER" > "$FLIPPED"
 changed=$(diff "$RESOLVER" "$FLIPPED" | grep -c '^[<>]' || true)
 if [ "$changed" = "2" ]; then
     pass "the flip changes one line"
 else
     fail "the flip changes one line" "diff shows $changed changed lines"
 fi
-expect "flipped default: no flag, no header resolves to v2" v2 "$FLIPPED"
-expect "flipped default: no header in CLAUDE.md resolves to v2" v2 "$FLIPPED" \
+expect "flipped default: no flag, no header resolves to v1" v1 "$FLIPPED"
+expect "flipped default: no header in CLAUDE.md resolves to v1" v1 "$FLIPPED" \
     --claude-md "$DATA/CLAUDE-flag-only.md"
-expect "flipped default: an explicit v1 flag still wins" v1 "$FLIPPED" --plan-version=v1
+expect "flipped default: an explicit v2 flag still wins" v2 "$FLIPPED" --plan-version=v2
+expect "flipped default: a v2 header still wins" v2 "$FLIPPED" \
+    --claude-md "$DATA/CLAUDE-header-only.md"
+
+# --- what only v1 can plan ------------------------------------------------------
+
+# expect_note <name> <version> <text stderr must contain> <args...>
+# The default giving way: exit 0, the version on stdout, one stderr line.
+expect_note() {
+    local name="$1" want="$2" needle="$3"
+    shift 3
+    local out rc=0
+    out=$("$BASH" "$RESOLVER" "$@" 2>"$TEST_DIR/stderr") || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        fail "$name" "exit $rc, stderr: $(cat "$TEST_DIR/stderr")"
+    elif [ "$out" != "$want" ]; then
+        fail "$name" "got '$out', want '$want'"
+    elif ! grep -qF -- "$needle" "$TEST_DIR/stderr"; then
+        fail "$name" "stderr does not say '$needle': $(cat "$TEST_DIR/stderr")"
+    elif [ "$(wc -l < "$TEST_DIR/stderr" | tr -d ' ')" -ne 1 ]; then
+        fail "$name" "expected one stderr line, got: $(cat "$TEST_DIR/stderr")"
+    else
+        pass "$name"
+    fi
+}
+
+# A single-pr or multi-pr step plan never passes --needs-v1, so the default
+# stands; the no-flag cases under "precedence" above are that path.
+expect_note "default gives way to v1 for a roadmap" v1 "a roadmap input is planned under v1" \
+    --needs-v1=roadmap
+expect_note "default gives way to v1 for a coordinated split" v1 \
+    "a coordinated split is planned under v1" --needs-v1=coordinated
+expect_note "default gives way with a CLAUDE.md that has no header" v1 "gives way to v1" \
+    --needs-v1=coordinated --claude-md "$DATA/CLAUDE-flag-only.md"
+reject "an explicit v2 flag still stops on a coordinated split" \
+    "coordinated plans use --plan-version=v1" --plan-version=v2 --needs-v1=coordinated
+reject "an explicit v2 flag still stops on a roadmap" \
+    "a roadmap is planned with --plan-version=v1" --plan-version=v2 --needs-v1=roadmap
+reject "a v2 header still stops on a coordinated split" \
+    "coordinated plans use --plan-version=v1" --needs-v1=coordinated \
+    --claude-md "$DATA/CLAUDE-header-only.md"
+expect "an explicit v1 flag needs no fallback" v1 "$RESOLVER" --plan-version=v1 \
+    --needs-v1=coordinated
+expect "a v1 header needs no fallback" v1 "$RESOLVER" --needs-v1=roadmap \
+    --claude-md "$TEST_DIR/header-v1.md"
+expect "flipped default: a v1 default needs no fallback" v1 "$FLIPPED" --needs-v1=coordinated
+
+# A Tracking Level header that names a filing level is the third case: a step
+# plan files nothing. It counts only against the default, and only the first
+# such header outside fenced code counts.
+printf '# Repo\n\n## Tracking Level: issues\n' > "$TEST_DIR/tracking-issues.md"
+printf '# Repo\n\n## Tracking Level: issues-and-milestone\n' > "$TEST_DIR/tracking-milestone.md"
+printf '# Repo\n\n## Tracking Level: none\n' > "$TEST_DIR/tracking-none.md"
+printf '# Repo\n\n## Tracking Level: everything\n' > "$TEST_DIR/tracking-unknown.md"
+printf '```\n## Tracking Level: issues\n```\n' > "$TEST_DIR/tracking-fenced.md"
+printf '## Tracking Level: none\n\n## Tracking Level: issues\n' > "$TEST_DIR/tracking-first.md"
+printf '## Plan Version: v2\n\n## Tracking Level: issues\n' > "$TEST_DIR/tracking-header-v2.md"
+expect_note "default gives way to v1 for a Tracking Level of issues" v1 \
+    "CLAUDE.md asks for tracking level issues" --claude-md "$TEST_DIR/tracking-issues.md"
+expect_note "default gives way to v1 for a Tracking Level of issues-and-milestone" v1 \
+    "tracking level issues-and-milestone" --claude-md "$TEST_DIR/tracking-milestone.md"
+expect "a Tracking Level of none keeps the default" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-none.md"
+expect "an unrecognized Tracking Level keeps the default" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-unknown.md"
+expect "a fenced Tracking Level header is ignored" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-fenced.md"
+expect "only the first Tracking Level header counts" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-first.md"
+expect "a v2 header keeps v2 whatever the Tracking Level" v2 "$RESOLVER" \
+    --claude-md "$TEST_DIR/tracking-header-v2.md"
+expect "a v2 flag keeps v2 whatever the Tracking Level" v2 "$RESOLVER" \
+    --plan-version=v2 --claude-md "$TEST_DIR/tracking-issues.md"
+expect "flipped default: a Tracking Level needs no fallback" v1 "$FLIPPED" \
+    --claude-md "$TEST_DIR/tracking-issues.md"
+
+# --- the source, and resuming a run ---------------------------------------------
+
+expect "--with-source names the default" $'plan_version=v2\nplan_version_source=default' \
+    "$RESOLVER" --with-source
+expect "--with-source names the flag" $'plan_version=v1\nplan_version_source=flag' \
+    "$RESOLVER" --with-source --plan-version=v1
+expect "--with-source names the header" $'plan_version=v1\nplan_version_source=header' \
+    "$RESOLVER" --with-source --claude-md "$TEST_DIR/header-v1.md"
+expect_note "--with-source keeps the default as the source when it gives way" \
+    $'plan_version=v1\nplan_version_source=default' "gives way to v1" \
+    --with-source --needs-v1=roadmap
+
+# A resumed run passes what it recorded at the start. Its flag and header are
+# not read again, so where the version first came from decides the fallback.
+expect "a stored v2 from the flag stays v2 on a resume with no flag" v2 "$RESOLVER" \
+    --stored-version=v2 --stored-source=flag
+reject "a stored v2 from the flag still stops on a coordinated split" \
+    "coordinated plans use --plan-version=v1" \
+    --stored-version=v2 --stored-source=flag --needs-v1=coordinated
+reject "a stored v2 from the header still stops on a roadmap" \
+    "a roadmap is planned with --plan-version=v1" \
+    --stored-version=v2 --stored-source=header --needs-v1=roadmap
+expect_note "a stored v2 from the default gives way on a coordinated split" v1 \
+    "a coordinated split is planned under v1" \
+    --stored-version=v2 --stored-source=default --needs-v1=coordinated
+expect "a stored v1 the default gave way to stays v1" v1 "$RESOLVER" \
+    --stored-version=v1 --stored-source=default --needs-v1=coordinated
+expect "a resume may repeat the stored version" v2 "$RESOLVER" \
+    --stored-version=v2 --stored-source=flag --plan-version=v2
+expect "a resume that repeats the version makes the flag its source" \
+    $'plan_version=v2\nplan_version_source=flag' "$RESOLVER" --with-source \
+    --stored-version=v2 --stored-source=default --plan-version=v2
+reject "a default v2 confirmed by the flag on a resume no longer gives way" \
+    "coordinated plans use --plan-version=v1" \
+    --stored-version=v2 --stored-source=default --plan-version=v2 --needs-v1=coordinated
+reject "a resume can't change the version" "this run started with plan version v2" \
+    --stored-version=v2 --stored-source=default --plan-version=v1
+reject "a resume can't change a v1 either" "resume it with --plan-version=v1" \
+    --stored-version=v1 --stored-source=flag --plan-version=v2
+expect "--with-source repeats the stored source" $'plan_version=v2\nplan_version_source=header' \
+    "$RESOLVER" --with-source --stored-version=v2 --stored-source=header
+reject "--stored-version needs --stored-source" "given together" --stored-version=v2
+reject "--stored-source needs --stored-version" "given together" --stored-source=flag
+reject "a stored run reads no CLAUDE.md" "can't be combined" \
+    --stored-version=v2 --stored-source=flag --claude-md "$DATA/CLAUDE-flag-only.md"
+reject "--stored-source with an unknown source" "must be flag, header or default" \
+    --stored-version=v2 --stored-source=caller
+reject "--stored-version with an unknown version" "must be v1 or v2" \
+    --stored-version=v3 --stored-source=flag
+reject "--with-source takes no value" "takes no value" --with-source=yes
 
 # --- the step plan example validates -------------------------------------------
 
