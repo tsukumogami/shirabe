@@ -307,7 +307,8 @@ Key assumptions:
 
 The record is one append-only JSONL key, `test_change_ledger.jsonl`, in the
 run's own koto session, written only by `skills/work-on/scripts/test-change.sh`.
-`test-change.sh init`, run at analysis beside the `impl_base` record, writes a
+`test-change.sh init`, run in `fix_determination`'s default action once
+`review_level_choice` has stored the rules copy, writes a
 header line with the author (`agent:<session>`), `impl_base`, and whether the
 repository is person-required, with its source. Every later attempt is judged
 against that header, never against the caller's working tree; a ledger with
@@ -318,15 +319,23 @@ no header holds the unit. `accept`, `decline` and `overrule` take `--session`,
 `refuse` line before exiting non-zero. Every line carries `ts`, `event`,
 `identity`, `kind`, `authority`, `files`, `reason`, the rule's outcome and rule
 id, `source` (`session` today, reserved for later sources) and the judging rule
-(`interim`). `seat` mints the next seat identity and appends a `seat` event
-with a fresh nonce, `status` is the gate, and `record` and `render` produce
+(`interim`). `seat` mints the next seat identity, appends a `seat` event with
+a fresh nonce, and prints the seat's fixed brief: the edited hunks, the notes
+the run recorded and the unit's acceptance criteria, framed as data, so the
+run passes the brief through rather than writing its own. `status` is the
+gate, and `record` and `render` produce
 R18's readout and R19's pull request section.
 
 The header also records the repository (`owner/name`) and a run nonce, and
-`init` refuses to run twice or with an `impl_base` that isn't reachable from
-the remote default branch's tip (or, on a shared branch, from the shared
-branch's remote tip), so a later base can't narrow the `test` class or pick a
-different `CLAUDE.md`. An attempt from another session passes `--repo`, and a
+`init` refuses to run twice or with an `impl_base` other than the merge-base
+of HEAD with the remote default branch (or, on a shared branch, the shared
+branch's remote tip when the step started), so neither a later nor an older
+base can narrow the `test` class or pick a different `CLAUDE.md`. The
+person-required declaration is read both at `impl_base` and at the remote
+default branch's tip, and `person` at either wins. Session names must match
+`^[A-Za-z0-9_-]{1,64}$` before they reach a lock path, a key or a marker, and
+every path argument must be repository-relative, with no `..` segment and no
+leading `-`. An attempt from another session passes `--repo`, and a
 mismatch with the header is refused before the rule is asked. An agent
 acceptance at `reviewer` must name an unused minted seat (rule
 `unminted-seat`), so the run can't accept its own edit by inventing a
@@ -352,9 +361,10 @@ A `person:` attempt sets the terminal flag only if the script can open
 `/dev/tty`. It then prints the covered files and digests with a short code
 derived from them and reads the code back from `/dev/tty`, never from stdin or
 an argument; without a terminal, with stdin or stdout not on that terminal, or
-with a wrong code, it is refused `no-terminal` and recorded. Paths printed to
-the terminal have control characters escaped, so a crafted file name can't
-rewrite what the person sees. A person line carries an integrity tag, a keyed
+with a wrong code, it is refused `no-terminal` and recorded. Before the code
+prompt it prints the edited hunks themselves, so the person sees what they
+accept; paths and hunks printed to the terminal have control characters
+escaped, so a crafted file name or line can't rewrite what the person sees. A person line carries an integrity tag, a keyed
 hash of the line under a per-user key file (mode 0600) the script creates, and
 `acceptance_rule_live` counts a person line only when its tag checks. It never
 trusts a stored terminal flag. That guards against a hand-written line or a
@@ -381,7 +391,11 @@ shapes redacted; the full tail stays in the session record. Free text has
 newlines collapsed and comment and marker strings neutralised, so a reason
 can't close the section or forge another. When the report passage comes from
 an issue in a private repository and the pull request's repository is public,
-the section omits the passage, the marker and the output lines, and says so. Reading the record back from the
+the section omits the passage, the marker and the output lines, and says so.
+Observation and note text gets the same redaction and omission. The section
+labels every identity as a recorded claim and names the rule that judged it
+(`interim`), so a reader doesn't take "accepted by reviewer" for independent
+assurance. Reading the record back from the
 pull request body, after a prune, is display-only and never yields `counted`.
 
 #### Alternatives Considered
@@ -459,13 +473,15 @@ Key assumptions:
 - Under plan v2 the steps run in the lead shape on one branch, so step 1's
   placeholder hold is replaced by step 2 without a released gap.
 
-#### Chosen: one feature, three ordered steps, red-first first
+#### Chosen: one feature, four ordered steps, red-first first
 
-One feature, built in three ordered steps that each leave `/work-on` working:
-a fix starts red; then a pass from an edited test is held; then review tells
-edited from added. It splits into two separately delivered pieces of work only
-if the first step's run outgrows one session, and then at the step-one and
-step-two boundary.
+One feature, built in four ordered steps that each leave `/work-on` working: a
+fix starts red; an edited test holds the unit until a seat accepts it; a
+person-required repository, overruling and the pull request record; then
+review tells edited from added. The red-first fix is step 1 and the held-back
+pass is steps 2 and 3. The feature splits into two separately delivered pieces
+of work only if the first step's run outgrows one session, and then between
+step 1 and step 2.
 
 #### Alternatives Considered
 
@@ -575,7 +591,7 @@ under `skills/coordinate/`, koto or niwa changes.
 | `scripts/lib/test-classify.sh` | new library | rows of `added`, `edited` or `unchanged` with path and blob id for the unit's test files |
 | `scripts/lib/acceptance-rule.sh` | new library | `acceptance_rule_decide`, `acceptance_rule_live`; the only allow-or-refuse logic |
 | `skills/work-on/scripts/test-change.sh` | new script | `init`, `classify`, `note`, `seat`, `accept`, `decline`, `overrule`, `status`, `record`, `render`; the only writer of `test_change_ledger.jsonl` |
-| `work-on.md` | changed template | new variables and states; `test-change.sh init` beside `impl_base` at analysis |
+| `work-on.md` | changed template | new variables and states; `test-change.sh init` in `fix_determination`'s default action |
 | `review-level.sh` | changed script | `tests_edited` fact and slice field |
 | `scripts/review-packet.sh` | changed script | `## Test changes` section |
 | `panel-scope.sh` | changed script | required `test_edits` judgments; `weakens` as blocking finding |
@@ -607,7 +623,7 @@ test-change.sh overrule <session> --as <identity> --authority <level> \
     --acceptance <id> --reason <text> [--repo <owner/name>]
 test-change.sh status <session>                  # gate: 0 counted, 1 held (reasons), 2 undecided
 test-change.sh record <session>                  # R18 readout
-test-change.sh render <session>                  # R19 pull request section
+test-change.sh render <session> [--update]       # R19 pull request section; --update rewrites it on the PR
   exits: 0, 1 refused (refuse line written), 2, 64, 66, 75 lock busy (retryable)
 
 acceptance_rule_decide <identity> <kind> <authority> <action> <author> \
@@ -626,11 +642,12 @@ their own.
 ### Data Flow
 
 ```text
-analysis ── record-changed-paths --base; test-change.sh init (header)
+analysis ── record-changed-paths --base
    │
-offload_canary ── review_level_choice
+offload_canary ── review_level_choice (stores the rules copy)
    │
-fix_determination ── fix-kind.sh resolve [+ declare]  → UNIT_KIND, fix_kind.jsonl
+fix_determination ── test-change.sh init (header); fix-kind.sh resolve [+ declare]
+   │                  → UNIT_KIND, fix_kind.jsonl
    │ UNIT_KIND=change                 │ UNIT_KIND=fix
    │                                  ▼
    │                             reproduce ── red-first.sh red|observe → red_first.json
@@ -665,25 +682,47 @@ lock, and `render` rewrites that session's section of the pull request body.
 
 ## Implementation Approach
 
-The three steps run in order on one branch; each leaves `/work-on` working end
+The four steps run in order on one branch; each leaves `/work-on` working end
 to end. The PLAN this design produces now is a placeholder; the execution
-regenerates it as a step plan from these three steps.
+regenerates it as a step plan from these steps. Steps 1 and 2 are the
+red-first fix; steps 3 and 4 are the held-back pass and review. If the work
+splits into two separately delivered pieces, it splits between step 1 and
+step 2.
+
+Every step follows the same plumbing rules, and its file list includes them:
+a new script or library gets a `_test.sh` beside it, an entry in
+`scripts/bash-floor/work-on.list`, and a run step in
+`.github/workflows/check-work-on-scripts.yml`; a new file under `scripts/lib/`
+is added to both of that workflow's `paths:` lists, which must match; every
+new script a template gate names, and every new library, gets a `class
+engine` line in `skills/work-on/references/review-level-rules.tsv`, so a
+change to the rule or the classifier floors at `full`; a template change
+regenerates `work-on.mermaid.md` and updates the route tests that assert the
+edges it moves; and each new finding rule gets a `references/rule-registry.json`
+entry and an eval. `FIX_REPORT` needs no change to `/execute`: it is declared
+in `work-on.md`, and `/execute` passes each task's variables to the child
+unchanged.
 
 ### Step 1: A fix starts red
 
 Adds fix recognition, the red-first state, the red, green and observation
-records, and `pass_counting` with only its `fix_green` gate. Until step 2, a
-unit with an observation stays held at `pass_counting`, because nothing can
-accept it yet.
+records, the shared classifier the red uses to find its reproducing tests, and
+`pass_counting` with only its `fix_green` gate. In this step `check-green`
+refuses an `after` observation with a `refused:` line saying observations wait
+for acceptance, so a unit recorded by observation stays held at
+`pass_counting` until step 3 lands.
 
 New files:
 
 - `scripts/lib/claude-md-header.sh`
 - `scripts/lib/claude-md-header_test.sh`
+- `scripts/lib/test-classify.sh`
+- `scripts/lib/test-classify_test.sh`
 - `skills/work-on/scripts/fix-kind.sh`
 - `skills/work-on/scripts/fix-kind_test.sh`
 - `skills/work-on/scripts/red-first.sh`
 - `skills/work-on/scripts/red-first_test.sh`
+- `skills/work-on/scripts/red-first-routes_test.sh`
 - `skills/work-on/references/red-first.md`
 
 Changed files:
@@ -693,6 +732,10 @@ Changed files:
 - `skills/work-on/SKILL.md`
 - `skills/work-on/references/phases/phase-3-analysis.md`
 - `skills/work-on/references/review-level-rules.tsv`
+- `skills/work-on/scripts/offload-canary-routes_test.sh`
+- `skills/work-on/scripts/review-level-routes_test.sh`
+- `skills/work-on/scripts/verification-deferral_test.sh`
+- `skills/work-on/scripts/output-gates-routing_test.sh`
 - `skills/work-on/evals/evals.json`
 - `skills/plan/scripts/plan-to-tasks.sh`
 - `skills/plan/scripts/plan-to-tasks_test.sh`
@@ -703,21 +746,28 @@ Changed files:
 - `scripts/bash-floor/work-on.list`
 - `.github/workflows/check-work-on-scripts.yml`
 
-### Step 2: A pass from an edited test is held
+### Step 2: An edited test holds the unit until a seat accepts it
 
-Adds the classifier, the ledger and its writer, the rule library, the
-`tests_counted` gate on `pass_counting`, `ci_pass_counting`, the acceptance
-seat, the person path, overruling, the record command and the pull request
-section. Depends on step 1's counting state and red record.
+Adds the ledger and its writer, the rule library, `tests_counted` on
+`pass_counting`, and the acceptance seat. `test-change.sh init` joins
+`fix_determination`'s default action, after `review_level_choice` has stored
+the rules copy the classifier reads. At `pass_counting`, when `status` holds
+in a repository that isn't person-required, the directive has the run print
+the seat's brief with `test-change.sh seat`, commission one seat with the
+Agent tool on the same commissioning as the `light` panel's seat, and pass the
+brief unchanged; the seat runs `test-change.sh accept` or `decline` itself
+under its minted identity, and the run ticks again. Notes the run recorded
+with `test-change.sh note` while implementing are what the brief carries as
+each edit's reason. Observations become acceptable here, and `check-green`
+stops refusing an `after` observation that a live acceptance covers.
 
 New files:
 
-- `scripts/lib/test-classify.sh`
-- `scripts/lib/test-classify_test.sh`
 - `scripts/lib/acceptance-rule.sh`
 - `scripts/lib/acceptance-rule_test.sh`
 - `skills/work-on/scripts/test-change.sh`
 - `skills/work-on/scripts/test-change_test.sh`
+- `skills/work-on/scripts/test-change-routes_test.sh`
 
 Changed files:
 
@@ -725,22 +775,48 @@ Changed files:
 - `skills/work-on/koto-templates/work-on.mermaid.md`
 - `skills/work-on/SKILL.md`
 - `skills/work-on/scripts/red-first.sh`
-- `skills/work-on/scripts/check-pr-output.sh`
-- `skills/work-on/scripts/check-pr-output_test.sh`
+- `skills/work-on/scripts/red-first_test.sh`
+- `skills/work-on/scripts/retry-clearing_test.sh`
 - `skills/work-on/references/red-first.md`
-- `skills/work-on/references/phases/phase-5-finalization.md`
-- `skills/work-on/references/phases/phase-6-pr.md`
+- `skills/work-on/references/phases/phase-4-implementation.md`
 - `skills/work-on/references/review-level-rules.tsv`
 - `skills/work-on/evals/evals.json`
-- `references/fixes/claude-md-conventions.md`
 - `references/rule-registry.json`
 - `scripts/bash-floor/work-on.list`
 - `.github/workflows/check-work-on-scripts.yml`
 
-### Step 3: Review tells an edited test from an added one
+### Step 3: A person-required repository, overruling and the pull request record
+
+Adds the `## Test Change Acceptance:` declaration and the person path at a
+terminal, `overrule` before and after the run finished, `record` and `render`,
+the pull request section and its check at `pr_precheck` (with `status`
+re-run there), and `ci_pass_counting` for a test edit made while fixing CI.
+
+Changed files:
+
+- `skills/work-on/koto-templates/work-on.md`
+- `skills/work-on/koto-templates/work-on.mermaid.md`
+- `skills/work-on/SKILL.md`
+- `skills/work-on/scripts/test-change.sh`
+- `skills/work-on/scripts/test-change_test.sh`
+- `skills/work-on/scripts/test-change-routes_test.sh`
+- `skills/work-on/scripts/check-pr-output.sh`
+- `skills/work-on/scripts/check-pr-output_test.sh`
+- `skills/work-on/scripts/ci-monitor-role_test.sh`
+- `skills/work-on/scripts/cascade-chaining_test.sh`
+- `skills/work-on/references/red-first.md`
+- `skills/work-on/references/phases/phase-5-finalization.md`
+- `skills/work-on/references/phases/phase-6-pr.md`
+- `skills/work-on/evals/evals.json`
+- `scripts/lib/acceptance-rule.sh`
+- `scripts/lib/acceptance-rule_test.sh`
+- `references/fixes/claude-md-conventions.md`
+- `references/rule-registry.json`
+
+### Step 4: Review tells an edited test from an added one
 
 Adds the `tests_edited` fact and floor, the packet section, the required seat
-judgment, and the guidance changes. Depends on step 2's classifier.
+judgment, and the remaining guidance changes. Depends on step 1's classifier.
 
 Changed files:
 
@@ -753,7 +829,6 @@ Changed files:
 - `skills/work-on/scripts/panel-scope.sh`
 - `skills/work-on/scripts/panel-scope_test.sh`
 - `skills/work-on/references/review-panel-orchestration.md`
-- `skills/work-on/references/phases/phase-4-implementation.md`
 - `skills/work-on/references/phases/phase-4a-scrutiny.md`
 - `skills/work-on/references/phases/phase-4b-review.md`
 - `skills/work-on/references/phases/phase-4c-qa.md`
@@ -765,7 +840,8 @@ Changed files:
 - `references/rule-registry.json`
 
 The rules file and the workflow file put every step's own pull request at the
-`full` review level. No file under `skills/coordinate/` is touched.
+`full` review level. No file under `skills/coordinate/` is touched, and
+nothing in koto or niwa changes.
 
 ### Walkthroughs a checker runs
 
@@ -785,10 +861,11 @@ was dispatched, otherwise any session the checker opens (`<c>` below).
 `bug` label and the body "Running `./greet.sh ''` prints `Hello, !` instead of
 `error: name required`." In a fresh session run `/work-on 1`.
 
-1. The run reaches `fix_determination` and `R`'s sibling `fix-kind.sh` records
-   `fix` with source `label:bug`.
-2. At `reproduce` the run adds `tests/empty_name_test.sh` and records a red
-   with marker `error: name required`. Expect `red_first.json` to show a
+1. The run reaches `fix_determination`, and `fix-kind.sh` (beside `R` in the
+   plugin) records `fix` with source `label:bug`.
+2. At `reproduce` the run adds and commits `tests/empty_name_test.sh` (the
+   red copies only committed test files) and records a red with marker
+   `error: name required`. Expect `red_first.json` to show a
    non-zero exit, the base equal to `impl_base`, the new test with its blob
    id, and an output tail containing the marker.
 3. The run changes `greet.sh`; verification passes; at `pass_counting`
@@ -800,16 +877,19 @@ was dispatched, otherwise any session the checker opens (`<c>` below).
 
 **Walkthrough 2: an edited test held, accepted, then overruled.** File issue 2
 (no label): "Drop the exclamation mark: `./greet.sh World` should print
-`Hello, World`." Run `/work-on 2`.
+`Hello, World`. Update the expected value in `tests/greet_test.sh` to match."
+Run `/work-on 2`. The issue asks for the test edit, so every run makes it.
 
-1. The run is not a fix. It changes `greet.sh`; `tests/greet_test.sh` fails;
-   the run edits that test's expected value (a removed line) and records why
-   with `R note`.
+1. The run is not a fix. It changes `greet.sh`, edits the expected value in
+   `tests/greet_test.sh` (one line removed, one added) and records why with
+   `R note`.
 2. Verification passes; at `pass_counting` `R status <s>` exits 1 with
    `held: unaccepted tests/greet_test.sh`.
-3. The run mints a seat with `R seat <s>` and commissions it; the seat accepts.
+3. The run prints the seat's brief with `R seat <s>`, commissions the seat
+   with that brief, and the seat runs `R accept` as `agent:<s>/accept-1`.
    `R record <s>` shows the unit counted, accepted by `agent:<s>/accept-1` at
-   `reviewer`, with the file's digest.
+   `reviewer`, with the file's digest. The run goes on to its pull request.
+   Run walkthrough 4 here, before step 4.
 4. After the run finishes, as the dispatching coordinator, run
    `R overrule <s> --as agent:<c> --authority coordinator --acceptance <id>
    --reason "loosens the assertion"`. `R record <s>` shows the unit held
@@ -836,7 +916,10 @@ its default branch, then repeat walkthrough 2 with issue 3.
 4. Resuming `/work-on 3` continues from `pass_counting` to finalization.
 
 **Walkthrough 4: an agent's attempt to accept refused and recorded.** On
-walkthrough 2's held run, before the seat accepts:
+walkthrough 2's run, after its step 3 (the seat's acceptance, with identity
+`agent:<s>/accept-1`, is the live one) and before its step 4. Each attempt is
+refused before the unit's state matters, so the timing only fixes which
+acceptance step 6 targets.
 
 1. `R accept <s> --as agent:<s> --authority reviewer --all --reason x` exits 1
    with rule `author`.
@@ -848,11 +931,13 @@ walkthrough 2's held run, before the seat accepts:
    --reason x` exits 1 with rule `unknown-session`.
 5. `R accept <s> --as person:<name> --authority owner --all --reason x`, run
    from the agent's tool shell, exits 1 with rule `no-terminal`.
-6. After a minted seat accepts at `reviewer`, `R overrule <s> --as <another
-   minted seat> --authority reviewer --acceptance <id> --reason x` exits 1
-   with rule `not-higher`.
+6. Mint a second seat with `R seat <s>` (`agent:<s>/accept-2`) and run
+   `R overrule <s> --as agent:<s>/accept-2 --authority reviewer --acceptance
+   <the seat's acceptance id> --reason x`: it exits 1 with rule `not-higher`.
 7. `R record <s>` lists all six refusals with identity, action, files, rule
-   and time, and the pull request section's history shows them.
+   and time, and the unit is still counted. `R render <s> --update` rewrites
+   the run's pull request section, whose history then shows the six
+   refusals.
 
 ## Security Considerations
 
@@ -878,7 +963,8 @@ the repository's object store and has the network. The script runs the
 command with an allowlisted environment (`PATH`, `HOME`, `LANG`, `TMPDIR` and
 the variables the repository's verification map declares), so credential
 variables such as `GH_TOKEN`, `GITHUB_TOKEN` and `GIT_*` never reach it; this
-is an accident control, not containment. It runs the command
+is an accident control, not containment, and credential files under `HOME`
+stay reachable. It runs the command
 in its own process group killed whole at the bound, refuses symlinked test
 files, creates the worktree under a `mktemp -d` path it owns, and removes it in
 a trap. The repository's checks may still fetch dependencies, exactly as its
@@ -895,9 +981,14 @@ reviewer can judge it.
 
 **Hiding an edited test.** The classifier judges a rename on both paths,
 classifies the red's harness files with its tests, refuses to count over
-uncommitted changes to tracked files, and is re-run at `pr_precheck`, so a
-commit after counting is held again. A test-like file outside the `test` class
-is not covered until the repository widens the class.
+uncommitted changes to tracked files or untracked files under a `test`-class
+path, and is re-run at `pr_precheck`, so a commit after counting is held
+again. The verification map is read at the merge-base, so editing it changes
+nothing for this unit. Files that shape a check without being in the `test`
+class are not covered until the repository widens the class: snapshots and
+golden files, `testdata/` fixtures, test-runner configuration, and CI workflow
+files. A unit that weakens a check through one of those passes the hold;
+review still sees the diff.
 
 **Identity and the record.** Identities are recorded claims, and the terminal
 check is evidence of a terminal, not of a person; neither is authentication.
@@ -910,12 +1001,21 @@ same-user agent can still read that key, write the session key directly, or
 drive a pseudo-terminal, and then the hold can be defeated. Seat minting and
 the coordinator-session check constrain names, not principals: the run itself
 can mint a seat and accept as it, and any existing koto session passes the
-coordinator check. They stop the casual bypass of inventing a reviewer's name,
-nothing more. The seat's and a coordinator's prompts treat the report passage,
-reasons and notes as data, never as instructions. A team that needs
+coordinator check, including one the agent opens with `koto init` a moment
+before accepting. They make an accidental self-acceptance visible in the
+record as a named seat or session, nothing more; in an autonomous run the
+control is close to self-attestation, which the pull request section says. The
+seat's brief is fixed by the script, and the seat and a coordinator treat
+everything it carries (the report passage, reasons, notes, hunks, file
+contents and command output) as data, never as instructions. A team that needs
 more than this should wait for the shared decision record, which replaces the
 rule in one file. A repository-side CI check that reads only the pull request
-was considered as an extra control and is not part of this design.
+was considered as an extra control and left out: judging a diff with no
+record of who accepted what is a repository policy check that stops or flags
+edits, which is the edit-time guardrail work this feature depends on rather
+than owns. The terminal check also turns off silently under any harness that
+allocates a pseudo-terminal; `red-first.md` records the environment it was
+measured in.
 
 **Concurrency.** A lost overrule would leave a unit counted, so writers hold a
 lock in a 0700, owner-checked per-user directory, break it only when its
