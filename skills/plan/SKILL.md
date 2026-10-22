@@ -27,8 +27,8 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 Plans turn accepted designs into implementable work. They define the decomposition
 strategy, issue sequencing, and dependency graph that guide implementation through
-/work-on. When planning a roadmap, the output is planning issues
-(one per feature) rather than code-level issues.
+/work-on. When planning a roadmap (plan version `v1`), the output is planning
+issues (one per feature) rather than code-level issues.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -208,7 +208,7 @@ When invoked as `/plan`, this skill drives decomposition of a source document in
 implementable issues. The source can be a design doc, PRD, or roadmap. The workflow
 produces either GitHub artifacts (multi-pr) or a self-contained PLAN document
 (single-pr), depending on execution mode. Roadmaps produce planning issues (one per
-feature) rather than code-level issues.
+feature) rather than code-level issues, and are planned under plan version `v1`.
 
 ### Input Detection
 
@@ -259,7 +259,10 @@ forwards them verbatim when its caller passed them):
 - `--intent=continue|stop` -- the caller's intent for the work after planning.
   Read only by step 5a, and only when the work splits: `continue` resolves a
   split to `coordinated`, `stop` to `multi-pr`. It never changes whether the work
-  splits, and a PLAN that doesn't split is `single-pr` either way.
+  splits, and a PLAN that doesn't split is `single-pr` either way. Under plan
+  version `v2`, the default, a split that resolves to `coordinated` stops the
+  run (see Plan Version), so a caller that wants a coordinated plan also passes
+  `--plan-version=v1`.
 - `--coordinated` -- resolve a split to `coordinated`, outranking `--intent` and
   the `CLAUDE.md` header.
 - `--no-coordinated` -- resolve a split to `multi-pr`, outranking `--intent` and
@@ -276,8 +279,9 @@ forwards them verbatim when its caller passed them):
   horizontal plan asks for `v1`. Neither check is part of the
   up-front validation below, but both stop the run before any file is written.
 
-A run with none of the three behaves exactly as before they existed. Validate
-them before anything else runs, and before the `plan-<topic>` session is
+A run with none of `--intent`, `--coordinated` and `--no-coordinated` resolves
+its split exactly as before those three existed. Validate them before anything
+else runs, and before the `plan-<topic>` session is
 opened or any key is written. Each of these is a rejection with an error naming the offending flag,
 and the run stops without writing anything:
 
