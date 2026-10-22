@@ -406,35 +406,96 @@ fi
 # Every *.sh outside the tests, every workflow, and every `command:` or
 # `default_action` line in a koto template. Comments do not count: headers are
 # allowed to name the call they document.
+#
+# Only the repository's tracked files are read (`git ls-files`): an untracked
+# or git-ignored file, such as a hook a local tool installed under .claude/,
+# is not code the plugin ships, so it is never a site (#1052).
+
+# sites_in <repo root> <out file> <line regex> <pathspec>... -- append one
+# `<path>:<line>:<text>` line per `gh pr merge` line matching <line regex> in
+# the tracked files the pathspecs list. `ls-files -z` hands each name over as
+# git stores it: without it git C-quotes a name holding a non-ASCII byte or a
+# control character, and the quoted form names no file. Returns nonzero only
+# when git can't list the files.
+sites_in() {
+    local root="$1" out="$2" keep="$3" f l
+    shift 3
+    git -C "$root" ls-files -z -- "$@" > "$WORK/merge-site-list" 2>> "$WORK/ls-files.err" || return 1
+    while IFS= read -r -d '' f; do
+        [ -f "$root/$f" ] || continue
+        grep -n 'gh pr merge' "$root/$f" | grep -E "$keep" \
+            | while IFS= read -r l; do printf '%s:%s\n' "$f" "$l"; done >> "$out"
+    done < "$WORK/merge-site-list"
+    # A file with no site leaves its grep at 1, which pipefail would return.
+    return 0
+}
+
+# merge_sites <repo root> <out file> -- every gh pr merge call site among the
+# tracked files under <repo root>: a line of a script or workflow that isn't a
+# comment, and a template line that is a command.
+merge_sites() {
+    local code='^[0-9]+:[[:space:]]*[^#[:space:]]' command='^[0-9]+:.*(command:|default_action)'
+    : > "$2"
+    sites_in "$1" "$2" "$code" '*.sh' ':(exclude)*_test.sh' \
+        && sites_in "$1" "$2" "$code" '.github/workflows/*.yml' \
+        && sites_in "$1" "$2" "$command" 'skills/*/koto-templates/*.md'
+}
+
+# one_site <sites file> -- exactly one site, in merge-exec.sh.
+one_site() {
+    [ "$(wc -l < "$1" | tr -d ' ')" -eq 1 ] && grep -q '^skills/execute/scripts/merge-exec.sh:' "$1"
+}
 
 SITES="$WORK/sites"
-: > "$SITES"
-
-# prefix_with <file> — prefixes each grep -n line with the file's repo path.
-prefix_with() {
-    local rel
-    rel=${1#$REPO_ROOT/}
-    sed "s|^|$rel:|"
-}
-find "$REPO_ROOT" -type f -name '*.sh' ! -name '*_test.sh' \
-    -not -path '*/.git/*' -not -path '*/target/*' -not -path '*/node_modules/*' \
-    -not -path "$REPO_ROOT/.claude/worktrees/*" > "$WORK/sh-files"
-while IFS= read -r f; do
-    grep -n 'gh pr merge' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | prefix_with "$f" >> "$SITES"
-done < "$WORK/sh-files"
-for f in "$REPO_ROOT"/.github/workflows/*.yml; do
-    [ -f "$f" ] || continue
-    grep -n 'gh pr merge' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | prefix_with "$f" >> "$SITES"
-done
-for f in "$REPO_ROOT"/skills/*/koto-templates/*.md; do
-    [ -f "$f" ] || continue
-    grep -n 'gh pr merge' "$f" | grep -E '^[0-9]+:.*(command:|default_action)' | prefix_with "$f" >> "$SITES"
-done
-SITE_COUNT=$(wc -l < "$SITES" | tr -d ' ')
-if [ "$SITE_COUNT" -eq 1 ] && grep -q '^skills/execute/scripts/merge-exec.sh:' "$SITES"; then
+if ! merge_sites "$REPO_ROOT" "$SITES"; then
+    fail "git ls-files could not list the repository's files: $(cat "$WORK/ls-files.err" 2>/dev/null)"
+elif one_site "$SITES"; then
     pass "one merge call site: $(cat "$SITES")"
 else
-    fail "want exactly one gh pr merge site, in merge-exec.sh; found $SITE_COUNT: $(cat "$SITES")"
+    fail "want exactly one gh pr merge site, in merge-exec.sh; found $(wc -l < "$SITES" | tr -d ' '): $(cat "$SITES")"
+fi
+
+# The same count over a fixture repository: an ignored and an untracked file
+# naming the call are never sites; a tracked script, workflow or template
+# command adding a second one is, whatever bytes its name holds (a non-ASCII
+# byte, a tab, a | or &).
+FIX="$WORK/site-fixture"
+mkdir -p "$FIX/skills/execute/scripts" "$FIX/.claude/hooks" "$FIX/.github/workflows" "$FIX/skills/x/koto-templates"
+git -C "$FIX" init -q
+printf '%s\n' '.claude/*' > "$FIX/.gitignore"
+printf '%s\n' '#!/usr/bin/env bash' '# gh pr merge, named in a header' 'gh pr merge "$PR" --squash' \
+    > "$FIX/skills/execute/scripts/merge-exec.sh"
+git -C "$FIX" add .gitignore skills/execute/scripts/merge-exec.sh
+printf '%s\n' 'gh pr merge 1 --admin' > "$FIX/.claude/hooks/gate.local.sh"
+printf '%s\n' 'gh pr merge 2' > "$FIX/skills/execute/scripts/scratch.sh"
+if merge_sites "$FIX" "$WORK/fix-sites" && one_site "$WORK/fix-sites"; then
+    pass "a git-ignored and an untracked file naming gh pr merge are not sites"
+else
+    fail "ignored or untracked files counted: $(cat "$WORK/fix-sites")"
+fi
+for second in "skills/x/other.sh|gh pr merge 3 --merge" \
+              ".github/workflows/land.yml|      run: gh pr merge 4 --squash" \
+              "skills/x/koto-templates/t.md|    command: gh pr merge 5" \
+              "skills/x/café.sh|gh pr merge 6" \
+              "skills/x/tab$(printf '\t')name.sh|gh pr merge 7" \
+              "skills/x/a|b&c.sh|gh pr merge 8"; do
+    path=${second%|*}
+    printf '%s\n' "${second##*|}" > "$FIX/$path"
+    git -C "$FIX" add "$path"
+    if merge_sites "$FIX" "$WORK/fix-sites" && ! one_site "$WORK/fix-sites" \
+        && grep -qF "$path:" "$WORK/fix-sites"; then
+        pass "a tracked second site in $path still fails the case"
+    else
+        fail "a tracked second site in $path was not counted: $(cat "$WORK/fix-sites")"
+    fi
+    git -C "$FIX" rm -q --cached "$path"
+    rm -f "$FIX/$path"
+done
+mkdir -p "$WORK/not-a-repo"
+if GIT_CEILING_DIRECTORIES="$WORK" merge_sites "$WORK/not-a-repo" "$WORK/fix-sites" 2>/dev/null; then
+    fail "merge_sites read a directory that is not a repository"
+else
+    pass "merge_sites fails where git can't list files"
 fi
 
 # ---------------------------------------------------------------------------
