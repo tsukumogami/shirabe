@@ -15,12 +15,39 @@ goals: |
   and the owning session details every step after the first between children
   and records it. The skills state the shape, carry no team declaration that
   nothing reads, and choose a step's review level from the step's own commits.
-upstream: docs/briefs/BRIEF-lead-shape-delivery.md
+absorbed:
+  - docs/briefs/BRIEF-lead-shape-delivery.md
 ---
 
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-lead-shape-delivery](docs/briefs/BRIEF-lead-shape-delivery.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed why this feature exists. Runs that handed each step of a
+plan to its own agent, with the session that owns the plan detailing the next
+step between them, stayed thin, where runs that drove every step inline came
+close to the context limit and compacted; but the shape reached a run only
+when its dispatcher wrote it into the prompt, so the skills carried none of
+it. That gap, and the three parts of the skills that point away from the
+shape (team declarations nothing reads, a rule that a subagent never spawns
+subagents, and review levels that end every shared-branch step at `full`),
+are this document's Problem Statement.
+
+The outcome it asked for is that whoever hands a plan to `/deliver` gets a
+stepped run without writing any execution instructions, with each step run
+and reviewed by its own agent, each later step detailed by the owning session
+from what landed, and a step's review level following the step's own size;
+and that a contributor can take every team or agent a skill describes as one
+a run actually starts. Those are this document's Goals. Its journeys (a
+coordinator dispatching a plain brief, a maintainer resuming a half-done plan
+after long scoping, a reviewer reading a step's review record, and a
+contributor asking why a small step ran the full review) are this document's
+User Stories. Its scope boundary, in and out, is carried by the Requirements
+and Out of Scope.
 
 ## Problem Statement
 
@@ -94,6 +121,10 @@ Three parts of the skills stand in the way of making the shape the default:
 - As a reviewer reading one step's record in a finished pull request, I want
   to see the panels that step's own agent ran, at the level R10 gives for that
   step's own commits, so that I can trust each step was reviewed as itself.
+- As a contributor who sees a two-file prompt change on step four go through
+  the full review, I want the review-level rules to say which commits count
+  toward a step's facts and why, so that I can tell whether the level was
+  right without reading the scripts.
 
 ## Requirements
 
