@@ -4,7 +4,9 @@
 #
 # The lead shape is behaviour the owning session follows from prose: no koto
 # state or gate enforces it. So this pins the prose. Each phrase is checked as a
-# fixed, case-sensitive substring (grep -F) of the named file or section, after
+# fixed, case-sensitive substring (grep -F) of the named text: the
+# `## spawn_and_await` section for the directive's phrases, the whole file for
+# SKILL.md, the hand-off and the pattern reference, after
 # the text is joined into one line so a rewrap cannot break a phrase in two. A
 # missing phrase fails the suite with the phrase named.
 #

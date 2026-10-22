@@ -1513,8 +1513,8 @@ Spawn and coordinate per-issue work-on children from the PLAN document.
 or a clear author instruction such as "run autonomously" or "don't stop"), drive this state
 to its terminal continuously: do NOT pause between children to advise a checkpoint,
 seek confirmation or reassurance, or stop because issues remain, the work is large, or
-out of concern for context budget. Detailing the next step between children (see **The
-lead shape** below) is part of this loop, not a pause: it asks no one anything. Stop ONLY on a genuine blocker (a child that fails/blocks needing human judgment
+out of concern for context budget. Detailing the next step between children (see
+**The lead shape** below) is part of this loop, not a pause: it asks no one anything. Stop ONLY on a genuine blocker (a child that fails/blocks needing human judgment
 and cannot be isolated by skip-dependents, an upstream-must-change boundary, a merge
 conflict or dirty state, or a destructive action needing confirmation) and emit the
 forced-stop operator summary. A decision with a reasonable default is NOT a blocker:
