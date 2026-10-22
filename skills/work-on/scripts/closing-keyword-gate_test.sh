@@ -314,8 +314,9 @@ expect "cross-repo: the right text pointing at another issue fails" 1 42 "Fixes 
 expect "cross-repo: the right text pointing at a page that isn't an issue fails" 1 42 "Fixes [acme/tracker#42](https://example.com/notes)"
 expect "cross-repo: the right text pointing elsewhere passes beside the plain reference" 0 42 "Fixes acme/tracker#42
 See [acme/tracker#42](https://example.com/notes)"
-# The keyword moved inside the link's text is the same link.
-expect "cross-repo: the right reference inside a link's text pointing elsewhere fails" 1 42 "[Fixes acme/tracker#42](https://example.com/notes)"
+# The plain reference is read wherever it stands, inside a link's text too,
+# as before this change: telling link text apart is out of this gate's scope.
+expect "cross-repo: the right reference inside a link's text passes, as before" 0 42 "[Fixes acme/tracker#42](https://example.com/notes)"
 expect "cross-repo: the right reference in parentheses passes" 0 42 "(Fixes acme/tracker#42)"
 # A URL right after a parenthesis reads as a link's target.
 expect "cross-repo: this repo's issue URL right after a parenthesis fails" 1 42 "Fixes acme/tracker#42
@@ -405,6 +406,17 @@ Fixes *acme/app#42*"
 MENTIONS="Fixes acme/tracker#42
 "
 for i in $(seq 1 1000); do MENTIONS="${MENTIONS}a/b$i#42 "; done
+# Nor does a body of closing references to repositories GitHub can't have.
+DOTS="Fixes acme/tracker#42
+"
+for i in $(seq 1 1000); do DOTS="${DOTS}Fixes o$i/.#42 "; done
+START=$SECONDS
+expect "cross-repo: 1000 closing references to . repositories pass" 0 42 "$DOTS"
+if (( SECONDS - START <= 5 )); then
+    pass "cross-repo: 1000 closing references to . repositories were read in $((SECONDS - START))s"
+else
+    fail "cross-repo: 1000 closing references to . repositories took $((SECONDS - START))s"
+fi
 START=$SECONDS
 expect "cross-repo: a body with 1000 plain mentions passes" 0 42 "$MENTIONS"
 if (( SECONDS - START <= 5 )); then
@@ -496,12 +508,14 @@ Fixes acme/other#42
 Fixes #42"
 
 # A slow answer is cut off at the lookups' time, and the gate holds well
-# inside koto's 30-second gate default instead of being killed by it.
+# inside koto's 30-second gate default instead of being killed by it. The
+# answer would take 20s; anything under 8 means it was cut off, with room
+# for a loaded runner.
 START=$SECONDS
-GH_API_SLEEP=5 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=1 \
+GH_API_SLEEP=20 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=1 \
     expect "cross-repo: a lookup slower than its time holds the gate" 3 42 "Fixes acme/tracker#42
 Fixes acme/other#42"
-if (( SECONDS - START <= 3 )); then
+if (( SECONDS - START < 8 )); then
     pass "cross-repo: the slow lookup was cut off after about its time ($((SECONDS - START))s)"
 else
     fail "cross-repo: the slow lookup ran $((SECONDS - START))s against a 1s limit"

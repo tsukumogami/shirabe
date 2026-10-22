@@ -16,9 +16,9 @@
 #
 #   - `<keyword> <ISSUE_REPO>#N` passes, and for an issue elsewhere so does
 #     a markdown link with that text pointing at that issue,
-#     `<keyword> [<ISSUE_REPO>#N](https://<host>/<ISSUE_REPO>/issues/N)`;
-#     the plain reference inside a link's text, `[Fixes <ISSUE_REPO>#N](...)`,
-#     doesn't count there;
+#     `<keyword> [<ISSUE_REPO>#N](https://<host>/<ISSUE_REPO>/issues/N)`.
+#     The plain reference is read wherever it stands, inside a link's text,
+#     a code span or a comment included, as it was before;
 #   - when ISSUE_REPO is the pull request's own repository (read from the URL
 #     `gh pr view` reports), a bare `<keyword> #N` passes too;
 #   - when the issue is elsewhere, any closing reference to issue N of the
@@ -219,10 +219,6 @@ HOST_RE=$(literal "$PR_HOST")
 # known, and with both naming ISSUE_REPO#N either reading closes it. The
 # same-repository case keeps QUALIFIED as it was.
 QUALIFIED_LINK="(^|[^[:alnum:]_])${KW}${SEP_PASS}\\[$(literal "$REPO")#${ISSUE}\\]\\(https?://(www\\.)?${HOST_RE}/$(literal "$REPO")/issues/${ISSUE}\\)"
-# And for an issue elsewhere the plain reference passes only outside a
-# link's text: `[Fixes <ISSUE_REPO>#N](<elsewhere>)` is the same link as
-# above with the keyword moved inside it.
-QUALIFIED_PLAIN="(^|[^[:alnum:]_[])${KW}${SEP_PASS}$(literal "$REPO")#${ISSUE}([^]0-9]|\$)"
 # Issue N's URL in the repository whose name expression is $1, up to N.
 issue_url() { printf '%s' "https?://(www\\.)?${HOST_RE}/${1}/issues/"; }
 # In front of a reference that fails, after SEP_FAIL: any run of `[`, `<`
@@ -272,7 +268,7 @@ if has_joined "$OWN_LINK"; then
 fi
 # Without the right reference the answer is no whatever the lookups below
 # would say, so it is given before any of them.
-has "$QUALIFIED_PLAIN" || has "$QUALIFIED_LINK" \
+has "$QUALIFIED" || has "$QUALIFIED_LINK" \
     || refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"
 
 # Every other repository the body closes issue N in or links to issue N of,
@@ -291,8 +287,12 @@ NAME_REF="$(issue_url "$NAME_RE")0*${ISSUE}${END}|${NAME_RE}#0*${ISSUE}${END}"
 other_names() {
     local spaced
     spaced=$(sed -E "s/(#|\\/[Ii][Ss][Ss][Uu][Ee][Ss]\\/)(0*${ISSUE})([^0-9])/\\1\\2 \\3/g" <<<"$JOINED ")
+    # A repository named `.` or `..` isn't one GitHub could have, and
+    # `repos/../x` is another path: dropped here, so the loop below reads at
+    # most a handful of names whatever the body holds.
     grep -oiE "$NAMED" <<<"$spaced" | grep -oiE "$NAME_REF" \
-        | sed -E -e 's|^[A-Za-z]+://[^/]+/([^/]+/[^/]+)/.*$|\1|' -e 's/#.*$//' | sort -fu
+        | sed -E -e 's|^[A-Za-z]+://[^/]+/([^/]+/[^/]+)/.*$|\1|' -e 's/#.*$//' \
+        | grep -vE '/\.\.?$' | sort -fu
 }
 
 # One lookup, given the seconds it may take: gh runs in the background and is
@@ -335,8 +335,6 @@ while read -r NAME; do
     case "$(lower "$NAME")" in
         "$(lower "$REPO")"|"$(lower "$PR_REPO")") continue ;;
     esac
-    # Not a repository GitHub could have, and `repos/../x` is another path.
-    case "/$NAME/" in */./*|*/../*) continue ;; esac
     LOOKUP_NAMES="$LOOKUP_NAMES$NAME$NL"
     LOOKUPS=$((LOOKUPS + 1))
     # Stop at the first name past the limit, so a long body costs no more.
