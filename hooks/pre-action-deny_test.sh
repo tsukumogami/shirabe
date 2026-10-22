@@ -262,7 +262,8 @@ for c in "env -u GH_TOKEN $BAD_CREATE" \
     "env GH_TOKEN= gh pr edit 12 --body $BAD" \
     "env a-b=1 gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     "env stdbuf -oL gh pr create --title \\\"feat: x\\\" --body $GOOD" \
-    'env caffeinate git push'; do
+    'env caffeinate git push' \
+    "env git -c 'alias.p=!git push' p"; do
     run_hook "$c"
     expect_deny "env-wrapped: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done

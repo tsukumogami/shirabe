@@ -13,8 +13,8 @@
 //! it can't follow. The body-file check against earlier segments needs the
 //! body reader's path, so it is [`Classified::earlier_names_file`].
 //!
-//! An `env` head is judged by the command it runs when that command is `gh`,
-//! `git` or a listed wrapper: past env's own options and assignment operands,
+//! An `env` head is judged by the command it runs when that command is `gh` or
+//! a listed wrapper: past env's own options and assignment operands,
 //! it is classified the way it would be unwrapped, so `env -u GH_TOKEN gh pr
 //! merge --body "a new path"` is a merge, not a create. A guarded command found
 //! there still makes the `env` segment a wrapped guarded command. Every other
@@ -355,9 +355,17 @@ fn candidates(j: usize, ambiguous: bool) -> Vec<usize> {
 /// directory, and an option the hook doesn't know may take a value); a word
 /// before the command, or the command word itself, that the shell expands,
 /// since an unquoted `$X` can split into more words; or a command other than
-/// `gh`, `git` or a listed wrapper. That last one is what keeps an unlisted
-/// launcher (`stdbuf`, `arch`, `ksh -c`) or another spelling of `gh` (`GH` on a
-/// case-insensitive filesystem) on the text test, which reads past it.
+/// `gh` or a listed wrapper. That last one is what keeps an unlisted launcher
+/// (`stdbuf`, `arch`, `ksh -c`) or another spelling of `gh` (`GH` on a
+/// case-insensitive filesystem) on the text test, which reads past it. `git`
+/// stays there too: the classifier reads a git subcommand by its name, so
+/// `git -c 'alias.p=!git push' p` names no push, and only the text test sees
+/// one. A head `kind_words` learns to guard later falls back here until it is
+/// added, which is the safe direction.
+///
+/// The option arms run in order: the exact `-u`/`--unset` (which take the next
+/// word) before the `-u` prefix (`-uNAME`), and both before the catch-all `-`
+/// arm that gives up.
 fn env_command(ws: &[Word]) -> Option<usize> {
     let plain = |w: &Word| !w.expansion && !w.ansi_c;
     let mut j = 0;
@@ -395,7 +403,7 @@ fn env_command(ws: &[Word]) -> Option<usize> {
         None => Some(j),
         Some(w) if plain(w) => {
             let name = basename(&w.text);
-            (matches!(name, "gh" | "git") || WRAPPERS.contains(&name)).then_some(j)
+            (name == "gh" || WRAPPERS.contains(&name)).then_some(j)
         }
         Some(_) => None,
     }
@@ -468,20 +476,20 @@ fn kind_words(ws: &[Word], depth: u8) -> Kind {
     let name = basename(&head.text);
     if WRAPPERS.contains(&name) {
         // `env` (on WRAPPERS, which is what brings it here) runs the command
-        // after its own options and assignments. When that command is `gh`,
-        // `git` or a listed wrapper it decides, as it would unwrapped: a merge
-        // body saying "new", or an issue title naming `gh pr create`, is an
-        // argument, not a guarded command. Any other program may be a
-        // launcher the list lacks, so `env_command` sends it to the text
-        // test. The other wrappers take a shell string (`bash -c`, `eval`,
-        // `ssh`) or an option grammar of their own (`sudo -u`, `timeout 5`,
-        // `xargs`) that can hide one, so their text decides.
-        let inner = if name == "env" && depth < MAX_ENV_DEPTH {
+        // after its own options and assignments. When that command is `gh` or
+        // a listed wrapper it decides, as it would unwrapped: a merge body
+        // saying "new", or an issue title naming `gh pr create`, is an
+        // argument, not a guarded command. Anything else, `git` included, goes
+        // to the text test (`env_command` says why). The other wrappers take a
+        // shell string (`bash -c`, `eval`, `ssh`) or an option grammar of
+        // their own (`sudo -u`, `timeout 5`, `xargs`) that can hide one, so
+        // their text decides.
+        let command_at = if name == "env" && depth < MAX_ENV_DEPTH {
             env_command(rest)
         } else {
             None
         };
-        let named = match inner {
+        let named = match command_at {
             Some(j) => named_by(&kind_words(&rest[j..], depth + 1)),
             None => named_in_text(&text_of(&ws[i..])),
         };
@@ -1090,15 +1098,22 @@ mod tests {
             "env a-b=1 gh pr create --title x --body y",
             "env 'X Y=1' gh pr create --title x --body y",
             "env =1 gh pr create --title x --body y",
-            // A program other than gh, git or a listed wrapper falls back.
+            // A program other than gh or a listed wrapper falls back.
             "env stdbuf -oL gh pr create",
             "env arch -arm64 gh pr create",
             "env ksh -c 'gh pr create --title x'",
             "env GH pr create",
+            "env gh/ pr create",
+            // An option after an assignment is the command; `-u` takes `--`
+            // as its name, as GNU env does.
+            "env A=1 -u X gh pr create",
+            "env -u -- gh pr create",
         ] {
             assert_eq!(fails(cmd), wrapped, "{cmd}");
             assert!(ghs(cmd).is_empty(), "{cmd}");
         }
+        // git behind env always goes to the text test: an alias can hide a
+        // push from the subcommand reading.
         for cmd in [
             "env -u X git push",
             "env GIT_DIR=/x git push",
@@ -1106,6 +1121,7 @@ mod tests {
             "env 'X Y=1' git push",
             "env a-b=1 git push",
             "env caffeinate git push",
+            "env git -c 'alias.p=!git push' p",
         ] {
             assert_eq!(fails(cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
             assert!(pushes(cmd).is_empty(), "{cmd}");
@@ -1121,8 +1137,8 @@ mod tests {
             "env -C /tmp gh pr merge 1 --body \"a new path\"",
             "env -u \"$X\" gh pr merge 1 --body new",
             "env A=$X gh pr merge 1 --body new",
-            // Only gh, git and the listed wrappers are read past env; any
-            // other program's quoted arguments go to the text test.
+            // Only gh and the listed wrappers are read past env; any other
+            // program's quoted arguments go to the text test.
             "env -u GH_TOKEN koto next w --with-data '{\"note\": \"gh pr edit\"}'",
             "env Gh pr merge 1 --body new",
         ] {

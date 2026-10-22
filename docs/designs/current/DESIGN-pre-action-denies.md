@@ -472,7 +472,8 @@ such as `nice`, `ssh`, `docker` and `mise`, and the interpreters
 passes the coarse "named in the text" test, and a segment whose head
 starts with `$` and that has a later word `push` or `pr` followed by
 `create`, `new` or `edit` (`$G push` names no `git` for the coarse test to
-find). All are fail-closed cases.
+find). All are fail-closed cases, with the one `env` exception that
+follows.
 
 `env` is the one wrapper read by the command it runs. Agents prefix
 commands with `env -u GH_TOKEN` routinely, and the coarse test over the
@@ -482,13 +483,16 @@ create`, would read as a wrapped create. So the classifier skips the env
 options it reads (`env_command` lists them: `-i`, `-u NAME`, `--` and a
 few that take no value) and every operand holding a `=`, since env takes
 any of those as an assignment (`a-b=1` and `'X Y=1'` included, not only
-shell names). When the command left is `gh`, `git` or another listed
-wrapper, it is classified as a segment of its own: a guarded or wrapped
-guarded command there makes the `env` segment a wrapped guarded command,
-and anything else is no guarded action. Any other program falls back to
-the text test, because it may be a launcher the wrapper list lacks
-(`stdbuf`, `arch`, `ksh -c`) or another spelling of `gh` on a
-case-insensitive filesystem, and only the text test reads past it. So does
+shell names). When the command left is `gh` or another listed wrapper,
+it is classified as a segment of its own: a guarded or wrapped guarded
+command there makes the `env` segment a wrapped guarded command, and
+anything else is no guarded action. Any other program falls back to the
+text test, because it may be a launcher the wrapper list lacks (`stdbuf`,
+`arch`, `ksh -c`) or another spelling of `gh` on a case-insensitive
+filesystem, and only the text test reads past it. `git` falls back too:
+the classifier reads a git subcommand by its name, so `git -c
+'alias.p=!git push' p` names no push, which the text test still sees. So
+does
 an option the hook doesn't read (`-S` splits a string into a command, `-C`
 changes directory), a word the shell expands before the command, or `env`
 nested more than eight deep. The other wrappers keep the text test: each
