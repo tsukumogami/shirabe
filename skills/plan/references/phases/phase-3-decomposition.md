@@ -58,7 +58,8 @@ Read `input_type` and `Plan Version` from key `work/analysis.md`:
 
 - **Plan Version `v2`**: Follow the step decomposition flow (steps 3.S1 through
   3.S5) in place of steps 3.0 through 3.5, then step 3.5a and step 3.6.
-  Phase 1 has already stopped a roadmap under `v2`.
+  A roadmap never runs under `v2`: Phase 1 already moved it to `v1` or
+  stopped it.
 - **design** or **prd** (`v1`): Follow the standard decomposition flow (steps 3.0 through 3.6)
 - **roadmap**: Follow the roadmap decomposition flow (steps 3.R1 through 3.R4), then skip to step 3.6
 
@@ -719,13 +720,27 @@ for applying it.
    Step 5a also runs on roadmap input (whose split branch is Incremental Value)
    and again after a step 6 override whose confirmed mode splits.
 
-   **Under plan version `v2`, a `coordinated` outcome stops the run** before
-   anything is written, with "coordinated plans use `--plan-version=v1`; a step
-   plan lands as `single-pr` or `multi-pr`". A step plan has no Repo or Group
-   per step and files no issues, so none of the coordinated steps below apply
-   to it. To keep the step plan, re-run with `--no-coordinated`, which resolves
-   the split to `multi-pr`. Step 6's override offers only `single-pr` and
-   `multi-pr` under `v2`.
+   **Under plan version `v2`, a `coordinated` outcome re-runs the version
+   resolver** from what Phase 1 recorded, not from this invocation's flags,
+   since a step plan has no Repo or Group per step and files no issues:
+
+   ```bash
+   ${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
+     --stored-version=<Plan Version> --stored-source=<Plan Version Source> \
+     --needs-v1=coordinated
+   ```
+
+   Both values come from key `work/analysis.md` (a missing source line reads
+   as `flag`). On a resumed run, SKILL.md's Resume Logic has already checked
+   this invocation's `--plan-version` against them and updated the source. When the source is `default`, the script prints `v1` and one
+   stderr line. Repeat that line to the author, set `Plan Version: v1` in
+   `work/analysis.md` and leave its source `default`, remove key
+   `work/decomposition.md`, and run Phase 3 again from the top on the
+   `plan/v1` path. When the source is `flag` or `header`, it exits non-zero
+   with "coordinated plans use --plan-version=v1; a step plan lands as
+   single-pr or multi-pr": stop with that line before anything is written. To
+   keep the step plan, re-run with `--no-coordinated`, which resolves the split
+   to `multi-pr`.
 
    **On a `coordinated` outcome**, step 5a also does three things before
    Phase 4 runs:
@@ -788,6 +803,15 @@ Use <recommended mode>, or override?
    the option chosen, in place of any coordination flag on the command line, so
    the record reads `split_mode_source: flag`. Copy the output as in step 5a; do
    not write the mode by hand.
+
+   **Under plan version `v2`, what the override offers follows the recorded
+   source.** When `Plan Version Source` is `flag` or `header`, offer only
+   `single-pr` and `multi-pr`: the author chose a step plan. When it is
+   `default`, offer `coordinated` too, and say that choosing it plans the work
+   as `plan/v1`; step 5a then gives way to `v1` as above. The choice carries
+   into the redo: record it as a `confirmed` decision block in key
+   `work/decisions.md` before Phase 3 runs again, and when the redo reaches
+   step 5a, pass `--coordinated` for it instead of asking the author again.
 
 7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
    block in key `work/decisions.md` if the rationale is clear, or
