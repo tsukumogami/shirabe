@@ -13,8 +13,9 @@
 # `context get` from a directory of files named after their keys, and a stub gh
 # prints a canned issue body, so every case runs on a bare runner. The cases
 # pin the packet's sections, the base order (impl_base, then the merge-base),
-# the caps and their trailers, that a failure leaves no packet behind, and
-# that a plan-outline child's session never reaches `gh issue view`.
+# the caps and their trailers, that a failure leaves no packet behind, that a
+# plan-outline child's session never reaches `gh issue view`, and that a
+# session with ISSUE_REPO reads its issue from that repository.
 # The recheck cases also need jq, as the script's recheck kind does, and
 # fail without it. The spawn-site cases then check that every
 # review spawn site still names a model, a call budget and the packet command,
@@ -322,6 +323,56 @@ else
         pass "code: an unknown log schema reads its issue and warns that the check is off"
     else
         fail "code: unknown schema: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # An issue in another repository: a session created with ISSUE_REPO
+    # reads its issue from there, and the packet names it owner/repo#N.
+    # repo_log <session> <issue-repo>: a log whose variables carry ISSUE_REPO.
+    repo_log() {
+        mkdir -p "$ROOT/sessions/$1"
+        printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":{"ISSUE_NUMBER":"12","ISSUE_REPO":"%s"}}}\n' \
+            "$1" "$2" > "$ROOT/sessions/$1/koto-$1.state.jsonl"
+    }
+    repo_log xrepo acme/tracker
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session xrepo --issue 12
+    if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --repo acme/tracker --json body -q .body' "$ROOT/gh.log" \
+        && grep -q '^## Acceptance criteria (issue acme/tracker#12, acceptance-criteria section)$' "$OUT" \
+        && grep -q '^- \[ \] second$' "$OUT"; then
+        pass "code: an issue in another repository is read from there and named owner/repo#N"
+    else
+        fail "code: cross-repo --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    # A same-repository session (no ISSUE_REPO) still reads without --repo:
+    # the github-child case above pins the exact call.
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session github-child --issue 12
+    if [ "$CODE" -eq 0 ] && ! grep -q -- '--repo' "$ROOT/gh.log"; then
+        pass "code: a session without ISSUE_REPO passes no --repo"
+    else
+        fail "code: same-repo --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null)"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    # A malformed ISSUE_REPO never reaches gh.
+    repo_log badrepo 'acme/tracker --web'
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session badrepo --issue 12
+    if [ "$CODE" -eq 64 ] && [ ! -s "$ROOT/gh.log" ] && grep -q 'not owner/repo' <<<"$ERR"; then
+        pass "code: a malformed ISSUE_REPO exits 64 with no gh call"
+    else
+        fail "code: malformed ISSUE_REPO: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
+    fi
+    # --criteria never consults the session's repository.
+    KOTO_SESSIONS="$ROOT/sessions" run "$STORE" code --session badrepo --criteria "$BODY"
+    if [ "$CODE" -eq 0 ]; then
+        pass "code: --criteria builds its packet whatever the session's ISSUE_REPO"
+    else
+        fail "code: --criteria with a malformed ISSUE_REPO: exit $CODE, stderr: $ERR"
     fi
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
 fi

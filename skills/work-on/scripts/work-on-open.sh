@@ -40,7 +40,8 @@
 #   --workflow     the session name, <WF> in SKILL.md: issue_<N> or task_<slug>.
 #   --var          a template variable the agent derived for this run, as it
 #                  would pass it to `koto init --var`: ISSUE_NUMBER and
-#                  ARTIFACT_PREFIX. Written to the pairs file with jq, never
+#                  ARTIFACT_PREFIX, and ISSUE_REPO for an issue in another
+#                  repository. Written to the pairs file with jq, never
 #                  through a shell.
 #   <tokens-file>  a JSON array of strings, the invocation's tokens in order,
 #                  written with the Write tool or jq into a directory from

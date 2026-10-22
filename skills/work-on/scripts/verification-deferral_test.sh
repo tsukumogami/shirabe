@@ -326,6 +326,7 @@ build() {
             'description: Fixture driving the verification deferral through shipped work-on states.' \
             'initial_state: start' 'variables:' \
             '  ISSUE_NUMBER:' '    description: issue' '    required: false' \
+            '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  PLAN_DOC:' '    description: plan' '    required: false' \

@@ -713,6 +713,22 @@
         "Agent does NOT submit level_status: blocked or record an override at review_level_check",
         "Agent ticks koto next again with nothing submitted to go on to the first panel"
       ]
+    },
+    {
+      "id": 51,
+      "name": "issue-in-another-repository",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on https://github.com/acme/tracker/issues/58, run in a clone of acme/app. The issue is tracked in acme/tracker and the fix lands here in acme/app. How does the agent read the issue, initialize the run, and close the issue from the pull request?",
+      "expected_output": "Parses the URL to issue number 58 in acme/tracker and sees that acme/tracker is not the repository being worked in, acme/app. Reads the issue with gh issue view 58 --repo acme/tracker rather than gh issue view 58, which would read acme/app#58. Initializes the koto workflow with ISSUE_NUMBER=58, ARTIFACT_PREFIX=issue_58 and ISSUE_REPO=acme/tracker. Runs extract-context.sh and the review packet commands as usual, without adding a repository flag, since both read ISSUE_REPO from the session. In Part 2 of the pull request body it writes Fixes acme/tracker#58 and no bare Fixes #58, because a bare #58 would close acme/app#58 and the closing_keyword gate refuses it.",
+      "files": [],
+      "expectations": [
+        "Agent plans to read the issue with gh issue view 58 --repo acme/tracker",
+        "Agent plans to initialize the koto workflow with --var ISSUE_REPO=acme/tracker alongside ISSUE_NUMBER=58 and ARTIFACT_PREFIX=issue_58",
+        "Agent does NOT plan to add a repository flag to extract-context.sh or review-packet.sh, which read ISSUE_REPO from the session",
+        "Agent plans to close the issue with Fixes acme/tracker#58 in the pull request body",
+        "Agent does NOT plan to write a bare Fixes #58, which names acme/app's issue 58"
+      ]
     }
   ]
 }

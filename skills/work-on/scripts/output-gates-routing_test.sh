@@ -215,12 +215,15 @@ esac
 EOF
 chmod +x "$STUB/gh"
 
-# render <cmd>: the gate command with the real plugin root and a test session.
+# render <cmd>: the gate command with the real plugin root and a test session,
+# for an issue in this repository (ISSUE_REPO empty, as an unset variable
+# resolves).
 render() {
     local c="$1"
     c=${c//\{\{PLUGIN_ROOT\}\}/$REAL_ROOT}
     c=${c//\{\{SESSION_NAME\}\}/no-such-session-$$}
     c=${c//\{\{ISSUE_NUMBER\}\}/7}
+    c=${c//\{\{ISSUE_REPO\}\}/}
     printf '%s' "$c"
 }
 
@@ -323,6 +326,7 @@ build() {
             'description: Fixture driving one shipped work-on state.' 'initial_state: start' \
             'variables:' \
             '  ISSUE_NUMBER:' '    description: issue' '    required: false' \
+            '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
             '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
