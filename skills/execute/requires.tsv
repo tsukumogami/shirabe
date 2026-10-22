@@ -40,6 +40,9 @@
 # --deferral-record --owned, which reads the owned PR's body with `gh pr view`
 # and jq. Each falls under the koto, gh and jq records below. execute-open.sh
 # sources scripts/lib/verification-deferral.sh, whose reason checks use jq.
+# On a coordinated plan node-push.sh and the loop (coord-common.sh) run the
+# same script over a node's named children (`--child`), with the same koto,
+# gh and jq calls and no `koto workflows`.
 #
 # The coordinated path adds the two coordination modes of the same subcommand:
 # `--coordination-body` for offline authoring feedback on the PR body, and

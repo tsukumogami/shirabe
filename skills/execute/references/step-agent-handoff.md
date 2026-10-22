@@ -4,7 +4,7 @@ The text `/execute`'s owning session gives each step agent under the lead
 shape (`spawn_and_await` in `koto-templates/execute.md`, the `dispatch:<node>`
 action in `koto-templates/execute-coordinated.md`, and "The lead shape" in
 `SKILL.md`). It is the whole of what a step agent is told: the owning session
-fills the template's substitutions (four on the single-pr path, eight on the
+fills the template's substitutions (four on the single-pr path, nine on the
 coordinated one) and composes nothing else per run.
 
 What the template holds a step agent to: it drives one child, with
@@ -92,6 +92,7 @@ push, `gh` write and run-record write (`repo-visibility.sh`, `node-cut.sh`,
 | `{{ISSUE_NUMBER}}` | the work item, as `ISSUES` lists it |
 | `{{PLAN_DOC}}` | the `plan_abs` value, the PLAN in the coordination checkout |
 | `{{BOUND_VARS}}` | `--var REVIEW_FLOOR=<floor>` and `--var REVIEW_CEILING=<ceiling>` for the run's review-level bound, leaving out whichever is empty |
+| `{{DEFERRAL_VARS}}` | `--var VERIFICATION=hosted-ci --var 'VERIFICATION_DEFERRAL_REASON=<reason>'` when the run's `VERIFICATION` is `hosted-ci`, the reason its `VERIFICATION_DEFERRAL_REASON` holds, verbatim inside the single quotes; empty when it is `local` |
 
 The owning session starts no step agent when `{{CHILD}}` has a character
 outside letters, digits, `.`, `_` and `-`, or the node branch one outside
@@ -116,7 +117,7 @@ How to drive it:
     --var ARTIFACT_PREFIX={{CHILD}} --var ISSUE_SOURCE={{ISSUE_SOURCE}}
     --var ISSUE_NUMBER={{ISSUE_NUMBER}} --var PLAN_DOC={{PLAN_DOC}}
     --var SHARED_BRANCH={{SHARED_BRANCH}} --var PLUGIN_ROOT={{PLUGIN_ROOT}}
-    {{BOUND_VARS}}
+    {{BOUND_VARS}} {{DEFERRAL_VARS}}
   and submit the entry evidence {"mode": "plan_backed", "issue_source":
   "{{ISSUE_SOURCE}}", "issue_number": "{{ISSUE_NUMBER}}"}. When it exists, go
   on from the state it reports.

@@ -271,6 +271,9 @@ printf 'edited\n' > "$WORK/body2.md"
 mshim gh pr edit 10 --repo "$R" --body-file "$WORK/body2.md"
 mshim gh pr view 10 --repo "$R" --json body --jq .body
 [ "$OUT" = edited ] && pass "model: pr edit --body-file replaces the body" || fail "model: edit [$OUT]"
+mshim gh pr view "https://github.com/$R/pull/10" --json body --jq .body
+[ "$OUT" = edited ] && pass "model: pr view takes a PR URL in place of a number and --repo" \
+    || fail "model: view by URL [$OUT]"
 mshim gh api "repos/$R/issues/11"
 [ "$(printf '%s' "$OUT" | jq -r .state)" = open ] && pass "model: the merge gate's state read is open before a merge" || fail "model: issues [$OUT]"
 mshim gh pr view 11 --repo "$R" --json state,mergeCommit

@@ -234,6 +234,18 @@ ct_write_db
 run_verdict "$PLANDIR" --merge true
 check "a recorded PR by another author" error "" "" "" "execute:pr-adopt"
 
+# An open node PR whose work item deferred verification and whose body
+# doesn't record it: the verdict names the step, never status-read.
+ct_case error-deferral-record
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-1"
+printf '%s' "CI only" > "$CASE/ctx/work-on-t-$CT_CORE-1/verification_deferral"
+run_verdict "$PLANDIR" --merge true --loop-line "error:execute:deferral-record"
+check "a node PR missing its deferral record" error "" "" "" "execute:deferral-record"
+
 ct_case error-early
 ct_record_setup
 ct_write_db

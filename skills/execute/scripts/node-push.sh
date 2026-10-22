@@ -10,6 +10,7 @@
 #                     --repo <owner/repo> --issues <ids>
 #                     --home-repo <owner/repo> --coord-branch <branch>
 #                     --plan <path> [--remote <name>] [--run-id <id>]
+#                     [--verification <local|hosted-ci|""> [--reason <text>]]
 #
 #     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
 #     after the node's work items committed there. It pushes, finds the
@@ -19,6 +20,8 @@
 #     (coord-render.sh). --plan is the PLAN in the coordination checkout (the
 #     recorded plan_abs), since the node branch doesn't carry it: the node
 #     must be one of its nodes, and each work item's goal comes from it.
+#     --verification and --reason are the run's VERIFICATION and
+#     VERIFICATION_DEFERRAL_REASON: see "The verification deferral" below.
 #
 #   node-push.sh coordination --session <S> --slug <slug>
 #                             --home-repo <owner/repo> --coord-branch <branch>
@@ -76,13 +79,29 @@
 # be posted (`body=stale`, `body=full`) changes no exit code here; the next
 # transition renders again.
 #
+# The verification deferral (node mode). A node's work items are /work-on
+# children, `work-on-<slug>-<node-id>-<item>` for each --issues item, and a
+# child that deferred verification to hosted CI holds its reason as
+# `verification_deferral`. The node's reasons are the run's own (--reason,
+# when --verification is hosted-ci) and each of those children's, collected
+# by shared-deferral-record.sh --list before anything is pushed. With none,
+# nothing below changes. With any, a new node PR's body carries the
+# `## Verification` section /work-on's phase-6-pr.md gives, in its second
+# part: that local verification did not run, one `Reason: ` line per reason,
+# verbatim, and that hosted CI is the build of record. An owned PR already on
+# the node branch is adopted only when its body records every reason
+# (shared-deferral-record.sh over it, the check /execute's single-pr gate
+# makes): one that doesn't is refused with 80 before the push, so a node PR
+# carrying a deferred work item never gets a push it doesn't record.
+#
 # In order:
 #   1. check every value against its closed pattern (slug ^[a-z0-9-]+$, node
 #      id ^[a-z][a-z0-9-]*$, repositories owner/repo, issues a comma-joined
 #      list of numbers); in node mode, read the PLAN's nodes through
 #      plan-to-tasks.sh, refuse a PLAN that has no node named --node, and read
 #      each --issues work item's goal from the PLAN into the node's
-#      description, all before anything is pushed or edited;
+#      description, all before anything is pushed or edited; then collect the
+#      node's deferral reasons;
 #   (the order mode skips steps 2, 4, 5, 5b, and the node-branch check in 3)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one, and the remote's default branch; in node mode, for a node whose
@@ -91,7 +110,9 @@
 #   3. before any push, read the coordination PR the run record names (open,
 #      carrying the `This is a **coordination PR**` marker; a session with no
 #      run record is 73) and, in node mode, check the node branch's PR: another run's
-#      PR there, or several, stops with 73 and nothing pushed. Before those
+#      PR there, or several, stops with 73 and nothing pushed, and the
+#      run's own PR there whose body doesn't record the node's deferral
+#      stops with 80, nothing pushed. Before those
 #      reads, in node mode, read the home repository's and the node
 #      repository's visibility live (coord_node_visibility): a private node
 #      under a public coordination PR is refused with 77, and a public node
@@ -106,7 +127,8 @@
 #      branch, titled `<type>(<slug>): <node-id>`, with a two-part body passed
 #      with --body-file: the node's description (each work item's goal from
 #      the PLAN), one top-level `---`, then the fixed fields (the node id,
-#      the work-item ids, and the coordination PR's link) and the run's marker
+#      the work-item ids, the coordination PR's link, and the `## Verification`
+#      section when the node carries a deferral) and the run's marker
 #      line last. The type is `docs` when every file the node changes against
 #      the default branch is under docs/ or a Markdown file at the repository
 #      root, `feat` otherwise. The link is left out when the node's
@@ -176,6 +198,13 @@
 #       compared by host and path, local paths as written), or either git
 #       directory could not be read; nothing was pushed or edited
 #       (execute:dispatch)
+#   80  node mode: the node carries a verification deferral, and the owned PR
+#       on its branch doesn't record it in its body (stderr names each part
+#       missing); nothing was pushed or edited (execute:deferral-record)
+#
+# A deferral that can't be read (a koto read that failed, hosted-ci with no
+# reason) or checked (a GitHub read for the body) is a 72, like a failed
+# GitHub read, and nothing is pushed.
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
@@ -190,7 +219,7 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --session <koto-session> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>]" >&2
+    echo "usage: node-push.sh node --session <koto-session> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>] [--verification <local|hosted-ci|\"\"> [--reason <text>]]" >&2
     echo "       node-push.sh coordination --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
     echo "       node-push.sh order --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--run-id <id>]" >&2
     exit 64
@@ -201,10 +230,11 @@ MODE="$1"; shift
 case "$MODE" in node|coordination|order) ;; *) usage_error "mode must be node, coordination, or order, got [$MODE]" ;; esac
 
 SESSION=""; SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="origin"
+VERIFICATION=""; RUN_REASON=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --session|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id)
+        --session|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id|--verification|--reason)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
@@ -219,6 +249,8 @@ while [ $# -gt 0 ]; do
                 --coord-branch) CB="$2" ;;
                 --plan) PLAN="$2" ;;
                 --remote) REMOTE="$2" ;;
+                --verification) VERIFICATION="$2" ;;
+                --reason) RUN_REASON="$2" ;;
             esac
             shift 2
             ;;
@@ -242,15 +274,16 @@ if [ "$MODE" = node ]; then
     [[ $ISSUES =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] || usage_error "--issues [$ISSUES] is not a comma-joined list of work-item numbers"
     case "$SEEN" in *" --plan "*) ;; *) usage_error "--plan is required in the node mode" ;; esac
     [ -f "$PLAN" ] || usage_error "--plan [$PLAN] is not a file"
+    case "$VERIFICATION" in ""|local|hosted-ci) ;; *) usage_error "--verification must be local or hosted-ci, got [$VERIFICATION]" ;; esac
     BRANCH="impl/$SLUG-$NODE"
 elif [ "$MODE" = order ]; then
     # The merge order renders from run/setup's node list, so the order mode
     # reads no PLAN.
-    for f in --node --repo --issues --remote --plan; do
+    for f in --node --repo --issues --remote --plan --verification --reason; do
         case "$SEEN" in *" $f "*) usage_error "$f does not belong to the order mode" ;; esac
     done
 else
-    for f in --node --repo --issues --plan; do
+    for f in --node --repo --issues --plan --verification --reason; do
         case "$SEEN" in *" $f "*) usage_error "$f belongs to the node mode" ;; esac
     done
     BRANCH="$CB"
@@ -360,6 +393,23 @@ if [ "$MODE" = node ]; then
     done
     IFS=$OLDIFS
     [ -n "$NODE_DESC" ] || NODE_DESC="Implements node $NODE of the $SLUG coordinated effort, work items $ISSUES."
+fi
+
+# The node's verification deferral (see the header), read before anything is
+# pushed: the run's reason and each work item's child's, one per line.
+DEFERRAL_ARGS=()
+DEFERRAL=""
+if [ "$MODE" = node ]; then
+    DEFERRAL_ARGS=(--session "$SESSION" --verification "$VERIFICATION" --reason "$RUN_REASON")
+    OLDIFS=$IFS; IFS=,
+    for item in $ISSUES; do
+        DEFERRAL_ARGS+=(--child "work-on-$SLUG-$NODE-$item")
+    done
+    IFS=$OLDIFS
+    DEFERRAL=$("$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" --list </dev/null) || {
+        echo "$PROG: could not read node $NODE's verification deferral; nothing was pushed" >&2
+        exit 72
+    }
 fi
 
 # Step 2 prepares a branch to push; the order mode pushes nothing.
@@ -483,12 +533,27 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
 trap 'rm -rf "$WORK"' EXIT
 REC_PR=""
 if [ "$MODE" = node ]; then
-    coord_owned "$REPO" "$BRANCH" open >/dev/null
+    OWNED_NOW=$(coord_owned "$REPO" "$BRANCH" open)
     case $? in
         0) ;;
         2) exit 72 ;;
         *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
     esac
+    # A node PR already open that carries a deferred work item gets no push
+    # until its body records the deferral: the check /execute's single-pr
+    # gate makes, over the same owned PR.
+    if [ -n "$DEFERRAL" ] && [ -n "$OWNED_NOW" ]; then
+        OWNED_ARGS=(--repo "$REPO" --head "$BRANCH" --state open)
+        [ -n "$COORD_RUN_ID" ] && OWNED_ARGS+=(--run-id "$COORD_RUN_ID")
+        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" -- "${OWNED_ARGS[@]}" </dev/null
+        case $? in
+            0) ;;
+            1) echo "$PROG: node $NODE carries a verification deferral that $OWNED_NOW's body doesn't record; nothing was pushed. Add the ## Verification section to its body and push again" >&2
+               exit 80 ;;
+            *) echo "$PROG: could not check $OWNED_NOW's body for node $NODE's verification deferral; nothing was pushed" >&2
+               exit 72 ;;
+        esac
+    fi
     # The PR the run record already names for this node, if any.
     REC_NODE=$(rr_node "$SESSION" "$NODE")
     case $? in
@@ -586,6 +651,15 @@ if [ "$MODE" = node ]; then
             # (step 3a has already refused a public home over a private node).
             if ! { [ "$COORD_HOME_VIS" = private ] && [ "$COORD_NODE_VIS" = public ]; }; then
                 printf '\nCoordination PR: %s\n' "$C_URL"
+            fi
+            # The deferral's record, in phase-6-pr.md's words, one Reason:
+            # line per reason.
+            if [ -n "$DEFERRAL" ]; then
+                printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\n'
+                while IFS= read -r r; do
+                    printf 'Reason: %s\n' "$r"
+                done <<<"$DEFERRAL"
+                printf 'Hosted CI is the build of record for this change.\n'
             fi
         } > "$WORK/node-body.md"
         if [ -n "$COORD_RUN_ID" ]; then

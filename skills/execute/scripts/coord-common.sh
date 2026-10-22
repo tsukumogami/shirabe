@@ -457,6 +457,7 @@ cc_pr_node() {
         *) CC_ACTION="error:execute:status-read"; return 1 ;;
     esac
     all_merged=0
+    cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" || return 1
     if [ "$draft" = "true" ]; then
         local checks
         if ! coord_gh_read checks pr checks "$n_pr" --repo "$n_repo" --json name,bucket; then
@@ -475,6 +476,44 @@ cc_pr_node() {
     local attempt
     attempt=$(coord_attempt_of "$CC_ATTEMPTS" "$name")
     cc_verdict_arm "$name" "$url" "$verdict" "$attempt"
+}
+
+# cc_deferral_record <node> <items> <repo> <branch> -- an open node PR whose
+# work items deferred verification to hosted CI is evaluated (and so readied)
+# or merged only once its body records the deferral. The node's children are
+# `work-on-<slug>-<node>-<item>` for each comma-joined item; a child holding
+# `verification_deferral` deferred. shared-deferral-record.sh reads them with
+# local koto reads, and only when one deferred reads the PR's body from
+# GitHub, so a node with no deferral costs no GitHub read. The run's own
+# reason is not passed here: every child the run deferred holds it, and
+# node-push.sh wrote it into the body. No items (the PLAN gone, after the
+# cascade) checks nothing. Called from cc_pr_node, in coord_compute's scope.
+# Returns 1 once it has set CC_ACTION: error:execute:deferral-record when the
+# body misses a part, error:execute:status-read when it can't be decided.
+cc_deferral_record() {
+    [ -n "$2" ] || return 0
+    local item rc err args oldifs=$IFS
+    args=(--session "$CC_SESSION" --verification "")
+    IFS=,
+    for item in $2; do
+        args+=(--child "work-on-$CC_SLUG-$1-$item")
+    done
+    IFS=$oldifs
+    args+=(-- --repo "$3" --head "$4" --state open)
+    [ -n "$COORD_RUN_ID" ] && args+=(--run-id "$COORD_RUN_ID")
+    # Its stderr is shown only when it holds the node: a node with no
+    # deferral prints nothing new.
+    err=$("$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${args[@]}" </dev/null 2>&1 >/dev/null)
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    [ -n "$err" ] && printf '%s\n' "$err" >&2
+    if [ "$rc" -eq 1 ]; then
+        echo "$PROG: node $1's PR carries a verification deferral its body doesn't record" >&2
+        CC_ACTION="error:execute:deferral-record"
+    else
+        CC_ACTION="error:execute:status-read"
+    fi
+    return 1
 }
 
 # cc_verdict_arm <id> <url> <verdict> <attempt> -- what a node's or a
@@ -610,7 +649,7 @@ cc_follow_ups() {
 coord_compute() {
     CC_ACTION=""; CC_COORD_URL=""; CC_UNMERGED=""; CC_BLOCKED=0; CC_BLOCK_REASON=""
     CC_COORD_ATTEMPT=""
-    local rc rec tasks n i name kind repo waits
+    local rc rec tasks n i name kind repo issues waits
     local satisfied="," blocked_reason_first="" merge_cand="" dispatch_cand="" eval_cand=""
     local all_merged=1 pr_nodes=0 state draft verdict out node_branch exp
     local plan_present=0 node_rec n_repo n_pr n_sha fu_open=0
@@ -683,6 +722,7 @@ coord_compute() {
         name=$(printf '%s' "$tasks" | jq -r ".[$i].name")
         kind=$(printf '%s' "$tasks" | jq -r ".[$i].vars.NODE_KIND // \"pr\"")
         repo=$(printf '%s' "$tasks" | jq -r ".[$i].vars.REPO // \"\"")
+        issues=$(printf '%s' "$tasks" | jq -r ".[$i].vars.ISSUES // \"\"")
         waits=$(printf '%s' "$tasks" | jq -r ".[$i].waits_on | join(\",\")")
         i=$((i + 1))
         [[ $name =~ $RE_COORD_NODE ]] || { CC_ACTION="error:execute:status-read"; return 0; }

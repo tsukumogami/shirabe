@@ -19,6 +19,14 @@
 #                            records nothing
 #   evaluate:<root>          a draft root PR with passing checks
 #   error:execute:ci         a draft root PR with a failing check
+#   error:execute:deferral-record
+#                            a draft root PR, and a mergeable one with
+#                            --merge true, whose work item's child deferred
+#                            verification and whose body lacks the record
+#                            (evaluate and merge once it has it; another
+#                            node's deferral doesn't hold this one; a failed
+#                            key read is status-read; no deferral evaluates
+#                            as before with no body read and no stderr)
 #   evaluate:<root>          a ready root PR whose checks are pending
 #   merge:<root>             a ready, mergeable root with --merge true, at the
 #                            recorded head; a body index head= that differs
@@ -236,6 +244,92 @@ ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' 'checks=[{"name":"build","b
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
 expect "a draft root PR with a failing check" "error:execute:ci" "$out"
+
+# The verification deferral: the core node's work items are 1 and 2, children
+# work-on-t-<node>-<item>; one holding verification_deferral deferred. An open
+# node PR whose body doesn't record it is never evaluated (readied) or merged.
+DREASON="host is in a measurement window until 02:40Z"
+defer_child() { # defer_child <item> <reason>
+    mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-$1"
+    printf '%s' "$2" > "$CASE/ctx/work-on-t-$CT_CORE-$1/verification_deferral"
+}
+RECORDED_BODY="body=\"x\\n\\n---\\n\\n## Verification\\n\\nLocal verification did not run: it was deferred to hosted CI.\\nReason: $DREASON\\nHosted CI is the build of record for this change.\\n\""
+body_reads() { ct_calls | grep -Ec '^pr view .*--json body$'; }
+
+ct_case defer-draft-unrecorded
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+defer_child 2 "$DREASON"
+out=$(run_next "$PLANDIR" --merge true)
+expect "a draft node PR whose child deferred, its body without the record: no evaluate" "error:execute:deferral-record" "$out"
+wrote_nothing "the deferral hold"
+grep -qF "verbatim: $DREASON" "$CASE/stderr" && pass "the hold names the missing reason on stderr" \
+    || fail "the hold's stderr: [$(cat "$CASE/stderr")]"
+
+ct_case defer-draft-recorded
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$RECORDED_BODY"
+ct_write_db
+defer_child 2 "$DREASON"
+out=$(run_next "$PLANDIR" --merge true)
+expect "a draft node PR whose child deferred, the body recording it" "evaluate:$CT_CORE" "$out"
+
+ct_case defer-mergeable-unrecorded
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+defer_child 1 "$DREASON"
+out=$(run_next "$PLANDIR" --merge true)
+expect "a ready, mergeable node PR (readied by hand) whose child deferred, no record: no merge" \
+    "error:execute:deferral-record" "$out"
+wrote_nothing "the merge hold"
+
+ct_case defer-mergeable-recorded
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "$RECORDED_BODY"
+ct_write_db
+defer_child 1 "$DREASON"
+out=$(run_next "$PLANDIR" --merge true)
+expect "a mergeable node PR whose child deferred, the body recording it" "merge:$CT_CORE" "$out"
+
+ct_case defer-other-node
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+mkdir -p "$CASE/ctx/work-on-t-$CT_CLI-3"
+printf '%s' "$DREASON" > "$CASE/ctx/work-on-t-$CT_CLI-3/verification_deferral"
+out=$(run_next "$PLANDIR" --merge true)
+expect "another node's child deferred: this node's PR is evaluated as before" "evaluate:$CT_CORE" "$out"
+
+ct_case defer-unreadable
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+defer_child 2 "$DREASON"
+out=$(KOTO_FAIL_EXISTS=verification_deferral run_next "$PLANDIR" --merge true)
+expect "a child's key read that fails" "error:execute:status-read" "$out"
+
+ct_case defer-none
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "no child deferred: the draft is evaluated as before" "evaluate:$CT_CORE" "$out"
+[ "$(body_reads)" -eq 0 ] && pass "no child deferred: no node PR body read" \
+    || fail "no deferral read a body: $(ct_calls | grep -E '^pr view .*--json body$')"
+if grep -v '^\[plan-to-tasks\]' "$CASE/stderr" | grep -q .; then
+    fail "no child deferred printed to stderr: [$(cat "$CASE/stderr")]"
+else
+    pass "no child deferred: nothing new on stderr"
+fi
 
 ct_case root-pending
 ct_record_setup

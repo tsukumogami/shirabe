@@ -134,9 +134,8 @@ variables:
     pattern: ^(light|standard|full)?$
     rebind: true
   # The verification deferral every work-on child carries (#1017), the same
-  # two variables work-on.md declares, with the same values and pattern. A
-  # single-pr run's only: execute-coordinated.md has neither, and
-  # execute-open.sh refuses the flags on a coordinated PLAN (#1047). Not
+  # two variables work-on.md declares, with the same values and pattern
+  # (execute-coordinated.md declares them too, for a coordinated run). Not
   # rebind, as in work-on.md and unlike the bound: a run never changes where
   # its children's verification runs partway through, so an attach that
   # leaves them out keeps what the run started with. pr_finalization's
