@@ -642,8 +642,9 @@ cmd_facts() {
     # no merge-base, and impl_base is used alone. A tie keeps impl_base.
     #
     # On a shared branch the merge-base diff holds every earlier step's
-    # commits, so it is never taken: impl_base is the only base, the rule
-    # record-changed-paths.sh applies too, and without it there is no base.
+    # commits, so it is never taken: impl_base is the only base, and without
+    # it there is no base. (record-changed-paths.sh also prefers impl_base,
+    # but falls back to the merge-base; a floor must not.)
     local ibase="" mbase="" base="" source="" lines=0 files=0
     ibase=$(stored_base "$s") || ibase=""
     if [ -n "$shared" ]; then

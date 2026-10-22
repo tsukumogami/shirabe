@@ -190,7 +190,9 @@ review-level check passes it to `facts` as `--shared-branch`. There,
 every earlier step's commits, so measuring from it would floor a late step on
 work it didn't do. An `impl_base` that is unset on a shared branch is no base
 at all, and `facts` exits 64 rather than falling back to the merge-base.
-`record-changed-paths.sh` uses the same rule for `changed_paths.txt`.
+`record-changed-paths.sh` also measures from `impl_base`, which keeps the
+siblings' commits out of `changed_paths.txt`, but it does fall back to the
+merge-base when `impl_base` is unset.
 
 The step's own `/work-on` chooses its level, inside the bound the run was
 given, and its own commits set the floor. A path in the `ci`, `security`,
