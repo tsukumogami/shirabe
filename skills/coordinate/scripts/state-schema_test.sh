@@ -1,0 +1,375 @@
+#!/usr/bin/env bash
+# state-schema_test.sh -- state-schema.jq checks the coordinator state as JSON
+# and refuses what record-codec.jq's renderer refuses, with the same message,
+# and the write core runs it on the next state before anything is written.
+#
+# Covers: each refusal case of record-codec_test.sh fed as the state's JSON to
+# check_record, and refused with the message record-render.sh gives for the
+# same JSON (a disallowed top-level field, a control character, an empty
+# required column, a recomputable column, an unknown column, a malformed
+# worker, each column grammar, a malformed pull request link, a malformed hold
+# or an illegal hold change, an unknown Run key, stored-set rows breaking their
+# rules, an illegal Decisions state, transition or stamp, a private repository
+# name, a home-directory path and a token-shaped string); a `store` Run row
+# reading github or session accepted and any other value refused; a valid
+# state accepted and given back normalized; record-codec.jq carrying the
+# module byte for byte and defining none of its names elsewhere. Through
+# record-write.sh and the core: a next state naming a private repository is
+# refused from its JSON before any render, on GitHub, beside the codec alone
+# and on the session store, and on the session store a refused schema rule, a
+# stale read and a section owned by another writer flag each leave every key
+# as it was.
+#
+# Needs bash and jq only.
+# Usage: bash skills/coordinate/scripts/state-schema_test.sh
+# Exit codes: 0 all pass; 1 a failure.
+set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
+. "$HERE/testdata/test-lib.sh"
+R="$HERE/record-render.sh"
+W=2026-09-26T12:00:00Z
+SHA40=0123456789abcdef0123456789abcdef01234567
+
+# check <json> [private-repos]: check_record over the JSON. Prints the
+# refusal's message, from "refused: " on, or "ok" when it passes.
+check() {
+    printf '%s' "$1" > "$T/s.json"
+    if jq -n -L "$HERE" --slurpfile s "$T/s.json" --arg private "${2-}" 'include "state-schema";
+            $s[0] | check_record($private | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) | empty' \
+            2> "$T/s.err" < /dev/null; then
+        echo ok
+    else
+        sed -n 's/.*\(refused: \)/\1/p' "$T/s.err" | sed -n 1p
+    fi
+}
+# rendered <json> [private-repos]: the renderer's refusal for the same JSON,
+# in the same form, or "ok".
+rendered() {
+    printf '%s' "$1" > "$T/r.json"
+    if bash "$R" --written "$W" --private-repos "${2-}" "$T/r.json" > /dev/null 2> "$T/r.err"; then
+        echo ok
+    else
+        sed -n 's/^record-render: //p' "$T/r.err" | sed -n 1p
+    fi
+}
+# same <label> <json> <expected substring> [private-repos]: the JSON is refused
+# by check_record with a message holding the substring, and the renderer
+# refuses it with the very same message.
+same() {
+    local got want_r
+    got=$(check "$2" "${4-}")
+    want_r=$(rendered "$2" "${4-}")
+    case "$got" in
+        "refused: "*"$3"*)
+            if [ "$got" = "$want_r" ]; then ok "$1"
+            else bad "$1" "schema [$got] but the renderer [$want_r]"; fi ;;
+        *) bad "$1" "want a refusal holding [$3], got [$got]" ;;
+    esac
+}
+# passes <label> <json>: both accept it.
+passes() {
+    local got want_r
+    got=$(check "$2"); want_r=$(rendered "$2")
+    if [ "$got" = ok ] && [ "$want_r" = ok ]; then ok "$1"; else bad "$1" "schema [$got], renderer [$want_r]"; fi
+}
+
+full_record() {
+    jq -nc --arg sha "$SHA40" '{
+      scope: {kind: "roadmap", name: "plugin-system"},
+      holdings: [{unit: "Feature 2", entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
+                  dispatch_status: "dispatched", return_path: "message", worker: "plugin-registry", repo: "acme/widgets",
+                  branch: "feat/x", verified_head: $sha, dispatched: "2026-09-26",
+                  pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
+      deferrals: [{deferral: "flaky test", reason: "not now", raised: "2026-09-25T10:00Z", disposition: ""}],
+      side_effects: [{action: "merge", target: "#12", verified_head: $sha, attempted: "2026-09-26T11:02Z", how_to_confirm: "compare blobs on main"}],
+      reversals: [{date: "2026-09-26T09:15Z", reversed: "merge on green", now: "hold for release", reason: "release freeze", from: "the human"}]}'
+}
+with() { full_record | jq -c "$1"; }
+
+echo "== the module's shape =="
+# record-codec.jq carries everything below state-schema.jq's header byte for
+# byte between its two marker lines, and defines none of those names anywhere
+# else; the module holds no codec: no encoding, renderer or parser.
+defs() { sed -nE 's/^def ([a-z_]+)(\(([^)]*)\))?:.*/\1(\3)/p' "$1"; }
+SCHEMA_DEFS=$(defs "$HERE/state-schema.jq")
+sed -n '/^# The four sections every record has/,$p' "$HERE/state-schema.jq" > "$T/module.jq"
+sed -n '/^# ---- state-schema.jq, verbatim -/,/^# ---- end of state-schema.jq -/p' "$HERE/record-codec.jq" | sed '1d;$d' > "$T/copy.jq"
+[ -s "$T/module.jq" ] && cmp -s "$T/module.jq" "$T/copy.jq" \
+    && ok "record-codec.jq's copy of state-schema.jq is the module, byte for byte" \
+    || bad "record-codec.jq's copy of state-schema.jq is the module, byte for byte" "$(diff "$T/module.jq" "$T/copy.jq" | head -10)"
+sed '/^# ---- state-schema.jq, verbatim -/,/^# ---- end of state-schema.jq -/d' "$HERE/record-codec.jq" > "$T/codec-rest.jq"
+eq "  ... and the codec defines none of the module's names outside it" "" \
+    "$(defs "$T/codec-rest.jq" | grep -xF -f <(printf '%s\n' "$SCHEMA_DEFS"))"
+eq "state-schema.jq holds no encoding, renderer, parser or handoff" "" \
+    "$(printf '%s\n' "$SCHEMA_DEFS" | grep -E '^(enc|dec|enc_d|dec_d|normalized|split_cells|declaration|pr_prefix|scope_text)\(|^(render_|parse_|predecessor_)')"
+eq "its one error() is refuse()'s, so every refusal starts refused: " \
+    'def refuse($m): error("refused: " + $m);' "$(grep -v '^ *#' "$HERE/state-schema.jq" | grep 'error(')"
+
+echo "== a valid state =="
+passes "a full record passes" "$(full_record)"
+passes "an empty record passes" "$(record_json roadmap x)"
+passes "a discipline record passes" "$(with '.scope = {kind: "discipline", name: "ci-health"}')"
+eq "a missing optional column comes back empty and a blank Wakes as 0" '"" 0' \
+    "$(jq -n -L "$HERE" --argjson s "$(with 'del(.holdings[0].mode) | .work = [{item: "x", kind: "local-agent", who: "me", next: "do it", wakes: "", updated: "2026-09-26T10:00Z"}]')" \
+        'include "state-schema"; $s | check_record([]) | "\(.holdings[0].mode | tojson) \(.work[0].wakes)"' -r)"
+eq "an absent optional section stays absent" '["deferrals","holdings","reversals","scope","side_effects"]' \
+    "$(jq -nc -L "$HERE" --argjson s "$(full_record)" 'include "state-schema"; $s | check_record([]) | keys')"
+eq "the written time is carried as it is" '"2026-09-26T09:00:00Z"' \
+    "$(jq -nc -L "$HERE" --argjson s "$(with '.written = "2026-09-26T09:00:00Z"')" 'include "state-schema"; $s | check_record([]) | .written')"
+
+echo "== top-level fields and scope =="
+same "a disallowed top-level field" "$(with '.notes = "x"')" "notes: not a field"
+same "a missing scope" "$(with 'del(.scope)')" "scope: missing"
+same "a scope of another kind" "$(with '.scope.kind = "team"')" "scope.kind: not roadmap or discipline"
+same "a scope name that isn't a name" "$(with '.scope.name = "a b"')" "scope.name: not a name"
+same "a section that isn't a list" "$(with '.deferrals = {}')" "deferrals: not a list"
+
+echo "== cells =="
+same "a control character" "$(with '.deferrals[0].reason = "a\u0007b"')" "reason: a control character"
+same "the parser's placeholder character" "$(with '.deferrals[0].reason = "a\u001fb"')" "control character"
+same "an empty required column" "$(with '.holdings[0].unit = ""')" "unit: empty"
+same "a cell that isn't a string" "$(with '.holdings[0].unit = 3')" "unit: not a string"
+same "a status column, recomputable" "$(with '.holdings[0].status = "open"')" "read from GitHub, never recorded"
+same "a CI column, recomputable" "$(with '.holdings[0].CI = "green"')" "read from GitHub, never recorded"
+same "a merge-state column, recomputable" "$(with '.side_effects[0].merge_state = "CLEAN"')" "read from GitHub, never recorded"
+same "an unknown column" "$(with '.deferrals[0].owner = "x"')" "deferrals.owner: not a column of this section"
+same "a row that isn't an object" "$(with '.reversals = ["x"]')" "a row that isn't an object"
+same "a bad phase" "$(with '.holdings[0].phase = "planning"')" "phase: not scoping"
+same "a bad dispatch status" "$(with '.holdings[0].dispatch_status = "sent"')" "dispatch_status"
+same "a bad return path" "$(with '.holdings[0].return_path = "leg"')" "return_path"
+same "a short verified head" "$(with '.holdings[0].verified_head = "0123abc"')" "verified_head: not a full sha"
+same "a repo that isn't owner/repo" "$(with '.holdings[0].repo = "widgets"')" "repo: not owner/repo"
+same "a branch that isn't a branch name" "$(with '.holdings[0].branch = "a b"')" "branch: not a branch name"
+same "a dispatched that isn't a date" "$(with '.holdings[0].dispatched = "today"')" "dispatched: not YYYY-MM-DD"
+same "a date-only raised" "$(with '.deferrals[0].raised = "2026-09-25"')" "raised: not YYYY-MM-DDTHH:MMZ"
+same "a date-only reversal date" "$(with '.reversals[0].date = "2026-09-25"')" "date: not YYYY-MM-DDTHH:MMZ"
+same "filed without a number" "$(with '.deferrals[0].disposition = "filed"')" "disposition"
+same "a carry without a time" "$(with '.deferrals[0].disposition = "carried: later"')" "disposition"
+same "a decide-by that isn't a time" "$(with '.deferrals[0].disposition = "carried 2026-09-26T08:30Z until Friday: waits"')" "disposition"
+passes "a carry with a decide-by passes" "$(with '.deferrals[0].disposition = "carried 2026-09-26T08:30Z until 2026-10-01T00:00Z: waits on infra"')"
+same "an unknown milestone- Action" "$(with '.side_effects[0].action = "milestone-reopened"')" "is not one of the milestone roadmap edits"
+
+echo "== workers =="
+same "a worker path" "$(with '.holdings[0].worker = "instances/foo"')" "shape of a path"
+same "a worker UUID" "$(with '.holdings[0].worker = "w-6f1c2e3a-1b2c-4d5e-8f90-123456789abc"')" "instance or session id"
+same "a worker session_ id" "$(with '.holdings[0].worker = "session_01ABCdef"')" "session id"
+same "a worker instance name" "$(with '.holdings[0].worker = "tsuku+topic-43e4a66f"')" "instance name"
+same "a worker job id" "$(with '.holdings[0].worker = "123456"')" "job id"
+same "a worker that isn't a topic" "$(with '.holdings[0].worker = "_lead"')" "not a dispatch topic"
+passes "a dispatch topic passes as a worker" "$(with '.holdings[0].worker = "coordinate-dispatch-path.v2_a"')"
+
+echo "== pull request links =="
+same "a malformed pull request link" "$(with '.holdings[0].pull_request = "#12"')" "pull_request: not [#n]"
+same "  ... or one on another host" "$(with '.holdings[0].pull_request = "[#12](https://example.com/acme/widgets/pull/12)"')" "pull_request"
+passes "an empty pull request link (none yet) passes" "$(with '.holdings[0].pull_request = "" | .holdings[0].branch = "" | .holdings[0].verified_head = ""')"
+
+echo "== Holds =="
+HOLD_A='{"hold":"after-346","on":"acme/widgets#12","until":"merged acme/gadgets#346","set_by":"the workspace coordinator","set":"2026-09-26T09:00Z","lifted":""}'
+HOLD_C='{"hold":"go","on":"acme/widgets#14","until":"lifted","set_by":"the human","set":"2026-09-26T09:10Z","lifted":"2026-09-26T10:00Z by the human"}'
+hold() { full_record | jq -c --argjson a "$HOLD_A" --argjson c "$HOLD_C" "$1"; }
+passes "holds of a merge and a lifted condition pass" "$(hold '.holds = [$a, $c]')"
+same "a malformed Until" "$(hold '.holds = [$a | .until = "until Monday"]')" "holds.until"
+same "On that isn't owner/repo#n" "$(hold '.holds = [$a | .on = "#12"]')" "holds.on"
+same "a lift that isn't a time and who" "$(hold '.holds = [$c | .lifted = "yesterday"]')" "holds.lifted"
+same "a lifted cell on a merged condition, an illegal change" "$(hold '.holds = [$a | .lifted = "2026-09-26T10:00Z by me"]')" "only a \`lifted\` hold is lifted by hand"
+same "two holds of one name" "$(hold '.holds = [$a, $a]')" "a hold name is used twice"
+same "a column outside the section" "$(hold '.holds = [$a + {state: "met"}]')" "holds.state: not a column"
+same "a hold with a line break" "$(hold '.holds = [$a | .set_by = "one\ntwo"]')" "holds.set_by: a line break"
+same "holds that aren't a list" "$(hold '.holds = {}')" "holds: not a list"
+
+echo "== the stored set =="
+RR() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "alice", set: "2026-10-13T10:00Z"}'; }
+RUNS() { full_record | jq -c --argjson r "[$1]" '.run = $r'; }
+SHA64=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+STORE=$(RR store session)
+same "an unknown Run key" "$(RUNS "$(RR colour blue)")" "run.key: not one of"
+same "a cap that isn't 1 to 99" "$(RUNS "$(RR cap 100)")" "a cap is a number from 1 to 99"
+same "a coordinator address shaped like a path" "$(RUNS "$(RR coordinator a/b)")" "shape of a path"
+same "a party told twice" "$(RUNS "$(RR told lead), $(RR told lead)")" "a party is told twice"
+same "a key other than told used twice" "$(RUNS "$(RR cap 3), $(RR cap 4)")" "a key other than told, rules and briefs is used twice"
+passes "a store row reading github passes" "$(RUNS "$(RR store github)")"
+passes "a store row reading session passes" "$(RUNS "$STORE")"
+same "a store row reading anything else" "$(RUNS "$(RR store gitlab)")" "store-malformed: a store is github or session"
+same "  ... or one used twice" "$(RUNS "$STORE, $(RR store github)")" "store-malformed: the store row is used twice"
+passes "the crash set passes beside the store session row" \
+    "$(RUNS "$STORE, $(RR rules "skill-rules sha256:$SHA64"), $(RR briefs "brief sha256:$SHA64"), $(RR friction friction-log), $(RR reports-to "the lead at ws-lead")")"
+for k in rules briefs friction reports-to; do
+    v="a sha256:$SHA64"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
+    same "a $k row without the store session row" "$(RUNS "$(RR "$k" "$v")")" "$k is kept only by a record on the session store"
+    same "  ... or beside a store github row" "$(RUNS "$(RR store github), $(RR "$k" "$v")")" "$k is kept only by a record on the session store"
+done
+same "two friction rows" "$(RUNS "$STORE, $(RR friction a), $(RR friction b)")" "used twice"
+same "a reports-to address shaped like a path" "$(RUNS "$STORE, $(RR reports-to "the lead at /tmp/x")")" "shape of a path"
+same "a rules digest that isn't sha256 hex" "$(RUNS "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
+same "a rules label used twice" "$(RUNS "$STORE, $(RR rules "a sha256:$SHA64"), $(RR rules "a sha256:$SHA64")")" "label is used twice"
+same "a friction row that isn't a label" "$(RUNS "$STORE, $(RR friction "a b")")" "a friction row is a label"
+same "a reports-to address that is two words" "$(RUNS "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<role>\` or \`<role> at <address>\`"
+ST() { jq -nc --arg k "$1" --arg on "$2" --arg u "$3" '{standing: "s1", kind: $k, on: $on, until: $u, what: "hold the merges", owner: "the human", relayed_by: "", set: "2026-10-13T10:00Z"}'; }
+STS() { full_record | jq -c --argjson s "[$1]" '.standing = $s'; }
+passes "a pause until a time passes" "$(STS "$(ST pause all "time 2026-10-14T00:00Z")")"
+same "a pause with no Until" "$(STS "$(ST pause all "")")" "a pause names its On and its Until"
+same "a pause-until that isn't a condition" "$(STS "$(ST pause all "tomorrow")")" "standing.until: not \`lifted\`"
+same "a go-ahead with an Until" "$(STS "$(ST go-ahead "Feature 2" lifted)")" "a go-ahead has no Until"
+same "a go-ahead for all" "$(STS "$(ST go-ahead all "")")" "a go-ahead names one unit"
+same "an assignment whose On isn't an issue or release" "$(STS "$(ST assignment "Feature 2" "")")" "an assignment's On is an issue"
+same "an approval with an On" "$(STS "$(ST approval "Feature 2" "")")" "only a pause, a go-ahead or an assignment has an On"
+same "an unknown Standing kind" "$(STS "$(ST veto "" "")")" "standing.kind: not one of"
+same "a Standing id that isn't s<n>" "$(STS "$(ST approval "" "" | jq -c '.standing = "x1"')")" "standing.standing: not s<n>"
+WK() { jq -nc --arg i "$1" --arg k "$2" --arg w "$3" --arg n "$4" '{item: $i, kind: $k, who: $w, next: $n, wakes: "0", updated: "2026-10-09T10:00Z"}'; }
+WKS() { full_record | jq -c --argjson w "[$1]" '.work = $w'; }
+same "an unknown Work kind" "$(WKS "$(WK x verdict-due me go)")" "work.kind: not holding"
+same "a Wakes that isn't a count" "$(WKS "$(WK x local-agent me go | jq -c '.wakes = "many"')")" "work.wakes: not a count"
+same "a holding row whose Who isn't a topic" "$(WKS "$(WK x holding a/b go)")" "shape of a path"
+same "a decision row whose Item isn't a unit" "$(WKS "$(WK "Feature 03" decision "decision 1" go)")" "Item is a unit as pick lists it"
+same "a decision row whose Who isn't decision <n>" "$(WKS "$(WK "Feature 3" decision "entry 1" go)")" "a decision row's Who is \`decision <n>\`"
+same "a follow-up row whose Who isn't owner/repo#n" "$(WKS "$(WK "Feature 3" follow-up "#3" go)")" "a follow-up row's Who is the pull request"
+same "a verdict-owed row whose Item isn't a heading tag" "$(WKS "$(WK "the list" verdict-owed none "verdict owed since 2026-10-09")")" "a verdict-owed row's Item is a milestone's heading tag"
+same "a verdict-owed row whose Next step isn't its date" "$(WKS "$(WK MV1 verdict-owed none "judge it")")" "verdict owed since YYYY-MM-DD"
+same "a rework text over 600 bytes" "$(WKS "$(WK MV2 rework "verdict 1001" "x" | jq -c '.next = ("Changes needed: " + ("x" * 585))')")" "over 600 bytes"
+same "a rework text with a URL" "$(WKS "$(WK MV2 rework "verdict 1001" "see https://example.com/x")")" "a URL"
+same "  ... or a bare www. address" "$(WKS "$(WK MV2 rework "verdict 1001" "see www.example.com")")" "a URL"
+same "  ... or another scheme" "$(WKS "$(WK MV2 rework "verdict 1001" "fetch ftp://host/x")")" "a URL"
+same "a rework text with a markdown link" "$(WKS "$(WK MV2 rework "verdict 1001" "read [the notes](notes.md)")")" "a markdown link"
+same "  ... or a reference link" "$(WKS "$(WK MV2 rework "verdict 1001" "read [the notes][1]")")" "a markdown link"
+same "a rework text with a control character" "$(WKS "$(WK MV2 rework "verdict 1001" "$(printf 'one\001two')")")" "a control character"
+same "a rework row whose Item isn't a heading tag" "$(WKS "$(WK "the host" rework "verdict 1001" go)")" "a rework row's Item is a milestone's heading tag"
+same "a rework row whose Who isn't verdict or failure <id>" "$(WKS "$(WK MV2 rework "failed 1002" go)")" "a rework row's Who is"
+same "  ... or failure with no id" "$(WKS "$(WK MV2 rework "failure x" go)")" "a rework row's Who is"
+same "a verdict-owed row whose Who isn't a topic" "$(WKS "$(WK MV1 verdict-owed a/b "verdict owed since 2026-10-09")")" "worker: contains '/'"
+for u in "Milestone 03" "milestone 3" "feature 3"; do
+    same "a decision row whose Item is $u" "$(WKS "$(WK "$u" decision "decision 1" go)")" "Item is a unit as pick lists it"
+done
+same "a verdict-owed row whose Item is milestone 3" "$(WKS "$(WK "milestone 3" verdict-owed none "verdict owed since 2026-10-09")")" "a verdict-owed row's Item is a milestone's heading tag"
+passes "a decision row whose Item is Milestone 3 passes" "$(WKS "$(WK "Milestone 3" decision "decision 1" go)")"
+same "an item listed twice under one kind" "$(WKS "$(WK x local-agent me go), $(WK x local-agent me again)")" "work: an item is listed twice under one kind"
+same "a stored-set cell with a line break" "$(WKS "$(WK x local-agent me "one
+two")")" "work.next: a line break"
+
+echo "== Decisions =="
+RUN=20260927T233505Z
+entry() { # entry <n> <state> [jq merge]
+    local extra=${3-}
+    [ -n "$extra" ] || extra='{}'
+    jq -nc --arg n "$1" --arg s "$2" --arg run "$RUN" '{
+      decision: $n, round: "0", question: "Ship with the mixed check result?",
+      options: "keep option d and ship\nswitch to option c", state: $s,
+      source: "worker ci-pin [\($run) report 40.1]", verdict: "", recommendation: "",
+      reason: "", context: "", problem: "", grounds: "", target: "", owed: "",
+      asked: "", evidence: "", outcome: "", decided_by: "", updated: "2026-09-27T23:40Z"}' | jq -c ". + ($extra)"
+}
+ESC='{options: "keep option d and ship -- d stands\nswitch to option c -- versions pin", round: "1", verdict: "escalate", recommendation: "keep option d and ship", reason: "the flip did not happen", context: "Option d was approved.", problem: "Dropping it changes the scope.", grounds: "scope", target: "a person", owed: "escalation"}'
+dec() { full_record | jq -c --argjson e "$1" '.decisions = {next: 9, entries: [$e]}'; }
+passes "an escalated entry passes" "$(dec "$(entry 1 escalated "$ESC")")"
+same "an illegal Decisions state" "$(dec "$(entry 1 open)")" "decisions.state: not proposed"
+same "a proposed entry with a verdict, an illegal transition" "$(dec "$(entry 1 proposed '{verdict: "settle"}')")" "a proposed entry has no verdict yet"
+same "a held verdict on an escalated entry, an illegal transition" "$(dec "$(entry 1 escalated "$ESC + {verdict: \"hold\"}")")" "only an entry awaiting a verdict can be held"
+same "a held entry missing what it waits on" "$(dec "$(entry 1 coordinator-verdict '{verdict: "hold"}')")" "reason is empty"
+same "a settled entry missing its outcome" "$(dec "$(entry 1 settled '{decided_by: "a person"}')")" "outcome is empty"
+same "a settled entry missing who decided" "$(dec "$(entry 1 settled '{outcome: "ship"}')")" "decided_by is empty"
+for k in options recommendation reason context problem grounds target; do
+    same "an escalated entry missing its $k" "$(dec "$(entry 1 escalated "$ESC + {$k: \"\"}")")" "$k is empty"
+done
+same "a Decisions target in the Side effects grammar" "$(dec "$(entry 1 escalated "$ESC + {target: \"pull request 12 on the widgets repo\"}")")" "decisions.target"
+same "a stamp that doesn't parse" "$(dec "$(entry 1 proposed '{source: "worker ci-pin [report 40.1]"}')")" "decisions.source"
+same "an evidence line without a stamp" "$(dec "$(entry 1 coordinator-verdict '{evidence: "2026-09-27T23:41Z dispatcher: mixed"}')")" "decisions.evidence"
+same "a non-integer identifier" "$(dec "$(entry x proposed)")" "decisions.decision"
+same "a ground outside the four" "$(dec "$(entry 1 escalated "$ESC + {grounds: \"urgency\"}")")" "decisions.grounds"
+same "a line break inside a single item" "$(dec "$(entry 1 proposed '{question: "one\ntwo"}')")" "line break inside a single item"
+same "an unknown Decisions column" "$(dec "$(entry 1 proposed '{priority: "high"}')")" "not a column of this section"
+same "an identifier at Next decision" "$(full_record | jq -c --argjson e "$(entry 9 proposed)" '.decisions = {next: 9, entries: [$e]}')" "at or above Next decision"
+same "an identifier used twice" "$(full_record | jq -c --argjson e "$(entry 2 proposed)" '.decisions = {next: 9, entries: [$e, $e]}')" "an identifier is used twice"
+same "a next over a million" "$(with '.decisions = {next: 1000000, entries: []}')" "decisions.next"
+same "a field outside the section" "$(with '.decisions = {next: 2, entries: [], notes: "x"}')" "decisions.notes: not a field of this section"
+same "an archived identifier the body still holds" "$(full_record | jq -c --argjson e "$(entry 2 proposed)" '.decisions = {next: 9, entries: [$e], archived: [2]}')" "an identifier the body still holds"
+same "a kept stamp that isn't {run, stamps}" "$(with '.decisions = {next: 9, entries: [], archived: [1], kept: {run: "x", stamps: []}}')" "decisions.kept"
+
+echo "== private repositories, home paths and tokens =="
+same "a private repository in Repo" "$(with '.holdings[0].repo = "acme/secret"')" "repo: names acme/secret, a repository that isn't public" acme/secret
+same "  ... named case-insensitively" "$(with '.holdings[0].repo = "ACME/Secret"')" "isn't public" acme/secret
+same "  ... from a list with spaces" "$(with '.holdings[0].repo = "acme/secret"')" "isn't public" "x/y, acme/secret"
+same "a private repository in Pull request" "$(with '.holdings[0].pull_request = "[#1](https://github.com/acme/secret/pull/1)"')" "pull_request: names acme/secret" acme/secret
+same "a private repository in Target" "$(with '.side_effects[0].target = "acme/secret#3"')" "target: names acme/secret" acme/secret
+same "  ... as a .git URL" "$(with '.side_effects[0].target = "https://github.com/acme/secret.git"')" "isn't public" acme/secret
+same "  ... ending a sentence" "$(with '.side_effects[0].target = "see acme/secret."')" "isn't public" acme/secret
+same "a private repository in a hold" "$(hold '.holds = [$a]')" "holds.until: names acme/gadgets" acme/gadgets
+same "a private repository in a pause" "$(STS "$(ST pause all "merged acme/secret#3")")" "standing.until: names acme/secret" acme/secret
+same "a private repository in a Decisions text cell" "$(dec "$(entry 1 proposed '{question: "does acme/secret ship?"}')")" "decisions.question: names acme/secret" acme/secret
+same "a private repository in a stored-set text cell" "$(WKS "$(WK x local-agent me "land github.com/acme/secret first")")" "work.next: names acme/secret" acme/secret
+passes "a public repository whose name extends a private one passes" "$(with '.holdings[0].repo = "acme/secret-public"')"
+same "a home-directory path in a Decisions cell" "$(dec "$(entry 1 proposed '{question: "see /home/someone/notes"}')")" "a home-directory path"
+same "  ... or in a stored-set cell" "$(STS "$(ST approval "" "" | jq -c '.what = "read (/Users/bob/x)"')")" "standing.what: a home-directory path"
+same "a token-shaped string in a Decisions cell" "$(dec "$(entry 1 proposed '{question: "use ghp_abcdefghijklmnopqrstuvwxyz0123"}')")" "a token-shaped string"
+same "  ... or in a stored-set cell" "$(RUNS "$(RR arguments "sk-abcdefghijklmnopqrstuvwxyz0123")")" "run.value: a token-shaped string"
+
+echo "== through record-write.sh and the core =="
+# A roadmap record, once on GitHub and once on the session store, written
+# through the real write script with the GitHub and koto stand-ins.
+WR="$HERE/record-write.sh"
+RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks)
+OLD=$(render "$(record_json roadmap plugin-system)" issue)
+NEWJ=$(record_json roadmap plugin-system | jq -c --argjson h "$(holding feature-2)" '.holdings = [$h]')
+seed_rm() { db_init; db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-plugin-system", body: $b, state: "open", author: "alice", editor: null}]' --arg b "$OLD"; }
+body7() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB"; }
+# A body that names a private repository renders (the renderer is handed no
+# private list), so only the core's own check of the state can refuse it.
+render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/secret"')" issue > "$T/priv.md"
+
+seed_rm
+bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
+eq "on GitHub, a state naming a private repository is refused" 65 "$rc"
+grep -q 'record-write: refused: repo: names acme/secret, a repository that isn.t public' "$T/err" \
+    && ok "  ... with the module's message" || bad "  ... with the module's message" "$(cat "$T/err")"
+grep -q 'record-render' "$T/err" && bad "  ... from the state's JSON, before any render" "$(cat "$T/err")" \
+    || ok "  ... from the state's JSON, before any render"
+eq "  ... and the body is untouched" "$OLD" "$(body7)"
+# A tree holding the codec without the module, as some suites build one: the
+# core checks the state with the codec's copy and refuses the same way.
+mkdir -p "$T/codec-only"
+cp "$HERE"/*.sh "$HERE/record-codec.jq" "$T/codec-only/"
+seed_rm
+bash "$T/codec-only/record-write.sh" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
+eq "beside the codec alone, the state is refused the same way" \
+    "65 record-write: refused: repo: names acme/secret, a repository that isn't public" "$rc $(sed -n 1p "$T/err")"
+eq "  ... and the body is untouched" "$OLD" "$(body7)"
+
+SW=coordinate-roadmap-plugin-system-20260926T140000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SW")
+printf '%s\n' "$OLD" > "$T/old.md"
+bash "$HERE/record-parse.sh" --container issue "$T/old.md" > "$T/old.json"
+seed_rm; session_keys "$SW" "$T/old.json"
+SNAP=$(session_snapshot "$SW")
+[ "$SNAP" != none ] && ok "the session store holds the record's keys" || bad "the session store holds the record's keys" ""
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
+eq "on the session store, a state naming a private repository is refused" 65 "$rc"
+grep -q 'record-write: refused: repo: names acme/secret' "$T/err" && ! grep -q 'record-render' "$T/err" \
+    && ok "  ... from its JSON, with the module's message" || bad "  ... from its JSON, with the module's message" "$(cat "$T/err")"
+eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
+# While writers hand the core a body, the codec's parse catches the rest first.
+render "$NEWJ" issue > "$T/new.md"
+sed 's/| feature-2 |/| session_feature-2 |/' "$T/new.md" > "$T/worker.md"
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/worker.md" > /dev/null 2> "$T/err"; rc=$?
+eq "a worker shaped like a session id is refused" 65 "$rc"
+grep -q 'refused: worker: the shape of a session id' "$T/err" && ok "  ... with its refused: message" || bad "  ... with its refused: message" "$(cat "$T/err")"
+eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
+# A write the core accepts, then one built from the read before it.
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
+eq "a valid state is written to the session" 0 "$rc"
+SNAP=$(session_snapshot "$SW")
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
+eq "a write built from a stale read is refused as record-changed" 12 "$rc"
+grep -q 'record-changed' "$T/err" && ok "  ... naming record-changed" || bad "  ... naming record-changed" "$(cat "$T/err")"
+eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
+# A write that changes a section another writer flag owns: Holds, through
+# record-write.sh, which never opens HOLDS_WRITER.
+"${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show > "$T/cur.md" 2> "$T/err"
+bash "$HERE/record-parse.sh" --container issue "$T/cur.md" > "$T/cur.json"
+jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$(jq -r .written "$T/cur.json")" > "$T/hold.md"
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/hold.md" > /dev/null 2> "$T/err"; rc=$?
+eq "a write changing a section another writer owns is refused" 65 "$rc"
+grep -q 'Holds section changes only through record-hold.sh' "$T/err" && ok "  ... by the owner check" || bad "  ... by the owner check" "$(cat "$T/err")"
+eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
+
+done_tests state-schema
