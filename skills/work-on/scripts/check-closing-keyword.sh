@@ -38,8 +38,8 @@
 #      or its repository couldn't be read. Fail-closed, like the inline
 #      expression: pr_creation routes 1 to done_blocked. The reason goes to
 #      stderr.
-#   2  usage: a missing, repeated-to-empty or malformed argument; no edge
-#      routes it, so pr_creation holds
+#   2  usage: a missing, unknown or malformed argument; no edge routes it,
+#      so pr_creation holds
 #
 # Needs gh, authenticated, run from the repository the pull request is in.
 # One gh call. Bash 3.2: no associative arrays, no mapfile.
@@ -81,8 +81,9 @@ RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 NL='
 '
 # One read: the URL on the first line, the body after it. An empty body
-# leaves the URL alone, with no newline to split on.
-OUT=$(gh pr view --json url,body --jq '.url, .body' 2>/dev/null) \
+# leaves the URL alone, with no newline to split on. gh's own error goes to
+# stderr ahead of the refusal, which is where the gate's reader finds it.
+OUT=$(gh pr view --json url,body --jq '.url, .body') \
     || refuse "could not read the pull request with gh pr view"
 URL=${OUT%%"$NL"*}
 case "$OUT" in

@@ -159,15 +159,17 @@ check_prerequisites() {
 # Print the ISSUE_REPO variable the session was created with (empty when it
 # has none), read from the workflow_initialized event in its koto state log.
 # Returns 1 when the log can't be found or read, or has a header this reader
-# doesn't know, so the caller can say the lookup failed.
+# doesn't know, so the caller can say the lookup failed. koto's and jq's own
+# errors go to stderr, beside the caller's message.
 session_issue_repo() {
-  local dir log
-  dir=$("$KOTO" session dir "$SESSION" </dev/null 2>/dev/null) || return 1
+  local dir log first
+  dir=$("$KOTO" session dir "$SESSION" </dev/null) || return 1
   log="$dir/koto-$SESSION.state.jsonl"
   [ -r "$log" ] || return 1
-  [ "$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)" = 1 ] || return 1
+  first=$(head -n 1 "$log")
+  [ "$(jq -c '.schema_version' <<<"$first")" = 1 ] || return 1
   jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_REPO // empty' \
-    "$log" 2>/dev/null | head -n 1
+    "$log" | sed -n 1p
 }
 
 # Set ISSUE_REPO from the session. koto checks the variable's pattern at init;
