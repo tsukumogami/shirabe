@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   When a feature's work merges, shirabe deletes the plan that work followed,
   and a single-PR plan never reaches the default branch at all. A reviewer,
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Accepted under `/scope`'s non-interactive mode on a three-seat jury that passed
 on its third round; the first two rounds failed on undefined formats, timing
