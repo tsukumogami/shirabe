@@ -42,7 +42,8 @@
 #       keeps REVIEW_LEVEL at that level (an attach resets every rebind
 #       variable it isn't passed), where a bare attach empties it; a resume
 #       naming a different floor is koto's var_mismatch
-#     the reason check's class, read out of work-on-open.sh, agrees with
+#     the reason check's class, read out of scripts/lib/verification-deferral.sh
+#       (which work-on-open.sh and execute-open.sh source), agrees with
 #       koto's value allowlist: a value of every character it allows is
 #       accepted by koto init on a scratch template and passed through by the
 #       script, and each printable ASCII character it refuses, a newline, a
@@ -416,12 +417,14 @@ eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
 
 # The reason check's class is a hand copy of koto's VALUE_PATTERN
 # (src/engine/substitute.rs), and the engine-free cases above run it against a
-# stub. Here it meets the real koto. The class is read out of work-on-open.sh,
-# so the check is against the script as shipped. Every character it allows goes
+# stub. Here it meets the real koto. The class is read out of
+# scripts/lib/verification-deferral.sh, the one copy work-on-open.sh sources, so
+# the check is against the code as shipped. Every character it allows goes
 # through one koto init in a single value; every printable ASCII character it
 # refuses, and a newline, a tab and a non-ASCII dash, goes through alone. koto
 # and the script must agree on each, and a character they disagree on is named.
-CLASS_RE=$(sed -n 's/.*select(test("\(\^\[[^"]*]\$\)").*/\1/p' "$OPEN")
+CLASS_SRC="$REPO_ROOT/scripts/lib/verification-deferral.sh"
+CLASS_RE=$(sed -n 's/.*select(test("\(\^\[[^"]*]\$\)").*/\1/p' "$CLASS_SRC")
 CANDIDATES=$(jq -nc --arg em "$EMDASH" '[range(32; 127)] | map([.] | implode) + ["\n", "\t", $em]')
 
 PROBE_TPL="$WORK/allowlist-probe.md"
@@ -502,11 +505,11 @@ script_verdict() {
 }
 
 if [ "$(printf '%s\n' "$CLASS_RE" | grep -c '^\^\[')" -ne 1 ]; then
-    fail "allowlist agreement: want one reason class in work-on-open.sh, found [$CLASS_RE]"
+    fail "allowlist agreement: want one reason class in scripts/lib/verification-deferral.sh, found [$CLASS_RE]"
 elif ! koto template compile "$PROBE_TPL" >/dev/null 2>"$WORK/compile.err"; then
     fail "allowlist agreement: the scratch template does not compile: $(cat "$WORK/compile.err")"
 else
-    pass "allowlist agreement: the reason class read from work-on-open.sh is $CLASS_RE"
+    pass "allowlist agreement: the reason class read from scripts/lib/verification-deferral.sh is $CLASS_RE"
     ALLOWED=$(printf '%s' "$CANDIDATES" | jq -c --arg re "$CLASS_RE" 'map(select(test($re)))')
     REFUSED=$(printf '%s' "$CANDIDATES" | jq -c --arg re "$CLASS_RE" 'map(select(test($re) | not))')
     # The issue's sample, by code point: an apostrophe, a comma, ;, $, a

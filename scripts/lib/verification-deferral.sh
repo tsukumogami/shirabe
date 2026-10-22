@@ -33,6 +33,8 @@
 vd_reason_chars_refusal() {
     local bad
     # The class must stay koto's VALUE_PATTERN (src/engine/substitute.rs).
+    # work-on-open_test.sh reads it out of the select(test("...")) line below
+    # and holds it to a real koto, so keep it there, the file's one such line.
     bad=$(printf '%s' "$1" | jq -r '[.[] | select(startswith("--verification-reason="))
         | ltrimstr("--verification-reason=") | explode[] | [.] | implode
         | select(test("^[a-zA-Z0-9._/:@+ -]$") | not)] | unique | map(@json) | join(" ")')
