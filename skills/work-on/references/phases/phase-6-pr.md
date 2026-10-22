@@ -85,6 +85,37 @@ matched without regard to case; the reason is matched exactly. A run that
 didn't defer passes the gate without the section. On a deferred run, don't
 re-run tests locally after merging main either: the push is what CI checks.
 
+### A repository with no hosted CI
+
+A pull request with no checks never passes `ci_passing` on its own: zero checks
+is pending, not green. A repository that genuinely has no hosted CI says so on
+its default branch, in `.claude/shirabe-extensions/hosted-ci.json`:
+
+```json
+{"hosted_ci": "none", "reason": "<one line saying why nothing builds or tests here>"}
+```
+
+When the default branch carries that file, record the exception in Part 2, the
+reason copied verbatim:
+
+```markdown
+## Hosted CI
+
+This repository declares no hosted CI.
+Reason: <the declaration's reason>
+```
+
+`ci_passing` passes a pull request with no checks only when the declaration is
+on the default branch and the body has both: a line saying the repository
+declares no hosted CI (matched without regard to case) and the line
+`Reason: <reason>` with the reason exactly.
+A repository without the file needs no section. The change that adds a
+workflow to such a repository deletes the file too: a stale declaration would
+let a pull request with no checks yet pass in the window just after a push.
+Never add the file on the
+branch you're working on to get past the gate: the gate reads the default
+branch, so the declaration is a change someone reviews and merges first.
+
 ## CI Monitoring
 
 If checks fail:
@@ -116,7 +147,17 @@ DIRTY, koto routes the run itself, a root to the cascade and a child to `done`
 only non-green checks are cancelled runs of the repo's macOS floor workflows:
 the gate passes it, and `ci_cancelled_after_merge.txt` in context names the
 cancelled checks for the final report. A failed or pending check, and a cancel
-on an open pull request, still fail it. While `ci_passing` fails:
+on an open pull request, still fail it.
+
+A pull request with no checks at all fails it too. Just after a push, before
+GitHub creates the check suites, `gh pr checks` answers `no checks reported`:
+tick again, as for a running check. If no check has appeared 10 minutes after
+the push, submit `ci_outcome: failing_unresolvable` saying no checks were
+reported on the head. A repository that declares no hosted CI (see **A
+repository with no hosted CI** above) passes instead, once the body records
+it, and `ci_none_declared.txt` in context names it for the final report. A
+DIRTY pull request ends at `done_blocked` whatever its CI reads. While
+`ci_passing` fails on a pull request that isn't DIRTY:
 
 - `ci_outcome: failing_fixed`
 - `ci_outcome: failing_unresolvable` + `rationale`

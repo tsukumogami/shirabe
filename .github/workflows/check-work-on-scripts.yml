@@ -175,6 +175,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-cancel-after-merge_test.sh
 
+      # Runs the no-hosted-CI fallback, alone and with --owned, and drives
+      # ci_passing and execute.md's owned_ci_passing, extracted from the
+      # templates, through zero checks, the post-push window and the declared
+      # exception, against stubbed gh and koto. No engine needed; the macOS
+      # leg runs it on the floor through the work-on suite.
+      - name: Run zero-checks and no-hosted-CI gate tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/ci-none-declared_test.sh
+
       # Runs pr_creation's closing-keyword gate expression, extracted from the
       # template, against constructed bodies with gh stubbed. No engine needed;
       # the macOS leg runs it on the floor through the work-on suite.

@@ -732,6 +732,13 @@ states:
       # still running isn't green, and a cancelled one returned no verdict.
       # Don't rewrite this as "nothing is in the fail bucket" -- that would let
       # an all-queued PR report green.
+      #
+      # Zero checks is not green (#1018): the filter asks for at least one
+      # check first. gh answers an empty rollup with a `no checks reported`
+      # error and no JSON, which fails the grep the same way; `length > 0`
+      # holds the line if a gh release starts printing `[]` instead. The agent
+      # submits `pending`, and merge_readiness bounds the wait (pending:checks
+      # within the grace window, then awaiting:no-checks).
       #   semantics: scripts/ci-gate-expression_test.sh
       #
       # The PR is resolved through owned-pr.sh on the recorded repository and
@@ -766,9 +773,20 @@ states:
       # its unfinished macOS floor runs, and a MERGED PR whose only non-green
       # checks are those cancels passes, with them recorded in context as
       # ci_cancelled_after_merge.txt. --owned hands it this same lookup, so it
-      # judges the run's own PR and never just the branch's. The trailing
-      # `|| exit 1` holds the gate to 0 or 1 even if the script can't run.
-      #   semantics: skills/execute/scripts/owned-ci-cancel_test.sh
+      # judges the run's own PR and never just the branch's.
+      #
+      # The last fallback is work-on's ci-none-declared.sh, the one copy of
+      # the no-hosted-CI rule: a PR with no checks passes only when the
+      # recorded repository's default branch carries
+      # .claude/shirabe-extensions/hosted-ci.json saying "hosted_ci": "none"
+      # with a reason, and the PR body records that reason. It records
+      # ci_none_declared.txt in context. --owned again hands it this lookup.
+      # merge_readiness still never merges a PR with no checks
+      # (awaiting:no-checks), so a declared repository's PR waits for a
+      # person. The trailing `|| exit 1` holds the gate to 0 or 1 even if
+      # neither script can run.
+      #   semantics: skills/execute/scripts/owned-ci-cancel_test.sh,
+      #              skills/work-on/scripts/ci-none-declared_test.sh
       #
       # owned_merge_state_clean exits 1 only when GitHub reports DIRTY, since
       # koto routes that answer to escalate_dirty_merge_state with no evidence.
@@ -776,7 +794,7 @@ states:
       # matches no edge, so the run holds and the next tick reads again.
       owned_ci_passing:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
       owned_merge_state_clean:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
@@ -809,9 +827,10 @@ states:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 0
           gates.owned_merge_state_clean.exit_code: 0
-      # A DIRTY PR: GitHub runs no checks on one, so owned_ci_passing can read
-      # green on zero checks; the merge state is what tells them apart. koto
-      # routes it, whatever the CI gate says.
+      # A DIRTY PR: GitHub runs no checks on one, so owned_ci_passing says
+      # nothing about it -- green on an earlier head's checks, red on none --
+      # and the merge state is what decides. koto routes it, whatever the CI
+      # gate says.
       - target: escalate_dirty_merge_state
         when:
           gates.monitor_owned_pr.exit_code: 0
@@ -1639,13 +1658,13 @@ Submit `finalization_status: update_failed` only when the `gh pr view` read, the
 
 Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
-Three gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (every check in the `pass` or `skipping` bucket), `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`), and `monitor_owned_pr` is the lookup itself, through `check-pr-output.sh --owned-pr`. koto routes on them without asking you:
+Three gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (at least one check, and every check in the `pass` or `skipping` bucket), `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`), and `monitor_owned_pr` is the lookup itself, through `check-pr-output.sh --owned-pr`. koto routes on them without asking you:
 
 - Green CI on a clean PR goes on to `merge_readiness`.
-- A `DIRTY` PR goes to `escalate_dirty_merge_state` → `done_blocked`, whatever the CI gate says: GitHub creates no new check-runs on a `DIRTY` PR, so `owned_ci_passing` reads true on zero checks exactly as it does on a green PR, and only the merge state tells the two apart.
+- A `DIRTY` PR goes to `escalate_dirty_merge_state` → `done_blocked`, whatever the CI gate says: GitHub creates no new check-runs on a `DIRTY` PR, so `owned_ci_passing` says nothing about it, and only the merge state decides.
 - No single owned PR ends the run at `execute:pr-adopt`, and a failed lookup read at `execute:status-read`.
 
-You see this state only while `owned_ci_passing` fails on a clean PR: a check failed, or one is still running. To read the PR yourself, resolve it the same way:
+You see this state only while `owned_ci_passing` fails on a clean PR: a check failed, one is still running, or no check has been reported at all. Zero checks is not green: just after a push, before GitHub creates the check suites, `gh pr checks` answers `no checks reported`, which is pending. Submit `ci_outcome: pending`, and `merge_readiness` bounds the wait (`pending:checks` for its grace window, then `awaiting:no-checks`). The one exception is a repository that has no hosted CI and says so on its default branch, in `.claude/shirabe-extensions/hosted-ci.json` with `"hosted_ci": "none"` and a one-line `"reason"`: then `owned_ci_passing` passes a PR with no checks once the PR body records the exception (a line saying the repository declares no hosted CI, and the line `Reason: <reason>` with the reason verbatim), and koto records `ci_none_declared.txt`. The gate's stderr says what the body is missing. `merge_readiness` still never merges a PR with no checks, so that PR ends ready for a person to merge. Never add or edit that file to get past the gate; it is read from the default branch, which the run's PR can't change. To read the PR yourself, resolve it the same way:
 
 ```bash
 PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \

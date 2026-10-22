@@ -458,6 +458,10 @@ holds "green CI, is_root exit 2" ci_monitor is_root
 reset_rc
 drive ci_monitor "" "" ci_passing=0 merge_state_clean=1
 expect "green CI on a DIRTY pull request" done_blocked
+# A DIRTY pull request's new head gets no checks, and zero checks fails
+# ci_passing (#1018): it still stops on the merge state instead of holding.
+drive ci_monitor "" "" ci_passing=1 merge_state_clean=1
+expect "red CI on a DIRTY pull request" done_blocked
 drive ci_monitor "" "" ci_passing=1 merge_state_clean=0
 holds "red CI, no evidence" ci_monitor ci_passing
 drive ci_monitor "" '{"ci_outcome":"failing_fixed","rationale":"pushed a fix"}' ci_passing=1 merge_state_clean=0

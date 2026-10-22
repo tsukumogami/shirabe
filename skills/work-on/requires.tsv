@@ -40,7 +40,8 @@
 #                   introspection.md, plan.md); the stdin heredoc form of the
 #                   same subcommand takes no flag, and is how
 #                   ci-cancel-after-merge.sh, ci_passing's fallback, records
-#                   ci_cancelled_after_merge.txt
+#                   ci_cancelled_after_merge.txt, and ci-none-declared.sh,
+#                   its last fallback, records ci_none_declared.txt
 #   context get     reads plan.md and context.md in Phase 4, impl_base in
 #                   record-changed-paths.sh and has-commits.sh, and pre_pr.md in
 #                   check-pre-pr-referents.sh (the referent gates), no flag

@@ -45,7 +45,11 @@ FAIL=0
 # filter. skills/work-on/scripts/ci-cancel-after-merge_test.sh pins the fallback.
 # execute.md's owned_ci_passing ends the same way, calling the same script with
 # `--owned <owned-pr.sh arguments>` (#958); that tail carries no --json or --jq
-# either, and skills/execute/scripts/owned-ci-cancel_test.sh pins it.
+# either, and skills/execute/scripts/owned-ci-cancel_test.sh pins it. Both
+# commands then fall back to ci-none-declared.sh (#1018), the stated no-CI
+# exception for a pull request with no checks; it carries no --json or --jq on
+# the command line either, and skills/work-on/scripts/ci-none-declared_test.sh
+# pins it.
 #
 # Every koto template carrying a CI-green gate belongs here, as
 # "<template>:<gate>". work-on.md's is ci_passing. execute.md's is
@@ -223,12 +227,14 @@ for entry in "${TEMPLATES[@]}"; do
     assert_gate "$label" false "an unknown bucket gates" \
         "$fields" "$filter" pass something_new
 
-    # A pull request with no checks reported at all satisfies `length == 0` and
-    # so reads as green. This is long-standing behavior, not something #244
-    # introduced, and it's the silent-success surface that execute.md's
-    # merge_state_clean gate exists to cover. Asserted so the next person sees
-    # it stated rather than discovering it.
-    assert_gate "$label" true "no checks at all reads as green (pre-existing surface)" \
+    # A pull request with no checks at all is not green (#1018): no checks yet
+    # is the window just after a push, and a list that stays empty is CI that
+    # never ran. Today's gh never prints `[]` for one -- it errors with `no
+    # checks reported` and the grep fails -- so this case is the filter's own
+    # answer if a gh release ever does. The one way zero checks passes is a
+    # repository's stated no-CI declaration, through ci-none-declared.sh, which
+    # skills/work-on/scripts/ci-none-declared_test.sh pins.
+    assert_gate "$label" false "no checks at all is not green (#1018)" \
         "$fields" "$filter"
 done
 
