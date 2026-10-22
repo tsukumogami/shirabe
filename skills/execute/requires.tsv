@@ -87,7 +87,10 @@
 # the one `gh pr create --draft`; merge-exec.sh the one `gh pr merge`.
 # owned_ci_passing's fallback, /work-on's ci-cancel-after-merge.sh --owned,
 # reads `gh pr view`, `gh pr checks`, and `gh api repos/<repo>/actions/runs/<id>`,
-# and writes ci_cancelled_after_merge.txt with `koto context add`. git adds
+# and writes ci_cancelled_after_merge.txt with `koto context add`. Its last
+# fallback, /work-on's ci-none-declared.sh --owned, reads
+# `gh api repos/<repo>/contents/<path>`, `gh pr checks`, and `gh pr view`, and
+# writes ci_none_declared.txt with `koto context add`. git adds
 # `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
 # of those fall under the gh, git, and jq records.
 #
