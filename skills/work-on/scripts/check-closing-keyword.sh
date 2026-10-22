@@ -21,44 +21,33 @@
 #     a code span or a comment included, as it was before;
 #   - when ISSUE_REPO is the pull request's own repository (read from the URL
 #     `gh pr view` reports), a bare `<keyword> #N` passes too;
-#   - when the issue is elsewhere, any closing reference to issue N of the
-#     pull request's own repository fails the gate, even next to the
-#     qualified one, because merging would still close that issue: a bare
-#     `#N`, `GH-N`, `<PR repo>#N`, and `https://<host>/<PR repo>/issues/N`
-#     after a keyword, each also as a markdown link's text (`[#N](...)`,
-#     whatever the link points at) and inside `<...>`, emphasis or
-#     strikethrough, with emphasis around the keyword too;
-#   - so does any markdown link that points at that issue, keyword or not:
-#     the URL as an inline link's target (after `(`, spaces, a newline or
-#     `<`), as a reference definition's (after `]:`), or as an autolink
-#     (`<https://...>`). Which keyword governs a link, if any, would take a
-#     markdown parser to tell, and a body that links to this repository's
-#     issue with the very number of the issue it fixes elsewhere is rare and
-#     cheap to reword. A plain URL in prose, with no keyword, still passes,
-#     unless it stands right after a `(`, which reads as a link's target.
-#     So a pull request can't close issue N in both repositories at once;
-#     close the local one by hand;
-#   - so does `<owner>/<name>#N`, or its issue URL, in either of those
-#     shapes, when that name is an old one of the pull request's repository,
-#     which GitHub still resolves after a rename (below);
+#   - when the issue is elsewhere, a closing reference to issue N of the pull
+#     request's own repository fails the gate, even next to the qualified
+#     one, because merging would still close that issue. The forms are the
+#     ones measured to close: a bare `#N`, `<PR repo>#N` and
+#     `https://<host>/<PR repo>/issues/N` (#1041), `GH-N`, and the markdown
+#     link `[#N](https://<host>/<PR repo>/issues/N)`, whose text may be any of
+#     the first three spellings (#1044). So a pull request can't close issue
+#     N in both repositories at once; close the local one by hand;
+#   - so does `<owner>/<name>#N`, its issue URL, or that link, when that
+#     name is an old one of the pull request's repository, which GitHub
+#     still resolves after a rename (below);
 #   - a qualified reference to any other repository doesn't count.
 #
 # GitHub closed the issue on each of `Fixes GH-N`, `Fixes [#N](<this
 # repository's issue URL>)` and `Fixes <owner>/<old name>#N`, measured on a
-# scratch repository (#1044). Whether a markdown link closes the issue its
-# text names or the one it points at isn't known, so a link whose text is a
-# bare `#N` fails wherever it points, and a link whose text is the right
-# reference passes only when it points at that issue too. The other
-# spellings that fail here (a link to this repository's issue with other
-# text or without a keyword, `<...>`, emphasis) weren't measured; they fail
-# on the refusing side's rule, since refusing one too many costs a reworded
-# line. Code blocks and HTML aren't read specially, as before.
+# scratch repository (#1044). A refusal blocks a pull request, so only forms
+# measured to close are refused. Other spellings GitHub renders as this
+# repository's issue (owner shorthand `<owner>#N`, issue paths without a
+# scheme or host, a link with other text or no keyword, emphasis around the
+# reference) aren't known to close and pass; #1065 measures them. Code
+# blocks and HTML aren't read specially, as before.
 #
 # GitHub keeps no list of a repository's old names, but it redirects an old
 # name to the repository, and `gh api repos/<owner>/<name>` follows that
 # redirect (measured: `gh api repos/mozilla/rust --jq .full_name` prints
 # `rust-lang/rust`). So every other `<owner>/<name>` the body closes issue N
-# in, or links to issue N of, is looked up, and one that resolves to the pull
+# in, in those forms, is looked up, and one that resolves to the pull
 # request's repository fails.
 # The limit is GitHub's own: an old name that another repository has since
 # taken resolves to that repository, here and when GitHub reads the body
@@ -206,9 +195,7 @@ KW='(close[sd]?|fix(es|ed)?|resolve[sd]?)'
 # After the keyword: what a passing reference needs, and the wider separator
 # that makes a reference to the wrong issue fail (see the header).
 SEP_PASS=':?[[:space:]]+'
-# The failing side also takes emphasis marks around the keyword, so
-# `**Fixes:** #42` counts.
-SEP_FAIL='[*_~]*(:[*_~]*[[:space:]]*|[[:space:]]+)'
+SEP_FAIL='(:[[:space:]]*|[[:space:]]+)'
 END="([^0-9]|\$)"
 BARE="${KW}${SEP_PASS}#${ISSUE}${END}"
 QUALIFIED="(^|[^[:alnum:]_])${KW}${SEP_PASS}$(literal "$REPO")#${ISSUE}${END}"
@@ -221,22 +208,16 @@ HOST_RE=$(literal "$PR_HOST")
 QUALIFIED_LINK="(^|[^[:alnum:]_])${KW}${SEP_PASS}\\[$(literal "$REPO")#${ISSUE}\\]\\(https?://(www\\.)?${HOST_RE}/$(literal "$REPO")/issues/${ISSUE}\\)"
 # Issue N's URL in the repository whose name expression is $1, up to N.
 issue_url() { printf '%s' "https?://(www\\.)?${HOST_RE}/${1}/issues/"; }
-# In front of a reference that fails, after SEP_FAIL: any run of `[`, `<`
-# and emphasis or strikethrough marks.
-OPEN='(\[|<|\*|_|~)*'
-# What stands in front of a URL that is a link's destination: an inline
-# link's `(`, a reference definition's `]:`, each with any spaces (a joined
-# newline too) and an optional `<`, or an autolink's `<`.
-DEST='(\(|\]:)[[:space:]]*<?|<'
-# Issue N of the pull request's own repository, in each form that closes it.
-# Deliberately wider than BARE and QUALIFIED, and not anchored to a word
-# start: this side refuses, so it errs toward matching (see the header). Along
-# the same line it also takes a `www.` host and leading zeros on N, spellings
-# GitHub doesn't document either way, and `gh-N` in lower case.
+# Issue N of the pull request's own repository, in each form measured to
+# close it (see the header). Deliberately wider than BARE and QUALIFIED, and
+# not anchored to a word start: this side refuses, so it errs toward matching.
+# Along the same line it also takes a `www.` host and leading zeros on N, as
+# #1041 did, and `gh-N` in lower case.
 PR_REPO_RE=$(literal "$PR_REPO")
-OWN="${KW}${SEP_FAIL}${OPEN}(#|gh-|${PR_REPO_RE}#|$(issue_url "$PR_REPO_RE"))0*${ISSUE}${END}"
-# Any link to that issue, keyword or not (see the header).
-OWN_LINK="(${DEST})$(issue_url "$PR_REPO_RE")0*${ISSUE}${END}"
+OWN="${KW}${SEP_FAIL}(#|gh-|${PR_REPO_RE}#|$(issue_url "$PR_REPO_RE"))0*${ISSUE}${END}"
+# The markdown link GitHub closed it on: a reference to it as the link's
+# text and its URL as the target.
+OWN_LINK="${KW}${SEP_FAIL}\\[(#|gh-|${PR_REPO_RE}#|$(issue_url "$PR_REPO_RE"))0*${ISSUE}\\]\\($(issue_url "$PR_REPO_RE")0*${ISSUE}${END}"
 # An owner is letters, digits, `-` and `_` (an enterprise's managed users),
 # starting with a letter or digit; a repository may also hold `.`.
 NAME_RE='[A-Za-z0-9][A-Za-z0-9_-]*/[A-Za-z0-9_.-]+'
@@ -260,39 +241,40 @@ if [ "$(lower "$REPO")" = "$(lower "$PR_REPO")" ]; then
     refuse "the body has no closing keyword for #$ISSUE: add Fixes #$ISSUE"
 fi
 
-if has_joined "$OWN"; then
-    refuse "a closing reference to #$ISSUE, GH-$ISSUE, $PR_REPO#$ISSUE or its issue URL (a markdown link's text included) closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
-fi
-if has_joined "$OWN_LINK"; then
-    refuse "a markdown link to $PR_REPO's issue $ISSUE (its URL as a link's target, a reference definition's, in <...>, or right after a parenthesis) fails in this pull request, with a keyword in front of it or not, since a keyword anywhere around it could close $PR_REPO#$ISSUE: name it in plain text instead (if $PR_REPO#$ISSUE should close too, close it by hand)"
+if has_joined "$OWN" || has_joined "$OWN_LINK"; then
+    refuse "a closing reference to #$ISSUE, GH-$ISSUE, $PR_REPO#$ISSUE or its issue URL (a markdown link to it included) closes $PR_REPO#$ISSUE, not $REPO#$ISSUE: write Fixes $REPO#$ISSUE and drop the other one (if $PR_REPO#$ISSUE should close too, close it by hand)"
 fi
 # Without the right reference the answer is no whatever the lookups below
 # would say, so it is given before any of them.
 has "$QUALIFIED" || has "$QUALIFIED_LINK" \
     || refuse "the body has no closing keyword for $REPO#$ISSUE: add Fixes $REPO#$ISSUE"
 
-# Every other repository the body closes issue N in or links to issue N of,
-# one `owner/name` a line, each spelling once. One pass over the joined body
-# finds each such reference in the shapes above; the names inside it are then
-# cut out, all in one pipeline whatever the body's length, so only what
-# follows a keyword or is a link's destination costs anything.
+# Every other repository the body closes issue N in, one `owner/name` a line,
+# each spelling once. One pass over the joined body finds each closing
+# reference in the forms above (the link's text and target both name one);
+# the names inside it are then cut out, all in one pipeline whatever the
+# body's length, so only what follows a keyword costs anything.
 #
 # grep -o's matches don't overlap, and END takes the character after N, which
 # can be where the next reference starts (`#42<https://...`). So the pass
 # reads the joined body with a space put after every N first, for END to take
-# instead. The name is the two path segments after the host, whatever the
-# case of `/issues/` or the repository's name.
-NAMED="${KW}${SEP_FAIL}${OPEN}(${NAME_RE}#|$(issue_url "$NAME_RE"))0*${ISSUE}${END}|(${DEST})$(issue_url "$NAME_RE")0*${ISSUE}${END}"
+# instead. The name is cut out lower-cased (GitHub's names are), with the
+# scheme and host dropped first: the two path segments in front of
+# `/issues/` or `#`, whatever the case of `/issues/` or the repository's name.
+REF_NAMED="(#|gh-|${NAME_RE}#|$(issue_url "$NAME_RE"))0*${ISSUE}"
+# The space the pass puts after N may stand before the link text's `]`.
+NAMED="${KW}${SEP_FAIL}(${NAME_RE}#|$(issue_url "$NAME_RE"))0*${ISSUE}${END}|${KW}${SEP_FAIL}\\[${REF_NAMED} ?\\]\\($(issue_url "$NAME_RE")0*${ISSUE}${END}"
 NAME_REF="$(issue_url "$NAME_RE")0*${ISSUE}${END}|${NAME_RE}#0*${ISSUE}${END}"
+HOST_LOWER_RE=$(literal "$(lower "$PR_HOST")")
 other_names() {
     local spaced
     spaced=$(sed -E "s/(#|\\/[Ii][Ss][Ss][Uu][Ee][Ss]\\/)(0*${ISSUE})([^0-9])/\\1\\2 \\3/g" <<<"$JOINED ")
     # A repository named `.` or `..` isn't one GitHub could have, and
     # `repos/../x` is another path: dropped here, so the loop below reads at
     # most a handful of names whatever the body holds.
-    grep -oiE "$NAMED" <<<"$spaced" | grep -oiE "$NAME_REF" \
-        | sed -E -e 's|^[A-Za-z]+://[^/]+/([^/]+/[^/]+)/.*$|\1|' -e 's/#.*$//' \
-        | grep -vE '/\.\.?$' | sort -fu
+    grep -oiE "$NAMED" <<<"$spaced" | grep -oiE "$NAME_REF" | tr '[:upper:]' '[:lower:]' \
+        | sed -E -e 's|^[a-z]+://||' -e "s|^(www\\.)?${HOST_LOWER_RE}/||" -e 's|^([^/#]+/[^/#]+)[/#].*$|\1|' \
+        | grep -vE '/\.\.?$' | sort -u
 }
 
 # One lookup, given the seconds it may take: gh runs in the background and is

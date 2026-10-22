@@ -332,9 +332,9 @@ that repository; pass the flag as the directive writes it, empty or not. Neither
 script looks the value up or falls back to this repository without it.
 `pr_creation`'s `closing_keyword` gate asks for `Fixes <owner/repo>#<N>` and refuses
 any closing reference to this repository's issue `<N>`, which would close on merge: a
-bare `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL, any of
-them as a markdown link's text, any markdown link to that issue with or without a
-keyword, and a name this repository had before a rename.
+bare `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL, the
+markdown link `[#<N>](<its issue URL>)`, and any of them under a name this repository
+had before a rename.
 koto refuses a value that isn't `owner/repo` (`invalid_var`); report the refusal and
 stop. For example:
 
@@ -543,7 +543,7 @@ leg, since one leg answers one session.
   run has `ISSUE_REPO`: 0 when the body closes the issue with
   `<keyword> <owner/repo>#<N>`, 1 when it doesn't, also closes issue `<N>` of the
   pull request's own repository (`#<N>`, `GH-<N>`, `owner/repo#<N>` or its URL,
-  as a markdown link too, or under an old name of the repository) for an issue
+  the markdown link `[#<N>](<its URL>)`, or under an old name of the repository) for an issue
   elsewhere, or the pull request can't be read, 2 usage, 3 a lookup of another
   repository the body closes the issue in failed or ran out of time, which
   holds the state like 2. With

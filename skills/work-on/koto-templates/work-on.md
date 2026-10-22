@@ -2080,8 +2080,9 @@ states:
       #
       # An issue in another repository (ISSUE_REPO set) is closed only by
       # `Fixes owner/repo#N`, and `#N`, `GH-N`, this repository's
-      # `owner/repo#N` or its issue URL there, as a markdown link too or under
-      # the repository's old name, would close this repository's issue N, so
+      # `owner/repo#N` or its issue URL there, the markdown link to it, or any
+      # of them under the repository's old name, would close this repository's
+      # issue N, so
       # check-closing-keyword.sh decides that case: it exits 0 closed, 1 not
       # closed, closing the wrong issue too, or unreadable (done_blocked, like
       # the expression here), 2 usage (holds), 3 a repository lookup it needed
@@ -3337,13 +3338,12 @@ The body closes the issue in Part 2, and the `closing_keyword` gate reads it fro
 GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
 `ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
 repository and no other closing reference to `<N>`: a bare `#<N>`, `GH-<N>`, this
-repository's `owner/repo#<N>` or its issue URL, as a markdown link's text too, or a name
-this repository had before a rename would close this repository's issue `<N>`. Any
-markdown link to this repository's issue `<N>` fails too, keyword or not: name it in
-plain text. When the gate holds because a lookup of another repository failed or ran
-out of time (its script exits 3), submit `pr_status: created` again; if that
-repository keeps failing, turn the reference or link the message names into plain
-text, and close that issue by hand if it should close.
+repository's `owner/repo#<N>` or its issue URL, the markdown link
+`[#<N>](<its issue URL>)`, or any of them under a name this repository had before a
+rename would close this repository's issue `<N>`. When the gate holds because a lookup
+of another repository failed or ran out of time (its script exits 3), submit
+`pr_status: created` again; if that repository keeps failing, turn the reference the
+message names into plain text, and close that issue by hand if it should close.
 `references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
