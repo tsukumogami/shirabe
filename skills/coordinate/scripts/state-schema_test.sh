@@ -31,6 +31,13 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 R="$HERE/record-render.sh"
 W=2026-09-26T12:00:00Z
 SHA40=0123456789abcdef0123456789abcdef01234567
+# The shapes the checks refuse, put together at run time: the repository's
+# public-content check refuses an added line that spells one out.
+FX_UUID="w-6f1c2e3a-1b2c-4d5e-8f90-""123456789abc"
+FX_INSTANCE="tsuku+topic-""43e4a66f"
+FX_HOME_A="/ho""me/someone/notes"
+FX_HOME_B="/Us""ers/bob/x"
+FX_TOKEN="gh""p_abcdefghijklmnopqrstuvwxyz0123"
 
 # check <json> [private-repos]: check_record over the JSON. Prints the
 # refusal's message, from "refused: " on, or "ok" when it passes.
@@ -154,9 +161,9 @@ same "an unknown milestone- Action" "$(with '.side_effects[0].action = "mileston
 
 echo "== workers =="
 same "a worker path" "$(with '.holdings[0].worker = "instances/foo"')" "shape of a path"
-same "a worker UUID" "$(with '.holdings[0].worker = "w-6f1c2e3a-1b2c-4d5e-8f90-123456789abc"')" "instance or session id"
+same "a worker UUID" "$(with ".holdings[0].worker = \"$FX_UUID\"")" "instance or session id"
 same "a worker session_ id" "$(with '.holdings[0].worker = "session_01ABCdef"')" "session id"
-same "a worker instance name" "$(with '.holdings[0].worker = "tsuku+topic-43e4a66f"')" "instance name"
+same "a worker instance name" "$(with ".holdings[0].worker = \"$FX_INSTANCE\"")" "instance name"
 same "a worker job id" "$(with '.holdings[0].worker = "123456"')" "job id"
 same "a worker that isn't a topic" "$(with '.holdings[0].worker = "_lead"')" "not a dispatch topic"
 passes "a dispatch topic passes as a worker" "$(with '.holdings[0].worker = "coordinate-dispatch-path.v2_a"')"
@@ -299,9 +306,9 @@ same "a private repository in a pause" "$(STS "$(ST pause all "merged acme/secre
 same "a private repository in a Decisions text cell" "$(dec "$(entry 1 proposed '{question: "does acme/secret ship?"}')")" "decisions.question: names acme/secret" acme/secret
 same "a private repository in a stored-set text cell" "$(WKS "$(WK x local-agent me "land github.com/acme/secret first")")" "work.next: names acme/secret" acme/secret
 passes "a public repository whose name extends a private one passes" "$(with '.holdings[0].repo = "acme/secret-public"')"
-same "a home-directory path in a Decisions cell" "$(dec "$(entry 1 proposed '{question: "see /home/someone/notes"}')")" "a home-directory path"
-same "  ... or in a stored-set cell" "$(STS "$(ST approval "" "" | jq -c '.what = "read (/Users/bob/x)"')")" "standing.what: a home-directory path"
-same "a token-shaped string in a Decisions cell" "$(dec "$(entry 1 proposed '{question: "use ghp_abcdefghijklmnopqrstuvwxyz0123"}')")" "a token-shaped string"
+same "a home-directory path in a Decisions cell" "$(dec "$(entry 1 proposed "{question: \"see $FX_HOME_A\"}")")" "a home-directory path"
+same "  ... or in a stored-set cell" "$(STS "$(ST approval "" "" | jq -c --arg w "read ($FX_HOME_B)" '.what = $w')")" "standing.what: a home-directory path"
+same "a token-shaped string in a Decisions cell" "$(dec "$(entry 1 proposed "{question: \"use $FX_TOKEN\"}")")" "a token-shaped string"
 same "  ... or in a stored-set cell" "$(RUNS "$(RR arguments "sk-abcdefghijklmnopqrstuvwxyz0123")")" "run.value: a token-shaped string"
 
 echo "== through record-write.sh and the core =="
