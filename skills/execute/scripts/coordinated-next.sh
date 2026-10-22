@@ -6,8 +6,10 @@
 # stateless and read-only: it reads the PLAN's nodes (through
 # plan-to-tasks.sh), the run record in the session (run-record-lib.sh: the
 # coordination PR's number, the sealed node list, each node's recorded PR and
-# pushed head, the cascade's verdict), and live `gh` (each recorded PR checked
-# against the ownership filter), writes nothing anywhere, and prints exactly
+# pushed head, the cascade's verdict), each open node's work-item children's
+# `verification_deferral` keys (shared-deferral-record.sh), and live `gh`
+# (each recorded PR checked against the ownership filter, and an open node
+# PR's body when its children deferred), writes nothing anywhere, and prints exactly
 # one line. The agent performs that action and runs the script again, until it
 # prints `done:<outcome>`, `pause`, or `error:<step>`.
 #
@@ -68,7 +70,13 @@
 #                             (execute:pr-adopt), a recorded node PR outside
 #                             the write set (execute:write-set), a failing
 #                             check (execute:ci), a closed PR
-#                             (execute:pr-closed), or a verdict error
+#                             (execute:pr-closed), an open node PR whose
+#                             work items deferred verification to hosted CI
+#                             and whose body doesn't record it
+#                             (execute:deferral-record; checked before the
+#                             node can be evaluated or merged, so it is never
+#                             readied or merged without the record), or a
+#                             verdict error
 #   done:merged               the coordination PR is MERGED
 #   merge:<node>              a node PR whose verdict is mergeable at the head
 #                             the run record holds (only with --merge true);

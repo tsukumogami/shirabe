@@ -43,6 +43,16 @@
 #   a second push                                the owned PR is adopted (no
 #     second pr create) and the node's line is replaced, not duplicated; a
 #     node pushed posts a body, after the koto write of its new head
+#   the verification deferral                    a work item's child holding
+#     verification_deferral, or the run's hosted-ci reason: the new node PR's
+#     second part carries phase-6-pr.md's ## Verification section, one
+#     Reason: line per reason, the shared one once, and work-on's own
+#     --deferral-record check passes it; no deferral: no section and no PR
+#     body read; an open node PR whose body lacks a child's deferral: exit
+#     80, nothing pushed, written or recorded, naming each missing part, and
+#     the push goes through once the body records it; hosted-ci with no
+#     reason or a failed key read: 72, nothing pushed; a bad --verification,
+#     or one in the order mode: 64
 #   an indexed node with no owned PR to adopt    exit 73, no pr create
 #   a failing body validation                    body=stale (exit 0), no pr
 #                                                edit, the posted body unchanged
@@ -80,7 +90,8 @@
 #     a public node under a private home whose commits carry a private/ path
 #     or a Repo Visibility: Private line         exit 78, nothing pushed; no
 #                                                scan for any other pair
-#     the same pair, a work item's goal in the PLAN naming a private/ path
+#     the same pair, a work item's goal in the PLAN naming a private/ path,
+#     or a deferral reason the node PR would record naming one
 #                                                exit 78, nothing pushed
 #   a node in another repository than the coordination PR's, pushed from the
 #   coordination checkout:
@@ -317,6 +328,169 @@ SHA3=$(git -C "$WT" rev-parse HEAD)
     && pass "a push keeps a recorded merged_head" || fail "merged_head after a push: [$(rec_node "$CT_CORE")]"
 
 # --- a recorded node with nothing owned to adopt -----------------------------------
+
+# --- the verification deferral ------------------------------------------------------
+#
+# A node's work items are work-on-t-<node>-<item>; one holding
+# verification_deferral deferred. The koto stub's store holds each child's
+# keys beside the run's session.
+
+REASON="host is in a measurement window until 02:40Z"
+REASON2="runner pool is down until Monday"
+defer_child() { # defer_child <item> <reason>
+    mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-$1"
+    printf '%s' "$2" > "$CASE/ctx/work-on-t-$CT_CORE-$1/verification_deferral"
+}
+remote_head() { git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE" | cut -f1; }
+# part2 -- the new node PR's body after its one top-level ---.
+part2() { db_pr 50 | jq -r '.body' | awk 'f; /^---[[:space:]]*$/ { f = 1 }'; }
+# set_body <pr> <file> -- a person's gh pr edit of a node PR, in the model.
+set_body() {
+    jq --argjson n "$1" --rawfile b "$2" '(.prs[] | select(.number == $n) | .body) = $b' \
+        "$GH_CALL_LOG.d/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$GH_CALL_LOG.d/db.json"
+}
+
+np_case defer-child
+ct_write_db
+fresh_repo defer-child
+defer_child 2 "$REASON2"
+push_node
+P2=$(part2)
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$(git -C "$WT" rev-parse HEAD)" ]; then
+    pass "a node whose second work item deferred is pushed"
+else
+    fail "defer-child push: rc=$RC; $(tail -3 "$CASE/stderr")"
+fi
+if grep -qx '## Verification' <<<"$P2" \
+    && grep -qx 'Local verification did not run: it was deferred to hosted CI.' <<<"$P2" \
+    && grep -qxF "Reason: $REASON2" <<<"$P2" \
+    && grep -qx 'Hosted CI is the build of record for this change.' <<<"$P2"; then
+    pass "the new node PR's second part records the child's deferral in phase-6-pr.md's words"
+else
+    fail "the node PR's second part: [$P2]"
+fi
+if bash "$SCRIPT_DIR/../../work-on/scripts/check-pr-output.sh" --deferral-record --reason "$REASON2" \
+        --owned --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open >/dev/null 2>"$CASE/check.err"; then
+    pass "work-on's own --deferral-record check passes the body node-push.sh wrote"
+else
+    fail "check-pr-output.sh refused the written body: $(cat "$CASE/check.err")"
+fi
+[ "$(grep -c '^Reason: ' <<<"$P2")" -eq 1 ] && pass "one child's reason: one Reason: line" \
+    || fail "Reason: lines: [$(grep '^Reason: ' <<<"$P2")]"
+
+# An --issues that leaves a work item out can't hide that item's deferral:
+# the node's work items in the PLAN are read too.
+np_case defer-subset
+ct_write_db
+fresh_repo defer-subset
+defer_child 2 "$REASON2"
+push_node_issues() { # push_node_issues <issues>
+    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues "$1" \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
+    RC=$?
+}
+push_node_issues 1
+if [ "$RC" -eq 0 ] && part2 | grep -qxF "Reason: $REASON2"; then
+    pass "--issues 1 on a node whose PLAN items are 1,2: item 2's deferral is still recorded"
+else
+    fail "defer-subset: rc=$RC part2=[$(part2)]"
+fi
+
+np_case defer-run
+ct_write_db
+fresh_repo defer-run
+defer_child 1 "$REASON"
+defer_child 2 "$REASON2"
+push_node --verification hosted-ci --reason "$REASON"
+P2=$(part2)
+if [ "$RC" -eq 0 ] && [ "$(grep '^Reason: ' <<<"$P2")" = "$(printf 'Reason: %s\nReason: %s' "$REASON" "$REASON2")" ]; then
+    pass "the run's reason and a second child's: one Reason: line each, the shared one once"
+else
+    fail "defer-run: rc=$RC part2=[$P2]"
+fi
+
+np_case defer-run-only
+ct_write_db
+fresh_repo defer-run-only
+push_node --verification hosted-ci --reason "$REASON"
+if [ "$RC" -eq 0 ] && part2 | grep -qxF "Reason: $REASON"; then
+    pass "the run deferred and no child session holds the key: the run's reason is recorded"
+else
+    fail "defer-run-only: rc=$RC part2=[$(part2)]"
+fi
+
+np_case defer-none
+ct_write_db
+fresh_repo defer-none
+push_node --verification local --reason ""
+NBODY=$(db_pr 50 | jq -r '.body')
+if [ "$RC" -eq 0 ] && ! grep -qi 'verification' <<<"$NBODY"; then
+    pass "a node with no deferral: the body carries no Verification section"
+else
+    fail "defer-none: rc=$RC body=[$(db_pr 50 | jq -r '.body')]"
+fi
+if ct_calls | grep -Eq '^pr view .*--json body$'; then
+    fail "a node with no deferral read a node PR's body: $(ct_calls | grep -E '^pr view .*--json body$')"
+else
+    pass "a node with no deferral makes no deferral-record body read"
+fi
+
+# The hold: a node PR already open (pushed before its second work item
+# deferred) gets no push until its body records the deferral.
+np_case defer-adopt
+ct_write_db
+fresh_repo defer-adopt
+push_node
+FIRST=$(remote_head)
+defer_child 2 "$REASON2"
+(cd "$WT" && git commit -q --allow-empty -m "feat: second item")
+: > "$GH_CALL_LOG"
+push_node
+if [ "$RC" -eq 80 ] && [ "$(remote_head)" = "$FIRST" ] \
+    && ! ct_calls | grep -Eq '^pr (create|edit|ready|merge)' \
+    && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$FIRST" ]; then
+    pass "an open node PR whose body lacks a child's deferral: exit 80, nothing pushed, written or recorded"
+else
+    fail "defer-adopt hold: rc=$RC remote=[$(remote_head)] first=[$FIRST] calls=[$(ct_calls | grep '^pr ')]"
+fi
+grep -q 'does not say that local verification did not run' "$CASE/stderr" \
+    && grep -qF "verbatim: $REASON2" "$CASE/stderr" \
+    && pass "the hold names each part the body misses" || fail "hold stderr: [$(cat "$CASE/stderr")]"
+db_pr 50 | jq -r '.body' > "$CASE/body.md"
+printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\nReason: %s\nHosted CI is the build of record for this change.\n' \
+    "$REASON2" >> "$CASE/body.md"
+set_body 50 "$CASE/body.md"
+push_node
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$(git -C "$WT" rev-parse HEAD)" ]; then
+    pass "once the body records it, the same push goes through"
+else
+    fail "defer-adopt after the record: rc=$RC; $(tail -3 "$CASE/stderr")"
+fi
+
+np_case defer-unreadable
+ct_write_db
+fresh_repo defer-unreadable
+push_node --verification hosted-ci --reason ""
+if [ "$RC" -eq 72 ] && [ -z "$(remote_head)" ] && ! ct_calls | grep -q '^pr create'; then
+    pass "hosted-ci with no reason can't be read: exit 72, nothing pushed"
+else
+    fail "defer-unreadable: rc=$RC remote=[$(remote_head)]"
+fi
+defer_child 1 "$REASON"
+export KOTO_FAIL_EXISTS=verification_deferral
+push_node
+if [ "$RC" -eq 72 ] && [ -z "$(remote_head)" ]; then
+    pass "a child's key read that fails: exit 72, nothing pushed"
+else
+    fail "defer-unreadable koto: rc=$RC"
+fi
+unset KOTO_FAIL_EXISTS
+(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" --verification sometimes >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "--verification outside local and hosted-ci: 64" || fail "--verification sometimes: rc=$rc"
+(cd "$WT" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" \
+    --verification hosted-ci >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "--verification in the order mode: 64" || fail "order --verification: rc=$rc"
 
 np_case adopt-missing
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
@@ -938,6 +1112,23 @@ if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; th
     pass "a work item's goal naming a private/ path, public node under a private home: 78, nothing pushed"
 else
     fail "vis-goal: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
+fi
+
+# A deferral reason the new node PR would record is published with it, so it
+# is scanned too.
+np_case vis-reason
+CT_VIS_A=private
+CT_VIS_B=public
+ct_write_db
+fresh_repo vis-reason
+node_clone vis-reason
+OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" \
+    --verification hosted-ci --reason "see private/plans/notes.md" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "a deferral reason naming a private/ path, public node under a private home: 78, nothing pushed"
+else
+    fail "vis-reason: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
 fi
 
 # The visibility check runs before the ownership read, whose diagnostics name

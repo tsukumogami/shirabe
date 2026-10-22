@@ -1,39 +1,52 @@
 #!/usr/bin/env bash
-# shared-deferral-record.sh -- does /execute's shared PR record every
-# verification deferral its run carries?
+# shared-deferral-record.sh -- does /execute's shared PR, or a coordinated
+# node PR, record every verification deferral its children carry?
 # Part of the execute skill
 #
 # A gate script: pr_finalization's deferral_recorded gate runs it, and koto
 # routes on its exit status. A /work-on child on the shared branch opens no PR
 # of its own, so its pr_creation never runs the verification_deferral_recorded
 # gate a standalone run passes; this is that gate for the PR the children
-# share.
+# share. A coordinated run's node PR is the same kind of PR, shared by the
+# node's work items: node-push.sh runs this with --list to write the record
+# into a new node PR's body and to check an adopted one before it pushes, and
+# coordinated-next.sh (through coord-common.sh) runs it before a node PR is
+# evaluated or merged.
 #
 # Usage: shared-deferral-record.sh --session <execute session>
 #            --verification <local|hosted-ci|""> [--reason <reason>]
-#            -- <owned-pr.sh arguments>
+#            [--child <session>]... [--list | -- <owned-pr.sh arguments>]
 #
 # The reasons the PR must carry, each once:
 #
-#   - the run's own, when --verification is hosted-ci: the reason execute.md's
-#     VERIFICATION_DEFERRAL_REASON holds and spawn_and_await gave every child.
-#     It counts even when a child's session is gone.
+#   - the run's own, when --verification is hosted-ci: the reason the run's
+#     VERIFICATION_DEFERRAL_REASON holds and every child was given. It counts
+#     even when a child's session is gone.
 #   - every child's `verification_deferral` context key, which /work-on's
-#     verification_deferred writes when a child defers. The children are the
-#     ones `koto workflows --children <session>` lists; a child without the
-#     key didn't defer. This catches a child that deferred without the run's
-#     variable (a task built by hand).
+#     verification_deferred writes when a child defers. Without --child the
+#     children are the ones `koto workflows --children <session>` lists (a
+#     single-pr run's, which koto materializes). With --child they are exactly
+#     the sessions named, in order: a coordinated node's work items, which
+#     step agents open as root sessions, so no child listing finds them. A
+#     child without the key, or a named session that doesn't exist, didn't
+#     defer. This catches a child that deferred without the run's variable (a
+#     task built by hand).
 #
-# With no reason the script exits 0 having read nothing from GitHub, so a run
-# that deferred nothing passes as it did before the gate existed. Otherwise it
-# runs /work-on's check-pr-output.sh --deferral-record over the owned PR, one
-# --reason per reason, so the PR body is checked against the same three parts,
-# in the same words, as a standalone run's: a line saying local verification
-# did not run, each reason verbatim, and a line saying hosted CI is the build
-# of record (skills/work-on/references/phases/phase-6-pr.md).
+# With --list the script prints the reasons, one per line in the order above,
+# and exits 0 without reading GitHub; nothing after --list is read. koto's
+# value allowlist keeps a reason to one line.
+#
+# Otherwise, with no reason the script exits 0 having read nothing from
+# GitHub, so a run that deferred nothing passes as it did before the gate
+# existed. With one or more it runs /work-on's check-pr-output.sh
+# --deferral-record over the owned PR, one --reason per reason, so the PR body
+# is checked against the same three parts, in the same words, as a standalone
+# run's: a line saying local verification did not run, each reason verbatim,
+# and a line saying hosted CI is the build of record
+# (skills/work-on/references/phases/phase-6-pr.md).
 #
 # Exit codes (the gate scripts' shared convention):
-#   0  no deferral, or the PR body records every reason
+#   0  no deferral, or the PR body records every reason (--list: listed)
 #   1  the PR body misses a part (stderr names each)
 #   2  could not decide: a usage error, hosted-ci with no reason, a koto read
 #      that failed, a child's key that is empty, or check-pr-output.sh's own 2
@@ -62,16 +75,21 @@ SESSION=""
 VERIFICATION=""
 RUN_REASON=""
 SAW_VERIFICATION=0
+LIST=0
+CHILDREN=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
         --verification) [ $# -ge 2 ] || usage; VERIFICATION=$2; SAW_VERIFICATION=1; shift 2 ;;
         --reason) [ $# -ge 2 ] || usage; RUN_REASON=$2; shift 2 ;;
+        --child) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILDREN+=("$2"); shift 2 ;;
+        --list) LIST=1; shift; break ;;
         --) shift; break ;;
         *) usage ;;
     esac
 done
-[ -n "$SESSION" ] && [ "$SAW_VERIFICATION" = 1 ] && [ $# -gt 0 ] || usage
+[ -n "$SESSION" ] && [ "$SAW_VERIFICATION" = 1 ] || usage
+[ "$LIST" = 1 ] || [ $# -gt 0 ] || usage
 case "$VERIFICATION" in
     ""|local|hosted-ci) ;;
     *) undecided "--verification must be local or hosted-ci, got [$VERIFICATION]" ;;
@@ -99,11 +117,15 @@ if [ "$VERIFICATION" = hosted-ci ]; then
     add_reason "$RUN_REASON"
 fi
 
-koto workflows --children "$SESSION" > "$WORK/children.json" 2> "$WORK/koto.err" < /dev/null \
-    || undecided "koto workflows --children $SESSION failed: $(koto_err)"
-jq -e 'type == "array" and all(.[]; (.name | type) == "string")' "$WORK/children.json" >/dev/null \
-    || undecided "koto workflows --children $SESSION did not answer a list of sessions"
-jq -r '.[].name' "$WORK/children.json" > "$WORK/children.txt"
+if [ "${#CHILDREN[@]}" -gt 0 ]; then
+    printf '%s\n' "${CHILDREN[@]}" > "$WORK/children.txt"
+else
+    koto workflows --children "$SESSION" > "$WORK/children.json" 2> "$WORK/koto.err" < /dev/null \
+        || undecided "koto workflows --children $SESSION failed: $(koto_err)"
+    jq -e 'type == "array" and all(.[]; (.name | type) == "string")' "$WORK/children.json" >/dev/null \
+        || undecided "koto workflows --children $SESSION did not answer a list of sessions"
+    jq -r '.[].name' "$WORK/children.json" > "$WORK/children.txt"
+fi
 
 while IFS= read -r child; do
     [ -n "$child" ] || continue
@@ -120,6 +142,11 @@ while IFS= read -r child; do
     [ -n "$reason" ] || undecided "$child recorded an empty verification_deferral"
     add_reason "$reason"
 done < "$WORK/children.txt"
+
+if [ "$LIST" = 1 ]; then
+    [ "${#REASONS[@]}" -eq 0 ] || printf '%s\n' "${REASONS[@]}"
+    exit 0
+fi
 
 if [ "${#REASONS[@]}" -eq 0 ]; then
     echo "shared-deferral-record: no deferral in this run; nothing to record" >&2
