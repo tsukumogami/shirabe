@@ -6,11 +6,17 @@
 # --no-cleanup on every tick, so the tick that reaches paused_for_review or
 # another success terminal keeps the session's context instead of deleting it
 # (references/koto-session-retention.md). context add/get carry the settled
-# branch and the per-child batch view, and status reports progress. The
-# `koto workflows` call that finds earlier children's summaries belongs to
-# /work-on, which runs it in a child's analysis. `context add` pipes on stdin
-# (the settled-branch write, and the drift-facts writes of plan_intent.md and
-# drift_facts.json) and needs no flag.
+# branch and the per-child batch view, and status reports progress. `context
+# add` pipes on stdin for the settled-branch write and the drift-facts writes
+# of plan_intent.md and drift_facts.json; the lead shape's `step_refine/<step>.md`
+# record, written by the owning session between steps in both templates, is
+# `context add --from-file`.
+#
+# `koto workflows --children` is the owning session's in the lead shape: it
+# names each step's child from the list in spawn_and_await, and after a lost
+# context it names the children whose `koto status` it reads (SKILL.md, and
+# the coordinated template's step-agent handoff). A later /work-on child runs
+# the same call in its analysis to find its predecessors' summaries.
 #
 # The completion cascade's script owns the shirabe side. It lives under /work-on
 # (skills/work-on/scripts/run-cascade.sh), which runs it for a standalone issue,
@@ -44,14 +50,8 @@
 # report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
-# `koto workflows --children` in spawn_and_await names
-# the call a later /work-on child makes to find its predecessors' summaries;
-# the orchestrator never runs it. Nothing mechanical separates a citation from
-# a call site, so it is exempted by name for scripts/check-skill-requires.sh;
-# an exemption that stops matching its line fails as stale. (`--pr-body` in the
-# template only names what CI enforces, but node-push.sh runs it, so the mode
-# record below declares it and no exemption is needed.)
-#not-a-call-site	skills/execute/koto-templates/execute.md	koto	--children	Names the call a later /work-on child makes to read its predecessors' summaries; the /execute orchestrator never runs it.
+# (`--pr-body` in the template only names what CI enforces, but node-push.sh
+# runs it, so the mode record below declares it and no exemption is needed.)
 #
 # The koto floor. /execute enters its orchestrator session through
 # skills/execute/scripts/execute-open.sh and the shared scripts/koto-open.sh,
@@ -115,11 +115,12 @@
 # per indexed ref.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
-koto	context add	-	always
+koto	context add	--from-file	always
 koto	context get	-	always
 koto	context remove	-	always
 koto	context exists	-	always
 koto	status	-	always
+koto	workflows	--children	always
 koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
