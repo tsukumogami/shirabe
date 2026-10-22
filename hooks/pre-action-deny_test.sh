@@ -256,11 +256,24 @@ for c in 'gh issue create --title \"hook refuses gh pr create\" --body \"x\"' \
     run_hook "$c"
     expect_none "quoted mention: $c gives no decision"
 done
-# A create or edit behind env is still wrapped, whatever its body, after an
-# operand env takes as an assignment or behind a launcher env runs.
+# Behind an env that only unsets and sets variables, a create or edit gets
+# the plain command's decision (#918).
+for c in "env -u GH_TOKEN gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    "env -u GH_TOKEN -u GITHUB_TOKEN GH_HOST=github.com gh pr edit 12 --body $GOOD"; do
+    run_hook "$c"
+    expect_none "env-unset: $c gives no decision"
+done
 for c in "env -u GH_TOKEN $BAD_CREATE" \
-    "env -u GH_TOKEN gh pr create --title \\\"feat: x\\\" --body $GOOD" \
-    "env GH_TOKEN= gh pr edit 12 --body $BAD" \
+    "env GH_TOKEN= gh pr edit 12 --body $BAD"; do
+    run_hook "$c"
+    expect_deny "env-unset: $c is checked" "pr-body/one-separator" '!wrapped'
+done
+# Any other env form keeps a create or edit wrapped, whatever its body: an
+# option other than -u, an operand env takes as an assignment that isn't a
+# shell one, or a launcher env runs.
+for c in "env -i gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    "env -u GH_TOKEN -- gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    "env -C /tmp gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     "env a-b=1 gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     "env stdbuf -oL gh pr create --title \\\"feat: x\\\" --body $GOOD" \
     'env caffeinate git push' \
