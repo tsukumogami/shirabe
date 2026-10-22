@@ -189,7 +189,8 @@ nothing else.
    its end as its own directives say, then tick `/deliver` again.
 
    Who runs `/scope` depends on the mode. Under `--auto` the run takes the lead
-   shape: the owning session hands the `/scope` Skill call, with exactly the
+   shape (`/execute`'s SKILL.md, "The lead shape", describes it for the steps
+   of a plan): the owning session hands the `/scope` Skill call, with exactly the
    arguments the directive builds, to one scope agent started in the foreground
    in the same checkout. The scope agent runs `/scope` to its terminal and
    returns at most ten lines, none of which the run uses: the owning session

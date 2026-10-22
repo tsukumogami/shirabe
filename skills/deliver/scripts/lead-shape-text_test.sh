@@ -142,6 +142,8 @@ check "SKILL.md's Running the Workflow" "$WORK/running.flat" "$WORK/running.txt"
 
 # --- the check bites ----------------------------------------------------------------
 
+# WANT is the scope-agent line of scope_run.txt above, verbatim: reword one
+# and the other has to follow.
 sed 's/to one scope agent started in the foreground/to a helper/' "$WORK/scope_run.flat" > "$WORK/scope_run-mutated.flat"
 GONE=$(missing "$WORK/scope_run-mutated.flat" "$WORK/scope_run.txt")
 WANT='**`auto`** -- the lead shape: hand the /scope Skill call, with exactly the arguments above, to one scope agent started in the foreground in this checkout'

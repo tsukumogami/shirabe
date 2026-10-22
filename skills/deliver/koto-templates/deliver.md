@@ -1047,7 +1047,7 @@ followed by, from this run's forwarded settings:
   when it reads `none`.
 
 Pass nothing else. Who makes the call depends on this run's mode, which reads
-`{{MODE}}`:
+`{{MODE}}`; follow the bullet that matches it:
 
 - **`auto`** -- the lead shape: hand the /scope Skill call, with exactly the
   arguments above, to one scope agent started in the foreground in this
