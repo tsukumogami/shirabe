@@ -100,6 +100,8 @@ codec scripts/record-write-core.sh
 codec scripts/report-questions.sh
 codec scripts/report-questions_test.sh
 codec scripts/roadmap-status.sh
+codec scripts/state-schema.jq
+codec scripts/state-schema_test.sh
 codec scripts/testdata/board/helpers.sh
 codec scripts/unit-cost.sh
 collaborators scripts/record-append.sh
@@ -206,6 +208,8 @@ libs scripts/rotation-close.sh
 libs scripts/rotation-close_test.sh
 libs scripts/session-store_engine_test.sh
 libs scripts/start-check.sh
+libs scripts/state-schema.jq
+libs scripts/state-schema_test.sh
 libs scripts/testdata/board/helpers.sh
 libs scripts/testdata/coordinate-engine-lib.sh
 libs scripts/testdata/test-lib.sh
@@ -251,6 +255,8 @@ store-codes scripts/record-source_test.sh
 store-codes scripts/record-state.sh
 store-codes scripts/record-write-core.sh
 store-codes scripts/record-write_test.sh
+store-codes scripts/state-schema.jq
+store-codes scripts/state-schema_test.sh
 store-codes scripts/testdata/rule-coverage.tsv
 title koto-templates/coordinate.md
 title scripts/closeout-read_test.sh
@@ -288,6 +294,7 @@ title scripts/roadmap-features_test.sh
 title scripts/roadmap-status-entry_test.sh
 title scripts/roadmap-status_test.sh
 title scripts/session-store_engine_test.sh
+title scripts/state-schema_test.sh
 title scripts/testdata/coordinate-engine-lib.sh
 title scripts/testdata/rule-coverage.tsv
 title scripts/unit-cost-on_test.sh
