@@ -141,7 +141,12 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}" --no-cleanup
+EV=$(mktemp -d) || exit 1
+printf '{"%s": "issues_found"}\n' "$OUTCOME_FIELD" > "$EV/evidence.json"
+koto next <WF> --with-data @"$EV/evidence.json" --no-cleanup
+NEXT_STATUS=$?
+rm -rf "$EV"
+exit "$NEXT_STATUS"
 ```
 
 `pre_pr.md` is on the list because it's written in this state, so

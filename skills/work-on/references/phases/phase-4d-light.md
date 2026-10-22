@@ -98,7 +98,12 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
+EV=$(mktemp -d) || exit 1
+printf '{"%s": "blocking_retry"}\n' "$OUTCOME_FIELD" > "$EV/evidence.json"
+koto next <WF> --with-data @"$EV/evidence.json" --no-cleanup
+NEXT_STATUS=$?
+rm -rf "$EV"
+exit "$NEXT_STATUS"
 ```
 
 Every panel's key goes, not only this one's: if the level is raised on the way back, the run enters scrutiny and review, and neither may be read on a summary written before the fix; their verdicts come from the ledger. `phase-4a-scrutiny.md` explains the removal and the two checks. The verdict ledger and the review-level ledger stay.

@@ -84,7 +84,12 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
+EV=$(mktemp -d) || exit 1
+printf '{"%s": "blocking_retry"}\n' "$OUTCOME_FIELD" > "$EV/evidence.json"
+koto next <WF> --with-data @"$EV/evidence.json" --no-cleanup
+NEXT_STATUS=$?
+rm -rf "$EV"
+exit "$NEXT_STATUS"
 ```
 
 No gate reads `review_results.json` for the pass any more, but a summary left in context would read as this round's on the next pass, and `finalization`'s `summary_exists` gate would accept a `summary.md` written before the fix.

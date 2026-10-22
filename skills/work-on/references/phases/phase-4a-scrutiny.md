@@ -117,7 +117,12 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
     exit 1
   fi
 done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
+EV=$(mktemp -d) || exit 1
+printf '{"%s": "blocking_retry"}\n' "$OUTCOME_FIELD" > "$EV/evidence.json"
+koto next <WF> --with-data @"$EV/evidence.json" --no-cleanup
+NEXT_STATUS=$?
+rm -rf "$EV"
+exit "$NEXT_STATUS"
 ```
 
 Why removal rather than leaving the old summary to be overwritten: a summary left in context reads as this round's on the next pass, though it describes code the coder agent has since changed. No panel gate reads the `<panel>_results.json` keys any more (each panel's pass is its `<panel>_verdict` gate, over the verdict ledger), but `finalization`'s `summary_exists` gate is still `context-exists`: it asks whether `summary.md` is present and nothing else, and a summary written before the fix would satisfy it. Removing the keys keeps every artifact the return trip reads to this round's.

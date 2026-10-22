@@ -260,6 +260,12 @@ How each state runs is its directive in `skills/execute/koto-templates/execute.m
 koto next execute-<plan-slug> --with-data @"$TMP" --no-cleanup
 ```
 
+Evidence goes in a file, never inline: `$TMP` is a file in a private scratch
+directory holding the JSON object, removed after the tick. Claude Code's
+worktree-isolation check refuses a quoted JSON argument after a
+token-stripping prefix such as `env -u GH_TOKEN`, and the file form gives it
+nothing to misread.
+
 Without it, the tick that reaches a success terminal disposes of the session
 and every context key it holds. At `paused_for_review` that costs what a resume reads, which is
 the worst loss, since the pause is solicited; at `merged`,

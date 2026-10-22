@@ -3147,8 +3147,11 @@ A blocking human-approval gate for a deferred acceptance criterion. You arrive h
 because finalization reported `deferral_requested` — an acceptance criterion is unmet.
 Halt and surface the specific unmet criterion to the human as an explicit decision.
 
-- If the human **approves** the deferral: record it as their decision with
-  `koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'`,
+- If the human **approves** the deferral: record it as their decision. Write
+  `{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}` to
+  `decision.json` in the run's scratch directory and run
+  `koto decisions record <WF> --with-data @<scratch>/decision.json` (the file
+  form, as SKILL.md's execution loop says; remove the file after),
   then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
   `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`

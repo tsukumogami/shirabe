@@ -496,12 +496,27 @@ Repeat:
 1. Run `koto next <WF> --no-cleanup`
 2. If `action: "execute"` with `advanced: true` — run it again
 3. If `action: "execute"` with `expects` — do the work described in `directive`,
-   read any phase file it references, then submit evidence:
+   read any phase file it references, then submit evidence from a file:
+   write the JSON object (`{"field_name": "value", ...}`) to `evidence.json` in
+   the run's scratch directory with the Write tool, tick, and remove the file:
    ```bash
-   koto next <WF> --with-data '{"field_name": "value", ...}' --no-cleanup
+   koto next <WF> --with-data @<scratch>/evidence.json --no-cleanup
+   rm <scratch>/evidence.json
    ```
    Provide the fields listed in `expects`. Check `expects.options` for valid values.
 4. If `action: "done"` — report the outcome and stop.
+
+**Evidence goes in a file, never inline.** Every command in this workflow that
+passes `--with-data` (`koto next`, `koto decisions record`) passes `@<file>`,
+not a quoted JSON argument. Claude Code's worktree-isolation check refuses a
+quoted argument after a token-stripping prefix such as `env -u GH_TOKEN`,
+reading the JSON as the program `env` runs, and the file form gives it
+nothing to misread. The scratch directory is the run's own, from
+`${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh scratch` (private, outside the
+work tree; `references/skill-session-convention.md`): allocate it once, write
+each evidence file there, remove each after its tick, and remove the directory
+when the run ends. The JSON is the same object the inline form would have
+passed. Never reword evidence to get a command past a refusal.
 
 **Retention: every `koto next` in this workflow carries `--no-cleanup` — every
 tick of the loop above, the entry-evidence tick, and the Resume tick below —
@@ -573,10 +588,13 @@ Ticking is not a substitute for the state read: a finished session answers
 
 ### Decision Capture
 
-During analysis and implementation, record non-obvious decisions:
+During analysis and implementation, record non-obvious decisions. Write
+`{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}` to
+`decision.json` in the run's scratch directory, then:
 
 ```bash
-koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'
+koto decisions record <WF> --with-data @<scratch>/decision.json
+rm <scratch>/decision.json
 ```
 
 ## Output
@@ -617,10 +635,14 @@ Then:
    `--koto-leg`, on a found workflow apply the **Resume** guard first,
    then open through `work-on-open.sh` (see **Answering a Caller's Leg**),
    fresh or resumed.
-2. On a fresh workflow, submit entry evidence, with `--no-cleanup` like every
-   later tick:
-   - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}' --no-cleanup`
-   - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}' --no-cleanup`
+2. On a fresh workflow, submit entry evidence from a file (see the execution
+   loop), with `--no-cleanup` like every later tick. Write the object to
+   `<scratch>/evidence.json`:
+   - Issue-backed: `{"mode": "issue_backed", "issue_number": "<N>"}`
+   - Free-form: `{"mode": "free_form", "task_description": "..."}`
+
+   then run `koto next <WF> --with-data @<scratch>/evidence.json --no-cleanup`
+   and remove the file.
 3. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
