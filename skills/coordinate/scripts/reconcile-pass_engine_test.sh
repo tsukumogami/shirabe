@@ -44,28 +44,14 @@ mkdir -p "$KOTO_SESSIONS_BASE"
 export GIT_CEILING_DIRECTORIES="$T"
 
 # The pass waits 30 seconds of its own clock before it re-reads the listing,
-# and outside its unit-test entry that clock is `date +%s`. clock_ahead puts
+# and outside its unit-test entry that clock is `date +%s`. set_clock puts
 # a date stand-in first on PATH that reads <seconds> later than the real one,
-# and clock_real takes it away, so the pending case moves time forward
-# rather than sleeping. $T/bin is on PATH before koto starts, so the commands
-# koto runs see it. GNU date reads an epoch as `-d @N`, BSD date (macOS) as
-# `-r N`; the stand-in is written with whichever this host's date takes, and
-# passes a call that names its own time (-d, -r) to the real one.
-REAL_DATE=$(command -v date)
-if "$REAL_DATE" -d @0 +%s >/dev/null 2>&1; then AT_FLAG=-d AT_PREFIX=@; else AT_FLAG=-r AT_PREFIX=; fi
-mkdir -p "$T/bin"
+# and clear_clock takes it away (testdata/date-stand-in.sh), so the pending
+# case moves time forward rather than sleeping. $T/bin is on PATH before koto
+# starts, so the commands koto runs see it.
+. "$HERE/testdata/date-stand-in.sh"
 PATH="$T/bin:$PATH"
 export PATH
-clock_ahead() { # clock_ahead <seconds>
-    cat > "$T/bin/date" <<EOF
-#!/usr/bin/env bash
-for a in "\$@"; do case "\$a" in -d*|--date*|-r*|--reference*) exec "$REAL_DATE" "\$@" ;; esac; done
-exec "$REAL_DATE" $AT_FLAG "$AT_PREFIX\$(( \$("$REAL_DATE" +%s) + $1 ))" "\$@"
-EOF
-    chmod +x "$T/bin/date"
-    hash -r
-}
-clock_real() { rm -f "$T/bin/date"; hash -r; }
 
 PASS=0
 FAIL=0
@@ -231,9 +217,9 @@ r=$(next --with-data '{"reconciled":"reported"}')
 [ "$r" != reconcile ] && [ "$(koto status "$S" 2>/dev/null | jq -r .current_state)" = reconcile_pass ] \
     && pass "evidence is refused in reconcile_pass ($r)" || fail "evidence is refused in reconcile_pass" "$r"
 
-clock_ahead 31
+set_clock 31
 eq "once the re-read is done the report is sealed and the workflow moves to reconcile" reconcile "$(next)"
-clock_real
+clear_clock
 ctx reconcile/report.md | grep -q 'not found on this read' && pass "the sealed report says the worker was not found on this read" || fail "the sealed report says the worker was not found on this read" "$(ctx reconcile/report.md)"
 # koto's run start carries milliseconds; the deferral read takes it.
 RS=$(bash "$SC/coord-log.sh" run-start --session "$S" 2>/dev/null)
