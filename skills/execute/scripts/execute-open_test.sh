@@ -302,6 +302,20 @@ own_refusal "a --coordination-pr followed by another flag" '["docs/plans/PLAN-cp
 own_refusal "--remove without --follow-up" '["docs/plans/PLAN-cpairs.md","--remove"]'
 own_refusal "a --follow-up value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up","core"]'
 own_refusal "a --follow-up= value with no =" '["docs/plans/PLAN-cpairs.md","--follow-up=core"]'
+# The verification deferral is single-pr only (#1047): either flag on a
+# coordinated PLAN is refused here, naming the limit, never a bare unknown_var.
+own_refusal "--verification=hosted-ci on a coordinated PLAN" \
+    '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
+own_refusal "--verification=local on a coordinated PLAN" '["docs/plans/PLAN-cpairs.md","--verification=local"]'
+own_refusal "--verification-reason alone on a coordinated PLAN" '["docs/plans/PLAN-cpairs.md","--verification-reason=CI only"]'
+tokens '["docs/plans/PLAN-cpairs.md","--verification=hosted-ci","--verification-reason=CI only"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+if [ "$OUT" = "error=usage" ] && grep -q 'apply to a single-pr PLAN only' "$WORK/stderr" \
+    && grep -q 'shirabe#1047' "$WORK/stderr"; then
+    pass "a coordinated PLAN with the deferral: the refusal names the single-pr limit and the follow-up issue"
+else
+    fail "coordinated deferral refusal: out [$OUT], stderr [$(cat "$WORK/stderr")]"
+fi
 
 # A live coordinated session past coord_setup refuses the setup-only flags:
 # setup has run, so they would be accepted and never applied.

@@ -126,8 +126,9 @@ Two more flags, on both paths:
   one that passes another value is koto's refusal. A reason uses only letters,
   digits, spaces and `. _ / : @ + -` and starts with a letter or digit, for
   example `--verification-reason=host is in a measurement window until
-  02:40Z`. On a coordinated PLAN either flag is koto's `unknown_var`: node PRs
-  don't carry a deferral record yet.
+  02:40Z`. On a coordinated PLAN either flag is refused before any koto call
+  (`error=usage`, exit 64), with a message that names the limit: node PRs
+  don't record a deferral yet (#1047).
 - Five more, on a coordinated PLAN only (on a single-pr PLAN each is koto's
   `unknown_var`), each `--flag <value>` or `--flag=<value>`. They become the
   koto variables `STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE` and
@@ -184,9 +185,10 @@ every argument refusal is koto's and koto records it on the leg. `/execute`'s ow
 pre-init refusals are only those where no koto call can be built at all: a
 malformed `--koto-leg` value, a coordinated flag with no value, a `--remove`
 without `--follow-up`, a `--follow-up` value with no `=`, a
-`--verification-reason` with a character koto doesn't accept in a value, or
-`--verification=hosted-ci` with no reason (`error=usage`, the last two with
-`/work-on`'s own checks and words), an args file inside the work tree, or a
+`--verification-reason` with a character koto doesn't accept in a value,
+`--verification=hosted-ci` with no reason (these two with `/work-on`'s own
+checks and words), or either verification flag on a coordinated PLAN
+(`error=usage`), an args file inside the work tree, or a
 missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
 `execute-open.sh` refuses with `error=multi-pr` (exit 64) and a message naming
 `/work-on <PLAN>` as the entry point (per
