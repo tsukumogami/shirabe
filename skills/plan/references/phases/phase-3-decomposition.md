@@ -807,7 +807,10 @@ Use <recommended mode>, or override?
    source.** When `Plan Version Source` is `flag` or `header`, offer only
    `single-pr` and `multi-pr`: the author chose a step plan. When it is
    `default`, offer `coordinated` too, and say that choosing it plans the work
-   as `plan/v1`; step 5a then gives way to `v1` as above.
+   as `plan/v1`; step 5a then gives way to `v1` as above. The choice carries
+   into the redo: record it as a `confirmed` decision block in key
+   `work/decisions.md` before Phase 3 runs again, and when the redo reaches
+   step 5a, pass `--coordinated` for it instead of asking the author again.
 
 7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
    block in key `work/decisions.md` if the rationale is clear, or

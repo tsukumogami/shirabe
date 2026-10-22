@@ -73,7 +73,11 @@ ${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
 
 A different version exits non-zero ("this run started with plan version ...;
 resume it with ... or start a fresh run"). Stop with that line and change
-nothing. An analysis with no `Plan Version Source:` line was written before
+nothing. A fresh run starts once the interrupted session is closed, with
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close plan-<topic> abandoned`:
+the next `/plan` on the topic then opens a new session instead of resuming.
+Say so to the author, and leave the closing to them; the run itself never
+discards its own record. An analysis with no `Plan Version Source:` line was written before
 the source was recorded. Read it as `flag`, since `v2` could only be asked for
 then and a `v1` never gives way.
 

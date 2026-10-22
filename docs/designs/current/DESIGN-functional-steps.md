@@ -502,8 +502,9 @@ Build it as functional steps, each leaving the tools working:
 2. **Step rules:** FC22 and the version-aware FC01/FC04/FC15 refuse every
    invalid fixture with a message naming the step and rule.
 3. **Authoring:** `/plan --plan-version=v2` (or the header) writes a step
-   plan, the default stays `v1` for now (it has since flipped to `v2`), and
-   the format reference states the horizon, owner rule and report rule.
+   plan, the default is still `v1` at this step (it flipped to `v2` later,
+   as the dated note above records), and the format reference states the
+   horizon, owner rule and report rule.
 4. **Execution:** `/execute` and `/work-on` drive a step plan, and an
    outline step's child stops naming the step.
 5. **Readers:** the `/scope` and `/execute` shell readers report step titles

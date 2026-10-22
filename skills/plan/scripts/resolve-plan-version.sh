@@ -42,7 +42,9 @@
 # version and source a run recorded when it started. They replace the flag and
 # header stack, so a resumed run keeps its version and --needs-v1 decides from
 # where that version first came. A --plan-version given with them must name
-# the stored version. --claude-md can't be combined with them.
+# the stored version. --claude-md can't be combined with them. A record
+# written before the source was kept has no source; /plan passes `flag` for
+# it, since a v2 could only be asked for then and a v1 never gives way.
 #
 # Usage:
 #   resolve-plan-version.sh [--plan-version <v1|v2>] [--claude-md <path>]
