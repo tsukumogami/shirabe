@@ -5,9 +5,10 @@
 # Proves the check-state contract holds for every state with a default action:
 # no accepts block (evidence can't skip the read), no polling or confirmation,
 # every gate overridable: false, the only command gate is coord-verdict.sh over
-# the state's own capture, and a context gate appears only as a decider input
-# (context-exists), or as the facts pick's decider slice is cut from
-# (coord/pick.json beside coord/pick_slice.json). One command gate reads another state's capture on purpose:
+# the state's own capture, and a context gate appears only on a decider
+# input's key (context-exists), or on coord/pick.json, the facts pick_facts
+# cuts the pick decider's input, coord/pick_slice.json, from. One command gate
+# reads another state's capture on purpose:
 # report_questions' report_holding re-reads report_facts' sealed verdict, the
 # one report_facts routed on, to send a report with no questions on to
 # classification only when it had a holding. Also: the design's decision
