@@ -329,6 +329,47 @@ hop_in_copy() { # <copy>
 rf_test_stages "--hop prd" docs/required-sections 1 "" hop_in_copy \
     skills/scope/scripts/check-hop-document.sh skills/writing-style/rules.yaml
 
+# A retired rule's finding prints nothing, so the closing line must not say a
+# finding below block printed.
+HOP_COPY="$RF_TEST_DIR/hop-retired"
+if rf_test_stage_copy "$HOP_COPY" docs/required-sections retired \
+    skills/scope/scripts/check-hop-document.sh skills/writing-style/rules.yaml 2>"$ERR"; then
+    hop_in_copy "$HOP_COPY" > "$OUT" 2> "$ERR"
+    RC=$?
+    if [ "$RC" -eq 0 ] && [ ! -s "$OUT" ] && ! grep -qF 'no violation is of a rule at block' "$ERR" \
+        && grep -qF 'docs/prds/PRD-t.md pass' "$ERR"; then
+        pass "a retired rule's finding prints nothing and the gate says only that the document passes"
+    else
+        fail "retired finding: rc=$RC out=[$(cat "$OUT")] stderr=[$(cat "$ERR")]"
+    fi
+else
+    fail "could not make a plugin copy with docs/required-sections at retired: $(cat "$ERR")"
+fi
+rm -rf "$HOP_COPY"
+
+# The escalation ladder runs on a block exit: with the template's context and
+# koto's log saying the rule already failed this gate once, the rule's full
+# text is delivered on stderr. docs/required-sections' text sits outside the
+# paths `release` prints, so the ladder says where it is instead.
+HOP_LADDER_LOG="$WORKDIR/hop-ladder.jsonl"
+rf_test_ladder_log "$HOP_LADDER_LOG" prd_hop prd_document docs/required-sections 1
+: > "$STUB_LOG"
+(cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" SHIRABE_GATE_LOG="$HOP_LADDER_LOG" SHIRABE_GATE_NAME=prd_document \
+    "$CHECK" --topic t --hop prd) > "$OUT" 2> "$ERR"
+RC=$?
+if [ "$RC" -eq 1 ] && grep -qF "rule-findings: docs/required-sections's full text is at docs/" "$ERR"; then
+    pass "a block exit runs the escalation ladder: a second failure delivers where the rule's text is"
+else
+    fail "ladder on a block exit: rc=$RC stderr=[$(cat "$ERR")]"
+fi
+(cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" "$CHECK" --topic t --hop prd) > "$OUT" 2> "$ERR"
+RC=$?
+if [ "$RC" -eq 1 ] && ! grep -q '^::shirabe-rule::' "$ERR" && ! grep -qF 'full text is at' "$ERR"; then
+    pass "without the ladder's context a block exit delivers no rule text"
+else
+    fail "no ladder context: rc=$RC stderr=[$(head -c 600 "$ERR")]"
+fi
+
 LONG=$(awk 'BEGIN { for (i = 0; i < 60; i++) printf "0123456789" }')
 stub_json "{\"schema_version\":\"shirabe-validate/v1\",\"summary\":{\"outcome\":\"violations\",\"errors\":1,\"notices\":0},\"findings\":[{\"code\":\"R6\",\"severity\":\"error\",\"message\":\"[R6] $LONG\",\"file\":\"docs/prds/PRD-t.md\",\"line\":4}]}"
 STUB_RC=2
