@@ -320,9 +320,10 @@ non-terminal, the outline case, and what counts as data.
 **Lost context?** After a compaction, run `koto status` on `execute-<topic>`,
 on each child (`koto workflows --children execute-<topic>` names them), and,
 under `/deliver`, on `deliver-<topic>`, before the next action, and go on from
-the state each reports. Step agents run in the foreground, so none is still
-running once the owning session acts again: a non-terminal child goes to a new
-step agent, which resumes it from its current state. An outline child at
+the state each reports. Step agents run in the foreground, so none should still
+be running once the owning session acts again; once the harness shows none
+running, a non-terminal child goes to a new step agent, which resumes it from
+its current state. An outline child at
 `validation_exit` is detailed, rewound with `koto rewind <child>`, and handed
 off to a step agent.
 
