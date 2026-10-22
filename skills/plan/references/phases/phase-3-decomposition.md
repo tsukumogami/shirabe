@@ -731,7 +731,8 @@ for applying it.
    ```
 
    Both values come from key `work/analysis.md` (a missing source line reads
-   as `flag`). When the source is `default`, the script prints `v1` and one
+   as `flag`). On a resumed run, SKILL.md's Resume Logic has already checked
+   this invocation's `--plan-version` against them and updated the source. When the source is `default`, the script prints `v1` and one
    stderr line. Repeat that line to the author, set `Plan Version: v1` in
    `work/analysis.md` and leave its source `default`, remove key
    `work/decomposition.md`, and run Phase 3 again from the top on the

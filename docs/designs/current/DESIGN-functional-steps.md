@@ -25,8 +25,8 @@ rationale: |
   than each reader avoids the drift the parser was created to end. Refusing
   outline steps where the step's work starts matches when the plan's owner
   details it: tasks are spawned up front, but each child reads its step from
-  the plan at start. A one-place default lets the flip wait for the
-  checkpoint-wording comparison as a one-line change.
+  the plan at start. A one-place default let the flip wait for the
+  checkpoint-wording comparison as a one-line change, which it was.
 upstream: docs/prds/PRD-functional-steps.md
 decision_provenance: inline-resolved
 ---

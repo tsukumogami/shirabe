@@ -63,7 +63,9 @@ asks for `v2` never gives way.
 **On a resume the recorded version stands.** When the Resume Check above
 finds `work/analysis.md`, don't resolve the version again; the flag and header
 are not read a second time. If the new invocation carries `--plan-version`,
-check it against the record:
+check it against the record. This check runs on every resume, at whichever
+phase SKILL.md's Resume Logic re-enters, not only when the run comes back
+through Phase 1:
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh --with-source \

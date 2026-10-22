@@ -492,6 +492,13 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 Each key row is `koto context exists plan-<topic> <key>`. When resuming, read
 the existing key (`koto context get`) to restore context before continuing.
 
+**The recorded plan version, on every resume.** Whichever row a resume enters
+at, once key `work/analysis.md` exists and this invocation carries
+`--plan-version`, run Phase 1's version check for a resume (step 1.0a, "On a
+resume") before going on. A different version stops the run. The same version
+makes `Plan Version Source: flag` in `work/analysis.md`, so a later step 5a
+reads the version as asked for. The rows above never skip this check.
+
 **Running under a parent.** The first row runs
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read plan <topic>`
 with the topic this run works on (derived from the source document's file
