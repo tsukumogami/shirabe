@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A green check after a shirabe run can't be trusted to mean the behaviour
   landed. A pass that came from editing a test counts exactly like one that
@@ -23,7 +23,7 @@ upstream: docs/briefs/BRIEF-red-first-fixes.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
