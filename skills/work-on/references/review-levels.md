@@ -93,8 +93,11 @@ lap, `review-level.sh facts` records the change's facts in
   lines, then more files, with a tie keeping `impl_base`. An `impl_base`
   recorded after some of the work would otherwise hide that work and lower
   the floor. With no merge-base (no shared history) `impl_base` is used
-  alone. `review_facts.json` names the winner in `base_source` and keeps
-  both candidates under `bases`. Uncommitted work isn't counted. A rename is
+  alone. On a shared branch the merge-base candidate is skipped and
+  `impl_base` is the only base (see "A step's level under the lead shape"
+  below). `review_facts.json` names the winner in `base_source`, the shared
+  branch in `shared_branch` (an empty string off one), and keeps both
+  candidates under `bases`. Uncommitted work isn't counted. A rename is
   one file plus its changed lines, and both of its paths are classified; a
   deletion counts its deleted lines.
 - changed lines (added plus deleted) and changed files;
@@ -177,6 +180,26 @@ through. An agent `fail` is acted on with a plain raise, not
 `--cause veto:<criterion>`, because a `veto` ledger line records only a raise
 the decider asked for. koto keeps the answer as the agent's: it is never
 written as a decider verdict, so nothing that measures the decider reads it.
+
+## A step's level under the lead shape
+
+When `/execute` runs a plan in the lead shape, every step's `/work-on` child
+commits to one shared branch, and the run's `SHARED_BRANCH` names it. The
+review-level check passes it to `facts` as `--shared-branch`. There,
+`impl_base` is the only base: the merge-base with the default branch holds
+every earlier step's commits, so measuring from it would floor a late step on
+work it didn't do. An `impl_base` that is unset on a shared branch is no base
+at all, and `facts` exits 64 rather than falling back to the merge-base.
+`record-changed-paths.sh` also measures from `impl_base`, which keeps the
+siblings' commits out of `changed_paths.txt`, but it does fall back to the
+merge-base when `impl_base` is unset.
+
+The step's own `/work-on` chooses its level, inside the bound the run was
+given, and its own commits set the floor. A path in the `ci`, `security`,
+`template` or `engine` class floors a step at `full`, as anywhere else. A step
+that touches none of those classes and stays within 400 changed lines and 12
+changed files floors no higher than `standard`, however much the steps before
+it changed.
 
 ## Hand rebinds
 

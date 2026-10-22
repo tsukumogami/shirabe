@@ -66,6 +66,15 @@ spawned_from:
 
 Current
 
+> **Retired (2026-10-22): the child team-shape declaration.**
+> `DESIGN-lead-shape-delivery.md` records why. The seven
+> `skills/<name>/team.yaml` files, the Child Team-Shape Declaration
+> element and the glob marker this design chose in Decision 2 were
+> removed; nothing ever read them. Each child's `## Team Shape` section
+> now says in prose what it spawns. The `team_primitive` value this
+> design reasoned from was replaced by `unit-agent-spawns-own-reviewers`.
+> The rest of the dispatch contract stands.
+
 ## Context and Problem Statement
 
 shirabe ships two parent skills today — `/scope` (tactical chain: `/brief` -> `/prd` -> `/design` -> `/plan`) and `/charter` (strategic chain: `/vision` -> `/strategy` -> `/roadmap`). The parent-skill pattern v1 contract lives in `references/parent-skill-pattern.md`. Both parents and the pattern reference describe a parent invoking a child, but they do not pin down *how* the invocation crosses the boundary.

@@ -2,6 +2,9 @@ workflow: .github/workflows/check-execute-scripts.yml
 needs: shirabe
 skills/work-on/scripts/run-cascade_test.sh
 skills/execute/scripts/assert-child-template_test.sh
+# The lead shape's phrases: grep, awk, sed and tr only, so every case
+# runs on 3.2.
+skills/execute/scripts/lead-shape-text_test.sh
 # Skips cleanly when koto is absent, which it is on the macOS
 # runner. It is here for the floor's own sake: a developer running
 # this suite on macOS has koto, so the cases execute on 3.2 there.

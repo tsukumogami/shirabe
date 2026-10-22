@@ -1,0 +1,1 @@
+{"number":42,"title":"docs(skill): say when the export skill asks for a path","state":"OPEN","labels":[],"body":"## Goal\nSay in the export skill's SKILL.md when it asks the user for an output path.\n\n## Acceptance Criteria\n- SKILL.md names the one case in which the skill asks for a path\n\n## Dependencies\nNone"}

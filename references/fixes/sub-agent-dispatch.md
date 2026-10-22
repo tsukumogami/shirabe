@@ -117,10 +117,13 @@ The six canonical fallback shapes encode the resolutions:
 
 When the child's normal flow spawns a multi-reviewer jury in parallel
 (e.g. `/design`'s Phase 6 architecture + security + structural-format
-reviewers), and the dispatch context does not support parallel
-sub-agent spawns, the child runs each reviewer serially within the
-same process, preserving the rubric set but losing parallelism. The
-verdicts are folded into a single feedback table.
+reviewers), and the harness can't spawn subagents, the child runs
+each reviewer serially within the same process, preserving the rubric
+set but losing parallelism. The verdicts are folded into a single
+feedback table. Running under a parent is not by itself a reason to
+fall back: the nesting rule (`team_primitive` in
+[`../parent-skill-pattern.md`](../parent-skill-pattern.md)) lets
+whichever agent runs the child spawn that child's jury.
 
 **Bindings:** `/design` Phase 6, `/prd` Phase 4 jury, `/strategy`
 Phase 6.

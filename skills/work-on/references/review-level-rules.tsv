@@ -51,6 +51,9 @@ class	security	*.pem
 
 # koto templates hold the gates and the routing.
 class	template	**/koto-templates/**
+# The text every /execute step agent is handed: a change to it changes what
+# every later step agent does, as a template change would.
+class	template	skills/execute/references/step-agent-handoff.md
 
 # The scripts the templates run as gates or default_actions, and the scripts
 # that open sessions on them. review-level_test.sh fails when a template's

@@ -51,6 +51,15 @@ rationale: |
 
 Current
 
+> **Retired (2026-10-22): the team-shape declarator.**
+> `DESIGN-lead-shape-delivery.md` records why. Component 5's declarator
+> and the per-skill declaration files that later carried it were
+> removed; nothing ever read them. Each skill's `## Team Shape` section
+> now says in prose what it spawns. The `team_primitive` value this
+> design reasoned from was replaced by `unit-agent-spawns-own-reviewers`,
+> which lets the agent driving one unit spawn that unit's reviewers,
+> jurors and researchers. The rest of the design stands.
+
 Authored 2026-05-24 through 2026-05-25 against the In
 Progress PRD `docs/prds/PRD-shirabe-charter-skill.md`; accepted
 2026-05-25 after Phase 6 team-lead approval. The design walked all

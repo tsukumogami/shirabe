@@ -926,6 +926,11 @@ states:
     # state without evidence, so after a hold and a raise the next tick writes
     # the ledger's `check` line at the raised level.
     #
+    # On a SHARED_BRANCH the action measures impl_base alone: the merge-base
+    # diff there holds every earlier sibling's commits, so a late step would
+    # floor on work that isn't its own. An unset SHARED_BRANCH arrives as ""
+    # and keeps the larger-diff rule.
+    #
     # level_floor is the guarantee, for every user: exit 0 at or above the
     # floor, inside the bound (or past the ceiling with a breach recorded),
     # matching the ledger, with facts gathered at HEAD; exit 1 holds with a
@@ -953,14 +958,15 @@ states:
     # The blocked route carries the gate's exit 1: an evidence-only route
     # shares no field with the gate routes and fails koto's exclusivity check.
     default_action:
-      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}"'
+      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh facts "{{SESSION_NAME}}" "{{REVIEW_LEVEL}}" --shared-branch "{{SHARED_BRANCH}}"'
       fallback: >-
         koto could not gather the facts of this change. Read the command's own
-        output above: review-level.sh exits 64 when no base resolves (impl_base
-        is unset and HEAD shares no history with the default branch or main)
-        or the stored rules copy is malformed, 66 when a koto context read or
-        write failed, and 127 or 126 when PLUGIN_ROOT does not reach the
-        plugin. Fix the cause and tick again; the action re-runs on entry.
+        output above: review-level.sh exits 64 when no base resolves or the
+        stored rules copy is malformed. No base resolves when impl_base is
+        unset and HEAD shares no history with the default branch or main, or
+        when impl_base is unset on a shared branch, where it is the only base.
+        It exits 66 when a koto context read or write failed, and 127 or 126
+        when PLUGIN_ROOT does not reach the plugin. Fix the cause and tick again; the action re-runs on entry.
         The level_floor gate holds until the facts are recorded at HEAD. If
         it can't be fixed, submit `level_status: blocked` with `detail`.
     gates:

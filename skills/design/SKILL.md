@@ -306,16 +306,24 @@ Execute phases sequentially by reading the corresponding phase file:
 
 ## Team Shape
 
-`/design`'s team shape is declared in [`team.yaml`](./team.yaml) as the
-machine-readable contract surface. The child layer spawns four peer
-roles across three phases: `decision-researcher` (worker,
-upper_bound 9, phase-2-execution) walks the decision protocol per
-pending architectural question; `security-researcher` (reviewer,
-phase-5-security) investigates security implications;
-`architecture-reviewer` and `security-reviewer` (reviewers,
-phase-6-final-review) jury the final DESIGN.
+`/design` spawns agents in three phases:
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+- **Phase 2:** one decider per decision question routed to `/decision`,
+  independent questions in parallel and coupled ones in sequence. Run
+  directly, every question goes to a decider; under a parent, only a
+  critical-tier question does, and a standard-tier one is resolved inline.
+  Phase 3 re-spawns a decider when cross-validation finds a conflict.
+- **Phase 5:** one security researcher, on the chosen architecture.
+- **Phase 6:** three reviewers in parallel, architecture, security and
+  structural format, on the final DESIGN.
+
+The security researcher and the three reviewers spawn nothing: each reads
+what it is given and writes one file. A decider follows `/decision`'s own
+phases, and on a critical question `/decision` starts its own research,
+alternative and validator agents; that is the one place a `/design` run
+goes a level deeper than the nesting rule in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`) describes. Those agents spawn nothing.
 
 ## Reference Files
 

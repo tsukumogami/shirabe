@@ -232,9 +232,14 @@ via `shirabe transition <brief-path> Accepted`.
 
 ## Team Shape
 
-`/brief`'s team shape is declared in [`team.yaml`](./team.yaml) as the
-machine-readable contract surface. The child layer spawns two reviewer
-peers at Phase 4 (`content-quality-reviewer`,
-`structural-format-reviewer`) to validate the drafted BRIEF.
+`/brief` spawns agents in one phase only. At Phase 4 it starts two
+reviewers in parallel, a content-quality reviewer (Problem Statement, User
+Outcome, Journeys and Scope Boundary) and a structural-format reviewer
+(schema, headings and format), and folds their verdicts into one result.
+Every other phase runs in your own context. The two reviewers spawn
+nothing: each reads the draft and writes one verdict file.
 
-See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+Under `/scope` the same two reviewers run from whichever agent is running
+`/scope`; the nesting rule in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+(`team_primitive`) says why that is allowed.

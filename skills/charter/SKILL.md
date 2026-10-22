@@ -52,18 +52,18 @@ section-by-section with the pattern's required structural elements.
 
 ## Team Shape
 
-`/charter` runs as a single-agent skill in the v1 core layer — no
-team is spawned. The parent-of-the-parent (the agent invoking the
-skill) calls `/charter` directly; there are no peer roles to
-materialize at team-creation time.
+`/charter` spawns nothing of its own. It is a single-agent skill: you
+run every phase yourself, and each child (`/vision`, `/strategy`,
+`/roadmap`, and `/comp` when it feeds the chain) is invoked inline
+through the Skill tool, in your own context.
 
-The team-shape declarator is prose per Decision 8's v1 form (see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` — Team-
-Shape Declarator section). When the amplifier-layer substrate ships,
-team-emitting parents declare their roster as structured metadata;
-single-agent parents like `/charter` keep the prose form.
-
-See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+The children spawn their own researchers and reviewers, from the same
+agent that is running `/charter`, as each child's Team Shape section
+says; those agents spawn nothing. The nesting rule that allows this is
+`team_primitive` in
+[`parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md),
+and its Dispatch Contract section covers the mechanism that carries
+each child invocation.
 
 ## Input Modes
 

@@ -1583,6 +1583,22 @@
         "In gh-calls.log the coordination PR's `pr merge 10` comes after `pr merge 21`",
         "The printed exit lines include `outcome=merged`"
       ]
+    },
+    {
+      "id": 83,
+      "name": "single-pr-lead-shape-step-agent-per-step",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-lead-shape-test.md --auto -- spawn_and_await has materialized the first child; walk the owning session through all three steps to the batch's terminal",
+      "expected_output": "The owning session (the one ticking execute-lead-shape-test) runs the three steps in the lead shape. It hands each child, one at a time in PLAN order, to its own foreground step agent started from skills/execute/references/step-agent-handoff.md, filling only {{CHILD}}, {{CHECKOUT}}, {{SHARED_BRANCH}} and {{PLUGIN_ROOT}}. After each step agent returns it reads koto status on that child and starts the next step only once the child is terminal, acting on the report's seats= line and never on its child= line. Before step 2 and before step 3, after the previous step's child reaches its terminal and before the next step's agent starts, it reads the previous child's summary.md once, rewrites that step's outline in the PLAN, commits only the PLAN path on the shared branch, and records the entry with koto context add execute-lead-shape-test step_refine/feat-validate-the-loaded-config.md and step_refine/docs-document-the-config-file.md, even when an entry didn't change. Step 1 gets no step_refine key. The owning session never runs koto next on any child; it only ticks execute-lead-shape-test.",
+      "files": [],
+      "expectations": [
+        "Each of the three children is handed to its own step agent, started from the hand-off template in skills/execute/references/step-agent-handoff.md, one at a time in PLAN order",
+        "The owning session runs koto status on each child after its step agent returns, and starts the next step agent only after that child shows a terminal state",
+        "Before step 2 and step 3 (not step 1), the owning session records step_refine/feat-validate-the-loaded-config.md and step_refine/docs-document-the-config-file.md in execute-lead-shape-test with koto context add, after committing that step's PLAN entry",
+        "The owning session never runs koto next on a child session (any execute-lead-shape-test.o-* name); its koto next calls name only execute-lead-shape-test",
+        "No step agent is told to edit a step's entry in the PLAN; the PLAN edits between steps come from the owning session and change only the PLAN path"
+      ]
     }
   ]
 }
