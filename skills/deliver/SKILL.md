@@ -188,6 +188,19 @@ nothing else.
    arguments they list) and when to ask the one confirmation. Run each child to
    its end as its own directives say, then tick `/deliver` again.
 
+   Who runs `/scope` depends on the mode. Under `--auto` the run takes the lead
+   shape: the owning session hands the `/scope` Skill call, with exactly the
+   arguments the directive builds, to one scope agent started in the foreground
+   in the same checkout. The scope agent runs `/scope` to its terminal and
+   returns at most ten lines, none of which the run uses: the owning session
+   ticks `deliver-<topic>` to read the leg and reads the PLAN and the scoping
+   documents from disk, so it starts `/execute` without the scoping
+   conversation in its context. Under `--interactive` the owning session
+   invokes `/scope` itself, because `/scope` asks the author its questions
+   there and a subagent cannot reach the author. A scope agent that returns
+   with the leg still open takes the same `child_returned: yes` path as a
+   `/scope` call that does.
+
 4. **Report.** When `koto next` answers `"action": "done"`, print the report,
    verbatim, and compose no line of your own:
 

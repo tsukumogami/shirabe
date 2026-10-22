@@ -60,9 +60,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
 
-      # The report, the probes, the binding check, the mode map, and the eval
-      # gh shim need bash, git and jq only (the probes and the shim drive
-      # test-local gh and koto stand-ins). This step runs them under Linux's own
+      # The report, the probes, the binding check, the mode map, the eval gh
+      # shim and the lead-shape text pins need bash, git and jq only (the
+      # probes and the shim drive test-local gh and koto stand-ins). This step runs them under Linux's own
       # bash 5; the macOS leg runs the same scripts on the floor in the next
       # step, through the `deliver` suite. A harness added here belongs in that
       # suite too; scripts/check-macos-floor-legs.sh fails the job if not.
@@ -75,6 +75,7 @@ jobs:
           bash skills/deliver/scripts/deliver-execute-leg_test.sh
           bash skills/deliver/scripts/eval-gh-shim_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh
+          bash skills/deliver/scripts/lead-shape-text_test.sh
 
       # The macOS leg is the floor check, so it goes through the runner: a bare
       # `bash` on a macOS runner is Homebrew's bash 5, and only /bin/bash is

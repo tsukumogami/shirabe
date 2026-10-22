@@ -423,8 +423,9 @@ spawning goes.
   lead shape, a scope agent, or the session itself) may spawn that unit's own
   reviewers, jurors and research agents, and those agents spawn nothing. Spawn
   depth stops at two: the session starts a unit's agent, the unit's agent
-  starts its reviewers. Four operational consequences follow from this
-  value:
+  starts its reviewers. Consequence 2 names the one exception: `/design`'s
+  critical-tier deciders follow `/decision`, whose phases start their own
+  agents, so under a scope agent those agents sit at a third level. Four operational consequences follow from this value:
   1. **Helpers are spawned at the phase that needs them.** A unit's agent
      starts its reviewers, jurors and researchers when the phase that uses
      them runs, and waits on them itself. Nothing is materialized ahead of

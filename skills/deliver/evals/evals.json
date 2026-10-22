@@ -487,6 +487,24 @@
         "No execute-dlv-legstop session was opened, and the run's execute leg was never bound",
         "gh-calls.log contains no line starting `pr merge` or `pr ready`"
       ]
+    },
+    {
+      "id": 33,
+      "name": "auto-scope-runs-in-a-scope-agent",
+      "scenario": "deliver-mergeable",
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "In an empty directory run `skills/deliver/evals/fixtures/setup-deliver.sh dlv-scopeagent`, cd into the path it prints, and put skills/deliver/evals/fixtures/bin first on PATH. Run `/deliver dlv-scopeagent --auto` to its end. Then print `koto status deliver-dlv-scopeagent` and `koto status scope-dlv-scopeagent`.",
+      "expected_output": "Under --auto the scope_run directive takes the lead shape: the owning session (the one ticking deliver-dlv-scopeagent) hands the /scope Skill call, with exactly the arguments the directive builds, to one scope agent started in the foreground in the same checkout, and makes no /scope call itself. The scope agent runs /scope to its terminal, which attaches to the scope leg, publishes and records its result there, and returns a short report. The owning session uses none of that report: it ticks deliver-dlv-scopeagent, which reads /scope's result from the leg, and the run goes on to /execute in the owning session and ends done with outcome merged.",
+      "files": [],
+      "expectations": [
+        "The /scope Skill call is made by exactly one scope agent that the owning session started in the foreground, with the arguments `dlv-scopeagent --intent=continue --auto --koto-leg=<request-id>:scope`; the owning session makes no /scope Skill call of its own",
+        "After the scope agent returns, the owning session's next call is `koto next deliver-dlv-scopeagent --no-cleanup` with no evidence; it relays no line of the scope agent's report as /scope's result and submits no `child_returned`",
+        "The scope agent is told not to read settings or credential files and to return at most ten lines",
+        "/execute runs in the owning session, not in the scope agent",
+        "The `koto status deliver-dlv-scopeagent` result payload has outcome `merged`, and gh-calls.log contains exactly one line starting `pr merge`"
+      ]
     }
   ]
 }

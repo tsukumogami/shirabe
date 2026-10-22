@@ -1032,8 +1032,8 @@ is touched. Read the output above, fix the cause, and tick again.
 
 ## scope_run
 
-Run `/scope` on this run's `scope` leg. Invoke the Skill tool with skill `scope`
-and these arguments, built exactly as written:
+Run `/scope` on this run's `scope` leg. The /scope Skill call takes skill
+`scope` and these arguments, built exactly as written:
 
 `{{TOPIC}} --intent=continue --{{MODE}} --koto-leg={{REQ}}:scope`
 
@@ -1046,27 +1046,47 @@ followed by, from this run's forwarded settings:
   `coordinated`, `--no-coordinated` when it reads `no-coordinated`, and neither
   when it reads `none`.
 
-Pass nothing else. Run /scope to its end exactly as its own directives say --
-it opens or resumes `scope-{{TOPIC}}`, asks its own questions, and prints its
-own exit block -- then call `koto next {{SESSION_NAME}} --no-cleanup` with no
+Pass nothing else. Who makes the call depends on this run's mode, which reads
+`{{MODE}}`:
+
+- **`auto`** -- the lead shape: hand the /scope Skill call, with exactly the
+  arguments above, to one scope agent started in the foreground in this
+  checkout, and wait for it. Make no /scope call in this session.
+- **`interactive`** -- invoke the Skill tool with skill `scope` and the
+  arguments above directly in this session, because /scope asks the author
+  its own questions here.
+
+Either way /scope runs to its end exactly as its own directives say -- it
+opens or resumes `scope-{{TOPIC}}`, asks its own questions, and prints its own
+exit block -- then call `koto next {{SESSION_NAME}} --no-cleanup` with no
 evidence.
 
 <!-- details -->
 
+**The scope agent.** Under `auto`, tell the scope agent: run the /scope Skill
+call above to its terminal, ticking every `koto next` with `--no-cleanup`;
+never open, read or search a settings or credential file; the agents
+/scope's children start (juries, researchers, issue-body agents) spawn
+nothing further, except where `references/parent-skill-pattern.md` names an
+exception; and return at most ten lines. None of those lines is used by this
+run: the owning session ticks `deliver-{{TOPIC}}` to read the leg and reads
+the PLAN and the scoping documents from disk. Scoping stays in the agent, so
+this session starts /execute without the scoping conversation in its context.
+
 /scope reports to this run only through the leg: its session attaches to it
 with `--koto-leg`, and its terminal result -- or koto's refusal of its
 arguments or its attach -- is recorded there. This state reads the leg itself.
-Never relay what /scope printed, and never submit an outcome: no evidence here
-can carry one.
+Never relay what /scope or the scope agent printed, and never submit an
+outcome: no evidence here can carry one.
 
 If `koto next` answers that it is still waiting on the leg, /scope has not
 finished. Continue it; do not start it again.
 
-Submit `child_returned: yes` only when the /scope Skill call has returned and
-`koto next` still reports the leg open: /scope ended without ever recording a
-result (a `--koto-leg` that named no open leg, or a /scope too old to know the
-flag). That reaches only an error, `deliver:child-absent`. Never submit it
-while /scope is still running.
+Submit `child_returned: yes` only when the /scope Skill call has returned (or,
+under `auto`, the scope agent has returned) and `koto next` still reports the
+leg open: /scope ended without ever recording a result (a `--koto-leg` that
+named no open leg, or a /scope too old to know the flag). That reaches only an
+error, `deliver:child-absent`. Never submit it while /scope is still running.
 
 Evidence schema:
 - `child_returned`: `yes`, only in the case above
