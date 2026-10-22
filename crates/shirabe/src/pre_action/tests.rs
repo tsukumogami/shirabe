@@ -586,6 +586,9 @@ fn example_rows_for_pull_request_commands() {
         "gh issue create --title pr --body edit",
         "git log --grep push",
         "gh pr edit 12 --add-label x",
+        "gh pr merge 1 --squash --body \"Adds a new edit path.\"",
+        "env -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new edit path.\"",
+        "env -u GH_TOKEN gh issue create --title \"hook refuses gh pr create\" --body x",
     ] {
         assert_eq!(run(cmd), None, "{cmd}");
     }
@@ -593,6 +596,10 @@ fn example_rows_for_pull_request_commands() {
 
     let deny = |cmd: &str| run(cmd).unwrap_or_else(|| panic!("{cmd} should deny"));
     assert_fail_closed(&deny("echo `gh pr create`"), "wrapped");
+    assert_fail_closed(
+        &deny("env -u GH_TOKEN gh pr create --title \"feat: x\" --body \"Adds x.\""),
+        "wrapped",
+    );
     assert_fail_closed(
         &deny("printf 'x' > b.md && gh pr create --title \"feat: x\" -F b.md"),
         "same command",

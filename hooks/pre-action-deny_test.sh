@@ -240,6 +240,38 @@ for c in 'sudo git push' 'env X=1 git push' 'bash -c \"git push\"' 'eval \"git p
     expect_deny "table: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done
 
+# gh pr merge's --body is the squash commit's message, not a pull request
+# body: no decision, plain, after NAME= or behind env, whatever it says.
+for c in 'gh pr merge 123 -R o/r --squash --subject \"fix: x\" --body \"Adds a new edit path.\"' \
+    'GH_TOKEN= gh pr merge 123 --squash --body \"Adds a new edit path.\"' \
+    'env -u GH_TOKEN gh pr merge 123 -R o/r --squash --subject \"fix: x\" --body \"Adds a new edit path.\"' \
+    'env GH_TOKEN= gh pr merge 123 --squash --body \"Creates a new thing.\"' \
+    'env -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new path\"'; do
+    run_hook "$c"
+    expect_none "merge: $c gives no decision"
+done
+# Naming gh pr create inside a quoted argument is no create.
+for c in 'gh issue create --title \"hook refuses gh pr create\" --body \"x\"' \
+    'env -u GH_TOKEN gh issue create --title \"hook refuses gh pr create\" --body \"x\"'; do
+    run_hook "$c"
+    expect_none "quoted mention: $c gives no decision"
+done
+# A create or edit behind env is still wrapped, whatever its body, after an
+# operand env takes as an assignment or behind a launcher env runs.
+for c in "env -u GH_TOKEN $BAD_CREATE" \
+    "env -u GH_TOKEN gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    "env GH_TOKEN= gh pr edit 12 --body $BAD" \
+    "env a-b=1 gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    "env stdbuf -oL gh pr create --title \\\"feat: x\\\" --body $GOOD" \
+    'env caffeinate git push' \
+    "env git -c 'alias.p=!git push' p" \
+    "env 'BASH_FUNC_f%%=() { gh pr create --title x --body y; }' bash -c f" \
+    "env 'BASH_FUNC_f%%=() { gh \\\"\$@\\\"; }' bash -c 'f pr create'" \
+    "env 'BASH_FUNC_f%%=() { git \\\"\$@\\\"; }' bash -c 'f push'"; do
+    run_hook "$c"
+    expect_deny "env-wrapped: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
+done
+
 for c in '/usr/bin/git push' 'git status && git push' 'if true; then git push; fi' \
     'git push --force origin +topic' 'git -c k=v push' 'cd sub && git push' 'git -C sub push'; do
     run_hook "$c"
