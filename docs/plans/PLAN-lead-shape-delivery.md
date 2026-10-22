@@ -160,9 +160,12 @@ Write prose without emojis, and do not cite any `wip/` path from committed text.
 - [ ] The worktree-discipline rows no longer cite the old substrate: `git grep -n 'no-nested' -- references/worktree-discipline.md` prints nothing.
 - [ ] Both current designs carry a dated retirement note naming this design: `git grep -n 'DESIGN-lead-shape-delivery' -- docs/designs/current/DESIGN-shirabe-child-dispatch-contract.md docs/designs/current/DESIGN-shirabe-progression-authoring.md` prints at least one line from each file, and each of those lines sits within a note containing a `2026-` date (`git grep -n -B3 -A3 'DESIGN-lead-shape-delivery' -- <the two files> | grep -c '2026-'` prints 2 or more).
 - [ ] Designs that only cite the old choice as precedent are unchanged: `git diff --name-only <base>... -- docs/designs/current` lists only the two files above and the files other issues of this plan touch.
-- [ ] No `wip/` reference or emoji was added: `git diff <base>... | grep -n '^+.*wip/'` prints nothing.
-- [ ] The skill checks pass for every touched skill: `scripts/check-skill.sh --changed brief`, then the same for `prd`, `design`, `plan`, `vision`, `strategy`, `roadmap`, `charter` and `scope`, each exit 0.
-- [ ] E2E flow still works (do not break the skeleton): the Issue 1 execute text test and the repo's markdown checks still pass, `bash skills/execute/scripts/lead-shape-text_test.sh` exits 0.
+- [ ] No `wip/` reference or emoji was added by this step: `git diff <this step's impl_base>..HEAD | grep -n '^+.*wip/'` prints nothing.
+- [ ] Nothing reads the retired files: before the deletion commit, `git grep -n -e 'team\.yaml' -e parent_layer -e child_layer -e upper_bound -e 'cardinality:' -- scripts crates .github hooks .claude-plugin 'skills/*/scripts' 'skills/*/evals' 'skills/*/koto-templates'` prints nothing (it printed nothing when this step was detailed), and the step's report says so.
+- [ ] The skeleton still holds: `/bin/bash skills/execute/scripts/lead-shape-text_test.sh` exits 0, including its check that the old `team_primitive` value appears nowhere under `references/` or `skills/`.
+- [ ] Hosted CI's "Check skill gate", "Check skill evals exist", "Check scope scripts", "Check plan scripts" and "Check execute scripts" pass on the pushed head; `scripts/check-skill.sh` for the nine touched skills is left to that CI on the host this plan runs on.
+
+Notes from the steps already landed: Issue 1 set the `team_primitive` value to `unit-agent-spawns-own-reviewers` and renamed the old value's one mention in `references/worktree-discipline.md`; this step rewrites the value's consequences and the team-lead rows, not the value. `/work-on`'s verification gate starts `scripts/check-skill.sh` for any `skills/**` change: record the koto decision that hosted CI is the build of record for it first, and move to `verification` and past it with directed transitions so its action never runs on this host. `setup_plan_backed`'s `skip_if` did not fire on the last child although `SHARED_BRANCH` was set; pass it with `status: override` if it stops there.
 
 **Dependencies**: Issue 1
 
