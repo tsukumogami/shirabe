@@ -285,8 +285,8 @@ echo "--- the routes"
 # $HOME/.koto.
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
-# No decider: issue_type_routing's issue_type then takes the submitted answer
-# as it would with its decider off.
+# No decider for any case here, whatever the host has set: issue_type_routing's
+# issue_type then takes the submitted answer, and no case reaches the network.
 unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
@@ -342,8 +342,9 @@ build() {
             # issue_type's decider reads context.md and changed_paths.txt, and
             # koto compiles a decider input only when some context-exists gate
             # in the template checks its key. In work-on.md context_injection
-            # and changed_paths_record hold those gates; here start does, so
-            # the shipped block goes in unchanged.
+            # and changed_paths_record hold those gates; here start does, with
+            # gate names of its own and the keys the decider names, so the
+            # shipped issue_type_routing block goes in unchanged.
             printf '%s\n' '    gates:' '      issue_context:' '        type: context-exists' \
                 '        key: context.md' '      changed_paths:' '        type: context-exists' \
                 '        key: changed_paths.txt' '    transitions:' '      - target: issue_type_routing' \
@@ -445,6 +446,8 @@ run_routing() {
 
 # The docs and task edges out of issue_type_routing, driven through koto like
 # the panels' edges above. docs also needs has_commits, which the fake passes.
+# verification_deferral is written only by verification_deferred's
+# context_assignments, so finding it shows the run passed through that state.
 reset_rc
 for type in docs task; do
     run_routing "$type" --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$REASON"

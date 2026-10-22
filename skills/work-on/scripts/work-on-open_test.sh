@@ -139,7 +139,10 @@ reason_refusal() {
     local label="$1" reason="$2" want="$3"
     shift 3
     : > "$WORK/stub.log"
-    tokens "$(jq -nc --arg r "$reason" '$ARGS.positional + ["--verification-reason=" + $r]' --args 7 "$@")"
+    # The tokens reach jq as input lines, never as its arguments: jq takes a
+    # --verification=... argument for one of its own options, even after --args.
+    # Only the reason can hold a newline, and it goes in through --arg.
+    tokens "$(printf '%s\n' 7 "$@" | jq -R . | jq -sc --arg r "$reason" '. + ["--verification-reason=" + $r]')"
     OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
         bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>"$WORK/stderr")
     RC=$?

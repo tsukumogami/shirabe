@@ -121,9 +121,9 @@ never a silent skip:
   Apostrophes and commas are not among them, so `host can't run suites, CI only` is
   refused; `host is in a measurement window until 02:40Z` fits. The reason must also
   start with a letter or digit. Under `--koto-leg`, `work-on-open.sh` refuses a
-  reason with any other character before koto runs (`error=usage`, exit 64), naming
-  the characters; a direct `koto init` gets koto's `invalid_var`. Either way, reword
-  the reason and start again.
+  reason with any other character before koto runs, and before its own checks of
+  the flag (`error=usage`, exit 64), naming the characters; a direct `koto init`
+  gets koto's `invalid_var`. Either way, reword the reason and start again.
 - **The map never launches.** Every edge that would enter `verification` goes to
   `verification_deferred` instead. koto runs a state's entry action before anything
   else in it, so the deferral is decided on the way in: `run-verification.sh` never

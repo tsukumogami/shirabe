@@ -82,8 +82,11 @@
 #     has an apostrophe and a comma, and koto's own invalid_var names neither,
 #     so the message names the characters that aren't allowed. This check runs
 #     before the --koto-leg checks, so a caller gets the same answer with or
-#     without the flag. A reason inside the allowlist passes through
-#     unchanged.
+#     without the flag, and whatever --verification says, since koto checks
+#     every value it is handed. A reason inside the allowlist passes through
+#     unchanged. The rule that a reason starts with a letter or digit is not
+#     repeated here: it is the template's pattern, its one source, and SKILL.md
+#     states it.
 #
 # Like the bound, both variables are not rebind: an attach that passes none
 # keeps what the session started with.
