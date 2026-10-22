@@ -34,7 +34,15 @@
 # `Milestone 03`, `feature 2` and `#2` cover nothing; a pause written on
 # `Feature 3` marks the v3 unit `Milestone 3` paused and no other, a go-ahead
 # on `Feature 4` lets `Milestone 4` through a pause on all, and a pause on
-# `Milestone 2` holds a v2 `Feature 2`.
+# `Milestone 2` holds a v2 `Feature 2`. The decider's slice,
+# coord/pick_slice.json: on a roadmap of 200 Done features and 3 open ones the
+# facts are over the 12,000-byte cap and the slice under it, the Done units
+# collapsed to a done list, a blocker named by its tag, null, false and
+# empty-list fields left out of units and holdings, the counts, bounds,
+# pauses and decisions the facts'; a done unit owed a verdict, with rework or
+# covered by a holding keeps its row; a second visit rewrites the slice; every
+# coordinate.pick.choice fixture's input is a slice, and some carry a long
+# done list.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -480,5 +488,66 @@ for scope in roadmap discipline; do
 done
 eq "roadmap: the old template example covers nothing" none "$(covered_by roadmap "Feature 2 of ROADMAP-plugin-system")"
 eq "discipline: another repository's #n covers nothing" none "$(covered_by discipline "acme/gadgets#5")"
+
+echo "== the decider's slice, coord/pick_slice.json (shirabe#1076) =="
+slice() { cat "$KOTO_STORE/context/$S/coord/pick_slice.json"; }
+# big_roadmap <done>: <done> Done features, then Feature <done+1> Not started,
+# Feature <done+2> In progress waiting on it, and Feature <done+3> Not started
+# waiting on Feature <done>.
+big_roadmap() {
+    local i
+    printf -- '---\nstatus: Active\n---\n\n# ROADMAP\n\n## Features\n\n'
+    for ((i = 1; i <= $1; i++)); do
+        printf '### Feature %d: Finished piece %d of the plugin system\n**Dependencies:** None\n**Status:** Done\n\n' "$i" "$i"
+    done
+    printf '### Feature %d: Open\n**Dependencies:** None\n**Status:** Not started\n\n' $(($1 + 1))
+    printf '### Feature %d: Waiting\n**Dependencies:** Feature %d\n**Status:** In progress\n\n' $(($1 + 2)) $(($1 + 1))
+    printf '### Feature %d: Landed blocker\n**Dependencies:** Feature %d\n**Status:** Not started\n\n' $(($1 + 3)) "$1"
+    printf '## Sequencing Rationale\n\nNone.\n'
+}
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding w202 '{"unit": "Feature 202", "pull_request": ""}')" '.holdings = [$h]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(big_roadmap 200)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+eq "200 Done units and 3 open: pick" pick "${OUT% sealed:*}"
+FULL=$(facts | wc -c | tr -d ' ') SLICE=$(slice | wc -c | tr -d ' ')
+[ "$FULL" -gt 12000 ] && ok "  ... the full facts are over the decider's 12,000-byte cap ($FULL)" || bad "  ... the full facts are over the decider's 12,000-byte cap" "$FULL"
+[ "$SLICE" -lt 12000 ] && ok "  ... the slice is under it ($SLICE)" || bad "  ... the slice is under it" "$SLICE"
+eq "  ... the done list is the 200 Done units, in order" "200 Feature 1 Feature 200" "$(slice | jq -r '"\(.done | length) \(.done[0]) \(.done[-1])"')"
+eq "  ... the 3 open units keep their rows" "Feature 201,Feature 202,Feature 203" "$(slice | jq -r '[.units[].unit] | join(",")')"
+eq "  ... a blocker is named by its tag, not its position" '["Feature 201"]' "$(slice | jq -c '.units[] | select(.unit == "Feature 202") | .blocked_by')"
+eq "  ... null, false and empty-list fields are left out of units" 'number,status,title,unit|blocker_landed,number,status,title,unit' \
+    "$(slice | jq -r '[.units[] | select(.unit == "Feature 203" or .unit == "Feature 201") | keys | join(",")] | join("|")')"
+eq "  ... and out of holdings" 'dispatch_status,phase,pull_request,unit,worker' "$(slice | jq -r '.holdings[0] | keys | join(",")')"
+eq "  ... the counts, bounds, pauses and decisions are the facts'" "$(facts | jq -c '[.scope, .name, .host, .cap, .active, .parked, .parked_bound, .paused_all, .pauses, .go_aheads, .decisions]')" \
+    "$(slice | jq -c '[.scope, .name, .host, .cap, .active, .parked, .parked_bound, .paused_all, .pauses, .go_aheads, .decisions]')"
+eq "  ... the slice is pick-slice.jq's of the facts this visit wrote" "$(facts | jq -c -L "$HERE" 'include "pick-slice"; pick_slice')" "$(slice)"
+
+# A done unit keeps its row while a verdict is owed on it, a rework row names
+# it, or a holding covers it; one with none of them is collapsed.
+KEEP=$(jq -nc '[{item: "Feature 2", kind: "verdict-owed", who: "none", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 3", kind: "rework", who: "verdict 1001", next: "Changes needed: name the skipped plugin", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson w "$KEEP" --argjson h "$(holding delta '{"unit": "Feature 4", "pull_request": ""}')" '.work = $w | .holdings = [$h]')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"; eq "the facts are read with done units owed a verdict, reworked and held" 0 $?
+eq "  ... only the done units with none of them are collapsed" "Feature 1,Feature 5" "$(slice | jq -r '.done | join(",")')"
+eq "  ... a done unit owed a verdict keeps its row" "true true" "$(slice | jq -r '.units[] | select(.unit == "Feature 2") | "\(.done) \(.verdict_owed)"')"
+eq "  ... a done unit with rework keeps its row" "true Changes needed: name the skipped plugin" "$(slice | jq -r '.units[] | select(.unit == "Feature 3") | "\(.done) \(.rework)"')"
+eq "  ... a done unit a holding covers keeps its row" 'true {"worker":"delta","phase":"executing"}' "$(slice | jq -c -r '.units[] | select(.unit == "Feature 4") | "\(.done) \(.holding | tojson)"')"
+# The slice is rewritten on every visit, from that visit's facts.
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done 'Not started')"
+log_to "$S" pick_facts pick; log_to "$S" pick pick_facts
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"; eq "a second visit is read" 0 $?
+eq "  ... and its slice is that visit's" "Feature 1" "$(slice | jq -r '.done | join(",")')"
+eq "  ... with the facts beside it" "Feature 5 false" "$(facts | jq -r '.units[4] | "\(.unit) \(.done)"')"
+
+# The decider's fixtures are slices: each pick_facts input is what
+# pick-slice.jq prints for it, and some carry a long done list.
+FX="$HERE/../koto-templates/coordinate.pick.choice.decider.jsonl"
+eq "every pick fixture's input is a slice" 0 \
+    "$(jq -L "$HERE" 'include "pick-slice"; .inputs.pick_facts | fromjson | select(pick_slice != .) | 1' "$FX" | wc -l | tr -d ' ')"
+eq "fixtures cover a slice with a long done list, for every value but scope and await_decision" "ask_up,dispatch,hold,scope_ahead,send_execution" \
+    "$(jq -r 'select((.inputs.pick_facts | fromjson | .done | length) >= 150) | .expected' "$FX" | sort | paste -sd, -)"
 
 done_tests pick-facts
