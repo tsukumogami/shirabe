@@ -74,7 +74,8 @@
 # `follow-up` row (the pull request that landed its scoping alone, and its
 # execution), or null. A Work row matches a unit by its Item, compared by
 # tag key (`Feature 2` covers `Milestone 2`), or as `<host><unit>` for an
-# issue; a pause's On (pause-read.sh) still matches the unit as written. None
+# issue; a pause's On (pause-read.sh) matches by the same key, so a pause
+# written on `Feature 3` holds a v3 roadmap's `Milestone 3`. None
 # of the three holds a slot. Each unit also carries `verdict_owed`, true while
 # a `verdict-owed` row names it (a milestone whose work the coordinator
 # judged finished and whose verdict's roadmap edit isn't confirmed yet,
