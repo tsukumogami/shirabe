@@ -316,12 +316,16 @@ removed_mode() {
     # record the directory they ran in.
     : >"$T/cands"
     # Only a session file holding `+<slug>-` can record a path candidate()
-    # accepts, so one grep over every file picks the headers worth opening;
-    # a koto home with a thousand sessions would otherwise cost a head and a
-    # jq for each of them. A grep hit is no candidate by itself: candidate()
-    # still decides on the header's execution_dir. grep answers 1 when
-    # nothing holds the string, and a file it can't read is skipped, as the
-    # head below would skip it; neither stops the seal.
+    # accepts, so one grep picks the files whose header is worth opening; a
+    # koto home with a thousand sessions would otherwise cost a head and a jq
+    # for each of them. grep reads every session file whole, not only its
+    # header: about 1.3 s on a store of 990 files and 151 MB, well inside the
+    # action's limit, so the one grep stays rather than a per-file read of
+    # first lines. A hit is no candidate by itself: the coordinator's own
+    # sessions always pass, since their later lines name worker paths, and
+    # candidate() still decides on the header's execution_dir. grep answers
+    # 1 when nothing holds the string, and a file it can't read is skipped,
+    # as the head below would skip it; neither stops the seal.
     : >"$T/headers"
     set -- "$KOTO_SESSIONS"/*/koto-*.state.jsonl
     if [ -e "$1" ] || [ -L "$1" ]; then
