@@ -32,6 +32,7 @@
 #            there is no id); each copy checked against its source's hash, a
 #            MANIFEST (`<sha256> <bytes> <path>` per file), MANIFEST.sha256
 #            (the MANIFEST's own digest, `<sha256>  MANIFEST`) and a README;
+#            the job's tmp/ is copied without its build trees (below);
 #         4a. the unit's cost capture (unit-cost.sh capture): one `cost`
 #            entry on the record and unit-cost.json in the archive, under its
 #            own deadline, with no stream of the pass's and its status
@@ -69,6 +70,20 @@
 #       and every link skipped inside one. The verdict's transcript must be
 #       in a directory taken, so the cost capture reads the worker's own
 #       session from the archive. The pass runs under umask 077.
+#
+#       Build trees: the job's tmp/ is copied whole except the build output
+#       a worker left in it, each tree found by what it holds, never by its
+#       name alone, except node_modules: a directory holding a CACHEDIR.TAG
+#       that starts with the cache-directory signature, or a .rustc_info.json
+#       naming a rustc_fingerprint (a cargo target directory, whatever it is
+#       named); one holding a .package-cache (a cargo home); and any
+#       directory named node_modules. Only the outermost tree is left out (one
+#       inside another is part of it), tmp/ itself never is, and no link is
+#       followed, as everywhere else. Each one left out is a line of SKIPPED,
+#       `<bytes> <marker> job/tmp/<path>`, its bytes the sum of its regular
+#       files' sizes; SKIPPED is in the MANIFEST and the README lists the
+#       trees. A tmp/ with no build tree gets no SKIPPED and no README line,
+#       so its archive is what it was before trees were left out.
 #
 #       Removed mode, when the verdict says `removed yes` (the unit was torn
 #       down outside the pass; teardown-handoff.sh): the instance name is
@@ -379,6 +394,62 @@ copy_tree() {
         copy_file "$1/${f#./}" "$2/${f#./}"
     done <"$T/tree"
 }
+# build_trees <dir>: the build trees under it (the header's rule) into
+# $T/bt, one `<marker>\t<path>` per line, the path relative to <dir> with no
+# leading `./`, outermost only, in byte order. Returns 1 when <dir> can't be
+# listed.
+build_trees() {
+    local f d m
+    : >"$T/bt.all"
+    (cd "$1" && find . -type d -name node_modules -prune -print) >"$T/bt.nm" 2>/dev/null || return 1
+    while IFS= read -r d; do
+        [ -n "$d" ] && [ "$d" != . ] && printf 'node_modules\t%s\n' "${d#./}" >>"$T/bt.all"
+    done <"$T/bt.nm"
+    (cd "$1" && find . -type d -name node_modules -prune -o \
+        -type f \( -name CACHEDIR.TAG -o -name .rustc_info.json -o -name .package-cache \) -print) >"$T/bt.mk" 2>/dev/null || return 1
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        d=$(dirname "$f") m=${f##*/}
+        [ "$d" = . ] && continue
+        # A marker is checked for what its tool writes, so a scratch file
+        # that only shares the name keeps its directory in the archive.
+        case "$m" in
+            CACHEDIR.TAG) [ "$(head -c 43 "$1/$f" 2>/dev/null)" = "Signature: 8a477f597d28d172789f06886806bc55" ] || continue ;;
+            .rustc_info.json) grep -q '"rustc_fingerprint"' "$1/$f" 2>/dev/null || continue ;;
+        esac
+        printf '%s\t%s\n' "$m" "${d#./}" >>"$T/bt.all"
+    done <"$T/bt.mk"
+    # Sorted by path, a tree comes before every path under it, so one pass
+    # keeps the outermost and drops the rest, a second marker in a tree's own
+    # directory included.
+    LC_ALL=C sort -t '	' -k2 "$T/bt.all" | awk -F'\t' '
+        { p = substr($0, length($1) + 2)
+          for (i = 1; i <= n; i++) if (p == kept[i] || substr(p, 1, length(kept[i]) + 1) == kept[i] "/") next
+          kept[++n] = p; print }' >"$T/bt"
+}
+# copy_job_tmp <src dir> <rel dir>: copy_tree, leaving out the build trees;
+# each one left out goes on $T/trees.skipped (SKIPPED's source; not
+# $T/skipped, which a case-insensitive file system takes for the same name)
+# as `<bytes> <marker> <rel dir>/<path>`, its bytes summed from a listing,
+# so no file in it is opened.
+copy_job_tmp() {
+    local f m p b
+    build_trees "$1" || refused "cannot list $1"
+    (cd "$1" && find . -type d -name node_modules -prune -o -type f -print) >"$T/tree" 2>/dev/null || refused "cannot list $1"
+    awk -F'\t' '
+        FILENAME == ARGV[1] { root[++n] = "./" substr($0, length($1) + 2) "/"; next }
+        { for (i = 1; i <= n; i++) if (substr($0, 1, length(root[i])) == root[i]) next; print }
+    ' "$T/bt" "$T/tree" >"$T/tree.kept"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        copy_file "$1/${f#./}" "$2/${f#./}"
+    done <"$T/tree.kept"
+    while IFS='	' read -r m p; do
+        [ -n "$p" ] || continue
+        b=$( (cd "$1/$p" && find . -type f -exec ls -ln {} +) 2>/dev/null | awk '{ s += $5 } END { printf "%.0f\n", s }')
+        printf '%s %s %s/%s\n' "$b" "$m" "$2" "$p" >>"$T/trees.skipped"
+    done <"$T/bt"
+}
 [ -f "$TR" ] || refused "the transcript $TR is missing"
 # The project directories of the instance (the header's rule). Names start
 # with `-`, so every command gets one only inside an absolute path.
@@ -387,6 +458,7 @@ ENC=$(printf '%s' "$IPATH" | sed 's/[^A-Za-z0-9]/-/g')
 : >"$T/taken"
 : >"$T/skipped"
 : >"$T/links"
+: >"$T/trees.skipped"
 PPROJ=""
 [ -d "$PROJ" ] && { PPROJ=$(cd -P -- "$PROJ" 2>"$T/cd.err" && pwd -P) || refused "cannot enter $PROJ"; }
 # cwd_inside <physical dir>: 0 when at least one line of a .jsonl file in it
@@ -453,7 +525,7 @@ if [ "$REMOVED" = 0 ]; then
     [ -f "$J/state.json" ] || refused "the job's state.json is missing"
     copy_file "$J/state.json" job/state.json
     [ -f "$J/timeline.jsonl" ] && copy_file "$J/timeline.jsonl" job/timeline.jsonl
-    [ -d "$J/tmp" ] && copy_tree "$J/tmp" job/tmp
+    [ -d "$J/tmp" ] && copy_job_tmp "$J/tmp" job/tmp
     JTMP=$(cd "$J/tmp" 2>/dev/null && pwd -P) || JTMP="$J/tmp"
 else
     # The job went with the unit: its koto sessions are found by the
@@ -475,6 +547,11 @@ for d in "$KOTO_SESSIONS"/*/; do
     done
 done
 say "copied $(wc -l <"$T/copies" | tr -d ' ') files, $NK koto sessions"
+# SKIPPED, in the MANIFEST like teardown.json, only when a tree was left out.
+if [ -s "$T/trees.skipped" ]; then
+    say "left out $(wc -l <"$T/trees.skipped" | tr -d ' ') build trees of job/tmp"
+    copy_file "$T/trees.skipped" SKIPPED
+fi
 # teardown.json: what the pass acted on, written by the pass and checked
 # into the MANIFEST like the copies. The pass only writes it; nothing here
 # reads it back. niwa's dispatch id comes from the sealed verdict's
@@ -520,11 +597,19 @@ h=$(sha256 <"$ARCH/MANIFEST") && printf '%s  MANIFEST\n' "$h" >"$ARCH/MANIFEST.s
     awk -F'\t' '{ printf "- Project directory skipped (%s): %s\n", $2, $1 }' "$T/skipped"
     sed 's/^/- Symbolic link skipped: /' "$T/links"
     printf '\n'
+    if [ -s "$T/trees.skipped" ]; then
+        # shellcheck disable=SC2016 # the backticks are Markdown
+        printf '`job/tmp/` is copied without the build trees a worker left in it:\n\n'
+        awk '{ p = substr($0, length($1) + length($2) + 3); printf "- Build tree skipped (%s, %s bytes): %s\n", $2, $1, p }' "$T/trees.skipped"
+        printf '\n'
+    fi
     printf 'MANIFEST lists every copied file as `<sha256> <bytes> <path>`; each was checked against its source.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`MANIFEST.sha256` holds the MANIFEST'"'"'s own sha256, recorded once every copy matched; the confirm check reads it.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`teardown.json`, in the MANIFEST, records what the pass acted on: the topic, the instance, the job and session, whether the unit was removed outside the pass, and niwa'"'"'s dispatch id.\n'
+    # shellcheck disable=SC2016 # the backticks are Markdown
+    [ -s "$T/trees.skipped" ] && printf '`SKIPPED`, in the MANIFEST, lists each build tree left out of `job/tmp/` as `<bytes> <marker> <path>`: a directory holding cargo'"'"'s CACHEDIR.TAG or .rustc_info.json, a cargo home'"'"'s .package-cache, or a node_modules directory. None of their files is in the archive.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.\n'
 } >"$ARCH/README.md"

@@ -45,6 +45,17 @@
 # and leaves nothing running. A whole pass writes
 # MANIFEST.sha256 with the MANIFEST's digest.
 #
+# And build trees in the job's tmp/: a cargo target dir under another name
+# (CACHEDIR.TAG) holding a node_modules, a repo's target/ (.rustc_info.json),
+# a node_modules holding another, and a cargo home (.package-cache) are left
+# out, each outermost tree listed once in SKIPPED and the README with its
+# bytes, a link to one not followed; the scratch beside them and the near
+# misses (a target/ with no marker, a CACHEDIR.TAG without the signature, a
+# .rustc_info.json without rustc_fingerprint, a marker in tmp/ itself) are
+# archived; SKIPPED is in the MANIFEST and confirm passes the archive. A
+# tmp/ with no build tree writes no SKIPPED and no README line, archives
+# every file in find's order, and confirms.
+#
 # Usage: bash skills/coordinate/scripts/teardown-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure. bash 3.2.
 set -uo pipefail
@@ -597,6 +608,93 @@ while :; do
     sleep 0.1
 done
 [ -z "$left" ] && ok "  ... and leaves no read running" || { bad "  ... and leaves no read running" "$left"; for p in $left; do kill "$p" 2>/dev/null; done; }
+
+# ---------------------------------------------------------------------------
+# Build trees in the job's tmp/ (shirabe#1106): a whole pass with the real
+# pass, then confirm over the archive it made.
+JT="$TEARDOWN_CLAUDE_HOME/jobs/$JID/tmp"
+SIG='Signature: 8a477f597d28d172789f06886806bc55'
+# scratch_tmp: scratch files and the near misses a build tree's rule must
+# keep: a target/ with no marker, a CACHEDIR.TAG without the signature, a
+# .rustc_info.json with no rustc_fingerprint, and a marker in tmp/ itself.
+scratch_tmp() {
+    mkdir -p "$JT/sub" "$JT/repo/src" "$JT/web/src" "$JT/notes/target" "$JT/tag" "$JT/ri"
+    printf 'notes\n' >"$JT/notes.md"
+    printf 'scratch\n' >"$JT/sub/scratch file.txt"
+    printf 'fn main() {}\n' >"$JT/repo/src/main.rs"
+    printf 'app\n' >"$JT/web/src/app.js"
+    printf 'plan\n' >"$JT/notes/target/plan.md"
+    printf 'not a tag\n' >"$JT/tag/CACHEDIR.TAG"
+    printf '{"other":1}\n' >"$JT/ri/.rustc_info.json"
+    printf '%s\n' "$SIG" >"$JT/CACHEDIR.TAG"
+}
+# confirm_archive: confirm over the archive run_pass made, both listings
+# without the unit; CRC, COUT, CWHY.
+confirm_archive() {
+    rm -f "$C3/slow" "$C3/fails" "$C3/detail.json"
+    echo '[]' >"$C3/niwa.json"
+    echo '[]' >"$C3/agents.json"
+    COUT=$(cd "$T/ws" && PATH="$B3:$PATH" TEARDOWN_ARCHIVE_DIR="$T/archive" DC_COORD_LOG="$P3/coord-log.sh" \
+        bash "$P3/teardown-pass.sh" confirm --session s 2>/dev/null)
+    CRC=$?
+    CWHY=$(jq -r '.reason' "$C3/detail.json" 2>&1)
+}
+
+echo "== build trees in the job's tmp/ =="
+setup_run
+scratch_tmp
+# A cargo target dir under another name, its marker CACHEDIR.TAG, holding a
+# node_modules of its own; a repo's target/, marked by .rustc_info.json;
+# node_modules nested in node_modules; a cargo home; and a link to a tree.
+mkdir -p "$JT/ct/debug" "$JT/ct/inner/node_modules" "$JT/repo/target/release" \
+    "$JT/web/node_modules/a/node_modules/b" "$JT/ch/registry/cache"
+printf '%s\n# cargo\n' "$SIG" >"$JT/ct/CACHEDIR.TAG"
+printf '%0100d' 0 >"$JT/ct/debug/big"
+printf 'x\n' >"$JT/ct/inner/node_modules/y"
+printf '{"rustc_fingerprint":1,"outputs":{}}\n' >"$JT/repo/target/.rustc_info.json"
+printf '%0200d' 0 >"$JT/repo/target/release/app"
+printf '%050d' 0 >"$JT/web/node_modules/a/index.js"
+printf '%025d' 0 >"$JT/web/node_modules/a/node_modules/b/index.js"
+: >"$JT/ch/.package-cache"
+printf '%0300d' 0 >"$JT/ch/registry/cache/x.crate"
+ln -s "$JT/web/node_modules" "$JT/nm-link"
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "build trees in tmp/: the pass is done" || bad "build trees in tmp/: the pass is done" "exit $RC: $OUT $ERR"
+eq_ "SKIPPED lists each outermost tree, its marker and its bytes" \
+    "300 .package-cache job/tmp/ch|154 CACHEDIR.TAG job/tmp/ct|237 .rustc_info.json job/tmp/repo/target|75 node_modules job/tmp/web/node_modules" \
+    "$(tr '\n' '|' <"$ARCHD/SKIPPED" 2>&1 | sed 's/|$//')"
+for d in ch ct repo/target web/node_modules nm-link; do
+    [ -e "$ARCHD/job/tmp/$d" ] && bad "left out of the archive: job/tmp/$d" "$(cd "$ARCHD" && find job | sort)" || ok "left out of the archive: job/tmp/$d"
+done
+for f in notes.md "sub/scratch file.txt" repo/src/main.rs web/src/app.js notes/target/plan.md tag/CACHEDIR.TAG ri/.rustc_info.json CACHEDIR.TAG; do
+    [ -f "$ARCHD/job/tmp/$f" ] && ok "kept: job/tmp/$f" || bad "kept: job/tmp/$f" "$(cd "$ARCHD" && find job | sort)"
+done
+grep -q ' SKIPPED$' "$ARCHD/MANIFEST" && ok "SKIPPED is in the MANIFEST" || bad "SKIPPED is in the MANIFEST" "$(cat "$ARCHD/MANIFEST")"
+eq_ "the MANIFEST lists the 8 kept tmp/ files and nothing under a tree" 8 "$(grep -c ' job/tmp/' "$ARCHD/MANIFEST")"
+eq_ "MANIFEST.sha256 records the MANIFEST's digest" "$(sha256 <"$ARCHD/MANIFEST")  MANIFEST" "$(cat "$ARCHD/MANIFEST.sha256" 2>&1)"
+eq_ "the README lists each tree left out" \
+    "- Build tree skipped (.package-cache, 300 bytes): job/tmp/ch|- Build tree skipped (CACHEDIR.TAG, 154 bytes): job/tmp/ct|- Build tree skipped (.rustc_info.json, 237 bytes): job/tmp/repo/target|- Build tree skipped (node_modules, 75 bytes): job/tmp/web/node_modules" \
+    "$(grep '^- Build tree skipped' "$ARCHD/README.md" | tr '\n' '|' | sed 's/|$//')"
+grep -q '^`SKIPPED`, in the MANIFEST, lists each build tree' "$ARCHD/README.md" \
+    && ok "the README says what SKIPPED is" || bad "the README says what SKIPPED is" "$(cat "$ARCHD/README.md")"
+confirm_archive
+[ "$CRC" = 0 ] && [ "$COUT" = teardown-confirmed ] && ok "confirm passes an archive with trees left out" \
+    || bad "confirm passes an archive with trees left out" "exit $CRC: $COUT ($CWHY)"
+
+echo "== a tmp/ with no build tree =="
+setup_run
+scratch_tmp
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "no build tree: the pass is done" || bad "no build tree: the pass is done" "exit $RC: $OUT $ERR"
+[ -e "$ARCHD/SKIPPED" ] && bad "no SKIPPED is written" "$(cat "$ARCHD/SKIPPED")" || ok "no SKIPPED is written"
+grep -q -e 'SKIPPED' -e 'Build tree' "$ARCHD/README.md" "$ARCHD/MANIFEST" && bad "neither the README nor the MANIFEST mentions one" "$(cat "$ARCHD/README.md")" \
+    || ok "neither the README nor the MANIFEST mentions one"
+eq_ "every tmp/ file is archived and in the MANIFEST, in find's order" \
+    "$(cd "$JT" && find . -type f | sed 's|^\./|job/tmp/|')" "$(sed -n 's/^[^ ]* [^ ]* \(job\/tmp\/.*\)/\1/p' "$ARCHD/MANIFEST")"
+eq_ "the archive holds what a pass held before trees were left out" \
+    "MANIFEST|MANIFEST.sha256|README.md|RESULT|claude-projects|job|koto|teardown.json|unit-cost.json" "$(LC_ALL=C ls "$ARCHD" | tr '\n' '|' | sed 's/|$//')"
+confirm_archive
+[ "$CRC" = 0 ] && [ "$COUT" = teardown-confirmed ] && ok "and confirm passes it" || bad "and confirm passes it" "exit $CRC: $COUT ($CWHY)"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
