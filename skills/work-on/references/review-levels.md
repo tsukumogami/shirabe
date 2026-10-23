@@ -168,8 +168,9 @@ from. It asks whether the level is too light for these facts under those
 definitions. A session with no facts recorded gets `{}` and no rules, and the
 decider escapes on it. `review-level.sh project <facts-file> <level>
 [<rules-file>]` prints the same slice for a facts file, so a slice built
-outside a live session is the script's own output. The slice's contract (its sources, completeness case,
-measured size and trust record) is the `work-on/review-level-fits-facts` entry
+outside a live session is the script's own output. The slice's contract (its
+sources, completeness case, measured size and trust record) is the
+`work-on/review-level-fits-facts` entry
 in `references/rule-registry.json`, with its written case in
 `references/jev-criteria.md`. The check can only hold the run, never route it
 or lower the level.

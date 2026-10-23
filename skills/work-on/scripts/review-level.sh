@@ -898,20 +898,21 @@ join_or() {
         fi
         shift
     done
-    [ "$n" -gt 0 ] && printf '%s' "$out"
+    if [ "$n" -gt 0 ]; then printf '%s' "$out"; fi
 }
 
 # render_rules: the loaded rules as the slice's definition lines, one per level
-# that raises the floor (full, then standard), in the rules file's order, then
-# light as the default. Every word comes from load_rules, which admits only
-# level names, [a-z0-9_] class names, digit thresholds and the fixed fact
-# names, so no path or free text reaches the slice. A `light` rule never
-# raises the floor and isn't printed.
+# that raises the floor, full then standard (load_rules admits no other
+# level), then light as the default. On each line the class rules come first,
+# as one "classes has" list, then the other facts, each group in the rules
+# file's order. Every word comes from load_rules, which admits only level
+# names, [a-z0-9_] class names, digit thresholds and the fixed fact names, so
+# no path or free text reaches the slice. A `light` rule never raises the
+# floor and isn't printed.
 #
-# "Call for" is the phrase the criterion's pass and fail texts use. On the
-# fixtures against the decider (2026-10-23), this wording got a pass or fail
-# on 47 of 50 full-facts cases; the same rules introduced as "the highest
-# level any rule yields" got one on 29 or 30.
+# "Call for" is the phrase the criterion's pass and fail texts use; the
+# decider answered far more full-facts fixtures under it than under "the
+# highest level any rule yields" (references/jev-criteria.md has the run).
 render_rules() {
     local lvl i fact parts classes
     for lvl in full standard; do

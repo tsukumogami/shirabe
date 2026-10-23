@@ -912,6 +912,8 @@ def measure_sessions(args):
             # "standard" is the longest level name, so the size is an upper bound.
             # The slice renders the rules copy the session stored, as the gate
             # does; a session without one gets the shipped rules, as there.
+            # The copy is the context key review-level.sh calls RULES_KEY,
+            # which koto keeps beside review_facts.json in the session's ctx.
             argv = [script, "project", path, "standard"]
             rules = os.path.join(os.path.dirname(path), "review_level_rules.tsv")
             if os.path.isfile(rules) and not os.path.islink(rules) and os.path.getsize(rules):

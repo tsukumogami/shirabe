@@ -204,7 +204,10 @@ configured decider (jev-1.14.0) on 2026-10-23 with
 escapes, seeded-bad 24 fail and 1 escape, adversarial 6 fail, empty 3
 escapes, so the bar is met. The three full-facts escapes are two `standard`
 levels over a `light` floor and a 41-line documentation change at `light`.
-They are left as they are: an escape is never a pass, it falls back to the
+The same rules introduced as "the highest level any rule below yields"
+instead of what the facts "call for", the phrase the criterion's pass and
+fail texts use, got an answer on only 29 or 30 of the 50 in two runs.
+The three are left as they are: an escape is never a pass, it falls back to the
 agent, and it counts against the live bar's answered share, so a slice that
 kept escaping couldn't earn trust. The same 38 cases with the order-only
 slice got 6 answers and 32 escapes. The dates in this section are UTC.
