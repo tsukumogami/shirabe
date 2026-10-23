@@ -58,8 +58,9 @@
 # K is entry (the default), or one of the kinds the record's other writers
 # append for what they change (the design's Decisions 3 and 4): run, told,
 # pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
-# hold (a hold added or lifted, record-hold.sh), moved (a record moved onto
-# the session store, as an import or an earlier release wrote it),
+# hold (a hold added or lifted, record-hold.sh), moved (found in a record an
+# earlier release moved onto its session; only the legacy importer still posts
+# one, on the GitHub record it imports),
 # milestone-verdict (a checked verdict on a milestone, milestone.sh
 # check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
 # landed pull request judged against its milestone's Evidence, milestone.sh

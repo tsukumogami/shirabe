@@ -207,7 +207,7 @@ Cost of <topic> (<capture key>): <n> sessions, <worker output> output tokens, di
 | `key` | the archive directory's name, `<UTC date>-<topic>-<job id>` |
 | `captured_at` | UTC, to the second |
 | `topic` | the dispatch topic |
-| `record` | `{scope, name, repo, ref}` from the run facts, or `null` |
+| `record` | `{scope, name, repo}` from the run facts, with `ref` kept in the shape and always `""`, or `null` |
 | `unit` | the Unit's tag, `"not public"`, or `null` |
 | `milestone` | `{value, state, source: "record"}` |
 | `plan_shape` | `{value, state, source: "koto-state"}` |
