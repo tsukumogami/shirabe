@@ -700,17 +700,44 @@ eq "  ... a second entry for the key, which readers report as a repeat" 2 \
 echo "== the post lock =="
 # The list and the post run under .post-lock in the removals directory (under
 # HOME here, XDG_STATE_HOME being unset). Two captures of one unit with the
-# same dispatch id and different keys, started together, leave one entry.
+# same dispatch id and different keys meet at a barrier on the record's list,
+# which only record-append.sh --list reads and only inside the lock: a gh
+# ahead of the stand-in on PATH holds every list call until $T/go exists and
+# notes each one in $T/listing. With the lock, one capture is at the barrier
+# and the other waits for the lock; without it both would list an empty
+# record there and both would post.
 PL="$HOME/.local/state/shirabe/removals/.post-lock"
 seed; fresh; prs "acme/widgets#21 $MERGE"
-rm -rf "$T/c"; mkdir -p "$T/c"; cp -R "$A" "$T/c/2026-10-04-feat-x-0a1b2c3d"
-bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap1.err" &
+rm -rf "$T/c" "$T/barrier" "$T/go" "$T/listing"; mkdir -p "$T/c" "$T/barrier"; cp -R "$A" "$T/c/2026-10-04-feat-x-0a1b2c3d"
+cat >"$T/barrier/gh" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+    *"issues/7/comments?per_page"*)
+        echo \$\$ >>'$T/listing'
+        i=0
+        while [ ! -e '$T/go' ] && [ "\$i" -lt 600 ]; do sleep 0.1; i=\$((i + 1)); done ;;
+esac
+exec '$HERE/testdata/gh' "\$@"
+EOF
+chmod +x "$T/barrier/gh"
+PATH="$T/barrier:$PATH" UNIT_COST_LIST_SECS=40 UNIT_COST_POST_SECS=20 \
+    bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap1.err" &
 P1=$!
-bash "$UC" capture --session "$S" --archive "$T/c/2026-10-04-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/cap2.err" &
+PATH="$T/barrier:$PATH" UNIT_COST_LIST_SECS=40 UNIT_COST_POST_SECS=20 \
+    bash "$UC" capture --session "$S" --archive "$T/c/2026-10-04-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/cap2.err" &
 P2=$!
+i=0
+until [ -s "$T/listing" ] || [ "$i" -ge 600 ]; do sleep 0.1; i=$((i + 1)); done
+# Time for the other capture to reach the lock, or, without one, the barrier.
+sleep 3
+eq "two captures of one unit: one is at the barrier inside the lock, the other held out of it" 1 "$(grep -c . "$T/listing")"
+touch "$T/go"
 wait "$P1"; wait "$P2"
 POSTED=$((POSTED + 1))
-eq "two captures of one unit started together leave one entry" 1 "$(cost_bodies | jq length)"
+eq "  ... released, they leave one entry" 1 "$(cost_bodies | jq length)"
+eq "  ... one posts, and the other, listing after it, says the record already holds the entry" \
+    "unit-cost: posted the cost entry|unit-cost: the record already holds this unit's cost entry" \
+    "$({ tail -n 1 "$T/cap1.err"; tail -n 1 "$T/cap2.err"; } | LC_ALL=C sort | paste -sd'|' -)"
 eq "  ... the lock is released after them" no "$([ -e "$PL" ] && echo yes || echo no)"
 # A lock left by a process that is gone is taken over.
 seed; fresh
