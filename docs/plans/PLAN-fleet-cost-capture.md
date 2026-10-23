@@ -82,7 +82,20 @@ workspace maintainer reads.
 
 ### Step 3: failing heads are counted over every head, or marked as a floor
 
-A 65-head pull request gets its full failing-head count, and one whose runs couldn't all be read gets `bound` with the reason in `missing` (#1093).
+**Goal**: The capture reads each head's own runs, oldest head first, through every page of 100 the head holds, and stops after the first green head, so a pull request with many pushes gets every failing head counted; when a head's runs can't all be read, the count is `bound` over the heads read and `missing` names `failing_heads` with the reason (#1093).
+
+**Acceptance Criteria**:
+
+- [ ] A pull request whose 65 heads' runs the stub serves over pages of 100 per head (one head with 250 runs across three pages) gets the full failing-head count, `measured`, and every page of that head is read.
+- [ ] With the read budget spent partway (the stub's reads slowed past `UNIT_COST_BUDGET_SECS`), `failing_heads` is `bound` and `missing` holds `{figure: failing_heads, reason: "time limit"}`; a page read that fails gives `read failed`; a page outside its shape gives `invalid input`.
+- [ ] The reads stop at the green head: the stub records no runs read for a head after it; with no green head every head is read and the green figures are `not recoverable`.
+- [ ] The capture makes no `run list --limit 300` call any more, and every existing green, merge and failing-head case in `unit-cost_test.sh` keeps its expected value.
+
+**Check**: Run `bash skills/coordinate/scripts/unit-cost_test.sh` and see the failing-heads cases pass, the 65-head one counting every failing head.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/coordinate/scripts/unit-cost.sh`, `skills/coordinate/scripts/unit-cost_test.sh`, `skills/coordinate/scripts/testdata/gh`
 
 ### Step 4: entries stay off the unit's own pull requests and issues unless the workspace turns them on
 
