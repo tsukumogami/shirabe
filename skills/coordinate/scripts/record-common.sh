@@ -374,9 +374,11 @@ lib_session_rotation() {
     [ "$SCOPE" = discipline ] && [ "$(rs_source)" = session ]
 }
 
-# lib_ref_ok: REF is a record number, or empty for a session rotation.
+# lib_ref_ok [ref]: the given ref (else REF) is a record number, or empty for a
+# session rotation.
 lib_ref_ok() {
-    if [ -z "$REF" ]; then lib_session_rotation; else [[ $REF =~ $RE_NUM ]]; fi
+    local r=${1-$REF}
+    if [ -z "$r" ]; then lib_session_rotation; else [[ $r =~ $RE_NUM ]]; fi
 }
 
 # lib_record_name: how a diagnostic names the record: `#<n>`, or the session

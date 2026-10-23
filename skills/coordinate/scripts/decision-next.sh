@@ -128,7 +128,7 @@ live_size() {
         cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
         LIVE=$PARSED
     else
-        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && lib_ref_ok \
+        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && lib_ref_ok "$REF" \
             || lib_die2 "cannot read the record's number"
         rs_record "$T/live" body --json body --jq .body
         case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac

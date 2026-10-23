@@ -405,7 +405,7 @@ run-store)
     FOUND=$({ NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture; } 2>/dev/null) || { echo github; exit 0; }
     (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || { echo github; exit 0; }
     case "${FOUND% sealed:*}" in "found "*" session"|"move "*) echo session; exit 0 ;; esac
-    RS_SCOPE=$(jq -r 'select(.type == "workflow_initialized") | .payload.variables.SCOPE // ""' "$LOG" 2>/dev/null | head -1)
+    RS_SCOPE=$(jq -r 'select(.type == "workflow_initialized") | .payload.variables.SCOPE // ""' "$LOG" | head -1)
     if session_rotation_token "${FOUND% sealed:*}" "$RS_SCOPE"; then echo session; else echo github; fi
     ;;
 provenance)

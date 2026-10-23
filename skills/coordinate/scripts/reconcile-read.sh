@@ -236,7 +236,7 @@ if [ "$SESSION_ROTATION" = 1 ]; then
     READ_FILE=0
     rs_key "$SESSION" coord/predecessor_carry.json "$T/carry-report"
     case $? in
-        0) case "$(jq -r '.predecessor // ""' "$T/carry-report" 2>/dev/null)" in handoff:*) READ_FILE=1 ;; esac ;;
+        0) case "$(jq -r '.predecessor // ""' "$T/carry-report")" in handoff:*) READ_FILE=1 ;; esac ;;
         1) ;;
         *) refuse 5 failed "this run's carry report could not be read" ;;
     esac
