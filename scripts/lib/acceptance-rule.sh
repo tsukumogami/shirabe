@@ -48,7 +48,11 @@
 #     decline line is judged again with acceptance_rule_decide from what the
 #     ledger itself shows (whether its seat was minted and unused at that
 #     point, the header's author and person-required flag), so a hand-written
-#     line the rule would refuse never counts. A person line counts only with a
+#     line the rule would refuse never counts. A coordinator line's
+#     session_exists flag is the one fact taken from the line itself: whether
+#     a koto session existed when the writer checked can't be re-derived
+#     later, so a hand-written coordinator line that claims it counts, as any
+#     well-formed line the rule allows does. A person line counts only with a
 #     terminal this fold can verify, which this version can't, so none does;
 #     a stored terminal flag is never trusted. The last judgment that counts
 #     for an item decides it:
@@ -154,7 +158,7 @@ $id"
                 ;;
         esac
         local seat=false
-        if printf '%s\n' "$minted" | grep -Fxq -- "$id" && ! printf '%s\n' "$used" | grep -Fxq -- "$id"; then
+        if grep -Fxq -- "$id" <<<"$minted" && ! grep -Fxq -- "$id" <<<"$used"; then
             seat=true
         fi
         # A seat is used by its first judgment, allowed or not.

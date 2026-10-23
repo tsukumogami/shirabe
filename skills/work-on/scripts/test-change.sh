@@ -405,7 +405,11 @@ cmd_init() {
     [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review_level_choice stores it"
 
     # Where the unit started: impl_base must be one of these, so neither a
-    # later nor an older base narrows the test class.
+    # later nor an older base narrows the test class. HEAD counts because
+    # this runs at fix_determination, before implementation: analysis
+    # recorded impl_base as HEAD, so the two still agree unless the base was
+    # rewritten by hand. The merge-base and the shared branch's remote tip
+    # cover a commit made between the two states.
     git merge-base --is-ancestor "$base" "$head" 2>>"$ERRLOG" \
         || refuse "impl_base $base is not an ancestor of HEAD; it is not where this unit started"
     local cands="$head" ref mb
@@ -500,6 +504,14 @@ section_of() {
 # crafted line can't rewrite what a reader's terminal shows.
 visible() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
 
+# capped <file> <bytes>: the file made visible, cut at <bytes>. head reads a
+# file rather than a pipe, so stopping early never breaks a writer under
+# pipefail.
+capped() {
+    visible < "$1" > "$1.visible"
+    head -c "$2" "$1.visible"
+}
+
 cmd_seat() {
     [ $# -eq 1 ] || usage "seat takes <session>"
     local s="$1" n id nonce
@@ -559,7 +571,8 @@ $item" ;; esac
         printf '%s\n' "$paths" | sed '/^$/d' > "$TMP/paths"
         local -a pa=()
         while IFS= read -r item; do pa[${#pa[@]}]="$item"; done < "$TMP/paths"
-        G diff -M "$H_BASE" HEAD -- "${pa[@]}" 2>>"$ERRLOG" | visible | head -c "$BRIEF_HUNKS_MAX"
+        G diff -M "$H_BASE" HEAD -- "${pa[@]}" > "$TMP/hunks" 2>>"$ERRLOG"
+        capped "$TMP/hunks" "$BRIEF_HUNKS_MAX"
         echo
     else
         echo "(no edited test file)"
@@ -567,7 +580,8 @@ $item" ;; esac
     echo
     echo "## Observations"
     if [ -s "$TMP/record" ] && jq -e '(.observations // {}) | length > 0' "$TMP/record" >/dev/null 2>&1; then
-        jq -r '(.observations // {}) | to_entries[] | "### \(.key) (digest \(.value.digest))\n\(.value.text // "")"' "$TMP/record" | visible | head -c "$BRIEF_TEXT_MAX"
+        jq -r '(.observations // {}) | to_entries[] | "### \(.key) (digest \(.value.digest))\n\(.value.text // "")"' "$TMP/record" > "$TMP/obs"
+        capped "$TMP/obs" "$BRIEF_TEXT_MAX"
         echo
     else
         echo "(none)"
@@ -575,15 +589,15 @@ $item" ;; esac
     echo
     echo "## Notes the run recorded"
     jq -Rr 'fromjson? | select(type == "object" and .event == "note") | "- \(.file): \(.reason)"' "$TMP/ledger" > "$TMP/notes"
-    if [ -s "$TMP/notes" ]; then visible < "$TMP/notes" | head -c "$BRIEF_TEXT_MAX"; else echo "(none)"; fi
+    if [ -s "$TMP/notes" ]; then capped "$TMP/notes" "$BRIEF_TEXT_MAX"; else echo "(none)"; fi
     echo
     echo "## The unit's acceptance criteria"
     ctx_get "$s" context.md "$TMP/context" || die66 "could not read context.md"
     section_of "$TMP/context" "acceptance criteria" > "$TMP/criteria"
     if [ -s "$TMP/criteria" ]; then
-        visible < "$TMP/criteria" | head -c "$BRIEF_TEXT_MAX"
+        capped "$TMP/criteria" "$BRIEF_TEXT_MAX"
     elif [ -s "$TMP/context" ]; then
-        visible < "$TMP/context" | head -c "$BRIEF_TEXT_MAX"
+        capped "$TMP/context" "$BRIEF_TEXT_MAX"
     else
         echo "(no context.md is stored)"
     fi
