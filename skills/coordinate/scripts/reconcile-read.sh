@@ -115,11 +115,12 @@ case "$SCOPE" in roadmap|discipline) ;; *) refuse 5 failed "the run's scope is u
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 [ -n "$RS" ] || refuse 5 failed "no session holds the record"
 
-# The body, live, through the seam (record-source.sh), under this reader's own
-# deadline; this reader keeps its row-by-row salvage of a body the codec
-# refuses.
+# The body through the seam (record-source.sh), under this reader's own
+# deadline: rs_record, so a pass that began the step's one read
+# (rs_once_begin) shares it with the settle and the legs classification. This
+# reader keeps its row-by-row salvage of a body the codec refuses.
 session_view() {
-    rs_session_read "$T/rec" json "$RS" "$SCOPE" "$NAME" || return $?
+    RS_SESSION=$RS rs_record "$T/rec" json || return $?
     cat "$T/rec.raw"
 }
 rd_deadline "$DEADLINE" session_view > "$T/view.json" 2>/dev/null
