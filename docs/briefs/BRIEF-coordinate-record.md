@@ -141,3 +141,13 @@ recorded head, and the coordinator can't supply it by typing one in.
   detecting that an effort is held by two coordinators.
 - Any permission rule of the skill's own. What a coordinator may merge, close or tear down
   stays the workspace's declared posture, read at start.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The container question this brief framed, which GitHub issue or pull request
+holds a coordinator's record, is answered by the session: the record is the
+coordinator's koto session, with no GitHub container.

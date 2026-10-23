@@ -1,6 +1,7 @@
 ---
 schema: design/v1
-status: Current
+status: Superseded
+superseded_by: docs/designs/current/DESIGN-coordinator-record-teardown.md
 upstream: docs/prds/PRD-coordinate-skill.md
 problem: |
   The coordinate skill's record is a set of tables in an issue or pull
@@ -50,7 +51,9 @@ rationale: |
 
 ## Status
 
-Current
+Superseded
+
+Superseded by [DESIGN-coordinator-record-teardown.md](docs/designs/current/DESIGN-coordinator-record-teardown.md).
 
 > **Note (2026-10-11).** `docs/designs/current/DESIGN-coordinator-session-record.md`
 > amends Decisions 1, 3 and 5. For a record whose owner wrote a `store session` Run

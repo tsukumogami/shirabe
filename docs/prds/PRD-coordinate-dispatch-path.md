@@ -425,3 +425,12 @@ workflow scratch directory the repository's cleanup rule removes.
   a failed launch leaves a row to clear. The alternative, recording after,
   leaves a worker nobody can see when the session dies in between; a visible
   stale row is the cheaper failure.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+"The record on GitHub" is the coordinator's session; a holding is read and
+written through `state-holding.sh`.

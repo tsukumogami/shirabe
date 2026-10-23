@@ -623,7 +623,7 @@ unchanged; only its store is the session.
 Superseded, moved to `docs/designs/archive/` with `superseded_by` naming this
 design once it is Current:
 
-- `docs/designs/current/DESIGN-coordinate-record-container.md`
+- `docs/designs/archive/DESIGN-coordinate-record-container.md`
 
 Amended, each with a `## Amendment — <date>` section appended whose first
 paragraph is "`DESIGN-coordinator-record-teardown.md` removes the GitHub

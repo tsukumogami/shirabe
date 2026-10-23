@@ -785,3 +785,14 @@ guard's refusal tests cover them.
   edit waits, and close-out names it.
 - The record already documents that entries are posted under the
   coordinator's login; the body remains the single source of decisions.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+Decisions are made from the coordinator's session plus the default branch, not
+from a record body. Verdict and failure entries are posted on the roadmap pull
+request (`state-entry.sh --on <roadmap pull request>`), not on a record
+issue.

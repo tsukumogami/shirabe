@@ -516,3 +516,17 @@ Packaging:
   the failure branch without declaring the worker gone.
 - **Homeless findings stay out of the record.** A fifth section would give a check something
   to read but would make the record where findings wait, which the prose skill forbids.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The glossary's Record (a GitHub issue or pull request), R14's body (one
+renderer for a markdown record body and the discipline handoff file) and R17
+to R20's find, open, close-out and rotation title no longer hold as written.
+The record is the session's `record/` keys, validated as JSON by
+`state-schema.jq`. Finding and opening it are `state-find.sh` and
+`state-open.sh` over the session, and a rotation closes by writing
+`record/reasoning` and ending the session, with no pull request or title.
