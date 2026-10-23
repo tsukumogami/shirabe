@@ -20,8 +20,9 @@
 #       ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ or equal to NIWA_SESSION_ID;
 #       NIWA_SESSION_ID isn't a session id (unit-cost.sh's pattern, its
 #       first 8 characters hex digits, since they name the archive);
-#       NIWA_INSTANCE_PATH isn't absolute, holds `..` or isn't under the
-#       directory the step runs in; or the removals directory R
+#       NIWA_INSTANCE_PATH isn't absolute, holds `..`, isn't a plain path
+#       (a trailing `/`, `//` or a control character) or isn't strictly
+#       under the directory the step runs in; or the removals directory R
 #       (${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals) is a
 #       symbolic link, isn't the user's or isn't mode 0700. Otherwise it
 #       writes R/<dispatch id>.json, {schema: "unit-removal/1", dispatch_id,
@@ -162,10 +163,14 @@ if [ "$MODE" = record ]; then
     [[ $SID =~ $AC_RE_SID ]] && [[ $SID =~ ^[0-9a-f]{8} ]] || skip "the session id (NIWA_SESSION_ID) is not a session id"
     case "$IP" in /*) ;; *) skip "the instance path (NIWA_INSTANCE_PATH) is not absolute" ;; esac
     case "$IP" in *..*) skip "the instance path holds .." ;; esac
+    # niwa names an instance as a plain path: no trailing `/`, no `//`, no
+    # control character, so the workspace root itself (`<root>/`) is never
+    # taken for one.
+    case "$IP" in */ | *//* | *[[:cntrl:]]*) skip "the instance path is not a plain path" ;; esac
     # niwa runs the step from the workspace root, and every instance is
     # under it.
     WS=$(pwd) WSP=$(pwd -P)
-    case "$IP" in "$WS"/* | "$WSP"/*) ;; *) skip "the instance path is not under $WS" ;; esac
+    case "$IP" in "$WS"/?* | "$WSP"/?*) ;; *) skip "the instance path is not under $WS" ;; esac
     ac_removals_dir --create || skip "$AC_WHY"
     F="$AC_R/$KEY.json"
     AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)

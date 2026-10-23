@@ -24,7 +24,9 @@
 # requested_by holds no leg key for it: the record kept, no coordinator,
 # nothing posted; a record outside its shape deleted. Each refusal of record (no reap key, a key
 # equal to the session id, a key starting with -, a path holding .., a path
-# outside the directory record runs in, a removals directory that is a
+# outside the directory record runs in, the workspace root itself with or
+# without a trailing /, a path with a trailing / or a newline, a session id
+# that isn't one, a removals directory that is a
 # symbolic link or not mode 0700, the script writable by group or others):
 # one line, no record, exit 0. A second removal of the same dispatch id at the
 # same path keeps removed_at; one at another path replaces the record.
@@ -260,6 +262,11 @@ refused "a reap key equal to the session id" "$SID" "$SID" "$IP"
 refused "a reap key starting with -" "-x" "$SID" "$IP"
 refused "an instance path holding .." "$DID" "$SID" "$WS/a/../inst-feat-x"
 refused "an instance path outside the directory record runs in" "$DID" "$SID" "$T/elsewhere/inst-feat-x"
+refused "the workspace root itself" "$DID" "$SID" "$WS"
+refused "the workspace root with a trailing /" "$DID" "$SID" "$WS/"
+refused "an instance path with a trailing /" "$DID" "$SID" "$IP/"
+refused "an instance path holding a newline" "$DID" "$SID" "$WS/inst
+x"
 refused "a session id that isn't one" "$DID" "not-a-sid" "$IP"
 mkdir -p "$T/real-removals" "$(dirname "$R")"
 chmod 700 "$T/real-removals"
