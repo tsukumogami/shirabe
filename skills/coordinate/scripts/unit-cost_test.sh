@@ -36,7 +36,11 @@
 # 120-second window both ways, a sibling branch, an unreadable pull request,
 # no dispatch, more than 100, a private repository on a public host, a
 # budget spent mid-way, and hostile links and branches that no read names);
-# niwa's dispatch id from teardown.json; one
+# niwa's dispatch id from teardown.json, or, when it holds none, from the
+# removal record for the archive's instance path (not another path's, not a
+# removals directory that isn't mode 0700); a pull request file naming none,
+# credit's owner then the record repository's and green, merge and failing
+# heads read over the credited pull requests; one
 # entry per key (twice posts once, another key's entry doesn't stop a post, a
 # failed list posts anyway); missing transcripts, a failing `gh run list`, a
 # failing `gh pr view` and a spent budget still posting an entry with
@@ -820,6 +824,52 @@ printf 'not json\n' >"$A/teardown.json"
 eq "a teardown.json that isn't JSON: null, invalid input" 'null|invalid input' "$(nid)"
 rm -f "$A/teardown.json"
 eq "no teardown.json: null, no source" 'null|no source' "$(nid)"
+# A removal record (archive-common.sh's removals directory, under
+# XDG_STATE_HOME) for the archive's instance path gives the id teardown.json
+# lacks; one for another path, or a removals directory not mode 0700, doesn't.
+fresh
+jq -c '.niwa = {dispatch_id: null, reason: "no source"}' "$A/teardown.json" >"$T/td" && cp "$T/td" "$A/teardown.json"
+export XDG_STATE_HOME="$T/xdg"
+RMD="$XDG_STATE_HOME/shirabe/removals"
+mkdir -p "$RMD"
+chmod 700 "$RMD"
+removal() { # removal <dispatch id> <instance path>
+    jq -n -c --arg d "$1" --arg p "$2" '{schema: "unit-removal/1", dispatch_id: $d, session_id: "0a1b2c3d-77aa",
+        instance_path: $p, removed_at: "2026-10-01T12:00:00Z", attempts: 0, last: null}' >"$RMD/$1.json"
+}
+removal dsp-removed.3 /work/inst/feat-x
+eq "a teardown.json with no id takes the removal record's for its instance path" '"dsp-removed.3"|' "$(nid)"
+chmod 755 "$RMD"
+eq "  ... not from a removals directory that isn't mode 0700" 'null|no source' "$(nid)"
+chmod 700 "$RMD"
+rm -f "$RMD"/*.json
+removal dsp-removed.3 /work/inst/feat-x-2
+eq "  ... nor from a record for another instance path" 'null|no source' "$(nid)"
+fresh
+removal dsp-removed.4 /work/inst/feat-x
+eq "teardown.json's own id stands over a removal record's" '"dsp-feat-x.1"|' "$(nid)"
+unset XDG_STATE_HOME
+
+echo "== a pull request file naming none: the credited pull requests read =="
+# A capture after a removal has no sealed verdict: credit's owner is the
+# record repository's, and green, merge and failing heads read the credited
+# pull requests. #23 has a failing head then a green one, gadgets#7 one green
+# head.
+seed; fresh; : >"$T/prs"
+H1=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1 H2=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2 H3=c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3
+db '.pr_commits["acme/widgets#23"] = [$a, $b] | .pr_commits["acme/gadgets#7"] = [$c]
+    | .runs += [{repo: "acme/widgets", databaseId: 301, headBranch: "feat/x-docs", headSha: $a, attempt: 1, status: "completed", conclusion: "failure", updatedAt: "2026-10-01T10:40:00Z", attempts: []},
+                {repo: "acme/widgets", databaseId: 302, headBranch: "feat/x-docs", headSha: $b, attempt: 1, status: "completed", conclusion: "success", updatedAt: "2026-10-01T11:00:00Z", attempts: []},
+                {repo: "acme/gadgets", databaseId: 303, headBranch: "feat/x-gadgets", headSha: $c, attempt: 1, status: "completed", conclusion: "success", updatedAt: "2026-10-01T11:20:00Z", attempts: []}]' \
+    --arg a "$H1" --arg b "$H2" --arg c "$H3"
+printf '%s' '{"scope":"roadmap","name":"x","repo":"acme/widgets","ref":"7","unit":"Feature 4: Example feature"}' >"$T/unit.json"
+OUT=$(compute --unit-json "$T/unit.json")
+eq "the credited pull requests are the entry's, via session" "acme/widgets#23 session|acme/gadgets#7 session" "$(via "$OUT")"
+eq "  ... merge is the later of their merges" "145 measured" "$(fig "$OUT" dispatch_to_merge_min)"
+eq "  ... green the later of their green heads" "140 measured" "$(fig "$OUT" dispatch_to_green_min)"
+eq "  ... failing heads counted over their heads" "1 measured" "$(fig "$OUT" failing_heads)"
+OUT=$(compute)
+eq "with no record known, no owner: nothing credited, the GitHub figures no source" "|null not recoverable" "$(via "$OUT")|$(fig "$OUT" dispatch_to_merge_min)"
 
 echo "== the GitHub wrapper =="
 admit() { bash "$UC" gh-check "$@"; eq "admits: $*" 0 $?; }

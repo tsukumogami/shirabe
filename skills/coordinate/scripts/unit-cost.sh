@@ -94,13 +94,17 @@
 # most 200 candidates are read, one `gh pr view` each out of the read
 # budget, and `pulls` holds at most 100. The first reason a pull request was
 # left out is one `pulls` entry in `missing`: `no source` (dispatch not
-# recoverable), `read failed`, `time limit` or `entry size`. Credit never
-# changes a figure: green, merge and failing heads read the holding's only.
+# recoverable), `read failed`, `time limit` or `entry size`. With a holding,
+# credit never changes a figure: green, merge and failing heads read the
+# holding's only. With a pull request file that names none (a capture after a
+# removal, unit-removed.sh), the holding's owner is the record repository's,
+# and green, merge and failing heads read the credited pull requests instead.
 #
 # niwa's dispatch id: teardown.json's niwa.dispatch_id, written by the pass,
-# as the top-level "niwa.dispatch.id"; else null, `missing` naming it with
-# the file's reason (`no source`, `invalid input`), `no source` without the
-# file.
+# as the top-level "niwa.dispatch.id"; when it holds none, the dispatch id of
+# the removal record (archive-common.sh ac_removal_for_path) whose
+# instance_path is teardown.json's; else null, `missing` naming it with the
+# file's reason (`no source`, `invalid input`), `no source` without the file.
 #
 # Time: per session, a state lasts from the transitioned or rewound event that
 # entered it to the next one, up to the first entry into done (else the last
@@ -144,7 +148,8 @@
 # archive's name is not a capture key for the topic.
 #
 # Environment: GH names gh (tests); KOTO_REQUESTS (default
-# $HOME/.koto/requests); UNIT_COST_FETCH_SECS (each GitHub read's bound,
+# $HOME/.koto/requests); XDG_STATE_HOME, which places the removals directory
+# (archive-common.sh); UNIT_COST_FETCH_SECS (each GitHub read's bound,
 # default 8, the pass's own); UNIT_COST_BUDGET_SECS (the reads' budget,
 # default 90); UNIT_COST_LIST_SECS (the entry list's bound, default 15);
 # UNIT_COST_POST_SECS (the post's bound, default 25); UNIT_COST_NOW (a fixed
@@ -160,6 +165,9 @@ PROG=unit-cost
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh"
+# The removals directory, for the dispatch id a removal recorded.
+# shellcheck source=archive-common.sh
+. "$HERE/archive-common.sh"
 
 GH="${GH:-gh}"
 KOTO_REQUESTS="${KOTO_REQUESTS:-$HOME/.koto/requests}"
@@ -847,9 +855,11 @@ uc_credit() {
         CREDIT_WHY=$why
         return 0
     fi
-    jq -c --slurpfile p "$WD/pulls.json" '
+    jq -c --slurpfile p "$WD/pulls.json" --slurpfile a "$WD/attribution.json" '
         def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
-        ([$p[0][] | .repo | ascii_downcase | split("/")[0]] | unique) as $owners
+        ([$p[0][] | .repo | ascii_downcase | split("/")[0]] | unique) as $held_owners
+        | (if ($held_owners | length) > 0 then $held_owners
+           else [$a[0].record.repo // empty | ascii_downcase | split("/")[0]] end) as $owners
         | [$p[0][] | "\(.repo | ascii_downcase)#\(.number)"] as $held
         | [.links[] | select((.r | ascii_downcase | split("/")[0]) as $o | $owners | index([$o]) != null)
            | select("\(.r | ascii_downcase)#\(.n)" as $k | $held | index([$k]) == null)]
@@ -898,7 +908,7 @@ uc_credit() {
                  and $created != null and $created >= ($d | ts)
                  and (($head != null and $head != $base and ($s[0].branches | index([$head]) != null))
                       or any($c.ts[]; (ts - $created) | abs <= 120))
-              then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged}
+              then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged, head: $head}
               else empty end' "$WD/cr.raw" >"$WD/cr.out" || { [ -n "$CREDIT_WHY" ] || CREDIT_WHY="read failed"; continue; }
         cat "$WD/cr.out" >>"$WD/credit.jsonl"
     done <"$WD/cands"
@@ -906,8 +916,42 @@ uc_credit() {
         sort_by([(.merged_at | key), .number])' "$WD/credit.jsonl" >"$WD/credit.json"
 }
 
+# The pull requests green, merge and failing heads read: the holding's, or,
+# when the sealed verdict names none (a capture after a removal), the merged
+# ones credit found, each read for its heads and runs as uc_pulls reads the
+# holding's, with the merge time credit read. figpulls.json has pulls.json's
+# shape.
+uc_figure_pulls() {
+    local repo n sha at br ghwhy
+    if [ "$VERDICT_BAD" = true ] || [ "$(jq length "$WD/pulls.json")" != 0 ]; then
+        cp "$WD/pulls.json" "$WD/figpulls.json"
+        return 0
+    fi
+    : >"$WD/figpulls.jsonl"
+    jq -r '.[] | [.repo, (.number | tostring), .merge_commit, .merged_at, (.head // "")] | @tsv' "$WD/credit.json" >"$WD/credited.tsv"
+    while IFS='	' read -r repo n sha at br; do
+        [ -n "$repo" ] || continue
+        echo '{"heads":[],"runs":[]}' >"$WD/gh.json"
+        ghwhy=""
+        # Matched again here, where the commands are built.
+        if ! repo_ok "$repo" || ! [[ $n =~ $RE_NUM ]] || ! branch_ok "$br"; then
+            ghwhy="invalid input"
+        elif ! uc_runs "$repo" "$n" "$br"; then
+            ghwhy=$UC_WHY
+        fi
+        jq -n -c --arg r "$repo" --argjson n "$n" --arg s "$sha" --arg at "$at" --arg ghwhy "$ghwhy" \
+            --slurpfile g "$WD/gh.json" \
+            '{repo: $r, number: $n, merge_commit: $s, merged_at: $at, merged_reason: null,
+              heads: $g[0].heads, runs: $g[0].runs, gh_reason: (if $ghwhy == "" then null else $ghwhy end)}' >>"$WD/figpulls.jsonl"
+    done <"$WD/credited.tsv"
+    jq -s -c '.' "$WD/figpulls.jsonl" >"$WD/figpulls.json"
+}
+
 # niwa's dispatch id, from teardown.json: {v, r}, r the reason v is null.
+# When teardown.json holds none, the removal record whose instance_path is
+# teardown.json's (archive-common.sh) gives it.
 uc_niwa() {
+    local ip
     if ! reg "$ARCH/teardown.json"; then
         echo '{"v":null,"r":"no source"}' >"$WD/niwa.json"
         return 0
@@ -921,6 +965,12 @@ uc_niwa() {
             else {v: null, r: "invalid input"} end
         end' "$ARCH/teardown.json" >"$WD/niwa.json" \
         || echo '{"v":null,"r":"invalid input"}' >"$WD/niwa.json"
+    [ "$(jq -r '.v // ""' "$WD/niwa.json")" = "" ] || return 0
+    ip=$(uc_jq -r '.instance.path // "" | if type == "string" then . else "" end' "$ARCH/teardown.json") || ip=""
+    case "$ip" in /*) ;; *) return 0 ;; esac
+    if ac_removal_for_path "$ip" && [[ $AC_REMOVAL_ID =~ $RE_DID ]]; then
+        jq -n -c --arg v "$AC_REMOVAL_ID" '{v: $v, r: null}' >"$WD/niwa.json"
+    fi
 }
 
 # The record, the Unit and the milestone, from the unit file. An issue
@@ -1069,13 +1119,14 @@ uc_compute() {
     uc_visibility holding
     uc_credit
     uc_visibility credited
+    uc_figure_pulls
     jq -n -c --arg key "$KEY" --arg now "$now" --arg topic "$TOPIC" --argjson vbad "$VERDICT_BAD" \
         --arg cwhy "$CREDIT_WHY" --slurpfile credit "$WD/credit.json" --slurpfile niwa "$WD/niwa.json" \
         --slurpfile att "$WD/attribution.json" --slurpfile shape "$WD/shape.json" \
-        --slurpfile pulls "$WD/pulls.json" --slurpfile preasons "$WD/pull-reasons.json" \
+        --slurpfile pulls "$WD/pulls.json" --slurpfile fpulls "$WD/figpulls.json" --slurpfile preasons "$WD/pull-reasons.json" \
         --slurpfile disp "$WD/dispatch.json" --slurpfile sess "$WD/sessions.json" --slurpfile vis "$WD/vis.json" \
         --slurpfile worker "$WD/worker.json" --slurpfile nested "$WD/nested.json" "$UC_FIGURES"'
-        $att[0] as $a | $shape[0] as $p | $disp[0] as $d | $sess[0] as $S | $pulls[0] as $P | $vis[0] as $V
+        $att[0] as $a | $shape[0] as $p | $disp[0] as $d | $sess[0] as $S | $pulls[0] as $P | $fpulls[0] as $F | $vis[0] as $V
 
         # Unit sessions and their state time; $tr is why they give no
         # figures: "na" with none at all, a reason when one is unreadable.
@@ -1093,15 +1144,17 @@ uc_compute() {
         | def kfig($v; $raw): if $tr == "na" then naf("koto-state") elif $tr != null then nrf("koto-state"; $tr)
                               else fig($v; $raw; "measured"; "koto-state") end;
 
-        # Dispatch, merge and green.
+        # Dispatch, merge and green, over the pull requests the figures read
+        # ($F: the holding pull requests, or the credited ones when the
+        # sealed verdict names none).
         (if $d.state == "measured" then ($d.value | ts) else null end) as $dsec
-        | (if $vbad then {r: "invalid input"} elif ($P | length) == 0 then {r: "no source"}
-           elif any($P[]; .merged_at == null) then {r: ([$P[] | select(.merged_at == null) | .merged_reason][0] // "read failed")}
-           else {v: ($P | map(.merged_at | ts) | max)} end) as $merge
-        | (if $vbad then {r: "invalid input"} elif ($P | length) == 0 then {r: "no source"}
-           elif any($P[]; .gh_reason != null) then {r: ([$P[] | .gh_reason // empty][0])}
-           elif any($P[]; (.heads | length) == 0) then {r: "no source"}
-           else ($P | map(prf(.heads; .runs))) as $pf
+        | (if $vbad then {r: "invalid input"} elif ($F | length) == 0 then {r: "no source"}
+           elif any($F[]; .merged_at == null) then {r: ([$F[] | select(.merged_at == null) | .merged_reason][0] // "read failed")}
+           else {v: ($F | map(.merged_at | ts) | max)} end) as $merge
+        | (if $vbad then {r: "invalid input"} elif ($F | length) == 0 then {r: "no source"}
+           elif any($F[]; .gh_reason != null) then {r: ([$F[] | .gh_reason // empty][0])}
+           elif any($F[]; (.heads | length) == 0) then {r: "no source"}
+           else ($F | map(prf(.heads; .runs))) as $pf
              | {fh: ($pf | map(.failing_heads) | add), bound: any($pf[]; .bound)}
                + (if all($pf[]; .green != null) then {v: ($pf | map(.green) | max)} else {gr: "no source"} end) end) as $gh
 

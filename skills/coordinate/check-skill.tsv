@@ -77,6 +77,7 @@ cost	record-move_test.sh	14
 cost	rotation-close_test.sh	14
 cost	coord-log_test.sh	13
 cost	roadmap-features_test.sh	13
+cost	unit-removed_test.sh	12
 cost	posture-read_test.sh	11
 cost	merge-confirm_test.sh	10
 cost	record-open_test.sh	10

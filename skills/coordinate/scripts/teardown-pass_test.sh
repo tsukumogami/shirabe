@@ -73,11 +73,11 @@ sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 
-# The plugin tree: the pass and its library, with a stand-in reader that
+# The plugin tree: the pass and its libraries, with a stand-in reader that
 # prints whatever verdict the case put in $T/verdict.
 S="$T/plugin/skills/coordinate/scripts"
 mkdir -p "$S" "$T/bin" "$T/ws/.niwa"
-cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$S/"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$S/"
 cat >"$S/teardown-handoff.sh" <<'EOF'
 #!/usr/bin/env bash
 cat "$VERDICT_FILE"
@@ -143,7 +143,7 @@ refused "removed yes with a job id that isn't one" "job id is not a job id"
 # ---------------------------------------------------------------------------
 # Whole passes, and the cost capture inside them.
 #
-# A second plugin tree with the real pass, dispatch-common.sh and
+# A second plugin tree with the real pass, its libraries and
 # unit-cost.sh; stand-ins for the verdict reader, the inventory and the record
 # scripts the capture calls (run facts, the Holdings row, the entry list and
 # the post, which goes through the stand-in gh). niwa, claude and gh log every
@@ -153,7 +153,7 @@ mkdir -p "$ST"
 P2="$T/plugin2/skills/coordinate/scripts"
 B2="$T/bin2"
 mkdir -p "$P2" "$B2"
-cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/unit-cost.sh" "$P2/"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$HERE/unit-cost.sh" "$P2/"
 cp "$S/teardown-handoff.sh" "$P2/"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$P2/teardown-inventory.sh"
 cat >"$P2/coord-log.sh" <<'EOF'
@@ -489,7 +489,7 @@ P3="$T/plugin3/skills/coordinate/scripts"
 B3="$T/bin3"
 C3="$T/c3"
 mkdir -p "$P3" "$B3" "$C3"
-cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$S/teardown-handoff.sh" "$P3/"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$S/teardown-handoff.sh" "$P3/"
 cat >"$P3/coord-log.sh" <<'EOF'
 #!/usr/bin/env bash
 while [ $# -gt 0 ]; do [ "$1" = --token ] && echo "$2"; shift; done
