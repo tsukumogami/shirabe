@@ -13,6 +13,7 @@ name: Check skill gate
 # with.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'scripts/check-skill.sh'
@@ -22,6 +23,19 @@ on:
       - '.github/workflows/check-skill-gate.yml'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/check-skill.list'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'scripts/check-skill.sh'
+      - 'scripts/check-skill_test.sh'
+      - 'scripts/lib/check-evals-shape.py'
+      - 'scripts/lib/check-evals-shape_test.py'
+      - '.github/workflows/check-skill-gate.yml'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/check-skill.list'
 

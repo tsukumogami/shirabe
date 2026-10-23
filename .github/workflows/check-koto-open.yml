@@ -9,6 +9,7 @@ name: Check koto-open
 # cases run on 3.2 and the engine cases run on Linux.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'scripts/koto-open.sh'
@@ -19,6 +20,25 @@ on:
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/assert-koto-floor_test.sh'
       # In the koto-open floor suite, so their bash 3.2 runs happen here.
+      - 'scripts/koto-minimum-consistency_test.sh'
+      - 'scripts/check-koto-release.sh'
+      - 'scripts/check-koto-release_test.sh'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/koto-open.list'
+      - '.tsuku.toml'
+      - '.github/workflows/check-koto-open.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'scripts/koto-open.sh'
+      - 'scripts/koto-open_test.sh'
+      - 'scripts/lib/koto-legacy-env.sh'
+      - 'scripts/lib/koto-legacy-env_test.sh'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/assert-koto-floor_test.sh'
       - 'scripts/koto-minimum-consistency_test.sh'
       - 'scripts/check-koto-release.sh'
       - 'scripts/check-koto-release_test.sh'

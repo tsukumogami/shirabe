@@ -6,10 +6,11 @@ name: Cancel a closed pull request's macOS runs
 # the closed PR's unfinished runs of the macOS floor workflows, merged PRs
 # included. A merged PR's own macOS result is given up on purpose:
 # macos-floor.yml, run on main daily and on the commit a release is cut from,
-# is the post-merge macOS check. check-coordinate-scripts.yml also runs on the
-# push a merge makes to main, so its suite gets a merge commit's own floor run
-# too; this workflow never touches that run, since it cancels pull_request runs
-# only.
+# is the post-merge macOS check of every suite. Most floor workflows also run
+# on the push a merge makes to main when the merge touches their paths, so
+# their suites get the merge commit's own floor run too (all but
+# check-execute-scripts.yml and check-rule-registry.yml); this workflow never
+# touches those runs, since it cancels pull_request runs only.
 #
 # The workflows it covers are the ones scripts/check-macos-floor-setup.sh
 # --workflows lists, the same parse that gives macos-floor.yml its suites, so
