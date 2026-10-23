@@ -487,14 +487,7 @@ shell names). When the command left is `gh`, it is classified as a
 segment of its own, and the skipped words get the text test, since gh
 can run what an assignment carries (`GH_BROWSER`, `GH_EDITOR`). A guarded
 command in either makes the `env` segment a wrapped guarded command, and
-anything else is no guarded action. The exception is an env whose own
-words only unset and set variables (`-u NAME`, `-uNAME` and shell
-`NAME=value`, which `env_only_unsets` checks) and name nothing guarded:
-it changes nothing but gh's environment, as a shell prefix would, so a
-`gh pr create` or `gh pr edit` behind it is the segment's guarded command
-and gets the plain command's checks. A non-guarded gh behind it stays
-behind the wrapper, so a later push in the same command is still blocked.
-A merge body comes after `gh`, so the
+anything else is no guarded action; a merge body comes after `gh`, so the
 text test never reads it, and gh is no wrapper, so nothing joins the two
 halves. Any other command gets the text test over the whole segment. It
 may be a launcher the wrapper list lacks (`stdbuf`, `arch`, `ksh -c`) or
