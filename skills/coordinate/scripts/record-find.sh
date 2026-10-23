@@ -103,21 +103,21 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX") || lib_die2 "cannot make a t
 trap 'rm -rf "$T"' EXIT
 
 VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED= SESSION_STOP= SESSION_FIND=
-# The invocation's --store (the STORE variable), read once. coordinate-open.sh
-# refuses any store at discipline scope before a session exists; the find
-# refuses it too, since a session opened some other way reaches here with
-# whatever the variable's pattern admits. A session whose variables can't be
-# read stops here, rather than being taken as one with no --store.
+# The invocation's --store (the STORE variable), read once. It decides only a
+# new roadmap scope's store; at discipline scope neither coordinate-open.sh nor
+# the find refuses it, and it decides nothing (store_flag_guard). A session
+# whose variables can't be read stops here, rather than being taken as one with
+# no --store.
 FLAG=
 if [ -n "$SESSION" ]; then
     FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.STORE // ""') \
         || lib_die2 "the session's variables couldn't be read"
 fi
 
-# store_flag_guard: the invocation's store, where it decides: a discipline
-# record has no store, and a new roadmap scope opened on the session store needs
-# koto's session-store features. Either stops the run at record_conflict, before
-# any record is opened, as malformed with the reason named.
+# store_flag_guard: the invocation's store, where it decides: a new roadmap
+# scope opened on the session store needs koto's session-store features, and
+# without them the run stops at record_conflict, before any record is opened,
+# as malformed with the reason named.
 store_flag_guard() {
     [ -n "$FLAG" ] || return 0
     # A new discipline rotation opens on the session store whatever the
@@ -325,7 +325,7 @@ judge() {
 # and every section through the codec's checks). Two at one stamp are
 # unreadable too.
 session_find() {
-    local self=${SESSION:-} stamp slug prefix c cands rc other p head
+    local self=${SESSION:-} stamp slug prefix c cands rc other p
     SESSION_FIND=1
     # The session store needs koto's features; without them the run stops
     # here, naming what is missing (PRD R2).

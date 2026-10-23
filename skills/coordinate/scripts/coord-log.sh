@@ -287,8 +287,6 @@ cmd_check() {
     fi
 }
 
-# cmd_capture: the `capture` subcommand, on SESSION, NAME, FOR, STATE and ANY,
-# as cmd_check is for `check`.
 # session_rotation_token <token> <scope>: 0 when the find's token, its seal
 # stripped, is a discipline rotation on the session store: `found` alone (the
 # run's own session holds the rotation), `first` (the rotation record_open
@@ -307,6 +305,8 @@ session_rotation_token() {
     esac
 }
 
+# cmd_capture: the `capture` subcommand, on SESSION, NAME, FOR, STATE and ANY,
+# as cmd_check is for `check`.
 cmd_capture() {
     need SESSION NAME
     [ -n "$LOG" ] || LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"

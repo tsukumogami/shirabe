@@ -91,7 +91,7 @@ lib_facts() {
         CONTAINER=pr
         # A rotation on the session store has no pull request: its body is the
         # one the session store renders, with no pull request's Part 1 prefix.
-        [ "$(rs_source)" = session ] && CONTAINER=issue
+        if [ "$(rs_source)" = session ]; then CONTAINER=issue; fi
     fi
 }
 

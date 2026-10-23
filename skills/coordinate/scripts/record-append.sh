@@ -184,7 +184,7 @@ trap 'rm -rf "$WD"' EXIT
 STORE=$(rs_source)
 ES=${RS_SESSION:-$SESSION}
 if [ "$STORE" = session ]; then
-    [ "$SCOPE" = roadmap ] || lib_session_rotation || { echo "$PROG: refused: the session store is for a roadmap record" >&2; exit 65; }
+    [ "$SCOPE" = roadmap ] || lib_session_rotation || { echo "$PROG: refused: the session store is for a roadmap record or a discipline rotation with no record number" >&2; exit 65; }
     [ -n "$ES" ] || { echo "$PROG: refused: the session store needs the run's session" >&2; exit 10; }
 fi
 # A discipline rotation on the session store has no record to post on: its
