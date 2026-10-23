@@ -58,8 +58,12 @@
 #     the gh read of the body after it.
 # Each job is killed when its time is up, the child reads' hung koto call
 # with it. A check-pr-output.sh killed this way can leave its own gh or
-# owned-pr.sh call to end by itself, as koto's stop of the gate did before.
-# --list is bounded by LOOP_SECS alone. The tests set SHARED_DEFERRAL_RECORD_SECS and
+# owned-pr.sh call to end by itself, as koto's stop of the gate did before;
+# that call writes only to check-pr-output.sh's own temporary files, so it
+# holds none of this script's output open. --list is bounded by LOOP_SECS
+# alone. The limits hold for every caller, not only the gate: node-push.sh
+# (its --list and its check of an adopted node PR) and coord-common.sh get
+# the same exit 2 where they used to wait on a stuck koto or GitHub read. The tests set SHARED_DEFERRAL_RECORD_SECS and
 # SHARED_DEFERRAL_RECORD_LOOP_SECS to shorten the times; koto's cleared
 # environment never passes them to a gate.
 #
