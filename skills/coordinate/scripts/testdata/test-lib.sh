@@ -66,6 +66,29 @@ session_keys() {
         jq -c --arg f "$field" '.[$f]' "$f" | koto context add "$s" "record/$key"
     done
 }
+# seed_session <session> <record-json> [written]: a record as the session
+# holds it, the session's record/ keys replaced: the JSON rendered and parsed
+# back, so the keys hold the canonical state a write would leave, then written
+# with session_keys. written defaults to render's, 2026-09-26T09:00:00Z, so a
+# body rendered from the same JSON reads as edited from this version.
+seed_session() {
+    local s=$1 w=${3:-2026-09-26T09:00:00Z}
+    rm -rf "$KOTO_STORE/context/$s/record"
+    render "$2" issue "$w" | bash "$HERE/record-parse.sh" --container issue > "$T/seed-session.json" || return 1
+    session_keys "$s" "$T/seed-session.json"
+}
+# session_state <session>: the record the session's keys hold, as one JSON
+# object in record-parse.sh's shape, `written` from record/meta; pushed heads
+# are left beside their rows.
+session_state() {
+    local d="$KOTO_STORE/context/$1/record" pair
+    jq -c '{scope, written}' "$d/meta" > "$T/ss.json" || return 1
+    for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
+        [ -f "$d/${pair#*:}" ] || continue
+        jq -c --arg f "${pair%%:*}" --slurpfile v "$d/${pair#*:}" '.[$f] = $v[0]' "$T/ss.json" > "$T/ss.new" && mv "$T/ss.new" "$T/ss.json"
+    done
+    cat "$T/ss.json"
+}
 # session_snapshot <session>: one line per record/ key, its name and its
 # content as hex bytes, so a test can show a refused write changed no key.
 # Hex from od, not a cksum digest: run-tests.sh's PATH has no cksum, and an
@@ -214,11 +237,13 @@ log_end() { # log_end <session>: cancel the run, so coord-log.sh live-session sk
 roadmap_vars() { jq -nc --arg p "$PLUGIN_ROOT_REAL" --arg n "$1" '{SCOPE: "roadmap", ROADMAP: "docs/roadmaps/ROADMAP-\($n).md", DISCIPLINE: "", HOST_REPO: "acme/widgets", PLUGIN_ROOT: $p}'; }
 discipline_vars() { jq -nc --arg p "$PLUGIN_ROOT_REAL" --arg n "$1" '{SCOPE: "discipline", ROADMAP: "", DISCIPLINE: $n, HOST_REPO: "acme/widgets", PLUGIN_ROOT: $p}'; }
 
-# found_session <session> <vars-json> <ref> [template-hash]: a run whose
-# record_find captured a sealed `found <ref>`, so run-facts has a record.
+# found_session <session> <vars-json> [template-hash]: a run whose
+# record_find captured a sealed `found` (its own session holds the record), so
+# run-facts has a record. The session's record itself is the suite's to seed
+# (seed_session).
 found_session() {
-    log_new "$1" "$2" "${4:-feedface}"
+    log_new "$1" "$2" "${3:-feedface}"
     log_to "$1" start_posture record_find 2026-09-26T08:01:00.000Z
-    log_capture "$1" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$1" --state record_find --token "found $3")" 2026-09-26T08:01:00.000Z
+    log_capture "$1" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$1" --state record_find --token found)" 2026-09-26T08:01:00.000Z
     log_to "$1" record_find reconcile 2026-09-26T08:01:00.000Z
 }

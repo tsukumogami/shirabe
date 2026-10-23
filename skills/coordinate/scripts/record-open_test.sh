@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# record-open_test.sh -- record-open.sh opens exactly one record, and refuses
-# when a fresh read shows one, when the body isn't a canonical record for the
-# scope, or when the session fails provenance or has a directed transition.
+# record-open_test.sh -- record-open.sh opens exactly one record, in the run's
+# own koto session, and refuses when the session already holds one, when the
+# body isn't a canonical record for the scope, or when the session fails
+# provenance or has a directed transition.
 #
-# Covers: a roadmap issue opened with the exact title and the given body, then
-# refused on a second run; a closed record doesn't block; a -v2 title doesn't
-# block; at discipline scope the empty commit on the default branch's head, the
-# ref and the draft pull request with the rotation title; an open pull request
-# and an existing branch refused, --recut deleting and cutting it again; an end
-# before the start, a body for another scope, and a body carrying a Decisions
-# section refused (65); partial-write
-# failures reporting their step (11); provenance and directed-transition
-# refusals through a prepared session log (10).
+# Covers: a roadmap record seeded into the session (record/meta, the empty
+# sections, no store row) with no GitHub write and no issue, then refused on a
+# second run (10); a seed cut short (record/meta pending, no written time)
+# opened again; at discipline scope the record and its window in
+# record/rotation; an end before the start, a body for another scope, and a
+# body carrying a Decisions section refused (65); --store and --recut usage
+# errors; provenance and directed-transition refusals through a prepared
+# session log (10).
 #
 # Usage: bash skills/coordinate/scripts/record-open_test.sh
 set -uo pipefail
@@ -21,73 +21,73 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 O="$HERE/record-open.sh"
 
+SR=coordinate-roadmap-plugin-system-20260926T070000Z
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
-DS=(--scope discipline --name ci-health --repo "$REPO" --skip-session-checks --start 2026-09-26 --end 2026-10-03)
-TITLE="Coordinator record: ROADMAP-plugin-system"
 render "$(record_json roadmap plugin-system)" issue > "$T/rm.md"
-render "$(record_json discipline ci-health)" pr > "$T/ds.md"
-BR=coordinate/discipline-ci-health
+render "$(record_json discipline ci-health)" issue > "$T/ds.md"
+key() { koto context get "$1" "$2" 2>/dev/null; }
+gh_writes() { grep -E 'issue (create|edit|close)|pr (create|edit|ready)|--method (POST|PUT|PATCH|DELETE)' "$GH_DB.calls"; }
 
 echo "== roadmap =="
 db_init
-OUT=$(bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
-eq "a roadmap record opens" "0 record=https://github.com/acme/widgets/issues/1" "$rc $OUT"
-eq "it carries the exact title and the body" "$TITLE|$(cat "$T/rm.md")" "$(jq -r '.issues[0] | "\(.title)|\(.body)"' "$GH_DB")"
-OUT=$(bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
+OUT=$(RS_SESSION=$SR bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
+eq "a roadmap record opens in the session" "0 record=$SR" "$rc $OUT"
+eq "  ... record/meta for this scope, not pending" "roadmap:plugin-system|false" \
+    "$(key "$SR" record/meta | jq -r '"\(.scope.kind):\(.scope.name)|\(.pending)"')"
+eq "  ... the four sections, empty" "[]|[]|[]|[]" \
+    "$(for k in holdings deferrals side-effects reversals; do key "$SR" "record/$k" | jq -c .; done | tr '\n' '|' | sed 's/|$//')"
+eq "  ... no store row: the record has no Run section" "" "$(key "$SR" record/run)"
+eq "  ... and nothing written on GitHub" "" "$(gh_writes)"
+SNAP=$(session_snapshot "$SR")
+OUT=$(RS_SESSION=$SR bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
 eq "a second open is refused with 10" 10 "$rc"
-eq "and opens nothing" 1 "$(jq '.issues | length' "$GH_DB")"
-grep -q 'exists' "$T/err" && ok "the refusal names the existing record" || bad "the refusal names the existing record" "$(cat "$T/err")"
-db '.issues[0].state = "closed"'
-bash "$O" "${RM[@]}" --body-file "$T/rm.md" >/dev/null 2>&1; eq "a closed record doesn't block a new one" 0 $?
-db_init
-db '.issues += [{repo: "acme/widgets", number: 4, title: ($t + "-v2"), body: "x", state: "open", author: "alice", editor: null}]' --arg t "$TITLE"
-bash "$O" "${RM[@]}" --body-file "$T/rm.md" >/dev/null 2>&1; eq "a -v2 title doesn't block" 0 $?
-grep -qi search "$GH_DB.calls" && bad "no search form" "$(calls)" || ok "no search form"
-db_init
-bash "$O" "${RM[@]}" --body-file "$T/ds.md" >/dev/null 2>&1; eq "a discipline body is refused at roadmap scope" 65 $?
+grep -q 'already holds a record' "$T/err" && ok "  ... naming the record already there" || bad "  ... naming the record already there" "$(cat "$T/err")"
+eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SR")"
+# A seed cut short: record/meta pending with no written time, as the core
+# leaves it before its first section key.
+SP=coordinate-roadmap-plugin-system-20260926T071000Z
+printf '%s' '{"scope":{"kind":"roadmap","name":"plugin-system"},"store":"session","written":"","pending":true}' | koto context add "$SP" record/meta
+printf '[]' | koto context add "$SP" record/holds
+OUT=$(RS_SESSION=$SP bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
+eq "a seed cut short is opened again" "0 record=$SP" "$rc $OUT"
+eq "  ... finishing record/meta" false "$(key "$SP" record/meta | jq -r .pending)"
+eq "  ... and removing the key the unfinished seed left" "" "$(key "$SP" record/holds)"
+S2=coordinate-roadmap-plugin-system-20260926T072000Z
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --body-file "$T/ds.md" >/dev/null 2>&1; eq "a discipline body is refused at roadmap scope" 65 $?
 render "$(record_json roadmap other)" issue > "$T/other.md"
-bash "$O" "${RM[@]}" --body-file "$T/other.md" >/dev/null 2>&1; eq "another roadmap's body is refused" 65 $?
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --body-file "$T/other.md" >/dev/null 2>&1; eq "another roadmap's body is refused" 65 $?
 render "$(record_json roadmap plugin-system | jq -c '.decisions = {next: 3, entries: []}')" issue > "$T/dec.md"
-bash "$O" "${RM[@]}" --body-file "$T/dec.md" >/dev/null 2>"$T/err"; eq "a body with a Decisions section is refused" 65 $?
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --body-file "$T/dec.md" >/dev/null 2>"$T/err"; eq "a body with a Decisions section is refused" 65 $?
 grep -q 'record-decision.sh' "$T/err" && ok "the refusal names the decision writer" || bad "the refusal names the decision writer" "$(cat "$T/err")"
-eq "a refused body writes nothing" "" "$(grep -E 'issue create|POST|DELETE' "$GH_DB.calls")"
-db '.fail = [{match: "issue create", rc: 1}]'
-OUT=$(bash "$O" "${RM[@]}" --body-file "$T/rm.md" 2>/dev/null); rc=$?
-eq "a failed create exits 11 naming its step" "11 step=issue-create" "$rc $OUT"
-bash "$O" "${RM[@]}" --body-file "$T/rm.md" --start 2026-09-26 --end 2026-09-27 >/dev/null 2>&1; eq "dates at roadmap scope are a usage error" 64 $?
+eq "a refused body writes nothing" none "$(session_snapshot "$S2")"
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --body-file "$T/rm.md" --start 2026-09-26 --end 2026-09-27 >/dev/null 2>&1; eq "dates at roadmap scope are a usage error" 64 $?
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --store session --body-file "$T/rm.md" >/dev/null 2>&1; eq "--store is a usage error" 64 $?
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --recut --body-file "$T/rm.md" >/dev/null 2>&1; eq "--recut is a usage error" 64 $?
+eq "  ... and neither wrote anything" none "$(session_snapshot "$S2")"
 
 echo "== discipline =="
+# A rotation's window goes to record/rotation through record-state.sh, which
+# needs the run's session: the run is opened and its find sealed `first`.
 db_init
-OUT=$(bash "$O" "${DS[@]}" --body-file "$T/ds.md" 2>"$T/err"); rc=$?
-eq "a rotation record opens" "0 record=https://github.com/acme/widgets/pull/1" "$rc $OUT"
-eq "the draft pull request has the rotation title, base and head" "docs(coordinate): ci-health rotation 2026-09-26 to 2026-10-03|main|$BR|true" \
-    "$(jq -r '.prs[0] | "\(.title)|\(.baseRefName)|\(.headRefName)|\(.isDraft)"' "$GH_DB")"
-NEW=$(jq -r --arg b "$BR" '.branches["acme/widgets"][$b]' "$GH_DB")
-[ "$NEW" != "$SHA_MAIN" ] && [ "$(jq -r --arg s "$NEW" '.commits[$s].tree' "$GH_DB")" = 4444444444444444444444444444444444444444 ] \
-    && ok "the branch points at a new commit with the default branch's tree" || bad "the branch points at a new commit with the default branch's tree" "$NEW"
-grep -q "git/commits -f message=docs(coordinate): open ci-health rotation record -f tree=4444444444444444444444444444444444444444 -f parents\[\]=$SHA_MAIN" "$GH_DB.calls" \
-    && ok "the empty commit sits on the default branch's head with its tree" || bad "the empty commit sits on the default branch's head with its tree" "$(calls)"
-bash "$O" "${DS[@]}" --body-file "$T/ds.md" >/dev/null 2>"$T/err"; eq "an open pull request on the branch is refused" 10 $?
-db '.prs[0].state = "MERGED"'
-bash "$O" "${DS[@]}" --body-file "$T/ds.md" >/dev/null 2>"$T/err"; eq "an existing branch without --recut is refused" 10 $?
-reset_calls
-OUT=$(bash "$O" "${DS[@]}" --recut --body-file "$T/ds.md" 2>"$T/err"); rc=$?
-eq "--recut opens a new record" "0 record=https://github.com/acme/widgets/pull/2" "$rc $OUT"
-eq "--recut deleted the ref before cutting it" "DELETE POST POST" "$(grep -oE -- '--method (DELETE|POST)' "$GH_DB.calls" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
-db_init
-bash "$O" --scope discipline --name ci-health --repo "$REPO" --skip-session-checks --start 2026-09-26 --end 2026-09-20 --body-file "$T/ds.md" >/dev/null 2>&1
+SD=coordinate-discipline-ci-health-20260926T080000Z
+log_new "$SD" "$(discipline_vars ci-health)"
+log_to "$SD" start_posture record_find
+log_capture "$SD" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$SD" --state record_find --token first)"
+log_to "$SD" record_find record_open
+OUT=$(bash "$O" --session "$SD" --body-file "$T/ds.md" --start 2026-09-26 --end 2026-10-03 2>"$T/err"); rc=$?
+eq "a rotation opens in the session" "0 record=$SD" "$rc $OUT"
+eq "  ... with its window" '{"start":"2026-09-26","end":"2026-10-03","host_repo":"acme/widgets","predecessor":null}' "$(key "$SD" record/rotation | jq -c .)"
+eq "  ... and nothing written on GitHub" "" "$(gh_writes)"
+DS=(--scope discipline --name ci-health --repo "$REPO" --skip-session-checks)
+S3=coordinate-discipline-ci-health-20260926T081000Z
+RS_SESSION=$S3 bash "$O" "${DS[@]}" --start 2026-09-26 --end 2026-09-20 --body-file "$T/ds.md" >/dev/null 2>&1
 eq "an end before the start is refused" 65 $?
-bash "$O" --scope discipline --name ci-health --repo "$REPO" --skip-session-checks --start 2026-02-30 --end 2026-03-02 --body-file "$T/ds.md" >/dev/null 2>&1
+RS_SESSION=$S3 bash "$O" "${DS[@]}" --start 2026-02-30 --end 2026-03-02 --body-file "$T/ds.md" >/dev/null 2>&1
 eq "an impossible date is a usage error" 64 $?
-bash "$O" "${DS[@]}" --body-file "$T/rm.md" >/dev/null 2>&1; eq "an issue-container body is refused at discipline scope" 65 $?
-db '.fail = [{match: "git/refs -f ref", rc: 1}]'
-OUT=$(bash "$O" "${DS[@]}" --body-file "$T/ds.md" 2>/dev/null); rc=$?
-eq "a failed ref create exits 11 naming its step" "11 step=ref-create" "$rc $OUT"
-db_init; db '.fail = [{match: "pr create", rc: 1}]'
-OUT=$(bash "$O" "${DS[@]}" --body-file "$T/ds.md" 2>/dev/null); rc=$?
-eq "a failed pull request create exits 11 naming its step" "11 step=pr-create" "$rc $OUT"
-db_init; db '.fail = [{match: "repos/acme/widgets --jq", rc: 1}]'
-bash "$O" "${DS[@]}" --body-file "$T/ds.md" >/dev/null 2>&1; eq "a failed read exits 2" 2 $?
+RS_SESSION=$S3 bash "$O" "${DS[@]}" --body-file "$T/ds.md" >/dev/null 2>&1
+eq "a rotation without its dates is a usage error" 64 $?
+RS_SESSION=$S3 bash "$O" "${DS[@]}" --start 2026-09-26 --end 2026-10-03 --body-file "$T/rm.md" >/dev/null 2>&1
+eq "a roadmap body is refused at discipline scope" 65 $?
 
 echo "== session checks =="
 db_init
@@ -95,12 +95,11 @@ S=coordinate-roadmap-plugin-system-20260926T080000Z
 log_new "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" record_find record_open
 OUT=$(bash "$O" --session "$S" --body-file "$T/rm.md" 2>"$T/err"); rc=$?
-eq "a session that passes provenance opens" "0 record=https://github.com/acme/widgets/issues/1" "$rc $OUT"
-db_init
+eq "a session that passes provenance opens" "0 record=$S" "$rc $OUT"
 S2=coordinate-roadmap-plugin-system-20260926T090000Z
 log_new "$S2" "$(roadmap_vars plugin-system)" 0badbeef
 bash "$O" --session "$S2" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a session from another template is refused" 10 $?
-eq "and writes nothing" "" "$(calls)"
+eq "and writes nothing" none "$(session_snapshot "$S2")"
 log_end "$S"; log_end "$S2"
 S3=coordinate-roadmap-plugin-system-20260926T100000Z
 log_new "$S3" "$(roadmap_vars plugin-system)"
@@ -118,27 +117,8 @@ log_new "$S5" "$(roadmap_vars plugin-system)"
 log_to "$S5" record_find record_open
 S6=coordinate-roadmap-plugin-system-20260926T130000Z
 log_new "$S6" "$(roadmap_vars plugin-system)"
-db_init
 bash "$O" --session "$S5" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a session that isn't its scope's one live session is refused" 10 $?
-eq "and writes nothing" "" "$(calls)"
-
-echo "== the session store =="
-# --store session (docs/designs/DESIGN-coordinator-session-record.md,
-# Decision 10): the issue opens in the moved shape, and the record's state goes
-# into the run's session.
-SO=coordinate-roadmap-plugin-system-20261012T130000Z
-db_init
-OUT=$(env RS_SESSION="$SO" bash "$O" "${RM[@]}" --store session --body-file "$T/rm.md" 2>"$T/err"); rc=$?
-eq "a session-store record opens" "0 record=https://github.com/acme/widgets/issues/1" "$rc $OUT"
-jq -r '.issues[0].body' "$GH_DB" | bash "$HERE/record-parse.sh" > "$T/opened.json"
-eq "  ... its GitHub body the moved shape (R8)" '{"deferrals":[],"holdings":[],"reversals":[],"run":["store=session"],"side_effects":[]}' \
-    "$(jq -cS '{holdings, deferrals, side_effects, reversals, run: [.run[] | "\(.key)=\(.value)"]}' "$T/opened.json")"
-koto context exists "$SO" record/meta && ok "  ... and the session holds record/meta" || bad "  ... and the session holds record/meta" "$(cat "$T/err")"
-eq "  ... with the record's state, the store row among it" "[]|store=session" \
-    "$(koto context get "$SO" record/holdings | jq -c .)|$(koto context get "$SO" record/run | jq -r '.[] | "\(.key)=\(.value)"')"
-eq "  ... record/meta for this scope, on the session store, not pending" "roadmap:plugin-system|session|false" \
-    "$(koto context get "$SO" record/meta | jq -r '"\(.scope.kind):\(.scope.name)|\(.store)|\(.pending)"')"
-bash "$O" "${DS[@]}" --store session --body-file "$T/ds.md" >/dev/null 2>"$T/err"; rc=$?
-eq "--store session at discipline scope is refused" 65 "$rc"
+eq "and writes nothing" none "$(session_snapshot "$S5")"
+eq "no session check or write called GitHub to write" "" "$(gh_writes)"
 
 done_tests record-open

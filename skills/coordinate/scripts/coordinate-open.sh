@@ -387,9 +387,11 @@ else
             [[ $REF =~ ^[1-9][0-9]*$ ]] || stop_fresh failed import "the legacy importer's lookup named no record number: $LOOK"
             IMPORTED=$(bash "$IMP" --session "$SESSION" --scope "$SCOPE" --name "$NAME" --repo "$HOST" --ref "$REF" 2> "$IMP_ERR")
             RC=$?
+            # Any refusal (65) is the record's: a body that doesn't parse, or
+            # one whose state the write core's checks refuse.
             case "$RC:$IMPORTED" in
                 "0:imported=$REF "*) echo "record-imported=$REF" ;;
-                "65:record-unreadable "*) stop_fresh refused record-unreadable \
+                65:*) stop_fresh refused record-unreadable \
                     "the coordinator record $HOST#$REF on GitHub can't be read into this run: $(head -c 400 "$IMP_ERR"); fix or close it, then start again" ;;
                 *) stop_fresh failed import "the import of the coordinator record $HOST#$REF stopped part way (exit $RC): $(head -c 400 "$IMP_ERR"); start again to import it" ;;
             esac ;;
