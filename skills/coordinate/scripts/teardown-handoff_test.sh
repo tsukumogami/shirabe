@@ -21,7 +21,8 @@
 # session store the path comes from a transcript; only unrelated sessions, or
 # two instances for the topic, refuse. With only unrelated sessions, a canary
 # header that names the topic's instance through a JSON escape stays
-# unparsed, so the refusal shows no header was read by any means.
+# unparsed, so the refusal shows no unrelated header was parsed, whatever
+# read it.
 #
 # teardown-pass_engine_test.sh keeps one refusal (an unmerged pull request)
 # to prove the refused arm reaches surface in real koto, and drives the
@@ -345,12 +346,12 @@ eq  "removed, no koto session store: the path and job come from the transcript" 
 rm -rf "$RPD"
 
 # Only unrelated sessions and no transcript: no candidate, refused. One of
-# them is a canary whose header spells w5's instance with `+` for the
-# `+`: jq reads it as a path candidate() accepts, but grep's fixed string
-# doesn't match the file, so the prefilter never hands it on. A seal that
-# opened the unrelated headers by any means (head, sed, read) and parsed
-# them would recover the canary's path and turn ready, so the refusal and the
-# verdict's silence on that path hold without the head stand-in.
+# them is a canary whose header spells the `+` in w5's instance as a JSON
+# unicode escape: jq reads it as a path candidate() accepts, but grep's
+# fixed string doesn't match the file, so the prefilter never hands it on. A
+# seal that opened the unrelated headers by any means (head, sed, read) and
+# parsed them would recover the canary's path and turn ready, so the refusal
+# and the verdict's silence on that path hold without the head stand-in.
 rfixture
 unrelated 20
 header canary "$W/tsuku\\u002bw5-5e6f7a8b/public/repo"

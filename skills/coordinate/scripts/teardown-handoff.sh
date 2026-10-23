@@ -319,14 +319,13 @@ removed_mode() {
     # accepts, so one grep picks the files whose header is worth opening; a
     # koto home with a thousand sessions would otherwise cost a head and a jq
     # for each of them. grep reads every session file whole, not only its
-    # header: about 1.3 s on a store of 990 files and 151 MB. The scan stays
-    # whole-file because cutting it to first lines in one process needs awk's
-    # nextfile and NUL output, which bash 3.2 hosts' awk doesn't promise. So
-    # a hit is no candidate by itself: the coordinator's own sessions always
-    # pass, since their later lines name worker paths, and candidate() still
-    # decides on the header's execution_dir. grep answers 1 when nothing
-    # holds the string, and a file it can't read is skipped, as the head
-    # below would skip it; neither stops the seal.
+    # header: about 1.3 s on a store of 990 files and 151 MB, well inside the
+    # action's limit, so the one grep stays rather than a per-file read of
+    # first lines. A hit is no candidate by itself: the coordinator's own
+    # sessions always pass, since their later lines name worker paths, and
+    # candidate() still decides on the header's execution_dir. grep answers
+    # 1 when nothing holds the string, and a file it can't read is skipped,
+    # as the head below would skip it; neither stops the seal.
     : >"$T/headers"
     set -- "$KOTO_SESSIONS"/*/koto-*.state.jsonl
     if [ -e "$1" ] || [ -L "$1" ]; then
