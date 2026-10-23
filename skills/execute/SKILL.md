@@ -119,7 +119,7 @@ Two more flags, on both paths:
   when given. With `hosted-ci`, every child gets both, so each child goes to
   `verification_deferred` instead of running the verification map, and each
   pull request the children land in records the deferral in its body: that
-  local verification did not run, each reason verbatim, and that hosted CI is
+  local verification did not run, a `Reason: <reason>` line for each reason, and that hosted CI is
   the build of record, in the section `/work-on`'s `phase-6-pr.md` gives. On
   a single-pr PLAN every child task gets both through the spawn, and
   `pr_finalization` holds until the shared PR's body records it. On a

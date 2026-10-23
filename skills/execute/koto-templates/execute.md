@@ -685,7 +685,9 @@ states:
       # VERIFICATION is hosted-ci) and every child's verification_deferral,
       # and with none exits 0 before any GitHub read; otherwise it runs
       # work-on's check-pr-output.sh --deferral-record over the owned PR: 0
-      # recorded, 1 a part missing, 2 could not decide. 1 and 2 hold here like
+      # recorded, 1 a part missing, 2 could not decide, which includes the
+      # script running out of its own 25 s, kept under koto's 30 s stop so
+      # the answer is the script's (#1053). 1 and 2 hold here like
       # the other output gates, and like them it is overridable: getting past
       # it takes a person's override, which koto records, never an edge the
       # agent can choose. It checks the body once, here; a later edit of the
@@ -1736,7 +1738,7 @@ Run this title+body edit **unconditionally** on every finalization (clean and at
 - `owned_pr_body_conformant` runs `shirabe validate --pr-body --writing-style` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`, `pr-body/banned-word`).
 - `settled_commits` checks every non-merge commit on the shared branch, against origin's default branch: a Conventional Commits subject and no AI-attribution trailer (`commit/conventional-subject`, `commit/no-ai-trailer`).
 - `settled_docs_visibility` checks every `docs/` document the branch changed against the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`).
-- `deferral_recorded` runs `shared-deferral-record.sh`, which collects this run's deferral reason and every child's `verification_deferral`. With none it passes without reading GitHub. Otherwise it runs `check-pr-output.sh --deferral-record` on the owned PR, the check a standalone `/work-on` run's `pr_creation` makes, and holds until the body says local verification did not run, carries every reason verbatim, and says hosted CI is the build of record. Its stderr names each part that is missing; fix the body with the edit above and submit `updated` again. The record is checked here only, so any later edit of the PR body keeps the `## Verification` section.
+- `deferral_recorded` runs `shared-deferral-record.sh`, which collects this run's deferral reason and every child's `verification_deferral`. With none it passes without reading GitHub. Otherwise it runs `check-pr-output.sh --deferral-record` on the owned PR, the check a standalone `/work-on` run's `pr_creation` makes, and holds until the body says local verification did not run, has a line reading exactly `Reason: <reason>` for every reason (the reason anywhere else in the body doesn't count), and says hosted CI is the build of record. Its stderr names each part that is missing; a gate that answers 2 saying the reads ran out of time (a slow koto or GitHub) holds too, so tick again; fix the body with the edit above and submit `updated` again. The record is checked here only, so any later edit of the PR body keeps the `## Verification` section.
 
 The /work-on children skip the docs check on the shared branch, because they open no PR of their own; this is where the branch is checked, once, before the PR is finalized.
 
