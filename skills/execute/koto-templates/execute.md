@@ -820,7 +820,10 @@ states:
       # its unfinished macOS floor runs, and a MERGED PR whose only non-green
       # checks are those cancels passes, with them recorded in context as
       # ci_cancelled_after_merge.txt. --owned hands it this same lookup, so it
-      # judges the run's own PR and never just the branch's.
+      # judges the run's own PR and never just the branch's. A MERGED PR no
+      # longer depends on this pass to leave ci_monitor: owned_pr_merged
+      # routes it first (#917). The fallback still runs and still records the
+      # cancels, which the merged state names in the run's report.
       #
       # The last fallback is work-on's ci-none-declared.sh, the one copy of
       # the no-hosted-CI rule: a PR with no checks passes only when the
@@ -861,7 +864,16 @@ states:
       # returns `merged` before any CI row. So a 0 here routes the run to
       # merge_readiness with no evidence, whatever owned_ci_passing and
       # owned_merge_state_clean say -- a pending rerun or a failed check on a
-      # merged PR used to stop here and end at execute:ci.
+      # merged PR used to stop here, and the directive had the agent end a
+      # failed one at execute:ci although the work had landed.
+      #
+      # A gate of its own, not a change to one of the three: monitor_owned_pr
+      # is work-on's check-pr-output.sh --owned-pr, whose 0/3/2 answer three
+      # other states route on; owned_ci_passing answering 0 for a merged PR
+      # would read a red PR as green CI and break its tie to work-on.md's
+      # ci_passing (scripts/ci-gate-expression_test.sh); and a ci_outcome
+      # value for it would leave the route on the agent's word. The run's
+      # report still names any check that wasn't green (the merged state).
       #
       # 0 only on an exact `MERGED` line from the same lookup the gates above
       # run. Every other answer is 1: an OPEN PR, an empty lookup (no PR, a
@@ -1759,7 +1771,7 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
 
 Empty output or a non-zero exit means no single owned PR this run can use, or a failed read; tick with nothing submitted, and `monitor_owned_pr` ends the run.
 
-The lookup follows the PR past its merge: once it is MERGED, the gates read it rather than finding nothing, and a MERGED PR never stops here. koto routes it on `owned_pr_merged` with nothing submitted, even with a failed, cancelled or still-running check, since there is no fix to push to a merged PR. If you do see this state and `gh pr view "$PR" --json state` says MERGED, the gate's read failed: submit `ci_outcome: pending`, never `failing_fixed` or `failing_unresolvable`, and `merge_readiness`'s verdict reads the PR as merged. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels also passes `owned_ci_passing`, and koto records the cancelled checks as `ci_cancelled_after_merge.txt`. The `merged` state says how to report a merged PR's checks.
+The lookup follows the PR past its merge: once it is MERGED, the gates read it rather than finding nothing, and a MERGED PR never stops here. koto routes it on `owned_pr_merged` with nothing submitted, even with a failed, cancelled or still-running check, since there is no fix to push to a merged PR. If you do see this state and `gh pr view "$PR" --json state` says MERGED, the gate's read failed: submit `ci_outcome: pending`, never `failing_fixed` or `failing_unresolvable`, and `merge_readiness`'s verdict reads the PR as merged. If the merge-state read failed too, no edge takes it and the run holds here; tick again with nothing submitted. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels also passes `owned_ci_passing`, and koto records the cancelled checks as `ci_cancelled_after_merge.txt`. The `merged` state says how to report a merged PR's checks.
 
 If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
