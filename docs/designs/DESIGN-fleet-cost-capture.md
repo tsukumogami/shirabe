@@ -273,31 +273,42 @@ No `record-*.sh` script changes; the capture still writes through
 
 ### The removal record and its directory
 
-`R=${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals/`, made `0700`.
+`R=${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals/`. Both scripts run
+under `umask 077`; after `mkdir -p`, `R`, the archive root and every lock's
+parent must be real directories (not symbolic links), owned by the current user,
+mode `0700`, or the step refuses (one line, no write).
 
 ```json
 {"schema":"unit-removal/1","dispatch_id":"<id>","session_id":"<uuid>",
  "instance_path":"/abs/path","removed_at":"<UTC>","attempts":0,"last":null}
 ```
 
-`record` writes `<id>.json` through a temporary name and `mv`; a record that
-already exists keeps its `removed_at`. It refuses (one line, exit 0, no record)
-when `NIWA_REAP_KEY` is unset or fails `^[A-Za-z0-9._:-]{1,128}$`, equals
+`record` writes `<id>.json` through a `mktemp` name inside `R` and `mv`; a
+record that already exists keeps its `removed_at`. It refuses (one line, exit 0,
+no record) when `NIWA_REAP_KEY` is unset or fails
+`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$` (niwa's own reap-key shape with a
+leading alphanumeric, so it never reads as an option), equals
 `NIWA_SESSION_ID`, the session id fails the capture's session-id pattern, the
-instance path isn't absolute or holds `..`, or `R` can't be written. It then
-starts the sweep detached: `perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV'
-"$0" sweep </dev/null >/dev/null 2>&1 &`, falling back to `nohup` when perl is
-absent; either way it exits 0 without waiting. A new session puts the sweep out
-of niwa's process group and out of the shell that ran niwa.
+instance path isn't absolute, holds `..`, or isn't under the directory the step
+runs in (niwa runs it from the workspace root, and every instance is under it),
+or `R` fails the checks above. It then starts the sweep detached, by its
+absolute path and with a scrubbed environment (`PATH`, `HOME`, `TMPDIR` and
+`SHIRABE_PR_INTEGRATION` when set, nothing else): `perl -MPOSIX -e
+'POSIX::setsid(); exec @ARGV' -- "$SELF" sweep </dev/null >/dev/null 2>&1 &`,
+falling back to `nohup` when perl is absent; either way it exits 0 without
+waiting. A new session puts the sweep out of niwa's process group and out of
+the shell that ran niwa.
 
 ### The sweep
 
 ```
 unit-removed.sh sweep
-  take R/.lock (mkdir); on failure: if R/.lock/at is older than
-    150 s x max(1, R/.lock/n), take it over; else exit 0
+  take R/.lock (mkdir; it holds pid, at and n); on failure: if its pid is
+    not running, or at is older than 150 s x max(1, n), rename it aside
+    (mv to R/.lock.stale.<pid>) and mkdir again; else exit 0
   loop:
-    list R/*.json not yet handled this sweep; write n into the lock
+    list R/*.json not yet handled this sweep, at most 20 per pass;
+      write n into the lock
     none left -> release the lock, exit 0
     for each record:
       shape check fails          -> delete, log `invalid input`
@@ -320,7 +331,8 @@ unit-removed.sh sweep
 The sweep sets the capture's environment as the on-reap step received it, so
 `SHIRABE_PR_INTEGRATION` reaches the capture when the workspace lists it. A
 record it keeps gets `attempts` and `last` updated. `removals.log` takes one
-line per record handled: `<UTC time> <dispatch id> <outcome>`.
+line per record handled: `<UTC time> <dispatch id> <outcome>`, created `0600`;
+past 1 MiB the sweep keeps its last 1,000 lines.
 
 | Capture's last line (R14) | Log outcome | Record |
 |---|---|---|
@@ -344,9 +356,13 @@ line per record handled: `<UTC time> <dispatch id> <outcome>`.
   session, for the request Dispatch already found, and take `.unit` through the
   Unit pattern and the `: ` cut.
 - **Dedupe and the lock.** The entry list and the post run under `R/.post-lock`
-  (`mkdir`, taken over after 60 seconds, the list's and post's bounds summed),
-  and the check matches a listed `cost` entry with the same `key`, or the same
-  non-null `"niwa.dispatch.id"`.
+  (`mkdir`, holding the pid; taken over by rename when its pid is gone or it is
+  older than 60 seconds, the list's and post's bounds summed), and the check
+  matches a listed `cost` entry with the same `key`, or the same non-null
+  `"niwa.dispatch.id"`. The lock makes the dedupe hold on one host in every case
+  but a takeover of a live holder past its bound, where a second entry is
+  possible; readers already keep the latest entry per key, and the reference
+  tells them to keep the latest per dispatch id as well.
 - **`opened`.** Credit's `pr view` already returns `state`. A candidate meeting
   conditions 1, 2 and 4, created at or after dispatch, with `state == "OPEN"`
   (drafts are `OPEN`) goes to `opened` as `{repo, number, via: "session"}`; the
@@ -379,17 +395,22 @@ removal`:
 ```toml
 [session.on_reap]
 command = '''
-d=""; for c in "$HOME"/.claude/plugins/cache/shirabe/shirabe/*/skills/coordinate/scripts/unit-removed.sh; do [ -x "$c" ] && d=$c; done
-[ -n "$d" ] && "$d" record
+c=$(ls -d "$HOME"/.claude/plugins/cache/shirabe/shirabe/*/ 2>/dev/null \
+    | sed 's#/$##; s#.*/##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+s="$HOME/.claude/plugins/cache/shirabe/shirabe/$c/skills/coordinate/scripts/unit-removed.sh"
+[ -n "$c" ] && [ -x "$s" ] && "$s" record
 exit 0
 '''
 env = ["SHIRABE_PR_INTEGRATION"]
 ```
 
-The loop takes the last match in the shell's sorted glob order; the reference
-says to pin the path instead where more than one shirabe version is installed.
-Combined with another tool's step, shirabe's goes first and ends without
-`exit`, since it returns at once: `<shirabe step>; <the other step>`.
+It runs the newest released version in the plugin cache, by numeric version
+order, and `unit-removed.sh record` itself refuses to run when it is not owned
+by the user or is writable by group or others. The reference says to pin the
+path where a workspace wants one version. Combined with another tool's step,
+shirabe's goes first, without its `exit`, since it returns at once: `<shirabe
+step>; <the other step>`.
 
 ## Implementation Approach
 
@@ -407,14 +428,26 @@ One pull request, built in this order so each step leaves the suites green:
 
 ## Security Considerations
 
-The removal record is written from `NIWA_*` values niwa sets, and every one is
-matched to its pattern before use: the dispatch id to niwa's own reap-key shape,
-the session id to the capture's, the instance path to an absolute path with no
-`..`. A value that fails is never written. The sweep reads the record back
-through the same checks (a hand-edited record is deleted, `invalid input`), and
-only the matched values reach a path or an argument; the instance path is only
-ever compared against headers and used under `archive-common.sh`'s existing
-`cd -P` and physical-path checks.
+**External input.** The removal record is written from `NIWA_*` values niwa
+sets, and every one is matched to its pattern before use: the dispatch id to
+niwa's reap-key shape with a leading alphanumeric, the session id to the
+capture's, the instance path to an absolute path with no `..` under the
+workspace root the step runs in. A value that fails is never written. The sweep
+reads the record back through the same checks (a hand-edited record is deleted,
+`invalid input`), and only the matched values reach a path or an argument, after
+`--` where a command takes options; the instance path is only ever compared
+against headers and used under `archive-common.sh`'s existing `cd -P` and
+physical-path checks.
+
+**Files and processes.** Both scripts run under `umask 077` and refuse a state
+directory, archive root or lock parent that is a symbolic link, isn't the user's,
+or isn't `0700`, so another local user can't plant a record or redirect a write.
+Records and the log are written through `mktemp` in `R`, the log `0600` and
+capped. A lock holds its holder's pid and is taken over only when that pid is
+gone or the holder is past its own bound, by renaming it aside rather than
+deleting it. The detached sweep runs by absolute path with a scrubbed
+environment, so nothing of niwa's environment beyond `PATH`, `HOME`, `TMPDIR`
+and the placement switch reaches it, and it handles at most 20 records per pass.
 
 The sweep reads the same untrusted inputs the pass's capture reads (transcripts,
 koto sessions, the koto request) under the same rules, plus the leg key, a JSON
@@ -424,13 +457,28 @@ detached sweep runs as the user, writes only under `R` and the archive root
 which keeps its own visibility scan: an entry naming a private repository isn't
 posted on a public host's item.
 
-The on-reap command runs with the trust of a hook the workspace installs. The
-documented command runs a script found under the user's own Claude Code plugin
-cache; a workspace that doesn't trust the glob pins the path.
+**Dependencies.** The on-reap command runs with the trust of a hook the
+workspace installs. The documented command picks the newest released version in
+the user's own Claude Code plugin cache by numeric order, and the script refuses
+to run when it isn't the user's or is group- or world-writable; a workspace that
+wants one version pins the path. `perl` is used only for `setsid`, and its
+absence falls back to `nohup`, a reliability cost, not a trust one.
 
-With the switch off, nothing is written to a pull request or an issue the unit
-touched, which removes today's exposure of coordinator bookkeeping on those
-items.
+**Misattribution.** The coordinator is read from the unit's koto request, which
+the coordinator's dispatch wrote but which lives in a store the user can edit. A
+request edited to name another coordinator puts the entry on that coordinator's
+record: a wrong attribution, never code execution, and the entry's `topic` and
+dispatch id still say which unit it is.
+
+**Data exposure.** With the switch off, nothing is written to a pull request or
+an issue the unit touched, which removes today's exposure of coordinator
+bookkeeping on those items. On a GitHub record, the entry still goes on the
+coordinator's record issue; `record-append.sh`'s scan stops repository names,
+home paths and token shapes there, but a Unit's free text is not scanned, so a
+coordinator on a public record shouldn't name private work in a Unit. The
+removal archive holds copied transcripts, like the pass's; it lives under the
+user's own archive root, `0700`, and its retention is the user's, since only the
+removal records expire.
 
 ## Consequences
 
