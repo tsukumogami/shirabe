@@ -328,13 +328,14 @@ eq  "removed, a symlinked header: it isn't opened" "$TEARDOWN_KOTO_SESSIONS/wk-r
 rfixture
 rmdir "$TEARDOWN_KOTO_SESSIONS"
 RPD="$TEARDOWN_CLAUDE_HOME/projects/$(printf '%s' "$RINST" | sed 's/[^A-Za-z0-9]/-/g')"
-RSID="9f8e7d6c-1111-4222-8333-444455556666"
+RJOB=9f8e7d6c
+RSID="$RJOB-1111-4222-8333-444455556666"
 mkdir -p "$RPD"
 printf '{"type":"user","timestamp":"2026-10-01T09:00:00.000Z","cwd":"%s","sessionId":"%s"}\n' "$RINST" "$RSID" >"$RPD/$RSID.jsonl"
 cseal
 eq  "removed, no koto session store: exit 0" 0 "$RC"
 eq  "removed, no koto session store: the path and job come from the transcript" \
-    "ready|topic w5|removed yes|instance - $RINST|job 9f8e7d6c $RSID|transcript $RPD/$RSID.jsonl|pr acme/widgets#600 $MERGE|handoff $URL|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|pr acme/widgets#600 $MERGE|handoff $URL|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
     "$(verdict | tr '\n' '|' | sed 's/|$//')"
 rm -rf "$RPD"
 
