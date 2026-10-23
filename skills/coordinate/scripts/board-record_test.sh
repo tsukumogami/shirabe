@@ -8,7 +8,8 @@
 # skipped match the board read); one unverified, one pending and one not-run
 # fixture each print their word with no head; a refused check rollup reads source
 # `actions` and prints the same verified, unverified or pending, and
-# board-unreadable for a required check only another app's check run reports;
+# check-unreadable for a required check only another app's check run reports
+# (board-unreadable when a read also failed);
 # a failed board read or the deadline prints
 # board-unreadable, a merged pull request not-open, and a pull request no
 # single holding links (none, two repositories, a bad link) unlinked with a
@@ -86,7 +87,11 @@ OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err"); rc=$?
 eq "a refused check rollup, green from the Actions jobs and statuses: verified at the head" "verified 12 $H" "${OUT% sealed:*}"
 eq "and coord/board.json names the source it read" actions "$(ctx | jq -r .source)"
 fresh; bt_board checks-refused-rollup-only-required
-eq "a required check only another app's check run reports, unseen under the fallback: board-unreadable, never verified" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+eq "a required check only another app's check run reports, unseen under the fallback: check-unreadable, never verified" "check-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board checks-refused-statuses-refused
+eq "a required status the token can't read: check-unreadable too" "check-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board rules-unreadable
+eq "a board that also failed a read is board-unreadable, never check-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 fresh; bt_board checks-refused-job-red
 eq "a refused check rollup with a red job: unverified, as from the checks" "unverified 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 fresh; bt_board checks-refused-run-pending

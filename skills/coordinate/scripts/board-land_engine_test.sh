@@ -19,7 +19,7 @@
 # merged to done; an unverified board routes to failure and a pending one to
 # wait; a refused check rollup green from the Actions jobs and statuses
 # routes to land like any verified board, and one whose required check only
-# another app's check run reports routes to wait and never to land; an
+# another app's check run reports routes to surface and never to land; an
 # unreadable board routes to wait, which then takes the next event, and a pull
 # request merged outside the run routes to surface, so verify_board never holds
 # the run; a denied posture routes land through goal_fit to surface; `koto next --to verify_board`
@@ -150,6 +150,9 @@ states:
       - target: surface
         when:
           gates.verdict.exit_code: 75
+      - target: surface
+        when:
+          gates.verdict.exit_code: 76
       - target: rebrief
         when:
           gates.verdict.exit_code: 79
@@ -466,7 +469,7 @@ start coordinate-demo-20260926T150007Z checks-refused
 eq "a refused check rollup, green from the Actions jobs and statuses, reaches goal_fit through land" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 case "$(bash "$CL" capture --session "$S" --name LAND)" in "permit 12 $H sealed:"*) ok "  ... and the land check permits the verified head" ;; *) bad "  ... and the land check permits the verified head" ;; esac
 start coordinate-demo-20260926T150010Z checks-refused-rollup-only-required
-eq "a required check only another app's check run reports, unseen under the fallback: wait, not land" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "a required check only another app's check run reports, unseen under the fallback: surface, not land" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and the run doesn't land it" 1 $?
 start coordinate-demo-20260926T150008Z rules-unreadable
 eq "an unreadable board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"

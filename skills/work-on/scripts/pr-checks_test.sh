@@ -90,6 +90,7 @@ cat > "$T/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 FIX="${GH_FIXTURE:?}"
 echo "$*" >> "$FIX/gh.log"
+echo "${GH_TOKEN-unset}" >> "$FIX/token.log"
 jqf=""
 state=open
 prev=""
@@ -417,9 +418,25 @@ expect_list "refused: a workflows or code_scanning rule is unreadable" \
 fixture; refuse
 run_ 200 Lint queued null
 protect lint
+pc 7 --json name,bucket,state
+expect_list "refused: a required check whose run hasn't started is pending (EXPECTED) beside the pending run" \
+    'any(.[]; .name == "Lint" and .bucket == "pending") and any(.[]; .name == "lint" and .bucket == "pending" and .state == "EXPECTED")'
+
+fixture; refuse
+run_ 200 Lint queued null
+protect lint 9999
 pc 7 --json name,bucket
-expect_list "refused: a required check whose run hasn't started reads unreadable beside the pending run" \
-    'any(.[]; .name == "Lint" and .bucket == "pending") and any(.[]; .name == "lint" and .bucket == "unreadable")'
+expect_list "refused: a check pinned to another app is unreadable at once, even while a run goes" \
+    'any(.[]; .name == "lint" and .bucket == "unreadable")'
+
+# The token: the session's, unchanged, on every call.
+fixture; refuse; green
+(cd "$REPO" && env PATH="$T/bin:$PATH" GH_FIXTURE="$FIX" GH_TOKEN=test-session-token "$SCRIPT" 7 --json bucket) >/dev/null 2>&1
+if [ "$(sort -u "$FIX/token.log")" = test-session-token ] && [ "$(grep -c . "$FIX/token.log")" -gt 5 ]; then
+    pass "refused: every call, the fallback's included, runs on the caller's GH_TOKEN unchanged"
+else fail "refused: the token seen by gh calls was [$(sort -u "$FIX/token.log" | tr '\n' ' ')]"; fi
+if grep -q -E 'GH_TOKEN|GH_CONFIG_DIR|gh auth' "$SCRIPT"; then fail "pr-checks.sh names the token, a config dir or gh auth"
+else pass "pr-checks.sh never names the token, a config dir or gh auth"; fi
 
 # Adversarial shapes.
 fixture; refuse; green

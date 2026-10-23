@@ -45,10 +45,14 @@
 #                                verdict on the
 #                                code, and not the worker's to fix; the
 #                                reasons in coord/board.json say why
-#   board-unreadable <pr> none   the board or the record couldn't be read, the
-#                                read ran out of time, or a required check is
-#                                one the token can't see (reason
-#                                required-unreadable): no verdict on the code
+#   check-unreadable <pr> none   the board read, but a required check is one
+#                                the token can't see (reason
+#                                required-unreadable, and no other error): it
+#                                may be another app's check run, so it is for
+#                                a person who can see it, never for landing
+#   board-unreadable <pr> none   the board or the record couldn't be read, or
+#                                the read ran out of time: no verdict on the
+#                                code
 #   not-open <pr> none           the pull request is merged or closed
 #   unlinked <pr> none           no single Holdings row links #<pr> (its
 #                                holding was removed, two rows disagree, or
@@ -164,7 +168,16 @@ if [ -z "$TOKEN" ]; then
                   TOKEN="verified $PR $H" ;;
         unverified|pending|not-run) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
-        error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
+        # A board whose only error is a required check the token can't see
+        # read fine otherwise: nothing to retry, so it is a person's to settle.
+        error:board-read)
+            if jq -e '[.reasons[] | select(.code | IN("read-failed", "required-set-unreadable", "deadline", "required-unreadable"))]
+                      | length > 0 and all(.code == "required-unreadable")' "$T" >/dev/null 2>&1; then
+                TOKEN="check-unreadable $PR none"
+            else
+                TOKEN="board-unreadable $PR none"
+            fi ;;
+        error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
     esac
 fi

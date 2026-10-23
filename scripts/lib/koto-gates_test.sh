@@ -146,7 +146,7 @@ if [[ -f "$real" ]]; then
         set -euo pipefail
         koto_gate_command "$real" ci_passing
     )
-    if [[ "$got4" == *"gh pr checks"* ]]; then
+    if [[ "$got4" == *"skills/work-on/scripts/pr-checks.sh"* ]]; then
         pass "the shipped work-on template's ci_passing gate reads"
     else
         fail "reading ci_passing from the shipped template returned: $got4"

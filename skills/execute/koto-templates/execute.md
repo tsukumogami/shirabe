@@ -1947,7 +1947,7 @@ koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit
 
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds, the PR merged while `ci_monitor` watched it and its CI passed with cancelled macOS floor checks: read it with `koto context get` and name those checks in your final report.
 
-A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `gh pr checks <pr> --repo <repo>`, taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
+A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh <pr> --repo <repo>` (`gh pr checks` where the token can read checks, the Actions jobs and statuses where it can't), taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
 
 ## ready_awaiting_merge
 

@@ -1646,6 +1646,12 @@ states:
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 75  # unlinked
+      # A required check the token can't see (the checks refused, and no
+      # Actions job or status answers it): only a person who can see it can
+      # say whether it passed.
+      - target: surface
+        when:
+          gates.verify_board_verdict.exit_code: 76  # check-unreadable
       # Defensive: classify_report's report_pr gate keeps a report with no
       # pull request out of verify, so only a route that skips it reaches
       # this. As at classify_report, a report with nothing to verify is
@@ -3623,10 +3629,12 @@ When the token can't read checks, the board is judged from the Actions jobs and
 the commit's statuses instead, and `coord/board.json` names the source it read.
 The verdicts are the same from either source. A required check that no job and
 no status reports, once every run has finished, may be a check run the token
-can't see: the board reads `board-unreadable` with a `required-unreadable`
-reason naming it, never verified, and so does a ruleset rule whose checks only
-the rollup names. Put that to the human: they can see whether the check passed,
-and a token that can read checks lets the board read it.
+can't see: the board reads `check-unreadable`, with a `required-unreadable`
+reason naming it in `coord/board.json`, never verified, and so does a ruleset
+rule whose checks only the rollup names. It goes to surface, where the person
+is asked one thing: whether that check passed on the pull request's head,
+which they can see and the token can't. Their answer, or a token that can read
+checks, is what lets it land.
 
 A job that completed red with no step at all never ran: GitHub refused to
 start it, as it does for an account billing block or a missing runner, or it

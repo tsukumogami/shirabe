@@ -44,13 +44,20 @@
 #
 #    What the token can't read stays visible. A required check (branch
 #    protection or a ruleset) that no job and no status answers is listed
-#    with state UNREADABLE and bucket `unreadable`: it may exist only as a
-#    check run from another app, which this read can't see, so it is never
-#    green. A required check pinned to an app other than GitHub Actions can
-#    only be such a check run, and so can a ruleset's `workflows` or
-#    `code_scanning` rule; each is listed unreadable too. Every gate counts
-#    any bucket but pass and skipping as not green. A check run that isn't
-#    required and comes from another app is not seen at all.
+#    pending (state EXPECTED, as gh lists a required check not reported yet)
+#    while any run is still going, and once every run has finished with state
+#    UNREADABLE and bucket `unreadable`: it may exist only as a check run from
+#    another app, which this read can't see, so it is never green. A required
+#    check pinned to an app other than GitHub Actions can only be such a check
+#    run, and so can a ruleset's `workflows` or `code_scanning` rule; each is
+#    listed unreadable at once. Every gate counts any bucket but pass and
+#    skipping as not green. A check run that isn't required and comes from
+#    another app is not seen at all.
+#
+#    A refused statuses read fails the whole read, where coordinate's board
+#    reads on without them: these gates count every check, required or not,
+#    so a failed status nobody requires would otherwise read green here while
+#    gh reads it red.
 #
 #    With nothing to list, it answers as gh does for a head with no checks:
 #    `no checks reported on the '<branch>' branch` on stderr and exit 1. A
@@ -224,15 +231,26 @@ jq -nc --argjson app "$ACTIONS_APP" --slurpfile runs "$TMP/runs.json" --slurpfil
     | [ $st[0][] | {name: .context, workflow: "", link: (.target_url // ""), state: ((.state // "pending") | ascii_upcase),
           description: (.description // ""), event: "", startedAt: (.created_at // ""), completedAt: "", kind: "status"} ] as $statuses
     | ($actions + $statuses) as $seen
+    | any($actions[]; .state | IN("QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED", "PENDING")) as $running
     # A required check is answered by a job of its name, or, when no app is
     # pinned, by a status of its name. A run with no job yet answers nothing.
+    # While a run is still going, a check it may yet report is EXPECTED, as
+    # gh lists a required check not reported yet (pending); once every run
+    # has finished it is UNREADABLE. A check pinned to another app can never
+    # be answered here, so it is UNREADABLE at once.
     | [ $req[0][] | . as $q
         | ($q.app == null or $q.app == $app) as $visible
         | [ $seen[] | select(.name == $q.name and (.kind == "job" or (.kind == "status" and $q.app == null))) ] as $answers
         | select(($visible | not) or ($answers | length) == 0)
-        | {name: $q.name, workflow: "", link: "", state: "UNREADABLE",
-           description: "required, and no Actions job or commit status reports it; the token cannot read check runs",
-           event: "", startedAt: "", completedAt: "", kind: "required"} ] as $unseen
+        | if $visible and $running then
+            {name: $q.name, workflow: "", link: "", state: "EXPECTED",
+             description: "required, and not reported yet by the runs still going",
+             event: "", startedAt: "", completedAt: "", kind: "required"}
+          else
+            {name: $q.name, workflow: "", link: "", state: "UNREADABLE",
+             description: "required, and no Actions job or commit status reports it; the token cannot read check runs",
+             event: "", startedAt: "", completedAt: "", kind: "required"}
+          end ] as $unseen
     | [ ($seen + $unseen)[] | . + {bucket: (.state | bucket)} | del(.kind) ]' >"$TMP/list.json" \
     || no "internal: the list could not be built"
 

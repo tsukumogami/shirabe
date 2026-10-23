@@ -234,6 +234,7 @@ stateDiagram-v2
     verify_board --> rebrief : gates.verify_board_verdict.exit_code: 79
     verify_board --> surface : gates.verify_board_verdict.exit_code: 74
     verify_board --> surface : gates.verify_board_verdict.exit_code: 75
+    verify_board --> surface : gates.verify_board_verdict.exit_code: 76
     verify_board --> wait : gates.verify_board_verdict.exit_code: 77
     wait --> take_report : event: report
     wait --> take_report : event: progress
