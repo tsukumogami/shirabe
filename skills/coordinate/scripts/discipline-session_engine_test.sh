@@ -5,9 +5,9 @@
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3).
 #
 # Proves, one line per case:
-#   1. the discipline's first rotation, started with no --store: the find
-#      reads `first`, record_open opens the rotation in the run's session with
-#      its window, and the next find reaches reconcile;
+#   1. the discipline's first rotation: the find reads `first`, record_open
+#      opens the rotation in the run's session with its window, and the next
+#      find reaches reconcile;
 #   2. a start inside the open rotation is a restart: a live run on the
 #      shipped template is resumed (resumed=1, nothing opened or cancelled);
 #      one that can't be resumed (here, a second live run of the discipline,
@@ -47,6 +47,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -109,9 +110,8 @@ to_reconcile() {
 }
 
 db_init
-PROBE=$(cd "$WD" && bash "$PS/record-source.sh" --probe)
-if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
-    echo "koto lacks the session store's features ($PROBE); a session rotation needs a newer koto"
+if ! koto_store_ready; then
+    echo "koto lacks the session store's features; a session rotation needs a newer koto"
     done_tests discipline-session-engine
     exit $?
 fi

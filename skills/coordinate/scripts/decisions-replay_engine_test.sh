@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # decisions-replay_engine_test.sh -- the decision flow's acceptance tests, in
-# real koto, against records in the testdata/gh stand-in.
+# real koto, against records held in each run's own session.
 #
 # The skeleton template holds the decision states and the states whose edges
 # they change (wait, report_facts), cut from STATES_FROM, and a record_find
-# state that seals `found <ref>` so the run has a record as a real run does.
+# state that seals `found` so the run has a record as a real run does; the
+# record itself is seeded into the run's keys (testdata/engine-session.sh).
 # Every state they route to that isn't under test is a terminal, or a
 # pass-through (take_report, pick_facts, classify_report) so one run can take
 # several arrivals. The states are cut from the shipped coordinate.md, and
@@ -65,6 +66,8 @@ T=$(cd -P "$T" && pwd -P) || exit 1
 # KEEP_T=1 keeps the scratch directory for a look after a failure.
 if [ -n "${KEEP_T-}" ]; then trap - EXIT; echo "keeping $T"; fi
 unset KOTO_STORE KOTO_COMPILED_HASH
+# session_seed and session_record: the record in each run's own keys.
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 PATH="$T/bin:$ORIG_PATH"
@@ -91,7 +94,7 @@ decision_withdraw_send decision_reply decision_reply_send decision_redirect deci
 PASSTHROUGH="take_report pick_facts classify_report"
 # Stand-ins where the run stops: states this suite doesn't drive, whatever
 # their real routes (report_link, for one, loops back to report_facts).
-TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status milestone_reopen failure reconcile_pass"
+TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_end done_stopped roadmap_status milestone_reopen failure reconcile_pass"
 
 # block <state>: the state's YAML block, from its `  <state>:` line to the next state's.
 block() {
@@ -130,9 +133,6 @@ variables:
   REPORTS_TO:
     description: the coordinator this run reports to; empty for a person
     default: ""
-  RECORD_REF:
-    description: the record this run found
-    required: true
 states:
   entry:
     accepts:
@@ -146,7 +146,7 @@ states:
           go: wait
   record_find:
     default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found {{RECORD_REF}}"'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found"'
       capture_stdout_as: RECORD_FIND
       fallback: The seal failed.
     gates:
@@ -175,31 +175,29 @@ skeleton "$TPL"
 koto template compile "$TPL" >"$T/compile.err" 2>&1 || { bad "the skeleton compiles" "$(cat "$T/compile.err")"; finish; }
 ok "the skeleton compiles"
 
-# --- the fixtures: records in the gh stand-in --------------------------------------------
+# --- the fixtures: records in each run's session ---------------------------------------
 
-# new_run <session> <template> <roadmap-name> <record-number> [reports-to]:
-# an empty record for the roadmap and a session that has found it, at wait.
+# new_run <session> <template> <roadmap-name> [reports-to]: a session holding
+# an empty record for the roadmap in its keys, that has found it, at wait.
 new_run() {
-    db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
-        state: "open", author: "coord", editor: null}]' --argjson k "$4" --arg n "$3" \
-        --arg b "$(render "$(record_json roadmap "$3")" issue)"
     # $KOTO_LEGACY_ENV_ARG: #483.
     koto init "$1" $KOTO_LEGACY_ENV_ARG --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
-        --var RECORD_REF="$4" --var REPORTS_TO="${5-}" >/dev/null 2>"$T/init.err" ||
+        --var REPORTS_TO="${4-}" >/dev/null 2>"$T/init.err" ||
         { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }
+    session_seed "$1" "$(record_json roadmap "$3")" || { bad "session $1 holds its record" ""; return 1; }
     koto next "$1" --no-cleanup --with-data '{"go":"wait"}' > "$T/next.json" 2>&1
     [ "$(at "$1")" = wait ] || { bad "session $1 reaches wait" "$(cat "$T/next.json")"; return 1; }
 }
-# edit_record <record-number> <roadmap-name> <jq program over the parsed record> [jq args]
+# edit_record <session> <jq program over the record> [jq args]: the session's
+# record, changed by the program, written back into its keys.
 edit_record() {
-    local k=$1 n=$2 p=$3; shift 3
-    jq -r --argjson k "$k" '.issues[] | select(.number == $k) | .body' "$GH_DB" > "$T/body.md"
-    bash "$S/record-parse.sh" --container issue --expect-scope "roadmap:$n" "$T/body.md" > "$T/parsed.json" || return 1
-    jq -c "$@" "$p" "$T/parsed.json" > "$T/next.json" || return 1
-    db '(.issues[] | select(.number == $k) | .body) = $b' --argjson k "$k" --arg b "$(render "$(cat "$T/next.json")" issue)"
+    local s=$1 p=$2; shift 2
+    session_record "$s" > "$T/parsed.json" || return 1
+    jq -c "$@" "del(.written) | $p" "$T/parsed.json" > "$T/next.json" || return 1
+    session_seed "$s" "$(cat "$T/next.json")"
 }
-seed_holding() { edit_record "$1" "$2" '.holdings += [$h]' --argjson h "$3"; }   # <ref> <name> <holding-json>
-seed_decisions() { edit_record "$1" "$2" '.decisions = $d' --argjson d "$3"; }    # <ref> <name> <section-json>
+seed_holding() { edit_record "$1" '.holdings += [$h]' --argjson h "$2"; }   # <session> <holding-json>
+seed_decisions() { edit_record "$1" '.decisions = $d' --argjson d "$2"; }    # <session> <section-json>
 
 # --- the driver --------------------------------------------------------------------------
 
@@ -250,7 +248,7 @@ drive() {
         st=$(at "$s")
         case "$st" in
             wait|pick_facts|classify_report|gone) return 0 ;;
-            record_conflict|rebrief|surface|decision_apply|leg_pick|quiet_check|merged_facts|teardown|rotation_close|done_stopped|roadmap_status) return 0 ;;
+            record_conflict|rebrief|surface|decision_apply|leg_pick|quiet_check|merged_facts|teardown|rotation_end|done_stopped|roadmap_status) return 0 ;;
             take_report) tick "$s" --with-data '{"go":"go"}' ;;
             decision_take) rd "$s" --take; tick "$s" --with-data '{"taken":"taken"}' ;;
             decision_verdict)
@@ -351,10 +349,10 @@ verdict_for() {
         *) echo "settle|ship|the check the worker ran supports (d), and nothing in it is a reason to hold" ;;
     esac
 }
-replay() { # replay <session> <template> <record-number>
-    new_run "$1" "$2" "replay-$3" "$3" || return 1
-    seed_holding "$3" "replay-$3" "$(holding w1 '{"entry_point":"/shirabe:work-on","pull_request":""}')"
-    seed_decisions "$3" "replay-$3" "$SETTLED_D"
+replay() { # replay <session> <template> <n>: the roadmap replay-<n>
+    new_run "$1" "$2" "replay-$3" || return 1
+    seed_holding "$1" "$(holding w1 '{"entry_point":"/shirabe:work-on","pull_request":""}')"
+    seed_decisions "$1" "$SETTLED_D"
     arrive_evidence "$1" 1 dispatcher "check result, mixed: the shared marketplace clone moved, the installed per-project versions held"
     # Read now: entry 1 settles again, owing only the reply, and once that is
     # sent a later write may compact its evidence away.
@@ -390,9 +388,9 @@ eq "replay: the run ends at the report's classification" classify_report "$(at "
 # whose dispatch topic is ws.
 LW=coordinate-roadmap-ws-20260928T100003Z
 LR=coordinate-roadmap-rr-20260928T100004Z
-new_run "$LW" "$TPL" ws 21 || finish
-new_run "$LR" "$TPL" rr 22 ws || finish
-seed_holding 21 ws "$(holding rr '{"entry_point":"/shirabe:coordinate","pull_request":""}')"
+new_run "$LW" "$TPL" ws || finish
+new_run "$LR" "$TPL" rr ws || finish
+seed_holding "$LW" "$(holding rr '{"entry_point":"/shirabe:coordinate","pull_request":""}')"
 CTX_M="The migration rewrites the lockfile format, and the release on Friday is the next time users upgrade."
 PROB_M="Shipping it now splits users across two formats for a week; waiting holds two other features behind it."
 CTX_P="The plugin floats to its latest version, and the release pins what users get for a quarter."

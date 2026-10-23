@@ -97,6 +97,11 @@ cost	progress-view_test.sh	6
 cost	reconcile-pass_engine_test.sh	6
 cost	reconcile-legs_test.sh	6
 cost	coordinate-open_engine_test.sh	5
+cost	fresh-run-calls_engine_test.sh	5
+cost	importer-call_engine_test.sh	5
+cost	legacy-records_engine_test.sh	5
+cost	session-fixture_engine_test.sh	5
+cost	session-start_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
 cost	state-structure_test.sh	4

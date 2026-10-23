@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # session-store_engine_test.sh -- a roadmap record on the session store, the
-# shipped coordinate.md driven through real koto against the testdata/gh
-# stand-in (docs/designs/DESIGN-coordinator-session-record.md, Decision 4;
-# PRD R7).
+# record's only store, the shipped coordinate.md driven through real koto
+# against the testdata/gh stand-in (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 4; docs/designs/current/DESIGN-coordinator-record-teardown.md, "The
+# start").
 #
 # Proves, one line per case:
-#   1. a run opened with no --store (a new roadmap scope's default) opens its
-#      record on the session store: the GitHub body is the moved shape, the
-#      state is in the run's record/ keys, and the next find reaches reconcile;
+#   1. a start names no store (the run has no STORE variable): with no record
+#      it stops at record_open, record-open.sh writes the record into the
+#      run's record/ keys and opens nothing on GitHub, the next find reaches
+#      reconcile, and coord/source.json reads session;
 #   2. writes through record-write.sh and record-state.sh land in the keys and
-#      not on GitHub, and the run passes reconcile on them;
-#   2b. a second start on the same host, again with no --store, resumes the
-#      run on its moved record (PRD R12): it prints the first run's name with
-#      resumed=1, opens and cancels nothing, and the run goes on where it stood;
+#      not on GitHub, the crash set's reports-to row among them with no store
+#      row, and the run passes reconcile on them;
+#   2b. a second start on the same host resumes the run (PRD R12): it prints
+#      the first run's name with resumed=1, opens and cancels nothing, and the
+#      run goes on where it stood;
 #   3. each refusal the write guarantees name leaves every record/ key
 #      byte-identical: a non-owner's change (65), a body edited from an older
 #      written time (12), a state rendering past 60,000 bytes (13), a run moved
@@ -21,12 +24,13 @@
 #      next start opens a new run holding every record/ key of the old one;
 #   4. a changed template carries the live run's record/ and legs/ keys into a
 #      new run and keeps the old log readable;
-#   5. on a host where no session holds the record, the find stops before
-#      reconcile as session-absent, naming the import.
+#   5. on a host where no session holds the record there is nothing on GitHub
+#      to find either: the start is a new scope's, and the find stops at
+#      record_open.
 #
 # On a koto without the session store's features (`context list --prefix`,
-# `session import`), as at shirabe's minimum koto, it proves only that the start
-# stops at the find as store-unsupported, opening no record and writing no key.
+# `session import`) it proves only that the start is refused as
+# store-unsupported, opening no session.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -48,6 +52,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -69,10 +74,9 @@ jq -n '{permissions: {defaultMode: "bypassPermissions"}}' > "$WD/.claude/setting
 
 tick() { (cd "$WD" && koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"); }
 at() { tick "$@" | jq -r '.state // empty'; }
-# open_run: a fresh session of the scope from coordinate-open.sh, which takes
-# its args file away; sets S. With no --store a new roadmap scope opens on the
-# session store.
-open_run() { # open_run [plugin-root]: the opener's output in OPEN_OUT, the session in S
+# open_run: a start of the scope from coordinate-open.sh, which takes its args
+# file away; sets S, and OPEN_OUT to the opener's output.
+open_run() { # open_run [plugin-root]
     local root=${1:-$PR}
     printf '["docs/roadmaps/ROADMAP-store.md"]' > "$T/args.json"
     OPEN_OUT=$(cd "$WD" && bash "$root/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$root" "$T/args.json" 2>"$T/open.err")
@@ -84,7 +88,6 @@ write() { # write <script> <args...>: a write script, run from $WD as the agent 
     local s=$1; shift
     (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err")
 }
-show() { (cd "$WD" && bash "$PS/record-source.sh" --session "$S" --show); }
 # keys <session>: every record/ key of the session, its name and its content,
 # read through real koto (run-tests.sh's PATH has no cksum, so no digest).
 keys() {
@@ -93,10 +96,11 @@ keys() {
         printf '%s %s\n' "$k" "$(cd "$WD" && koto context get "$1" "$k")"
     done
 }
-body_n() { jq -r --argjson n "$N" '.issues[] | select(.number == $n) | .body' "$GH_DB"; }
-# current: the state as the session holds it, parsed into $T/cur.json, and its
-# written time in CURW, for a body edited from it.
-current() { show > "$T/cur.md"; bash "$PS/record-parse.sh" "$T/cur.md" > "$T/cur.json"; CURW=$(jq -r .written "$T/cur.json"); }
+# gh_writes: the write calls the gh stand-in recorded.
+gh_writes() { grep -E '^(issue|pr) (create|edit|close|ready|comment)|^api (--method|-X) (POST|PATCH|PUT|DELETE)' "$GH_DB.calls"; }
+# current: the state as the session holds it, in $T/cur.json, and its written
+# time in CURW, for a body edited from it.
+current() { (cd "$WD" && session_record "$S") > "$T/cur.json"; CURW=$(jq -r .written "$T/cur.json"); }
 edited() { # edited <jq program> <out>: the current state changed by the program, rendered at CURW
     jq -c "del(.written) | $1" "$T/cur.json" | bash "$PS/record-render.sh" --container issue --written "$CURW" > "$2"
 }
@@ -104,51 +108,51 @@ edited() { # edited <jq program> <out>: the current state changed by the program
 db_init
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-store.md"] = $t' --arg t "$(printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Planned\n')"
 
-echo "== 1. a run opened with no --store =="
-open_run || { bad "the session opens" "$(cat "$T/open.err")"; done_tests session-store-engine; exit 1; }
-ok "the session opens"
-eq "  ... with the session store as its store, no --store given" session \
-    "$(cd "$WD" && bash "$PS/coord-log.sh" vars --session "$S" | jq -r '.STORE // ""')"
-# A koto older than the session store's features (shirabe's minimum koto runs
-# this suite too) stops the start at the find, naming what it lacks, and writes
-# nothing (PRD R2). The branch is on what koto offers, never on the outcome.
-PROBE=$(cd "$WD" && bash "$PS/record-source.sh" --session "$S" --probe)
-if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
-    eq "a koto without the session store's features stops at the find" record_conflict "$(at)"
-    find_reason=$( (cd "$WD" && koto context get "$S" coord/record_find.json) | jq -r .reason)
-    grep -q '^store-unsupported' <<<"$find_reason" \
-        && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cd "$WD" && koto context get "$S" coord/record_find.json)"
-    eq "  ... opening no record" 0 "$(jq '[.issues[] | select(.title == "Coordinator record: ROADMAP-store")] | length' "$GH_DB")"
-    # The plain listing: this koto's `context list` takes no --prefix.
-    eq "  ... and writing no record/ key" 0 "$(cd "$WD" && koto context list "$S" | jq '[.[] | select(startswith("record/"))] | length')"
-    echo "koto lacks the session store's features ($PROBE); the store's own cases need a newer koto"
+# A koto older than the session store's features stops the start before any
+# session opens, naming what it lacks (PRD R2). The branch is on what koto
+# offers, never on the outcome.
+if ! koto_store_ready; then
+    BEFORE=$(koto session list 2>/dev/null | jq -r '[.[].id] | sort | join(" ")')
+    if open_run; then
+        bad "a koto without the session store's features refuses the start" "it opened $S"
+    else
+        case "$OPEN_OUT $(cat "$T/open.err")" in
+            *store-unsupported*) ok "a koto without the session store's features refuses the start as store-unsupported" ;;
+            *) bad "a koto without the session store's features refuses the start as store-unsupported" "$OPEN_OUT $(cat "$T/open.err")" ;;
+        esac
+    fi
+    eq "  ... opening no session" "$BEFORE" "$(koto session list 2>/dev/null | jq -r '[.[].id] | sort | join(" ")')"
+    echo "koto lacks the session store's features; the store's own cases need a newer koto"
     done_tests session-store-engine
     exit $?
 fi
+
+echo "== 1. a start names no store =="
+open_run || { bad "the session opens" "$(cat "$T/open.err")"; done_tests session-store-engine; exit 1; }
+ok "the session opens"
+eq "  ... with no STORE variable" "" "$(cd "$WD" && bash "$PS/coord-log.sh" vars --session "$S" | jq -r '.STORE // ""')"
 eq "with no record it stops at record_open" record_open "$(at)"
 render "$(record_json roadmap store)" issue > "$T/open.md"
+reset_calls
 write record-open.sh --body-file "$T/open.md"; eq "record-open.sh opens the record" 0 $?
-N=$(jq -r '[.issues[] | select(.title == "Coordinator record: ROADMAP-store") | .number] | if length == 1 then .[0] else empty end' "$GH_DB")
-[ -n "$N" ] && ok "  ... one record issue" || bad "  ... one record issue" "$(jq -c '[.issues[].title]' "$GH_DB")"
-eq "  ... whose body is the moved shape" '{"deferrals":[],"holdings":[],"reversals":[],"run":["store=session"],"side_effects":[]}' \
-    "$(body_n | bash "$PS/record-parse.sh" | jq -cS '{holdings, deferrals, side_effects, reversals, run: [.run[] | "\(.key)=\(.value)"]}')"
-(cd "$WD" && koto context exists "$S" record/meta) && ok "  ... and the state is in the run's record/meta" || bad "  ... and the state is in the run's record/meta" ""
+(cd "$WD" && koto context exists "$S" record/meta) && ok "  ... in the run's record/meta" || bad "  ... in the run's record/meta" "$(cat "$T/w.err")"
+eq "  ... opening nothing on GitHub" "" "$(gh_writes)"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
-eq "  ... having found the record on the session store" session \
-    "$(cd "$WD" && bash "$PS/coord-log.sh" run-store --session "$S" 2>/dev/null)"
+eq "  ... and coord/source.json reads session" session "$( (cd "$WD" && koto context get "$S" coord/source.json) | jq -r '.source // empty')"
 
 echo "== 2. writes land in the keys =="
 current
 edited '.deferrals = [{deferral: "a", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' "$T/w1.md"
-BODY=$(body_n)
+reset_calls
 write record-write.sh --body-file "$T/w1.md"; eq "record-write.sh writes the record" 0 $?
 eq "  ... into record/deferrals" a "$(cd "$WD" && koto context get "$S" record/deferrals | jq -r '.[0].deferral')"
-write record-state.sh --run arguments "docs/roadmaps/ROADMAP-store.md --store session" --by "the human" \
+write record-state.sh --run arguments "docs/roadmaps/ROADMAP-store.md" --by "the human" \
     && write record-state.sh --run cap 2 --by "the human" \
     && write record-state.sh --run coordinator coord-test --by coord-test \
     && write record-state.sh --run reports-to "the human" --by "the human"
 eq "record-state.sh writes the stored set, reports-to included" 0 $?
-eq "  ... neither touching GitHub" "$BODY" "$(body_n)"
+eq "  ... with no store row" "" "$(cd "$WD" && koto context get "$S" record/run | jq -r '[.[] | select(.key == "store")] | length | select(. > 0)')"
+eq "  ... neither touching GitHub" "" "$(gh_writes)"
 eq "the run passes reconcile on the keys" pick "$(at --with-data '{"reconciled":"reported"}')"
 
 echo "== 2b. a second start on this host resumes the run (PRD R12) =="
@@ -216,13 +220,12 @@ eq "  ... and its legs/ key" '{"request":"req-1","leg":"deliver"}' "$(cd "$WD" &
 
 echo "== 5. a host where no session holds the record (PRD R12) =="
 # Another HOME is another koto session store: nothing here holds the record,
-# and the find stops before reconcile, naming the import that would bring it.
+# and with no record on GitHub to point at it, the start is a new scope's.
 mkdir -p "$T/home2"
 HOME_SAVED=$HOME; export HOME="$T/home2"
 open_run && ok "a start on another host opens a run" || bad "a start on another host opens a run" "$(cat "$T/open.err")"
-eq "  ... which stops at the find" record_conflict "$(at)"
-REASON=$(cd "$WD" && koto context get "$S" coord/record_find.json | jq -r .reason)
-case "$REASON" in session-absent*--import*) ok "  ... as session-absent, naming the import" ;; *) bad "  ... as session-absent, naming the import" "$REASON" ;; esac
+grep -qx 'resumed=1' <<< "$OPEN_OUT" && bad "  ... resuming nothing" "$OPEN_OUT" || ok "  ... resuming nothing"
+eq "  ... whose find stops at record_open" record_open "$(at)"
 export HOME="$HOME_SAVED"
 
 done_tests session-store-engine
