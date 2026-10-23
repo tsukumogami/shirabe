@@ -5,9 +5,9 @@
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3).
 #
 # Proves, one line per case:
-#   1. the discipline's first rotation: the find reads `first`, record_open
-#      opens the rotation in the run's session with its window, and the next
-#      find reaches reconcile;
+#   1. the discipline's first rotation, started with no --store: the find
+#      reads `first`, record_open opens the rotation in the run's session with
+#      its window, and the next find reaches reconcile;
 #   2. a start inside the open rotation is a restart: a live run on the
 #      shipped template is resumed (resumed=1, nothing opened or cancelled);
 #      one that can't be resumed (here, a second live run of the discipline,
