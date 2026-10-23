@@ -5,6 +5,11 @@
 # no template declares. Promoting a value means editing its mode in the
 # template and here, in the same change.
 #
+# A declaration whose input is a slice has the slice's contract (sources, the
+# script that builds it, why it's enough, its measured size) in
+# references/jev-criteria.md: coordinate's pick reads coord/pick_slice.json,
+# under coordinate/pick-choice there.
+#
 # Columns, tab-separated: template path, state, field, value, mode.
 skills/work-on/koto-templates/work-on.md	plan_validation	verdict	proceed	shadow
 skills/work-on/koto-templates/work-on.md	plan_validation	verdict	exit	never
