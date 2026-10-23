@@ -408,7 +408,8 @@ echo "--- a run past its total budget"
 # wall clock, which also counts starting the supervisor and settling (#1063).
 mkrepo budget "$(map '{"a": {"run": ["bin/slow.sh"], "timeout_secs": 60}, "b": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["a", "b"]')"
 change top.txt
-SHIRABE_VERIFICATION_BUDGET_SECS=5 start s-budget
+BUDGET_S=5
+SHIRABE_VERIFICATION_BUDGET_SECS=$BUDGET_S start s-budget
 settle s-budget
 expect_rc "past the total budget" 4
 expect_rule "past the total budget" verification/timed-out
@@ -426,7 +427,7 @@ BDUR=$(jq -r '.commands[0].duration_secs' "$BRES" 2>/dev/null)
 case "$BDUR" in
     ''|*[!0-9]*) fail "the budget result records no duration for the stopped command: [$BDUR]" ;;
     *) [ "$BDUR" -lt 20 ] && pass "the command was stopped at the budget (${BDUR}s), not at bin/slow.sh's own 30s end" \
-           || fail "the stopped command ran ${BDUR}s under a 5-second budget" ;;
+           || fail "the stopped command ran ${BDUR}s under a ${BUDGET_S}-second budget" ;;
 esac
 PGID=$(jq -r '.commands[0].pgid' "$BRES")
 [ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the group stopped at the budget is alive" \

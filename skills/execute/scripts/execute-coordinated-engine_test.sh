@@ -95,10 +95,11 @@
 # directory name), the cases run a copy of the template with this checkout's
 # path written in for {{PLUGIN_ROOT}}, as terminal-retention_test.sh does.
 #
-# A tick that runs a default action goes through tick(), which ticks again
-# when koto stopped the action at its 30-second limit, as the state's fallback
-# says to, and fails naming the state when the limit outlasts its retries: a
-# loaded host can pass that limit with nothing wrong in the action.
+# A tick a case needs to get past a default action goes through tick(), which
+# ticks again when koto stopped the action at its 30-second limit, as the
+# state's fallback says to, and fails naming the state when the limit outlasts
+# its retries: a loaded host can pass that limit with nothing wrong in the
+# action. The cases that hold a run at a failing action tick koto directly.
 #
 # Usage: execute-coordinated-engine_test.sh
 # Exit codes: 0 all pass, or koto absent (a loud SKIP); 1 a failure
@@ -237,6 +238,8 @@ tick() {
         fi
         n=$((n + 1))
         echo "  note: $s: koto stopped the default action at $why; ticking again ($n of $TICK_RETRIES)"
+        # No --with-data: the first tick's evidence moved the run already, and
+        # a tick with none re-runs the state's action.
         k next "$s" ${flag:+"$flag"} >"$CASE/next.json" 2>&1
     done
 }
