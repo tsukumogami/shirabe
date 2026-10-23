@@ -3242,10 +3242,10 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   `decision.json` in the run's scratch directory and run
   `koto decisions record <WF> --with-data @<scratch>/decision.json` (the file
   form, as SKILL.md's execution loop says; remove the file after),
-  then submit `approval_decision: approved`. The recorded deferral is the audit trail.
-  The PR body says in plain terms what the change leaves undone; the recorded
-  approval goes in it only when the repository opts in to workflow content (see
-  `references/phases/phase-6-pr.md`).
+  then submit `approval_decision: approved`. The recorded deferral is the audit trail and
+  must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
+  By default the body says in plain terms what the change leaves undone; the
+  recorded approval goes in it only when the repository opts in to workflow content.
   `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`
   lacks the required shape or names a referent that does not exist. Fix that
   artifact with `koto context add` and submit again: `summary_exists` and

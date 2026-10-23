@@ -47,12 +47,7 @@
 #
 # The body is a fixed template over validated fields only: the slug, exit,
 # outcome, `intent=`, mode, the docs/ artifact paths that exist, and the PLAN's
-# work-item IDs. The record lines (topic=, exit=, outcome=, intent=, mode=)
-# and the PLAN's own path are the run's records, written only when
-# scripts/pr-workflow-content.sh prints include for the repository; by
-# default the body is one sentence naming the topic, the durable documents
-# under `## Documents`, and the work items. A coordination body is written
-# whole either way, since the merge gate reads its index. No free-text state field reaches it. The one text read from a
+# work-item IDs. No free-text state field reaches it. The one text read from a
 # document is a plan/v2 step plan's step headings, which the body lists as
 # `### Step <N>: <title>` lines (a step has no ID beyond its number). They go
 # inside a fenced code block, with every control character made a space and a
@@ -60,6 +55,14 @@
 # no heading, link, mention or closing keyword in it is live. A coordinated
 # body starts with the fixed coordination-PR declaration prefix and is checked
 # with `shirabe validate --coordination-body` before it is posted.
+#
+# Which of those fields a body carries depends on the repository. The record
+# lines (topic=, exit=, outcome=, intent=, mode=) and the PLAN's own path are
+# the run's records, written only when scripts/pr-workflow-content.sh prints
+# include for the repository. By default the body is one sentence naming the
+# topic, the durable documents under `## Documents`, and the work items. A
+# coordination body is written whole either way, since the merge gate reads
+# its index.
 #
 # The intent last published. The body's `intent=` line is text for people; no
 # step reads it back. With --session, a successful publish writes the intent
@@ -399,16 +402,15 @@ render_steps() {
 # composed from it; work-item IDs are digits read from the PLAN, and a step
 # plan's step headings are listed as literal text (render_steps).
 render_body() {
-    local f="$1" p ids records=1
+    local f="$1" p ids records=1 coord=0
+    [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ] && coord=1
     # The run's record (the topic=/exit=/outcome=/intent=/mode= lines and the
     # PLAN's path, a file deleted when the work completes) is written only for a
     # repository that opts in to workflow content. A coordination body keeps
     # its record whatever the switch says: the merge gate reads its index.
-    if ! { [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; }; then
-        [ "$CONTENT" = include ] || records=0
-    fi
+    [ "$coord" = 1 ] || [ "$CONTENT" = include ] || records=0
     {
-        if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
+        if [ "$coord" = 1 ]; then
             printf '# Coordination PR: %s\n\n' "$TOPIC"
             printf '%s\n' "$DECLARATION"
             printf '> merges **last**, once every indexed PR has merged and finalization is\n'
@@ -419,7 +421,7 @@ render_body() {
             case "$EXIT" in
                 full-run) printf 'The scoping documents for %s.\n\n' "$TOPIC" ;;
                 re-evaluation) printf 'The scoping documents for %s, sent back for re-evaluation.\n\n' "$TOPIC" ;;
-                abandonment-forced) printf 'The scoping documents for %s, which was abandoned.\n\n' "$TOPIC" ;;
+                *) printf 'The scoping documents for %s, which was abandoned.\n\n' "$TOPIC" ;;
             esac
         fi
         if [ "$records" = 1 ]; then

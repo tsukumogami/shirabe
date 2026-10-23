@@ -560,11 +560,12 @@ if [ "$MODE" = node ]; then
     esac
     # A node PR already open that carries a deferred work item gets no push
     # until its body records the deferral: the check /execute's single-pr
-    # gate makes, over the same owned PR.
+    # gate makes, over the same owned PR. --body: a node PR's body carries
+    # the record whatever the repository's PR Workflow Content setting.
     if [ -n "$DEFERRAL" ] && [ -n "$OWNED_NOW" ]; then
         OWNED_ARGS=(--repo "$REPO" --head "$BRANCH" --state open)
         [ -n "$COORD_RUN_ID" ] && OWNED_ARGS+=(--run-id "$COORD_RUN_ID")
-        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" -- "${OWNED_ARGS[@]}" </dev/null
+        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" --body -- "${OWNED_ARGS[@]}" </dev/null
         case $? in
             0) ;;
             1) echo "$PROG: node $NODE carries a verification deferral that $OWNED_NOW's body doesn't record; nothing was pushed. Add the ## Verification section to its body and push again" >&2

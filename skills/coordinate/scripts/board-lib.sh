@@ -329,7 +329,9 @@ bl_reviewed_fresh() {
 # round for <repo>#<pr>, as panel-evidence.sh's JSON plus `source`. The round
 # is read first from the worker's own run session: for each Holdings row
 # linking the pull request whose return path is a leg (`leg <request>:<leg>`),
-# latest row first, the leg's bound child from `koto request get`, and that
+# latest row first (record-holding.sh --list prints rows in the record's
+# order, oldest first, so the list is reversed), the leg's bound child from
+# `koto request get`, and that
 # session's review_round.json (review-round.sh writes it), judged by
 # panel-evidence.sh --round; `source` is `session` and `session` names it.
 # With no such round (no leg, no bound child, a request this host's store

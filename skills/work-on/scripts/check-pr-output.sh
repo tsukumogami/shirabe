@@ -48,14 +48,15 @@
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
 #   --deferral-record --reason <reason> [--reason <reason>]...
-#                     [--owned <owned-pr.sh arguments>]
+#                     [--body] [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
 #       VERIFICATION=hosted-ci, #1012). In a repository that doesn't opt in
 #       to workflow content (scripts/pr-workflow-content.sh prints omit, the
 #       default) it passes (0) without reading GitHub: the deferral is
 #       recorded in the run's context as verification_deferral, and the body
 #       says in plain terms that hosted CI verified the change. In one that
-#       opts in, it reads the pull request body with
+#       opts in, or with --body (a coordinated node PR, whose body carries the
+#       record whatever the setting), it reads the pull request body with
 #       `gh pr view --json body` and checks that it records the deferral, in
 #       three parts:
 #         a line saying "local verification did not run"
@@ -131,7 +132,7 @@ usage() {
     cat >&2 <<'EOF'
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
-       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--body] [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
@@ -273,7 +274,7 @@ workflow_records() {
                 c = l
                 gsub(/`/, "", c)
                 gsub(/[ \t]*\|[ \t]*/, "|", c)
-                if (c == "|seat|model|run|verdict|reviewed head|" || c == "seat|model|run|verdict|reviewed head") {
+                if (c == "|seat|model|run|verdict|reviewed head|") {
                     printf "a Seat, Model, Run, Verdict, Reviewed head table (line %d)\n", NR; next
                 }
             }
@@ -327,6 +328,9 @@ check_pr_body() {
         --writing-style "$rules_file" \
         > "$WORK/out" 2> "$WORK/err" < /dev/null
     rc=$?
+    # A clean validator result still reports the workflow records the scan
+    # found, so 0 falls through to the findings below when there are any; the
+    # validator's own findings (and its fallback) are read only on its 2.
     case "$rc" in
         0)
             if [ ! -s "$WORK/records" ]; then
@@ -420,6 +424,11 @@ check_deferral_record() {
         shift 2
     done
     [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
+    body_always=0
+    if [ $# -gt 0 ] && [ "$1" = --body ]; then
+        body_always=1
+        shift
+    fi
     if [ $# -gt 0 ]; then
         [ "$1" = --owned ] || { usage; exit 2; }
         shift
@@ -430,8 +439,10 @@ check_deferral_record() {
     # A repository that doesn't opt in to workflow content keeps the deferral
     # out of the body: the run's context already records it
     # (verification_deferral), and the body's Verification section says in
-    # plain terms that hosted CI verified the change.
-    content=$(workflow_content) || exit 2
+    # plain terms that hosted CI verified the change. --body reads the body
+    # whatever the setting: a coordinated node PR always carries the record.
+    content=include
+    [ "$body_always" = 1 ] || content=$(workflow_content) || exit 2
     if [ "$content" = omit ]; then
         echo "check-pr-output: the repository doesn't declare ## PR Workflow Content: include, so the deferral is recorded in the run's context, not the PR body" >&2
         exit 0
