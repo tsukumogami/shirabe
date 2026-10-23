@@ -487,8 +487,10 @@ eq "a head branch starting with -: green and failing heads are invalid input" "i
     "$(q "$OUT" '"\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\(.figures.dispatch_to_merge_min.value) \(.figures.dispatch_to_merge_min.state)"')"
 grep -q -- 'run list .*--branch -x' "$GH_DB.calls" && bad "  ... and no run list is made for it" || ok "  ... and no run list is made for it"
 seed; fresh
-db '(.runs[] | select(.databaseId == 102)).headSha = "not-a-sha"'
-eq "a run whose head isn't a sha: invalid input" "null not recoverable|invalid input" \
+# The second head's page of runs comes back outside its shape: the first head
+# (one failing run) is counted, and the count is a floor naming the reason.
+db '.runs_page_bad = {"8888888888888888888888888888888888888888": 1}'
+eq "a head whose runs come back outside their shape: a floor over the heads read, invalid input" "1 bound|invalid input" \
     "$(compute | jq -r '"\(.figures.failing_heads.value) \(.figures.failing_heads.state)|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
 seed; fresh
 printf '{"seq":12,"timestamp":"2026-10-01T10:2\n' >>"$A/koto/execute-x.o-issue-1/koto-execute-x.o-issue-1.state.jsonl"
@@ -576,6 +578,56 @@ eq "with no record known, the host counts as public: each repository is looked u
     "api --method GET repos/acme/widgets --jq .private|api --method GET repos/acme/gadgets --jq .private" \
     "$(grep -- '--jq .private' "$GH_DB.calls" | tr '\n' '|' | sed 's/|$//')"
 
+echo "== failing heads over every head =="
+# A pull request with 65 heads (#40): every odd head has a failing run and
+# every even one a cancelled run (neither failing nor green), head 30 holds 250
+# runs over three pages of 100 with one failure among them, and head 65 is
+# green. A 66th head after it has a failing run nobody reads.
+seed; fresh
+hsha() { printf '%040x' "$((0xabc000 + $1))"; }
+HEADS40=$(for ((k = 1; k <= 66; k++)); do hsha "$k"; echo; done | jq -R . | jq -s -c .)
+RUNS40=$(jq -n -c --argjson hs "$HEADS40" '
+    [range(0; 66) as $i | ($i + 1) as $k | $hs[$i] as $h
+     | if $k == 30 then (range(0; 250) as $j | {databaseId: (40000 + $j), headSha: $h, conclusion: (if $j == 7 then "failure" else "success" end)})
+       elif $k == 65 then {databaseId: (41000 + $k), headSha: $h, conclusion: "success"}
+       elif $k == 66 then {databaseId: (41000 + $k), headSha: $h, conclusion: "failure"}
+       elif ($k % 2) == 1 then {databaseId: (41000 + $k), headSha: $h, conclusion: "failure"}
+       else {databaseId: (41000 + $k), headSha: $h, conclusion: "cancelled"} end]
+    | map(. + {repo: "acme/widgets", headBranch: "feat/forty", attempt: 1, status: "completed",
+               updatedAt: "2026-10-01T10:30:00Z", attempts: []})')
+db '(.prs[] | select(.repo == "acme/widgets" and .number == 21)) as $p
+    | .prs += [$p | .number = 40 | .headRefName = "feat/forty"]
+    | .pr_commits["acme/widgets#40"] = $h | .runs += $r' --argjson h "$HEADS40" --argjson r "$RUNS40"
+prs "acme/widgets#40 $MERGE"
+reset_calls
+OUT=$(compute)
+# Failing heads up to the green 65th: the 32 odd heads before it, and head 30.
+eq "65 heads, one of them with 250 runs over three pages: every failing head counted, measured" "33 measured" "$(fig "$OUT" failing_heads)"
+eq "  ... nothing missing for it" "" "$(q "$OUT" '[.missing[] | select(.figure == "failing_heads")] | length | if . == 0 then "" else tostring end')"
+eq "  ... head 30's three pages each read" "1 2 3" \
+    "$(grep -- "head_sha=$(hsha 30)&per_page=100&page=" "$GH_DB.calls" | sed 's/.*&page=\([0-9]*\).*/\1/' | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... the reads stop at the green head: none for the head after it" "" "$(grep -- "head_sha=$(hsha 66)" "$GH_DB.calls")"
+eq "  ... and no run list is made" "" "$(grep -- '^run list' "$GH_DB.calls")"
+# With the budget out at head 30 (the read answers as uc_gh does when it is
+# spent), the count is a floor over the 29 heads read, naming time limit.
+db '.fail = [{match: $m, rc: 125, stderr: "budget"}]' --arg m "head_sha=$(hsha 30)"
+OUT=$(compute)
+eq "the budget spent at head 30: a floor over the heads read, time limit" "15 bound|time limit" \
+    "$(q "$OUT" '"\(.figures.failing_heads.value) \(.figures.failing_heads.state)|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
+eq "  ... and green not recoverable, time limit" "null not recoverable|time limit" \
+    "$(q "$OUT" '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])"')"
+db '.fail = [{match: $m, rc: 1, stderr: "HTTP 502"}]' --arg m "head_sha=$(hsha 30)&per_page=100&page=2"
+eq "a failed page read at head 30: a floor over the heads read, read failed" "15 bound|read failed" \
+    "$(compute | jq -r '"\(.figures.failing_heads.value) \(.figures.failing_heads.state)|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
+db '.fail = []'
+# No green head: every head is read and green is not recoverable.
+db '(.runs[] | select(.headSha == $g)).conclusion = "failure"' --arg g "$(hsha 65)"
+reset_calls
+OUT=$(compute)
+eq "no green head: every head read, each failing one counted" "35 measured" "$(fig "$OUT" failing_heads)"
+eq "  ... the 66th head read too" 1 "$(grep -c -- "head_sha=$(hsha 66)" "$GH_DB.calls")"
+eq "  ... and green not recoverable" "null not recoverable" "$(fig "$OUT" dispatch_to_green_min)"
+
 echo "== one entry per key =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a first capture posts" 0 $?
@@ -627,15 +679,14 @@ POSTED=$((POSTED + 1))
 # A lock a live process holds is waited for inside the list and post bounds,
 # then the capture lists and posts without it, saying so.
 seed; fresh
-sleep 30 &
-LIVE=$!
+# The holder is this suite's own shell, which outlives the capture.
+LIVE=$$
 mkdir -p "$PL"; printf '%s %s\n' "$LIVE" "$(date +%s)" >"$PL/owner"
 UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=10 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
 eq "a lock a live process holds is waited out, then the capture posts without it" "0 1" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
 case "$(cat "$T/cap.err")" in *"the post lock is held"*) ok "  ... saying so" ;; *) bad "  ... saying so" "$(cat "$T/cap.err")" ;; esac
 eq "  ... and leaves the live process's lock in place" "$LIVE" "$(cut -d' ' -f1 "$PL/owner")"
-kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
 rm -rf "$PL"
 
 echo "== partial entries =="
@@ -646,8 +697,8 @@ POSTED=$((POSTED + 1))
 eq "  ... complete false, naming the token rows" "false|tokens.worker:no source,tokens.nested:no source" \
     "$(last_entry | jq -r '"\(.complete)|\([.missing[] | select(.figure | startswith("tokens")) | "\(.figure):\(.reason)"] | join(","))"')"
 seed; fresh
-db '.fail = [{match: "run list", rc: 1, stderr: "HTTP 502"}]'
-capture; eq "with gh run list failing, the capture posts" 0 $?
+db '.fail = [{match: "actions/runs?head_sha", rc: 1, stderr: "HTTP 502"}]'
+capture; eq "with the runs read failing, the capture posts" 0 $?
 POSTED=$((POSTED + 1))
 eq "  ... complete false, the run figures read failed, the rest kept" "false|dispatch_to_green_min:read failed,outside_share_pct:read failed,review_share_pct:read failed,failing_heads:read failed|150 measured|40.5 measured" \
     "$(last_entry | jq -r '"\(.complete)|\([.missing[] | select(.figure | test("green|share|failing")) | "\(.figure):\(.reason)"] | join(","))|\(.figures.dispatch_to_merge_min.value) \(.figures.dispatch_to_merge_min.state)|\(.figures.writing_code_min.value) \(.figures.writing_code_min.state)"')"
@@ -828,10 +879,10 @@ db '.prs += [range(61; 76) as $i | {repo: "acme/widgets", number: $i, title: "x"
         isCrossRepository: false, baseRefName: "main", headRefName: "b/\($i)", headRefOid: $m, author: "alice", editor: null,
         createdAt: "2026-10-01T10:\($i - 50):00Z", mergedAt: "2026-10-01T11:\($i - 50):00Z", mergeCommit: $m}]' --arg m "$MERGE2"
 for i in 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75; do link acme/widgets "$i" "2026-10-01T10:$((i - 50)):30.000Z"; done
-printf '#!/usr/bin/env bash\ncase "$*" in "pr view "*"--json state,createdAt"*) echo x >>"%s/slow.n"; sleep 0.6 ;; esac\nexec gh "$@"\n' "$T" >"$T/slowgh"
+printf '#!/usr/bin/env bash\ncase "$*" in "pr view "*"--json state,createdAt"*) echo x >>"%s/slow.n"; sleep 2 ;; esac\nexec gh "$@"\n' "$T" >"$T/slowgh"
 chmod +x "$T/slowgh"
 : >"$T/slow.n"
-OUT=$(GH="$T/slowgh" UNIT_COST_BUDGET_SECS=6 compute)
+OUT=$(GH="$T/slowgh" UNIT_COST_BUDGET_SECS=20 compute)
 NC=$(q "$OUT" '[.pulls[] | select(.via == "session")] | length')
 [ "$NC" -ge 1 ] && [ "$NC" -lt 15 ] && ok "a budget spent mid-way keeps the credit read before it ($NC of 15)" || bad "a budget spent mid-way keeps the credit read before it" "$NC: $OUT"
 eq "  ... the earliest-linked first, in order" "$(awk -v n="$NC" 'BEGIN { for (i = 61; i <= 60 + n; i++) printf "%s%d", (i > 61 ? " " : ""), i }')" "$(q "$OUT" '[.pulls[] | select(.via == "session") | .number | tostring] | join(" ")')"
