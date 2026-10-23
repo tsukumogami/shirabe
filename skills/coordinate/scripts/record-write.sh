@@ -36,6 +36,7 @@
 # Usage:
 #   record-write.sh --session S --body-file F [--end YYYY-MM-DD] [--close]
 #                   [--pushed-head TOPIC SHA]
+#   record-write.sh --session S --pushed-head TOPIC SHA
 #   record-write.sh [--session S] --scope roadmap|discipline --name N --repo O/R
 #                   --ref N --skip-session-checks --body-file F [...]   (tests)
 #
@@ -46,8 +47,12 @@
 # pushed head kept beside TOPIC's holding, 40 hex, or empty to clear it; every
 # other holding keeps its own. The body has no column for it, so a GitHub
 # record never carries one. record-holding.sh is the one script that passes it.
+# With no --body-file it sets the head and nothing else: core_write_pushed
+# rewrites the one session key that keeps it, past this script's session
+# checks but none of the body's, since the body doesn't change.
 # The record number comes from `coord-log.sh run-facts` (the run's found
-# record); --ref replaces it only with the test override flags.
+# record; a discipline rotation on the session store has none); --ref replaces
+# it only with the test override flags.
 #
 # Exit codes: 0 written (prints the record's URL); 10 not an open record of
 # this scope, or provenance, or a directed transition; 12 the record changed
@@ -86,7 +91,11 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-[ -n "$BODY" ] && [ -r "$BODY" ] || usage
+if [ -z "$BODY" ]; then
+    [ "$PUSHED_SET" = 1 ] && [ -z "$END" ] && [ "$CLOSE" = 0 ] || usage
+else
+    [ -r "$BODY" ] || usage
+fi
 . "$HERE/record-common.sh"
 lib_facts
 if [ -n "$END" ]; then
@@ -95,7 +104,7 @@ if [ -n "$END" ]; then
 fi
 [ "$CLOSE" = 0 ] || [ "$SCOPE" = roadmap ] || { echo "$PROG: --close is for a roadmap record" >&2; exit 64; }
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
 fi
@@ -107,4 +116,4 @@ lib_write_guard
 if [ "$PUSHED_SET" = 1 ]; then
     CORE_PUSHED_SET=1 CORE_PUSHED_TOPIC=$PUSHED_TOPIC CORE_PUSHED_HEAD=$PUSHED_HEAD
 fi
-core_write
+if [ -z "$BODY" ]; then core_write_pushed; else core_write; fi

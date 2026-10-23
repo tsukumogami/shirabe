@@ -12,6 +12,7 @@ name: Check explore scripts
 # cases run on 3.2 and the engine cases run on Linux.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/explore/scripts/**'
@@ -20,6 +21,23 @@ on:
       - 'skills/explore/references/**'
       # The script reaches the session through skill-session.sh, which opens it
       # from the store template, through koto-open.sh and assert-koto-floor.sh.
+      - 'scripts/skill-session.sh'
+      - 'koto-templates/skill-session.md'
+      - 'scripts/koto-open.sh'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/explore.list'
+      - '.tsuku.toml'
+      - '.github/workflows/check-explore-scripts.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/explore/scripts/**'
+      - 'skills/explore/SKILL.md'
+      - 'skills/explore/references/**'
       - 'scripts/skill-session.sh'
       - 'koto-templates/skill-session.md'
       - 'scripts/koto-open.sh'

@@ -293,6 +293,12 @@ if [ "$SCOPE" = roadmap ]; then
     { [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
     cp "$T/parsed.json.raw" "$T/rec.json"
     [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="issue #$REF is closed"; finish record-changed; }
+elif lib_session_rotation; then
+    # A rotation on the session store: no pull request, no branch.
+    rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
+    [ $RS_RC -eq 2 ] && changed_or_die "$T/parsed.json.err" "$(lib_record_name)"
+    { [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    cp "$T/parsed.json.raw" "$T/rec.json"
 else
     rs_record "$T/parsed.json" json --json state,body,headRefName,isCrossRepository; RS_RC=$?
     [ $RS_RC -eq 2 ] && changed_or_die "$T/parsed.json.err" "pull request #$REF"

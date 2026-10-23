@@ -13,6 +13,7 @@ name: Check release scripts
 # cases run on 3.2 and the engine cases run on Linux.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/release/scripts/**'
@@ -21,6 +22,22 @@ on:
       - 'skills/release/SKILL.md'
       # The script reaches the session through skill-session.sh, which opens it
       # from the store template, through koto-open.sh and assert-koto-floor.sh.
+      - 'scripts/skill-session.sh'
+      - 'koto-templates/skill-session.md'
+      - 'scripts/koto-open.sh'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/release.list'
+      - '.tsuku.toml'
+      - '.github/workflows/check-release-scripts.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/release/scripts/**'
+      - 'skills/release/SKILL.md'
       - 'scripts/skill-session.sh'
       - 'koto-templates/skill-session.md'
       - 'scripts/koto-open.sh'

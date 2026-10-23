@@ -1683,10 +1683,13 @@ states:
     # reason are fixed at init (neither is rebindable), the edge in records
     # `vars_matched: VERIFICATION=hosted-ci` on its transition event, and the
     # edge out writes the reason to context as verification_deferral. It is
-    # never silent either: pr_creation's verification_deferral_recorded gate
-    # holds the created edge until the pull request body says local
-    # verification did not run, gives this reason, and names hosted CI as the
-    # build of record; ci_monitor then requires that CI green as always.
+    # never silent either: in a repository that opts in to workflow content
+    # (scripts/pr-workflow-content.sh), pr_creation's
+    # verification_deferral_recorded gate holds the created edge until the pull
+    # request body says local verification did not run, gives this reason, and
+    # names hosted CI as the build of record; by default the context key is
+    # the record and the body says in plain terms that hosted CI verified the
+    # change. ci_monitor then requires that CI green as always.
     #
     # A hosted-ci run with no reason stops at done_blocked. It does not fall
     # back to running the map, which is what the run chose not to do, and it
@@ -1842,7 +1845,8 @@ states:
         type: string
         description: >
           The unmet acceptance criterion and the human's rationale. On approved, this is
-          the deferral recorded via `koto decisions record` and surfaced in the PR body.
+          the deferral recorded via `koto decisions record`; the PR body says in plain
+          terms what is left undone.
     transitions:
       - target: pre_pr_evidence
         when:
@@ -2108,6 +2112,9 @@ states:
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
       # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
       # verification_deferred) records the deferral where a reviewer reads it.
+      # In a repository that doesn't opt in to workflow content
+      # (scripts/pr-workflow-content.sh prints omit) the script exits 0 with no
+      # GitHub read: verification_deferral in context is the record. Otherwise
       # check-pr-output.sh --deferral-record reads the pull request body from
       # GitHub and exits 0 when it says local verification did not run, has
       # the line `Reason: <reason>`, and names hosted CI as the build of record; 1
@@ -3244,6 +3251,8 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   form, as SKILL.md's execution loop says; remove the file after),
   then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
+  By default the body says in plain terms what the change leaves undone; the
+  recorded approval goes in it only when the repository opts in to workflow content.
   `approved` holds here, naming the failing gate, when `summary.md` or `pre_pr.md`
   lacks the required shape or names a referent that does not exist. Fix that
   artifact with `koto context add` and submit again: `summary_exists` and
@@ -3369,20 +3378,35 @@ again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
 
+Write the body about the change and how it was verified, in terms a reader of
+this repository understands. By default that means no review panel table, no
+override or deferral notes, no session, state or ledger names, no pointers to
+PLAN or ROADMAP files: those records stay in this run's session. The repository
+can opt in to them:
+`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh"` prints `include` when it
+declares `## PR Workflow Content: include`, and `omit`, the default, otherwise.
+Under `omit` the `pr_body_conformant` gate also holds on a `## Review panel`
+heading or table, a `Plan:` or `Roadmap:` line, or an `Implements` line naming a
+PLAN or ROADMAP file (`pr-body/workflow-content`); `references/phases/phase-6-pr.md`
+says what goes where under each.
+
 A run that deferred verification to hosted CI (it passed through
-`verification_deferred`, and `verification_deferral` is in context) records the
-deferral in the body, in Part 2, under a `Verification` heading, with the three
-lines `references/phases/phase-6-pr.md` gives: that local verification did not
-run, `Reason: ` followed by the `verification_deferral` value verbatim, and that
+`verification_deferred`, and `verification_deferral` is in context) says so in
+plain terms under `omit`: the body's Verification section says hosted CI verified
+the change, and the reason stays in context. Under `include` it records the
+deferral in Part 2, under a `Verification` heading, with the three lines
+`references/phases/phase-6-pr.md` gives: that local verification did not run,
+`Reason: ` followed by the `verification_deferral` value verbatim, and that
 hosted CI is the build of record for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
-pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`, which
-reads the body from GitHub and holds the state until it says local verification
-did not run, has the line `Reason: <reason>` exactly and whole (the reason
-anywhere else in the body doesn't count), and says hosted CI is the build of
-record. Fix the body with `gh pr edit` and submit `pr_status: created` again.
-On a run that didn't defer the gate passes without running anything.
+pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`. Under
+`omit` it passes without reading GitHub. Under `include` it reads the body from
+GitHub and holds the state until it says local verification did not run, has the
+line `Reason: <reason>` exactly and whole (the reason anywhere else in the body
+doesn't count), and says hosted CI is the build of record. Fix the body with
+`gh pr edit` and submit `pr_status: created` again. On a run that didn't defer
+the gate passes without running anything.
 
 The gate's output escalates. The first time a rule fails here, its finding
 carries the rule's summary. From the second failed evaluation of the same

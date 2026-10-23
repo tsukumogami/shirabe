@@ -48,11 +48,13 @@ record "request resolve" --with-data
 record "request get" -
 record "request close" -
 
-# The init flags must match what /scope and /execute declare, so the three
-# skills name one floor.
+# The init flags every run needs must match what /scope and /execute declare,
+# so the three skills name one floor. Only the `always` records are compared:
+# a mode record (/execute's `--dispatched-by` under mode:coordinated) is a
+# flag one kind of run adds, not part of the floor.
 for other in scope execute; do
-    ours=$(awk -F'\t' '$1 == "koto" && $2 == "init" { print $3 }' "$REQ")
-    theirs=$(awk -F'\t' '$1 == "koto" && $2 == "init" { print $3 }' "$REPO/skills/$other/requires.tsv")
+    ours=$(awk -F'\t' '$1 == "koto" && $2 == "init" && $4 == "always" { print $3 }' "$REQ")
+    theirs=$(awk -F'\t' '$1 == "koto" && $2 == "init" && $4 == "always" { print $3 }' "$REPO/skills/$other/requires.tsv")
     if [ "$ours" = "$theirs" ]; then ok "the koto init record matches /$other's"; else bad "the koto init record differs from /$other's" "[$ours] vs [$theirs]"; fi
 done
 
@@ -90,7 +92,9 @@ case "$OUT" in
     *) bad "preflight on an older koto names the missing request verbs" "$OUT" ;;
 esac
 
-if command -v koto >/dev/null 2>&1 && koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
+# The satisfied case needs a koto at or above shirabe's floor: one below it is
+# named by the load-time minimum check, whatever flags it has.
+if command -v koto >/dev/null 2>&1 && bash "$REPO/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
     OUT=$(bash "$PREFLIGHT" deliver 2>&1)
     if [ -z "$OUT" ]; then ok "preflight on the installed floor koto prints nothing"; else bad "preflight on the installed floor koto prints nothing" "$OUT"; fi
 else

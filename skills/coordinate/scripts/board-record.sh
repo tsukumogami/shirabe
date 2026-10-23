@@ -24,13 +24,16 @@
 #   verified <pr> <head>         the board is green at <head>, read from the
 #                                checks, or from the Actions jobs and the
 #                                commit's statuses where the token can't
-#                                read checks, and the body's Review panel
-#                                table, if it has one, parses
-#   unevidenced <pr> none        the board is green but the body's Review
-#                                panel table is malformed (panel-evidence.sh):
+#                                read checks, and the worker's review round,
+#                                if it has one, parses (the round recorded
+#                                in its session, else the body's Review
+#                                panel table: board-lib.sh's
+#                                bl_review_evidence)
+#   unevidenced <pr> none        the board is green but the review round is
+#                                malformed (panel-evidence.sh):
 #                                a panel claim with seats that can't be told
 #                                apart never becomes a verified head; the
-#                                parsed table is coord/board.json's
+#                                parsed round is coord/board.json's
 #                                `evidence` and its rule a reason coded
 #                                `unevidenced` (that file's `verdict` stays
 #                                the board's own, `verified`). A body that
@@ -181,20 +184,24 @@ if [ -z "$TOKEN" ]; then
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
     esac
 fi
-# A green board with a malformed Review panel table in the body is a panel
-# claim the land step can't read, seats that can't be told apart included:
-# no verified head is recorded on it. No table yet is fine here; land refuses
-# it later. docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 1.
+# A green board with a malformed review round (the one the worker recorded in
+# its session, else the body's Review panel table; board-lib.sh's
+# bl_review_evidence) is a panel claim the land step can't read, seats that
+# can't be told apart included: no verified head is recorded on it. No round
+# yet is fine here; land refuses it later.
+# docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 1.
 case "$TOKEN" in
     verified\ *)
         if bl_gh "$T.pr" pr view "$PR" --repo "$REPO" --json body; then
-            EV=$(jq -r '.body // ""' "$T.pr" | bash "$HERE/panel-evidence.sh" -) || EV=
+            jq -r '.body // ""' "$T.pr" > "$T.body" || exit 2
+            EV=$(bl_review_evidence "$SESSION" "$REPO" "$PR" "$T.body") || EV=
+            rm -f "$T.body"
             case "$(printf '%s' "$EV" | jq -r '.status // ""')" in
                 ok|absent) ;;
                 malformed)
-                    jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ("the Review panel table is malformed: " + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"
+                    jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ((if $e.source == "session" then "the recorded review round is malformed: " else "the Review panel table is malformed: " end) + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"
                     TOKEN="unevidenced $PR none" ;;
-                *) echo "$PROG: the body's Review panel couldn't be parsed" >&2; exit 2 ;;
+                *) echo "$PROG: the review round couldn't be read" >&2; exit 2 ;;
             esac
         else
             jq '.reasons += [{code: "evidence-read", detail: "the pull request body could not be read"}]' "$T" > "$T.e" && mv "$T.e" "$T"

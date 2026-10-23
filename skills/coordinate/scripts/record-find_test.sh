@@ -9,7 +9,9 @@
 # the declaration check on a file past 64 KB; no declaration line (foreign);
 # each of the four sections missing (malformed); a record for another scope;
 # an unauthorized author and an unauthorized last editor; a failed permission
-# read and a failed listing (exit 2). At discipline scope: none, unopened, stale-branch, found,
+# read and a failed listing (exit 2). At discipline scope: no open record pull
+# request hands the rotation to the session store (discipline-session_test.sh
+# covers what it finds there; this test's koto lacks it), found,
 # predecessor, foreign, ambiguous (two open, an impossible date, end before
 # start), malformed, unauthorized, a fork's and another base's pull requests
 # ignored, and a failed branch read. Also the sealed token and its context
@@ -125,13 +127,14 @@ branch() { db '.branches["acme/widgets"][$b] = $s' --arg b "$BR" --arg s "$SHA_H
 find_ds() { local o rc; o=$(bash "$F" "${DS[@]}" 2>"$T/err"); rc=$?; [ -z "$o" ] || seen "$o"; return $rc; }
 
 db_init
-eq "no branch is none" none "$(find_ds)"
+eq "no branch hands the rotation to the session store" malformed "$(find_ds)"
+grep -q "store-unsupported" "$T/err"; eq "  ... which this test's koto lacks" 0 $?
 branch
-eq "a branch that never had a pull request is unopened" unopened "$(find_ds)"
+eq "a branch that never had a pull request hands it to the session store" malformed "$(find_ds)"
 add_pr 20 "$DTITLE" "$DBODY" MERGED
-eq "a branch whose last pull request merged is stale" stale-branch "$(find_ds)"
+eq "a branch whose last pull request merged hands it to the session store" malformed "$(find_ds)"
 db_init; branch; add_pr 21 "$DTITLE" "$DBODY" CLOSED
-eq "a branch whose last pull request closed is stale" stale-branch "$(find_ds)"
+eq "a branch whose last pull request closed hands it to the session store" malformed "$(find_ds)"
 db_init; branch; add_pr 22 "$DTITLE" "$DBODY"
 eq "an open, declared, authorized, canonical record is found" "found 22" "$(find_ds)"
 db_init; branch; add_pr 22 "docs(coordinate): ci-health rotation 2026-09-18 to 2026-09-25" "$DBODY"
@@ -155,12 +158,12 @@ eq "a roadmap record body on the branch is malformed" "malformed 22" "$(find_ds)
 db_init; branch; add_pr 22 "$DTITLE" "$DBODY" OPEN false main bob
 eq "an unauthorized author is unauthorized" "unauthorized 22" "$(find_ds)"
 db_init; branch; add_pr 22 "$DTITLE" "$DBODY" OPEN true
-eq "a fork's pull request from the same branch name is ignored" unopened "$(find_ds)"
+eq "a fork's pull request from the same branch name is ignored" malformed "$(find_ds)"
 db_init; branch; add_pr 22 "$DTITLE" "$DBODY" OPEN false develop
-eq "a pull request into another base is ignored" unopened "$(find_ds)"
+eq "a pull request into another base is ignored" malformed "$(find_ds)"
 db_init; db '.prs += [{repo: "acme/widgets", number: 30, title: $t, body: $b, state: "OPEN", isDraft: true, isCrossRepository: false,
     baseRefName: "main", headRefName: "feat/other", headRefOid: $s, author: "alice", editor: null}]' --arg t "$DTITLE" --arg b "$DBODY" --arg s "$SHA_HEAD"
-eq "a pull request from another branch is ignored" none "$(find_ds)"
+eq "a pull request from another branch is ignored" malformed "$(find_ds)"
 db_init; db '.fail = [{match: "branches/coordinate", rc: 1, stderr: "gh: Server Error (HTTP 500)"}]'
 find_ds >/dev/null; eq "a failed branch read (not a 404) exits 2" 2 $?
 db_init; branch; db '.fail = [{match: "pr list", rc: 1}]'

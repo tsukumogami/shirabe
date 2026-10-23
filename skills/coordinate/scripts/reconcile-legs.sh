@@ -100,7 +100,10 @@ esac
 
 # The worker's own session, if it came here unbound, is attached to a new
 # request on this host. Every refusal of the re-leg (exit 9) leaves the leg
-# unwatchable from here.
+# unwatchable from here. This runs inside a koto tick, so it calls only
+# --releg-imported, which exits before dispatch-worker.sh's niwa dispatch;
+# scripts/check-tick-launches.allow records that, and a call in any other mode
+# here would need KOTO_SESSION_* unset first.
 bash "$HERE/dispatch-worker.sh" --session "$SESSION" --releg-imported "$TOPIC" > "$T/releg.out" 2> "$T/releg.err" < /dev/null
 case $? in
     0)

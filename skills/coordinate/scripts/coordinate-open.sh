@@ -11,13 +11,16 @@
 #
 # A record on the session store lives in a run's session on this host
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12), so
-# at roadmap scope a start first asks record-source.sh --candidate about this
-# host's runs of the scope that hold a record, against the shipped template's
-# hash. The newest, live, the scope's only live run, compiled from that hash,
-# passing provenance, sealed to the session store and with no directed
-# transition, is resumed: no session opens and none is cancelled, the run keeps
-# its stamp, and the output is `resumed=1` then `session=<it>` (settings given
-# with the invocation aren't applied to it). One that fails any of those is
+# a start first asks record-source.sh --candidate about this host's runs of the
+# scope that hold a record, against the shipped template's hash. At discipline
+# scope the candidate is only a rotation still open by the window rule (today
+# on or before its end date, no reasoning written); after it ends the start
+# opens a new run, which carries the rotation as its predecessor. The newest,
+# live, the scope's only live run, compiled from that hash, passing provenance,
+# sealed to the session store and with no directed transition, is resumed: no
+# session opens and none is cancelled, the run keeps its stamp, and the output
+# is `resumed=1` then `session=<it>` (settings given with the invocation aren't
+# applied to it). One that fails any of those is
 # carried: a new run opens and the live runs are cancelled as above, and then
 # every record/ and legs/ key of the old run is copied into the new one through
 # the write core (core_carry), printing `carried=<old>`. The old run's log
@@ -25,9 +28,9 @@
 # holding no record, and the next start carries again.
 #
 # An import (PRD R14) moves a run another host started here: `--import
-# <session> --from <workspace path>` with the roadmap path, and no setting.
-# Before koto runs, the opener refuses, in this order: discipline scope
-# (`refused=store-discipline`, as the arguments are read), a name that isn't a
+# <session> --from <workspace path>` with the roadmap path, or a discipline's
+# --discipline and --host, and no other setting. Before koto runs, the opener
+# refuses, in this order: a name that isn't a
 # run of this scope (`refused=session-name`), another live run of the scope
 # here (`refused=session-live`; the import's own target may be live, after
 # koto's import_unmarked, since the same import run again only marks the
@@ -64,11 +67,15 @@
 #   --store github|session       where a new scope's record keeps its state
 #                                (STORE); a found record's own store row decides
 #                                for an existing one, and this flag is then
-#                                reported ignored. Roadmap scope only; without
-#                                it a new record is on GitHub
+#                                reported ignored. Without it a new roadmap
+#                                record is on the session store (STORE=session);
+#                                only `--store github` opens one on GitHub, and
+#                                any other value is usage. At discipline scope a
+#                                new rotation runs on its session whatever it says
 #   --import <session>, --from <workspace path>, [--trust-template]
-#                                import that run from the bucket (roadmap scope,
-#                                no other setting)
+#                                import that run from the bucket (with the
+#                                roadmap path, or a discipline's --discipline
+#                                and --host; no other setting)
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file
@@ -155,26 +162,23 @@ if [ "$(printf '%s' "$MAPPED" | jq '.import | length')" -gt 0 ]; then
     [ "$(printf '%s' "$MAPPED" | jq '.import.trust // [] | length')" -eq 0 ] || TRUST=1
     [ -n "$IMPORT" ] && [ -n "$FROM" ] || usage "--import <session> takes --from <workspace path>, and --from and --trust-template go only with --import"
     case "$FROM" in /*) ;; *) usage "--from takes the source workspace's absolute path" ;; esac
-    if [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')" -gt 0 ]; then
-        echo "refused=store-discipline"
-        echo "coordinate-open: --import is for a roadmap's session-store record; a discipline rotation's record stays on GitHub" >&2
-        exit 2
-    fi
-    [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] || usage "--import resumes the imported run with its own settings; give none with it"
+    # A discipline's import names the scope (--discipline, and --host, which a
+    # discipline scope always takes); every other setting is the imported run's.
+    [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] != "DISCIPLINE" and .[0] != "HOST_REPO")] | length')" -eq 0 ] \
+        || usage "--import resumes the imported run with its own settings; give none with it but a discipline's --discipline and --host"
 fi
 
-# The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2):
-# roadmap scope only. koto checks the value's shape; this refusal comes first so
-# nothing opens. GitHub stays the default: only `--store session` opens a new
-# scope's record on the session store.
-STORE_FLAG=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "STORE") | .[1]] | last // ""')
-if [ -n "$STORE_FLAG" ]; then
-    if [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')" -gt 0 ]; then
-        echo "refused=store-discipline"
-        echo "coordinate-open: --store is for roadmap scope; a discipline rotation's record stays on GitHub" >&2
-        exit 2
-    fi
-fi
+# The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2;
+# docs/designs/current/DESIGN-coordinator-record-teardown.md, step 4). It is
+# github or session; anything else is refused here, naming it. At roadmap scope
+# a new scope opens on the session store unless `--store github` is given (the
+# roadmap branch below adds STORE=session when no --store is), and a record the
+# find adopts decides by its own store row. At discipline scope it decides
+# nothing: a new rotation opens on the session store and one still on GitHub
+# stays there (record-find.sh reports the flag ignored).
+BAD_STORE=$(printf '%s' "$MAPPED" | jq -c '[.pairs[] | select(.[0] == "STORE") | .[1] | select(. != "github" and . != "session")]')
+[ "$BAD_STORE" = '[]' ] || usage "--store takes github or session, not $(printf '%s' "$BAD_STORE" | jq -c '.[0]')"
+STORE_GIVEN=$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "STORE")] | length')
 
 NPOS=$(printf '%s' "$MAPPED" | jq '.positional | length')
 DISC=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')
@@ -187,6 +191,7 @@ if [ "$DISC" -gt 0 ]; then
         echo "coordinate-open: a discipline's host repository is the human's decision; ask once, with a recommendation, then re-invoke with --host <owner/repo>" >&2
         exit 10
     fi
+    HOST=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "HOST_REPO")][0][1]')
     EXTRA='[]'
 else
     [ "$NPOS" -eq 1 ] || usage "expected one roadmap path, or --discipline <name>"
@@ -204,6 +209,11 @@ else
     FORM=feature
     if [ -r "$ROADMAP" ] && bash "$HERE/milestone.sh" is-milestone "$ROADMAP" >/dev/null 2>&1; then FORM=milestone; fi
     EXTRA=$(jq -nc --arg r "$ROADMAP" --arg h "$HOST" --arg f "$FORM" '[["ROADMAP", $r], ["HOST_REPO", $h], ["ROADMAP_FORM", $f]]')
+    # A new roadmap scope starts on the session store unless --store says
+    # otherwise; an import takes the imported run's own settings.
+    if [ "$STORE_GIVEN" -eq 0 ] && [ -z "$IMPORT" ]; then
+        EXTRA=$(printf '%s' "$EXTRA" | jq -c '. + [["STORE", "session"]]')
+    fi
 fi
 
 # The scope slug, derived where every write script's live-session check
@@ -299,14 +309,17 @@ fi
 # record-source.sh --candidate decides, against the shipped template's hash:
 # resume keeps that run (no new session, no cancel, and the run keeps its
 # stamp); carry opens a new run below and copies its record/ and legs/ keys in;
-# none opens a new run as on GitHub. Roadmap scope only: a discipline record is
-# on GitHub.
+# none opens a new run as on GitHub. At discipline scope the window rule decides
+# first (rs_resume_candidate): a start inside the newest rotation's window is a
+# restart of that rotation, resumed or carried as above, and a start after it
+# ended (by date, or by closing) opens the next rotation as a new run, whose find
+# carries the predecessor.
 CARRY_FROM=
-if [ "$SCOPE" = roadmap ]; then
+if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
     [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was opened" >&2; exit 1; }
-    CAND=$(bash "$HERE/record-source.sh" --candidate --scope roadmap --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
+    CAND=$(bash "$HERE/record-source.sh" --candidate --scope "$SCOPE" --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
         || { echo "failed=resume_candidate"; echo "coordinate-open: could not read this host's runs of $SLUG; nothing was opened" >&2; exit 1; }
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)

@@ -39,11 +39,23 @@ rc=$?
 [ $rc -eq 0 ] || exit $(( rc == 2 ? 2 : 1 ))
 
 WORD=${CAPTURE%% *}
+# record_find's `predecessor` names a rotation still on GitHub by its pull
+# request number (`predecessor <n>`, the GitHub close-out) or a rotation on the
+# session store (`predecessor <session>` or `predecessor handoff:<sha>`, the
+# carry); the second shape routes as its own word.
+if [ "$WORD" = predecessor ]; then
+    REST=${CAPTURE#predecessor }; REST=${REST%% *}
+    case "$REST" in ''|*[!0-9]*) WORD=predecessor-session ;; esac
+fi
 case "$WORD" in
     # record_find
     found) exit 10 ;; none) exit 11 ;; stale-branch) exit 12 ;; unopened) exit 13 ;;
     foreign) exit 14 ;; ambiguous) exit 15 ;; malformed) exit 16 ;; unauthorized) exit 17 ;;
     predecessor) exit 18 ;; move) exit 19 ;;
+    # record_find (a discipline rotation on the session store, with unreadable 172)
+    first) exit 205 ;; predecessor-session) exit 206 ;;
+    # rotation_close (a rotation on the session store)
+    session-rotation) exit 208 ;;
     # start, start_posture
     active) exit 20 ;; discipline) exit 21 ;; not-active) exit 22 ;;
     readable) exit 25 ;; unread) exit 26 ;;

@@ -89,6 +89,9 @@ lib_facts() {
     else
         DECL="${DECL_PREFIX}the $NAME discipline."
         CONTAINER=pr
+        # A rotation on the session store has no pull request: its body is the
+        # one the session store renders, with no pull request's Part 1 prefix.
+        if [ "$(rs_source)" = session ]; then CONTAINER=issue; fi
     fi
 }
 
@@ -349,7 +352,7 @@ lib_unit() {
 # Returns 1 when the run has no found record; exits 2 on a read failure.
 lib_run_ref() {
     if [ "$OVERRIDE" = 1 ]; then
-        [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+        [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
     else
         [ -z "$REF" ] || { echo "$PROG: --ref is only for tests with the override flags" >&2; exit 64; }
         local facts rc
@@ -359,7 +362,29 @@ lib_run_ref() {
         [ $rc -eq 0 ] || lib_die2 "cannot read the run's facts"
         REF=$(printf '%s' "$facts" | jq -r '.ref')
     fi
-    [[ $REF =~ $RE_NUM ]] || { echo "$PROG: the record number is not a number" >&2; exit 64; }
+    lib_ref_ok || { echo "$PROG: the record number is not a number" >&2; exit 64; }
+}
+
+# lib_session_rotation: 0 when this run's record is a discipline rotation on the
+# session store. Such a rotation opens no pull request, so it has no record
+# number: REF is empty, and the record is the run's session. The run's store
+# (rs_source) and scope choose it; every GitHub record and every roadmap record
+# keeps its number.
+lib_session_rotation() {
+    [ "$SCOPE" = discipline ] && [ "$(rs_source)" = session ]
+}
+
+# lib_ref_ok [ref]: the given ref (else REF) is a record number, or empty for a
+# session rotation.
+lib_ref_ok() {
+    local r=${1-$REF}
+    if [ -z "$r" ]; then lib_session_rotation; else [[ $r =~ $RE_NUM ]]; fi
+}
+
+# lib_record_name: how a diagnostic names the record: `#<n>`, or the session
+# that holds a session rotation.
+lib_record_name() {
+    if [ -n "$REF" ]; then printf '#%s' "$REF"; else printf 'session %s' "${RS_SESSION:-${SESSION:-}}"; fi
 }
 
 # ---- the turn's and the close-outs' reads -----------------------------------

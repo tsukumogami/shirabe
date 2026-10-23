@@ -1044,12 +1044,12 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh stop-then-continue --docs all --mode single-pr`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. The owned PR on the branch records intent=stop from an earlier finished run. Run `/scope stop-then-continue --intent=continue --auto`. Print gh-calls.log, the PR body afterwards (from gh-calls.log.d/prs.json), and the printed exit block.",
-      "expected_output": "A finished run whose PR records intent=stop, re-invoked with --intent=continue, is not a mismatch: the new session has published nothing, so republish rewrites the PR body's intent= field with one gh pr edit --body-file, records published_intent=continue in the session, and publish-scoping-pr.sh --verify --expect-intent continue passes on that key. No new PR is opened.",
+      "expected_output": "A finished run whose PR records intent=stop, re-invoked with --intent=continue, is not a mismatch: the new session has published nothing, so republish rewrites the PR body with one gh pr edit --body-file, records published_intent=continue in the session, and publish-scoping-pr.sh --verify --expect-intent continue passes on that key. The fixture repository doesn't opt in to workflow content, so the rewritten body carries no topic=/exit=/outcome=/intent=/mode= record lines; the session's key is the record. No new PR is opened.",
       "files": [],
       "notes": "Covers R17 and the Decision Outcome seam 'Intent mismatch'.",
       "expectations": [
         "gh-calls.log contains exactly one line starting `pr edit` carrying `--body-file`, and no line starting `pr create`",
-        "The PR body afterwards contains the line `intent=continue`",
+        "The PR body afterwards has no `intent=` or `topic=` line, and the run reports published_intent continue",
         "The run is not refused: the printed block contains `outcome=scoped`"
       ]
     },

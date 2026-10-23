@@ -79,6 +79,46 @@ eq "one Seat twice, without case: seat-repeated" "malformed seat-repeated 0" "$(
 eq "one Run twice: run-repeated (the niwa#346 case)" "malformed run-repeated 0" "$(reason "$(body "$ROW1" "| maintainer | sonnet | comment-1 | pass | $H |" "$ROW3")")"
 eq "two reviewed heads: heads-differ" "malformed heads-differ 0" "$(reason "$(body "$ROW1" "$ROW2" "| pragmatic | sonnet | comment-3 | pass | $G |")")"
 
+echo "== --round: the session record =="
+# round <head> [seat:model:run:verdict...]: a review_round.json.
+round() {
+    local h=$1 s
+    shift
+    for s in "$@"; do printf '%s\n' "$s"; done | jq -Rsc --arg h "$h" '
+        {reviewed_head: $h,
+         seats: [split("\n")[] | select(. != "") | split(":") | {seat: .[0], model: .[1], run: .[2], verdict: .[3]}]}'
+}
+rparse() { printf '%s' "$1" | bash "$PE" --round -; }
+S1=architect:sonnet:agent-a1:pass S2=maintainer:sonnet:agent-a2:pass S3=pragmatic:sonnet:agent-a3:pass
+OUT=$(rparse "$(round "$H" "$S1" "$S2" "$S3")")
+eq "a round of three seats parses ok" ok "$(field "$OUT" .status)"
+eq "  ... with its reviewed head" "$H" "$(field "$OUT" .reviewed_head)"
+eq "  ... three seats, three passes" "3 3" "$(field "$OUT" '"\(.count) \(.passes)"')"
+eq "  ... the same evidence object the table gives" \
+    "$(field "$(parse "$(body "| architect | sonnet | agent-a1 | pass | $H |" "| maintainer | sonnet | agent-a2 | pass | $H |" "| pragmatic | sonnet | agent-a3 | pass | $H |")")" -S .)" \
+    "$(field "$OUT" -S .)"
+OUT=$(rparse "$(round "$H" "$S1" "$S2" "${S3/pass/fail}")")
+eq "a failing seat is still a well-formed round" "ok 2" "$(field "$OUT" '"\(.status) \(.passes)"')"
+rreason() { field "$(rparse "$1")" '"\(.status) \(.reason) \(.row)"'; }
+eq "not JSON: shape" "malformed shape 0" "$(rreason "not json")"
+eq "an array: shape" "malformed shape 0" "$(rreason '[]')"
+eq "no reviewed_head: shape" "malformed shape 0" "$(rreason '{"seats":[]}')"
+eq "seats not an array: shape" "malformed shape 0" "$(rreason "{\"reviewed_head\":\"$H\",\"seats\":{}}")"
+eq "a seat field not a string: shape" "malformed shape 0" "$(rreason "{\"reviewed_head\":\"$H\",\"seats\":[{\"seat\":\"a\",\"model\":\"m\",\"run\":\"agent-1\",\"verdict\":true}]}")"
+eq "no seats: no-rows" "malformed no-rows 0" "$(rreason "$(round "$H")")"
+eq "an empty model: cells" "malformed cells 2" "$(rreason "$(round "$H" "$S1" maintainer::agent-a2:pass)")"
+eq "a Run too short: run" "malformed run 1" "$(rreason "$(round "$H" architect:sonnet:a1:pass)")"
+eq "a verdict outside pass and fail: verdict" "malformed verdict 1" "$(rreason "$(round "$H" architect:sonnet:agent-a1:approve)")"
+eq "a short reviewed head: head" "malformed head 1" "$(rreason "$(round "${H%0*}" "$S1")")"
+eq "a control character: control" "malformed control 1" "$(rreason "$(round "$H" "$(printf 'architect:sonnet:agent-a1:pass\001')")")"
+eq "one Seat twice: seat-repeated" "malformed seat-repeated 0" "$(rreason "$(round "$H" "$S1" Architect:sonnet:agent-a2:pass)")"
+eq "one Run twice: run-repeated" "malformed run-repeated 0" "$(rreason "$(round "$H" "$S1" maintainer:sonnet:agent-a1:pass)")"
+round "$H" "$S1" > "$T/round.json"
+eq "--round reads a file argument" ok "$(field "$(bash "$PE" --round "$T/round.json")" .status)"
+bash "$PE" --round "$T/missing" >/dev/null 2>&1; eq "--round on an unreadable file: exit 2" 2 $?
+bash "$PE" --round >/dev/null 2>&1; eq "--round with no file: exit 64" 64 $?
+bash "$PE" --bogus "$T/round.json" >/dev/null 2>&1; eq "another flag: exit 64" 64 $?
+
 echo "== input =="
 body "$ROW1" > "$T/body"
 eq "a file argument is read" ok "$(field "$(bash "$PE" "$T/body")" .status)"
