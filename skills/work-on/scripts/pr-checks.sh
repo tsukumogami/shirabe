@@ -47,8 +47,9 @@
 #    one by coordinate's board-verdict.sh rule: while the later run is still
 #    going, or by a job of the same name that ran (not skipped or neutral);
 #    an earlier run still going is never superseded, and a run's own entry
-#    drops only when every one of its jobs is. A skipped later run supersedes
-#    nothing. A run for another head is never read, a re-run's earlier
+#    drops only when every one of its jobs is. A run that listed no jobs
+#    drops only behind a later run that finished success. A skipped later
+#    run supersedes nothing. A run for another head is never read, a re-run's earlier
 #    attempts are not either, and a run of another workflow or on another
 #    event never hides one. A run without a workflow id, event or creation
 #    time can't be keyed, so it fails the read, as it does on the board.
@@ -263,7 +264,13 @@ jq -nc --argjson app "$ACTIONS_APP" --slurpfile runs "$TMP/runs.json" --slurpfil
             | select(any($later[]; .status != "completed"
                          or (.id as $lid | any($J[]; .run.id == $lid and .name == $j.name and ran))))
             | .id ] as $gone
-        | {run: $r.id, jobs: $gone, whole: (($gone | length) == ($mine | length))} ] as $sup
+        # A run with no jobs (a startup failure, say) has nothing a later job
+        # could answer for, so only a later run that finished success
+        # supersedes it: a neutral or cancelled one would hide its red.
+        | {run: $r.id, jobs: $gone,
+           whole: (if ($mine | length) == 0
+                   then any($later[]; .status == "completed" and .conclusion == "success")
+                   else ($gone | length) == ($mine | length) end)} ] as $sup
     | [ $sup[].jobs[] ] as $sjobs | [ $sup[] | select(.whole) | .run ] as $sruns
     | ([ $J[] | select(.id as $i | $sjobs | index($i) | not)
          | {name, workflow: (.run.name // ""), link: (.html_url // ""), state: state_of,

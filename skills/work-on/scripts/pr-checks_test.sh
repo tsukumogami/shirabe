@@ -568,6 +568,25 @@ pc 7 --json name,bucket
 expect_list "refused: a run keeps its entry while one of its jobs isn't superseded" \
     'any(.[]; .name == "lint" and .bucket == "fail") and ([.[] | select(.name == "CI" and .bucket == "fail")] | length) == 1'
 
+for c in neutral cancelled; do
+    fixture; refuse
+    run_ 10 W completed failure "$H" "2026-10-21T07:00:00Z"
+    run_ 11 W completed "$c" "$H" "2026-10-21T08:00:00Z"
+    pc 7 --json name,bucket
+    expect_list "refused: a failed run with no jobs isn't superseded by a later $c run" \
+        'any(.[]; .name == "W" and .bucket == "fail")'
+    [ "$(green_by_gate)" = false ] && pass "refused: a failed run with no jobs behind a later $c one is not green" \
+        || fail "refused: a later $c run hid a failed run with no jobs: $OUT"
+done
+
+fixture; refuse
+run_ 10 W completed failure "$H" "2026-10-21T07:00:00Z"
+run_ 11 W completed success "$H" "2026-10-21T08:00:00Z"
+job_ 11 1101 build completed success "2026-10-21T08:01:00Z"
+pc 7 --json name,bucket
+expect_list "refused: a later run that finished success answers for a failed run with no jobs" \
+    'all(.[]; .bucket == "pass")'
+
 fixture; refuse; green
 jq -c 'del(.workflow_id)' "$FIX/runs.list" > "$FIX/runs.new" && mv "$FIX/runs.new" "$FIX/runs.list"
 pc 7 --json bucket
