@@ -513,6 +513,18 @@ one_terminal() {
     [ "$in" = "/dev/$ctl" ]
 }
 
+# sha256_hex: the SHA-256 of stdin, as hex, for the confirmation code. The
+# integrity tag has its own keyed form in the rule library.
+sha256_hex() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 | awk '{ print $1 }'
+    else
+        openssl dgst -sha256 | awk '{ print $NF }'
+    fi
+}
+
 # escaped <file>: control characters other than newline shown as ^X, so a
 # crafted path or line can't rewrite what the terminal shows.
 escaped() { LC_ALL=C cat -v "$1"; }
@@ -525,7 +537,7 @@ confirm_at_terminal() {
     tab=$(printf '\t')
     salt=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     { printf '%s\n' "$salt"; cat "$cover"; } > "$TMP/code.in"
-    code=$(_ar_sha256 < "$TMP/code.in") || return 1
+    code=$(sha256_hex < "$TMP/code.in") || return 1
     code=$(printf '%s' "$code" | cut -c 1-6)
     {
         echo "=== test-change.sh: $action for the /work-on run's test changes ==="

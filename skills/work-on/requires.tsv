@@ -25,8 +25,8 @@
 #                   siblings, whose summary.md analysis reads once each
 #   session list    scripts/session-role.sh reads koto's parent_workflow field
 #                   from it to tell a root run from a materialized child, the
-#                   answer ci_monitor's is_root gate routes the cascade on; analysis
-#                   reads the same field to find a child's parent
+#                   answer ci_pass_counting's is_root gate routes the cascade
+#                   on; analysis reads the same field to find a child's parent
 #   status          the Resume step reads is_terminal from it BEFORE ticking, so
 #                   a retained finished session is recognised without the tick
 #                   that would report it done; analysis reads a sibling's

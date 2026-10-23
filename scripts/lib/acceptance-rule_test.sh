@@ -129,7 +129,7 @@ person_line() {
 { hdr; person_line accept accept-2 owner D1 good; } > "$W/l"
 eq "a person line whose tag checks counts" counted "$(acceptance_rule_live "$W/l" "$W/cur" "" "$W/key")"
 eq "without the key no person line counts" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur")"
-{ hdr; person_line accept accept-2 owner D1 good | sed 's/"reviewer"/"owner"/; s/D1/D1/' | jq -c '.authority = "reviewer"'; } > "$W/l"
+{ hdr; person_line accept accept-2 owner D1 good | jq -c '.authority = "reviewer"'; } > "$W/l"
 eq "a person line edited after tagging never counts" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur" "" "$W/key")"
 { hdr; person_line accept accept-2 owner D1 none; } > "$W/l"
 eq "an untagged person line never counts, its stored terminal flag ignored" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur" "" "$W/key")"

@@ -115,6 +115,7 @@ stateDiagram-v2
     pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0, gates.tests_still_counted.exit_code: 0
     pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, gates.tests_still_counted.exit_code: 0, precheck_status: override
     pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 1, precheck_status: recount
+    pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 3, precheck_status: recount
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     pre_pr_evidence --> pr_precheck : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded

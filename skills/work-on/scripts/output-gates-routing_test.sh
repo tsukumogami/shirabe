@@ -525,6 +525,9 @@ drive pr_precheck "" '{"precheck_status":"recount"}' on_feature_branch_pr=0
 expect "precheck_status: recount while tests_still_counted holds" pass_counting
 drive pr_precheck "" '{"precheck_status":"override"}' on_feature_branch_pr=1
 holds "override does not pass a tests_still_counted hold" pr_precheck tests_still_counted
+set_rc test-change.shstatus 3
+drive pr_precheck "" '{"precheck_status":"recount"}' on_feature_branch_pr=0
+expect "precheck_status: recount on the decline limit (exit 3)" pass_counting
 reset_rc
 
 # pr_creation: the body check holds the created edge.

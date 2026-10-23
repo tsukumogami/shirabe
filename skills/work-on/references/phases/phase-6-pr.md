@@ -160,8 +160,10 @@ the cap. An unattended run never asks the user instead.
 ## Evidence (ci_monitor)
 
 None on the green path: once every check passes and the pull request is not
-DIRTY, koto routes the run itself, a root to the cascade and a child to `done`
-(the `is_root` gate). That includes a pull request GitHub reports MERGED whose
+DIRTY, koto routes the run itself: `ci_pass_counting` counts the pass (a test
+edited while fixing CI is held there until accepted, as at `pass_counting`),
+then sends a root to the cascade and a child to `done` (the `is_root` gate).
+That includes a pull request GitHub reports MERGED whose
 only non-green checks are cancelled runs of the repo's macOS floor workflows:
 the gate passes it, and `ci_cancelled_after_merge.txt` in context names the
 cancelled checks for the final report. A failed or pending check, and a cancel

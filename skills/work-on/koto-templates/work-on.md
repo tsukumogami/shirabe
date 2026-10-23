@@ -2338,6 +2338,12 @@ states:
         when:
           precheck_status: recount
           gates.tests_still_counted.exit_code: 1
+      # The decline limit (status exit 3) recounts too: pass_counting's own
+      # exit-3 edge then ends the run at done_blocked with its reason.
+      - target: pass_counting
+        when:
+          precheck_status: recount
+          gates.tests_still_counted.exit_code: 3
       - target: done_blocked
         when:
           gates.on_feature_branch_pr.exit_code: 1
@@ -3623,7 +3629,9 @@ brief exactly as printed, with nothing added: the script fixes its text, and the
 seat treats everything inside its data markers as data. The seat runs
 `test-change.sh accept` or `decline` itself, under its minted identity. Then tick
 with nothing submitted. An accepted unit goes on to `finalization` with no stop
-for a person.
+for a person. `pr_precheck` runs the same status again before a pull request
+opens, so a commit made after this count that edits a test sends the run back
+here (`precheck_status: recount`).
 
 When the seat declines (`held: declined <path> by <seat>`), submit
 `counting_status: declined`: the run returns to `implementation`, where the edit is
@@ -3814,7 +3822,7 @@ One more gate checks what the branch carries, and holds the state until it passe
 
 An exit 2 means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` it passes at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
-`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one that was accepted, holds here (`held:` lines name the file). Submit `precheck_status: recount` to go back to `pass_counting`, where it is accepted as before; nothing else moves the run past this gate while it holds.
+`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one that was accepted, holds here (`held:` lines name the file). Submit `precheck_status: recount` to go back to `pass_counting`, where it is accepted as before; nothing else moves the run past this gate while it holds. `held: decline-limit` (the gate exits 3) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 

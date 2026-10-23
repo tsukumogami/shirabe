@@ -26,7 +26,7 @@ this table exists.
 | The cleanup referent is a commit in the branch's history | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `cleanup_referent` | `pre_pr.md` records something other than a sha (`done`), a sha that names no commit, or a commit that is not `HEAD` or an ancestor of it. |
 | The diagram referent is a file or a stated reason | `finalization` / `deferral_approval`, then `pre_pr_evidence` | `diagram_referent` | `pre_pr.md` records neither a `docs/` path that is a file in `HEAD`'s tree nor `not-applicable: <reason>`. |
 | The issue has a PLAN behind it, or provably does not | `cascade_entry` | `anchor_present` | Undecidable rather than absent: an ambiguous or unreadable corpus stops the run instead of skipping the cascade in silence. |
-| The run is a root, not a child | `ci_monitor` | `is_root` (routing) | Not a failure: an answer. `session-role.sh` prints anything but `root`, so a run with green CI goes to `done` instead of `cascade_entry`. |
+| The run is a root, not a child | `ci_pass_counting` | `is_root` (routing) | Not a failure: an answer. `session-role.sh` prints anything but `root`, so a run whose pass is counted after green CI goes to `done` instead of `cascade_entry`. |
 | The issue is still current | `staleness_check` | `staleness_fresh` (routing) | Not a failure: an answer. `check-staleness.sh` exits 1 (stale), and the run goes to `introspection`; 0, 3 and -1 go to `analysis`. Only exit 2 holds. |
 
 ### Routing gates
