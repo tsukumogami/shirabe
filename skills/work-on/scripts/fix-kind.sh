@@ -203,7 +203,10 @@ rebind() {
 }
 
 # record <session> <kind> <line-file> <old-kind>: rebind, then append; a
-# failed append rebinds back, so variable and ledger never part.
+# failed append rebinds back, so variable and ledger never part. The rebind
+# goes first because it is the step that can be undone: a ledger line, once
+# appended, is the record, and a fix in it can't be taken back, so it is
+# written only after the variable already says the same thing.
 record() {
     local s="$1" k="$2" line="$3" old="$4"
     rebind "$s" "$k" || die 66 "$REBIND_ERR"
@@ -387,7 +390,7 @@ cmd_declare() {
     [ -n "$state" ] || die 66 "could not read the session's state with koto status"
     case "$DECLARE_STATES" in
         *" $state "*) ;;
-        *) refuse "a fix is declared at fix_determination, or at analysis on a return there; the run is at $state, past the point its red would come first. Return to analysis (scope_expanded_retry) and declare it there" ;;
+        *) refuse "a fix is declared at fix_determination, or at analysis on a return there (and the states between the two); the run is at $state, past the point its red would come first. Return to analysis (scope_expanded_retry) and declare it there" ;;
     esac
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"

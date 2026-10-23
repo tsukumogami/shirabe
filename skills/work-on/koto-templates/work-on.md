@@ -1856,7 +1856,7 @@ states:
     # passes for a unit that isn't a fix; a fix needs a green, the red's
     # command re-run at HEAD with exit 0, which the agent records with
     # red-first.sh green. A fix recorded by observations stays held:
-    # observations wait for an acceptance, which this template can't record
+    # observations wait for an acceptance, which this version can't record
     # yet. Every hold prints finding red-first/no-green.
     #
     # A green that failed sends the run back to implementation, whose
