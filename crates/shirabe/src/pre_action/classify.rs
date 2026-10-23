@@ -16,9 +16,13 @@
 //! An `env` head is judged by the command it runs when that command is `gh`:
 //! past env's own options and assignment operands, it is classified the way it
 //! would be unwrapped, so `env -u GH_TOKEN gh pr merge --body "a new path"` is a
-//! merge, not a create. A guarded command found there, or named in env's own
-//! option and assignment words (which gh may run), still makes the `env`
-//! segment a wrapped guarded command. Every other wrapper, and an `env` whose
+//! merge, not a create. When env's own words are only `-u NAME` unsets and
+//! `NAME=value` assignments naming nothing guarded (`env_only_unsets`), a
+//! guarded `gh pr create|edit` there is the segment's own guarded command,
+//! judged as if written plainly. Any other guarded command found there, or
+//! one named in env's own option and assignment words (which gh may run),
+//! still makes the `env` segment a wrapped guarded command. Every other
+//! wrapper, and an `env` whose
 //! arguments the hook can't read or whose command is anything but `gh`
 //! (`env_command`), is judged by the coarse test on its text.
 //!
@@ -243,16 +247,16 @@ enum Kind {
     ChangesPush(String),
 }
 
+/// A shell variable name: a letter or `_`, then letters, digits and `_`.
+fn is_name(name: &str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 fn is_assignment(t: &str) -> bool {
-    match t.split_once('=') {
-        Some((name, _)) => {
-            name.chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-        }
-        None => false,
-    }
+    t.split_once('=').is_some_and(|(name, _)| is_name(name))
 }
 
 /// A redirection word, and whether its target is the next word (`>`, `2>`,
@@ -403,6 +407,40 @@ fn env_command(ws: &[Word]) -> Option<usize> {
         .then_some(j)
 }
 
+/// Whether env's own words `ws` (everything before the `gh` that
+/// [`env_command`] found) only unset and set variables: each is `-u NAME`,
+/// `-uNAME`, or a shell `NAME=value`, with every NAME a shell name. Such an
+/// env changes nothing but gh's environment, as the same words written as a
+/// shell prefix would, so the gh command behind it is judged as if written
+/// plainly (#918).
+///
+/// Every other word env reads makes this false and leaves the segment
+/// wrapped: an option other than `-u` (`-i`, `--`, `-0`, `-v`, `--unset`), a
+/// name that isn't a shell name (`-u --`, `-u-i`, `a-b=1`, `'X Y=1'`, `=1`),
+/// and a word the shell expands, which [`env_command`] has already refused.
+fn env_only_unsets(ws: &[Word]) -> bool {
+    let mut j = 0;
+    while let Some(w) = ws.get(j) {
+        let t = w.text.as_str();
+        if t == "-u" {
+            if !ws.get(j + 1).is_some_and(|n| is_name(&n.text)) {
+                return false;
+            }
+            j += 2;
+        } else if let Some(name) = t.strip_prefix("-u") {
+            if !is_name(name) {
+                return false;
+            }
+            j += 1;
+        } else if is_assignment(t) {
+            j += 1;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
 /// What a segment of kind `k` names: a guarded `gh` or `git push`, or a
 /// wrapper whose own reading named one.
 fn named_by(k: &Kind) -> Named {
@@ -472,7 +510,9 @@ fn kind_words(ws: &[Word]) -> Kind {
         // after its own options and assignments. When that command is `gh`,
         // gh's own reading decides what it runs, as it would unwrapped: a
         // merge body saying "new", or an issue title naming `gh pr create`, is
-        // an argument, not a guarded command. Any other command, a wrapper or
+        // an argument, not a guarded command, and behind an env that only
+        // unsets and sets variables a create or edit is checked as one
+        // written plainly. Any other command, a wrapper or
         // a nested `env` included, gets the text test over the whole segment
         // (`env_command` says why). The other wrappers take a shell string
         // (`bash -c`, `eval`, `ssh`) or an option grammar of their own
@@ -490,7 +530,19 @@ fn kind_words(ws: &[Word]) -> Kind {
             // them. gh is never a wrapper, so nothing joins the two halves.
             Some(j) => {
                 let mut named = named_in_text(&text_of(&rest[..j]));
-                named |= named_by(&kind_words(&rest[j..]));
+                let inner = kind_words(&rest[j..]);
+                // An env that only unsets and sets variables runs a guarded
+                // gh command as written plainly, so that command is the
+                // segment's kind and gets the same checks (#918). A gh that
+                // isn't guarded stays behind the wrapper, which keeps a
+                // later push in the same command blocked.
+                if matches!(inner, Kind::Gh { .. })
+                    && named == Named::default()
+                    && env_only_unsets(&rest[..j])
+                {
+                    return inner;
+                }
+                named |= named_by(&inner);
                 named
             }
             None => named_in_text(&text_of(&ws[i..])),
@@ -1086,12 +1138,147 @@ mod tests {
         }
     }
 
+    /// What a command classifies to, without word spans, so a command and
+    /// the same command behind `env` compare equal when they read the same.
+    fn shape(cmd: &str) -> Vec<String> {
+        let texts = |ws: &[Word]| ws.iter().map(|w| w.text.clone()).collect::<Vec<_>>();
+        cl(cmd)
+            .items
+            .into_iter()
+            .map(|i| match i {
+                Item::Gh(g) => format!(
+                    "gh {:?} {:?} {:?} {}",
+                    g.action,
+                    texts(&g.words),
+                    g.dir,
+                    g.index
+                ),
+                Item::Push(p) => format!("push {:?} {:?} {}", texts(&p.words), p.dir, p.index),
+                Item::Fail(f) => format!("fail {:?} {:?}", f.action, f.case),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn env_that_only_unsets_and_sets_reads_as_the_plain_gh_command() {
+        // Each pair: an env form and the gh command written plainly. They
+        // classify the same, the guarded segment, an unlisted gh option and
+        // redirections included (#918).
+        for (env, plain) in [
+            (
+                "env -u GH_TOKEN gh pr create --title \"feat: x\" --body \"Adds x.\"",
+                "gh pr create --title \"feat: x\" --body \"Adds x.\"",
+            ),
+            ("env -u GH_TOKEN gh pr edit 12 --body x", "gh pr edit 12 --body x"),
+            ("env -uGH_TOKEN gh pr new -t x", "gh pr new -t x"),
+            ("env GH_TOKEN= gh pr edit 12 --body x", "gh pr edit 12 --body x"),
+            (
+                "env -u GH_TOKEN -u GITHUB_TOKEN GH_HOST=github.com A=1 gh -R o/r pr create -t x -b y",
+                "gh -R o/r pr create -t x -b y",
+            ),
+            (
+                "env -u GH_TOKEN 'NOTE=a b' gh pr edit 3 --title \"fix: y\"",
+                "gh pr edit 3 --title \"fix: y\"",
+            ),
+            (
+                "/usr/bin/env -u GH_TOKEN /opt/bin/gh pr edit 3 -F b.md",
+                "/opt/bin/gh pr edit 3 -F b.md",
+            ),
+            (
+                "env 2>/dev/null -u GH_TOKEN gh pr create -t x -b y >out",
+                "gh pr create -t x -b y >out",
+            ),
+            (
+                "env -u GH_TOKEN gh --hostname h pr create -t x",
+                "gh --hostname h pr create -t x",
+            ),
+            ("env -u GH_TOKEN gh pr create --fill", "gh pr create --fill"),
+        ] {
+            let got = shape(env);
+            assert_eq!(got, shape(plain), "{env}");
+            assert!(!got.iter().any(|s| s.contains("Wrapped")), "{env}: {got:?}");
+        }
+        // Later segments are judged on their own, as they are plainly.
+        assert_eq!(
+            shape("env -u GH_TOKEN gh pr edit 3 --body x && gh pr create -t y"),
+            shape("gh pr edit 3 --body x && gh pr create -t y"),
+        );
+        assert_eq!(
+            shape("cd sub && env -u GH_TOKEN gh pr create -t x -F b.md"),
+            shape("cd sub && gh pr create -t x -F b.md"),
+        );
+        assert_eq!(
+            shape("env -u GH_TOKEN gh pr create -t x -b y; sudo gh pr edit 1"),
+            shape("gh pr create -t x -b y; sudo gh pr edit 1"),
+        );
+    }
+
+    #[test]
+    fn env_with_any_other_word_before_gh_stays_wrapped() {
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            // Options other than `-u`, before or after an unset.
+            "env -i -u GH_TOKEN gh pr create -t x -b y",
+            "env -u GH_TOKEN -i gh pr create -t x -b y",
+            "env -u GH_TOKEN - gh pr create -t x -b y",
+            "env -u GH_TOKEN -- gh pr create -t x -b y",
+            "env -u GH_TOKEN -0 gh pr create -t x -b y",
+            "env -u GH_TOKEN -v gh pr create -t x -b y",
+            "env -u GH_TOKEN --debug gh pr create -t x -b y",
+            "env --unset GH_TOKEN gh pr create -t x -b y",
+            "env --unset=GH_TOKEN gh pr create -t x -b y",
+            "env -u GH_TOKEN -S 'gh pr create -t x -b y'",
+            "env -u GH_TOKEN -C /tmp gh pr create -t x -b y",
+            "env -u GH_TOKEN -P /tmp gh pr create -t x -b y",
+            "env -u GH_TOKEN --chdir=/tmp gh pr create -t x -b y",
+            "env -u GH_TOKEN --foo gh pr create -t x -b y",
+            "env -iu GH_TOKEN gh pr create -t x -b y",
+            // A NAME that isn't a shell name.
+            "env -u -- gh pr create -t x -b y",
+            "env -u-i gh pr create -t x -b y",
+            "env -u 'X Y' gh pr create -t x -b y",
+            "env -u X=1 gh pr create -t x -b y",
+            "env -u GH_TOKEN a-b=1 gh pr create -t x -b y",
+            "env -u GH_TOKEN 'X Y=1' gh pr create -t x -b y",
+            "env -u GH_TOKEN =1 gh pr create -t x -b y",
+            "env -u GH_TOKEN 1A=x gh pr create -t x -b y",
+            // A word the shell expands.
+            "env -u \"$X\" gh pr create -t x -b y",
+            "env -u GH_TOKEN A=$X gh pr create -t x -b y",
+            "env -u GH_TOKEN $'A=1' gh pr create -t x -b y",
+            "env -u GH_TOKEN $GH pr create -t x -b y",
+            // env's own words naming a guarded action.
+            "env -u GH_TOKEN NOTE='gh pr edit' gh pr create -t x -b y",
+            "env 'GH_BROWSER=sh -c \"gh pr create --fill\"' gh pr edit 1 -t x",
+            // A command after env other than gh.
+            "env -u GH_TOKEN sudo gh pr create -t x -b y",
+            "env -u GH_TOKEN env gh pr create -t x -b y",
+            "env -u GH_TOKEN bash -c 'gh pr create -t x -b y'",
+            "env -u GH_TOKEN Gh pr create -t x -b y",
+            "env -u GH_TOKEN 'gh pr create -t x -b y'",
+            "env -u GH_TOKEN",
+        ] {
+            let want: &[(Action, Case)] = if cmd == "env -u GH_TOKEN" {
+                &[]
+            } else {
+                &wrapped
+            };
+            assert_eq!(fails(cmd), want, "{cmd}");
+            assert!(ghs(cmd).is_empty(), "{cmd}");
+        }
+        // The plain-gh push behind such an env, and a merge before a push,
+        // are as before.
+        assert_eq!(
+            fails("env -u GH_TOKEN git push"),
+            vec![(Action::Push, Case::Wrapped)]
+        );
+        assert!(same_command("env -u GH_TOKEN gh pr checkout 3 && git push"));
+    }
+
     #[test]
     fn env_wrapped_guarded_commands_stay_wrapped() {
         let wrapped = [(Action::Pr(None), Case::Wrapped)];
         for cmd in [
-            "env -u GH_TOKEN gh pr create --title \"feat: x\" --body \"Adds x.\"",
-            "env GH_TOKEN= gh pr edit 12 --body x",
             "env -- gh pr new -t x",
             "env -i gh -R o/r pr create",
             "env env -u X gh pr create",

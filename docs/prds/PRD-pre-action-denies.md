@@ -209,9 +209,15 @@ These terms mean the same thing everywhere below.
   own, and the text test runs over env's own option and assignment words,
   since gh can run what an assignment carries (`GH_BROWSER=...`,
   `GH_EDITOR=...`). The `env` segment is a wrapped guarded command when
-  either finds a guarded action. So `env -u GH_TOKEN gh pr merge --body
-  "..."` is a merge whatever its body says, and `env -u GH_TOKEN gh pr
-  create ...` is still a wrapped guarded command. Any other command
+  either finds a guarded action, with one exception: when env's own words
+  are only `-u NAME` unsets and `NAME=value` assignments, every NAME a
+  shell name, and they name nothing guarded, a `gh pr create` or `gh pr
+  edit` behind it is a guarded command checked exactly as if written
+  plainly. So `env -u GH_TOKEN gh pr merge --body "..."` is a merge
+  whatever its body says, and `env -u GH_TOKEN gh pr create ...` gets
+  the plain create's decision, while `env -i gh pr create ...`, `env --
+  gh pr create ...` or `env a-b=1 gh pr create ...` is still a wrapped
+  guarded command. Any other command
   leaves the segment to the text test: an unlisted launcher, `GH` on a
   case-insensitive filesystem, `git` (whose aliases can hide a push from
   the subcommand reading), and any listed wrapper, a nested `env`
