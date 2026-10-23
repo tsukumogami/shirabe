@@ -42,13 +42,16 @@
 #    description, event, startedAt, completedAt. bucket folds the state as gh
 #    does: pass (SUCCESS), skipping (SKIPPED, NEUTRAL), fail (FAILURE, ERROR,
 #    TIMED_OUT, ACTION_REQUIRED, STARTUP_FAILURE), cancel (CANCELLED) and
-#    pending (anything else). A later run of the same workflow (by its id) on
-#    the same event answers for an earlier one, as coordinate's board reads
-#    it: its jobs hide the earlier run's jobs of the same name, and its own
-#    entry the earlier run's. Runs are ordered by when they were created, so a
-#    newer run still queued wins. A run for another head is never read, a
-#    re-run's earlier attempts are not either, and a run of another workflow
-#    or on another event never hides one.
+#    pending (anything else), and `unreadable` below. A later run of the same
+#    workflow (by its id) on the same event supersedes an earlier finished
+#    one by coordinate's board-verdict.sh rule: while the later run is still
+#    going, or by a job of the same name that ran (not skipped or neutral);
+#    an earlier run still going is never superseded, and a run's own entry
+#    drops only when every one of its jobs is. A skipped later run supersedes
+#    nothing. A run for another head is never read, a re-run's earlier
+#    attempts are not either, and a run of another workflow or on another
+#    event never hides one. A run without a workflow id, event or creation
+#    time can't be keyed, so it fails the read, as it does on the board.
 #
 #    What the token can't read stays visible. A required check (branch
 #    protection or a ruleset) that no job and no status answers is listed
@@ -163,7 +166,8 @@ read_api "$TMP/runs.raw" "repos/$REPO/actions/runs?head_sha=$HEAD&per_page=100" 
 jq -sc --arg h "$HEAD" '
     (.[0].total_count) as $t | [ .[].workflow_runs[]? ] as $all
     | if ($t | type) != "number" or ($all | length) != $t then error("\($all | length) runs of \($t)")
-      elif any($all[]; (.id | type) != "number" or (.status | type) != "string") then error("a run outside its pattern")
+      elif any($all[]; (.id | type) != "number" or (.status | type) != "string" or (.workflow_id | type) != "number"
+                       or (.event | type) != "string" or (.created_at | type) != "string") then error("a run outside its pattern")
       else [ $all[] | select(.head_sha == $h) ] end' "$TMP/runs.raw" >"$TMP/runs.json" 2>"$TMP/runs.jqerr" \
     || no "the runs at $HEAD could not be read: $(head -n 1 "$TMP/runs.jqerr")"
 
@@ -235,22 +239,40 @@ jq -nc --argjson app "$ACTIONS_APP" --slurpfile runs "$TMP/runs.json" --slurpfil
         elif . == "CANCELLED" then "cancel"
         elif . == "UNREADABLE" then "unreadable"
         else "pending" end;
-    # A run is keyed by its workflow (its id, else its name) and event, and
-    # the latest created answers for the key; a job by its run'"'"'s key and its
-    # name. Each kind is kept apart, so a job named like its workflow never
-    # hides the run entry, or the reverse.
-    def runkey: [(.workflow_id // .name // ""), (.event // "")];
     def state_of: (if .status == "completed" then (.conclusion // "") else .status end) | ascii_upcase;
-    ([ $jobs[0][] | {name, workflow: (.run.name // ""), link: (.html_url // ""), state: state_of,
-        description: "", event: (.run.event // ""), startedAt: (.started_at // ""),
-        completedAt: (.completed_at // ""), kind: "job",
-        key: ((.run | runkey) + [.name]), order: [(.run.created_at // ""), (.run.id // 0), (.id // 0)]} ]
-     | group_by(.key) | map(max_by(.order)))
-    + ([ $runs[0][] | {name: (.name // ""), workflow: (.name // ""), link: (.html_url // ""), state: state_of,
+    # Supersession, as board-verdict.sh in coordinate reads it. Runs are keyed
+    # by workflow id and event, and ordered by creation, then id. A job of a
+    # finished run is superseded when a later run of its key that was not
+    # skipped is still going (its own entry reads pending), or has a job of the
+    # same name that ran: finished, not skipped or neutral (both of which this
+    # list counts green), and not a job GitHub never started (red with no
+    # step). A run still going is never superseded: it may yet run a job the
+    # later one does not. The entry for a run itself drops only when every one
+    # of its jobs is superseded. (No apostrophes in this program: it is a
+    # single-quoted shell string.)
+    def ran: .status == "completed" and ((.conclusion // "") | IN("skipped", "neutral") | not)
+        and ((((.conclusion // "") | IN("failure", "cancelled", "timed_out")) and ((.steps // []) | length) == 0) | not);
+    $runs[0] as $R | $jobs[0] as $J
+    | [ $R[] | . as $r | select(.status == "completed")
+        | [ $R[] | select(.workflow_id == $r.workflow_id and .event == $r.event
+                          and ([.created_at, .id] > [$r.created_at, $r.id])
+                          and ((.status == "completed" and .conclusion == "skipped") | not)) ] as $later
+        | select(($later | length) > 0)
+        | [ $J[] | select(.run.id == $r.id) ] as $mine
+        | [ $mine[] | . as $j
+            | select(any($later[]; .status != "completed"
+                         or (.id as $lid | any($J[]; .run.id == $lid and .name == $j.name and ran))))
+            | .id ] as $gone
+        | {run: $r.id, jobs: $gone, whole: (($gone | length) == ($mine | length))} ] as $sup
+    | [ $sup[].jobs[] ] as $sjobs | [ $sup[] | select(.whole) | .run ] as $sruns
+    | ([ $J[] | select(.id as $i | $sjobs | index($i) | not)
+         | {name, workflow: (.run.name // ""), link: (.html_url // ""), state: state_of,
+            description: "", event: (.run.event // ""), startedAt: (.started_at // ""),
+            completedAt: (.completed_at // ""), kind: "job"} ]
+       + [ $R[] | select(.id as $i | $sruns | index($i) | not)
+         | {name: (.name // ""), workflow: (.name // ""), link: (.html_url // ""), state: state_of,
             description: "the workflow run", event: (.event // ""), startedAt: (.run_started_at // .created_at // ""),
-            completedAt: "", kind: "run", key: runkey, order: [(.created_at // ""), (.id // 0)]} ]
-     | group_by(.key) | map(max_by(.order)))
-    | map(del(.key, .order))
+            completedAt: "", kind: "run"} ])
     as $actions
     | [ $st[0][] | {name: .context, workflow: "", link: (.target_url // ""), state: ((.state // "pending") | ascii_upcase),
           description: (.description // ""), event: "", startedAt: (.created_at // ""), completedAt: "", kind: "status"} ] as $statuses

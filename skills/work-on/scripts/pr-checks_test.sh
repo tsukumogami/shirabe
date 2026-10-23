@@ -198,6 +198,7 @@ job_() {
         --arg at "${6:-2026-10-21T07:01:00Z}" --arg r "$R" \
         '{id: $id, run_id: $run, name: $n, status: $s, conclusion: (if $c == "null" then null else $c end),
           started_at: (if $at == "null" then null else $at end), completed_at: null, run_attempt: 1,
+          steps: (if $s == "completed" and $c != "skipped" then [{name: "step", conclusion: $c}] else [] end),
           html_url: "https://github.com/\($r)/actions/runs/\($run)/job/\($id)"}' >> "$FIX/jobs-$1.list"
 }
 # status_ <context> <state>
@@ -520,6 +521,57 @@ job_ 101 1011 test queued null null
 pc 7 --json name,bucket
 expect_list "refused: a newer run still queued wins over an older green one" \
     'any(.[]; .name == "test" and .bucket == "pending") and any(.[]; .name == "CI" and .bucket == "pending")'
+
+# Supersession only by a later job that ran, as coordinate's board reads it.
+for c in skipped neutral; do
+    fixture; refuse
+    run_ 100 CI completed failure "$H" "2026-10-21T07:00:00Z"
+    job_ 100 1001 build completed failure "2026-10-21T07:01:00Z"
+    run_ 101 CI completed success "$H" "2026-10-21T08:00:00Z"
+    job_ 101 1011 build completed "$c" "2026-10-21T08:01:00Z"
+    pc 7 --json name,bucket
+    expect_list "refused: a later $c job doesn't supersede an earlier red one of its name" \
+        'any(.[]; .name == "build" and .bucket == "fail")'
+    [ "$(green_by_gate)" = false ] && pass "refused: an earlier red job behind a later $c one is not green" \
+        || fail "refused: a later $c job hid an earlier red one: $OUT"
+done
+
+fixture; refuse
+run_ 100 CI completed failure "$H" "2026-10-21T07:00:00Z"
+job_ 100 1001 test completed success "2026-10-21T07:01:00Z"
+run_ 101 CI completed skipped "$H" "2026-10-21T08:00:00Z"
+pc 7 --json name,bucket
+expect_list "refused: a later skipped run supersedes nothing, so a run that failed stays red" \
+    'any(.[]; .name == "CI" and .bucket == "fail")'
+[ "$(green_by_gate)" = false ] && pass "refused: a failed run behind a later skipped one is not green" \
+    || fail "refused: a later skipped run hid a failed one: $OUT"
+
+for s in queued in_progress; do
+    fixture; refuse
+    run_ 100 CI "$s" null "$H" "2026-10-21T07:00:00Z"
+    run_ 101 CI completed success "$H" "2026-10-21T08:00:00Z"
+    job_ 101 1011 test completed success "2026-10-21T08:01:00Z"
+    pc 7 --json name,bucket
+    expect_list "refused: an earlier run still $s is never superseded by a later green one" \
+        'any(.[]; .name == "CI" and .bucket == "pending")'
+    [ "$(green_by_gate)" = false ] && pass "refused: an earlier run still $s keeps the list from green" \
+        || fail "refused: a later green run hid an earlier $s one: $OUT"
+done
+
+fixture; refuse
+run_ 100 CI completed failure "$H" "2026-10-21T07:00:00Z"
+job_ 100 1001 test completed failure "2026-10-21T07:01:00Z"
+job_ 100 1002 lint completed failure "2026-10-21T07:01:00Z"
+run_ 101 CI completed success "$H" "2026-10-21T08:00:00Z"
+job_ 101 1011 test completed success "2026-10-21T08:01:00Z"
+pc 7 --json name,bucket
+expect_list "refused: a run keeps its entry while one of its jobs isn't superseded" \
+    'any(.[]; .name == "lint" and .bucket == "fail") and ([.[] | select(.name == "CI" and .bucket == "fail")] | length) == 1'
+
+fixture; refuse; green
+jq -c 'del(.workflow_id)' "$FIX/runs.list" > "$FIX/runs.new" && mv "$FIX/runs.new" "$FIX/runs.list"
+pc 7 --json bucket
+expect_exit "refused: a run without a workflow id can't be keyed, so the read fails" 1
 
 fixture; refuse
 run_ 100 CI completed failure "$H" "2026-10-21T07:00:00Z"
