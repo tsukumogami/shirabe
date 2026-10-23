@@ -1344,13 +1344,36 @@ else
 fi
 [ -z "$RECW" ] || jq -n -c --arg r "$RECW" '{unit_reason: $r}' >"$WD/unit.json"
 
+# uc_pr_content <owner/repo>: `include` when the repository opts in to
+# workflow-tool content on its pull requests, else `omit`. The one place the
+# capture asks. The answer is the reader's, scripts/pr-workflow-content.sh
+# (UNIT_COST_PR_CONTENT_READER overrides its path, for tests), run on a
+# directory holding the repository's CLAUDE.md as GitHub serves it from the
+# default branch: the capture has no checkout of the unit's repository. Only
+# the reader's exit 0 with `include` is include; a missing reader, a failed
+# read of CLAUDE.md, a reader that fails or answers anything else is omit, so
+# nothing is ever posted on a repository's items by accident.
+uc_pr_content() {
+    local repo=$1 reader=${UNIT_COST_PR_CONTENT_READER:-$HERE/../../../scripts/pr-workflow-content.sh} d out
+    [ -f "$reader" ] && repo_ok "$repo" || { echo omit; return 0; }
+    d="$WD/pr-content"
+    rm -rf "$d"; mkdir -p "$d" || { echo omit; return 0; }
+    uc_gh "$WD/claude-md.raw" api --method GET "repos/$repo/contents/CLAUDE.md" || { echo omit; return 0; }
+    uc_jq -r '.content // "" | strings' "$WD/claude-md.raw" | base64 --decode >"$d/CLAUDE.md" 2>"$WD/base64.err" \
+        || { echo omit; return 0; }
+    out=$(uc_run "$FETCH_SECS" "$WD/pr-content.out" bash "$reader" "$d" && head -n 1 "$WD/pr-content.out") || { echo omit; return 0; }
+    [ "$out" = include ] && echo include || echo omit
+}
+
 # Where the entry goes. A GitHub-store run posts it on its record, as it
-# always has. A session-store run posts it on the item it is about
-# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2): the
-# holding's pull request (its Pull request cell, else the first of the sealed
-# verdict's), else the Unit's issue (`#n` on the host, or `owner/repo#n`), else
-# nowhere, the entry kept in the session. The store is read locally, so it
-# takes nothing from the reads' budget.
+# always has. A session-store run keeps it in the coordinator's session
+# (`--on none`): the unit's own pull requests and issues carry nothing about
+# the tools unless the item's repository opts in (uc_pr_content). Then it
+# posts on the item it is about, as DESIGN-coordinator-record-teardown.md's
+# Decision 2 set out: the holding's pull request (its Pull request cell, else
+# the first of the sealed verdict's), else the Unit's issue (`#n` on the host,
+# or `owner/repo#n`), else nowhere. The store is read locally, so it takes
+# nothing from the reads' budget; the opt-in's read of CLAUDE.md does.
 ON=""
 uc_run "$FETCH_SECS" "$WD/store" bash "$DC_COORD_LOG" run-store --session "$SESSION"
 if [ "$(head -n 1 "$WD/store" 2>/dev/null)" = session ]; then
@@ -1365,6 +1388,9 @@ if [ "$(head -n 1 "$WD/store" 2>/dev/null)" = session ]; then
         if [[ $U =~ ^#[1-9][0-9]*$ ]] && repo_ok "$H"; then ON="$H$U"
         elif [[ $U =~ $RE_ITEM ]]; then ON=$U
         fi
+    fi
+    if [ "$ON" != none ] && [ "$(uc_pr_content "${ON%#*}")" != include ]; then
+        ON=none
     fi
 fi
 
@@ -1425,7 +1451,7 @@ RC=$?
 if [ "$RC" = 0 ]; then
     case "$ON" in
         "") say "posted the cost entry" ;;
-        none) say "kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere" ;;
+        none) say "kept the cost entry in the session: it is posted on no pull request or issue unless the repository opts in" ;;
         *) say "posted the cost entry on $ON" ;;
     esac
     exit 0
