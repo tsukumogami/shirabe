@@ -117,7 +117,11 @@
 #     gh api repos/<repo>/commits/<headRefOid>
 #   Checks (after rows 1-4). An exit whose stderr says "no checks reported" is
 #   zero checks; any exit (including the pending exit, 8) whose stdout is a
-#   JSON array is read as that array:
+#   JSON array is read as that array. The read goes through work-on's
+#   pr-checks.sh, which runs exactly this gh call and passes it through, and
+#   only where GitHub refuses the check read lists the Actions jobs and the
+#   commit's statuses instead (its header has the reads), with a required
+#   check neither answers in the bucket `unreadable`, counted pending here:
 #     gh pr checks <pr> --repo <repo> --json name,bucket
 #   Base protection, only with --merge true (after row 5):
 #     gh api repos/<repo>/branches/<baseRefName>
@@ -132,6 +136,7 @@
 set -uo pipefail
 
 PROG=merge-verdict
+PR_CHECKS="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../work-on/scripts/pr-checks.sh"
 
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_PR='^[1-9][0-9]*$'
@@ -393,7 +398,7 @@ AGE=$(jq -n --arg d "$HEAD_DATE" '(now - ($d | fromdateiso8601)) | floor') \
 CHECKS=""
 ATTEMPT=1
 while :; do
-    CHECKS_OUT=$(gh pr checks "$PR" --repo "$REPO" --json name,bucket </dev/null 2>"$TMPD/err")
+    CHECKS_OUT=$("$PR_CHECKS" "$PR" --repo "$REPO" --json name,bucket </dev/null 2>"$TMPD/err")
     RC=$?
     if is_json_array "$CHECKS_OUT"; then
         jq -e 'all(type == "object")' >/dev/null <<<"$CHECKS_OUT" \

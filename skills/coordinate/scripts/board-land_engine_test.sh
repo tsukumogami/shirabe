@@ -149,9 +149,6 @@ states:
       - target: surface
         when:
           gates.verdict.exit_code: 75
-      - target: surface
-        when:
-          gates.verdict.exit_code: 76
       - target: rebrief
         when:
           gates.verdict.exit_code: 79

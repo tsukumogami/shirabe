@@ -22,8 +22,10 @@
 #
 # Token, sealed to the latest entry into verify_board:
 #   verified <pr> <head>         the board is green at <head>, read from the
-#                                checks, and the body's Review panel table,
-#                                if it has one, parses
+#                                checks, or from the Actions jobs and the
+#                                commit's statuses where the token can't
+#                                read checks, and the body's Review panel
+#                                table, if it has one, parses
 #   unevidenced <pr> none        the board is green but the body's Review
 #                                panel table is malformed (panel-evidence.sh):
 #                                a panel claim with seats that can't be told
@@ -34,10 +36,6 @@
 #                                the board's own, `verified`). A body that
 #                                can't be read is board-unreadable, reason
 #                                `evidence-read`
-#   actions-green <pr> none      the board is green judged from the Actions
-#                                jobs, because the token can't read checks;
-#                                the required set may be short, so it is for
-#                                a person, never for landing
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
 #   not-run <pr> none            a job at the head never ran (it completed
@@ -47,9 +45,10 @@
 #                                verdict on the
 #                                code, and not the worker's to fix; the
 #                                reasons in coord/board.json say why
-#   board-unreadable <pr> none   the board or the record couldn't be read, or
-#                                the read ran out of time: no verdict on the
-#                                code
+#   board-unreadable <pr> none   the board or the record couldn't be read, the
+#                                read ran out of time, or a required check is
+#                                one the token can't see (reason
+#                                required-unreadable): no verdict on the code
 #   not-open <pr> none           the pull request is merged or closed
 #   unlinked <pr> none           no single Holdings row links #<pr> (its
 #                                holding was removed, two rows disagree, or
@@ -163,7 +162,7 @@ if [ -z "$TOKEN" ]; then
     case "$V" in
         verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
                   TOKEN="verified $PR $H" ;;
-        unverified|pending|actions-green|not-run) TOKEN="$V $PR none" ;;
+        unverified|pending|not-run) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
         error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
