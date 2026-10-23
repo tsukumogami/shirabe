@@ -338,8 +338,16 @@ case "$1 ${2:-}" in
     "api user") key=user ;;
     "pr list") key=list ;;
     "pr merge") key=merge ;;
+    # `--json state --jq .state` is ci_monitor's owned_pr_merged gate, which
+    # reads the PR's state while the run watches CI; a bare `--json state` is
+    # the confirm read after the merge step. Two keys, because the two reads
+    # answer at different moments in a run.
     "pr view")
-        case " $* " in *" --json state "*) key=confirm ;; *) key=view ;; esac ;;
+        case " $* " in
+            *" --json state --jq .state "*) key=state ;;
+            *" --json state "*) key=confirm ;;
+            *) key=view ;;
+        esac ;;
     "pr checks") key=checks ;;
     "api "*)
         case "$2" in
@@ -365,8 +373,9 @@ HEAD_SHA=1111111111111111111111111111111111111111
 PR_URL="https://github.com/o/r/pull/7"
 
 # gh_fixture <name> — a fresh fixture set for one session: an owned PR on
-# impl/probe that is mergeable by squash at HEAD_SHA, and a confirm read that
-# reports MERGED. Cases edit the files they are about.
+# impl/probe that is mergeable by squash at HEAD_SHA and still OPEN while the
+# run watches CI, and a confirm read that reports MERGED. Cases edit the files
+# they are about.
 gh_fixture() {
     GH_FIX="$WORKDIR/gh/$1"
     export GH_FIX
@@ -382,6 +391,7 @@ gh_fixture() {
     echo '{"name":"main","protected":false}' > "$GH_FIX/branch.out"
     echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"build"}]}}]' > "$GH_FIX/rules.out"
     echo '[{"filename":"src/main.go"}]' > "$GH_FIX/files.out"
+    echo 'OPEN' > "$GH_FIX/state.out"
     echo '{"state":"MERGED"}' > "$GH_FIX/confirm.out"
 }
 gh_fixture default
@@ -685,6 +695,47 @@ echo DIRTY > "$GH_FIX/view.out"
 at_ci_monitor payload-dirty-ctl
 decide_plain execute-payload-dirty-ctl ""
 expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge failure
+
+# A PR someone else merged while the run watched CI (#917), with a check that
+# failed: ci_monitor's owned_pr_merged gate routes it, with nothing submitted,
+# through merge_readiness (the real verdict reads `merged`) and merge_confirm
+# to merged. MERGE stays false, as for a run that was never going to merge,
+# and no merge call is made. The PR is OPEN for the walk (pr_finalization and
+# plan_completion look it up with --state open) and merges once the run
+# stands at ci_monitor.
+gh_fixture merged-elsewhere
+echo '[{"name":"build","bucket":"pass"},{"name":"test (macos-latest)","bucket":"fail"}]' > "$GH_FIX/checks.out"
+at_ci_monitor payload-merged-elsewhere
+jq -nc --arg url "$PR_URL" '[{url: $url, state: "MERGED", isCrossRepository: false,
+    author: {login: "octo"}, baseRefName: "main", headRefName: "impl/probe"}]' > "$GH_FIX/list.out"
+jq -nc --arg head "$HEAD_SHA" '{state: "MERGED", isDraft: false, mergeStateStatus: "UNKNOWN",
+    reviewDecision: "", headRefOid: $head, baseRefName: "main", changedFiles: 1,
+    commits: [{oid: $head, committedDate: ((now - 600) | todate)}]}' > "$GH_FIX/view.out"
+echo 'MERGED' > "$GH_FIX/state.out"
+decide_plain execute-payload-merged-elsewhere --no-cleanup
+expect_payload "a PR merged elsewhere during ci_monitor, with a failed check" execute-payload-merged-elsewhere merged merged "" ""
+if ! grep -q '^pr merge' "$GH_FIX/gh.log"; then
+    pass "a PR merged elsewhere reaches merged with no merge call"
+else
+    fail "a PR merged elsewhere made a merge call: $(grep '^pr merge' "$GH_FIX/gh.log")"
+fi
+if [ "$(k context get execute-payload-merged-elsewhere merge_verdict 2>/dev/null)" = "merged" ]; then
+    pass "a PR merged elsewhere records the merged verdict"
+else
+    fail "a PR merged elsewhere: merge_verdict [$(k context get execute-payload-merged-elsewhere merge_verdict 2>/dev/null)]"
+fi
+
+# The open-PR control for the same checks: owned_pr_merged reads OPEN, so the
+# run holds at ci_monitor for evidence on the failed check, as before #917.
+gh_fixture open-red
+echo '[{"name":"build","bucket":"pass"},{"name":"test (macos-latest)","bucket":"fail"}]' > "$GH_FIX/checks.out"
+at_ci_monitor payload-open-red
+decide_plain execute-payload-open-red --no-cleanup
+if [ "$(state_of execute-payload-open-red)" = "ci_monitor" ]; then
+    pass "an open PR with a failed check still holds at ci_monitor"
+else
+    fail "an open PR with a failed check moved to [$(state_of execute-payload-open-red)]"
+fi
 
 # The attention route: a child fails, and the gate-routed tick chains
 # spawn_and_await -> escalate -> done_blocked with no evidence submitted, so
