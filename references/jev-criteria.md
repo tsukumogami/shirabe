@@ -431,7 +431,8 @@ the next time.
   cases from its escalate cases. Of the 27 rebuilt, the agent settled 18
   and escalated 9. The 18 it settled came from a worker 11 times, the
   agent's own raise 6 times and the dispatcher once; the 9 it escalated came
-  4, 3 and 2 times. Escalations had longer options
+  from a worker 4 times, the agent's own raise 3 times and the dispatcher
+  twice. Escalations had longer options
   (median 378 bytes against 202) and more of them (3 against 2), but a word
   like "owner", "scope" or "merge" turns up in both: "owner" in 4 of 9
   escalations and 3 of 18 settles. The agent's rationales name what decided
@@ -458,7 +459,8 @@ consultation.
 **Fixtures.** `coordinate.decision_verdict.verdict.decider.jsonl`. The first
 42 cases hold eight of the entry's fields and put the deciding fact in the
 evidence. The eight cases after them are built from observed inputs, with
-names made neutral, in the shape `decision-next.sh` writes, all 19 fields
+names made neutral and the decision numbers, report stamps and times
+renumbered in the fixture file's own series, in the shape `decision-next.sh` writes, all 19 fields
 on one line ending in a newline, as `jq -c` prints it:
 `observed-settle-0` to `-2` (one with an earlier outcome as evidence),
 `observed-escalate-0` to `-2` (the owner's residual risk, a recurring macOS
