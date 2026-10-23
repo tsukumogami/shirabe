@@ -277,7 +277,7 @@ BODY=$(jq -r '.comments[0].body' "$GH_DB")
 L=$(bash "$HERE/record-append.sh" --session "$S2" --list 2>"$T/err"); eq "record-append.sh --session S --list reads" 0 $?
 eq "  ... the entry, with its kind and text" "cost|$(cat "$T/cost.txt")" "$(printf '%s' "$L" | jq -r '.[0] | "\(.kind)|\(.text)"')"
 eq "  ... in the list's shape" '["author","created","edited","id","kind","stamp","text"]' "$(printf '%s' "$L" | jq -c '.[0] | keys')"
-grep -Eq 'issues/[0-9]+/comments\?|collaborators/' "$GH_DB.calls" && bad "  ... with no comment listing or permission read" "$(calls)" || ok "  ... with no comment listing or permission read"
+grep -Eq 'issues/[0-9]+/comments\?|collaborator[s]/' "$GH_DB.calls" && bad "  ... with no comment listing or permission read" "$(calls)" || ok "  ... with no comment listing or permission read"
 
 # ---- 6. the session read ------------------------------------------------------------
 
