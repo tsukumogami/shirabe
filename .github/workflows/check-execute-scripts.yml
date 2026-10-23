@@ -1,7 +1,11 @@
 name: Check execute scripts
 
 on:
-  # The two paths lists below must match; edit both together.
+  # No push trigger, unlike the other macOS floor workflows: its macOS leg is
+  # one of the two longest and most merges touch its paths, so a run per merge
+  # would crowd pull requests' macOS legs in the runner queue. Its suite's
+  # floor read on main is macos-floor.yml's daily run, which files an issue
+  # when it fails (shirabe#1085).
   pull_request:
     paths:
       - 'skills/execute/scripts/**'
@@ -50,34 +54,6 @@ on:
       # lead-shape-text_test.sh pins the nesting rule's team_primitive value.
       - 'references/parent-skill-pattern.md'
       # An edit to this workflow changes what runs, so it has to run the suite.
-      - '.github/workflows/check-execute-scripts.yml'
-  push:
-    branches: [main]
-    # Must match the pull_request paths list above. A merge cancels the pull
-    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
-    # merge commit's own run on the bash 3.2 floor.
-    paths:
-      - 'skills/execute/scripts/**'
-      - 'skills/execute/koto-templates/**'
-      - 'skills/execute/SKILL.md'
-      - 'skills/**'
-      - 'scripts/lib/coordination-body.sh'
-      - 'scripts/lib/squash-message.sh'
-      - 'scripts/lib/squash-message_test.sh'
-      - 'scripts/lib/verification-deferral.sh'
-      - 'scripts/check-bash-floor.sh'
-      - 'scripts/bash-floor/execute.list'
-      - '.tsuku.toml'
-      - 'scripts/assert-koto-floor.sh'
-      - 'scripts/check-merged-wording.sh'
-      - 'scripts/check-merged-wording_test.sh'
-      - 'scripts/check-merged-wording.allow'
-      - 'references/rule-registry.json'
-      - 'scripts/rule-registry.sh'
-      - 'scripts/skill-session.sh'
-      - 'skills/coordinate/scripts/testdata/cloud-hosts.sh'
-      - 'skills/coordinate/scripts/testdata/fake-s3.py'
-      - 'references/parent-skill-pattern.md'
       - '.github/workflows/check-execute-scripts.yml'
 
 env:

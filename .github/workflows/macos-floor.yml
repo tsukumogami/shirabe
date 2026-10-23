@@ -1,9 +1,12 @@
 name: macOS floor
 
-# Pull requests merge without waiting for their macOS legs (shirabe#940). Each
-# macOS floor workflow also runs on the push a merge makes to main, but only
-# when the merge touches its own paths, so a suite broken on the bash 3.2
+# Pull requests merge without waiting for their macOS legs (shirabe#940). Most
+# macOS floor workflows also run on the push a merge makes to main, but only
+# when the merge touches their own paths, so a suite broken on the bash 3.2
 # floor by a change outside its path filter could stay broken on main unseen.
+# check-execute-scripts.yml and check-rule-registry.yml don't run on push at
+# all, since their macOS legs are the longest and most merges touch their
+# paths, so this run is their suites' only floor read on main (shirabe#1085).
 # This runs every macOS floor suite against main once a day, and against any ref
 # when dispatched; the release procedure dispatches it on the commit a release
 # is cut from (.claude/shirabe-extensions/release.md). A red run files an
