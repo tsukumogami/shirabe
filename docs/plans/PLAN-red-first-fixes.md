@@ -109,7 +109,23 @@ step before them reaches its terminal.
 
 ### Step 4: review floors an edited test at full and every seat judges it
 
-A change with an edited test floors at full, the review packet the seats read lists edited and added tests apart with the edited hunks (nothing added to the pull request), every seat's verdict says corrects or weakens for each edited test, and the guidance stops offering a free test edit.
+**Goal**: Review treats an edited test differently from an added one: a change with an edited test floors at `full`, the review packet the seats read lists edited and added tests apart with the edited hunks, every seat must judge each edited test, and the shipped guidance stops offering a test edit as a way past a failing check. Nothing is added to the pull request. An overrule or decline stays in force when its writer's session is later cleaned up.
+
+**Acceptance Criteria**:
+
+- [ ] For the same fixture change, `review-level.sh facts` floors it at `full` when a test file loses a line, and at `standard` when the only test change adds lines or a new test file; `review_facts.json` carries `tests_edited` as true or false accordingly.
+- [ ] `scripts/review-packet.sh code` prints a `## Test changes` section before the diff, listing added tests by path and edited tests with their hunks, and prints `none` when the change touches no test file.
+- [ ] `panel-scope.sh --record` exits 65 for a round in which a seat's verdict has no `corrects` or `weakens` entry for an edited test, and records a `weakens` as a blocking finding raised by that seat; a round with every edited test judged `corrects` records as before.
+- [ ] Each of the four seat references asks the seat to judge every edited test as `corrects` or `weakens`.
+- [ ] The implementation guidance's failing-test options and the CI-fix guidance each say a test edit holds the unit until someone other than the author accepts it, and `grep -rn "Test bug" skills/` finds no option that edits a test without that.
+- [ ] A coordinator's overrule, or a decline, still holds the unit after the writer's koto session is cleaned up; only an acceptance stops counting when its writer's session is gone.
+- [ ] Nothing this step adds writes to a pull request body or comment.
+
+**Check**: Run `bash skills/work-on/scripts/review-level_test.sh`, `bash scripts/review-packet_test.sh` and `bash skills/work-on/scripts/panel-scope_test.sh` and see each exit 0, including the edited-versus-added floor, the packet's test section and the refused unjudged round. Run `bash skills/work-on/scripts/test-change_test.sh` and see it exit 0, including an overrule whose coordinator session was cleaned up still holding the unit. Then run `grep -rn "Test bug" skills/` and see no option offering an unaccepted test edit.
+
+**Dependencies**: Step 1
+
+**Files**: `skills/work-on/scripts/review-level.sh`, `skills/work-on/scripts/review-level_test.sh`, `skills/work-on/references/review-level-rules.tsv`, `skills/work-on/references/review-levels.md`, `scripts/review-packet.sh`, `scripts/review-packet_test.sh`, `skills/work-on/scripts/panel-scope.sh`, `skills/work-on/scripts/panel-scope_test.sh`, `skills/work-on/references/review-panel-orchestration.md`, `skills/work-on/references/phases/phase-4-implementation.md`, `skills/work-on/references/phases/phase-4a-scrutiny.md`, `skills/work-on/references/phases/phase-4b-review.md`, `skills/work-on/references/phases/phase-4c-qa.md`, `skills/work-on/references/phases/phase-4d-light.md`, `skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/SKILL.md`, `skills/work-on/evals/evals.json`, `references/jev-criteria.md`, `references/rule-registry.json`, `scripts/lib/acceptance-rule.sh`, `skills/work-on/scripts/test-change_test.sh`
 
 ## Implementation Sequence
 
