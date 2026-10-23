@@ -19,8 +19,9 @@
 #                                               cascade_result.json (routing)
 #                       ready_owned_pr          the lookup before gh pr ready
 #   ci_monitor          monitor_owned_pr        the lookup (routing), beside
-#                                               owned_ci_passing and
-#                                               owned_merge_state_clean
+#                                               owned_ci_passing,
+#                                               owned_merge_state_clean and
+#                       owned_pr_merged         a MERGED PR routes on it alone
 #   worktree_sync       current_with_main       now check-branch-output.sh --synced
 #
 # This file checks three things:
@@ -459,28 +460,49 @@ else
     fail "a cascade gate carried a finding of its own: $(head -c 400 <<<"$CASCADE_CONDS")"
 fi
 
-# ci_monitor: green, DIRTY and the lookup route with no evidence.
+# ci_monitor: green, DIRTY and the lookup route with no evidence. Every case
+# here is an open PR (owned_pr_merged 1), and must route as it did before the
+# merged gate existed.
 reset_rc
-drive ci_monitor "" owned_ci_passing=0 owned_merge_state_clean=0
+drive ci_monitor "" owned_ci_passing=0 owned_merge_state_clean=0 owned_pr_merged=1
 expect "both CI gates green, monitor_owned_pr 0, no evidence" merge_readiness
-drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=0
+drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
 holds "owned_ci_passing 1, no evidence" ci_monitor owned_ci_passing
-drive ci_monitor "" owned_ci_passing=0 owned_merge_state_clean=1
+drive ci_monitor "" owned_ci_passing=0 owned_merge_state_clean=1 owned_pr_merged=1
 expect "owned_merge_state_clean 1, no evidence" escalate_dirty_merge_state
-drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=1
+drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=1 owned_pr_merged=1
 expect "owned_merge_state_clean 1 with red CI, no evidence" escalate_dirty_merge_state
 for pair in 3:execute:pr-adopt 2:execute:status-read; do
     set_rc check-pr-output.sh--owned-pr "${pair%%:*}"
-    drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=1
+    drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=1 owned_pr_merged=1
     expect_step "monitor_owned_pr exit ${pair%%:*}" "${pair#*:}"
 done
 reset_rc
 for v in failing_fixed pending; do
-    drive ci_monitor "{\"ci_outcome\":\"$v\",\"rationale\":\"x\"}" owned_ci_passing=1 owned_merge_state_clean=0
+    drive ci_monitor "{\"ci_outcome\":\"$v\",\"rationale\":\"x\"}" owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
     expect "ci_outcome: $v on red CI" merge_readiness
 done
-drive ci_monitor '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' owned_ci_passing=1 owned_merge_state_clean=0
+drive ci_monitor '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=1
 expect_step "ci_outcome: failing_unresolvable on red CI" execute:ci
+
+# ci_monitor, a PR someone else merged while the run watched CI (#917): it
+# routes to merge_readiness with no evidence, whatever the CI and merge-state
+# gates read -- green, red or pending (1), a DIRTY reading (1) or an
+# unreadable one (2). merge_readiness's verdict then reads it as `merged`.
+for ci in 0 1; do
+    for ms in 0 1 2; do
+        drive ci_monitor "" owned_ci_passing=$ci owned_merge_state_clean=$ms owned_pr_merged=0
+        expect "owned_pr_merged 0, owned_ci_passing $ci, owned_merge_state_clean $ms, no evidence" merge_readiness
+    done
+done
+# The lookup still decides first: with no single owned PR, or a failed read,
+# a merged reading routes nowhere new.
+for pair in 3:execute:pr-adopt 2:execute:status-read; do
+    set_rc check-pr-output.sh--owned-pr "${pair%%:*}"
+    drive ci_monitor "" owned_ci_passing=1 owned_merge_state_clean=0 owned_pr_merged=0
+    expect_step "monitor_owned_pr exit ${pair%%:*} with owned_pr_merged 0" "${pair#*:}"
+done
+reset_rc
 
 echo
 echo "execute-output-gates-routing_test: $PASS_COUNT passed, $FAIL_COUNT failed"

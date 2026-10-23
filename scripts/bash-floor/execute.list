@@ -22,7 +22,7 @@ skills/execute/scripts/owned-pr_test.sh
 skills/execute/scripts/run-id_test.sh
 # Reads the call sites with grep, awk and find only.
 skills/execute/scripts/owned-pr-callers_test.sh
-# ci_monitor's three gates as execute.md ships them, and the --owned
+# ci_monitor's four gates as execute.md ships them, and the --owned
 # fallback, through gh and koto stubs and real git: every case runs on 3.2.
 skills/execute/scripts/owned-ci-cancel_test.sh
 skills/execute/scripts/push-and-record_test.sh
