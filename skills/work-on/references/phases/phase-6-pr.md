@@ -54,10 +54,25 @@ consulting the body.
 An issue in another repository (the run was initialized with `ISSUE_REPO`) is
 closed only by its qualified reference: write `Fixes <owner/repo>#<N>`, with
 the run's own `ISSUE_REPO`, and no other closing reference to `<N>`. A bare
-`#<N>`, this repository's `owner/repo#<N>` or its issue URL after a closing
-keyword names this repository's issue `<N>`, which merging would close, so
-the gate fails a body that carries one even beside the qualified reference,
-and a qualified reference to any other repository doesn't count. A colon
+`#<N>`, `GH-<N>`, this repository's `owner/repo#<N>` or its issue URL after a
+closing keyword names this repository's issue `<N>`, which merging would
+close, so the gate fails a body that carries one even beside the qualified
+reference. So does the markdown link `[#<N>](<this repository's issue URL>)`,
+and any of these under a name this repository had before a rename, which
+GitHub still resolves. Those are the spellings measured to close; others
+GitHub may read the same way (`owner#<N>`, an issue path without a host,
+other links to the issue) aren't refused yet, but don't write them either.
+A qualified reference to any other repository doesn't count, and
+`[<owner/repo>#<N>](<its issue URL>)` passes like the plain reference. The
+gate looks up each other repository the body closes `<N>` in, at most five
+of them, to rule out an old name; more than five fails the gate. When a
+lookup fails (a rate limit, the network) or runs out of time, the gate exits
+3 and the state holds, so submit `pr_status: created` again once GitHub
+answers. If the same repository keeps failing (a 403 from an organization's
+SSO, say), the hold ends when the body stops closing `<N>` there: turn the
+reference its message names into plain text, with `gh pr edit`, and submit
+again. That issue then won't close on merge, so close it by hand if it
+should. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
 
@@ -82,9 +97,12 @@ Hosted CI is the build of record for this change.
 
 `pr_creation`'s `verification_deferral_recorded` gate reads the body GitHub has
 (`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
-finds all three: a line saying local verification did not run, the reason
-verbatim, and a line saying hosted CI is the build of record. The wording is
-matched without regard to case; the reason is matched exactly. A run that
+finds all three: a line saying local verification did not run, the line
+`Reason: <reason>`, and a line saying hosted CI is the build of record. The
+wording is matched without regard to case. The reason line is matched exactly
+and whole: the reason showing up elsewhere in the body, inside the
+build-of-record line or a longer reason's line, doesn't count, nor does a
+`Reason:` line with a list marker, extra spaces or a trailing period. A run that
 didn't defer passes the gate without the section. On a deferred run, don't
 re-run tests locally after merging main either: the push is what CI checks.
 

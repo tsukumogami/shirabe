@@ -123,7 +123,8 @@ reviewer's finding that cites a rule under the cited rule's id, at a panel
 gate and at `panel/open-finding`'s stage, so at the panel gates every finding
 and dispute counts for `panel/open-finding`, whatever `koto.rule.id` it
 carries, and never for the cited rule, whose gates don't include a panel
-gate. A rate is per evaluation of the rule's gates, not per case
+gate: `scripts/check-rule-registry.sh` refuses a panel gate on any entry but
+`panel/open-finding`. A rate is per evaluation of the rule's gates, not per case
 the rule applies to.
 
 ## Criteria
@@ -187,8 +188,9 @@ nothing is printed on standard output.
 
 ## On an older koto
 
-On a koto without the journal and response changes (koto 0.20.0, shirabe's
-floor today), block-stage checks behave exactly as before. A warn or shadow
+shirabe's koto floor is 0.21.0, the first release with the journal and
+response changes (tsukumogami/koto#393). On an older koto, 0.20.0 or before,
+block-stage checks behave exactly as before. A warn or shadow
 finding never fails a gate; koto keeps a passing check's findings only in the
 session log, so it reaches neither the journal nor the agent, and warn behaves
 as shadow. Evaluations from such a koto carry no `koto.check.finding_count`, so

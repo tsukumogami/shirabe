@@ -119,7 +119,7 @@ Two more flags, on both paths:
   when given. With `hosted-ci`, every child gets both, so each child goes to
   `verification_deferred` instead of running the verification map, and each
   pull request the children land in records the deferral in its body: that
-  local verification did not run, each reason verbatim, and that hosted CI is
+  local verification did not run, a `Reason: <reason>` line for each reason, and that hosted CI is
   the build of record, in the section `/work-on`'s `phase-6-pr.md` gives. On
   a single-pr PLAN every child task gets both through the spawn, and
   `pr_finalization` holds until the shared PR's body records it. On a
@@ -316,8 +316,9 @@ the shared branch's commits and its `docs/` visibility pass, and whether the
 body records every verification deferral the run carries
 (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
-state (`ci_monitor`), and the pause (`PAUSE_BEFORE_FINALIZE`). A failing output
-check holds the run in its state with findings naming the rule; fix the output
+state, and whether GitHub reports the PR `MERGED` (`ci_monitor`), and the pause
+(`PAUSE_BEFORE_FINALIZE`). A failing output check holds the run in its state
+with findings naming the rule; fix the output
 and tick again. The evidence a state still takes is the agent's own account:
 `completed` (the setup steps ran), `override` and `blocked` at setup,
 `updated` (you wrote the PR body; the checks then judge it) and

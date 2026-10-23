@@ -107,7 +107,7 @@ stateDiagram-v2
     pick --> dispatch_check : choice: send_execution
     pick --> ask_up : choice: ask_up
     pick --> wait : choice: hold
-    pick_facts --> pick : gates.pick_facts_verdict.exit_code: 30, gates.pick_input.exists: true
+    pick_facts --> pick : gates.pick_facts_verdict.exit_code: 30, gates.pick_input.exists: true, gates.pick_slice_input.exists: true
     pick_facts --> roadmap_close : gates.pick_facts_verdict.exit_code: 31
     pick_facts --> rotation_close : gates.pick_facts_verdict.exit_code: 32
     pick_facts --> decision_next : gates.pick_facts_verdict.exit_code: 136
@@ -319,6 +319,9 @@ stateDiagram-v2
     end note
     note left of pick_facts
         gate: pick_input
+    end note
+    note left of pick_facts
+        gate: pick_slice_input
     end note
     note left of predecessor_close
         gate: predecessor_close_verdict

@@ -2,6 +2,9 @@
 # bash 5. This is the shape shirabe#416 found in four workflows.
 name: plain-bash
 on: pull_request
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     strategy:

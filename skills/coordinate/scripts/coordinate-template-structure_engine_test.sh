@@ -5,8 +5,10 @@
 # Proves the check-state contract holds for every state with a default action:
 # no accepts block (evidence can't skip the read), no polling or confirmation,
 # every gate overridable: false, the only command gate is coord-verdict.sh over
-# the state's own capture, and a context gate appears only as a decider input
-# (context-exists). One command gate reads another state's capture on purpose:
+# the state's own capture, and a context gate appears only on a decider
+# input's key (context-exists), or on coord/pick.json, the facts pick_facts
+# cuts the pick decider's input, coord/pick_slice.json, from. One command gate
+# reads another state's capture on purpose:
 # report_questions' report_holding re-reads report_facts' sealed verdict, the
 # one report_facts routed on, to send a report with no questions on to
 # classification only when it had a holding. Also: the design's decision
@@ -57,7 +59,7 @@ BADCHECK=$(jq -r --argjson skip "$DISPATCH_STATES" '.states | to_entries[] | sel
              else "\($s).\(.key): not coord-verdict over report_facts\u0027 capture" end)
           elif .value.type == "command" and ((.value.command | test("coord-verdict\\.sh\" --session \"\\{\\{SESSION_NAME\\}\\}\" --state " + $s + " --capture \"\\{\\{" + $cap + "\\}\\}\"")) | not) then "\($s).\(.key): not coord-verdict over its own capture"
           elif .value.type == "context-matches" then "\($s).\(.key): a context-matches gate"
-          elif .value.type == "context-exists" and ((.value.key | test("^coord/(pick|report|decision)\\.json$")) | not) then "\($s).\(.key): a context gate that is not a decider input"
+          elif .value.type == "context-exists" and ((.value.key | test("^coord/(pick|pick_slice|report|decision)\\.json$")) | not) then "\($s).\(.key): a context gate that is not a decider input"
           else empty end) ] | .[]' "$J")
 [ -z "$BADCHECK" ] && pass "every check state keeps the contract" || fail "every check state keeps the contract" "$BADCHECK"
 

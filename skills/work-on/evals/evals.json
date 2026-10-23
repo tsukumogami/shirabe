@@ -665,14 +665,14 @@
       "name": "scrutiny-decider-batch-pending",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/work-on #611. The run is at scrutiny for a user whose decider runs in shadow. The round was carried: scrutiny_scope.json keeps every seat and plans no run. The last `koto next issue_611 --no-cleanup` stopped at scrutiny anyway: the scrutiny_decider decider check has status pending, category corrective, output {\"failed\": [], \"unanswered\": [], \"awaiting\": [\"work-on/scrutiny-decision-reasons\"], \"agent_answered\": [], \"error\": \"\"}, and a warning finding saying the decider gave no verdict (provider_error). `decision-reasons.sh slice` on the session log prints two decisions: \"- choice: Cache the parsed config\\n  reason: parsing it took 300 ms on every tick in the trace\" and \"- choice: Rename load() to read_config()\\n  reason: renamed load to read_config\". What does the agent do next?",
-      "expected_output": "The agent reads the pending batch as the decider fallback, which holds a carried round too. It does not spawn any scrutiny seat, since the scope keeps them all. It judges the two reasons: the second only restates its choice, so it runs `koto decider answer issue_611 --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons --answer fail`, then ticks `koto next issue_611 --no-cleanup` with nothing submitted. It treats the result as advisory: the check runs in shadow while the criterion is untrusted, so it neither submits scrutiny_outcome nor goes back to implementation for it. It does not record an override to get past the check.",
+      "prompt": "/work-on #42. The run is at scrutiny for a user whose decider runs in shadow. The round was carried: scrutiny_scope.json keeps every seat and plans no run. The last `koto next issue_42 --no-cleanup` stopped at scrutiny anyway: the scrutiny_decider decider check has status pending, category corrective, output {\"failed\": [], \"unanswered\": [], \"awaiting\": [\"work-on/scrutiny-decision-reasons\"], \"agent_answered\": [], \"error\": \"\"}, and a warning finding saying the decider gave no verdict (provider_error). `decision-reasons.sh slice` on the session log prints two decisions: \"- choice: Cache the parsed config\\n  reason: parsing it took 300 ms on every tick in the trace\" and \"- choice: Rename load() to read_config()\\n  reason: renamed load to read_config\". What does the agent do next?",
+      "expected_output": "The agent reads the pending batch as the decider fallback, which holds a carried round too. It does not spawn any scrutiny seat, since the scope keeps them all. It judges the two reasons: the second only restates its choice, so it runs `koto decider answer issue_42 --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons --answer fail`, then ticks `koto next issue_42 --no-cleanup` with nothing submitted. It treats the result as advisory: the check runs in shadow while the criterion is untrusted, so it neither submits scrutiny_outcome nor goes back to implementation for it. It does not record an override to get past the check.",
       "files": [],
       "expectations": [
         "Agent treats the pending scrutiny_decider check as a criterion waiting on its own answer, on a carried round",
         "Agent does NOT spawn scrutiny seats, since the scope keeps every seat",
         "Agent judges the decisions' reasons and answers fail, since the rename's reason only restates its choice",
-        "Agent runs koto decider answer issue_611 --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons with one of pass, fail or unclear",
+        "Agent runs koto decider answer issue_42 --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons with one of pass, fail or unclear",
         "Agent ticks koto next again with nothing submitted after answering",
         "Agent does NOT submit scrutiny_outcome or route back to implementation because of the batch",
         "Agent does NOT use koto overrides record to get past the waiting check"
@@ -684,14 +684,14 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #812 --verification=hosted-ci --verification-reason=\"host is in a measurement window until 02:40Z\" --koto-leg=req-ab12:work-on. The host must not run any local suite. How does the agent open the run, what happens when it reaches the point where verification would run, and what does it put in the pull request?",
-      "expected_output": "The agent sets the two deferral flags aside for mode detection and opens the session through work-on-open.sh with the original tokens, which maps them to VERIFICATION=hosted-ci and VERIFICATION_DEFERRAL_REASON. It does not pass them as --var itself, and it runs no local suite at setup or anywhere else. When the panels pass, koto routes the run to verification_deferred instead of verification, so run-verification.sh never starts and no supervisor is launched; the agent neither ticks into verification nor kills anything. The run goes on to finalization and PR creation. In Part 2 of the pull request body the agent adds a Verification section saying local verification did not run, giving the reason verbatim, and saying hosted CI is the build of record, because pr_creation holds pr_status: created until the body records it. It submits pr_url with pr_status: created so the leg result carries the pull request, and then waits on hosted CI at ci_monitor.",
+      "expected_output": "The agent sets the two deferral flags aside for mode detection and opens the session through work-on-open.sh with the original tokens, which maps them to VERIFICATION=hosted-ci and VERIFICATION_DEFERRAL_REASON. It does not pass them as --var itself, and it runs no local suite at setup or anywhere else. When the panels pass, koto routes the run to verification_deferred instead of verification, so run-verification.sh never starts and no supervisor is launched; the agent neither ticks into verification nor kills anything. The run goes on to finalization and PR creation. In Part 2 of the pull request body the agent adds a Verification section saying local verification did not run, the line Reason: followed by the reason exactly, and saying hosted CI is the build of record, because pr_creation holds pr_status: created until the body records it. It submits pr_url with pr_status: created so the leg result carries the pull request, and then waits on hosted CI at ci_monitor.",
       "files": [],
       "expectations": [
         "Agent opens the session through work-on-open.sh with the original tokens, deferral flags included, rather than passing VERIFICATION as --var",
         "Agent runs no local test, lint or verification command at any point",
         "Agent expects the run to pass through verification_deferred and never enter verification or start run-verification.sh",
         "Agent does not try to stop or kill a verification supervisor, since none is started",
-        "Agent records the deferral in Part 2 of the PR body: local verification did not run, the reason verbatim, and hosted CI as the build of record",
+        "Agent records the deferral in Part 2 of the PR body: local verification did not run, a line reading Reason: followed by the reason exactly, and hosted CI as the build of record",
         "Agent submits pr_status: created with pr_url so the result carries the pull request",
         "Agent treats hosted CI at ci_monitor as the build of record and waits for it to go green"
       ]
@@ -720,14 +720,14 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on https://github.com/acme/tracker/issues/58, run in a clone of acme/app. The issue is tracked in acme/tracker and the fix lands here in acme/app. How does the agent read the issue, initialize the run, and close the issue from the pull request?",
-      "expected_output": "Parses the URL to issue number 58 in acme/tracker and sees that acme/tracker is not the repository being worked in, acme/app. Reads the issue with gh issue view 58 --repo acme/tracker rather than gh issue view 58, which would read acme/app#58. Initializes the koto workflow with ISSUE_NUMBER=58, ARTIFACT_PREFIX=issue_58 and ISSUE_REPO=acme/tracker. Runs extract-context.sh and the review packet commands with --issue-repo acme/tracker, the value the state directives give, since neither script reads it from anywhere else. In Part 2 of the pull request body it writes Fixes acme/tracker#58 and no other closing reference to 58 (no bare Fixes #58, no Fixes acme/app#58), because either would close acme/app#58 and the closing_keyword gate refuses it.",
+      "expected_output": "Parses the URL to issue number 58 in acme/tracker and sees that acme/tracker is not the repository being worked in, acme/app. Reads the issue with gh issue view 58 --repo acme/tracker rather than gh issue view 58, which would read acme/app#58. Initializes the koto workflow with ISSUE_NUMBER=58, ARTIFACT_PREFIX=issue_58 and ISSUE_REPO=acme/tracker. Runs extract-context.sh and the review packet commands with --issue-repo acme/tracker, the value the state directives give, since neither script reads it from anywhere else. In Part 2 of the pull request body it writes Fixes acme/tracker#58 and no other closing reference to 58 (no bare Fixes #58, no Fixes GH-58, no Fixes acme/app#58, and no markdown link such as Fixes [#58](...)), because any of them would close acme/app#58 and the closing_keyword gate refuses it.",
       "files": [],
       "expectations": [
         "Agent plans to read the issue with gh issue view 58 --repo acme/tracker",
         "Agent plans to initialize the koto workflow with --var ISSUE_REPO=acme/tracker alongside ISSUE_NUMBER=58 and ARTIFACT_PREFIX=issue_58",
         "Agent plans to pass --issue-repo acme/tracker to extract-context.sh and to review-packet.sh code --issue",
         "Agent plans to close the issue with Fixes acme/tracker#58 in the pull request body",
-        "Agent does NOT plan to write a bare Fixes #58 or Fixes acme/app#58, which close acme/app's issue 58"
+        "Agent does NOT plan to write a bare Fixes #58, Fixes GH-58, Fixes acme/app#58 or a markdown link whose text is #58, which close acme/app's issue 58"
       ]
     }
   ]

@@ -265,6 +265,12 @@ Key assumptions:
 unchanged, since it already reads only those totals. A promotion's `live` record
 gains a required `not_graded` integer, which `check_promotion` checks.
 
+Amended later (#966): leaving not-graded evaluations out means a slice script
+that wrongly prints nothing makes runs vanish from the bar, so `live_bar` now
+also takes the contract's `measured` record and fails when the not-graded share
+sits more than 10 points from the empty-slice share measured there
+(`references/jev-criteria.md`, "The bars").
+
 #### Alternatives Considered
 
 - **Subtract a count in `live_bar`.** `live_bar` sees only totals, so it can't tell

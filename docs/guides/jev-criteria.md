@@ -82,8 +82,14 @@ As queries over the exported events, for one criterion:
 The bar is met with at least 30 evaluations across at least 5 sessions, at
 least 95% of them answered, no over-budget fallback, and no input over the
 entry's `jev.budget`. Not-graded tuples count toward none of these: the
-minimums count graded evaluations only. `references/jev-criteria.md` owns
-these numbers; if the two ever disagree, the reference is right.
+minimums count graded evaluations only. Their share, the not-graded tuples
+over the not-graded tuples and the evaluations together, must sit within 10
+points of the share of runs the entry's `jev.measured` record found with an
+empty slice (`empty` over `empty` plus `runs`; a record with no `empty` found
+none). A slice script that wrongly printed nothing would otherwise make the
+runs it should have graded vanish from the bar instead of counting against
+it. `references/jev-criteria.md` owns these numbers; if the two ever
+disagree, the reference is right.
 
 `jev_criteria.py figures` computes the same figures from local koto session
 logs and prints the `live` JSON a promotion records:
@@ -94,7 +100,9 @@ python3 scripts/jev-criteria/jev_criteria.py figures <rule-id> --sessions <dir> 
 
 `--sessions` is the directory holding koto's session logs on this machine.
 Without `--from` and `--to` it uses the window above. With `--bar` it also
-prints each way the figures miss the bar and exits 1 unless they meet it. It
+prints the answered rate and the not-graded share beside the measured
+empty share, then each way the figures miss the bar, and exits 1 unless they
+meet it. It
 skips and counts any line it can't read. It is a tested reference for the definitions: use it to
 check a query, and to see what a promotion's `live` record looks like. The
 figures a promotion records are the ones read from the exported events.
@@ -114,7 +122,8 @@ declares it in `veto` mode, and both bars are met.
    It sends every case to Jev under the template's declaration and prints the
    counts and a `fixture_run` record. Exit 0 means the fixture bar is met: no
    seeded-bad or adversarial case answered `pass`, at least 80% of good cases
-   answered `pass`, and no case without an answer. The key is only ever sent
+   answered `pass`, no `empty` case answered `pass` or `fail`, and no case
+   without an answer. The key is only ever sent
    to an https endpoint; a loopback endpoint (a local stub) gets a placeholder.
 2. **Read the live figures** as above, and check they meet the bar.
 3. **Edit the entry** in `references/rule-registry.json`:

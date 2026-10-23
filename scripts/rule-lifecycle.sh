@@ -157,10 +157,10 @@ def count(f): map(select(f)) | length;
 # and a finding that cites another rule is journaled under the cited id. So
 # at the gates of this rule (the panel gates) every finding and dispute
 # counts for it, whatever koto.rule.id it carries. A cited rule does not count
-# it as long as it lists no panel gate, which every registry entry holds to
-# today and check-rule-registry.sh does not enforce. The same exception lives
-# in panel-scope.sh (rf_emit ... panel/open-finding) and in
-# check-rule-registry.sh (ANY_ACTIVE_ALLOWED); change the three together.
+# it because it lists no panel gate: check-rule-registry.sh refuses a panel
+# gate on any entry but this one. The same exception lives in panel-scope.sh
+# (rf_emit ... panel/open-finding) and in check-rule-registry.sh
+# (ANY_ACTIVE_ALLOWED, PANEL_RULE); change the three together.
 def panel_rule: "panel/open-finding";
 def for_rule($id): $id == panel_rule or .["koto.rule.id"] == $id;
 

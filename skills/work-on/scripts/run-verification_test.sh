@@ -399,14 +399,18 @@ PGID=$(jq -r '.commands[0].pgid' "$(result_of s-slow)")
     || fail "the timed-out group $PGID is still alive"
 
 echo "--- a run past its total budget"
-# Two commands, each well inside its own timeout_secs, under a 2-second budget
+# Two commands, each well inside its own timeout_secs, under a 5-second budget
 # for the whole run: the first is stopped at the budget, the second never starts.
+# The budget's clock starts with the supervisor, so its setup before the first
+# command counts against it; 5 seconds leaves a loaded host room for that and
+# is still far short of bin/slow.sh's 30-second sleep. The time the case checks
+# is the supervisor's own record of the stopped command, not this harness's
+# wall clock, which also counts starting the supervisor and settling (#1063).
 mkrepo budget "$(map '{"a": {"run": ["bin/slow.sh"], "timeout_secs": 60}, "b": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["a", "b"]')"
 change top.txt
-T0=$(date +%s)
-SHIRABE_VERIFICATION_BUDGET_SECS=2 start s-budget
+BUDGET_S=5
+SHIRABE_VERIFICATION_BUDGET_SECS=$BUDGET_S start s-budget
 settle s-budget
-T1=$(date +%s)
 expect_rc "past the total budget" 4
 expect_rule "past the total budget" verification/timed-out
 BRES=$(result_of s-budget)
@@ -416,8 +420,15 @@ if jq -e '.status == "timed-out" and (.commands | length) == 1 and .commands[0].
 else
     fail "the budget result is wrong: $(head -c 400 "$BRES" 2>&1)"
 fi
-[ $((T1 - T0)) -lt 20 ] && pass "the run ended at its budget ($((T1 - T0))s), not at the commands' own timeouts" \
-    || fail "the run took $((T1 - T0))s under a 2-second budget"
+# A stop at the budget lands a poll after it, plus the 1-second grace between
+# TERM and KILL. 20 seconds leaves a loaded host 15 seconds for that and still
+# fails a command stopped late or left to bin/slow.sh's own 30-second end.
+BDUR=$(jq -r '.commands[0].duration_secs' "$BRES" 2>/dev/null)
+case "$BDUR" in
+    ''|*[!0-9]*) fail "the budget result records no duration for the stopped command: [$BDUR]" ;;
+    *) [ "$BDUR" -lt 20 ] && pass "the command was stopped at the budget (${BDUR}s), not at bin/slow.sh's own 30s end" \
+           || fail "the stopped command ran ${BDUR}s under a ${BUDGET_S}-second budget" ;;
+esac
 PGID=$(jq -r '.commands[0].pgid' "$BRES")
 [ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the group stopped at the budget is alive" \
     || fail "the group $PGID stopped at the budget is still alive"

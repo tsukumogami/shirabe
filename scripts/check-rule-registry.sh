@@ -71,7 +71,11 @@
 #  13  gates: every gates value names a state of that skill's koto templates
 #      (frontmatter, not the mermaid renderings) and a command gate of that
 #      state; for an active entry, a command that runs a script whose
-#      RULE_IDS line lists the id, or a script in ANY_ACTIVE_ALLOWED
+#      RULE_IDS line lists the id, or a script in ANY_ACTIVE_ALLOWED. A gate
+#      whose command runs a script in ANY_ACTIVE_ALLOWED is a panel gate, and
+#      only PANEL_RULE may list one, whatever its status:
+#      scripts/rule-lifecycle.sh counts every finding at a panel gate for
+#      PANEL_RULE, so another entry listing one would count them as its own
 #
 # The rules that rule-registry.sh enforces at run time (anchor lookup, safe
 # path, releasable path) are asked of it rather than copied here, so the two
@@ -475,6 +479,10 @@ done < "$TMP/rule-ids"
 # runtime still refuses any id that isn't active; this keeps the exception
 # visible, paired and confined to the scripts listed here.
 ANY_ACTIVE_ALLOWED="skills/work-on/scripts/panel-scope.sh"
+# The one entry that may list a gate those scripts run (rule 13). The same
+# exception lives in panel-scope.sh (rf_emit ... panel/open-finding) and in
+# rule-lifecycle.sh (panel_rule); change the three together.
+PANEL_RULE="panel/open-finding"
 scan "$TMP/any-marker" -rnE '^RULE_IDS_ANY_ACTIVE=' "$ROOT/skills" "$ROOT/scripts"
 scan "$TMP/any-calls" -rlE --include='*.sh' '(^|[^A-Za-z0-9_])rf_require_any([[:space:]]|$)' "$ROOT/skills" "$ROOT/scripts"
 while IFS= read -r hit; do
@@ -854,10 +862,11 @@ jqf "$TMP/gates" -r '.rules[] | objects | select((.id | type) == "string" and (.
 # names the plugin's path to it, closed by a quote or a space. A retired rule
 # has left every RULE_IDS line, so only its gate names are checked. A script
 # that resolves a finding's own rule at run time (ANY_ACTIVE_ALLOWED) may
-# report any active rule. The awk tells its inputs apart by position
+# report any active rule, which makes its gates panel gates: only PANEL_RULE
+# may list one, active or retired. The awk tells its inputs apart by position
 # (ARGV[1] the template gates, ARGV[2] the declaring scripts, then the
 # registry's gate values), so keep the three arguments in that order.
-awk -F'\t' -v any="$ANY_ACTIVE_ALLOWED" -v q='"' '
+awk -F'\t' -v any="$ANY_ACTIVE_ALLOWED" -v panel="$PANEL_RULE" -v q='"' '
     function runs(c, p) { return index(c, "{{PLUGIN_ROOT}}/" p q) || index(c, "{{PLUGIN_ROOT}}/" p " ") }
     FILENAME == ARGV[1] {
         if ($1 == "S") state_of[$2] = 1
@@ -872,9 +881,15 @@ awk -F'\t' -v any="$ANY_ACTIVE_ALLOWED" -v q='"' '
         state = sg; sub(/^[^:]*:/, "", state)
         if (!(sg in state_of)) { print id ": gate " gate " names no state " state " in skills/" skill "/koto-templates/"; next }
         if (!(gate in n)) { print id ": gate " gate " is not a command gate of state " state; next }
+        na = split(any, a, " ")
+        if (id != panel) {
+            pg = 0
+            for (i = 1; i <= n[gate] && !pg; i++)
+                for (j = 1; j <= na; j++) if (runs(cmd[gate, i], a[j])) pg = 1
+            if (pg) { print id ": gate " gate " is a panel gate; only " panel " may list one"; next }
+        }
         if (status != "active") next
         ok = 0
-        na = split(any, a, " ")
         for (i = 1; i <= n[gate] && !ok; i++) {
             c = cmd[gate, i]
             for (j = 1; j <= na; j++) if (runs(c, a[j])) ok = 1

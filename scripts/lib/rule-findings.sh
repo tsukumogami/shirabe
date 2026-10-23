@@ -65,7 +65,10 @@
 #                              rule_ref differs from the resolved one, whose
 #                              message lacks the summary prefix, or whose
 #                              <stage-id> was not resolved. A retired stage
-#                              prints and logs nothing. A block stage adds one
+#                              prints and logs nothing. Every finding it
+#                              prints adds one to RF_PRINTED, so a script
+#                              that reports what it printed counts no retired
+#                              finding. A block stage adds one
 #                              to RF_BLOCKING and records the rule for the
 #                              ladder. RF_COUNTED is 1 after a finding that
 #                              counted toward RF_BLOCKING and 0 otherwise
@@ -135,6 +138,7 @@ RF_ROOT=$(dirname -- "$(dirname -- "$RF_HELPER")")
 RF_CACHE=""
 RF_TAB=$(printf '\t')
 RF_BLOCKING=0
+RF_PRINTED=0
 RF_COUNTED=0
 RF_REPORTED=""
 RF_DELIVERED=""
@@ -225,7 +229,8 @@ rf_stage() {
 # caller passes gets error, block's level, so a value this library doesn't know
 # never prints a finding softer than every finding printed before stages.
 # scripts/rule-registry.sh's stage_level holds the same mapping for
-# verify-findings; change both together.
+# verify-findings, and rule-findings-testlib.sh's rf_test_level the suites'
+# copy; scripts/rule-registry_test.sh fails when the three differ.
 rf_level() {
     case "$1" in
         warn) printf 'warning' ;;
@@ -259,6 +264,7 @@ rf_emit() {
     [ -n "$json" ] || undecided "could not set the level of a finding for $id"
     line="::koto-finding::$json"
     printf '%s\n' "$line"
+    RF_PRINTED=$((RF_PRINTED + 1))
     "$RF_HELPER" log-finding "$line" </dev/null >/dev/null 2>&1 || true
     if [ "$stage" = block ]; then
         RF_BLOCKING=$((RF_BLOCKING + 1))

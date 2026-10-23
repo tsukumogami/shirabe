@@ -268,7 +268,7 @@ defer_child 2 "$DREASON"
 out=$(run_next "$PLANDIR" --merge true)
 expect "a draft node PR whose child deferred, its body without the record: no evaluate" "error:execute:deferral-record" "$out"
 wrote_nothing "the deferral hold"
-grep -qF "verbatim: $DREASON" "$CASE/stderr" && pass "the hold names the missing reason on stderr" \
+grep -qF "exactly: Reason: $DREASON" "$CASE/stderr" && pass "the hold names the missing reason on stderr" \
     || fail "the hold's stderr: [$(cat "$CASE/stderr")]"
 
 ct_case defer-draft-recorded

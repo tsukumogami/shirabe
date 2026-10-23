@@ -966,7 +966,8 @@ states:
     # level_fits_facts is a veto-mode decider check, active only for a user
     # whose decider mode is auto; for anyone else koto treats it as not
     # declared. Its slice is a fixed projection of the facts and the level,
-    # never a path, a reason or issue text. A fail blocks the state like a
+    # with the level definitions rendered from the stored rules copy, never a
+    # path, a reason or issue text. A fail blocks the state like a
     # hold; no route reads it, so a wrong answer can hold the run but never
     # route it or lower the level.
     #
@@ -2079,11 +2080,14 @@ states:
       # colon follow the keyword (`Fixes: #42`), so the expression takes one.
       #
       # An issue in another repository (ISSUE_REPO set) is closed only by
-      # `Fixes owner/repo#N`, and `#N`, this repository's `owner/repo#N` or
-      # its issue URL there would close this repository's issue N, so
+      # `Fixes owner/repo#N`, and `#N`, `GH-N`, this repository's
+      # `owner/repo#N` or its issue URL there, the markdown link to it, or any
+      # of them under the repository's old name, would close this repository's
+      # issue N, so
       # check-closing-keyword.sh decides that case: it exits 0 closed, 1 not
       # closed, closing the wrong issue too, or unreadable (done_blocked, like
-      # the expression here), 2 usage (holds). With ISSUE_REPO empty the
+      # the expression here), 2 usage (holds), 3 a repository lookup it needed
+      # failed or ran out of time (holds; tick again). With ISSUE_REPO empty the
       # expression runs and the script is never started.
       closing_keyword:
         type: command
@@ -2105,8 +2109,8 @@ states:
       # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
       # verification_deferred) records the deferral where a reviewer reads it.
       # check-pr-output.sh --deferral-record reads the pull request body from
-      # GitHub and exits 0 when it says local verification did not run, gives
-      # the reason verbatim, and names hosted CI as the build of record; 1
+      # GitHub and exits 0 when it says local verification did not run, has
+      # the line `Reason: <reason>`, and names hosted CI as the build of record; 1
       # when any of the three is missing; 2 when it could not decide. It gates
       # the created edge only, so 1 and 2 hold here, like pr_body_conformant:
       # fix the body with `gh pr edit` and submit again. A local run never
@@ -3334,8 +3338,13 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 The body closes the issue in Part 2, and the `closing_keyword` gate reads it from
 GitHub: `Fixes #<N>` for an issue in this repository, or, for a run initialized with
 `ISSUE_REPO` (an issue in another repository), `Fixes <owner/repo>#<N>` with that
-repository and no other closing reference to `<N>`: a bare `#<N>`, this repository's
-`owner/repo#<N>` or its issue URL would close this repository's issue `<N>`.
+repository and no other closing reference to `<N>`: a bare `#<N>`, `GH-<N>`, this
+repository's `owner/repo#<N>` or its issue URL, the markdown link
+`[#<N>](<its issue URL>)`, or any of them under a name this repository had before a
+rename would close this repository's issue `<N>`. When the gate holds because a lookup
+of another repository failed or ran out of time (its script exits 3), submit
+`pr_status: created` again; if that repository keeps failing, turn the reference the
+message names into plain text, and close that issue by hand if it should close.
 `references/phases/phase-6-pr.md` has the rule.
 
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
@@ -3363,7 +3372,8 @@ hosted CI is the build of record for this change.
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
 pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`, which
 reads the body from GitHub and holds the state until it says local verification
-did not run, carries the reason verbatim, and says hosted CI is the build of
+did not run, has the line `Reason: <reason>` exactly and whole (the reason
+anywhere else in the body doesn't count), and says hosted CI is the build of
 record. Fix the body with `gh pr edit` and submit `pr_status: created` again.
 On a run that didn't defer the gate passes without running anything.
 

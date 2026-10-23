@@ -15,9 +15,18 @@
 # state is missing or not known to be finished; and an instance name that
 # isn't a plain name.
 #
+# Removed mode, against a koto home of many unrelated sessions: the seal
+# recovers the instance path from the one header for the topic and opens only
+# the headers that name the topic's slug, never a symlinked one; with no koto
+# session store the path comes from a transcript; only unrelated sessions, or
+# two instances for the topic, refuse. With only unrelated sessions, a canary
+# header that names the topic's instance through a JSON escape stays
+# unparsed, so the refusal shows no unrelated header was parsed, whatever
+# read it; the same header, once grep can see the slug, recovers the path.
+#
 # teardown-pass_engine_test.sh keeps one refusal (an unmerged pull request)
 # to prove the refused arm reaches surface in real koto, and drives the
-# removed mode.
+# removed mode end to end.
 #
 # Usage: bash skills/coordinate/scripts/teardown-handoff_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -43,11 +52,14 @@ BIN="$T/bin"
 mkdir -p "$S" "$BIN"
 cp "$HERE/teardown-handoff.sh" "$HERE/dispatch-common.sh" "$S/"
 
-# teardown-verdict.sh read: the sealed inventory, durable, for the instance.
+# teardown-verdict.sh read: the sealed inventory, durable, for the instance;
+# with $ST/inventory-rc, it answers that code (5: the inventory says absent).
 cat >"$S/teardown-verdict.sh" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = read ] || exit 64
 cat "$ST/inventory"
+[ -f "$ST/inventory-rc" ] && exit "$(cat "$ST/inventory-rc")"
+exit 0
 EOF
 # coord-log.sh: a file seal stores the file under ctx/<key> and prints a
 # token over it; a token seal is logged and printed back sealed; the
@@ -137,8 +149,11 @@ printf '{"type":"user"}\n' >"$TR"
 printf 'w5' >"$KOTO_STORE/context/coord/teardown_topic"
 N=0
 # fixture [state]: a durable, merged, handed-off w5 whose job is in that state
-# (done unless given), in a fresh state directory.
+# (done unless given), in a fresh state directory and with no removed-mode
+# session store: rfixture exports TEARDOWN_KOTO_SESSIONS after calling this,
+# so a case built here never reads the store a removed-mode case left behind.
 fixture() {
+    unset TEARDOWN_KOTO_SESSIONS
     N=$((N + 1))
     export ST="$T/state-$N"
     mkdir -p "$ST/ctx"
@@ -214,6 +229,163 @@ refused "a job whose state is waiting" "isn't known to be finished"
 fixture
 jq -c '[.[] | .name = "--workspace"]' "$ST/niwa.json" >"$ST/n.tmp" && mv "$ST/n.tmp" "$ST/niwa.json"
 refused "an instance name that isn't a plain name" "not a plain instance name"
+
+# --- removed: the instance path from a large koto home ---------------------------------------------
+#
+# A unit torn down outside the pass: the inventory answers absent, the
+# evidence says removed, and niwa and Claude Code list nothing. The instance
+# path comes from the one koto session header whose execution_dir sits under
+# `<anything>+w5-<8 hex>` directly in the workspace root. The koto home also
+# holds 300 unrelated sessions, and a `head` stand-in on PATH logs every
+# session file the seal opens, so the test sees that only the headers naming
+# the topic's slug are read. The instance names are put together at run time
+# from their parts, as in teardown-pass_engine_test.sh.
+inst() { printf '%s+w5-%s' "$1" "$2"; }
+RINST="$W/$(inst tsuku 5e6f7a8b)"
+REAL_HEAD=$(command -v head)
+CB="$T/countbin"
+mkdir -p "$CB"
+cat >"$CB/head" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+    case "$a" in "$TEARDOWN_KOTO_SESSIONS"/*) printf '%s\n' "$a" >>"$ST/opened" ;; esac
+done
+exec "$REAL_HEAD" "$@"
+EOF
+chmod +x "$CB/head"
+export REAL_HEAD
+# header <session name> <execution_dir> [extra field]: one koto session file.
+header() {
+    mkdir -p "$TEARDOWN_KOTO_SESSIONS/$1"
+    printf '{"schema_version":1,"workflow":"%s","execution_dir":"%s"%s}\n{"seq":1}\n' "$1" "$2" "${3-}" \
+        >"$TEARDOWN_KOTO_SESSIONS/$1/koto-$1.state.jsonl"
+}
+# unrelated <n>: n sessions of other units, some in other instances under the
+# workspace root and some outside it, none naming w5's slug.
+unrelated() {
+    local i=0 dirs=""
+    while [ "$i" -lt "$1" ]; do
+        dirs="$dirs $TEARDOWN_KOTO_SESSIONS/other-$i"
+        i=$((i + 1))
+    done
+    # shellcheck disable=SC2086
+    mkdir -p $dirs
+    i=0
+    while [ "$i" -lt "$1" ]; do
+        if [ $((i % 2)) = 0 ]; then
+            ed="$W/tsuku+other$i-0a0b0c0d/public/repo"
+        else
+            ed="$T/elsewhere/$i"
+        fi
+        printf '{"schema_version":1,"workflow":"other-%s","execution_dir":"%s"}\n{"seq":1}\n' "$i" "$ed" \
+            >"$TEARDOWN_KOTO_SESSIONS/other-$i/koto-other-$i.state.jsonl"
+        i=$((i + 1))
+    done
+}
+# rfixture: the worker w5, removed outside the pass, with its own session store.
+rfixture() {
+    fixture
+    export TEARDOWN_KOTO_SESSIONS="$ST/koto-sessions"
+    mkdir -p "$TEARDOWN_KOTO_SESSIONS"
+    printf 'absent\ntopic w5\n' >"$ST/inventory"
+    printf '5' >"$ST/inventory-rc"
+    printf '{"teardown":"removed","handoff":"%s"}' "$URL" >"$ST/teardown-ev"
+    printf '[]\n' >"$ST/niwa.json"
+    printf '[]\n' >"$ST/agents.json"
+    : >"$ST/opened"
+}
+# cseal: the seal, with the counting head first on PATH; its output in OUT
+# and its exit code in RC.
+cseal() {
+    local saved=$PATH
+    export PATH="$CB:$PATH"
+    OUT=$(seal)
+    RC=$?
+    export PATH="$saved"
+}
+RVERDICT="ready|topic w5|removed yes|instance - $RINST|job -|pr acme/widgets#600 $MERGE|handoff $URL|dispatch -|inventory sealed:6:$(printf '%064d' 0)"
+
+# 300 unrelated sessions, the worker's own, and a decoy that names the slug
+# but records a directory outside the workspace root.
+rfixture
+unrelated 300
+header wk-rm "$RINST/public/repo"
+header wk-far "$T/far/repo" ",\"note\":\"$(inst x 3c4d5e6f)\""
+cseal
+eq  "removed, 300 unrelated sessions: exit 0" 0 "$RC"
+case "$OUT" in "handoff-ready keyseal:7:"*) ok "removed, 300 unrelated sessions: prints handoff-ready" ;; *) bad "removed, 300 unrelated sessions: prints handoff-ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "removed, 300 unrelated sessions: the verdict names the recovered instance path" "$RVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, 300 unrelated sessions: only the two headers naming the slug were opened" \
+    "$TEARDOWN_KOTO_SESSIONS/wk-far/koto-wk-far.state.jsonl|$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl" \
+    "$(sort "$ST/opened" | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, 300 unrelated sessions: nothing else ran" "" "$(cat "$ST/calls")"
+
+# A header symlinked into the store is never read, even when it names the slug.
+rfixture
+unrelated 4
+header wk-rm "$RINST/public/repo"
+mkdir -p "$TEARDOWN_KOTO_SESSIONS/wk-link"
+ln -s "$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl" "$TEARDOWN_KOTO_SESSIONS/wk-link/koto-wk-link.state.jsonl"
+cseal
+eq  "removed, a symlinked header: the verdict names the instance path" "$RVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, a symlinked header: it isn't opened" "$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl" "$(cat "$ST/opened")"
+
+# No koto session store at all: the path comes from a transcript's cwd.
+rfixture
+rmdir "$TEARDOWN_KOTO_SESSIONS"
+RPD="$TEARDOWN_CLAUDE_HOME/projects/$(printf '%s' "$RINST" | sed 's/[^A-Za-z0-9]/-/g')"
+RJOB=9f8e7d6c
+RSID="$RJOB-1111-4222-8333-444455556666"
+mkdir -p "$RPD"
+printf '{"type":"user","timestamp":"2026-10-01T09:00:00.000Z","cwd":"%s","sessionId":"%s"}\n' "$RINST" "$RSID" >"$RPD/$RSID.jsonl"
+cseal
+eq  "removed, no koto session store: exit 0" 0 "$RC"
+eq  "removed, no koto session store: the path and job come from the transcript" \
+    "ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|pr acme/widgets#600 $MERGE|handoff $URL|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+rm -rf "$RPD"
+
+# Only unrelated sessions and no transcript: no candidate, refused. One of
+# them is a canary whose header spells the `+` in w5's instance as a JSON
+# unicode escape: jq reads it as a path candidate() accepts, but grep's
+# fixed string doesn't match the file, so the prefilter never hands it on. A
+# seal that opened the unrelated headers by any means (head, sed, read) and
+# parsed them would recover the canary's path and turn ready, so the refusal
+# and the verdict's silence on that path hold without the head stand-in.
+# The doubled backslash is shell quoting: the file must hold the six-character
+# escape, never a plain `+`, or grep would match the canary and the case would
+# prove nothing.
+CANARY="$W/tsuku\\u002bw5-5e6f7a8b/public/repo"
+rfixture
+unrelated 20
+header canary "$CANARY"
+cseal
+case "$OUT" in "handoff-refused sealed:"*) ok "removed, only unrelated sessions: prints handoff-refused" ;; *) bad "removed, only unrelated sessions: prints handoff-refused" "$OUT $(cat "$T/seal.err")" ;; esac
+has "removed, only unrelated sessions: the verdict says why" "$(verdict | sed -n 2p)" "no instance path for w5 could be recovered"
+case "$(verdict)" in
+    *"$RINST"*) bad "removed, only unrelated sessions: no header was parsed, the canary's path isn't recovered" "$(verdict)" ;;
+    *) ok "removed, only unrelated sessions: no header was parsed, the canary's path isn't recovered" ;;
+esac
+eq  "removed, only unrelated sessions: no header was opened through head" "" "$(cat "$ST/opened")"
+
+# The canary's control: the same header with the slug also written plainly in
+# a later field, so grep hands it on. The seal must recover the instance path
+# from the escaped execution_dir; were candidate() to stop accepting it, the
+# case above would pass without testing anything.
+rfixture
+unrelated 4
+header canary "$CANARY" ',"note":"+w5-"'
+cseal
+eq  "removed, the canary's control: a header grep hands on recovers the canary's path" "$RVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+
+# Two sessions in two instances for the topic: two candidates, refused.
+rfixture
+unrelated 20
+header wk-rm "$RINST/public/repo"
+header wk-rm2 "$W/$(inst other 2b3c4d5e)"
+cseal
+case "$OUT" in "handoff-refused sealed:"*) ok "removed, two candidates: prints handoff-refused" ;; *) bad "removed, two candidates: prints handoff-refused" "$OUT $(cat "$T/seal.err")" ;; esac
+has "removed, two candidates: the verdict names both" "$(verdict | sed -n 2p)" "2 instance paths for w5 were recovered"
 
 printf '\nteardown-handoff: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

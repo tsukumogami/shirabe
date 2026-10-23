@@ -324,8 +324,28 @@ if rf_test_stage_copy "$STAGE_COPY" pr-body/one-separator warn $PR_PATHS; then
         fail "--pr-body: warn-stage only: rc $RC, findings $OUT"
     fi
     rf_test_verify_copy "--pr-body warn-only" "$STAGE_COPY" "$STAGE_LOG"
+    if grep -qF 'the findings above are of rules below it' "$WORKDIR/stderr"; then
+        pass "--pr-body: a passing run that printed a finding points at the findings above"
+    else
+        fail "--pr-body: warn-stage only: stderr $(cat "$WORKDIR/stderr")"
+    fi
 else
     fail "--pr-body: could not make a plugin copy with pr-body/one-separator at warn"
+fi
+
+# A finding of a retired rule prints nothing, so the closing line must not
+# point at findings above it.
+# shellcheck disable=SC2086 # the two paths, split on purpose
+if rf_test_stage_copy "$STAGE_COPY" pr-body/one-separator retired $PR_PATHS; then
+    run_copy
+    if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && ! grep -qF 'findings above' "$WORKDIR/stderr" \
+        && grep -qF 'every finding is of a retired rule, so none printed' "$WORKDIR/stderr"; then
+        pass "--pr-body: a retired-only finding prints nothing and the closing line says none printed"
+    else
+        fail "--pr-body: retired only: rc $RC, out [$OUT], stderr $(cat "$WORKDIR/stderr")"
+    fi
+else
+    fail "--pr-body: could not make a plugin copy with pr-body/one-separator at retired"
 fi
 
 # Violations the validator didn't list still fail the gate, through the
@@ -848,11 +868,115 @@ run --deferral-record --reason "$DREASON"
 FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
     "Reason: the host was busy" "Hosted CI is the build of record for this change.")
 run --deferral-record --reason "$DREASON"
-if [ "$RC" -eq 1 ] && [ -z "$(findings)" ] && grep -q 'deferral reason verbatim' "$WORKDIR/stderr"; then
-    pass "--deferral-record: a body with another reason fails (1), naming the reason, with no finding"
+if [ "$RC" -eq 1 ] && [ -z "$(findings)" ] \
+    && grep -qF "no line reading exactly: Reason: $DREASON" "$WORKDIR/stderr"; then
+    pass "--deferral-record: a body with another reason fails (1), naming the line it wants, with no finding"
 else
     fail "--deferral-record: wrong reason rc $RC, stdout [$OUT], stderr [$(cat "$WORKDIR/stderr")]"
 fi
+
+# A reason is a whole `Reason: <reason>` line (#1053). Each short reason below
+# is inside the required "hosted CI is the build of record" phrase, so a
+# substring match would pass a body that never records it.
+for short in CI hosted build "hosted CI" "build of record"; do
+    FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+        "Reason: the host was busy" "Hosted CI is the build of record for this change.")
+    run --deferral-record --reason "$short"
+    if [ "$RC" -eq 1 ] && grep -qF "no line reading exactly: Reason: $short" "$WORKDIR/stderr"; then
+        pass "--deferral-record: reason [$short], found only inside the build-of-record phrase, fails (1)"
+    else
+        fail "--deferral-record: reason [$short] inside the phrase rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+    fi
+done
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: CI" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason CI
+[ "$RC" -eq 0 ] && pass "--deferral-record: a short reason on its own Reason: line passes" \
+    || fail "--deferral-record: short reason on its line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "The $DREASON, so nothing ran here." "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 1 ] && pass "--deferral-record: the reason in prose, with no Reason: line, fails (1)" \
+    || fail "--deferral-record: reason in prose rc $RC"
+
+for shape in "- Reason: $DREASON" "Reason:  $DREASON" "reason: $DREASON" "Reason: $DREASON." \
+    " Reason: $DREASON" "**Reason:** $DREASON" "> Reason: $DREASON"; do
+    FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+        "$shape" "Hosted CI is the build of record for this change.")
+    run --deferral-record --reason "$DREASON"
+    [ "$RC" -eq 1 ] && pass "--deferral-record: a line [$shape] is not the Reason: line (1)" \
+        || fail "--deferral-record: line [$shape] rc $RC"
+done
+
+# One reason that starts another: the longer one's line must not satisfy the
+# shorter, in either order of the --reason flags.
+PREFIX="runner pool is down"
+LONGER="runner pool is down until Monday"
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $LONGER" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$PREFIX" --reason "$LONGER"
+if [ "$RC" -eq 1 ] && grep -qxF "check-pr-output: the PR body has no line reading exactly: Reason: $PREFIX" "$WORKDIR/stderr" \
+    && ! grep -qF "exactly: Reason: $LONGER" "$WORKDIR/stderr"; then
+    pass "--deferral-record: a reason that starts a longer one isn't satisfied by the longer one's line (1)"
+else
+    fail "--deferral-record: prefix reason rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+run --deferral-record --reason "$LONGER" --reason "$PREFIX"
+[ "$RC" -eq 1 ] && pass "--deferral-record: the same, with the longer reason given first (1)" \
+    || fail "--deferral-record: prefix reason, longer first, rc $RC"
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $PREFIX" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$LONGER"
+[ "$RC" -eq 1 ] && pass "--deferral-record: the shorter reason's line doesn't satisfy the longer reason (1)" \
+    || fail "--deferral-record: longer reason against the shorter line rc $RC"
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $PREFIX
+Reason: $LONGER
+Reason: CI" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$PREFIX" --reason "$LONGER" --reason CI
+[ "$RC" -eq 0 ] && pass "--deferral-record: three reasons, a prefix pair among them, each on its own Reason: line, pass" \
+    || fail "--deferral-record: three reason lines rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+
+# A body edited on GitHub's web form comes back with CRLF line ends.
+CR=$(printf '\r')
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: a deferred change" "A change.$CR
+$CR
+---$CR
+$CR
+## Verification$CR
+$CR
+Local verification did not run: it was deferred to hosted CI.$CR
+Reason: $DREASON$CR
+Hosted CI is the build of record for this change.$CR
+$CR
+Fixes #12")
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 0 ] && pass "--deferral-record: a CRLF body with the Reason: line passes" \
+    || fail "--deferral-record: CRLF body rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: a deferred change" "Local verification did not run.$CR
+Reason: the host was busy$CR
+Hosted CI is the build of record.$CR")
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 1 ] && pass "--deferral-record: a CRLF body without the Reason: line still fails (1)" \
+    || fail "--deferral-record: CRLF body, wrong reason, rc $RC"
+
+# GitHub renders a lone CR as a line break, so a CR inside what looks like
+# the Reason line splits it: none of these bodies shows `Reason: foo`.
+for split in "Reason: fo${CR}o" "Rea${CR}son: foo" "Reason: ${CR}foo"; do
+    FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+        "$split" "Hosted CI is the build of record for this change.")
+    run --deferral-record --reason foo
+    [ "$RC" -eq 1 ] && pass "--deferral-record: a lone CR splitting the Reason line fails (1) [$(printf '%s' "$split" | tr '\r' '^')]" \
+        || fail "--deferral-record: lone CR split [$(printf '%s' "$split" | tr '\r' '^')] rc $RC"
+done
+# ... and a lone CR before a real Reason line is a line break before it.
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Notes.${CR}Reason: foo" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason foo
+[ "$RC" -eq 0 ] && pass "--deferral-record: a Reason line after a lone CR is its own line and passes" \
+    || fail "--deferral-record: Reason line after a lone CR rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
 
 FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
     "Reason: $DREASON" "CI will run on the pull request.")
@@ -934,8 +1058,8 @@ fi
 
 # shellcheck disable=SC2086
 run --deferral-record --reason "$DREASON" --reason "a reason no child gave" --owned $OWNED_ARGS
-if [ "$RC" -eq 1 ] && grep -q 'verbatim: a reason no child gave' "$WORKDIR/stderr" \
-    && ! grep -q "verbatim: $DREASON\$" "$WORKDIR/stderr"; then
+if [ "$RC" -eq 1 ] && grep -qF 'exactly: Reason: a reason no child gave' "$WORKDIR/stderr" \
+    && ! grep -qF "exactly: Reason: $DREASON" "$WORKDIR/stderr"; then
     pass "--deferral-record: a second reason the body lacks fails (1), naming only that reason"
 else
     fail "--deferral-record: missing second reason rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
@@ -963,6 +1087,23 @@ run --deferral-record --reason "$DREASON" --reason
 run --deferral-record --reason "$DREASON" --reason ""
 [ "$RC" -eq 2 ] && pass "--deferral-record: an empty second reason can't be decided (2)" \
     || fail "--deferral-record: empty second reason rc $RC"
+# grep -F would read a reason with a newline as two patterns, either of which
+# would do, so a reason must be one line.
+# shellcheck disable=SC2086
+run --deferral-record --reason "a reason no child gave
+Hosted CI is the build of record for this change." --owned $OWNED_ARGS
+[ "$RC" -eq 2 ] && pass "--deferral-record: a reason over two lines can't be decided (2)" \
+    || fail "--deferral-record: two-line reason rc $RC"
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON$(printf '\r')" --owned $OWNED_ARGS
+[ "$RC" -eq 2 ] && pass "--deferral-record: a reason with a carriage return can't be decided (2)" \
+    || fail "--deferral-record: reason with a CR rc $RC"
+for blank in " " "   " "$(printf '\t')"; do
+    # shellcheck disable=SC2086
+    run --deferral-record --reason "$blank" --owned $OWNED_ARGS
+    [ "$RC" -eq 2 ] && pass "--deferral-record: a reason of spaces alone can't be decided (2)" \
+        || fail "--deferral-record: blank reason [$blank] rc $RC"
+done
 # shellcheck disable=SC2086
 run --deferral-record --owned $OWNED_ARGS
 [ "$RC" -eq 2 ] && pass "--deferral-record: --owned with no --reason is a usage error (2)" \

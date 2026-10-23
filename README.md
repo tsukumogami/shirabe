@@ -236,9 +236,12 @@ Claude Code session:
   and the plugin's pre-action hook runs it on every guarded command, so
   install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.20.0 or later.
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.21.0 or later.
   `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
-  `tsuku install` never downgrades a newer koto you already have. 0.20.0 hands
+  `tsuku install` never downgrades a newer koto you already have. 0.21.0
+  returns a passing check's warn-stage findings to the agent as advisories and
+  journals check findings and disputes (tsukumogami/koto#393), so a rule at
+  `warn` reaches the agent instead of behaving as `shadow`. 0.20.0 hands
   a decider-check criterion the decider couldn't answer back to the agent, who
   answers it with `koto decider answer`, where an older koto passed it
   unjudged; `/work-on`'s review-level check relies on it. 0.15.0 routes

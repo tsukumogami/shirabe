@@ -411,6 +411,86 @@ fn create(title: &str, body: &str) -> String {
 }
 
 #[test]
+fn env_that_only_unsets_and_sets_gets_the_plain_commands_decision() {
+    // #918: `env -u GH_TOKEN gh pr create|edit ...` is decided as the gh
+    // command written plainly, on both entry points, allowed or denied.
+    let d = std::env::temp_dir().join(format!("shirabe-eval-env-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(d.join("good.md"), format!("{GOOD}\n")).unwrap();
+    std::fs::write(d.join("bad.md"), format!("{BAD}\n")).unwrap();
+    let plains = [
+        create("feat: x", GOOD),
+        create("feat: x", BAD),
+        create("Add x", GOOD),
+        format!("gh pr edit 12 --body '{GOOD}'"),
+        format!("gh pr edit 12 --body '{BAD}'"),
+        "gh pr edit 12 --title \"bad title\"".to_string(),
+        "gh pr edit 12 --add-label x".to_string(),
+        "gh pr create --title \"feat: x\" -F good.md".to_string(),
+        "gh pr create --title \"feat: x\" -F bad.md".to_string(),
+        "gh pr create --title \"feat: x\" -F missing.md".to_string(),
+        "gh pr create --title \"feat: x\"".to_string(),
+        "gh pr create --fill".to_string(),
+        "gh pr create --title \"feat: x\" --body \"$BODY\"".to_string(),
+        format!("gh pr create --title 'feat: x' --body '{GOOD}' --body-file bad.md"),
+        "gh --hostname h pr create --title x".to_string(),
+        format!("gh pr create --title 'feat: x' --body 'x\n\n---\n\nGenerated with Claude Code'"),
+    ];
+    let prefixes = [
+        "env -u GH_TOKEN ",
+        "env -uGH_TOKEN ",
+        "env -u GH_TOKEN -u GITHUB_TOKEN ",
+        "env GH_TOKEN= ",
+        "env -u GH_TOKEN GH_HOST=github.com A=1 ",
+        "/usr/bin/env -u GH_TOKEN ",
+    ];
+    let mut denied = 0;
+    for plain in &plains {
+        let want = evaluate(&hook_in(plain, &d));
+        let want_all = evaluate_all(&hook_in(plain, &d), RegistrySource::Embedded);
+        denied += usize::from(want.is_some());
+        for p in prefixes {
+            let cmd = format!("{p}{plain}");
+            assert_eq!(evaluate(&hook_in(&cmd, &d)), want, "{cmd}");
+            assert_eq!(
+                evaluate_all(&hook_in(&cmd, &d), RegistrySource::Embedded),
+                want_all,
+                "{cmd}"
+            );
+        }
+    }
+    // The table holds both kinds of decision.
+    assert!(
+        denied > 0 && denied < plains.len(),
+        "{denied} of {}",
+        plains.len()
+    );
+
+    // Any other env form is still wrapped, whatever the body.
+    for p in [
+        "env -i ",
+        "env -- ",
+        "env -u GH_TOKEN -- ",
+        "env -u GH_TOKEN -i ",
+        "env -C /tmp ",
+        "env -P /usr/bin ",
+        "env --unset GH_TOKEN ",
+        "env -u GH_TOKEN --frobnicate ",
+        "env a-b=1 ",
+        "env -u GH_TOKEN NOTE='gh pr edit' ",
+        "env -u \"$X\" ",
+    ] {
+        let cmd = format!("{p}{}", create("feat: x", GOOD));
+        let r = evaluate(&hook_in(&cmd, &d)).unwrap_or_else(|| panic!("{cmd} should deny"));
+        assert_fail_closed(&r, "wrapped");
+    }
+    let cmd = format!("env -u GH_TOKEN -S \"{}\"", create("feat: x", GOOD));
+    assert_fail_closed(&evaluate(&hook_in(&cmd, &d)).expect("denies"), "wrapped");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
 fn one_broken_rule_is_one_block_with_the_relative_path() {
     let r = evaluate(&hook(&create("feat: x", BAD))).expect("denies");
     let reg = Registry::embedded().unwrap();
@@ -597,8 +677,14 @@ fn example_rows_for_pull_request_commands() {
     let deny = |cmd: &str| run(cmd).unwrap_or_else(|| panic!("{cmd} should deny"));
     assert_fail_closed(&deny("echo `gh pr create`"), "wrapped");
     assert_fail_closed(
-        &deny("env -u GH_TOKEN gh pr create --title \"feat: x\" --body \"Adds x.\""),
+        &deny("env -i gh pr create --title \"feat: x\" --body \"Adds x.\""),
         "wrapped",
+    );
+    // Behind an env that only unsets and sets variables, a create or edit
+    // gets the plain command's decision (#918).
+    assert_eq!(
+        run("env -u GH_TOKEN gh pr create --title \"feat: x\" --body \"Adds x.\""),
+        run("gh pr create --title \"feat: x\" --body \"Adds x.\""),
     );
     assert_fail_closed(
         &deny("printf 'x' > b.md && gh pr create --title \"feat: x\" -F b.md"),

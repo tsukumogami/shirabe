@@ -58,13 +58,48 @@ fi
 
 # A gh stub that prints $PR_BODY, so the gate can be run against any body.
 # Asked for the url too (check-closing-keyword.sh's `--json url,body --jq
-# '.url, .body'`), it prints $PR_URL on the first line, as gh does.
+# '.url, .body'`), it prints $PR_URL on the first line, as gh does. Asked for
+# a repository (`gh api --hostname <host> repos/<owner>/<name> --jq
+# .full_name`), it prints the name it was asked for, the new name when
+# $GH_RENAMED lists the name as `old=new` (GitHub's rename redirect, which gh
+# follows), and gh's 404 when $GH_MISSING lists it. $GH_API_FAIL makes every
+# lookup fail the way gh does: `rate` (403, rate limit), `limit` (429),
+# `net` (no connection) or `5xx` (502). $GH_API_SLEEP makes it wait that many
+# seconds before it answers, and $GH_PR_SLEEP the pull request read.
+# $GH_API_WARN makes a lookup that works also write to stderr.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
-# Stands in for `gh pr view --json body --jq .body` and
-# `gh pr view --json url,body --jq '.url, .body'`.
+# Stands in for `gh pr view --json body --jq .body`,
+# `gh pr view --json url,body --jq '.url, .body'` and
+# `gh api --hostname <host> repos/<owner>/<name> --jq .full_name`.
 [[ -z "${GH_LOG:-}" ]] || echo "$*" >> "$GH_LOG"
+if [[ "${1:-}" == "api" ]]; then
+    name=""
+    for a in "$@"; do [[ "$a" == repos/* ]] && name=${a#repos/}; done
+    lname=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+    [[ -z "${GH_API_SLEEP:-}" ]] || sleep "$GH_API_SLEEP"
+    # gh writes debug output to stderr when GH_DEBUG is set, even on success.
+    [[ -z "${GH_API_WARN:-}" ]] || echo "[git remote -v] debug: request took 0.2s" >&2
+    case "${GH_API_FAIL:-}" in
+        rate) echo '{"message":"API rate limit exceeded for user ID 1.","status":"403"}gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1 ;;
+        limit) echo 'gh: You have exceeded a secondary rate limit. (HTTP 429)' >&2; exit 1 ;;
+        net) echo 'error connecting to api.github.com' >&2; exit 1 ;;
+        5xx) echo 'gh: Bad Gateway (HTTP 502)' >&2; exit 1 ;;
+    esac
+    for m in ${GH_MISSING:-}; do
+        if [[ "$m" == "$lname" ]]; then
+            echo '{"message":"Not Found","status":"404"}gh: Not Found (HTTP 404)' >&2
+            exit 1
+        fi
+    done
+    for r in ${GH_RENAMED:-}; do
+        if [[ "${r%%=*}" == "$lname" ]]; then printf '%s\n' "${r#*=}"; exit 0; fi
+    done
+    printf '%s\n' "$name"
+    exit 0
+fi
+[[ -z "${GH_PR_SLEEP:-}" ]] || sleep "$GH_PR_SLEEP"
 if [[ "${GH_FAIL:-0}" == "1" ]]; then
     echo "gh: could not resolve to a PullRequest" >&2
     exit 1
@@ -87,6 +122,7 @@ run_gate() {
     cmd="${cmd//\{\{ISSUE_REPO\}\}/${ISSUE_REPO:-}}"
     cmd="${cmd//\{\{PLUGIN_ROOT\}\}/$PLUGIN_DIR}"
     PATH="$STUB_DIR:$PATH" PR_BODY="$body" PR_URL="${PR_URL:-}" GH_FAIL="${3:-0}" \
+        GH_RENAMED="${GH_RENAMED:-}" GH_MISSING="${GH_MISSING:-}" GH_API_FAIL="${GH_API_FAIL:-}" \
         sh -c "$cmd" >/dev/null 2>&1
 }
 
@@ -115,6 +151,10 @@ expect "a colon after the keyword is recognised" 0 42 "Fixes: #42"
 expect "an uppercase keyword with a colon is recognised" 0 42 "CLOSES: #42"
 # The documented forms only: a colon with nothing after it isn't one.
 expect "a colon with no space before #N is not recognised" 1 42 "Fixes:#42"
+# GitHub closes on these too (#1044), but the same-repository expression is
+# left as it was: it still asks for `Fixes #N`.
+expect "a same-repository GH-N is still not recognised" 1 42 "Fixes GH-42"
+expect "a same-repository markdown link is still not recognised" 1 42 "Fixes [#42](https://github.com/acme/app/issues/42)"
 
 # --- bodies that must fail ---------------------------------------------------
 expect "a body with no closing keyword fails" 1 42 "Part 1
@@ -236,6 +276,250 @@ expect "cross-repo: the issue's own URL beside the right reference passes" 0 42 
 Fixes https://github.com/acme/tracker/issues/42"
 expect "cross-repo: an issue URL that only ends in this repo passes" 0 42 "Fixes acme/tracker#42
 Fixes https://github.com/xacme/app/issues/42"
+
+# GitHub closes this repository's issue on `Fixes GH-N` and on the markdown
+# link `[#N](<this repo's issue URL>)` (#1044), so both fail, alone and beside
+# the right reference.
+expect "cross-repo: GH-N alone fails" 1 42 "Fixes GH-42"
+expect "cross-repo: GH-N beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes GH-42"
+expect "cross-repo: GH-N in lower case fails" 1 42 "Fixes acme/tracker#42
+fixes gh-42"
+expect "cross-repo: GH-N after a colon fails" 1 42 "Fixes acme/tracker#42
+Fixes: GH-42"
+expect "cross-repo: GH-N on the same line fails" 1 42 "Fixes acme/tracker#42, fixes GH-42"
+expect "cross-repo: GH-N with more digits passes" 0 42 "Fixes acme/tracker#42
+Fixes GH-421"
+expect "cross-repo: a markdown link to this repo's issue alone fails" 1 42 "Fixes [#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a markdown link to this repo's issue beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes [#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: the link with GH-N as its text fails" 1 42 "Fixes acme/tracker#42
+Fixes [GH-42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: the link with this repo's owner/repo#N as its text fails" 1 42 "Fixes acme/tracker#42
+Fixes [acme/app#42](https://github.com/acme/app/issues/42)"
+# A markdown link whose text and target both name the issue elsewhere passes:
+# either reading of the link closes that issue.
+expect "cross-repo: a link with the right text and target passes" 0 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: the right link beside the right reference passes" 0 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)
+Fixes acme/tracker#42"
+# The right text pointing anywhere else isn't that link, and doesn't count
+# on its own.
+expect "cross-repo: the right text pointing at another repository's issue fails" 1 42 "Fixes [acme/tracker#42](https://github.com/acme/other/issues/42)"
+expect "cross-repo: the right text pointing at another issue fails" 1 42 "Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/43)"
+expect "cross-repo: the right text pointing at a page that isn't an issue fails" 1 42 "Fixes [acme/tracker#42](https://example.com/notes)"
+expect "cross-repo: the right text pointing elsewhere passes beside the plain reference" 0 42 "Fixes acme/tracker#42
+See [acme/tracker#42](https://example.com/notes)"
+# The plain reference is read wherever it stands, inside a link's text too,
+# as before this change: telling link text apart is out of this gate's scope.
+expect "cross-repo: the right reference inside a link's text passes, as before" 0 42 "[Fixes acme/tracker#42](https://example.com/notes)"
+expect "cross-repo: the right reference in parentheses passes" 0 42 "(Fixes acme/tracker#42)"
+expect "cross-repo: this repo's issue URL in prose without a keyword passes" 0 42 "Fixes acme/tracker#42
+History: https://github.com/acme/app/issues/42 has the first report."
+
+# Spellings not measured to close aren't refused: a refusal blocks a pull
+# request. #1065 measures each one; flip its case here when it closes.
+expect "cross-repo: owner shorthand isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+Fixes acme#42"
+expect "cross-repo: an issue path without a host isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+Fixes acme/app/issues/42"
+expect "cross-repo: a link with text #N pointing elsewhere isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+Fixes [#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: a link to this repo's issue with other text isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+Fixes [the bug](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a link to this repo's issue without a keyword isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+See [#42](https://github.com/acme/app/issues/42)"
+expect "cross-repo: a reference-style link isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+Fixes [the bug][1]
+
+[1]: https://github.com/acme/app/issues/42"
+expect "cross-repo: emphasis around the keyword isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+**Fixes:** #42"
+expect "cross-repo: #N in parentheses isn't refused until measured (#1065)" 0 42 "Fixes acme/tracker#42
+Fixes (#42)"
+
+# Without the right reference the gate says no before any lookup, so a
+# failing lookup can't turn a plain no into a hold.
+GH_API_FAIL=rate expect "cross-repo: a body without the right reference fails before any lookup" 1 42 "Fixes acme/other#42"
+# A body of plain mentions costs nothing to read: no keyword, no lookup.
+MENTIONS="Fixes acme/tracker#42
+"
+for i in $(seq 1 1000); do MENTIONS="${MENTIONS}a/b$i#42 "; done
+# Nor does a body of closing references to repositories GitHub can't have.
+DOTS="Fixes acme/tracker#42
+"
+for i in $(seq 1 1000); do DOTS="${DOTS}Fixes o$i/.#42 "; done
+START=$SECONDS
+expect "cross-repo: 1000 closing references to . repositories pass" 0 42 "$DOTS"
+if (( SECONDS - START <= 5 )); then
+    pass "cross-repo: 1000 closing references to . repositories were read in $((SECONDS - START))s"
+else
+    fail "cross-repo: 1000 closing references to . repositories took $((SECONDS - START))s"
+fi
+START=$SECONDS
+expect "cross-repo: a body with 1000 plain mentions passes" 0 42 "$MENTIONS"
+if (( SECONDS - START <= 5 )); then
+    pass "cross-repo: 1000 plain mentions were read in $((SECONDS - START))s"
+else
+    fail "cross-repo: 1000 plain mentions took $((SECONDS - START))s"
+fi
+
+# A name the repository had before a rename still closes its issue N (#1044).
+# The stub answers the lookup as GitHub's redirect does.
+export GH_RENAMED="acme/old-app=acme/app"
+expect "cross-repo: this repo's old name alone fails" 1 42 "Fixes acme/old-app#42"
+expect "cross-repo: this repo's old name beside the right reference fails" 1 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+expect "cross-repo: this repo's old name in another case fails" 1 42 "Fixes acme/tracker#42
+Fixes ACME/Old-App#42"
+expect "cross-repo: this repo's old-name issue URL fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/old-app/issues/42"
+expect "cross-repo: this repo's old name as a link's text fails" 1 42 "Fixes acme/tracker#42
+Fixes [acme/old-app#42](https://github.com/acme/tracker/issues/42)"
+expect "cross-repo: this repo's old name on the line after the keyword fails" 1 42 "Fixes acme/tracker#42
+Fixes
+acme/old-app#42"
+expect "cross-repo: the measured link with this repo's old name fails" 1 42 "Fixes acme/tracker#42
+Fixes [#42](https://github.com/acme/old-app/issues/42)"
+GH_API_WARN=1 expect "cross-repo: a lookup that also writes to stderr still finds the old name" 1 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+# An old name right after another reference: the match that ends at N
+# mustn't eat the next one's first character.
+expect "cross-repo: an old-name reference run into another fails" 1 42 "Fixes acme/tracker#42
+Fixes x/y#42Fixes acme/old-app#42"
+# The name is the URL's two path segments, whatever the case of /issues/.
+expect "cross-repo: an old-name URL with /ISSUES/ fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/old-app/ISSUES/42"
+export GH_RENAMED="acme/old-app=acme/app acme/issues=acme/app"
+expect "cross-repo: an old name that is itself 'issues' fails" 1 42 "Fixes acme/tracker#42
+Closes https://github.com/acme/issues/issues/42"
+export GH_RENAMED="acme/old-app=acme/app jdoe_acme/app=acme/app"
+expect "cross-repo: an old name under an owner with an underscore fails" 1 42 "Fixes acme/tracker#42
+Fixes jdoe_acme/app#42"
+export GH_RENAMED="acme/old-app=acme/app"
+expect "cross-repo: this repo's old name without a keyword passes" 0 42 "Fixes acme/tracker#42
+See acme/old-app#42"
+expect "cross-repo: this repo's old name with another issue passes" 0 42 "Fixes acme/tracker#42
+Fixes acme/old-app#43"
+export GH_MISSING="acme/gone"
+expect "cross-repo: a repository that doesn't exist doesn't count" 0 42 "Fixes acme/tracker#42
+Fixes acme/gone#42"
+expect "cross-repo: a third repository's issue passes" 0 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+# A private repository the token can't read answers 404 as well, and doesn't
+# count either: the token reads this repository, so it isn't an old name.
+export GH_MISSING="acme/gone acme/private-thing"
+expect "cross-repo: a private repository the token can't read doesn't count" 0 42 "Fixes acme/tracker#42
+Fixes acme/private-thing#42"
+
+# Any other failure decides nothing: exit 3, which no pr_creation edge
+# routes, so the state holds. Not a pass, and not done_blocked for a blip.
+for kind in rate limit net 5xx; do
+    GH_API_FAIL=$kind expect "cross-repo: a lookup failing with $kind holds the gate" 3 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+done
+GH_API_FAIL=rate expect "cross-repo: a failed lookup of an old name holds rather than passing" 3 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+GH_API_FAIL=rate expect "cross-repo: no lookup is needed for the right reference alone" 0 42 "Fixes acme/tracker#42
+See acme/other#42"
+GH_API_FAIL=rate expect "cross-repo: this repo's own reference still fails before any lookup" 1 42 "Fixes acme/tracker#42
+Fixes acme/other#42
+Fixes #42"
+
+# A slow answer is cut off at the lookups' time, and the gate holds well
+# inside koto's 30-second gate default instead of being killed by it. The
+# answer would take 20s; anything under 8 means it was cut off, with room
+# for a loaded runner.
+START=$SECONDS
+GH_API_SLEEP=20 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=1 \
+    expect "cross-repo: a lookup slower than its time holds the gate" 3 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+if (( SECONDS - START < 8 )); then
+    pass "cross-repo: the slow lookup was cut off after about its time ($((SECONDS - START))s)"
+else
+    fail "cross-repo: the slow lookup ran $((SECONDS - START))s against a 1s limit"
+fi
+GH_API_SLEEP=1 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=15 \
+    expect "cross-repo: a slow lookup inside its time still answers" 1 42 "Fixes acme/tracker#42
+Fixes acme/old-app#42"
+# The time counts from the script's start, so a slow pull request read
+# leaves the lookups less of it.
+GH_PR_SLEEP=2 CHECK_CLOSING_KEYWORD_LOOKUP_SECS=1 \
+    expect "cross-repo: a slow pull request read spends the lookups' time" 3 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+# A failure that doesn't clear ends once the body stops closing the issue in
+# that repository, as the message says.
+GH_API_FAIL=rate expect "cross-repo: dropping the keyword ends a lookup that keeps failing" 0 42 "Fixes acme/tracker#42
+Refs acme/other#42"
+for bad in 0 x 1s; do
+    CHECK_CLOSING_KEYWORD_LOOKUP_SECS=$bad \
+        expect "a lookup time of [$bad] is a usage error" 2 42 "Fixes acme/tracker#42"
+done
+unset GH_RENAMED GH_MISSING
+
+# The lookup runs only for another repository the body closes issue N in, on
+# the pull request's host.
+GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
+export GH_LOG
+run_gate 42 "Fixes acme/tracker#42
+See acme/other#42 and Fixes acme/app#421"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "cross-repo: the right reference alone makes no lookup"
+else
+    fail "cross-repo: the right reference alone made a lookup: $(cat "$GH_LOG")"
+fi
+: > "$GH_LOG"
+run_gate 42 "Fixes acme/tracker#42
+Fixes acme/other#42"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 1 ]] && grep -qx 'api --hostname github.com repos/acme/other --jq .full_name' "$GH_LOG"; then
+    pass "cross-repo: another repository is looked up once, on the PR's host"
+else
+    fail "cross-repo: unexpected lookups: $(cat "$GH_LOG")"
+fi
+
+# The body's size can't turn into calls: a name is looked up once however
+# often it appears, in whatever case or form, and a body that closes issue N
+# in more than five other repositories fails with no lookup at all.
+: > "$GH_LOG"
+run_gate 42 "Fixes acme/tracker#42
+Fixes acme/other#42, fixes ACME/Other#42, closes https://github.com/acme/other/issues/42
+Fixes [acme/other#42](https://github.com/acme/other/issues/42)"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 1 ]]; then
+    pass "cross-repo: one repository named many ways is looked up once"
+else
+    fail "cross-repo: one repository made $(grep -c '^api' "$GH_LOG") lookups"
+fi
+FIVE="Fixes acme/tracker#42"
+for i in 1 2 3 4 5; do FIVE="$FIVE
+Fixes acme/r$i#42"; done
+SIX="$FIVE
+Fixes acme/r6#42"
+expect "cross-repo: five other repositories are looked up and pass" 0 42 "$FIVE"
+: > "$GH_LOG"
+expect "cross-repo: six other repositories fail" 1 42 "$SIX"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "cross-repo: six other repositories fail before any lookup"
+else
+    fail "cross-repo: six other repositories made lookups: $(cat "$GH_LOG")"
+fi
+MANY="Fixes acme/tracker#42"
+for i in $(seq 1 200); do MANY="$MANY
+Fixes acme/r$i#42 and see acme/s$i#42"; done
+: > "$GH_LOG"
+expect "cross-repo: a body naming 200 other repositories fails" 1 42 "$MANY"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "cross-repo: a body naming 200 other repositories makes no lookup"
+else
+    fail "cross-repo: a body naming 200 other repositories made $(grep -c '^api' "$GH_LOG") lookups"
+fi
+: > "$GH_LOG"
+expect "cross-repo: mentions without a keyword don't count toward the limit" 0 42 "$FIVE
+See acme/s1#42, acme/s2#42, acme/s3#42 and https://github.com/acme/s4/issues/42"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 5 ]]; then
+    pass "cross-repo: only the five closing references were looked up"
+else
+    fail "cross-repo: expected 5 lookups, got $(grep -c '^api' "$GH_LOG")"
+fi
+unset GH_LOG
 
 # A `.` in the recorded name is a literal dot, not any character.
 export ISSUE_REPO=acme/.github
