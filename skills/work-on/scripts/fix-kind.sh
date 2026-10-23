@@ -336,7 +336,7 @@ step"
     # The report is stored on every path, once: a fix declared at analysis
     # before this ever ran still needs one for its red.
     local src rsrc
-    src=$(printf "%s\n" "$sources" | head -n 1)
+    src=$(head -n 1 <<<"$sources")
     rsrc=$(snapshot_report "$s" "$fr" "$WORK/body" "$log") || die 66 "could not store $REPORT_KEY"
     if [ -z "$last" ] || { [ "$last" = change ] && [ "$want" = fix ]; }; then
         jq -nc --arg ts "$(now)" --arg kind "$want" --arg source "${src:-none}" --arg sources "$sources" \
