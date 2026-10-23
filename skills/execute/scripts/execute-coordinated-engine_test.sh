@@ -221,7 +221,9 @@ action_timed_out() {
 # states' fallbacks say to tick again, which re-runs the action, so tick does
 # that up to TICK_RETRIES times. A timeout that outlasts them fails here,
 # naming the state, so the case reports the cause rather than a terminal or a
-# leg payload that never arrived.
+# leg payload that never arrived. Three retries: an action that takes past
+# 30 seconds four times running is stuck, not slow, and each retry can cost
+# the suite another 30.
 TICK_RETRIES=3
 tick() {
     local s="$1" n=0 why flag=""
