@@ -77,10 +77,15 @@ stateDiagram-v2
     offload_canary --> offload_arm_withheld : gates.offload_arm.exit_code: 0
     offload_canary --> offload_arm_preloaded : gates.offload_arm.exit_code: 1
     offload_canary --> review_level_choice : gates.offload_arm.exit_code: 3
-    pass_counting --> finalization : gates.fix_green.exit_code: 0
-    pass_counting --> implementation : counting_status: green_failed, gates.fix_green.exit_code: 1
-    pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 1
-    pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 2
+    pass_counting --> finalization : gates.fix_green.exit_code: 0, gates.tests_counted.exit_code: 0
+    pass_counting --> done_blocked : gates.tests_counted.exit_code: 3
+    pass_counting --> implementation : counting_status: green_failed, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
+    pass_counting --> implementation : counting_status: green_failed, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 1
+    pass_counting --> implementation : counting_status: declined, gates.tests_counted.exit_code: 1
+    pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
+    pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 2, gates.tests_counted.exit_code: 0
+    pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 1
+    pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 2
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
     plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
@@ -259,6 +264,9 @@ stateDiagram-v2
     end note
     note left of pass_counting
         gate: fix_green
+    end note
+    note left of pass_counting
+        gate: tests_counted
     end note
     note left of plan_context_injection
         gate: context_artifact

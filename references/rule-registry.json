@@ -2368,6 +2368,40 @@
       }
     },
     {
+      "id": "test-change/held",
+      "status": "active",
+      "summary": "A pass came with an edited test or an observation that has no live acceptance",
+      "text": {
+        "path": "skills/work-on/references/red-first.md",
+        "first": "| `test-change/held` | A pass came with"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/test-change.sh",
+        "mode": "status"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/test-change_test.sh",
+        "skills/work-on/scripts/test-change-routes_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pass_counting"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-23",
+      "gates": [
+        "work-on:pass_counting:tests_counted"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key."
+    },
+    {
       "id": "verification/bad-map",
       "status": "active",
       "summary": "The verification map does not parse",

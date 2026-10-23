@@ -225,7 +225,7 @@ mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 # Each fake logs `<script> <args>` and exits with the number in
 # $RC_DIR/<script><first-argument>, else $RC_DIR/<script>, else 0.
 for s in panel-scope.sh review-level.sh has-commits.sh run-verification.sh check-verification.sh \
-         check-pr-output.sh find-anchor-plan.sh red-first.sh; do
+         check-pr-output.sh find-anchor-plan.sh red-first.sh test-change.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "$s \$*" >> "$LOG"
@@ -375,8 +375,8 @@ build() {
 N=0
 # run_entry <source state> <var>...: builds a fixture from the shipped
 # <source state>, verification, verification_deferred, pass_counting and
-# done_blocked (its fix_green gate a fake that passes, as for a change),
-# inits it with the given --var arguments and ticks once. Sets S, STATE and
+# done_blocked (its fix_green and tests_counted gates fakes that pass, as for
+# a change with no edited test), inits it with the given --var arguments and ticks once. Sets S, STATE and
 # RESP; the fakes' calls are in $LOG.
 run_entry() {
     local src="$1"; shift

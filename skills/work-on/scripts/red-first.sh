@@ -59,11 +59,12 @@
 #                fix, and for a fix with a red or a before-observation.
 #                Otherwise holds with finding red-first/no-red.
 #   check-green  pass_counting's fix_green gate. Passes for a unit that isn't
-#                a fix, and for a fix whose green ran the red's command at
-#                HEAD and exited 0. A fix recorded by observations is held with
-#                a `refused:` line: observations wait for an acceptance, which
-#                this version can't record. Every hold prints finding
-#                red-first/no-green.
+#                a fix, for a fix whose green ran the red's command at HEAD
+#                and exited 0, and for a fix recorded by an observation pair
+#                that a live acceptance covers (test-change.sh covered). An
+#                observation pair without one is held with a `refused:` line
+#                saying observations wait for acceptance. Every hold prints
+#                finding red-first/no-green.
 #
 # The record (`red_first.json`, schema shirabe-red-first/v1):
 #   red           command (argv), base, head, tests and harness ([{path,
@@ -655,8 +656,14 @@ cmd_check_green() {
     fi
     if jq -e '.observations.before != null' "$TMP/record" >/dev/null; then
         if jq -e '.observations.after != null' "$TMP/record" >/dev/null; then
-            echo "refused: observations wait for acceptance; an observation pair counts only once someone other than the run accepts it, which this version of /work-on can't record yet"
-            gate_hold red-first/no-green "the unit's red and green are observations, which wait for an acceptance"
+            # An observation pair counts once a live acceptance covers both
+            # digests; test-change.sh holds the ledger and asks the rule.
+            if "$HERE/test-change.sh" covered "$s" observation:before observation:after > "$TMP/covered" 2>>"$ERRLOG"; then
+                echo "pass: the observation pair has a live acceptance"
+                exit 0
+            fi
+            echo "refused: observations wait for acceptance; an observation pair counts only once someone other than the run accepts it ($(paste -sd ';' "$TMP/covered" | sed 's/;/; /g'))"
+            gate_hold red-first/no-green "the unit's red and green are observations that no live acceptance covers yet; mint a seat with test-change.sh seat $s"
         fi
         gate_hold red-first/no-green "no after-observation is recorded; record one with red-first.sh observe $s --phase after --file <observation.md>"
     fi

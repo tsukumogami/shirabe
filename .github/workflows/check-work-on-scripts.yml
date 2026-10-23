@@ -52,6 +52,9 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      # test-change.sh sources the interim acceptance rule.
+      - 'scripts/lib/acceptance-rule.sh'
+      - 'scripts/lib/acceptance-rule_test.sh'
       # The suites that walk work-on.md past fix_determination serve its gh
       # call from this stand-in.
       - 'scripts/lib/gh-issue-testlib.sh'
@@ -92,6 +95,8 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/acceptance-rule.sh'
+      - 'scripts/lib/acceptance-rule_test.sh'
       - 'scripts/lib/gh-issue-testlib.sh'
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
@@ -485,6 +490,26 @@ jobs:
       - name: Run red-first route tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/red-first-routes_test.sh
+
+      # The interim acceptance rule called directly, and test-change.sh (the
+      # ledger's header, the seat, accept and decline, the status gate)
+      # against repository fixtures through a koto stand-in. No engine; the
+      # macOS leg runs both on the floor too.
+      - name: Run acceptance rule tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/acceptance-rule_test.sh
+
+      - name: Run test change tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/test-change_test.sh
+
+      # Drives the shipped work-on.md through a real koto: an edited test held
+      # at pass_counting until a minted seat accepts it, refused for the run
+      # and an unminted name, held again after a later edit, declines back to
+      # implementation and the third to done_blocked. Skips without koto.
+      - name: Run test change route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/test-change-routes_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

@@ -25,7 +25,9 @@
 #   check-green  passes for a non-fix and for a green at HEAD; holds with no
 #              green, a failed green, and a green at an older head; holds an
 #              observation pair with a `refused:` line saying observations
-#              wait for acceptance; every hold prints red-first/no-green
+#              wait for acceptance, and passes it once a minted seat's
+#              acceptance covers both digests; every hold prints
+#              red-first/no-green
 #
 # Usage: bash skills/work-on/scripts/red-first_test.sh
 set -uo pipefail
@@ -318,6 +320,15 @@ run check-green o1
 eq "an observation pair: check-green exit 1" 1 "$RC"
 has "an observation pair: a refused line saying observations wait for acceptance" "refused: observations wait for acceptance" "$OUT"
 has "an observation pair: finding red-first/no-green" '"rule_id":"red-first/no-green"' "$OUT"
+# A minted seat's acceptance of both digests, as test-change.sh writes it.
+jq -nc --arg wt "$R" --arg base "$BASE" '{event: "header", author: "agent:o1", impl_base: $base, worktree: $wt, person_required: false}' > "$STORE/o1/test_change_ledger.jsonl"
+jq -nc '{event: "seat", identity: "agent:o1/accept-1"}' >> "$STORE/o1/test_change_ledger.jsonl"
+jq -c '{event: "accept", identity: "agent:o1/accept-1", kind: "agent", authority: "reviewer",
+        files: [{path: "observation:before", digest: .observations.before.digest},
+                {path: "observation:after", digest: .observations.after.digest}]}' "$STORE/o1/red_first.json" >> "$STORE/o1/test_change_ledger.jsonl"
+run check-green o1
+eq "an accepted observation pair: check-green exit 0" 0 "$RC"
+has "an accepted observation pair: passes" "pass: the observation pair has a live acceptance" "$OUT"
 
 # --- usage -------------------------------------------------------------------------
 run red "$S" --passage-file "$W/passage" -- true

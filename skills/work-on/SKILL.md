@@ -164,9 +164,15 @@ the rules; this is the route.
   before-observation instead. `red_recorded` holds the run here until one exists.
 - **`pass_counting`**, after every passing check (verification's exit 0, or a
   deferral to hosted CI). A fix needs its green, the red's command re-run at HEAD
-  with `red-first.sh green` and exiting 0, before `fix_green` lets it finalize. A
-  fix recorded by observations stays held here: observations wait for an
-  acceptance, which this version can't record yet.
+  with `red-first.sh green` and exiting 0, before `fix_green` lets it finalize.
+  `tests_counted` (`scripts/test-change.sh status`) holds a unit whose committed
+  diff edits a test (removes a line, deletes it, renames it with a change) or
+  that rests on observations, until someone other than the run accepts it. In a
+  repository that isn't person-required the run mints an acceptance seat with
+  `test-change.sh seat`, commissions it with the brief the script prints, and the
+  seat accepts or declines under its minted identity; nothing waits for a person.
+  A decline returns the run to implementation, and the third decline of the same
+  tests ends it at `done_blocked`. A unit that only adds tests is counted at once.
 
 ### Finalization and No Silent Deferral
 
@@ -563,6 +569,16 @@ leg, since one leg answers one session.
   `check-green` as the `red_recorded` and `fix_green` gates, which report
   `red-first/no-red` and `red-first/no-green`. `scripts/red-first_test.sh` and
   `scripts/red-first-routes_test.sh` are its harnesses.
+- `scripts/test-change.sh init|classify|note|seat|accept|decline|status|covered`
+  — the held test change (`references/red-first.md`), the only writer of the
+  `test_change_ledger.jsonl` context key. koto runs `init --entry` in
+  `fix_determination`'s action and `status` as `pass_counting`'s `tests_counted`
+  gate (finding `test-change/held`); the agent runs `note` while implementing and
+  `seat` at a hold, and the seat runs `accept` or `decline`. Every decision is
+  asked of `scripts/lib/acceptance-rule.sh`, the interim rule, which a later
+  shared decision rule replaces in that one file. Exit codes are in its header;
+  `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
+  `scripts/lib/acceptance-rule_test.sh` are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
   maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live

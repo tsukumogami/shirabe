@@ -784,8 +784,11 @@ check_edge_traversal edge-issues FINAL_BLOCK  "finalization issues_found"  to_fi
 
 # Verification's failed edge, driven for real: a branch whose change touches
 # fail.txt selects the map's `false` command, the verdict exits 1, and koto
-# routes back to implementation, clearing the keys as it enters.
-git checkout -q -b impl/verify-fails
+# routes back to implementation, clearing the keys as it enters. The branch is
+# cut from main, so the base to_implementation records (the commit before the
+# change) is the merge-base, which test-change.sh init accepts as where the
+# unit started.
+git checkout -q -b impl/verify-fails main
 echo fail > fail.txt
 git add fail.txt
 git commit -q -m "feat: a change verification fails"

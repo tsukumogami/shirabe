@@ -107,15 +107,17 @@ case "$1" in
         esac
         ;;
     init)
-        s="$2"; v=""; attach=0
+        s="$2"; v=""; u="-"; attach=0
         for a in "$@"; do
             case "$a" in
                 --attach-live) attach=1 ;;
                 REVIEW_LEVEL=*) v="${a#REVIEW_LEVEL=}" ;;
+                UNIT_KIND=*) u="${a#UNIT_KIND=}" ;;
             esac
         done
         mkdir -p "$SHIM_STORE/$s"
         echo "$v" >> "$SHIM_STORE/$s/.initlog"
+        echo "$u" >> "$SHIM_STORE/$s/.unitlog"
         [ "$attach" -eq 1 ] || { echo "koto shim: init without --attach-live" >&2; exit 2; }
         if [ -n "${SHIM_FAIL_INIT:-}" ]; then
             echo '{"code":"template_mismatch","error":"refused"}'; exit 2
@@ -441,6 +443,22 @@ run set "$SESSION" standard
 expect_rc "a set to the ledger's level" 0
 [ "$(ledger)" = "$LB" ] && pass "it appends nothing" || fail "it appended [$(ledger | tail -n 1)]"
 agree "after a set to the ledger's level"
+
+echo "--- script: a level change keeps the fix determination"
+
+# An attach resets every rebind variable it doesn't pass, so a set after
+# fix_determination passes UNIT_KIND as the fix-kind ledger records it, and
+# leaves it out while no kind is recorded.
+fixture keep-kind
+run init "$SESSION" "" ""
+run set "$SESSION" light
+[ "$(tail -n 1 "$(store .unitlog)")" = "-" ] && pass "before a determination, set passes no UNIT_KIND" \
+    || fail "set passed UNIT_KIND [$(tail -n 1 "$(store .unitlog)")] with no determination"
+printf '{"ts":"t","event":"determine","kind":"fix","source":"label:bug"}\n' > "$(store fix_kind.jsonl)"
+run set "$SESSION" standard
+expect_rc "a raise after a fix determination" 0
+[ "$(tail -n 1 "$(store .unitlog)")" = fix ] && pass "a raise after a fix determination passes UNIT_KIND=fix" \
+    || fail "the raise passed UNIT_KIND [$(tail -n 1 "$(store .unitlog)")]"
 
 # ==============================================================================
 echo "--- script: facts on fixture commits"

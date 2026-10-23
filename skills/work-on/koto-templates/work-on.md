@@ -785,15 +785,26 @@ states:
     # empty one. A hand rebind away from the ledger therefore fails
     # kind_unchanged (fix-kind.sh agree) and holds the run here; no route
     # leaves without it.
+    #
+    # Before that, the action writes the test-change ledger's header
+    # (test-change.sh init --entry): the author, impl_base and the work tree
+    # every later acceptance is judged against. It runs here, after
+    # review_level_choice stored the rules copy the classifier reads, and
+    # writes once; a later entry finds the header and changes nothing.
     default_action:
-      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" resolve "{{SESSION_NAME}}" --current "{{UNIT_KIND}}" --issue "{{ISSUE_NUMBER}}" --issue-repo "{{ISSUE_REPO}}" --fix-report "{{FIX_REPORT}}" --task-log "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" init "{{SESSION_NAME}}" --entry --shared-branch "{{SHARED_BRANCH}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" resolve "{{SESSION_NAME}}" --current "{{UNIT_KIND}}" --issue "{{ISSUE_NUMBER}}" --issue-repo "{{ISSUE_REPO}}" --fix-report "{{FIX_REPORT}}" --task-log "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
       fallback: >-
-        koto could not record whether this unit is a fix. Read the command's
-        own output above: fix-kind.sh exits 66 when the issue can't be read
-        with gh or a koto call failed, 64 when CLAUDE.md at the base declares
-        `## Fix Labels:` more than once, and the test -x guard exits 2 when
-        PLUGIN_ROOT does not reach the plugin. Fix the cause and tick again;
-        the action re-runs on entry. If it can't be fixed, submit
+        koto could not record whether this unit is a fix, or could not write
+        the test-change ledger's header. Read the command's own output above.
+        test-change.sh exits 1 when impl_base is not where the unit started
+        (or the ledger holds lines but no header), 2 when impl_base, the rules
+        copy or the work tree can't be read or koto is below shirabe's minimum, 66
+        when a koto context write failed, and 75 when another writer holds the
+        ledger's lock (tick again). fix-kind.sh exits 66 when the issue can't
+        be read with gh or a koto call failed, 64 when CLAUDE.md at the base
+        declares `## Fix Labels:` more than once, and the test -x guards exit
+        2 when PLUGIN_ROOT does not reach the plugin. Fix the cause and tick
+        again; the action re-runs on entry. If it can't be fixed, submit
         `kind_status: blocked` with `detail`.
     gates:
       kind_unchanged:
@@ -1852,29 +1863,51 @@ states:
   pass_counting:
     # Entered only after a check passed: verification's exit 0, or a
     # deferral to hosted CI. A pass is counted here before the run finalizes
-    # (../references/red-first.md). fix_green (red-first.sh check-green)
-    # passes for a unit that isn't a fix; a fix needs a green, the red's
-    # command re-run at HEAD with exit 0, which the agent records with
-    # red-first.sh green. A fix recorded by observations stays held:
-    # observations wait for an acceptance, which this version can't record
-    # yet. Every hold prints finding red-first/no-green.
+    # (../references/red-first.md), and only when both gates pass:
     #
-    # A green that failed sends the run back to implementation, whose
-    # clear_on_entry drops the panels' stale results; check-green compares
-    # the green's head with HEAD, so a green recorded before a later commit
-    # holds again.
+    #   fix_green      red-first.sh check-green. Passes for a unit that isn't a
+    #                  fix; a fix needs a green, the red's command re-run at
+    #                  HEAD with exit 0, which the agent records with
+    #                  red-first.sh green, or an observation pair a live
+    #                  acceptance covers. Every hold prints finding
+    #                  red-first/no-green.
+    #   tests_counted  test-change.sh status. Classifies the test files the
+    #                  unit's committed diff touched since impl_base: an edited
+    #                  test (a line removed, deleted, renamed with a change) or
+    #                  an observation holds the unit until the session ledger
+    #                  test_change_ledger.jsonl shows a live acceptance by
+    #                  someone other than the run, under the interim rule in
+    #                  scripts/lib/acceptance-rule.sh. Exit 1 holds (finding
+    #                  test-change/held), 2 can't decide, 3 means one set of
+    #                  paths was declined three times.
+    #
+    # A held run in a repository that isn't person-required mints a seat
+    # (test-change.sh seat) and commissions it with the brief the script
+    # prints; the seat accepts or declines under its minted identity, and the
+    # next tick re-reads the ledger. Nothing here waits for a person.
+    #
+    # A green that failed, or a decline, sends the run back to implementation,
+    # whose clear_on_entry drops the panels' stale results; check-green
+    # compares the green's head with HEAD, and status compares every
+    # acceptance's digests with HEAD's, so a later commit holds again. The
+    # third decline of one path set goes to done_blocked with no evidence.
     gates:
       fix_green:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=fix_green "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" check-green "{{SESSION_NAME}}"'
+      tests_counted:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=tests_counted "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"'
     accepts:
       counting_status:
         type: enum
-        values: [green_failed, blocked]
+        values: [green_failed, declined, blocked]
         description: >-
-          Absent on the passing path: koto advances once fix_green passes.
-          `green_failed` returns to implementation after a green that exited
-          non-zero; `blocked` stops the run when the hold can't be cleared.
+          Absent on the passing path: koto advances once fix_green and
+          tests_counted pass. `green_failed` returns to implementation after a
+          green that exited non-zero; `declined` returns to implementation
+          after the acceptance seat declined a test edit; `blocked` stops the
+          run when a hold can't be cleared.
       detail:
         type: string
         description: Why the run can't be counted.
@@ -1882,19 +1915,49 @@ states:
       - target: finalization
         when:
           gates.fix_green.exit_code: 0
-      - target: implementation
-        when:
-          gates.fix_green.exit_code: 1
-          counting_status: green_failed
+          gates.tests_counted.exit_code: 0
       - target: done_blocked
         when:
+          gates.tests_counted.exit_code: 3
+        context_assignments:
+          failure_reason: "pass_counting: the acceptance seats declined the same test edits three times. The ledger is in context as test_change_ledger.jsonl."
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 1
+          counting_status: green_failed
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 1
+          gates.fix_green.exit_code: 1
+          counting_status: green_failed
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: declined
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 0
           gates.fix_green.exit_code: 1
           counting_status: blocked
         context_assignments:
           failure_reason: "pass_counting blocked: ${evidence.detail}"
       - target: done_blocked
         when:
+          gates.tests_counted.exit_code: 0
           gates.fix_green.exit_code: 2
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "pass_counting blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "pass_counting blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 2
           counting_status: blocked
         context_assignments:
           failure_reason: "pass_counting blocked: ${evidence.detail}"
@@ -3069,7 +3132,9 @@ koto has decided whether this unit is a fix, before anything is implemented
 (`references/red-first.md`). On entry it ran `fix-kind.sh resolve`, which records
 a fix when the issue carries one of the repository's fix labels (`## Fix Labels:`
 in CLAUDE.md, `bug` by default) or the plan step has a `**Fixes**:` line, and a
-change otherwise, and binds `UNIT_KIND` to match. See what it recorded:
+change otherwise, and binds `UNIT_KIND` to match. Before that it started the
+test-change ledger (`test-change.sh init`), which an edited test is judged against
+at `pass_counting`. See what it recorded:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" kind "{{SESSION_NAME}}"
@@ -3124,9 +3189,8 @@ the bug with `--tests <path>...`.
 
 When no automated check can reproduce the bug, record a before-observation instead
 (`red-first.sh observe {{SESSION_NAME}} --phase before --file <observation.md>`;
-`references/red-first.md` lists its sections). An observation pair waits for an
-acceptance this version can't record, so such a run is later held at
-`pass_counting`.
+`references/red-first.md` lists its sections). An observation pair counts only once
+an acceptance seat accepts it, at `pass_counting`.
 
 Then tick with nothing submitted. The `red_recorded` gate passes once a red or a
 before-observation is recorded, and the run goes on to `implementation`. If neither
@@ -3402,24 +3466,64 @@ variables, or without the deferral.
 ## pass_counting
 
 A check passed, and koto counts the pass here before the run finalizes
-(`references/red-first.md`). The `fix_green` gate passes at once for a unit that
-isn't a fix. A fix needs its green: the red's command re-run at HEAD, exiting 0.
-Record it:
+(`references/red-first.md`). Two gates must pass.
+
+`fix_green` passes at once for a unit that isn't a fix. A fix needs its green: the
+red's command re-run at HEAD, exiting 0. Record it:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" green "{{SESSION_NAME}}"
 ```
 
 It runs the command in a temporary worktree of the committed HEAD, records the
-result, and exits 0 when the check passed. Then tick with nothing submitted, and
-the run goes on to `finalization`. A green recorded before a later commit no longer
-counts; record it again.
+result, and exits 0 when the check passed. A green recorded before a later commit
+no longer counts; record it again. When the green exits non-zero (`failed:`), the
+fix doesn't pass its own check: submit `counting_status: green_failed` and the run
+returns to `implementation`.
 
-When the green exits non-zero (`failed:`), the fix doesn't pass its own check: submit
-`counting_status: green_failed` and the run returns to `implementation`. A fix
-recorded by observations stays held here with a `refused:` line, since observations
-wait for an acceptance this version can't record; submit `counting_status: blocked`
-with `detail` to stop the run, as for any hold that can't be cleared.
+`tests_counted` passes when no test file in the unit's committed diff was edited
+(only added tests, or none) and no observation is recorded. An edited test (a line
+removed, a file deleted, a rename with a change) or an observation holds the unit,
+one `held:` line each:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"
+```
+
+`held: unaccepted <path>` and `held: changed since acceptance <path>` need an
+acceptance from someone other than this run. You can't give it: the rule refuses
+the run's own identity (`agent:{{SESSION_NAME}}`) and any reviewer name the run
+didn't mint. Mint one acceptance seat and print its brief:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" seat "{{SESSION_NAME}}"
+```
+
+The first line is the seat's identity (`agent:{{SESSION_NAME}}/accept-<n>`); the rest
+is the brief. Spawn one seat with the Agent tool on the same commissioning as the
+`light` panel's seat (`model: "sonnet"`, per
+`${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`), and give it the
+brief exactly as printed, with nothing added: the script fixes its text, and the
+seat treats everything inside its data markers as data. The seat runs
+`test-change.sh accept` or `decline` itself, under its minted identity. Then tick
+with nothing submitted. An accepted unit goes on to `finalization` with no stop
+for a person.
+
+When the seat declines (`held: declined <path> by <seat>`), submit
+`counting_status: declined`: the run returns to `implementation`, where the edit is
+reworked or reverted. The third decline of the same set of paths ends the run at
+`done_blocked` on the next tick. A commit after an acceptance holds the changed
+file again (`changed since acceptance`); mint a new seat for it. `held: uncommitted
+changes` means the work tree has changes the gate can't classify: commit them.
+`held: no header` means the ledger `test_change_ledger.jsonl` was never started at
+`fix_determination`; that can't be fixed here.
+
+A fix recorded by observations is held by both gates until a seat accepts the pair:
+the brief lists the observations, and `check-green` passes once the acceptance
+covers both digests.
+
+Submit `counting_status: blocked` with `detail` to stop the run when a hold can't be
+cleared.
 
 ## finalization
 

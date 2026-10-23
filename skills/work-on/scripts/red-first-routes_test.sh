@@ -15,7 +15,8 @@
 #                     goes to implementation for a change and reproduce for a
 #                     fix; reproduce leaves only on red_recorded; verification's
 #                     exit 0 and verification_deferred go to pass_counting,
-#                     which reaches finalization only on fix_green
+#                     which reaches finalization only on fix_green and
+#                     tests_counted
 #   a fix             issue 1: recorded as a fix from label:bug; held at
 #                     reproduce with no red, never reaching implementation;
 #                     after `red-first.sh red` the red's base is impl_base and
@@ -126,8 +127,8 @@ case "$(q '.states.fix_determination.default_action.command')" in *"fix-kind.sh\
     && pass "a deferral goes to pass_counting" || fail "a deferral goes elsewhere"
 [ "$(q '[.states | to_entries[] | .key as $s | .value.transitions[]? | select(.target == "finalization") | $s] | unique | join(",")')" = pass_counting ] \
     && pass "only pass_counting reaches finalization" || fail "finalization is reached from [$(q '[.states | to_entries[] | .key as $s | .value.transitions[]? | select(.target == "finalization") | $s] | unique | join(",")')]"
-[ "$(q '[.states.pass_counting.transitions[] | select(.target == "finalization") | .when | keys | join("+")] | join(",")')" = "gates.fix_green.exit_code" ] \
-    && pass "pass_counting reaches finalization only on fix_green" || fail "pass_counting's edges are [$(q '.states.pass_counting.transitions')]"
+[ "$(q '[.states.pass_counting.transitions[] | select(.target == "finalization") | .when | keys | join("+")] | join(",")')" = "gates.fix_green.exit_code+gates.tests_counted.exit_code" ] \
+    && pass "pass_counting reaches finalization only on fix_green and tests_counted" || fail "pass_counting's edges are [$(q '.states.pass_counting.transitions')]"
 
 # ==============================================================================
 # The repository.

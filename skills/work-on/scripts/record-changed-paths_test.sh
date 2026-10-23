@@ -421,6 +421,10 @@ ln -s "$PLUGIN_ROOT/skills/work-on/references" "$FAKE_ROOT/skills/work-on/refere
 ln -s "$PLUGIN_ROOT/skills/work-on/scripts/fix-kind.sh" "$FAKE_ROOT/skills/work-on/scripts/fix-kind.sh"
 mkdir -p "$FAKE_ROOT/scripts"
 ln -s "$PLUGIN_ROOT/scripts/lib" "$FAKE_ROOT/scripts/lib"
+# The same action writes the test-change ledger's header first, after
+# checking koto against shirabe's minimum.
+ln -s "$PLUGIN_ROOT/skills/work-on/scripts/test-change.sh" "$FAKE_ROOT/skills/work-on/scripts/test-change.sh"
+ln -s "$PLUGIN_ROOT/scripts/assert-koto-floor.sh" "$FAKE_ROOT/scripts/assert-koto-floor.sh"
 # fix_determination reads the issue's labels with gh; the stand-in serves an
 # unlabelled issue, so these runs are changes.
 . "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"

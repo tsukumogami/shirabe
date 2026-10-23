@@ -46,8 +46,9 @@
 #                           clears a hand rebind's mismatch hold
 #           Then it rebinds REVIEW_LEVEL with `koto init <s> --template
 #           <template> --attach-live --var REVIEW_LEVEL=<level>` (plus
-#           PLUGIN_ROOT, this script's plugin, when the template declares it:
-#           an attach resets every rebind variable it doesn't pass), appends the
+#           PLUGIN_ROOT, this script's plugin, and UNIT_KIND, the fix-kind
+#           ledger's kind once one is recorded, when the template declares
+#           them: an attach resets every rebind variable it doesn't pass), appends the
 #           ledger lines and reads them back. A failed rebind writes no line; a
 #           failed ledger write rebinds back to the ledger's level.
 #   facts   run by the level-check state's action. Diffs HEAD against two
@@ -377,11 +378,22 @@ REBIND_ERR=""
 # omits is reset to its default, and a required one it omits refuses the
 # attach. work-on.md's PLUGIN_ROOT is both, so it is passed too, as the plugin
 # this script ships in, which is the plugin the session's gates should reach.
+# UNIT_KIND is passed as the fix-kind ledger's kind once one is recorded, so a
+# level change after fix_determination leaves the fix determination in force
+# (fix-kind.sh agree still passes); before then it is left out, as its reset
+# value is the empty one fix_determination starts from.
 rebind() {
-    local reply
+    local reply kind
     set -- "$1" "$2" --var "REVIEW_LEVEL=$2"
     if grep -q '^  PLUGIN_ROOT:' "$TEMPLATE" 2>/dev/null; then
         set -- "$@" --var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF"
+    fi
+    if grep -q '^  UNIT_KIND:' "$TEMPLATE" 2>/dev/null && [ -x "$SCRIPT_DIR/fix-kind.sh" ]; then
+        kind=$("$SCRIPT_DIR/fix-kind.sh" kind "$1" 2>"$WORK/kind.err") || {
+            REBIND_ERR="could not read the unit's kind to carry it through the rebind: $(head -c 300 "$WORK/kind.err")"
+            return 1
+        }
+        [ -z "$kind" ] || set -- "$@" --var "UNIT_KIND=$kind"
     fi
     reply=$(koto init "$1" --template "$TEMPLATE" --attach-live "${@:3}" 2>"$WORK/rebind.err")
     local rc=$?
