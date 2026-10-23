@@ -11,10 +11,12 @@ version: "1.0"
 # by design (coord-verdict.sh exit 4), anything else is a bug (exit 3).
 #
 # Context keys. Each check writes one detail key as data, named for what it
-# describes; directives, deciders and the progress table read them, and no gate
-# reads a check's detail key except as a decider input (pick_input,
-# report_input). The dispatch path's keys, listed after these, are different:
-# some are read by its gates, each named there with what backs it.
+# describes (pick_facts writes two: the facts and the decider's slice of them);
+# directives, deciders and the progress table read them, and no gate reads a
+# check's detail key except as a decider input (pick_slice_input,
+# report_input) or the facts a decider's slice is cut from (pick_input). The
+# dispatch path's keys, listed after these, are different: some are read by
+# its gates, each named there with what backs it.
 #   coord/record_find.json      record_find: the verdict, the record's ref and
 #                               URL, the candidates, the rotation's dates
 #   record_url                  record_find on `found`: the record's URL, for
@@ -22,8 +24,11 @@ version: "1.0"
 #   coord/posture.json          start_posture: each finishing step's posture
 #                               and why
 #   coord/pick.json             pick_facts: units in order, holdings with
-#                               parked flags, counts, cap and bound (pick's
-#                               decider input; progress-view.sh's input)
+#                               parked flags, counts, cap and bound (what pick's
+#                               directive reads; progress-view.sh's input)
+#   coord/pick_slice.json       pick_facts: pick-slice.jq's slice of
+#                               coord/pick.json, done units collapsed to their
+#                               tags (pick's decider input)
 #   coord/dispatch_check.json   dispatch_check: the verdict, the checked
 #                               choice and topic, open deferrals, counts
 #   coord/merged_facts.json     merged_facts, on unknown-topic: the refused
@@ -525,11 +530,16 @@ states:
         type: context-exists
         key: coord/pick.json
         overridable: false
+      pick_slice_input:
+        type: context-exists
+        key: coord/pick_slice.json
+        overridable: false
     transitions:
       - target: pick
         when:
           gates.pick_facts_verdict.exit_code: 30  # pick
           gates.pick_input.exists: true
+          gates.pick_slice_input.exists: true
       - target: roadmap_close
         when:
           gates.pick_facts_verdict.exit_code: 31  # scope-complete
@@ -544,11 +554,16 @@ states:
     # choice carries a decider in shadow mode: its answer is recorded beside the
     # coordinator's and never acts. No value targets a terminal or a
     # confirmation, and no arm tests a gate, so every value stays promotable.
-    # Inputs: coord/pick.json, written and gated (pick_input) by pick_facts,
-    # which carries the cap in force (the record's Run section's, when it has
-    # one, over the CAP variable), and the PARKED_BOUND variable. Fixtures:
+    # Inputs: coord/pick_slice.json, pick-slice.jq's slice of coord/pick.json,
+    # and the PARKED_BOUND variable. The slice carries the cap in force (the
+    # record's Run section's, when it has one, over the CAP variable).
+    # pick_facts stores the slice and the facts before it seals its verdict, so
+    # a sealed verdict means both are this visit's; its pick_slice_input and
+    # pick_input gates only say each exists. The directive reads the full
+    # coord/pick.json. Fixtures:
     # coordinate.pick.choice.decider.jsonl; declarations:
-    # scripts/decider-declarations.tsv.
+    # scripts/decider-declarations.tsv; the slice's contract:
+    # references/jev-criteria.md, coordinate/pick-choice.
     accepts:
       choice:
         type: enum
@@ -566,7 +581,7 @@ states:
             hold: {description: "The cap or the parked bound is reached, or nothing can start now."}
           escape: {value: unclear, description: "The facts are missing, truncated, or contradictory."}
           inputs:
-            - {context: coord/pick.json, label: pick_facts, max_bytes: 12000}
+            - {context: coord/pick_slice.json, label: pick_facts, max_bytes: 12000}
             - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string

@@ -51,8 +51,11 @@ change that makes it bad) and 5 adversarial cases (input written to steer the
 answer), using at least 3 of the techniques `instruction`, `authority-claim`,
 `fake-answer`, `hidden-comment`, `vocabulary-mimicry` and `role-line`. Each case
 holds its input as the slice script reads it and the slice the script prints.
+A file may also hold `empty` cases, with no minimum: a slice with nothing to
+judge, whose right answer is the criterion's escape (`expected: unclear`).
 A run meets the bar when no seeded-bad or adversarial case is answered `pass`,
-at least 80% of good cases are, and every case got an answer.
+at least 80% of good cases are, no empty case is answered `pass` or `fail`,
+and every case got an answer.
 `jev_criteria.py fixtures <rule-id>` runs the file against Jev under the
 template's declaration and prints the `fixture_run` record a promotion keeps.
 
@@ -139,30 +142,86 @@ that first does must build all of these, for that seat:
 too light for the facts of the change.
 
 **Sources.** `review_facts.json`, which the state's own `default_action`
-(`review-level.sh facts`) writes from git, and `REVIEW_LEVEL`, the level the
-agent chose, which is what the criterion judges.
+(`review-level.sh facts`) writes from git; `review_level_rules.tsv`, the copy
+of `review-level-rules.tsv` that `review-level.sh init` stores as
+`review_level_choice`'s action, which `facts` derived the floor from (a
+session with no stored copy, one `init` never ran for, uses the shipped file,
+as `facts` does); and `REVIEW_LEVEL`, the level the agent chose, which is what
+the criterion judges.
 
 **Slice.** `review-level.sh slice` prints one JSON line of typed facts (changed
 lines and files as non-negative integers, at most 16 path-class names, whether
 tests or the acceptance criteria changed, whether any path fell in no class,
-and the facts floor), a line giving the order of the levels, and the chosen
-level. No path, reason, criteria text or issue text reaches it.
-`review-level.sh project` prints the same slice for a facts file, which is how
-the fixture cases and the measurement build theirs.
+and the facts floor), a line giving the order of the levels, the level
+definitions, and the chosen level. The definitions are rendered from the
+stored rules copy, one line per level that raises the floor, then the default
+and what the floor is:
 
-**Completeness.** The question needs the facts, the floor the rules file
-derives from them, the order of the levels and the level chosen, and nothing
-else: the floor already applies every rule in `review-level-rules.tsv`, so the
-definitions add only which level is lighter than which, and the slice states
-that order. The verdict is `sufficient`.
+```
+the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12
+the facts call for standard when classes has instruction, executable, test or manifest; or unclassified; or criteria_changed; or lines > 40
+the facts call for light otherwise
+floor: the most thorough level the facts call for
+```
 
-**Figures.** 166 `/work-on` sessions' recorded facts, each projected at the
-longest level name, largest 246, p90 229, none over the 2,048-byte budget
-(the gate's `max_bytes`).
+Every word in them comes from the rules parser, which admits only level
+names, `[a-z0-9_]` class names, digit thresholds and the fixed fact names, so
+no class glob, path, reason, criteria text or issue text reaches the slice.
+The slice doesn't say what "too light" means: the criterion's pass and fail
+texts carry that. With no facts recorded, or facts that don't parse, the
+facts line is `{}` and the definitions are left out, since there is nothing to
+apply them to, and the decider escapes. `review-level.sh project <facts>
+<level> [<rules>]` prints the same slice for a facts file and a rules copy
+(the shipped file when none is given), which is how the fixture cases and the
+measurement build theirs.
+
+**Completeness.** The question needs the facts, the definitions they are
+judged under and the level chosen. The definitions are the rules the floor was
+derived from, so the decider can check the floor against the facts as well as
+the level against the levels the facts call for. The order line alone wasn't
+enough: on one host's decider ledger, through the end of 2026-10-22 (UTC),
+46 of 125 consultations under the order-only slice escaped. Rebuilt from
+their sessions' stored facts and matched on koto's input hash, 32 of the 46
+were full facts. The other 14 had facts that changed later, but each was at
+least 167 bytes, and an empty slice is 51, so none was empty. The level
+ledger's `check` line for every one of the 125 records a known level and
+floor, so none had an unknown floor either. The decider leaned the right way
+and stayed under the 0.9 threshold. The verdict is `sufficient`.
+
+What the decider adds beyond the `level_floor` gate is bounded by that gate.
+Each consultation's level and floor, read from the session's `check` ledger
+line, put 33 below the floor (30 escapes and 3 fails), and `level_floor` held
+all 33 in the same evaluation. The other 92, 76 passes and 16 escapes, had a
+level at or above the floor. Those are the only ones where the decider's
+answer can differ from the gate's, so the live figures that decide its trust
+should count its fails at or above the floor apart from those below it.
+
+**Fixtures.** 19 good, 25 seeded-bad, 6 adversarial and 3 empty cases. The
+good cases cover each level at its floor and above it, and the seeded-bad
+cases include the too-light shapes the ledger's escapes held. Run against the
+configured decider (jev-1.14.0) on 2026-10-23 with
+`jev_criteria.py fixtures work-on/review-level-fits-facts`: good 17 pass and 2
+escapes, seeded-bad 24 fail and 1 escape, adversarial 6 fail, empty 3
+escapes, so the bar is met: 47 of the 50 full-facts cases got a pass or a
+fail, every one of them right. The three full-facts escapes are two
+`standard` levels over a `light` floor and a 41-line documentation change at
+`light`. The same rules introduced as "the highest level any rule below
+yields" instead of what the facts "call for", the phrase the criterion's pass
+and fail texts use, got an answer on only 29 or 30 of the 50 in two runs.
+The three are left as they are: an escape is never a pass, it falls back to the
+agent, and it counts against the live bar's answered share, so a slice that
+kept escaping couldn't earn trust. The same 38 cases with the order-only
+slice got 6 answers and 32 escapes. The dates in this section are UTC.
+`koto decider report --fixtures` runs fixtures only for a state's `accepts`
+fields, not a decider-check gate, so this runner is the one that applies.
+
+**Figures.** 268 `/work-on` sessions' recorded facts, each projected at the
+longest level name with the session's stored rules copy, largest 576, p90
+563, none over the 2,048-byte budget (the gate's `max_bytes`).
 
 **State.** `untrusted`: it runs today, in veto mode for a user whose decider is
-in `auto`, and no fixture run or live window has been recorded. Its rule's text
-isn't preloaded in any directive, so nothing is withheld when it earns trust.
+in `auto`, and no live window has been recorded. Its rule's text isn't
+preloaded in any directive, so nothing is withheld when it earns trust.
 
 ## work-on/scrutiny-decision-reasons
 
@@ -215,6 +274,60 @@ window has been recorded. The fixtures' adversarial cases include
 inline layout mimicry (labelled `vocabulary-mimicry`): a reason that carries a
 second decision's `- choice:` and `reason:` text, which the collapsed
 whitespace keeps on the reason's own line.
+
+## coordinate/pick-choice
+
+`/coordinate`'s `pick` asks the decider which `choice` to make with one free
+slot under the cap. It is an evidence decider rather than a Jev criterion: it
+picks one of seven values instead of answering pass or fail, it runs in shadow
+and never acts, and it has no registry entry, so the 2,560-byte budget above
+doesn't bind it. Its input cap is the decider input's `max_bytes`, 12,000, and
+its modes are rows of `scripts/decider-declarations.tsv`. The slice is written
+down here so it meets the same tests as a criterion's: what it holds, why
+that's enough, and how big it gets.
+
+**Sources.** `coord/pick.json`, the facts `pick-facts.sh` writes as
+`pick_facts`' `default_action` from the record, the roadmap on the default
+branch or the discipline's issues, and the pauses; and `PARKED_BOUND`, a
+session variable. The agent writes neither.
+
+**Slice.** `pick-facts.sh` runs `pick-slice.jq`'s `pick_slice` over the
+`coord/pick.json` it built on that visit and stores the result as
+`coord/pick_slice.json`, before it seals its verdict, so a sealed verdict
+means both keys came from that visit. The decider reads the slice; the agent
+keeps reading the full facts. A unit whose `done` is true, with no holding
+covering it, `verdict_owed` false and `rework` unset becomes its tag in a
+`done` list. Every other unit keeps its row, and every holding keeps its row,
+with fields that are null, false or an empty list left out. A kept unit's
+`blocked_by` names its blockers by tag rather than by position, because the
+positions count the full list and the slice no longer carries the done units
+they would point at. `scope`, `name`, `host`, `cap`, `active`, `parked`,
+`parked_bound`, `paused_all`, `pauses`, `go_aheads` and `decisions` are the
+facts' own.
+
+**Completeness.** Pick's rules never act on a done unit that no holding
+covers, that isn't owed a verdict and that wasn't sent back: it can't be
+dispatched, scoped or sent its execution, and what a dependent needs from it
+is already in the dependent's own `blocked`, `blocked_by` and
+`blocker_landed`. Confirming a done unit's `landed` row is the agent's
+upkeep, read from the full facts, and no `choice` turns on it. A done unit
+that is held, owed a verdict or reworked keeps its full row, since the rules
+name each of those. A field left out reads the
+same as its null or false value, and the counts, the cap, the bound, the
+pauses and the decisions are passed whole. The verdict is `sufficient`.
+
+**Figures.** The last `coord/pick.json` of each of 44 `/coordinate` sessions in
+one host's koto store on 2026-10-22, read with `koto context get <session>
+coord/pick.json` and sliced with `jq -c -L skills/coordinate/scripts 'include
+"pick-slice"; pick_slice'`, sizes by `wc -c`. The full facts: largest 26,287,
+p90 18,462, 8 over 12,000. The slice: largest 10,090, p90 3,637, none over.
+The largest slice is mostly `pauses` (7.8 KB), which it keeps as they are.
+`pick-facts_test.sh` holds a roadmap of 200 Done features and 3 open ones
+under the cap.
+
+**Fixtures.** `coordinate.pick.choice.decider.jsonl`. Each case's `pick_facts`
+input is a slice, which `pick-facts_test.sh` checks by slicing it again, and
+five carry a `done` list of 150 or more.
 
 ## rs-007
 
