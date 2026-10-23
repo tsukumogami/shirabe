@@ -17,6 +17,7 @@ name: Check rule registry
 # globs as a path or a directory prefix, not with GitHub's full syntax.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'references/**'
@@ -24,6 +25,24 @@ on:
       - 'scripts/**'
       # Inside scripts/** already; named so every floor workflow names its own
       # list (check-bash-floor_test.sh).
+      - 'scripts/bash-floor/rule-registry.list'
+      - 'hooks/**'
+      - 'crates/**'
+      - 'docs/guides/**'
+      - 'docs/designs/current/DESIGN-output-gates.md'
+      - 'docs/measurement/offload-baseline/template-pin.json'
+      - 'CLAUDE.md'
+      - '.claude-plugin/plugin.json'
+      - '.github/workflows/check-rule-registry.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'references/**'
+      - 'skills/**'
+      - 'scripts/**'
       - 'scripts/bash-floor/rule-registry.list'
       - 'hooks/**'
       - 'crates/**'

@@ -1,9 +1,10 @@
 name: macOS floor
 
-# Pull requests merge without waiting for their macOS legs, and most of the
-# macOS floor workflows run only on pull requests, so a suite one merge breaks
-# on the bash 3.2 floor could stay broken on main unseen (shirabe#940). This
-# runs every macOS floor suite against main once a day, and against any ref
+# Pull requests merge without waiting for their macOS legs (shirabe#940). Each
+# macOS floor workflow also runs on the push a merge makes to main, but only
+# when the merge touches its own paths, so a suite broken on the bash 3.2
+# floor by a change outside its path filter could stay broken on main unseen.
+# This runs every macOS floor suite against main once a day, and against any ref
 # when dispatched; the release procedure dispatches it on the commit a release
 # is cut from (.claude/shirabe-extensions/release.md). A red run files an
 # issue, or comments on the open one, so nobody has to watch Actions to see it.

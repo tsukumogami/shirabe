@@ -9,7 +9,28 @@ name: Check Jev criteria
 # from a fork can't spend anyone's decider key.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
+    paths:
+      - 'scripts/jev-criteria/**'
+      - 'references/rule-registry.json'
+      - 'references/jev-criteria.md'
+      - 'docs/guides/jev-criteria.md'
+      - 'scripts/rule-registry.sh'
+      - 'scripts/rule-registry_test.sh'
+      - 'scripts/review-shadow/**'
+      - 'scripts/jev-withhold.sh'
+      - 'scripts/jev-withhold_test.sh'
+      - 'scripts/bash-floor/jev-withhold.list'
+      - 'skills/*/koto-templates/**'
+      - 'skills/work-on/scripts/review-level.sh'
+      - 'skills/work-on/references/review-level-rules.tsv'
+      - '.github/workflows/check-jev-criteria.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
     paths:
       - 'scripts/jev-criteria/**'
       - 'references/rule-registry.json'
