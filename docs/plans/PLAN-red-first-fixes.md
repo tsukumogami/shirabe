@@ -85,7 +85,27 @@ step before them reaches its terminal.
 
 ### Step 3: a person-required repository waits for a person, a higher authority can overrule, and the pull request carries the record
 
-A repository declaring `## Test Change Acceptance: person` holds the run until a person accepts at a terminal, a higher authority overrules before or after the run finished, a test edit made while fixing CI is held at ci_pass_counting, and the pull request body carries the rendered record.
+**Goal**: A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` holds the run at `pass_counting` until a person accepts at a terminal; a higher authority overrules an acceptance before or after the run finished; a test edit made while fixing CI is held at `ci_pass_counting`; and the pull request body carries the rendered record, checked at `pr_precheck`.
+
+**Acceptance Criteria**:
+
+- [ ] With `## Test Change Acceptance: person` in `CLAUDE.md` at the base or at the remote default branch's tip, the ledger header records `person_required: true` and its source; a `CLAUDE.local.md` saying `agent` leaves it `true`, and an unknown value reads as `person` and is named in the record.
+- [ ] In such a repository, a held run doesn't commission a seat: it stops at `pass_counting` with a message naming each held file and the exact `test-change.sh accept` command a person runs.
+- [ ] An agent's accept there exits 1 with rule `person-required`, and a `person:` accept run without a terminal (stdin, stdout and `/dev/tty` not one terminal) exits 1 with rule `no-terminal`; both are recorded as `refuse` lines.
+- [ ] A `person:` accept run in a terminal (in tests, under a pseudo-terminal) prints the edited hunks and a code, and exits 0 only when that code is typed back; the record then shows the unit counted with `person:<name>` at `owner`, and a person line whose integrity tag doesn't check never counts.
+- [ ] An overrule by an authority strictly higher than the acceptance's (`agent:<existing session>` at `coordinator` over a `reviewer` acceptance) makes `status` exit 1 with reason `overruled`; an overrule at the same authority exits 1 with rule `not-higher`; an agent at `coordinator` naming no existing koto session exits 1 with rule `unknown-session`, and the live fold re-checks that session rather than trusting the stored line.
+- [ ] After an overrule, a new acceptance below the overruling's authority leaves the unit held, and one at or above it counts it again.
+- [ ] An overrule against a run that already reached `done` is recorded in its retained session and rewrites that run's section of the pull request body.
+- [ ] `test-change.sh record` prints the fix source, the red and green (or observations), each test file as added or edited, and every acceptance, decline, refusal and overruling with the unit's state; it works while held and after the run finished.
+- [ ] `test-change.sh render` writes a section between `<!-- shirabe-test-change:<session>:start -->` and its end marker showing the output only as the lines around the marker, with home paths and token shapes redacted, free text flattened, and comment markers neutralised; a passage from a private repository's issue under a public pull request is omitted with the marker and output lines.
+- [ ] `pr_precheck` re-runs `status` and holds when it no longer exits 0, and `check-pr-output.sh` refuses a body whose section is missing or differs from `render`.
+- [ ] A commit that edits a test while fixing CI on the open pull request reaches `ci_pass_counting` when CI passes and is held there until accepted, then goes on to `cascade_entry` or `done`.
+
+**Check**: Run `bash skills/work-on/scripts/test-change-routes_test.sh` and see it pass its person-required, overrule and `ci_pass_counting` cases: the agent's accept refused with `person-required`, a pseudo-terminal person accept counting the unit at `owner`, a `coordinator` overrule holding it as `overruled`, a same-authority overrule refused `not-higher`, and a CI-fix test edit held at `ci_pass_counting`. Then run `bash skills/work-on/scripts/test-change_test.sh`, `bash scripts/lib/acceptance-rule_test.sh` and `bash skills/work-on/scripts/check-pr-output_test.sh` and see each exit 0.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/koto-templates/work-on.mermaid.md`, `skills/work-on/SKILL.md`, `skills/work-on/scripts/test-change.sh`, `skills/work-on/scripts/test-change_test.sh`, `skills/work-on/scripts/test-change-routes_test.sh`, `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-pr-output_test.sh`, `skills/work-on/scripts/ci-monitor-role_test.sh`, `skills/work-on/scripts/cascade-chaining_test.sh`, `skills/work-on/scripts/leg-result_test.sh`, `skills/work-on/references/red-first.md`, `skills/work-on/references/phases/phase-5-finalization.md`, `skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/evals/evals.json`, `scripts/lib/acceptance-rule.sh`, `scripts/lib/acceptance-rule_test.sh`, `scripts/lib/claude-md-header.sh`, `references/fixes/claude-md-conventions.md`, `references/rule-registry.json`
 
 ### Step 4: review floors an edited test at full and every seat judges it
 
