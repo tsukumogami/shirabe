@@ -1,6 +1,7 @@
 name: Check plan scripts
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/plan/scripts/**'
@@ -23,6 +24,22 @@ on:
       - '.github/workflows/check-plan-scripts.yml'
       # The macOS leg reaches bash 3.2 through the runner, which reads this
       # suite's scripts from its list, so a change to either has to re-run it.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/plan.list'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/plan/scripts/**'
+      - 'references/coordination-strategy.md'
+      - 'skills/plan/references/quality/plan-doc-examples.md'
+      - 'skills/execute/scripts/testdata/PLAN-v2-hostile.md'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/check-plan-scripts.yml'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/plan.list'
 

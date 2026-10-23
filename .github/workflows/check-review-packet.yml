@@ -7,6 +7,7 @@ name: Check review packet
 # Linux leg runs it under bash 5, the macOS leg on the bash 3.2 floor.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'scripts/review-packet.sh'
@@ -20,6 +21,20 @@ on:
       - '.github/workflows/check-review-packet.yml'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/review-packet.list'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'scripts/review-packet.sh'
+      - 'scripts/review-packet_test.sh'
+      - 'skills/brief/references/brief-format.md'
+      - 'skills/*/references/phases/*.md'
+      - 'skills/review-plan/SKILL.md'
+      - '.github/workflows/check-review-packet.yml'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/review-packet.list'
 
