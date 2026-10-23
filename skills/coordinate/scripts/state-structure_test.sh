@@ -25,7 +25,9 @@
 # pattern, each failing alone under its key, in either directory; a new
 # record-*.sh file, a new mention in a file not on the list, and an allowed
 # file mentioning a pattern it isn't listed for, each added to a copy of the
-# skill's tree, fail it; and an entry that no longer matches fails it.
+# skill's tree, fail it; an entry that no longer matches fails it; and a
+# symbolic link named record-*.sh, a link whose target names a pattern, and a
+# binary file naming one each fail it too.
 #
 # Usage: bash skills/coordinate/scripts/state-structure_test.sh
 set -uo pipefail
@@ -44,13 +46,18 @@ disciplines docs/disciplines/
 store-codes store-(malformed|unverified|conflict|moved|discipline)'
 
 # matches <skill root>: every match under its scripts/ and koto-templates/, one
-# `<key> <path>` line each, sorted, this file left out.
+# `<key> <path>` line each, sorted, this file left out. A symbolic link counts
+# by its own name and by its target's text, and a file grep would call binary
+# is read as text, so neither slips past.
 matches() {
     (
         cd "$1" || exit 2
-        find scripts koto-templates -type f \( -name 'record-*.sh' -o -name 'record-codec.jq' \) | sed 's/^/name /'
+        find scripts koto-templates \( -type f -o -type l \) \( -name 'record-*.sh' -o -name 'record-codec.jq' \) | sed 's/^/name /'
+        # find -L lists a link's target as a file under the link's own path, on
+        # GNU and BSD alike (BSD grep -R doesn't follow links by default).
+        find -L scripts koto-templates -type f -print0 > "$T/scan-files"
         while read -r key pat; do
-            grep -rIlE -e "$pat" scripts koto-templates | sed "s/^/$key /"
+            xargs -0 grep -alE -e "$pat" < "$T/scan-files" | sed "s/^/$key /"
         done <<EOF
 $PATTERNS
 EOF
@@ -212,5 +219,24 @@ eq "  ... and the copy passes again once it is back" "0 " "$rc $OUT"
 { cat "$T/allow"; printf 'name scripts/record-gone.sh\n'; } > "$T/allow-stale"
 OUT=$(check "$T/copy" "$T/allow-stale"); rc=$?
 eq "an entry that no longer matches fails it" "1 stale: name scripts/record-gone.sh" "$rc $OUT"
+# A symbolic link and a binary file don't slip past: a link counts by its own
+# name and by its target's text, and a file holding a NUL byte is read as text.
+mkdir -p "$T/outside"
+printf 'echo clean\n' > "$T/outside/clean.sh"
+printf 'echo "Coordinator record: ROADMAP-x"\n' > "$T/outside/titled.sh"
+ln -s "$T/outside/clean.sh" "$T/copy/scripts/record-link.sh"
+OUT=$(check "$T/copy" "$T/allow"); rc=$?
+eq "a symbolic link named record-*.sh fails it" "1 unexpected: name scripts/record-link.sh" "$rc $OUT"
+rm -f "$T/copy/scripts/record-link.sh"
+ln -s "$T/outside/titled.sh" "$T/copy/scripts/notes-link.sh"
+OUT=$(check "$T/copy" "$T/allow"); rc=$?
+eq "a symbolic link whose target names a pattern fails it" "1 unexpected: title scripts/notes-link.sh" "$rc $OUT"
+rm -f "$T/copy/scripts/notes-link.sh"
+printf 'x\000y\nCoordinator record: ROADMAP-x\n' > "$T/copy/scripts/blob.bin"
+OUT=$(check "$T/copy" "$T/allow"); rc=$?
+eq "a binary file naming a pattern fails it" "1 unexpected: title scripts/blob.bin" "$rc $OUT"
+rm -f "$T/copy/scripts/blob.bin"
+OUT=$(check "$T/copy" "$T/allow"); rc=$?
+eq "  ... and the copy passes again once they are gone" "0 " "$rc $OUT"
 
 done_tests state-structure_test
