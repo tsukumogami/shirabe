@@ -116,7 +116,19 @@ workspace maintainer reads.
 
 ### Step 5: the milestone survives the holding
 
-A dispatch records its Unit on the leg key, and a capture with no Holdings row for the topic takes the milestone from it.
+**Goal**: A leg-bound dispatch writes its Unit onto the leg key it already keeps in the coordinator's session, and a capture that finds no Holdings row for the topic reads that key, through the unit's own koto request, for the milestone, so a unit retired or removed before its pass still names the milestone it was dispatched for.
+
+**Acceptance Criteria**:
+
+- [ ] A leg-bound dispatch through `dispatch-worker.sh` writes a leg key holding the brief's `unit`; a Unit outside the capture's Unit pattern is left off the key; a re-leg's new key carries the old key's `unit`.
+- [ ] A capture with no Holdings row for the topic, whose archived sessions name a request the requesting coordinator's session holds a leg key for with a Unit, writes that milestone `measured`.
+- [ ] With a leg key that has no Unit, or one outside the pattern, the milestone is `not recoverable`; with both a Holdings row and a leg key that differ, the row's milestone is written.
+
+**Check**: Run `bash skills/coordinate/scripts/unit-cost_test.sh` and `bash skills/coordinate/scripts/dispatch-worker_test.sh` and see the leg-key milestone cases and the leg key's `unit` cases pass.
+
+**Dependencies**: Step 4
+
+**Files**: `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/scripts/dispatch-worker_test.sh`, `skills/coordinate/scripts/unit-cost.sh`, `skills/coordinate/scripts/unit-cost_test.sh`
 
 ### Step 6: pull requests still open at capture are listed in opened
 
