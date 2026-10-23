@@ -378,7 +378,7 @@ load_ledger() {
 # load_header: 0 with the H_* values set when the ledger starts with a header.
 load_header() {
     local h
-    h=$(head -n 1 "$TMP/ledger" | jq -c 'select(type == "object" and .event == "header")' 2>/dev/null)
+    h=$(head -n 1 "$TMP/ledger" | jq -c 'select(type == "object" and .event == "header")' 2>>"$ERRLOG")
     [ -n "$h" ] || return 1
     H_AUTHOR=$(printf '%s' "$h" | jq -r '.author // ""')
     H_BASE=$(printf '%s' "$h" | jq -r '.impl_base // ""')
@@ -407,7 +407,7 @@ live_sessions() {
     local name
     : > "$TMP/sessions"
     jq -Rr 'fromjson? | select(type == "object" and (.event == "accept" or .event == "decline" or .event == "overrule")
-            and .kind == "agent" and .authority == "coordinator") | .identity // empty' "$TMP/ledger" 2>/dev/null \
+            and .kind == "agent" and .authority == "coordinator") | .identity // empty' "$TMP/ledger" 2>>"$ERRLOG" \
         | sed 's/^agent://' | LC_ALL=C sort -u > "$TMP/coord.names"
     while IFS= read -r name; do
         valid_session "$name" || continue
@@ -439,7 +439,7 @@ compute_items() {
     # since the red ran labelled edited too (test_classify_unit).
     ctx_get "$s" "$RECORD_KEY" "$TMP/record" || die66 "could not read $RECORD_KEY"
     if [ -s "$TMP/record" ]; then
-        jq -e 'type == "object"' "$TMP/record" >/dev/null 2>&1 || undecided "$RECORD_KEY does not parse"
+        jq -e 'type == "object"' "$TMP/record" >/dev/null 2>>"$ERRLOG" || undecided "$RECORD_KEY does not parse"
     fi
     ( cd "$H_WORKTREE" && test_classify_unit "$H_BASE" "$head" "$TMP/rules" "$TMP/record" ) > "$TMP/classified" 2>"$TMP/classify.err" \
         || undecided "could not classify the unit's test files: $(head -c 300 "$TMP/classify.err")"
@@ -644,12 +644,12 @@ cmd_init() {
         || refuse "impl_base $base is not an ancestor of HEAD; it is not where this unit started"
     local cands="$head" ref mb
     if [ -n "$shared" ]; then
-        ref=$(git rev-parse -q --verify "refs/remotes/origin/$shared^{commit}" 2>/dev/null) && cands="$cands $ref"
+        ref=$(git rev-parse -q --verify "refs/remotes/origin/$shared^{commit}" 2>>"$ERRLOG") && cands="$cands $ref"
     else
-        ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
-        [ -n "$ref" ] || { git rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1 && ref=origin/main; }
-        if [ -n "$ref" ] && mb=$(git merge-base HEAD "$ref" 2>/dev/null); then cands="$cands $mb"; fi
-        if mb=$(git merge-base HEAD refs/heads/main 2>/dev/null); then cands="$cands $mb"; fi
+        ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>>"$ERRLOG")
+        [ -n "$ref" ] || { git rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>>"$ERRLOG" && ref=origin/main; }
+        if [ -n "$ref" ] && mb=$(git merge-base HEAD "$ref" 2>>"$ERRLOG"); then cands="$cands $mb"; fi
+        if mb=$(git merge-base HEAD refs/heads/main 2>>"$ERRLOG"); then cands="$cands $mb"; fi
     fi
     case " $cands " in
         *" $base "*) ;;
@@ -664,8 +664,8 @@ cmd_init() {
     PR_REQ=false PR_SRC=""
     v=$(claude_md_header_at "$base" "$DECL" 2>>"$ERRLOG"); rc=$?
     person_decl "CLAUDE.md at impl_base" "$rc" "$v"
-    tip=$(git rev-parse -q --verify "refs/remotes/origin/HEAD^{commit}" 2>/dev/null) \
-        || tip=$(git rev-parse -q --verify "refs/remotes/origin/main^{commit}" 2>/dev/null) || tip=""
+    tip=$(git rev-parse -q --verify "refs/remotes/origin/HEAD^{commit}" 2>>"$ERRLOG") \
+        || tip=$(git rev-parse -q --verify "refs/remotes/origin/main^{commit}" 2>>"$ERRLOG") || tip=""
     if [ -n "$tip" ]; then
         v=$(claude_md_header_at "$tip" "$DECL" 2>>"$ERRLOG"); rc=$?
         person_decl "CLAUDE.md at the remote default branch" "$rc" "$v"
@@ -676,7 +676,7 @@ cmd_init() {
     [ -n "$PR_SRC" ] || PR_SRC="not declared (CLAUDE.md at impl_base$( [ -n "$tip" ] && printf ' and at the remote default branch'), CLAUDE.local.md)"
 
     local url repo=""
-    url=$(git remote get-url origin 2>/dev/null) || url=""
+    url=$(git remote get-url origin 2>>"$ERRLOG") || url=""
     if [ -n "$url" ]; then
         repo=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')
         valid_repo "$repo" || repo=""
@@ -835,7 +835,7 @@ $item" ;; esac
     fi
     echo
     echo "## Observations"
-    if [ -s "$TMP/record" ] && jq -e '(.observations // {}) | length > 0' "$TMP/record" >/dev/null 2>&1; then
+    if [ -s "$TMP/record" ] && jq -e '(.observations // {}) | length > 0' "$TMP/record" >/dev/null 2>>"$ERRLOG"; then
         jq -r '(.observations // {}) | to_entries[] | "### \(.key) (digest \(.value.digest))\n\(.value.text // "")"' "$TMP/record" > "$TMP/obs"
         capped "$TMP/obs" "$BRIEF_TEXT_MAX"
         echo
@@ -1203,17 +1203,17 @@ cmd_record() {
         echo "author: $H_AUTHOR   base: $H_BASE   repository: ${H_REPO:-unknown}"
         echo "person required: $H_PERSON ($H_PERSON_SRC)"
         echo "unit: $KIND_LINE"
-        if [ -s "$TMP/record" ] && jq -e '.red != null' "$TMP/record" >/dev/null 2>&1; then
+        if [ -s "$TMP/record" ] && jq -e '.red != null' "$TMP/record" >/dev/null 2>>"$ERRLOG"; then
             jq -r '.red | "red: \(.command | join(" ")) on base \(.base) exited \(.exit) at \(.ran_at)\n  reproducing tests: \([(.tests // [])[] | "\(.path) (\(.blob))"] | join(", "))\n  marker: \(.marker)\n  report passage (\(.report_source // "report")): \(.passage)\n  output around the marker:\n\(.marker_context | split("\n") | map("    " + .) | join("\n"))"' "$TMP/record"
         else
             echo "red: none recorded"
         fi
-        if [ -s "$TMP/record" ] && jq -e '.green != null' "$TMP/record" >/dev/null 2>&1; then
+        if [ -s "$TMP/record" ] && jq -e '.green != null' "$TMP/record" >/dev/null 2>>"$ERRLOG"; then
             jq -r '.green | "green: \(.command | join(" ")) at \(.head) exited \(.exit) at \(.ran_at)"' "$TMP/record"
         else
             echo "green: none recorded"
         fi
-        if [ -s "$TMP/record" ] && jq -e '(.observations // {}) | length > 0' "$TMP/record" >/dev/null 2>&1; then
+        if [ -s "$TMP/record" ] && jq -e '(.observations // {}) | length > 0' "$TMP/record" >/dev/null 2>>"$ERRLOG"; then
             jq -r '(.observations // {}) | to_entries[] | "observation \(.key) (digest \(.value.digest), at \(.value.recorded_at)):\n\(.value.text // "" | split("\n") | map("    " + .) | join("\n"))"' "$TMP/record"
         fi
         echo "test files:"
