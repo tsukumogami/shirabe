@@ -8,6 +8,7 @@ name: Check offload baseline
 # figures exactly.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'scripts/offload-baseline.sh'
@@ -16,6 +17,18 @@ on:
       - '.github/workflows/check-offload-baseline.yml'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/offload-baseline.list'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'scripts/offload-baseline.sh'
+      - 'scripts/offload-baseline_test.sh'
+      - 'docs/measurement/offload-baseline/**'
+      - '.github/workflows/check-offload-baseline.yml'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/offload-baseline.list'
 
