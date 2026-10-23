@@ -137,9 +137,13 @@ never a silent skip:
 - **The run still finishes.** From `verification_deferred` the run goes through
   `finalization` and opens its pull request as any other, and its result carries
   `pr`.
-- **The PR body records it.** `pr_creation`'s `verification_deferral_recorded` gate
-  holds `pr_status: created` until the body says local verification did not run,
-  has the line `Reason: <reason>`, and says hosted CI is the build of record
+- **The record is the run's, and the body says it plainly.** `verification_deferral`
+  in context is the record, and the PR body's Verification section says hosted CI
+  verified the change. A repository that opts in to workflow content (see **Pull
+  Request Text** below) gets the deferral in the body too: there
+  `pr_creation`'s `verification_deferral_recorded` gate holds `pr_status: created`
+  until the body says local verification did not run, has the line
+  `Reason: <reason>`, and says hosted CI is the build of record
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
 
@@ -150,10 +154,25 @@ routes to the blocking `deferral_approval` human gate. The human makes an explic
 decision:
 
 - **Approved** — the deferral is recorded as the human's decision via
-  `koto decisions record` and surfaced in the PR body, so the audit trail shows what was
-  deferred and on whose authority. The workflow then proceeds to PR creation.
+  `koto decisions record`, so the audit trail shows what was deferred and on whose
+  authority, and the PR body says in plain terms what the change leaves undone. The
+  workflow then proceeds to PR creation.
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
+
+### Pull Request Text
+
+The PR title, body and commit messages describe the change and how it was verified,
+in terms a reader of the repository understands. By default they carry none of the
+workflow's own records: no review panel table, no override or deferral notes, no
+session, state or ledger names, no pointers to PLAN or ROADMAP files, which are
+deleted when the work completes. Those stay in the run's session. A repository opts
+in to them with a `## PR Workflow Content: include` header in its `CLAUDE.local.md`
+or `CLAUDE.md`; `${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh` prints
+`include` or `omit` for the repository and is the one reader every skill and gate
+uses. Under `omit`, `pr_creation`'s `pr_body_conformant` gate holds on the records it
+can see (`pr-body/workflow-content`). `references/phases/phase-6-pr.md` says what goes
+where under each setting.
 
 ## Plan Input (Dispatcher)
 

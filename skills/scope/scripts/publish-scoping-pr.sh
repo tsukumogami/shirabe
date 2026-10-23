@@ -47,7 +47,12 @@
 #
 # The body is a fixed template over validated fields only: the slug, exit,
 # outcome, `intent=`, mode, the docs/ artifact paths that exist, and the PLAN's
-# work-item IDs. No free-text state field reaches it. The one text read from a
+# work-item IDs. The record lines (topic=, exit=, outcome=, intent=, mode=)
+# and the PLAN's own path are the run's records, written only when
+# scripts/pr-workflow-content.sh prints include for the repository; by
+# default the body is one sentence naming the topic, the durable documents
+# under `## Documents`, and the work items. A coordination body is written
+# whole either way, since the merge gate reads its index. No free-text state field reaches it. The one text read from a
 # document is a plan/v2 step plan's step headings, which the body lists as
 # `### Step <N>: <title>` lines (a step has no ID beyond its number). They go
 # inside a fenced code block, with every control character made a space and a
@@ -356,6 +361,10 @@ DRAFT=1
 
 TITLE="docs(scope): ${TOPIC} (${EXIT})"
 
+# Whether the repository opts in to workflow content in its PR bodies.
+CONTENT=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" </dev/null) \
+    || fail scope:pr-create "scripts/pr-workflow-content.sh could not read the repository's setting"
+
 # render_steps -- a plan/v2 PLAN's work items: each `### Step <N>: <title>`
 # heading of `## Steps`, in PLAN order, inside one fenced code block. Control
 # characters become spaces, so a title cannot start a line of its own or carry
@@ -390,27 +399,45 @@ render_steps() {
 # composed from it; work-item IDs are digits read from the PLAN, and a step
 # plan's step headings are listed as literal text (render_steps).
 render_body() {
-    local f="$1" p ids
+    local f="$1" p ids records=1
+    # The run's record (the topic=/exit=/outcome=/intent=/mode= lines and the
+    # PLAN's path, a file deleted when the work completes) is written only for a
+    # repository that opts in to workflow content. A coordination body keeps
+    # its record whatever the switch says: the merge gate reads its index.
+    if ! { [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; }; then
+        [ "$CONTENT" = include ] || records=0
+    fi
     {
         if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
             printf '# Coordination PR: %s\n\n' "$TOPIC"
             printf '%s\n' "$DECLARATION"
             printf '> merges **last**, once every indexed PR has merged and finalization is\n'
             printf '> complete. See `references/coordination-strategy.md`.\n\n'
-        else
+        elif [ "$records" = 1 ]; then
             printf '# /scope: %s\n\n' "$TOPIC"
+        else
+            case "$EXIT" in
+                full-run) printf 'The scoping documents for %s.\n\n' "$TOPIC" ;;
+                re-evaluation) printf 'The scoping documents for %s, sent back for re-evaluation.\n\n' "$TOPIC" ;;
+                abandonment-forced) printf 'The scoping documents for %s, which was abandoned.\n\n' "$TOPIC" ;;
+            esac
         fi
-        printf 'topic=%s\n' "$TOPIC"
-        printf 'exit=%s\n' "$EXIT"
-        printf 'outcome=%s\n' "$OUTCOME"
-        printf 'intent=%s\n' "$INTENT"
-        printf 'mode=%s\n\n' "${MODE:-none}"
-        printf '## Artifact Chain\n\n'
+        if [ "$records" = 1 ]; then
+            printf 'topic=%s\n' "$TOPIC"
+            printf 'exit=%s\n' "$EXIT"
+            printf 'outcome=%s\n' "$OUTCOME"
+            printf 'intent=%s\n' "$INTENT"
+            printf 'mode=%s\n\n' "${MODE:-none}"
+            printf '## Artifact Chain\n\n'
+        else
+            printf '## Documents\n\n'
+        fi
         for p in "docs/briefs/BRIEF-${TOPIC}.md" "docs/prds/PRD-${TOPIC}.md" \
                  "docs/designs/DESIGN-${TOPIC}.md" "docs/designs/current/DESIGN-${TOPIC}.md" \
                  "docs/plans/PLAN-${TOPIC}.md"; do
             # An abandoned run writes no PLAN; never list one it left behind.
             [ "$EXIT" = abandonment-forced ] && [ "$p" = "$PLAN" ] && continue
+            [ "$records" = 0 ] && [ "$p" = "$PLAN" ] && continue
             [ -f "$p" ] && printf -- '- %s\n' "$p"
         done
         for p in docs/decisions/DECISION-*-"${TOPIC}"-*.md; do

@@ -291,6 +291,33 @@ koto 0.13.0, so it has no older sessions of its own, but it resumes a topic thro
 `/scope` and `/execute` and can't pick up their old sessions either. There is
 no automatic migration.
 
+## What pull requests carry
+
+The pull request titles, bodies and commit messages shirabe's skills write
+describe the change and how it was verified, in terms a reader of your
+repository understands. By default they leave out the workflow's own
+records: review panel tables, override and verification-deferral notes,
+session, state and ledger names, run records, and pointers to PLAN and ROADMAP
+files, which are deleted when the work completes. Those records stay in the
+run's koto session, where the skills and gates that need them read them.
+
+To keep those records in your pull requests, opt in with one header in the
+repository's `CLAUDE.md`, or in `CLAUDE.local.md` if your workspace manager
+writes that file for you (niwa does, from the workspace configuration):
+
+```markdown
+## PR Workflow Content: include
+```
+
+`CLAUDE.local.md` is read before `CLAUDE.md`, and the first header that reads
+`include` or `omit` wins. Any other value is ignored, so a typo leaves the
+default in place. `scripts/pr-workflow-content.sh [<repository directory>]`
+prints `include` or `omit` for a repository. It's the one reader every skill
+and gate uses, so scripts of your own can ask it too. With the default,
+`/work-on`'s and `/execute`'s pull request gate refuses a body that carries a
+`## Review panel` table or a `Plan:` line; with `include`, the skills write
+both as they always have.
+
 ## The pre-action hook
 
 The plugin ships a Claude Code PreToolUse hook, `hooks/pre-action-deny.sh`,

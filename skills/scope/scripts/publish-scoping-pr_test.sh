@@ -63,7 +63,9 @@ chmod +x "$SHIM/gh" "$SHIM/koto"
 N=0
 R=""; O=""; GHF=""
 # setup [mode] [branch] -- a bare origin with main, a clone on the topic branch
-# holding a PLAN of that mode. Sets R, O, GHF.
+# holding a PLAN of that mode. Sets R, O, GHF. The repository declares
+# `## PR Workflow Content: include`, so the body carries the run's record as it
+# always has; with CONTENT=omit it declares nothing, the default.
 setup() {
     local mode="${1:-single-pr}" branch="${2:-docs/topic}"
     N=$((N + 1))
@@ -72,7 +74,12 @@ setup() {
     git init -q --bare -b main "$O"
     git init -q -b main "$R"
     printf '# repo\n' >"$R/README.md"
-    git -C "$R" add README.md && git -C "$R" commit -q -m init
+    if [ "${CONTENT:-include}" = include ]; then
+        printf '# repo\n\n## PR Workflow Content: include\n' >"$R/CLAUDE.md"
+    else
+        printf '# repo\n' >"$R/CLAUDE.md"
+    fi
+    git -C "$R" add README.md CLAUDE.md && git -C "$R" commit -q -m init
     git -C "$R" remote add origin "$O"
     git -C "$R" push -q -u origin main
     [ "$branch" = main ] || git -C "$R" checkout -q -b "$branch"
@@ -141,6 +148,21 @@ eq "--session: the publish records published_intent" "continue" "$(cat "$STORE/s
 BODY=$(jq -r '.[0].body' "$GHF/prs.json")
 case "$BODY" in *"intent=continue"*) ok "the body records intent=continue" ;; *) bad "the body records intent=continue" "$BODY" ;; esac
 case "$BODY" in *"docs/plans/PLAN-topic.md"*"#31"*) ok "the body lists the PLAN and its work items" ;; *) bad "the body lists the PLAN and its work items" "$BODY" ;; esac
+
+echo "== the default: no record lines, no PLAN pointer =="
+CONTENT=omit setup single-pr
+run --topic topic --exit full-run --intent continue --session s-omit
+eq "default: exit 0" "0" "$RC"
+BODY=$(jq -r '.[0].body' "$GHF/prs.json")
+if grep -Eq '^(topic|exit|outcome|intent|mode)=' <<<"$BODY"; then
+    bad "default: the body carries no topic=/exit=/outcome=/intent=/mode= line" "$BODY"
+else
+    ok "default: the body carries no topic=/exit=/outcome=/intent=/mode= line"
+fi
+case "$BODY" in *"PLAN-topic"*) bad "default: the body names no PLAN file" "$BODY" ;; *) ok "default: the body names no PLAN file" ;; esac
+case "$BODY" in *"/scope"*) bad "default: the body names no skill" "$BODY" ;; *) ok "default: the body names no skill" ;; esac
+case "$BODY" in "The scoping documents for topic."*"#31"*"#32"*) ok "default: a plain sentence and the work items" ;; *) bad "default: a plain sentence and the work items" "$BODY" ;; esac
+eq "default: the session still records published_intent" "continue" "$(cat "$STORE/s-omit/published_intent" 2>/dev/null)"
 
 echo "== a second run after a successful one =="
 BEFORE=$(remote_sha docs/topic)

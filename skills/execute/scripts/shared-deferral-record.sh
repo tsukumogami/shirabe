@@ -43,7 +43,11 @@
 # is checked against the same three parts, in the same words, as a standalone
 # run's: a line saying local verification did not run, a line reading exactly
 # `Reason: <reason>` for each reason, and a line saying hosted CI is the build
-# of record (skills/work-on/references/phases/phase-6-pr.md).
+# of record (skills/work-on/references/phases/phase-6-pr.md). That check
+# reads the switch itself: in a repository that doesn't opt in to workflow
+# content in its PR bodies (scripts/pr-workflow-content.sh prints omit, the
+# default) it passes without reading GitHub, and the children's context keys
+# are the record.
 #
 # Time. koto stops a gate command at 30 seconds, and a stop is no answer, so
 # the script answers 2 on its own first. It ends TOTAL_SECS (25) after it
