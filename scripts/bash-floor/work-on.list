@@ -25,6 +25,10 @@ skills/work-on/scripts/ci-cancel-after-merge_test.sh
 # live expressions, against stubbed gh and koto, so every case runs on the
 # floor.
 skills/work-on/scripts/ci-none-declared_test.sh
+# Needs no engine: it runs the check reader, and both CI gates' live
+# expressions, against a stubbed gh that refuses the check read, so every
+# case runs on the floor.
+skills/work-on/scripts/pr-checks_test.sh
 # Needs no engine: it runs the gate expression against stubbed gh.
 skills/work-on/scripts/closing-keyword-gate_test.sh
 # Drives real koto sessions, and skips cleanly without them.

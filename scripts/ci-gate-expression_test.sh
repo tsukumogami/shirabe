@@ -227,6 +227,11 @@ for entry in "${TEMPLATES[@]}"; do
     assert_gate "$label" false "an unknown bucket gates" \
         "$fields" "$filter" pass something_new
 
+    # pr-checks.sh's own bucket, for a required check its fallback can't see
+    # when GitHub refuses the check read (#1132): it gates like any other.
+    assert_gate "$label" false "an unreadable required check gates (#1132)" \
+        "$fields" "$filter" pass unreadable
+
     # A pull request with no checks at all is not green (#1018): no checks yet
     # is the window just after a push, and a list that stays empty is CI that
     # never ran. Today's gh never prints `[]` for one -- it errors with `no

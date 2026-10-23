@@ -170,7 +170,7 @@ SOURCE=checks
 : > "$TMPD/notes.jsonl"
 checks_refused() {
     SOURCE=actions
-    jq -nc --arg d "$1" --arg r "$REPO" '{code: "checks-refused", detail: "\($d) in \($r) was refused; the checks are the Actions jobs at the head"}' >> "$TMPD/notes.jsonl"
+    jq -nc --arg d "$1" --arg r "$REPO" '{code: "checks-refused", detail: "\($d) in \($r) was refused; the checks are the Actions jobs and the commit statuses at the head"}' >> "$TMPD/notes.jsonl"
 }
 # actions_contexts [status contexts]: the check contexts as the Actions jobs
 # read at the head (a job's check run carries the job's name and is GitHub
@@ -280,9 +280,10 @@ slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
                         and (.result | IN("FAILURE", "CANCELLED", "TIMED_OUT"))
                         and (.name as $n | $nr_names | index($n)) != null) ] as $nrc
     | ($red - $nrc) as $bad
-    | if ($c | length) == 0 and ($running | not) and $source == "actions" then
+    | if ($c | length) == 0 and ($running | not) and $source == "actions" and ($empty | length) == 0 then
         # Read from the Actions jobs and the statuses, a check nothing
-        # answers may still be a check run this token can't see.
+        # answers may still be a check run this token can't see. A board
+        # with nothing at the head is already unverified (board-empty).
         {name: $q.name, source: $q.source, result: "UNREADABLE",
          reason: {code: "required-unreadable", name: $q.name, detail: "no Actions job and no commit status reports it, and the token can't read check runs"}}
       elif ($c | length) == 0 then

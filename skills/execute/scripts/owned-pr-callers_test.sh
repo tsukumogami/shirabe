@@ -154,10 +154,14 @@ fi
 
 # gh falls back to the checked-out branch's PR when handed an empty selector,
 # so every site that feeds owned-pr.sh's output to gh guards against empty.
+# owned_ci_passing feeds it to work-on's pr-checks.sh, which hands it to
+# `gh pr checks`, so the same guard stands in front of it.
 for g in owned_ci_passing owned_merge_state_clean owned_pr_merged; do
     cmd=$(awk -v g="$g" '$0 ~ "^      " g ":" {f=1} f && /command:/ {print; exit}' "$E")
     case "$cmd" in
         *'| xargs -r -I{} gh pr '*) pass "$g fails before gh runs when the lookup is empty" ;;
+        *'| xargs -r -I{} \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" {} '*)
+            pass "$g fails before pr-checks.sh runs when the lookup is empty" ;;
         *) fail "$g has no empty-lookup guard: [${cmd:0:120}]" ;;
     esac
 done

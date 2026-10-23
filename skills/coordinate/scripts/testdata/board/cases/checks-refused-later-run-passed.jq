@@ -1,7 +1,7 @@
 # The check rollup is refused, so the checks are the Actions jobs: the required
 # check's run failed and a later run of its workflow passed, and the superseded
 # job is no check.
-# expect: actions-green
+# expect: verified
 # check: .source == "actions" and .superseded == [{run: 102, name: "wf-102", by: 104}] and .required == [{name: "validate", source: ["classic"], result: "SUCCESS"}]
 include "lib";
 refuse_rollup
