@@ -48,10 +48,9 @@ picked() {
     N=$((N + 1))
     S="coordinate-roadmap-$1-20260926T08$(printf %02d "$N")00Z"
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "Coordinator record: ROADMAP-$1" --arg b "$(render "$(record_json roadmap "$1")" issue)"
     db '.files["acme/widgets"][$k] = $t' --arg k "main:docs/roadmaps/ROADMAP-$1.md" --rawfile t "$2"
-    found_session "$S" "$(roadmap_vars "$1")" 7
+    found_session "$S" "$(roadmap_vars "$1")"
+    seed_session "$S" "$(record_json roadmap "$1")"
     log_to "$S" reconcile pick_facts
     bash "$PF" --session "$S" > /dev/null 2> "$T/pick.err"
     PICK_RC=$?
