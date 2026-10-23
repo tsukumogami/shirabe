@@ -256,7 +256,7 @@ unit's items. The pass itself changes only by sourcing the extracted library.
 |---|---|
 | `skills/coordinate/scripts/unit-removed.sh` | new: `record` (the on-reap step) and `sweep` |
 | `skills/coordinate/scripts/unit-removed_test.sh` | new suite |
-| `skills/coordinate/scripts/archive-common.sh` | new: collection code moved out of `teardown-pass.sh` |
+| `skills/coordinate/scripts/archive-common.sh` | new: collection code moved out of `teardown-pass.sh`, the removals directory and its checks, and the dispatch-request lookup |
 | `skills/coordinate/scripts/teardown-pass.sh` | sources `archive-common.sh`; no behaviour change |
 | `skills/coordinate/scripts/unit-cost.sh` | dedupe by dispatch id under the lock, the removal-record and leg-key fallbacks, `opened`, the per-head runs read, placement, credited pulls standing in for an empty verdict |
 | `skills/coordinate/scripts/unit-cost_test.sh`, `unit-cost-on_test.sh` | new and changed cases |
@@ -271,6 +271,27 @@ No `record-*.sh` script changes; the capture still writes through
 `record-append.sh` and reads through `record-holding.sh --read` and
 `coord-log.sh`.
 
+### `archive-common.sh`
+
+Three groups of functions, each returning non-zero with its reason in
+`AC_WHY` and never exiting, so each caller maps a failure its own way: the pass
+to `refused` (its RESULT and exit 1, exactly as today), the sweep to the log
+outcome `read failed` with the record kept.
+
+- **Collection**: the project-directory selection and copy, the koto-session
+  scan by `execution_dir`, the hashed copy into a list, and the MANIFEST,
+  MANIFEST.sha256 and README writers, taking the archive directory and a scratch
+  directory as arguments instead of the pass's `$ARCH` and `$T`.
+- **The removals directory**: `ac_removals_dir` resolves `R`, makes it and
+  checks it (a real directory, the user's, `0700`); `ac_removal_for_path`
+  returns the record whose `instance_path` is a given path. `unit-removed.sh`
+  and `unit-cost.sh` both use them, so the two never disagree on where `R` is.
+- **The dispatch request**: `ac_dispatch_request` takes an archive's `koto/`
+  directory and prints the earliest coordinator request's id, `requested_by`
+  and `coordinator_of_record`, the rule Decision 3 gives. The sweep calls it to
+  pick the target; `unit-cost.sh` calls it for Dispatch and the leg key, so the
+  rule lives once.
+
 ### The removal record and its directory
 
 `R=${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals/`. Both scripts run
@@ -284,7 +305,8 @@ mode `0700`, or the step refuses (one line, no write).
 ```
 
 `record` writes `<id>.json` through a `mktemp` name inside `R` and `mv`; a
-record that already exists keeps its `removed_at`. It refuses (one line, exit 0,
+record that already exists for the same instance path keeps its `removed_at`,
+and one for a different path is replaced. It refuses (one line, exit 0,
 no record) when `NIWA_REAP_KEY` is unset or fails
 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$` (niwa's own reap-key shape with a
 leading alphanumeric, so it never reads as an option), equals
@@ -303,9 +325,11 @@ the shell that ran niwa.
 
 ```
 unit-removed.sh sweep
-  take R/.lock (mkdir; it holds pid, at and n); on failure: if its pid is
-    not running, or at is older than 150 s x max(1, n), rename it aside
-    (mv to R/.lock.stale.<pid>) and mkdir again; else exit 0
+  take R/.lock (mkdir; it holds pid, at and n); on failure: read its pid
+    and at; if the pid is not running, or at is older than 150 s x max(1, n),
+    mv it to R/.lock.stale.<our pid>, re-read the moved copy, and if its pid
+    and at aren't the ones judged stale (another sweep took it meanwhile),
+    move it back and exit 0; else mkdir again; otherwise exit 0
   loop:
     list R/*.json not yet handled this sweep, at most 20 per pass;
       write n into the lock
@@ -316,6 +340,10 @@ unit-removed.sh sweep
       sessions = archive-common's koto scan for instance_path
       request  = earliest request-leg request with a coordinator requested_by
       no request                 -> keep, log `no coordinator`
+      topic    = coordinator_of_record minus `coordinate-`, matched to
+                 ^[a-z0-9][a-z0-9-]{0,62}$; else delete, log `invalid input`
+      leg key  = requested_by's legs/<request>/<leg> must exist and name the
+                 request and the topic; else keep, log `no coordinator`
       target   = requested_by if live, else the slug's one live run
       none / several             -> keep, log `no coordinator` / `several coordinators`
       archive  = <archive root>/<UTC date>-<topic>-<session id's first 8 hex>
@@ -329,7 +357,15 @@ unit-removed.sh sweep
 ```
 
 The sweep sets the capture's environment as the on-reap step received it, so
-`SHIRABE_PR_INTEGRATION` reaches the capture when the workspace lists it. A
+`SHIRABE_PR_INTEGRATION` reaches the capture when the workspace lists it.
+`XDG_STATE_HOME`, `XDG_DATA_HOME`, `TEARDOWN_ARCHIVE_DIR` and `KOTO_REQUESTS`
+pass through as well when set, since they place `R`, the archive root and the
+request store: the on-reap `env` must list them wherever a
+coordinator's sessions set them, or the two sides read different directories and
+the dedupe can't see the other's record. niwa refuses credential-shaped names in
+that list, so the sweep's `gh` authenticates from its own configuration under
+`HOME`, as a coordinator's normally does; a host that only works with a token in
+the environment gets `post failed` and the record kept. A
 record it keeps gets `attempts` and `last` updated. `removals.log` takes one
 line per record handled: `<UTC time> <dispatch id> <outcome>`, created `0600`;
 past 1 MiB the sweep keeps its last 1,000 lines.
@@ -385,12 +421,20 @@ The leg key object gains `unit: <the brief input's unit>` (it is in the same
 input JSON `render-brief.sh` checked), only when it matches the capture's Unit
 pattern `^[A-Za-z0-9][A-Za-z0-9 _.#/-]{0,63}$`; otherwise the key is written
 without it. `dc_leg_put`'s shape check is unchanged, since it checks only
-`request`, `leg` and `state`.
+`request`, `leg` and `state`. A re-leg rewrites the old key with jq over the
+object it read, so the field carries forward, and the new request's key copies
+it from the old one.
+
+The fallback has two limits the reference states: a unit dispatched before
+this lands has no `unit` on its key, and a `requested_by` session koto has
+already removed has no key to read; both leave the milestone `not
+recoverable`, `no source`, when the Holdings row is gone too.
 
 ### Workspace configuration
 
 What a workspace adds, documented in the reference's `## Capture after a
-removal`:
+removal`, which is the guide R19 asks for (the reference is where a workspace
+maintainer reading about cost entries already looks):
 
 ```toml
 [session.on_reap]
@@ -399,15 +443,17 @@ c=$(ls -d "$HOME"/.claude/plugins/cache/shirabe/shirabe/*/ 2>/dev/null \
     | sed 's#/$##; s#.*/##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
     | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
 s="$HOME/.claude/plugins/cache/shirabe/shirabe/$c/skills/coordinate/scripts/unit-removed.sh"
-[ -n "$c" ] && [ -x "$s" ] && "$s" record
+[ -n "$c" ] && [ -O "$s" ] && [ -x "$s" ] && "$s" record
 exit 0
 '''
 env = ["SHIRABE_PR_INTEGRATION"]
 ```
 
 It runs the newest released version in the plugin cache, by numeric version
-order, and `unit-removed.sh record` itself refuses to run when it is not owned
-by the user or is writable by group or others. The reference says to pin the
+order, only when the user owns the script, and `unit-removed.sh record` also
+refuses to run when it is writable by group or others. The plugin cache is
+inside the user's own trust boundary, as every skill Claude Code loads from it
+is. The reference says to pin the
 path where a workspace wants one version. Combined with another tool's step,
 shirabe's goes first, without its `exit`, since it returns at once: `<shirabe
 step>; <the other step>`.
@@ -416,7 +462,8 @@ step>; <the other step>`.
 
 One pull request, built in this order so each step leaves the suites green:
 
-1. Extract `archive-common.sh` from `teardown-pass.sh`, behaviour-neutral;
+1. Extract `archive-common.sh` from `teardown-pass.sh`, behaviour-neutral,
+   with the removals-directory helpers and the removal record's format;
    `teardown-pass_test.sh` and `teardown-pass_engine_test.sh` unchanged.
 2. Failing heads per head (#1093), with the stub's paged runs and the new
    cases.
@@ -464,21 +511,33 @@ to run when it isn't the user's or is group- or world-writable; a workspace that
 wants one version pins the path. `perl` is used only for `setsid`, and its
 absence falls back to `nohup`, a reliability cost, not a trust one.
 
-**Misattribution.** The coordinator is read from the unit's koto request, which
-the coordinator's dispatch wrote but which lives in a store the user can edit. A
-request edited to name another coordinator puts the entry on that coordinator's
-record: a wrong attribution, never code execution, and the entry's `topic` and
-dispatch id still say which unit it is.
+**Misattribution.** The coordinator is read from the unit's koto request, and
+the worker the capture is about ran with write access to the same stores: it
+could write a `request-leg.toml` naming another request. Two checks bound that.
+The topic taken from `coordinator_of_record` is matched to the dispatch-topic
+pattern before it reaches a path or an argument, so it can't redirect a write.
+And the target coordinator is accepted only when `requested_by`'s session holds
+the leg key its own dispatch wrote, naming that request and that topic, so a
+forged request names no coordinator and is kept as `no coordinator`. What
+remains is a worker pointing at a different request of the same coordinator,
+which misattributes within one record and never executes anything; the entry's
+`topic` and dispatch id still say which unit it is. Every field the capture
+reads from these stores stays data under its existing shape rules.
 
 **Data exposure.** With the switch off, nothing is written to a pull request or
 an issue the unit touched, which removes today's exposure of coordinator
-bookkeeping on those items. On a GitHub record, the entry still goes on the
+bookkeeping on those items. With it on, entries go back on those
+maintainer-owned threads as today, and the reference says so where it documents
+the switch. On a GitHub record, the entry still goes on the
 coordinator's record issue; `record-append.sh`'s scan stops repository names,
 home paths and token shapes there, but a Unit's free text is not scanned, so a
 coordinator on a public record shouldn't name private work in a Unit. The
 removal archive holds copied transcripts, like the pass's; it lives under the
 user's own archive root, `0700`, and its retention is the user's, since only the
-removal records expire.
+removal records expire. An entry names the dispatch id and topic wherever it is
+posted; both are identifiers, not secrets. Credit reads at most 200 candidate
+pull requests inside the capture's 90-second read budget, so a transcript that
+links many pull requests can't stretch a retry past its deadline.
 
 ## Consequences
 
@@ -496,6 +555,9 @@ removal records expire.
   and the documented command finds the script by a glob.
 - A detached background process now runs after removals, and a host that
   never removes again never retries a kept record.
+- The perl `setsid` detach adds a tool; a plain `nohup` would leave the sweep in
+  the group of whatever shell ran niwa, which some harnesses stop when their
+  command returns.
 - The capture's dedupe now lists the record under a host lock, so two captures
   on one host serialize their list-and-post (at most about 40 seconds each).
 - Per-head reads cost one call per head up to green, more than one `run list`
@@ -506,7 +568,10 @@ removal records expire.
 - The reference documents the on-reap step, its combination with another, and
   pinning the path; without it the pass behaves exactly as today.
 - Every removal's sweep retries every kept record, and records expire after 7
-  days with a log line, so nothing accumulates silently.
+  days with a log line, so nothing accumulates silently; `unit-removed.sh
+  sweep` can also be run by anyone at any time, with the same effect.
+- Without perl the step falls back to `nohup`, so the dependency is a
+  preference, not a requirement.
 - The lock's takeover age is its holders' own bounds, so a crashed capture
   blocks the next for at most a minute.
 - The per-head read stops at green and stays inside the capture's existing
