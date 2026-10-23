@@ -419,11 +419,14 @@ if jq -e '.status == "timed-out" and (.commands | length) == 1 and .commands[0].
 else
     fail "the budget result is wrong: $(head -c 400 "$BRES" 2>&1)"
 fi
+# A stop at the budget lands a poll after it, plus the 1-second grace between
+# TERM and KILL. 20 seconds leaves a loaded host 15 seconds for that and still
+# fails a command stopped late or left to bin/slow.sh's own 30-second end.
 BDUR=$(jq -r '.commands[0].duration_secs' "$BRES" 2>/dev/null)
 case "$BDUR" in
     ''|*[!0-9]*) fail "the budget result records no duration for the stopped command: [$BDUR]" ;;
-    *) [ "$BDUR" -lt 30 ] && pass "the command was stopped at the budget (${BDUR}s), before bin/slow.sh's own 30s end" \
-           || fail "the stopped command ran ${BDUR}s under a 5-second budget, as long as bin/slow.sh itself" ;;
+    *) [ "$BDUR" -lt 20 ] && pass "the command was stopped at the budget (${BDUR}s), not at bin/slow.sh's own 30s end" \
+           || fail "the stopped command ran ${BDUR}s under a 5-second budget" ;;
 esac
 PGID=$(jq -r '.commands[0].pgid' "$BRES")
 [ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the group stopped at the budget is alive" \
