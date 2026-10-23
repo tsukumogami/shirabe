@@ -79,11 +79,16 @@ mkdir -p "$T/bin" || exit 1
 # gh:
 #   api user                           {"login": $ME}
 #   api repos/<r>/contents/<path>      $FIX/decl when <r> is the repository
-#                                      named in $FIX/decl-repo, else a 404.
-#                                      {owner}/{repo} is filled from the first
-#                                      git remote, as gh api does, ignoring
-#                                      `gh repo set-default`. The path as asked
-#                                      is logged to $FIX/contents.log
+#                                      named in $FIX/decl-repo and the call
+#                                      goes to the host in $FIX/decl-host
+#                                      (github.com without it), else a 404.
+#                                      The host is the call's --hostname, or
+#                                      gh's default, github.com, when it has
+#                                      none. {owner}/{repo} is filled from the
+#                                      first git remote, as gh api does,
+#                                      ignoring `gh repo set-default`. The
+#                                      path as asked is logged to
+#                                      $FIX/contents.log
 #   api repos/<r>                      its default branch, main
 #   pr list --state <s>                $FIX/prs.json, filtered by state as gh
 #                                      does (open by default)
@@ -101,10 +106,12 @@ FIX="${GH_FIXTURE:?}"
 echo "$*" >> "$FIX/gh.log"
 jqf=""
 state=open
+host=github.com
 prev=""
 for a in "$@"; do
     [ "$prev" = "--jq" ] && jqf="$a"
     [ "$prev" = "--state" ] && state="$a"
+    [ "$prev" = "--hostname" ] && host="$a"
     prev="$a"
 done
 out() {
@@ -134,6 +141,9 @@ case "$1 ${2:-}" in
                 path="repos/${url#*://*/}/${path#"$placeholders"}"
                 ;;
         esac
+        served=github.com
+        [ -f "$FIX/decl-host" ] && served=$(cat "$FIX/decl-host")
+        [ "$host" = "$served" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         case "$path" in
             "repos/$(cat "$FIX/decl-repo" 2>/dev/null)/contents/"*) cat "$FIX/decl" ;;
             *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
@@ -217,15 +227,20 @@ fixture() {
 
 # declare_ci <json>: the default branch's hosted-ci.json, as the API serves it
 # for the pull requests' repository. declare_ci_in <repo> <json>: the same file,
-# held by <repo> only.
+# held by <repo> only. declare_ci_on <host> <repo> <json>: held by <repo> on
+# <host> only; the other two hold it on github.com.
 declare_ci_in() { printf '%s' "$1" > "$FIX/decl-repo" && printf '%s\n' "$2" > "$FIX/decl"; }
 declare_ci() { declare_ci_in "$R" "$1"; }
+declare_ci_on() { printf '%s' "$1" > "$FIX/decl-host" && declare_ci_in "$2" "$3"; }
 DECLARED=$(jq -cn --arg r "$REASON" '{hosted_ci: "none", reason: $r}')
 
 # pr <n> <state> <run-id> <body> -- [none | <check-json>...]: one PR on the
 # run's branch, owned by $ME and marked with <run-id>, with its view and its
 # checks. `none` is gh's answer for no checks (stderr, exit 1); no check
 # arguments at all is an empty JSON list. An OPEN PR is the current branch's.
+# Its URL is under $PR_BASE, the repository's URL on github.com unless a case
+# moves it to another host.
+PR_BASE="$REPO_URL"
 pr() {
     local n="$1" state="$2" mark="$3" text="$4" body
     shift 4
@@ -234,12 +249,12 @@ pr() {
 
 <!-- shirabe-run: $mark -->
 "
-    jq --argjson n "$n" --arg u "$REPO_URL/pull/$n" --arg s "$state" --arg me "$ME" \
+    jq --argjson n "$n" --arg u "$PR_BASE/pull/$n" --arg s "$state" --arg me "$ME" \
         --arg b "$body" --arg h "$BRANCH" '. + [{number: $n, url: $u, state: $s,
             isCrossRepository: false, author: {login: $me}, baseRefName: "main",
             headRefName: $h, body: $b}]' \
         "$FIX/prs.json" > "$FIX/prs.new" && mv "$FIX/prs.new" "$FIX/prs.json" || return 1
-    jq -n --argjson n "$n" --arg s "$state" --arg u "$REPO_URL/pull/$n" --arg b "$body" \
+    jq -n --argjson n "$n" --arg s "$state" --arg u "$PR_BASE/pull/$n" --arg b "$body" \
         --arg h "$HEAD_SHA" '{number: $n, state: $s, url: $u, headRefOid: $h, body: $b}' \
         > "$FIX/view-$n.json" || return 1
     if [ "${1:-}" = none ]; then
@@ -361,6 +376,12 @@ if grep -qx "sess ci_none_declared.txt" "$FIX/added" 2>/dev/null; then
     pass "the note goes to the session named on the command line"
 else
     fail "unexpected context writes: $(cat "$FIX/added" 2>/dev/null)"
+fi
+# On github.com the declaration is read from github.com, named outright.
+if [ "$(gh_calls "^api repos/$R/contents/$DECL_PATH --hostname github.com ")" = 1 ]; then
+    pass "a github.com PR's declaration is read from github.com"
+else
+    fail "the declaration read did not name github.com: $(grep '^api' "$FIX/gh.log")"
 fi
 
 # --- declared, an empty JSON list: green the same way -------------------------
@@ -570,6 +591,74 @@ expect_quiet "fork clone, declared only on the fork"
 expect_no_note "fork clone: the fork's declaration records no note"
 CLONE="$REPO"
 
+# --- a pull request on a host that isn't gh's default (#1051) --------------------
+# The declaration is served only from ghe.example.com. Before #1051 the read
+# went to gh's default host and got a 404, so this case was not green.
+GHE_URL="https://ghe.example.com/$R"
+PR_BASE="$GHE_URL"
+fixture
+declare_ci_on ghe.example.com "$R" "$DECLARED"
+pr 7 OPEN "$MINE" "$RECORD" -- none
+run_script -- sess
+expect_exit "an enterprise PR, declared on its own host, recorded: green" 0
+expect_note "an enterprise PR's pass records the note"
+if grep -qF "#7 ($GHE_URL/pull/7) has no checks" "$NOTE" 2>/dev/null; then
+    pass "the note names the enterprise PR's URL"
+else
+    fail "unexpected note: $(cat "$NOTE" 2>/dev/null)"
+fi
+if [ "$(gh_calls "^api repos/$R/contents/$DECL_PATH --hostname ghe.example.com ")" = 1 ]; then
+    pass "an enterprise PR's declaration is read from its own host"
+else
+    fail "the declaration read did not go to ghe.example.com: $(grep '^api' "$FIX/gh.log")"
+fi
+if [ "$(gh_calls "^pr checks $GHE_URL/pull/7 ")" = 1 ] && [ "$(gh_calls "^pr view $GHE_URL/pull/7 ")" = 1 ]; then
+    pass "an enterprise PR's checks and body are read by its URL"
+else
+    fail "an enterprise PR was not read by its URL: $(cat "$FIX/gh.log")"
+fi
+
+# The same repository's declaration on github.com is another server's file.
+fixture
+declare_ci "$DECLARED"
+pr 7 OPEN "$MINE" "$RECORD" -- none
+run_script -- sess
+expect_exit "an enterprise PR, declared only on github.com: not green" 1
+expect_quiet "an enterprise PR, declared only on github.com"
+expect_no_note "github.com's declaration records no note for an enterprise PR"
+
+# A port is part of the host.
+PR_BASE="https://ghe.example.com:8443/$R"
+fixture
+declare_ci_on ghe.example.com:8443 "$R" "$DECLARED"
+pr 7 OPEN "$MINE" "$RECORD" -- none
+run_script -- sess
+expect_exit "a PR on a host with a port, declared there: green" 0
+if [ "$(gh_calls "^api .* --hostname ghe.example.com:8443 ")" = 1 ]; then
+    pass "a host's port is kept in the declaration read"
+else
+    fail "the declaration read did not keep the port: $(grep '^api' "$FIX/gh.log")"
+fi
+PR_BASE="$REPO_URL"
+
+# --- a lookup that answers something other than a pull request URL ------------
+for bad in "https://github.com/$R/issues/7" \
+    "https://ghe.example.com/prefix/$R/pull/7" \
+    "https://github.com/$R/pull/7x" \
+    "not a url"; do
+    fixture
+    declare_ci "$DECLARED"
+    jq -n --arg u "$bad" '[{number: 7, url: $u, state: "OPEN"}]' > "$FIX/prs.json" || exit 1
+    run_script -- sess
+    expect_exit "a lookup that answers [$bad] is not green" 1
+    expect_stderr "the answer is named on stderr [$bad]" "could not read the pull request's URL: gh answered [$bad]"
+    if [ "$(gh_calls "^api")" = 0 ] && [ "$(gh_calls "^pr checks")" = 0 ]; then
+        pass "nothing more is read after [$bad]"
+    else
+        fail "reads went on after [$bad]: $(cat "$FIX/gh.log")"
+    fi
+done
+
 # --- usage ------------------------------------------------------------------------
 fixture
 declare_ci "$DECLARED"
@@ -602,6 +691,13 @@ if grep -qx "repos/$R/contents/$DECL_PATH" "$FIX/contents.log" 2>/dev/null; then
     pass "--owned: the declaration is read from the repository --repo names"
 else
     fail "--owned: the declaration was read from: $(cat "$FIX/contents.log" 2>/dev/null)"
+fi
+# --repo carries no host, and owned-pr.sh looks it up on gh's default host, so
+# the declaration read leaves the host to gh too.
+if [ "$(gh_calls "^api repos/$R/contents/")" = 1 ] && [ "$(gh_calls "^api .*--hostname")" = 0 ]; then
+    pass "--owned: the declaration is read from gh's default host, the one owned-pr.sh searches"
+else
+    fail "--owned: unexpected declaration read: $(grep '^api' "$FIX/gh.log")"
 fi
 if grep -qF "pr checks $REPO_URL/pull/7 " "$FIX/gh.log" && grep -qF "pr view $REPO_URL/pull/7 " "$FIX/gh.log"; then
     pass "--owned: the PR is read by the URL the lookup answered"
