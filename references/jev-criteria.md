@@ -329,6 +329,127 @@ under the cap.
 input is a slice, which `pick-facts_test.sh` checks by slicing it again, and
 five carry a `done` list of 150 or more.
 
+## coordinate/decision-verdict
+
+`/coordinate`'s `decision_verdict` asks the decider whether to settle a
+decision entry, escalate it to the run's target, or hold it for a fact. Like
+pick's, it is an evidence decider: it runs in shadow, never acts, and has no
+registry entry. Its input cap is the decider input's `max_bytes`, 12,000, and
+its modes are rows of `scripts/decider-declarations.tsv`. Every answer goes
+back to `decision_next`, so no answer changes a route.
+
+**Sources.** `coord/decision.json`, which `decision-next.sh` writes as
+`decision_next`'s `default_action` when its rule 8 finds an entry awaiting a
+verdict. It is the record's Decisions section as `record-decision.sh --list`
+reads it, filtered to that one entry. The agent writes the entry's question
+and options when it opens it, and a worker's report or the agent's own raise
+supplies its text; nothing selects what goes in.
+
+**Slice.** The whole entry, one compact JSON line: all 19 of its fields,
+`decision`, `round`, `question`, `options`, `state`, `source`, `verdict`,
+`recommendation`, `reason`, `context`, `problem`, `grounds`, `target`,
+`owed`, `asked`, `evidence`, `outcome`, `decided_by` and `updated`. While
+the entry awaits a verdict the eleven fields a verdict writes are empty, so
+what the decider reads is the question, the options, who raised it, the
+evidence lines and the time.
+
+**Completeness.** Whether an entry is the coordinator's to settle or has to
+go up isn't in the entry. The directive's escalate grounds are scope, a
+decision the dispatcher supplied, a step reserved for a person, and anything
+outside the coordinator's scope, and none of those facts reaches the input:
+
+- the run's scope: the roadmap on the default branch (which `pick-facts.sh`
+  reads into `coord/pick.json`) or the discipline, and the Run section's
+  `arguments`;
+- what a person already decided or reserved: the record's Standing rows
+  (`answer`, `approval`, `assignment`, `pause`), read by
+  `record-state.sh --list`;
+- the steps reserved for a person and the four grounds themselves: the
+  `decision_verdict` directive in `coordinate.md`, which only the agent reads;
+- who the run reports to: `REPORTS_TO` and the Run section's `reports-to`;
+- earlier verdicts on related entries: the rest of the Decisions section.
+
+The `grounds` field is written only when an escalate verdict is recorded, so
+it's always empty in the input. The verdict is `insufficient`.
+
+The ledger agrees. On one host's decider ledger, from 2026-10-21T03:12Z to
+2026-10-23T01:25Z (UTC), there were 35 consultations in 8 `/coordinate`
+sessions, each paired with the agent's own verdict, read with
+`koto decider report --state decision_verdict --json` and the raw ledger
+lines. None was covered: 25 were below the 0.9 threshold, 9 escaped and 1
+timed out. The agent answered 24 settle and 11 escalate, and never hold.
+
+Each input was rebuilt from its session. The session log gives the decision
+number (`decision-next.sh`'s `DECISION_NEXT`), the size of the
+`coord/decision.json` write before the consultation and the hash of what the
+decider read. The record's Decisions section as a session holds it now gives
+the entry, reset to the shape it had while it awaited a verdict. The few
+fields that move (`round`, `evidence`, `updated`, and options an escalation
+later rewrote with explanations) were searched until the rebuilt bytes had
+the logged content hash, and each match was then checked against the
+ledger's `input_sha256`, koto's SHA-256 over the length-prefixed label and
+content. 27 of 35 rebuilt exactly. Six came from sessions whose record no
+session still holds, and two from an entry whose evidence was later
+rewritten. Those 8 have exact sizes but no text. 31 of the 35 inputs are
+distinct: four were consulted twice unchanged. Three of those pairs got the
+same answer both times; the fourth escaped once and leaned settle at 0.40
+the next time.
+
+- **Size.** Every input was a whole entry, from 504 to 3,953 bytes (median
+  856, p90 1,394), none near the cap, so none was truncated or empty.
+- **Evidence.** 25 of the 27 rebuilt inputs had an empty `evidence`, so the
+  decider read only the question and the options. Of the two that had
+  evidence, one held an earlier settled outcome of the same question and got
+  the second-highest confidence of the window (settle, 0.86). The other held
+  a worker asking the same question again; the decider leaned hold (0.63)
+  and the agent settled.
+- **Below threshold.** The decider leaned settle 18 times, hold 5 times and
+  escalate twice, at a median confidence of 0.51 (0.39 short of the
+  threshold, from 0.31 to 0.88). It leaned the agent's way on 15 of the 25:
+  13 of the 17 the agent settled, but only 2 of the 8 it escalated, and those
+  2 were one input consulted twice, a question that asked in its own words
+  whether "the owner" accepted a residual risk.
+- **Escapes.** The escape's own probability had a median of 0.40, and the
+  next-best answer was hold 5 times and settle 4 times. The escape's
+  description, a missing, truncated or contradictory entry, matched none of
+  the 9 inputs by size or shape.
+- **Settle against escalate.** Nothing in the input tells the agent's settle
+  cases from its escalate cases. Rebuilt, the 18 settle cases came from a
+  worker 11 times, the agent's own raise 6 times and the dispatcher once;
+  the 9 escalate cases came 4, 3 and 2 times. Escalations had longer options
+  (median 378 bytes against 202) and more of them (3 against 2), but a word
+  like "owner", "scope" or "merge" turns up in both: "owner" in 4 of 9
+  escalations and 3 of 18 settles. The agent's rationales name what decided
+  it, and it's never in the entry: a scope the dispatcher set, an owner
+  ruling that would be extended, a merge or a spending call that belongs to
+  someone else, a rule of one review panel at a time.
+
+So the low confidence isn't noise around a right answer. The decider can't
+see whose decision it is, and with no evidence on most entries, hold reads
+as plausible to it as either of the other two. No change to the input's size
+or cap would fix this: the largest input was a third of the cap, and every
+one arrived whole. Any input that could tell settle from escalate would need
+facts the entry doesn't hold: the run's scope, the person's standing rulings
+and decisions, and the steps reserved for a person. Whether the site gets
+them or is dropped is a separate decision; this section only records what's
+missing.
+
+**Figures.** The 35 consultations above: largest 3,953, p90 1,394, none over
+12,000. Sizes are each consultation's `context_added` size for
+`coord/decision.json` in its session log, the last write before the
+consultation.
+
+**Fixtures.** `coordinate.decision_verdict.verdict.decider.jsonl`. The first
+42 cases hold eight of the entry's fields and put the deciding fact in the
+evidence. The eight cases after them are built from observed inputs, with
+names made neutral, in the 19-field shape `decision-next.sh` writes:
+`observed-settle-0` to `-2` (one with an earlier outcome as evidence),
+`observed-escalate-0` to `-2` (the owner's residual risk, a recurring macOS
+spend, a feature split out of a roadmap the dispatcher raised), and two whose
+right answer is the escape: `empty-0`, an empty input, and `truncated-0`, an
+entry cut at 200 bytes. No observed input was empty or truncated, so those
+two are constructed. The fixtures haven't been run against the decider.
+
 ## rs-007
 
 Does Part 1 of the pull request body claim only changes the file list shows?
