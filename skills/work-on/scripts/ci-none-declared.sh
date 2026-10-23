@@ -128,8 +128,9 @@ fi
 # The declaration, from the default branch: the contents API with no ref reads
 # it there. A 404 is the common answer, a repository with no declaration, and
 # exits quietly; any other failed read is named. --hostname comes after the
-# endpoint, where gh reads it the same and the endpoint stays gh's first
-# argument after `api`.
+# endpoint: gh reads a flag anywhere, and the gh stand-ins in this skill's
+# suites and the evals' fixtures take the endpoint from the argument after
+# `api`.
 if ! gh api "repos/$REPO/contents/$DECLARATION" ${HOST:+--hostname "$HOST"} \
     -H 'Accept: application/vnd.github.raw' </dev/null >"$TMP/decl" 2>"$TMP/err"; then
     grep -q -e '404' -e 'Not Found' "$TMP/err" && no

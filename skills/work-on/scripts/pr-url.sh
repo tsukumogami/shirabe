@@ -20,6 +20,8 @@
 # is. Anything else is refused rather than guessed at: another scheme, an
 # empty host or one with userinfo, an issue or other non-pull path, a number
 # that isn't all digits, an owner or repository that is empty, `.` or `..`,
+# or holds anything but the letters, digits, `.`, `_` and `-` GitHub allows
+# in a name (so a percent-encoded `%2e%2e` never reaches a `gh api` path),
 # and a path with more segments before `/pull/` than owner and repository.
 # The last is how a server under a path prefix (`https://<host>/<prefix>/
 # <owner>/<repo>/pull/<n>`) would look; gh doesn't serve one, and reading
@@ -39,7 +41,7 @@
 
 pr_url_parse() {
     local url="${1:-}"
-    local re='^https://([A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?)/([^/?#[:space:]]+)/([^/?#[:space:]]+)/pull/([0-9]+)([/?#].*)?$'
+    local re='^https://([A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?)/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/([0-9]+)([/?#].*)?$'
     PR_HOST=""
     PR_OWNER=""
     PR_REPO=""

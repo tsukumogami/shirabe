@@ -155,10 +155,11 @@ LIST=$(jq -r '.[]' <<<"$WORKFLOWS") || no "check-macos-floor-setup.sh --workflow
 
 while read -r run; do
     [ -n "$run" ] || continue
-    # --hostname after the endpoint: gh reads it the same, and the endpoint
-    # stays gh's first argument after `api`.
+    # --hostname after the endpoint: gh reads a flag anywhere, and the gh
+    # stand-ins in this skill's suites and the evals' fixtures take the
+    # endpoint from the argument after `api`.
     path=$(gh api "repos/$REPO/actions/runs/$run" --hostname "$HOST" --jq .path </dev/null) \
-        || no "could not read run $run of $REPO on $HOST"
+        || no "could not read run $run of $REPO"
     file="${path#.github/workflows/}"
     case "$file" in
         "$path"|*/*|'') no "#$NUMBER is MERGED, but run $run's workflow $path is not a floor workflow" ;;

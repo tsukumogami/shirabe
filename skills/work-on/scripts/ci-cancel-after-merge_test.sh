@@ -298,6 +298,12 @@ expect_exit "a run path outside .github/workflows/ blocks" 1
 fixture MERGED "" "$(check cancel "gone" "Check rule registry" "$RUN/999/job/1")"
 run_fallback "$REPO"
 expect_exit "a run gh can't read blocks" 1
+# The message is the one it was before the host was passed (#1051).
+if [ "$(tail -n 1 <<<"$ERR")" = "ci-cancel-after-merge: could not read run 999 of acme/widgets" ]; then
+    pass "a run gh can't read is named as before"
+else
+    fail "unexpected stderr for a run gh can't read: $ERR"
+fi
 
 # --- MERGED with nothing non-green: the inline filter's answer, not this one's ---
 fixture MERGED "" "$PASS_CHECK" "$SKIP_CHECK"
