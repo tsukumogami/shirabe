@@ -268,6 +268,9 @@ $DID: stale" "$(bash "$UR" sweep)"
 eq "  ... the record is still there and nothing is posted" "1|0" "$(nrecords)|$(costs "$S" | jq length)"
 eq "  ... removals.log holds a line for each, a UTC time first" "$DID no coordinator|$DID stale|ok" \
     "$(cut -d' ' -f2- "$R/removals.log" | paste -sd'|' -)|$(awk '$1 !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ { print "bad"; exit } END { print "ok" }' "$R/removals.log" | head -n 1)"
+# A kept record is retried whatever its outcome: the sweep never branches on
+# last.outcome, so no coordinator here and pending github above stand for the
+# rest (a failed post, a read failure, a timeout), which the stubs can't cause.
 printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken"}' | koto context add "$S" legs/r_dispatch_x/deliver
 eq "  ... with the leg key back, the next sweep captures it and deletes the record" "$DID: captured|0|1" \
     "$(bash "$UR" sweep)|$(nrecords)|$(costs "$S" | jq length)"

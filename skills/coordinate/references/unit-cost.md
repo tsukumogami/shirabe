@@ -368,7 +368,8 @@ for the sweep, so it is never in niwa's way.
 **The sweep.** `unit-removed.sh sweep` reads every record in the removals
 directory, one at a time, under a lock of its own (`.<dispatch id>.lock`
 there): a record a live sweep holds is passed over, and a lock whose holder
-is gone, or older than the capture's 120 seconds, is taken over, so two
+is gone, or older than three minutes (the capture's 120 seconds and a
+minute for the archive), is taken over, so two
 sweeps on one host (two coordinators waking together, or a pass and a wake)
 never capture one record twice. With no record it does nothing. For each
 record it:
@@ -410,7 +411,9 @@ deletes the record; so does a record outside its shape (`invalid input`). No
 record is deleted for its age: one kept more than 24 hours after its
 `removed_at` is listed `stale` by every sweep that keeps it, so a person
 sees it, since a removal can't tell a unit nobody dispatched from one whose
-coordinator hasn't started. Someone removes such a record by hand. Before it
+coordinator hasn't started. The usual causes are a unit with no koto session
+left under its instance, or a dispatch whose coordinator has ended with no
+live run for its scope; someone removes such a record by hand. Before it
 exits, a sweep reads the directory again and handles any record written
 since it started.
 

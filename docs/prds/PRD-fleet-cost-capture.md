@@ -315,8 +315,8 @@ pass happened to remove, with no way to tell which pull requests are missing.
   together, or a pass and a wake) never capture or post one record twice; a
   record whose lock is held is passed over by the other sweep. A lock left by a
   sweep that died is taken over once its holder's pid is gone or it is older
-  than the capture's 120-second bound. A sweep with nothing pending does
-  nothing.
+  than the capture's 120-second bound plus a minute for the archive before
+  it. A sweep with nothing pending does nothing.
 - **R17. Untrusted input.** The removal record, the koto request and the
   archive are read under today's capture rules: only numbers, ids, timestamps
   and closed-set words are kept, each matched to its shape (`unit-cost.sh`'s

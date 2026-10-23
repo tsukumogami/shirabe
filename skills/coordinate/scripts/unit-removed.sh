@@ -49,7 +49,8 @@
 #       holding `<pid> <epoch secs>`, archive-common.sh ac_lock): a record
 #       whose lock a live sweep holds is passed over (`<dispatch id>: held by
 #       another sweep`, nothing logged), and a lock whose holder is gone, or
-#       older than the capture's 120-second bound, is taken over. Under it:
+#       older than three minutes (the capture's 120-second bound and a minute
+#       for the archive before it), is taken over. Under it:
 #         - a record outside its shape (the patterns above, its file named
 #           for its dispatch id, a session id starting with 8 hex digits) is
 #           deleted: invalid input;
@@ -217,6 +218,9 @@ KOTO_SESSIONS="${TEARDOWN_KOTO_SESSIONS:-$HOME/.koto/sessions}"
 CLAUDE_HOME="${TEARDOWN_CLAUDE_HOME:-$HOME/.claude}"
 ARCHIVE_ROOT="${TEARDOWN_ARCHIVE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive}"
 CAPTURE_SECS=120
+# A record's lock covers the archive and the capture, so a live holder is taken
+# over only past both: the capture's bound and a minute for the archive.
+LOCK_SECS=$((CAPTURE_SECS + 60))
 RE_TOPIC='^[a-z0-9][a-z0-9-]{0,62}$'
 STALE_SECS=86400
 
@@ -274,7 +278,7 @@ sweep_one() {
     id=${id%.json}
     [[ $id =~ $AC_RE_REAP ]] || { outcome "$f" "${f##*/}" "invalid input" delete; return 0; }
     lock="$AC_R/.$id.lock"
-    ac_lock "$lock" "$CAPTURE_SECS" 0 || { printf '%s: held by another sweep\n' "$id"; return 0; }
+    ac_lock "$lock" "$LOCK_SECS" 0 || { printf '%s: held by another sweep\n' "$id"; return 0; }
     [ -f "$f" ] && [ ! -L "$f" ] && sweep_record "$f"
     ac_unlock "$lock"
 }
