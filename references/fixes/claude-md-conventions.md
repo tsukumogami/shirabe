@@ -98,6 +98,17 @@ convention headers shirabe uses:
 - **`## Release Notes Convention: <path>`** -- the directory or
   file path the release-notes skill targets when emitting
   release-notes prose.
+- **`## PR Workflow Content: include|omit`** -- whether the pull
+  request titles, bodies and commit messages the skills write carry
+  the workflow's own records (review panel tables, override and
+  deferral notes, run records, pointers to PLAN and ROADMAP files).
+  Default `omit` when the header is absent: the records stay in the
+  run's session. Read from `CLAUDE.local.md` before `CLAUDE.md`, so
+  a workspace that writes `CLAUDE.local.md` can opt a repository in
+  from its configuration; the first well-formed header wins and any
+  other value is passed over. Read by `scripts/pr-workflow-content.sh`,
+  the one reader every skill, gate and script uses, not by the
+  validator.
 
 Each header is independent. A repo may declare any subset; absent
 headers fall through to their defaults (Public visibility, Tactical

@@ -298,11 +298,15 @@ on the exit field being set reads this key (or, after a replace,
 is gone still reports how it ended. It is the one resume decision a
 session could otherwise have taken with it.
 
-Phase 3 copies `chain_ran`, `chain_skipped`, and
-`consolidation_judgments` into the run's PR body because the session's keys are not a durable record. The key is
+Phase 3 carries what `chain_ran`, `chain_skipped`, and
+`consolidation_judgments` say into the run's PR body because the session's keys are not a durable record. The key is
 scratch; the PR body
 is where a reviewer can tell "not produced" from "absorbed into
-this other document" after the scratch is gone.
+this other document" after the scratch is gone. By default it says
+so in plain terms; the keys' own entries are copied only for a
+repository that opts in to workflow content
+(`phase-3-exit-finalization.md`, "Durable record of what the chain
+produced").
 
 Children do not read this file. The signal a child reads is the
 `chain/dispatch` key in `scope-<topic>`, which Phase 2 writes

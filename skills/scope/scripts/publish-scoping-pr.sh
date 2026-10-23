@@ -56,6 +56,14 @@
 # body starts with the fixed coordination-PR declaration prefix and is checked
 # with `shirabe validate --coordination-body` before it is posted.
 #
+# Which of those fields a body carries depends on the repository. The record
+# lines (topic=, exit=, outcome=, intent=, mode=) and the PLAN's own path are
+# the run's records, written only when scripts/pr-workflow-content.sh prints
+# include for the repository. By default the body is one sentence naming the
+# topic, the durable documents under `## Documents`, and the work items. A
+# coordination body is written whole either way, since the merge gate reads
+# its index.
+#
 # The intent last published. The body's `intent=` line is text for people; no
 # step reads it back. With --session, a successful publish writes the intent
 # it published to the session's context key published_intent, and that key is
@@ -354,7 +362,22 @@ esac
 DRAFT=1
 [ "$EXIT" = full-run ] && [ "$MODE" = multi-pr ] && DRAFT=0
 
-TITLE="docs(scope): ${TOPIC} (${EXIT})"
+# Whether the repository opts in to workflow content in its PR bodies.
+CONTENT=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" </dev/null) \
+    || fail scope:pr-create "scripts/pr-workflow-content.sh could not read the repository's setting"
+
+# The title becomes the squash commit's subject. The skill's name and the
+# run's exit value are workflow records, kept for a repository that opts in
+# and for a coordination PR, which stays as it was with its body.
+if [ "$CONTENT" = include ] || { [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; }; then
+    TITLE="docs(scope): ${TOPIC} (${EXIT})"
+else
+    case "$EXIT" in
+        full-run) TITLE="docs: add the ${TOPIC} scoping documents" ;;
+        re-evaluation) TITLE="docs: ${TOPIC} scoping documents, for re-evaluation" ;;
+        *) TITLE="docs: ${TOPIC} scoping documents, abandoned" ;;
+    esac
+fi
 
 # render_steps -- a plan/v2 PLAN's work items: each `### Step <N>: <title>`
 # heading of `## Steps`, in PLAN order, inside one fenced code block. Control
@@ -390,27 +413,44 @@ render_steps() {
 # composed from it; work-item IDs are digits read from the PLAN, and a step
 # plan's step headings are listed as literal text (render_steps).
 render_body() {
-    local f="$1" p ids
+    local f="$1" p ids records=1 coord=0
+    [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ] && coord=1
+    # The run's record (the topic=/exit=/outcome=/intent=/mode= lines and the
+    # PLAN's path, a file deleted when the work completes) is written only for a
+    # repository that opts in to workflow content. A coordination body keeps
+    # its record whatever the switch says: the merge gate reads its index.
+    [ "$coord" = 1 ] || [ "$CONTENT" = include ] || records=0
     {
-        if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
+        if [ "$coord" = 1 ]; then
             printf '# Coordination PR: %s\n\n' "$TOPIC"
             printf '%s\n' "$DECLARATION"
             printf '> merges **last**, once every indexed PR has merged and finalization is\n'
             printf '> complete. See `references/coordination-strategy.md`.\n\n'
-        else
+        elif [ "$records" = 1 ]; then
             printf '# /scope: %s\n\n' "$TOPIC"
+        else
+            case "$EXIT" in
+                full-run) printf 'The scoping documents for %s.\n\n' "$TOPIC" ;;
+                re-evaluation) printf 'The scoping documents for %s, sent back for re-evaluation.\n\n' "$TOPIC" ;;
+                *) printf 'The scoping documents for %s, which was abandoned.\n\n' "$TOPIC" ;;
+            esac
         fi
-        printf 'topic=%s\n' "$TOPIC"
-        printf 'exit=%s\n' "$EXIT"
-        printf 'outcome=%s\n' "$OUTCOME"
-        printf 'intent=%s\n' "$INTENT"
-        printf 'mode=%s\n\n' "${MODE:-none}"
-        printf '## Artifact Chain\n\n'
+        if [ "$records" = 1 ]; then
+            printf 'topic=%s\n' "$TOPIC"
+            printf 'exit=%s\n' "$EXIT"
+            printf 'outcome=%s\n' "$OUTCOME"
+            printf 'intent=%s\n' "$INTENT"
+            printf 'mode=%s\n\n' "${MODE:-none}"
+            printf '## Artifact Chain\n\n'
+        else
+            printf '## Documents\n\n'
+        fi
         for p in "docs/briefs/BRIEF-${TOPIC}.md" "docs/prds/PRD-${TOPIC}.md" \
                  "docs/designs/DESIGN-${TOPIC}.md" "docs/designs/current/DESIGN-${TOPIC}.md" \
                  "docs/plans/PLAN-${TOPIC}.md"; do
             # An abandoned run writes no PLAN; never list one it left behind.
             [ "$EXIT" = abandonment-forced ] && [ "$p" = "$PLAN" ] && continue
+            [ "$records" = 0 ] && [ "$p" = "$PLAN" ] && continue
             [ -f "$p" ] && printf -- '- %s\n' "$p"
         done
         for p in docs/decisions/DECISION-*-"${TOPIC}"-*.md; do

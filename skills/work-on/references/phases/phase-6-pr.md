@@ -76,16 +76,49 @@ should. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
 
-If `deferral_approval` approved a deferral, name the deferred criterion and the
-recorded approval in Part 2.
+### Workflow content: what the body leaves out
+
+The title, the body and every commit message describe the change and how it was
+verified, in terms a reader of this repository understands. By default they carry
+none of the workflow's own records:
+
+- no review panel table, and no seat, run or reviewed-head lists;
+- no override notes and no verification-deferral notes;
+- no session, state, gate or ledger names, and no run records;
+- no `Plan:` or `Roadmap:` lines and no other pointers to PLAN or ROADMAP files,
+  which are deleted when the work completes.
+
+Those records already live in this run's session. A repository opts in to them
+with `## PR Workflow Content: include` in its `CLAUDE.local.md` or `CLAUDE.md`.
+Ask the one reader rather than reading the header yourself:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh
+```
+
+It prints `include` or `omit` (the default). Under `omit`, `pr_body_conformant`
+also holds on a `## Review panel` heading or table, a `Plan:` or `Roadmap:` line, or
+an `Implements` line naming a PLAN or ROADMAP file, each a `pr-body/workflow-content`
+finding; move the record out and submit again. Under `include` every section
+below is written as it says, and nothing is refused for carrying a record.
+
+A Verification section, when the change needs one, says what ran and what it
+showed, in plain terms: "the coordinate script suites pass", "hosted CI built and
+tested the change", never a state or gate name.
+
+If `deferral_approval` approved a deferral, say in Part 2, in plain terms, which
+acceptance criterion the change leaves undone and where it is tracked. Under
+`include`, also name the recorded approval.
 
 ### Verification deferred to hosted CI
 
 A run started with `VERIFICATION=hosted-ci` passed through
 `verification_deferred` instead of `verification`: the verification map never
 ran on this host, and the reason it gave is in context as
-`verification_deferral`. Record that in Part 2 with this section, the reason
-copied verbatim:
+`verification_deferral`. Under `omit` that context key is the record: the body's
+Verification section says hosted CI verified the change, the reason stays out,
+and `verification_deferral_recorded` passes without reading the body. Under
+`include`, record it in Part 2 with this section, the reason copied verbatim:
 
 ```markdown
 ## Verification
@@ -95,8 +128,8 @@ Reason: <the verification_deferral value>
 Hosted CI is the build of record for this change.
 ```
 
-`pr_creation`'s `verification_deferral_recorded` gate reads the body GitHub has
-(`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
+Under `include`, `pr_creation`'s `verification_deferral_recorded` gate reads the
+body GitHub has (`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
 finds all three: a line saying local verification did not run, the line
 `Reason: <reason>`, and a line saying hosted CI is the build of record. The
 wording is matched without regard to case. The reason line is matched exactly

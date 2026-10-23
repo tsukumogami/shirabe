@@ -427,7 +427,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
             + ([ (.review_level.floor // empty | "floor " + .), (.review_level.ceiling // empty | "ceiling " + .) ] | join(", "))
             + "; /work-on'"'"'s choice must fall inside it." ]
         else [] end )
-    + [ "- [ ] Each pull request body carries your review round under `## Review panel` in its second part: a table with the columns Seat, Model, Run, Verdict and Reviewed head, one row per seat (at least three, each with its own Seat and a Run unique to that seat'"'"'s run), every verdict pass, at the head you report ready. The land step reads it and runs no review of its own." ]
+    + [ "- [ ] Each pull request has your review round recorded in your /work-on run'"'"'s session with shirabe'"'"'s `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat'"'"'s run), every verdict pass, at the head you report ready. The land step reads it there and runs no review of its own. The round goes in the pull request body too, as a `## Review panel` table with the columns Seat, Model, Run, Verdict and Reviewed head, only when the repository declares `## PR Workflow Content: include`." ]
     + ( if $rework == "" then []
         elif ($rework | test("^Evidence clause [0-9]+ failed: ")) then
           [ "- [ ] A failure reported after the milestone read Done sent it back; the report below names the clause. Your work makes every clause of the milestone'"'"'s Evidence hold, judged against the Evidence on the roadmap.",

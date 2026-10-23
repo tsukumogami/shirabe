@@ -117,14 +117,17 @@ Two more flags, on both paths:
   (`skills/work-on/SKILL.md`), for the whole plan. They become the koto
   variables `VERIFICATION` and `VERIFICATION_DEFERRAL_REASON`, passed only
   when given. With `hosted-ci`, every child gets both, so each child goes to
-  `verification_deferred` instead of running the verification map, and each
-  pull request the children land in records the deferral in its body: that
-  local verification did not run, a `Reason: <reason>` line for each reason, and that hosted CI is
-  the build of record, in the section `/work-on`'s `phase-6-pr.md` gives. On
-  a single-pr PLAN every child task gets both through the spawn, and
-  `pr_finalization` holds until the shared PR's body records it. On a
-  coordinated PLAN the dispatch step gives both to every work item's child on
-  every node; `node-push.sh` writes the section into each node PR it opens
+  `verification_deferred` instead of running the verification map. The
+  children's `verification_deferral` context keys are the record. By default
+  the shared PR's body says in plain terms that hosted CI verified the change;
+  in a repository that declares `## PR Workflow Content: include` it records
+  the deferral as `/work-on`'s `phase-6-pr.md` gives it: that local
+  verification did not run, a `Reason: <reason>` line for each reason, and
+  that hosted CI is the build of record. On a single-pr PLAN every child task
+  gets both through the spawn, and under `include` `pr_finalization` holds
+  until the shared PR's body records it. On a
+  coordinated PLAN, whatever the setting, the dispatch step gives both to every
+  work item's child on every node; `node-push.sh` writes the section into each node PR it opens
   and refuses to push to a node PR already open that doesn't carry it (exit
   80), and the loop neither readies nor merges a node PR whose children
   deferred until its body records it (`error:execute:deferral-record`).

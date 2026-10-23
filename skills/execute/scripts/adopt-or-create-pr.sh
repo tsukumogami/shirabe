@@ -28,9 +28,11 @@
 #   --create     when no owned PR exists, open one as a draft:
 #                  gh pr create --draft --repo <repo> --head <branch>
 #                    --title "impl: <slug>" --body-file <file>
-#                where the file is "Implements <path>." and this run's
-#                marker line; then resolve again, and record what the lookup
-#                finds.
+#                where the file is a line naming the work ("Implements
+#                <path>." only when scripts/pr-workflow-content.sh prints
+#                include for the repository, since the PLAN is deleted when
+#                the work completes) and this run's marker line; then
+#                resolve again, and record what the lookup finds.
 #   --take-over  passed to owned-pr.sh: when the one PR on the branch carries
 #                another run's marker, restamp it as this run's and adopt it.
 #                Needs --plan-slug, and --head must be exactly
@@ -185,7 +187,16 @@ fi
 
 BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/adopt-or-create-pr.XXXXXX") || exit 5
 trap 'rm -f "$BODY_FILE"' EXIT
-printf 'Implements %s.\n' "$DOC" > "$BODY_FILE"
+# The draft's first body, replaced at pr_finalization. Its pointer to the PLAN
+# file is a workflow record (the PLAN is deleted when the work completes), so
+# it is written only for a repository that opts in to workflow content.
+CONTENT=$("$BASH" "$SELF_DIR/../../../scripts/pr-workflow-content.sh" </dev/null) \
+    || { echo "$PROG: scripts/pr-workflow-content.sh failed; nothing created" >&2; exit 5; }
+if [ "$CONTENT" = include ]; then
+    printf 'Implements %s.\n' "$DOC" > "$BODY_FILE"
+else
+    printf 'Draft of the %s work; its description is written when the work is done.\n' "$SLUG" > "$BODY_FILE"
+fi
 "$BASH" "$SELF_DIR/run-id.sh" stamp "$RUN_ID" "$BODY_FILE" </dev/null \
     || { echo "$PROG: could not stamp the new PR's body; nothing created" >&2; exit 5; }
 if ! gh pr create --draft --repo "$REPO" --head "$HEAD" \
