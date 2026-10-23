@@ -188,8 +188,8 @@ case "$*" in
     "api repos/acme/widgets/issues/comments/1") echo '{"body":"handed off"}' ;;
     "pr view 600 --repo acme/widgets --json mergedAt,headRefName") hang; echo '{"mergedAt":"2026-10-01T11:30:00Z","headRefName":"feat/w5"}' ;;
     "api --method GET repos/acme/widgets/pulls/600/commits --paginate") echo '[{"sha":"0123456789012345678901234567890123456789"}]' ;;
-    "run list --repo acme/widgets --branch feat/w5 "*)
-        echo '[{"databaseId":7,"headSha":"0123456789012345678901234567890123456789","attempt":1,"status":"completed","conclusion":"success","updatedAt":"2026-10-01T11:00:00Z"}]' ;;
+    "api --method GET repos/acme/widgets/actions/runs?head_sha=0123456789012345678901234567890123456789&per_page=100&page=1")
+        echo '{"total_count":1,"workflow_runs":[{"id":7,"head_sha":"0123456789012345678901234567890123456789","run_attempt":1,"status":"completed","conclusion":"success","updated_at":"2026-10-01T11:00:00Z"}]}' ;;
     "api --method GET repos/acme/widgets --jq .private") echo false ;;
     "pr view 601 --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
         hang; echo "HTTP 502" >&2; exit 1 ;;
