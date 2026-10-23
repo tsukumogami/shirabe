@@ -75,36 +75,16 @@ fixture() {
 
 # The allow list: the matches at this change's base commit.
 cat > "$T/allow" <<'EOF'
-codec scripts/board-lib.sh
 codec scripts/decision-archive_test.sh
-codec scripts/decision-next.sh
-codec scripts/decision-render.sh
-codec scripts/merged-facts.sh
 codec scripts/milestone.sh
 codec scripts/pick-facts.sh
-codec scripts/progress-view.sh
-codec scripts/reconcile-read.sh
-codec scripts/reconcile-salvage.jq
-codec scripts/record-append.sh
-codec scripts/record-codec.jq
-codec scripts/record-codec_test.sh
-codec scripts/record-common.sh
 codec scripts/record-decision.sh
-codec scripts/record-holding.sh
-codec scripts/record-parse.sh
-codec scripts/record-render.sh
-codec scripts/record-state.sh
-codec scripts/record-write-core.sh
-codec scripts/report-questions.sh
 codec scripts/report-questions_test.sh
 codec scripts/roadmap-status.sh
-codec scripts/state-schema.jq
 codec scripts/state-schema_test.sh
 codec scripts/testdata/board/helpers.sh
-codec scripts/unit-cost.sh
 collaborators scripts/testdata/gh
 disciplines scripts/discipline-session_test.sh
-libs koto-templates/coordinate.md
 libs scripts/board-lib.sh
 libs scripts/board-verdict_test.sh
 libs scripts/closeout-read.sh
@@ -124,7 +104,6 @@ libs scripts/dispatch-common.sh
 libs scripts/holding-link.sh
 libs scripts/land-check_test.sh
 libs scripts/milestone.sh
-libs scripts/normalize_test.sh
 libs scripts/pause-read.sh
 libs scripts/pick-facts.sh
 libs scripts/posture-read.sh
@@ -135,10 +114,7 @@ libs scripts/reconcile-pass.sh
 libs scripts/reconcile-pass_engine_test.sh
 libs scripts/reconcile-pass_test.sh
 libs scripts/reconcile-read.sh
-libs scripts/reconcile-salvage.jq
 libs scripts/record-append.sh
-libs scripts/record-codec.jq
-libs scripts/record-codec_test.sh
 libs scripts/record-common.sh
 libs scripts/record-confirm.sh
 libs scripts/record-decision.sh
@@ -148,8 +124,6 @@ libs scripts/record-hold.sh
 libs scripts/record-hold_test.sh
 libs scripts/record-holding.sh
 libs scripts/record-open.sh
-libs scripts/record-parse.sh
-libs scripts/record-render.sh
 libs scripts/record-source.sh
 libs scripts/record-source_test.sh
 libs scripts/record-state.sh
@@ -166,14 +140,10 @@ libs scripts/roadmap-status.sh
 libs scripts/session-store_engine_test.sh
 libs scripts/start-check.sh
 libs scripts/state-schema.jq
-libs scripts/state-schema_test.sh
 libs scripts/testdata/board/helpers.sh
-libs scripts/testdata/test-lib.sh
 name scripts/record-append-on_test.sh
 name scripts/record-append.sh
 name scripts/record-append_test.sh
-name scripts/record-codec.jq
-name scripts/record-codec_test.sh
 name scripts/record-common.sh
 name scripts/record-confirm.sh
 name scripts/record-confirm_test.sh
@@ -188,8 +158,6 @@ name scripts/record-holding.sh
 name scripts/record-holding_test.sh
 name scripts/record-open.sh
 name scripts/record-open_test.sh
-name scripts/record-parse.sh
-name scripts/record-render.sh
 name scripts/record-source.sh
 name scripts/record-source_test.sh
 name scripts/record-state.sh
@@ -197,7 +165,6 @@ name scripts/record-state_test.sh
 name scripts/record-write-core.sh
 name scripts/record-write.sh
 name scripts/record-write_test.sh
-store-codes scripts/record-codec.jq
 store-codes scripts/record-source_test.sh
 store-codes scripts/state-schema.jq
 store-codes scripts/state-schema_test.sh
