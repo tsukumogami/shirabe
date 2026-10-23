@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A dispatched unit's cost entry exists only when the coordinator's own
   teardown pass removes the unit. A unit removed any other way leaves no entry,
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framed under `/scope`; the requirements follow in the PRD.
 
