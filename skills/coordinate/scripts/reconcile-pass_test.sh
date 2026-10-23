@@ -2,8 +2,8 @@
 # reconcile-pass_test.sh -- reconcile-pass.sh advances a visit's work file in
 # bounded passes, prints exactly one capturable line, writes only reconcile/
 # context keys, and seals a report only when every re-check is done;
-# reconcile-report-get.sh accepts only the report the seal names, and on the
-# session store refuses with 3 one sealed before the run was imported here.
+# reconcile-report-get.sh accepts only the report the seal names, and refuses
+# with 3 one sealed before the run was imported here.
 #
 # The scripts run from a copy of the tree. reconcile-read.sh,
 # reconcile-check.sh and the record feature's coord-log.sh are stand-ins
@@ -165,7 +165,6 @@ case "$cmd" in
     chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
-    run-store) cat "$STUB_DIR/store" 2>/dev/null || echo github ;;
     *) exit 64 ;;
 esac
 STUB
@@ -549,8 +548,7 @@ echo "== a report sealed before an import =="
 new_case imported
 record "[]"
 pass
-echo session > "$CASE/store"
-get --check; check "on the session store, a run never imported reads its report" $?
+get --check; check "a run never imported reads its report" $?
 jq -nc '{source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-plugin-system-20260927T000000Z", friction: "/srv/ws-a/f.md"}' \
     > "$CASE/ctx/record%host"
 get --check; [ $? = 3 ]; check "a report sealed before the run was imported here is refused with 3" $?
@@ -560,8 +558,6 @@ jq -c --slurpfile h "$CASE/ctx/record%host" '.record.import = ($h[0] | {source_w
 pass
 get --check; check "the next visit's report, read under the import, reads" $?
 grep -q 'This run was imported from session' <<< "$(ctx reconcile/report.md)"; check "  ... and names the source" $?
-echo github > "$CASE/store"; echo 9 > "$CASE/visit"; record "[]"; pass
-get --check; check "a GitHub record has no import facts to compare" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
