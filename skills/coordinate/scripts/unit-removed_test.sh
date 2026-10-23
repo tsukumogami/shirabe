@@ -15,8 +15,9 @@
 # every session's state times measured, dispatch from the koto request, and
 # the figures that needed the removed job or a pull request not recoverable,
 # no source; the removed-mode archive and its teardown.json; the record
-# deleted; the step passes the (dummy) GH_TOKEN through its scrubbed
-# environment, since the sweep reads GitHub only with one. requested_by
+# deleted; the step passes the (dummy) GH_TOKEN, GITHUB_TOKEN and GH_HOST
+# through its scrubbed environment, and every gh call the sweep makes runs
+# with an empty GH_CONFIG_DIR of the sweep's own. requested_by
 # ended: the entry goes to the scope slug's one live run. With no GH_TOKEN the
 # sweep still archives, keeps the record pending github with its attempt
 # counted, posts nothing, and the stub gh records no call. A request whose
@@ -57,12 +58,17 @@ R="$XDG_STATE_HOME/shirabe/removals"
 
 # The stand-ins with their stores, for the sweep's scrubbed environment. A
 # fifo at $T/hold.<tool> holds that tool's next call until the suite writes
-# to it.
+# to it. Each call logs the GitHub environment it was given, one
+# `<GH_CONFIG_DIR>|<entries in it>|<GITHUB_TOKEN>|<GH_HOST>` line in
+# $T/<tool>.env.
 mkdir -p "$T/bin"
 for tool in koto gh; do
     cat >"$T/bin/$tool" <<EOF
 #!/bin/sh
 if [ -p '$T/hold.$tool' ]; then cat '$T/hold.$tool' >/dev/null; rm -f '$T/hold.$tool'; fi
+n=0
+[ -n "\${GH_CONFIG_DIR:-}" ] && n=\$(ls -A "\$GH_CONFIG_DIR" 2>/dev/null | wc -l | tr -d ' ')
+printf '%s|%s|%s|%s\n' "\${GH_CONFIG_DIR:-}" "\$n" "\${GITHUB_TOKEN:-}" "\${GH_HOST:-}" >>'$T/$tool.env'
 GH_DB='$GH_DB' KOTO_STORE='$KOTO_STORE' KOTO_COMPILED_HASH=feedface
 export GH_DB KOTO_STORE KOTO_COMPILED_HASH
 exec '$HERE/testdata/$tool' "\$@"
@@ -152,9 +158,9 @@ seed() {
 
 echo "== a removed unit, captured in its coordinator's session =="
 seed
-rm -rf "$R"
+rm -rf "$R" "$T/gh.env"
 mkfifo "$T/hold.gh"
-OUT=$(rec "$DID" "$SID" "$IP")
+OUT=$(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; rec "$DID" "$SID" "$IP")
 eq "record exits 0" 0 $?
 eq "  ... printing one line" "unit-removed: recorded the removal of $DID; the sweep runs in the background" "$OUT"
 eq "  ... with the removal record written while the sweep's capture is held" "unit-removal/1|$DID|$SID|$IP|0|null" \
@@ -174,6 +180,10 @@ if [ -p "$T/hold.gh" ]; then
 else
     ok "  ... the capture's first GitHub read was the one held"
 fi
+# Every gh call the sweep made ran with an empty GH_CONFIG_DIR of the sweep's
+# own and with GITHUB_TOKEN and GH_HOST passed through.
+eq "  ... each of the sweep's gh calls had an empty GH_CONFIG_DIR, GITHUB_TOKEN and GH_HOST" "yes|ok" \
+    "$([ -s "$T/gh.env" ] && echo yes)|$(awk -F'|' '$1 !~ /\/unit-removed\.[^\/]*\/gh-config$/ || $2 != "0" || $3 != "stub-token-2" || $4 != "github.com" { print "bad: " $0; exit } END { if (NR) print "ok" }' "$T/gh.env" | head -n 1)"
 E=$(costs "$S")
 eq "the coordinator's session holds one cost entry" 1 "$(jq length <<<"$E")"
 eq "  ... its niwa.dispatch.id the reap key" "$DID" "$(jq -r '.[0]["niwa.dispatch.id"]' <<<"$E")"
@@ -281,7 +291,13 @@ eq "at the same instance path keeps the first removed_at" "2026-01-01T00:00:00Z|
 rec dsp-other.1 0b0b0b0b-1111 "$OTHER-2" >/dev/null
 eq "at another instance path replaces the record" "new|$OTHER-2" \
     "$(jq -r '"\(if .removed_at == "2026-01-01T00:00:00Z" then "old" else "new" end)|\(.instance_path)"' "$R/dsp-other.1.json")"
-# The sweeps those two started find no koto session and keep the record.
-sleep 1
+# The sweep the last one started finds no koto session and keeps the record;
+# the suite ends once it has.
+i=0
+until [ "$(jq -r '.last.outcome // ""' "$R/dsp-other.1.json" 2>/dev/null)" = "no coordinator" ] || [ "$i" -ge 150 ]; do
+    sleep 0.2
+    i=$((i + 1))
+done
+eq "  ... and its sweep keeps it, no coordinator" "no coordinator" "$(jq -r '.last.outcome' "$R/dsp-other.1.json")"
 
 done_tests unit-removed_test

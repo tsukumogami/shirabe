@@ -18,7 +18,8 @@
 #       its own script or a library it sources is writable by group or
 #       others; NIWA_REAP_KEY is unset, outside
 #       ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ or equal to NIWA_SESSION_ID;
-#       NIWA_SESSION_ID isn't a session id (unit-cost.sh's pattern);
+#       NIWA_SESSION_ID isn't a session id (unit-cost.sh's pattern, its
+#       first 8 characters hex digits, since they name the archive);
 #       NIWA_INSTANCE_PATH isn't absolute, holds `..` or isn't under the
 #       directory the step runs in; or the removals directory R
 #       (${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals) is a
@@ -148,7 +149,9 @@ if [ "$MODE" = record ]; then
     [ -n "$KEY" ] || skip "no reap key (NIWA_REAP_KEY)"
     [[ $KEY =~ $AC_RE_REAP ]] || skip "the reap key is not a dispatch id"
     [ "$KEY" != "$SID" ] || skip "the reap key is the session id, not a dispatch id"
-    [[ $SID =~ $AC_RE_SID ]] || skip "the session id (NIWA_SESSION_ID) is not a session id"
+    # The archive is named for its first 8 characters, as the pass names a
+    # removed unit's, so they must be hex digits too.
+    [[ $SID =~ $AC_RE_SID ]] && [[ $SID =~ ^[0-9a-f]{8} ]] || skip "the session id (NIWA_SESSION_ID) is not a session id"
     case "$IP" in /*) ;; *) skip "the instance path (NIWA_INSTANCE_PATH) is not absolute" ;; esac
     case "$IP" in *..*) skip "the instance path holds .." ;; esac
     # niwa runs the step from the workspace root, and every instance is
