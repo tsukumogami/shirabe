@@ -1,0 +1,11 @@
+{
+  "deferrals": [],
+  "holdings": [],
+  "reversals": [],
+  "scope": {
+    "kind": "roadmap",
+    "name": "plugin-system"
+  },
+  "side_effects": [],
+  "written": "2026-10-01T09:00:00Z"
+}

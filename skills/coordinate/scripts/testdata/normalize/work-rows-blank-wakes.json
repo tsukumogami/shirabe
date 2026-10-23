@@ -1,0 +1,21 @@
+{
+  "deferrals": [],
+  "holdings": [],
+  "reversals": [],
+  "scope": {
+    "kind": "roadmap",
+    "name": "plugin-system"
+  },
+  "side_effects": [],
+  "work": [
+    {
+      "item": "Milestone 3",
+      "kind": "decision",
+      "next": "go",
+      "updated": "2026-10-09T10:00Z",
+      "wakes": "0",
+      "who": "decision 1"
+    }
+  ],
+  "written": "2026-10-01T09:00:00Z"
+}

@@ -575,6 +575,19 @@ def check_record($private):
     + (check_decisions($in.decisions; $private) | if . == null then {} else {decisions: .} end)) as $out
   | ($in | scan_strings($private)) as $_
   | $out;
+
+# normalize_state($private): the state as a reader is handed it and a writer
+# stores it. check_record's normal form, less the optional sections that hold
+# nothing: a Holds or stored-set section with no rows, and a Decisions section
+# with no entries whose Next decision is 1. Those are the sections a record
+# with nothing in them never carried, so a state written through here holds no
+# key for them, as one written through the markdown body never did
+# (normalize_test.sh holds the two to the same result for every section shape).
+def normalize_state($private):
+  check_record($private)
+  | (if (.holds // null) == [] then del(.holds) else . end)
+  | reduce state_secs[] as $sec (.; if (.[$sec.key] // null) == [] then del(.[$sec.key]) else . end)
+  | (if .decisions != null and (.decisions.entries | length) == 0 and .decisions.next == 1 then del(.decisions) else . end);
 # ---- end of state-schema.jq ------------------------------------------------
 
 # Cell encoding, applied in this order so each step is reversible.

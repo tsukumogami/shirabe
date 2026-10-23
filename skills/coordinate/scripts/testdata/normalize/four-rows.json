@@ -1,0 +1,63 @@
+{
+  "deferrals": [
+    {
+      "deferral": "flaky test | with a pipe",
+      "disposition": "",
+      "raised": "2026-09-25T10:00Z",
+      "reason": "not now"
+    }
+  ],
+  "holdings": [
+    {
+      "branch": "feat/x",
+      "dispatch_status": "dispatched",
+      "dispatched": "2026-09-26",
+      "entry_point": "/shirabe:deliver",
+      "mode": "--auto",
+      "phase": "executing",
+      "pull_request": "[#12](https://github.com/acme/widgets/pull/12)",
+      "repo": "acme/widgets",
+      "return_path": "message",
+      "unit": "Feature 2",
+      "verified_head": "0123456789abcdef0123456789abcdef01234567",
+      "worker": "plugin-registry"
+    },
+    {
+      "branch": "",
+      "dispatch_status": "dispatching",
+      "dispatched": "2026-09-27",
+      "entry_point": "/shirabe:deliver",
+      "mode": "",
+      "phase": "scoping",
+      "pull_request": "",
+      "repo": "acme/widgets",
+      "return_path": "message",
+      "unit": "Feature 3",
+      "verified_head": "",
+      "worker": "plugin-loader"
+    }
+  ],
+  "reversals": [
+    {
+      "date": "2026-09-26T09:15Z",
+      "from": "the human",
+      "now": "hold for release",
+      "reason": "release freeze",
+      "reversed": "merge on green"
+    }
+  ],
+  "scope": {
+    "kind": "roadmap",
+    "name": "plugin-system"
+  },
+  "side_effects": [
+    {
+      "action": "merge",
+      "attempted": "2026-09-26T11:02Z",
+      "how_to_confirm": "compare blobs on main",
+      "target": "#12",
+      "verified_head": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ],
+  "written": "2026-10-01T09:00:00Z"
+}

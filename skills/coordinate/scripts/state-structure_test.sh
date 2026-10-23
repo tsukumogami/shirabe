@@ -124,6 +124,7 @@ libs scripts/dispatch-common.sh
 libs scripts/holding-link.sh
 libs scripts/land-check_test.sh
 libs scripts/milestone.sh
+libs scripts/normalize_test.sh
 libs scripts/pause-read.sh
 libs scripts/pick-facts.sh
 libs scripts/posture-read.sh

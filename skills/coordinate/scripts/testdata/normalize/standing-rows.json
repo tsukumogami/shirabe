@@ -1,0 +1,23 @@
+{
+  "deferrals": [],
+  "holdings": [],
+  "reversals": [],
+  "scope": {
+    "kind": "roadmap",
+    "name": "plugin-system"
+  },
+  "side_effects": [],
+  "standing": [
+    {
+      "kind": "pause",
+      "on": "all",
+      "owner": "the human",
+      "relayed_by": "",
+      "set": "2026-10-13T10:00Z",
+      "standing": "s1",
+      "until": "time 2026-10-14T00:00Z",
+      "what": "hold the merges"
+    }
+  ],
+  "written": "2026-10-01T09:00:00Z"
+}
