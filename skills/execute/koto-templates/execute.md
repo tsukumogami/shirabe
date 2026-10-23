@@ -806,7 +806,7 @@ states:
       # `run-id.sh get` only reads: the id was minted by execute-open.sh, and a
       # failed read fails the gate rather than giving the run a new identity.
       #
-      # All three gates look up with --state open-else-merged (#958): the open
+      # All four gates look up with --state open-else-merged (#958): the open
       # PR while there is one, exactly as --state open answers, and the run's
       # MERGED PR once it has merged. With --state open, a PR that merged while
       # the run watched CI was no PR at all: monitor_owned_pr's exit 3 ended
@@ -855,25 +855,55 @@ states:
         type: command
         overridable: false
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open-else-merged --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
+      # Has the run's own PR already merged (#917)? Someone else can merge it
+      # while the run watches CI, and once it is MERGED its checks decide
+      # nothing: there is no fix to push, and merge-verdict.sh's first row
+      # returns `merged` before any CI row. So a 0 here routes the run to
+      # merge_readiness with no evidence, whatever owned_ci_passing and
+      # owned_merge_state_clean say -- a pending rerun or a failed check on a
+      # merged PR used to stop here and end at execute:ci.
+      #
+      # 0 only on an exact `MERGED` line from the same lookup the gates above
+      # run. Every other answer is 1: an OPEN PR, an empty lookup (no PR, a
+      # CLOSED-unmerged one, or another run's or another author's, which
+      # owned-pr.sh never prints), and a failed lookup or gh read. So a read
+      # that fails leaves the routes as they were before this gate. Keep
+      # `--jq .state` and the whole-line match: a gh that printed raw JSON
+      # instead would read 1, never 0. Not overridable: an override can't
+      # make a PR merged.
+      owned_pr_merged:
+        type: command
+        overridable: false
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json state --jq .state | awk '$0 == \"MERGED\" {m = 1} END {exit m ? 0 : 1}'"
     accepts:
       ci_outcome:
         type: enum
         values: [failing_fixed, pending, failing_unresolvable]
         description: >-
-          Absent on the green, DIRTY and lookup paths: koto routes those on
-          the gates. Submit a value only while owned_ci_passing fails.
+          Absent on the merged, green, DIRTY and lookup paths: koto routes
+          those on the gates. Submit a value only while owned_ci_passing
+          fails on an open PR.
       rationale:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
       # Every way on goes through merge_readiness, which re-reads the PR and
-      # owns the per-head-commit CI deadline. Green CI on a clean PR routes
-      # with no evidence.
+      # owns the per-head-commit CI deadline. A PR that has already merged
+      # routes with no evidence, whatever the CI and merge-state gates say;
+      # merge_readiness's verdict reads it as `merged`. Every edge below that
+      # needs the lookup at 0 also needs owned_pr_merged at 1, which is what
+      # lets koto prove the arms exclusive.
+      - target: merge_readiness
+        when:
+          gates.monitor_owned_pr.exit_code: 0
+          gates.owned_pr_merged.exit_code: 0
+      # Green CI on a clean, open PR routes with no evidence.
       - target: merge_readiness
         when:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 0
           gates.owned_merge_state_clean.exit_code: 0
+          gates.owned_pr_merged.exit_code: 1
       # A DIRTY PR: GitHub runs no checks on one, so owned_ci_passing says
       # nothing about it -- green on an earlier head's checks, red on none --
       # and the merge state is what decides. koto routes it, whatever the CI
@@ -882,10 +912,11 @@ states:
         when:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_merge_state_clean.exit_code: 1
+          gates.owned_pr_merged.exit_code: 1
         context_assignments:
           failure_reason: "ci_monitor: PR merge state is DIRTY; checks suppressed. Merge the default branch into the shared branch and resolve the conflicts."
-      # The three evidence edges apply while CI is red on a clean PR, which
-      # is also what lets koto prove them exclusive of the routed edges.
+      # The three evidence edges apply while CI is red on a clean, open PR,
+      # which is also what lets koto prove them exclusive of the routed edges.
       # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be
       # stale. merge_readiness reads the checks on the new head itself.
       - target: merge_readiness
@@ -893,6 +924,7 @@ states:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 1
           gates.owned_merge_state_clean.exit_code: 0
+          gates.owned_pr_merged.exit_code: 1
           ci_outcome: failing_fixed
       # pending: checks are still running. merge_readiness's verdict waits on
       # them (pending:checks) up to the per-head-commit deadline, then ends
@@ -902,12 +934,14 @@ states:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 1
           gates.owned_merge_state_clean.exit_code: 0
+          gates.owned_pr_merged.exit_code: 1
           ci_outcome: pending
       - target: done_blocked
         when:
           gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 1
           gates.owned_merge_state_clean.exit_code: 0
+          gates.owned_pr_merged.exit_code: 1
           ci_outcome: failing_unresolvable
         context_assignments:
           outcome: error
@@ -1707,13 +1741,14 @@ Submit `finalization_status: update_failed` only when the `gh pr view` read, the
 
 Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
-Three gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (at least one check, and every check in the `pass` or `skipping` bucket), `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`), and `monitor_owned_pr` is the lookup itself, through `check-pr-output.sh --owned-pr`. koto routes on them without asking you:
+Four gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (at least one check, and every check in the `pass` or `skipping` bucket), `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`), `owned_pr_merged` is whether GitHub reports the PR `MERGED`, and `monitor_owned_pr` is the lookup itself, through `check-pr-output.sh --owned-pr`. koto routes on them without asking you:
 
-- Green CI on a clean PR goes on to `merge_readiness`.
-- A `DIRTY` PR goes to `escalate_dirty_merge_state` → `done_blocked`, whatever the CI gate says: GitHub creates no new check-runs on a `DIRTY` PR, so `owned_ci_passing` says nothing about it, and only the merge state decides.
+- A PR that has already merged (someone else merged it while the run watched CI) goes on to `merge_readiness`, whatever its checks or merge state say, and the run ends at `merged`.
+- Green CI on a clean, open PR goes on to `merge_readiness`.
+- A `DIRTY` open PR goes to `escalate_dirty_merge_state` → `done_blocked`, whatever the CI gate says: GitHub creates no new check-runs on a `DIRTY` PR, so `owned_ci_passing` says nothing about it, and only the merge state decides.
 - No single owned PR ends the run at `execute:pr-adopt`, and a failed lookup read at `execute:status-read`.
 
-You see this state only while `owned_ci_passing` fails on a clean PR: a check failed, one is still running, or no check has been reported at all. Zero checks is not green: just after a push, before GitHub creates the check suites, `gh pr checks` answers `no checks reported`, which is pending. Submit `ci_outcome: pending`, and `merge_readiness` bounds the wait (`pending:checks` for its grace window, then `awaiting:no-checks`). The one exception is a repository that has no hosted CI and says so on its default branch, in `.claude/shirabe-extensions/hosted-ci.json` with `"hosted_ci": "none"` and a one-line `"reason"`: then `owned_ci_passing` passes a PR with no checks once the PR body records the exception (a line saying the repository declares no hosted CI, and the line `Reason: <reason>` with the reason verbatim), and koto records `ci_none_declared.txt`. The gate's stderr says what the body is missing. `merge_readiness` still never merges a PR with no checks, so that PR ends ready for a person to merge. Never add or edit that file to get past the gate; it is read from the default branch, which the run's PR can't change. To read the PR yourself, resolve it the same way:
+You see this state only while `owned_ci_passing` fails on a clean, open PR: a check failed, one is still running, or no check has been reported at all. Zero checks is not green: just after a push, before GitHub creates the check suites, `gh pr checks` answers `no checks reported`, which is pending. Submit `ci_outcome: pending`, and `merge_readiness` bounds the wait (`pending:checks` for its grace window, then `awaiting:no-checks`). The one exception is a repository that has no hosted CI and says so on its default branch, in `.claude/shirabe-extensions/hosted-ci.json` with `"hosted_ci": "none"` and a one-line `"reason"`: then `owned_ci_passing` passes a PR with no checks once the PR body records the exception (a line saying the repository declares no hosted CI, and the line `Reason: <reason>` with the reason verbatim), and koto records `ci_none_declared.txt`. The gate's stderr says what the body is missing. `merge_readiness` still never merges a PR with no checks, so that PR ends ready for a person to merge. Never add or edit that file to get past the gate; it is read from the default branch, which the run's PR can't change. To read the PR yourself, resolve it the same way:
 
 ```bash
 PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
@@ -1724,7 +1759,7 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
 
 Empty output or a non-zero exit means no single owned PR this run can use, or a failed read; tick with nothing submitted, and `monitor_owned_pr` ends the run.
 
-The lookup follows the PR past its merge: once it is MERGED, the three gates read it rather than finding nothing. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels passes `owned_ci_passing` and routes as green without stopping here, and koto records the cancelled checks as `ci_cancelled_after_merge.txt` (the `merged` state says to name them). A MERGED PR with a failed check, or a cancel outside those workflows, still fails the gate here. You can't push a fix to a merged PR, so submit `ci_outcome: failing_unresolvable` naming the check.
+The lookup follows the PR past its merge: once it is MERGED, the gates read it rather than finding nothing, and a MERGED PR never stops here. koto routes it on `owned_pr_merged` with nothing submitted, even with a failed, cancelled or still-running check, since there is no fix to push to a merged PR; never submit `ci_outcome` for one. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels also passes `owned_ci_passing`, and koto records the cancelled checks as `ci_cancelled_after_merge.txt`. The `merged` state says how to report a merged PR's checks.
 
 If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
@@ -1891,6 +1926,8 @@ koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit
 ```
 
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds, the PR merged while `ci_monitor` watched it and its CI passed with cancelled macOS floor checks: read it with `koto context get` and name those checks in your final report.
+
+A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `gh pr checks <pr> --repo <repo>`, taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
 
 ## ready_awaiting_merge
 
