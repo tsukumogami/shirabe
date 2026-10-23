@@ -28,7 +28,6 @@ stateDiagram-v2
     decision_next --> decision_verdict : gates.decision_input.exists: true, gates.decision_next_verdict.exit_code: 160
     decision_next --> pick_facts : gates.decision_next_verdict.exit_code: 161
     decision_next --> classify_report : gates.decision_next_verdict.exit_code: 162
-    decision_next --> record_conflict : gates.decision_next_verdict.exit_code: 163
     decision_open --> decision_next : opened: opened
     decision_raise --> decision_next : raised: raised
     decision_redirect --> decision_redirect_send : gates.decision_redirect_verdict.exit_code: 180

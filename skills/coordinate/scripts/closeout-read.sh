@@ -82,12 +82,11 @@ finish() { # finish <token>
 }
 
 lib_roadmap_path
-rs_record "$T/parsed.json" body; RS_RC=$?
+rs_record "$T/parsed.json"; RS_RC=$?
 case $RS_RC in
     0) ;;
-    2|4|12) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
-    3|65) lib_die2 "$(lib_record_name) is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    65) lib_die2 "$(lib_record_name) doesn't read back as a roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
 esac
 lib_default_branch || lib_die2 "cannot read $REPO's default branch"
 lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$T/roadmap.md"

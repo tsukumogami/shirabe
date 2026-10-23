@@ -1,6 +1,6 @@
 # record-source.sh -- the one reader of a coordinator record's state. A library:
-# `. "$HERE/record-source.sh"` after record-common.sh (it needs lib_parse and the
-# facts lib_facts sets). Run as a script, it also prints one read (see Usage).
+# `. "$HERE/record-source.sh"` after record-common.sh (it needs the facts
+# lib_facts sets). Run as a script, it also prints one read (see Usage).
 #
 # Every script that needs the record's state reads it here. The record lives in
 # the coordinator's own koto session, one key per section (record/holdings,
@@ -8,30 +8,30 @@
 # record/holds, record/run, record/standing, record/work; a section the record
 # doesn't hold has no key), with record/meta naming its scope and written time;
 # a discipline rotation also keeps its window and reasoning in record/rotation
-# and record/reasoning. The record is assembled from those keys, rendered at
-# record/meta's written time and parsed back, so every caller gets the same
-# JSON, and the same body, from one state. record/meta is read before and after
-# the sections, and the read is taken again, up to three times, while a write
-# is part way through (meta marked pending, or the two meta reads differing).
-# The session read is the run's (SESSION), or RS_SESSION when a caller names
-# another, as the tests do with the override flags.
+# and record/reasoning. The record is assembled from those keys and handed out
+# as state-schema.jq's normalize_state gives it, so every caller gets the same
+# JSON from one state. record/meta is read before and after the sections, and
+# the read is taken again, up to three times, while a write is part way through
+# (meta marked pending, or the two meta reads differing). The session read is
+# the run's (SESSION), or RS_SESSION when a caller names another, as the tests
+# do with the override flags.
 #
-#   rs_record <out> <body|json>
-#       The run's record. <out>.raw is the body for `body`, and {state: "OPEN",
-#       body, url} for `json`, url the session's name. Writes <out> (the parsed
-#       record, record-parse.sh's JSON), <out>.raw, <out>.md (the body) and
-#       <out>.err (the read's stderr, or the parser's refusal).
-#       Returns 0 parsed; 2 the read failed; 3 or 65 the body isn't a canonical
-#       record of this scope (record-parse.sh's codes); 4 the session holds no
-#       record/meta (session-absent, the reason in <out>.err); 5 the parser or
-#       the renderer itself failed; 12 the session record was still being
-#       written after three re-reads (record-changed).
+#   rs_record <out>
+#       The run's record. Writes <out> (the record, normalize_state's JSON),
+#       <out>.state (the keys as assembled, pushed heads included),
+#       <out>.pushed (the pushed heads, {worker topic: sha}) and <out>.err (the
+#       read's stderr, or the rule the state breaks).
+#       Returns 0 read; 2 the read failed; 4 the session holds no record/meta
+#       (session-absent, the reason in <out>.err); 12 the session record was
+#       still being written after three re-reads (record-changed); 65 the
+#       session's record is another scope's or breaks a rule of
+#       state-schema.jq.
 #   rs_record_api <out> [<session>]
 #       The record of <session> ($SESSION when not given), its scope, name and
 #       host from that run's facts (coord-log.sh run-facts), for the land check
-#       and the merge, which name the session they read. Writes <out> and
-#       <out>.md beside it, for the caller's own scratch directory to clean up.
-#       Returns 0 parsed; 2 the read or the parse failed.
+#       and the merge, which name the session they read. Writes <out> and its
+#       side files, for the caller's own scratch directory to clean up.
+#       Returns 0 read; 2 the read failed or the record breaks a rule.
 #   rs_facts <parsed-record> <topic>
 #       Prints one holding's facts, from a record rs_record or rs_record_api
 #       parsed: {topic, unit, repo, pull_request, number, branch, verified_head,
@@ -44,22 +44,16 @@
 #       One record read per step (shirabe#1094, #1095). Creates <dir> and
 #       exports RS_ONCE=<dir>. From then on rs_record, in this process and in
 #       every script it runs (they inherit RS_ONCE), answers from one read of
-#       the run's record: the first rs_record assembles the record's keys,
-#       renders the body and parses it back into <dir>, and the rest take their
-#       files from there. A read of another record (another session, scope or
+#       the run's record: the first rs_record assembles the record's keys into
+#       <dir>, and the rest take their files from there. A read of another record (another session, scope or
 #       name) is made live, as without RS_ONCE, and a read that fails is never
 #       kept. Returns 2 when <dir> can't be made.
 #
 #       What this bounds is the number of reads a step makes, not the cost of
 #       one. An assembly is still one koto call per key and a listing or two
 #       (koto has no multi-key get), and the reconcile deadlines stay 8 and 12
-#       seconds rather than growing with the record. Reading once is enough
-#       because the assembly's calls were never the slow part: at the budget
-#       they take about a second at a real koto's 0.1 s each, while rendering
-#       the body and parsing it took most of the read, and a pass rendered and
-#       parsed it up to three times (reconcile-read.sh's read, then the
-#       settle's and the legs classification's). A deadline that grew with the
-#       record would instead let a slow read hide a hung one.
+#       seconds rather than growing with the record. A deadline that grew with
+#       the record would let a slow read hide a hung one.
 #   rs_once_drop
 #       Forgets the step's read, so the next read is live. record-write-core.sh
 #       calls it before it writes and again once the write lands, so nothing in
@@ -70,27 +64,26 @@
 #
 # Usage (as a script):
 #   record-source.sh --session S --facts <topic>
-#   record-source.sh --session S --show
 #   record-source.sh --session S --host
 #   record-source.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
 #   record-source.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>
 #                    (tests: RS_SESSION names the session holding the record)
 #
-# --show prints the record as its body would read, so a reviewer on the
-# coordinator's host reads the state without knowing key names (PRD R11).
-# record/host is never part of it; --host prints it, the object rs_host reads.
+# A person reads the state through koto's own view of the session (`koto
+# context get` on its record/ keys); --host prints record/host, the object
+# rs_host reads.
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
 # failed; 4 the session holds no record/meta; 12 the session record was still
 # being written; 64 usage.
 #
-# Requires: bash 3.2+, jq, koto, and record-common.sh, record-parse.sh,
-# record-render.sh, coord-log.sh and pause-read.sh beside this file.
+# Requires: bash 3.2+, jq, koto, and record-common.sh, state-schema.jq,
+# coord-log.sh and pause-read.sh beside this file.
 
 RS_LOADED=1
-# The session store's section keys, as `<record-parse.sh field>:<key under
-# record/>` pairs (docs/designs/DESIGN-coordinator-session-record.md, Decision 3).
+# The session store's section keys, as `<state field>:<key under record/>`
+# pairs (docs/designs/DESIGN-coordinator-session-record.md, Decision 3).
 # A section the record doesn't hold has no key.
 RS_SECTIONS="holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work"
 # How long a reader waits before re-reading a session record a write is part way
@@ -179,16 +172,15 @@ rs_session_state() {
     return 12
 }
 
-# rs_session_read <out> <body|json> <session> <scope> <name>: the files
-# rs_record writes: <out> the record as record-parse.sh parses it, <out>.md the
-# body rendered at record/meta's written time, and <out>.raw the body (body) or
-# {state: "OPEN", body, url} with the session as its url (json). Parsing the
-# rendered body back is what gives every reader the same JSON for one state
-# (PRD R19). Returns rs_session_state's codes; 65 record/meta names another
-# scope; 3 or 65 the body doesn't parse back canonical; 5 the renderer or the
-# parser failed.
+# rs_session_read <out> <session> <scope> <name>: the files rs_record writes:
+# <out> the record as state-schema.jq's normalize_state gives it, <out>.state
+# the keys as assembled (pushed heads included) and <out>.pushed the pushed
+# heads, {worker topic: sha}. normalize_state is what gives every reader the
+# same JSON for one state (PRD R19). Returns rs_session_state's codes; 65
+# record/meta names another scope, or the state breaks a rule of
+# state-schema.jq (the reason in <out>.err).
 rs_session_read() {
-    local out=$1 mode=$2 s=$3 scope=$4 name=$5 rc w
+    local out=$1 s=$2 scope=$3 name=$4 rc
     : > "$out.err"
     [ -n "$s" ] || { echo "${PROG:-record-source}: the session store needs the run's session" >> "$out.err"; return 2; }
     rs_session_state "$s" "$out.state"; rc=$?
@@ -204,21 +196,14 @@ rs_session_read() {
         echo "${PROG:-record-source}: session $s's record/holdings holds a pushed_head that isn't 40 hex" >> "$out.err"
         return 65
     fi
-    jq '[(.holdings // [])[] | select((.pushed_head // "") != "") | {(.worker): .pushed_head}] | add // {}' "$out.state" > "$out.pushed" || return 5
-    w=$(jq -r '.written' "$out.state")
-    jq 'del(.written) | if has("holdings") then .holdings |= map(del(.pushed_head)) else . end' "$out.state" \
-        | bash "$HERE/record-render.sh" --container issue --written "$w" > "$out.md" 2>> "$out.err" || return 5
-    if [ "$mode" = body ]; then
-        cp "$out.md" "$out.raw"
-    else
-        jq -n --rawfile b "$out.md" --arg u "$s" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
+    jq '[(.holdings // [])[] | select((.pushed_head // "") != "") | {(.worker): .pushed_head}] | add // {}' "$out.state" > "$out.pushed" || return 2
+    if ! jq -L "$HERE" 'include "state-schema";
+            if has("holdings") then .holdings |= map(del(.pushed_head)) else . end | normalize_state([])' \
+            "$out.state" > "$out" 2> "$out.check"; then
+        grep -q 'refused: ' "$out.check" || { cat "$out.check" >> "$out.err"; return 2; }
+        echo "${PROG:-record-source}: session $s's record doesn't read back: $(sed -n 's/.*refused: //p' "$out.check" | head -1)" >> "$out.err"
+        return 65
     fi
-    bash "$HERE/record-parse.sh" --container issue --expect-scope "$scope:$name" "$out.md" > "$out" 2> "$out.err"
-    rc=$?
-    case $rc in
-        0|3|65) return $rc ;;
-        *) return 5 ;;
-    esac
 }
 
 # rs_scope_sessions <scope> <name>: this host's coordinator sessions of the
@@ -409,18 +394,17 @@ rs_once_drop() {
     return 0
 }
 
-# rs_once_record <out> <body|json>: rs_record from the step's read, made now
-# unless it is already there. Returns rs_record's codes, or 99 when the step
-# wrote while it read, or the read held is another record's, and the caller
-# reads live.
+# rs_once_record <out>: rs_record from the step's read, made now unless it is
+# already there. Returns rs_record's codes, or 99 when the step wrote while it
+# read, or the read held is another record's, and the caller reads live.
 rs_once_record() {
-    local out=$1 mode=$2 s=${RS_SESSION:-${SESSION:-}} key g r d rc
+    local out=$1 s=${RS_SESSION:-${SESSION:-}} key g r d rc
     key="$SCOPE $NAME $s"
     g=$(rs_once_gen)
     r=$RS_ONCE/read.$g
     if [ ! -f "$r/key" ]; then
         d=$(mktemp -d "$RS_ONCE/fill.XXXXXX") || return 99
-        rs_session_read "$d/s" json "$s" "$SCOPE" "$NAME"; rc=$?
+        rs_session_read "$d/s" "$s" "$SCOPE" "$NAME"; rc=$?
         if [ $rc -ne 0 ]; then
             cp "$d/s.err" "$out.err" 2> /dev/null || : > "$out.err"
             rm -rf "$d"
@@ -434,21 +418,18 @@ rs_once_record() {
         [ "$(rs_once_gen)" = "$g" ] || return 99
     fi
     [ -f "$r/key" ] && [ "$(cat "$r/key")" = "$key" ] || return 99
-    cp "$r/s" "$out" && cp "$r/s.err" "$out.err" && cp "$r/s.md" "$out.md" && cp "$r/s.pushed" "$out.pushed" || return 99
-    if [ "$mode" = body ]; then cp "$r/s.md" "$out.raw" || return 99
-    else cp "$r/s.raw" "$out.raw" || return 99; fi
+    cp "$r/s" "$out" && cp "$r/s.err" "$out.err" && cp "$r/s.state" "$out.state" && cp "$r/s.pushed" "$out.pushed" || return 99
 }
 
-# rs_record <out> <body|json>
+# rs_record <out>
 rs_record() {
-    local out=$1 mode=$2 rc
-    case "$mode" in body|json) ;; *) echo "$PROG: rs_record: mode is body or json" >&2; return 2 ;; esac
+    local out=$1 rc
     # The step's one read (rs_once_begin).
     if [ -n "${RS_ONCE:-}" ]; then
-        rs_once_record "$out" "$mode"; rc=$?
+        rs_once_record "$out"; rc=$?
         [ $rc -eq 99 ] || return $rc
     fi
-    rs_session_read "$out" "$mode" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME"
+    rs_session_read "$out" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME"
 }
 
 # rs_record_api <out> [<session>]: the record of a run named by its session.
@@ -461,7 +442,7 @@ rs_record_api() {
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
     case "$scope" in roadmap|discipline) ;; *) return 2 ;; esac
     [[ $rrepo =~ $RE_REPO ]] || return 2
-    rs_session_read "$out" json "$SESSION" "$scope" "$name"; rc=$?
+    rs_session_read "$out" "$SESSION" "$scope" "$name"; rc=$?
     cat "$out.err" >&2
     [ $rc -eq 0 ] || return 2
 }
@@ -513,7 +494,6 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --scope) [ $# -ge 2 ] || rs_usage; SCOPE=$2; shift 2 ;;
             --name) [ $# -ge 2 ] || rs_usage; NAME=$2; shift 2 ;;
             --repo) [ $# -ge 2 ] || rs_usage; REPO=$2; shift 2 ;;
-            --show) ACTION=show; shift ;;
             --host) ACTION=host; shift ;;
             --candidate) ACTION=candidate; shift ;;
             --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
@@ -546,17 +526,13 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     lib_run_found || { echo "$PROG: the run has no record yet" >&2; exit 2; }
     RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
     trap 'rm -rf "$RS_T"' EXIT
-    rs_record "$RS_T/rec" body
+    rs_record "$RS_T/rec"
     case $? in
         0) ;;
         4) lib_scrub < "$RS_T/rec.err" >&2; exit 4 ;;
         12) lib_scrub < "$RS_T/rec.err" >&2; exit 12 ;;
         *) echo "$PROG: the record couldn't be read: $(lib_scrub < "$RS_T/rec.err" | head -3)" >&2; exit 2 ;;
     esac
-    if [ "$ACTION" = show ]; then
-        cat "$RS_T/rec.md"
-        exit 0
-    fi
     rs_facts "$RS_T/rec" "$TOPIC"
     exit $?
 fi

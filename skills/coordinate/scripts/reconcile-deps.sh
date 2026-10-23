@@ -56,12 +56,10 @@ RD_BOARD_CHECK=$RD_HERE/board-verdict.sh
 RD_DEFERRAL_CHECK=$RD_HERE/deferral-check.sh
 # The one read of a repository's live refs, shared with teardown-inventory.sh.
 RD_GITHUB_REFS=$RD_HERE/github-refs.sh
-# The record's reader: record-parse.sh (the one codec) and coord-log.sh (the
-# run's facts: scope, name, host).
-RD_RECORD_PARSE=$RD_HERE/record-parse.sh
+# The run's facts (scope, name, host): coord-log.sh.
 RD_COORD_LOG=$RD_HERE/coord-log.sh
 # The one reader of the record (record-source.sh): reconcile-read.sh reads
-# the record through its rs_session_read.
+# the record through its rs_record.
 # shellcheck source=/dev/null
 . "$RD_HERE/record-source.sh"
 

@@ -2,10 +2,10 @@
 # reconcile-read.sh -- read the coordinator's record, and at discipline scope
 # the previous rotation's reasoning, as the claims reconcile re-checks.
 #
-# Reconcile never parses a record body itself. The run's record is the one
-# the start states found (coord-log.sh run-facts), held in the run's koto
-# session; it is read live through record-source.sh and parsed by the record
-# feature's record-parse.sh, the same codec every record script uses.
+# The run's record is the one the start states found (coord-log.sh
+# run-facts), held in the run's koto session; it is read live through
+# record-source.sh, the reader every record script uses, which checks it
+# against state-schema.jq.
 #
 # Usage:
 #   reconcile-read.sh --session S [--reasoning-out FILE]
@@ -21,8 +21,9 @@
 #    {source_workspace, source_session, template_hash}}, holdings: [{row,
 #    source}], deferrals: [{row, source}], side_effects: [{row, source}],
 #    decisions: [{decision, question, recommendation, reason, target}] (the
-#    escalated entries), unparseable: [{raw, reason}],
-#    reasoning: null | "present" | "not_recorded" | "absent"}
+#    escalated entries), unparseable: [{raw, reason}] (only a written time
+#    that isn't YYYY-MM-DDTHH:MM:SSZ: the record is JSON, read whole or not
+#    at all), reasoning: null | "present" | "not_recorded" | "absent"}
 # Rows keep the record's own keys, each with source "record". At discipline
 # scope the predecessor's reasoning is read from the predecessor's session
 # (this rotation's record/rotation names it): its record/reasoning, written
@@ -32,16 +33,10 @@
 # A predecessor's rows came across in the carry (record-open.sh --carry), so
 # they are the record's own.
 #
-# A body the record feature's parser doesn't take as canonical, or refuses
-# for one row, is read row by row (reconcile-salvage.jq, over that feature's
-# own codec): a row that breaks the grammar is listed under unparseable with
-# its raw line and the codec's reason, and every other row is still read.
-# For a body that parses but doesn't render back as written, the first line
-# that differs is listed.
-#
 # Refusals print {status, reason} and exit:
 #   3  none        the run has no found record
-#   4  unreadable  the body isn't a record of this scope
+#   4  unreadable  the session's record isn't one of this scope, or breaks a
+#                  rule of state-schema.jq
 #   5  failed      a read failed or ran past its deadline (the reason says
 #                  which)
 #   64 usage
@@ -115,88 +110,22 @@ case "$SCOPE" in roadmap|discipline) ;; *) refuse 5 failed "the run's scope is u
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 [ -n "$RS" ] || refuse 5 failed "no session holds the record"
 
-# The body through the seam (record-source.sh), under this reader's own
+# The record through the seam (record-source.sh), under this reader's own
 # deadline: rs_record, so a pass that began the step's one read
-# (rs_once_begin) shares it with the settle and the legs classification. This
-# reader keeps its row-by-row salvage of a body the codec refuses.
+# (rs_once_begin) shares it with the settle and the legs classification.
 session_view() {
-    RS_SESSION=$RS rs_record "$T/rec" json || return $?
-    cat "$T/rec.raw"
+    RS_SESSION=$RS rs_record "$T/rec" || return $?
+    cat "$T/rec"
 }
 rd_deadline "$DEADLINE" session_view > "$T/view.json" 2>/dev/null
 case $? in
     0) ;;
     124) refuse 5 failed "reading the record timed out" ;;
+    65) refuse 4 unreadable "the session's record isn't a coordinator record for this scope" ;;
     *) refuse 5 failed "the record could not be read" ;;
 esac
-jq -e '(.body | type) == "string"' "$T/view.json" >/dev/null 2>&1 \
+jq -c '. + {unparseable: []}' "$T/view.json" > "$T/record.json" 2>/dev/null \
     || refuse 5 failed "the record's response is unreadable"
-jq -j .body "$T/view.json" > "$T/body.md"
-
-# codec_program EXPR -- a jq program file: the record feature's codec, the
-# salvage definitions, then EXPR. One file rather than jq's include, because
-# a function reached through two levels of include aborts jq 1.8.
-codec_program() {
-    { cat "$RD_HERE/record-codec.jq"
-      sed '/^include "record-codec";$/d' "$RD_HERE/reconcile-salvage.jq"
-      printf '\n%s\n' "$1"; } > "$T/program.jq"
-    printf '%s' "$T/program.jq"
-}
-
-# parse FORMAT FILE OUT -- read FILE as FORMAT for this scope into OUT, with
-# `unparseable` rows. The record feature's parser first; a body it doesn't
-# take as canonical, or refuses for a row, is read row by row with
-# reconcile-salvage.jq, so every other row is still re-checked. For a
-# non-canonical body, the first line that differs is listed. Returns 0 read;
-# 65 not a body of this scope and format (too large, wrong scope, wrong
-# structure); 1 the parser itself failed.
-parse() {
-    local fmt=$1 in=$2 out=$3 rc fn line body got
-    "$RD_RECORD_PARSE" --format "$fmt" --container issue --expect-scope "$SCOPE:$NAME" "$in" > "$out" 2> "$out.err"
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-        jq -c '. + {unparseable: []}' "$out" > "$out.t" && mv "$out.t" "$out" || return 1
-        return 0
-    fi
-    [ "$rc" -eq 3 ] || [ "$rc" -eq 65 ] || return 1
-    # Refusals no row can explain: size and scope.
-    # Only the parser's own refusal line, and only on a refusal: a
-    # non-canonical body's stderr echoes the body's line, which anyone who
-    # edits the body controls.
-    if [ "$rc" -eq 65 ] && grep -Eq '^record-parse: refused: (body is [0-9]+ bytes, over|the record is for )' "$out.err"; then
-        return 65
-    fi
-    # No codec beside this script is a broken install, not a bad record.
-    [ -f "$RD_HERE/record-codec.jq" ] || return 1
-    fn=salvage_record
-    [ "$fmt" = handoff ] && fn=salvage_handoff
-    jq -R -s -c -f "$(codec_program "$fn")" < "$in" > "$out" 2>/dev/null || return 65
-    got=$(jq -r '.scope.kind + ":" + .scope.name' "$out")
-    [ "$got" = "$SCOPE:$NAME" ] || return 65
-    # The parser's own line for a body that parses but doesn't render back:
-    # the body's line, never the parser's message (which can carry paths).
-    line=$(sed -n 's/^record-parse: not canonical at line \([0-9]*\)$/\1/p' "$out.err" | head -1)
-    if [ -n "$line" ]; then
-        body=$(sed -n 's/^  body:     //p' "$out.err" | head -1 | tr -d '\000-\010\013-\037' | cut -c1-300)
-        jq -c --arg raw "$body" --arg r "not canonical at line $line; the rest was read row by row" \
-            '.unparseable += [{raw: $raw, reason: $r}]' "$out" > "$out.t" && mv "$out.t" "$out" || return 1
-    elif jq -e '.unparseable == []' "$out" >/dev/null 2>&1; then
-        # Not canonical, and no row explains it: the parser's own reason
-        # (a cell outside the rows, the Written: line), without its prefix.
-        body=$(sed -n 's/^record-parse: not canonical: refused: //p' "$out.err" | head -1 | tr -d '\000-\037' | cut -c1-200)
-        [ -n "$body" ] || body="the body does not render back as written"
-        jq -c --arg r "not canonical: $body; the rest was read row by row" \
-            '.unparseable += [{raw: "", reason: $r}]' "$out" > "$out.t" && mv "$out.t" "$out" || return 1
-    fi
-    return 0
-}
-
-parse record "$T/body.md" "$T/record.json"
-case $? in
-    0) ;;
-    65) refuse 4 unreadable "the body isn't a coordinator record for this scope" ;;
-    *) refuse 5 failed "the record could not be parsed" ;;
-esac
 
 # Where an imported record's state came from (PRD R14): record/host's import
 # facts. A run that was never imported has none.

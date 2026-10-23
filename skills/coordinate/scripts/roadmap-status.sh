@@ -205,18 +205,18 @@
 # also takes from its own parse to mark landed units.
 #
 # Each change to the record is told as an entry with record-append.sh, kind
-# roadmap-status, after the body is written.
+# roadmap-status, after the state is written.
 #
-# A failed record write after the pull request opened (11, 12 or 13) leaves
+# A failed record write after the pull request opened (11 or 12) leaves
 # the pull request with no row: close it by hand before running --unit,
 # --verdict or --reopen again, which would open a second one on a new branch.
 #
 # Exit codes: 0 done (prints the pull request's URL, `verdict-owed TAG`, or the
 # session holding the record) or printed; 1 --confirm: the roadmap doesn't show it yet; 2 a
-# read failed; 10 refused about the record (no found record, not a canonical
-# one, or from the write core: not open, provenance, a directed transition);
-# 11 a write failed; 12 the record changed between this script's read and its
-# write; 13 the record is full; 14 the record was written but its entry
+# read failed; 10 refused about the record (no found record, one that doesn't
+# read back as this roadmap's, or from the write core: not open, provenance, a
+# directed transition); 11 a write failed; 12 the record changed between this
+# script's read and its write; 14 the record was written but its entry
 # wasn't posted; 64 usage (and any scope but a roadmap); 65 refused about the
 # request: the tag, the feature's state, the entry, a pending pull request
 # (the reason on stderr).
@@ -318,16 +318,14 @@ case "$OUTCOME$REASON" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome and --reason a
 WD=$(mktemp -d "${TMPDIR:-/tmp}/roadmap-status.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-rs_record "$WD/parsed.json" body
+rs_record "$WD/parsed.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
-    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical roadmap record for $NAME" >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a roadmap record for $NAME" >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
 esac
-cp "$WD/parsed.json.md" "$WD/live.md"
 
 # The pending rows, {unit, pull_request, attempted, action, how_to_confirm}
 # (record-codec.jq pending_rows, which pick-facts.sh reads the same way).
@@ -361,13 +359,16 @@ words_read() {
 # text is kept outside $WD. Only this script changes a verdict-owed Work row
 # (the write core holds every other writer to that).
 write_record() {
-    bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$WD/parsed.json")" "$1" > "$WD/body.md" 2> "$WD/render.err" \
-        || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
+    # The state carries the written time of the version read, which the write
+    # core compares with the live record's; its file stays in $WD, readable by
+    # its owner only, and goes with it.
+    jq --arg w "$(jq -r '.written' "$WD/parsed.json")" '.written = $w' "$1" > "$WD/state.json" || lib_die2 "jq failed"
+    chmod 600 "$WD/state.json" || lib_die2 "cannot make the state file private"
     ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/roadmap-status-entry.XXXXXX") || lib_die2 "cannot make a temporary file"
     printf '%s\n' "$2" > "$ENTRY_FILE"
     if [ "$OVERRIDE" = 1 ]; then ADDR=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
     else ADDR=(--session "$SESSION"); fi
-    BODY="$WD/body.md" CORE_CLEANUP=$WD
+    STATE_FILE="$WD/state.json" CORE_CLEANUP=$WD
     lib_write_guard
     . "$HERE/record-write-core.sh"
     VERDICT_WRITER=1

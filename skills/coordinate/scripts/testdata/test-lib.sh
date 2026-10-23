@@ -67,15 +67,22 @@ session_keys() {
     done
 }
 # seed_session <session> <record-json> [written]: a record as the session
-# holds it, the session's record/ keys replaced: the JSON rendered and parsed
-# back, so the keys hold the canonical state a write would leave, then written
-# with session_keys. written defaults to render's, 2026-09-26T09:00:00Z, so a
-# body rendered from the same JSON reads as edited from this version.
+# holds it, the session's record/ keys replaced: the JSON in state-schema.jq's
+# normal form, so the keys hold the state a write would leave, then written
+# with session_keys. written defaults to state_json's, 2026-09-26T09:00:00Z, so
+# a state built from the same JSON reads as edited from this version.
 seed_session() {
     local s=$1 w=${3:-2026-09-26T09:00:00Z}
     rm -rf "$KOTO_STORE/context/$s/record"
-    render "$2" issue "$w" | bash "$HERE/record-parse.sh" --container issue > "$T/seed-session.json" || return 1
+    state_json "$2" "$w" > "$T/seed-session.json" || return 1
     session_keys "$s" "$T/seed-session.json"
+}
+# state_json <json> [written]: the record JSON as a writer hands it to the
+# write core (--state-file): state-schema.jq's normal form, carrying the
+# written time of the version it was edited from (2026-09-26T09:00:00Z unless
+# given). A state that breaks a rule fails, with the module's reason on stderr.
+state_json() {
+    printf '%s' "$1" | jq -c -L "$HERE" --arg w "${2:-2026-09-26T09:00:00Z}" 'include "state-schema"; normalize_state([]) | .written = $w'
 }
 # session_state <session>: the record the session's keys hold, as one JSON
 # object in record-parse.sh's shape, `written` from record/meta; pushed heads

@@ -161,16 +161,14 @@ lib_log_readable || lib_die2 "cannot read the session log"
 if ! lib_run_found; then VERDICT=conflict; REASON="the run has no found record"; finish; fi
 
 # The live record.
-rs_record "$T/rec.json" body
+rs_record "$T/rec.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err" | head -1)" ;;
+    65) VERDICT=conflict; REASON="the record doesn't read back as this scope's"; finish ;;
     4|12) lib_die2 "$(lib_scrub < "$T/rec.json.err")" ;;
-    *) VERDICT=conflict; REASON="the record body is missing or not canonical"; finish ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err" | head -1)" ;;
 esac
-if ! [ -s "$T/rec.json.md" ]; then
-    VERDICT=conflict; REASON="the record body is missing or not canonical"; finish
-fi
+# record/meta's written time, which the state carries.
 WRITTEN=$(jq -r '.written' "$T/rec.json")
 
 # later <written> <event-time>: Written: (whole seconds) is strictly after the

@@ -88,7 +88,6 @@ case "$WORD" in
     carry) exit 150 ;; unrecorded-open) exit 151 ;; unrecorded-answer) exit 152 ;; unrecorded-evidence) exit 153 ;;
     unrecorded-raise) exit 154 ;; withdraw) exit 155 ;; reply) exit 156 ;; redirect) exit 157 ;;
     escalate) exit 158 ;; take) exit 159 ;; verdict) exit 160 ;; clear) exit 161 ;; clear-report) exit 162 ;;
-    record-full) exit 163 ;;
     # report_questions (with none 11)
     questions) exit 170 ;; overflow) exit 171 ;; unreadable) exit 172 ;;
     # escalate, decision_withdraw, decision_reply, decision_redirect (with refused 62)

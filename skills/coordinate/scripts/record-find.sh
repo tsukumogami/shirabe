@@ -105,10 +105,10 @@ SELF=${SESSION:-${RS_SESSION:-}}
 if [ -n "$SELF" ]; then
     rs_list "$SELF" record/meta "$T/self-keys" || lib_die2 "cannot list this run's keys: $(lib_scrub < "$T/self-keys.err")"
     if jq -e 'index("record/meta") != null' "$T/self-keys" > /dev/null; then
-        rs_session_read "$T/self" body "$SELF" "$SCOPE" "$NAME"
+        rs_session_read "$T/self" "$SELF" "$SCOPE" "$NAME"
         case $? in
             0) ;;
-            2|5) lib_die2 "cannot read this run's record: $(lib_scrub < "$T/self.err")" ;;
+            2) lib_die2 "cannot read this run's record: $(lib_scrub < "$T/self.err")" ;;
             *) VERDICT=malformed; REASON="this run's record doesn't read back as this $SCOPE's: $(lib_scrub < "$T/self.err" | head -1)"; finish ;;
         esac
         [ "$SCOPE" = discipline ] && rotation_dates "$SELF"
@@ -199,9 +199,9 @@ session_find() {
         esac
     done < "$T/others"
     # Any failure to read the predecessor back (a record/meta of the wrong shape,
-    # a section that fails the codec's checks, a key that isn't JSON) stops for
-    # the person: nothing is carried from a record that can't be read.
-    if ! rs_session_read "$T/pred" body "$c" "$SCOPE" "$NAME"; then
+    # a section that fails state-schema.jq's checks, a key that isn't JSON)
+    # stops for the person: nothing is carried from a record that can't be read.
+    if ! rs_session_read "$T/pred" "$c" "$SCOPE" "$NAME"; then
         VERDICT=unreadable; REASON="$c's record doesn't read back as this discipline's: $(lib_scrub < "$T/pred.err" | head -1)"; finish
     fi
     rotation_dates "$c"

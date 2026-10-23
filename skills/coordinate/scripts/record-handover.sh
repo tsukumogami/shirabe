@@ -76,14 +76,13 @@ lib_run_found || { echo "$PROG: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-handover.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
-rs_record "$WD/parsed.json" body
+rs_record "$WD/parsed.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
-    3|65) echo "$PROG: $(lib_record_name) is not a canonical $SCOPE record for $NAME" >&2; exit 10 ;;
+    65) echo "$PROG: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME" >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_die2 "$(lib_scrub < "$WD/parsed.json.err")" ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
 esac
 # The crash set and record/host are part of what a replacement continues from
 # (PRD R17).

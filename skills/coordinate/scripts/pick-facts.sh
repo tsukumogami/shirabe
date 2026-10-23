@@ -92,8 +92,7 @@
 #   decisions        decision-next.sh --owed pick names a rule: an unrecorded
 #                    write, an owed message, a carry, a proposed entry or one
 #                    waiting for a verdict (a held entry and an escalation that
-#                    owes nothing never count), or `archive`, settled entries
-#                    to move out of a full record. It comes first, so owed work
+#                    owes nothing never count). It comes first, so owed work
 #                    is done before a close is attempted. Needs the session
 #   scope-complete   roadmap: the roadmap lists features and every one is
 #                    done (its Status opens Done, Shipped or Dropped)
@@ -172,7 +171,7 @@ trap 'rm -rf "$T"' EXIT
 # from this one parse: running record-holding.sh, record-state.sh,
 # record-decision.sh and roadmap-status.sh would read and parse the record once
 # apiece (shirabe#840).
-rs_record "$T/rec.json" json
+rs_record "$T/rec.json"
 case $? in
     0) ;;
     2) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err")" ;;

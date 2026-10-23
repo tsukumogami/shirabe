@@ -7,9 +7,9 @@
 #   decision-next.sh --session S                  route: print the sealed verdict
 #   decision-next.sh --session S --owed dispatch|pick [--parsed FILE]
 #
-# --parsed, with --owed only, names the record this session's caller read and
-# parsed in the same tick: rs_record's output FILE, with the body it parsed at
-# FILE.md, both readable (otherwise usage, 64). pick-facts.sh passes its own,
+# --parsed, with --owed only, names the record this session's caller read in
+# the same tick: rs_record's output FILE, readable (otherwise usage, 64).
+# pick-facts.sh passes its own,
 # so the record is read once in the tick (shirabe#840). Nothing checks that FILE
 # is this session's record; only a caller that just read it may pass it.
 # Without --parsed the record is read here.
@@ -59,23 +59,11 @@
 #                       decision_open, and neither classify_report nor wait has
 #                       been entered since: the report is still to classify
 #     clear             nothing owed
-#   record-full         something is owed that needs a write, and the record is
-#                       within 4,096 bytes of the write core's 60,000-byte
-#                       budget: a stop for the human, never a write the core
-#                       would refuse
 #
-# Before any rule, a record within that margin whose Decisions section holds a
-# settled entry that owes nothing (the codec's d_archivable) has those entries
-# archived (record-decision.sh --archive), except one a `decision` Work row
-# still parks a unit on (d_parked), whose outcome pick-facts.sh reads: their
-# rows move to `decisions` entries on the record, and the body keeps their
-# identifiers and this run's stamps on them, which the rules below read as they
-# read a row's. The rules then read the section as it is after the move, so
-# record-full is left only for a record that is full of what can't move. With
-# --owed the move is `archive`, ahead of every rule, blocking dispatch and pick
-# alike, so a restarted run on a full record comes here before it does anything
-# else. An arrival naming an archived entry is writable: record-decision.sh
-# restores the entry first.
+# A record moved from a GitHub record may keep archived entries (an Archived
+# line, and this run's stamps on them as kept stamps), which the rules read as
+# they read a row's. An arrival naming an archived entry is writable:
+# record-decision.sh restores the entry first.
 #
 # --owed prints the rule that blocks the given step, or `none`, and seals and
 # writes nothing. What each rule blocks (the DESIGN's table):
@@ -101,7 +89,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || usage
-[ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ] && [ -r "$PARSED.md" ]; } || usage
+[ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ]; } || usage
 case "$OWED" in ''|dispatch|pick) ;; *) usage ;; esac
 SCOPE= NAME= REPO=
 . "$HERE/record-common.sh"
@@ -115,49 +103,6 @@ CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 if [ -n "$PARSED" ]; then
     jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
 else
-    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
-        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
-fi
-# live_size: the live body's size in bytes, into SIZE, and the parsed record,
-# into LIVE: the --parsed record when the caller passed one, otherwise the
-# record read here.
-live_size() {
-    if [ -n "$PARSED" ]; then
-        cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
-        LIVE=$PARSED
-    else
-        lib_run_found || lib_die2 "the run has no found record"
-        rs_record "$T/live" body
-        case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
-        LIVE=$T/live
-    fi
-    SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
-}
-# The archive: settled entries leave a record within the margin, except one a
-# unit is parked on (the codec's d_parked). The plain d_archivable is only a
-# pre-filter, so a section with nothing settled never reads the live record;
-# d_archivable($p) decides.
-ARCHIVE=false
-if jq -e -L "$HERE" 'include "record-codec"; any(.entries[]; d_archivable)' "$T/section.json" > /dev/null; then
-    live_size
-    if [ "$SIZE" -gt $((60000 - 4096)) ]; then
-        jq -e -L "$HERE" --slurpfile r "$LIVE" 'include "record-codec"; ($r[0] | d_parked) as $p | any(.entries[]; d_archivable($p))' \
-            "$T/section.json" > /dev/null 2> "$T/parked.err"
-        case $? in
-            0) ARCHIVE=true ;;
-            1) ;;
-            *) cat "$T/parked.err" >&2; lib_die2 "cannot read the Work section" ;;
-        esac
-    fi
-fi
-if [ "$ARCHIVE" = true ]; then
-    [ -z "$OWED" ] || { printf 'archive\n'; exit 0; }
-    bash "$HERE/record-decision.sh" --session "$SESSION" --archive > /dev/null 2> "$T/ar.err"
-    case $? in
-        0) ;;
-        12) cat "$T/ar.err" >&2; lib_die2 "the record changed while settled decisions were archived; run it again" ;;
-        *) cat "$T/ar.err" >&2; lib_die2 "cannot archive settled decisions" ;;
-    esac
     bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
         || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
 fi
@@ -300,17 +245,6 @@ if [ -n "$OWED" ]; then
     esac
     exit 0
 fi
-
-# A write that is owed on a record too close to the budget stops for the human.
-case "$WORD" in
-    clear|clear-report) ;;
-    *)
-        live_size
-        if [ "$SIZE" -gt $((60000 - 4096)) ]; then
-            echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD, with no settled entry left that can be archived; prune the record" >&2
-            NEXT=record-full WORD=record-full
-        fi ;;
-esac
 
 if [ "$WORD" = verdict ]; then
     jq -c --arg n "${NEXT#* }" '.entries[] | select(.decision == $n)' "$T/section.json" > "$T/decision.json" || lib_die2 "cannot write the entry"

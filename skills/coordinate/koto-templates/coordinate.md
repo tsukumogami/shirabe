@@ -1165,9 +1165,6 @@ states:
       - target: classify_report
         when:
           gates.decision_next_verdict.exit_code: 162  # clear-report
-      - target: record_conflict
-        when:
-          gates.decision_next_verdict.exit_code: 163  # record-full
 
   decision_carry:
     accepts:
@@ -2373,12 +2370,12 @@ again from this run's session, and only that read satisfies the check.
 
 <!-- details -->
 
-Write the body with `record-render.sh` from a JSON file: the scope. A
+The script builds the scope's empty record itself; you write no file for it. A
 discipline rotation that follows another carries its predecessor through
-`predecessor_carry`, not here. Then, at roadmap scope:
+`predecessor_carry`, not here. At roadmap scope:
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}" --body-file <body.md>
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}"
 ```
 
 The script refuses when a record now exists (a restart that finds its record
@@ -2406,13 +2403,9 @@ and ask once, with a recommendation; submit `recheck` after they resolve it, or
 
 This state is reached from a session record that doesn't read back as a record
 of this scope (`malformed`), or a record check that found a `koto next --to` in
-this run. It is also reached from the decision states: a record too full for
-the next decision write (`record-full`: the record is near its size budget with
-nothing left that can move, since decision-next.sh has already archived every
-settled entry it could; the way out, as the script says, is to prune the
-record, which is the human's call), and a message the workflow refused to
-render (`refused`: the entry no longer owes it as recorded, so the record
-changed underneath). Don't repair a record by hand: the human decides.
+this run. It is also reached from the decision states: a message the workflow
+refused to render (`refused`: the entry no longer owes it as recorded, so the
+record changed underneath). Don't repair a record by hand: the human decides.
 
 At discipline scope it is also reached from a predecessor
 the find read as `unreadable <session>` (the reason is in coord/record_find.json),

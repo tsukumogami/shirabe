@@ -136,12 +136,11 @@
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
 # printed; 2 a read failed (the record, or the entries the next Standing id
-# is chosen from); 10 refused: here, no found record or not a canonical
-# record of this scope, and from the write core, not an open record,
-# provenance or a directed transition; 11, 12 (the record changed between
-# this script's read and its write) and 13 (the record is full) from the
-# write core; 14
-# the body was written but the entry wasn't posted (post it with
+# is chosen from); 10 refused: here, no found record or a record that doesn't
+# read back as this scope's, and from the write core, not an open record,
+# provenance or a directed transition; 11 and 12 (the record changed between
+# this script's read and its write) from the write core; 14
+# the state was written but the entry wasn't posted (post it with
 # record-append.sh; the change it names is on stderr); 64 usage; 65 refused
 # (the reason on stderr).
 #
@@ -305,16 +304,14 @@ lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-rs_record "$WD/parsed.json" body
+rs_record "$WD/parsed.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
-    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
 esac
-cp "$WD/parsed.json.md" "$WD/live.md"
 
 if [ "$MODE" = list ]; then
     jq -c -L "$HERE" 'include "record-codec"; state_list' "$WD/parsed.json"
@@ -510,16 +507,16 @@ while [ "$i" -lt "$n" ]; do
 done
 
 # Every write drops a holding's Work row whose holding is gone, and keeps the
-# Written: time of the version read, which the write core compares with the
-# live body's before it stamps its own.
-jq '([.holdings[] | "\(.unit)\u0000\(.worker)"]) as $h
+# written time of the version read, which the write core compares with the
+# live record's before it stamps its own. The state file stays in this
+# script's private directory, readable by its owner only, and goes with it.
+jq --arg w "$(jq -r '.written' "$P")" '([.holdings[] | "\(.unit)\u0000\(.worker)"]) as $h
     | .work = [(.work // [])[] | select(.kind != "holding" or ("\(.item)\u0000\(.who)" as $k | $h | index($k)))]
     | if (.work | length) == 0 then del(.work) else . end
     | if ((.run // []) | length) == 0 then del(.run) else . end
     | if ((.standing // []) | length) == 0 then del(.standing) else . end
-    | del(.written)' "$WD/next.json" > "$WD/final.json" || lib_die2 "jq failed"
-bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$P")" "$WD/final.json" > "$WD/body.md" 2> "$WD/render.err" \
-    || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
+    | .written = $w' "$WD/next.json" > "$WD/final.json" || lib_die2 "jq failed"
+chmod 600 "$WD/final.json" || lib_die2 "cannot make the state file private"
 printf '%s\n' "$ETEXT" > "$WD/entry.txt"
 # The write core takes over $T and the EXIT trap and removes $WD, so the
 # entries' text is kept outside it.
@@ -529,7 +526,7 @@ LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-leaving.XXXXXX") \
     || { rm -f "$ENTRY_FILE"; lib_die2 "cannot make a temporary file"; }
 cp "$WD/leaving.txt" "$LEAVING_FILE"
 
-BODY="$WD/body.md" CORE_CLEANUP=$WD
+STATE_FILE="$WD/final.json" CORE_CLEANUP=$WD
 lib_write_guard
 . "$HERE/record-write-core.sh"
 STATE_WRITER=1

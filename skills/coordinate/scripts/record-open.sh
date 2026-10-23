@@ -5,18 +5,19 @@
 #
 # The record lives in the coordinator's session
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md): record/meta and
-# one key per section, written through the write core's seeding write. The body
-# must be a canonical record for this scope before anything is written, and
-# opens with no Decisions section. A session that already holds a record is
-# refused (exit 10), so a record is never opened twice; a seed cut short left
-# record/meta pending with no written time, and opening again finishes it.
+# one key per section, written through the write core's seeding write. A new
+# record is the scope's empty record (its four sections empty, no other
+# section), which this script builds itself. A session that already holds a
+# record is refused (exit 10), so a record is never opened twice; a seed cut
+# short left record/meta pending with no written time, and opening again
+# finishes it.
 #
-# Roadmap scope: the body is seeded into the session. Nothing is written on
-# GitHub. It prints record=<session>.
+# Roadmap scope: the empty record is seeded into the session. Nothing is
+# written on GitHub. It prints record=<session>.
 #
-# Discipline scope, after the find sealed `first`: the body (an empty record of
-# the discipline) is seeded the same way, then record-state.sh --rotation
-# writes record/rotation, {start, end, host_repo, predecessor: null}. It prints
+# Discipline scope, after the find sealed `first`: the empty record of the
+# discipline is seeded the same way, then record-state.sh --rotation writes
+# record/rotation, {start, end, host_repo, predecessor: null}. It prints
 # record=<session>.
 #
 # --carry is predecessor_carry's step, agent-run like every write, after the
@@ -33,10 +34,10 @@
 # again.
 #
 # Usage:
-#   record-open.sh --session S --body-file F [--start YYYY-MM-DD --end YYYY-MM-DD]
+#   record-open.sh --session S [--start YYYY-MM-DD --end YYYY-MM-DD]
 #   record-open.sh --session S --carry
 #   record-open.sh --scope roadmap|discipline --name N --repo O/R
-#                  --skip-session-checks --body-file F [...]         (tests)
+#                  --skip-session-checks [...]                        (tests)
 #
 # --start and --end are required at discipline scope and refused at roadmap
 # scope. Before any read, the session must pass `coord-log.sh provenance` and
@@ -44,9 +45,9 @@
 #
 # Exit codes: 0 opened (prints record=<session>); 10 refused (the session holds
 # a record already, provenance, or a directed transition); 2 a read failed; 64
-# usage; 65 the body was refused; a failed seed exits with the write core's
-# code (10, 11, 12, 13 or 65), and a failed window write with record-state.sh's.
-# --carry exits 0 carried, 65 refused, 2 a read failed.
+# usage; 65 refused (an end before the start); a failed seed exits with the
+# write core's code (10, 11, 12 or 65), and a failed window write with
+# record-state.sh's. --carry exits 0 carried, 65 refused, 2 a read failed.
 #
 # It makes no GitHub call of its own; the write core reads repository
 # visibility.
@@ -54,7 +55,7 @@ set -uo pipefail
 
 PROG=record-open
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= BODY= START= END=
+SESSION= SCOPE= NAME= REPO= START= END=
 SKIP_CHECKS=0 CARRY=0 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -64,7 +65,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --body-file) [ $# -ge 2 ] || usage; BODY=$2; shift 2 ;;
         --start) [ $# -ge 2 ] || usage; START=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; END=$2; shift 2 ;;
         --carry) CARRY=1; shift ;;
@@ -73,9 +73,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 if [ "$CARRY" = 1 ]; then
-    [ -n "$SESSION" ] && [ -z "$BODY$START$END$SCOPE$NAME$REPO" ] || usage
-else
-    [ -n "$BODY" ] && [ -r "$BODY" ] || usage
+    [ -n "$SESSION" ] && [ -z "$START$END$SCOPE$NAME$REPO" ] || usage
 fi
 . "$HERE/record-common.sh"
 lib_facts
@@ -150,13 +148,12 @@ if [ "$CARRY" = 1 ]; then
         + (if .decisions == null then {}
            else {decisions: {next: .decisions.next, entries: [(.decisions.entries // [])[] | select(.state != "settled")]}} end)
         | .holdings |= map(del(.pushed_head))' "$T/pred" > "$T/next.json" || lib_die2 "jq failed"
-    if ! bash "$HERE/record-render.sh" --container issue --written "$(lib_now)" "$T/next.json" > "$T/seed.md" 2> "$T/render.err"; then
-        carry_report refused "the predecessor's state doesn't render as a record: $(lib_scrub < "$T/render.err" | head -1)" "$T/next.json"
-    fi
+    chmod 600 "$T/next.json" || lib_die2 "cannot make the state file private"
     lib_write_guard
     # The core takes over T and its EXIT trap, so it runs in a subshell: its
-    # refusal becomes this carry's `refused`, sealed below.
-    if ! ( BODY="$T/seed.md"
+    # refusal, a state that breaks a rule among them, becomes this carry's
+    # `refused`, sealed below.
+    if ! ( STATE_FILE="$T/next.json"
            . "$HERE/record-write-core.sh"
            SESSION_SEED=1
            core_write > /dev/null ) 2> "$T/seed.err"; then
@@ -184,19 +181,12 @@ lib_write_guard
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-open.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-lib_parse "$BODY" "$T/parsed.json"
-case $? in
-    0) ;;
-    3|65) echo "$PROG: refused: the body is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 65 ;;
-    *) lib_die2 "record-parse.sh failed" ;;
-esac
-# A new record opens with no Decisions section: entries are written, and a
-# predecessor's are carried in, only by record-decision.sh, which checks each
-# one.
-if jq -e 'has("decisions")' "$T/parsed.json" > /dev/null; then
-    echo "$PROG: refused: a new record opens without a Decisions section; record-decision.sh writes and carries decisions" >&2
-    exit 65
-fi
+# The scope's empty record. It opens with no Decisions section: entries are
+# written, and a predecessor's are carried in, only by record-decision.sh,
+# which checks each one.
+jq -nc --arg k "$SCOPE" --arg n "$NAME" '{scope: {kind: $k, name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}' \
+    > "$T/seed.json" || lib_die2 "jq failed"
+chmod 600 "$T/seed.json" || lib_die2 "cannot make the state file private"
 
 # Exactly once: a session holding a record is refused, unless all it holds is
 # the pending record/meta of a seed cut short, which seeding again finishes.
@@ -210,15 +200,12 @@ case $? in
     *) lib_die2 "cannot read session $OPEN_S's record/meta: $(lib_scrub < "$T/meta.err")" ;;
 esac
 
-# The body is seeded into this run's session through the write core. The core
-# takes over T and its EXIT trap; it removes this script's own scratch
+# The record is seeded into this run's session through the write core. The
+# core takes over T and its EXIT trap; it removes this script's own scratch
 # directory as CORE_CLEANUP, so a discipline rotation's window is written from
-# a copy.
-jq 'del(.written)' "$T/parsed.json" > "$T/seed.json" || lib_die2 "jq failed"
-bash "$HERE/record-render.sh" --container issue --written "$(lib_now)" "$T/seed.json" > "$T/seed.md" 2> "$T/w.err" \
-    || { echo "$PROG: refused: the body doesn't render as a record: $(lib_scrub < "$T/w.err" | head -1)" >&2; exit 65; }
+# a directory of its own.
 ROT_T=$(mktemp -d "${TMPDIR:-/tmp}/record-open-rot.XXXXXX") || lib_die2 "cannot make a temporary directory"
-( BODY="$T/seed.md" CORE_CLEANUP=$T
+( STATE_FILE="$T/seed.json" CORE_CLEANUP=$T
   . "$HERE/record-write-core.sh"
   SESSION_SEED=1
   core_write > /dev/null ) || { RC=$?; rm -rf "$ROT_T"; exit $RC; }

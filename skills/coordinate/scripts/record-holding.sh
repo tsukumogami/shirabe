@@ -18,27 +18,26 @@
 # have a found record (coord-log.sh run-facts); the override flags exist for
 # tests only, with RS_SESSION naming the session that holds the record.
 #
-# Every mode reads the live record through record-source.sh and parses it
-# canonically. --read prints the row whose Worker equals T as one compact JSON
+# Every mode reads the live record through record-source.sh. --read prints the
+# row whose Worker equals T as one compact JSON
 # object. --list prints every Holdings row as a JSON array in record order
 # ([] when Holdings is None.). A write takes F holding the Holdings keys
 # (unit, entry_point, mode, phase, dispatch_status, return_path, worker, repo,
 # branch, verified_head, dispatched, pull_request) with worker equal to T,
 # replaces the row whose Worker is T or appends it, drops deferrals already
-# filed or closed when the run has dispatched, renders with a new Written:
-# time, and writes the whole body through record-write.sh, which re-reads the
-# target and checks provenance, directed transitions and repository
-# visibility first.
+# filed or closed when the run has dispatched, and writes the whole state
+# through record-write.sh, which re-reads the target and checks provenance,
+# directed transitions and repository visibility first.
 #
 # A row with a Verified head and a blank Pull request cell reads as merged and
 # waiting for teardown (record-common.sh lib_row_merged): only the cleared
 # cell after a confirmed merge writes that pair, so no other write may.
 #
 # A holding also keeps its last pushed head, the pull request's head as a
-# report or a link last read it (PRD R17): 40 hex, never in the body.
+# report or a link last read it (PRD R17): 40 hex, never in the row.
 # --pushed-head sets it, or clears it with an empty SHA, and changes nothing
-# else; a row file may carry it as `pushed_head`. --pushed-head reads no body:
-# the body doesn't change, so record-write.sh --pushed-head with no body
+# else; a row file may carry it as `pushed_head`. --pushed-head reads no state:
+# the state doesn't change, so record-write.sh --pushed-head with no state file
 # rewrites only the session key that keeps the head (shirabe#1094), and refuses
 # it for a topic no holding has. --read and --list print it.
 #
@@ -58,9 +57,7 @@
 # record, the session holds no record of this scope, provenance, or a directed
 # transition); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
-# the write failed; 13 the record is full (record-full: the body would pass
-# the write core's size budget); 64 usage; 65 the row was refused (the reason
-# on stderr).
+# the write failed; 64 usage; 65 the row was refused (the reason on stderr).
 #
 # The record is read through record-source.sh; writes happen only in
 # record-write.sh.
@@ -114,16 +111,14 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-rs_record "$T/parsed.json" body
+rs_record "$T/parsed.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
-    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$T/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$T/parsed.json.err" >&2; exit 12 ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
 esac
-cp "$T/parsed.json.md" "$T/live.md"
 
 # Each holding's pushed head, {worker: sha}, kept beside the row (the seam's
 # <out>.pushed); {} when none is kept.
@@ -149,11 +144,11 @@ strand|retire)
         [ "$ST" = dispatched ] || { echo "$PROG: refused: only a dispatched holding is stranded; $TOPIC is $ST" >&2; exit 65; }
         [ "$(jq -r '.return_path' <<< "$ROW")" = message ] \
             || { echo "$PROG: refused: only a holding on the message path is stranded; $TOPIC reports on $(jq -r '.return_path' <<< "$ROW")" >&2; exit 65; }
-        jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end) | del(.written)' \
+        jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end)' \
             "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     else
         [ "$ST" = stranded ] || { echo "$PROG: refused: only a stranded holding is retired; $TOPIC is $ST" >&2; exit 65; }
-        jq --arg t "$TOPIC" '.holdings |= map(select(.worker != $t)) | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+        jq --arg t "$TOPIC" '.holdings |= map(select(.worker != $t))' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     fi
     ;;
 write)
@@ -161,27 +156,27 @@ write)
     W=$(jq -r '.worker // ""' "$ROWFILE")
     [ "$W" = "$TOPIC" ] || { echo "$PROG: refused: the row's worker ($W) is not the topic $TOPIC" >&2; exit 65; }
     # A pushed head in the row goes beside it, through record-write.sh, never
-    # into the body.
+    # into the row.
     if jq -e 'has("pushed_head")' "$ROWFILE" > /dev/null; then
         MODE=pushed PUSHED=$(jq -r '.pushed_head | tostring' "$ROWFILE")
     fi
     jq --slurpfile row "$ROWFILE" --arg t "$TOPIC" '($row[0] | del(.pushed_head)) as $r
         | if any(.holdings[]; .worker == $t)
         then .holdings |= map(if .worker == $t then $r else . end)
-        else .holdings += [$r] end | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+        else .holdings += [$r] end' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     ;;
 esac
 if lib_dispatched; then
     lib_drop_disposed "$T/next.json" "$T/dropped.json"
     mv "$T/dropped.json" "$T/next.json"
 fi
-# The render keeps the written time of the version just read: record-write.sh
+# The state keeps the written time of the version just read: record-write.sh
 # compares it with the live record's and refuses when someone wrote in
-# between, then stamps its own time.
-bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$T/parsed.json")" "$T/next.json" > "$T/body.md" 2> "$T/render.err" \
-    || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
+# between, then stamps its own time. The file stays in this script's private
+# directory, readable by its owner only, and goes with it.
+chmod 600 "$T/next.json" || lib_die2 "cannot make the state file private"
 
-set -- --body-file "$T/body.md"
+set -- --state-file "$T/next.json"
 [ "$MODE" = pushed ] && set -- "$@" --pushed-head "$TOPIC" "$PUSHED"
 [ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
 if [ "$OVERRIDE" = 1 ]; then

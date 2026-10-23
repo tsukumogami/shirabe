@@ -25,15 +25,15 @@
 #     milestone's verdict-owed Work row, which changes only through
 #     VERDICT_WRITER=1, which only roadmap-status.sh sets (exit 65), and a
 #     rework Work row, which only VERDICT_WRITER adds or changes and either
-#     writer removes (exit 65);
-#   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
-#     (exit 13, record-full).
-# Before the body is rendered, the next state's JSON passes state-schema.jq's
-# check_record (core_validate): every column's grammar, the worker and pull
-# request link shapes, the Holds, stored set and Decisions rules, and the
-# private-repository, home-path and token checks over every string, each
-# refused with the module's `refused: ` message (exit 65), before any key is
-# written. The renderer runs the same functions.
+#     writer removes (exit 65).
+# The writer hands core_write the next state's JSON (STATE_FILE), which passes
+# state-schema.jq's normalize_state (core_validate) before the live record is
+# read: every column's grammar, the worker and pull request link shapes, the
+# Holds, stored set and Decisions rules, and the home-path and token checks over
+# every string, each refused with the module's `refused: ` message (exit 65).
+# The private-repository check over every string runs again once the named
+# repositories' visibility is read, still before any key is written. No body
+# is rendered and no size limit applies: the state lives in the session's keys.
 #
 # The last step (core_write_session; docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 4) writes the changed section keys between two writes of
@@ -42,9 +42,12 @@
 #
 # The caller's contract:
 #   - it has sourced record-common.sh, run lib_facts and lib_write_guard, and
-#     set PROG, HERE, SESSION, SCOPE, NAME, REPO and BODY; a writer that may
-#     change the Decisions section sets DECISIONS_WRITER=1 after sourcing this
-#     file;
+#     set PROG, HERE, SESSION, SCOPE, NAME, REPO and STATE_FILE, the next state
+#     as JSON carrying the written time of the version it was built from, in a
+#     file of the writer's own private directory (mode 0600), which the writer
+#     removes after the write (naming its directory in CORE_CLEANUP does that);
+#     a writer that may change the Decisions section sets DECISIONS_WRITER=1
+#     after sourcing this file;
 #   - it runs without `set -e`: core_write reads the status of commands that
 #     fail by design;
 #   - core_write takes over the global T (its own temporary directory) and
@@ -52,14 +55,12 @@
 #     $T. A caller with a scratch directory of its own names it in
 #     CORE_CLEANUP, and the trap removes that too; any other EXIT trap the
 #     caller set is replaced;
-#   - core_write exits on every refusal and failure (10, 11, 12, 13, 2, 65)
+#   - core_write exits on every refusal and failure (10, 11, 12, 2, 65)
 #     and returns only after a write, having printed the session that holds
 #     the record.
 # record-open.sh refuses a first state carrying a Decisions section, and seeds
 # the run's keys through core_write.
 
-# RECORD_BUDGET: the largest body core_write sends, in bytes.
-RECORD_BUDGET=60000
 # Closed by default at the moment this file is sourced, so a value in the
 # environment never counts; the decision writer opens it after sourcing.
 DECISIONS_WRITER=0
@@ -90,27 +91,30 @@ CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
 # (SESSION_SEED) has no live record and skips it.
 core_live() {
     local live_rc
-    rs_record "$T/live.json" json; live_rc=$?
+    rs_record "$T/live.json"; live_rc=$?
     [ $live_rc -eq 2 ] && lib_die2 "cannot read the record: $(lib_scrub < "$T/live.json.err" | head -1)"
     [ $live_rc -eq 4 ] && { lib_scrub < "$T/live.json.err" >&2; exit 10; }
     [ $live_rc -eq 12 ] && { lib_scrub < "$T/live.json.err" >&2; exit 12; }
-    cp "$T/live.json.raw" "$T/target.json"
-    cp "$T/live.json.md" "$T/live.md"
-    URL=$(jq -r '.url' "$T/target.json")
-    grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: $(lib_record_name) does not carry this scope's declaration line" >&2; exit 10; }
+    # A session holding another scope's record holds no record of this one.
+    if [ $live_rc -eq 65 ] && [ -s "$T/live.json.state" ] \
+        && [ "$(jq -c '.scope' "$T/live.json.state")" != "$(jq -nc --arg k "$SCOPE" --arg n "$NAME" '{kind: $k, name: $n}')" ]; then
+        echo "$PROG: refused: $(lib_record_name) holds another scope's record, not this $SCOPE's" >&2
+        exit 10
+    fi
+    URL=${RS_SESSION:-$SESSION}
     # Compare and swap on the written time. The state carries the written time
     # of the version it was edited from; the live record must still carry that
     # time, or someone wrote the record since it was read and this write would
-    # lose their change. A live record that no longer reads back canonical has
-    # changed too.
+    # lose their change. A live record that no longer reads back as this
+    # scope's has changed too.
     BASE=$(jq -r '.written // ""' "$T/parsed.json")
     if [ $live_rc -eq 0 ]; then
         LIVE_W=$(jq -r '.written // ""' "$T/live.json")
     else
-        LIVE_W="(not a canonical record)"
+        LIVE_W="(a record that doesn't read back: $(lib_scrub < "$T/live.json.err" | head -1))"
     fi
     if [ -z "$BASE" ] || [ "$BASE" != "$LIVE_W" ]; then
-        echo "$PROG: refused: record-changed: $(lib_record_name) was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
+        echo "$PROG: refused: record-changed: $(lib_record_name) was written at $LIVE_W, but this state was edited from ${BASE:-no version}; re-read it and redo the change" >&2
         exit 12
     fi
     # The Decisions section changes only through the decision writer, which
@@ -183,18 +187,18 @@ core_live() {
 
 }
 
-# core_write_session <body>: the write's last step. The body it was about
-# to write is parsed back into the state it holds; record/meta is read once more
-# and the write refused record-changed (12) unless its written time is the one
-# the caller edited from (a seeding write needs no record/meta at all); then
+# core_write_session <state-file>: the write's last step, for the next state in
+# normal form with its new written time. record/meta is read once more and the
+# write refused record-changed (12) unless its written time is the one the
+# caller edited from (a seeding write needs no record/meta at all); then
 # record/meta is marked pending, each section key whose JSON changed is written
 # (a section the state no longer holds loses its key), and record/meta is written
 # last with the new time. A failure after the first key changed exits 11; the
 # pending mark tells a reader not to trust the sections until a write clears it.
 core_write_session() {
-    local body=$1 s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC
+    local s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC
     [ -n "$s" ] || lib_die2 "the session store needs the run's session"
-    lib_parse "$body" "$T/next-state.json" || lib_die2 "the rendered body doesn't parse back"
+    [ "$1" = "$T/next-state.json" ] || cp "$1" "$T/next-state.json" || lib_die2 "cannot copy the state"
     rs_key "$s" record/meta "$T/meta.now"; rc=$?
     if [ "$SESSION_SEED" = 1 ]; then
         # A seed that stopped part way left record/meta pending with no written
@@ -207,7 +211,7 @@ core_write_session() {
     else
         [ $rc -eq 0 ] || lib_die2 "cannot read session $s's record/meta"
         if [ "$(jq -r '.written' "$T/meta.now")" != "$BASE" ]; then
-            echo "$PROG: refused: record-changed: session $s's record was written at $(jq -r '.written' "$T/meta.now"), but this body was edited from $BASE; re-read it and redo the change" >&2
+            echo "$PROG: refused: record-changed: session $s's record was written at $(jq -r '.written' "$T/meta.now"), but this state was edited from $BASE; re-read it and redo the change" >&2
             exit 12
         fi
     fi
@@ -352,8 +356,8 @@ core_write_rotation() {
 # core_carry <from> <to>: copy a record, its state and its account, from run
 # <from> into the new run <to> on this host: every record/ and
 # legs/ key (PRD R12; Decision 6). The source is read through the seam, so it
-# passes every check a write makes: it assembles, renders and parses back as
-# this scope's record (SCOPE, NAME), fits RECORD_BUDGET, and holds only
+# passes every check a read makes: it assembles and reads back as this scope's
+# record (SCOPE, NAME) under state-schema.jq's rules, and holds only
 # well-formed pushed heads. The target must hold no record. Each key's name is
 # checked against the session store's names and its value checked (JSON, or for
 # record/posted/<n> a comment URL on an issue or pull request, the item an
@@ -362,21 +366,19 @@ core_write_rotation() {
 # run holds no record, so a carry cut short leaves nothing a start would resume,
 # and the next start carries again. Only coordinate-open.sh calls it, which a
 # structure test holds. Exits 10 the source holds no record; 12 it was being
-# written; 13 it is over the budget; 65 refused (the reason on stderr); 11 a
+# written; 65 refused (the reason on stderr); 11 a
 # write failed; 2 a read failed.
 core_carry() {
-    local from=$1 to=$2 d k rc size secs
+    local from=$1 to=$2 d k rc secs
     d=$(mktemp -d "${TMPDIR:-/tmp}/record-carry.XXXXXX") || lib_die2 "mktemp failed"
-    rs_session_read "$d/rec" body "$from" "$SCOPE" "$NAME"; rc=$?
+    rs_session_read "$d/rec" "$from" "$SCOPE" "$NAME"; rc=$?
     case $rc in
         0) ;;
         4) lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 10 ;;
         12) lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 12 ;;
-        3|65) echo "$PROG: refused: session $from's record doesn't read back as this scope's:" >&2; lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 65 ;;
+        65) echo "$PROG: refused: session $from's record doesn't read back as this scope's:" >&2; lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 65 ;;
         *) rm -rf "$d"; lib_die2 "cannot read session $from's record" ;;
     esac
-    size=$(wc -c < "$d/rec.md" | tr -d ' ')
-    [ "$size" -le "$RECORD_BUDGET" ] || { rm -rf "$d"; echo "$PROG: refused: record-full: session $from's record renders to $size bytes" >&2; exit 13; }
     rs_key "$to" record/meta "$d/to-meta"
     case $? in
         1) ;;
@@ -411,21 +413,17 @@ core_carry() {
     rm -rf "$d"
 }
 
-# core_validate <state-file>: the next state's JSON checked by state-schema.jq's
-# check_record, with the repositories the host can't show public ($PRIVATE),
-# before anything is rendered or written. A state that breaks a
-# rule is refused with the module's `refused: ` message (exit 65); the renderer
-# runs the same functions, so a state that passes here renders. A tree that
-# holds record-codec.jq without the module (some suites copy the codec alone)
-# runs the codec's verbatim copy of it instead.
+# core_validate <state-file> [<out>]: the state's JSON checked by
+# state-schema.jq's normalize_state, with the repositories the host can't show
+# public ($PRIVATE), before anything is written; <out>, when given, gets the
+# state in the normal form a reader is handed. A state that breaks a rule is
+# refused with the module's `refused: ` message (exit 65).
 core_validate() {
-    local mod=state-schema
-    [ -f "$HERE/state-schema.jq" ] || mod=record-codec
-    if jq -n -L "$HERE" --slurpfile s "$1" --arg private "$PRIVATE" "include \"$mod\";"'
-            $s[0] | check_record($private | split(",") | map(select(. != ""))) | empty' 2> "$T/schema.err" < /dev/null; then
+    if jq -L "$HERE" --arg private "$PRIVATE" 'include "state-schema";
+            normalize_state($private | split(",") | map(select(. != "")))' "$1" > "${2:-/dev/null}" 2> "$T/schema.err" < /dev/null; then
         return 0
     fi
-    grep -q 'refused: ' "$T/schema.err" || lib_die2 "$mod.jq failed: $(lib_scrub < "$T/schema.err")"
+    grep -q 'refused: ' "$T/schema.err" || lib_die2 "state-schema.jq failed: $(lib_scrub < "$T/schema.err")"
     echo "$PROG: refused: $(sed -n 's/.*refused: //p' "$T/schema.err" | head -1 | lib_scrub)" >&2
     [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
     exit 65
@@ -522,20 +520,18 @@ core_write() {
     T=$(mktemp -d "${TMPDIR:-/tmp}/record-write.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
 
-    # The budget first: a body past it is record-full whatever else is wrong
-    # with it, including one past the parser's own 65,536-byte limit, so a
-    # caller that compacts on 13 sees every over-size body.
-    SIZE=$(wc -c < "$BODY" | tr -d ' ')
-    if [ "$SIZE" -gt "$RECORD_BUDGET" ]; then
-        echo "$PROG: refused: record-full: the body is $SIZE bytes, over the $RECORD_BUDGET-byte budget; compact settled decisions or prune the record" >&2
-        exit 13
+    # The next state, as the writer built it from the version it read (its
+    # written time that version's), checked whole by state-schema.jq before the
+    # live record is read: every rule but the private-repository scan, which
+    # needs the visibility reads below and runs once they are made.
+    jq -e 'type == "object"' "$STATE_FILE" > /dev/null 2>&1 \
+        || { echo "$PROG: refused: the state file doesn't hold a JSON object" >&2; exit 65; }
+    if [ "$(jq -c '.scope' "$STATE_FILE")" != "$(jq -nc --arg k "$SCOPE" --arg n "$NAME" '{kind: $k, name: $n}')" ]; then
+        echo "$PROG: refused: the state is not a $SCOPE record for $NAME" >&2
+        exit 65
     fi
-    lib_parse "$BODY" "$T/parsed.json"
-    case $? in
-        0) ;;
-        3|65) echo "$PROG: refused: the body is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 65 ;;
-        *) lib_die2 "record-parse.sh failed" ;;
-    esac
+    PRIVATE=
+    core_validate "$STATE_FILE" "$T/parsed.json"
 
     # A pushed head (record-write.sh --pushed-head) is kept beside a holding
     # the record has.
@@ -567,7 +563,7 @@ core_write() {
         # "CI/CD" is not a repository, so only its unambiguous forms count
         # there, as the codec's text_named_repos reads them for a record entry
         # too: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
-        jq -r -L "$HERE" 'include "record-codec";
+        jq -r -L "$HERE" 'include "state-schema";
             def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
             def links: scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean;
             [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
@@ -594,31 +590,25 @@ core_write() {
         done < "$T/named"
     fi
 
-    # The body is always re-rendered with this script's own written time: the
-    # time in the coordinator's body is never trusted, because record-confirm.sh
-    # reads it as proof a write came after an event. Once the run has entered
-    # dispatch, deferrals already filed or closed are dropped first.
+    # The named repositories the host can't show public are refused now, the
+    # one rule the first check couldn't run.
+    [ -z "$PRIVATE" ] || core_validate "$T/parsed.json" "$T/checked.json"
+    # The state is always written with this script's own written time: the
+    # time the coordinator's state carries is never trusted, because
+    # record-confirm.sh reads it as proof a write came after an event. Once the
+    # run has entered dispatch, deferrals already filed or closed are dropped
+    # first.
     cp "$T/parsed.json" "$T/next.json"
     if lib_dispatched && lib_drop_disposed "$T/parsed.json" "$T/dropped.json"; then
         mv "$T/dropped.json" "$T/next.json"
     fi
-    core_validate "$T/next.json"
-    jq 'del(.written)' "$T/next.json" | bash "$HERE/record-render.sh" --container issue --written "$(lib_now)" --private-repos "$PRIVATE" \
-        > "$T/body.md" 2> "$T/render.err" || {
-        echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2
-        [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
-        exit 65; }
-    SIZE=$(wc -c < "$T/body.md" | tr -d ' ')
-    if [ "$SIZE" -gt "$RECORD_BUDGET" ]; then
-        echo "$PROG: refused: record-full: the body would be $SIZE bytes, over the $RECORD_BUDGET-byte budget; compact settled decisions or prune the record" >&2
-        exit 13
-    fi
+    jq --arg w "$(lib_now)" '.written = $w' "$T/next.json" > "$T/next-state.json" || lib_die2 "jq failed"
     # A step's shared read (record-source.sh rs_once_begin) is the record as it
     # was before this write: forget it, so a read after the write is live. It
     # is forgotten again once the write lands, since a reader running beside
     # this one (the pass's settle and legs) may have read in between.
     rs_once_drop
-    core_write_session "$T/body.md"
+    core_write_session "$T/next-state.json"
     rs_once_drop
     printf '%s\n' "$URL"
 }

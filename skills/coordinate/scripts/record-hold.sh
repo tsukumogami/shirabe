@@ -24,7 +24,7 @@
 # stood is written beside it as a Reversals row. --list prints the section as
 # a JSON array ([] when there is none).
 #
-# Every write renders with the written time of the version read and goes
+# Every write carries the written time of the version read and goes
 # through the record's write core (record-write-core.sh), which re-reads the
 # target and checks provenance, directed transitions and repository
 # visibility first. This is the one script that sets HOLDS_WRITER=1; every
@@ -38,7 +38,7 @@
 # a read failed; 10 refused (no found record, the session holds no record of
 # this scope, provenance, or a directed transition); 11 the write failed; 12
 # the record changed between
-# this script's read and its write; 13 the record is full; 14 the hold was
+# this script's read and its write; 14 the hold was
 # written but its session entry wasn't (the entry to post on stderr); 64 usage;
 # 65 the hold was refused (the reason on stderr).
 #
@@ -83,16 +83,14 @@ trap 'rm -rf "$WD"' EXIT
 
 # The live record, through the seam (record-source.sh), which reads it with
 # the line endings the write core reads.
-rs_record "$WD/parsed.json" body
+rs_record "$WD/parsed.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
-    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
 esac
-cp "$WD/parsed.json.md" "$WD/live.md"
 
 case "$MODE" in
 list)
@@ -106,7 +104,7 @@ add)
     if jq -e --arg h "$H" 'any(.holds[]?; .hold == $h)' "$WD/parsed.json" > /dev/null; then
         echo "$PROG: refused: a hold named $H is already in the record" >&2; exit 65
     fi
-    jq --slurpfile row "$ROWFILE" '.holds = ((.holds // []) + [$row[0] + {lifted: ""}]) | del(.written)' \
+    jq --slurpfile row "$ROWFILE" '.holds = ((.holds // []) + [$row[0] + {lifted: ""}])' \
         "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
     ;;
 lift)
@@ -116,21 +114,21 @@ lift)
         || { echo "$PROG: refused: $HOLD waits on $(printf '%s' "$ROW" | jq -r .until), which the land check reads; only a \`lifted\` hold is lifted by hand" >&2; exit 65; }
     [ "$(printf '%s' "$ROW" | jq -r .lifted)" = "" ] || { echo "$PROG: refused: $HOLD is already lifted" >&2; exit 65; }
     NOW=$(date -u +%Y-%m-%dT%H:%MZ)
-    jq --arg h "$HOLD" --arg l "$NOW by $BY" '.holds |= map(if .hold == $h then .lifted = $l else . end) | del(.written)' \
+    jq --arg h "$HOLD" --arg l "$NOW by $BY" '.holds |= map(if .hold == $h then .lifted = $l else . end)' \
         "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
     ;;
 esac
 
-# The render keeps the written time of the version just read: the write core
+# The state keeps the written time of the version just read: the write core
 # compares it with the live record's and refuses when someone wrote in
-# between, then stamps its own time.
-bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$WD/parsed.json")" "$WD/next.json" > "$WD/body.md" 2> "$WD/render.err" \
-    || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
+# between, then stamps its own time. The file stays in this script's private
+# directory, readable by its owner only, and goes with it after the write.
+chmod 600 "$WD/next.json" || lib_die2 "cannot make the state file private"
 
 # Through the write core, with the Holds section opened to this script alone:
 # the core still refuses a write that drops or changes an existing hold
 # beyond stamping its blank Lifted cell.
-BODY="$WD/body.md" CORE_CLEANUP=$WD
+STATE_FILE="$WD/next.json" CORE_CLEANUP=$WD
 lib_write_guard
 . "$HERE/record-write-core.sh"
 HOLDS_WRITER=1

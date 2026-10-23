@@ -48,9 +48,7 @@
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
-#                         it an unrecorded write or an owed message; `archive`
-#                         (settled entries to move out of a full record)
-#                         blocks either way
+#                         it an unrecorded write or an owed message
 #   unresolved-topic      a redispatch (or any visit not from a pick) whose
 #                         unit resolves to no dispatch topic: the failed
 #                         unit can't be found (a leg no Holdings row
@@ -275,16 +273,12 @@ esac
 # The run's record.
 lib_run_found || { REASON="the run has no found record"; finish record-changed; }
 # The record, through the seam (record-source.sh).
-rs_record "$T/parsed.json" json; RS_RC=$?
-if [ $RS_RC -eq 4 ]; then
-    REASON="$(lib_record_name) holds no record: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed
-fi
-{ [ $RS_RC -eq 2 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)"
-cp "$T/parsed.json.raw" "$T/rec.json"
+rs_record "$T/parsed.json"; RS_RC=$?
 case $RS_RC in
     0) ;;
-    3|65) REASON="$(lib_record_name) is no longer a canonical $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    4) REASON="$(lib_record_name) holds no record: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
+    65) REASON="$(lib_record_name) no longer reads back as a $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
 esac
 # The cap a person set in the record's Run section wins over the session's.
 # The first lib_bounds, above, read only the session, for the verdicts that
