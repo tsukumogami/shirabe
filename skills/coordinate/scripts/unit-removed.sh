@@ -81,12 +81,20 @@
 #       A record kept after its shape check gets attempts counted up and last
 #       set to {at, outcome}. One line per record on stdout, `<dispatch id>:
 #       <outcome>`. Exit 0.
+#       Not yet here: a kept record is tried again by every later sweep and
+#       never expires, nothing logs the outcomes, and two sweeps can run at
+#       once (the capture's key still keeps the entry single). The lock,
+#       expiry and log come with the retry rules; attempts and last are
+#       what they will read.
 #
 # Exit codes: record and sweep always 0; 64 usage.
 #
-# Environment: as above; KOTO and GH name the tools, through the scripts the
-# sweep runs. The sweep the step starts sees only the names listed under
-# record. bash 3.2.
+# Environment: the sweep the step starts sees only the names listed under
+# record. Run by hand, the sweep also honours TEARDOWN_KOTO_SESSIONS,
+# TEARDOWN_CLAUDE_HOME, and KOTO and GH (the tools, through the scripts it
+# runs). GITHUB_TOKEN and GH_HOST are passed for gh's own use; the sweep's
+# no-token rule reads GH_TOKEN alone, the token the coordinator's sessions
+# carry. bash 3.2.
 set -uo pipefail
 
 PROG=unit-removed

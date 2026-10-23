@@ -10,7 +10,10 @@
 # before it collects. bash 3.2.
 #
 # Collection, into an archive directory <arch>, with the caller's scratch
-# directory <s> holding the lists below:
+# directory <s> holding the lists below. The caller empties <s>/copies once
+# per archive before the first copy (ac_copy_file only appends), and sources
+# dispatch-common.sh first or lets this file do it (DC_RE_REQ and DC_RE_LEG
+# come from there):
 #   ac_copy_file <arch> <s> <src> <rel>
 #       One file into <arch>/<rel>, listed in <s>/copies (`<rel>\t<src>`)
 #       for ac_manifest's check.
@@ -257,8 +260,9 @@ ac_dir_private() {
     [ -d "$1" ] || { AC_WHY="$1 is not a directory"; return 1; }
     [ -O "$1" ] || { AC_WHY="$1 is not the user's"; return 1; }
     m=$(ls -ld -- "$1" 2>/dev/null) || { AC_WHY="$1 can't be read"; return 1; }
-    # macOS adds `@` for extended attributes; `+` (an ACL) is refused, since
-    # it can grant what the mode doesn't.
+    # macOS adds `@` for extended attributes and SELinux hosts `.` for a
+    # security context, neither of which grants access; `+` (an ACL) is
+    # refused, since it can grant what the mode doesn't.
     case "${m%% *}" in
         drwx------ | drwx------@ | drwx------.) ;;
         *) AC_WHY="$1 is not mode 0700"; return 1 ;;
