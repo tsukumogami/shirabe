@@ -108,8 +108,8 @@ export TEST_CHANGE_LOCK_WAIT=1
 BIN="$W/bin"
 STORE="$W/store"
 mkdir -p "$BIN" "$STORE"
-SHIM_FLOOR=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\(.*\)}"$/\1/p' "$PLUGIN/scripts/assert-koto-floor.sh")
-[ -n "$SHIM_FLOOR" ] || { echo "FAIL: could not read the koto floor from assert-koto-floor.sh"; exit 1; }
+SHIM_FLOOR=$(env -u KOTO_FLOOR bash "$PLUGIN/scripts/assert-koto-floor.sh" --print-floor 2>"$W/floor.err")
+[ -n "$SHIM_FLOOR" ] || { echo "FAIL: assert-koto-floor.sh --print-floor printed no floor: $(head -c 400 "$W/floor.err")"; exit 1; }
 cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
