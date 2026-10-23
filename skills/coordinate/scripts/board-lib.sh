@@ -367,7 +367,15 @@ bl_review_evidence() {
         child=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings') || {
             echo "$PROG: request $req is not JSON" >&2; rm -rf "$d"; return 2; }
         [ -n "$child" ] && bl_session_ok "$child" || continue
-        "$KOTO" context exists "$child" review_round.json </dev/null >/dev/null 2>&1 || continue
+        # koto's 1 is no such key: the worker recorded no round, so the
+        # body is read. Any other failure is a read that didn't happen.
+        rc=0
+        "$KOTO" context exists "$child" review_round.json </dev/null >/dev/null 2>&1 || rc=$?
+        case "$rc" in
+            0) ;;
+            1) continue ;;
+            *) echo "$PROG: $child's review_round.json couldn't be checked (koto exited $rc)" >&2; rm -rf "$d"; return 2 ;;
+        esac
         "$KOTO" context get "$child" review_round.json </dev/null > "$d/round" 2>"$d/err" || {
             echo "$PROG: $child's review_round.json couldn't be read: $(head -1 "$d/err")" >&2; rm -rf "$d"; return 2; }
         ev=$(bash "$HERE/panel-evidence.sh" --round "$d/round") || { rm -rf "$d"; return 2; }
