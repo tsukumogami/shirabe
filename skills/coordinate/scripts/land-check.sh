@@ -19,9 +19,12 @@
 #    `paused <pr> <sha>`. It comes before the worker's evidence, so a paused
 #    pull request isn't asked for a fix before its merge could happen anyway
 #    (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
-# 4. The worker's review round, read from the body (panel-evidence.sh): no
-#    Review panel table, a malformed one, fewer than three seats or any
-#    verdict but pass is `unready <pr> <sha>`.
+# 4. The worker's review round (board-lib.sh's bl_review_evidence): the
+#    review_round.json the worker recorded in its own run session, found
+#    through the leg its holding returns on, else the body's Review panel
+#    table (panel-evidence.sh). No round in either, a malformed one, fewer
+#    than three seats or any verdict but pass is `unready <pr> <sha>`. The
+#    detail's `evidence.source` says which was read.
 # 5. The reviewed head against <sha> (board-lib.sh's bl_reviewed_fresh): a
 #    head further from it than merge-ins of the base branch is `unready`.
 # 6. The body's mechanical checks (shirabe validate --pr-body, with the
@@ -169,7 +172,7 @@ if [ -n "$PAUSED" ]; then
     finish "paused $PR $SHA"
 fi
 
-EV=$(bash "$HERE/panel-evidence.sh" "$MS.body") || { echo "$PROG: the evidence couldn't be read" >&2; exit 2; }
+EV=$(bl_review_evidence "$SESSION" "$REPO" "$PR" "$MS.body") || { echo "$PROG: the evidence couldn't be read" >&2; exit 2; }
 detail '.evidence = $e' --argjson e "$EV"
 case "$(printf '%s' "$EV" | jq -r .status)" in
     ok) ;;

@@ -14,7 +14,8 @@
 #   **[#<pr>](https://github.com/<repo>/pull/<pr>)**, <why it is handed over>
 #
 #   - Review: <passes> of <seats> seats pass (<seat>, ...) at <reviewed
-#     head>, in the pull request body's Review panel section
+#     head>, recorded in the worker's run session <session> | in the pull
+#     request body's Review panel section (whichever the land check read)
 #   - Holds: none | <hold> until <condition> (<state>), ...
 #   - Pauses: <id> on <scope> until <condition> (<state>), ...; let
 #     through by go-ahead <id>     (only when the record holds a pause; a
@@ -84,7 +85,9 @@ printf '%s' "$DETAIL" | jq -e '.evidence.status == "ok" and (.message | type) ==
 
 printf '%s' "$DETAIL" | jq -r --arg pr "$PR" --arg repo "$REPO" --arg why "$WHY" '
     "**[#\($pr)](https://github.com/\($repo)/pull/\($pr))**, \($why)\n",
-    "- Review: \(.evidence.passes) of \(.evidence.count) seats pass (\([.evidence.seats[].seat] | join(", "))) at \(.evidence.reviewed_head), in the pull request body'"'"'s Review panel section",
+    "- Review: \(.evidence.passes) of \(.evidence.count) seats pass (\([.evidence.seats[].seat] | join(", "))) at \(.evidence.reviewed_head), "
+      + (if .evidence.source == "session" then "recorded in the worker'"'"'s run session \(.evidence.session)"
+         else "in the pull request body'"'"'s Review panel section" end),
     "- Holds: " + (if ((.holds // []) | length) == 0 then "none"
                    else [.holds[] | "\(.hold) until \(.until) (\(.state))"] | join(", ") end),
     (if ((.pauses.pauses // []) | length) == 0 then empty

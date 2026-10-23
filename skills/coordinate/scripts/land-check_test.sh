@@ -6,7 +6,12 @@
 #
 # The worker's round: no table (no-evidence), seats sharing a Run or a Seat,
 # too few seats, a failing seat (each unready with its reason), and a ready
-# one under deny with coord/land.json's message and files. The reviewed head:
+# one under deny with coord/land.json's message and files. The round the
+# worker recorded in its session (found through its holding's leg): it lands
+# with no table in the body and is read before the body's table; a failing,
+# malformed or too-small one is unready; with no round, no bound child or a
+# request this host doesn't hold, the body's table is read; a request or
+# holdings read that fails is exit 2. The reviewed head:
 # fresh one main merge-in behind; stale for a file main didn't touch, a
 # non-merge commit, a second parent not on main, more than ten merge-ins, a
 # comparison at the 300-file limit; a failed read (exit 2). The body: failing
@@ -193,6 +198,79 @@ bash "$CL" check --session "$S" --state land --sealed "$OUT" >/dev/null 2>&1 \
         "$("$KOTO_BIN" context get "$S" coord/land.json | jq -r .message)" \
     || bad "  ... the sealed deny token checks"
 eq "  ... and the changed files" '["skills/x.sh"]' "$("$KOTO_BIN" context get "$S" coord/land.json | jq -c .files)"
+
+echo "== the round recorded in the worker's session =="
+REQ=req-0d1e2f30-0000-4000-8000-000000000001
+NOPANEL=$(printf '%s\n\n---\n\nNo panel here.\n' "$BT_PART1")
+evsrc() { "$KOTO_BIN" context get "$S" coord/land.json | jq -r '.evidence.source // ""'; }
+scenario "$PERMIT" "$PERMIT"
+printf '%s\n' "$NOPANEL" > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err")
+eq "a round in the worker's session lands with no table in the body" "permit 12 $H" "${OUT% sealed:*}"
+eq "  ... and coord/land.json says the session was read" session "$(evsrc)"
+eq "  ... naming the worker's session" issue_12 "$("$KOTO_BIN" context get "$S" coord/land.json | jq -r .evidence.session)"
+# koto captures the action's sealed token as LAND; the stand-in log needs it
+# written by hand.
+bt_capture "$S" LAND "$OUT"
+MOE=$(bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>"$T/moe.err")
+case "$MOE" in
+    *"- Review: 3 of 3 seats pass (architect, maintainer, pragmatic) at $H, recorded in the worker's run session issue_12"*)
+        ok "  ... and the hand-over block says the round is in the worker's session" ;;
+    *) bad "  ... and the hand-over block says the round is in the worker's session" "$MOE $(cat "$T/moe.err")" ;;
+esac
+scenario "$PERMIT" "$PERMIT"
+body "$H" fail
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+eq "the session's round is read before the body's table" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+body
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round "$H" fail)"
+eq "a failing seat in the session's round is not unanimous, whatever the body says" not-unanimous "$(token >/dev/null; reason)"
+scenario "$PERMIT" "$PERMIT"
+printf '%s\n' "$NOPANEL" > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round | jq -c '.seats[1].run = "agent-r1"')"
+eq "a malformed session round is unready" malformed:run-repeated "$(token >/dev/null; reason)"
+scenario "$PERMIT" "$PERMIT"
+printf '%s\n' "$NOPANEL" > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round | jq -c '.seats |= .[0:2]')"
+eq "two seats in the session's round are too few" too-few-seats "$(token >/dev/null; reason)"
+scenario "$PERMIT" "$PERMIT"
+body
+bt_leg_round "$REQ" work-on issue_12
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err")
+eq "a bound session with no round falls back to the body's table" "permit 12 $H" "${OUT% sealed:*}"
+eq "  ... and coord/land.json says the body was read" body "$(evsrc)"
+scenario "$PERMIT" "$PERMIT"
+printf '%s\n' "$NOPANEL" > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12
+eq "no round in the session and no table: no-evidence" no-evidence "$(token >/dev/null; reason)"
+scenario "$PERMIT" "$PERMIT"
+body
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+jq -c '.legs["work-on"].bound_child = null' "$KOTO_BOARD_DIR/requests/$REQ.json" > "$T/q" && mv "$T/q" "$KOTO_BOARD_DIR/requests/$REQ.json"
+eq "a leg nobody is bound to yet: the body's table" body "$(token >/dev/null; evsrc)"
+scenario "$PERMIT" "$PERMIT"
+body
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+touch "$KOTO_BOARD_DIR/requests/$REQ.gone"
+eq "a request this host's store doesn't hold: the body's table" body "$(token >/dev/null; evsrc)"
+rm -f "$KOTO_BOARD_DIR/requests/$REQ.gone"
+scenario "$PERMIT" "$PERMIT"
+body
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+touch "$KOTO_BOARD_DIR/requests/$REQ.fail"
+bash "$LC" --session "$S" --repo acme/widgets --no-seal >/dev/null 2>&1
+eq "a request read that fails: exit 2, never a fall back to the body" 2 $?
+rm -f "$KOTO_BOARD_DIR/requests/$REQ.fail"
+scenario "$PERMIT" "$PERMIT"
+body
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+echo 2 > "$BT_STATE/holding.rc"
+bash "$LC" --session "$S" --repo acme/widgets --no-seal >/dev/null 2>&1
+eq "holdings that can't be read: exit 2" 2 $?
+rm -f "$BT_STATE/holding.rc"
+echo '[]' > "$BT_STATE/holdings"
 
 echo "== the reviewed head =="
 OLD=2222222222222222222222222222222222222222

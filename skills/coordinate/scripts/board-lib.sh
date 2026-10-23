@@ -325,6 +325,61 @@ bl_reviewed_fresh() {
     echo fresh
 }
 
+# bl_review_evidence <session> <repo> <pr> <body-file>: the worker's review
+# round for <repo>#<pr>, as panel-evidence.sh's JSON plus `source`. The round
+# is read first from the worker's own run session: for each Holdings row
+# linking the pull request whose return path is a leg (`leg <request>:<leg>`),
+# latest row first, the leg's bound child from `koto request get`, and that
+# session's review_round.json (review-round.sh writes it), judged by
+# panel-evidence.sh --round; `source` is `session` and `session` names it.
+# With no such round (no leg, no bound child, a request this host's store
+# doesn't hold, or no key), the body's Review panel table is read instead,
+# `source: "body"`: the older home, which a worker still running an earlier
+# version, or a repository that opts in to workflow content in its PR bodies,
+# writes. Returns 0 printed; 2 the holdings, a request or a session couldn't
+# be read, or the round couldn't be judged, so the tick reads again rather
+# than call the round missing.
+bl_review_evidence() {
+    local s=$1 repo=$2 pr=$3 body=$4 rows rps rp req leg view child rc ev d
+    rows=$(bash "$HERE/record-holding.sh" --session "$s" --list) || {
+        echo "$PROG: the record's holdings could not be read" >&2; return 2; }
+    rps=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "record-codec";
+        [.[]? | select(any(.pull_request // "" | pr_link; .number == $n and (.repo | ascii_downcase) == ($r | ascii_downcase)))
+         | .return_path // "" | strings | select(test("^leg [^: ]+:[^: ]+$")) | ltrimstr("leg ")]
+        | reverse | reduce .[] as $x ([]; if index([$x]) then . else . + [$x] end) | .[]') || {
+        echo "$PROG: the holdings list is not JSON" >&2; return 2; }
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-round.XXXXXX") || return 2
+    while IFS= read -r rp; do
+        [ -n "$rp" ] || continue
+        req=${rp%%:*} leg=${rp#*:}
+        [[ $req =~ $DC_RE_REQ ]] && [[ $leg =~ $DC_RE_LEG ]] || continue
+        view=$("$KOTO" request get "$req" </dev/null 2>"$d/err")
+        rc=$?
+        case "$rc" in
+            0) ;;
+            # koto's 2 is a request this host's store doesn't hold: the
+            # worker ran elsewhere, so its session isn't here to read.
+            2) continue ;;
+            *) echo "$PROG: request $req couldn't be read: $(head -1 "$d/err")" >&2; rm -rf "$d"; return 2 ;;
+        esac
+        child=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings') || {
+            echo "$PROG: request $req is not JSON" >&2; rm -rf "$d"; return 2; }
+        [ -n "$child" ] && bl_session_ok "$child" || continue
+        "$KOTO" context exists "$child" review_round.json </dev/null >/dev/null 2>&1 || continue
+        "$KOTO" context get "$child" review_round.json </dev/null > "$d/round" 2>"$d/err" || {
+            echo "$PROG: $child's review_round.json couldn't be read: $(head -1 "$d/err")" >&2; rm -rf "$d"; return 2; }
+        ev=$(bash "$HERE/panel-evidence.sh" --round "$d/round") || { rm -rf "$d"; return 2; }
+        rm -rf "$d"
+        printf '%s' "$ev" | jq -c --arg c "$child" '. + {source: "session", session: $c}'
+        return 0
+    done <<EOF
+$rps
+EOF
+    rm -rf "$d"
+    ev=$(bash "$HERE/panel-evidence.sh" "$body") || return 2
+    printf '%s' "$ev" | jq -c '. + {source: "body"}'
+}
+
 # bl_holds_on <session> <repo> <pr>: the record's holds on <repo>#<pr>, each
 # evaluated live (docs/designs/current/DESIGN-coordinate-merge-policy.md,
 # Decision 6), printed as a JSON array of the hold's row plus `state`:
