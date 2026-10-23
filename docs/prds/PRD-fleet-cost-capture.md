@@ -292,9 +292,11 @@ pass happened to remove, with no way to tell which pull requests are missing.
   (the first three last lines), `already recorded`, `post failed` (the next
   two), `read failed` (the record couldn't be read or the entry not computed),
   `timed out` (the capture was stopped at 120 seconds), `no coordinator`,
-  `several coordinators`, `expired`, `invalid input` (a removal record whose
-  fields fail their patterns, deleted). The post's own 25-second bound is `post
-  failed`; `timed out` is only the whole capture stopped at 120 seconds.
+  `several coordinators`, `pending github` (R12a), `invalid input` (a removal
+  record whose fields fail their patterns, deleted). A record still kept 24
+  hours after its removal gets one more line, `stale` (R12). The post's own
+  25-second bound is `post failed`; `timed out` is only the whole capture
+  stopped at 120 seconds.
 
 ### Non-functional
 

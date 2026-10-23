@@ -22,7 +22,15 @@
 # sweep still archives, keeps the record pending github with its attempt
 # counted, posts nothing, and the stub gh records no call. A request whose
 # requested_by holds no leg key for it: the record kept, no coordinator,
-# nothing posted; a record outside its shape deleted. Each refusal of record (no reap key, a key
+# nothing posted, its removals.log line written, and, its removal more than
+# 24 hours old, a stale line after it; restored, the next sweep captures it.
+# A pending github record is captured by a later sweep with the token, and
+# one whose unit is already recorded is deleted, already recorded. Two sweeps
+# over one record capture it once, the second passing it over; a record
+# written while a sweep runs is handled by it; a lock whose holder is gone is
+# taken over; a sweep with no record makes no call and writes no log; start
+# runs the sweep in the background. A record outside its shape deleted. Each
+# refusal of record (no reap key, a key
 # equal to the session id, a key starting with -, a path holding .., a path
 # outside the directory record runs in, the workspace root itself with or
 # without a trailing /, a path with a trailing / or a newline, a session id
@@ -239,6 +247,13 @@ eq "  ... the stub gh records no call" "" "$(calls)"
 eq "  ... the archive is still made" ok "$(manifest_ok "$(ls -d "$XDG_DATA_HOME/teardown-archive/"*-feat-x-0a1b2c3d 2>/dev/null)")"
 eq "  ... and nothing is posted" 0 "$(count "$KOTO_STORE/context/$S/record/entries"/*)"
 export GH_TOKEN=stub-token
+wait_gone "$R/.$DID.lock" 30
+eq "a later sweep with the token captures it into the dispatch's coordinator and deletes the record" "$DID: captured|0|1" \
+    "$(bash "$UR" sweep)|$(nrecords)|$(costs "$S" | jq length)"
+jq -n -c --arg d "$DID" --arg s "$SID" --arg p "$IP" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema: "unit-removal/1", dispatch_id: $d, session_id: $s, instance_path: $p, removed_at: $at, attempts: 0, last: null}' >"$R/$DID.json"
+eq "a record whose unit is already recorded is deleted, already recorded, with no second entry" "$DID: already recorded|0|1" \
+    "$(bash "$UR" sweep)|$(nrecords)|$(costs "$S" | jq length)"
 
 echo "== a request with no leg key: no coordinator =="
 seed
@@ -247,10 +262,18 @@ rm -rf "$R"
 mkdir -p "$R" && chmod 700 "$R"
 jq -n -c --arg d "$DID" --arg s "$SID" --arg p "$IP" \
     '{schema: "unit-removal/1", dispatch_id: $d, session_id: $s, instance_path: $p, removed_at: "2026-10-01T12:00:00Z", attempts: 0, last: null}' >"$R/$DID.json"
-eq "the sweep keeps the record, no coordinator" "$DID: no coordinator" "$(bash "$UR" sweep)"
+# Its removal is weeks old, so the sweep lists it stale as well.
+eq "the sweep keeps the record, no coordinator, and lists it stale" "$DID: no coordinator
+$DID: stale" "$(bash "$UR" sweep)"
 eq "  ... the record is still there and nothing is posted" "1|0" "$(nrecords)|$(costs "$S" | jq length)"
+eq "  ... removals.log holds a line for each, a UTC time first" "$DID no coordinator|$DID stale|ok" \
+    "$(cut -d' ' -f2- "$R/removals.log" | paste -sd'|' -)|$(awk '$1 !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ { print "bad"; exit } END { print "ok" }' "$R/removals.log" | head -n 1)"
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken"}' | koto context add "$S" legs/r_dispatch_x/deliver
+eq "  ... with the leg key back, the next sweep captures it and deletes the record" "$DID: captured|0|1" \
+    "$(bash "$UR" sweep)|$(nrecords)|$(costs "$S" | jq length)"
 printf '{"schema":"unit-removal/1","dispatch_id":"x y"}\n' >"$R/bad.json"
-eq "a record outside its shape is deleted, invalid input" "bad.json: invalid input|1" \
+# The record above was captured, so none is left once bad.json goes.
+eq "a record outside its shape is deleted, invalid input" "bad.json: invalid input|0" \
     "$(bash "$UR" sweep | grep '^bad.json'; [ -e "$R/bad.json" ] && echo kept)|$(nrecords)"
 
 echo "== record refuses, with one line, no record and exit 0 =="
@@ -311,5 +334,64 @@ until [ "$(jq -r '.last.outcome // ""' "$R/dsp-other.1.json" 2>/dev/null)" = "no
     i=$((i + 1))
 done
 eq "  ... and its sweep keeps it, no coordinator" "no coordinator" "$(jq -r '.last.outcome' "$R/dsp-other.1.json")"
+
+echo "== one capture per record: the record lock =="
+# newrec <dispatch id> <session id> <instance path>: a record removed now.
+newrec() {
+    jq -n -c --arg d "$1" --arg s "$2" --arg p "$3" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{schema: "unit-removal/1", dispatch_id: $d, session_id: $s, instance_path: $p, removed_at: $at, attempts: 0, last: null}' >"$R/$1.json"
+}
+seed
+rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
+mkfifo "$T/hold.gh"
+bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
+SW1=$!
+i=0
+until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+# Written while the first sweep runs, at a path no koto session ran in.
+newrec dsp-late.1 0c0c0c0c-2222 "$WS/inst-late"
+eq "a second sweep passes over the record the first holds, and handles the one written since" \
+    "$DID: held by another sweep
+dsp-late.1: no coordinator" "$(bash "$UR" sweep)"
+(printf 'go\n' >"$T/hold.gh") 2>/dev/null &
+WP=$!
+wait "$SW1"
+kill "$WP" 2>/dev/null
+wait "$WP" 2>/dev/null
+rm -f "$T/hold.gh"
+eq "  ... the first captures it once" "1|0" "$(costs "$S" | jq length)|$(count "$R/$DID.json")"
+eq "  ... and, reading the directory again before it exits, handles the record written meanwhile" \
+    "$DID: captured
+dsp-late.1: no coordinator" "$(cat "$T/sweep1.out")"
+eq "  ... no lock is left behind" 0 "$(count "$R/.$DID.lock" "$R/.dsp-late.1.lock")"
+seed
+rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
+sh -c 'exit 0' &
+GONE=$!
+wait "$GONE"
+mkdir "$R/.$DID.lock"
+printf '%s %s\n' "$GONE" "$(date +%s)" >"$R/.$DID.lock/owner"
+eq "a record lock whose holder's pid is gone is taken over and the capture runs" "$DID: captured|1" \
+    "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+
+echo "== a sweep with no record does nothing =="
+rm -rf "$R" "$T/gh.env" "$T/koto.env"
+mkdir -p "$R" && chmod 700 "$R"
+OUT=$(bash "$UR" sweep)
+eq "exit 0, no output, no gh or koto call, no log" "0||0" "$?|$OUT|$(count "$T/gh.env" "$T/koto.env" "$R/removals.log")"
+
+echo "== start: the sweep in the background =="
+seed
+rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
+OUT=$(bash "$UR" start)
+eq "start exits 0 at once, printing one line" "0|unit-removed: the sweep runs in the background" "$?|$OUT"
+if wait_gone "$R/$DID.json" 120; then ok "  ... and the sweep it started captures the record"; else bad "  ... and the sweep it started captures the record" "$(cat "$R/$DID.json" 2>&1)"; fi
+eq "  ... one entry in the coordinator's session" 1 "$(costs "$S" | jq length)"
 
 done_tests unit-removed_test

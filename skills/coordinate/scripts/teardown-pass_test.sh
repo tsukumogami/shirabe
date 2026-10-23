@@ -246,6 +246,9 @@ TR="$PJ/$ENC/$SID.jsonl"
 COPY=$JID-aaaa-bbbb
 export TEARDOWN_CLAUDE_HOME="$HOME/.claude" TEARDOWN_KOTO_SESSIONS="$T/ksess" TEARDOWN_ARCHIVE_DIR="$T/archive" \
     KOTO_REQUESTS="$T/requests" UNIT_COST_FETCH_SECS=1 UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=2
+# The sweep a run starts as it ends: a stand-in that logs its arguments.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n' "$T/sweep.calls" >"$T/sweep-stub"
+export TEARDOWN_SWEEP="$T/sweep-stub"
 # msg <id> <output tokens> <cwd>: one assistant line.
 msg() { printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-01T09:00:30.000Z","message":{"id":"%s","usage":{"input_tokens":1,"output_tokens":%s}}}\n' "$3" "$1" "$2"; }
 # setup_run: a fresh instance, job, transcripts, worker session and request,
@@ -323,6 +326,8 @@ run_pass
 BASE_LAST="teardown-pass: done $ARCHD"
 [ "$RC" = 0 ] && [ "$LAST" = "$BASE_LAST" ] && [ "$RES" = "done" ] && ok "the pass is done" || bad "the pass is done" "exit $RC: $OUT $ERR"
 [ -z "$ERR" ] && ok "a capture that posts prints no warning" || bad "a capture that posts prints no warning" "$ERR"
+[ "$(cat "$T/sweep.calls" 2>/dev/null)" = start ] && ok "the run starts the host's sweep once, as it ends" \
+    || bad "the run starts the host's sweep once, as it ends" "$(cat "$T/sweep.calls" 2>&1)"
 POST=$(line_of 'gh api --method POST repos/acme/widgets/issues/7/comments')
 DESTROY=$(line_of 'niwa destroy --force tsuku+w5')
 [ -n "$POST" ] && [ -n "$DESTROY" ] && [ "$POST" -lt "$DESTROY" ] && ok "the comment POST comes before niwa destroy" \

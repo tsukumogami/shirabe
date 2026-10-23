@@ -49,6 +49,11 @@
 #            failure is incomplete;
 #         7. confirm `niwa list --json` no longer shows the instance and
 #            `claude agents --json --all` no longer shows the job.
+#       However it ends, the pass then starts `unit-removed.sh start`, which
+#       runs a sweep of the host's removal records detached and returns at
+#       once, so a removal a token-less sweep left pending is finished with
+#       the pass's own token; the pass never waits for it, and its exit code,
+#       last line and RESULT are the same either way.
 #       RESULT in the archive says `done`, or why the pass stopped once the
 #       archive exists. A rerun on the same UTC day reuses the day's archive
 #       directory; one on a later day makes a second, and `confirm` then
@@ -132,7 +137,9 @@
 # ${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
 # (each GitHub read's bound, default 8), TEARDOWN_CAPTURE_SECS (the cost
 # capture's bound, default 120), TEARDOWN_CONFIRM_SECS (confirm's archive
-# read's bound, default 15). bash 3.2.
+# read's bound, default 15), TEARDOWN_SWEEP (the script run with `start` as a
+# run ends, default unit-removed.sh beside this one; empty starts none).
+# bash 3.2.
 set -uo pipefail
 
 PROG=teardown-pass
@@ -155,6 +162,7 @@ CAPTURE_SECS="${TEARDOWN_CAPTURE_SECS:-120}"
 # confirm's archive read gets half of koto's 30-second action bound; the
 # listings, the RESULT read and the MANIFEST digest before it get the rest.
 CONFIRM_SECS="${TEARDOWN_CONFIRM_SECS:-15}"
+SWEEP="${TEARDOWN_SWEEP-$HERE/unit-removed.sh}"
 
 usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
@@ -175,7 +183,14 @@ case "$MODE" in run) [ -n "$WANT_KS" ] || usage ;; confirm) [ -z "$WANT_KS" ] ||
 umask 077
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass.XXXXXX") || exit 2
-trap 'rm -rf "$T"' EXIT
+# A run, however it ends, starts the host's sweep of removal records; start
+# returns at once, its output nowhere, so it changes nothing the pass reports.
+pass_end() {
+    rm -rf "$T"
+    [ "$MODE" = run ] && [ -n "$SWEEP" ] && [ -f "$SWEEP" ] || return 0
+    bash "$SWEEP" start </dev/null >/dev/null 2>&1 || :
+}
+trap pass_end EXIT
 
 sha256() { ac_sha256; }
 say() { printf '%s: %s\n' "$PROG" "$*"; }

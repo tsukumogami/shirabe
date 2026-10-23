@@ -38,8 +38,18 @@
 #       GITHUB_TOKEN and GH_HOST unchanged when they are set, since the
 #       capture reads and posts with them. It prints one line
 #       and exits 0 in every case, never waiting for the sweep.
+#   unit-removed.sh start
+#       Starts `sweep` as record does (detached, by absolute path, with the
+#       environment record names) and exits 0 at once. The teardown pass runs
+#       it as it ends, and the coordinator at each wake, so a sweep holding
+#       the coordinator's token finishes what a token-less one left pending.
 #   unit-removed.sh sweep
-#       Every record in R, one at a time:
+#       With no record in R it does nothing at all. Otherwise every record,
+#       one at a time, under its own lock, R/.<dispatch id>.lock (a directory
+#       holding `<pid> <epoch secs>`, archive-common.sh ac_lock): a record
+#       whose lock a live sweep holds is passed over (`<dispatch id>: held by
+#       another sweep`, nothing logged), and a lock whose holder is gone, or
+#       older than the capture's 120-second bound, is taken over. Under it:
 #         - a record outside its shape (the patterns above, its file named
 #           for its dispatch id, a session id starting with 8 hex digits) is
 #           deleted: invalid input;
@@ -80,13 +90,13 @@
 #           already recorded); a failed post keeps it (post failed), and so
 #           does anything else (read failed) or the deadline (timed out).
 #       A record kept after its shape check gets attempts counted up and last
-#       set to {at, outcome}. One line per record on stdout, `<dispatch id>:
-#       <outcome>`. Exit 0.
-#       Not yet here: a kept record is tried again by every later sweep and
-#       never expires, nothing logs the outcomes, and two sweeps can run at
-#       once (the capture's key still keeps the entry single). The lock,
-#       expiry and log come with the retry rules; attempts and last are
-#       what they will read.
+#       set to {at, outcome}, and every later sweep tries it again; none is
+#       deleted for its age. One line per record on stdout, `<dispatch id>:
+#       <outcome>`, and the same in R/removals.log, `<UTC time> <dispatch id>
+#       <outcome>`. A record kept more than 24 hours after its removed_at is
+#       followed by one more line in each, `stale`, so a person sees it.
+#       Before it exits the sweep reads R again and handles any record
+#       written since it started. Exit 0.
 #
 # Exit codes: record and sweep always 0; 64 usage.
 #
@@ -103,7 +113,7 @@ say() { printf '%s: %s\n' "$PROG" "$*"; }
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
 MODE="${1:-}"
-case "$MODE" in record | sweep) ;; *) usage ;; esac
+case "$MODE" in record | sweep | start) ;; *) usage ;; esac
 [ $# -eq 1 ] || { [ "$MODE" = record ] && { say "record takes no arguments; nothing recorded"; exit 0; }; usage; }
 
 HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || { say "cannot find its own directory; nothing done"; exit 0; }
@@ -119,8 +129,9 @@ writable_by_others() {
     return 1
 }
 
-# The on-reap step runs from a hook, so it reads nothing it hasn't checked.
-if [ "$MODE" = record ]; then
+# The on-reap step runs from a hook, and start from the pass and every wake,
+# so neither reads anything it hasn't checked.
+if [ "$MODE" != sweep ]; then
     for f in "$SELF" "$HERE/archive-common.sh" "$HERE/dispatch-common.sh"; do
         writable_by_others "$f" && { say "${f##*/} is writable by group or others; nothing recorded"; exit 0; }
     done
@@ -152,6 +163,12 @@ start_sweep() {
         env -i "$@" "$SELF" sweep </dev/null >/dev/null 2>&1 &
     fi
 }
+
+if [ "$MODE" = start ]; then
+    start_sweep
+    say "the sweep runs in the background"
+    exit 0
+fi
 
 if [ "$MODE" = record ]; then
     KEY="${NIWA_REAP_KEY:-}" SID="${NIWA_SESSION_ID:-}" IP="${NIWA_INSTANCE_PATH:-}"
@@ -201,6 +218,13 @@ CLAUDE_HOME="${TEARDOWN_CLAUDE_HOME:-$HOME/.claude}"
 ARCHIVE_ROOT="${TEARDOWN_ARCHIVE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive}"
 CAPTURE_SECS=120
 RE_TOPIC='^[a-z0-9][a-z0-9-]{0,62}$'
+STALE_SECS=86400
+
+ac_removals_dir || { say "$AC_WHY"; exit 0; }
+LOG="$AC_R/removals.log"
+# Nothing pending is nothing to do: no scratch, no read, no call.
+set -- "$AC_R"/*.json
+[ -e "$1" ] || [ -L "$1" ] || exit 0
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/unit-removed.XXXXXX") || exit 0
 trap 'rm -rf "$T"' EXIT
@@ -209,11 +233,18 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/gh-config" || exit 0
 export GH_CONFIG_DIR="$T/gh-config"
 
+# logline <dispatch id> <outcome>: one line on stdout and in removals.log.
+logline() {
+    printf '%s: %s\n' "$1" "$2"
+    printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$LOG" || say "cannot write $LOG"
+}
+
 # outcome <record file> <dispatch id> <outcome> [delete]: the record's line,
 # and the record deleted when asked; a record kept gets attempts counted up
-# and last set, through a temporary name in R and mv.
+# and last set, through a temporary name in R and mv, and is listed stale
+# once it has waited more than STALE_SECS since its removal.
 outcome() {
-    local tmp
+    local tmp at
     if [ "${4:-}" = delete ]; then
         rm -f "$1"
     elif tmp=$(mktemp "$AC_R/.record.XXXXXX" 2>/dev/null); then
@@ -225,11 +256,31 @@ outcome() {
             rm -f "$tmp"
         fi
     fi
-    printf '%s: %s\n' "${2:-?}" "$3"
+    logline "${2:-?}" "$3"
+    [ "${4:-}" != delete ] || return 0
+    # jq's own message, on a record it can't read, isn't a number, so the
+    # record is not listed stale for it.
+    at=$(jq -r '.removed_at | strings | fromdateiso8601' "$1" 2>&1) || at=""
+    [[ $at =~ ^[0-9]+$ ]] && [ $(($(date +%s) - at)) -gt "$STALE_SECS" ] && logline "${2:-?}" stale
+    return 0
 }
 
-# sweep_one <record file>
+# sweep_one <record file>: the record under its own lock. The lock is named
+# from the file's name, matched first, since the record isn't read yet; a
+# record another sweep finished while this one waited is gone, and passed by.
 sweep_one() {
+    local f=$1 id lock
+    id=${f##*/}
+    id=${id%.json}
+    [[ $id =~ $AC_RE_REAP ]] || { outcome "$f" "${f##*/}" "invalid input" delete; return 0; }
+    lock="$AC_R/.$id.lock"
+    ac_lock "$lock" "$CAPTURE_SECS" 0 || { printf '%s: held by another sweep\n' "$id"; return 0; }
+    [ -f "$f" ] && [ ! -L "$f" ] && sweep_record "$f"
+    ac_unlock "$lock"
+}
+
+# sweep_record <record file>
+sweep_record() {
     local f=$1 row did sid ip d topic slug leg live n target job arch rc last
     row=$(jq -r --arg reap "$AC_RE_REAP" --arg sid "$AC_RE_SID" --arg name "${f##*/}" '
         if type == "object" and .schema == "unit-removal/1"
@@ -326,9 +377,18 @@ sweep_one() {
     esac
 }
 
-ac_removals_dir || { say "$AC_WHY"; exit 0; }
-for REC in "$AC_R"/*.json; do
-    [ -f "$REC" ] && [ ! -L "$REC" ] || continue
-    sweep_one "$REC"
+# Every record once, then R again for any written meanwhile, until a read
+# finds nothing new.
+: >"$T/handled"
+while :; do
+    NEW=0
+    for REC in "$AC_R"/*.json; do
+        [ -f "$REC" ] && [ ! -L "$REC" ] || continue
+        grep -qxF -- "${REC##*/}" "$T/handled" && continue
+        printf '%s\n' "${REC##*/}" >>"$T/handled"
+        NEW=1
+        sweep_one "$REC"
+    done
+    [ "$NEW" = 1 ] || break
 done
 exit 0
