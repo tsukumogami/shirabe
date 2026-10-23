@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # roadmap-status-entry_test.sh -- roadmap-status.sh --verdict and --reopen
-# with --entry N, a session-store run's milestone entry posted on the roadmap
+# with --entry N, a run's milestone entry posted on the roadmap
 # pull request it opens
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2).
 #
