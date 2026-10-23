@@ -14,8 +14,9 @@ goals: |
   each pull request it opened that merged or is still open; its failing-head
   count is whole or marked as a floor; and by default nothing of it is written
   into the repository it changed.
-upstream: docs/briefs/BRIEF-fleet-cost-capture.md
 source_issue: 1093
+absorbed:
+  - docs/briefs/BRIEF-fleet-cost-capture.md
 ---
 
 # PRD: Fleet cost capture
@@ -23,6 +24,36 @@ source_issue: 1093
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-fleet-cost-capture](docs/briefs/BRIEF-fleet-cost-capture.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a dispatched unit's cost is captured only when the
+coordinator's own teardown pass removes it, and in practice most units leave
+another way: a coordinator removes a worker by hand when the pass refuses it,
+a person deletes finished sessions and a reap reclaims their instances,
+another coordinator reaps its own workers. Those units leave no entry, and
+the entries that are written can lose the dispatch id, the milestone and part
+of the failing-head count. This document's Problem Statement states that in
+full.
+
+The outcome is for the person reading the fleet's cost series across every
+coordinator on the host: one entry per dispatched unit however it was removed,
+each naming the dispatch id the series joins on, the milestone (or `none`),
+the plan shape and every pull request the unit opened, with nobody running a
+step for it, and a failing-head count that is whole or says it is a floor. A
+reviewer of the repository the unit changed sees none of it by default. The
+Goals and User Stories carry that outcome and its journeys: a coordinator's
+hand removal after a refused pass, a day's sessions deleted and reaped, the
+series read over a week of pull requests, a maintainer reviewing a worker's
+pull request, and a 65-push branch whose 17 failing heads must not read as 5.
+
+The boundary holds the capture itself, its placement and its documentation,
+and pushes out the series and its join, any koto or niwa change, the other
+tool content shirabe writes into pull requests, units no coordinator
+dispatched, back-filling, and the land half of a holding with several pull
+requests; Requirements and Out of Scope carry each.
 
 ## Problem Statement
 
