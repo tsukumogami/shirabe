@@ -185,12 +185,17 @@ rs_session_state() {
     : > "$out.err"
     for try in 0 1 2 3; do
         [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
-        rs_key "$s" record/meta "$out.m1"
-        case $? in
-            0) ;;
-            1) echo "${PROG:-record-source}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
-            *) return 2 ;;
-        esac
+        # record/meta is got directly; only a get that fails lists the key, to
+        # tell a session with no record (absent) from a failed read. A record
+        # that is there costs one koto call here, not two.
+        if ! "$k" context get "$s" record/meta < /dev/null > "$out.m1" 2> "$out.m1.err"; then
+            rs_key "$s" record/meta "$out.m1"
+            case $? in
+                0) ;;
+                1) echo "${PROG:-record-source}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
+                *) cat "$out.m1.err" >> "$out.err"; return 2 ;;
+            esac
+        fi
         jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
         [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
         # One listing names the sections present; only those are read.

@@ -442,7 +442,11 @@ fi
 # Owed decision work, by the one owed predicate: before the run's first
 # dispatch every owed rule blocks it, after it only an unrecorded write and an
 # owed message do. A held entry, and an escalation that owes nothing, never do.
-OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch) || lib_die2 "cannot read what the decisions are owed"
+# It judges the record read above (--parsed), so the check reads it once: on
+# the session store each read is a dozen koto calls, and the check has 30
+# seconds (shirabe#1156).
+OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch --parsed "$T/parsed.json") \
+    || lib_die2 "cannot read what the decisions are owed"
 if [ "$OWED_RULE" != none ]; then
     REASON="decision work is owed first: $OWED_RULE"; finish "decision-owed $OWED_RULE"
 fi

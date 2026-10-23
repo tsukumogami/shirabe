@@ -22,6 +22,9 @@
 # read (2); the sealed token and its detail; every token in koto's capture
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
 # verdict-owed row, or that the row names as its Who, and ok for another topic.
+# The record read once per check, on GitHub and on the session store (one
+# assembly, record/meta got and never listed), with decision-next judging that
+# read and not a later one.
 #
 # Usage: bash skills/coordinate/scripts/deferral-check_test.sh
 set -uo pipefail
@@ -208,6 +211,58 @@ row_owed "a held entry" "ok beta" "ok gamma" "$(dentry 7 coordinator-verdict '"v
 row_owed "an escalated entry that owes nothing" "ok beta" "ok gamma" "$(dentry 5 escalated "$ESC")"
 OUT=$(seed "$(with_entries "$(dentry 6 proposed)")"; session "$(roadmap_vars plugin-system)" 7; bash "$DC" --session "$S" 2>/dev/null)
 tok_shape "decision-owed is in koto's capture alphabet" "$OUT"
+
+echo "== check mode: the record is read once, and decision-next judges that read =="
+# decision-next.sh takes the record the check read (--parsed) rather than
+# reading it again (shirabe#1156). A gh in front of the stand-in serves the
+# record as the check first read it, then, on any later read, a record with
+# its decision work done: a callee that read again, or ignored what it was
+# handed, would see the second record and let the dispatch through.
+mkdir -p "$T/bin"
+cat > "$T/bin/gh" <<EOF
+#!/usr/bin/env bash
+# The first read of the record is served as seeded; every later one gets the
+# body in $T/reread.
+case "\$*" in
+    "issue view 7 "*)
+        if [ -f "$T/reread.served" ]; then
+            jq --rawfile b "$T/reread" '(.issues[] | select(.number == 7)).body = \$b' "$GH_DB" > "$GH_DB.re" && mv "$GH_DB.re" "$GH_DB"
+        fi
+        out=\$("$HERE/testdata/gh" "\$@"); rc=\$?
+        : > "$T/reread.served"
+        printf '%s\n' "\$out"
+        exit \$rc ;;
+esac
+exec "$HERE/testdata/gh" "\$@"
+EOF
+chmod +x "$T/bin/gh"
+# reread_case <record-json> <later-read-json>: seed the first, serve the second on a re-read.
+reread_case() {
+    seed "$1"; session "$(roadmap_vars plugin-system)" 7
+    render "$2" issue > "$T/reread"; rm -f "$T/reread.served"
+    reset_calls
+}
+reread_case "$(with_entries "$(dentry 6 proposed)")" "$(record_json roadmap plugin-system)"
+eq "a proposed entry in the record the check read blocks the first dispatch" "decision-owed take" "$(PATH="$T/bin:$PATH" check)"
+eq "  ... the record is read once in the check" 1 "$(grep -c '^issue view 7 ' "$GH_DB.calls")"
+reread_case "$(record_json roadmap plugin-system)" "$(with_entries "$(dentry 6 proposed)")"
+eq "a record owing nothing when the check read it passes, whatever a later read says" "ok beta" "$(PATH="$T/bin:$PATH" check)"
+rm -f "$T/reread" "$T/reread.served"
+# The session store: one assembly of the record's keys, record/meta got
+# directly (its listing only when a get fails), and decision-next reads
+# none of them again.
+seed "$(record_json roadmap plugin-system)"
+N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
+found_session "$S" "$(roadmap_vars plugin-system)" "7 session"
+log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
+log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'; log_to "$S" pick dispatch_check
+render "$(with_entries "$(dentry 6 proposed)")" issue | bash "$HERE/record-parse.sh" > "$T/sess.json"
+session_keys "$S" "$T/sess.json"
+: > "$KOTO_STORE/calls"
+eq "on the session store a proposed entry blocks the first dispatch" "decision-owed take" "$(check)"
+eq "  ... from one assembly of the record" 1 "$(grep -c "^context list $S --prefix record/\$" "$KOTO_STORE/calls")"
+eq "  ... record/meta got before and after the sections, never listed" "2 0" \
+    "$(grep -c "^context get $S record/meta\$" "$KOTO_STORE/calls") $(grep -c "^context list $S --prefix record/meta\$" "$KOTO_STORE/calls")"
 
 echo "== check mode: a topic already held =="
 pr_dup() { db '.prs += [{repo: "acme/widgets", number: 41, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
