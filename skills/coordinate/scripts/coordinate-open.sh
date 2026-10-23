@@ -380,6 +380,9 @@ else
     }
     LOOK=$(bash "$IMP" --lookup --session "$SESSION" --scope "$SCOPE" --name "$NAME" --repo "$HOST" 2> "$IMP_ERR")
     RC=$?
+    # A lookup that answers may still have skipped a candidate whose author has
+    # no write access, which it names on stderr; that reaches the operator.
+    if [ "$RC" = 0 ] && [ -s "$IMP_ERR" ]; then head -c 1000 "$IMP_ERR" >&2; fi
     case "$RC:$LOOK" in
         "0:none"|"0:resume") ;;
         "0:record "*)
