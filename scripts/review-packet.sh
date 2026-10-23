@@ -31,6 +31,16 @@
 #         - design context: the session's `context.md`, which phase 0 wrote
 #           from the design doc that names the issue, when present
 #         - changed paths: `git diff --name-status -M <base> HEAD`
+#         - test changes (`## Test changes`): the test files the change
+#           touched, as scripts/lib/test-classify.sh's test_classify_unit
+#           labels them over the same range, with the session's stored rules
+#           copy (`review_level_rules.tsv`, else the shipped
+#           review-level-rules.tsv) and, for a fix, the red's record
+#           (`red_first.json`): added tests by path, edited tests by path,
+#           then each edited test's hunks. "none" when the change touches no
+#           test file. Every seat judges each edited test in its verdict's
+#           `test_edits`, and panel-scope.sh --record refuses a round that
+#           doesn't
 #         - the diff: `git diff -M <base> HEAD`
 #         - with --panel and --seat, the seat's unclosed findings: the
 #           `findings` its decision in `<panel>_scope.json` carries, which
@@ -121,6 +131,7 @@ AC_CAP=16384
 DESIGN_CAP=24576
 PATHS_CAP=16384
 DIFF_CAP=98304
+TESTS_CAP=49152
 FINDINGS_CAP=16384
 DOC_CAP=65536
 FORMAT_CAP=49152
@@ -128,6 +139,8 @@ EXTRA_CAP=32768
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+# shellcheck source=lib/test-classify.sh
+. "$SCRIPT_DIR/lib/test-classify.sh" || { echo "review-packet: cannot load lib/test-classify.sh" >&2; exit 66; }
 
 PACKET=""
 WORK=""
@@ -376,6 +389,54 @@ resolve_base() {
     [ -n "$BASE" ]
 }
 
+# test_changes: the code packet's `## Test changes` body on stdout, empty when
+# the change touches no test file. Added tests by path, then edited tests by
+# path, then each edited test's hunks. The lists come first so a cap cuts only
+# hunks, never the names of the tests a seat must judge.
+test_changes() {
+    local rules="$WORK/rules" record="$WORK/red" tab label path digest old
+    tab=$(printf '\t')
+    : > "$rules"
+    if koto context exists "$SESSION" review_level_rules.tsv >/dev/null 2>&1; then
+        koto context get "$SESSION" review_level_rules.tsv > "$rules" 2>/dev/null || : > "$rules"
+    fi
+    [ -s "$rules" ] || cp "$PLUGIN_ROOT/skills/work-on/references/review-level-rules.tsv" "$rules" 2>/dev/null || : > "$rules"
+    # A rules file with no test class has no test files to list.
+    awk -F '\t' '$1 == "class" && $2 == "test" && $3 != "" { f = 1 } END { exit !f }' "$rules" || return 0
+    : > "$record"
+    if koto context exists "$SESSION" red_first.json >/dev/null 2>&1; then
+        koto context get "$SESSION" red_first.json > "$record" 2>/dev/null || : > "$record"
+    fi
+    test_classify_unit "$BASE" "$HEAD_SHA" "$rules" "$record" > "$WORK/testrows" 2>"$WORK/classify.err" || return 1
+    [ -s "$WORK/testrows" ] || return 0
+    awk -F '\t' '$1 == "added" { print $2 }' "$WORK/testrows" > "$WORK/added"
+    awk -F '\t' '$1 == "edited" { print $2 }' "$WORK/testrows" > "$WORK/edited"
+    echo "Added (new tests, or tests that only gained lines):"
+    echo
+    if [ -s "$WORK/added" ]; then sed 's/^/- /' "$WORK/added"; else echo "- none"; fi
+    echo
+    echo "Edited (a line removed or changed, the file deleted or renamed with a change, or a"
+    echo "fix's reproducing test changed after its red). Judge each one as corrects or weakens"
+    echo "in your verdict's test_edits:"
+    echo
+    if [ -s "$WORK/edited" ]; then sed 's/^/- /' "$WORK/edited"; else echo "- none"; fi
+    while IFS="$tab" read -r label path digest; do
+        [ "$label" = edited ] || continue
+        # A rename's hunks need its old path in the pathspec as well.
+        old=$(awk -F '\t' -v p="$path" '$1 ~ /^R/ && $3 == p { print $2; exit }' "$WORK/paths")
+        echo
+        echo "### Edited: $path"
+        echo
+        echo '```diff'
+        if [ -n "$old" ]; then
+            git diff -M "$BASE" "$HEAD_SHA" -- "$old" "$path"
+        else
+            git diff -M "$BASE" "$HEAD_SHA" -- "$path"
+        fi
+        echo '```'
+    done < "$WORK/testrows"
+}
+
 section() {
     # $1 heading, $2 cap, $3 file, $4 text when the file is empty
     echo
@@ -570,6 +631,12 @@ git diff -M "$BASE" HEAD > "$WORK/diff" \
     || die 66 "git diff -M $BASE HEAD failed"
 PATH_COUNT=$(wc -l < "$WORK/paths" | tr -d '[:space:]')
 
+# Test changes: the shared classifier's rows over the same range, with the
+# session's rules copy (the shipped file when none is stored) and, for a fix,
+# the red's record, so the packet names the same edited tests the review
+# floor, the round's required judgments and the hold do.
+test_changes > "$WORK/tests" || die 66 "could not classify the change's test files: $(head -c 300 "$WORK/classify.err")"
+
 # A seat in a full round answers its own unclosed findings by id: the ones its
 # decision carries.
 : > "$WORK/own"
@@ -589,6 +656,7 @@ fi
     section "Acceptance criteria ($AC_SOURCE)" "$AC_CAP" "$WORK/ac" "[none given]"
     section "Design context ($DESIGN_SOURCE)" "$DESIGN_CAP" "$WORK/design" "[none recorded]"
     section "Changed paths" "$PATHS_CAP" "$WORK/paths" "[no changes between base and HEAD]"
+    section "Test changes" "$TESTS_CAP" "$WORK/tests" "none"
     section "Diff" "$DIFF_CAP" "$WORK/diff" "[empty]"
     if [ -n "$SEAT" ]; then
         section "Your unclosed findings, by id ($SCOPE_KEY, seat $SEAT)" "$FINDINGS_CAP" "$WORK/own" "[none]"

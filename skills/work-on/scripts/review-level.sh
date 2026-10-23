@@ -61,7 +61,11 @@
 #           impl_base diff is the only one, so earlier steps' commits don't
 #           count, and an unset impl_base exits 64. An empty value is the
 #           same as no option. Classifies every path (both sides of a rename)
-#           with the stored rules copy, writes `review_facts.json`
+#           with the stored rules copy, records `tests_edited` when a `test`
+#           path was edited rather than only added to (scripts/lib/
+#           test-classify.sh's test_classify_unit over the winning base, with
+#           the red's `red_first.json` for a fix; a classification that fails
+#           counts every changed test as edited), writes `review_facts.json`
 #           (`base_source` names the base that won, `shared_branch` the
 #           branch or ""), and appends a `check` line when the head, level or
 #           floor differs from the last one, or an `unset` line when the level
@@ -137,7 +141,12 @@ BOUND_KEY=review_level_bound.json
 CRITERIA_KEY=review_level_criteria.txt
 RULES_KEY=review_level_rules.tsv
 FACTS_KEY=review_facts.json
+RED_KEY=red_first.json
 REASON_MAX=200
+
+# shellcheck source=../../../scripts/lib/test-classify.sh
+. "$PLUGIN_ROOT_SELF/scripts/lib/test-classify.sh" \
+    || { echo "review-level: cannot load scripts/lib/test-classify.sh" >&2; exit 64; }
 
 WORK=$(mktemp -d) || { echo "review-level: could not create a temporary directory" >&2; exit 66; }
 trap 'rm -rf "$WORK"' EXIT
@@ -269,7 +278,7 @@ load_rules() {
                     lines\>*|files\>*)
                         case "${b#*>}" in ""|*[!0-9]*) die 64 "rules line $n: bad threshold in [$b]" ;; esac
                         ;;
-                    tests_changed|criteria_changed|unclassified) ;;
+                    tests_changed|tests_edited|criteria_changed|unclassified) ;;
                     *) die 64 "rules line $n: unknown fact [$b]" ;;
                 esac
                 RULE_LEVEL[$NRULE]="$a"
@@ -708,8 +717,23 @@ cmd_facts() {
         i=$((i + 1))
     done
 
-    local tests_changed=false criteria_changed=false
+    local tests_changed=false tests_edited=false criteria_changed=false
     case " $hit " in *" test "*) tests_changed=true ;; esac
+    # An edited test, as opposed to one only added to: the shared classifier
+    # over the same base, the same rules copy and, for a fix, the red's record,
+    # so the floor, the hold and the review packet agree on which test was
+    # edited. A classification that fails counts every changed test as edited,
+    # so a failure can raise the floor and never lower it.
+    if [ "$tests_changed" = true ]; then
+        local rules_used="$WORK/rules"
+        [ -s "$rules_used" ] || rules_used="$RULES_SHIPPED"
+        ctx_get "$s" "$RED_KEY" "$WORK/red" || die 66 "could not read $RED_KEY"
+        if test_classify_unit "$base" "$head" "$rules_used" "$WORK/red" > "$WORK/testrows" 2>/dev/null; then
+            awk -F '\t' '$1 == "edited" { f = 1 } END { exit !f }' "$WORK/testrows" && tests_edited=true
+        else
+            tests_edited=true
+        fi
+    fi
     while IFS= read -r -d '' p; do
         case "$p" in docs/plans/*|docs/prds/*) criteria_changed=true ;; esac
     done < "$WORK/paths"
@@ -732,6 +756,7 @@ cmd_facts() {
             lines\>*) n="${fact#*>}"; [ "$lines" -gt "$n" ] && fired=1 ;;
             files\>*) n="${fact#*>}"; [ "$files" -gt "$n" ] && fired=1 ;;
             tests_changed) [ "$tests_changed" = true ] && fired=1 ;;
+            tests_edited) [ "$tests_edited" = true ] && fired=1 ;;
             criteria_changed) [ "$criteria_changed" = true ] && fired=1 ;;
             unclassified) [ "$unclassified" = true ] && fired=1 ;;
         esac
@@ -749,7 +774,8 @@ cmd_facts() {
 
     jq -n \
         --argjson lines "$lines" --argjson files "$files" \
-        --argjson tests_changed "$tests_changed" --argjson criteria_changed "$criteria_changed" \
+        --argjson tests_changed "$tests_changed" --argjson tests_edited "$tests_edited" \
+        --argjson criteria_changed "$criteria_changed" \
         --argjson unclassified "$unclassified" \
         --arg floor "$floor" --arg rule "$rule" --arg head "$head" --arg base "$base" \
         --arg base_source "$source" --arg impl_base "$ibase" --arg merge_base "$mbase" \
@@ -757,7 +783,8 @@ cmd_facts() {
         --rawfile classes "$WORK/classes" --rawfile fired "$WORK/fired" '
         {lines: $lines, files: $files,
          classes: ($classes | split("\n") | map(select(length > 0))),
-         tests_changed: $tests_changed, criteria_changed: $criteria_changed,
+         tests_changed: $tests_changed, tests_edited: $tests_edited,
+         criteria_changed: $criteria_changed,
          unclassified: $unclassified,
          floor: $floor, rule: (if $rule == "" then null else $rule end),
          rules_fired: ($fired | split("\n") | map(select(length > 0))),
@@ -909,7 +936,8 @@ project_slice() {
         jq -c 'def count: if type == "number" and . >= 0 and . == floor then . else 0 end;
                {lines: (.lines | count), files: (.files | count),
                 classes: ([.classes[]? | strings | select(test("^[a-z0-9_]+$"))] | .[:16]),
-                tests_changed: (.tests_changed == true), criteria_changed: (.criteria_changed == true),
+                tests_changed: (.tests_changed == true), tests_edited: (.tests_edited == true),
+                criteria_changed: (.criteria_changed == true),
                 unclassified: (.unclassified == true),
                 floor: (.floor | if . == "light" or . == "standard" or . == "full" then . else "unknown" end)}' \
             "$facts" 2>/dev/null || echo '{}'

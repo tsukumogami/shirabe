@@ -506,6 +506,69 @@ facts_case rename-edit 'git mv docs/readme.md docs/guide.md && printf "x\n" >> d
 facts_case deletion 'git rm -q docs/other.md' \
     '{"lines":10,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
 
+echo "--- script: an edited test floors at full, an added one at standard"
+
+# edited_case <name> <change> <expected tests_edited> <expected floor>: one
+# fixture whose base already holds tests/a_test.sh (ten lines), then <change>.
+# The same fixture change every time, so only the shape of the test change
+# differs between the cases.
+edited_case() {
+    fixture "te-$1"
+    commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+    (cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+    run init "$SESSION" "" ""
+    commit "$1" "printf 'y\n' >> scripts/old.sh && $2"
+    run facts "$SESSION" light
+    if [ "$RC" -ne 0 ]; then fail "edited $1: exit $RC ($ERR)"; return; fi
+    local got
+    got=$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')
+    [ "$got" = "$3 $4" ] && pass "$1: tests_edited $3, floor $4" \
+        || fail "$1: got [$got], expected [$3 $4] ($(fact '{classes, rule, rules_fired}'))"
+}
+edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
+edited_case changes-a-line "sed -i.bak 's/^5\$/five/' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
+edited_case deleted 'git rm -q tests/a_test.sh' true full
+edited_case gains-lines 'printf "11\n12\n" >> tests/a_test.sh' false standard
+edited_case new-test-file 'seq 1 5 > tests/b_test.sh' false standard
+edited_case no-test 'true' false standard
+[ "$(fact .rule)" = '"class:executable"' ] && pass "no test change: the executable rule sets the floor" \
+    || fail "no test change: rule is $(fact .rule)"
+edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
+[ "$(fact .rule)" = '"tests_edited"' ] && pass "an edited test: the rule is tests_edited" \
+    || fail "an edited test: rule is $(fact .rule)"
+
+# A fix's reproducing test, changed after its red, is edited even when it only
+# gained lines: the same classifier the hold uses reads the red's record.
+fixture te-red
+commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+run init "$SESSION" "" ""
+commit repro 'seq 1 3 > tests/r_test.sh'
+RBLOB=$(cd "$FX/repo" && git rev-parse HEAD:tests/r_test.sh)
+jq -n --arg b "$RBLOB" '{red: {tests: [{path: "tests/r_test.sh", blob: $b}], harness: []}}' > "$(store red_first.json)"
+run facts "$SESSION" light
+[ "$(fact .tests_edited)" = false ] && pass "a reproducing test unchanged since the red is not edited" \
+    || fail "tests_edited is $(fact .tests_edited) before any change after the red"
+commit after-red 'printf "4\n" >> tests/r_test.sh'
+run facts "$SESSION" light
+[ "$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')" = "true full" ] \
+    && pass "a reproducing test that gained a line after the red is edited, floor full" \
+    || fail "after the red: $(fact '{tests_edited, floor}')"
+
+# A rules copy stored before the tests_edited rule existed keeps its own floor:
+# the fact is recorded, but no rule in that copy fires on it.
+fixture te-old-rules
+commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+run init "$SESSION" "" ""
+grep -v '^rule	full	tests_edited$' "$(store review_level_rules.tsv)" > "$WORKDIR/old-rules.tsv"
+cp "$WORKDIR/old-rules.tsv" "$(store review_level_rules.tsv)"
+commit edit "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak"
+run facts "$SESSION" light
+[ "$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')" = "true standard" ] \
+    && pass "an older stored rules copy records tests_edited but floors by its own rules" \
+    || fail "with an older rules copy: $(fact '{tests_edited, floor}')"
+
 fixture facts-criteria-text
 run init "$SESSION" "" ""
 commit docs 'printf "x\n" >> docs/readme.md'
@@ -875,7 +938,7 @@ done
     && pass "slice states the order of the levels" || fail "slice is [$OUT]"
 [ "$(printf '%s\n' "$OUT" | sed -n 3p)" = "level: light" ] && pass "slice ends with the level line" || fail "slice is [$OUT]"
 GOT=$(printf '%s\n' "$OUT" | sed -n 1p | jq -c 'keys')
-[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed","unclassified"]' ] \
+[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed","tests_edited","unclassified"]' ] \
     && pass "slice's first line is the fixed projection" || fail "slice keys are $GOT"
 [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 3 ] && pass "slice prints three lines" || fail "slice printed [$OUT]"
 # Kept for the project section's same-bytes check, which reuses this
@@ -892,7 +955,7 @@ OUT=$("$SCRIPT" project "$WORKDIR/facts-copy.json" light 2>&1); RC=$?
 
 printf '%s' '{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"criteria_changed":false,"unclassified":false,"floor":"standard"}' > "$WORKDIR/known.json"
 OUT=$("$SCRIPT" project "$WORKDIR/known.json" full 2>&1)
-WANT='{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"criteria_changed":false,"unclassified":false,"floor":"standard"}
+WANT='{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"tests_edited":false,"criteria_changed":false,"unclassified":false,"floor":"standard"}
 levels: light < standard < full
 level: full'
 [ "$OUT" = "$WANT" ] && pass "project prints the pinned slice" || fail "project printed [$OUT]"

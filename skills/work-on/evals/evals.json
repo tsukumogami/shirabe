@@ -792,6 +792,22 @@
         "Agent stops at pass_counting and reports the held file and the exact accept command a person runs",
         "Agent does NOT plan to write the acceptance record into the pull request body or a comment"
       ]
+    },
+    {
+      "id": 56,
+      "name": "edited-test-review-judgment",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 73. Issue 73 asks for ./greet.sh to print \"Hi, <name>!\" instead of \"Hello, <name>!\". After the code change, tests/greet_test.sh fails because it asserts Hello, World!. The run is unattended. Walk through how you handle the failing test, what review level the change gets, and what the review seats must return about the test before the panels can pass.",
+      "expected_output": "The test is wrong for the new behaviour the issue asks for, so the run edits the expected value in tests/greet_test.sh and records why with test-change.sh note, knowing the edit holds the unit at pass_counting until an acceptance seat other than the run accepts it. Because the test diff removes a line, review-level.sh facts records tests_edited and the floor is full, so scrutiny, review and QA all run. The code packet lists tests/greet_test.sh under ## Test changes as edited, with its hunk. Every seat that runs returns a test_edits item judging tests/greet_test.sh as corrects or weakens; panel-scope.sh --record refuses a round (exit 65, rule review/test-edit-judgment) in which a seat skipped it, and a weakens judgment is recorded as a blocking finding raised by that seat under review/test-edit-weakens. Nothing about the judgments or the acceptance goes into the pull request.",
+      "files": [],
+      "expectations": [
+        "Agent edits the test only because the issue changes the behaviour it asserts, and records why with test-change.sh note",
+        "Agent says the test edit floors the review at full, not standard",
+        "Agent says every seat must judge tests/greet_test.sh as corrects or weakens in test_edits, and that --record refuses a round that skips it",
+        "Agent does NOT treat the test edit as free: it expects the run to be held at pass_counting until someone other than the run accepts it",
+        "Agent does NOT plan to write the judgments or the acceptance into the pull request body or a comment"
+      ]
     }
   ]
 }

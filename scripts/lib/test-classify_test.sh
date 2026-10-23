@@ -9,7 +9,10 @@
 # change left out; a test renamed out of the class with an edit still edited;
 # a binary test file that changed is edited; the class read from the rules
 # file given, so a narrower copy drops a path; a base that names no commit and
-# a rules file with no test class (exit 2).
+# a rules file with no test class (exit 2). test_classify_unit gives the same
+# rows with no record, and with a red's record labels a reproducing test or
+# harness file changed since the red edited, even one that only gained lines;
+# a record that doesn't parse is exit 2.
 #
 # Usage: bash scripts/lib/test-classify_test.sh
 set -uo pipefail
@@ -93,6 +96,29 @@ printf 'class\tdocs\t*.md\n' > "$W/notest.tsv"
 test_classify "$BASE" "$HEAD_SHA" "$W/notest.tsv" >/dev/null 2>&1
 eq "a rules file with no test class: exit 2" 2 $?
 eq "no rows when nothing changed" "" "$(test_classify "$HEAD_SHA" "$HEAD_SHA" "$RULES")"
+
+# test_classify_unit: the same rows, plus a fix's reproducing tests changed
+# since the red.
+eq "test_classify_unit with no record: test_classify's rows" "$OUT" "$(test_classify_unit "$BASE" "$HEAD_SHA" "$RULES")"
+: > "$W/empty.json"
+eq "test_classify_unit with an empty record: the same rows" "$OUT" "$(test_classify_unit "$BASE" "$HEAD_SHA" "$RULES" "$W/empty.json")"
+command -v jq >/dev/null 2>&1 && {
+    printf '{"red":{"tests":[{"path":"tests/new_test.sh","blob":"%s"}],"harness":[{"path":"src/main.sh","blob":"%s"}]}}\n' \
+        "$(git rev-parse "$HEAD_SHA:tests/new_test.sh")" "$(git rev-parse "$BASE:src/main.sh")" > "$W/red.json"
+    U=$(test_classify_unit "$BASE" "$HEAD_SHA" "$RULES" "$W/red.json")
+    eq "a reproducing test unchanged since the red keeps its label" added \
+        "$(printf '%s\n' "$U" | awk -F '\t' '$2 == "tests/new_test.sh" { print $1 }')"
+    eq "a harness file changed since the red is added as edited" "edited	src/main.sh	$(git rev-parse "$HEAD_SHA:src/main.sh")" \
+        "$(printf '%s\n' "$U" | awk -F '\t' '$2 == "src/main.sh"')"
+    printf '{"red":{"tests":[{"path":"tests/append_test.sh","blob":"%s"}]}}\n' "$(git rev-parse "$BASE:tests/append_test.sh")" > "$W/red2.json"
+    eq "a reproducing test that only gained lines after the red is edited" edited \
+        "$(test_classify_unit "$BASE" "$HEAD_SHA" "$RULES" "$W/red2.json" | awk -F '\t' '$2 == "tests/append_test.sh" { print $1 }')"
+    printf 'not json\n' > "$W/bad.json"
+    test_classify_unit "$BASE" "$HEAD_SHA" "$RULES" "$W/bad.json" >/dev/null 2>&1
+    eq "a record that doesn't parse: exit 2" 2 $?
+}
+test_classify_unit 0123456789abcdef0123456789abcdef01234567 "$HEAD_SHA" "$RULES" >/dev/null 2>&1
+eq "test_classify_unit passes test_classify's exit 2 on" 2 $?
 
 echo
 echo "test-classify: $PASS passed, $FAIL failed"

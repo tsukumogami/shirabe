@@ -711,6 +711,14 @@ move inside a run.
 
 Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation`, `light_review` — require parallel spawns, not standard directive execution).
 
+An edited test is reviewed apart from an added one. A change that edits a test (removes
+or changes a line, deletes it, renames it with a change) floors at `full`
+(`tests_edited`); one that only adds tests floors at `standard`. The code packet lists
+added and edited tests in its own `## Test changes` section, with the edited hunks;
+every seat that runs judges each edited test as `corrects` or `weakens` in its
+`test_edits`, `panel-scope.sh --record` refuses a round that skips one, and a `weakens`
+is a blocking finding raised by that seat. None of it reaches the pull request.
+
 ### Resume
 
 1. `koto workflows` — find a workflow matching this issue.

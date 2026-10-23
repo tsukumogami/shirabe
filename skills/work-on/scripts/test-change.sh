@@ -400,8 +400,9 @@ append() {
 G() { git -C "$H_WORKTREE" "$@"; }
 
 # live_sessions: $TMP/sessions, the koto sessions the ledger's coordinator
-# lines name that exist now. The rule re-checks each line against this list,
-# so a session cleaned up since stops counting.
+# lines name that exist now. The rule re-checks each acceptance against this
+# list, so an acceptance whose session was cleaned up since stops counting; a
+# decline or an overrule stays in force without it.
 live_sessions() {
     local name
     : > "$TMP/sessions"
@@ -427,33 +428,21 @@ fold() {
 # compute_items <session>: $TMP/classified (the test rows) and $TMP/items
 # (<item>\t<digest> for everything that needs an acceptance now).
 compute_items() {
-    local s="$1" head tab label path digest p b cur
+    local s="$1" head tab label path digest
     tab=$(printf '\t')
     [ -d "$H_WORKTREE" ] || undecided "the run's work tree [$H_WORKTREE] is gone"
     head=$(G rev-parse -q --verify "HEAD^{commit}" 2>>"$ERRLOG") || undecided "HEAD names no commit in $H_WORKTREE"
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
     [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review_level_choice stores it"
-    ( cd "$H_WORKTREE" && test_classify "$H_BASE" "$head" "$TMP/rules" ) > "$TMP/classified" 2>"$TMP/classify.err" \
-        || undecided "could not classify the unit's test files: $(head -c 300 "$TMP/classify.err")"
 
-    # A fix's reproducing tests and harness files, changed since the red ran.
+    # The test rows, with a fix's reproducing tests and harness files changed
+    # since the red ran labelled edited too (test_classify_unit).
     ctx_get "$s" "$RECORD_KEY" "$TMP/record" || die66 "could not read $RECORD_KEY"
     if [ -s "$TMP/record" ]; then
         jq -e 'type == "object"' "$TMP/record" >/dev/null 2>&1 || undecided "$RECORD_KEY does not parse"
-        jq -r '(.red // {}) | ((.tests // []) + (.harness // []))[] | "\(.path)\t\(.blob)"' "$TMP/record" > "$TMP/redfiles" 2>>"$ERRLOG" \
-            || undecided "could not read the red's tests from $RECORD_KEY"
-        while IFS="$tab" read -r p b; do
-            [ -n "$p" ] || continue
-            cur=$(G rev-parse -q --verify "$head:$p" 2>/dev/null) || cur=deleted
-            [ "$cur" != "$b" ] || continue
-            if awk -F '\t' -v p="$p" '$2 == p { f = 1 } END { exit !f }' "$TMP/classified"; then
-                awk -F '\t' -v OFS='\t' -v p="$p" '$2 == p { $1 = "edited" } { print }' "$TMP/classified" > "$TMP/classified.next"
-                mv "$TMP/classified.next" "$TMP/classified"
-            else
-                printf 'edited\t%s\t%s\n' "$p" "$cur" >> "$TMP/classified"
-            fi
-        done < "$TMP/redfiles"
     fi
+    ( cd "$H_WORKTREE" && test_classify_unit "$H_BASE" "$head" "$TMP/rules" "$TMP/record" ) > "$TMP/classified" 2>"$TMP/classify.err" \
+        || undecided "could not classify the unit's test files: $(head -c 300 "$TMP/classify.err")"
 
     : > "$TMP/items"
     while IFS="$tab" read -r label path digest; do

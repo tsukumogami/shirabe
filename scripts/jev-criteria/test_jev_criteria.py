@@ -804,8 +804,10 @@ class MeasureTest(unittest.TestCase):
             # The projection is fixed, so the corpus's sizes are known.
             want = sorted(len(("%s\nlevels: light < standard < full\nlevel: standard\n" % s).encode())
                           for s in ('{"lines":12,"files":2,"classes":["docs"],"tests_changed":false,'
+                                    '"tests_edited":false,'
                                     '"criteria_changed":false,"unclassified":false,"floor":"light"}',
                                     '{"lines":0,"files":2,"classes":["docs"],"tests_changed":false,'
+                                    '"tests_edited":false,'
                                     '"criteria_changed":false,"unclassified":false,"floor":"light"}'))
             out = io.StringIO()
             with contextlib.redirect_stdout(out):

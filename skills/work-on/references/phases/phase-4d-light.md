@@ -10,7 +10,7 @@ Spawn the one seat with the Task tool. After the seat preamble, its prompt:
 
 ```
 You are the only reviewer of this change. No scrutiny, code review or QA panel
-runs after you, so judge the whole change on two questions.
+runs after you, so judge the whole change on three questions.
 
 1. Correctness against the acceptance criteria. Does every criterion in the
    packet have an implementation in the diff that would make it true? Does
@@ -21,6 +21,11 @@ runs after you, so judge the whole change on two questions.
    Are names, implicit contracts and context clear? Where a non-obvious
    decision was made, does a comment record why, and is it still true of the
    code beside it?
+3. Edited tests. For each test the packet's "Test changes" section lists as
+   edited, does the edit correct a test that checked the wrong thing
+   (corrects), or does it check less than before, or something easier to
+   pass (weakens)? Return one test_edits item per edited test, with its path,
+   its judgment and a one-line reason. A test listed as added needs none.
 
 A blocking finding is one that would make a criterion false, break existing
 behaviour, or leave the next developer likely to break it: the same bar a
@@ -45,6 +50,7 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
   "summary": "<1-3 paragraphs>",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
   "findings": [{"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
+  "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```

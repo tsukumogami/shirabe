@@ -40,7 +40,12 @@ Run the project's validation commands (from CLAUDE.md or language skill):
 
 If tests fail:
 - **Simple fix**: fix and re-run
-- **Test bug**: update test, and record why (below)
+- **Test bug**: a test edit holds the unit until someone other than you accepts
+  it. Change the code, not the test, unless the test itself is wrong; when it
+  is, edit it, record why (below), and expect the run to stop at
+  `pass_counting` until an acceptance seat, or a person where the repository
+  requires one, accepts the edit. Every review seat also judges it, and the
+  change floors at the `full` review level
 - **Design issue**: update plan, possibly return to analysis
 - **Unclear**: launch testing agent
 

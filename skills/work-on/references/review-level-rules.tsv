@@ -21,6 +21,13 @@
 #                                              exceed N
 #                           files><N>          changed files exceed N
 #                           tests_changed      a path in the `test` class changed
+#                           tests_edited       a `test` path was edited, not
+#                                              only added to: its diff removes
+#                                              a line, it was deleted, renamed
+#                                              with a change or is binary, or
+#                                              (for a fix) a reproducing test
+#                                              changed after the red
+#                                              (scripts/lib/test-classify.sh)
 #                           criteria_changed   the acceptance criteria changed
 #                           unclassified       a changed path is in no class
 #
@@ -188,6 +195,10 @@ rule	full	class:template
 rule	full	class:engine
 rule	full	lines>400
 rule	full	files>12
+# An edited test needs the QA seat beside the other two panels; a test that
+# only gained lines, or a new test file, still floors at `standard` through
+# class:test below.
+rule	full	tests_edited
 
 rule	standard	class:instruction
 rule	standard	class:executable

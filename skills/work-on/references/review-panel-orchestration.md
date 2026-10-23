@@ -66,5 +66,41 @@ gates hold the passing and `blocking_retry` edges until it has. The ledger's `hi
 keeps each round's decisions, reasons, the finding ids each run carried, and its spawn
 count.
 
+## Edited tests
+
+An edited test is reviewed differently from an added one. The shared classifier,
+`scripts/lib/test-classify.sh`, calls a test file edited when its diff removes or changes
+a line, when it was deleted or renamed with a change, when it is a binary file that
+changed, and, for a fix, when a reproducing test changed after its red; a new test file,
+or one that only gained lines, is added. The same classifier decides three things, so
+they never disagree:
+
+- `review-level.sh facts` records `tests_edited`, and the rule `full tests_edited` floors
+  the change at `full`, so the QA seat reviews it too. An added-only change floors at
+  `standard`, as any change to a test does.
+- The code packet's `## Test changes` section, between the changed paths and the diff,
+  lists the added tests by path and the edited tests by path, then each edited test's
+  hunks. It says `none` when the change touches no test file.
+- Every seat of the panel that runs judges each edited test.
+
+Every seat judges every edited test in the packet as `corrects` or `weakens`.
+A seat's entry in the round file carries one `test_edits` item per edited test:
+
+```json
+{"seat": "intent", "run": "<run id>", "findings": [], "answers": [],
+ "test_edits": [{"path": "tests/greet_test.sh", "judgment": "corrects",
+                 "reason": "<optional: what the edit fixes or loses>"}]}
+```
+
+`corrects` means the edit fixes a test that checked the wrong thing; `weakens` means it
+checks less than before, or checks something easier to pass. `panel-scope.sh --record`
+refuses the whole round (exit 65, rule `review/test-edit-judgment`) when a seat of the
+panel has no `corrects` or `weakens` item for an edited test, and records each `weakens`
+as a blocking finding raised by that seat, under rule `review/test-edit-weakens`, with the
+reason in its summary. That finding blocks the panel like any other until the seat
+answers it by id. A round with every edited test judged `corrects` records as before.
+The re-verifier answers findings by id and judges no test edit; a test edited during a
+retry is still held at `pass_counting` until an acceptance seat accepts it.
+
 `blocking_escalate` requires a `failure_reason`
 field; omitting it prevents koto context_assignments from propagating the reason downstream.

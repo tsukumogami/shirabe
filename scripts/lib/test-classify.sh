@@ -33,8 +33,24 @@
 # a commit doesn't resolve, the diff fails, or the rules file has no `test`
 # class; a line on standard error says which and nothing is printed.
 #
+# And one more, for the readers that judge a unit's test changes:
+#
+#   test_classify_unit <base> <head> <rules-file> [<red-record-file>]
+#
+# test_classify's rows, with a fix's reproducing tests and harness files also
+# labelled `edited` when their blob id at <head> differs from the one the red
+# recorded (red-first.sh's `red_first.json`, `.red.tests` and `.red.harness`):
+# a reproducing test changed after its red is an edit even when it only gained
+# lines, and one outside the `test` class is added as a row of its own. With no
+# record file, or an empty one, the rows are test_classify's. Returns what
+# test_classify returns, or 2 when the record doesn't parse.
+#
 # Callers: skills/work-on/scripts/red-first.sh, for the tests a red copies onto
-# the base.
+# the base; skills/work-on/scripts/test-change.sh (the hold),
+# skills/work-on/scripts/review-level.sh (the `tests_edited` floor),
+# scripts/review-packet.sh (the packet's test section) and
+# skills/work-on/scripts/panel-scope.sh (the judgments a round needs) through
+# test_classify_unit, so all four agree on which test was edited.
 #
 # Written for the bash 3.2 floor: no associative arrays, no mapfile.
 
@@ -161,5 +177,40 @@ test_classify() {
         esac
         printf '%s\t%s\t%s\n' "$label" "$path" "$digest"
     done
+    return 0
+}
+
+test_classify_unit() {
+    local base="$1" head="$2" rules="$3" record="${4:-}" w tab p b cur rc
+    tab=$(printf '\t')
+    w=$(mktemp -d "${TMPDIR:-/tmp}/test-classify.XXXXXX") || { echo "test-classify: could not create a temporary directory" >&2; return 2; }
+    test_classify "$base" "$head" "$rules" > "$w/rows"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        rm -rf "$w"
+        return "$rc"
+    fi
+    if [ -n "$record" ] && [ -s "$record" ]; then
+        if ! jq -r 'if type != "object" then error("not an object") else . end
+                    | (.red // {}) | ((.tests // []) + (.harness // []))[] | "\(.path)\t\(.blob)"' \
+                "$record" > "$w/red" 2>/dev/null; then
+            rm -rf "$w"
+            echo "test-classify: the red record does not parse" >&2
+            return 2
+        fi
+        while IFS="$tab" read -r p b; do
+            [ -n "$p" ] || continue
+            cur=$(git rev-parse -q --verify "$head:$p" 2>/dev/null) || cur=deleted
+            [ "$cur" != "$b" ] || continue
+            if awk -F '\t' -v p="$p" '$2 == p { f = 1 } END { exit !f }' "$w/rows"; then
+                awk -F '\t' -v OFS='\t' -v p="$p" '$2 == p { $1 = "edited" } { print }' "$w/rows" > "$w/rows.next"
+                mv "$w/rows.next" "$w/rows"
+            else
+                printf 'edited\t%s\t%s\n' "$p" "$cur" >> "$w/rows"
+            fi
+        done < "$w/red"
+    fi
+    cat "$w/rows"
+    rm -rf "$w"
     return 0
 }

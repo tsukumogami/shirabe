@@ -1405,6 +1405,66 @@
       "notes": "Registered after the baseline pin, so it has no baseline key."
     },
     {
+      "id": "review/test-edit-judgment",
+      "status": "active",
+      "summary": "A seat of the panel did not judge an edited test as corrects or weakens",
+      "text": {
+        "path": "skills/work-on/references/review-panel-orchestration.md",
+        "first": "Every seat judges every edited test in the packet as `corrects` or `weakens`.",
+        "last": "A seat's entry in the round file carries one `test_edits` item per edited test:"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "prose",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. Enforced by skills/work-on/scripts/panel-scope.sh --record, which refuses the round (exit 65) naming this rule; it holds no koto gate of its own, so it is registered as prose."
+    },
+    {
+      "id": "review/test-edit-weakens",
+      "status": "active",
+      "summary": "A review seat judged that an edited test weakens what it checks",
+      "text": {
+        "path": "skills/work-on/references/review-panel-orchestration.md",
+        "first": "`corrects` means the edit fixes a test that checked the wrong thing; `weakens` means it",
+        "last": "reason in its summary. That finding blocks the panel like any other until the seat"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "prose",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. skills/work-on/scripts/panel-scope.sh --record raises a weakens judgment as a blocking finding citing this rule; the panel's verdict gate prints it under this rule at panel/open-finding's stage, so the gate stays panel/open-finding's and this entry is registered as prose."
+    },
+    {
       "id": "rs-001",
       "status": "active",
       "summary": "The body or an added line carries an attribution or session trailer",

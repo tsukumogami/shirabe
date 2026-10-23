@@ -144,9 +144,10 @@ agent chose, which is what the criterion judges.
 
 **Slice.** `review-level.sh slice` prints one JSON line of typed facts (changed
 lines and files as non-negative integers, at most 16 path-class names, whether
-tests or the acceptance criteria changed, whether any path fell in no class,
-and the facts floor), a line giving the order of the levels, and the chosen
-level. No path, reason, criteria text or issue text reaches it.
+tests or the acceptance criteria changed, whether a test was edited rather
+than only added to (`tests_edited`, which floors at `full`), whether any path
+fell in no class, and the facts floor), a line giving the order of the levels,
+and the chosen level. No path, reason, criteria text or issue text reaches it.
 `review-level.sh project` prints the same slice for a facts file, which is how
 the fixture cases and the measurement build theirs.
 
@@ -158,7 +159,8 @@ that order. The verdict is `sufficient`.
 
 **Figures.** 166 `/work-on` sessions' recorded facts, each projected at the
 longest level name, largest 246, p90 229, none over the 2,048-byte budget
-(the gate's `max_bytes`).
+(the gate's `max_bytes`). Measured before `tests_edited` joined the slice; the
+field adds at most 20 bytes, so the largest stays well under the budget.
 
 **State.** `untrusted`: it runs today, in veto mode for a user whose decider is
 in `auto`, and no fixture run or live window has been recorded. Its rule's text
