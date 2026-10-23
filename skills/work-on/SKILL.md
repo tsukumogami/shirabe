@@ -139,7 +139,7 @@ never a silent skip:
   `pr`.
 - **The PR body records it.** `pr_creation`'s `verification_deferral_recorded` gate
   holds `pr_status: created` until the body says local verification did not run,
-  gives the reason verbatim, and says hosted CI is the build of record
+  has the line `Reason: <reason>`, and says hosted CI is the build of record
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
 

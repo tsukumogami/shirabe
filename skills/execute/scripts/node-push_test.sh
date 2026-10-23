@@ -454,7 +454,7 @@ else
     fail "defer-adopt hold: rc=$RC remote=[$(remote_head)] first=[$FIRST] calls=[$(ct_calls | grep '^pr ')]"
 fi
 grep -q 'does not say that local verification did not run' "$CASE/stderr" \
-    && grep -qF "verbatim: $REASON2" "$CASE/stderr" \
+    && grep -qF "exactly: Reason: $REASON2" "$CASE/stderr" \
     && pass "the hold names each part the body misses" || fail "hold stderr: [$(cat "$CASE/stderr")]"
 db_pr 50 | jq -r '.body' > "$CASE/body.md"
 printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\nReason: %s\nHosted CI is the build of record for this change.\n' \

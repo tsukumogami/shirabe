@@ -46,10 +46,14 @@
 #       `gh pr view --json body` and checks that it records the deferral, in
 #       three parts:
 #         a line saying "local verification did not run"
-#         each reason, verbatim (a fixed-string match on every <reason>)
+#         for each <reason>, a line reading exactly `Reason: <reason>`
 #         a line saying "hosted CI is the build of record"
-#       The two phrases are matched without regard to case; each reason
-#       exactly, since it is the one its run was started with. Without
+#       The two phrases are matched without regard to case, anywhere in the
+#       body. Each reason is matched exactly, since it is the one its run was
+#       started with, and as a whole line: a reason that only appears inside
+#       other text (a short one inside the build-of-record phrase) or that
+#       starts a longer reason's line does not count. Carriage returns are
+#       dropped from the body first. Without
 #       --owned the pull request is the checked-out branch's (/work-on's
 #       pr_creation, one reason); with --owned it is the one owned-pr.sh
 #       resolves, as --pr-body --owned reads it (/execute's shared PR, whose
@@ -322,6 +326,11 @@ check_deferral_record() {
     while [ $# -gt 0 ] && [ "$1" = --reason ]; do
         [ $# -ge 2 ] || { usage; exit 2; }
         [ -n "$2" ] || undecided "--deferral-record needs a non-empty --reason"
+        # A reason is matched as one whole line, and grep -F reads a pattern
+        # with a newline as several patterns, any one of which would do.
+        case "$2" in
+            *$'\n'*|*$'\r'*) undecided "--deferral-record: a --reason must be one line" ;;
+        esac
         reasons+=("$2")
         shift 2
     done
@@ -348,16 +357,21 @@ check_deferral_record() {
     fi
     jq -e 'type == "object" and (.body | type == "string")' "$WORK/pr.json" >/dev/null \
         || undecided "gh pr view did not return a body"
-    jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
+    # A body edited on GitHub's web form comes back with CRLF line ends; the
+    # CRs go here so the whole-line match below sees the line as written.
+    jq -j '.body | gsub("\r"; "")' "$WORK/pr.json" > "$WORK/body.md"
 
     missing=0
     if ! grep -qiF -- "local verification did not run" "$WORK/body.md"; then
         echo "check-pr-output: the PR body does not say that local verification did not run" >&2
         missing=$((missing + 1))
     fi
+    # Each reason must be a whole line, `Reason: <reason>`, not just appear
+    # somewhere: a short reason ("CI") sits inside the required phrase below,
+    # and a reason that starts another one sits inside that one's line.
     for reason in "${reasons[@]}"; do
-        if ! grep -qF -- "$reason" "$WORK/body.md"; then
-            echo "check-pr-output: the PR body does not carry the deferral reason verbatim: $reason" >&2
+        if ! grep -qxF -- "Reason: $reason" "$WORK/body.md"; then
+            echo "check-pr-output: the PR body has no line reading exactly: Reason: $reason" >&2
             missing=$((missing + 1))
         fi
     done
