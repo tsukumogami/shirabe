@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-append-on_test.sh -- record-append.sh --on, a session-store run's
+# record-append-on_test.sh -- record-append.sh --on, a run's
 # outward entry posted on the item it concerns
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2).
 #

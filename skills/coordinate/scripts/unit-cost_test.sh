@@ -50,7 +50,8 @@
 # and the scripts that read record entries (record-state.sh, through
 # record-append.sh --list, is the one) giving the same output with a cost
 # entry on the record. The record is the run's session's: the entries are its
-# keys, and a cost entry is posted on the holding's pull request (#12).
+# keys, and a cost entry is posted on the sealed verdict's first pull request
+# (#21), the holding naming none.
 #
 # UNIT_COST_REGEN=1 rewrites example-entry.json and example-comment.md from
 # the example's capture before the suite compares them.
@@ -80,14 +81,14 @@ POSTED=0
 : >"$T/allcalls"
 
 # seed [unit]: the record (ROADMAP-x on acme/widgets), in the run's session,
-# holding feat-x with that Unit and pull request #12, no entries yet, and
+# holding feat-x with that Unit and no pull request, no entries yet, and
 # GitHub's side of the fixtures (testdata/unit-cost/github.json: the pull
 # requests, their heads and the runs on them).
 seed() {
     cat "$GH_DB.calls" >>"$T/allcalls" 2>/dev/null
     db_init
     local rec
-    rec=$(record_json roadmap x | jq -c --argjson h "$(holding feat-x "$(jq -nc --arg u "${1:-Feature 4: Example feature}" '{unit: $u}')")" '.holdings = [$h]')
+    rec=$(record_json roadmap x | jq -c --argjson h "$(holding feat-x "$(jq -nc --arg u "${1:-Feature 4: Example feature}" '{unit: $u, pull_request: ""}')")" '.holdings = [$h]')
     seed_session "$S" "$rec" 2026-10-01T08:00:00Z
     db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
 }
@@ -95,9 +96,9 @@ fresh() { rm -rf "$T/a"; mkdir -p "$T/a"; cp -R "$FX/archive/$KEY" "$T/a/"; A="$
 prs() { printf '%s\n' "$@" >"$T/prs"; }
 compute() { bash "$UC" compute --archive "$A" --topic feat-x --prs-file "$T/prs" "$@" 2>"$T/err"; }
 capture() { bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"; }
-# posted: the bodies of the cost entries on the holding's pull request, #12,
+# posted: the bodies of the cost entries on the verdict's pull request, #21,
 # as a JSON array.
-cost_bodies() { jq -c '[.comments // [] | .[] | select(.number == 12) | .body | select(startswith("<!-- coordinator-record-entry v1 kind=cost -->"))]' "$GH_DB"; }
+cost_bodies() { jq -c '[.comments // [] | .[] | select(.number == 21) | .body | select(startswith("<!-- coordinator-record-entry v1 kind=cost -->"))]' "$GH_DB"; }
 last_entry() { cost_bodies | jq -c '.[-1] | split("\n") | .[6] | fromjson'; }
 block() { sed -n '/^```json$/,/^```$/p' | sed '1d;$d'; }
 q() { printf '%s' "$1" | jq -r "$2"; }
@@ -858,8 +859,8 @@ refuse run list --repo -x/y
 echo "== no write but the posts =="
 cat "$GH_DB.calls" >>"$T/allcalls"
 WRITES=$(grep -E -- '--method (POST|PATCH|PUT|DELETE)|-X |^(issue|pr) (create|edit|close|reopen|ready|merge|comment|review)|^run (rerun|cancel)|graphql' "$T/allcalls")
-eq "every write is a comment POST on the holding's pull request" "" "$(printf '%s\n' "$WRITES" | grep -v '^api --method POST repos/acme/widgets/issues/12/comments --input ' | grep . || true)"
-eq "  ... one per captured unit" "$POSTED" "$(printf '%s\n' "$WRITES" | grep -c '^api --method POST repos/acme/widgets/issues/12/comments')"
+eq "every write is a comment POST on the verdict's pull request" "" "$(printf '%s\n' "$WRITES" | grep -v '^api --method POST repos/acme/widgets/issues/21/comments --input ' | grep . || true)"
+eq "  ... one per captured unit" "$POSTED" "$(printf '%s\n' "$WRITES" | grep -c '^api --method POST repos/acme/widgets/issues/21/comments')"
 eq "every read the capture made was one the wrapper admits" "" \
     "$(grep -E '^(pr view [0-9]+ --repo|run list|api --method GET repos/[^ ]+/(pulls/[0-9]+/commits|actions/runs)|api --method GET repos/[^ /]+/[^ /]+ --jq .private)' "$T/allcalls" \
         | sort -u | while IFS= read -r c; do
@@ -875,7 +876,8 @@ RM=(--scope roadmap --name x --repo acme/widgets)
 standing() {
     seed
     [ "$1" = with ] && { sed '1,3d' "$FX/example-comment.md" >"$T/cost.txt"; bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; }
-    bash "$HERE/record-state.sh" "${RM[@]}" --skip-session-checks --standing answer --what "panels are the cost" --owner "the human" 2>&1
+    bash "$HERE/record-state.sh" "${RM[@]}" --skip-session-checks --standing answer --what "panels are the cost" --owner "the human" 2>&1 \
+        | grep -v '^record/entries/'
     session_state "$S" | jq -c '.standing | map(del(.set))'
 }
 WITHOUT=$(standing without)
