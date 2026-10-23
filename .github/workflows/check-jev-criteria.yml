@@ -96,10 +96,12 @@ jobs:
 
       # Against the merge base, as check-rule-registry.yml does: the history
       # rules compare a changed declaration's date with the base's, and the
-      # base branch's tip can be newer than the point this branch left it.
+      # base branch's tip can be newer than the point this branch left it. A
+      # push to main has no pull request, so its base is main as it was
+      # before the push (github.event.before).
       - name: Check every Jev criterion against its contract and the base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           base=$(git merge-base "$BASE_SHA" HEAD)
