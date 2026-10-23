@@ -150,7 +150,9 @@ pass happened to remove, with no way to tell which pull requests are missing.
   the capture still writes the entry.
 - **R3. The dispatching coordinator's record.** The entry goes to the record of
   the run named by `requested_by` while that run is live. When it has ended, it
-  goes to the one live run with the same scope slug. With none, or with
+  goes to the one live run with the same scope slug. When the unit's sessions
+  name several coordinator requests, the earliest by `created_at` is the
+  dispatch's, as Dispatch time reads it. With none, or with
   several, nothing is written and the removal record is kept with reason `no
   coordinator` or `several coordinators`.
 - **R4. Dispatch id on every entry.** The pass's normal mode reads
@@ -207,7 +209,8 @@ pass happened to remove, with no way to tell which pull requests are missing.
 - **R11. The setting.** `SHIRABE_PR_INTEGRATION`, read from the capture's
   environment when it posts. The value `on`, exactly, is on; unset, empty or
   anything else is off. A workspace sets it in its configuration's environment
-  and, for removal captures, passes it to its on-reap step.
+  and, for removal captures, passes it to its on-reap step; a retried record is
+  captured under the environment of the sweep that retries it.
 - **R12. Retry.** A removal record whose capture wrote no entry (`no
   coordinator`, `several coordinators`, a failed record read, a failed post) is
   kept, and its capture runs again at the next removal on the host: each removal
@@ -232,7 +235,8 @@ pass happened to remove, with no way to tell which pull requests are missing.
   two), `read failed` (the record couldn't be read or the entry not computed),
   `timed out` (the capture was stopped at 120 seconds), `no coordinator`,
   `several coordinators`, `expired`, `invalid input` (a removal record whose
-  fields fail their patterns, deleted).
+  fields fail their patterns, deleted). The post's own 25-second bound is `post
+  failed`; `timed out` is only the whole capture stopped at 120 seconds.
 
 ### Non-functional
 
