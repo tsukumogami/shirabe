@@ -68,6 +68,29 @@
 #   rs_probe
 #       Prints what this koto offers the session store, by feature:
 #       {"context_list_prefix": bool, "session_import": bool}.
+#   rs_once_begin <dir>
+#       One record read per step (shirabe#1094, #1095). Creates <dir> and
+#       exports RS_ONCE=<dir>. From then on rs_record and rs_view, in this
+#       process and in every script it runs (they inherit RS_ONCE), answer
+#       from one read of the run's record: the first of them reads it, on the
+#       run's store, into <dir>, and the rest take their files from there.
+#       On GitHub that read is one `gh issue|pr view` of the fields every
+#       reader asks for (state, body, url, title; on a pull request also
+#       headRefName, isCrossRepository, headRefOid); on the session store it
+#       is one assembly of the record's keys and one render. The parse is
+#       made once, by the first rs_record, and kept. A read that asks for
+#       anything else (another field, another --jq), a read of another
+#       record, and a read that names its store (RS_READ_STORE: the write
+#       core's compare read, the move's GitHub read) are made live, as
+#       without RS_ONCE. A read that fails is never kept. Returns 2 when <dir>
+#       can't be made.
+#   rs_once_drop
+#       Forgets the step's read, so the next read is live. record-write-core.sh
+#       calls it before it writes and again once the write lands, so nothing in
+#       the step reads the record as it was before the step's own write, not
+#       even a reader running beside the writer; a read still out when the
+#       write came, a timed-out read's surviving child among them, lands where
+#       no later read looks. Without RS_ONCE it does nothing.
 #
 # Usage (as a script):
 #   record-source.sh --session S --source
@@ -198,16 +221,18 @@ rs_source() {
     printf '%s\n' "$RS_SOURCE_READ"
 }
 
-# rs_session_read <out> <body|json> <session> <scope> <name> <repo> <ref>: the
-# files rs_record writes, from the session store: <out> the record as
+# rs_session_read <out> <body|json|view> <session> <scope> <name> <repo> <ref>:
+# the files rs_record writes, from the session store: <out> the record as
 # record-parse.sh parses it, <out>.md the body rendered at record/meta's written
 # time, exactly as a GitHub record holding the same state reads, and <out>.raw
 # what `gh issue view` would print for <mode> (body: the body; json: {state:
 # "OPEN", body, url}, the url the GitHub record's). Parsing the rendered body
 # back is what makes a session read and a GitHub read of the same state give the
-# same JSON (PRD R19). Returns rs_session_state's codes; 65 record/meta names
-# another scope; 3 or 65 the body doesn't parse back canonical; 5 the renderer
-# or the parser failed.
+# same JSON (PRD R19). `view` is json without that parse, for a reader that
+# takes the body and parses it itself (rs_view): the parse of a record at the
+# budget takes as long as its render, and nobody read it. Returns
+# rs_session_state's codes; 65 record/meta names another scope; 3 or 65 the
+# body doesn't parse back canonical; 5 the renderer or the parser failed.
 rs_session_read() {
     local out=$1 mode=$2 s=$3 scope=$4 name=$5 repo=$6 ref=$7 rc w
     : > "$out.err"
@@ -235,6 +260,7 @@ rs_session_read() {
     else
         jq -n --rawfile b "$out.md" --arg u "https://github.com/$repo/issues/$ref" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
     fi
+    [ "$mode" = view ] && return 0
     bash "$HERE/record-parse.sh" --container issue --expect-scope "$scope:$name" "$out.md" > "$out" 2> "$out.err"
     rc=$?
     case $rc in
@@ -358,12 +384,178 @@ rs_moved() {
         and ([(.run // [])[] | "\(.key)=\(.value)"] == ["store=session"])' "$1" > /dev/null
 }
 
+# ---- one read per step (rs_once_begin, rs_once_drop) -------------------------
+# The step's read lives in $RS_ONCE/read.<n>, where n ($RS_ONCE/gen, 0 when
+# absent) counts the step's writes: key (which record it is), raw.json (the
+# container's fields, as gh would print them for the superset), md (the body,
+# CR dropped), pushed (the session store's pushed heads, else {}), and once the
+# first rs_record has parsed it, parsed, parsed.err and parsed.rc.
+#
+# A write moves n on before it removes the old read. A deadline stops a read's
+# process but not always its children, so a read the step gave up on can land
+# after a write: it lands under the n it started at, which no reader looks at
+# any more, and the step never takes the record from before its own write.
+
+rs_once_begin() {
+    mkdir -p "$1" || return 2
+    RS_ONCE=$(cd "$1" && pwd) || return 2
+    export RS_ONCE
+}
+
+# rs_once_gen: the step's write count, n.
+rs_once_gen() {
+    local g
+    g=$(cat "$RS_ONCE/gen" 2> /dev/null) || g=0
+    [[ $g =~ ^[0-9]+$ ]] || g=0
+    printf '%s\n' "$g"
+}
+
+rs_once_drop() {
+    local g t
+    [ -n "${RS_ONCE:-}" ] && [ -d "$RS_ONCE" ] || return 0
+    g=$(rs_once_gen)
+    t=$(mktemp "$RS_ONCE/gen.XXXXXX") || { rm -rf "$RS_ONCE"/read.*; return 0; }
+    echo $((g + 1)) > "$t" && mv "$t" "$RS_ONCE/gen" || rm -f "$t"
+    rm -rf "$RS_ONCE/read.$g"
+    return 0
+}
+
+# rs_once_store: the store the step's read goes to, rs_record's choice (the
+# run's store; a session-store read with no session fails there as it would live).
+rs_once_store() {
+    rs_source > /dev/null
+    printf '%s\n' "$RS_SOURCE_READ"
+}
+
+# rs_once_fields: the superset the step's GitHub read asks for.
+rs_once_fields() {
+    if [ "$CONTAINER" = issue ]; then echo state,body,url,title
+    else echo state,body,url,title,headRefName,isCrossRepository,headRefOid; fi
+}
+
+# rs_once_fill <err-file>: the step's read, made now unless it is already there,
+# in RS_ONCE_R. Returns 0 read (or already read); otherwise the read's own
+# code, with its reason in <err-file>, and nothing kept; 99 when the step wrote
+# while it read, and the caller reads live.
+rs_once_fill() {
+    local err=$1 key store d rc g
+    store=$(rs_once_store)
+    key="$store $CONTAINER $REPO $REF $SCOPE $NAME ${RS_SESSION:-${SESSION:-}}"
+    g=$(rs_once_gen)
+    RS_ONCE_R=$RS_ONCE/read.$g
+    if [ -f "$RS_ONCE_R/key" ]; then
+        [ "$(cat "$RS_ONCE_R/key")" = "$key" ] && return 0
+        return 99
+    fi
+    d=$(mktemp -d "$RS_ONCE/fill.XXXXXX") || return 2
+    if [ "$store" = session ]; then
+        rs_session_read "$d/s" view "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$REPO" "$REF"; rc=$?
+        cat "$d/s.err" >> "$err"
+        [ $rc -eq 0 ] || { rm -rf "$d"; return $rc; }
+        mv "$d/s.raw" "$d/raw.json" && mv "$d/s.md" "$d/md" && mv "$d/s.pushed" "$d/pushed" || { rm -rf "$d"; return 5; }
+    else
+        if [ "$CONTAINER" = issue ]; then
+            gh issue view "$REF" --repo "$REPO" --json "$(rs_once_fields)" > "$d/raw.json" 2>> "$err" < /dev/null
+        else
+            gh pr view "$REF" --repo "$REPO" --json "$(rs_once_fields)" > "$d/raw.json" 2>> "$err" < /dev/null
+        fi
+        rc=$?
+        [ $rc -eq 0 ] || { rm -rf "$d"; return 2; }
+        jq -r '.body // ""' "$d/raw.json" 2>> "$err" | tr -d '\r' > "$d/md" || { rm -rf "$d"; return 2; }
+        echo '{}' > "$d/pushed"
+    fi
+    printf '%s\n' "$key" > "$d/key"
+    # Two readers of one step may fill at once: the first to arrive is kept,
+    # and a later one finds it there (its own copy lands inside, unread).
+    [ -d "$RS_ONCE_R" ] || mv "$d" "$RS_ONCE_R" 2> /dev/null
+    rm -rf "$d"
+    [ "$(rs_once_gen)" = "$g" ] || return 99
+    [ -f "$RS_ONCE_R/key" ] && [ "$(cat "$RS_ONCE_R/key")" = "$key" ] || return 99
+}
+
+# rs_once_args <gh view args...>: FIELDS and JQ from the reader's own args, or
+# 1 when they ask for something the step's read can't answer: a flag other than
+# --json and --jq, or a field outside the superset.
+rs_once_args() {
+    FIELDS= JQ=
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --json) [ $# -ge 2 ] || return 1; FIELDS=$2; shift 2 ;;
+            --jq) [ $# -ge 2 ] || return 1; JQ=$2; shift 2 ;;
+            *) return 1 ;;
+        esac
+    done
+    [ -n "$FIELDS" ] || return 1
+    jq -e -n --arg f "$FIELDS" --arg s "$(rs_once_fields)" '($s | split(",")) as $s | $f | split(",") | all(. as $x | $s | index($x) != null)' > /dev/null
+}
+
+# rs_once_record <out> <body|json> <gh view args...>: rs_record from the step's
+# read. Returns rs_record's codes, or 99 when the read can't answer it, and the
+# caller reads live.
+rs_once_record() {
+    local out=$1 mode=$2 rc r FIELDS JQ
+    shift 2
+    rs_once_args "$@" || return 99
+    # body mode prints the body alone (the readers' --jq is .body, or .body // ""); json mode prints the fields.
+    if [ "$mode" = body ]; then
+        case "$JQ" in .body|'.body // ""') ;; *) return 99 ;; esac
+    else
+        [ -z "$JQ" ] || return 99
+    fi
+    : > "$out.err"
+    rs_once_fill "$out.err"; rc=$?
+    [ $rc -eq 0 ] || return $rc
+    r=$RS_ONCE_R
+    if [ ! -f "$r/parsed.rc" ]; then
+        local p
+        p=$(mktemp "$r/parse.XXXXXX") || return 99
+        if [ "$(cut -d' ' -f1 "$r/key")" = session ]; then
+            bash "$HERE/record-parse.sh" --container issue --expect-scope "$SCOPE:$NAME" "$r/md" > "$p" 2> "$p.err"
+        else
+            lib_parse "$r/md" "$p"
+        fi
+        rc=$?
+        case $rc in 0|3|65) ;; *) rc=5 ;; esac
+        mv "$p" "$r/parsed" && mv "$p.err" "$r/parsed.err" && echo "$rc" > "$p.rc" && mv "$p.rc" "$r/parsed.rc" || return 99
+    fi
+    cp "$r/parsed" "$out" && cp "$r/parsed.err" "$out.err" && cp "$r/md" "$out.md" || return 99
+    [ "$(cut -d' ' -f1 "$r/key")" = session ] && { cp "$r/pushed" "$out.pushed" || return 99; }
+    if [ "$mode" = body ]; then
+        jq -r '.body // ""' "$r/raw.json" > "$out.raw" || return 99
+    else
+        jq -c --arg f "$FIELDS" '($f | split(",")) as $k | with_entries(select(.key as $x | $k | index($x) != null))' "$r/raw.json" > "$out.raw" || return 99
+    fi
+    return "$(cat "$r/parsed.rc")"
+}
+
+# rs_once_view <gh view args...>: rs_view's output from the step's read, when
+# rs_view would read the same store (the session store only for a session's
+# issue). Returns 0 printed; 1 the read can't answer it, and rs_view reads
+# live. A failed read is never printed from here: rs_view reads live and fails
+# with its own message.
+rs_once_view() {
+    local store err FIELDS JQ
+    store=github
+    [ -n "${SESSION:-}" ] && [ "$CONTAINER" = issue ] && [ "$(rs_source)" = session ] && store=session
+    [ "$store" = "$(rs_once_store)" ] || return 1
+    rs_once_args "$@" && [ -z "$JQ" ] || return 1
+    err=$(mktemp "$RS_ONCE/view-err.XXXXXX") || return 1
+    rs_once_fill "$err" || { rm -f "$err"; return 1; }
+    rm -f "$err"
+    jq -c --arg f "$FIELDS" '($f | split(",")) as $k | with_entries(select(.key as $x | $k | index($x) != null))' "$RS_ONCE_R/raw.json"
+}
+
 # rs_record <out> <body|json> <gh view args...>
 rs_record() {
     local out=$1 mode=$2 rc
     shift 2
     case "$mode" in body|json) ;; *) echo "$PROG: rs_record: mode is body or json" >&2; return 2 ;; esac
     rs_source > /dev/null
+    # The step's one read (rs_once_begin), unless this read names its store.
+    if [ -n "${RS_ONCE:-}" ] && [ -z "${RS_READ_STORE:-}" ]; then
+        rs_once_record "$out" "$mode" "$@"; rc=$?
+        [ $rc -eq 99 ] || return $rc
+    fi
     # RS_READ_STORE names the store to read when it isn't the run's: the write
     # core sets it to the store it is writing, so the move reads the GitHub body
     # it rewrites while the run itself is on the session store.
@@ -400,9 +592,16 @@ rs_view() {
     local c=$1 r=$2 repo=$3 d rc
     shift 3
     case "$c" in issue|pr) ;; *) echo "${PROG:-record-source}: rs_view: the container is issue or pr" >&2; return 64 ;; esac
+    # The step's one read (rs_once_begin), when this is the run's record on the
+    # store rs_view itself would read and the fields are the read's.
+    if [ -n "${RS_ONCE:-}" ] && [ "$c" = "${CONTAINER:-}" ] && [ "$r" = "${REF:-}" ] && [ "$repo" = "${REPO:-}" ] \
+        && rs_once_view "$@"; then
+        return 0
+    fi
     if [ -n "${SESSION:-}" ] && [ "$c" = issue ] && [ "$(rs_source)" = session ]; then
         d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
-        rs_session_read "$d/rec" json "$SESSION" "$SCOPE" "$NAME" "$repo" "$r"; rc=$?
+        # No parse back: this reader takes the body and parses it itself.
+        rs_session_read "$d/rec" view "$SESSION" "$SCOPE" "$NAME" "$repo" "$r"; rc=$?
         [ $rc -eq 0 ] && cat "$d/rec.raw"
         [ $rc -eq 0 ] || cat "$d/rec.err" >&2
         rm -rf "$d"
