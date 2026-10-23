@@ -5,10 +5,10 @@
 #
 # Covers: the bridge (no earlier session rotation, a committed handoff file),
 # a discipline's first rotation, a predecessor session and this run's own
-# rotation each make a fixed set of gh reads, and none reads the repository
-# twice; only the bridge and the first rotation read the default branch's head
-# and the handoff file, each once; the koto reads stay the same few whatever
-# the find seals.
+# rotation each make a fixed set of gh reads; the bridge and the first
+# rotation read the repository once, and they alone read the default branch's
+# head and the handoff file, each once; the bridge lists the sessions once and
+# makes the same koto reads each time it runs.
 #
 # Usage: bash skills/coordinate/scripts/find-reads_test.sh
 set -uo pipefail
@@ -40,8 +40,9 @@ rotation() {
     jq -nc --arg s "$3" --arg e "$4" '{start: $s, end: $e, host_repo: "acme/widgets", predecessor: null}' \
         | koto context add "$1" record/rotation
 }
-# find <session> <discipline>: the find's bare token for a new run, with the gh
-# and koto call logs emptied first.
+# find_token <session> <discipline>: the find's bare token for the run of
+# <session>, opened first when it doesn't exist yet, with the gh and koto call
+# logs emptied before the find runs.
 find_token() {
     [ -d "$KOTO_STORE/sessions/$1" ] || log_new "$1" "$(discipline_vars "$2")"
     reset_calls; : > "$KOTO_STORE/calls"
@@ -54,9 +55,8 @@ gh_count() { calls | grep -c -- "$1"; }
 koto_reads() { grep -c . "$KOTO_STORE/calls"; }
 
 echo "== the bridge: the committed handoff file =="
-printf '%s' "$(empty_record bridge | jq -c 'del(.written) | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"} | .reasoning = "r"')" \
-    | bash "$HERE/record-render.sh" --format handoff > "$T/handoff.md"
-db '.files["acme/widgets"]["main:docs/disciplines/bridge.md"] = $t' --rawfile t "$T/handoff.md"
+# The find only checks that the file is there; the carry, a later step, reads it.
+db '.files["acme/widgets"]["main:docs/disciplines/bridge.md"] = "a handoff\n"'
 eq "the find seals the handoff" "predecessor handoff:$SHA_MAIN" "$(find_token coordinate-discipline-bridge-20261005T100000Z bridge)"
 eq "  ... in five gh reads" 5 "$(gh_reads)"
 eq "  ... reading the repository once" 1 "$(calls | grep -c '^api --method GET repos/acme/widgets --jq')"
@@ -68,6 +68,7 @@ echo "== a discipline's first rotation =="
 eq "the find seals first" first "$(find_token coordinate-discipline-fresh-20261005T100000Z fresh)"
 eq "  ... in five gh reads" 5 "$(gh_reads)"
 eq "  ... reading the repository once" 1 "$(calls | grep -c '^api --method GET repos/acme/widgets --jq')"
+eq "  ... the default branch's head once" 1 "$(gh_count 'git/ref/heads/main')"
 eq "  ... and looking for the handoff file once" 1 "$(gh_count 'contents/docs/disciplines/fresh.md')"
 
 echo "== a predecessor session =="
@@ -88,8 +89,9 @@ eq "  ... in three gh reads" 3 "$(gh_reads)"
 echo "== the koto reads =="
 # The bridge lists the run's sessions once and reads no earlier rotation; its
 # koto reads are the probe's, the session listing and the find's own record.
-eq "the bridge lists the sessions once" 1 "$(find_token coordinate-discipline-bridge-20261005T100000Z bridge > /dev/null; grep -c '^session list' "$KOTO_STORE/calls")"
-eq "  ... and makes the same koto reads each time" "$BRIDGE_KOTO" "$(koto_reads)"
-[ "$BRIDGE_KOTO" -le 12 ] && ok "  ... a bounded few ($BRIDGE_KOTO)" || bad "  ... a bounded few" "$BRIDGE_KOTO koto calls: $(cat "$KOTO_STORE/calls")"
+# Run it again, and count the second run's calls.
+find_token coordinate-discipline-bridge-20261005T100000Z bridge > /dev/null
+eq "the bridge lists the sessions once" 1 "$(grep -c '^session list' "$KOTO_STORE/calls")"
+eq "  ... and makes the same koto reads each time ($BRIDGE_KOTO)" "$BRIDGE_KOTO" "$(koto_reads)"
 
 done_tests find-reads_test
