@@ -213,12 +213,14 @@ esac
 . "$HERE/record-common.sh"
 lib_facts
 # The record's store (docs/designs/DESIGN-coordinator-session-record.md,
-# Decisions 2 and 11): only a roadmap record has one, and its value is github or
-# session. `session` is the owner's decision to move the record; the next start
-# moves it. A record on the session store, or one whose row already reads
-# session, never moves back to GitHub (PRD R3).
+# Decisions 2 and 11): only a roadmap record's store is its owner's to set, and
+# its value is github or session. `session` is the owner's decision to move the
+# record; the next start moves it. A record on the session store, or one whose
+# row already reads session, never moves back to GitHub (PRD R3). A discipline
+# rotation's store is never set here: one on GitHub has no store row, and one on
+# the session store gets its `store session` row when it opens (record-open.sh).
 if [ "$MODE" = run ] && [ "$KEY" = store ]; then
-    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: store-discipline: a discipline record has no store row; the session store is for roadmap scope" >&2; exit 65; }
+    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: store-discipline: a discipline rotation's store isn't set by hand; the find decides it, and a session rotation's row is written when it opens" >&2; exit 65; }
     case "$VALUE" in
         github|session) ;;
         *) echo "$PROG: refused: store-malformed: a store is github or session" >&2; exit 65 ;;

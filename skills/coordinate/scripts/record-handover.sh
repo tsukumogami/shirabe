@@ -8,6 +8,9 @@
 #   record-handover.sh --session S [--check]
 #   record-handover.sh --scope roadmap|discipline --name N --repo O/R --ref N [--check]   (tests)
 #
+# The record number comes from the session's run-facts; a discipline rotation
+# on the session store has none.
+#
 # Prints, as one JSON object: arguments and cap (Run's rows, or null),
 # coordinator (the current address, or null), told (who has been told it),
 # workers (one per live holding: unit, worker, phase, told, next), work (every

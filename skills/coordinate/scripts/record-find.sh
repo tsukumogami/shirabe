@@ -8,6 +8,8 @@
 # "Coordinator record: ROADMAP-<name>". Discipline scope: the record branch
 # coordinate/discipline-<name> and its same-repository pull requests into the
 # default branch; a fork's or another branch's pull request is never looked at.
+# With none open, a discipline rotation is on the session store and the find
+# reads this host's sessions of the discipline instead (session_find below).
 #
 # One candidate is judged in this order: the declaration line (else
 # `foreign`), then authority (its author and last editor each have admin,
@@ -41,7 +43,9 @@
 #
 # The detail goes to context key coord/record_find.json as data:
 #   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}, store}
-# and the run's store to coord/source.json: {source, reason, probe}. A found
+# and the run's store to coord/source.json: {source, reason, probe}. For a
+# discipline rotation on the session store `ref` is empty and `url` (and
+# record_url) is the session's name: such a rotation has no pull request. A found
 # record's store is its `store` Run row (`github` without one;
 # docs/designs/DESIGN-coordinator-session-record.md, Decisions 2, 10 and 11):
 #   - `session` on a record in the moved shape (every section empty, the Run
@@ -183,7 +187,7 @@ finish() {
 # account (store-unsupported, session-absent) records the session store and its
 # reason; any other refusal records the GitHub store and its own reason, and so
 # does a candidate the find rejected (malformed, store-malformed among them,
-# ambiguous, foreign, unauthorized, stale-branch, predecessor): there is a
+# ambiguous, foreign, unauthorized, predecessor): there is a
 # record, it just wasn't adopted. The file records the store the run reads, not
 # the one asked for. The run's readers take the store from coord-log.sh
 # run-store, which reads it from this find's token.

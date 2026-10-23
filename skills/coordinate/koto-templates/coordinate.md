@@ -196,7 +196,8 @@ variables:
       --store: github or session, empty when not given. It decides only when
       record_find finds no record; a found record's own `store` Run row decides
       otherwise, and record-find.sh writes the run's store, and why, to
-      coord/source.json.
+      coord/source.json. At discipline scope it decides nothing: a new rotation
+      opens on the session store, and one on GitHub stays there.
     pattern: '^(github|session)?$'
     default: ""
   PLUGIN_ROOT:
@@ -2343,7 +2344,8 @@ states:
   # A rotation on the session store ends here: the coordinator writes its
   # reasoning for the next rotation (record-state.sh --reasoning-file), which
   # closes the rotation by the window rule, and the run ends. Nothing is
-  # committed and no pull request is opened.
+  # committed and no pull request is opened. The gate is record-state.sh's
+  # read-only --reasoning-check, which writes nothing.
   rotation_end:
     accepts:
       reasoning:
@@ -2504,16 +2506,17 @@ time. `references/record-template.md` has the container rules and the shape.
 
 At roadmap scope the record is an open issue titled exactly
 `Coordinator record: ROADMAP-<name>` in the roadmap's repository. At discipline
-scope it is a draft pull request from `coordinate/discipline-<name>` in the host
-repository, titled `docs(coordinate): <name> rotation <start> to <end>`. Either
-must carry the declaration line, and its author and last editor must have write
+scope a rotation still on GitHub is
+a draft pull request from `coordinate/discipline-<name>` in the host repository,
+titled `docs(coordinate): <name> rotation <start> to <end>`, and a new rotation
+is on the session store (below). Either GitHub record must carry the declaration line, and its author and last editor must have write
 access to the host repository; a candidate that fails any of that is never
 adopted.
 
 Where this goes next:
 
 - found: the record exists once with its four sections (and a Decisions section once it holds one); the run reconciles.
-- none, a stale branch, or a branch with no pull request: `record_open`.
+- none (roadmap scope): `record_open`.
 - a title match without the declaration line, several matches, a body that isn't
   canonical, or an author without write access: `record_conflict`, a stop for the
   human.
@@ -2567,30 +2570,30 @@ for the human: submit `refused` with its reason as the detail.
 ## record_open
 
 No record exists for this scope ({{RECORD_FIND}}). Open exactly one with
-`record-open.sh`, then submit `opened: opened`; the next state reads GitHub
-again, and only that read satisfies the check.
+`record-open.sh`, then submit `opened: opened`; the next state reads the record
+again (GitHub at roadmap scope, this host's sessions for a discipline rotation),
+and only that read satisfies the check.
 
 <!-- details -->
 
-Write the body with `record-render.sh` from a JSON file: the scope, and every
-open deferral carried from the previous rotation's handoff
-(`docs/disciplines/<name>.md` on the default branch), each filed, closed, or
-carried with a reason and a time. Then:
+Write the body with `record-render.sh` from a JSON file: the scope. A
+discipline rotation that follows another carries its predecessor through
+`predecessor_carry`, not here. Then:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}" --body-file <body.md>
 ```
 
-At discipline scope add `--start <YYYY-MM-DD> --end <YYYY-MM-DD>`, the end being
-the start plus `{{ROTATION_DAYS}}` days, and `--recut` when the find read
-`stale-branch` or `unopened`. The script refuses when a record now exists (a
-restart that finds its record never opens one), builds the title itself, and
-prints `record=<url>`. Report the record's number or URL up with every report,
-so a successor is handed it as a decision.
+The script refuses when a record now exists (a restart that finds its record
+never opens one) and prints `record=<url>`.
+Report the record's number or URL up with every report, so a successor is
+handed it as a decision.
 
-When the find read `first` (a discipline's first rotation, on the session
-store), the same command with `--start` and `--end` opens the rotation in this
-run's session: no branch, no commit, no pull request. It writes the window to
+At discipline scope the find reads `first` (the discipline's first rotation, on
+the session store), and the end is the start plus `{{ROTATION_DAYS}}` days:
+the same command with `--start` and `--end` opens the rotation in this run's
+session (`--start <YYYY-MM-DD> --end <YYYY-MM-DD>`): no branch, no commit, no
+pull request. It writes the window to
 `record/rotation` and prints `record=<this session>`; report the session name up
 as the record.
 
@@ -2672,7 +2675,9 @@ it through `land-merge.sh --closeout` where the posture permits the merge, or
 hand the merge to the human as the last row of the merge-order table
 (`references/verification-checklist.md`) where it doesn't. A predecessor's title
 is never corrected: it did end on its date. After its merge, delete the branch;
-the find then reads `none` or a stale branch and opens your record.
+the find then reads the committed handoff as `predecessor handoff:<sha>` and
+this rotation carries it (`predecessor_carry`), or reads `first` when there is
+no handoff file.
 
 ## predecessor_step
 
@@ -2692,8 +2697,9 @@ The predecessor's record merged. Delete its branch with
 
 ## predecessor_handed_over
 
-The predecessor's merge is with the human. Your record can't open on a branch the
-predecessor still holds; submit `recheck: recheck` once it has merged or closed.
+The predecessor's merge is with the human. This rotation can't carry the
+predecessor until its handoff has merged; submit `recheck: recheck` once it has
+merged or closed.
 
 ## reconcile_pass
 
@@ -3426,8 +3432,10 @@ Run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
 
 <!-- details -->
 
-It copies the previous rotation's unsettled entries and its `Next decision` into
-this record, so a successor meets them before its first dispatch.
+It copies the previous rotation's unsettled entries and its `Next decision` from
+its committed handoff into this record, so a successor meets them before its
+first dispatch. Only a rotation on GitHub comes here; a rotation on the session
+store carried them when it opened (`predecessor_carry`).
 
 ## decision_take
 
@@ -4457,6 +4465,8 @@ Reading the rotation close-out's stage. koto runs `closeout-read.sh` itself.
 
 <!-- details -->
 
+A rotation on the session store writes no handoff file: the stage
+`session-rotation` sends it to `rotation_end`. For a rotation on GitHub:
 At rotation end, write `docs/disciplines/<name>.md` fresh: the same four
 sections, every hold as the record has it (a hold outlives its rotation;
 `rotation-close.sh` refuses a handoff without them), the unsettled decisions

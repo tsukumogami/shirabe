@@ -9,13 +9,15 @@
 # the right container before anything is written.
 #
 # Roadmap scope: one issue titled "Coordinator record: ROADMAP-<name>".
-# Discipline scope: the branch coordinate/discipline-<name> cut from the
+# Discipline scope opens on the session store (below) whenever the run's find
+# sealed it there, which a new rotation always is. Without that (a test, or a
+# session whose find didn't run), it opens the GitHub rotation: the branch
+# coordinate/discipline-<name> cut from the
 # default branch's head with one empty commit, made through GitHub's git-data
-# API (the coordinator usually has no checkout of the host), then a draft pull
-# request titled "docs(coordinate): <name> rotation <start> to <end>". An
-# existing branch is refused unless --recut, which deletes the remote ref
-# first (the find's stale-branch and unopened cases), so a squash-merged
-# history never comes back.
+# API (the coordinator usually has no checkout of the host), then a draft pull request titled
+# "docs(coordinate): <name> rotation <start> to <end>". An existing branch is
+# refused unless --recut, which deletes the remote ref first, so a
+# squash-merged history never comes back.
 #
 # On the session store (roadmap scope, --store session or the run's STORE
 # variable; docs/designs/DESIGN-coordinator-session-record.md, Decision 10) the

@@ -10,7 +10,7 @@ record.
 | Scope | Host repository | Container |
 |---|---|---|
 | Roadmap `docs/roadmaps/ROADMAP-<name>.md` | the roadmap's repository | an issue titled `Coordinator record: ROADMAP-<name>` |
-| Discipline `<name>` | the host repository the human named | a draft pull request from `coordinate/discipline-<name>` |
+| Discipline `<name>` | the host repository the human named | a new rotation: the coordinator's session (no pull request); a rotation already on GitHub: a draft pull request from `coordinate/discipline-<name>` until it ends |
 
 A roadmap's record is an issue because an issue fits a record that commits
 nothing: there is no branch to maintain, no merges from the default branch
@@ -51,14 +51,19 @@ and its pull requests, and reports one of these:
    runs again.
 3. **An open pull request without the declaration line:** not adopted; a scope
    question for the human.
-4. **A branch whose last pull request merged or closed, or that never had one:**
-   `record-open.sh --recut` deletes it and cuts it again from the default
-   branch, so a squash-merged history never comes back.
-5. **No branch:** `record-open.sh` cuts it from the default branch, makes an
-   empty commit, and opens the draft pull request.
+4. **No open pull request on the branch, or no branch:** the rotation is on the
+   session store, and the find reads this host's sessions of the discipline:
+   this run's own rotation (`found`), the latest earlier rotation once it has
+   ended (`predecessor <session>`, carried into this run), a committed
+   `docs/disciplines/<name>.md` when no rotation ran on the session store yet
+   (`predecessor handoff:<sha>`, carried once), none at all (`first`, opened in
+   this run's session), or an earlier rotation that fails a rule
+   (`unreadable <session>`, a stop for the human). Its window, host and
+   predecessor are its session's `record/rotation`, and the reasoning it leaves
+   the next rotation `record/reasoning`.
 
-Report the record's issue number or pull request URL up with every report,
-so a successor is handed it as a decision and reads it directly.
+Report the record's issue number, pull request URL, or session name up with
+every report, so a successor is handed it as a decision and reads it directly.
 
 ## The Rotation's Pull Request Title
 
@@ -198,7 +203,8 @@ each rendered only once it has a row:
 **Run** holds the run's arguments, the record's store (a `store` row,
 `github` or `session`, written once by its owner with `record-state.sh --run
 store <value> --by <person>`; a record without one is on GitHub, a
-discipline record never has one, and once a record is on the session store, or
+discipline rotation on GitHub never has one (one on the session store gets
+`store session` when it opens), and once a record is on the session store, or
 moving there, no write changes the row), the cap in force (the readers of the cap
 take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which

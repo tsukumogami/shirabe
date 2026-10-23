@@ -322,9 +322,9 @@ core_write_host() {
 # describe the rotation, not its tables, so they are no section and the record's
 # body never carries them. Only record-state.sh writes them, with
 # STATE_WRITER=1 (the structure test holds it there); the caller has checked
-# the value. Exits 65 refused (not the state writer, another key, or a
-# rotation on GitHub); 10 the session holds no record (no record/meta); 11 the
-# write failed; 2 a read failed.
+# the value. Exits 65 refused (not the state writer, another key, or not
+# discipline scope); 10 the session holds no record (no record/meta, as for a
+# rotation on GitHub); 11 the write failed; 2 a read failed.
 core_write_rotation() {
     local key=$1 s=${RS_SESSION:-$SESSION} d
     case "$key" in record/rotation|record/reasoning) ;; *) echo "$PROG: refused: $key is not a rotation key" >&2; exit 65 ;; esac
