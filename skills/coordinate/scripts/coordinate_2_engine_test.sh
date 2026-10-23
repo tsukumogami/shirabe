@@ -55,7 +55,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 # ---- 10. two silent quiet checks ---------------------------------------------
 echo "== 10. two silent checks reach failure =="
-if to_pick quiet "$(record_json roadmap quiet | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 100 \
+if to_pick quiet "$(record_json roadmap quiet | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
     set_clock 1860
     eq "10: the first silent check sends a status message" status_message "$(at --with-data '{"event":"quiet"}')"
@@ -70,7 +70,7 @@ if to_pick quiet "$(record_json roadmap quiet | jq -c --argjson h "$(unit_row fe
         "second-silence feat-1 "*) ok "10: the second sweep reads second-silence" ;; *) bad "10: the second sweep reads second-silence" ;;
     esac
     eq "10: no teardown" 0 "$(entered teardown)"
-    eq "10: the holding is still on the record" feat-1 "$(live_body 100 | jq -r '.holdings[0].worker')"
+    eq "10: the holding is still on the record" feat-1 "$(live_body | jq -r '.holdings[0].worker')"
 else
     clear_clock
     bad "10: reach wait with a holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -78,7 +78,7 @@ fi
 
 # ---- 11. land ----------------------------------------------------------------
 echo "== 11. land needs a recorded verified head, and refuses a moved one =="
-if land_run landing 110; then
+if land_run landing; then
     snap_save verified-confirm
     ok "11: a verified board with no recorded head stops at verified_confirm"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name VERIFIED)" in
@@ -128,7 +128,7 @@ db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "
     mergeStateStatus: "CLEAN"}]' --arg h "$H"
 # The first run is driven to wait and saved there; the three after it load
 # that wait visit.
-if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 191 \
+if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
     snap_save progress-wait
     eq "19 message: progress naming no pull request goes back to wait" wait \
@@ -142,8 +142,8 @@ if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_
     write_as_agent holding-link.sh
     eq "19 message: holding-link.sh writes it" 0 $?
     eq "19 message: written goes back to wait through report_facts" wait "$(at --with-data '{"linked":"written"}')"
-    live_body 191 | jq -e '.holdings[] | select(.worker == "feat-1") | .pull_request == "[#12](https://github.com/acme/widgets/pull/12)" and .phase == "executing"' >/dev/null \
-        && ok "19 message: the holding carries the pull request, its phase unchanged" || bad "19 message: the holding carries the pull request" "$(live_body 191 | jq -c .holdings)"
+    live_body | jq -e '.holdings[] | select(.worker == "feat-1") | .pull_request == "[#12](https://github.com/acme/widgets/pull/12)" and .phase == "executing"' >/dev/null \
+        && ok "19 message: the holding carries the pull request, its phase unchanged" || bad "19 message: the holding carries the pull request" "$(live_body | jq -c .holdings)"
     eq "19 message: still never classified" 0 "$(entered classify_report)"
     RF0=$(entered report_facts)
     eq "19 leg: a leg-bound worker's progress is accepted and goes back to wait" wait \
@@ -183,9 +183,9 @@ if snap_load progress-wait; then
         | jq '[.[] | {key: (.index | tostring), value: {question: .text, options: ["pin -- one upgrade", "float -- none"]}}] | from_entries' > "$T/words.json"
     write_as_agent record-decision.sh --open-from-report --text-file "$T/words.json"
     eq "19 leg question: record-decision.sh writes the entry" 0 $?
-    case "$(live_body 191 | jq -r '.decisions.entries[-1].source // ""')" in
+    case "$(live_body | jq -r '.decisions.entries[-1].source // ""')" in
         "worker feat-2 ["*) ok "19 leg question: the entry names the worker as its source" ;;
-        *) bad "19 leg question: the entry names the worker as its source" "$(live_body 191 | jq -c '.decisions')" ;;
+        *) bad "19 leg question: the entry names the worker as its source" "$(live_body | jq -c '.decisions')" ;;
     esac
     # The tick doesn't stop at decision_next: it routes on to the owed step.
     at --with-data '{"opened":"opened"}' >/dev/null
@@ -201,7 +201,7 @@ if snap_load progress-wait; then
         "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
     write_as_agent holding-link.sh
     eq "19 leg link: holding-link.sh writes it onto the leg-bound holding" "[#12](https://github.com/acme/widgets/pull/12) leg $PREQ:deliver" \
-        "$(live_body 191 | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
+        "$(live_body | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
     eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
 else
     bad "19 leg: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -229,13 +229,13 @@ chmod +x "$T/niwa22/niwa"
 ASSIGNED='[{"standing": "s1", "kind": "assignment", "on": "acme/widgets#591", "until": "", "what": "pick the review level up front", "owner": "the human", "relayed_by": "", "set": "2026-10-06T15:00Z"},
     {"standing": "s2", "kind": "assignment", "on": "release acme/widgets v0.25.0", "until": "", "what": "cut v0.25.0", "owner": "the human", "relayed_by": "", "set": "2026-10-06T15:00Z"}]'
 db '.issues += [{repo: "acme/widgets", number: 591, title: "pick the review level up front", body: "", state: "open", author: "alice", editor: null}]'
-if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGNED" '.standing = $s')" 220; then
+if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGNED" '.standing = $s')"; then
     eq "22: pick lists the assigned issue and the release beside the roadmap's features" "acme/widgets#591:s1 release acme/widgets v0.25.0:s2" \
         "$(cd "$WD" && koto context get "$S" coord/pick.json | jq -r '[.units[] | select(.assigned != null) | "\(.unit):\(.assigned)"] | join(" ")')"
     eq "22: the assigned issue goes through the dispatch check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"fix-591"}')"
     dispatch22 "$(assigned_brief fix-591 "acme/widgets#591" work-on 591 --auto)"
     eq "22: dispatch-worker.sh launches it at roadmap scope" 0 "$D22"
-    eq "22: its holding's Unit is the issue" "acme/widgets#591" "$(live_body 220 | jq -r '.holdings[] | select(.worker == "fix-591") | .unit')"
+    eq "22: its holding's Unit is the issue" "acme/widgets#591" "$(live_body | jq -r '.holdings[] | select(.worker == "fix-591") | .unit')"
     B22=$(cat "$T/work/.niwa/dispatch-briefs/fix-591.md" 2>/dev/null)
     case "$B22" in *'addressed to `coord-test`, the address its record names'*) ok "22: the brief names the record's address" ;;
         *) bad "22: the brief names the record's address" "$(printf '%s' "$B22" | grep -i 'report to the coordinator') $(cat "$T/d22.err")" ;; esac
@@ -248,7 +248,7 @@ if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGN
     dispatch22 "$(assigned_brief release-0-25-0 "release acme/widgets v0.25.0" release v0.25.0 "")"
     eq "22: dispatch-worker.sh launches the release" 0 "$D22"
     eq "22: on the message path, entry point release, no mode" "message release " \
-        "$(live_body 220 | jq -r '.holdings[] | select(.worker == "release-0-25-0") | "\(.return_path) \(.entry_point) \(.mode)"')"
+        "$(live_body | jq -r '.holdings[] | select(.worker == "release-0-25-0") | "\(.return_path) \(.entry_point) \(.mode)"')"
     grep -q 'Run `/shirabe:release v0.25.0` in acme/widgets' "$T/work/.niwa/dispatch-briefs/release-0-25-0.md" 2>/dev/null \
         && ok "22: the brief runs /shirabe:release with the version" || bad "22: the brief runs /shirabe:release with the version" "$(cat "$T/d22.err")"
     eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"release-0-25-0"}')"
@@ -285,9 +285,9 @@ if snap_load verified-confirm; then
         write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
         eq "17: record-holding.sh (agent-run) clears the cell" 0 $?
         eq "17: with the cell cleared, record confirms and the run goes on to pick" pick "$(at)"
-        live_body 110 | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
+        live_body | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
             | length == 1 and .[0].pull_request == "" and .[0].verified_head == $h' >/dev/null \
-            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body 110 | jq -c .holdings)"
+            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body | jq -c .holdings)"
     else
         bad "17: reach land_merge" "$(cat "$T/tick.err" 2>/dev/null)"
     fi
@@ -306,7 +306,7 @@ cat > "$T/exec-brief.json" <<'EOF'
  "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
  "dispatcher_session": "coord-engine"}
 EOF
-if send_exec_to_dispatch execsend 118; then
+if send_exec_to_dispatch execsend; then
     snap_save exec-dispatch
     (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/exec-brief.json" >/dev/null)
     # The workspace root the dispatch script renders briefs under, for this
@@ -316,8 +316,8 @@ if send_exec_to_dispatch execsend 118; then
     rm -f "$T/work/.niwa/workspace.toml"
     eq "18: dispatch-worker.sh sends the execution (exit 0)" 0 "$rc"
     case "$OUT" in *already-dispatched*) bad "18: never already-dispatched" "$OUT" ;; *brief=*) ok "18: it prints the execution brief" ;; *) bad "18: it prints the execution brief" "$OUT $(cat "$T/dw.err")" ;; esac
-    live_body 118 | jq -e '.holdings[0] | .phase == "executing" and .entry_point == "execute" and (.return_path | test("^leg [^:]+:execute$"))' >/dev/null \
-        && ok "18: the holding reads executing, on /execute's new leg" || bad "18: the holding reads executing, on /execute's new leg" "$(live_body 118 | jq -c '.holdings')"
+    live_body | jq -e '.holdings[0] | .phase == "executing" and .entry_point == "execute" and (.return_path | test("^leg [^:]+:execute$"))' >/dev/null \
+        && ok "18: the holding reads executing, on /execute's new leg" || bad "18: the holding reads executing, on /execute's new leg" "$(live_body | jq -c '.holdings')"
     eq "18: record confirms the moved phase and the run reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
 else
     bad "18: reach dispatch on send_execution" "at=$(now_at) $(cat "$T/open.err" "$T/tick.err" 2>/dev/null) $(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null)"

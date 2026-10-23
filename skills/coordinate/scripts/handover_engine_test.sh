@@ -12,7 +12,7 @@
 # agent was building that no holding covers; a standing answer the human gave
 # through the process owner; a hold on a merge; the cap the human lowered to
 # one; and the old coordinator's address, which both workers were told. Host A
-# opens the run with its record on the session store and writes all of that
+# opens the run, its record in the run's session, and writes all of that
 # through the record's writers, with the crash set (rules, briefs, friction,
 # reports-to and where their files live) and a holding's pushed head. Host B
 # imports the session through coordinate-open.sh --import, given no cap and no
@@ -33,8 +33,8 @@
 #   2. the replacement writes its own address, and the handover gate then
 #      holds it at reconcile, naming each worker, until it has told both (the
 #      third loss: reports going to the old session);
-#   3. a person's unmarked comment on the record isn't an entry, and the
-#      replacement relays it with the person as owner and itself as relayer;
+#   3. the replacement relays a person's word as a Standing row, the person
+#      as owner and itself as relayer, and the entry it appends tells it;
 #   4. past the gate the run reaches pick with the cap of one from the
 #      record, not the default the session was opened with;
 #   5. a holding with no next step holds the gate too, and a Work row clears it;
@@ -71,6 +71,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 # The gh stand-in finds its DB through GH_DB. koto's import gives the session
 # the importing host's fixed command environment, which doesn't pass GH_DB (the
@@ -133,21 +134,22 @@ db '.prs += [{repo: "acme/widgets", number: 12, title: "feat: first", body: "", 
 # ---- host A: the run, its record on the session store, written by the writers --
 
 echo "== host A writes the run =="
-printf '["docs/roadmaps/ROADMAP-handover.md", "--store", "session"]' > "$T/args.json"
-S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
-[ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
-ok "host A's run opens"
-PROBE=$(run record-source.sh --probe)
-if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
-    echo "koto lacks the session store's features ($PROBE); the handover needs a newer koto"
+# A koto without the session store's features refuses every start, so the
+# handover has nothing to move.
+if ! koto_store_ready; then
+    echo "koto lacks the session store's features; the handover needs a newer koto"
     done_tests handover-engine
     exit $?
 fi
+printf '["docs/roadmaps/ROADMAP-handover.md"]' > "$T/args.json"
+S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+[ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
+ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
 render "$(record_json roadmap handover)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "record-open.sh opens the record on the session store" 0 $?
-N=$(jq -r '[.issues[] | select(.title == "Coordinator record: ROADMAP-handover") | .number] | if length == 1 then .[0] else empty end' "$GH_DB")
-[ -n "$N" ] && ok "  ... one record issue" || bad "  ... one record issue" "$(jq -c '[.issues[].title]' "$GH_DB")"
+run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "record-open.sh opens the record in the run's session" 0 $?
+grep -Eq '^(issue|pr) create' "$GH_DB.calls" && bad "  ... opening nothing on GitHub" "$(grep -E '^(issue|pr) create' "$GH_DB.calls")" \
+    || ok "  ... opening nothing on GitHub"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 F1=$(holding worker-f1 '{"unit": "Feature 1", "dispatch_status": "dispatched", "branch": "feat/first"}')
@@ -178,9 +180,6 @@ state --run rules "coordinate sha256:$RULES" --by lane-v1 \
     && state --run reports-to "the human" --by "the human" \
     && state --host rules:coordinate "$WS_A/rules.md" --host briefs:lane "$WS_A/brief.md" --host friction "$WS_A/friction.md"
 eq "the crash set and where its files live are written" 0 $?
-# A person's own comment on the record, carrying no entry marker.
-db '.comments += [{repo: "acme/widgets", number: ($n | tonumber), id: 3001, body: "Go ahead with the shirabe v0.25.0 release once Feature 1 lands.",
-    user: "alice", created_at: "2026-09-29T21:50:00Z", updated_at: "2026-09-29T21:50:00Z"}]' --arg n "$N"
 SNAP=$(keys a)
 HOST_A=$(host_on a koto context get "$S" record/host)
 LAST_A=$(last_entry a)
@@ -241,13 +240,11 @@ state --told worker-f1 --by lane-v2; eq "worker-f1 is told" 0 $?
 eq "one untold worker still holds the gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
 
 echo "== 3. the relay duty =="
-entries | jq -e 'all(.[]; .id != 3001)' >/dev/null && ok "a person's unmarked comment isn't an entry" || bad "a person's unmarked comment isn't an entry" "$(entries)"
 state --standing go-ahead --what "release shirabe v0.25.0 once Feature 1 lands" --owner alice --relayed-by lane-v2
 eq "the replacement relays it" 0 $?
 eq "  ... the person as owner and itself as relayer" "go-ahead alice lane-v2" \
     "$(handover | jq -r '.standing[] | select(.kind == "go-ahead") | "\(.kind) \(.owner) \(.relayed_by)"')"
-# On the session store an entry's author is the address the record's
-# coordinator row names (a GitHub comment's would be its login).
+# An entry's author is the address the record's coordinator row names.
 entries | jq -e 'any(.[]; .kind == "go-ahead" and .author == "lane-v2" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
     && ok "  ... and the entry tells it, written by the replacement" || bad "  ... and the entry tells it, written by the replacement" "$(entries | jq -c 'map({kind, author, text})')"
 

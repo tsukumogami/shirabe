@@ -140,7 +140,7 @@ LOG="$(koto session dir "$S")/koto-$S.state.jsonl"
 CAP1=$(bash "$CL" capture --session "$S" --name RECORD_FIND)
 case "$CAP1" in "found 7 sealed:"*) pass "the capture is the sealed token" ;; *) fail "the capture is the sealed token" "$CAP1" ;; esac
 bash "$CL" check --session "$S" --state record_find --sealed "$CAP1" && pass "check accepts the latest visit's seal" || fail "check accepts the latest visit's seal"
-eq "run-facts reads the scope and the found record" '{"scope":"roadmap","name":"demo","repo":"acme/widgets","ref":"7"}' "$(bash "$CL" run-facts --session "$S")"
+eq "run-facts reads the run's scope, name and repository, and no record number" '{"scope":"roadmap","name":"demo","repo":"acme/widgets"}' "$(bash "$CL" run-facts --session "$S")"
 case "$(bash "$CL" run-start --session "$S")" in 20*T*Z) pass "run-start is the header's created_at" ;; *) fail "run-start is the header's created_at" ;; esac
 
 echo "== seal failures =="
