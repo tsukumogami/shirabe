@@ -175,7 +175,7 @@ REBIND_ERR=""
 # plugin this script ships in) and REVIEW_LEVEL (the review-level ledger's
 # last level), beside UNIT_KIND.
 rebind() {
-    local s="$1" k="$2" reply rc lvl
+    local s="$1" k="$2" reply rc lvl rebind_detail
     set -- --var "UNIT_KIND=$k"
     if grep -q '^  PLUGIN_ROOT:' "$TEMPLATE" 2>>"$ERRLOG"; then
         set -- "$@" --var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF"
@@ -190,7 +190,8 @@ rebind() {
     reply=$(koto init "$s" --template "$TEMPLATE" --attach-live "$@" 2>"$WORK/rebind.err")
     rc=$?
     if [ "$rc" -ne 0 ]; then
-        REBIND_ERR="koto init --attach-live exited $rc: ${reply:0:400} $(head -c 400 "$WORK/rebind.err")"
+        rebind_detail=$(head -c 400 "$WORK/rebind.err")
+        REBIND_ERR="koto init --attach-live exited $rc: ${reply:0:400} $rebind_detail"
         return 1
     fi
     if printf '%s' "$reply" | jq -e --arg k "$k" \

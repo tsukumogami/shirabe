@@ -690,10 +690,10 @@ edited_tests() {
         if [ -z "$ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
             ref=origin/main
         fi
-        [ -z "$ref" ] || base=$(git merge-base HEAD "$ref" 2>/dev/null) || base=""
+        [ -z "$ref" ] || base=$(git merge-base HEAD "$ref" 2>>"$WORK/tc.err") || base=""
     fi
     if [ -z "$base" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
-        base=$(git merge-base HEAD main 2>/dev/null) || base=""
+        base=$(git merge-base HEAD main 2>>"$WORK/tc.err") || base=""
     fi
     [ -n "$base" ] || die 65 "no base to tell the change's edited tests by (no impl_base and no merge-base), so the round's test_edits can't be checked"
     ctx_get review_level_rules.tsv > "$WORK/tc_rules"

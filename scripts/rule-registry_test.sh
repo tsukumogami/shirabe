@@ -909,8 +909,10 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # took it to 55 and 37; work-on/review-level-fits-facts, the decider check's
 # Jev contract, took it to 56 and 38; rs-018 to rs-020, the scrutiny seats'
 # rejected questions, to 59 rules and 20 criteria; work-on/scrutiny-decision-
-# reasons, the scrutiny batch's Jev contract, to 60 and 39.
-[ "$n" = 60 ] && [ "$gates" = 39 ] && [ "$rsn" = 20 ] && pass "the registry has 60 rules: 39 gates and 20 criteria" \
+# reasons, the scrutiny batch's Jev contract, to 60 and 39; red-first/no-red,
+# red-first/no-green and test-change/held (gates) and review/test-edit-judgment
+# and review/test-edit-weakens (prose) to 65 and 42.
+[ "$n" = 65 ] && [ "$gates" = 42 ] && [ "$rsn" = 20 ] && pass "the registry has 65 rules: 42 gates and 20 criteria" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -926,7 +928,7 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-00[4-6]$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
 jev_never=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[7-9]|1[0-9]|20)$")) | select(.withhold == "never")] | length' "$REG")
-[ "$never" = 42 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
+[ "$never" = 45 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
     && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-006 are eligible; the Jev criteria rs-007 to rs-020 are never" \
     || fail "withhold marking" "never=$never eligible=$eligible jev_never=$jev_never"
 
@@ -948,15 +950,17 @@ unexplained=$(jq -r '
     || fail "baseline notes" "$unexplained"
 
 # The lifecycle fields: every active script entry at block since the landing
-# date with gates, both retired script entries at retired, and nothing on any
-# entry that isn't script-checked.
+# date, or since the date it was added when that came later, with gates; both
+# retired script entries at retired, and nothing on any entry that isn't
+# script-checked.
 STAGE_SINCE=2026-10-16
 bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script" and .status == "active")
-    | select(.stage != "block" or .stage_since != $since or (.gates | type) != "array" or (.gates | length) == 0
+    | select(.stage != "block" or (.stage_since | type) != "string" or .stage_since < $since
+             or (.gates | type) != "array" or (.gates | length) == 0
              or any(.gates[]; type != "string" or (test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)))
     | .id' "$REG")
 nactive=$(jq '[.rules[] | select(.check.kind == "script" and .status == "active")] | length' "$REG")
-[ -z "$bad" ] && [ "$nactive" = 35 ] && pass "all 35 active script entries are at block since $STAGE_SINCE with gates" \
+[ -z "$bad" ] && [ "$nactive" = 38 ] && pass "all 38 active script entries are at block since $STAGE_SINCE or later with gates" \
     || fail "active script stages" "n=$nactive bad: $bad"
 retired=$(jq -r '[.rules[] | select(.check.kind == "script" and .status == "retired") | "\(.id)=\(.stage)"] | join(",")' "$REG")
 [ "$retired" = "branch/no-wip-files=retired,panel/blocking-finding=retired" ] \
