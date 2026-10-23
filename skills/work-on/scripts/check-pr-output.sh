@@ -52,8 +52,9 @@
 #       body. Each reason is matched exactly, since it is the one its run was
 #       started with, and as a whole line: a reason that only appears inside
 #       other text (a short one inside the build-of-record phrase) or that
-#       starts a longer reason's line does not count. Carriage returns are
-#       dropped from the body first. Without
+#       starts a longer reason's line does not count. A CRLF or a lone CR in
+#       the body is a line break, as GitHub renders it. A reason must be one
+#       line with more than spaces in it. Without
 #       --owned the pull request is the checked-out branch's (/work-on's
 #       pr_creation, one reason); with --owned it is the one owned-pr.sh
 #       resolves, as --pr-body --owned reads it (/execute's shared PR, whose
@@ -334,6 +335,12 @@ check_deferral_record() {
         case "$2" in
             *$'\n'*|*$'\r'*) undecided "--deferral-record: a --reason must be one line" ;;
         esac
+        # A reason of spaces alone names nothing, so a bare `Reason:` line
+        # with trailing spaces would pass for it.
+        case "$2" in
+            *[![:space:]]*) ;;
+            *) undecided "--deferral-record: a --reason must have more than spaces" ;;
+        esac
         reasons+=("$2")
         shift 2
     done
@@ -360,9 +367,12 @@ check_deferral_record() {
     fi
     jq -e 'type == "object" and (.body | type == "string")' "$WORK/pr.json" >/dev/null \
         || undecided "gh pr view did not return a body"
-    # A body edited on GitHub's web form comes back with CRLF line ends; the
-    # CRs go here so the whole-line match below sees the line as written.
-    jq -j '.body | gsub("\r"; "")' "$WORK/pr.json" > "$WORK/body.md"
+    # A body edited on GitHub's web form comes back with CRLF line ends, and
+    # GitHub renders a lone CR as a line break too, so each CRLF and each
+    # lone CR becomes a newline here: the whole-line match below then sees the
+    # lines a reader sees. Deleting the CRs instead would join `Reason: fo`,
+    # a CR and `o` into a `Reason: foo` line the body never shows.
+    jq -j '.body | gsub("\r\n?"; "\n")' "$WORK/pr.json" > "$WORK/body.md"
 
     missing=0
     if ! grep -qiF -- "local verification did not run" "$WORK/body.md"; then

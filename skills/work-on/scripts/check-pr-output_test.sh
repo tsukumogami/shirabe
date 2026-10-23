@@ -962,6 +962,22 @@ run --deferral-record --reason "$DREASON"
 [ "$RC" -eq 1 ] && pass "--deferral-record: a CRLF body without the Reason: line still fails (1)" \
     || fail "--deferral-record: CRLF body, wrong reason, rc $RC"
 
+# GitHub renders a lone CR as a line break, so a CR inside what looks like
+# the Reason line splits it: none of these bodies shows `Reason: foo`.
+for split in "Reason: fo${CR}o" "Rea${CR}son: foo" "Reason: ${CR}foo"; do
+    FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+        "$split" "Hosted CI is the build of record for this change.")
+    run --deferral-record --reason foo
+    [ "$RC" -eq 1 ] && pass "--deferral-record: a lone CR splitting the Reason line fails (1) [$(printf '%s' "$split" | tr '\r' '^')]" \
+        || fail "--deferral-record: lone CR split [$(printf '%s' "$split" | tr '\r' '^')] rc $RC"
+done
+# ... and a lone CR before a real Reason line is a line break before it.
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Notes.${CR}Reason: foo" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason foo
+[ "$RC" -eq 0 ] && pass "--deferral-record: a Reason line after a lone CR is its own line and passes" \
+    || fail "--deferral-record: Reason line after a lone CR rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+
 FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
     "Reason: $DREASON" "CI will run on the pull request.")
 run --deferral-record --reason "$DREASON"
@@ -1082,6 +1098,12 @@ Hosted CI is the build of record for this change." --owned $OWNED_ARGS
 run --deferral-record --reason "$DREASON$(printf '\r')" --owned $OWNED_ARGS
 [ "$RC" -eq 2 ] && pass "--deferral-record: a reason with a carriage return can't be decided (2)" \
     || fail "--deferral-record: reason with a CR rc $RC"
+for blank in " " "   " "$(printf '\t')"; do
+    # shellcheck disable=SC2086
+    run --deferral-record --reason "$blank" --owned $OWNED_ARGS
+    [ "$RC" -eq 2 ] && pass "--deferral-record: a reason of spaces alone can't be decided (2)" \
+        || fail "--deferral-record: blank reason [$blank] rc $RC"
+done
 # shellcheck disable=SC2086
 run --deferral-record --owned $OWNED_ARGS
 [ "$RC" -eq 2 ] && pass "--deferral-record: --owned with no --reason is a usage error (2)" \
