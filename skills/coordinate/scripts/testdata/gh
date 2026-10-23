@@ -290,7 +290,10 @@ case "$W1 $W2" in
         ;;
     "GET repos/"*/contents/*)
         r=${path#repos/}; r=${r%%/contents/*}
-        f=${path#*/contents/}; ref=${f#*\?ref=}; f=${f%%\?*}
+        # No ?ref= reads the default branch, which the DB calls main.
+        f=${path#*/contents/}; ref=main
+        case "$f" in *\?ref=*) ref=${f#*\?ref=} ;; esac
+        f=${f%%\?*}
         need_repo "$r"
         text=$(jq -r --arg r "$r" --arg k "$ref:$f" '.files[$r][$k] // empty' "$GH_DB")
         # A ref that is a commit some branch points at reads that branch's file.

@@ -8,11 +8,14 @@
 # record issue never read; `--on none` writing the session entry and posting
 # nothing; the item's repository admitted as the host or a holding's (its Repo
 # or its pull request's), without case, and refused otherwise with nothing
-# written; a goal-fit entry posted on the pull request its first line names
-# and refused, with nothing written, for another one, none, or `--on none`; a
-# milestone-verdict or milestone-failure entry refused with --on an item and
-# written with `--on none`, its `--repost --on` refused until a roadmap edit
-# row names that pull request and the entry, then posted; the text scanned
+# written; a goal-fit entry kept in the session, posted nowhere and its
+# --repost refused, while the pull request's repository doesn't opt in to
+# workflow content (another repository's opt-in doesn't count), posted on the
+# pull request its first line names once it does, and refused, with nothing
+# written, for another one, none, or `--on none`; a milestone-verdict or
+# milestone-failure entry refused with --on an item and written with `--on
+# none`, its `--repost --on` refused until a roadmap edit row names that pull
+# request and the entry and the host opts in, then posted; the text scanned
 # against the destination's visibility at post time (a private repository on
 # a public destination refused, kept in the session; a private destination
 # naming it posted; a destination whose visibility can't be read counted as
@@ -57,6 +60,8 @@ seed() {
         | koto context add "$SE" record/holdings
 }
 entry() { printf '%s\n' "$1" > "$T/entry.txt"; }
+# optin <repo>: the repository's CLAUDE.md on main opts in to workflow content.
+optin() { db '.files[$r]["main:CLAUDE.md"] = "# x\n\n## PR Workflow Content: include"' --arg r "$1"; }
 ra() { "${SEN[@]}" bash "$RA" "${RM[@]}" "$@"; }
 nentries() { koto context list --prefix record/entries/ "$SE" | jq length; }
 ncomments() { jq '.comments // [] | length' "$GH_DB"; }
@@ -103,7 +108,18 @@ echo "== goal-fit =="
 seed
 printf 'Goal fit: acme/widgets#12 -- MV1\nFit: fits\nClauses: 1\nRationale: it ships the list.\n' > "$T/gf.txt"
 O=$(ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" 2>"$T/err"); rc=$?
-eq "a goal-fit entry is posted on the pull request it names" "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
+eq "by default a goal-fit entry stays in the session" "0 record/entries/000001 goal-fit" "$rc $O $(koto context get "$SE" record/entries/000001 | jq -r .kind)"
+eq "  ... posting nothing on the pull request it names" "0 none" "$(ncomments) $(posted 000001 || echo none)"
+grep -q 'acme/widgets doesn.t opt in' "$T/err" && ok "  ... saying the repository doesn't opt in" || bad "  ... saying the repository doesn't opt in" "$(cat "$T/err")"
+ra --repost 1 --on acme/widgets#12 >/dev/null 2>"$T/err"; eq "  ... and its --repost is refused" 65 $?
+eq "  ... still posting nothing" 0 "$(ncomments)"
+optin acme/gadgets
+ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" >/dev/null 2>"$T/err"
+eq "another repository's opt-in doesn't post it" 0 "$(ncomments)"
+seed
+optin acme/widgets
+O=$(ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" 2>"$T/err"); rc=$?
+eq "with the repository opted in, a goal-fit entry is posted on the pull request it names" "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
 ra --kind goal-fit --on acme/widgets#8 --text-file "$T/gf.txt" >/dev/null 2>"$T/err"; eq "one whose --on differs from the named pull request is refused" 65 $?
 grep -q 'names acme/widgets#12, not acme/widgets#8' "$T/err" && ok "  ... naming both" || bad "  ... naming both" "$(cat "$T/err")"
 printf 'Goal fit: none -- MV1\nFit: fits\n' > "$T/gf0.txt"
@@ -128,8 +144,11 @@ jq -nc '[{action: "milestone-done", target: "MV1 [#8](https://github.com/acme/wi
     how_to_confirm: "the roadmap on main reads MV1 Done (entry 1)"}]' | koto context add "$SE" record/side-effects
 ra --repost 1 --on acme/widgets#12 >/dev/null 2>"$T/err"; eq "  ... and on a pull request the row doesn't name" 65 $?
 eq "  ... posting nothing" 0 "$(ncomments)"
+ra --repost 1 --on acme/widgets#8 >/dev/null 2>"$T/err"; eq "  ... and, with the row there, while the host doesn't opt in" 65 $?
+eq "  ... posting nothing" "0 none" "$(ncomments) $(posted 000001 || echo none)"
+optin acme/widgets
 O=$(ra --repost 1 --on acme/widgets#8 2>"$T/err"); rc=$?
-eq "  ... posted once the row names that pull request and the entry" "0 https://github.com/acme/widgets/pull/8#issuecomment-1001" "$rc $O"
+eq "  ... posted once the row names that pull request and the entry and the host opts in" "0 https://github.com/acme/widgets/pull/8#issuecomment-1001" "$rc $O"
 entry "Failure: MV1"
 ra --kind milestone-failure --on none --text-file "$T/entry.txt" >/dev/null 2>"$T/err"
 ra --repost 2 --on acme/widgets#8 >/dev/null 2>"$T/err"; eq "a failure entry isn't posted on a verdict's row" 65 $?
