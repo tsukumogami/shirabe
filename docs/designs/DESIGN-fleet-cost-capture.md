@@ -44,7 +44,10 @@ design amends one choice of `docs/designs/current/DESIGN-coordinator-record-tear
 (Decision 2): a cost entry is no longer posted on the pull request it concerns
 by default.
 
-Decision 6 was revised after acceptance: the switch is #1114's single opt-in
+Decision 1 was revised after acceptance: a sweep niwa starts has no GitHub
+token, so it only archives and leaves the removal pending, and a sweep that
+holds the coordinator's token, started at the end of the teardown pass and at
+each coordinator wake, finishes it. Decision 6 was revised after acceptance: the switch is #1114's single opt-in
 for workflow-tool content in pull requests, read through one accessor, not a
 variable of this feature's own.
 
@@ -123,10 +126,16 @@ Resolved inline.
 The workspace's on-reap command runs `unit-removed.sh record`. It validates the
 three `NIWA_*` values, writes a removal record named by the dispatch id, starts
 `unit-removed.sh sweep` in a new session with its streams closed, and exits 0,
-all within a second. The sweep, holding one host lock, captures every kept
-record. A record the sweep can't capture yet stays, and the next removal's
-sweep tries it again, so retries ride removals, which a host that dispatches
-makes often.
+all within a second. That sweep has no GitHub token: niwa refuses
+credential-shaped names in the command's environment, and a bare `gh` would
+fall back to a stored login, which this design never uses. So it archives what
+survives, computes the figures that need no GitHub read, and leaves the record
+`pending github`. A sweep that holds the coordinator's own token finishes it,
+started detached in two places: the end of the teardown pass, and one line of
+the coordinator's wait guidance that starts `unit-removed.sh sweep` in the
+background at each wake. Neither runs inside a koto action or gate, so no state
+can hit koto's 30-second bound, and a sweep with nothing pending does nothing.
+A lock per pending record keeps two sweeps from posting one record twice.
 
 *A sweep in the coordinator's loop* (its reconcile, or its quiet check). It
 would need no workspace configuration, and it was rejected because it catches
@@ -339,18 +348,15 @@ the shell that ran niwa.
 
 ```
 unit-removed.sh sweep
-  take R/.lock (mkdir; it holds pid, at and n); on failure: read its pid
-    and at; if the pid is not running, or at is older than 150 s x max(1, n),
-    mv it to R/.lock.stale.<our pid>, re-read the moved copy, and if its pid
-    and at aren't the ones judged stale (another sweep took it meanwhile),
-    move it back and exit 0; else mkdir again; otherwise exit 0
-  loop:
-    list R/*.json not yet handled this sweep, at most 20 per pass;
-      write n into the lock
-    none left -> release the lock, exit 0
+  list R/*.json, at most 20 per pass; none -> exit 0, no call made
     for each record:
+      take R/<id>.lock (mkdir, holding pid and at); held by a live pid younger
+        than 120 s -> pass over; a dead pid or an older lock -> take over by
+        rename, re-check, mkdir
       shape check fails          -> delete, log `invalid input`
-      removed_at > 7 days ago    -> delete, log `expired`
+      removed_at > 24 hours ago  -> list it `stale` (log and output), go on
+      GH_TOKEN unset or empty    -> archive, compute local figures, keep,
+                                    log `pending github`, release, next
       sessions = archive-common's koto scan for instance_path
       request  = earliest request-leg request with a coordinator requested_by
       no request                 -> keep, log `no coordinator`

@@ -33,6 +33,14 @@ items is no longer a variable of this feature's own. It is the one switch
 through one accessor (R11), so a repository turns all of it on or off in one
 place.
 
+Amended again after acceptance: a sweep started by niwa's on-reap command has no
+GitHub token (niwa refuses credential-shaped names in that command's
+environment), and a GitHub call without one would fall back to a stored login.
+So a sweep without a token makes no GitHub call at all: it archives and
+computes the local figures and leaves the removal pending, and a sweep that
+holds the coordinator's own token finishes it (R12a). Records are never dropped
+for age; one pending past 24 hours is listed as stale (R12).
+
 ## Absorbed Brief
 
 The feature exists because a dispatched unit's cost is captured only when the
@@ -250,13 +258,24 @@ pass happened to remove, with no way to tell which pull requests are missing.
   when it exists the accessor calls it and nothing else changes. The accessor
   answers include only when the reader says include; a missing reader, a failed
   read, or any other answer is omit. This feature adds no setting of its own.
-- **R12. Retry.** A removal record whose capture wrote no entry (`no
-  coordinator`, `several coordinators`, a failed record read, a failed post) is
-  kept, and its capture runs again at the next removal on the host: each removal
-  starts a sweep over every kept record. A record whose unit another capture has
-  recorded in the meantime is deleted without a capture (R5). A record whose
-  `removed_at` is more than 7 days old is deleted with one log line and no
-  capture. A written entry deletes its record.
+- **R12. Retry.** A removal record whose capture wrote no entry (`pending
+  github`, `no coordinator`, `several coordinators`, a failed record read, a
+  failed post) is kept, and every later sweep tries it again. A record whose
+  unit another capture has recorded in the meantime is deleted without a capture
+  (R5). A written entry deletes its record. No record is deleted for its age:
+  one still pending 24 hours after `removed_at` is listed by every sweep as
+  `stale`, in its log and on its output, so a person sees it.
+- **R12a. Who finishes a capture.** A sweep with `GH_TOKEN` unset or empty makes
+  no GitHub call: it archives what survives, computes the figures that need no
+  GitHub read, keeps the record with the outcome `pending github`, and posts
+  nothing; its `gh` calls, when it has a token, run with `GH_CONFIG_DIR` an
+  empty directory, so no stored login is ever used. A sweep with the token
+  finishes every pending record. Two places start one, each detached and never
+  inside a koto action or gate: the end of the teardown pass, and the
+  coordinator's wait guidance, which starts `unit-removed.sh sweep` in the
+  background at each wake. Each finished entry goes to the record the unit's
+  dispatch named (R3), never to the sweeping coordinator's own unless it is that
+  one.
 - **R13. Nothing on the unit's items.** With the setting off, no part of this
   feature writes to a pull request or an issue the unit opened or worked on:
   every write of an entry goes through `record-append.sh`, with `--on none` on
@@ -289,11 +308,13 @@ pass happened to remove, with no way to tell which pull requests are missing.
   out`). A sweep re-reads the directory before it releases its lock and handles
   any record added since, so the entry for every recorded removal exists, or its
   record is kept with an outcome, when the last sweep exits.
-- **R16. One sweep at a time.** A sweep holds a lock in the removals directory;
-  a second sweep started while it is held exits at once, leaving the records to
-  the running one. The lock holds the number of records the sweep listed; one
-  older than 150 seconds times that number (at least 150) is taken over, so a
-  sweep that died blocks nothing longer than its own bound.
+- **R16. One capture per record.** A sweep takes a lock per pending record
+  before it captures it, so two sweeps on one host (two coordinators waking
+  together, or a pass and a wake) never capture or post one record twice; a
+  record whose lock is held is passed over by the other sweep. A lock left by a
+  sweep that died is taken over once its holder's pid is gone or it is older
+  than the capture's 120-second bound. A sweep with nothing pending does
+  nothing.
 - **R17. Untrusted input.** The removal record, the koto request and the
   archive are read under today's capture rules: only numbers, ids, timestamps
   and closed-set words are kept, each matched to its shape (`unit-cost.sh`'s
@@ -384,14 +405,16 @@ Each criterion names the requirements it verifies. Suites run with stubbed
 - [ ] (R12, R14) A record kept for `no coordinator` is captured at the next
   removal once a coordinator is live; kept after a failed record read or a
   failed post, it is captured at the next removal; one whose unit already has an
-  entry is deleted with no capture; one with `removed_at` 8 days old is deleted
-  with the log outcome `expired`; one 6 days old is kept. Each handled record
-  adds one `removals.log` line with its outcome.
-- [ ] (R16) A second sweep started while the first holds the lock exits at once
-  and the stub capture runs once, and a record written while the first held the
-  lock is handled by it before it exits; a lock naming one record, left by a
-  killed sweep and dated more than 150 seconds ago, is taken over and the
-  capture runs; one dated 100 seconds ago is not.
+  entry is deleted with no capture; one with `removed_at` 25 hours old and
+  still pending is kept and listed `stale`. Each handled record adds one
+  `removals.log` line with its outcome.
+- [ ] (R12a) With `GH_TOKEN` unset, a sweep archives, keeps the record `pending
+  github`, and the stub `gh` records no call and `record-append.sh` no post;
+  with a token, a later sweep posts the entry to the record the dispatch named
+  and deletes the record.
+- [ ] (R16) Two sweeps started together over one pending record post one
+  entry; a record lock left by a killed sweep whose pid is gone is taken over and
+  the capture runs; a sweep with no pending record makes no call.
 - [ ] (R17) A removal record, request and archive carrying shell metacharacters
   in the repository, number, sha, branch and dispatch id, and a non-numeric
   figure, produce no command with those values (the stubs record every argument),
@@ -444,8 +467,11 @@ Each criterion names the requirements it verifies. Suites run with stubbed
   this lands; an earlier unit whose Holdings row is gone still gets `not
   recoverable`.
 - A unit with no coordinator request (a person's own dispatch) is kept as `no
-  coordinator` for 7 days before it is dropped, since a removal can't tell it
-  from a coordinator dispatch whose coordinator hasn't started yet.
+  coordinator` and listed `stale` after 24 hours, since a removal can't tell it
+  from a coordinator dispatch whose coordinator hasn't started yet; someone
+  removes such a record by hand.
+- A removal's entry waits for a sweep that holds a token: until a teardown pass
+  ends or a coordinator wakes on the host, it is `pending github`.
 - An entry is written once. A pull request open at capture is listed in
   `opened` and never moved to `pulls`; a reader joins its later merge on its
   number.

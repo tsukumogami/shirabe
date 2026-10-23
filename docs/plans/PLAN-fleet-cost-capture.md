@@ -97,7 +97,7 @@ An open or draft pull request the unit made appears in the entry's new `opened` 
 
 ### Step 7: kept removals are retried, expired and logged
 
-A removal the sweep couldn't capture is retried at the next removal, dropped after 7 days, and logged, under the sweep's lock, its takeover and its re-check of every record it reads back.
+A removal left pending is finished by a token-bearing sweep started at the end of the teardown pass and at each coordinator wake, under a lock per record, and one pending past 24 hours is listed stale, never dropped.
 
 ### Step 8: the reference documents capture after a removal and the workspace's on-reap line
 
