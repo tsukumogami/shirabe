@@ -554,9 +554,18 @@ git add -- <hop-pathspecs>
 if git diff --cached --quiet -- <hop-pathspecs>; then
   echo "the <hop> hop's artifact is already committed; nothing to add"
 else
-  git commit -m "docs(scope): <hop> hop for <topic>" -- <hop-pathspecs>
+  # The hop is the workflow's word; it goes in the message only for a
+  # repository that opts in to workflow content.
+  if [ "$("${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh")" = include ]; then
+    git commit -m "docs(scope): <hop> hop for <topic>" -- <hop-pathspecs>
+  else
+    git commit -m "docs: add the <topic> <document type>" -- <hop-pathspecs>
+  fi
 fi
 ```
+
+`<document type>` is the document the hop wrote, in plain words: `brief`,
+`requirements`, `design` or `plan`.
 
 `<hop-pathspecs>` is the hop's row in the table below, each path
 quoted.

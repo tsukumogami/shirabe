@@ -28,7 +28,12 @@
 #   5. the pinned interface outside readers use: on a record on the GitHub
 #      store, `record-append.sh --session S --kind cost --text-file F` posts the
 #      entry as a comment with its marker, and `--session S --list` reads it
-#      back, with the same flags, output shape and exit codes as before.
+#      back, with the same flags, output shape and exit codes as before;
+#   6. the session store's read: the same state and body as GitHub's, a
+#      pending, absent or other-scope record refused, and --show;
+#   7. one read per step (rs_once_begin): reads inside the shared read's fields
+#      take it, and one asking for a field outside them is made live; and
+#      reconcile-read.sh's read of a session-store record parses its body once.
 #
 # Usage: bash skills/coordinate/scripts/record-source_test.sh
 set -uo pipefail
@@ -516,6 +521,40 @@ bash "$RS" --session "$SW" --show > "$T/show.md" 2>"$T/err"; eq "--show prints t
 eq "  ... a body that parses back to the session's state (R11)" "$(jq -cS . "$T/rec.json")" \
     "$(bash "$HERE/record-parse.sh" --container issue "$T/show.md" | jq -cS .)"
 grep -q 'host-only-marker' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
+
+echo "== 7. one read per step (rs_once_begin) =="
+# once_reads <dir>: three reads of #7 under one shared read kept in <dir>, in a
+# subshell: the body, a read asking for a field outside the shared read's
+# (author), and state with the body. Prints each one's return code.
+once_reads() {
+    [ $# -ge 1 ] || return 64
+    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO REF=7; . "$HERE/record-common.sh"; lib_facts
+      RS_SOURCE=github RS_RETRY_PAUSE=0
+      rs_once_begin "$1" || exit 2
+      rs_record "$1/a" body --json body --jq .body; printf 'a%s ' $?
+      rs_record "$1/b" json --json body,author; printf 'b%s ' $?
+      rs_record "$1/c" json --json state,body; printf 'c%s' $? )
+}
+reset_calls
+eq "reads inside the shared read's fields, and one outside them, all answer" "a0 b0 c0" "$(once_reads "$T/once")"
+eq "  ... from two reads of #7: the shared one, and the live one for the field it lacks" 2 "$(grep -c '^issue view 7 ' "$GH_DB.calls")"
+eq "  ... the live one with the field it asked for" alice "$(jq -r .author.login "$T/once/b.raw")"
+eq "  ... and the shared reads with the record's body" "$(cat "$T/g.md")" "$(cat "$T/once/c.md")"
+# The read reconcile-read.sh makes on the session store parses the body once:
+# the seam's view assembles and renders it, and reconcile-read.sh parses it
+# itself, where the seam used to parse it back first for nobody. Counted in a
+# copy of the scripts whose record-parse.sh logs each run.
+TR="$T/parse-tree/skills/coordinate/scripts"
+mkdir -p "$TR" "$T/parse-tree/skills/execute"
+cp "$HERE"/*.sh "$HERE"/*.jq "$TR/"
+cp -R "$HERE/../../execute/scripts" "$T/parse-tree/skills/execute/"
+mv "$TR/record-parse.sh" "$TR/record-parse.real"
+printf '#!/usr/bin/env bash\necho parse >> "%s"\nexec bash "%s" "$@"\n' "$T/parses" "$TR/record-parse.real" > "$TR/record-parse.sh"
+chmod +x "$TR/record-parse.sh"
+: > "$T/parses"
+bash "$TR/reconcile-read.sh" --session "$SW" > "$T/rr.json" 2> "$T/rr.err"
+eq "reconcile-read.sh reads a session-store record" "0 found" "$? $(jq -r .status "$T/rr.json" 2>/dev/null)"
+eq "  ... parsing its body once (the seam parsed it back first, a second time)" 1 "$(grep -c parse "$T/parses")"
 
 echo "== the resume decision (PRD R12) =="
 # rs_resume_candidate over this host's runs of one scope, on the koto stand-in:

@@ -1,0 +1,9 @@
+# check-tick-launches.allow -- calls scripts/check-tick-launches.sh does not
+# follow, each with the reason the callee's launch is never reached that way.
+#
+# One record per line: <caller><TAB><callee><TAB><reason>, both paths from the
+# plugin root. A record exempts that one call, not the callee: a template or
+# another script that runs the callee is still followed into it. A record that
+# no longer matches a call the templates reach fails the check, so it is
+# removed with the call it described.
+skills/coordinate/scripts/reconcile-legs.sh	skills/coordinate/scripts/dispatch-worker.sh	reconcile-legs.sh runs it only as --releg-imported, which exits before the niwa dispatch of the dispatch path

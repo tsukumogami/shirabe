@@ -83,6 +83,9 @@ PUSH=false
 PLAN_DOC=""
 REPO_ROOT=""
 SESSION=""
+# This script's own directory, for the plugin's shared
+# scripts/pr-workflow-content.sh (the publish step's commit message).
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Outline-AC completeness suppression. When WORK_ON_ALLOW_UNTRACKED_ACS=1 is
 # set in the environment, the validator's --allow-untracked-acs flag is added
@@ -1214,7 +1217,15 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     # The `${git_out:-...}` fallbacks matter because git can fail silently: a
     # pre-commit hook that exits 1 without printing leaves nothing captured, and
     # the step's detail is the field execute.md sends the agent to read.
-    if ! git_out=$(git commit -q -m "chore(cascade): post-implementation artifact transitions" 2>&1); then
+    # The message says what the commit changes in the repository's own terms;
+    # the workflow's name for the step goes in it only for a repository that
+    # opts in to workflow content (scripts/pr-workflow-content.sh), and a
+    # setting that can't be read is the default.
+    cascade_msg="docs: update the status of the documents this work completes"
+    if [ "$(bash "$SCRIPT_DIR/../../../scripts/pr-workflow-content.sh" "$REPO_ROOT" 2>/dev/null </dev/null)" = include ]; then
+        cascade_msg="chore(cascade): post-implementation artifact transitions"
+    fi
+    if ! git_out=$(git commit -q -m "$cascade_msg" 2>&1); then
         ANY_FAILED=true
         log_warn "the finalization was not published; the transitions remain staged"
         log_warn "git commit failed: $git_out"

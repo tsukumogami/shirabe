@@ -1,0 +1,48 @@
+name: Check PR workflow content switch
+
+# scripts/pr-workflow-content.sh reads a repository's `## PR Workflow Content:`
+# header, the one switch every skill and gate reads to decide whether pull
+# request text carries workflow records. Its suite writes throwaway CLAUDE.md
+# files and needs only bash, awk, tr and git: the Linux leg runs it under
+# bash 5, the macOS leg on the bash 3.2 floor.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/pr-workflow-content.sh'
+      - 'scripts/pr-workflow-content_test.sh'
+      - '.github/workflows/check-pr-workflow-content.yml'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it
+      # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/pr-workflow-content.list'
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-pr-workflow-content:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the suite (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/pr-workflow-content_test.sh
+
+      # A bare `bash` on a macOS runner is Homebrew's bash 5; only /bin/bash
+      # is 3.2 (shirabe#416), and the runner is the one way onto it.
+      - name: Run the suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system pr-workflow-content

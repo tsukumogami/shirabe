@@ -235,8 +235,10 @@ cascade as its final step before `done`. A single script (`run-cascade.sh --push
 node: DESIGN moves to Current (with the Implementation Issues section
 compressed out), PRD moves to Done, the ROADMAP feature entry is updated,
 and the ROADMAP itself moves to Done once all its features complete. The
-transitions are committed and pushed as `chore(cascade): post-implementation
-artifact transitions` onto the open PR, so the PR merges with the upstream
+transitions are committed and pushed onto the open PR as `docs: update the
+status of the documents this work completes` (`chore(cascade):
+post-implementation artifact transitions` in a repository that declares `## PR
+Workflow Content: include`), so the PR merges with the upstream
 artifacts already advanced — there is no post-merge trigger. Cascade
 failures are best-effort: they don't block the PR, and the script emits a
 JSON result recording which steps ran. See

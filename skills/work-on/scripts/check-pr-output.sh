@@ -29,6 +29,14 @@
 #       older than --writing-style rejects the flag with exit 1, so the gate
 #       holds (2) and says to upgrade; preflight (requires.tsv) reports the
 #       same gap when the skill loads.
+#       Unless the repository opts in to workflow content in its PR bodies
+#       (scripts/pr-workflow-content.sh prints include for the work tree this
+#       runs in), the body is also scanned, outside fenced code, for workflow
+#       records (references/pr-body-conformance.md, "Workflow content"): a
+#       `## Review panel` heading, a Seat/Model/Run/Verdict/Reviewed head
+#       table, a `Plan:` or `Roadmap:` line, an `Implements` line naming a
+#       PLAN- or ROADMAP- file. Each is a pr-body/workflow-content finding, at
+#       that rule's stage, whatever the validator answered.
 #
 #   --owned-pr <owned-pr.sh arguments>
 #       Runs skills/execute/scripts/owned-pr.sh with the arguments, bounded in
@@ -40,9 +48,15 @@
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
 #   --deferral-record --reason <reason> [--reason <reason>]...
-#                     [--owned <owned-pr.sh arguments>]
+#                     [--body] [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
-#       VERIFICATION=hosted-ci, #1012). Reads the pull request body with
+#       VERIFICATION=hosted-ci, #1012). In a repository that doesn't opt in
+#       to workflow content (scripts/pr-workflow-content.sh prints omit, the
+#       default) it passes (0) without reading GitHub: the deferral is
+#       recorded in the run's context as verification_deferral, and the body
+#       says in plain terms that hosted CI verified the change. In one that
+#       opts in, or with --body (a coordinated node PR, whose body carries the
+#       record whatever the setting), it reads the pull request body with
 #       `gh pr view --json body` and checks that it records the deferral, in
 #       three parts:
 #         a line saying "local verification did not run"
@@ -96,6 +110,7 @@
 #   PB4 (heading in Part 1)  pr-body/no-heading-in-part1
 #   PB5 (banned word)        pr-body/banned-word
 #   anything else            pr-body/conformance
+# and this script's own scan, pr-body/workflow-content.
 # The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
 # resolves each one's reference, summary and stage through scripts/rule-registry.sh.
 #
@@ -104,7 +119,7 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word pr-body/conformance"
+RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word pr-body/conformance pr-body/workflow-content"
 # Seconds owned-pr.sh may run. koto stops a gate command at 30 seconds; this
 # stays under it so the answer is this script's 2, not koto's timeout.
 # CHECK_PR_OUTPUT_OWNED_TIMEOUT is the tests' seam, and also how
@@ -117,7 +132,7 @@ usage() {
     cat >&2 <<'EOF'
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
-       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--body] [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
@@ -225,10 +240,57 @@ rule_for_message() {
     esac
 }
 
+# workflow_content: pr-workflow-content.sh's answer for the
+# repository this script runs in (the work tree holding the current
+# directory), `include` or `omit`; any failure is undecided.
+workflow_content() {
+    local v
+    v=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" 2>"$WORK/pwc.err" </dev/null) \
+        || undecided "scripts/pr-workflow-content.sh failed: $(tail -n 1 "$WORK/pwc.err")"
+    case "$v" in
+        include|omit) printf '%s\n' "$v" ;;
+        *) undecided "scripts/pr-workflow-content.sh printed [$v], not include or omit" ;;
+    esac
+}
+
+# workflow_records <body-file>: one line per workflow record the body carries
+# outside fenced code (references/pr-body-conformance.md, "Workflow
+# content"), naming it and its line. Shapes only, never words.
+workflow_records() {
+    awk '
+        /^[ \t]*```/ { fence = !fence; next }
+        fence { next }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            t = line
+            sub(/^[ \t]+/, "", t)
+            sub(/[ \t]+$/, "", t)
+            l = tolower(t)
+            if (l == "## review panel") {
+                printf "a `## Review panel` heading (line %d)\n", NR; next
+            }
+            if (substr(t, 1, 1) == "|") {
+                c = l
+                gsub(/`/, "", c)
+                gsub(/[ \t]*\|[ \t]*/, "|", c)
+                if (c == "|seat|model|run|verdict|reviewed head|") {
+                    printf "a Seat, Model, Run, Verdict, Reviewed head table (line %d)\n", NR; next
+                }
+            }
+            if (l ~ /^(plan|roadmap):/) {
+                printf "a `%s` line (line %d)\n", substr(t, 1, index(t, ":")), NR; next
+            }
+            if (l ~ /^implements[ \t]/ && t ~ /(PLAN|ROADMAP)-[^ \t]*\.md/) {
+                printf "an `Implements` line naming a PLAN or ROADMAP file (line %d)\n", NR; next
+            }
+        }' "$1"
+}
+
 check_pr_body() {
     require_rules pr-body/conventional-title pr-body/one-separator \
         pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word \
-        pr-body/conformance
+        pr-body/conformance pr-body/workflow-content
     for tool in gh jq shirabe; do
         command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
     done
@@ -253,15 +315,28 @@ check_pr_body() {
     title=$(jq -r '.title' "$WORK/pr.json")
     jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
 
+    # Workflow records, unless the repository opts in to them.
+    : > "$WORK/records"
+    content=$(workflow_content) || exit 2
+    if [ "$content" = omit ]; then
+        workflow_records "$WORK/body.md" > "$WORK/records" \
+            || undecided "the PR body couldn't be scanned for workflow records"
+    fi
+
     # --writing-style goes last so the earlier arguments keep their positions.
     shirabe validate --pr-body "$WORK/body.md" --pr-title "$title" --format json \
         --writing-style "$rules_file" \
         > "$WORK/out" 2> "$WORK/err" < /dev/null
     rc=$?
+    # A clean validator result still reports the workflow records the scan
+    # found, so 0 falls through to the findings below when there are any; the
+    # validator's own findings (and its fallback) are read only on its 2.
     case "$rc" in
         0)
-            echo "check-pr-output: the PR title and body conform" >&2
-            exit 0
+            if [ ! -s "$WORK/records" ]; then
+                echo "check-pr-output: the PR title and body conform" >&2
+                exit 0
+            fi
             ;;
         2) ;;
         *)
@@ -274,7 +349,7 @@ check_pr_body() {
     esac
     pb4=0
     listed=0
-    if jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" \
+    if [ "$rc" -eq 2 ] && jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" \
         && [ -s "$WORK/messages" ]; then
         while IFS= read -r msg; do
             [ -n "$msg" ] || continue
@@ -284,10 +359,14 @@ check_pr_body() {
             finding "$rule" "$msg"
         done < "$WORK/messages"
     fi
+    while IFS= read -r rec; do
+        [ -n "$rec" ] || continue
+        finding pr-body/workflow-content "$rec; the repository doesn't declare ## PR Workflow Content: include, so it belongs in the run's session, not the body"
+    done < "$WORK/records"
     # The fallback stands in for a violation the validator didn't list, so it
     # prints only when nothing was listed: a listed finding below block is
     # still a listed finding, and the run passes on it.
-    if [ "$listed" -eq 0 ]; then
+    if [ "$rc" -eq 2 ] && [ "$listed" -eq 0 ]; then
         finding pr-body/conformance \
             "shirabe validate --pr-body reported violations it did not list; run it on the PR body for the detail"
     fi
@@ -345,16 +424,32 @@ check_deferral_record() {
         shift 2
     done
     [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
+    body_always=0
+    if [ $# -gt 0 ] && [ "$1" = --body ]; then
+        body_always=1
+        shift
+    fi
     if [ $# -gt 0 ]; then
         [ "$1" = --owned ] || { usage; exit 2; }
         shift
         [ $# -gt 0 ] || { usage; exit 2; }
         OWNED=1
     fi
+    make_work
+    # A repository that doesn't opt in to workflow content keeps the deferral
+    # out of the body: the run's context already records it
+    # (verification_deferral), and the body's Verification section says in
+    # plain terms that hosted CI verified the change. --body reads the body
+    # whatever the setting: a coordinated node PR always carries the record.
+    content=include
+    [ "$body_always" = 1 ] || content=$(workflow_content) || exit 2
+    if [ "$content" = omit ]; then
+        echo "check-pr-output: the repository doesn't declare ## PR Workflow Content: include, so the deferral is recorded in the run's context, not the PR body" >&2
+        exit 0
+    fi
     for tool in gh jq; do
         command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
     done
-    make_work
     if [ "$OWNED" = 1 ]; then
         lookup "$@"
         rc=$?

@@ -104,18 +104,34 @@ place before then. On an intent run the PR body is the publish script's fixed
 template -- the slug, exit, outcome, `intent=`, mode, the `docs/`
 artifact paths that survive, and the work-item IDs, with no
 free-text field -- so the list of surviving artifacts is what it
-carries. On a run without intent, where the author opens the PR,
-Phase 3 writes the fuller record into the run's pull-request body: every
-artifact in `chain_ran:`, every entry in `chain_skipped:` with its
-`child` and its vocabulary `reason`, and every entry in
-`consolidation_judgments:` with its verdict, its finding, and —
-on a completed absorb — what was absorbed into what.
+carries (the record lines and the PLAN's path only for a repository
+that opts in to workflow content; see below). On a run without
+intent, where the author opens the PR, Phase 3 writes the account
+into the run's pull-request body.
 
-Without it, a reviewer reading the PR cannot tell an artifact that
+What that account carries depends on whether the repository opts in
+to workflow content in its PR bodies:
+`${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh` prints `include`
+for one that declares `## PR Workflow Content: include`, and `omit`,
+the default, otherwise.
+
+- **`omit`**: in plain terms, the documents the change adds and, for a
+  document the chain folded into another, which one now carries its
+  content ("the problem framing is in the PRD's opening section"). No
+  `chain_ran:`, `chain_skipped:` or `consolidation_judgments:` entries,
+  no vocabulary reasons, no pointer to a ROADMAP or PLAN file. The full
+  record stays in the run's session.
+- **`include`**: the fuller record: every artifact in `chain_ran:`,
+  every entry in `chain_skipped:` with its `child` and its vocabulary
+  `reason`, and every entry in `consolidation_judgments:` with its
+  verdict, its finding, and — on a completed absorb — what was absorbed
+  into what.
+
+Without one or the other, a reviewer reading the PR cannot tell an artifact that
 was absorbed from one that was never produced. The two look
 identical on disk and mean opposite things.
 
-**`consumed_upstream:` goes into that record too, whenever the run
+**Under `include`, `consumed_upstream:` goes into that record too, whenever the run
 had one.** The roadmap a chain consumed is recorded on the PLAN the
 chain produces, and a run that ends before `/plan` has no PLAN and
 therefore no legal node to carry it — no durable artifact may name a

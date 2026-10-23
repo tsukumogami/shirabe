@@ -1,0 +1,28 @@
+name: Check tick launches
+
+on:
+  pull_request:
+    paths:
+      - 'koto-templates/**'
+      - 'skills/*/koto-templates/**'
+      - '**/*.sh'
+      - '**/*.py'
+      - 'scripts/check-tick-launches.allow'
+      - '.github/workflows/check-tick-launches.yml'
+
+jobs:
+  check-tick-launches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # koto runs a template's gate commands and default actions inside a
+      # tick, and what they run inherits KOTO_SESSION_*, koto's cloud backend
+      # settings and credentials. No gate or action, and no script one runs,
+      # may launch `niwa dispatch` or `claude` without unsetting them first.
+      #
+      # The test harness runs the check against the tree as its first case,
+      # and then against fixture templates that must fail, so this one step
+      # covers the scan and its own regression suite.
+      - name: Check no tick launches a worker that inherits KOTO_SESSION_*
+        run: bash scripts/check-tick-launches_test.sh

@@ -24,6 +24,7 @@ skills/coordinate/scripts/board-verdict_test.sh
 scripts/lib/squash-message_test.sh
 skills/coordinate/scripts/board-record_test.sh
 skills/coordinate/scripts/land-check_test.sh
+skills/coordinate/scripts/review-round_test.sh
 skills/coordinate/scripts/land-merge_test.sh
 skills/coordinate/scripts/merge-confirm_test.sh
 skills/coordinate/scripts/merged-facts_test.sh

@@ -2,7 +2,8 @@
 # koto stand-in for the board, land and merge tests (KOTO_BIN points here).
 # Serves hand-written session logs from $KOTO_BOARD_DIR/sessions/<S>/, keeps
 # context keys as files beside them (add, get, exists, and list with
-# --prefix), and answers `template compile` with a
+# --prefix), serves `request get` from $KOTO_BOARD_DIR/requests/, and
+# answers `template compile` with a
 # path whose name is $KOTO_BOARD_HASH, which is what coord-log.sh provenance
 # compares with the header's template_hash. Anything else exits 9.
 set -uo pipefail
@@ -24,6 +25,12 @@ case "${1-} ${2-}" in
         [ -d "$D/sessions/$s/ctx" ] || { echo '[]'; exit 0; }
         (cd "$D/sessions/$s/ctx" && ls) | sed 's#__#/#g' | LC_ALL=C sort \
             | jq -R -s -c --arg p "$p" 'split("\n") | map(select(. != "" and startswith($p)))' ;;
+    "request get")
+        # A request's view from $D/requests/<R>.json; <R>.gone is one this
+        # host's store doesn't hold (koto's 2), <R>.fail a read that fails.
+        [ -e "$D/requests/${3-}.gone" ] && { echo "koto stand-in: request_not_found" >&2; exit 2; }
+        [ -e "$D/requests/${3-}.fail" ] && { echo "koto stand-in: store unreadable" >&2; exit 1; }
+        cat "$D/requests/${3-}.json" 2>/dev/null || exit 1 ;;
     "template compile") printf '%s\n' "$D/cache/${KOTO_BOARD_HASH:-none}.json" ;;
     *) echo "koto stand-in: unexpected: $*" >&2; exit 9 ;;
 esac

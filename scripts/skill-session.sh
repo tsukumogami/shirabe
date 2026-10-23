@@ -13,7 +13,7 @@
 #
 # Usage:
 #   skill-session.sh name <skill> <topic>
-#   skill-session.sh open <skill> <topic>
+#   skill-session.sh open <skill> <topic> [--dispatched-by <dispatcher>]
 #   skill-session.sh status <session>
 #   skill-session.sh has-work <skill> <topic>
 #   skill-session.sh close <session> <done|abandoned>
@@ -26,7 +26,6 @@
 #   skill-session.sh ingest <session> <area> <dir>
 #   skill-session.sh get <session> <key> <dir>
 #   skill-session.sh put <session> <key> <file>
-#   skill-session.sh reclaimable <session>
 #   skill-session.sh import <set> <topic> --from <workspace-path>
 #
 # Arguments:
@@ -40,6 +39,9 @@
 #   <child>     for `dispatch write`, one of <parent>'s children; for
 #               `dispatch read`, `adopt`, any <skill> (one that is no parent's
 #               child never matches).
+#   <dispatcher>  for open --dispatched-by: the session that dispatched this
+#               one, any koto session name (^[A-Za-z0-9][A-Za-z0-9._-]*$, at
+#               most 200 bytes) other than the session being opened.
 #   <key>       for get and put: under work/ or research/, at most 255 bytes,
 #               each `/`-separated component matching
 #               ^[A-Za-z0-9][A-Za-z0-9._-]*$ (koto's key grammar), and no `..`.
@@ -76,6 +78,27 @@
 #             through unchanged; this script's own refusals print
 #             refused=branch_mismatch or refused=no_branch, and a koto below
 #             the floor prints failed=koto_below_floor.
+#             With --dispatched-by <dispatcher>, once the session is open
+#             (new, attached or replaced) it records who dispatched it: the
+#             link step below, after the lines above. Without the flag no link
+#             is written and open behaves as it always has. A refused or
+#             failed open links nothing.
+#
+#   the link step (open --dispatched-by, adopt)
+#             runs `koto session link <session> --dispatched-by <dispatcher>`,
+#             which writes a dispatched-by link into <session>'s own context,
+#             so koto keeps <session> while its dispatcher's hierarchy is
+#             alive (`koto session hierarchy <session>` shows the hierarchy
+#             and why it is kept). A failed link is run once more. A second
+#             failure prints
+#               warning=link-failed dispatched_by=<dispatcher>
+#             and records the same in <session>'s own key session/link-warning
+#             (two lines, warning=link-failed and dispatched_by=<dispatcher>),
+#             and the subcommand still exits 0: the session is open and usable,
+#             only not joined to its dispatcher. A link that succeeds, at once
+#             or on the retry, prints nothing and removes any
+#             session/link-warning an earlier failure left. The shared code is
+#             scripts/lib/dispatch-link.sh.
 #
 #   status    prints absent, live or finished from `koto status`, which reads
 #             only. Nothing is ticked. A session koto removed at its terminal
@@ -124,7 +147,11 @@
 #             chain/parent = the matched parent's session name into
 #             <child>-<topic> (which must be live), or removes chain/parent
 #             when nothing matched. Prints adopted=<parent session> or
-#             adopted=none. Two matches change nothing and exit 3.
+#             adopted=none. Two matches change nothing and exit 3. On one
+#             match, after chain/parent is written, it runs the link step with
+#             the parent's session as the dispatcher (a failure prints its
+#             warning= line after adopted=); no match and two matches link
+#             nothing.
 #
 #   close-children   for each child in <parent>'s fixed list, re-reads
 #             <child>-<topic> immediately before acting: it is closed with <v>
@@ -160,16 +187,6 @@
 #             failed=mkdir. The session may be live or finished.
 #   put       writes <file>'s bytes to <key> in a live <session>, and prints
 #             put=<key>. <file> is left in place.
-#
-#   reclaimable   prints yes or no. yes only when the session is finished and
-#             either holds no chain/parent, or its chain/parent string-equals
-#             scope-<topic> or charter-<topic> for the session's own topic and
-#             that session is absent or finished. A live or absent session, a
-#             malformed chain/parent, or a name whose skill is not one the
-#             convention knows is no. The topic is the session name with the
-#             skill prefix removed, matched longest first against: review-plan
-#             decision strategy charter explore release roadmap design vision
-#             brief scope comp plan prd.
 #
 #   import    moves a topic's sessions from another workspace's copy in the
 #             bucket: `koto session import <name> --from <workspace-path>` once
@@ -212,7 +229,7 @@
 #   3    dispatch read / adopt: two parent sessions match; import: no
 #        session of the set exists at the source
 #   4    cannot tell: koto answered something other than a session's state
-#        (status, has-work, dispatch read, adopt, reclaimable, close-children)
+#        (status, has-work, dispatch read, adopt, close-children)
 #   5    refused=branch_mismatch: the session belongs to another branch
 #   6    refused=no_branch: HEAD is not on a branch, or not in a git work tree
 #   64   usage error; no koto call was made
@@ -239,6 +256,8 @@ PLUGIN_ROOT=$(cd -P -- "$SCRIPT_DIR/.." && pwd -P)
 TEMPLATE="$PLUGIN_ROOT/koto-templates/skill-session.md"
 KOTO_OPEN="$SCRIPT_DIR/koto-open.sh"
 FLOOR_CHECK="$SCRIPT_DIR/assert-koto-floor.sh"
+# shellcheck source=lib/dispatch-link.sh
+. "$SCRIPT_DIR/lib/dispatch-link.sh" || exit 64
 # The nested scripts run under this same bash, so a run on the bash 3.2 floor
 # stays there.
 BASH_BIN="${BASH:-bash}"
@@ -250,8 +269,6 @@ RE_COMPONENT='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 
 PARENTS="scope charter"
 ALL_CHILDREN="brief prd design plan vision strategy roadmap"
-# Longest first, so review-plan-x is review-plan's and not plan's.
-KNOWN_SKILLS="review-plan decision strategy charter explore release roadmap design vision brief scope comp plan prd"
 # The sets `import` walks; their names are in import_names.
 IMPORT_SETS="tactical strategic explore comp release execute deliver"
 RE_IMPORT_CODE='^[a-z][a-z0-9_]*$'
@@ -289,7 +306,7 @@ say() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 usage() {
     printf 'error=usage\n'
     say "$1"
-    say "usage: skill-session.sh name|open|status|has-work|close|dispatch|adopt|close-children|scratch|ingest|get|put|reclaimable|import ... (see the header of this script)"
+    say "usage: skill-session.sh name|open|status|has-work|close|dispatch|adopt|close-children|scratch|ingest|get|put|import ... (see the header of this script)"
     exit 64
 }
 
@@ -545,12 +562,21 @@ cmd_name() {
 # --- open ------------------------------------------------------------------------
 
 cmd_open() {
-    local skill topic s dir out rc first line
-    [ "$#" -eq 2 ] || usage "open takes <skill> <topic>"
+    local skill topic s dir out rc first line dispatcher=""
+    if [ "$#" -eq 4 ] && [ "$3" = "--dispatched-by" ]; then
+        dispatcher="$4"
+    elif [ "$#" -ne 2 ]; then
+        usage "open takes <skill> <topic> [--dispatched-by <dispatcher>]"
+    fi
     skill="$1"; topic="$2"
     check_skill "$skill"
     check_topic "$topic"
     s="$skill-$topic"
+    if [ "$#" -eq 4 ]; then
+        dl_valid_dispatcher "$dispatcher" \
+            || usage "--dispatched-by must name a koto session: ^[A-Za-z0-9][A-Za-z0-9._-]*\$, at most 200 bytes"
+        [ "$dispatcher" != "$s" ] || usage "--dispatched-by names $s itself; a session is not its own dispatcher"
+    fi
     need_tools
     if ! KOTO_BIN="$KOTO" "$BASH_BIN" "$FLOOR_CHECK" >&2; then
         printf 'failed=koto_below_floor\n'
@@ -642,6 +668,8 @@ cmd_open() {
             replaced_state=*|replaced_result=*) printf '%s\n' "$line" ;;
         esac
     done
+    # A failed link has printed its warning and recorded it; the open stands.
+    [ -z "$dispatcher" ] || dl_link "$KOTO" "$s" "$dispatcher" || true
     exit 0
 }
 
@@ -931,6 +959,9 @@ cmd_adopt() {
         1)
             kput "$s" chain/parent "$M_PARENT" || { printf 'failed=koto_error\n'; say "could not write chain/parent into $s"; exit 1; }
             printf 'adopted=%s\n' "$M_PARENT"
+            # A failed link has printed its warning and recorded it; the
+            # adoption stands.
+            dl_link "$KOTO" "$s" "$M_PARENT" || true
             ;;
         *)
             say "two parent sessions dispatch $child on $topic: $M_PARENT and $M_OTHER; nothing was adopted"
@@ -1183,48 +1214,6 @@ cmd_put() {
     printf 'put=%s\n' "$key"
 }
 
-# --- reclaimable -------------------------------------------------------------------------
-
-cmd_reclaimable() {
-    local s sk topic="" rc
-    [ "$#" -eq 1 ] || usage "reclaimable takes <session>"
-    s="$1"
-    check_session "$s"
-    for sk in $KNOWN_SKILLS; do
-        case "$s" in
-            "$sk"-*) topic="${s#"$sk"-}"; break ;;
-        esac
-    done
-    if [ -z "$topic" ] || ! [[ "$topic" =~ $RE_TOPIC ]]; then
-        printf 'no\n'
-        exit 0
-    fi
-    need_tools
-    session_state "$s" || { say "cannot tell the state of $s"; exit 4; }
-    if [ "$SSTATE" != "finished" ]; then
-        printf 'no\n'
-        exit 0
-    fi
-    rc=0
-    kget "$s" chain/parent || rc=$?
-    case "$rc" in
-        0) ;;
-        1) printf 'yes\n'; exit 0 ;;
-        *) say "cannot read chain/parent from $s"; exit 4 ;;
-    esac
-    # Compared, never interpolated: anything but the two names is malformed.
-    if [ "$KVAL" != "scope-$topic" ] && [ "$KVAL" != "charter-$topic" ]; then
-        printf 'no\n'
-        exit 0
-    fi
-    session_state "$KVAL" || { say "cannot tell the state of the parent session"; exit 4; }
-    case "$SSTATE" in
-        absent|finished) printf 'yes\n' ;;
-        *) printf 'no\n' ;;
-    esac
-    exit 0
-}
-
 # --- import ------------------------------------------------------------------------------
 
 # import_names <set> <topic> -- the session names <set> holds for <topic>, in
@@ -1326,7 +1315,6 @@ case "$SUB" in
     ingest) cmd_ingest "$@" ;;
     get) cmd_get "$@" ;;
     put) cmd_put "$@" ;;
-    reclaimable) cmd_reclaimable "$@" ;;
     import) cmd_import "$@" ;;
     *) usage "unknown subcommand: $SUB" ;;
 esac

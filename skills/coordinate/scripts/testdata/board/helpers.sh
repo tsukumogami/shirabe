@@ -28,6 +28,9 @@ bt_setup() {
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
     cp "$TD/board/stand-in-record-holding.sh" "$S/record-holding.sh"
+    # No holdings until a test writes some: an empty list, which every
+    # holdings read (bl_review_evidence's included) reads as no row.
+    echo '[]' > "$T/state/holdings"
     cp "$TD/board/stand-in-merge-exec.sh" "$T/plugin/skills/execute/scripts/merge-exec.sh"
     : > "$T/plugin/skills/coordinate/koto-templates/coordinate.md"
     ln -sf "$TD/gh-board" "$T/bin/gh"
@@ -175,6 +178,24 @@ bt_pause() {
 bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
     local l
     for l in "$@"; do jq -nc --arg l "$l" '{worker: "w", pull_request: $l, repo: "x"}'; done | jq -sc . > "$BT_STATE/holdings"
+}
+
+# bt_leg_round <request> <leg> <child> [round-json]: a Holdings row linking
+# acme/widgets#12 that returns on the leg, the request's view with the leg
+# bound to <child>, and, when given, the child session's review_round.json.
+bt_leg_round() {
+    jq -nc --arg rp "leg $1:$2" '[{worker: "w", pull_request: "[#12](https://github.com/acme/widgets/pull/12)", repo: "acme/widgets", return_path: $rp}]' > "$BT_STATE/holdings"
+    mkdir -p "$KOTO_BOARD_DIR/requests" "$KOTO_BOARD_DIR/sessions/$3/ctx"
+    jq -nc --arg r "$1" --arg l "$2" --arg c "$3" '{request_id: $r, legs: {($l): {name: $l, bound_child: $c}}}' > "$KOTO_BOARD_DIR/requests/$1.json"
+    rm -f "$KOTO_BOARD_DIR/sessions/$3/ctx/review_round.json"
+    [ $# -lt 4 ] || printf '%s\n' "$4" > "$KOTO_BOARD_DIR/sessions/$3/ctx/review_round.json"
+}
+# bt_round [reviewed-head] [verdict-of-third-seat]: a three-seat review round.
+bt_round() {
+    jq -nc --arg h "${1:-$H}" --arg v "${2:-pass}" '{reviewed_head: $h, seats: [
+        {seat: "architect", model: "sonnet", run: "agent-r1", verdict: "pass"},
+        {seat: "maintainer", model: "sonnet", run: "agent-r2", verdict: "pass"},
+        {seat: "pragmatic", model: "sonnet", run: "agent-r3", verdict: $v}]}'
 }
 
 # bt_merged <state> <files-json>: pull request #12's view, and the default

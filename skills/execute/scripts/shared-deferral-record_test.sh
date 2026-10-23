@@ -70,6 +70,13 @@ WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 2
 cleanup() { case "${WORKDIR:-}" in */shared-deferral-record-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
 trap cleanup EXIT
 
+# The PR body holds the deferral only in a repository that opts in to
+# workflow content, so the gate runs in one; the default is pinned in its own
+# case below.
+mkdir -p "$WORKDIR/include-repo" "$WORKDIR/omit-repo"
+printf '## PR Workflow Content: include\n' > "$WORKDIR/include-repo/CLAUDE.md"
+cd "$WORKDIR/include-repo" || exit 2
+
 BIN="$WORKDIR/bin"
 STUB="$WORKDIR/stub"
 mkdir -p "$BIN" "$STUB/ctx"
@@ -178,6 +185,16 @@ expect "no deferral anywhere: passes" 0
 reset_stub
 run_stub "" ""
 expect "VERIFICATION empty (an older session) and no child deferred: passes" 0
+
+reset_stub
+children execute-x.o-a
+cd "$WORKDIR/omit-repo" || exit 2
+run_stub hosted-ci "$REASON"
+cd "$WORKDIR/include-repo" || exit 2
+expect "default (no PR Workflow Content header): the run deferred, the body has no record: passes" 0
+[ "$(count gh.calls)" = 0 ] \
+    && pass "default: the deferral is the children's context; no gh call reads the body" \
+    || fail "default: gh calls $(count gh.calls)"
 
 reset_stub
 children execute-x.o-a
@@ -506,6 +523,7 @@ mkdir -p "$REPO"
 (cd "$REPO" && git init -q . && git config user.email t@example.com && git config user.name t \
     && git commit -q --allow-empty -m "chore: init") >/dev/null 2>&1 \
     || { echo "could not create the fixture repository" >&2; exit 2; }
+printf '## PR Workflow Content: include\n' > "$REPO/CLAUDE.md"
 
 # extract <kind> <name>: a state's block (kind states) or a variable's block
 # (kind variables) from work-on.md's frontmatter.

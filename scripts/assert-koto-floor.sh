@@ -42,6 +42,11 @@
 # and disputes and returns a passing check's warn-stage findings to the agent
 # as advisories (tsukumogami/koto#393), which is what makes a rule at warn
 # reach the agent rather than behave as shadow (references/check-lifecycle.md).
+# 0.22.0 is the release that ships `koto session link --dispatched-by`, which
+# skill-session.sh's adopt and open --dispatched-by and /work-on's opener run,
+# `koto init --dispatched-by`, which /execute's coordinated step agent passes,
+# and `koto session hierarchy`, which answers whether a session may be
+# reclaimed (references/skill-session-convention.md).
 # Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
@@ -80,7 +85,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.21.0}"
+FLOOR="${KOTO_FLOOR:-0.22.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically
