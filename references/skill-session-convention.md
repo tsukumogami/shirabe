@@ -2,7 +2,8 @@
 
 The normative rule for where a shirabe skill keeps its working state, how a
 chain parent and its children find each other's state, and how a session
-records the session that dispatched it, which is what koto keeps it by. Normative prose like
+records the session that dispatched it, the link koto's retention reads.
+Normative prose like
 [`koto-session-retention.md`](koto-session-retention.md): no skill loads this
 file at runtime, and it is reviewed as part of a PR. A skill that follows the
 convention cites it at the point it opens, reads or closes a session, in one or
@@ -69,7 +70,7 @@ The areas are fixed:
 | `research/` | agent outputs, reviewer verdicts | the session's own skill (through `ingest`) |
 | `chain/` | what passes between a parent and a child: `chain/dispatch`, `chain/roadmap-scope`, `chain/parent` | the parent writes `dispatch` and `roadmap-scope` in its own session; the child writes `parent` in its own |
 | `handoff/` | what one skill leaves for another's entry (`handoff/scope.md`, `handoff/charter.md`) | the leaving skill |
-| `session/` | the convention's bookkeeping: `session/branch`, and `session/link-warning` when a dispatcher link could not be recorded | `skill-session.sh` (and `/work-on`'s opener for `session/link-warning`) |
+| `session/` | the convention's bookkeeping: `session/branch`, and `session/link-warning` when a dispatcher link could not be recorded | `skill-session.sh`; `session/link-warning` by `scripts/lib/dispatch-link.sh`, for every opener that links |
 | `record/`, `legs/` | reserved for coordinator state | no skill under this convention |
 
 A skill run inside another skill's session writes under a sub-area there:
@@ -369,6 +370,7 @@ source.
   fixed-preamble discipline the reviewer prompts use. Values from keys reach
   commands only through `jq --arg` or as compared strings.
 - **Retention.** A finished session stays on disk until koto's retention lets
-  it go (`koto session hierarchy` says when). Nothing secret belongs in a key; with koto's cloud backend configured, keys sync to
-  the configured bucket, which needs the same access control as the
+  it go (`koto session hierarchy` says when). Nothing secret belongs in a
+  key; with koto's cloud backend configured, keys sync to the configured
+  bucket, which needs the same access control as the
   repositories whose work it holds.

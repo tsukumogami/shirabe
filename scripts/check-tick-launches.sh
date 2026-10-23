@@ -27,7 +27,7 @@
 # not be read" is text, not a command):
 #
 #   `niwa dispatch`, or a variable whose name holds NIWA followed by
-#   `dispatch` (`"$NIWA" dispatch`);
+#   `dispatch` (`"$NIWA" dispatch`), unless what follows is `--help` or `-h`;
 #   `claude` as a word, or a variable whose name holds CLAUDE, followed by an
 #   argument or ending the command (`"$CLAUDE_CLI" -p ...`), unless what
 #   follows is a subcommand that starts no session: `agents`, `rm`,
@@ -57,6 +57,9 @@
 # the command that reaches it and, for a script, the script's own line:
 #   <template>:<line>: the command, its line <n>: launches <what> without unsetting KOTO_SESSION_*
 #   <template>:<line> runs <script>:<n>: launches <what> without unsetting KOTO_SESSION_*
+# <line> is the template line of the command's `command:` key; <n> counts the
+# lines of the command itself (2 is a block scalar's second line) or of the
+# script.
 # and a one-line summary on stderr. A script reached from several commands is
 # read once and named under the first.
 #
@@ -127,6 +130,7 @@ fi
 # The patterns, read by awk from the environment so no backslash in them is
 # reinterpreted. Q is a single quote.
 Q="'"
+TAB=$(printf '\t')
 export CTL_UNSET='(unset|env[[:space:]].*-u|[.]pop|del[[:space:]]|startswith)[^#]*KOTO_SESSION_'
 TOOLVAR='(_(BIN|CLI|CMD|COMMAND|EXE))?[}]?'
 export CTL_NIWA="(^|[^A-Za-z0-9_./-])(niwa|[\$][{]?NIWA$TOOLVAR)[\"$Q]?[[:space:]]+dispatch([^A-Za-z0-9_-]|\$)"
@@ -222,7 +226,7 @@ EOF_CANDS
 # <where><line>.
 report() {
     local where="$1" f="$2" n what
-    while IFS="	" read -r n what; do
+    while IFS="$TAB" read -r n what; do
         [ -n "$n" ] || continue
         printf '%s%s: launches %s without unsetting KOTO_SESSION_*\n' "$where" "$n" "$what"
         COUNT=$((COUNT + 1))
@@ -295,7 +299,7 @@ $s
             more=$(refs "$s" "$(dirname -- "$s")")
             while IFS= read -r callee; do
                 [ -n "$callee" ] || continue
-                if [ -s "$WORK/allow" ] && grep -qxF "${s#"$ROOT"/}	${callee#"$ROOT"/}" "$WORK/allow"; then
+                if [ -s "$WORK/allow" ] && grep -qxF "${s#"$ROOT"/}$TAB${callee#"$ROOT"/}" "$WORK/allow"; then
                     printf '%s\t%s\n' "${s#"$ROOT"/}" "${callee#"$ROOT"/}" >>"$WORK/used"
                     continue
                 fi
@@ -317,7 +321,7 @@ if [ "$CHECK_STALE" -eq 1 ] && [ -s "$WORK/allow" ]; then
         [ -n "$pair" ] || continue
         if ! grep -qxF "$pair" "$WORK/used" 2>/dev/null; then
             printf '%s: stale record: %s calls nothing the templates reach; remove it\n' \
-                "${ALLOW#"$ROOT"/}" "$(printf '%s' "$pair" | sed 's/	/ -> /')"
+                "${ALLOW#"$ROOT"/}" "$(printf '%s' "$pair" | sed "s/$TAB/ -> /")"
             COUNT=$((COUNT + 1))
         fi
     done <"$WORK/allow"
