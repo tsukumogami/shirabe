@@ -2,7 +2,7 @@
 # decision-render_test.sh -- decision-render.sh against the gh and koto
 # stand-ins: the four kinds' text, the escalation's shape and digest, every
 # refusal, the seal on the stored text, and record-decision.sh's read modes
-# the renderer reads through.
+# the renderer reads through, over the record in the run's session.
 #
 # Usage: bash skills/coordinate/scripts/decision-render_test.sh
 set -uo pipefail
@@ -39,13 +39,11 @@ N=0
 # Sets S and OUT (stdout), and RC.
 case_run() {
     N=$((N + 1))
-    local ref=$((100 + N)) vars
-    db '.issues = [] | .issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-feat",
-        body: $b, state: "open", author: "coord", editor: null}]' --argjson k "$ref" \
-        --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${6:-10}" '.decisions = {next: $n, entries: $e}')" issue)"
+    local vars
     S="coordinate-roadmap-feat-c$N-$RUNSTAMP"
     vars=$(roadmap_vars feat | jq -c --arg r "${5-}" '.REPORTS_TO = $r')
-    found_session "$S" "$vars" "$ref"
+    found_session "$S" "$vars"
+    seed_session "$S" "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${6:-10}" '.decisions = {next: $n, entries: $e}')"
     log_to "$S" reconcile decision_next
     log_capture "$S" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$S" --state decision_next --token "$2")"
     log_to "$S" decision_next "$3"
@@ -190,14 +188,12 @@ eq "read: --list prints the section" '10 3,4' \
 eq "read: --read prints one entry" escalated "$(bash "$HERE/record-decision.sh" --session "$S" --read 3 | jq -r .state)"
 bash "$HERE/record-decision.sh" --session "$S" --read 8 >/dev/null 2>&1
 eq "read: --read of an entry the record doesn't hold exits 1" 1 "$?"
-db '.issues[0].body = "not a record"'
+printf '"not a record"' | koto context add "$S" record/holdings
 bash "$HERE/record-decision.sh" --session "$S" --list >/dev/null 2>&1
 eq "read: a record that isn't canonical is refused with 10" 10 "$?"
-db '.fail += [{match: "issue view", rc: 1, stderr: "gh: server error"}]'
-bash "$HERE/record-decision.sh" --session "$S" --list >/dev/null 2>&1
+KOTO_NO_LIST_PREFIX=1 bash "$HERE/record-decision.sh" --session "$S" --list >/dev/null 2>&1
 eq "read: a failed read exits 2" 2 "$?"
-db '.fail = []'
-db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat)" issue)"
+seed_session "$S" "$(record_json roadmap feat)"
 eq "read: a record with no section lists none" '{"next":1,"entries":[]}' "$(bash "$HERE/record-decision.sh" --session "$S" --list)"
 bash "$HERE/record-decision.sh" --session "$S" --read x >/dev/null 2>&1
 eq "read: an entry that isn't a number is usage" 64 "$?"

@@ -12,7 +12,8 @@
 # unwatchable (and makes no key for a holding without one); a re-leg that
 # fails, or a request that can't be read, is not verified with nothing
 # written; a holding no longer on that leg, or no longer dispatched, is left
-# alone; every answer is one JSON fact, exit 0.
+# alone; every answer is one JSON fact, exit 0. The record is the run's
+# session's.
 #
 # Usage: bash skills/coordinate/scripts/reconcile-legs_test.sh
 set -uo pipefail
@@ -37,13 +38,12 @@ exit "${RELEG_RC:-0}"
 STUB
 L="$SC/reconcile-legs.sh"
 
-TITLE="Coordinator record: ROADMAP-plugin-system"
-seed() { # seed <holdings-json-array>
+seed() { # seed <holdings-json-array>: the record, in the run's session
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$1" '.holdings = $h')" issue 2026-09-26T08:00:00Z)"
+    seed_session "$S" "$(record_json roadmap plugin-system | jq -c --argjson h "$1" '.holdings = $h')" 2026-09-26T08:00:00Z
 }
-live() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh"; }
+live() { session_state "$S"; }
+snap() { session_snapshot "$S"; }
 legged() { holding plugin-api '{"return_path": "leg req_1:deliver", "entry_point": "deliver"}'; }
 classify() { bash "$L" --session "$S" --topic "${1:-plugin-api}" --return-path "${2:-leg req_1:deliver}" 2>/dev/null; }
 KEYDIR() { printf '%s/context/%s/legs/req_1' "$KOTO_STORE" "$S"; }
@@ -57,14 +57,14 @@ held() { mkdir -p "$KOTO_STORE/requests"; rm -f "$KOTO_STORE/requests/req_1.gone
 # The run's plugin root is the copy, which the record writer's provenance
 # check compares the scripts it runs from against.
 S=coordinate-roadmap-plugin-system-20260926T080000Z
-found_session "$S" "$(roadmap_vars plugin-system | jq -c --arg p "$T" '.PLUGIN_ROOT = $p')" 7
+found_session "$S" "$(roadmap_vars plugin-system | jq -c --arg p "$T" '.PLUGIN_ROOT = $p')"
 
 echo "== watched =="
 seed "[$(legged)]"; mkkey; held
-reset_calls
+SNAP=$(snap)
 OUT=$(classify); rc=$?
 eq "a request this host holds is watched" "0 watched" "$rc $(printf '%s' "$OUT" | jq -r .outcome)"
-grep -q 'edit' "$GH_DB.calls" && bad "  ... and nothing is written" "$(calls)" || ok "  ... and nothing is written"
+eq "  ... and nothing is written" "$SNAP" "$(snap)"
 [ -e "$KOTO_STORE/releg.calls" ] && bad "  ... and nothing is re-legged" "$(cat "$KOTO_STORE/releg.calls")" || ok "  ... and nothing is re-legged"
 
 echo "== relegged =="
@@ -96,22 +96,24 @@ eq "a holding dispatched before leg keys is unwatchable" "0 unwatchable" "$rc $(
 
 echo "== left alone =="
 seed "[$(legged | jq -c '.return_path = "leg req_7:deliver"')]"; gone
-reset_calls
+SNAP=$(snap)
 OUT=$(classify); rc=$?
 eq "a holding no longer on the leg the pass read is left alone" "0 none" "$rc $(printf '%s' "$OUT" | jq -r .outcome)"
+eq "  ... with nothing written" "$SNAP" "$(snap)"
 seed "[$(legged | jq -c '.dispatch_status = "dispatching"')]"
+SNAP=$(snap)
 OUT=$(classify); rc=$?
 eq "a holding no longer dispatched is left alone" "0 none" "$rc $(printf '%s' "$OUT" | jq -r .outcome)"
 OUT=$(classify nobody); rc=$?
 eq "a topic with no holding is left alone" "0 none" "$rc $(printf '%s' "$OUT" | jq -r .outcome)"
-grep -q 'edit' "$GH_DB.calls" && bad "  ... with nothing written" "$(calls)" || ok "  ... with nothing written"
+eq "  ... with nothing written" "$SNAP" "$(snap)"
 
 echo "== not verified =="
 seed "[$(legged)]"; mkkey; gone
-reset_calls
+SNAP=$(snap)
 OUT=$(RELEG_RC=2 classify); rc=$?
 eq "a re-leg that fails is not verified" "0 not_verified" "$rc $(printf '%s' "$OUT" | jq -r .status)"
-grep -q 'edit' "$GH_DB.calls" && bad "  ... with nothing written" "$(calls)" || ok "  ... with nothing written"
+eq "  ... with nothing written" "$SNAP" "$(snap)"
 eq "  ... and the leg key as it was" open "$(jq -r .state "$(KEYDIR)/deliver")"
 rm -f "$KOTO_STORE/requests/req_1.gone" "$KOTO_STORE/requests/req_1.json"
 OUT=$(classify); rc=$?

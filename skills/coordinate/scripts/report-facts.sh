@@ -44,21 +44,21 @@
 # Usage:
 #   report-facts.sh --session S
 #   report-facts.sh --session S --scope roadmap|discipline --name N --repo O/R
-#                   --ref N [--no-seal]                              (tests)
+#                   [--no-seal]                                      (tests)
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# GitHub reads: record-holding.sh --read and --list (gh issue|pr view), which
-# share one read of the record (rs_once_begin); on the session store,
-# record-holding.sh --pushed-head writes a changed head into the one session key
-# that keeps it, reading and writing no body (no GitHub write);
+# The record through record-holding.sh --read and --list, which share one read
+# of it (rs_once_begin), and record-holding.sh --pushed-head writes a changed
+# head into the one session key that keeps it, reading and writing no body.
+# GitHub reads:
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
 # koto reads: on the leg path with Pull request empty, koto request get <request>.
 set -uo pipefail
 
 PROG=report-facts
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF=
+SESSION= SCOPE= NAME= REPO=
 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -68,7 +68,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --no-seal) NO_SEAL=1; shift ;;
         *) usage ;;
     esac
@@ -99,13 +98,11 @@ finish() {
 
 hold() { # hold <mode args...>: record-holding.sh with this run's facts
     if [ "$OVERRIDE" = 1 ]; then
-        bash "$HERE/record-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" "$@"
+        bash "$HERE/record-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" "$@"
     else
-        [ -z "$REF" ] || usage
         bash "$HERE/record-holding.sh" --session "$SESSION" "$@"
     fi
 }
-[ "$OVERRIDE" = 0 ] || [[ $REF =~ $RE_NUM ]] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 
 # The unit, from the log alone (record-common.sh lib_unit, which
 # record-confirm.sh uses too). On the message path it is the latest `wait`
@@ -157,12 +154,12 @@ PRVIEW=$(jq -c '{state, isDraft, headRefOid, mergeStateStatus, isCrossRepository
 if [ -n "$BR" ] && [ "$(printf '%s' "$PRVIEW" | jq -r '.headRefName // ""')" != "$BR" ]; then
     finish "refused $TOPIC branch-mismatch"
 fi
-# On the session store a holding keeps the head this read saw (PRD R17). This
+# A holding keeps the head this read saw (PRD R17). This
 # script is a check and writes nothing itself: record-holding.sh writes it in
 # its own process, its output kept off the verdict line, and a write that fails
 # or is refused is named on stderr and changes no verdict. A link's head is
 # written by holding-link.sh with the link.
-if [ "$WORD" = holding ] && [ "$(rs_source)" = session ]; then
+if [ "$WORD" = holding ]; then
     NEWH=$(printf '%s' "$PRVIEW" | jq -r '.headRefOid // ""')
     if [[ $NEWH =~ ^[0-9a-f]{40}$ ]] && [ "$NEWH" != "$(printf '%s' "$ROW" | jq -r '.pushed_head // ""')" ]; then
         hold --topic "$TOPIC" --pushed-head "$NEWH" > "$T/push.out" 2> "$T/push.err" \

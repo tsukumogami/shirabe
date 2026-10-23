@@ -10,7 +10,8 @@
 # head commit date) and a dispatch each resetting a worker's count; a QUIET
 # capture whose seal fails not counted; space-separated topic lists and every
 # token in koto's capture alphabet; the sealed token and coord/quiet.json; a
-# failed read (2); no GitHub write and no teardown.
+# failed read (2); no GitHub write and no teardown; the override flags a
+# usage error. The record is the run's session's.
 #
 # Usage: bash skills/coordinate/scripts/quiet-check_test.sh
 set -uo pipefail
@@ -24,23 +25,22 @@ tok_shape() {
     local re='^[A-Za-z0-9 :/_.@-]*$'
     if [[ ${2% sealed:*} =~ $re ]]; then ok "$1"; else bad "$1" "[$2]"; fi
 }
-ITITLE="Coordinator record: ROADMAP-plugin-system"
 HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
     --argjson b "$(holding beta '{"pull_request": ""}')" '[$a, $b]')
-seed() {
+seed() { # the pull request, and the record the next run() holds
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]
-        | .prs += [{repo: "acme/widgets", number: 12, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
+    SEED=$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" --argjson s "${STANDING:-null}" '.holdings = $h | if $s == null then . else .standing = $s end')
+    db '.prs += [{repo: "acme/widgets", number: 12, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
                     baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null}]
         | .commits[$h] = {tree: "4444444444444444444444444444444444444444", date: "2026-09-26T07:00:00Z"}' \
-        --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" --argjson s "${STANDING:-null}" '.holdings = $h | if $s == null then . else .standing = $s end')" issue)" \
         --arg h "$SHA_HEAD"
 }
 N=0
 run() { # a fresh run at wait; the run starts 08:00
     N=$((N + 1))
     S="coordinate-roadmap-plugin-system-20260926T0800${N}Z"
-    found_session "$S" "$(roadmap_vars plugin-system)" 7
+    found_session "$S" "$(roadmap_vars plugin-system)"
+    seed_session "$S" "$SEED"
     log_to "$S" reconcile wait 2026-09-26T08:02:00.000Z
 }
 sweep() { # sweep <HH:MM>: tick wait with quiet, run the check at that time, capture its token
@@ -122,11 +122,12 @@ bash "$CL" check --session "$S" --state quiet_check --sealed "$OUT" && ok "the t
 grep -q '^api --method GET repos/acme/widgets/commits/2222222222222222222222222222222222222222' "$GH_DB.calls" \
     && ok "the head commit's date is read" || bad "the head commit's date is read" "$(calls)"
 grep -qE 'PUT|POST|DELETE|edit|close|ready|merge' "$GH_DB.calls" && bad "no GitHub write" "$(calls)" || ok "no GitHub write"
-grep -qvE '^(session dir|context add .* coord/quiet.json|template compile)' "$KOTO_STORE/calls" \
+grep -qvE '^(session dir|context (get|list|exists) |context add .* coord/quiet.json|template compile)' "$KOTO_STORE/calls" \
     && bad "no koto call but reads and its own detail" "$(cat "$KOTO_STORE/calls")" || ok "no koto call but reads and its own detail"
 db '.fail = [{match: "commits/", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 bash "$QC" --session "$S" --now 2026-09-26T08:40:00Z >/dev/null 2>&1; eq "a failed read exits 2" 2 $?
 bash "$QC" --session "$S" --now soon >/dev/null 2>&1; eq "a --now that isn't a time is a usage error" 64 $?
 bash "$QC" --now 2026-09-26T08:40:00Z >/dev/null 2>&1; eq "no session is a usage error" 64 $?
+bash "$QC" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" >/dev/null 2>&1; eq "the override flags are a usage error" 64 $?
 
 done_tests quiet-check

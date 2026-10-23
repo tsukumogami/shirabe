@@ -7,7 +7,8 @@
 # it changes; a row already dispatched, a row whose return path changed since
 # the pass read it, and a topic with no row are left alone (settled false); a
 # run that fails provenance is refused and reported not verified; a failed
-# read is not verified; every fact is one JSON object on stdout, exit 0.
+# read is not verified; every fact is one JSON object on stdout, exit 0. The
+# record is the run's session's; nothing is written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/reconcile-settle_test.sh
 set -uo pipefail
@@ -17,18 +18,18 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 ST="$HERE/reconcile-settle.sh"
 
-TITLE="Coordinator record: ROADMAP-plugin-system"
-seed() { # seed <holdings-json-array>
+seed() { # seed <holdings-json-array>: the record, in the current run's session
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$1" '.holdings = $h')" issue 2026-09-26T08:00:00Z)"
+    SR=$S
+    seed_session "$SR" "$(record_json roadmap plugin-system | jq -c --argjson h "$1" '.holdings = $h')" 2026-09-26T08:00:00Z
 }
-live() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh"; }
+live() { session_state "$SR"; }
+gh_writes() { grep -E 'issue (create|edit|close)|pr (create|edit)|comment|--method (POST|PUT|PATCH|DELETE)' "$GH_DB.calls"; }
 stuck() { holding stuck '{"dispatch_status": "dispatching", "branch": "", "verified_head": "", "pull_request": ""}'; }
 settle() { bash "$ST" --session "$S" --topic "${1:-stuck}" --return-path "${2:-message}" 2>/dev/null; }
 
 S=coordinate-roadmap-plugin-system-20260926T080000Z
-found_session "$S" "$(roadmap_vars plugin-system)" 7
+found_session "$S" "$(roadmap_vars plugin-system)"
 
 echo "== settled =="
 seed "[$(stuck), $(holding other)]"
@@ -37,13 +38,15 @@ eq "a dispatching row is settled" "0 true" "$rc $(printf '%s' "$OUT" | jq -r '.s
 eq "the record now says dispatched" dispatched "$(live | jq -r '.holdings[] | select(.worker == "stuck") | .dispatch_status')"
 eq "and nothing else in the row changed" "$(stuck | jq -c '.dispatch_status = "dispatched"')" "$(live | jq -c '.holdings[] | select(.worker == "stuck")')"
 eq "the other holding is untouched" "$(holding other)" "$(live | jq -c '.holdings[] | select(.worker == "other")')"
-grep -q '^issue edit 7' "$GH_DB.calls"; eq "the write is the record's own whole-body edit" 0 $?
+eq "the write is the session's record/holdings" dispatched \
+    "$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "stuck") | .dispatch_status')"
+eq "  ... with nothing written on GitHub" "" "$(gh_writes)"
 
 echo "== left alone =="
-reset_calls
+SNAP=$(session_snapshot "$S")
 OUT=$(settle); rc=$?
 eq "a row already dispatched is not written again, and says it is dispatched now" "0 false dispatched" "$rc $(printf '%s' "$OUT" | jq -r '"\(.settled) \(.now)"')"
-grep -q 'edit' "$GH_DB.calls" && bad "and nothing is edited" "$(calls)" || ok "and nothing is edited"
+eq "and nothing is written" "$SNAP" "$(session_snapshot "$S")"
 seed "[$(stuck)]"
 OUT=$(settle stuck "leg req1:work-on"); rc=$?
 eq "a row whose return path changed since the pass read it is left alone" "0 false" "$rc $(printf '%s' "$OUT" | jq -r '.settled')"
@@ -54,15 +57,16 @@ eq "a topic with no row is left alone" "0 false" "$rc $(printf '%s' "$OUT" | jq 
 echo "== not verified =="
 S2=coordinate-roadmap-plugin-system-20260926T090000Z
 log_end "$S"
-found_session "$S2" "$(roadmap_vars plugin-system)" 7 0badbeef
+found_session "$S2" "$(roadmap_vars plugin-system)" 0badbeef
+seed_session "$S2" "$(record_json roadmap plugin-system | jq -c --argjson h "[$(stuck)]" '.holdings = $h')"
 OUT=$(bash "$ST" --session "$S2" --topic stuck --return-path message 2>/dev/null); rc=$?
 eq "a run that fails provenance is not verified, exit 0" "0 not_verified" "$rc $(printf '%s' "$OUT" | jq -r '.status')"
-eq "it stays dispatching" dispatching "$(live | jq -r '.holdings[0].dispatch_status')"
+eq "it stays dispatching" dispatching "$(session_state "$S2" | jq -r '.holdings[0].dispatch_status')"
 log_end "$S2"
 S=coordinate-roadmap-plugin-system-20260926T100000Z
-found_session "$S" "$(roadmap_vars plugin-system)" 7
-db '.fail = [{match: "issue view", rc: 1}]'
-OUT=$(settle); rc=$?
+found_session "$S" "$(roadmap_vars plugin-system)"
+seed "[$(stuck)]"
+OUT=$(KOTO_NO_LIST_PREFIX=1 bash "$ST" --session "$S" --topic stuck --return-path message 2>/dev/null); rc=$?
 eq "a failed read is not verified, exit 0" "0 not_verified" "$rc $(printf '%s' "$OUT" | jq -r '.status')"
 [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ] && printf '%s' "$OUT" | jq -e '.kind == "settle"' >/dev/null
 eq "every answer is one settle fact" 0 $?

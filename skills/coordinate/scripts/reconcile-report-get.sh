@@ -76,7 +76,7 @@ jq -e '.schema == "coordinate-reconcile-report/v1"' "$T/report.json" >/dev/null 
 # its workers, inventory and legs are that host's. record/host's import facts
 # change with each import, and the report carries the ones it was read under,
 # so a difference sends the run back to reconcile_pass for a new visit here.
-if [ "$(rs_source)" = session ]; then
+if [ -n "$SESSION" ]; then
     rs_host "$SESSION" "$T/host" || fail 2 "record/host can't be read"
     # jq -e exits 1 only for a false comparison; any other code is a jq
     # failure, which must not read as an import and loop the run to the pass.

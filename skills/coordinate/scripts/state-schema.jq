@@ -3,15 +3,14 @@
 # Every rule a value in the coordinator's state must keep: the section and
 # column definitions, each column's grammar, the worker and pull request link
 # shapes, the Holds, stored set and Decisions rules, and the private-repository,
-# home-directory path and token checks. Each function takes the state, a
-# section or a cell as JSON and refuses with a jq error() whose message starts
-# with "refused: ".
+# home-directory path and token checks, which scan_strings runs over every
+# string in the state. Each function takes the state, a section or a cell as
+# JSON and refuses with a jq error() whose message starts with "refused: ".
 #
 # Two callers run the same functions. record-write-core.sh runs check_record
-# over the next state before it writes anything, on either store, and
-# record-codec.jq carries a verbatim copy of everything below this header, so
-# its renderer refuses exactly what the write core refuses and the GitHub
-# record keeps the bytes it had. state-schema_test.sh fails when the copy
+# over the next state before it writes anything, and record-codec.jq carries a
+# verbatim copy of everything below this header, so its renderer refuses
+# exactly what the write core refuses. state-schema_test.sh fails when the copy
 # differs, so a change here is copied into the codec in the same change. A
 # script reaches these functions with
 # `jq -L <scripts dir> 'include "state-schema"; ...'`, or through record-codec.jq.
@@ -107,8 +106,8 @@ def names_repo($r):
 # record-append.sh for an entry) read each one's visibility and pass the ones
 # that aren't public back as $private. text_problem($private) is null, or what
 # makes the text unfit: a repository on the $private list, a home-directory
-# path or a token-shaped string. check_dcell, the stored set's text cells and
-# record-append.sh use it.
+# path or a token-shaped string. check_dcell, the stored set's text cells,
+# scan_strings and record-append.sh use it.
 def text_named_repos:
   def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
   [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
@@ -219,8 +218,8 @@ def check_holds($h; $private):
 #            told: a party that has been sent that address. Both of the last
 #            two are messaging addresses (check_worker): a dispatch topic or
 #            a session name, which may hold `_`, never an id or a path.
-#            store: github or session. The last four are the crash set, kept
-#            only beside a `store session` row (see run_keys below).
+#            store: session only, the legacy row (see run_keys below). The
+#            last four are the crash set (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run:
@@ -280,12 +279,13 @@ def state_secs: [
     ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
     ["wakes", "Wakes"], ["updated", "Updated"]]}];
-# store: the record's store, `github` or `session`, written by its owner
-# (docs/designs/DESIGN-coordinator-session-record.md, Decision 2). A record
-# without the row is on GitHub.
-# The crash set (Decision 9; PRD R17), kept only by a record on the session
-# store, so only in a Run section that also holds the `store session` row: a
-# GitHub record refuses them as it refuses any Run key it doesn't know.
+# store: the legacy row. The record's store is always the coordinator's
+# session (docs/designs/current/DESIGN-coordinator-record-teardown.md); a
+# session opened before the store choice was removed holds a `store session`
+# row, which a carry or an import keeps as written, so it is still accepted.
+# No writer adds one, and a row reading anything else (`github`) is refused.
+# The crash set (docs/designs/DESIGN-coordinator-session-record.md, Decision
+# 9; PRD R17), what a replacement needs after a crash, in any Run section:
 #   rules, briefs  `<label> sha256:<64 hex>`, the digest of a file the
 #                  coordinator ran with, one row per label; its location is in
 #                  record/host, never here
@@ -293,7 +293,6 @@ def state_secs: [
 #   reports-to     `<role>` or `<role> at <address>`: words naming who the
 #                  coordinator reports up to, and their messaging address
 def run_keys: ["arguments", "cap", "coordinator", "told", "store", "rules", "briefs", "friction", "reports-to"];
-def crash_keys: ["rules", "briefs", "friction", "reports-to"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
@@ -357,7 +356,7 @@ def check_srow($sec; $private):
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
-       elif .key == "store" then (if .value == "github" or .value == "session" then . else refuse("run.value: store-malformed: a store is github or session") end)
+       elif .key == "store" then (if .value == "session" then . else refuse("run.value: store-malformed: the store is the session; a store row reads session, never \(.value)") end)
        elif .key == "rules" or .key == "briefs" then
          (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
           else refuse("run.value: a \(.key) row is `<label> sha256:<64 hex>`, the label letters, digits, `.`, `_` and `-`") end)
@@ -408,10 +407,7 @@ def check_state($sec; $rows; $private):
         ($r | map(select(.key != "told" and .key != "rules" and .key != "briefs") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
         | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
-        | ([$r[] | select(.key as $k | crash_keys | index($k)) | .key] | first) as $crash
         | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: store-malformed: the store row is used twice")
-          elif $crash != null and (any($r[]; .key == "store" and .value == "session") | not) then
-            refuse("run.key: \($crash) is kept only by a record on the session store")
           elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
           elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
@@ -545,20 +541,37 @@ def check_scope($s):
 # write was edited from; the write core compares it, so no grammar is held here.
 def record_fields: ["scope", "written", "holdings", "deferrals", "side_effects", "reversals", "holds", "run", "standing", "work", "decisions"];
 
+# scan_strings($private): every string in the value, at any depth, the value
+# itself when it is one, through text_problem: a repository on the $private
+# list, a home-directory path or a token-shaped string is refused, naming the
+# string's path (`holdings[0].branch`). It walks the value instead of a list
+# of columns, so a field added later is scanned without being named here.
+# Gives the value back unchanged.
+def scan_strings($private):
+  . as $v
+  | ([paths(strings)] + (if type == "string" then [[]] else [] end)) as $ps
+  | (first($ps[] as $p | ($v | getpath($p) | text_problem($private)) as $why
+      | select($why != null) | {p: $p, why: $why}) // null) as $hit
+  | if $hit == null then $v
+    else refuse("\($hit.p | map(if type == "number" then "[\(.)]" else ".\(.)" end) | join("") | ltrimstr(".") | if . == "" then "value" else . end): \($hit.why)") end;
+
 # check_record($private): a whole state, checked in the order the renderer
 # checks it: the top-level fields, the scope, the four sections, Holds, the
-# stored set and Decisions. Gives the state back as the checks normalize it
-# (every column present, a blank Wakes read as 0, an absent optional section
-# left out), or refuses with the first rule it breaks.
+# stored set and Decisions, then every string in it (scan_strings). Gives the
+# state back as the checks normalize it (every column present, a blank Wakes
+# read as 0, an absent optional section left out), or refuses with the first
+# rule it breaks.
 def check_record($private):
   . as $in
   | check_top($in; record_fields)
   | check_scope($in.scope) as $_
-  | {scope: $in.scope}
+  | ({scope: $in.scope}
     + (if $in | has("written") then {written: $in.written} else {} end)
     + (checked_sections($in; $private) | map({(.sec.key): .rows}) | add)
     + (check_holds($in.holds; $private) | if . == null then {} else {holds: .} end)
     + reduce state_secs[] as $sec ({};
         check_state($sec; $in[$sec.key]; $private) as $rows
         | if $rows == null then . else .[$sec.key] = $rows end)
-    + (check_decisions($in.decisions; $private) | if . == null then {} else {decisions: .} end);
+    + (check_decisions($in.decisions; $private) | if . == null then {} else {decisions: .} end)) as $out
+  | ($in | scan_strings($private)) as $_
+  | $out;

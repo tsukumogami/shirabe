@@ -33,10 +33,12 @@ koto	context add	--from-file	always
 koto	context get	-	always
 #
 # GitHub and git. Every check script reads GitHub with `gh api --method GET`,
-# `gh pr view/list`, `gh issue list` and GraphQL queries; the agent-run write
-# scripts (record-open.sh, record-write.sh, record-holding.sh, record-hold.sh,
-# record-append.sh, rotation-close.sh, land-merge.sh through /execute's
-# merge-exec.sh) make the only writes. git reads the origin remote for the host at roadmap scope.
+# `gh pr view/list` and GraphQL queries; the coordinator's record lives in its
+# koto session, so no script writes one on GitHub. The agent-run scripts make
+# the only GitHub writes: record-append.sh's outward entries, roadmap-status.sh's
+# roadmap pull request, land-merge.sh's merge through /execute's merge-exec.sh,
+# and the legacy importer's one note on a record it imports
+# (skills/coordinate/legacy-import/). git reads the origin remote for the host at roadmap scope.
 gh	-	-	always
 git	-	-	always
 # The land check runs the repository's PR-body rule over the pull request's
@@ -54,8 +56,9 @@ shirabe	roadmap populate	-	always
 koto	context list	--prefix	always
 koto	context remove	-	always
 pkill	-	-	always
-# The record's codec (record-render.sh, record-parse.sh) and every script
-# that reads or writes the record are jq programs over the rendered tables.
+# The record's codec (record-render.sh, record-parse.sh), its checks
+# (state-schema.jq) and every script that reads or writes the record are jq
+# programs over its JSON.
 jq	-	-	always
 #
 # The dispatch path's scripts launch workers with the workspace manager's
@@ -86,20 +89,16 @@ koto	request attach	--session	always
 #not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named only to forbid it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
 #not-a-call-site	skills/coordinate/references/record-template.md	koto	--to	named only as a write the session store refuses after it
-# The session store (docs/designs/DESIGN-coordinator-session-record.md,
-# Decisions 2 and 4). Its capability probe (record-source.sh rs_probe, run by
-# record-find.sh at every start) reads by feature, from each subcommand's own
-# `--help`, whether this koto lists keys by prefix and imports a session, and
-# records what it read in coord/source.json. A record on the session store
-# assembles its state and its account from `context list --prefix`, so a start
-# on a koto lacking either feature stops at record_find as store-unsupported,
-# naming it, before any key is written. The records are mode:session-store,
-# never checked at load, so a run on the GitHub store keeps shirabe's koto
-# minimum; the probe is the check that runs. The session store's other calls
+# The session store (docs/designs/current/DESIGN-coordinator-record-teardown.md):
+# the coordinator's record is always its koto session. coordinate-open.sh
+# probes at every start, by feature from each subcommand's own `--help`,
+# whether this koto lists keys by prefix and imports a session, and refuses a
+# start on a koto lacking either (store-unsupported), naming it, before any
+# session opens; the record is mode:session-store, never checked at load, so
+# the start's probe is the check that runs. The session store's other calls
 # (`context exists`, `context remove`, `session list`) are declared above, and
-# so is `context list --prefix`, which every run makes on either store.
-# `session import` has one call site, coordinate-open.sh --import, which asks
-# the probe first, compiles the shipped template (`template compile`, declared
-# above, so koto finds the run's template in this host's cache), and passes
-# --from always and --trust-template only when the operator gave it.
+# so is `context list --prefix`. `session import` has one call site, coordinate-open.sh --import,
+# which compiles the shipped template (`template compile`, declared above, so
+# koto finds the run's template in this host's cache), and passes --from
+# always and --trust-template only when the operator gave it.
 koto	session import	--from,--trust-template	mode:session-store

@@ -4,19 +4,16 @@
 #
 # It holds the pieces every record script repeats: the run's facts (scope,
 # name, host) from the session or from the test-only override flags, the
-# closed patterns, date checks, the GitHub reads the find, the open and the
-# confirm all make (the open-issue listing, the discipline branch and its pull
-# requests, the author-authority read), sealing a check's verdict, and the
-# session checks every write makes first. It makes no GitHub write: writes
-# live only in the agent-run scripts that call these helpers, and the record's
-# body is written only by record-write-core.sh, which only those scripts
-# source, so a lint over a check script's own text and this file finds only
-# reads.
+# closed patterns, date checks, sealing a check's verdict, and the session
+# checks every write makes first. The record's state lives in the
+# coordinator's koto session, read through record-source.sh; it is written
+# only by record-write-core.sh, which only the agent-run write scripts source,
+# so a lint over a check script's own text and this file finds only reads.
 #
 # Globals the caller sets before calling lib_facts:
 #   SESSION   --session, may be empty when OVERRIDE=1 and the script only reads
-#   SCOPE NAME REPO   --scope --name --repo (all three, or none)
-#   REF       --ref (test override; write scripts take it from run-facts)
+#   SCOPE NAME REPO   --scope --name --repo (all three, or none: tests, which
+#             name the session holding the record in RS_SESSION)
 # lib_facts sets SCOPE NAME REPO (validated), ROADMAP (roadmap path, may be
 # empty), and OVERRIDE (1 when the facts came from the flags).
 #
@@ -81,17 +78,11 @@ lib_facts() {
     case "$SCOPE" in roadmap|discipline) ;; *) echo "$PROG: scope is not roadmap or discipline" >&2; exit 64 ;; esac
     [[ $NAME =~ $RE_NAME ]] || { echo "$PROG: the scope's name is not a name" >&2; exit 64; }
     [[ $REPO =~ $RE_REPO ]] || { echo "$PROG: the host is not owner/repo" >&2; exit 64; }
-    BRANCH="coordinate/discipline-$NAME"
-    ISSUE_TITLE="Coordinator record: ROADMAP-$NAME"
+    # The declaration line of the body the session store renders.
     if [ "$SCOPE" = roadmap ]; then
         DECL="${DECL_PREFIX}ROADMAP-$NAME."
-        CONTAINER=issue
     else
         DECL="${DECL_PREFIX}the $NAME discipline."
-        CONTAINER=pr
-        # A rotation on the session store has no pull request: its body is the
-        # one the session store renders, with no pull request's Part 1 prefix.
-        if [ "$(rs_source)" = session ]; then CONTAINER=issue; fi
     fi
 }
 
@@ -110,114 +101,16 @@ lib_valid_date() {
     [ "$d" -le "$max" ]
 }
 
-# lib_rotation_dates <title>: split a rotation title into ROT_START ROT_END.
-# The name is compared as a literal prefix, never spliced into a regex.
-lib_rotation_dates() {
-    local want="docs(coordinate): $NAME rotation " rest
-    # In a variable: bash 3.2 and 4+ disagree on quoting inside [[ =~ ]].
-    local re='^([0-9]{4}-[0-9]{2}-[0-9]{2}) to ([0-9]{4}-[0-9]{2}-[0-9]{2})$'
-    ROT_START= ROT_END=
-    case "$1" in "$want"*) ;; *) return 1 ;; esac
-    rest=${1#"$want"}
-    [[ $rest =~ $re ]] || return 1
-    ROT_START=${BASH_REMATCH[1]}
-    ROT_END=${BASH_REMATCH[2]}
-    lib_valid_date "$ROT_START" && lib_valid_date "$ROT_END" || return 1
-    [ ! "$ROT_END" \< "$ROT_START" ]
-}
-
-# lib_has_declaration <file>: some line (CRLF tolerated) opens with the
-# declaration text. Which scope it declares is record-parse.sh's to judge.
-# No grep -q: stopping at the first match would SIGPIPE tr on a body larger
-# than the pipe buffer, and pipefail would read that as no declaration.
-lib_has_declaration() {
-    tr -d '\r' < "$1" | grep -F -- "$DECL_PREFIX" >/dev/null
-}
-
-# lib_parse <body-file> <out-json>: record-parse.sh for this scope and
-# container. Returns its exit code (0 canonical; 3 or 65 not a record of this
-# scope; anything else an internal failure).
+# lib_parse <body-file> <out-json>: record-parse.sh for this scope, over the
+# body the session store renders. Returns its exit code (0 canonical; 3 or 65
+# not a record of this scope; anything else an internal failure).
 lib_parse() {
-    bash "$HERE/record-parse.sh" --container "$CONTAINER" --expect-scope "$SCOPE:$NAME" "$1" > "$2" 2> "$2.err"
+    bash "$HERE/record-parse.sh" --container issue --expect-scope "$SCOPE:$NAME" "$1" > "$2" 2> "$2.err"
 }
 
-# lib_open_issues <out-json>: every open issue (not pull request) in REPO whose
-# title is exactly the record's, through the paginated REST listing. Never a
-# search: the search index lags a new issue, and a phrase search matches a
-# longer -v2 title.
-lib_open_issues() {
-    local raw="$1.raw"
-    gh api --method GET "repos/$REPO/issues?state=open&per_page=100" --paginate > "$raw" 2> "$raw.err" < /dev/null || return 2
-    jq -s --arg t "$ISSUE_TITLE" 'add // [] | map(select((has("pull_request") | not) and .title == $t))
-        | map({number, url: .html_url, title, body: (.body // ""), author: (.user.login // "")})' "$raw" > "$1" 2>/dev/null || return 2
-}
-
-# lib_discipline_read <dir>: the default branch, whether the record branch
-# exists, and its same-repository pull requests into the default branch.
-# Sets DEFAULT_BRANCH and BRANCH_EXISTS (1/0); writes <dir>/prs.json.
-# Returns 2 on a failed read (anything but a 404 on the branch).
-lib_discipline_read() {
-    DEFAULT_BRANCH=$(gh api --method GET "repos/$REPO" --jq .default_branch 2> "$1/repo.err" < /dev/null) || return 2
-    [[ $DEFAULT_BRANCH =~ ^[A-Za-z0-9._/-]+$ ]] || return 2
-    local enc="coordinate%2Fdiscipline-$NAME"
-    if gh api --method GET "repos/$REPO/branches/$enc" > "$1/branch.json" 2> "$1/branch.err" < /dev/null; then
-        BRANCH_EXISTS=1
-    elif grep -q 'HTTP 404' "$1/branch.err"; then
-        BRANCH_EXISTS=0
-    else
-        return 2
-    fi
-    gh pr list --repo "$REPO" --head "$BRANCH" --state all --limit 100 \
-        --json number,url,title,body,state,isDraft,isCrossRepository,baseRefName,headRefName,headRefOid,author \
-        > "$1/prs.raw" 2> "$1/prs.err" < /dev/null || return 2
-    jq --arg b "$DEFAULT_BRANCH" --arg h "$BRANCH" '[.[] | select(.isCrossRepository == false and .baseRefName == $b and .headRefName == $h)]' \
-        "$1/prs.raw" > "$1/prs.json" 2>/dev/null || return 2
-}
-
-# lib_authority <issue|pullRequest> <number>: the candidate's author and last
-# editor (the author when nobody edited it) each have write access to REPO.
-# Returns 0 authorized, 1 not (AUTH_REASON says who), 2 a read failed: a
-# failed read never adopts a record.
-lib_authority() {
-    local kind=$1 n=$2 q out author editor login perm seen=
-    AUTH_REASON=
-    q="query(\$owner: String!, \$name: String!, \$number: Int!) { repository(owner: \$owner, name: \$name) { $kind(number: \$number) { author { login } editor { login } } } }"
-    out=$(gh api graphql -f query="$q" -f owner="${REPO%%/*}" -f name="${REPO#*/}" -F number="$n" < /dev/null) || return 2
-    author=$(printf '%s' "$out" | jq -r --arg k "$kind" '.data.repository[$k].author.login // ""') || return 2
-    editor=$(printf '%s' "$out" | jq -r --arg k "$kind" '.data.repository[$k].editor.login // ""') || return 2
-    [ -n "$editor" ] || editor=$author
-    for login in "$author" "$editor"; do
-        [ "$login" = "$seen" ] && continue
-        seen=$login
-        if ! [[ $login =~ $RE_LOGIN ]]; then AUTH_REASON="no usable login"; return 1; fi
-        perm=$(gh api --method GET "repos/$REPO/collaborators/$login/permission" --jq .permission < /dev/null) || return 2
-        case "$perm" in
-            admin|maintain|write) ;;
-            *) AUTH_REASON="$login has $perm access"; return 1 ;;
-        esac
-    done
-    return 0
-}
-
-# ENTRY_MARKER_PREFIX: a record entry's first line up to its kind, the one
-# definition the entry's writer (record-append.sh) and its readers share.
+# ENTRY_MARKER_PREFIX: an outward entry's first line up to its kind, the one
+# definition the entry's poster (record-append.sh) and its readers share.
 ENTRY_MARKER_PREFIX='<!-- coordinator-record-entry v1 kind='
-
-# lib_has_write_access <login>: 0 when <login> has admin, maintain or write
-# access to REPO, 1 when it has less or isn't a collaborator (GitHub answers
-# 404), 2 when the read failed. record-append.sh's reader keeps an entry only
-# when its author passes.
-lib_has_write_access() {
-    local perm err
-    [[ $1 =~ $RE_LOGIN ]] || return 1
-    err=$(mktemp "${TMPDIR:-/tmp}/write-access.XXXXXX")
-    if ! perm=$(gh api --method GET "repos/$REPO/collaborators/$1/permission" --jq .permission 2> "$err" < /dev/null); then
-        if grep -q 'HTTP 404' "$err"; then rm -f "$err"; return 1; fi
-        rm -f "$err"; return 2
-    fi
-    rm -f "$err"
-    case "$perm" in admin|maintain|write) return 0 ;; *) return 1 ;; esac
-}
 
 # lib_emit <state> <token> <context-key> <detail-file>: finish a check. Under
 # --no-seal print the bare token; otherwise store the detail as data in the
@@ -348,43 +241,22 @@ lib_unit() {
     [[ $UNIT =~ $RE_TOPIC ]] || { UNIT=; return 3; }
 }
 
-# lib_run_ref: REF from --ref (tests) or from coord-log.sh run-facts.
-# Returns 1 when the run has no found record; exits 2 on a read failure.
-lib_run_ref() {
-    if [ "$OVERRIDE" = 1 ]; then
-        [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-    else
-        [ -z "$REF" ] || { echo "$PROG: --ref is only for tests with the override flags" >&2; exit 64; }
-        local facts rc
-        facts=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
-        rc=$?
-        [ $rc -eq 1 ] && return 1
-        [ $rc -eq 0 ] || lib_die2 "cannot read the run's facts"
-        REF=$(printf '%s' "$facts" | jq -r '.ref')
-    fi
-    lib_ref_ok || { echo "$PROG: the record number is not a number" >&2; exit 64; }
+# lib_run_found: 0 when the run has a found record, its find's sealed token
+# (coord-log.sh run-facts), or when the facts came from the test override
+# flags. Returns 1 when the run has no found record; exits 2 on a read failure.
+lib_run_found() {
+    [ "$OVERRIDE" = 1 ] && return 0
+    bash "$HERE/coord-log.sh" run-facts --session "$SESSION" > /dev/null 2>&1
+    case $? in
+        0) return 0 ;;
+        1) return 1 ;;
+        *) lib_die2 "cannot read the run's facts" ;;
+    esac
 }
 
-# lib_session_rotation: 0 when this run's record is a discipline rotation on the
-# session store. Such a rotation opens no pull request, so it has no record
-# number: REF is empty, and the record is the run's session. The run's store
-# (rs_source) and scope choose it; every GitHub record and every roadmap record
-# keeps its number.
-lib_session_rotation() {
-    [ "$SCOPE" = discipline ] && [ "$(rs_source)" = session ]
-}
-
-# lib_ref_ok [ref]: the given ref (else REF) is a record number, or empty for a
-# session rotation.
-lib_ref_ok() {
-    local r=${1-$REF}
-    if [ -z "$r" ]; then lib_session_rotation; else [[ $r =~ $RE_NUM ]]; fi
-}
-
-# lib_record_name: how a diagnostic names the record: `#<n>`, or the session
-# that holds a session rotation.
+# lib_record_name: how a diagnostic names the record: the session that holds it.
 lib_record_name() {
-    if [ -n "$REF" ]; then printf '#%s' "$REF"; else printf 'session %s' "${RS_SESSION:-${SESSION:-}}"; fi
+    printf 'session %s' "${RS_SESSION:-${SESSION:-}}"
 }
 
 # ---- the turn's and the close-outs' reads -----------------------------------

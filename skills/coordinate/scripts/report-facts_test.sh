@@ -15,7 +15,7 @@
 # other form, pr-held when another row links it, and by the scope, fork and
 # Branch rules; `unknown` for a topic with no row and `unknown -` for evidence naming
 # no dispatch topic; a failed read (2); the sealed token; every token in
-# koto's capture alphabet.
+# koto's capture alphabet. The record is the run's session's.
 #
 # Usage: bash skills/coordinate/scripts/report-facts_test.sh
 set -uo pipefail
@@ -29,7 +29,6 @@ tok_shape() {
     local re='^[A-Za-z0-9 :/_.@-]*$'
     if [[ ${2% sealed:*} =~ $re ]]; then ok "$1"; else bad "$1" "[$2]"; fi
 }
-ITITLE="Coordinator record: ROADMAP-plugin-system"
 h() { # h <worker> <repo> <branch> <pull_request cell>
     holding "$1" "$(jq -nc --arg r "$2" --arg b "$3" --arg p "$4" '{repo: $r, branch: $b, pull_request: $p}')"
 }
@@ -51,18 +50,17 @@ pr() { # pr <repo> <n> <headRefName> [cross]
         baseRefName: "main", headRefName: $b, headRefOid: $h, author: "alice", editor: null, mergeStateStatus: "CLEAN"}]' \
         --arg r "$1" --argjson n "$2" --arg b "$3" --arg x "${4:-false}" --arg h "$SHA_HEAD"
 }
-seed() {
+S=coordinate-roadmap-plugin-system-20260926T080000Z
+seed() { # the pull requests, and the record in the run's session
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" '.holdings = $h')" issue)"
+    seed_session "$S" "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" '.holdings = $h')"
     pr acme/widgets 12 feat/alpha; pr acme/gadgets 5 feat/beta; pr acme/widgets 14 feat/delta true
     pr acme/widgets 15 feat/other; pr acme/widgets 16 anything; pr acme/widgets 17 feat/iota; pr acme/widgets 18 feat/theta
     db '.repos["acme/other"] = {private: false, default_branch: "main"}'; pr acme/other 3 feat/gamma
     pr acme/widgets 20 feat/zeta; pr acme/widgets 21 feat/kappa; pr acme/widgets 22 feat/forked true
 }
-S=coordinate-roadmap-plugin-system-20260926T080000Z
 seed
-found_session "$S" "$(roadmap_vars plugin-system)" 7
+found_session "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" reconcile wait
 report() { # report <fields-json>: the coordinator ticks wait with a report
     log_evidence "$S" wait "$1"
@@ -203,12 +201,14 @@ echo "== failures =="
 db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 report '{"event":"report","unit":"alpha"}'
 eq "a failed pull request read exits 2" 2 "$RC"
-db '.fail = [{match: "issue view 7", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
-report '{"event":"report","unit":"alpha"}'
-eq "a failed record read exits 2" 2 "$RC"
 db '.fail = []'
-bash "$RF" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal >/dev/null 2>&1; eq "no session is a usage error" 64 $?
-OUT=$(bash "$RF" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal 2>/dev/null)
+export KOTO_NO_LIST_PREFIX=1
+report '{"event":"report","unit":"alpha"}'
+unset KOTO_NO_LIST_PREFIX
+eq "a failed record read exits 2" 2 "$RC"
+bash "$RF" --scope roadmap --name plugin-system --repo "$REPO" --no-seal >/dev/null 2>&1; eq "no session is a usage error" 64 $?
+bash "$RF" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal >/dev/null 2>&1; eq "--ref is a usage error" 64 $?
+OUT=$(RS_SESSION="$S" bash "$RF" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" --no-seal 2>/dev/null)
 eq "the override flags read the same record" "holding 12 alpha" "$OUT"
 
 done_tests report-facts

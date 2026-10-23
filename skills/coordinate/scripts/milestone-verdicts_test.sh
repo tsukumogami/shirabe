@@ -4,7 +4,8 @@
 # docs/designs/DESIGN-milestone-verdicts.md). Each later step of the feature
 # extends it.
 #
-# It starts from an empty record and a test milestone roadmap with two
+# It starts from an empty record, in the coordinator's session, and a test
+# milestone roadmap with two
 # milestones, one whose work is a pull request (two Evidence clauses) and one
 # whose Evidence is host state, against the GitHub and koto stand-ins and a
 # stand-in shirabe. It ticks `landed` for each through roadmap-status.sh
@@ -19,15 +20,15 @@
 #     rework row, re-offered by the picker, quoted into its next brief and
 #     cleared at dispatch; then, landed again, verified with follow-ups,
 #     which adds a new milestone, MV3, in the same edit;
-#   - a failure entry posted alone against Done MV2, which changes nothing;
-#     then a checked failure against MV2, posted and opened with
+#   - a failure entry written alone against Done MV2, which changes nothing;
+#     then a checked failure against MV2, written and opened (and posted) with
 #     roadmap-status.sh --reopen, which names MV3 (it depends on MV2 and a
 #     worker holds it); a second failure opens nothing while the edit is
 #     pending, pick passes over MV2 and close-out refuses; once main takes
 #     the edit and --confirm runs, MV2 is offered again with the failure
 #     quoted in its next brief and MV3 reads blocked; MV2 is then verified
 #     again;
-#   - a verdict entry posted alone for MV3, which changes nothing; then MV3
+#   - a verdict entry written alone for MV3, which changes nothing; then MV3
 #     verified, after which close-out, refused while any verdict was owed,
 #     closes the roadmap;
 #   - a failure against MV3, whose pending reopen edit holds close-out back
@@ -88,7 +89,7 @@
 #   16 close-out refuses while a verdict is owed and while a reopen is
 #      pending, naming the milestone, and closes once neither stands: here,
 #      and closeout-read_test.sh.
-#   17 a verdict or failure entry posted alone changes nothing: here.
+#   17 a verdict or failure entry written alone changes nothing: here.
 #   18 the roadmap format reference doesn't call the Done rule unenforced,
 #      and the coordinate skill documents verdicts: here.
 #   19 every changed script is on scripts/check-bash-floor.sh's list and
@@ -164,17 +165,25 @@ EOF
 main_roadmap() { jq -r --arg k "main:$ROADMAP" '.files["acme/widgets"][$k]' "$GH_DB"; }
 on_branch() { jq -r --arg k "$1:$ROADMAP" '.files["acme/widgets"][$k] // empty' "$GH_DB"; }
 db_init
-db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-milestones", body: $b, state: "open", author: "coord", editor: null}]
-    | .files["acme/widgets"][$k] = $r' \
-    --arg b "$(render "$(record_json roadmap milestones)" issue 2026-10-09T08:00:00Z)" --arg k "main:$ROADMAP" --arg r "$(cat "$T/roadmap.md")"
-RM=(--scope roadmap --name milestones --repo "$REPO" --ref 7)
+# MV1's pull request, which its goal-fit entry is posted on.
+db '.files["acme/widgets"][$k] = $r
+    | .prs += [{repo: "acme/widgets", number: 12, title: "the plugin list", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
+                baseRefName: "main", headRefName: "feat/list", headRefOid: $h, author: "alice", editor: null}]' \
+    --arg k "main:$ROADMAP" --arg r "$(cat "$T/roadmap.md")" --arg h "$SHA_HEAD"
+RM=(--scope roadmap --name milestones --repo "$REPO")
 W=("${RM[@]}" --skip-session-checks)
-live() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh"; }
 # The coordinator's session, at pick_facts, for the picker and for the
-# verdicts' Checked by.
+# verdicts' Checked by; the record is its own.
 S=coordinate-roadmap-milestones-20261010T080000Z
-found_session "$S" "$(roadmap_vars milestones)" 7
+export RS_SESSION=$S
+found_session "$S" "$(roadmap_vars milestones)"
+seed_session "$S" "$(record_json roadmap milestones)" 2026-10-09T08:00:00Z
 log_to "$S" reconcile pick_facts
+live() { session_state "$S"; }
+# entry_n <kind> <file>: the session entry, --on none; prints its number.
+entry_n() { local o; o=$(bash "$RA" "${RM[@]}" --kind "$1" --on none --text-file "$2") || return 1; echo "$((10#${o##*/}))"; }
+# posted <n>: the comment URL entry N was posted at.
+posted() { koto context get "$S" "record/posted/$(printf '%06d' "$1")" 2>/dev/null; }
 picker() { bash "$PF" --session "$S" >/dev/null 2>"$T/pf.err" && cat "$KOTO_STORE/context/$S/coord/pick.json"; }
 TODAY=$(date -u +%Y-%m-%d)
 
@@ -197,9 +206,10 @@ eq "pick reads both milestones verdict_owed" "MV1:true MV2:true" "$(picker | jq 
 
 # verdict <tag> <verdict> <work-checked> <follow-ups> <changes> <clause>...:
 # the entry for TAG in $T/<tag>.txt (each clause `held -- why` or `not held
-# -- why`), checked against the roadmap at its Source, posted, and its
-# roadmap edit opened (with --follow-ups $FU_FILE when FU_FILE is set); sets
-# URL and PRB (the edit's branch).
+# -- why`), checked against the roadmap at its Source, written to the
+# session, and its roadmap edit opened (with --follow-ups $FU_FILE when FU_FILE
+# is set), which posts it; sets URL (the posted comment) and PRB (the edit's
+# branch).
 verdict() {
     local tag=$1 v=$2 work=$3 fu=$4 ch=$5 i=1; shift 5
     { printf 'Verdict: %s -- %s\nChecked by: %s\nChecked on: %s\nSource: %s at %s\nWork checked: %s\n\nEvidence:\n' "$tag" "$v" "$S" "$TODAY" "$ROADMAP" "$SHA_MAIN" "$work"
@@ -207,12 +217,14 @@ verdict() {
       printf '\nStrategy fit: fits -- it is the plugin bet\nFollow-ups: %s\nChanges needed: %s\n' "$fu" "$ch"; } > "$T/$tag.txt"
     main_roadmap > "$T/source.md"
     bash "$MS" check-verdict "$T/source.md" "$tag" "$T/$tag.txt" > /dev/null 2>"$T/err"; eq "$tag's $v verdict passes milestone.sh check-verdict" 0 $?
-    URL=$(bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/$tag.txt" 2>"$T/err"); eq "  ... is posted as a milestone-verdict entry" 0 $?
-    set -- --verdict "$tag" --entry-file "$T/$tag.txt" --entry-url "$URL"
+    local n
+    n=$(entry_n milestone-verdict "$T/$tag.txt" 2>"$T/err"); eq "  ... is written as a milestone-verdict entry" 0 $?
+    set -- --verdict "$tag" --entry "$n"
     [ -z "${FU_FILE-}" ] || set -- "$@" --follow-ups "$FU_FILE"
     OUT=$(bash "$RS" "${W[@]}" "$@" 2>"$T/err"); local rc=$?
     eq "  ... and roadmap-status.sh --verdict opens its roadmap edit" 0 "$rc"
     [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+    URL=$(posted "$n")
     PRB=$(jq -r --arg u "$OUT" '.prs[] | select(("https://github.com/acme/widgets/pull/\(.number)") == $u) | .headRefName' "$GH_DB" | head -1)
 }
 # merge_edit <tag>: the stand-in's default branch takes the edit on PRB, and
@@ -229,7 +241,7 @@ unit_of() { picker | jq -c --arg u "$1" '.units[] | select(.unit == $u)'; }
 echo "== close-out waits while a verdict is owed =="
 # PRD AC 16: close-out refuses the test roadmap while a verdict is owed, naming
 # the milestone.
-eq "close-out is refused while both verdicts are owed" "verdict-owed 7" "$(closeout)"
+eq "close-out is refused while both verdicts are owed" "verdict-owed" "$(closeout)"
 grep -q 'verdict-owed MV1' "$T/co.err" && ok "  ... naming the milestone" || bad "  ... naming the milestone" "$(cat "$T/co.err")"
 
 echo "== goal fit for the PR-bearing milestone's pull request =="
@@ -242,7 +254,7 @@ main_roadmap > "$T/main.md"
 printf 'Goal fit: acme/widgets#12 -- MV1\nFit: fits\nClauses: 1, 2\nRationale: the list reads the installed manifests and names a removed one as skipped\n' > "$T/gf.txt"
 bash "$MS" check-goal-fit "$T/main.md" MV1 "$T/gf.txt" > "$T/gf.json" 2>"$T/err"; eq "MV1's pull request's goal-fit entry passes milestone.sh check-goal-fit" 0 $?
 eq "  ... naming the pull request and clauses MV1 has" "acme/widgets#12 [1,2]" "$(jq -r '"\(.pr) \(.clauses | tojson)"' "$T/gf.json")"
-bash "$RA" "${RM[@]}" --kind goal-fit --text-file "$T/gf.txt" >/dev/null 2>"$T/err"; eq "  ... and is posted as a goal-fit entry" 0 $?
+bash "$RA" "${RM[@]}" --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" >/dev/null 2>"$T/err"; eq "  ... and is posted as a goal-fit entry on that pull request" 0 $?
 sed 's/^Clauses: 1, 2$/Clauses: 3/' "$T/gf.txt" > "$T/gf3.txt"
 bash "$MS" check-goal-fit "$T/main.md" MV1 "$T/gf3.txt" >/dev/null 2>"$T/err"; eq "an entry naming clause 3 of MV1's two is refused" 1 $?
 
@@ -313,30 +325,27 @@ eq "its edit sets MV2 Done and adds MV3, Not started, in the same change" "Done 
     "$(bash "$MS" evidence "$T/b.md" MV2 | jq -r .status) $(bash "$MS" evidence "$T/b.md" MV3 | jq -r .status)"
 eq "  ... MV3 after the last milestone, with the follow-up's text" "MV1 MV2 MV3|An operator forces a renewal and curls the public name before and after; both get a 200." \
     "$(grep -oE '^### MV[0-9]+' "$T/b.md" | sed 's/^### //' | tr '\n' ' ' | sed 's/ $//')|$(bash "$MS" evidence "$T/b.md" MV3 | jq -r '.evidence[0]')"
-eq "close-out is still refused, MV2's verdict owed until --confirm" "verdict-owed 7" "$(closeout)"
+eq "close-out is still refused, MV2's verdict owed until --confirm" "verdict-owed" "$(closeout)"
 merge_edit MV2
-eq "with MV3 Not started, close-out reads it open" "features-open 7" "$(closeout)"
+eq "with MV3 Not started, close-out reads it open" "features-open" "$(closeout)"
 
 # failure <file> <tag> <clause> <what>: a failure entry reported by an
 # operator today.
 failure() { printf 'Failure: %s\nReported by: an operator\nSeen on: %s\nClause: %s\nWhat was seen: %s\n' "$2" "$TODAY" "$3" "$4" > "$1"; }
 body_now() { live | jq -c 'del(.written)'; }
 # retire_holding <unit>: the unit's holding leaves the record, as a teardown
-# leaves it, written in place on the stand-in.
+# leaves it, written in place in the session's record/holdings.
 retire_holding() {
-    live > "$T/rec.json"
-    jq --arg u "$1" 'del(.written) | .holdings |= map(select(.unit != $u))' "$T/rec.json" > "$T/rec2.json"
-    bash "$HERE/record-render.sh" --container issue --written "$(jq -r .written "$T/rec.json")" "$T/rec2.json" > "$T/rec.md" \
-        || { bad "the holding of $1 is retired" "$(cat "$T/rec.md")"; return; }
-    db '(.issues[] | select(.number == 7)).body = $b' --rawfile b "$T/rec.md"
+    live | jq -c --arg u "$1" '.holdings |= map(select(.unit != $u)) | .holdings' > "$T/h.json"
+    koto context add "$S" record/holdings --from-file "$T/h.json" || bad "the holding of $1 is retired" ""
 }
 
 echo "== a failure entry alone changes nothing =="
-# PRD AC 17: a failure entry posted on the record with no matching record-body
+# PRD AC 17: a failure entry written to the record with no matching record
 # change sets nothing In progress, clears nothing and re-offers nothing.
 BODY0=$(body_now)
 failure "$T/alone.txt" MV2 1 "the public name answered 503 for an hour"
-bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$T/alone.txt" >/dev/null 2>"$T/err"; eq "a failure entry is posted on its own" 0 $?
+bash "$RA" "${RM[@]}" --kind milestone-failure --on none --text-file "$T/alone.txt" >/dev/null 2>"$T/err"; eq "a failure entry is written on its own" 0 $?
 eq "  ... the record's body is unchanged" "$BODY0" "$(body_now)"
 eq "  ... MV2 still reads Done on main" "Done" "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV2 | jq -r .status)"
 eq "  ... and the picker reads it done, not sent back" "true|null|null" "$(unit_of MV2 | jq -r '"\(.done)|\(.rework)|\(.landed)"')"
@@ -354,9 +363,10 @@ eq "a worker holds MV3" 0 "$rc"
 failure "$T/fail.txt" MV2 1 "the public name answered 503 after the certificate change"
 main_roadmap > "$T/main.md"
 bash "$MS" check-failure "$T/main.md" MV2 "$T/fail.txt" > /dev/null 2>"$T/err"; eq "the failure passes milestone.sh check-failure" 0 $?
-FURL=$(bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$T/fail.txt" 2>"$T/err"); eq "  ... is posted as a milestone-failure entry" 0 $?
+FN=$(entry_n milestone-failure "$T/fail.txt" 2>"$T/err"); eq "  ... is written as a milestone-failure entry" 0 $?
 NPR=$(jq '.prs | length' "$GH_DB")
-OUT=$(bash "$RS" "${W[@]}" --reopen MV2 --entry-file "$T/fail.txt" --entry-url "$FURL" 2>"$T/err"); rc=$?
+OUT=$(bash "$RS" "${W[@]}" --reopen MV2 --entry "$FN" 2>"$T/err"); rc=$?
+FURL=$(posted "$FN")
 eq "  ... and roadmap-status.sh --reopen opens one roadmap edit" "0 1" "$rc $(( $(jq '.prs | length' "$GH_DB") - NPR ))"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... naming MV3, the dependent a worker holds" "held-dependent MV3 mv3-cert" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
@@ -366,14 +376,14 @@ FHASH=$( (sha256sum < "$T/fail.txt" 2>/dev/null || shasum -a 256 < "$T/fail.txt"
 eq "its edit sets MV2 In progress with the reopen Progress line" "In progress|0" \
     "$(bash "$MS" evidence "$T/b.md" MV2 | jq -r .status)|$(bash "$MS" progress-has "$T/b.md" "- $TODAY: MV2 -- reopened: clause 1 failed, reported by an operator ($FURL, $FHASH)"; echo $?)"
 failure "$T/fail2.txt" MV2 1 "still 503"
-F2URL=$(bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$T/fail2.txt" 2>"$T/err")
+F2N=$(entry_n milestone-failure "$T/fail2.txt" 2>"$T/err")
 NPR=$(jq '.prs | length' "$GH_DB")
-bash "$RS" "${W[@]}" --reopen MV2 --entry-file "$T/fail2.txt" --entry-url "$F2URL" >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --reopen MV2 --entry "$F2N" >/dev/null 2>"$T/err"
 eq "a second failure while the reopen edit is pending opens no second pull request" "65 0" "$? $(( $(jq '.prs | length' "$GH_DB") - NPR ))"
 # PRD AC 15 and 16: while the reopen edit is pending the picker doesn't
 # offer the milestone, and close-out refuses.
 eq "while it is pending, pick lists MV2 landed, its edit unconfirmed" "true|true" "$(unit_of MV2 | jq -r '"\(.done)|\(.landed != null)"')"
-[ "$(closeout)" != "ready 7" ] && ok "  ... and close-out refuses" || bad "  ... and close-out refuses" "$(cat "$T/co.err")"
+[ "$(closeout)" != "ready" ] && ok "  ... and close-out refuses" || bad "  ... and close-out refuses" "$(cat "$T/co.err")"
 bash "$RS" "${W[@]}" --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm before main takes the edit is 1" 1 $?
 merge_edit MV2
 # PRD AC 15: once confirmed the picker lists it not done and offers it, the
@@ -411,22 +421,22 @@ eq "MV2 reads Done again and MV3 is no longer blocked" "Done false" \
 echo "== the follow-up milestone's verdict, and close-out =="
 # PRD AC 16: close-out names the milestone whose verdict is owed.
 bash "$RS" "${W[@]}" --unit MV3 >/dev/null 2>"$T/err"; eq "landed for MV3 marks its verdict owed" 0 $?
-eq "close-out names it" "verdict-owed 7 verdict-owed MV3" "$(closeout) $(grep -o 'verdict-owed MV3' "$T/co.err")"
-# PRD AC 17: a verdict entry posted on the record with no matching record-body
+eq "close-out names it" "verdict-owed verdict-owed MV3" "$(closeout) $(grep -o 'verdict-owed MV3' "$T/co.err")"
+# PRD AC 17: a verdict entry written to the record with no matching record
 # change sets nothing Done, clears no mark and doesn't let close-out pass.
 BODY0=$(body_now)
 printf 'Verdict: MV3 -- verified\nChecked by: %s\nChecked on: %s\nSource: %s at %s\nWork checked: none\n\nEvidence:\n1. held -- posted with no roadmap edit\n\nStrategy fit: fits -- it is the plugin bet\nFollow-ups: none\nChanges needed: none\n' \
     "$S" "$TODAY" "$ROADMAP" "$SHA_MAIN" > "$T/valone.txt"
-bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/valone.txt" >/dev/null 2>"$T/err"; eq "a verdict entry is posted on its own" 0 $?
+bash "$RA" "${RM[@]}" --kind milestone-verdict --on none --text-file "$T/valone.txt" >/dev/null 2>"$T/err"; eq "a verdict entry is written on its own" 0 $?
 eq "  ... the record's body is unchanged, MV3's verdict still owed" "$BODY0" "$(body_now)"
 eq "  ... MV3 is not Done on main and the picker still passes over it" "Not started true" \
     "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV3 | jq -r .status) $(unit_of MV3 | jq -r .verdict_owed)"
-eq "  ... and close-out is still refused" "verdict-owed 7" "$(closeout)"
+eq "  ... and close-out is still refused" "verdict-owed" "$(closeout)"
 verdict MV3 verified none none none "held -- renewed and curled; a 200 both times"
 merge_edit MV3
 # PRD AC 16: close-out closes the roadmap once every milestone reads Done with
 # no verdict owed.
-eq "with every milestone Done and no verdict owed, close-out is ready" "ready 7" "$(closeout)"
+eq "with every milestone Done and no verdict owed, close-out is ready" "ready" "$(closeout)"
 
 echo "== the record and the roadmap after all of it =="
 # PRD AC 1 and 13: a suite records a verdict for each test milestone
@@ -458,9 +468,9 @@ echo "== close-out waits while a reopen edit is pending =="
 # pending, naming the milestone, though every milestone still reads Done on
 # main. PRD AC 8: across every edit above, nothing was merged.
 failure "$T/fail3.txt" MV3 1 "the renewal left the old certificate in place"
-F3URL=$(bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$T/fail3.txt" 2>"$T/err")
-bash "$RS" "${W[@]}" --reopen MV3 --entry-file "$T/fail3.txt" --entry-url "$F3URL" >/dev/null 2>"$T/err"; eq "a failure against MV3 opens its reopen edit" 0 $?
-eq "close-out is refused while it is pending" "side-effects 7" "$(closeout)"
+F3N=$(entry_n milestone-failure "$T/fail3.txt" 2>"$T/err")
+bash "$RS" "${W[@]}" --reopen MV3 --entry "$F3N" >/dev/null 2>"$T/err"; eq "a failure against MV3 opens its reopen edit" 0 $?
+eq "close-out is refused while it is pending" "side-effects" "$(closeout)"
 grep -q 'reopen-pending MV3' "$T/co.err" && ok "  ... naming the milestone" || bad "  ... naming the milestone" "$(cat "$T/co.err")"
 grep -qE 'pr merge|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "nothing was ever merged" "$(calls)" || ok "nothing was ever merged"
 

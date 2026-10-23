@@ -6,22 +6,21 @@
 #
 # Usage:
 #   record-handover.sh --session S [--check]
-#   record-handover.sh --scope roadmap|discipline --name N --repo O/R --ref N [--check]   (tests)
+#   record-handover.sh --scope roadmap|discipline --name N --repo O/R [--check]   (tests)
 #
-# The record number comes from the session's run-facts; a discipline rotation
-# on the session store has none.
+# The session must have a found record (coord-log.sh run-facts); the override
+# flags are for tests, with RS_SESSION naming the session that holds it.
 #
 # Prints, as one JSON object: arguments and cap (Run's rows, or null),
 # coordinator (the current address, or null), told (who has been told it),
 # workers (one per live holding: unit, worker, phase, told, next), work (every
 # Work row, local agents included), standing (every Standing row), holds (the
-# Holds section as it stands) and gaps. On the session store it also prints
-# the crash set (PRD R17): each worker's pushed_head when kept, reports_to (the
-# row, or null), rules and briefs
-# (their rows' values), friction, and host (record/host). A gap is {gap, fix}:
+# Holds section as it stands) and gaps. It also prints the crash set (PRD
+# R17): each worker's pushed_head when kept, reports_to (the row, or null),
+# rules and briefs (their rows' values), friction, and host (record/host). A
+# gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
-#   no-reports-to                            the session store's reports-to
-#                                            row is missing
+#   no-reports-to                            the reports-to row is missing
 #   no-next-step <unit>                      a live holding has no Work row
 #   leg-unclassified <worker>                a live holding's leg names a
 #                                            request this host's store
@@ -30,9 +29,8 @@
 #                                            no end yet (PRD R15)
 #   not-told <worker>                        a live holding's Worker has no
 #                                            `told` row for the current address
-#   carry-unacknowledged                     a discipline rotation on the
-#                                            session store carried its
-#                                            predecessor's state, and no
+#   carry-unacknowledged                     a discipline rotation carried
+#                                            its predecessor's state, and no
 #                                            Standing go-ahead set since this
 #                                            run's start (not one the carry
 #                                            brought) acknowledges it; printed
@@ -52,14 +50,13 @@
 # 2 a read failed; 10 the run has no found record, or the target isn't a
 # canonical record of this scope; 64 usage.
 #
-# koto reads: koto request get <request> for each live holding on a leg.
-# GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
-# --json body.
+# koto reads: the record through record-source.sh, and koto request get
+# <request> for each live holding on a leg. It reads nothing on GitHub.
 set -uo pipefail
 
 PROG=record-handover
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF=
+SESSION= SCOPE= NAME= REPO=
 CHECK=0
 
 usage() { sed -n '/^# Usage:/,/^# Prints/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -69,46 +66,28 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --check) CHECK=1; shift ;;
         *) usage ;;
     esac
 done
 . "$HERE/record-common.sh"
 lib_facts
-if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-else
-    [ -z "$REF" ] || usage
-    FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
-    case $? in
-        0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
-        1) echo "$PROG: the run has no found record" >&2; exit 10 ;;
-        *) lib_die2 "cannot read the run's facts" ;;
-    esac
-fi
-lib_ref_ok || lib_die2 "the record number is not a number"
+lib_run_found || { echo "$PROG: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-handover.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
-rs_record "$WD/parsed.json" body --json body --jq .body
+rs_record "$WD/parsed.json" body
 case $? in
     0) ;;
-    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/parsed.json.err")"
-       lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$WD/parsed.json.err")" ;;
-    3|65) echo "$PROG: #$REF is not a canonical $SCOPE record for $NAME" >&2; exit 10 ;;
+    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
+    3|65) echo "$PROG: $(lib_record_name) is not a canonical $SCOPE record for $NAME" >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_die2 "$(lib_scrub < "$WD/parsed.json.err")" ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
-# On the session store the crash set and record/host are part of what a
-# replacement continues from (PRD R17).
-STORE=$(rs_source)
-if [ "$STORE" = session ]; then
-    rs_host "${RS_SESSION:-$SESSION}" "$WD/host.json" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.json.err")"
-else
-    echo '{}' > "$WD/host.json"
-fi
+# The crash set and record/host are part of what a replacement continues from
+# (PRD R17).
+rs_host "${RS_SESSION:-$SESSION}" "$WD/host.json" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.json.err")"
 [ -s "$WD/parsed.json.pushed" ] || echo '{}' > "$WD/parsed.json.pushed"
 
 # A live holding on a leg whose request this host's store doesn't hold (the run
@@ -133,14 +112,14 @@ jq -R -s 'split("\n") | map(select(. != "") | split("\t") | {worker: .[0], leg: 
     || lib_die2 "jq failed"
 
 # A rotation that carried its predecessor's state (a record/rotation naming its
-# predecessor, or this run's carry report, coord/predecessor_carry.json, which
-# also covers the one-time bridge from a handoff file) dispatches and merges
+# predecessor, or this run's carry report, coord/predecessor_carry.json)
+# dispatches and merges
 # nothing on it until a person acknowledges the carry: a Standing go-ahead set at
 # or after this run's start (the start of its chain of restarts, coord-log.sh
 # chain-start, so a crash restart doesn't ask again), and not one the carry
 # itself brought over (the report lists those).
 echo '{"carried": false}' > "$WD/carry.json"
-if [ -n "$SESSION" ] && lib_session_rotation; then
+if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     RS=${RS_SESSION:-$SESSION}
     CARRIED=false
     if rs_key "$SESSION" coord/predecessor_carry.json "$WD/report.json"; then
@@ -162,7 +141,7 @@ if [ -n "$SESSION" ] && lib_session_rotation; then
     fi
 fi
 
-jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+jq -c --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" '
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     (.run // []) as $run
@@ -174,12 +153,10 @@ jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "
        workers: [$live[] | {unit, worker, phase, told: (.worker as $w | $told | index($w) != null),
                             next: ($work[.unit].next // null)}],
        work: (.work // []), standing: (.standing // []), holds: (.holds // [])}
-    | if $store == "session" then
-        .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
-        | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
-             briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
-             host: $host[0]}
-      else . end
+    | .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
+    | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
+         briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
+         host: $host[0]}
     | (if $carry[0].carried then
          ($carry[0].carried_ids) as $brought
          | .carry = {carried: true, start: $carry[0].start,
@@ -193,7 +170,7 @@ jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "
         (if .arguments == null then {gap: "no-arguments", fix: "record-state.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
         (if .cap == null then {gap: "no-cap", fix: "record-state.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "record-state.sh --run coordinator <your address> --by <you>"} else empty end),
-        (if $store == "session" and .reports_to == null then {gap: "no-reports-to", fix: "record-state.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
+        (if .reports_to == null then {gap: "no-reports-to", fix: "record-state.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "record-state.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select(.told | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then record-state.sh --told \(.worker) --by <you>"}) else empty end)
