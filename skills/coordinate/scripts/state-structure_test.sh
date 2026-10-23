@@ -103,15 +103,12 @@ codec scripts/state-schema_test.sh
 codec scripts/testdata/board/helpers.sh
 codec scripts/unit-cost.sh
 collaborators scripts/testdata/gh
-disciplines koto-templates/coordinate.md
 disciplines scripts/discipline-session_test.sh
-disciplines scripts/testdata/rule-coverage.tsv
 libs koto-templates/coordinate.md
 libs scripts/board-lib.sh
 libs scripts/board-verdict_test.sh
 libs scripts/closeout-read.sh
 libs scripts/coordinate-open.sh
-libs scripts/coordinate-open_engine_test.sh
 libs scripts/coordinate-report.sh
 libs scripts/coordinate-template-structure_engine_test.sh
 libs scripts/coordinate_1_engine_test.sh
@@ -121,16 +118,11 @@ libs scripts/decision-archive_test.sh
 libs scripts/decision-next.sh
 libs scripts/decision-next_test.sh
 libs scripts/decision-render.sh
-libs scripts/decisions-replay_engine_test.sh
 libs scripts/deferral-check.sh
-libs scripts/discipline-session_engine_test.sh
 libs scripts/discipline-session_test.sh
 libs scripts/dispatch-common.sh
-libs scripts/handover_engine_test.sh
 libs scripts/holding-link.sh
 libs scripts/land-check_test.sh
-libs scripts/legs-move_engine_test.sh
-libs scripts/milestone-verdict_engine_test.sh
 libs scripts/milestone.sh
 libs scripts/pause-read.sh
 libs scripts/pick-facts.sh
@@ -175,7 +167,6 @@ libs scripts/start-check.sh
 libs scripts/state-schema.jq
 libs scripts/state-schema_test.sh
 libs scripts/testdata/board/helpers.sh
-libs scripts/testdata/coordinate-engine-lib.sh
 libs scripts/testdata/test-lib.sh
 name scripts/record-append-on_test.sh
 name scripts/record-append.sh
@@ -205,21 +196,10 @@ name scripts/record-state_test.sh
 name scripts/record-write-core.sh
 name scripts/record-write.sh
 name scripts/record-write_test.sh
-store-codes koto-templates/coordinate.md
 store-codes scripts/record-codec.jq
 store-codes scripts/record-source_test.sh
 store-codes scripts/state-schema.jq
 store-codes scripts/state-schema_test.sh
-store-codes scripts/testdata/rule-coverage.tsv
-title koto-templates/coordinate.md
-title scripts/decisions-replay_engine_test.sh
-title scripts/handover_engine_test.sh
-title scripts/milestone-verdict_engine_test.sh
-title scripts/pause_engine_test.sh
-title scripts/session-store_engine_test.sh
-title scripts/testdata/coordinate-engine-lib.sh
-title scripts/testdata/rule-coverage.tsv
-title scripts/writeback_engine_test.sh
 EOF
 : > "$T/empty"
 
