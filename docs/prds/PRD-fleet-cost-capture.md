@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A coordinator-dispatched unit gets a `unit-cost/1` entry only when the
   coordinator's own teardown pass removes it. Units removed by hand or by a
@@ -22,7 +22,7 @@ source_issue: 1093
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
