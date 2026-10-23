@@ -557,6 +557,6 @@ eq "no pick fixture keeps a Done row pick-facts.sh would have collapsed" 0 \
 eq "every blocker a pick fixture names is a unit it lists or a done one" 0 \
     "$(jq -r '.inputs.pick_facts | fromjson | ([.units[].unit] + .done) as $k | .units[] | select((.blocked_by | type) == "array") | .blocked_by[] | select(IN($k[]) | not)' "$FX" | wc -l | tr -d ' ')"
 eq "fixtures cover a slice with a long done list, for every value but scope and await_decision" "ask_up,dispatch,hold,scope_ahead,send_execution" \
-    "$(jq -r 'select((.inputs.pick_facts | fromjson | .done | length) >= 150) | .expected' "$FX" | sort | paste -sd, -)"
+    "$(jq -rs '[.[] | select((.inputs.pick_facts | fromjson | .done | length) >= 150) | .expected] | sort | join(",")' "$FX")"
 
 done_tests pick-facts
