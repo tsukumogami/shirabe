@@ -99,7 +99,8 @@
 #                    done (its Status opens Done, Shipped or Dropped)
 #   rotation-over    discipline: today UTC is after the record title's end date
 #   pick             anything else
-# The facts go to context key coord/pick.json as data (pick's decider input):
+# The facts go to context key coord/pick.json as data (what the agent reads at
+# pick):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
 #    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
@@ -109,6 +110,13 @@
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
 # decisions is the record's unsettled entries (record-decision.sh --list),
 # the rows the progress table renders.
+# Their slice goes to context key coord/pick_slice.json, pick's decider input:
+# pick-slice.jq's pick_slice of the facts this visit built, done units
+# collapsed to their tags and null, false and empty-list fields left out. The
+# slice is stored first and the facts second (lib_emit), and only then is the
+# verdict sealed, so a sealed verdict means both keys were written on this
+# visit; the context-exists gates on them can't tell a stale key from a fresh
+# one, and the seal can. Under --no-seal neither key is stored.
 #
 # Usage:
 #   pick-facts.sh --session S
@@ -334,4 +342,9 @@ jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
      active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
      cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
+jq -c -L "$HERE" 'include "pick-slice"; pick_slice' "$T/pick.json" > "$T/pick_slice.json" || lib_die2 "jq failed"
+if [ "$NO_SEAL" != 1 ] && [ -n "$SESSION" ]; then
+    "$KOTO" context add "$SESSION" coord/pick_slice.json --from-file "$T/pick_slice.json" >/dev/null \
+        || lib_die2 "koto context add coord/pick_slice.json failed"
+fi
 lib_emit pick_facts "$VERDICT" coord/pick.json "$T/pick.json"

@@ -1,7 +1,32 @@
 name: Check coordinate scripts
 
+# This workflow runs on a pull request and again on the push its merge makes
+# to main. A merge leaves the pull request's own run behind: its macOS leg, the
+# coordinate suite on the bash 3.2 floor, may still be queued or running, and
+# cancel-closed-pr-macos-runs.yml cancels it once the pull request closes,
+# giving that result up on purpose, with macos-floor.yml checking main once a
+# day. The push run is the merge commit's own run on both platforms, so a
+# change to these paths is checked on the floor as it lands rather than at
+# the next daily run (shirabe#1077).
+
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
+    paths:
+      - 'skills/coordinate/**'
+      - 'scripts/koto-open.sh'
+      - 'scripts/skill-preflight.sh'
+      - 'scripts/lib/**'
+      - 'skills/execute/scripts/merge-exec.sh'
+      - 'skills/execute/scripts/merge-verdict.sh'
+      - '.github/workflows/check-coordinate-scripts.yml'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/coordinate.list'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above.
     paths:
       - 'skills/coordinate/**'
       - 'scripts/koto-open.sh'
@@ -21,7 +46,8 @@ env:
 # A newer push to the same pull request supersedes this run, so it is
 # cancelled rather than left holding a macOS runner. The group is this
 # workflow plus the pull request; any other event groups on its own commit
-# and is never cancelled.
+# and is never cancelled. A push to main has no pull request number, so it
+# groups on its commit and runs to the end whatever a pull request does next.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -2,11 +2,12 @@
 stateDiagram-v2
     direction LR
     [*] --> write_set_record
-    ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 0, gates.owned_merge_state_clean.exit_code: 0
-    ci_monitor --> escalate_dirty_merge_state : gates.monitor_owned_pr.exit_code: 0, gates.owned_merge_state_clean.exit_code: 1
-    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0
-    ci_monitor --> merge_readiness : ci_outcome: pending, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0
-    ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0
+    ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_pr_merged.exit_code: 0
+    ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 0, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
+    ci_monitor --> escalate_dirty_merge_state : gates.monitor_owned_pr.exit_code: 0, gates.owned_merge_state_clean.exit_code: 1, gates.owned_pr_merged.exit_code: 1
+    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
+    ci_monitor --> merge_readiness : ci_outcome: pending, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
+    ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0, gates.owned_pr_merged.exit_code: 1
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 3
     ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 2
     drift_facts --> worktree_sync : gates.drift_facts_recorded.matches: true, gates.plan_intent_recorded.exists: true
@@ -72,6 +73,9 @@ stateDiagram-v2
     end note
     note left of ci_monitor
         gate: owned_merge_state_clean
+    end note
+    note left of ci_monitor
+        gate: owned_pr_merged
     end note
     note left of drift_facts
         gate: drift_facts_recorded

@@ -315,13 +315,29 @@ removed_mode() {
     # The instance's path. koto's session headers first: a worker's sessions
     # record the directory they ran in.
     : >"$T/cands"
-    for f in "$KOTO_SESSIONS"/*/koto-*.state.jsonl; do
+    # Only a session file holding `+<slug>-` can record a path candidate()
+    # accepts, so one grep picks the files whose header is worth opening; a
+    # koto home with a thousand sessions would otherwise cost a head and a jq
+    # for each of them. grep reads every session file whole, not only its
+    # header: about 1.3 s on a store of 990 files and 151 MB, well inside the
+    # action's limit, so the one grep stays rather than a per-file read of
+    # first lines. A hit is no candidate by itself: the coordinator's own
+    # sessions always pass, since their later lines name worker paths, and
+    # candidate() still decides on the header's execution_dir. grep answers
+    # 1 when nothing holds the string, and a file it can't read is skipped,
+    # as the head below would skip it; neither stops the seal.
+    : >"$T/headers"
+    set -- "$KOTO_SESSIONS"/*/koto-*.state.jsonl
+    if [ -e "$1" ] || [ -L "$1" ]; then
+        printf '%s\0' "$@" | xargs -0 grep -lsF --null -e "+${slug}-" -- >"$T/headers" 2>>"$T/grep.err"
+    fi
+    while IFS= read -r -d '' f; do
         [ -f "$f" ] && [ ! -L "$f" ] || continue
         # A header that isn't JSON names no candidate; jq's complaint about it
         # is kept in the run's scratch directory, not shown.
         ed=$(head -n 1 "$f" | jq -r '.execution_dir // "" | strings' 2>>"$T/jq.err") || continue
         candidate "$ed" >>"$T/cands"
-    done
+    done <"$T/headers"
     sort -u "$T/cands" >"$T/cands.u"
     # Else the transcripts' cwd values, in the project directories named for
     # such a path (the instance itself, or a directory under it).
