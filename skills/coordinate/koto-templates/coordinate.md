@@ -2514,9 +2514,9 @@ workflow here. Its handover gate re-reads the record's stored set (Run, Standing
 Work, `references/record-template.md`) and holds the workflow while the record
 lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
-address; a holding merged and waiting for its teardown is exempt. On the
-session store it also holds while the record names nobody this coordinator
-reports to (`no-reports-to`). After an import it holds, on either store,
+address; a holding merged and waiting for its teardown is exempt. It also
+holds while the record names nobody this coordinator
+reports to (`no-reports-to`). After an import it holds
 until each leg has an end (`leg-unclassified <worker>`): a live holding whose
 leg names a request this host's store doesn't hold. The pass gives each such
 leg its end, re-legging a worker whose session came along unbound and moving
