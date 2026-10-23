@@ -452,9 +452,14 @@ lines, and the rows and refusals behind them, are in
 - **The verdict step.** At `milestone_verdict` you read the roadmap at the
   default branch's head (that commit is the entry's Source), check the
   shipped work against each clause, write
-  the verdict entry, check it with `milestone.sh check-verdict`, post it with
-  `record-append.sh --kind milestone-verdict`, run `roadmap-status.sh
-  --verdict` with the URL the post printed, and submit `verdict: recorded`.
+  the verdict entry, check it with `milestone.sh check-verdict`, record it
+  with `record-append.sh --kind milestone-verdict`, run `roadmap-status.sh
+  --verdict` with the entry (`--entry <n>`, on the session store) or the URL
+  the post printed, and submit `verdict: recorded`. On the session store a
+  goal-fit, verdict or failure entry is posted as a comment only on a
+  repository that opts in to workflow content (`## PR Workflow Content:
+  include` in its CLAUDE.md); otherwise it stays in your session, and the
+  roadmap edit's Progress line names it by its hash.
   When a clause can't be checked yet (it needs a release or a person's
   walkthrough), or another roadmap edit is pending, submit
   `verdict: deferred`. The row stays, so pick names the milestone at every

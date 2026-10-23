@@ -3872,8 +3872,14 @@ clause 1 first:
    repository (`mktemp`) and check the entry:
    `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
    Fix the entry until it passes.
-3. Post it:
-   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`.
+3. Record it:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`,
+   adding `--on <owner/repo#n>`, the pull request the entry names, when the
+   record is on the session store. There it is posted on that pull request
+   only when its repository opts in to workflow content
+   (`## PR Workflow Content: include` in its CLAUDE.md), and otherwise stays
+   in your session: the script prints `record/entries/<n>` instead of a URL,
+   and that is the entry recorded.
 4. Submit, with `clauses` set to the entry's Clauses value.
 
 `advances none` is recorded, not a gap: `fit` alone decides where the pull
@@ -4305,8 +4311,8 @@ several pull requests is sent once, after the last.
 
 A milestone's verdict is owed. Check the shipped work against each Evidence
 clause, write the verdict entry, check it with `milestone.sh check-verdict`,
-post it with `record-append.sh --kind milestone-verdict`, run
-`roadmap-status.sh --verdict` with the URL it printed, and submit
+record it with `record-append.sh --kind milestone-verdict`, run
+`roadmap-status.sh --verdict` with the entry or URL it printed, and submit
 `verdict: recorded` with the milestone's tag as `unit`. When the verdict can't
 be given now, submit `verdict: deferred`: the milestone stays verdict-owed and
 pick passes over it.
@@ -4350,11 +4356,18 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
 4. Check it: `"$S/milestone.sh" check-verdict <roadmap file> "<tag>" <entry file> --worker <the Who of the milestone's verdict-owed row>`
    (`record-state.sh --session {{SESSION_NAME}} --list` shows the row; leave
    `--worker` off when its Who is `none`). Fix the entry until it passes.
-5. Post it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-verdict --text-file <entry file>`,
-   which prints the entry's URL.
+5. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-verdict --text-file <entry file>`,
+   adding `--on none` when the record is on the session store. That prints
+   `record/entries/<n>`; on a GitHub record it prints the entry's URL.
 6. Open the roadmap edit:
-   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --verdict "<tag>" --entry-file <entry file> --entry-url <URL>`.
-   It re-reads the comment at the URL, which must hold the entry file's text,
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --verdict "<tag>" --entry <n>`
+   on the session store, or `--entry-file <entry file> --entry-url <URL>` in
+   place of `--entry <n>` on a GitHub record, where it re-reads the comment at
+   the URL, which must hold the entry file's text. On the session store the
+   entry is posted on the pull request the edit opens only when the host
+   opts in to workflow content (`## PR Workflow Content: include` in its
+   CLAUDE.md); otherwise it stays in your session and the Progress line
+   names it by its hash. The script
    requires the default branch to contain the Source commit, re-checks the
    entry against the roadmap at its Source and opens one pull request: a
    verified verdict sets the Status to Done, removes the Needs line and adds
@@ -4396,9 +4409,9 @@ and the default branch.
 ## milestone_reopen
 
 A failure was reported against a milestone that reads Done. Write the failure
-entry, check it with `milestone.sh check-failure`, post it with
+entry, check it with `milestone.sh check-failure`, record it with
 `record-append.sh --kind milestone-failure`, run `roadmap-status.sh --reopen`
-with the URL it printed, and submit `status: opened` with the milestone's tag
+with the entry or URL it printed, and submit `status: opened` with the milestone's tag
 as `unit`. When the entry can't be checked or the script refuses, submit
 `status: failed`: nothing changes.
 
@@ -4430,11 +4443,16 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
 3. Check it: `"$S/milestone.sh" check-failure <roadmap file> "<tag>" <entry file>`.
    It refuses a milestone that doesn't read Done and a clause it doesn't
    have. Fix the entry until it passes.
-4. Post it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --text-file <entry file>`,
-   which prints the entry's URL.
+4. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --text-file <entry file>`,
+   adding `--on none` when the record is on the session store. That prints
+   `record/entries/<n>`; on a GitHub record it prints the entry's URL.
 5. Open the reopen edit:
-   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry-file <entry file> --entry-url <URL>`.
-   It re-reads the comment at the URL, which must hold the entry file's text,
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry <n>`
+   on the session store, or `--entry-file <entry file> --entry-url <URL>` in
+   place of `--entry <n>` on a GitHub record, where it re-reads the comment at
+   the URL, which must hold the entry file's text. As with a verdict, the
+   entry is posted on the pull request only when the host opts in to
+   workflow content, and otherwise stays in your session. The script
    checks the entry against the roadmap on the default branch and opens one
    pull request that sets the Status to In progress and adds a Progress line
    naming the failed clause, the reporter and the entry; Delivered, Outcome

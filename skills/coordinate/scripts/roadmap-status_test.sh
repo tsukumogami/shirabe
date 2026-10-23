@@ -760,6 +760,9 @@ session_keys "$SV" "$T/sv.json"
 "${SEN[@]}" bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>"$T/err"; eq "--unit marks the verdict owed on the session store" 0 $?
 eq "  ... in record/work" "plugin-list" "$(slive | jq -r '[(.work // [])[] | select(.kind == "verdict-owed" and .item == "MV1") | .who][0]')"
 ventry "$T/sv1.txt" MV1 verified coordinate-plugins "acme/widgets#12, acme/widgets#3" fits none none held held
+# Posted on the record issue only because the host opts in to workflow content;
+# roadmap-status-entry_test.sh covers the default, where it stays in the session.
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
 SURL=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/sv1.txt" 2>"$T/err")
 case "$SURL" in https://github.com/acme/widgets/issues/7\#issuecomment-*) ok "the verdict entry is posted from the session" ;; *) bad "the verdict entry is posted from the session" "$SURL $(cat "$T/err")" ;; esac
 OUT=$("${SEN[@]}" bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/sv1.txt" --entry-url "$SURL" 2>"$T/err"); rc=$?
