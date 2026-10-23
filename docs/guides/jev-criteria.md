@@ -122,7 +122,8 @@ declares it in `veto` mode, and both bars are met.
    It sends every case to Jev under the template's declaration and prints the
    counts and a `fixture_run` record. Exit 0 means the fixture bar is met: no
    seeded-bad or adversarial case answered `pass`, at least 80% of good cases
-   answered `pass`, and no case without an answer. The key is only ever sent
+   answered `pass`, no `empty` case answered `pass` or `fail`, and no case
+   without an answer. The key is only ever sent
    to an https endpoint; a loopback endpoint (a local stub) gets a placeholder.
 2. **Read the live figures** as above, and check they meet the bar.
 3. **Edit the entry** in `references/rule-registry.json`:
