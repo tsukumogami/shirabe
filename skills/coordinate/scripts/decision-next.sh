@@ -16,14 +16,15 @@
 #
 # It reads the Decisions section (record-decision.sh --list, or its projection
 # over the --parsed record), the session log
-# (coord-log.sh), and at discipline scope before the first dispatch the
-# previous rotation's handoff. The rules, in routing order; the first that
+# (coord-log.sh), and at discipline scope on GitHub before the first dispatch
+# the previous rotation's handoff. The rules, in routing order; the first that
 # holds is the verdict:
 #
-#   1 carry             before the run's first dispatch, at discipline scope:
-#                       the handoff (docs/disciplines/<name>.md on the default
-#                       branch) has an unsettled entry this record lacks, or a
-#                       higher Next decision
+#   1 carry             before the run's first dispatch, at discipline scope on
+#                       GitHub: the handoff (docs/disciplines/<name>.md on the
+#                       default branch) has an unsettled entry this record
+#                       lacks, or a higher Next decision (a rotation on the
+#                       session store carried its predecessor when it opened)
 #   2 unrecorded-open   the latest report_questions visit sealed a list, the run
 #                       went on to decision_open and not to wait since, and no
 #                       Source or Evidence line carries this run's
@@ -127,7 +128,7 @@ live_size() {
         cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
         LIVE=$PARSED
     else
-        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
+        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && lib_ref_ok "$REF" \
             || lib_die2 "cannot read the record's number"
         rs_record "$T/live" body --json body --jq .body
         case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
@@ -228,9 +229,12 @@ else
     echo '{"work":[]}' > "$T/state.json"
 fi
 
-# Rule 1: the carry.
+# Rule 1: the carry. A rotation on the session store carried its predecessor
+# when it opened (record-open.sh --carry, the bridge's file included); a
+# committed handoff outlives the rotation that carried it, and its unsettled
+# entries may have settled since, so it is read only for a rotation on GitHub.
 CARRY=false
-if [ "$SCOPE" = discipline ] && [ "$DISPATCHED" = false ]; then
+if [ "$SCOPE" = discipline ] && [ "$DISPATCHED" = false ] && ! lib_session_rotation; then
     lib_default_branch || lib_die2 "cannot read $REPO's default branch"
     lib_file_at "docs/disciplines/$NAME.md" "$DEFAULT_BRANCH" "$T/handoff.md"
     case $? in

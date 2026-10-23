@@ -13,7 +13,8 @@
 #   ... [--scope roadmap|discipline --name N --repo O/R --ref N]   (tests; reads only)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests of the read modes.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests of the read modes.
 #
 # The write modes, each bound to the state the session is in (coord-log.sh
 # current) and, where it has one, to the entry the workflow routed:
@@ -181,7 +182,7 @@ esac
 . "$HERE/record-common.sh"
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
@@ -191,7 +192,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-decision.XXXXXX") || lib_die2 "cannot make a temporary directory"
 # The write core takes over the EXIT trap; CORE_CLEANUP has it remove this too.

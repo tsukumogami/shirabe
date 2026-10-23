@@ -229,6 +229,117 @@ eq "--verification=local needs no reason" \
     '[["VERIFICATION","local"]]' \
     "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
 
+# --- --dispatched-by: the link after the open ----------------------------------
+#
+# A stub that opens every session (`init` answers outcome created), records
+# every call in $KOTO_STUB_LOG, fails `session link` the first $LINK_FAILS
+# times it is called, and keeps the one key it is handed in $LINK_KEYS.
+LINK_BIN="$WORK/link-bin"
+mkdir -p "$LINK_BIN"
+cat > "$LINK_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${KOTO_STUB_LOG:?}"
+case "${1:-} ${2:-}" in
+    "init "*) printf '{"outcome":"created"}\n'; exit 0 ;;
+    "session link")
+        n=$(cat "$LINK_KEYS/count" 2>/dev/null || echo 0)
+        n=$((n + 1))
+        printf '%s\n' "$n" > "$LINK_KEYS/count"
+        [ "$n" -gt "${LINK_FAILS:-0}" ] || { printf '{"error":"stub"}\n'; exit 1; }
+        printf '{"written":true}\n'; exit 0 ;;
+    "context add") cat > "$LINK_KEYS/added"; exit 0 ;;
+    "context remove") exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$LINK_BIN/koto"
+LINK_KEYS="$WORK/link-keys"
+link_open() { # link_open <link failures> [opener args]...
+    local fails="$1"
+    shift
+    : > "$WORK/stub.log"
+    rm -rf "$LINK_KEYS"; mkdir -p "$LINK_KEYS"
+    tokens '["7","--koto-leg=r1:work-on"]'
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" LINK_FAILS="$fails" LINK_KEYS="$LINK_KEYS" PATH="$LINK_BIN:$PATH" \
+        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$@" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    LINKS=$(grep '^session link ' "$WORK/stub.log")
+}
+
+link_open 0 --dispatched-by execute-plan-x
+eq "--dispatched-by: the open exits 0" 0 "$RC"
+eq "--dispatched-by: a link that works prints only the open's lines" "opened=new
+session=issue_7" "$OUT"
+eq "--dispatched-by: one link call, naming the opened session and the dispatcher" \
+    "session link issue_7 --dispatched-by execute-plan-x" "$LINKS"
+[ -s "$LINK_KEYS/added" ] && fail "--dispatched-by: a link that works recorded a warning" \
+    || pass "--dispatched-by: a link that works records no warning"
+
+link_open 1 --dispatched-by execute-plan-x
+eq "--dispatched-by, a link that fails once: exit 0" 0 "$RC"
+eq "--dispatched-by, a link that fails once: no warning" "opened=new
+session=issue_7" "$OUT"
+eq "--dispatched-by, a link that fails once: run twice" 2 "$(printf '%s\n' "$LINKS" | grep -c .)"
+[ -s "$LINK_KEYS/added" ] && fail "--dispatched-by: a retry that works recorded a warning" \
+    || pass "--dispatched-by: a retry that works records no warning"
+
+link_open 2 --dispatched-by execute-plan-x
+eq "--dispatched-by, a link that fails twice: the open's exit code stands" 0 "$RC"
+eq "--dispatched-by, a link that fails twice: the warning names the dispatcher, after session=" "opened=new
+session=issue_7
+warning=link-failed dispatched_by=execute-plan-x" "$OUT"
+eq "--dispatched-by, a link that fails twice: tried twice and no more" 2 "$(printf '%s\n' "$LINKS" | grep -c .)"
+eq "--dispatched-by, a link that fails twice: recorded in the run's own session" \
+    "context add issue_7 session/link-warning" "$(grep '^context add ' "$WORK/stub.log")"
+eq "--dispatched-by, a link that fails twice: the record's value" "warning=link-failed
+dispatched_by=execute-plan-x" "$(cat "$LINK_KEYS/added")"
+
+link_open 0
+eq "no --dispatched-by: the open exits 0" 0 "$RC"
+eq "no --dispatched-by: the same lines as before" "opened=new
+session=issue_7" "$OUT"
+eq "no --dispatched-by: no link call" "" "$LINKS"
+eq "no --dispatched-by: no key written or removed" "" "$(grep -E '^context (add|remove) ' "$WORK/stub.log")"
+
+# A refused open links nothing.
+cat > "$WORK/refuse-bin-koto" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${KOTO_STUB_LOG:?}"
+case "${1:-}" in
+    init) printf '{"error":"refused","code":"session_terminal"}\n'; exit 2 ;;
+esac
+exit 1
+STUB
+mkdir -p "$WORK/refuse-bin"
+mv "$WORK/refuse-bin-koto" "$WORK/refuse-bin/koto"
+chmod +x "$WORK/refuse-bin/koto"
+: > "$WORK/stub.log"
+tokens '["7","--koto-leg=r1:work-on"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$WORK/refuse-bin:$PATH" \
+    bash "$OPEN" --workflow issue_7 --dispatched-by execute-plan-x "$TOKENS" 2>/dev/null)
+eq "--dispatched-by on a refused open: koto's refusal passes through" "refused=session_terminal" "$OUT"
+eq "--dispatched-by on a refused open: no link call" "" "$(grep '^session link ' "$WORK/stub.log")"
+
+# The flag's own refusals: exit 64, error=usage, no koto call.
+dispatch_refusal() { # dispatch_refusal <label> <opener args>...
+    local label="$1"
+    shift
+    : > "$WORK/stub.log"
+    tokens '["7","--koto-leg=r1:work-on"]'
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$LINK_BIN:$PATH" \
+        bash "$OPEN" --workflow issue_7 "$@" "$TOKENS" 2>/dev/null)
+    RC=$?
+    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "own refusal: $label (exit 64, no koto call, tokens file and its directory removed)"
+    else
+        fail "own refusal: $label: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
+    fi
+}
+dispatch_refusal "--dispatched-by ../x" --dispatched-by ../x
+dispatch_refusal "--dispatched-by -x" --dispatched-by -x
+dispatch_refusal "--dispatched-by naming the run itself" --dispatched-by issue_7
+dispatch_refusal "--dispatched-by given twice" --dispatched-by a1 --dispatched-by a2
+
 # --- engine-backed ------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1 || ! koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
@@ -299,6 +410,24 @@ run_open issue_10 "[\"10\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=10 -
 eq "a resume after a plugin move: exit 0" 0 "$RC"
 case "$OUT" in *opened=attached*PLUGIN_ROOT*) pass "attached, with PLUGIN_ROOT rebound" ;; *) fail "plugin-move output: [$OUT] [$ERR]" ;; esac
 eq "the moved session is bound to the leg" '"issue_10"' "$(leg "$REQ" .bound_child)"
+
+# --dispatched-by against the real koto: the link lands in the run's own
+# session, and the leg is bound as before.
+if koto session link --help >/dev/null 2>&1; then
+    REQ=$(new_request '{"ISSUE_NUMBER":"11"}')
+    run_open issue_11 "[\"11\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=11 --var ARTIFACT_PREFIX=issue_11 \
+        --dispatched-by execute-plan-y
+    eq "--dispatched-by under --koto-leg: exit 0" 0 "$RC"
+    eq "--dispatched-by under --koto-leg: no warning" "" "$(printf '%s\n' "$OUT" | grep '^warning=')"
+    if k context exists issue_11 koto/links/dispatched-by/execute-plan-y >/dev/null 2>&1; then
+        pass "--dispatched-by records the dispatched-by link in the run's own session"
+    else
+        fail "--dispatched-by left no koto/links/dispatched-by/execute-plan-y in issue_11: [$OUT] [$ERR]"
+    fi
+    eq "the linked session is bound to the leg" '"issue_11"' "$(leg "$REQ" .bound_child)"
+else
+    echo "SKIP: this koto has no \`session link\` -- the real --dispatched-by case did not run"
+fi
 
 # A leg pinning another issue: refused, recorded, no session.
 REQ=$(new_request '{"ISSUE_NUMBER":"99"}')

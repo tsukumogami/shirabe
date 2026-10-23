@@ -16,9 +16,10 @@
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
 # over testdata/fake-s3.py): a plain session imported on host B arrives with
 # every key, and host A's copy then refuses as session_migrated. The opener's
-# --import, run on host B: a malformed or settings-bearing import is usage,
-# a discipline one refused store-discipline, and a name that isn't a run of
-# the scope refused session-name, none of them calling `session import`; a
+# --import, run on host B: a malformed or settings-bearing import is usage
+# and a name that isn't a run of the scope refused session-name, neither of
+# them calling `session import`; a discipline one reaches the import, which
+# finds no such run; a
 # run A opened on GitHub (no session-store find) is imported, then refused
 # session-source, and one A opened from a copy of the plugin at another path
 # is imported, then refused session-provenance, naming the carry; a child
@@ -146,7 +147,7 @@ for bad in "[\"$RM\",\"--import\",\"coordinate-roadmap-plugin-system-20260101T00
     if [ $rc -eq 64 ] && [ "$(imported)" = 0 ]; then pass "usage, nothing imported: $bad"; else fail "usage, nothing imported: $bad" "rc=$rc $(cat "$T/out" "$T/err")"; fi
 done
 import_b "[\"--discipline\",\"ci\",\"--host\",\"acme/widgets\",\"--import\",\"coordinate-discipline-ci-20260101T000000Z\",\"--from\",\"$WS_A\"]"
-eq "--import at discipline scope is refused" "2 refused=store-discipline" "$? $(cat "$T/out")"
+eq "--import at discipline scope reaches koto's import, which finds no such run" "2 refused=import_source_not_found" "$? $(cat "$T/out")"
 import_b "[\"$RM\",\"--import\",\"plain-run\",\"--from\",\"$WS_A\"]"
 eq "a name that isn't a run of the scope is refused" "2 refused=session-name" "$? $(cat "$T/out")"
 eq "  ... before any import" 0 "$(imported)"

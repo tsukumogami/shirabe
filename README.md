@@ -236,9 +236,13 @@ Claude Code session:
   and the plugin's pre-action hook runs it on every guarded command, so
   install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.21.0 or later.
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.22.0 or later.
   `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
-  `tsuku install` never downgrades a newer koto you already have. 0.21.0
+  `tsuku install` never downgrades a newer koto you already have. 0.22.0
+  records which session dispatched another (`koto session link
+  --dispatched-by`, `koto init --dispatched-by`), which the chain and
+  `/execute`'s children write, and answers whether a session may be reclaimed
+  with `koto session hierarchy`. 0.21.0
   returns a passing check's warn-stage findings to the agent as advisories and
   journals check findings and disputes (tsukumogami/koto#393), so a rule at
   `warn` reaches the agent instead of behaving as `shadow`. 0.20.0 hands

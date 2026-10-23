@@ -151,9 +151,11 @@ record_number() { # record_number <name>: the open record issues' numbers
 
 # open_run <name> [workdir]: a fresh session from coordinate-open.sh; sets S
 # and WD. Sessions are named to the second, so two opens of one scope wait.
+# These cases drive the GitHub record, so the run opens with --store github (a
+# new roadmap scope's default is the session store).
 open_run() {
     WD=${2:-$T/work}
-    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+    printf '["docs/roadmaps/ROADMAP-%s.md", "--store", "github"]' "$1" > "$T/args.json"
     S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }

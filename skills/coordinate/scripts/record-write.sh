@@ -47,7 +47,8 @@
 # other holding keeps its own. The body has no column for it, so a GitHub
 # record never carries one. record-holding.sh is the one script that passes it.
 # The record number comes from `coord-log.sh run-facts` (the run's found
-# record); --ref replaces it only with the test override flags.
+# record; a discipline rotation on the session store has none); --ref replaces
+# it only with the test override flags.
 #
 # Exit codes: 0 written (prints the record's URL); 10 not an open record of
 # this scope, or provenance, or a directed transition; 12 the record changed
@@ -95,7 +96,7 @@ if [ -n "$END" ]; then
 fi
 [ "$CLOSE" = 0 ] || [ "$SCOPE" = roadmap ] || { echo "$PROG: --close is for a roadmap record" >&2; exit 64; }
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
 fi

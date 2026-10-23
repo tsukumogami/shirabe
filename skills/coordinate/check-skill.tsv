@@ -51,12 +51,14 @@ cost	reconcile-pass_test.sh	59
 cost	record-write_test.sh	57
 cost	dispatch-worker_test.sh	56
 cost	teardown-pass_engine_test.sh	55
+cost	discipline-session_engine_test.sh	55
 cost	land-merge_test.sh	53
 cost	holding-link_test.sh	48
 cost	board-land_engine_test.sh	47
 cost	quiet-check_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
+cost	discipline-session_test.sh	40
 cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30

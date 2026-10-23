@@ -8,6 +8,8 @@
 # "Coordinator record: ROADMAP-<name>". Discipline scope: the record branch
 # coordinate/discipline-<name> and its same-repository pull requests into the
 # default branch; a fork's or another branch's pull request is never looked at.
+# With none open, a discipline rotation is on the session store and the find
+# reads this host's sessions of the discipline instead (session_find below).
 #
 # One candidate is judged in this order: the declaration line (else
 # `foreign`), then authority (its author and last editor each have admin,
@@ -24,7 +26,15 @@
 #   roadmap:    found <n> | found <n> session | move <n> | none
 #               | ambiguous <n> <m> [...] | foreign <n> | malformed <n> | unauthorized <n>
 #   discipline: found <n> | predecessor <n> | foreign <n> | ambiguous <n> [...]
-#               | malformed <n> | unauthorized <n> | stale-branch | unopened | none
+#               | malformed <n> | unauthorized <n>   (a rotation still on GitHub)
+#               | found | predecessor <session> | predecessor handoff:<sha>
+#               | first | unreadable <session> | malformed
+#                                                    (a rotation on the session
+#                                                    store: session_find below)
+# At discipline scope a rotation with an open pull request on the record branch
+# is still on GitHub and keeps that machinery until it ends; with none open, the
+# rotation is on the session store and session_find decides. The invocation's
+# --store decides nothing there.
 #
 # Usage:
 #   record-find.sh --session S
@@ -33,7 +43,9 @@
 #
 # The detail goes to context key coord/record_find.json as data:
 #   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}, store}
-# and the run's store to coord/source.json: {source, reason, probe}. A found
+# and the run's store to coord/source.json: {source, reason, probe}. For a
+# discipline rotation on the session store `ref` is empty and `url` (and
+# record_url) is the session's name: such a rotation has no pull request. A found
 # record's store is its `store` Run row (`github` without one;
 # docs/designs/DESIGN-coordinator-session-record.md, Decisions 2, 10 and 11):
 #   - `session` on a record in the moved shape (every section empty, the Run
@@ -51,8 +63,8 @@
 # import`; without them it is `malformed` with `store-unsupported`, naming what
 # is missing, before anything is written (PRD R2). A malformed or doubled
 # `store` row is `malformed` with `store-malformed`. At discipline scope a
-# rotation has no store: a `store` row, or any value of the invocation's store
-# (the STORE variable), is `malformed` with `store-discipline`. The invocation's
+# rotation on GitHub has no store row: a `store` row on one is `malformed` with
+# `store-discipline`. The invocation's
 # `session` on a roadmap scope with no record makes the record that
 # record-open.sh opens a session-store one.
 # The token, sealed to this visit of record_find, is the only stdout line;
@@ -94,29 +106,28 @@ if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED= SESSION_STOP=
-# The invocation's --store (the STORE variable), read once. coordinate-open.sh
-# refuses any store at discipline scope before a session exists; the find
-# refuses it too, since a session opened some other way reaches here with
-# whatever the variable's pattern admits. A session whose variables can't be
-# read stops here, rather than being taken as one with no --store.
+VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED= SESSION_STOP= SESSION_FIND=
+# The invocation's --store (the STORE variable), read once. It decides only a
+# new roadmap scope's store; at discipline scope neither coordinate-open.sh nor
+# the find refuses it, and it decides nothing (store_flag_guard). A session
+# whose variables can't be read stops here, rather than being taken as one with
+# no --store.
 FLAG=
 if [ -n "$SESSION" ]; then
     FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.STORE // ""') \
         || lib_die2 "the session's variables couldn't be read"
 fi
 
-# store_flag_guard: the invocation's store, where it decides: a discipline
-# record has no store, and a new roadmap scope opened on the session store needs
-# koto's session-store features. Either stops the run at record_conflict, before
-# any record is opened, as malformed with the reason named.
+# store_flag_guard: the invocation's store, where it decides: a new roadmap
+# scope opened on the session store needs koto's session-store features, and
+# without them the run stops at record_conflict, before any record is opened,
+# as malformed with the reason named.
 store_flag_guard() {
     [ -n "$FLAG" ] || return 0
-    if [ "$SCOPE" = discipline ]; then
-        VERDICT=malformed; NUM=; FLAG_REFUSED=1
-        REASON="store-discipline: a discipline rotation has no store; the invocation's --store $FLAG is refused"
-        return 0
-    fi
+    # A new discipline rotation opens on the session store whatever the
+    # invocation's --store says, and one still on GitHub stays there; the flag
+    # decides nothing at discipline scope (write_source reports it ignored).
+    [ "$SCOPE" = discipline ] && return 0
     case "$VERDICT" in
         none|stale-branch|unopened)
             [ "$FLAG" = session ] && ! store_probe && NUM= ;;
@@ -136,6 +147,9 @@ store_probe() {
 
 finish() {
     store_flag_guard
+    # Under --no-seal (a test's direct call) the reason is told on stderr, as the
+    # sealed detail would carry it.
+    [ "$NO_SEAL" != 1 ] || [ -z "$REASON" ] || echo "$PROG: $REASON" >&2
     local token=$VERDICT
     [ -n "$NUM" ] && token="$VERDICT $NUM"
     [ "$VERDICT" = found ] && [ "$RECORD_STORE" = session ] && token="$token session"
@@ -151,6 +165,15 @@ finish() {
         printf '%s' "$URL" > "$T/record_url"
         "$KOTO" context add "$SESSION" record_url --from-file "$T/record_url" >/dev/null || lib_die2 "koto context add record_url failed"
     fi
+    # A rotation on the session store has no pull request: its record is this
+    # run's session, the one it resumes, carries a predecessor into, or opens.
+    if [ "$NO_SEAL" != 1 ] && [ -n "$SESSION_FIND" ] && [ -z "$SESSION_STOP" ]; then
+        case "$VERDICT" in
+            found|predecessor|first)
+                printf '%s' "$SESSION" > "$T/record_url"
+                "$KOTO" context add "$SESSION" record_url --from-file "$T/record_url" >/dev/null || lib_die2 "koto context add record_url failed" ;;
+        esac
+    fi
     write_source
     lib_emit record_find "$token" coord/record_find.json "$T/detail.json"
 }
@@ -164,7 +187,7 @@ finish() {
 # account (store-unsupported, session-absent) records the session store and its
 # reason; any other refusal records the GitHub store and its own reason, and so
 # does a candidate the find rejected (malformed, store-malformed among them,
-# ambiguous, foreign, unauthorized, stale-branch, predecessor): there is a
+# ambiguous, foreign, unauthorized, predecessor): there is a
 # record, it just wasn't adopted. The file records the store the run reads, not
 # the one asked for. The run's readers take the store from coord-log.sh
 # run-store, which reads it from this find's token.
@@ -173,6 +196,11 @@ write_source() {
     local flag=$FLAG store reason probe
     if [ -n "$SESSION_STOP" ]; then
         store=session; reason=$REASON
+    elif [ -n "$SESSION_FIND" ]; then
+        # A discipline rotation with no open pull request is on the session
+        # store, whatever the find decided about it.
+        store=session; reason="a discipline rotation on the session store: $VERDICT: $REASON"
+        [ -z "$flag" ] || reason="$reason; the invocation's --store $flag is ignored: a new rotation opens on the session store"
     elif [ -n "$FLAG_REFUSED" ]; then
         store=github; reason=$REASON
     elif [ "$VERDICT" = move ]; then
@@ -182,11 +210,13 @@ write_source() {
         store=${RECORD_STORE:-github}
         reason="the record's store"
         [ -n "$RECORD_STORE" ] || reason="the record has no store row"
-        [ -z "$flag" ] || reason="$reason; the invocation's --store $flag is ignored: the record decides"
+        [ -z "$flag" ] || reason="$reason; the run's store setting ($flag) is ignored: the record decides"
     elif [ "$VERDICT" = none ] || [ "$VERDICT" = unopened ]; then
+        # The opener sets STORE=session for a new roadmap scope unless --store
+        # github was given; a session opened some other way may carry none.
         store=${flag:-github}
-        reason="no record found: the invocation's store"
-        [ -n "$flag" ] || reason="no record found and no --store"
+        reason="no record found: the run's store setting"
+        [ -n "$flag" ] || reason="no record found and no store setting"
     else
         store=github
         reason="no record adopted: $VERDICT: $REASON"
@@ -273,6 +303,152 @@ judge() {
     return 0
 }
 
+# session_find: a discipline rotation on the session store
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3), once
+# GitHub holds no open record pull request. It seals one of:
+#   found                    this run's own session holds the rotation (a
+#                            resume, or the rotation record_open or
+#                            predecessor_carry just put there)
+#   predecessor <session>    the latest earlier rotation of the discipline,
+#                            which predecessor_carry carries
+#   predecessor handoff:<sha>  no earlier rotation on the session, but the
+#                            discipline's last rotation ran on GitHub and
+#                            committed docs/disciplines/<name>.md, read at the
+#                            host's default branch at <sha>: carried once
+#   first                    no earlier rotation anywhere: record_open opens it
+#   unreadable <session>     the latest earlier rotation fails a rule below;
+#                            the run stops at record_conflict and carries nothing
+#   malformed                this run's own session holds a rotation that
+#                            doesn't read back as this discipline's
+# The latest earlier rotation is the session named coordinate-<slug>-<stamp>
+# (any root session starting coordinate-<slug>- whose next sixteen characters
+# are a stamp earlier than this run's), holding record/meta, with the latest
+# stamp. It is the predecessor only when its name is coordinate-<slug>-<stamp>
+# whole, it passes coord-log.sh provenance, its DISCIPLINE and HOST_REPO
+# variables are this run's, its rotation has ended by the window rule (the
+# opener never sends an open one here), no other session of the discipline
+# already names it as its predecessor, and its record reads back (record/meta
+# and every section through the codec's checks). Two at one stamp are
+# unreadable too.
+session_find() {
+    local self=${SESSION:-} stamp slug prefix c cands rc other p
+    SESSION_FIND=1
+    # The session store needs koto's features; without them the run stops
+    # here, naming what is missing (PRD R2).
+    store_probe || finish
+    slug=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || lib_die2 "cannot derive the scope's slug"
+    prefix="coordinate-$slug-"
+    if [ -n "$self" ]; then
+        rs_list "$self" record/meta "$T/self-keys" || lib_die2 "cannot list this run's keys"
+        if jq -e 'index("record/meta") != null' "$T/self-keys" > /dev/null; then
+            rs_session_read "$T/self" body "$self" "$SCOPE" "$NAME" "$REPO" ""; rc=$?
+            case $rc in
+                0) ;;
+                2|5) lib_die2 "cannot read this run's rotation: $(lib_scrub < "$T/self.err")" ;;
+                *) VERDICT=malformed; NUM=; REASON="this run's rotation doesn't read back as this discipline's: $(lib_scrub < "$T/self.err" | head -1)"; finish ;;
+            esac
+            rotation_dates "$self"
+            VERDICT=found; NUM=; URL=$self; REASON="this run's rotation, on the session store"; finish
+        fi
+        stamp=${self#"$prefix"}
+    else
+        stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    fi
+    "$KOTO" session list < /dev/null > "$T/sessions.json" 2> "$T/sessions.err" || lib_die2 "koto session list failed: $(lib_scrub < "$T/sessions.err")"
+    # Every earlier root session of the discipline holding record/meta, as
+    # `<stamp> <name>`, newest first.
+    jq -r --arg p "$prefix" --arg me "$self" --arg st "$stamp" '.[] | select(.parent_workflow == null) | .id
+        | select(startswith($p) and . != $me) | . as $id | ($id | ltrimstr($p) | .[0:16]) as $s
+        | select(($s | test("^[0-9]{8}T[0-9]{6}Z$")) and $s < $st) | "\($s) \($id)"' "$T/sessions.json" \
+        | LC_ALL=C sort -r > "$T/earlier" || lib_die2 "jq failed"
+    : > "$T/holders"
+    while read -r s id; do
+        rs_list "$id" record/meta "$T/k" || lib_die2 "cannot list $id's keys"
+        jq -e 'index("record/meta") != null' "$T/k" > /dev/null && printf '%s %s\n' "$s" "$id" >> "$T/holders"
+    done < "$T/earlier"
+    if [ ! -s "$T/holders" ]; then
+        bridge_or_first
+    fi
+    stamp=$(head -1 "$T/holders" | cut -d' ' -f1)
+    cands=$(awk -v s="$stamp" '$1 == s { print $2 }' "$T/holders" | LC_ALL=C sort)
+    c=${cands%%$'\n'*}
+    NUM=$c
+    if [ "$(printf '%s\n' "$cands" | grep -c .)" -gt 1 ]; then
+        VERDICT=unreadable; REASON="two earlier rotations share the stamp $stamp: $(printf '%s' "$cands" | tr '\n' ' ' | sed 's/ $//')"; finish
+    fi
+    if ! [[ $c =~ ^coordinate-${slug}-[0-9]{8}T[0-9]{6}Z$ ]]; then
+        VERDICT=unreadable; REASON="$c is not named coordinate-$slug-<YYYYMMDDTHHMMSSZ>"; finish
+    fi
+    if ! bash "$HERE/coord-log.sh" provenance --session "$c" > /dev/null 2>&1; then
+        VERDICT=unreadable; REASON="$c fails provenance: it wasn't opened from this plugin's coordinate template"; finish
+    fi
+    bash "$HERE/coord-log.sh" vars --session "$c" > "$T/cvars.json" 2> /dev/null || { VERDICT=unreadable; REASON="$c's variables can't be read"; finish; }
+    if [ "$(jq -r '.DISCIPLINE // ""' "$T/cvars.json")" != "$NAME" ]; then
+        VERDICT=unreadable; REASON="$c is a rotation of another discipline, $(jq -r '.DISCIPLINE // "none"' "$T/cvars.json")"; finish
+    fi
+    if [ "$(jq -r '.HOST_REPO // "" | ascii_downcase' "$T/cvars.json")" != "$(printf '%s' "$REPO" | tr 'A-Z' 'a-z')" ]; then
+        VERDICT=unreadable; REASON="$c's host is $(jq -r '.HOST_REPO // "none"' "$T/cvars.json"), not $REPO"; finish
+    fi
+    rs_rotation_open "$c" "$TODAY"
+    case $? in
+        0) VERDICT=unreadable; REASON="$c's rotation is still open"; finish ;;
+        1) ;;
+        3) VERDICT=unreadable; REASON="$c holds no record/rotation"; finish ;;
+        *) VERDICT=unreadable; REASON="$c's record/rotation can't be read"; finish ;;
+    esac
+    # One predecessor is never carried twice: no other rotation of the
+    # discipline, earlier or later, names it.
+    jq -r --arg p "$prefix" --arg c "$c" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and . != $c)' \
+        "$T/sessions.json" > "$T/others" || lib_die2 "jq failed"
+    while read -r other; do
+        rs_rotation "$other" "$T/orot"
+        case $? in
+            0) p=$(jq -r '.predecessor // ""' "$T/orot")
+               if [ "$p" = "$c" ]; then VERDICT=unreadable; REASON="$c is already carried by $other"; finish; fi ;;
+            1) ;;
+            *) VERDICT=unreadable; REASON="$other's record/rotation can't be read, so whether it carried $c can't be told"; finish ;;
+        esac
+    done < "$T/others"
+    # Any failure to read the predecessor back (a record/meta of the wrong shape,
+    # a section that fails the codec's checks, a key that isn't JSON) stops for
+    # the person: nothing is carried from a record that can't be read.
+    rs_session_read "$T/pred" body "$c" "$SCOPE" "$NAME" "$REPO" ""; rc=$?
+    if [ $rc -ne 0 ]; then
+        VERDICT=unreadable; REASON="$c's record doesn't read back as this discipline's: $(lib_scrub < "$T/pred.err" | head -1)"; finish
+    fi
+    rotation_dates "$c"
+    VERDICT=predecessor; URL=$c; REASON="the latest earlier rotation, $c, ended"; finish
+}
+
+# rotation_dates <session>: the rotation's window into ROT_START and ROT_END,
+# for the find's detail; blank when the session holds none.
+rotation_dates() {
+    if rs_rotation "$1" "$T/rot" 2> /dev/null; then
+        ROT_START=$(jq -r .start "$T/rot") ROT_END=$(jq -r .end "$T/rot")
+    fi
+}
+
+# bridge_or_first: no earlier rotation on the session store. A discipline whose
+# last rotation ran on GitHub committed docs/disciplines/<name>.md; the first
+# session rotation carries it once, read at the default branch's head
+# (`predecessor handoff:<sha>`). With no file it is the discipline's first
+# rotation.
+bridge_or_first() {
+    local head
+    lib_default_branch || lib_die2 "cannot read $REPO's default branch"
+    head=$(gh api --method GET "repos/$REPO/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha 2> "$T/head.err" < /dev/null) \
+        || lib_die2 "cannot read the head of $DEFAULT_BRANCH: $(lib_scrub < "$T/head.err")"
+    [[ $head =~ $RE_SHA ]] || lib_die2 "the head of $DEFAULT_BRANCH is not a sha"
+    lib_file_at "docs/disciplines/$NAME.md" "$head" "$T/handoff.md"
+    case $? in
+        0) VERDICT=predecessor; NUM="handoff:$head"
+           REASON="no earlier rotation on the session store; the last rotation on GitHub committed docs/disciplines/$NAME.md, carried once" ;;
+        1) VERDICT=first; NUM=; REASON="no earlier rotation of the discipline" ;;
+        *) lib_die2 "cannot read docs/disciplines/$NAME.md: $(lib_scrub < "$T/handoff.md.err")" ;;
+    esac
+    finish
+}
+
 if [ "$SCOPE" = roadmap ]; then
     lib_open_issues "$T/issues.json" || lib_die2 "the open-issue listing failed: $(lib_scrub < "$T/issues.json.raw.err")"
     CANDS=$(jq -c 'map({number, url, title})' "$T/issues.json")
@@ -295,21 +471,22 @@ if [ "$SCOPE" = roadmap ]; then
     finish
 fi
 
-# Discipline scope.
+# Discipline scope. A rotation still on GitHub (an open pull request on the
+# record branch) keeps its machinery until it ends: `found <n>` while it runs,
+# `predecessor <n>` once it has ended. With none open, the rotation is on the
+# session store (session_find).
+# A candidate on GitHub is a pull request body, whatever store an earlier visit
+# sealed for this run.
+CONTAINER=pr
 lib_discipline_read "$T" || lib_die2 "a discipline read failed: $(cat "$T"/*.err 2>/dev/null | lib_scrub)"
 CANDS=$(jq -c 'map({number, url, title, state})' "$T/prs.json")
 if [ "$BRANCH_EXISTS" = 0 ]; then
-    VERDICT=none; REASON="no branch $BRANCH"; finish
+    session_find
 fi
 jq '[.[] | select(.state == "OPEN")]' "$T/prs.json" > "$T/open.json"
 OPEN=$(jq length "$T/open.json")
 if [ "$OPEN" -eq 0 ]; then
-    if [ "$(jq length "$T/prs.json")" -gt 0 ]; then
-        VERDICT=stale-branch; REASON="the branch's last pull request was merged or closed"
-    else
-        VERDICT=unopened; REASON="the branch never had a pull request"
-    fi
-    finish
+    session_find
 fi
 if [ "$OPEN" -gt 1 ]; then
     VERDICT=ambiguous; NUM=$(jq -r 'map(.number | tostring) | join(" ")' "$T/open.json")

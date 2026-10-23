@@ -5,7 +5,9 @@
 # Every script that needs the record's state reads it here, whichever store the
 # run is on (docs/designs/DESIGN-coordinator-session-record.md, Decision 1). A
 # record's store is `github` (the issue or pull request body) or `session` (one
-# key per section in the coordinator's own koto session, roadmap scope only).
+# key per section in the coordinator's own koto session: a roadmap record, or a
+# discipline rotation, which then has no pull request and no record number,
+# its window and reasoning in record/rotation and record/reasoning).
 #
 # On the GitHub store each read keeps its caller's own call shape, because what
 # a caller reads beside the body (the container's state, its title, its head
@@ -75,7 +77,7 @@
 #   record-source.sh --session S --facts <topic>
 #   record-source.sh --session S --show
 #   record-source.sh --session S --host
-#   record-source.sh --candidate --scope roadmap|discipline --name N --hash H
+#   record-source.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
 #   record-source.sh --scope roadmap|discipline --name N --repo O/R --ref N --facts <topic>   (tests)
 #
@@ -233,7 +235,10 @@ rs_session_read() {
     if [ "$mode" = body ]; then
         cp "$out.md" "$out.raw"
     else
-        jq -n --rawfile b "$out.md" --arg u "https://github.com/$repo/issues/$ref" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
+        # A session rotation has no pull request: its record is the session.
+        local u="https://github.com/$repo/issues/$ref"
+        [ -n "$ref" ] || u=$s
+        jq -n --rawfile b "$out.md" --arg u "$u" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
     fi
     bash "$HERE/record-parse.sh" --container issue --expect-scope "$scope:$name" "$out.md" > "$out" 2> "$out.err"
     rc=$?
@@ -297,15 +302,32 @@ rs_scope_sessions() {
 #           its record/ and legs/ keys into it through the write core
 #   none    no session here holds a record, or the newest's store isn't
 #           session: the start opens a new run as on GitHub
+# At discipline scope the window rule comes first
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3): the
+# newest rotation is resumed or carried only while it is open (rs_rotation_open,
+# against <today>); one that has ended, by date or by closing, is `none`, so the
+# start opens the next rotation as a new run and its find carries the
+# predecessor. There is never a second open rotation of a discipline on a host.
 # live is whether that session is a live run, which the opener cancels on a
 # carry. Returns 0 printed; 2 a read failed.
 rs_resume_candidate() {
-    local scope=$1 name=$2 hash=$3 holders s slug live d src reason=
+    local scope=$1 name=$2 hash=$3 today=${4:-$(date -u +%Y-%m-%d)} holders s slug live d src reason=
     holders=$(rs_scope_sessions "$scope" "$name") || return 2
     s=$(printf '%s\n' "$holders" | grep -v '^$' | tail -1)
     if [ -z "$s" ]; then
         jq -nc '{session: null, action: "none", live: false, reason: "no session here holds a record"}'
         return 0
+    fi
+    if [ "$scope" = discipline ]; then
+        rs_rotation_open "$s" "$today"
+        case $? in
+            0) ;;
+            1) jq -nc --arg s "$s" '{session: $s, action: "none", live: false, reason: "its rotation has ended: a start opens the next rotation"}'
+               return 0 ;;
+            3) jq -nc --arg s "$s" '{session: $s, action: "none", live: false, reason: "it holds no rotation window"}'
+               return 0 ;;
+            *) return 2 ;;
+        esac
     fi
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$scope" --name "$name") || return 2
     live=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$slug" --all 2>/dev/null)
@@ -348,6 +370,55 @@ rs_host() {
         1) echo '{}' > "$2" ;;
         *) return 2 ;;
     esac
+}
+
+# rs_rotation <session> <out>: a discipline rotation's window on the session
+# store, record/rotation, {start, end, host_repo, predecessor}, into <out>.
+# Returns 0 read; 1 the session holds none; 2 a read failed or it isn't an
+# object with the three dates and host as strings.
+rs_rotation() {
+    rs_key "$1" record/rotation "$2"
+    case $? in
+        0) jq -e 'type == "object" and (.start | type) == "string" and (.end | type) == "string"
+                  and (.host_repo | type) == "string"' "$2" > /dev/null 2>> "$2.err" || return 2 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+# rs_reasoning <session> <out>: the reasoning a rotation left for the next one,
+# record/reasoning, a JSON string, into <out> as that string's JSON. Returns 0
+# read; 1 the session holds none; 2 a read failed or it isn't a string.
+rs_reasoning() {
+    rs_key "$1" record/reasoning "$2"
+    case $? in
+        0) jq -e 'type == "string"' "$2" > /dev/null 2>> "$2.err" || return 2 ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+# rs_rotation_open <session> <today>: the window rule
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3). A
+# rotation is open while <today> (a UTC date, the time of the start) is on or
+# before its record/rotation end and it holds no record/reasoning, which closing
+# a rotation writes. Returns 0 open; 1 ended; 3 the session holds no
+# record/rotation; 2 a read failed.
+rs_rotation_open() {
+    local d rc end
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    rs_rotation "$1" "$d/rot"; rc=$?
+    case $rc in 0) ;; 1) rm -rf "$d"; return 3 ;; *) rm -rf "$d"; return 2 ;; esac
+    end=$(jq -r '.end' "$d/rot")
+    rs_key "$1" record/reasoning "$d/reason"; rc=$?
+    rm -rf "$d"
+    case $rc in
+        0) return 1 ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    [ "$2" \> "$end" ] && return 1
+    return 0
 }
 
 # rs_moved <parsed-record>: 0 when the record is in the moved shape (PRD R8):
@@ -400,7 +471,9 @@ rs_view() {
     local c=$1 r=$2 repo=$3 d rc
     shift 3
     case "$c" in issue|pr) ;; *) echo "${PROG:-record-source}: rs_view: the container is issue or pr" >&2; return 64 ;; esac
-    if [ -n "${SESSION:-}" ] && [ "$c" = issue ] && [ "$(rs_source)" = session ]; then
+    # A roadmap record on the session store is read as its issue; a discipline
+    # rotation on the session store has no pull request and is read the same way.
+    if [ -n "${SESSION:-}" ] && { [ "$c" = issue ] || [ "${SCOPE:-}" = discipline ]; } && [ "$(rs_source)" = session ]; then
         d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
         rs_session_read "$d/rec" json "$SESSION" "$SCOPE" "$NAME" "$repo" "$r"; rc=$?
         [ $rc -eq 0 ] && cat "$d/rec.raw"
@@ -432,9 +505,14 @@ rs_record_api() {
     ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
     scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    rs_target_ok "$rrepo" "$ref" || return 2
     case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
     rs_source > /dev/null
+    # A discipline rotation on the session store has no record number.
+    if [ -z "$ref" ] && [ "$scope" = discipline ] && [ "$RS_SOURCE_READ" = session ]; then
+        [[ $rrepo =~ $RE_REPO ]] || return 2
+    else
+        rs_target_ok "$rrepo" "$ref" || return 2
+    fi
     if [ "$RS_SOURCE_READ" = session ]; then
         rs_session_read "$out" json "$SESSION" "$scope" "$name" "$rrepo" "$ref"; rc=$?
         cat "$out.err" >&2
@@ -491,7 +569,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -uo pipefail
     PROG=record-source
     HERE=$(cd "$(dirname "$0")" && pwd)
-    SESSION= SCOPE= NAME= REPO= REF= ACTION= TOPIC= HASH=
+    SESSION= SCOPE= NAME= REPO= REF= ACTION= TOPIC= HASH= TODAY=
     rs_usage() { sed -n '/^# Usage (as a script):/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -506,6 +584,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --host) ACTION=host; shift ;;
             --candidate) ACTION=candidate; shift ;;
             --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
+            --today) [ $# -ge 2 ] || rs_usage; TODAY=$2; shift 2 ;;
             --facts) [ $# -ge 2 ] || rs_usage; ACTION=facts; TOPIC=$2; shift 2 ;;
             *) rs_usage ;;
         esac
@@ -518,7 +597,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             # Before any session exists: the scope and name, and the shipped
             # template's hash, come from the opener.
             [[ $SCOPE =~ ^(roadmap|discipline)$ ]] && [[ $NAME =~ $RE_NAME ]] && [[ $HASH =~ ^[0-9a-f]{64}$ ]] || rs_usage
-            rs_resume_candidate "$SCOPE" "$NAME" "$HASH"; exit $? ;;
+            [ -z "$TODAY" ] || lib_valid_date "$TODAY" || rs_usage
+            rs_resume_candidate "$SCOPE" "$NAME" "$HASH" "$TODAY"; exit $? ;;
     esac
     lib_facts
     case "$ACTION" in
