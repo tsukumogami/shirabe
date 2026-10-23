@@ -966,7 +966,8 @@ states:
     # level_fits_facts is a veto-mode decider check, active only for a user
     # whose decider mode is auto; for anyone else koto treats it as not
     # declared. Its slice is a fixed projection of the facts and the level,
-    # never a path, a reason or issue text. A fail blocks the state like a
+    # with the level definitions rendered from the stored rules copy, never a
+    # path, a reason or issue text. A fail blocks the state like a
     # hold; no route reads it, so a wrong answer can hold the run but never
     # route it or lower the level.
     #

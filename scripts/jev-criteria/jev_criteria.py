@@ -98,7 +98,11 @@ NOT_MEASURED = {"no-real-run-record"}
 VERDICTS = {"sufficient", "insufficient"}
 ORACLES = {"review", "ci", "human"}
 ANSWERS = ("pass", "fail", "unclear", "error")
-KINDS = tuple(FIXTURE_MINIMUMS)
+# An `empty` case holds a slice with nothing to judge, which the criterion's
+# escape (sent as `unclear`) is the right answer to. It has no minimum.
+EMPTY_KIND = "empty"
+KINDS = tuple(FIXTURE_MINIMUMS) + (EMPTY_KIND,)
+EXPECTED = {"good": "pass", "seeded-bad": "fail", "adversarial": "fail", EMPTY_KIND: "unclear"}
 
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PATH_SHAPE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")
@@ -293,10 +297,11 @@ def load_fixtures(path):
             ids.add(cid)
         kind = c.get("kind")
         if kind not in KINDS:
-            problems.append("case %s: kind %r is not good, seeded-bad or adversarial" % (cid, kind))
-        want = "pass" if kind == "good" else "fail"
+            problems.append("case %s: kind %r is not good, seeded-bad, adversarial or empty" % (cid, kind))
+        want = EXPECTED.get(kind, "fail")
         if c.get("expected") != want:
-            problems.append("case %s: expected must be %s for a %s case" % (cid, want, kind))
+            article = "an" if str(kind)[:1] in "aeiou" else "a"
+            problems.append("case %s: expected must be %s for %s %s case" % (cid, want, article, kind))
         if "input" not in c:
             problems.append("case %s has no input" % cid)
         if not isinstance(c.get("slice"), str) or not c.get("slice"):
@@ -305,7 +310,7 @@ def load_fixtures(path):
             problems.append("case %s: technique %r is not one of %s"
                             % (cid, c.get("technique"), ", ".join(sorted(TECHNIQUES))))
         cases.append(c)
-    counts = {k: sum(1 for c in cases if c.get("kind") == k) for k in KINDS}
+    counts = {k: sum(1 for c in cases if c.get("kind") == k) for k in FIXTURE_MINIMUMS}
     for k, need in FIXTURE_MINIMUMS.items():
         if counts[k] < need:
             problems.append("%d %s cases, fewer than %d" % (counts[k], k, need))
@@ -321,6 +326,10 @@ def fixture_bar(counts):
     for k in ("seeded-bad", "adversarial"):
         if counts.get(k, {}).get("pass", 0):
             reasons.append("%d %s case(s) answered pass" % (counts[k]["pass"], k))
+    empty = counts.get(EMPTY_KIND, {})
+    judged = empty.get("pass", 0) + empty.get("fail", 0)
+    if judged:
+        reasons.append("%d empty case(s) answered pass or fail, not the escape" % judged)
     good = counts.get("good", {})
     total = sum(good.get(a, 0) for a in ANSWERS)
     if total == 0 or good.get("pass", 0) < GOOD_PASS_SHARE * total:
@@ -901,7 +910,13 @@ def measure_sessions(args):
         script = os.path.join(root, REVIEW_LEVEL_SH)
         for path in work_on_sessions(args.dir):
             # "standard" is the longest level name, so the size is an upper bound.
-            r = run([script, "project", path, "standard"])
+            # The slice renders the rules copy the session stored, as the gate
+            # does; a session without one gets the shipped rules, as there.
+            argv = [script, "project", path, "standard"]
+            rules = os.path.join(os.path.dirname(path), "review_level_rules.tsv")
+            if os.path.isfile(rules) and not os.path.islink(rules) and os.path.getsize(rules):
+                argv.append(rules)
+            r = run(argv)
             if r.returncode != 0:
                 skipped["unprojected"] = skipped.get("unprojected", 0) + 1
                 continue

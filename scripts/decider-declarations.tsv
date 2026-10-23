@@ -5,6 +5,13 @@
 # no template declares. Promoting a value means editing its mode in the
 # template and here, in the same change.
 #
+# A decider-check gate's criteria aren't rows here: a check has no declared
+# values, only a pass, a fail and an escape, and its mode lives in the
+# template. Its slice's contract (sources, the script that builds it, why it's
+# enough, its measured size) is in references/jev-criteria.md: work-on's
+# review_level_check runs level_fits_facts on review-level.sh slice, under
+# work-on/review-level-fits-facts there.
+#
 # Columns, tab-separated: template path, state, field, value, mode.
 skills/work-on/koto-templates/work-on.md	plan_validation	verdict	proceed	shadow
 skills/work-on/koto-templates/work-on.md	plan_validation	verdict	exit	never
