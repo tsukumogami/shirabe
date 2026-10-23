@@ -173,6 +173,13 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-monitor-role_test.sh
 
+      # Sources the pull request URL parse both CI fallbacks share and checks
+      # its answer for each URL. No engine needed; the macOS leg runs it on the
+      # floor through the work-on suite.
+      - name: Run pull request URL parse tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/pr-url_test.sh
+
       # Runs ci_passing's fallback for a MERGED pull request's cancelled macOS
       # floor checks, alone and through the gate command extracted from the
       # template, against stubbed gh and koto. No engine needed; the macOS leg

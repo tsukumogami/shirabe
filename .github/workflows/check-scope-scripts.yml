@@ -1,6 +1,7 @@
 name: Check scope scripts
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/scope/scripts/**'
@@ -57,6 +58,40 @@ on:
       # the registry's entries, and loads the plugin's writing-style rules for
       # the banned-word check, so a change to any of them can change what the
       # document gate holds on.
+      - 'scripts/lib/declared-visibility.sh'
+      - 'scripts/lib/rule-findings.sh'
+      - 'scripts/rule-registry.sh'
+      - 'references/rule-registry.json'
+      - 'skills/writing-style/rules.yaml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/scope/scripts/**'
+      - 'skills/scope/koto-templates/**'
+      - 'skills/scope/SKILL.md'
+      - 'skills/scope/references/**'
+      - 'skills/charter/**'
+      - 'references/worktree-discipline.md'
+      - 'references/fixes/sub-agent-dispatch.md'
+      - 'crates/shirabe-validate/src/formats.rs'
+      - 'crates/shirabe-validate/src/frontmatter.rs'
+      - 'crates/shirabe/src/main.rs'
+      - '.github/workflows/check-scope-scripts.yml'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/scope.list'
+      - 'scripts/koto-open.sh'
+      - 'scripts/skill-session.sh'
+      - 'koto-templates/skill-session.md'
+      - 'skills/plan/scripts/resolve-split-mode.sh'
+      - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/run-id.sh'
+      - 'skills/plan/scripts/plan-to-tasks.sh'
+      - 'skills/execute/scripts/testdata/PLAN-v2-hostile.md'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
       - 'scripts/lib/declared-visibility.sh'
       - 'scripts/lib/rule-findings.sh'
       - 'scripts/rule-registry.sh'
