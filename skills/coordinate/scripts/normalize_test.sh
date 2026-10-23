@@ -4,12 +4,12 @@
 # state rendered and parsed back.
 #
 # Each case is a state with one section in one shape. Its expected normal form
-# is committed under testdata/normalize/<case>.json, made by rendering the
-# state with record-render.sh and parsing the body back with record-parse.sh,
-# so the cases keep holding normalize_state to that round trip once the
-# renderer and the parser are gone. While both are here, every expected form is
-# also made again and compared, so a golden file can't drift from what the
-# round trip gives.
+# is committed under testdata/normalize/<case>.json. Each was made by
+# rendering the state to the record's markdown body and parsing the body back,
+# with the renderer and the parser this skill had before its record moved
+# wholly into the session, and normalize_state was checked against that round
+# trip, case by case, in the change that removed them. The golden files hold
+# it to that round trip from then on.
 #
 # Covers, for each optional section (Holds, Run, Standing, Work, Decisions):
 # absent, present with nothing in it, and present with rows; for Decisions, no
@@ -18,8 +18,6 @@
 # Wakes read as 0.
 #
 # Usage: bash skills/coordinate/scripts/normalize_test.sh
-#        bash skills/coordinate/scripts/normalize_test.sh --regen   (rewrite the
-#        golden files from the round trip; needs the renderer and the parser)
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -28,11 +26,6 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 G=$HERE/testdata/normalize
 W=2026-10-01T09:00:00Z
 SHA=0123456789abcdef0123456789abcdef01234567
-REGEN=0
-[ "${1-}" = --regen ] && REGEN=1
-ROUND=0
-[ -f "$HERE/record-render.sh" ] && [ -f "$HERE/record-parse.sh" ] && ROUND=1
-[ "$REGEN" = 0 ] || [ "$ROUND" = 1 ] || { echo "--regen needs record-render.sh and record-parse.sh"; exit 2; }
 
 base() {
     jq -nc --arg w "$W" '{scope: {kind: "roadmap", name: "plugin-system"}, written: $w,
@@ -83,21 +76,9 @@ build() {
     esac
 }
 
-roundtrip() { # roundtrip <state-file> <out>: render and parse back
-    jq 'del(.written)' "$1" | bash "$HERE/record-render.sh" --container issue --written "$W" > "$T/body.md" 2> "$T/render.err" || return 1
-    bash "$HERE/record-parse.sh" --container issue --expect-scope roadmap:plugin-system "$T/body.md" > "$2" 2> "$T/parse.err"
-}
-
-echo "== normalize_state against the round trip =="
+echo "== normalize_state against the round trip's golden forms =="
 for name in $CASES; do
     build "$name" > "$T/in.json" 2> "$T/in.err" && [ -s "$T/in.json" ] || { bad "$name: the case builds" "$(cat "$T/in.err")"; continue; }
-    if [ "$ROUND" = 1 ]; then
-        if ! roundtrip "$T/in.json" "$T/rt.json"; then
-            bad "$name: the round trip takes it" "$(cat "$T/render.err" "$T/parse.err" 2>/dev/null)"; continue
-        fi
-        if [ "$REGEN" = 1 ]; then jq -S . "$T/rt.json" > "$G/$name.json"; fi
-        eq "$name: the golden form is the round trip's" "$(jq -cS . "$T/rt.json")" "$(jq -cS . "$G/$name.json" 2>/dev/null)"
-    fi
     got=$(jq -cS -L "$HERE" 'include "state-schema"; normalize_state([])' "$T/in.json" 2>&1)
     eq "$name: normalize_state gives the golden form" "$(jq -cS . "$G/$name.json" 2>/dev/null)" "$got"
 done

@@ -20,17 +20,16 @@
 # Requires: bash 3.2+, jq, and coord-log.sh beside this file.
 
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
-# RE_NAME is a scope's name (a roadmap's or a discipline's), the codec's
+# RE_NAME is a scope's name (a roadmap's or a discipline's), state-schema.jq's
 # re_name: unlike a topic it may start with `.`, `_` or `-`.
 RE_NAME='^[A-Za-z0-9._-]+$'
-# RE_TOPIC is a dispatch topic, the Worker cell's shape (the codec's
+# RE_TOPIC is a dispatch topic, the Worker cell's shape (state-schema.jq's
 # check_worker): a letter or digit, then letters, digits, `.`, `_` or `-`.
 # Every script that holds a topic to its shape uses this one.
 RE_TOPIC='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_LOGIN='^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$'
 RE_NUM='^[1-9][0-9]*$'
 RE_SHA='^[0-9a-f]{40}$'
-DECL_PREFIX='> This is a **coordinator record** for '
 KOTO=${KOTO_BIN:-koto}
 OVERRIDE=0
 ROADMAP=
@@ -78,12 +77,6 @@ lib_facts() {
     case "$SCOPE" in roadmap|discipline) ;; *) echo "$PROG: scope is not roadmap or discipline" >&2; exit 64 ;; esac
     [[ $NAME =~ $RE_NAME ]] || { echo "$PROG: the scope's name is not a name" >&2; exit 64; }
     [[ $REPO =~ $RE_REPO ]] || { echo "$PROG: the host is not owner/repo" >&2; exit 64; }
-    # The declaration line of the body the session store renders.
-    if [ "$SCOPE" = roadmap ]; then
-        DECL="${DECL_PREFIX}ROADMAP-$NAME."
-    else
-        DECL="${DECL_PREFIX}the $NAME discipline."
-    fi
 }
 
 # lib_valid_date YYYY-MM-DD: a real calendar date. Pure bash arithmetic, so it
@@ -99,13 +92,6 @@ lib_valid_date() {
         *) max=31 ;;
     esac
     [ "$d" -le "$max" ]
-}
-
-# lib_parse <body-file> <out-json>: record-parse.sh for this scope, over the
-# body the session store renders. Returns its exit code (0 canonical; 3 or 65
-# not a record of this scope; anything else an internal failure).
-lib_parse() {
-    bash "$HERE/record-parse.sh" --container issue --expect-scope "$SCOPE:$NAME" "$1" > "$2" 2> "$2.err"
 }
 
 # ENTRY_MARKER_PREFIX: an outward entry's first line up to its kind, the one
@@ -444,7 +430,7 @@ lib_roadmap_features() {
 
 # lib_pr_link <cell>: split a Pull request cell `[#n](https://github.com/o/r/pull/n)`
 # into LINK_REPO and LINK_NUM. Returns 1 when the cell isn't that shape or the
-# two numbers differ. The one bash parser of the cell; record-codec.jq's
+# two numbers differ. The one bash parser of the cell; state-schema.jq's
 # pr_link is the jq one, with the same grammar.
 lib_pr_link() {
     local re='^\[#([0-9]+)\]\(https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)\)$'
@@ -514,7 +500,7 @@ lib_in_scope() {
 # other than <topic>'s link <repo>#<number>? Such a pull request's owner is
 # ambiguous, so it is reported, never adopted.
 lib_pr_held() {
-    jq -e -L "$HERE" --arg r "$1" --arg n "$2" --arg t "$3" 'include "record-codec";
+    jq -e -L "$HERE" --arg r "$1" --arg n "$2" --arg t "$3" 'include "state-schema";
         any(.[]; .worker != $t and ((.pull_request // "" | pr_link) as $p
             | $p != null and $p.number == $n and ($p.repo | ascii_downcase) == ($r | ascii_downcase)))' "$4" > /dev/null
 }

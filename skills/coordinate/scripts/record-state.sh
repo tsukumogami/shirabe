@@ -314,7 +314,7 @@ case $? in
 esac
 
 if [ "$MODE" = list ]; then
-    jq -c -L "$HERE" 'include "record-codec"; state_list' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "state-schema"; state_list' "$WD/parsed.json"
     exit 0
 fi
 

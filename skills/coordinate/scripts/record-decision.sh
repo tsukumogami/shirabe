@@ -194,7 +194,7 @@ read_live() {
 read_live
 case "$MODE" in
 list)
-    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "state-schema"; decisions_list' "$WD/parsed.json"
     exit 0
     ;;
 read)
@@ -256,7 +256,7 @@ routed_entry() { # routed_entry <word>: prints N, refusing another word
 
 # The rules, as jq definitions over the Decisions section. $now, $run and $t (the
 # run's target) are bound on every call.
-LIB='include "record-codec";
+LIB='include "state-schema";
 def blank: (. // "") | gsub("^\\s+|\\s+$"; "") == "";
 def ev_line($who; $stamp; $text): "\($now) \($who) [\($stamp)]: \($text)";
 def add_ev($line): .evidence = (if (.evidence // "") == "" then $line else .evidence + "\n" + $line end);
@@ -338,7 +338,7 @@ is_archived() { SEC | jq -e --argjson n "$1" '(.archived // []) | index($n) != n
 restore() {
     bash "$HERE/record-append.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/ra.err" \
         || { lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
-    jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args "$@")" --slurpfile es "$WD/entries.json" 'include "record-codec";
+    jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args "$@")" --slurpfile es "$WD/entries.json" 'include "state-schema";
         ([$es[0][] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
         | reduce $ids[] as $n (.;
             (first($arch[] | .text | d_archive_rows[] | select(.decision == ($n | tostring)))
@@ -498,7 +498,7 @@ evidence|answer)
         [ -n "$FINAL" ] && [ "$FINAL" != "the coordinator" ] && BY="$TARGET (final: $FINAL)"
         if has_entry "$N" ".state == \"escalated\" and .round == \"$RND\""; then
             if [ -z "$REASON" ]; then
-                REASON=$(SEC | jq -r -L "$HERE" --arg n "$N" --arg o "$OUTC" 'include "record-codec";
+                REASON=$(SEC | jq -r -L "$HERE" --arg n "$N" --arg o "$OUTC" 'include "state-schema";
                     .entries[] | select(.decision == $n) | [d_options[] | select(.label == $o) | .explanation][0] // ""')
                 [ -n "$REASON" ] || refuse "an answer that isn't one of the options needs --reason"
             fi

@@ -101,7 +101,7 @@ CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 
 # The section and the log facts the rules read.
 if [ -n "$PARSED" ]; then
-    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
+    jq -c -L "$HERE" 'include "state-schema"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
 else
     bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
         || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
@@ -162,7 +162,7 @@ if [ "$PARK" = true ]; then
     # The pick's minute: a park row older than the pick is an earlier park.
     PARK_SINCE=$(printf '%s' "$PICK_EV" | jq -r '(.timestamp // "")[0:16]')
     if [ -n "$PARSED" ]; then
-        jq -c -L "$HERE" 'include "record-codec"; state_list' "$PARSED" > "$T/state.json" || lib_die2 "cannot read the Work section"
+        jq -c -L "$HERE" 'include "state-schema"; state_list' "$PARSED" > "$T/state.json" || lib_die2 "cannot read the Work section"
     else
         bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
             || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
@@ -181,7 +181,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
     --argjson an "$ANSWER_SEQ" --argjson evs "$EVID_SEQ" --argjson rs "$RAISE_SEQ" \
     --argjson wans "$WAIT_ANS" --argjson tans "$TOOL_ANS" --argjson wevi "$WAIT_EVI" \
     --argjson park "$PARK" --argjson chain "$CHAIN" --arg pu "$PARK_UNIT" --arg since "$PARK_SINCE" --arg host "$REPO" --slurpfile st "$T/state.json" '
-  include "record-codec";
+  include "state-schema";
   .entries as $es
   | (.archived // []) as $archived
   | [d_section_stamps[] | select(.run == $run)] as $mine

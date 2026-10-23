@@ -69,7 +69,7 @@ bl_session_ok "$SESSION" || usage
 refuse_unit() {
     local known
     known=$(bash "$HERE/record-holding.sh" --session "$SESSION" --list 2>/dev/null \
-        | jq -c -L "$HERE" 'include "record-codec"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
+        | jq -c -L "$HERE" 'include "state-schema"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
         echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
     # lib_emit exits through this trap. no_verified_head sets the only other

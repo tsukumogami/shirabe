@@ -177,7 +177,7 @@ case $? in
     2) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err")" ;;
     *) lib_die2 "$(lib_record_name) holds no record pick can read: $(lib_scrub < "$T/rec.json.err")" ;;
 esac
-jq -c -L "$HERE" --arg s "$SCOPE" 'include "record-codec";
+jq -c -L "$HERE" --arg s "$SCOPE" 'include "state-schema";
     holdings_list, state_list, decisions_list, (if $s == "roadmap" then pending_list else [] end)' "$T/rec.json" > "$T/lists" \
     || lib_die2 "jq failed"
 # One compact line each, in this order: holdings, Run/Standing/Work, decisions,

@@ -329,10 +329,10 @@ esac
 
 # The pending rows, {unit, pull_request, attempted, action, how_to_confirm}
 # (record-codec.jq pending_rows, which pick-facts.sh reads the same way).
-jq -c -L "$HERE" 'include "record-codec"; pending_rows' "$WD/parsed.json" > "$WD/pending.json" \
+jq -c -L "$HERE" 'include "state-schema"; pending_rows' "$WD/parsed.json" > "$WD/pending.json" \
     || lib_die2 "jq failed"
 if [ "$MODE" = list ]; then
-    jq -c -L "$HERE" 'include "record-codec"; pending_list' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "state-schema"; pending_list' "$WD/parsed.json"
     exit 0
 fi
 
@@ -383,7 +383,7 @@ write_record() {
 # with clear-owed also without TAG's verdict-owed and rework Work rows (a
 # confirmed verdict or reopen supersedes the rework an earlier one left).
 without_row() {
-    jq -L "$HERE" --arg t "$TAG" --argjson owed "${2:-false}" 'include "record-codec"; '"$JQ_TAG_KEY"' roadmap_edit_actions as $acts | del(.written)
+    jq -L "$HERE" --arg t "$TAG" --argjson owed "${2:-false}" 'include "state-schema"; '"$JQ_TAG_KEY"' roadmap_edit_actions as $acts | del(.written)
         | .side_effects = [.side_effects[] | select(((.action as $a | any($acts[]; . == $a))
                                                      and (.target | index(" [") as $i | $i != null and (.[0:$i] | tag_key) == ($t | tag_key))) | not)]
         | if $owed then .work = [(.work // [])[] | select(((.kind == "verdict-owed" or .kind == "rework") and (.item | tag_key) == ($t | tag_key)) | not)]
@@ -643,7 +643,7 @@ follow_ups_read() {
     # (the Evidence reader refuses a tab), no token or home-directory path,
     # and no path into a work-in-progress directory.
     LC_ALL=C grep -q $'[\001-\010\011\013-\037\177]' "$FOLLOW_UPS" && refuse "the follow-ups file holds a control character or a tab"
-    why=$(jq -R -s -r -L "$HERE" 'include "record-codec"; text_problem([]) // empty' < "$FOLLOW_UPS")
+    why=$(jq -R -s -r -L "$HERE" 'include "state-schema"; text_problem([]) // empty' < "$FOLLOW_UPS")
     [ -z "$why" ] || refuse "the follow-ups file holds $why"
     # (The bracket keeps the directory's name out of this file, which the
     # skill's hygiene suite holds to naming no staging path.)
@@ -784,7 +784,7 @@ follow_ups_apply() {
 # Next step (its closed shape, or text a public record never carries), or
 # nothing.
 rework_problem_of() {
-    printf '%s' "$1" | jq -R -s -r -L "$HERE" 'include "record-codec"; (rework_problem // text_problem([])) // empty'
+    printf '%s' "$1" | jq -R -s -r -L "$HERE" 'include "state-schema"; (rework_problem // text_problem([])) // empty'
 }
 # failure_rework_of <entry>: the rework text a confirmed reopen leaves for the
 # milestone's next brief, `Evidence clause <n> failed: <what was seen>`, cut
@@ -794,7 +794,7 @@ rework_problem_of() {
 failure_rework_of() {
     awk '/^Clause: / { c = substr($0, 9) } /^What was seen: / { w = substr($0, 16) }
          END { printf "Evidence clause %s failed: %s", c, w }' "$1" \
-        | jq -R -s -j -L "$HERE" 'include "record-codec"; rework_cap'
+        | jq -R -s -j -L "$HERE" 'include "state-schema"; rework_cap'
 }
 # reopen_line <roadmap>: the last `## Progress` line naming TAG (its tag
 # compared by key, so `Feature 2` and `Milestone 2` are one), when it is a

@@ -314,7 +314,7 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
     if printf '%s' "$SECTION" | jq -e --argjson c "$CITED" 'any((.archived // [])[]; . as $a | $c | index($a) != null)' > /dev/null; then
         bash "$HERE/record-append.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
             || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
-        OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "record-codec";
+        OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
             ([.[] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
             | [($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring as $n
                | (first($arch[] | .text | d_archive_rows[] | select(.decision == $n)) // null)

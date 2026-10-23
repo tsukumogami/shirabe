@@ -3,7 +3,6 @@ workflow: .github/workflows/check-coordinate-scripts.yml
 # stand-ins and need only jq and git, so every case runs on 3.2.
 # Its engine suites (*_engine_test.sh) need real koto and run on
 # ubuntu only.
-skills/coordinate/scripts/record-codec_test.sh
 skills/coordinate/legacy-import/legacy-import_test.sh
 skills/coordinate/scripts/state-schema_test.sh
 skills/coordinate/scripts/normalize_test.sh

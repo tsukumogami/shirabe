@@ -6,16 +6,13 @@
 # shared <file under scripts/>: a change to it runs every suite. A file
 # sourced by two or more of the skill's files is shared without a row; these
 # are the ones that check can't see: the template's own scripts, which every
-# engine suite drives; the record codec, which jq includes and nearly every
-# script reads or writes through, and the state schema the codec and the write
-# core include; and run-tests.sh, which CI runs every suite through.
+# engine suite drives; the state schema, which jq includes and nearly every
+# script reads or writes through; and run-tests.sh, which CI runs every suite
+# through.
 shared	coord-verdict.sh
 shared	coord-log.sh
 shared	coordinate-open.sh
 shared	coordinate-open.wording.tsv
-shared	record-codec.jq
-shared	record-parse.sh
-shared	record-render.sh
 shared	run-tests.sh
 shared	state-schema.jq
 
@@ -65,7 +62,6 @@ cost	closeout-read_test.sh	30
 cost	record-source_test.sh	30
 cost	board-record_test.sh	29
 cost	handover_engine_test.sh	29
-cost	record-codec_test.sh	25
 cost	writeback_engine_test.sh	25
 cost	state-schema_test.sh	24
 cost	legacy-import_test.sh	23

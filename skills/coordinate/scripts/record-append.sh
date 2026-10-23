@@ -214,7 +214,7 @@ on_admitted() {
     [ "$(lc "$ON_REPO")" = "$(lc "$REPO")" ] && return 0
     rs_key "$ES" record/holdings "$WD/holdings.json"
     case $? in
-        0) jq -e -L "$HERE" --arg r "$(lc "$ON_REPO")" 'include "record-codec";
+        0) jq -e -L "$HERE" --arg r "$(lc "$ON_REPO")" 'include "state-schema";
                [.[] | (.repo // ""), ((.pull_request // "") | pr_link | .repo)] | map(ascii_downcase) | index($r) != null' \
                "$WD/holdings.json" > /dev/null && return 0 ;;
         1) ;;
@@ -244,7 +244,7 @@ dest_problem() {
     local p r priv=
     p=$(gh api --method GET "repos/$ON_REPO" --jq .private 2> /dev/null < /dev/null) || p=unreadable
     [ "$p" = true ] && return 0
-    jq -R -s -r -L "$HERE" 'include "record-codec"; text_named_repos | .[]' < "$1" > "$WD/named" || lib_die2 "jq failed"
+    jq -R -s -r -L "$HERE" 'include "state-schema"; text_named_repos | .[]' < "$1" > "$WD/named" || lib_die2 "jq failed"
     while IFS= read -r r; do
         [ "$(lc "$r")" = "$(lc "$ON_REPO")" ] && continue
         [[ $r =~ $RE_REPO ]] || continue
@@ -252,7 +252,7 @@ dest_problem() {
         [ "$p" = false ] || priv="$priv${priv:+,}$r"
     done < "$WD/named"
     jq -R -s -r -L "$HERE" --arg p "$priv" \
-        'include "record-codec"; text_problem($p | split(",") | map(select(. != ""))) // empty' < "$1" || lib_die2 "jq failed"
+        'include "state-schema"; text_problem($p | split(",") | map(select(. != ""))) // empty' < "$1" || lib_die2 "jq failed"
 }
 # roadmap_row_check <n> <kind>: refuses (65) a milestone-verdict or
 # milestone-failure entry's post unless roadmap-status.sh opened its roadmap
@@ -384,7 +384,7 @@ PRIVATE=
 HOST_PRIVATE=
 [ -n "$ON" ] || { HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"; }
 if [ "$HOST_PRIVATE" = false ]; then
-    printf '%s' "$TEXT" | jq -R -s -r -L "$HERE" 'include "record-codec"; text_named_repos | .[]' > "$WD/named" || lib_die2 "jq failed"
+    printf '%s' "$TEXT" | jq -R -s -r -L "$HERE" 'include "state-schema"; text_named_repos | .[]' > "$WD/named" || lib_die2 "jq failed"
     while IFS= read -r r; do
         [ "$r" = "$REPO" ] && continue
         [[ $r =~ $RE_REPO ]] || continue
@@ -395,7 +395,7 @@ if [ "$HOST_PRIVATE" = false ]; then
         [ "$P" = false ] || PRIVATE="$PRIVATE${PRIVATE:+,}$r"
     done < "$WD/named"
     printf '%s' "$TEXT" | jq -R -s -r -L "$HERE" --arg p "$PRIVATE" \
-        'include "record-codec"; text_problem($p | split(",") | map(select(. != ""))) // empty' > "$WD/problem" \
+        'include "state-schema"; text_problem($p | split(",") | map(select(. != ""))) // empty' > "$WD/problem" \
         || lib_die2 "jq failed"
     if [ -s "$WD/problem" ]; then
         echo "$PROG: refused: the entry $(cat "$WD/problem")" >&2; exit 65

@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
-# state-schema_test.sh -- state-schema.jq checks the coordinator state as JSON
-# and refuses what record-codec.jq's renderer refuses, with the same message,
+# state-schema_test.sh -- state-schema.jq checks the coordinator state as JSON,
 # and the write core runs it on the next state before anything is written.
 #
-# Covers: each refusal case of record-codec_test.sh fed as the state's JSON to
-# check_record, and refused with the message record-render.sh gives for the
-# same JSON (a disallowed top-level field, a control character, an empty
-# required column, a recomputable column, an unknown column, a malformed
-# worker, each column grammar, a malformed pull request link, a malformed hold
-# or an illegal hold change, an unknown Run key, stored-set rows breaking their
-# rules, an illegal Decisions state, transition or stamp, a private repository
-# name, a home-directory path and a token-shaped string); the legacy `store
-# session` Run row accepted, a `store github` row and any other value
-# refused, and the crash-set rows allowed with no store row; the scan over
-# every string in the state (scan_strings): each string path of a full state
-# found, a field added at any depth found, a string no column check reads
-# refused through check_record, a rotation's reasoning scanned; a valid state
-# accepted and given back normalized; record-codec.jq carrying the module byte
-# for byte and defining none of its names elsewhere. Through record-write.sh
-# and the core: a next state naming a private repository is refused from its
-# JSON before any render, beside the codec alone too, and a refused schema
+# Covers: each refusal case fed as the state's JSON to check_record, and
+# refused with its message (a disallowed top-level field, a control character,
+# an empty required column, a recomputable column, an unknown column, a
+# malformed worker, each column grammar, a malformed pull request link, a
+# malformed hold or an illegal hold change, an unknown Run key, stored-set rows
+# breaking their rules, an illegal Decisions state, transition or stamp, a
+# private repository name, a home-directory path and a token-shaped string);
+# the legacy `store session` Run row accepted, a `store github` row and any
+# other value refused, and the crash-set rows allowed with no store row; the
+# scan over every string in the state (scan_strings): each string path of a
+# full state found, a field added at any depth found, a string no column check
+# reads refused through check_record, a rotation's reasoning scanned; a valid
+# state accepted and given back normalized; the module holding no markdown
+# encoding, renderer or record parser (only the reader of a GitHub record's
+# archived Decisions rows). Through record-write.sh and the core: a next state
+# naming a private repository is refused from its JSON, and a refused schema
 # rule, a stale read and a section owned by another writer flag each leave
 # every key as it was.
 #
@@ -31,7 +29,6 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-R="$HERE/record-render.sh"
 W=2026-09-26T12:00:00Z
 SHA40=0123456789abcdef0123456789abcdef01234567
 # The shapes the checks refuse, put together at run time: the repository's
@@ -54,35 +51,21 @@ check() {
         sed -n 's/.*\(refused: \)/\1/p' "$T/s.err" | sed -n 1p
     fi
 }
-# rendered <json> [private-repos]: the renderer's refusal for the same JSON,
-# in the same form, or "ok".
-rendered() {
-    printf '%s' "$1" > "$T/r.json"
-    if bash "$R" --written "$W" --private-repos "${2-}" "$T/r.json" > /dev/null 2> "$T/r.err"; then
-        echo ok
-    else
-        sed -n 's/^record-render: //p' "$T/r.err" | sed -n 1p
-    fi
-}
 # same <label> <json> <expected substring> [private-repos]: the JSON is refused
-# by check_record with a message holding the substring, and the renderer
-# refuses it with the very same message.
+# by check_record with a message holding the substring.
 same() {
-    local got want_r
+    local got
     got=$(check "$2" "${4-}")
-    want_r=$(rendered "$2" "${4-}")
     case "$got" in
-        "refused: "*"$3"*)
-            if [ "$got" = "$want_r" ]; then ok "$1"
-            else bad "$1" "schema [$got] but the renderer [$want_r]"; fi ;;
+        "refused: "*"$3"*) ok "$1" ;;
         *) bad "$1" "want a refusal holding [$3], got [$got]" ;;
     esac
 }
-# passes <label> <json>: both accept it.
+# passes <label> <json>: check_record accepts it.
 passes() {
-    local got want_r
-    got=$(check "$2"); want_r=$(rendered "$2")
-    if [ "$got" = ok ] && [ "$want_r" = ok ]; then ok "$1"; else bad "$1" "schema [$got], renderer [$want_r]"; fi
+    local got
+    got=$(check "$2")
+    if [ "$got" = ok ]; then ok "$1"; else bad "$1" "schema [$got]"; fi
 }
 
 full_record() {
@@ -99,22 +82,15 @@ full_record() {
 with() { full_record | jq -c "$@"; }
 
 echo "== the module's shape =="
-# record-codec.jq carries everything below state-schema.jq's header byte for
-# byte between its two marker lines, and defines none of those names anywhere
-# else; the module holds no codec: no encoding, renderer or parser.
+# The module holds no markdown encoding, renderer or record parser. Its one
+# reader of markdown is the archived Decisions rows a GitHub record's body put
+# in `decisions` entries (d_archive_rows, with parse_drow, dec and dec_d), which
+# record-decision.sh restores an archived entry from.
 defs() { sed -nE 's/^def ([a-z_]+)(\(([^)]*)\))?:.*/\1(\3)/p' "$1"; }
 SCHEMA_DEFS=$(defs "$HERE/state-schema.jq")
-sed -n '/^# The four sections every record has/,$p' "$HERE/state-schema.jq" > "$T/module.jq"
-sed -n '/^# ---- state-schema.jq, verbatim -/,/^# ---- end of state-schema.jq -/p' "$HERE/record-codec.jq" | sed '1d;$d' > "$T/copy.jq"
-[ -s "$T/module.jq" ] && cmp -s "$T/module.jq" "$T/copy.jq" \
-    && ok "record-codec.jq's copy of state-schema.jq is the module, byte for byte" \
-    || bad "record-codec.jq's copy of state-schema.jq is the module, byte for byte" \
-        "copy state-schema.jq from its '# The four sections every record has' line to the end into record-codec.jq, between the two marker lines; first differences: $(diff "$T/module.jq" "$T/copy.jq" | head -10)"
-sed '/^# ---- state-schema.jq, verbatim -/,/^# ---- end of state-schema.jq -/d' "$HERE/record-codec.jq" > "$T/codec-rest.jq"
-eq "  ... and the codec defines none of the module's names outside it" "" \
-    "$(defs "$T/codec-rest.jq" | grep -xF -f <(printf '%s\n' "$SCHEMA_DEFS"))"
-eq "state-schema.jq holds no encoding, renderer, parser or handoff" "" \
-    "$(printf '%s\n' "$SCHEMA_DEFS" | grep -E '^(enc|dec|enc_d|dec_d|normalized|split_cells|declaration|pr_prefix|scope_text)\(|^(render_|parse_|predecessor_)')"
+eq "state-schema.jq holds no encoding, renderer, record parser or handoff" "" \
+    "$(printf '%s\n' "$SCHEMA_DEFS" | grep -E '^(enc|enc_d|normalized|split_cells|declaration|pr_prefix|scope_text)\(|^(render_|predecessor_)|^parse_' | grep -v '^parse_drow(')"
+[ -f "$HERE/record-codec.jq" ] && bad "no record-codec.jq is left beside it" "" || ok "no record-codec.jq is left beside it"
 eq "its one error() is refuse()'s, so every refusal starts refused: " \
     'def refuse($m): error("refused: " + $m);' "$(grep -v '^ *#' "$HERE/state-schema.jq" | grep 'error(')"
 
@@ -294,7 +270,7 @@ same "an identifier at Next decision" "$(full_record | jq -c --argjson e "$(entr
 same "an identifier used twice" "$(full_record | jq -c --argjson e "$(entry 2 proposed)" '.decisions = {next: 9, entries: [$e, $e]}')" "an identifier is used twice"
 same "a next over a million" "$(with '.decisions = {next: 1000000, entries: []}')" "decisions.next"
 same "a field outside the section" "$(with '.decisions = {next: 2, entries: [], notes: "x"}')" "decisions.notes: not a field of this section"
-same "an archived identifier the body still holds" "$(full_record | jq -c --argjson e "$(entry 2 proposed)" '.decisions = {next: 9, entries: [$e], archived: [2]}')" "an identifier the body still holds"
+same "an archived identifier the section still holds" "$(full_record | jq -c --argjson e "$(entry 2 proposed)" '.decisions = {next: 9, entries: [$e], archived: [2]}')" "an identifier the section still holds"
 same "a kept stamp that isn't {run, stamps}" "$(with '.decisions = {next: 9, entries: [], archived: [1], kept: {run: "x", stamps: []}}')" "decisions.kept"
 
 echo "== private repositories, home paths and tokens =="
@@ -377,62 +353,40 @@ WR="$HERE/record-write.sh"
 SW=coordinate-roadmap-plugin-system-20260926T140000Z
 export RS_SESSION=$SW
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
-OLD=$(render "$(record_json roadmap plugin-system)" issue)
 NEWJ=$(record_json roadmap plugin-system | jq -c --argjson h "$(holding feature-2)" '.holdings = [$h]')
 seed_rm() { db_init; seed_session "$SW" "$(record_json roadmap plugin-system)"; }
-body7() { bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --show 2>/dev/null; }
-# A body that names a private repository renders (the renderer is handed no
-# private list), so only the core's own check of the state can refuse it.
-render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/secret"')" issue > "$T/priv.md"
-
-seed_rm
-bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
-eq "a state naming a private repository is refused" 65 "$rc"
-grep -q 'record-write: refused: repo: names acme/secret, a repository that isn.t public' "$T/err" \
-    && ok "  ... with the module's message" || bad "  ... with the module's message" "$(cat "$T/err")"
-grep -q 'record-render' "$T/err" && bad "  ... from the state's JSON, before any render" "$(cat "$T/err")" \
-    || ok "  ... from the state's JSON, before any render"
-eq "  ... and the record is untouched" "$OLD" "$(body7)"
-# A tree holding the codec without the module, as some suites build one: the
-# core checks the state with the codec's copy and refuses the same way.
-mkdir -p "$T/codec-only"
-cp "$HERE"/*.sh "$HERE/record-codec.jq" "$T/codec-only/"
-seed_rm
-bash "$T/codec-only/record-write.sh" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
-eq "beside the codec alone, the state is refused the same way" \
-    "65 record-write: refused: repo: names acme/secret, a repository that isn't public" "$rc $(sed -n 1p "$T/err")"
-eq "  ... and the record is untouched" "$OLD" "$(body7)"
+# A state that names a private repository passes every check that needs no
+# visibility read, so only the core's check against the host's private list
+# can refuse it.
+state_json "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/secret"')" > "$T/priv.json"
 
 seed_rm
 SNAP=$(session_snapshot "$SW")
 [ "$SNAP" != none ] && ok "the session holds the record's keys" || bad "the session holds the record's keys" ""
-bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --state-file "$T/priv.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a state naming a private repository is refused before any key is written" 65 "$rc"
-grep -q 'record-write: refused: repo: names acme/secret' "$T/err" && ! grep -q 'record-render' "$T/err" \
-    && ok "  ... from its JSON, with the module's message" || bad "  ... from its JSON, with the module's message" "$(cat "$T/err")"
+grep -q 'record-write: refused: repo: names acme/secret, a repository that isn.t public' "$T/err" \
+    && ok "  ... with the module's message" || bad "  ... with the module's message" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
-# While writers hand the core a body, the codec's parse catches the rest first.
-render "$NEWJ" issue > "$T/new.md"
-sed 's/| feature-2 |/| session_feature-2 |/' "$T/new.md" > "$T/worker.md"
-bash "$WR" "${RM[@]}" --body-file "$T/worker.md" > /dev/null 2> "$T/err"; rc=$?
+state_json "$NEWJ" > "$T/new.json"
+jq -c '.holdings[0].worker = "session_feature-2"' "$T/new.json" > "$T/worker.json"
+bash "$WR" "${RM[@]}" --state-file "$T/worker.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a worker shaped like a session id is refused" 65 "$rc"
 grep -q 'refused: worker: the shape of a session id' "$T/err" && ok "  ... with its refused: message" || bad "  ... with its refused: message" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 # A write the core accepts, then one built from the read before it.
-bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --state-file "$T/new.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a valid state is written to the session" 0 "$rc"
 SNAP=$(session_snapshot "$SW")
-bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --state-file "$T/new.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a write built from a stale read is refused as record-changed" 12 "$rc"
 grep -q 'record-changed' "$T/err" && ok "  ... naming record-changed" || bad "  ... naming record-changed" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 # A write that changes a section another writer flag owns: Holds, through
 # record-write.sh, which never opens HOLDS_WRITER.
-body7 > "$T/cur.md"
-bash "$HERE/record-parse.sh" --container issue "$T/cur.md" > "$T/cur.json"
-jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
-    | bash "$HERE/record-render.sh" --container issue --written "$(jq -r .written "$T/cur.json")" > "$T/hold.md"
-bash "$WR" "${RM[@]}" --body-file "$T/hold.md" > /dev/null 2> "$T/err"; rc=$?
+session_state "$SW" | jq -c '.holdings |= map(del(.pushed_head))
+    | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' > "$T/hold.json"
+bash "$WR" "${RM[@]}" --state-file "$T/hold.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a write changing a section another writer owns is refused" 65 "$rc"
 grep -q 'Holds section changes only through record-hold.sh' "$T/err" && ok "  ... by the owner check" || bad "  ... by the owner check" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"

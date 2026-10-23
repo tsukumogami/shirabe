@@ -364,7 +364,7 @@ if [ "$CMD" = check-failure ]; then
     [ "$F_CLAUSE" -le "$NCLAUSES" ] || fail "line 4: clause $F_CLAUSE is not one of $TAG's Evidence clauses; it has $NCLAUSES"
     shape 5 "What was seen: <text>" '^What was seen: (.*[^ ].*)$'
     F_WHAT=${BASH_REMATCH[1]}
-    WHY=$(printf '%s' "$F_WHAT" | jq -R -s -r -L "$HERE" 'include "record-codec"; rework_problem // empty') || die2 "jq failed"
+    WHY=$(printf '%s' "$F_WHAT" | jq -R -s -r -L "$HERE" 'include "state-schema"; rework_problem // empty') || die2 "jq failed"
     [ -z "$WHY" ] || fail "line 5: What was seen is one paragraph of at most 600 bytes with no URL or markdown link; this one has $WHY"
     [ "$N" -le 5 ] || fail "line 6: nothing follows What was seen"
     printf '%s' "$MS" | jq -c --arg by "$F_BY" --arg on "$F_ON" --argjson n "$F_CLAUSE" --arg what "$F_WHAT" \

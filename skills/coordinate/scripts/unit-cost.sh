@@ -1256,7 +1256,7 @@ fi
 # nowhere, the entry kept in the session.
 ON=none
 RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
-[ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
+[ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "state-schema"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
 [[ $ON =~ $RE_ITEM ]] || ON=$(awk -v re="$RE_ITEM" '$1 ~ re { print $1; exit }' "$PRS_FILE")
 if ! [[ $ON =~ $RE_ITEM ]]; then
     ON=none

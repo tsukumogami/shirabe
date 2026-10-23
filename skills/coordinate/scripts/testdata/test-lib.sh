@@ -3,8 +3,9 @@
 #
 # It makes a scratch directory, puts the gh and koto stand-ins first on PATH,
 # and gives each test: a GitHub DB ($GH_DB) with helpers to seed and edit it,
-# record bodies rendered by the real codec, and prepared koto session logs in
-# the shape real koto writes.
+# record states in state-schema.jq's normal form, seeded into the koto
+# stand-in as a session holds them, and prepared koto session logs in the shape
+# real koto writes.
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-test.XXXXXX") || exit 1
 trap 'case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
@@ -85,8 +86,7 @@ state_json() {
     printf '%s' "$1" | jq -c -L "$HERE" --arg w "${2:-2026-09-26T09:00:00Z}" 'include "state-schema"; normalize_state([]) | .written = $w'
 }
 # session_state <session>: the record the session's keys hold, as one JSON
-# object in record-parse.sh's shape, `written` from record/meta; pushed heads
-# are left beside their rows.
+# object, `written` from record/meta; pushed heads are left beside their rows.
 session_state() {
     local d="$KOTO_STORE/context/$1/record" pair
     jq -c '{scope, written}' "$d/meta" > "$T/ss.json" || return 1
@@ -108,25 +108,6 @@ session_snapshot() {
 
 record_json() { # record_json <roadmap|discipline> <name>: an empty record
     jq -nc --arg k "$1" --arg n "$2" '{scope: {kind: $k, name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}'
-}
-render() { # render <json> <issue|pr> [written]: a canonical body on stdout
-    # Suites render the same fixture many times over, so each distinct
-    # (json, container, written) is rendered once and kept under $T; a render
-    # that fails is never kept, so it fails again the same way. The key holds
-    # the inputs, not the renderer: a suite that swaps record-render.sh for a
-    # copy needs its own $T. The body comes back with one trailing newline,
-    # as record-render.sh prints it.
-    local w=${3:-2026-09-26T09:00:00Z} k f rc
-    k=$(printf '%s\n%s\n%s' "$2" "$w" "$1" | $SHA256)
-    f="$T/render-cache/${k%% *}"
-    if [ ! -f "$f" ]; then
-        mkdir -p "$T/render-cache"
-        printf '%s' "$1" | bash "$HERE/record-render.sh" --container "$2" --written "$w" > "$f.new"
-        rc=$?
-        [ "$rc" = 0 ] || { rm -f "$f.new"; return "$rc"; }
-        mv "$f.new" "$f"
-    fi
-    printf '%s\n' "$(< "$f")"
 }
 if command -v sha256sum >/dev/null 2>&1; then SHA256=sha256sum; else SHA256='shasum -a 256'; fi
 

@@ -137,7 +137,7 @@ fi
 
 # Whether the entry owes this kind now; stderr says why not.
 jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slurpfile sec "$T/section.json" '
-  include "record-codec";
+  include "state-schema";
   def of_report: .run == $run and .kind == "report" and (.seq | split(".")[0]) == $rep;
   if $k == "escalation" then
     if .state != "escalated" then "entry \(.decision) is \(.state), not escalated"
@@ -161,7 +161,7 @@ jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slur
 
 # The text. `@` is encoded in every free-text cell, as in the record.
 jq -r --arg k "$KIND" '
-  include "record-codec";
+  include "state-schema";
   def e: gsub("@"; "&#64;");
   def src_ref: if (.source | test("^coordinator ")) then (.source | capture("#(?<n>[0-9]+) round (?<r>[0-9]+)") | "decision \(.n) round \(.r)")
                else "decision \(.decision) round \(.round)" end;
@@ -203,7 +203,7 @@ if [ "$KIND" = escalation ]; then
     printf 'Digest: %s\n' "$DIGEST" >> "$T/message.txt"
     # The structured form, for asking a person with a question tool: the same
     # entry, the recommended option first, every option with its explanation.
-    jq -c -L "$HERE" 'include "record-codec";
+    jq -c -L "$HERE" 'include "state-schema";
       def e: gsub("@"; "&#64;");
       .recommendation as $r
       | {decision: (.decision | tonumber), round: (.round | tonumber), question: (.question | e),

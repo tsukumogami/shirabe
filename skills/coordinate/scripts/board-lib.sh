@@ -134,7 +134,7 @@ bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
-    repos=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$2" 'include "record-codec";
+    repos=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$2" 'include "state-schema";
         [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     n=$(printf '%s' "$repos" | grep -c . )
@@ -345,7 +345,7 @@ bl_review_evidence() {
     local s=$1 repo=$2 pr=$3 body=$4 rows rps rp req leg view child rc ev d
     rows=$(bash "$HERE/record-holding.sh" --session "$s" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
-    rps=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "record-codec";
+    rps=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "state-schema";
         [.[]? | select(any(.pull_request // "" | pr_link; .number == $n and (.repo | ascii_downcase) == ($r | ascii_downcase)))
          | .return_path // "" | strings | select(test("^leg [^: ]+:[^: ]+$")) | ltrimstr("leg ")]
         | reverse | reduce .[] as $x ([]; if index([$x]) then . else . + [$x] end) | .[]') || {
