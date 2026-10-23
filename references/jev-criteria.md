@@ -202,11 +202,12 @@ cases include the too-light shapes the ledger's escapes held. Run against the
 configured decider (jev-1.14.0) on 2026-10-23 with
 `jev_criteria.py fixtures work-on/review-level-fits-facts`: good 17 pass and 2
 escapes, seeded-bad 24 fail and 1 escape, adversarial 6 fail, empty 3
-escapes, so the bar is met. The three full-facts escapes are two `standard`
-levels over a `light` floor and a 41-line documentation change at `light`.
-The same rules introduced as "the highest level any rule below yields"
-instead of what the facts "call for", the phrase the criterion's pass and
-fail texts use, got an answer on only 29 or 30 of the 50 in two runs.
+escapes, so the bar is met: 47 of the 50 full-facts cases got a pass or a
+fail, every one of them right. The three full-facts escapes are two
+`standard` levels over a `light` floor and a 41-line documentation change at
+`light`. The same rules introduced as "the highest level any rule below
+yields" instead of what the facts "call for", the phrase the criterion's pass
+and fail texts use, got an answer on only 29 or 30 of the 50 in two runs.
 The three are left as they are: an escape is never a pass, it falls back to the
 agent, and it counts against the live bar's answered share, so a slice that
 kept escaping couldn't earn trust. The same 38 cases with the order-only
