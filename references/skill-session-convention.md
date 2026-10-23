@@ -237,9 +237,10 @@ koto session link <session> --dispatched-by <dispatcher>
 which writes the link into `<session>`'s own context and nowhere else. For
 `adopt` the dispatcher is the parent's session name the script composed from
 the fixed parent and the checked topic, never the value of a key; for `open`
-it is the name the caller passed, checked against koto's session-name rule
-(`^[A-Za-z0-9][A-Za-z0-9._-]*$`, at most 200 bytes) and refused when it names
-the session itself, before any koto call. `/work-on`'s `--koto-leg` opener,
+it is the name the caller passed, refused when it names the session itself
+and checked against koto's own session-name rule before any koto call, so a
+name koto would refuse fails early with the same refusal; koto, not this
+document, defines that rule. `/work-on`'s `--koto-leg` opener,
 `skills/work-on/scripts/work-on-open.sh`, takes the same `--dispatched-by` and
 does the same after its open, and a coordinated `/execute` run's step agent
 opens each `/work-on` child with `koto init --dispatched-by execute-<slug>`
@@ -300,9 +301,11 @@ prints whether the session's hierarchy is kept and why: the members joined
 through dispatched-by links, `chain/parent` and koto's own lineage, which of
 them is still alive, and, once none is, when the retention passes. `--json`
 prints the same as JSON. A chain child is joined to its parent both by its
-`chain/parent` and by the dispatched-by link `adopt` records, so a finished
-child is kept while its parent may still read it. koto's prunes apply the same
-answer, so nothing here deletes a session itself.
+`chain/parent` and by the dispatched-by link `adopt` records, so koto's
+prunes keep a finished child while its parent may still read it; they apply
+the same answer, and nothing here deletes a session itself. What happens to a
+session at its own terminal tick is a separate question:
+`koto-session-retention.md` covers it, including `--no-cleanup`.
 
 ### Content assembly and koto's absence
 
@@ -369,8 +372,9 @@ source.
   from keys are untrusted text, and agents reading them keep the
   fixed-preamble discipline the reviewer prompts use. Values from keys reach
   commands only through `jq --arg` or as compared strings.
-- **Retention.** A finished session stays on disk until koto's retention lets
-  it go (`koto session hierarchy` says when). Nothing secret belongs in a
+- **Retention.** koto's prunes keep a finished session until its retention
+  lets it go (`koto session hierarchy` says when); whether a session survives
+  its own terminal tick is covered in `koto-session-retention.md`. Nothing secret belongs in a
   key; with koto's cloud backend configured, keys sync to the configured
   bucket, which needs the same access control as the
   repositories whose work it holds.
