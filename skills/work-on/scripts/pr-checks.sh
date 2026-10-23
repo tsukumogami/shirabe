@@ -190,7 +190,10 @@ jq -c '
 # A private repository on a plan without rulesets answers the rules read with
 # a 403 that says so ("Upgrade to GitHub Pro or make this repository public to
 # enable this feature"): no ruleset can apply to it, so its rules are none.
-# Any other failure still ends the read.
+# Any other failure still ends the read. A `workflows` or `code_scanning` rule
+# requires checks it doesn't name; each becomes one required entry pinned to
+# app -1, an id no check carries, so it always lists unreadable.
+# coordinate's board-verdict.sh makes the same fallback; keep the two in step.
 if ! gh api --method GET "repos/$REPO/rules/branches/$BASE" --hostname "$HOST" --paginate </dev/null >"$TMP/rules.raw" 2>"$TMP/rules.raw.err"; then
     grep -q 'Upgrade to GitHub Pro or make this repository public to enable this feature' "$TMP/rules.raw.err" \
         || no "could not read repos/$REPO/rules/branches/$BASE: $(head -n 1 "$TMP/rules.raw.err")"

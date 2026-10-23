@@ -3634,7 +3634,10 @@ reason naming it in `coord/board.json`, never verified, and so does a ruleset
 rule whose checks only the rollup names. It goes to surface, where the person
 is asked one thing: whether that check passed on the pull request's head,
 which they can see and the token can't. Their answer, or a token that can read
-checks, is what lets it land.
+checks, is what lets it land. A red job still reads unverified first: the
+worker's failure comes before a question for the person. One thing the
+fallback can't see at all is a check run from another app that no rule
+requires; the token that can read checks is what shows it.
 
 A job that completed red with no step at all never ran: GitHub refused to
 start it, as it does for an account billing block or a missing runner, or it

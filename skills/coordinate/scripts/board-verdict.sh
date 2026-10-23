@@ -72,11 +72,12 @@
 # snapshot was read, else null.
 # verdict: verified | pending | not-run | unverified | error:board-read |
 # error:pr-state | error:deadline (and head | error:head-moved with
-# --head-only). Precedence: any read failure, an unreadable required check or
-# the deadline is an error; else any definite failure is unverified; else
-# anything still running is pending; else a job that never ran is not-run,
-# so a person is asked only once nothing else is running; else verified,
-# which is printed only with no reasons and a 40-hex head.
+# --head-only). Precedence: any read failure or the deadline is an error;
+# else any definite failure is unverified; else anything still running is
+# pending; else a required check the token can't see (required-unreadable) is
+# an error too; else a job that never ran is not-run, so a person is asked
+# only once nothing else is running; else verified, which is printed only
+# with no reasons and a 40-hex head.
 # A job never ran when it completed failure, cancelled or timed_out with no
 # step at all: GitHub refused to start it (an account billing block, no
 # runner), so it is no verdict on the code and isn't the worker's to fix
@@ -115,8 +116,8 @@
 # run-pending, job-pending, required-pending,
 # merge-state-unknown, head-moved (pending); required-missing (pending while
 # a run is pending, else unverified); required-conclusion (unverified,
-# skipped included); read-failed, required-set-unreadable,
-# required-unreadable, deadline (error).
+# skipped included); read-failed, required-set-unreadable, deadline (error);
+# required-unreadable (error, after unverified and pending).
 # `notes` never changes the verdict: a change under .github/workflows/ or
 # .github/actions/ is named there, because holding such a pull request would
 # be a permission rule of the skill's own.
@@ -216,7 +217,8 @@ def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
   "job-not-run":"n", "required-not-run":"n",
   "run-pending":"p", "job-pending":"p", "required-pending":"p",
   "merge-state-unknown":"p", "head-moved":"p",
-  "read-failed":"e", "required-set-unreadable":"e", "required-unreadable":"e", "deadline":"e"};
+  "read-failed":"e", "required-set-unreadable":"e", "deadline":"e",
+  "required-unreadable":"r"};
 def red: ((.conclusion // "") | IN("success", "skipped")) | not;
 slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
 | slurp1($req) as $req | slurp1($ref) as $ref | slurp1($files) as $files
@@ -318,6 +320,10 @@ slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
    elif any($allc[]; .cls == "e") then "error:board-read"
    elif any($allc[]; .cls == "u") then "unverified"
    elif any($allc[]; .cls == "p") then "pending"
+   # A check the token can't see is a read the board couldn't make, but it
+   # comes after the worker's red and a board still running: those are
+   # verdicts on the code, and a person is asked only once nothing else is.
+   elif any($allc[]; .cls == "r") then "error:board-read"
    elif any($allc[]; .cls == "n") then "not-run"
    elif ($H | type) == "string" and ($H | test("^[0-9a-f]{40}$")) then "verified"
    else "error:board-read" end) as $verdict
@@ -574,6 +580,9 @@ if [ "$MODE" = pr ] && [ "$SOURCE" = actions ]; then
     # The commit's statuses stand beside the jobs: a status-API check is no
     # job, and a token that can't read check runs can still read these. A
     # refusal adds none, so a required status reads unreadable, never a pass.
+    # work-on's pr-checks.sh makes the same fallback for the CI gates, which
+    # count every check rather than the required set, so there a refused
+    # statuses read fails the whole read instead; keep the two in step.
     echo '[]' > "$TMPD/st.ctx"
     if bl_gh "$TMPD/st.raw" api --method GET "repos/$REPO/commits/$H/status?per_page=100" --paginate; then
         jq -sc '(.[0].total_count) as $t | [ .[].statuses[]? ] as $s

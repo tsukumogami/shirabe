@@ -61,12 +61,13 @@
 #   2  state CLOSED                                  error:execute:pr-closed
 #   3  isDraft                                       error:execute:ready
 #   4  mergeStateStatus DIRTY                        awaiting:merge-state:DIRTY
-#   5  a check in the fail or cancel bucket          error:execute:ci
+#   5  a check in the fail, cancel or unreadable     error:execute:ci
+#      bucket
 #   6  a check pending (any bucket but pass,         pending:checks, or
-#      skipping, fail, cancel), a check the base's   error:execute:ci-timeout
-#      rules require not yet reported (read only     once the head commit is
-#      with --merge true), or zero checks within     older than the deadline
-#      120 s of the head commit
+#      skipping, fail, cancel, unreadable), a check  error:execute:ci-timeout
+#      the base's rules require not yet reported     once the head commit is
+#      (read only with --merge true), or zero        older than the deadline
+#      checks within 120 s of the head commit
 #   7  --merge false                                 awaiting:merge-not-requested
 #   8  expected head `none` or not headRefOid        awaiting:head-moved
 #   9  zero checks after the grace window            awaiting:no-checks
@@ -419,10 +420,13 @@ done
 
 # Buckets follow gh's own aggregation, as scripts/ci-gate-expression_test.sh
 # documents: pass and skipping succeeded; fail and cancel failed; pending and
-# anything unrecognized is still pending, never passed.
+# anything unrecognized is still pending, never passed. pr-checks.sh's
+# `unreadable` (a required check it lists only once every run has finished,
+# with nothing at the head that answers it) fails too: waiting can't change
+# it, and the run's report names it for a person who can see the check.
 CHECK_COUNT=$(jq 'length' <<<"$CHECKS")
-CHECK_FAILED=$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length' <<<"$CHECKS")
-CHECK_PENDING=$(jq '[.[] | select((.bucket // "") as $b | ["pass", "skipping", "fail", "cancel"] | index($b) | not)] | length' <<<"$CHECKS")
+CHECK_FAILED=$(jq '[.[] | select(.bucket == "fail" or .bucket == "cancel" or .bucket == "unreadable")] | length' <<<"$CHECKS")
+CHECK_PENDING=$(jq '[.[] | select((.bucket // "") as $b | ["pass", "skipping", "fail", "cancel", "unreadable"] | index($b) | not)] | length' <<<"$CHECKS")
 
 [ "$CHECK_FAILED" -gt 0 ] && verdict "error:execute:ci"
 

@@ -546,11 +546,14 @@ Decisions); don't ask for anything else.
 
 **What the GitHub token must read.** In every repository a unit touches: pull
 requests, issues (the record), contents, Actions runs and their jobs, and the
-base branch's protection and rules, and the check runs and commit statuses too
-if the coordinator is to land anything itself. When GitHub refuses the checks,
-the board is judged from the Actions jobs and says so, but a green board read
-that way can't show every required check, so it goes to the human rather than
-to a merge. A board that can't be read at all, whether refused, failed or out of
+base branch's protection and rules, and the commit statuses. The check runs
+are read where the token can; when GitHub refuses them (a fine-grained token
+can't hold that permission on some repositories), the board is judged from the
+Actions jobs and the commit statuses instead, says so, and lands on the same
+verdicts. A required check neither answers, or that only another app's check
+run could, reads `check-unreadable`: it goes to the human, who can see whether
+it passed, never to a merge. A check run from another app that no rule
+requires isn't seen that way at all. A board that can't be read at all, whether refused, failed or out of
 time, is no verdict on the code: it goes back to waiting with the reason. So
 is a job GitHub never started (it finished red with no step, as under an
 account billing block): the board reads not run, and the reason goes to
