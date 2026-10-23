@@ -18,9 +18,8 @@
 # line endings, a public repository, and a private repository on a private
 # host; a failed post (11); usage errors. On the session store, a goal-fit,
 # milestone-verdict or milestone-failure entry posted on the record issue only
-# when the host's CLAUDE.md opts in (`## PR Workflow Content: include`); one
-# that declares omit, declares nothing or can't be read keeps it in the
-# session, its --repost refused, while a cost entry still posts.
+# when the host's CLAUDE.md opts in (`## PR Workflow Content: include`), and
+# kept in the session, its --repost refused, when it doesn't.
 #
 # Usage: bash skills/coordinate/scripts/record-append_test.sh
 set -uo pipefail
@@ -243,31 +242,12 @@ koto context exists "$SE" record/posted/000013 && bad "  ... and no posted key i
 db '.fail = []'
 "${SEN[@]}" bash "$RA" "${RM[@]}" --repost 2 >/dev/null 2>"$T/err"; eq "--repost of an entry that stays in the session is refused" 65 $?
 bash "$RA" "${RM[@]}" --repost 2 >/dev/null 2>"$T/err"; eq "--repost on the GitHub store is a usage error" 64 $?
-# A host that doesn't opt in: a goal-fit, milestone-verdict or milestone-failure
-# entry stays in the session and its --repost is refused; a cost entry, whose
-# placement unit-cost.sh decides, still posts.
+# A host that doesn't opt in keeps a goal-fit entry in the session, and its
+# --repost is refused (record-append-on_test.sh has the rest of the default).
 db 'del(.files["acme/widgets"]["main:CLAUDE.md"])'
 N0=$(jq '.comments | length' "$GH_DB")
-for k in goal-fit milestone-verdict milestone-failure; do
-    entry "a $k entry"; O=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind "$k" --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
-    N=${O#record/entries/}
-    eq "a $k entry on a host that doesn't opt in stays in the session" "0 record/entries/ $k" "$rc ${O%$N} $(koto context get "$SE" "$O" | jq -r .kind)"
-    grep -q 'PR Workflow Content: include' "$T/err" && ok "  ... saying why" || bad "  ... saying why" "$(cat "$T/err")"
-    "${SEN[@]}" bash "$RA" "${RM[@]}" --repost "$((10#$N))" >/dev/null 2>"$T/err"; eq "  ... and its --repost is refused" 65 $?
-done
-eq "  ... none of them posted or kept as posted" "$N0 0" "$(jq '.comments | length' "$GH_DB") $(koto context list --prefix record/posted/ "$SE" | jq '[.[] | select(. > "record/posted/000013")] | length')"
-iskey() { [[ $1 =~ ^record/entries/[0-9]{6}$ ]] && echo key || echo "not a key: $1"; }
-db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: omit"'
-entry "goal fit, omitted"; O=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind goal-fit --text-file "$T/entry.txt" 2>"$T/err")
-eq "a host that declares omit keeps it in the session too" key "$(iskey "$O")"
-optin
-db '.fail = [{match: "contents/CLAUDE.md", rc: 1, stderr: "gh: HTTP 502"}]'
-entry "goal fit, unreadable"; O=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind goal-fit --text-file "$T/entry.txt" 2>"$T/err")
-eq "  ... and so does one whose CLAUDE.md can't be read" "key $N0" "$(iskey "$O") $(jq '.comments | length' "$GH_DB")"
-db '.fail = []'
-db 'del(.files["acme/widgets"]["main:CLAUDE.md"])'
-entry "cost of worker-f3"; O=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind cost --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
-[[ $rc$O =~ ^0https://github\.com/acme/widgets/issues/7#issuecomment-[0-9]+$ ]] \
-    && ok "a cost entry still posts on a host that doesn't opt in" || bad "a cost entry still posts on a host that doesn't opt in" "$rc $O"
+entry "goal fit, kept"; O=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind goal-fit --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
+eq "a goal-fit entry on a host that doesn't opt in stays in the session" "0 record/entries/000014 $N0" "$rc $O $(jq '.comments | length' "$GH_DB")"
+"${SEN[@]}" bash "$RA" "${RM[@]}" --repost 14 >/dev/null 2>"$T/err"; eq "  ... and its --repost is refused" "65 $N0" "$? $(jq '.comments | length' "$GH_DB")"
 
 done_tests record-append_test

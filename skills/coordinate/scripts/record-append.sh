@@ -286,13 +286,13 @@ on_url_ok() {
     [[ $(lc "$1") =~ ^https://github\.com/([a-z0-9_.-]+/[a-z0-9_.-]+)/(issues|pull)/([1-9][0-9]*)#issuecomment-[0-9]+$ ]] \
         && [ "${BASH_REMATCH[1]}" = "$(lc "$ON_REPO")" ] && [ "${BASH_REMATCH[3]}" = "$ON_NUM" ]
 }
-# kept_unless_opted_in <kind>: 0 when a KIND entry bound for PREPO stays in the
-# session instead, because PREPO doesn't opt in to workflow content on its
-# items; the reason goes to stderr.
+# kept_unless_opted_in <kind> <repo>: 0 when a KIND entry bound for REPO's
+# item stays in the session instead, because REPO doesn't opt in to workflow
+# content on its items; the reason goes to stderr.
 kept_unless_opted_in() {
     opt_in_kind "$1" || return 1
-    [ "$(bash "$HERE/repo-pr-content.sh" "$PREPO" 2> "$WD/pc.err")" = include ] && return 1
-    echo "$PROG: $PREPO doesn't opt in to workflow content on its pull requests and issues (## PR Workflow Content: include), so the $1 entry stays in the session" >&2
+    [ "$(bash "$HERE/repo-pr-content.sh" "$2" 2> "$WD/pc.err")" = include ] && return 1
+    echo "$PROG: $2 doesn't opt in to workflow content on its pull requests and issues (## PR Workflow Content: include), so the $1 entry stays in the session" >&2
 }
 # on_admitted: refuses (65) an --on item outside the run's repositories: the
 # host, or a holding's Repo or pull request repository.
@@ -422,7 +422,7 @@ if [ "$MODE" = repost ]; then
         cat "$WD/posted.now"
         exit 0
     fi
-    kept_unless_opted_in "$EKIND" && { echo "$PROG: refused: entry $N is not posted" >&2; exit 65; }
+    kept_unless_opted_in "$EKIND" "$PREPO" && { echo "$PROG: refused: entry $N is not posted" >&2; exit 65; }
     ESTAMP=$(jq -r '.stamp' "$WD/entry.json")
     # A post that landed before a crash: the same kind and text, by a writer,
     # created at or after the entry's stamp, and not already kept as another
@@ -550,7 +550,7 @@ if [ "$STORE" = session ]; then
         break
     done
     [ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
-    if [ "$ON" = none ] || kept_unless_opted_in "$KIND"; then
+    if [ "$ON" = none ] || kept_unless_opted_in "$KIND" "$PREPO"; then
         printf 'record/entries/%s\n' "$WRITTEN"
         exit 0
     fi

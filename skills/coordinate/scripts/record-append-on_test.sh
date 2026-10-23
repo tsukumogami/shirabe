@@ -15,7 +15,10 @@
 # written, for another one, none, or `--on none`; a milestone-verdict or
 # milestone-failure entry refused with --on an item and written with `--on
 # none`, its `--repost --on` refused until a roadmap edit row names that pull
-# request and the entry and the host opts in, then posted; the text scanned
+# request and the entry and the host opts in, then posted; the opt-in read
+# from the repository's CLAUDE.md as the reader reads it (omit, a value that is
+# neither word, and an unreadable file all keep the entry), and a cost entry
+# posting where it is told whatever the opt-in; the text scanned
 # against the destination's visibility at post time (a private repository on
 # a public destination refused, kept in the session; a private destination
 # naming it posted; a destination whose visibility can't be read counted as
@@ -217,6 +220,28 @@ ra --repost 5 --on acme/widgets#12 >/dev/null 2>"$T/err"; rc=$?
 eq "a login gh api user can't answer exits 2" 2 "$rc"
 eq "  ... posting nothing" "$N0 none" "$(ncomments) $(posted 000005 || echo none)"
 db '.fail = []'
+
+echo "== the opt-in =="
+seed
+iskey() { [[ $1 =~ ^record/entries/[0-9]{6}$ ]] && echo key || echo "not a key: $1"; }
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# x\n\n## PR Workflow Content: omit"'
+O=$(ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" 2>"$T/err")
+eq "a repository that declares omit keeps a goal-fit entry in the session" "key 0" "$(iskey "$O") $(ncomments)"
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# x\n\n## PR Workflow Content: maybe"'
+O=$(ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" 2>"$T/err")
+eq "  ... and so does one whose header holds neither word" "key 0" "$(iskey "$O") $(ncomments)"
+optin acme/widgets
+db '.fail = [{match: "contents/CLAUDE.md", rc: 1, stderr: "gh: HTTP 502"}]'
+O=$(ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" 2>"$T/err")
+eq "  ... and so does one whose CLAUDE.md can't be read" "key 0" "$(iskey "$O") $(ncomments)"
+db '.fail = []'
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# x\n\n## pr workflow content:   INCLUDE  "'
+O=$(ra --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt" 2>"$T/err"); rc=$?
+eq "an opt-in read as the reader reads it (any case, blanks around) posts" "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
+db 'del(.files["acme/widgets"]["main:CLAUDE.md"])'
+entry "Cost of feat-z."
+O=$(ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
+eq "a cost entry, whose placement unit-cost.sh decides, still posts where it is told" "0 https://github.com/acme/widgets/pull/12#issuecomment-1002" "$rc $O"
 
 echo "== usage =="
 seed
