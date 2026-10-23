@@ -62,15 +62,20 @@ mkdir -p "$T/bin" "$T/fixture" || exit 1
 # gh: `pr list`, `pr view` and `pr checks` print $FIX/<list|view|checks>.json
 # through --jq when one is given; `api repos/<r>/actions/runs/<id>` looks the
 # run up in $FIX/runs (`<repo> <id> <path>` lines) and fails like a 404 when
-# it isn't there. Every call is logged to $FIX/gh.log.
+# it isn't there. The runs live on one server, the host in $FIX/host
+# (github.com without it): an api call sent anywhere else, by its --hostname
+# or by gh's default, github.com, when it has none, gets the 404 too, as a
+# read sent to the wrong server would. Every call is logged to $FIX/gh.log.
 cat > "$T/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 FIX="${GH_FIXTURE:?}"
 echo "$*" >> "$FIX/gh.log"
 jqf=""
+host=github.com
 prev=""
 for a in "$@"; do
     [ "$prev" = "--jq" ] && jqf="$a"
+    [ "$prev" = "--hostname" ] && host="$a"
     prev="$a"
 done
 serve() {
@@ -82,6 +87,9 @@ case "$1 $2" in
     "pr view") serve view ;;
     "pr checks") serve checks ;;
     "api "*)
+        served=github.com
+        [ -f "$FIX/host" ] && served=$(cat "$FIX/host")
+        [ "$host" = "$served" ] || { echo "gh: HTTP 404: Not Found" >&2; exit 1; }
         path="${2#repos/}"
         repo="${path%/actions/runs/*}"
         id="${path##*/}"
@@ -142,7 +150,10 @@ SKIP_CHECK=$(check skipping "optional" "Check evals" "$RUN/101/job/2")
 CANCEL_REG=$(check cancel "test-rule-registry (macos-latest)" "Check rule registry" "$RUN/200/job/3")
 CANCEL_COORD=$(check cancel "test-coordinate-scripts (macos-latest)" "Check coordinate scripts" "$RUN/201/job/4")
 
-# fixture <state> <open-number> <checks-json-objects...>: a fresh fixture.
+# fixture <state> <open-number> <checks-json-objects...>: a fresh fixture. The
+# pull request's URL is $PR_URL, and its runs are served from $RUNS_HOST.
+PR_URL="$REPO_URL/pull/7"
+RUNS_HOST=github.com
 fixture() {
     local state="$1" open="$2"
     shift 2
@@ -152,7 +163,8 @@ fixture() {
     else
         echo '[]' > "$T/fixture/list.json"
     fi
-    printf '{"number": 7, "state": "%s", "url": "%s/pull/7"}\n' "$state" "$REPO_URL" > "$T/fixture/view.json"
+    jq -cn --arg s "$state" --arg u "$PR_URL" '{number: 7, state: $s, url: $u}' > "$T/fixture/view.json"
+    echo "$RUNS_HOST" > "$T/fixture/host"
     printf '%s\n' "$@" | jq -s . > "$T/fixture/checks.json"
     cat > "$T/fixture/runs" <<RUNS
 acme/widgets 100 .github/workflows/check-work-on-scripts.yml
@@ -225,6 +237,12 @@ if grep -qx "context add sess ci_cancelled_after_merge.txt" "$T/fixture/koto.log
     pass "the note is written to the session named on the command line"
 else
     fail "unexpected koto calls: $(cat "$T/fixture/koto.log")"
+fi
+# On github.com the runs are read from github.com, named outright.
+if grep -qxF "api repos/acme/widgets/actions/runs/200 --hostname github.com --jq .path" "$T/fixture/gh.log"; then
+    pass "a github.com PR's runs are read from github.com"
+else
+    fail "the run read did not name github.com: $(grep '^api' "$T/fixture/gh.log")"
 fi
 
 # --- OPEN with a floor cancel: blocks, before looking any further --------------
@@ -334,6 +352,67 @@ run_fallback "$REPO"
 expect_exit "two cancels in one floor run pass" 0
 if [ "$(gh_calls "actions/runs/200")" = 1 ]; then pass "a run is looked up once"
 else fail "run 200 was looked up $(gh_calls "actions/runs/200") times"; fi
+
+# --- a pull request on a host that isn't gh's default (#1051) --------------------
+# The runs are served only from ghe.example.com. Before #1051 the run read
+# went to gh's default host and got a 404, so this case blocked.
+GHE_RUN="https://ghe.example.com/acme/widgets/actions/runs"
+PR_URL="https://ghe.example.com/acme/widgets/pull/7"
+RUNS_HOST=ghe.example.com
+fixture MERGED "" "$(check cancel "test-rule-registry (macos-latest)" "Check rule registry" "$GHE_RUN/200/job/3")"
+run_fallback "$REPO"
+expect_exit "an enterprise PR with only floor cancels passes" 0
+expect_note "an enterprise PR's pass records the note"
+note_has "the note names the enterprise run" "$GHE_RUN/200/job/3"
+if grep -qxF "api repos/acme/widgets/actions/runs/200 --hostname ghe.example.com --jq .path" "$T/fixture/gh.log"; then
+    pass "an enterprise PR's runs are read from its own host"
+else
+    fail "the run read did not go to ghe.example.com: $(grep '^api' "$T/fixture/gh.log")"
+fi
+
+# The same repository's run on github.com is another server's run.
+fixture MERGED "" "$(check cancel "elsewhere" "Check rule registry" "$RUN/200/job/3")"
+run_fallback "$REPO"
+expect_exit "an enterprise PR's cancel linking to github.com blocks" 1
+case "$ERR" in
+    *"is not an Actions run of acme/widgets"*) pass "the other host's run is named on stderr" ;;
+    *) fail "stderr does not explain the other host's run: $ERR" ;;
+esac
+
+# A port is part of the host, in the link match and the read.
+PR_URL="https://ghe.example.com:8443/acme/widgets/pull/7"
+RUNS_HOST=ghe.example.com:8443
+fixture MERGED "" "$(check cancel "ported" "Check rule registry" "https://ghe.example.com:8443/acme/widgets/actions/runs/200/job/3")"
+run_fallback "$REPO"
+expect_exit "a PR on a host with a port passes" 0
+if [ "$(gh_calls "^api .* --hostname ghe.example.com:8443 ")" = 1 ]; then
+    pass "a host's port is kept in the run read"
+else
+    fail "the run read did not keep the port: $(grep '^api' "$T/fixture/gh.log")"
+fi
+PR_URL="$REPO_URL/pull/7"
+RUNS_HOST=github.com
+
+# --- a URL that isn't a pull request's: named, and nothing more is read ----------
+for bad in "https://github.com/acme/widgets/issues/7" \
+    "https://ghe.example.com/prefix/acme/widgets/pull/7" \
+    "not a url"; do
+    PR_URL="$bad"
+    fixture MERGED "" "$CANCEL_REG"
+    run_fallback "$REPO"
+    expect_exit "a MERGED PR whose URL is [$bad] blocks" 1
+    expect_no_note "a URL that isn't a pull request's records no note [$bad]"
+    case "$ERR" in
+        *"could not read the pull request's URL: gh answered [$bad]"*) pass "the URL is named on stderr [$bad]" ;;
+        *) fail "stderr does not name the URL [$bad]: $ERR" ;;
+    esac
+    if [ "$(gh_calls "pr checks")" = 0 ] && [ "$(gh_calls "^api")" = 0 ]; then
+        pass "no checks or runs are read for [$bad]"
+    else
+        fail "reads went on for [$bad]: $(cat "$T/fixture/gh.log")"
+    fi
+done
+PR_URL="$REPO_URL/pull/7"
 
 # A missing session argument is exit 1, never anything the edges don't match.
 fixture MERGED "" "$CANCEL_REG"

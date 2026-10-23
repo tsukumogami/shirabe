@@ -43,6 +43,10 @@
 #     status, another repository's run, or any other workflow blocks.
 #     close-cancel cancels whole runs, so a Linux job of a floor workflow
 #     still running at the merge counts too; a failed one still blocks.
+#     The repository, and the host each run is read from, come from the pull
+#     request's URL (pr-url.sh parses it), so on a server that isn't gh's
+#     default host the runs are read from the pull request's own (#1051). A
+#     URL that isn't a pull request's is named and blocks.
 #
 # On a pass it records the cancelled checks, one `<name>\t<workflow>\t<link>`
 # line each under a header line, in koto context as
@@ -86,10 +90,13 @@ TOP=$(git rev-parse --show-toplevel) || no
 FLOOR="$TOP/scripts/check-macos-floor-setup.sh"
 [ -x "$FLOOR" ] || no
 
+HERE=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || no
+# shellcheck source=pr-url.sh
+. "$HERE/pr-url.sh" || no "pr-url.sh not found at $HERE/pr-url.sh"
+
 if [ "$OWNED" = 1 ]; then
     # The rest of the arguments are owned-pr.sh's, passed as given. Its answer
     # is one URL or nothing, and its own diagnostics pass through.
-    HERE=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || no
     OWNED_PR="$HERE/../../execute/scripts/owned-pr.sh"
     [ -x "$OWNED_PR" ] || no "owned-pr.sh not found at $OWNED_PR"
     SELECTOR=$("$OWNED_PR" "$@" </dev/null) || no
@@ -107,8 +114,13 @@ fi
 IFS=$'\t' read -r NUMBER STATE URL <<<"$PR"
 [ "$STATE" = MERGED ] || no
 [ -n "$NUMBER" ] && [ -n "$URL" ] || no "could not read the pull request's number and URL"
-REPO_URL="${URL%/pull/*}"
-REPO="${REPO_URL#*://*/}"
+pr_url_parse "$URL" || no "could not read the pull request's URL: gh answered [$URL]"
+HOST="$PR_HOST"
+REPO="$PR_OWNER/$PR_REPO"
+# Rebuilt from the parsed parts rather than cut from the URL, so the links the
+# checks are matched against carry the pull request's host and repository and
+# nothing after them.
+REPO_URL="https://$HOST/$REPO"
 # /work-on reads the checks by number from the checked-out repository, as it
 # always has. /execute reads them by the URL its lookup answered, which names
 # the repository the run recorded.
@@ -143,7 +155,10 @@ LIST=$(jq -r '.[]' <<<"$WORKFLOWS") || no "check-macos-floor-setup.sh --workflow
 
 while read -r run; do
     [ -n "$run" ] || continue
-    path=$(gh api "repos/$REPO/actions/runs/$run" --jq .path </dev/null) || no "could not read run $run of $REPO"
+    # --hostname after the endpoint: gh reads it the same, and the endpoint
+    # stays gh's first argument after `api`.
+    path=$(gh api "repos/$REPO/actions/runs/$run" --hostname "$HOST" --jq .path </dev/null) \
+        || no "could not read run $run of $REPO on $HOST"
     file="${path#.github/workflows/}"
     case "$file" in
         "$path"|*/*|'') no "#$NUMBER is MERGED, but run $run's workflow $path is not a floor workflow" ;;
