@@ -1615,6 +1615,29 @@
         "The agent does not run local tests or the verification map for the children; hosted CI on the shared PR is the build of record",
         "A run without --verification builds the same child tasks and passes pr_finalization exactly as before"
       ]
+    },
+    {
+      "id": 85,
+      "name": "merge-merged-with-red-check",
+      "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
+      "mode": "execute",
+      "scenario": "merge-merged-red-check",
+      "requirements": [
+        "R19"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      },
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "Someone else merged the PR while the run watched CI, and one of its checks failed. At ci_monitor the owned_pr_merged gate reads it as MERGED, so koto routes the run to merge_readiness with no ci_outcome submitted. The verdict is merged, merge_route routes to merge_confirm, the confirm read records merged, and the run ends at the merged terminal without a merge call. The final report names the failed check.",
+      "files": [],
+      "expectations": [
+        "No ci_outcome is submitted at ci_monitor; the run leaves it on the gates alone",
+        "gh-calls.log contains no line starting `pr merge`",
+        "The printed exit lines include `outcome=merged`",
+        "The final report names the failed check, test (macos-latest)"
+      ]
     }
   ]
 }

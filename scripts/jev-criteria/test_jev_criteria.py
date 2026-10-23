@@ -401,6 +401,20 @@ class CheckTest(unittest.TestCase):
         write(self.t.root, FIXTURES, "\n".join(json.dumps(c) for c in lines) + "\n")
         self.assertProblem("1 adversarial techniques, fewer than 3")
 
+    def test_fixture_empty_kind_expects_the_escape(self):
+        # An empty case is answered with the escape, which a request sends as
+        # `unclear`; it has no minimum, so a file without one still passes.
+        empty = {"id": "e0", "kind": "empty", "expected": "unclear", "input": {}, "slice": "{}\n"}
+        lines = fixture_lines() + [empty]
+        write(self.t.root, FIXTURES, "\n".join(json.dumps(c) for c in lines) + "\n")
+        rc, out = self.t.check()
+        self.assertEqual(rc, 0, out)
+        for bad in ("pass", "fail"):
+            with self.subTest(expected=bad):
+                lines[-1] = dict(empty, expected=bad)
+                write(self.t.root, FIXTURES, "\n".join(json.dumps(c) for c in lines) + "\n")
+                self.assertProblem("case e0: expected must be unclear for an empty case")
+
     def test_untrusted_must_be_withhold_never(self):
         self.t.entry(RULE)["withhold"] = "eligible"
         self.t.save()
@@ -582,6 +596,18 @@ class PromotionTest(unittest.TestCase):
         self.promo()["fixture_run"]["counts"]["seeded-bad"] = {"pass": 1, "fail": 19, "unclear": 0, "error": 0}
         self.t.save()
         self.assertProblem("1 seeded-bad case(s) answered pass")
+
+    def test_fixture_bar_empty_cases_must_escape(self):
+        base = {"good": {"pass": 10, "fail": 0, "unclear": 0, "error": 0},
+                "seeded-bad": {"pass": 0, "fail": 20, "unclear": 0, "error": 0},
+                "adversarial": {"pass": 0, "fail": 5, "unclear": 0, "error": 0}}
+        self.assertEqual(jc.fixture_bar(dict(base, empty={"pass": 0, "fail": 0, "unclear": 3, "error": 0})),
+                         (True, []))
+        met, reasons = jc.fixture_bar(dict(base, empty={"pass": 1, "fail": 1, "unclear": 1, "error": 0}))
+        self.assertFalse(met)
+        self.assertIn("2 empty case(s) answered pass or fail, not the escape", reasons)
+        met, reasons = jc.fixture_bar(dict(base, empty={"pass": 0, "fail": 0, "unclear": 0, "error": 1}))
+        self.assertIn("1 case(s) got no answer", reasons)
 
     def test_live_record_carries_not_graded(self):
         del self.promo()["live"]["not_graded"]
@@ -800,13 +826,21 @@ class MeasureTest(unittest.TestCase):
             facts = {"lines": 12, "files": 2, "classes": ["docs"], "tests_changed": False,
                      "criteria_changed": False, "unclassified": False, "floor": "light"}
             write(d, "s1/ctx/review_facts.json", json.dumps(facts))
+            # s2 stored a rules copy of its own, which its slice renders.
             write(d, "s2/ctx/review_facts.json", json.dumps(dict(facts, lines="x")))
+            write(d, "s2/ctx/review_level_rules.tsv", "class\tci\t.github/**\nrule\tfull\tclass:ci\n")
             # The projection is fixed, so the corpus's sizes are known.
-            want = sorted(len(("%s\nlevels: light < standard < full\nlevel: standard\n" % s).encode())
-                          for s in ('{"lines":12,"files":2,"classes":["docs"],"tests_changed":false,'
-                                    '"criteria_changed":false,"unclassified":false,"floor":"light"}',
-                                    '{"lines":0,"files":2,"classes":["docs"],"tests_changed":false,'
-                                    '"criteria_changed":false,"unclassified":false,"floor":"light"}'))
+            tail = "the facts call for light otherwise\nfloor: the most thorough level the facts call for\n"
+            shipped = ("the facts call for full when classes has ci, security, template or engine;"
+                       + " or lines > 400; or files > 12\n"
+                       + "the facts call for standard when classes has instruction, executable, test or manifest;"
+                       + " or unclassified; or criteria_changed; or lines > 40\n" + tail)
+            want = sorted(len(("%s\nlevels: light < standard < full\n%slevel: standard\n" % (s, defs)).encode())
+                          for s, defs in (('{"lines":12,"files":2,"classes":["docs"],"tests_changed":false,'
+                                           '"criteria_changed":false,"unclassified":false,"floor":"light"}', shipped),
+                                          ('{"lines":0,"files":2,"classes":["docs"],"tests_changed":false,'
+                                           '"criteria_changed":false,"unclassified":false,"floor":"light"}',
+                                           "the facts call for full when classes has ci\n" + tail)))
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 rc = jc.main(["measure", "sessions", "--dir", d, "--root", REPO, "--budget", "2048"])
@@ -814,6 +848,12 @@ class MeasureTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual((got["runs"], got["max"], got["p90"], got["over_budget"], got["population"]),
                              (2, want[1], want[1], 0, "koto-sessions"))
+            # s2 alone measures its own copy's rendering, not the shipped one's.
+            shutil.rmtree(os.path.join(d, "s1"))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = jc.main(["measure", "sessions", "--dir", d, "--root", REPO, "--budget", "2048"])
+            self.assertEqual((rc, json.loads(out.getvalue())["max"]), (0, want[0]))
             self.assertIn("--budget 2048", got["command"])
             self.assertNotIn("--slice", got["command"])
         finally:
@@ -1359,7 +1399,10 @@ class RepositoryTest(unittest.TestCase):
             for c in cases:
                 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as t:
                     if script == jc.REVIEW_LEVEL_SH:
-                        json.dump(c["input"]["facts"], t)
+                        # Null facts is a session with none recorded: an
+                        # empty file, which projects the way `slice` does.
+                        if c["input"]["facts"] is not None:
+                            json.dump(c["input"]["facts"], t)
                         argv = ["project", t.name, c["input"]["level"]]
                     else:
                         # A session log: its header, then the case's events.

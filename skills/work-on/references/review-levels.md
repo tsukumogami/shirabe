@@ -159,15 +159,18 @@ earlier template), the check exits 3 and the run takes the full path.
 
 The level check also carries a veto-mode decider check whose command is
 `review-level.sh slice`: the counts, class names, booleans, the floor, the
-order of the three levels and the chosen level, never a path, a reason or
-criteria text. Every value is typed (counts are non-negative integers, at most
-16 class names), so a hand-edited facts key can't carry text to the decider. It
-asks whether the level is too light for these facts under the definitions on
-this page; since the floor already applies the rules above, the order is all
-the definitions add. `review-level.sh project <facts-file> <level>` prints the
-same slice for a facts file, so a slice built outside a live session is the
-script's own output. The slice's contract (its sources, completeness case,
-measured size and trust record) is the `work-on/review-level-fits-facts` entry
+order of the three levels, the rules above as the facts that call for each
+level, and the chosen level, never a path, a glob, a reason or criteria text.
+Every value is typed (counts are non-negative integers, at most 16 class
+names), so a hand-edited facts key can't carry text to the decider, and the
+rules are rendered from the copy `init` stored, the one the floor was derived
+from. It asks whether the level is too light for these facts under those
+definitions. A session with no facts recorded gets `{}` and no rules, and the
+decider escapes on it. `review-level.sh project <facts-file> <level>
+[<rules-file>]` prints the same slice for a facts file, so a slice built
+outside a live session is the script's own output. The slice's contract (its
+sources, completeness case, measured size and trust record) is the
+`work-on/review-level-fits-facts` entry
 in `references/rule-registry.json`, with its written case in
 `references/jev-criteria.md`. The check can only hold the run, never route it
 or lower the level.

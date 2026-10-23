@@ -966,7 +966,8 @@ states:
     # level_fits_facts is a veto-mode decider check, active only for a user
     # whose decider mode is auto; for anyone else koto treats it as not
     # declared. Its slice is a fixed projection of the facts and the level,
-    # never a path, a reason or issue text. A fail blocks the state like a
+    # with the level definitions rendered from the stored rules copy, never a
+    # path, a reason or issue text. A fail blocks the state like a
     # hold; no route reads it, so a wrong answer can hold the run but never
     # route it or lower the level.
     #
@@ -2108,8 +2109,8 @@ states:
       # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
       # verification_deferred) records the deferral where a reviewer reads it.
       # check-pr-output.sh --deferral-record reads the pull request body from
-      # GitHub and exits 0 when it says local verification did not run, gives
-      # the reason verbatim, and names hosted CI as the build of record; 1
+      # GitHub and exits 0 when it says local verification did not run, has
+      # the line `Reason: <reason>`, and names hosted CI as the build of record; 1
       # when any of the three is missing; 2 when it could not decide. It gates
       # the created edge only, so 1 and 2 hold here, like pr_body_conformant:
       # fix the body with `gh pr edit` and submit again. A local run never
@@ -3371,7 +3372,8 @@ hosted CI is the build of record for this change.
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
 pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`, which
 reads the body from GitHub and holds the state until it says local verification
-did not run, carries the reason verbatim, and says hosted CI is the build of
+did not run, has the line `Reason: <reason>` exactly and whole (the reason
+anywhere else in the body doesn't count), and says hosted CI is the build of
 record. Fix the body with `gh pr edit` and submit `pr_status: created` again.
 On a run that didn't defer the gate passes without running anything.
 
