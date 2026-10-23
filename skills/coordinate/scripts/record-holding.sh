@@ -15,7 +15,8 @@
 #        --skip-session-checks]                             (tests)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests only.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests only.
 #
 # Every mode reads the live body (gh issue view / gh pr view) and parses it
 # canonically. --read prints the row whose Worker equals T as one compact JSON

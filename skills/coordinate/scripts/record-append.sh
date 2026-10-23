@@ -6,13 +6,14 @@
 # The record's body holds its state and is rewritten whole by the write core;
 # its entries, the dated account of what happened, are comments on the same
 # container (the issue at roadmap scope, the rotation's pull request at
-# discipline scope). An entry is never edited by this script and never grows,
-# so the record needs no archive.
+# discipline scope on GitHub). An entry is never edited by this script and
+# never grows, so the record needs no archive.
 #
-# On the session store (roadmap scope; docs/designs/DESIGN-coordinator-session-record.md,
-# Decision 5) each entry is instead the key record/entries/<n> in the
-# coordinator's session, <n> a six-digit sequence one above the highest key
-# there, holding {n, stamp, kind, text}. A number another writer took moves to
+# On the session store (a roadmap record, or a discipline rotation with no
+# pull request; docs/designs/DESIGN-coordinator-session-record.md, Decision 5)
+# each entry is instead the key record/entries/<n> in the coordinator's
+# session, <n> a six-digit sequence one above the highest key there, holding
+# {n, stamp, kind, text}. A number another writer took moves to
 # the next, at most three times (entry-exists, exit 65, after that). The outward
 # kinds (cost, milestone-verdict, goal-fit, milestone-failure), which readers
 # outside the coordinator read from GitHub, are then also posted as the comment

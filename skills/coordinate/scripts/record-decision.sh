@@ -13,7 +13,8 @@
 #   ... [--scope roadmap|discipline --name N --repo O/R --ref N]   (tests; reads only)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests of the read modes.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests of the read modes.
 #
 # The write modes, each bound to the state the session is in (coord-log.sh
 # current) and, where it has one, to the entry the workflow routed:

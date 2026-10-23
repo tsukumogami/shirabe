@@ -11,13 +11,16 @@
 #
 # A record on the session store lives in a run's session on this host
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12), so
-# at roadmap scope a start first asks record-source.sh --candidate about this
-# host's runs of the scope that hold a record, against the shipped template's
-# hash. The newest, live, the scope's only live run, compiled from that hash,
-# passing provenance, sealed to the session store and with no directed
-# transition, is resumed: no session opens and none is cancelled, the run keeps
-# its stamp, and the output is `resumed=1` then `session=<it>` (settings given
-# with the invocation aren't applied to it). One that fails any of those is
+# a start first asks record-source.sh --candidate about this host's runs of the
+# scope that hold a record, against the shipped template's hash. At discipline
+# scope the candidate is only a rotation still open by the window rule (today
+# on or before its end date, no reasoning written); after it ends the start
+# opens a new run, which carries the rotation as its predecessor. The newest,
+# live, the scope's only live run, compiled from that hash, passing provenance,
+# sealed to the session store and with no directed transition, is resumed: no
+# session opens and none is cancelled, the run keeps its stamp, and the output
+# is `resumed=1` then `session=<it>` (settings given with the invocation aren't
+# applied to it). One that fails any of those is
 # carried: a new run opens and the live runs are cancelled as above, and then
 # every record/ and legs/ key of the old run is copied into the new one through
 # the write core (core_carry), printing `carried=<old>`. The old run's log

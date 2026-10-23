@@ -20,7 +20,8 @@
 #        --skip-session-checks]                                  (tests)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests only.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests only.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
 # number), coordinator (the address messages to this coordinator reach: a

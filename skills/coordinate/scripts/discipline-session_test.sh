@@ -253,6 +253,18 @@ S2=coordinate-discipline-bridge-20261012T100000Z
 ended "$S"
 koto context add "$S" record/reasoning < <(printf '"done"')
 eq "the next rotation carries the session, not the file again" "predecessor $S" "$(run_find "$S2" bridge)"
+# A committed handoff file outlives the rotation that carried it. A decision it
+# holds unsettled may have settled since, so a later rotation's record lacks it;
+# decision-next's handoff carry is GitHub's and must not bring it back.
+STALE=$(empty_record carry | jq -c --argjson o "$(printf '%s' "$DEC_OPEN" | jq -c '.decision = "2"')" 'del(.written)
+    | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/76"}
+    | .reasoning = "The cache pin waits on a person." | .decisions = {next: 3, entries: [$o]}')
+printf '%s' "$STALE" | bash "$HERE/record-render.sh" --format handoff > "$T/stale.md"
+db '.files["acme/widgets"]["main:docs/disciplines/carry.md"] = $t' --rawfile t "$T/stale.md"
+S=coordinate-discipline-carry-20261008T100000Z
+OUT=$(bash "$HERE/decision-next.sh" --session "$S" --owed dispatch 2> "$T/err"); rc=$?
+case "$OUT" in carry*) bad "a stale committed handoff is no carry for a session rotation" "$rc $OUT $(cat "$T/err")" ;;
+    *) eq "a stale committed handoff is no carry for a session rotation" 0 "$rc" ;; esac
 
 echo "== the handover gate: carry-unacknowledged =="
 S=coordinate-discipline-carry-20261008T100000Z

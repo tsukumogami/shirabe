@@ -10,7 +10,8 @@
 #      find reaches reconcile;
 #   2. a start inside the open rotation is a restart: a live run on the
 #      shipped template is resumed (resumed=1, nothing opened or cancelled);
-#      one that can't be resumed (a directed transition) is carried whole into
+#      one that can't be resumed (here, a second live run of the discipline,
+#      so the rotation's run isn't the only live one) is carried whole into
 #      a new run, the live run cancelled, the same rotation and no second one;
 #   3. a start on the rotation's end date is still a restart;
 #   4. a start on the day after the end date opens the next rotation through
