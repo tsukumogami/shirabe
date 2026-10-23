@@ -65,8 +65,9 @@ coordinator told to remove workers in the same pass as their merge does it
 with `niwa destroy` directly. None of those reaches step 4a. Of what does
 survive a removal, niwa's own documentation and source settle the parts this
 design leans on: `niwa destroy` removes the instance directory, `claude rm`
-removes `~/.claude/jobs/<id>/` but keeps the transcripts under
-`~/.claude/projects/`, and niwa touches nothing under `~/.koto`, so the unit's
+removes the job's entry under Claude Code's `jobs/` directory but keeps the
+transcripts under its `projects/` directory, and niwa touches nothing in koto's
+session or request stores, so the unit's
 koto sessions and its koto request are still on the host.
 
 niwa (since #408 in that repository) runs a workspace-declared

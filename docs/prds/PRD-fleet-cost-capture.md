@@ -457,8 +457,8 @@ Each criterion names the requirements it verifies. Suites run with stubbed
 - Capture after a removal depends on the workspace's on-reap command running
   this step. A workspace that doesn't declare it gets today's behaviour: entries
   only from the pass.
-- A removal capture reads transcripts from `~/.claude/projects/`, which Claude
-  Code may prune on its own schedule; a unit whose transcripts are gone gets its
+- A removal capture reads transcripts from Claude Code's `projects/` directory,
+  which Claude Code may prune on its own schedule; a unit whose transcripts are gone gets its
   token figures `not recoverable`.
 - koto keeps a worker's sessions while any session in its dispatch hierarchy is
   alive and for a retention period after; a removal captured after that loses
