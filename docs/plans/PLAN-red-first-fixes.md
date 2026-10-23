@@ -30,7 +30,7 @@ run determines it is a fix at `fix_determination`, records a red on the base
 code at `reproduce`, implements, and is counted at `pass_counting` only with a
 green at its head. Steps 2 and 3 hold a pass that came with an edited test
 (accepted by a seat the run mints; then a person where the repository
-requires one, overruling and the pull request record). Step 4 makes review
+requires one, overruling and the record read back from the session). Step 4 makes review
 tell an edited test from an added one. Steps 3 and 4 are detailed after the
 step before them reaches its terminal.
 
@@ -83,9 +83,9 @@ step before them reaches its terminal.
 
 **Files**: `scripts/lib/acceptance-rule.sh`, `scripts/lib/acceptance-rule_test.sh`, `skills/work-on/scripts/test-change.sh`, `skills/work-on/scripts/test-change_test.sh`, `skills/work-on/scripts/test-change-routes_test.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/koto-templates/work-on.mermaid.md`, `skills/work-on/SKILL.md`, `skills/work-on/scripts/red-first.sh`, `skills/work-on/scripts/red-first_test.sh`, `skills/work-on/scripts/retry-clearing_test.sh`, `skills/work-on/references/red-first.md`, `skills/work-on/references/phases/phase-4-implementation.md`, `skills/work-on/references/review-level-rules.tsv`, `skills/work-on/scripts/review-level.sh`, `skills/work-on/scripts/review-level_test.sh`, `skills/work-on/evals/evals.json`, `references/rule-registry.json`, `scripts/bash-floor/work-on.list`, `.github/workflows/check-work-on-scripts.yml`
 
-### Step 3: a person-required repository waits for a person, a higher authority can overrule, and the pull request carries the record
+### Step 3: a person-required repository waits for a person, a higher authority can overrule, and the record reads back from the session
 
-**Goal**: A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` holds the run at `pass_counting` until a person accepts at a terminal; a higher authority overrules an acceptance before or after the run finished; a test edit made while fixing CI is held at `ci_pass_counting`; and the pull request body carries the rendered record, checked at `pr_precheck`.
+**Goal**: A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` holds the run at `pass_counting` until a person accepts at a terminal; a higher authority overrules an acceptance before or after the run finished; a test edit made while fixing CI is held at `ci_pass_counting`; and who accepted, under what authority, reads back from the run's session through `test-change.sh record`, with nothing written to the pull request.
 
 **Acceptance Criteria**:
 
@@ -95,21 +95,21 @@ step before them reaches its terminal.
 - [ ] A `person:` accept run in a terminal (in tests, under a pseudo-terminal) prints the edited hunks and a code, and exits 0 only when that code is typed back; the record then shows the unit counted with `person:<name>` at `owner`, and a person line whose integrity tag doesn't check never counts.
 - [ ] An overrule by an authority strictly higher than the acceptance's (`agent:<existing session>` at `coordinator` over a `reviewer` acceptance) makes `status` exit 1 with reason `overruled`; an overrule at the same authority exits 1 with rule `not-higher`; an agent at `coordinator` naming no existing koto session exits 1 with rule `unknown-session`, and the live fold re-checks that session rather than trusting the stored line.
 - [ ] After an overrule, a new acceptance below the overruling's authority leaves the unit held, and one at or above it counts it again.
-- [ ] An overrule against a run that already reached `done` is recorded in its retained session and rewrites that run's section of the pull request body.
+- [ ] An overrule against a run that already reached `done` is recorded in its retained session, and `test-change.sh record` then shows the unit held as `overruled`.
 - [ ] `test-change.sh record` prints the fix source, the red and green (or observations), each test file as added or edited, and every acceptance, decline, refusal and overruling with the unit's state; it works while held and after the run finished.
-- [ ] `test-change.sh render` writes a section between `<!-- shirabe-test-change:<session>:start -->` and its end marker showing the output only as the lines around the marker, with home paths and token shapes redacted, free text flattened, and comment markers neutralised; a passage from a private repository's issue under a public pull request is omitted with the marker and output lines.
-- [ ] `pr_precheck` re-runs `status` and holds when it no longer exits 0, and `check-pr-output.sh` refuses a body whose section is missing or differs from `render`.
+- [ ] Nothing this feature adds writes to a pull request: no acceptance, refusal, overruling, ledger line or seat identity appears in a pull request body or comment, and the step adds no `gh pr edit` or `gh pr comment` call.
+- [ ] `pr_precheck` re-runs `status` and holds when it no longer exits 0, so a commit after counting that changes an accepted file is held again before the pull request is opened.
 - [ ] A commit that edits a test while fixing CI on the open pull request reaches `ci_pass_counting` when CI passes and is held there until accepted, then goes on to `cascade_entry` or `done`.
 
-**Check**: Run `bash skills/work-on/scripts/test-change-routes_test.sh` and see it pass its person-required, overrule and `ci_pass_counting` cases: the agent's accept refused with `person-required`, a pseudo-terminal person accept counting the unit at `owner`, a `coordinator` overrule holding it as `overruled`, a same-authority overrule refused `not-higher`, and a CI-fix test edit held at `ci_pass_counting`. Then run `bash skills/work-on/scripts/test-change_test.sh`, `bash scripts/lib/acceptance-rule_test.sh` and `bash skills/work-on/scripts/check-pr-output_test.sh` and see each exit 0.
+**Check**: Run `bash skills/work-on/scripts/test-change-routes_test.sh` and see it pass its person-required, overrule and `ci_pass_counting` cases: the agent's accept refused with `person-required`, a pseudo-terminal person accept counting the unit at `owner`, a `coordinator` overrule holding it as `overruled`, a same-authority overrule refused `not-higher`, and a CI-fix test edit held at `ci_pass_counting`. Then run `bash skills/work-on/scripts/test-change_test.sh` and `bash scripts/lib/acceptance-rule_test.sh` and see each exit 0, including the case where a recorded coordinator acceptance names a session that has since been cleaned up and no longer counts.
 
 **Dependencies**: Step 2
 
-**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/koto-templates/work-on.mermaid.md`, `skills/work-on/SKILL.md`, `skills/work-on/scripts/test-change.sh`, `skills/work-on/scripts/test-change_test.sh`, `skills/work-on/scripts/test-change-routes_test.sh`, `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-pr-output_test.sh`, `skills/work-on/scripts/ci-monitor-role_test.sh`, `skills/work-on/scripts/cascade-chaining_test.sh`, `skills/work-on/scripts/leg-result_test.sh`, `skills/work-on/references/red-first.md`, `skills/work-on/references/phases/phase-5-finalization.md`, `skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/evals/evals.json`, `scripts/lib/acceptance-rule.sh`, `scripts/lib/acceptance-rule_test.sh`, `scripts/lib/claude-md-header.sh`, `references/fixes/claude-md-conventions.md`, `references/rule-registry.json`
+**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/koto-templates/work-on.mermaid.md`, `skills/work-on/SKILL.md`, `skills/work-on/scripts/test-change.sh`, `skills/work-on/scripts/test-change_test.sh`, `skills/work-on/scripts/test-change-routes_test.sh`, `skills/work-on/scripts/ci-monitor-role_test.sh`, `skills/work-on/scripts/cascade-chaining_test.sh`, `skills/work-on/scripts/leg-result_test.sh`, `skills/work-on/references/red-first.md`, `skills/work-on/evals/evals.json`, `scripts/lib/acceptance-rule.sh`, `scripts/lib/acceptance-rule_test.sh`, `scripts/lib/claude-md-header.sh`, `references/fixes/claude-md-conventions.md`, `references/rule-registry.json`
 
 ### Step 4: review floors an edited test at full and every seat judges it
 
-A change with an edited test floors at full, its packet lists edited and added tests apart with the edited hunks, every seat's verdict says corrects or weakens for each edited test, and the guidance stops offering a free test edit.
+A change with an edited test floors at full, the review packet the seats read lists edited and added tests apart with the edited hunks (nothing added to the pull request), every seat's verdict says corrects or weakens for each edited test, and the guidance stops offering a free test edit.
 
 ## Implementation Sequence
 

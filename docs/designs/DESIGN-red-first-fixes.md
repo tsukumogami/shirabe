@@ -39,6 +39,14 @@ decision_provenance: inline-resolved
 
 Planned
 
+Amended 2026-10-23: pull requests carry no workflow-tool record. Everything
+below that writes to a pull request is withdrawn: `test-change.sh render` and
+`render --update`, the pull request section and its markers, the
+`check-pr-output.sh` section check, and an overrule re-rendering a section.
+Acceptances, refusals and overrulings live in the run's session ledger only and
+are read back with `test-change.sh record`; the walkthroughs' pull request
+checks become `record` checks. `pr_precheck` still re-runs `status`.
+
 ## Context and Problem Statement
 
 `/work-on` drives one unit of work (an issue, a free-text task, or a plan

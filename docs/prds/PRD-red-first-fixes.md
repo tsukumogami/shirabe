@@ -25,6 +25,12 @@ upstream: docs/briefs/BRIEF-red-first-fixes.md
 
 In Progress
 
+Amended 2026-10-23: pull requests carry no workflow-tool record. R19's pull
+request section and the criteria that check it are withdrawn; the record lives
+in the run's retained session only, and R18's record command is how anyone
+reads who accepted and under what authority. Review's edited-versus-added
+distinction (R20) stays in the review packet the seats read.
+
 ## Problem Statement
 
 A green check is how anyone other than the author learns that a behaviour
