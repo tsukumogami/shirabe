@@ -52,12 +52,18 @@
 #       PATH).
 #   ac_removals_dir [--create]
 #       AC_R is R; 0 when ac_dir_private passes on it. With --create a
-#       missing R is made first (mode 0700 under the caller's umask).
+#       missing R is made first, and set to mode 0700 whatever the umask.
 #   ac_removal_for_path <instance path>
 #       AC_REMOVAL_ID is the dispatch id of the removal record (R/<id>.json,
 #       schema unit-removal/1, the id in the reap-key shape) whose
 #       instance_path is the given path; the latest removed_at when several
 #       are. 1 when R or such a record is missing.
+#   ac_lock <lock dir> <max age secs> <wait secs>, ac_unlock <lock dir>
+#       A lock that is a directory made with mkdir and holding `owner`
+#       (`<pid> <epoch secs>`): waited for while a live holder younger than
+#       <max age> keeps it, taken over from a holder that is gone or older;
+#       released only by the process that holds it. The capture's list and
+#       post run under R/.post-lock.
 #
 # The dispatch request:
 #   ac_dispatch_request <session dir>...
@@ -273,7 +279,9 @@ ac_removals_dir() {
     AC_R="${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals"
     if [ ! -e "$AC_R" ] && [ ! -L "$AC_R" ]; then
         [ "${1:-}" = --create ] || { AC_WHY="there is no removals directory"; return 1; }
-        mkdir -p -- "$AC_R" 2>/dev/null || { AC_WHY="cannot create the removals directory $AC_R"; return 1; }
+        # AC_R is always absolute, so no `--` is needed (BSD chmod takes none).
+        mkdir -p -- "$AC_R" 2>/dev/null && chmod 700 "$AC_R" 2>/dev/null \
+            || { AC_WHY="cannot create the removals directory $AC_R"; return 1; }
     fi
     ac_dir_private "$AC_R"
 }
@@ -294,6 +302,50 @@ ac_removal_for_path() {
     # input it can't parse; a failure still leaves the id empty.
     AC_REMOVAL_ID=$(jq -s -r 'sort_by(.at) | last | .d // empty' <<<"$rows") || AC_REMOVAL_ID=""
     [ -n "$AC_REMOVAL_ID" ] || { AC_WHY="no removal record names the instance path"; return 1; }
+}
+
+# ac_lock <lock dir> <max age secs> <wait secs>: take a lock that is a
+# directory holding `owner` (`<pid> <epoch secs>`), made with mkdir, which is
+# atomic. One held by a live process younger than <max age> is waited for, one
+# second at a time, for at most <wait> seconds. One whose holder is gone, or
+# that is older, is taken over: renamed aside, its owner read again from the
+# renamed copy, and removed only when that is still the owner judged stale (a
+# copy that changed, because another process took the lock meanwhile, is moved
+# back). Returns 0 holding the lock, 1 when it is still held at the end of the
+# wait (AC_WHY says so).
+ac_lock() {
+    local d=$1 max=$2 wait=$3 own pid at now waited=0 side
+    while :; do
+        if mkdir -- "$d" 2>/dev/null; then
+            printf '%s %s\n' "$$" "$(date +%s)" >"$d/owner" || { rm -rf -- "$d"; AC_WHY="cannot write $d/owner"; return 1; }
+            return 0
+        fi
+        own=$(cat -- "$d/owner" 2>&1) || own=""
+        pid=${own%% *} at=${own##* }
+        now=$(date +%s)
+        case "$pid$at" in '' | *[!0-9]*) pid="" at=0 ;; esac
+        if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null || [ $((now - at)) -gt "$max" ]; then
+            side="$d.stale.$$"
+            if mv -- "$d" "$side" 2>/dev/null; then
+                if [ "$(cat -- "$side/owner" 2>&1)" = "$own" ]; then
+                    rm -rf -- "$side"
+                else
+                    mv -- "$side" "$d" 2>/dev/null || rm -rf -- "$side"
+                fi
+            fi
+            continue
+        fi
+        [ "$waited" -lt "$wait" ] || { AC_WHY="$d is held by process $pid"; return 1; }
+        sleep 1
+        waited=$((waited + 1))
+    done
+}
+
+# ac_unlock <lock dir>: release a lock this process holds; one another process
+# holds is left alone.
+ac_unlock() {
+    case "$(cat -- "$1/owner" 2>&1)" in "$$ "*) rm -rf -- "$1" ;; esac
+    return 0
 }
 
 # ---------------------------------------------------------------------------

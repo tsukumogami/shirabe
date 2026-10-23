@@ -583,16 +583,60 @@ POSTED=$((POSTED + 1))
 capture; eq "a second capture of the same unit exits 0" 0 $?
 eq "  ... having posted nothing" 1 "$(cost_bodies | jq length)"
 eq "  ... and says so" "unit-cost: the record already holds this unit's cost entry" "$(tail -n 1 "$T/cap.err")"
+# The same unit archived on another day: another key, the same dispatch id.
 mkdir -p "$T/b"; rm -rf "$T/b/2026-10-02-feat-x-0a1b2c3d"; cp -R "$A" "$T/b/2026-10-02-feat-x-0a1b2c3d"
 bash "$UC" capture --session "$S" --archive "$T/b/2026-10-02-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
-eq "a record holding a cost entry for another key still gets this one" "0 2" "$? $(cost_bodies | jq length)"
+eq "another key with the same dispatch id posts nothing" "0 1" "$? $(cost_bodies | jq length)"
+eq "  ... and says the record already holds the unit's entry" "unit-cost: the record already holds this unit's cost entry" "$(tail -n 1 "$T/cap.err")"
+# With no dispatch id on either side, another key is another unit.
+NOID="$T/b/2026-10-03-feat-x-0a1b2c3d"
+rm -rf "$NOID"; cp -R "$A" "$NOID"
+jq -c '.niwa = {dispatch_id: null, reason: "no source"}' "$NOID/teardown.json" >"$T/td" && cp "$T/td" "$NOID/teardown.json"
+bash "$UC" capture --session "$S" --archive "$NOID" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
+eq "a capture with no dispatch id and another key still gets its entry" "0 2" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
+bash "$UC" capture --session "$S" --archive "$NOID" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
+eq "  ... and the same key with no dispatch id is still one entry" "0 2" "$? $(cost_bodies | jq length)"
 db '.fail = [{match: "issues/7/comments?per_page", rc: 1, stderr: "HTTP 502"}]'
 capture; eq "a failed list posts anyway" "0 3" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
 db '.fail = []'
 eq "  ... a second entry for the key, which readers report as a repeat" 2 \
     "$(cost_bodies | jq --arg k "$KEY" '[.[] | split("\n") | .[6] | fromjson | select(.key == $k)] | length')"
+
+echo "== the post lock =="
+# The list and the post run under .post-lock in the removals directory (under
+# HOME here, XDG_STATE_HOME being unset). Two captures of one unit with the
+# same dispatch id and different keys, started together, leave one entry.
+PL="$HOME/.local/state/shirabe/removals/.post-lock"
+seed; fresh; prs "acme/widgets#21 $MERGE"
+rm -rf "$T/c"; mkdir -p "$T/c"; cp -R "$A" "$T/c/2026-10-04-feat-x-0a1b2c3d"
+bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap1.err" &
+P1=$!
+bash "$UC" capture --session "$S" --archive "$T/c/2026-10-04-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/cap2.err" &
+P2=$!
+wait "$P1"; wait "$P2"
+POSTED=$((POSTED + 1))
+eq "two captures of one unit started together leave one entry" 1 "$(cost_bodies | jq length)"
+eq "  ... the lock is released after them" no "$([ -e "$PL" ] && echo yes || echo no)"
+# A lock left by a process that is gone is taken over.
+seed; fresh
+mkdir -p "$PL"; printf '%s %s\n' 999999 "$(date +%s)" >"$PL/owner"
+capture; eq "a lock whose holder is gone is taken over, and the capture posts" "0 1" "$? $(cost_bodies | jq length)"
+POSTED=$((POSTED + 1))
+# A lock a live process holds is waited for inside the list and post bounds,
+# then the capture lists and posts without it, saying so.
+seed; fresh
+sleep 30 &
+LIVE=$!
+mkdir -p "$PL"; printf '%s %s\n' "$LIVE" "$(date +%s)" >"$PL/owner"
+UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=10 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
+eq "a lock a live process holds is waited out, then the capture posts without it" "0 1" "$? $(cost_bodies | jq length)"
+POSTED=$((POSTED + 1))
+case "$(cat "$T/cap.err")" in *"the post lock is held"*) ok "  ... saying so" ;; *) bad "  ... saying so" "$(cat "$T/cap.err")" ;; esac
+eq "  ... and leaves the live process's lock in place" "$LIVE" "$(cut -d' ' -f1 "$PL/owner")"
+kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
+rm -rf "$PL"
 
 echo "== partial entries =="
 seed; fresh; prs "acme/widgets#21 $MERGE"

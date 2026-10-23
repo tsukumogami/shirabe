@@ -341,7 +341,9 @@ KEY=${ARCH##*/}
     || { say "the archive's name is not a capture key for the topic"; exit 65; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/unit-cost.XXXXXX") || exit 1
-trap 'rm -rf "$WD"' EXIT
+# UC_LOCK is the post lock once this capture holds it; leaving releases it.
+UC_LOCK=""
+trap 'rm -rf "$WD"; [ -z "$UC_LOCK" ] || ac_unlock "$UC_LOCK"' EXIT
 WD=$(cd "$WD" && pwd -P) || exit 1
 cp "$PRS_FILE" "$WD/prs" 2>/dev/null || { say "the pull request file can't be read"; exit 64; }
 [ -z "$UNIT_JSON" ] || cp "$UNIT_JSON" "$WD/unit.json" 2>/dev/null || { say "the unit file can't be read"; exit 64; }
@@ -1344,16 +1346,32 @@ else
     say "the archive copy could not be written"
 fi
 
-# One entry per key: a `cost` entry already carrying it ends the capture.
-# The list is a read, so its bound comes out of the budget too: every read
-# together stays inside UNIT_COST_BUDGET_SECS (90), and the post's own bound
-# (25) on top keeps the whole capture inside the pass's 120.
+# One entry per unit: a `cost` entry already carrying this capture's key, or
+# its dispatch id when it has one, ends the capture. The list and the post run
+# under one lock in the removals directory, the one the sweep's captures take
+# too, so two captures of one unit that overlap leave one entry; a lock held
+# by a live capture is waited for inside the list and post bounds, and a
+# removals directory that can't be used leaves only the list check. The list
+# is a read, so its bound comes out of the budget too: every read together
+# stays inside UNIT_COST_BUDGET_SECS (90), and the post's own bound (25) on top
+# keeps the whole capture inside the pass's 120.
+if ac_removals_dir --create; then
+    if ac_lock "$AC_R/.post-lock" 60 $((LIST_SECS + POST_SECS)); then
+        UC_LOCK="$AC_R/.post-lock"
+    else
+        say "the post lock is held ($AC_WHY); listing and posting without it"
+    fi
+else
+    say "no post lock ($AC_WHY); listing and posting without it"
+fi
+DID=$(uc_jq -r '."niwa.dispatch.id" // "" | strings' "$WD/entry.json") || DID=""
 B=$(uc_bound "$LIST_SECS")
 if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/record-append.sh" --session "$SESSION" --list; then
-    if uc_jq -e --arg k "$KEY" '
+    if uc_jq -e --arg k "$KEY" --arg d "$DID" '
         [.[] | select(.kind == "cost") | (.text // "" | if type == "string" then . else "" end)
          | (capture("```json\n(?<j>[^\n]*)\n```") // empty) | .j | (try fromjson catch null)
-         | select(type == "object") | .key] | index([$k]) != null' "$WD/entries.json" >/dev/null; then
+         | select(type == "object")]
+        | any(.key == $k or ($d != "" and ."niwa.dispatch.id" == $d))' "$WD/entries.json" >/dev/null; then
         say "the record already holds this unit's cost entry"
         exit 0
     fi
