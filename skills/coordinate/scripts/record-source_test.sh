@@ -21,11 +21,19 @@
 #      entry; `--store` and a store row are refused at discipline scope;
 #   4. coord/source.json: record-find.sh writes the run's store with the probe's
 #      reading, and an invocation's --store is reported ignored when a record
-#      exists;
+#      exists; with the opener's session-store default (STORE=session) a GitHub
+#      record with no store row is still found on GitHub, and an unauthorized or
+#      malformed candidate stops with its refusal and opens no session record;
+#      the opener refuses an unknown --store as usage (64), naming it;
 #   5. the pinned interface outside readers use: on a record on the GitHub
 #      store, `record-append.sh --session S --kind cost --text-file F` posts the
 #      entry as a comment with its marker, and `--session S --list` reads it
-#      back, with the same flags, output shape and exit codes as before.
+#      back, with the same flags, output shape and exit codes as before;
+#   6. the session store's read: the same state and body as GitHub's, a
+#      pending, absent or other-scope record refused, and --show;
+#   7. one read per step (rs_once_begin): reads inside the shared read's fields
+#      take it, and one asking for a field outside them is made live; and
+#      reconcile-read.sh's read of a session-store record parses its body once.
 #
 # Usage: bash skills/coordinate/scripts/record-source_test.sh
 set -uo pipefail
@@ -224,15 +232,19 @@ bash "$HERE/record-state.sh" --scope discipline --name ci-health --repo "$REPO" 
 eq "  ... store session too" 65 $?
 grep -q 'store-discipline' "$T/err" && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$T/err")"
 
-# The opener: a discipline --store is refused before any koto call; --store
-# session reaches koto.
+# The opener: at discipline scope --store decides nothing, so it isn't
+# refused; --store session reaches koto.
 open_with() { printf '%s' "$1" > "$T/args.json"; ( cd "$T" && bash "$HERE/coordinate-open.sh" --plugin-root "$PLUGIN_ROOT_REAL" "$T/args.json" ); }
-: > "$KOTO_STORE/calls"
-OUT=$(open_with '["--discipline", "ci-health", "--host", "acme/widgets", "--store", "github"]' 2>"$T/err"); rc=$?
-eq "--store at discipline scope is refused" "2 refused=store-discipline" "$rc $OUT"
-grep -q '^init' "$KOTO_STORE/calls" && bad "  ... and no session is opened" "$(cat "$KOTO_STORE/calls")" || ok "  ... and no session is opened"
+OUT=$(open_with '["--discipline", "ci-health", "--host", "acme/widgets", "--store", "github"]' 2>"$T/err")
+case "$OUT" in *refused=store*) bad "--store at discipline scope isn't refused by the opener" "$OUT" ;; *) ok "--store at discipline scope isn't refused by the opener" ;; esac
 OUT=$(open_with '["docs/roadmaps/ROADMAP-plugin-system.md", "--store", "session"]' 2>"$T/err")
 case "$OUT" in *refused=store*) bad "--store session at roadmap scope isn't refused by the opener" "$OUT" ;; *) ok "--store session at roadmap scope isn't refused by the opener" ;; esac
+# A store that is neither is usage (64), named, before any koto call.
+: > "$KOTO_STORE/calls"
+OUT=$(open_with '["docs/roadmaps/ROADMAP-plugin-system.md", "--store", "bogus"]' 2>"$T/err"); rc=$?
+eq "an unknown --store exits 64" 64 "$rc"
+grep -q 'not "bogus"' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
+grep -q '^init' "$KOTO_STORE/calls" && bad "  ... before any session opens" "$(cat "$KOTO_STORE/calls")" || ok "  ... before any session opens"
 
 # ---- 4. coord/source.json -----------------------------------------------------------
 
@@ -255,6 +267,34 @@ src_reason=$(printf '%s' "$SRC" | jq -r .reason)
 grep -q 'is ignored: the record decides' <<<"$src_reason" \
     && ok "  ... and reports the invocation's --store ignored" || bad "  ... and reports the invocation's --store ignored" "$SRC"
 eq "rs_source reads it" github "$(bash "$RS" --session "$S" --source 2>/dev/null)"
+# The opener's default for a new roadmap scope (STORE=session) decides nothing
+# once a record exists: a GitHub record with no store row stays on GitHub, and a
+# candidate the find rejects stops with today's refusal and opens nothing here.
+default_run() { # default_run <session>: a run of the scope with STORE=session at record_find
+    log_new "$1" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "session"}')"
+    log_to "$1" start_posture record_find 2026-09-26T08:01:00.000Z
+}
+SD=coordinate-roadmap-plugin-system-20260926T081000Z; default_run "$SD"
+DOUT=$(bash "$HERE/record-find.sh" --session "$SD" 2>"$T/err")
+eq "with the session-store default, a GitHub record with no store row is found" "found 7" "$(printf '%s' "$DOUT" | cut -d' ' -f1-2)"
+eq "  ... and stays on the GitHub store" "github|github" \
+    "$(jq -r .source "$KOTO_STORE/context/$SD/coord/source.json")|$(bash "$RS" --session "$SD" --source 2>/dev/null)"
+db_init
+db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "bob", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/gh.md")"
+SD=coordinate-roadmap-plugin-system-20260926T082000Z; default_run "$SD"
+DOUT=$(bash "$HERE/record-find.sh" --session "$SD" 2>"$T/err")
+eq "with the session-store default, a record by an author without write access is unauthorized" "unauthorized 7" "$(printf '%s' "$DOUT" | cut -d' ' -f1-2)"
+[ -e "$KOTO_STORE/context/$SD/record/meta" ] && bad "  ... and no session record opens" "$(ls "$KOTO_STORE/context/$SD")" || ok "  ... and no session record opens"
+db_init
+awk '$0 == "## Reversals" { skip = 1; next } skip && /^## / { skip = 0 } !skip' "$T/gh.md" > "$T/gh-bad.md"
+db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/gh-bad.md")"
+SD=coordinate-roadmap-plugin-system-20260926T083000Z; default_run "$SD"
+DOUT=$(bash "$HERE/record-find.sh" --session "$SD" 2>"$T/err")
+eq "with the session-store default, a record that isn't canonical is malformed" "malformed 7" "$(printf '%s' "$DOUT" | cut -d' ' -f1-2)"
+[ -e "$KOTO_STORE/context/$SD/record/meta" ] && bad "  ... and no session record opens" "$(ls "$KOTO_STORE/context/$SD")" || ok "  ... and no session record opens"
+# The record the cases below read.
+db_init
+db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/gh.md")"
 # shirabe#855: a help text longer than a pipe's buffer, naming --prefix on its
 # first line. A reader that stops at the match would leave koto writing into a
 # closed pipe, and under pipefail the probe would read the feature as missing.
@@ -287,7 +327,7 @@ log_new "$SN" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "session"}')"
 log_to "$SN" start_posture record_find 2026-09-26T06:01:00.000Z
 OUT=$(KOTO_FEATURES=1 bash "$HERE/record-find.sh" --session "$SN" 2>"$T/err")
 eq "a new scope with STORE=session goes on to record_open" none "$(printf '%s' "$OUT" | cut -d' ' -f1)"
-eq "  ... on the session store" "session|no record found: the invocation's store" "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SN/coord/source.json")"
+eq "  ... on the session store" "session|no record found: the run's store setting" "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SN/coord/source.json")"
 SN2=coordinate-roadmap-plugin-system-20260926T060100Z
 log_new "$SN2" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "session"}')"
 log_to "$SN2" start_posture record_find 2026-09-26T06:01:00.000Z
@@ -295,14 +335,16 @@ OUT=$(bash "$HERE/record-find.sh" --session "$SN2" 2>"$T/err")
 eq "  ... and without the features it stops" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
 jq -r .reason "$KOTO_STORE/context/$SN2/coord/record_find.json" | grep -q '^store-unsupported' \
     && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cat "$KOTO_STORE/context/$SN2/coord/record_find.json")"
-# The same at discipline scope, with any store.
+# At discipline scope the run's STORE decides nothing: with no rotation on
+# GitHub the find goes to the session store, so even STORE=github stops on the
+# missing features.
 SD=coordinate-discipline-ci-health-20260926T060000Z
 log_new "$SD" "$(discipline_vars ci-health | jq -c '. + {STORE: "github"}')"
 log_to "$SD" start_posture record_find 2026-09-26T06:01:00.000Z
 OUT=$(bash "$HERE/record-find.sh" --session "$SD" --today 2026-09-26 2>"$T/err")
-eq "a discipline run with a store is stopped at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
-jq -r .reason "$KOTO_STORE/context/$SD/coord/record_find.json" | grep -q '^store-discipline' \
-    && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$KOTO_STORE/context/$SD/coord/record_find.json")"
+eq "a discipline run with STORE=github still goes to the session store" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+jq -r .reason "$KOTO_STORE/context/$SD/coord/record_find.json" | grep -q '^store-unsupported' \
+    && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cat "$KOTO_STORE/context/$SD/coord/record_find.json")"
 
 # A candidate the find rejects is a record it didn't adopt, not a missing one:
 # coord/source.json says so, with the find's own verdict and reason.
@@ -393,7 +435,7 @@ log_new "$S0" "$(roadmap_vars plugin-system)"
 log_to "$S0" start_posture record_find 2026-09-26T03:01:00.000Z
 OUT=$(bash "$HERE/record-find.sh" --session "$S0" 2>"$T/err")
 eq "no candidate is none at the find" none "$(printf '%s' "$OUT" | cut -d' ' -f1)"
-eq "  ... and coord/source.json says no record was found" "github|no record found and no --store" \
+eq "  ... and coord/source.json says no record was found" "github|no record found and no store setting" \
     "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$S0/coord/source.json")"
 
 # ---- 5. the pinned interface outside readers use ----------------------------------
@@ -471,6 +513,40 @@ bash "$RS" --session "$SW" --show > "$T/show.md" 2>"$T/err"; eq "--show prints t
 eq "  ... a body that parses back to the session's state (R11)" "$(jq -cS . "$T/rec.json")" \
     "$(bash "$HERE/record-parse.sh" --container issue "$T/show.md" | jq -cS .)"
 grep -q 'host-only-marker' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
+
+echo "== 7. one read per step (rs_once_begin) =="
+# once_reads <dir>: three reads of #7 under one shared read kept in <dir>, in a
+# subshell: the body, a read asking for a field outside the shared read's
+# (author), and state with the body. Prints each one's return code.
+once_reads() {
+    [ $# -ge 1 ] || return 64
+    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO REF=7; . "$HERE/record-common.sh"; lib_facts
+      RS_SOURCE=github RS_RETRY_PAUSE=0
+      rs_once_begin "$1" || exit 2
+      rs_record "$1/a" body --json body --jq .body; printf 'a%s ' $?
+      rs_record "$1/b" json --json body,author; printf 'b%s ' $?
+      rs_record "$1/c" json --json state,body; printf 'c%s' $? )
+}
+reset_calls
+eq "reads inside the shared read's fields, and one outside them, all answer" "a0 b0 c0" "$(once_reads "$T/once")"
+eq "  ... from two reads of #7: the shared one, and the live one for the field it lacks" 2 "$(grep -c '^issue view 7 ' "$GH_DB.calls")"
+eq "  ... the live one with the field it asked for" alice "$(jq -r .author.login "$T/once/b.raw")"
+eq "  ... and the shared reads with the record's body" "$(cat "$T/g.md")" "$(cat "$T/once/c.md")"
+# The read reconcile-read.sh makes on the session store parses the body once:
+# the seam's view assembles and renders it, and reconcile-read.sh parses it
+# itself, where the seam used to parse it back first for nobody. Counted in a
+# copy of the scripts whose record-parse.sh logs each run.
+TR="$T/parse-tree/skills/coordinate/scripts"
+mkdir -p "$TR" "$T/parse-tree/skills/execute"
+cp "$HERE"/*.sh "$HERE"/*.jq "$TR/"
+cp -R "$HERE/../../execute/scripts" "$T/parse-tree/skills/execute/"
+mv "$TR/record-parse.sh" "$TR/record-parse.real"
+printf '#!/usr/bin/env bash\necho parse >> "%s"\nexec bash "%s" "$@"\n' "$T/parses" "$TR/record-parse.real" > "$TR/record-parse.sh"
+chmod +x "$TR/record-parse.sh"
+: > "$T/parses"
+bash "$TR/reconcile-read.sh" --session "$SW" > "$T/rr.json" 2> "$T/rr.err"
+eq "reconcile-read.sh reads a session-store record" "0 found" "$? $(jq -r .status "$T/rr.json" 2>/dev/null)"
+eq "  ... parsing its body once (the seam parsed it back first, a second time)" 1 "$(grep -c parse "$T/parses")"
 
 echo "== the resume decision (PRD R12) =="
 # rs_resume_candidate over this host's runs of one scope, on the koto stand-in:

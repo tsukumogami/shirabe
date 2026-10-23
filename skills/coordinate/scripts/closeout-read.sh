@@ -2,12 +2,15 @@
 # closeout-read.sh -- the check action of states rotation_close,
 # predecessor_close and roadmap_close: where does the close-out stand?
 #
-# Discipline scope. The pull request is the run's own record (coord-log.sh
-# run-facts) or, with --predecessor, the one the run's HANDOFF capture names
-# (`rendered <n>`, sealed at the latest entry into predecessor_handoff). It
-# reads the pull request's state, draft flag, title and head, and
-# docs/disciplines/<name>.md at that head and (own rotation) on the host's
-# default branch. The stage, first that applies:
+# Discipline scope. On GitHub the pull request is the run's own record
+# (coord-log.sh run-facts) or, with --predecessor, the one the run's HANDOFF
+# capture names (`rendered <n>`, sealed at the latest entry into
+# predecessor_handoff). It reads the pull request's state, draft flag, title
+# and head, and docs/disciplines/<name>.md at that head and (own rotation) on
+# the host's default branch. The stage, first that applies:
+#   session-rotation       (own rotation) the rotation is on the session store:
+#                          no pull request, nothing to commit; it ends at
+#                          rotation_end
 #   merged <pr>            the pull request merged
 #   closed-unmerged <pr>   it closed without merging
 #   handoff-missing <pr>   (open) the file at the head is absent, isn't a
@@ -215,6 +218,11 @@ if [ "$SCOPE" = roadmap ]; then
 fi
 
 # ---- discipline -------------------------------------------------------------
+# A rotation on the session store has no pull request to close: it ends at
+# rotation_end, by writing its reasoning for the next rotation.
+if [ "$PRED" = 0 ] && lib_session_rotation; then
+    REASON="a rotation on the session store ends at rotation_end"; finish session-rotation
+fi
 gh pr view "$REF" --repo "$REPO" --json number,state,isDraft,title,headRefOid,url > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
     || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
 PRSTATE=$(jq -r '.state // ""' "$T/pr.json")

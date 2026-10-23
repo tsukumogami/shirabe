@@ -603,12 +603,14 @@ leg, since one leg answers one session.
   shared decision rule replaces in that one file. Exit codes are in its header;
   `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
   `scripts/lib/acceptance-rule_test.sh` are its harnesses.
-- `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
+- `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
   maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live
   session's recorded `REVIEW_LEVEL` back, then makes one
   `koto init --attach-live --koto-leg` through the shared
-  `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
+  `scripts/koto-open.sh`; with `--dispatched-by` it then records the
+  dispatcher with `koto session link` (the script's header has the retry and
+  the `warning=link-failed` record). Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides

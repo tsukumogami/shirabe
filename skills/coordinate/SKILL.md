@@ -53,8 +53,8 @@ to advance it, what it never does, and how it ends.
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
-| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. `session` keeps the new record's state in the coordinator's session; roadmap scope only. |
-| `--import <session> --from <workspace path>` | Move a session-store run here from another host: koto imports the session from the bucket both hosts share, and the run continues as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, and no other setting. |
+| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `session`: the coordinator's session. `github` keeps the new record's state on GitHub instead; any other value is refused. A record that already exists decides for itself, and the flag is then reported ignored. At discipline scope it decides nothing: a new rotation runs on its session. |
+| `--import <session> --from <workspace path>` | Move a session-store run here from another host: koto imports the session from the bucket both hosts share, and the run continues as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
@@ -245,8 +245,12 @@ as a side effect in flight so pick never offers the feature again meanwhile.
 That write-back is a feature roadmap's; on a milestone roadmap a merge sets
 nothing, and a verdict does (see Verdicts).
 At roadmap scope the record is an issue in the roadmap's repository titled
-`Coordinator record: ROADMAP-<name>`, closed when the roadmap is done; at discipline scope it is a draft
-pull request per rotation, whose diff is the dated handoff file. The workflow
+`Coordinator record: ROADMAP-<name>`, closed when the roadmap is done; at discipline scope a
+rotation already on GitHub is a draft pull request, whose diff is the dated
+handoff file, until it ends, and a new rotation runs on the coordinator's
+session: no pull request, nothing committed, its window and the reasoning it
+leaves the next rotation in its session (`record/rotation`,
+`record/reasoning`), and the next rotation carries its state. The workflow
 finds it, checks it, and confirms every change you make to it on GitHub; you
 write it only through the scripts its states name. Its body, written by
 `record-render.sh`, starts with the declaration line (`> This is a
@@ -261,15 +265,21 @@ A record's store is where its state lives: `github`, the body above, or
 `session`, the coordinator's own koto session. A record with no `store` row in
 its Run section is on GitHub; only its owner moves it, by writing that row with
 `scripts/record-state.sh --run store <github|session> --by <person>`, and
-nothing else (no flag, no default, no upgrade) changes it. The find reads the
-row at every start and writes the run's store, why, and what its probe read of
-koto, to `coord/source.json`, so a successor never guesses.
+nothing else (no flag, no default, no upgrade) changes it. A new roadmap scope,
+one with no record yet, opens on the session store unless started with
+`--store github`. A discipline rotation's store isn't its owner's: one already
+on GitHub stays there, and a new one opens on the session store with its
+`store session` row. The find
+reads the row at every start and writes the run's store, why, and what its
+probe read of koto, to `coord/source.json`, so a successor never guesses.
 
-On the session store (roadmap scope) the state is one key per section in the
-run's own session, written by the same writers through the same write core and
-read through the same reader; the GitHub record stays open in the moved shape
-(a Run section holding only the `store session` row), and its outward entries
-(cost, verdicts, goal fit, failures) are still posted to it. A `session` row on
+On the session store the state is one key per section in the run's own
+session, written by the same writers through the same write core and read
+through the same reader. A roadmap record's GitHub issue stays open in the
+moved shape (a Run section holding only the `store session` row), and its
+outward entries (cost, verdicts, goal fit, failures) are still posted to it; a
+discipline rotation on the session store has no GitHub record, so each
+outward entry names the item it concerns (`--on`) or stays in the session. A `session` row on
 a record that still holds its tables is moved at the next start
 (`record_move`): its state copied into the run's session, a `moved` entry
 posted, and the body rewritten to the moved shape. A run whose session doesn't
@@ -302,12 +312,14 @@ which parse what they are about to adopt or write, and reconcile's reader, which
 salvages a body the seam handed it; a test holds every script to that list.
 
 The body is the record's state. Its account, what happened and why, goes in
-entries: each one comment on the same issue or pull request, written with
+entries: each one comment on the same issue or pull request (on the session
+store, a key in the session; see above), written with
 `scripts/record-append.sh`, which stamps it from the host clock. Never write an
 entry into the body, a table cell or a local file, and never post one by hand.
 
 A coordinator's state lives in two places: the koto session (its journal on
-this host between checkpoints) and the record on GitHub. Keep no tools
+this host between checkpoints) and the record (on GitHub, or in the session
+when it is on the session store). Keep no tools
 directory, no snapshot of the body, no standing answers or progress facts in a
 local file: what has to outlive this session goes in the record.
 
@@ -628,7 +640,8 @@ entry the workflow routed. The states and checks, all in the template:
   opens them as `proposed` entries in your own words. `decision_raise` opens one
   you need made, and is where `surface` sends a blocker that is a choice and
   `failure` sends an escalation. `decision_carry` copies the previous rotation's
-  unsettled entries before the first dispatch.
+  unsettled entries before the first dispatch (a rotation on GitHub; one on the
+  session store carried them when it opened).
 - **What is owed next.** `decision_next` checks the record and routes to the
   first thing owed, in a fixed order: a carry, a write that didn't land, a
   withdrawal, reply or redirect to send, the escalation to send, a proposed
@@ -721,8 +734,9 @@ handed-over unit, each escalation, each need `surface_check` accepts, and at
 the end of the scope or rotation. Lead
 with what changed and what you hold. Name what you verified and what you didn't,
 and grade every claim you pass on as measured, verified by reading, or inferred.
-Name the record in every report (a roadmap record's issue number, a rotation's
-pull request URL and host repository), so whoever starts the next coordinator
+Name the record in every report (a roadmap record's issue number; a rotation's
+pull request URL, or its session name on the session store, and its host
+repository), so whoever starts the next coordinator
 passes it on as a decision. What waits on the human is the table's "Blocked on
 you" rows, never a free-text section: an escalated decision entry, with its
 recommendation and reason, or a need of one of the fixed kinds. Per holding,
@@ -759,7 +773,7 @@ way.
 
 | Outcome | Meaning |
 |---------|---------|
-| `closed` | The roadmap is done and its record closed, or the rotation's record merged and its branch was deleted. |
+| `closed` | The roadmap is done and its record closed, or the rotation's record merged and its branch was deleted (a rotation on the session store: its reasoning written at `rotation_end`). |
 | `handed-over` | The last finishing step (the record's close or merge) is with the human. |
 | `stopped` | The human stopped the run, or the scope ended without a close-out. |
 | `not-active` | The roadmap is missing or not Active; nothing was dispatched. |

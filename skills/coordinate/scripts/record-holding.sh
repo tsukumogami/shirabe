@@ -15,7 +15,8 @@
 #        --skip-session-checks]                             (tests)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests only.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests only.
 #
 # Every mode reads the live body (gh issue view / gh pr view) and parses it
 # canonically. --read prints the row whose Worker equals T as one compact JSON
@@ -37,6 +38,9 @@
 # request's head as a report or a link last read it (PRD R17): 40 hex, never in
 # the body, so never on GitHub. --pushed-head sets it, or clears it with an
 # empty SHA, and changes nothing else; a row file may carry it as `pushed_head`.
+# --pushed-head reads no body: the body doesn't change, so record-write.sh
+# --pushed-head with no body rewrites only the session key that keeps the head
+# (shirabe#1094), and refuses it on a GitHub record or for a topic no holding has.
 # --read and --list print it on the session store. On a GitHub record either
 # is refused (65).
 #
@@ -98,7 +102,7 @@ esac
 if [ -n "$TOPIC" ] && ! [[ $TOPIC =~ $RE_TOPIC ]]; then usage; fi
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
@@ -108,7 +112,17 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
+
+if [ "$MODE" = pushed ]; then
+    set -- --pushed-head "$TOPIC" "$PUSHED"
+    [ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
+    if [ "$OVERRIDE" = 1 ]; then
+        set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
+        [ "$SKIP_CHECKS" = 1 ] && set -- "$@" --skip-session-checks
+    fi
+    exec bash "$HERE/record-write.sh" "$@"
+fi
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
@@ -139,11 +153,6 @@ list)
     jq -c -L "$HERE" --slurpfile p "$T/parsed.json.pushed" \
         'include "record-codec"; holdings_list | map(.worker as $w | if $p[0][$w] then . + {pushed_head: $p[0][$w]} else . end)' "$T/parsed.json"
     exit 0
-    ;;
-pushed)
-    jq -e --arg t "$TOPIC" 'any(.holdings[]; .worker == $t)' "$T/parsed.json" > /dev/null \
-        || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
-    jq 'del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     ;;
 strand|retire)
     ROW=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json")

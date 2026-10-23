@@ -24,7 +24,10 @@
 # A session-store record: the write lands in its keys, each refusal leaves them
 # as they were, and a worker shaped like a session id, a path or a job id, a
 # status column, a private repository and a cell holding a pipe, a newline and
-# backticks each fare the same on either store (PRD R6).
+# backticks each fare the same on either store (PRD R6). A holding's pushed
+# head: set, kept by later writes and cleared on the session store, refused on
+# GitHub; and with no body, set or cleared by rewriting record/holdings alone,
+# no other key and no GitHub call touched.
 #
 # Usage: bash skills/coordinate/scripts/record-write_test.sh
 set -uo pipefail
@@ -440,9 +443,26 @@ spcur; "${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp.md" --pushed-head fe
 eq "a head that isn't 40 hex is refused" 65 $?
 "${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp.md" --pushed-head nobody "$HEAD1" >/dev/null 2>"$T/err"
 eq "a topic no holding has is refused" 65 $?
+# With no body, --pushed-head rewrites record/holdings alone (shirabe#1094).
+session_snapshot "$SP" | grep -v '^./holdings ' > "$T/sp.keys"
+reset_calls
+"${SPN[@]}" bash "$WR" "${RM[@]}" --pushed-head feature-2 "$HEAD1" >/dev/null 2>"$T/err"
+eq "with no body, --pushed-head sets the head" "0 $HEAD1" "$? $(koto context get "$SP" record/holdings | jq -r '.[0].pushed_head')"
+eq "  ... changing no other key, record/meta's Written: time included" "$(cat "$T/sp.keys")" "$(session_snapshot "$SP" | grep -v '^./holdings ')"
+eq "  ... and asking GitHub for nothing" "" "$(calls)"
+"${SPN[@]}" bash "$WR" "${RM[@]}" --pushed-head feature-2 "" >/dev/null 2>"$T/err"
+eq "  ... an empty one clears it" "0 null" "$? $(koto context get "$SP" record/holdings | jq -r '.[0].pushed_head')"
+"${SPN[@]}" bash "$WR" "${RM[@]}" --pushed-head feature-2 abc >/dev/null 2>"$T/err"
+eq "  ... a head that isn't 40 hex is refused" 65 $?
+"${SPN[@]}" bash "$WR" "${RM[@]}" --pushed-head nobody "$HEAD1" >/dev/null 2>"$T/err"
+eq "  ... and a topic no holding has" 65 $?
+"${SPN[@]}" bash "$WR" "${RM[@]}" --pushed-head feature-2 "$HEAD1" --close >/dev/null 2>"$T/err"
+eq "  ... --close with no body is usage" 64 $?
 seed_rm; rebase
 bash "$WR" "${RM[@]}" --body-file "$T/new.md" --pushed-head feature-2 "$HEAD1" >/dev/null 2>"$T/err"
 eq "--pushed-head on a GitHub record is refused" 65 $?
 eq "  ... and the body is unchanged" "$OLD" "$(body7)"
+bash "$WR" "${RM[@]}" --pushed-head feature-2 "$HEAD1" >/dev/null 2>"$T/err"
+eq "  ... with no body too" "65 $OLD" "$? $(body7)"
 
 done_tests record-write
