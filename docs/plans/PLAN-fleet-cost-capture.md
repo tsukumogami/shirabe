@@ -72,6 +72,7 @@ workspace maintainer reads.
 - [ ] The pass's capture of a unit followed by a removal of it leaves one entry; a removal's capture followed by the pass's removed mode for the same unit leaves one entry.
 - [ ] The pass's removed mode, with a removal record for the instance and an empty coordinator record, writes an entry whose `"niwa.dispatch.id"` is the record's and whose `missing` doesn't name it.
 - [ ] A pass capture and a sweep capture with the same dispatch id and different capture keys, held at a barrier inside the lock and released together, leave one entry.
+- [ ] The lock is `.post-lock` in the removals directory that step 1's `archive-common.sh` resolves, so the pass and the sweep agree on it. A capture that finds it held by a live process waits for it inside its own list-and-post bounds and then lists again. One whose holder is gone, or older than 60 seconds, is taken over. A removals directory that can't be used leaves the capture posting with only the list check, and one line says so.
 
 **Check**: Run `bash skills/coordinate/scripts/unit-cost_test.sh` and see the dedupe cases pass, each listing exactly the expected number of `cost` entries for the unit.
 
