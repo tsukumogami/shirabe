@@ -912,13 +912,16 @@ for SKILL in scope execute; do
     assert_eq "a koto with the entry flags: /$SKILL's koto records print zero bytes" "0" "$RUN_BYTES"
 
     REAL_KOTO=$(command -v koto 2>/dev/null || true)
-    if [ -n "$REAL_KOTO" ] && "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--koto-leg'; then
+    # A koto below shirabe's floor is named by the load-time minimum check
+    # whatever flags it has, so the zero-bytes case needs one at the floor.
+    if [ -n "$REAL_KOTO" ] && "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--koto-leg' \
+        && KOTO_BIN="$REAL_KOTO" bash "$REPO/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
         REALKOTO_DIR=$(mktmp)
         ln -s "$REAL_KOTO" "$REALKOTO_DIR/koto"
         run_with_koto "$ROOT" "$SKILL" "$REALKOTO_DIR"
         assert_eq "the installed koto ($("$REAL_KOTO" version 2>/dev/null | head -1)): /$SKILL's koto records print zero bytes" "0" "$RUN_BYTES"
     else
-        echo "SKIP: no koto with the entry flags on PATH -- /$SKILL's zero-bytes case against a real koto did not run"
+        echo "SKIP: no koto with the entry flags at or above the floor on PATH -- /$SKILL's zero-bytes case against a real koto did not run"
     fi
 done
 

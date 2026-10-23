@@ -22,6 +22,7 @@
 #       koto minimum (is) <v>          <v> (and later), shirabe's koto minimum
 #       exactly koto <v>               koto <v>, the floor
 #       the koto <v> floor             <v>, which shirabe's (koto) minimum requires
+#       koto floor is <v>
 #     A sentence saying what a release introduced -- "koto <v> and later",
 #     "shipped in <v>", "<v> is the release that ..." -- is history and
 #     deliberately not matched. That is also the way out of a false positive:
@@ -79,6 +80,7 @@ FORMS="$FORMS|the koto $V floor"
 FORMS="$FORMS|$V( and later)?, shirabe's koto minimum"
 FORMS="$FORMS|$V,? which shirabe's (koto )?minimum requires"
 FORMS="$FORMS|exactly koto $V"
+FORMS="$FORMS|koto floor( is)? $V"
 
 # statements <file>: prints each version a minimum statement in <file> names,
 # one per line, as `<version>\t<the matched text>`. The file is flattened first:
@@ -115,7 +117,7 @@ line_of() {
 # --- the controls ---------------------------------------------------------------
 
 printf '# /work-on requires koto\n# 0.12.2 or later.\n' >"$T/bad.md"
-printf '      koto 0.12.2, the floor for runs\n# keeps the koto v0.12.2 floor for every run\n' >"$T/bad-floor.md"
+printf '      koto 0.12.2, the floor for runs\n# keeps the koto v0.12.2 floor for every run\nshirabe%ss koto floor is\n0.12.2, the first release with it.\n' "'" >"$T/bad-floor.md"
 printf 'It describes koto 0.12.2 and later, shirabe%ss koto minimum.\nCI runs the suites on exactly koto 0.12.2.\n' "'" >"$T/bad-minimum.md"
 printf '/deliver needs koto\nv0.12.2 to run at all.\n' >"$T/bad-needs.md"
 printf 'koto 0.12.2, which shirabe%ss minimum requires, records a wake.\n' "'" >"$T/bad-requires.md"
@@ -126,8 +128,8 @@ if [ -n "$(mismatches "$T/bad.md")" ]; then
 else
     fail "the matcher missed a planted disagreement -- a green run below would prove nothing"
 fi
-if [ "$(mismatches "$T/bad-floor.md" | wc -l | tr -d ' ')" = 2 ]; then
-    pass "the matcher flags both 'the floor' phrasings of another version (control)"
+if [ "$(mismatches "$T/bad-floor.md" | wc -l | tr -d ' ')" = 3 ]; then
+    pass "the matcher flags the three 'floor' phrasings of another version (control)"
 else
     fail "the matcher missed a 'the floor' phrasing: $(statements "$T/bad-floor.md" | tr '\n' ';')"
 fi

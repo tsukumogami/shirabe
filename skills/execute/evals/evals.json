@@ -1201,6 +1201,7 @@
         "The `pr merge` of the cli node's PR comes after the `pr merge` of the core node's PR, and the coordination PR's (#10) `pr merge` is the last `pr merge` in the log",
         "Every `pr merge` line carries `--match-head-commit` equal to the head the run's own push recorded for that PR (the node's push, or the cascade's for #10), and none carries `--admin` or `--auto`",
         "Each /work-on child ran with ISSUE_SOURCE=plan_outline and an absolute PLAN_DOC inside the coordination checkout",
+        "Each /work-on child's `koto init` carries `--dispatched-by execute-coord-outline-test`, the owning session's own name, in the command itself",
         "The printed exit lines include `outcome=merged`"
       ]
     },

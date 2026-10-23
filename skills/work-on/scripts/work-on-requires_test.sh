@@ -102,11 +102,13 @@ case "$OUT" in
     *) bad "--mode koto-leg on an older koto names --koto-leg" "$OUT" ;;
 esac
 
-if command -v koto >/dev/null 2>&1 && koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
+# The case needs a koto at or above the floor: one below it is named by the
+# load-time minimum check, which is the case above, not this one.
+if command -v koto >/dev/null 2>&1 && bash "$REPO/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
     OUT=$(cd "$T/cwd" && bash "$PREFLIGHT" work-on --mode koto-leg 2>&1)
     if [ -z "$OUT" ]; then ok "--mode koto-leg on a koto at the floor prints nothing"; else bad "--mode koto-leg at the floor prints nothing" "$OUT"; fi
 else
-    echo "SKIP: no koto with --koto-leg on PATH -- the at-floor case did not run"
+    echo "SKIP: no koto at or above the floor ($MINIMUM) on PATH -- the at-floor case did not run"
 fi
 
 # The PR gate's validator flag. Both /work-on (pr_creation) and /execute
