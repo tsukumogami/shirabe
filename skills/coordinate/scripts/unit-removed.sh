@@ -175,7 +175,10 @@ if [ "$MODE" = record ]; then
     F="$AC_R/$KEY.json"
     AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     if [ -f "$F" ] && [ ! -L "$F" ]; then
-        PREV=$(jq -r --arg p "$IP" 'select(type == "object" and .instance_path == $p) | .removed_at | strings' "$F" 2>/dev/null | head -n 1)
+        # jq's own message, on a record it can't parse, lands in PREV and fails
+        # the timestamp shape below, so the new removal keeps the new time.
+        PREV=$(jq -r --arg p "$IP" 'select(type == "object" and .instance_path == $p) | .removed_at | strings' "$F" 2>&1) || PREV=""
+        PREV=${PREV%%$'\n'*}
         [[ $PREV =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] && AT=$PREV
     fi
     TMPF=$(mktemp "$AC_R/.record.XXXXXX" 2>/dev/null) || skip "cannot write in $AC_R"
@@ -253,13 +256,13 @@ sweep_one() {
     fi
     # The leg key the dispatch wrote in requested_by's own session.
     leg=$(dc_leg_get "$AC_BY" "$AC_REQ" "$AC_LEG" 2>/dev/null) \
-        && jq -e --arg r "$AC_REQ" --arg t "$topic" '.request == $r and .topic == $t' <<<"$leg" >/dev/null 2>&1 \
+        && [ "$(jq -r --arg r "$AC_REQ" --arg t "$topic" '.request == $r and .topic == $t' <<<"$leg" 2>&1)" = true ] \
         || { outcome "$f" "$did" "no coordinator"; return 0; }
     slug=${AC_BY#coordinate-}
     slug=${slug%-*}
     live=$(dc_with_deadline 15 bash "$DC_COORD_LOG" live-session --scope-slug "$slug" --all </dev/null 2>/dev/null)
     n=$(printf '%s\n' "$live" | grep -c .)
-    if printf '%s\n' "$live" | grep -qxF -- "$AC_BY"; then
+    if grep -qxF -- "$AC_BY" <<<"$live"; then
         target=$AC_BY
     elif [ "$n" = 1 ]; then
         target=$live

@@ -290,7 +290,9 @@ ac_removal_for_path() {
             | {d: .dispatch_id, at: (.removed_at | if type == "string" then . else "" end)}' "$f" 2>/dev/null)
 "
     done
-    AC_REMOVAL_ID=$(printf '%s' "$rows" | jq -s -r 'sort_by(.at) | last | .d // empty' 2>/dev/null)
+    # The rows are jq's own compact output above, so this read can't meet
+    # input it can't parse; a failure still leaves the id empty.
+    AC_REMOVAL_ID=$(jq -s -r 'sort_by(.at) | last | .d // empty' <<<"$rows") || AC_REMOVAL_ID=""
     [ -n "$AC_REMOVAL_ID" ] || { AC_WHY="no removal record names the instance path"; return 1; }
 }
 
