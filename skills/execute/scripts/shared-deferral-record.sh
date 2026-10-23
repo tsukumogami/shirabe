@@ -50,9 +50,10 @@
 # started, leaving the rest of koto's 30 for the koto and run-id.sh reads the
 # gate command makes before it starts:
 #   - the child reads (the listing and two koto reads per child) run as one
-#     polled job that must end LOOP_SECS (8) after the start. One read takes
-#     well under a tenth of a second, so that is room for about fifty
-#     children; a run with more, or a koto that hangs, is exit 2, tick again;
+#     polled job that must end LOOP_SECS (8) after the start. One koto read
+#     measured about 0.07 s on an idle development host, which would fit
+#     some fifty children; a loaded host fits fewer. A run that doesn't fit,
+#     or a koto that hangs, is exit 2, tick again;
 #   - check-pr-output.sh then runs polled until TOTAL_SECS, and its own limit
 #     on owned-pr.sh is cut from 20 seconds to what is left less 5, the 5 for
 #     the gh read of the body after it.
@@ -148,34 +149,40 @@ poll() {
 
 # collect_children: run as a background job. Prints the reason of each child
 # that deferred, one per line, in the children's order; a koto read that
-# fails, or a key that is empty or spans lines, is a message on stderr and
-# exit 2. Each koto call runs in the background and is waited on, so the
-# TERM poll sends when the time is up ends a hung call too, rather than
-# leaving it running after this job is gone (bash runs a trap during `wait`,
-# but only after a foreground child exits).
+# fails, or a key that is empty or spans lines, is undecided's message on
+# stderr and exit 2. Both are the job's own (a subshell's exit ends only the
+# job, and it doesn't inherit the EXIT trap), and the caller relays them.
+# --list never reaches check-pr-output.sh's one-line check, so a key that
+# spans lines is refused here. Each koto call runs in the background and is
+# waited on, so the TERM poll sends when the time is up ends a hung call too,
+# rather than leaving it running after this job is gone (bash runs a trap
+# during `wait`, but only after a foreground child exits).
 collect_children() {
     local child rc reason kpid=""
     trap '[ -z "$kpid" ] || kill "$kpid" 2>/dev/null; exit 143' TERM
     # koto_call <out> <koto arguments>...: one koto call, its stdout to <out>
-    # and its stderr to koto.err. Returns koto's status.
+    # and its stderr to koto.err. Returns koto's status. kpid is cleared once
+    # the call ends, so the trap never kills a PID that may have been reused.
     koto_call() {
-        local out=$1
+        local out=$1 st
         shift
         koto "$@" > "$out" 2> "$WORK/koto.err" < /dev/null &
         kpid=$!
         wait "$kpid"
+        st=$?
+        kpid=""
+        return "$st"
     }
     # koto_err: the last line koto wrote to stderr on the call just made.
     koto_err() { tail -n 1 "$WORK/koto.err"; }
-    fail() { echo "shared-deferral-record: $*" >&2; exit 2; }
 
     if [ "${#CHILDREN[@]}" -gt 0 ]; then
         printf '%s\n' "${CHILDREN[@]}" > "$WORK/children.txt"
     else
         koto_call "$WORK/children.json" workflows --children "$SESSION" \
-            || fail "koto workflows --children $SESSION failed: $(koto_err)"
+            || undecided "koto workflows --children $SESSION failed: $(koto_err)"
         jq -e 'type == "array" and all(.[]; (.name | type) == "string")' "$WORK/children.json" >/dev/null \
-            || fail "koto workflows --children $SESSION did not answer a list of sessions"
+            || undecided "koto workflows --children $SESSION did not answer a list of sessions"
         jq -r '.[].name' "$WORK/children.json" > "$WORK/children.txt"
     fi
 
@@ -186,14 +193,14 @@ collect_children() {
         case "$rc" in
             0) ;;
             1) continue ;;
-            *) fail "koto context exists $child verification_deferral failed (exit $rc): $(koto_err)" ;;
+            *) undecided "koto context exists $child verification_deferral failed (exit $rc): $(koto_err)" ;;
         esac
         koto_call "$WORK/reason" context get "$child" verification_deferral \
-            || fail "koto context get $child verification_deferral failed: $(koto_err)"
+            || undecided "koto context get $child verification_deferral failed: $(koto_err)"
         reason=$(cat "$WORK/reason")
-        [ -n "$reason" ] || fail "$child recorded an empty verification_deferral"
+        [ -n "$reason" ] || undecided "$child recorded an empty verification_deferral"
         case "$reason" in
-            *"$NL"*|*$'\r'*) fail "$child recorded a verification_deferral over more than one line" ;;
+            *"$NL"*|*$'\r'*) undecided "$child recorded a verification_deferral over more than one line" ;;
         esac
         printf '%s\n' "$reason"
     done < "$WORK/children.txt"

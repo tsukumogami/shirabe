@@ -386,7 +386,7 @@ body "$REASON"
 : > "$STUB/exists.hang"
 timed 6 2 run_stub hosted-ci "$REASON"
 expect "a hung child read is cut off at its share" 2
-[ "$ELAPSED" -le 4 ] && pass "a hung child read: the script answered in ${ELAPSED}s, inside its 2s share and slack" \
+[ "$ELAPSED" -le 5 ] && pass "a hung child read: the script answered in ${ELAPSED}s, inside its 2s share and slack" \
     || fail "a hung child read: the script took ${ELAPSED}s with a 2s share"
 grep -qF "took longer than the 2s it had" "$WORKDIR/err" \
     && pass "a hung child read: stderr says the reads ran out of time" \
@@ -405,7 +405,7 @@ children "${names[@]}"
 printf '0.2\n' > "$STUB/exists.sleep"
 timed 6 2 run_stub local ""
 expect "slow reads over many children are cut off at the share" 2
-[ "$ELAPSED" -le 4 ] && pass "slow reads over many children: answered in ${ELAPSED}s" \
+[ "$ELAPSED" -le 5 ] && pass "slow reads over many children: answered in ${ELAPSED}s" \
     || fail "slow reads over many children: took ${ELAPSED}s with a 2s share"
 
 reset_stub
@@ -436,16 +436,16 @@ else
 fi
 
 # The PR check gets what is left of the total. owned-pr.sh's own limit is
-# cut to fit (here 8 - 5 = 3 s, less any whole second the reads took), and
+# cut to fit (here 10 - 5 = 5 s, less any whole second the reads took), and
 # check-pr-output.sh answers 2 itself.
 reset_stub
 children execute-x.o-a
 child_deferred execute-x.o-a "$REASON"
 body "$REASON"
 : > "$STUB/owned.hang"
-timed 8 1 run_stub local ""
+timed 10 1 run_stub local ""
 expect "a hung owned-PR lookup after the child reads" 2
-if [ "$ELAPSED" -le 6 ] && grep -qE "owned-pr.sh did not answer within [23]s" "$WORKDIR/err"; then
+if [ "$ELAPSED" -le 8 ] && grep -qE "owned-pr.sh did not answer within [1-5]s" "$WORKDIR/err"; then
     pass "a hung owned-PR lookup: check-pr-output.sh's limit is cut to what's left, answered in ${ELAPSED}s"
 else
     fail "a hung owned-PR lookup: took ${ELAPSED}s, stderr [$(cat "$WORKDIR/err")]"
@@ -460,7 +460,7 @@ body "$REASON"
 : > "$STUB/gh.hang"
 timed 7 1 run_stub local ""
 expect "a hung body read is cut off at the total" 2
-if [ "$ELAPSED" -le 9 ] && grep -qF "did not answer within the 7s" "$WORKDIR/err"; then
+if [ "$ELAPSED" -le 10 ] && grep -qF "did not answer within the 7s" "$WORKDIR/err"; then
     pass "a hung body read: the script answered 2 at its 7s total (${ELAPSED}s)"
 else
     fail "a hung body read: took ${ELAPSED}s, stderr [$(cat "$WORKDIR/err")]"

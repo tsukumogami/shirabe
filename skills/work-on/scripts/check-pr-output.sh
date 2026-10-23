@@ -106,6 +106,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word pr-body/conformance"
 # Seconds owned-pr.sh may run. koto stops a gate command at 30 seconds; this
 # stays under it so the answer is this script's 2, not koto's timeout.
+# CHECK_PR_OUTPUT_OWNED_TIMEOUT is the tests' seam, and also how
+# /execute's shared-deferral-record.sh cuts the limit to the time it has
+# left after reading its children.
 OWNED_PR_TIMEOUT=${CHECK_PR_OUTPUT_OWNED_TIMEOUT:-20}
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
 
