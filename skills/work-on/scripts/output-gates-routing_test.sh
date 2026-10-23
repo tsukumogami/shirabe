@@ -414,7 +414,8 @@ drive staleness_check "" '{"staleness_signal":"blocked","detail":"usage error"}'
 expect "staleness_signal: blocked on exit 2" done_blocked
 
 # verification: the verdict routes; 75 waits, 2 holds; blocked is the one evidence.
-for pair in 0:finalization 1:implementation 3:done_blocked 4:done_blocked; do
+# A pass is counted at pass_counting before finalization (red-first.md).
+for pair in 0:pass_counting 1:implementation 3:done_blocked 4:done_blocked; do
     reset_rc; set_rc check-verification.sh--verdict "${pair%%:*}"
     drive verification "" ""
     expect "verification_verdict exit ${pair%%:*}, no evidence" "${pair#*:}"

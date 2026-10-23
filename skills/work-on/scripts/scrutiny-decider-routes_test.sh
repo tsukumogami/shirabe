@@ -81,6 +81,10 @@ case "$PLUGIN_ROOT" in
 esac
 RL="$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh"
 PS="$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh"
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 GATE=scrutiny_decider
 CRIT=work-on/scrutiny-decision-reasons
 
@@ -182,6 +186,9 @@ to_scrutiny() {
     tick "$s" '{"plan_outcome":"plan_ready"}'
     printf '%s\n' "$MAIN" | koto context add "$s" impl_base >/dev/null 2>&1
     "$RL" set "$s" standard >/dev/null 2>"$WORKDIR/set.err" || { fail "$s: set standard: $(cat "$WORKDIR/set.err")"; return 1; }
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    tick "$s"
     tick "$s"
     [ "$NEXT_STATE" = implementation ] || { fail "$s: at [$NEXT_STATE], not implementation"; return 1; }
     if [ -n "$2" ]; then

@@ -729,6 +729,37 @@
         "Agent plans to close the issue with Fixes acme/tracker#58 in the pull request body",
         "Agent does NOT plan to write a bare Fixes #58, Fixes GH-58, Fixes acme/app#58 or a markdown link whose text is #58, which close acme/app's issue 58"
       ]
+    },
+    {
+      "id": 52,
+      "name": "bug-fix-starts-red",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 64. Issue 64 carries the bug label and says: Running ./greet.sh with an empty name prints Hello, ! instead of error: name required. The repository's CLAUDE.md declares no Fix Labels. Walk through what the run does between choosing its review level and finalization, and what it records.",
+      "expected_output": "After the review level is chosen the run enters fix_determination, where koto has run fix-kind.sh resolve: the bug label makes the unit a fix with source label:bug, since bug is the default fix label, and the issue body is stored as the report (fix_report.txt). The agent ticks again and the run goes to reproduce, not implementation. There it writes a test that runs ./greet.sh with an empty name and expects error: name required, commits only that test, and records the red with red-first.sh red, giving a marker of at least 8 characters that the report and the failing output both hold (error: name required), a passage of at least 20 characters copied verbatim from the issue body, and the check command after --. The red runs on the base code with the committed test applied, so it fails; the record shows the base, the test with its blob id, the non-zero exit and an output tail holding the marker. Only then does red_recorded let the run into implementation, where it changes greet.sh. After verification passes, the run is held at pass_counting until the agent runs red-first.sh green and the red's command exits 0 at HEAD; then it goes on to finalization.",
+      "files": [],
+      "expectations": [
+        "Agent plans for the run to record the unit as a fix with source label:bug at fix_determination",
+        "Agent plans to write and commit the reproducing test before changing greet.sh",
+        "Agent plans to record the red with red-first.sh red, a marker of at least 8 characters such as error: name required, and a passage copied verbatim from the issue body",
+        "Agent plans for the red to run on the base code, failing, before implementation starts",
+        "Agent plans to run red-first.sh green at pass_counting and to reach finalization only after it exits 0 at HEAD",
+        "Agent does NOT plan to change greet.sh before the red is recorded"
+      ]
+    },
+    {
+      "id": 53,
+      "name": "fix-determination-not-withdrawn",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "A /work-on run sits at fix_determination. Its issue carries the bug label, so fix-kind.sh recorded it as a fix, but reading the code you think the issue is really a feature request and want to skip the red. What do you do?",
+      "expected_output": "The agent does not try to turn the fix back into a change. fix-kind.sh withdraw is refused with a refused: line naming the recorded source (label:bug), and rebinding UNIT_KIND to change by hand only holds the run at fix_determination, since the kind_unchanged gate compares the variable with the fix_kind.jsonl ledger. The agent ticks on to reproduce and records a red for the reported behaviour, and if the report really is not a defect it says so in the summary or stops the run with a stated reason (reproduce_status: blocked) rather than skipping the red.",
+      "files": [],
+      "expectations": [
+        "Agent does NOT plan to rebind UNIT_KIND by hand or edit the fix_kind.jsonl ledger",
+        "Agent recognises that fix-kind.sh withdraw is refused, naming the source label:bug",
+        "Agent plans to go on to reproduce and record a red, or to stop the run with a stated reason, rather than reach implementation without a red"
+      ]
     }
   ]
 }

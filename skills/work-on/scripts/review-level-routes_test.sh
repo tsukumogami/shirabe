@@ -6,7 +6,9 @@
 # review-level_test.sh pins review-level.sh on its own, against a stand-in and
 # a scratch template. This suite drives the template that ships: real koto
 # sessions of skills/work-on/koto-templates/work-on.md, walked from entry
-# through analysis, the level choice, implementation and the level check to
+# through analysis, the level choice, the fix determination (a gh stand-in
+# serves unlabelled issues, so every run is a change), implementation and the
+# level check to
 # the panels the level names. Each case is one of the routing promises the
 # level makes:
 #
@@ -146,6 +148,10 @@ case "$PLUGIN_ROOT" in
 esac
 RL="$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh"
 PS="$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh"
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 
 # ==============================================================================
 echo "--- engine: the declarations"
@@ -220,6 +226,14 @@ tick() {
     fi
     NEXT_STATE=$(koto status "$1" 2>/dev/null | jq -r '.current_state // empty')
 }
+# tick_past_choice <session>: the tick after the level is set enters
+# fix_determination, whose action binds UNIT_KIND; koto routes on it from the
+# next tick, to implementation.
+tick_past_choice() {
+    tick "$1"
+    [ "$NEXT_STATE" = fix_determination ] && tick "$1"
+    return 0
+}
 
 visits() {
     # $1 session, $2 state: transitions into the state in koto's own log
@@ -288,7 +302,7 @@ new_case() {
 # implementation and answers the type question.
 choose_and_implement() {
     setlevel "$1" "$2"
-    tick "$1"
+    tick_past_choice "$1"
     [ "$NEXT_STATE" = implementation ] || { fail "$1: after set, at [$NEXT_STATE], not implementation"; return 1; }
     tick "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] || { fail "$1: after implementation, at [$NEXT_STATE]"; return 1; }
@@ -347,7 +361,7 @@ if new_case "$S" "$SMALL"; then
     [ "$(events "$S")" = bound ] && pass "the choice state recorded the bound and nothing else" \
         || fail "ledger events are [$(events "$S")]"
     setlevel "$S" light --reason x
-    tick "$S"
+    tick_past_choice "$S"
     expect_state "the tick after set light --reason x" implementation
     [ "$(ledger "$S" | jq -r 'select(.event == "choose") | "\(.to)|\(.reason)"')" = "light|x" ] \
         && pass "the ledger records the choice and its reason" || fail "ledger is [$(ledger "$S")]"
@@ -595,7 +609,7 @@ echo "--- engine: a hand rebind"
 S=rebind
 if new_case "$S" "$SMALL"; then
     setlevel "$S" standard
-    tick "$S"
+    tick_past_choice "$S"
     tick "$S" '{"implementation_status":"complete"}'
     koto init "$S" --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$PLUGIN_ROOT" \
         --var REVIEW_LEVEL=full >/dev/null 2>&1 || fail "$S: the hand rebind was refused"
@@ -616,7 +630,7 @@ fi
 S=reset
 if new_case "$S" "$SMALL"; then
     setlevel "$S" standard
-    tick "$S"
+    tick_past_choice "$S"
     tick "$S" '{"implementation_status":"complete"}'
     koto init "$S" --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 \
         || fail "$S: the attach was refused"
@@ -689,7 +703,7 @@ echo "--- engine: the level unset at the check"
 S=unset
 if new_case "$S" "$SMALL"; then
     setlevel "$S" light
-    tick "$S"
+    tick_past_choice "$S"
     tick "$S" '{"implementation_status":"complete"}'
     # The state a session from an earlier template is in: no level, and no
     # level ledger. An attach that omits an optional rebind variable resets

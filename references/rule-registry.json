@@ -1337,6 +1337,74 @@
       "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice. Shares its text and baseline key with pr-body/banned-word, the same words checked on pull request titles and bodies. Quoted text (a blockquote, or double quotes that pair on one line) is exempt in both, because a verbatim quotation is not the author's to reword."
     },
     {
+      "id": "red-first/no-green",
+      "status": "active",
+      "summary": "A fix has no green at its head",
+      "text": {
+        "path": "skills/work-on/references/red-first.md",
+        "first": "| `red-first/no-green` | A fix has no green"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/red-first.sh",
+        "mode": "check-green"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/red-first_test.sh",
+        "skills/work-on/scripts/red-first-routes_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pass_counting"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-22",
+      "gates": [
+        "work-on:pass_counting:fix_green"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "red-first/no-red",
+      "status": "active",
+      "summary": "A fix has neither a red nor a before-observation",
+      "text": {
+        "path": "skills/work-on/references/red-first.md",
+        "first": "| `red-first/no-red` | A fix has neither"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/red-first.sh",
+        "mode": "check-red"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/red-first_test.sh",
+        "skills/work-on/scripts/red-first-routes_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:reproduce"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-22",
+      "gates": [
+        "work-on:reproduce:red_recorded"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key."
+    },
+    {
       "id": "rs-001",
       "status": "active",
       "summary": "The body or an added line carries an attribution or session trailer",

@@ -59,6 +59,11 @@ class	template	skills/execute/references/step-agent-handoff.md
 # that open sessions on them. review-level_test.sh fails when a template's
 # gate or default_action command names a script no `engine` line covers.
 class	engine	**/*-open.sh
+# Libraries the red-first gates read through: a change to which header a
+# fix label comes from, or to what counts as an edited test, changes what
+# those gates decide.
+class	engine	scripts/lib/claude-md-header.sh
+class	engine	scripts/lib/test-classify.sh
 class	engine	scripts/plan-mode.sh
 class	engine	scripts/skill-session.sh
 class	engine	skills/coordinate/scripts/board-record.sh
@@ -122,11 +127,13 @@ class	engine	skills/work-on/scripts/ci-cancel-after-merge.sh
 class	engine	skills/work-on/scripts/ci-none-declared.sh
 class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
+class	engine	skills/work-on/scripts/fix-kind.sh
 class	engine	skills/work-on/scripts/has-commits.sh
 class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
 class	engine	skills/work-on/scripts/record-changed-paths.sh
+class	engine	skills/work-on/scripts/red-first.sh
 class	engine	skills/work-on/scripts/review-level.sh
 class	engine	skills/work-on/scripts/run-verification.sh
 class	engine	skills/work-on/scripts/session-role.sh

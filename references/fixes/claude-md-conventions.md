@@ -98,6 +98,18 @@ convention headers shirabe uses:
 - **`## Release Notes Convention: <path>`** -- the directory or
   file path the release-notes skill targets when emitting
   release-notes prose.
+- **`## Fix Labels: <label>, <label>...`** -- the issue labels that
+  make a `/work-on` unit a fix, which then records a failing check
+  before its correcting change
+  (`skills/work-on/references/red-first.md`). Comma-separated; a label
+  may contain spaces and matches in any case. Default `bug` when the
+  header is absent; an empty value means no label marks a fix, though
+  a plan step's `**Fixes**:` line or the run's own declaration still
+  can. Read by `fix-kind.sh` from `CLAUDE.md` as it stands at the
+  run's base, so a unit's own diff can't change it, with a
+  fence-aware scan (`scripts/lib/claude-md-header.sh`) that ignores
+  an example inside a code block. Declaring the header twice is
+  refused rather than resolved.
 
 Each header is independent. A repo may declare any subset; absent
 headers fall through to their defaults (Public visibility, Tactical

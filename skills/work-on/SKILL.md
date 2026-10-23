@@ -94,7 +94,7 @@ The gate runs as follows:
 Outcomes:
 
 - **Passed** — every selected command ran and passed. The workflow advances to
-  finalization.
+  `pass_counting` (see **Fixes Start Red**), then finalization.
 - **Failed** — a command ran and did not pass. The workflow returns to implementation to
   fix the failure; a failing verification never advances toward a clean finalization.
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
@@ -135,13 +135,38 @@ never a silent skip:
   `verification_deferral`. A deferral with no reason ends at `done_blocked`; it
   neither runs the map nor goes on unexplained.
 - **The run still finishes.** From `verification_deferred` the run goes through
-  `finalization` and opens its pull request as any other, and its result carries
-  `pr`.
+  `pass_counting` and `finalization` and opens its pull request as any other, and
+  its result carries `pr`.
 - **The PR body records it.** `pr_creation`'s `verification_deferral_recorded` gate
   holds `pr_status: created` until the body says local verification did not run,
   gives the reason verbatim, and says hosted CI is the build of record
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
+
+### Fixes Start Red
+
+A unit whose purpose is to correct behaviour reported as wrong is a **fix**, and a
+fix starts from a check that fails for the reported reason, recorded before the
+correcting change, and ends with that check passing. `references/red-first.md` has
+the rules; this is the route.
+
+- **`fix_determination`**, after the review level is chosen and before
+  implementation. Its action, `scripts/fix-kind.sh resolve`, records the unit as a
+  fix when its issue carries a label the repository's `## Fix Labels:` lists (`bug`
+  by default) or its plan step has a `**Fixes**:` line (`FIX_REPORT`), and as a
+  change otherwise. The run adds a fix itself with `fix-kind.sh declare --reason`
+  when the report describes existing behaviour as wrong. A fix is never withdrawn.
+  A change goes straight to implementation and owes nothing more.
+- **`reproduce`**, for a fix. The run commits its reproducing test and records the
+  red with `scripts/red-first.sh red`: the check run on the base code with the
+  unit's committed tests applied, failing, with a marker found in a verbatim
+  passage of the report and in the output. A bug no check can reproduce records a
+  before-observation instead. `red_recorded` holds the run here until one exists.
+- **`pass_counting`**, after every passing check (verification's exit 0, or a
+  deferral to hosted CI). A fix needs its green, the red's command re-run at HEAD
+  with `red-first.sh green` and exiting 0, before `fix_green` lets it finalize. A
+  fix recorded by observations stays held here: observations wait for an
+  acceptance, which this version can't record yet.
 
 ### Finalization and No Silent Deferral
 
@@ -215,6 +240,8 @@ When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the
 - `ARTIFACT_PREFIX`: workflow name for this child
 - `PLAN_DOC`: path to the parent PLAN document
 - `ISSUE_TYPE`: issue type hint (`code`, `docs`, or `task`) from the PLAN outline's `**Type**:` field
+- `FIX_REPORT`: a step's `**Fixes**:` line, when it has one; the step is then a fix
+  and the line is its report (see **Fixes Start Red**)
 
 Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
 
@@ -522,6 +549,20 @@ leg, since one leg answers one session.
   ledger's last level before it attaches a live session. The script's header has every subcommand's
   exit codes; `scripts/review-level_test.sh` and `scripts/review-level-routes_test.sh`
   are its harnesses.
+- `scripts/fix-kind.sh resolve|declare|withdraw|agree|kind` — whether the unit is a
+  fix (`references/red-first.md`). koto runs `resolve` as `fix_determination`'s
+  action and `agree` as its `kind_unchanged` gate; the agent runs `declare
+  <session> --reason <why>` to make the unit a fix. It rebinds `UNIT_KIND` and
+  appends to the `fix_kind.jsonl` ledger together, and refuses (exit 1) to make a
+  fix a change. Its rebind passes `REVIEW_LEVEL` and `PLUGIN_ROOT` through, since
+  an attach resets every rebind variable it leaves out. Exit codes are in its
+  header; `scripts/fix-kind_test.sh` is its harness.
+- `scripts/red-first.sh red|observe|green|check-red|check-green` — a fix's red,
+  observations and green, in context as `red_first.json`. The agent runs `red`
+  at `reproduce` and `green` at `pass_counting`; koto runs `check-red` and
+  `check-green` as the `red_recorded` and `fix_green` gates, which report
+  `red-first/no-red` and `red-first/no-green`. `scripts/red-first_test.sh` and
+  `scripts/red-first-routes_test.sh` are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
   maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live

@@ -1686,6 +1686,11 @@ extract_block() {
 QA_BLOCK=$(extract_block "$QA_PHASE" "koto context remove")
 [ -n "$QA_BLOCK" ] || { fail "could not extract the retry block from phase-4c-qa.md"; }
 
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
+
 NEXT_STATE=""
 submit() {
     NEXT_STATE=$(koto next "$1" --with-data "$2" --no-cleanup 2>/dev/null \
@@ -1720,6 +1725,9 @@ engine_to_qa_retry() {
     # The full review level keeps all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
         || { fail "$s: review-level.sh set full failed"; return 1; }
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    koto next "$s" --no-cleanup >/dev/null 2>&1
     koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'

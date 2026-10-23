@@ -224,6 +224,10 @@ case "$PLUGIN_ROOT" in
         PLUGIN_ROOT="$WORKDIR/plugin"
         ;;
 esac
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 
 STATE=""
 tick() {
@@ -264,6 +268,9 @@ to_routing() {
     # The review level, chosen before implementation; full keeps scrutiny on
     # the code route.
     (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    tick "$1"
     tick "$1"
 }
 

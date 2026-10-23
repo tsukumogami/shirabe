@@ -172,6 +172,34 @@ variables:
       measurement window until 02:40Z". Not rebindable, like VERIFICATION.
     required: false
     pattern: ^([a-zA-Z0-9].*)?$
+  UNIT_KIND:
+    description: >-
+      Whether the unit is a fix (../references/red-first.md): `change` or
+      `fix`. Bound at fix_determination by scripts/fix-kind.sh, the only thing
+      that changes it: it rebinds the variable through `koto init
+      --attach-live` and appends to the fix_kind.jsonl ledger in the same call,
+      and it never turns a fix back into a change. fix_determination routes on
+      it, and its kind_unchanged gate holds when the variable and the ledger
+      disagree, so a hand rebind can't skip the red. Empty until the first
+      determination, and again after an attach that didn't pass it (an attach
+      resets every rebind variable it leaves out); fix-kind.sh resolve
+      restores it from the ledger on the way through fix_determination. No
+      state after fix_determination reads it: the gates there read the ledger.
+    required: false
+    pattern: ^(change|fix)?$
+    rebind: true
+  FIX_REPORT:
+    description: >-
+      A plan step's `**Fixes**:` line, the report of the fix the step declares
+      (../references/red-first.md). skills/plan/scripts/plan-to-tasks.sh
+      forwards it from a step plan, and /execute passes it to the child
+      unchanged; it is empty for every other run. Non-empty makes the unit a
+      fix with source `step`, and the text is the report a red's passage must
+      be found in, ahead of any issue body. koto accepts only letters, digits,
+      spaces and . _ / : @ + - in a variable value, and plan-to-tasks.sh
+      refuses a Fixes line outside that set before the run starts. Not
+      rebindable: the report doesn't change partway through a run.
+    required: false
 
 states:
   entry:
@@ -724,7 +752,7 @@ states:
         type: string
         description: Why no review level could be recorded.
     transitions:
-      - target: implementation
+      - target: fix_determination
         when:
           vars.REVIEW_LEVEL:
             is_set: true
@@ -735,6 +763,119 @@ states:
           level_status: blocked
         context_assignments:
           failure_reason: "review level not chosen: ${evidence.detail}"
+
+  fix_determination:
+    # Is the unit a fix (../references/red-first.md)? Decided here, before
+    # anything is implemented, and on every return through analysis. koto
+    # can't route on a context key, so the kind lives in the rebindable
+    # UNIT_KIND, which only fix-kind.sh binds, mirrored by the fix_kind.jsonl
+    # ledger, as REVIEW_LEVEL is by review-level.sh.
+    #
+    # The action records the determination: from the issue's labels against
+    # the repository's `## Fix Labels:` (read at impl_base), and from
+    # FIX_REPORT, a plan step's Fixes line. It adds a fix over a recorded
+    # change and never the reverse. It also stores the unit's report
+    # (fix_report.txt) once; the free-form task text comes from the session's
+    # event log. The variable it rebinds is seen from the next tick on (koto
+    # 0.21.0 resolves this tick's routes with the value the tick started
+    # with), so a fresh determination advances on the second tick, as
+    # review_level_choice does after `set`.
+    #
+    # The action never overwrites a non-empty UNIT_KIND, only restores an
+    # empty one. A hand rebind away from the ledger therefore fails
+    # kind_unchanged (fix-kind.sh agree) and holds the run here; no route
+    # leaves without it.
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" resolve "{{SESSION_NAME}}" --current "{{UNIT_KIND}}" --issue "{{ISSUE_NUMBER}}" --issue-repo "{{ISSUE_REPO}}" --fix-report "{{FIX_REPORT}}" --task-log "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
+      fallback: >-
+        koto could not record whether this unit is a fix. Read the command's
+        own output above: fix-kind.sh exits 66 when the issue can't be read
+        with gh or a koto call failed, 64 when CLAUDE.md at the base declares
+        `## Fix Labels:` more than once, and the test -x guard exits 2 when
+        PLUGIN_ROOT does not reach the plugin. Fix the cause and tick again;
+        the action re-runs on entry. If it can't be fixed, submit
+        `kind_status: blocked` with `detail`.
+    gates:
+      kind_unchanged:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" agree "{{SESSION_NAME}}" "{{UNIT_KIND}}"'
+    accepts:
+      kind_status:
+        type: enum
+        values: [blocked]
+        description: >-
+          Submitted only to stop the run when no determination can be
+          recorded. The passing path submits nothing: once UNIT_KIND agrees
+          with the ledger, the next tick advances.
+      detail:
+        type: string
+        description: Why no determination could be recorded.
+    transitions:
+      - target: implementation
+        when:
+          gates.kind_unchanged.exit_code: 0
+          vars.UNIT_KIND: change
+      - target: reproduce
+        when:
+          gates.kind_unchanged.exit_code: 0
+          vars.UNIT_KIND: fix
+      - target: done_blocked
+        when:
+          gates.kind_unchanged.exit_code: 1
+          kind_status: blocked
+        context_assignments:
+          failure_reason: "fix determination blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.kind_unchanged.exit_code: 2
+          kind_status: blocked
+        context_assignments:
+          failure_reason: "fix determination blocked: ${evidence.detail}"
+
+  reproduce:
+    # A fix records its red here, before implementation: the check run on
+    # the base code with the unit's committed tests applied, failing, with a
+    # marker found in both the report and the output (red-first.sh red). A
+    # bug no check can reproduce records a before-observation instead. The
+    # agent writes and commits the reproducing test and runs the script; the
+    # gate reads the record, so the only way on is a red or an observation.
+    # The red always runs on the base, so a fix declared on a return to
+    # analysis, after code changed, still proves the failure without it.
+    #
+    # red-first.sh check-red exits 0 for a red or a before-observation (and
+    # for a unit that isn't a fix), 1 holding with finding red-first/no-red,
+    # and 2 when it can't decide.
+    gates:
+      red_recorded:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=red_recorded "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" check-red "{{SESSION_NAME}}"'
+    accepts:
+      reproduce_status:
+        type: enum
+        values: [blocked]
+        description: >-
+          Absent on the passing path: koto advances once red_recorded passes.
+          Submit `blocked` only when neither a red nor an observation can be
+          recorded.
+      detail:
+        type: string
+        description: Why the red could not be recorded.
+    transitions:
+      - target: implementation
+        when:
+          gates.red_recorded.exit_code: 0
+      - target: done_blocked
+        when:
+          gates.red_recorded.exit_code: 1
+          reproduce_status: blocked
+        context_assignments:
+          failure_reason: "reproduce blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.red_recorded.exit_code: 2
+          reproduce_status: blocked
+        context_assignments:
+          failure_reason: "reproduce blocked: ${evidence.detail}"
 
   implementation:
     # Every return here means the code is about to change, so a verdict about
@@ -1562,7 +1703,7 @@ states:
     # stops the tick with its fallback, and the gate holds.
     #
     # The verdict routes:
-    #   0  every selected command passed          finalization
+    #   0  every selected command passed          pass_counting
     #   1  a command failed                       implementation
     #   3  no map, a map that does not parse, or one that selects nothing
     #                                             done_blocked (fail closed)
@@ -1630,7 +1771,7 @@ states:
         type: string
         description: Why verification could not run or be read.
     transitions:
-      - target: finalization
+      - target: pass_counting
         when:
           gates.verification_verdict.exit_code: 0
       - target: implementation
@@ -1691,8 +1832,11 @@ states:
     # back to running the map, which is what the run chose not to do, and it
     # does not go on, which would be a deferral nobody explained. The reason
     # can't be added to a live session, since the variable is fixed at init.
+    #
+    # A deferral counts as a passing check here, so the run goes through
+    # pass_counting like a local pass does.
     transitions:
-      - target: finalization
+      - target: pass_counting
         when:
           vars.VERIFICATION_DEFERRAL_REASON:
             is_set: true
@@ -1704,6 +1848,56 @@ states:
             is_set: false
         context_assignments:
           failure_reason: "verification_deferred: VERIFICATION=hosted-ci was chosen without VERIFICATION_DEFERRAL_REASON. A deferral to hosted CI needs a stated reason, and the variable is fixed at init: start the run again with both, or without the deferral."
+
+  pass_counting:
+    # Entered only after a check passed: verification's exit 0, or a
+    # deferral to hosted CI. A pass is counted here before the run finalizes
+    # (../references/red-first.md). fix_green (red-first.sh check-green)
+    # passes for a unit that isn't a fix; a fix needs a green, the red's
+    # command re-run at HEAD with exit 0, which the agent records with
+    # red-first.sh green. A fix recorded by observations stays held:
+    # observations wait for an acceptance, which this template can't record
+    # yet. Every hold prints finding red-first/no-green.
+    #
+    # A green that failed sends the run back to implementation, whose
+    # clear_on_entry drops the panels' stale results; check-green compares
+    # the green's head with HEAD, so a green recorded before a later commit
+    # holds again.
+    gates:
+      fix_green:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=fix_green "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" check-green "{{SESSION_NAME}}"'
+    accepts:
+      counting_status:
+        type: enum
+        values: [green_failed, blocked]
+        description: >-
+          Absent on the passing path: koto advances once fix_green passes.
+          `green_failed` returns to implementation after a green that exited
+          non-zero; `blocked` stops the run when the hold can't be cleared.
+      detail:
+        type: string
+        description: Why the run can't be counted.
+    transitions:
+      - target: finalization
+        when:
+          gates.fix_green.exit_code: 0
+      - target: implementation
+        when:
+          gates.fix_green.exit_code: 1
+          counting_status: green_failed
+      - target: done_blocked
+        when:
+          gates.fix_green.exit_code: 1
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "pass_counting blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.fix_green.exit_code: 2
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "pass_counting blocked: ${evidence.detail}"
 
   finalization:
     gates:
@@ -1755,9 +1949,10 @@ states:
       finalization_status:
         type: enum
         # ready_for_pr: every acceptance criterion is met. Reaching this state at all
-        #   means the verification_verdict gate exited 0 (verification
-        #   only transitions to finalization on that exit), so ready_for_pr is backed by run
-        #   verification evidence -- there is no clean finalization without it.
+        #   means the verification_verdict gate exited 0 and pass_counting counted
+        #   the pass (verification goes to pass_counting only on that exit, and
+        #   pass_counting to finalization only on fix_green 0), so ready_for_pr is
+        #   backed by run verification evidence -- there is no clean finalization without it.
         #   The one other way in is verification_deferred, for a run that chose
         #   VERIFICATION=hosted-ci with a reason: its evidence is the pull
         #   request's hosted CI, which pr_creation makes the body record and
@@ -1787,8 +1982,9 @@ states:
         context_assignments:
           failure_reason: "check_exit at finalization: commit_convention could not be satisfied: ${evidence.check_exit_reason}"
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
-      # passed, since finalization is only reachable on verification_verdict exit 0,
-      # or deferred to hosted CI with a reason (verification_deferred).
+      # passed, since finalization is only reachable through pass_counting, after
+      # verification_verdict exit 0 or a deferral to hosted CI with a reason
+      # (verification_deferred).
       # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
@@ -2860,12 +3056,81 @@ Record the choice:
 
 It rebinds `REVIEW_LEVEL` and writes the ledger together; then tick again with
 nothing submitted (`koto next {{SESSION_NAME}} --no-cleanup`) and the run goes on to
-implementation. A bound alone never picks the level, even one whose floor
+fix_determination. A bound alone never picks the level, even one whose floor
 equals its ceiling: the choice is always a `set`. Exit 1 prints a `refused:` line naming the rule (outside the
 bound, or no bound recorded yet: tick again so the action records it). Exit 66
 means the rebind or a koto context read or write failed and nothing changed;
 read its message and run it again. If no level can be recorded, submit
 `level_status: blocked` with `detail`.
+
+## fix_determination
+
+koto has decided whether this unit is a fix, before anything is implemented
+(`references/red-first.md`). On entry it ran `fix-kind.sh resolve`, which records
+a fix when the issue carries one of the repository's fix labels (`## Fix Labels:`
+in CLAUDE.md, `bug` by default) or the plan step has a `**Fixes**:` line, and a
+change otherwise, and binds `UNIT_KIND` to match. See what it recorded:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" kind "{{SESSION_NAME}}"
+```
+
+If the unit is recorded as a change but its report describes existing behaviour
+as wrong (something worked before, or is documented to work, and doesn't), declare
+it a fix yourself:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-kind.sh" declare "{{SESSION_NAME}}" --reason "<why the report says this is a defect>"
+```
+
+A fix can't be taken back: `fix-kind.sh` refuses to make one a change, and the run
+owes a red before implementation. Then tick with nothing submitted
+(`koto next {{SESSION_NAME}} --no-cleanup`). koto routes on `UNIT_KIND` from the tick
+after it was bound, so a fresh determination holds `kind_unchanged` once, saying to
+tick again. A change goes to `implementation`, a fix to `reproduce`.
+
+`kind_unchanged` also holds when `UNIT_KIND` was rebound by hand away from the
+ledger; its `hold:` line names both, and `fix-kind.sh declare` puts a fix back. If
+the action failed (its fallback is shown above) and the cause can't be fixed, submit
+`kind_status: blocked` with `detail`.
+
+## reproduce
+
+This unit is a fix, so it starts red: before changing any code, record a check that
+fails on the code as it is, for the reason the report gives
+(`references/red-first.md`).
+
+1. Write the test that reproduces the report and commit it. Commit only the test:
+   the red copies the unit's committed test files onto the base code, so it would
+   show the failure even with a correcting change committed, but the order of the
+   work is part of what a reviewer reads.
+2. Choose the failure marker, a literal string of at least 8 characters that the
+   report states and the failing check prints, and a passage of at least 20
+   characters copied verbatim from the report that contains it. The report is the
+   plan step's Fixes line, the issue body, or the task text, as
+   `koto context get {{SESSION_NAME}} fix_report.txt` shows it.
+3. Record the red with the command that runs the check:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" red "{{SESSION_NAME}}" --marker '<marker>' --passage-file <file holding the passage> -- <command> [<arg>...]
+```
+
+It exits 0 when the red is recorded and 1 with a `refused:` line naming the
+condition that failed: the check passed, its output lacks the marker (a check that
+fails for some other reason, such as a compile error), the marker or passage is too
+short, the marker isn't in the passage, or the passage isn't in the report. Fix the
+test or the inputs and run it again. Name an existing test that already reproduces
+the bug with `--tests <path>...`.
+
+When no automated check can reproduce the bug, record a before-observation instead
+(`red-first.sh observe {{SESSION_NAME}} --phase before --file <observation.md>`;
+`references/red-first.md` lists its sections). An observation pair waits for an
+acceptance this version can't record, so such a run is later held at
+`pass_counting`.
+
+Then tick with nothing submitted. The `red_recorded` gate passes once a red or a
+before-observation is recorded, and the run goes on to `implementation`. If neither
+can be recorded, submit `reproduce_status: blocked` with `detail`.
 
 ## implementation
 
@@ -3078,7 +3343,7 @@ commands for this branch's changed files, and starts them in a bounded, detached
 supervisor. The `verification_verdict` gate runs `check-verification.sh --verdict`
 on the result and koto routes on it, with no evidence from you:
 
-- **exit 0**: every selected command ran and passed. The run goes to `finalization`.
+- **exit 0**: every selected command ran and passed. The run goes to `pass_counting`.
 - **exit 1**: a command ran and did not pass. The run returns to `implementation`
   to fix the failure, and koto clears the panel results and `summary.md` as it
   enters there, so the panels judge the fixed code.
@@ -3128,11 +3393,33 @@ map was never launched. The stated reason, `VERIFICATION_DEFERRAL_REASON`, is in
 context as `verification_deferral`
 (`koto context get {{SESSION_NAME}} verification_deferral`).
 
-The run goes on to `finalization`. The pull request's hosted CI is the build of
-record: `pr_creation` holds until the pull request body records the deferral, and
-`ci_monitor` requires that CI green. A run that chose the deferral without a
-reason stops at `done_blocked` instead; start it again with both variables, or
-without the deferral.
+The run goes on to `pass_counting`, then `finalization`. The pull request's hosted
+CI is the build of record: `pr_creation` holds until the pull request body records
+the deferral, and `ci_monitor` requires that CI green. A run that chose the deferral
+without a reason stops at `done_blocked` instead; start it again with both
+variables, or without the deferral.
+
+## pass_counting
+
+A check passed, and koto counts the pass here before the run finalizes
+(`references/red-first.md`). The `fix_green` gate passes at once for a unit that
+isn't a fix. A fix needs its green: the red's command re-run at HEAD, exiting 0.
+Record it:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" green "{{SESSION_NAME}}"
+```
+
+It runs the command in a temporary worktree of the committed HEAD, records the
+result, and exits 0 when the check passed. Then tick with nothing submitted, and
+the run goes on to `finalization`. A green recorded before a later commit no longer
+counts; record it again.
+
+When the green exits non-zero (`failed:`), the fix doesn't pass its own check: submit
+`counting_status: green_failed` and the run returns to `implementation`. A fix
+recorded by observations stays held here with a `refused:` line, since observations
+wait for an acceptance this version can't record; submit `counting_status: blocked`
+with `detail` to stop the run, as for any hold that can't be cleared.
 
 ## finalization
 
