@@ -8,13 +8,14 @@
 # land's capture is stale (land entered again since it was sealed), absent,
 # not permit, or unsealed, when provenance fails (another plugin root, an
 # edited template), when the run has a directed transition, when a hold in
-# the record stands on the pull request now, or when its title and Part 1
-# don't build a message; and it must be
+# the record stands on the pull request now, when a pause holds its unit (exit
+# 12), or when its title and Part 1 don't build a message; and it must be
 # called with the repository, the pull request and the verified sha
-# otherwise. --closeout does the same for a rotation's or a predecessor's
-# record pull request from its close-out capture. merge-exec's own refusal
-# and failure pass through as exit 11. The script never names `gh pr merge`,
-# and a MERGE_EXEC in the environment never replaces merge-exec.sh.
+# otherwise. The record, its holds and its pauses, is re-read from the run's
+# session, never from GitHub. --closeout is a usage error: there is no record
+# pull request to merge. merge-exec's own refusal and failure pass through as
+# exit 11. The script never names `gh pr merge`, and a MERGE_EXEC in the
+# environment never replaces merge-exec.sh.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-merge_test.sh
@@ -107,8 +108,8 @@ at_land; bt_record_body '[]' "[$(printf '%s' "$HOLD_GO" | jq -c '.lifted = "2026
 bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a lifted hold doesn't" 0 $?
 at_land; bt_record_body '[]' "[$(printf '%s' "$HOLD_GO" | jq -c '.on = "acme/widgets#13"')]"
 bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does one on another pull request" 0 $?
-at_land; echo 1 > "$GH_BOARD_DIR/issue-7.rc"
-never "a record that can't be re-read for its holds" 10
+at_land; rm -f "$KOTO_BOARD_DIR/sessions/$S/ctx/record__meta"
+never "a session that holds no record can't be re-read for its holds" 10
 
 echo "== a pause written after the land check =="
 at_land; bt_record_paused "[$(bt_pause s1 pause all lifted)]"
@@ -123,18 +124,14 @@ bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does an a
 at_land; bt_record_paused "[$(bt_pause s1 pause all "time 2000-01-01T00:00Z")]"
 bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor a pause whose minute has passed" 0 $?
 
-echo "== the session store =="
-# A record on the session store (PRD R18, R20): the merge re-reads the hold and
-# the pause from the run's session keys, with the GitHub body in the moved shape.
-export BT_FIND_TOKEN="found 7 session"
-at_land; bt_record_body '[]' "[$HOLD_GO]"; bt_session_record "$S"
-never "a hold on the session store stops the merge" 10
-grep -q 'a hold stands on #12 now: go (lifted, unmet)' "$T/err" && ok "  ... naming the hold" || bad "  ... naming the hold" "$(cat "$T/err")"
-at_land; bt_record_paused "[$(bt_pause s1 pause all lifted)]"; bt_session_record "$S"
-never "a pause on the session store stops it with its own code" 12
-at_land; bt_record_paused '[]'; bt_session_record "$S"
-bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "  ... and with neither, it merges" 0 $?
-unset BT_FIND_TOKEN
+echo "== the record is the session's =="
+# The hold and the pause are re-read from the run's session keys; GitHub
+# serves no record.
+at_land; bt_record_body '[]' "[$HOLD_GO]"; : > "$GH_BOARD_DIR/calls"
+never "a hold in the session stops the merge" 10
+at_land; bt_record_paused "[$(bt_pause s1 pause all lifted)]"; : > "$GH_BOARD_DIR/calls"
+never "a pause in the session stops it with its own code" 12
+grep -q 'issues/' "$GH_BOARD_DIR/calls" && bad "  ... and no record is read on GitHub" "$(cat "$GH_BOARD_DIR/calls")" || ok "  ... and no record is read on GitHub"
 
 echo "== merge-exec's own answers =="
 at_land; printf 'merge-refused:unmergeable:blocked\n' > "$BT_STATE/merge-exec.out"; echo 0 > "$BT_STATE/merge-exec.rc"
@@ -144,38 +141,9 @@ eq "and its line is printed" "merge-refused:unmergeable:blocked" "$OUT"
 at_land; : > "$BT_STATE/merge-exec.out"; echo 2 > "$BT_STATE/merge-exec.rc"
 bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a merge-exec failure is exit 11" 11 $?
 
-echo "== --closeout =="
-closeout() { # closeout <NAME> <state>
-    N=$((N + 1))
-    S="coordinate-demo-20260926T1100$(printf '%02d' "$N")Z"
-    bt_run "$S" "$PERMIT"
-    bt_enter "$S" "$2"
-    bt_sealed "$S" "$2" "$1" "land 30 $H"
-    bt_enter "$S" "${2%_close}_step"
-    rm -f "$CALLS" "$BT_STATE/merge-exec.out" "$BT_STATE/merge-exec.rc" "$BT_STATE/posture.rc"
-    printf '%s\n' "$PERMIT" > "$BT_STATE/posture"
-    # The record pull request: the renderer's fixed Part 1, then the record.
-    jq -nc '{title: "docs(coordination): close the demo rotation",
-             body: "The coordination record for the demo rotation.\n\n---\n\n> This is a **coordinator record**"}' \
-        > "$GH_BOARD_DIR/prview-30.out"
-}
-closeout ROTATION_CLOSE rotation_close
-bash "$LM" --session "$S" --closeout >/dev/null 2>"$T/err"; rc=$?
-eq "a rotation's record pull request merges: exit 0" 0 $rc
-eq "at the host, with the close-out's verified sha" "acme/widgets 30 $H" "$(cat "$CALLS" 2>/dev/null)"
-eq "and the record pull request's title and fixed Part 1 as the message" \
-    "$(printf 'docs(coordination): close the demo rotation\n\nThe coordination record for the demo rotation.')" \
-    "$(cat "$BT_STATE/merge-exec.msg" 2>/dev/null)"
-closeout PREDECESSOR_CLOSE predecessor_close
-bash "$LM" --session "$S" --closeout >/dev/null 2>&1; eq "a predecessor's record pull request merges: exit 0" 0 $?
-closeout ROTATION_CLOSE rotation_close; bt_enter "$S" rotation_close
-never "a stale close-out capture" 10 --closeout
-closeout ROTATION_CLOSE rotation_close; printf '%s\n' "readable merge:deny close:permit teardown:permit" > "$BT_STATE/posture"
-never "a close-out the posture denies" 10 --closeout
-closeout ROTATION_CLOSE rotation_close; bt_append "$S" directed_transition '{"from":"rotation_step","to":"rotation_close"}'
-never "a close-out in a run with a directed transition" 10 --closeout
+echo "== --closeout is gone =="
 at_land
-never "--closeout doesn't take land's capture" 10 --closeout
+never "--closeout is a usage error" 64 --closeout
 
 echo "== usage and the merge call =="
 bash "$LM" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
