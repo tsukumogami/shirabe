@@ -76,14 +76,20 @@
 #       name alone, except node_modules: a directory holding a CACHEDIR.TAG
 #       that starts with the cache-directory signature, or a .rustc_info.json
 #       naming a rustc_fingerprint (a cargo target directory, whatever it is
-#       named); one holding a .package-cache (a cargo home); and any
-#       directory named node_modules. Only the outermost tree is left out (one
-#       inside another is part of it), tmp/ itself never is, and no link is
-#       followed, as everywhere else. Each one left out is a line of SKIPPED,
-#       `<bytes> <marker> job/tmp/<path>`, its bytes the sum of its regular
-#       files' sizes; SKIPPED is in the MANIFEST and the README lists the
-#       trees. A tmp/ with no build tree gets no SKIPPED and no README line,
-#       so its archive is what it was before trees were left out.
+#       named); one holding a .cargo-lock (a cargo build profile directory,
+#       such as target/debug); one holding a .package-cache (a cargo home);
+#       and any directory named node_modules. Only the outermost tree is left
+#       out (one inside another is part of it), and no link is followed, as
+#       everywhere else. tmp/ itself never is one, since the worker's scratch
+#       beside it would go too: a target directory set to tmp/ itself still
+#       loses its profile directories, by their .cargo-lock, while a cargo
+#       home set to tmp/ itself is archived whole. Each one left out is a line
+#       of SKIPPED, `<bytes> <marker> job/tmp/<path>`, its bytes the sum of
+#       its regular files' sizes; SKIPPED is in the MANIFEST and the README
+#       lists the trees. It is a file of its own, not a field of
+#       teardown.json, whose shape unit-cost.sh reads: a tmp/ with no build
+#       tree gets no SKIPPED and no README line, so its archive is what it was
+#       before trees were left out.
 #
 #       Removed mode, when the verdict says `removed yes` (the unit was torn
 #       down outside the pass; teardown-handoff.sh): the instance name is
@@ -406,10 +412,11 @@ build_trees() {
         [ -n "$d" ] && [ "$d" != . ] && printf 'node_modules\t%s\n' "${d#./}" >>"$T/bt.all"
     done <"$T/bt.nm"
     (cd "$1" && find . -type d -name node_modules -prune -o \
-        -type f \( -name CACHEDIR.TAG -o -name .rustc_info.json -o -name .package-cache \) -print) >"$T/bt.mk" 2>/dev/null || return 1
+        -type f \( -name CACHEDIR.TAG -o -name .rustc_info.json -o -name .cargo-lock -o -name .package-cache \) -print) >"$T/bt.mk" 2>/dev/null || return 1
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         d=$(dirname "$f") m=${f##*/}
+        # tmp/ itself is never a tree (the header says why).
         [ "$d" = . ] && continue
         # A marker is checked for what its tool writes, so a scratch file
         # that only shares the name keeps its directory in the archive.
@@ -430,8 +437,11 @@ build_trees() {
 # copy_job_tmp <src dir> <rel dir>: copy_tree, leaving out the build trees;
 # each one left out goes on $T/trees.skipped (SKIPPED's source; not
 # $T/skipped, which a case-insensitive file system takes for the same name)
-# as `<bytes> <marker> <rel dir>/<path>`, its bytes summed from a listing,
-# so no file in it is opened.
+# as `<bytes> <marker> <rel dir>/<path>`. Its bytes are summed from `ls -ln`,
+# whose fifth field is the size on BSD and GNU alike (stat isn't on the
+# suites' PATH), so no file in it is opened; a directory in it that can't be
+# read adds nothing, so the figure is a floor. Nothing in a tree is copied,
+# so an unreadable file there never refuses the pass.
 copy_job_tmp() {
     local f m p b
     build_trees "$1" || refused "cannot list $1"
@@ -609,7 +619,7 @@ h=$(sha256 <"$ARCH/MANIFEST") && printf '%s  MANIFEST\n' "$h" >"$ARCH/MANIFEST.s
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`teardown.json`, in the MANIFEST, records what the pass acted on: the topic, the instance, the job and session, whether the unit was removed outside the pass, and niwa'"'"'s dispatch id.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
-    [ -s "$T/trees.skipped" ] && printf '`SKIPPED`, in the MANIFEST, lists each build tree left out of `job/tmp/` as `<bytes> <marker> <path>`: a directory holding cargo'"'"'s CACHEDIR.TAG or .rustc_info.json, a cargo home'"'"'s .package-cache, or a node_modules directory. None of their files is in the archive.\n'
+    [ -s "$T/trees.skipped" ] && printf '`SKIPPED`, in the MANIFEST, lists each build tree left out of `job/tmp/` as `<bytes> <marker> <path>`: a directory holding cargo'"'"'s CACHEDIR.TAG, .rustc_info.json or .cargo-lock, a cargo home'"'"'s .package-cache, or a node_modules directory. None of their files is in the archive.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.\n'
 } >"$ARCH/README.md"

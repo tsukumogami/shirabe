@@ -47,12 +47,13 @@
 #
 # And build trees in the job's tmp/: a cargo target dir under another name
 # (CACHEDIR.TAG) holding a node_modules, a repo's target/ (.rustc_info.json),
-# a node_modules holding another, and a cargo home (.package-cache) are left
-# out, each outermost tree listed once in SKIPPED and the README with its
-# bytes, a link to one not followed; the scratch beside them and the near
-# misses (a target/ with no marker, a CACHEDIR.TAG without the signature, a
-# .rustc_info.json without rustc_fingerprint, a marker in tmp/ itself) are
-# archived; SKIPPED is in the MANIFEST and confirm passes the archive. A
+# a node_modules holding another, a cargo home (.package-cache) and, with
+# tmp/ itself marked as a target dir, a build profile directory at its top
+# (.cargo-lock) are left out, each outermost tree listed once in SKIPPED and
+# the README with its bytes, a link to one not followed; the scratch beside
+# them and the near misses (a target/ with no marker, a CACHEDIR.TAG without
+# the signature, a .rustc_info.json without rustc_fingerprint, a marker in
+# tmp/ itself) are archived; SKIPPED is in the MANIFEST and confirm passes the archive. A
 # tmp/ with no build tree writes no SKIPPED and no README line, archives
 # every file in find's order, and confirms.
 #
@@ -645,11 +646,16 @@ setup_run
 scratch_tmp
 # A cargo target dir under another name, its marker CACHEDIR.TAG, holding a
 # node_modules of its own; a repo's target/, marked by .rustc_info.json;
-# node_modules nested in node_modules; a cargo home; and a link to a tree.
+# node_modules nested in node_modules; a cargo home; a link to a tree; and,
+# with scratch_tmp's CACHEDIR.TAG making tmp/ itself a target dir, a build
+# profile directory at its top, marked by .cargo-lock.
 mkdir -p "$JT/ct/debug" "$JT/ct/inner/node_modules" "$JT/repo/target/release" \
-    "$JT/web/node_modules/a/node_modules/b" "$JT/ch/registry/cache"
+    "$JT/web/node_modules/a/node_modules/b" "$JT/ch/registry/cache" "$JT/debug/deps"
 printf '%s\n# cargo\n' "$SIG" >"$JT/ct/CACHEDIR.TAG"
 printf '%0100d' 0 >"$JT/ct/debug/big"
+: >"$JT/ct/debug/.cargo-lock"
+: >"$JT/debug/.cargo-lock"
+printf '%040d' 0 >"$JT/debug/deps/libx.rlib"
 printf 'x\n' >"$JT/ct/inner/node_modules/y"
 printf '{"rustc_fingerprint":1,"outputs":{}}\n' >"$JT/repo/target/.rustc_info.json"
 printf '%0200d' 0 >"$JT/repo/target/release/app"
@@ -661,9 +667,9 @@ ln -s "$JT/web/node_modules" "$JT/nm-link"
 run_pass
 [ "$RC" = 0 ] && [ "$RES" = done ] && ok "build trees in tmp/: the pass is done" || bad "build trees in tmp/: the pass is done" "exit $RC: $OUT $ERR"
 eq_ "SKIPPED lists each outermost tree, its marker and its bytes" \
-    "300 .package-cache job/tmp/ch|154 CACHEDIR.TAG job/tmp/ct|237 .rustc_info.json job/tmp/repo/target|75 node_modules job/tmp/web/node_modules" \
+    "300 .package-cache job/tmp/ch|154 CACHEDIR.TAG job/tmp/ct|40 .cargo-lock job/tmp/debug|237 .rustc_info.json job/tmp/repo/target|75 node_modules job/tmp/web/node_modules" \
     "$(tr '\n' '|' <"$ARCHD/SKIPPED" 2>&1 | sed 's/|$//')"
-for d in ch ct repo/target web/node_modules nm-link; do
+for d in ch ct debug repo/target web/node_modules nm-link; do
     [ -e "$ARCHD/job/tmp/$d" ] && bad "left out of the archive: job/tmp/$d" "$(cd "$ARCHD" && find job | sort)" || ok "left out of the archive: job/tmp/$d"
 done
 for f in notes.md "sub/scratch file.txt" repo/src/main.rs web/src/app.js notes/target/plan.md tag/CACHEDIR.TAG ri/.rustc_info.json CACHEDIR.TAG; do
@@ -673,7 +679,7 @@ grep -q ' SKIPPED$' "$ARCHD/MANIFEST" && ok "SKIPPED is in the MANIFEST" || bad 
 eq_ "the MANIFEST lists the 8 kept tmp/ files and nothing under a tree" 8 "$(grep -c ' job/tmp/' "$ARCHD/MANIFEST")"
 eq_ "MANIFEST.sha256 records the MANIFEST's digest" "$(sha256 <"$ARCHD/MANIFEST")  MANIFEST" "$(cat "$ARCHD/MANIFEST.sha256" 2>&1)"
 eq_ "the README lists each tree left out" \
-    "- Build tree skipped (.package-cache, 300 bytes): job/tmp/ch|- Build tree skipped (CACHEDIR.TAG, 154 bytes): job/tmp/ct|- Build tree skipped (.rustc_info.json, 237 bytes): job/tmp/repo/target|- Build tree skipped (node_modules, 75 bytes): job/tmp/web/node_modules" \
+    "- Build tree skipped (.package-cache, 300 bytes): job/tmp/ch|- Build tree skipped (CACHEDIR.TAG, 154 bytes): job/tmp/ct|- Build tree skipped (.cargo-lock, 40 bytes): job/tmp/debug|- Build tree skipped (.rustc_info.json, 237 bytes): job/tmp/repo/target|- Build tree skipped (node_modules, 75 bytes): job/tmp/web/node_modules" \
     "$(grep '^- Build tree skipped' "$ARCHD/README.md" | tr '\n' '|' | sed 's/|$//')"
 grep -q '^`SKIPPED`, in the MANIFEST, lists each build tree' "$ARCHD/README.md" \
     && ok "the README says what SKIPPED is" || bad "the README says what SKIPPED is" "$(cat "$ARCHD/README.md")"
