@@ -1,6 +1,7 @@
 name: Check preflight scripts
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'scripts/skill-preflight.sh'
@@ -22,6 +23,30 @@ on:
       - 'scripts/assert-koto-floor.sh'
       # The macOS leg runs the `preflight` suite through the floor runner, and
       # that suite also carries the injection and discard checks' harnesses.
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/preflight.list'
+      - 'scripts/check-skill-injection.sh'
+      - 'scripts/check-skill-injection_test.sh'
+      - 'scripts/check-tool-diagnostic-discards.sh'
+      - 'scripts/check-tool-diagnostic-discards_test.sh'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'scripts/skill-preflight.sh'
+      - 'scripts/skill-preflight_test.sh'
+      - 'scripts/lib/preflight-*.sh'
+      - 'scripts/lib/tool-routes.tsv'
+      - 'scripts/check-skill-requires.sh'
+      - 'scripts/check-skill-requires_test.sh'
+      - 'skills/*/requires.tsv'
+      - 'references/tool-declaration-policy.md'
+      - 'skills/inflight/evals/fixtures/preflight-liveness/**'
+      - '.github/workflows/check-preflight-scripts.yml'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/preflight.list'
       - 'scripts/check-skill-injection.sh'

@@ -9,7 +9,28 @@ name: Check Jev criteria
 # from a fork can't spend anyone's decider key.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
+    paths:
+      - 'scripts/jev-criteria/**'
+      - 'references/rule-registry.json'
+      - 'references/jev-criteria.md'
+      - 'docs/guides/jev-criteria.md'
+      - 'scripts/rule-registry.sh'
+      - 'scripts/rule-registry_test.sh'
+      - 'scripts/review-shadow/**'
+      - 'scripts/jev-withhold.sh'
+      - 'scripts/jev-withhold_test.sh'
+      - 'scripts/bash-floor/jev-withhold.list'
+      - 'skills/*/koto-templates/**'
+      - 'skills/work-on/scripts/review-level.sh'
+      - 'skills/work-on/references/review-level-rules.tsv'
+      - '.github/workflows/check-jev-criteria.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
     paths:
       - 'scripts/jev-criteria/**'
       - 'references/rule-registry.json'
@@ -75,10 +96,12 @@ jobs:
 
       # Against the merge base, as check-rule-registry.yml does: the history
       # rules compare a changed declaration's date with the base's, and the
-      # base branch's tip can be newer than the point this branch left it.
+      # base branch's tip can be newer than the point this branch left it. A
+      # push to main has no pull request, so its base is main as it was
+      # before the push (github.event.before).
       - name: Check every Jev criterion against its contract and the base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           base=$(git merge-base "$BASE_SHA" HEAD)

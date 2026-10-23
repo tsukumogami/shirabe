@@ -295,6 +295,11 @@ if grep -qF "pr checks $REPO_URL/pull/7 " "$FIX/gh.log" && grep -qF "pr view $RE
 else
     fail "--owned: the PR was not read by its URL: $(cat "$FIX/gh.log")"
 fi
+if grep -qF "api repos/$R/actions/runs/200 --hostname github.com " "$FIX/gh.log"; then
+    pass "--owned: the runs are read from the host the lookup's URL names"
+else
+    fail "--owned: the run read did not name the URL's host: $(grep '^api' "$FIX/gh.log")"
+fi
 # The arguments reach owned-pr.sh as given: open-else-merged is the one value
 # that lists every state and still answers the MERGED PR here, while a
 # MERGED PR is no answer to --state open.
