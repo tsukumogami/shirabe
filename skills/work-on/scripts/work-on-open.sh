@@ -315,7 +315,11 @@ case "$OUT" in
     opened=*)
         printf 'session=%s\n' "$WORKFLOW"
         # A failed link has printed its warning and recorded it; the open stands.
-        [ "$HAVE_DISPATCHER" -eq 0 ] || dl_link "${KOTO_BIN:-koto}" "$WORKFLOW" "$DISPATCHER" || true
+        # koto-open.sh prints opened= only on exit 0; the check keeps it so if
+        # that ever changes. It runs the koto KOTO_BIN names, as this does.
+        if [ "$HAVE_DISPATCHER" -eq 1 ] && [ "$RC" -eq 0 ]; then
+            dl_link "${KOTO_BIN:-koto}" "$WORKFLOW" "$DISPATCHER" || true
+        fi
         ;;
 esac
 exit "$RC"

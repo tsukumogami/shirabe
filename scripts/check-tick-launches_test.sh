@@ -204,6 +204,21 @@ EOF
 run --root "$F"
 expect_fail "a \"\$CLAUDE_BIN\" -p before the unset fails" "skills/demo/scripts/inner.sh:2: launches claude"
 
+# Launches that hide behind a path, a shell's -c, or a harmless subcommand on
+# the same line.
+for body in \
+    '/usr/local/bin/claude -p "go"' \
+    '"$HOME/.local/bin/claude" --print "go"' \
+    './bin/niwa dispatch "$PROMPT" --name x' \
+    "bash -c 'claude -p \"go\"'" \
+    'sh -c "niwa dispatch t --detach"' \
+    'claude --version && claude -p "go"' \
+    'niwa dispatch --help >/dev/null; niwa dispatch "$PROMPT" --name x'; do
+    printf '#!/usr/bin/env bash\n%s\n' "$body" >"$F/skills/demo/scripts/inner.sh"
+    run --root "$F"
+    expect_fail "a launch written as [$body] fails" "skills/demo/scripts/inner.sh:2: launches"
+done
+
 # What is not a launch.
 script "$F/skills/demo/scripts/inner.sh" <<'EOF'
 #!/usr/bin/env bash

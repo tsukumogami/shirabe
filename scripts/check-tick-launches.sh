@@ -24,11 +24,16 @@
 #
 # What counts as a launch, on a line that isn't a comment, once every quoted
 # string holding a space is set aside (a message such as "claude agents could
-# not be read" is text, not a command):
+# not be read" is text, not a command), except the script a shell is handed
+# with -c (`bash -c 'claude -p x'`), which is read as a command. A subcommand
+# that starts nothing is set aside where it occurs, so a launch beside it on
+# the same line is still seen:
 #
-#   `niwa dispatch`, or a variable whose name holds NIWA followed by
+#   `niwa dispatch` (by name or by a path ending in /niwa), or a variable
+#   whose name holds NIWA followed by
 #   `dispatch` (`"$NIWA" dispatch`), unless what follows is `--help` or `-h`;
-#   `claude` as a word, or a variable whose name holds CLAUDE, followed by an
+#   `claude` as a word or a path ending in /claude, or a variable whose name
+#   holds CLAUDE, followed by an
 #   argument or ending the command (`"$CLAUDE_CLI" -p ...`), unless what
 #   follows is a subcommand that starts no session: `agents`, `rm`,
 #   `--version`, `-v`, `--help`, `-h`;
@@ -133,9 +138,9 @@ Q="'"
 TAB=$(printf '\t')
 export CTL_UNSET='(unset|env[[:space:]].*-u|[.]pop|del[[:space:]]|startswith)[^#]*KOTO_SESSION_'
 TOOLVAR='(_(BIN|CLI|CMD|COMMAND|EXE))?[}]?'
-export CTL_NIWA="(^|[^A-Za-z0-9_./-])(niwa|[\$][{]?NIWA$TOOLVAR)[\"$Q]?[[:space:]]+dispatch([^A-Za-z0-9_-]|\$)"
+export CTL_NIWA="(^|[^A-Za-z0-9_./-])([^[:space:]\"$Q=;|&()]*/)?(niwa|[\$][{]?NIWA$TOOLVAR)[\"$Q]?[[:space:]]+dispatch([^A-Za-z0-9_-]|\$)"
 export CTL_NIWA_SAFE="dispatch[[:space:]]+(--help|-h)([[:space:]]|\$|[;|&)\"$Q])"
-export CTL_CLAUDE="(^|[^A-Za-z0-9_./-])(claude|[\$][{]?CLAUDE$TOOLVAR)[\"$Q]?([[:space:]]+[^[:space:]]|[[:space:]]*\$|[[:space:]]*[;|&])"
+export CTL_CLAUDE="(^|[^A-Za-z0-9_./-])([^[:space:]\"$Q=;|&()]*/)?(claude|[\$][{]?CLAUDE$TOOLVAR)[\"$Q]?([[:space:]]+[^[:space:]]|[[:space:]]*\$|[[:space:]]*[;|&])"
 export CTL_CLAUDE_SAFE="(claude|[\$][{]?CLAUDE$TOOLVAR)[\"$Q]?[[:space:]]+(agents|rm|--version|-v|--help|-h)([[:space:]]|\$|[;|&)\"$Q])"
 export CTL_PY="[\"$Q]claude[\"$Q][[:space:]]*[],]|[\"$Q]niwa[\"$Q][[:space:]]*,[[:space:]]*[\"$Q]dispatch[\"$Q]"
 
@@ -159,7 +164,10 @@ AWK_TEXT='
                 j++
             }
             seg = substr(s, i, j - i + 1)
-            out = out ((seg ~ /[ \t]/) ? "\"\"" : seg)
+            # The script a shell is handed with -c is a command, not text:
+            # keep what is inside its quotes.
+            if (out ~ /(^|[^A-Za-z0-9_])-c[ \t]+$/) out = out "; " substr(seg, 2, length(seg) - 2)
+            else out = out ((seg ~ /[ \t]/) ? "\"\"" : seg)
             i = j + 1
         }
         return out
@@ -182,8 +190,12 @@ launches() {
             if (cleared) next
             if (line ~ py_re) { print NR "\tclaude or niwa dispatch (as a Python argument list)"; next }
             line = text(line)
-            if (line ~ niwa_re && line !~ niwa_safe_re) { print NR "\tniwa dispatch"; next }
-            if (line ~ claude_re && line !~ safe_re) print NR "\tclaude"
+            # A subcommand that starts nothing is set aside where it occurs,
+            # so a launch beside it on the same line is still seen.
+            gsub(niwa_safe_re, "", line)
+            gsub(safe_re, "", line)
+            if (line ~ niwa_re) { print NR "\tniwa dispatch"; next }
+            if (line ~ claude_re) print NR "\tclaude"
         }
     ' "$1"
 }
