@@ -377,9 +377,13 @@ run-facts)
     VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
     [ -n "$VARS" ] || die "no workflow_initialized event"
     FOUND=$(NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture) || exit 1
-    case "$FOUND" in found\ *|move\ *|predecessor\ *|first\ *) ;; *) exit 1 ;; esac
+    # A found record, a move, or a session rotation's token (no number). A
+    # GitHub `predecessor <n>` is the previous rotation's record, never this
+    # run's, so it reads as no found record.
+    RF_SCOPE=$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')
+    case "$FOUND" in found\ *|move\ *) ;; *) session_rotation_token "${FOUND% sealed:*}" "$RF_SCOPE" || exit 1 ;; esac
     (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || exit 1
-    if session_rotation_token "${FOUND% sealed:*}" "$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')"; then
+    if session_rotation_token "${FOUND% sealed:*}" "$RF_SCOPE"; then
         REF=
     else
         REF=$(printf '%s' "$FOUND" | cut -d' ' -f2)

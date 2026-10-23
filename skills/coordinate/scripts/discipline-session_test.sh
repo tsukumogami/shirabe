@@ -112,6 +112,16 @@ log_new "$GH" "$(discipline_vars rsgh)"; sealed "$GH" "found 22"
 printf '%s' '{"start":"2026-10-01","end":"2026-10-07","host_repo":"acme/widgets","predecessor":null}' > "$T/rot.json"
 bash "$HERE/record-state.sh" --session "$GH" --rotation "$T/rot.json" > /dev/null 2> "$T/err"
 eq "a rotation still on GitHub keeps no record/rotation" 65 $?
+# A GitHub predecessor (`predecessor <n>`) is no record of this run: run-facts
+# reads no found record for it, as before, while a session rotation's token
+# reads with an empty ref.
+GHP=coordinate-discipline-rsghp-20261001T100000Z
+log_new "$GHP" "$(discipline_vars rsghp)"; sealed "$GHP" "predecessor 21"
+bash "$HERE/coord-log.sh" run-facts --session "$GHP" > /dev/null 2>&1
+eq "run-facts reads no record for a GitHub predecessor" 1 $?
+SRF=coordinate-discipline-rsfirst-20261001T100000Z
+log_new "$SRF" "$(discipline_vars rsfirst)"; sealed "$SRF" first
+eq "  ... and an empty ref for a session rotation" '""' "$(bash "$HERE/coord-log.sh" run-facts --session "$SRF" | jq -c .ref)"
 
 echo "== the find: a rotation on the session store =="
 # Each case is its own discipline, so its sessions are the only ones of its slug.
