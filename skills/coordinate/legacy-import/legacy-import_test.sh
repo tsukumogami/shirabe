@@ -121,6 +121,8 @@ add_issue 8 alice "$FX/moved.md"
 eq "a moved-shape body beside it is no record" "record 7" "$(imp --lookup 2> "$T/err")"
 add_issue 9 bob "$FX/roadmap.md"
 eq "nor is one opened by an author without write access" "record 7" "$(imp --lookup 2> "$T/err")"
+grep -q '#9 skipped: its author has no write access' "$T/err" \
+    && ok "  ... which the lookup names on stderr" || bad "  ... which the lookup names on stderr" "$(cat "$T/err")"
 add_issue 10 carol "$FX/roadmap.md" "Coordinator record: ROADMAP-plugin-system-v2"
 eq "nor one with a longer title" "record 7" "$(imp --lookup 2> "$T/err")"
 add_issue 11 carol "$FX/roadmap.md"
@@ -190,6 +192,10 @@ unreadable() { # unreadable <label>
 }
 world 7 roadmap; db '.issues[0].body = "> This is a **coordinator record** for ROADMAP-plugin-system.\n\nnot a record"'
 unreadable "a body that doesn't parse"
+world 7 roadmap
+sed 's/^| go | acme\/widgets#14 |/| go | acme\/widgets |/' "$FX/roadmap.md" > "$T/schema.md"
+db '.issues[0].body = $b' --rawfile b "$T/schema.md"
+unreadable "a body that parses to a state the schema check refuses"
 world 7 roadmap; db '.issues[0].body = $b' --rawfile b "$FX/discipline.md"
 unreadable "another scope's body"
 world 7 roadmap; db '.fail = [{match: "collaborators/carol/permission", rc: 1, stderr: "HTTP 502: Bad Gateway"}]'
