@@ -1,91 +1,55 @@
 #!/usr/bin/env bash
-# closeout-read.sh -- the check action of states rotation_close,
-# predecessor_close and roadmap_close: where does the close-out stand?
+# closeout-read.sh -- the check action of state roadmap_close: is the roadmap
+# done, and the record clear to close?
 #
-# Discipline scope. On GitHub the pull request is the run's own record
-# (coord-log.sh run-facts) or, with --predecessor, the one the run's HANDOFF
-# capture names (`rendered <n>`, sealed at the latest entry into
-# predecessor_handoff). It reads the pull request's state, draft flag, title
-# and head, and docs/disciplines/<name>.md at that head and (own rotation) on
-# the host's default branch. The stage, first that applies:
-#   session-rotation       (own rotation) the rotation is on the session store:
-#                          no pull request, nothing to commit; it ends at
-#                          rotation_end
-#   merged <pr>            the pull request merged
-#   closed-unmerged <pr>   it closed without merging
-#   handoff-missing <pr>   (open) the file at the head is absent, isn't a
-#                          canonical handoff for this discipline, or its header
-#                          date isn't the close date (own rotation: today UTC;
-#                          predecessor: the title's end date). Own rotation
-#                          also: it is a predecessor copy, or its reasoning is
-#                          identical to the default branch's (not written
-#                          fresh). --predecessor also: its tables, not-re-checked
-#                          line and fixed sentence differ from the predecessor
-#                          handoff re-rendered from the live body
-#                          (predecessor-handoff.sh --out).
-#   title-stale <pr>       (open, own rotation only) the title's end date isn't
-#                          today UTC; a predecessor's title is never corrected
-#   land <pr> <head>       (open) board-verdict.sh --repo R --pr <pr> reads
-#                          verified at <head>
-#   land-blocked <pr>      (open) the board reads unverified. coord-verdict.sh
-#                          maps no code to it, so the state stays blocked
-#                          until the coordinator fixes the record pull request
-#                          and ticks again
-# A board still pending, or a board read error, exits 2 so koto re-runs the
-# read on the next tick. `handed-over` is never printed: a hand-over is the
-# coordinator's step, and the read sees only its result (merged or closed).
-#
-# Roadmap scope. The record issue (run-facts) and the roadmap file on the
-# host's default branch (the session's ROADMAP path, contents API, never a
-# working tree). First that applies:
-#   closed <n>         the record issue is closed
-#   verdict-owed <n>   a Work row of kind verdict-owed stands: a milestone
+# Roadmap scope only: a discipline rotation ends at rotation_end, by writing
+# its reasoning for the next rotation, and has no close-out to read. It reads
+# the record (record-source.sh) and the roadmap file on the host's default
+# branch (the session's ROADMAP path, contents API, never a working tree).
+# First that applies:
+#   verdict-owed       a Work row of kind verdict-owed stands: a milestone
 #                      whose verdict is owed or whose verdict's roadmap edit
 #                      isn't confirmed (roadmap-status.sh); the reason names
 #                      it, `verdict-owed <tag>`, and the detail's blocker is
 #                      its row (docs/designs/DESIGN-milestone-verdicts.md)
-#   features-open <n>  an item under the roadmap's items section
+#   features-open      an item under the roadmap's items section
 #                      (`## Milestones` on roadmap/v3, `## Features`
 #                      otherwise) doesn't read Done, Shipped or Dropped
 #                      (annotated or not, as in `Done -- shipped in #12`, as
 #                      lib_roadmap_features reads it), the roadmap lists no
 #                      item, or it is missing; on v3 the reason names
 #                      milestones
-#   holdings <n>       Holdings isn't empty
-#   side-effects <n>   Side effects in flight isn't empty; a milestone's
+#   holdings           Holdings isn't empty
+#   side-effects       Side effects in flight isn't empty; a milestone's
 #                      pending reopen edit (roadmap-status.sh --reopen) is
 #                      the blocker first, its reason `reopen-pending <tag>`
-#   deferrals <n>      a Deferrals row isn't `filed #<n>` or `closed: <text>`
-#   decisions <n>      a Decisions entry isn't settled
-#   ready <n>          all clear
-# <n> is the record's issue number in every roadmap token.
+#   deferrals          a Deferrals row isn't `filed #<n>` or `closed: <text>`
+#   decisions          a Decisions entry isn't settled
+#   ready              all clear
 #
 # The detail goes to context key coord/closeout.json as data, naming the first
-# blocker: {verdict, scope, ref, state, draft, head, title, reason, blocker, board}.
+# blocker: {verdict, scope, session, reason, blocker}.
 #
 # Usage:
-#   closeout-read.sh --session S [--predecessor] [--today YYYY-MM-DD]
-#   closeout-read.sh [--session S] --scope roadmap|discipline --name N --repo O/R
-#                    --ref N [--predecessor] [--roadmap PATH] [--today YYYY-MM-DD]
-#                    [--no-seal]                                     (tests)
+#   closeout-read.sh --session S
+#   closeout-read.sh [--session S] --scope roadmap --name N --repo O/R
+#                    [--roadmap PATH] [--no-seal]                     (tests)
 #
-# --today (tests; the template never passes it) stands in for today UTC.
+# The override flags are for tests, with RS_SESSION naming the session that
+# holds the record.
 #
-# Exit codes: 0 a verdict was printed; 2 a read failed, the board is pending,
-# or the run has no record; 64 usage.
+# Exit codes: 0 a verdict was printed; 2 a read failed, or the run has no
+# record; 64 usage.
 #
 # GitHub reads (all reads):
-#   gh pr view <n> --repo R --json number,state,isDraft,title,headRefOid,url
-#   gh issue view <n> --repo R --json state,body
 #   gh api --method GET repos/R --jq .default_branch
 #   gh api --method GET "repos/R/contents/<path>?ref=<ref>" --jq .content
-#   board-verdict.sh --repo R --pr <n>; predecessor-handoff.sh (gh pr view)
 set -uo pipefail
 
 PROG=closeout-read
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TODAY= ARG_ROADMAP=
-NO_SEAL=0 PRED=0
+SESSION= SCOPE= NAME= REPO= ARG_ROADMAP=
+NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -94,10 +58,7 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --roadmap) [ $# -ge 2 ] || usage; ARG_ROADMAP=$2; shift 2 ;;
-        --today) [ $# -ge 2 ] || usage; TODAY=$2; shift 2 ;;
-        --predecessor) PRED=1; shift ;;
         --no-seal) NO_SEAL=1; shift ;;
         *) usage ;;
     esac
@@ -106,213 +67,83 @@ done
 ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage
-if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u +%Y-%m-%d); fi
-[ "$PRED" = 0 ] || [ "$SCOPE" = discipline ] || usage
-
-if [ "$SCOPE" = roadmap ]; then STATE_NAME=roadmap_close
-elif [ "$PRED" = 1 ]; then STATE_NAME=predecessor_close
-else STATE_NAME=rotation_close; fi
-
-# The pull request or issue: the override --ref, the HANDOFF capture, or run-facts.
-if [ "$PRED" = 1 ] && [ "$OVERRIDE" = 0 ]; then
-    [ -z "$REF" ] || usage
-    HC=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name HANDOFF --state predecessor_handoff 2>/dev/null)
-    case $? in
-        0) ;;
-        1) lib_die2 "the run has no sealed predecessor_handoff capture" ;;
-        *) lib_die2 "cannot read the session log" ;;
-    esac
-    set -f; set -- $HC; set +f
-    [ "${1-}" = rendered ] || lib_die2 "the predecessor's handoff was not rendered"
-    REF=${2-}
-    [[ $REF =~ $RE_NUM ]] || lib_die2 "the HANDOFF capture names no pull request"
-else
-    lib_run_ref || lib_die2 "the run has no found record"
-fi
+[ "$SCOPE" = roadmap ] || { echo "$PROG: a discipline rotation has no close-out to read; it ends at rotation_end" >&2; exit 64; }
+lib_run_found || lib_die2 "the run has no found record"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/closeout-read.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-V= REASON= BLOCKER=null PRSTATE= DRAFT= HEAD= TITLE= BOARD=null
+REASON= BLOCKER=null
 finish() { # finish <token>
     [ -z "$REASON" ] || echo "$PROG: $REASON" >&2
-    jq -n --arg v "${1%% *}" --arg scope "$SCOPE" --arg ref "$REF" --arg st "$PRSTATE" --arg d "$DRAFT" \
-        --arg h "$HEAD" --arg t "$TITLE" --arg r "$REASON" --argjson b "$BLOCKER" --argjson board "$BOARD" \
-        '{verdict: $v, scope: $scope, ref: $ref, state: $st, draft: $d, head: $h, title: $t, reason: $r,
-          blocker: $b, board: $board}' > "$T/detail.json"
-    lib_emit "$STATE_NAME" "$1" coord/closeout.json "$T/detail.json"
+    jq -n --arg v "$1" --arg scope "$SCOPE" --arg s "${RS_SESSION:-$SESSION}" --arg r "$REASON" --argjson b "$BLOCKER" \
+        '{verdict: $v, scope: $scope, session: $s, reason: $r, blocker: $b}' > "$T/detail.json"
+    lib_emit roadmap_close "$1" coord/closeout.json "$T/detail.json"
 }
 
-# ---- roadmap ----------------------------------------------------------------
-if [ "$SCOPE" = roadmap ]; then
-    lib_roadmap_path
-    rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
-    [ $RS_RC -eq 2 ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/parsed.json.err")"
-    [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
-    cp "$T/parsed.json.raw" "$T/issue.json"
-    PRSTATE=$(jq -r '.state // ""' "$T/issue.json")
-    if [ "$PRSTATE" = CLOSED ]; then REASON="the record issue is closed"; finish "closed $REF"; fi
-    lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-    lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$T/roadmap.md"
-    case $? in
-        0) ;;
-        1) REASON="$ROADMAP is not on $DEFAULT_BRANCH"; finish "features-open $REF" ;;
-        *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
-    esac
-    # A milestone whose verdict is owed blocks first, naming the milestone:
-    # it may already read Done on the default branch (its verdict's edit
-    # merged, not yet confirmed) or still In progress, and either way the
-    # roadmap isn't closed until its verdict-owed row is confirmed away.
-    case $RS_RC in
-        0) ;;
-        3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
-        *) lib_die2 "record-parse.sh failed" ;;
-    esac
-    BLOCKER=$(jq -c '[(.work // [])[] | select(.kind == "verdict-owed")][0] // null
-        | if . == null then null else {item, who, next} end' "$T/parsed.json")
-    if [ "$BLOCKER" != null ]; then
-        REASON="verdict-owed $(printf '%s' "$BLOCKER" | jq -r .item): its verdict is owed; give it, and confirm its roadmap edit, before the roadmap closes"
-        finish "verdict-owed $REF"
-    fi
-    lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
-    # RM_SECTION and RM_WORD, from the reader: the item is a milestone on v3.
-    ITEM=feature
-    [ "$RM_WORD" = Milestone ] && ITEM=milestone
-    if [ "$(jq length "$T/features.json")" -eq 0 ]; then
-        REASON="the roadmap lists no $ITEM under ## $RM_SECTION"; finish "features-open $REF"
-    fi
-    OPEN=$(jq -c '[.[] | select(.done | not)]' "$T/features.json")
-    if [ "$(printf '%s' "$OPEN" | jq length)" -gt 0 ]; then
-        BLOCKER=$(printf '%s' "$OPEN" | jq -c '.[0] | {id, title, status}')
-        REASON="$(printf '%s' "$OPEN" | jq length) $ITEM(s) not Done, Shipped or Dropped"
-        finish "features-open $REF"
-    fi
-    if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then
-        BLOCKER=$(jq -c '.holdings[0] | {unit, worker, pull_request}' "$T/parsed.json")
-        REASON="Holdings is not empty"; finish "holdings $REF"
-    fi
-    if [ "$(jq '.side_effects | length' "$T/parsed.json")" -gt 0 ]; then
-        # A milestone's pending reopen edit is named first, by its tag: the
-        # milestone may still read Done on the default branch, so nothing
-        # above caught it.
-        BLOCKER=$(jq -c '([.side_effects[] | select(.action == "milestone-reopen")] + .side_effects)[0] | {action, target}' "$T/parsed.json")
-        if [ "$(printf '%s' "$BLOCKER" | jq -r .action)" = milestone-reopen ]; then
-            REASON="reopen-pending $(printf '%s' "$BLOCKER" | jq -r '.target | split(" [")[0]'): its reopen edit is pending; confirm it with roadmap-status.sh --confirm, or drop it, before the roadmap closes"
-        else
-            REASON="Side effects in flight is not empty"
-        fi
-        finish "side-effects $REF"
-    fi
-    BLOCKER=$(jq -c '[.deferrals[] | select(.disposition | test("^(filed #[1-9][0-9]*|closed: [\\s\\S]+)$") | not)][0] // null
-        | if . == null then null else {deferral, disposition} end' "$T/parsed.json")
-    if [ "$BLOCKER" != null ]; then
-        REASON="a deferral is not filed or closed"; finish "deferrals $REF"
-    fi
-    BLOCKER=$(jq -c '[(.decisions.entries // [])[] | select(.state != "settled")][0] // null
-        | if . == null then null else {decision, state, question} end' "$T/parsed.json")
-    if [ "$BLOCKER" != null ]; then
-        REASON="a decision is not settled"; finish "decisions $REF"
-    fi
-    REASON="every feature Done, Shipped or Dropped and the record is clear"
-    finish "ready $REF"
-fi
-
-# ---- discipline -------------------------------------------------------------
-# A rotation on the session store has no pull request to close: it ends at
-# rotation_end, by writing its reasoning for the next rotation.
-if [ "$PRED" = 0 ] && lib_session_rotation; then
-    REASON="a rotation on the session store ends at rotation_end"; finish session-rotation
-fi
-gh pr view "$REF" --repo "$REPO" --json number,state,isDraft,title,headRefOid,url > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
-    || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
-PRSTATE=$(jq -r '.state // ""' "$T/pr.json")
-DRAFT=$(jq -r '.isDraft // false' "$T/pr.json")
-HEAD=$(jq -r '.headRefOid // ""' "$T/pr.json")
-TITLE=$(jq -r '.title // ""' "$T/pr.json" | lib_scrub)
-case "$PRSTATE" in
-    MERGED) REASON="the record pull request merged"; finish "merged $REF" ;;
-    CLOSED) REASON="the record pull request closed without merging"; finish "closed-unmerged $REF" ;;
-    OPEN) ;;
-    *) lib_die2 "pull request #$REF has an unknown state" ;;
-esac
-[[ $HEAD =~ $RE_SHA ]] || lib_die2 "pull request #$REF has no usable head"
-
-HANDOFF_PATH="docs/disciplines/$NAME.md"
-missing() { REASON=$1; finish "handoff-missing $REF"; }
-
-TITLE_OK=1
-lib_rotation_dates "$(jq -r '.title // ""' "$T/pr.json")" || TITLE_OK=0
-if [ "$PRED" = 1 ]; then
-    [ "$TITLE_OK" = 1 ] || missing "the predecessor's title is not a rotation title, so its close date is unknown"
-    CLOSE_DATE=$ROT_END
-else
-    CLOSE_DATE=$TODAY
-fi
-
-lib_file_at "$HANDOFF_PATH" "$HEAD" "$T/handoff.md"
-case $? in
+lib_roadmap_path
+rs_record "$T/parsed.json" body; RS_RC=$?
+case $RS_RC in
     0) ;;
-    1) missing "$HANDOFF_PATH is not at the head" ;;
-    *) lib_die2 "cannot read $HANDOFF_PATH at the head: $(lib_scrub < "$T/handoff.md.err")" ;;
-esac
-bash "$HERE/record-parse.sh" --format handoff "$T/handoff.md" > "$T/handoff.json" 2> "$T/handoff.err"
-case $? in
-    0) ;;
-    3|65) missing "the file is not a canonical handoff: $(lib_scrub < "$T/handoff.err" | head -1)" ;;
+    2|4|12) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
+    3|65) lib_die2 "$(lib_record_name) is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
-[ "$(jq -r '.scope.name' "$T/handoff.json")" = "$NAME" ] || missing "the file is the handoff of another discipline"
-HDATE=$(jq -r '.rotation.date' "$T/handoff.json")
-[ "$HDATE" = "$CLOSE_DATE" ] || missing "the header date is $HDATE, not the close date $CLOSE_DATE"
-
-# reasoning <file>: the text under the reasoning heading, CR and trailing blank
-# lines dropped, for comparing two files whether or not either parses.
-reasoning() {
-    tr -d '\r' < "$1" | awk 'found { print; next } $0 == "## Reasoning for the next rotation" { found = 1 }' \
-        | awk '{ l[NR] = $0 } END { n = NR; while (n > 0 && l[n] ~ /^[ \t]*$/) n--; for (i = 1; i <= n; i++) print l[i] }'
-}
-
-if [ "$PRED" = 1 ]; then
-    bash "$HERE/predecessor-handoff.sh" --scope discipline --name "$NAME" --repo "$REPO" --ref "$REF" \
-        --out "$T/expected.md" --no-seal > "$T/expected.tok" 2> "$T/expected.err"
-    rc=$?
-    [ $rc -eq 0 ] || lib_die2 "cannot re-render the predecessor's handoff: $(lib_scrub < "$T/expected.err")"
-    case "$(cat "$T/expected.tok")" in
-        rendered\ *) ;;
-        *) missing "the predecessor's live body no longer renders a handoff" ;;
-    esac
-    bash "$HERE/record-parse.sh" --format handoff "$T/expected.md" > "$T/expected.json" 2>/dev/null || lib_die2 "the re-rendered handoff does not parse"
-    [ "$(jq -S -c . "$T/handoff.json")" = "$(jq -S -c . "$T/expected.json")" ] \
-        || missing "the committed file differs from the predecessor's tables, not-re-checked line or fixed sentence"
-else
-    jq -e '.predecessor_copy == null' "$T/handoff.json" > /dev/null \
-        || missing "the rotation's own handoff is a predecessor copy; write its reasoning fresh"
-    lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-    lib_file_at "$HANDOFF_PATH" "$DEFAULT_BRANCH" "$T/previous.md"
-    case $? in
-        0) if [ "$(reasoning "$T/handoff.md")" = "$(reasoning "$T/previous.md")" ]; then
-               missing "the reasoning is the one already on $DEFAULT_BRANCH, not written fresh"
-           fi ;;
-        1) ;;
-        *) lib_die2 "cannot read $HANDOFF_PATH on $DEFAULT_BRANCH: $(lib_scrub < "$T/previous.md.err")" ;;
-    esac
-    if [ "$TITLE_OK" = 0 ]; then REASON="the title is not a rotation title"; finish "title-stale $REF"; fi
-    if [ "$ROT_END" != "$TODAY" ]; then REASON="the title ends $ROT_END, not today ($TODAY)"; finish "title-stale $REF"; fi
-fi
-
-bash "$HERE/board-verdict.sh" --repo "$REPO" --pr "$REF" > "$T/board.json" 2> "$T/board.err" < /dev/null \
-    || lib_die2 "the board read failed: $(lib_scrub < "$T/board.err")"
-BOARD=$(jq -c '{verdict, head, reasons: [(.reasons // [])[] | .code]}' "$T/board.json") || lib_die2 "the board read printed no JSON"
-BV=$(printf '%s' "$BOARD" | jq -r '.verdict')
-BH=$(printf '%s' "$BOARD" | jq -r '.head // ""')
-case "$BV" in
-    verified)
-        [ "$BH" = "$HEAD" ] || lib_die2 "the board verified $BH but the head read $HEAD; tick again"
-        REASON="the handoff is committed and the board verified the head"
-        finish "land $REF $HEAD" ;;
-    unverified)
-        REASON="the record pull request's board is unverified; fix it and tick again"
-        finish "land-blocked $REF" ;;
-    pending) lib_die2 "the record pull request's board is still pending; tick again" ;;
-    *) lib_die2 "the board read reported $BV" ;;
+lib_default_branch || lib_die2 "cannot read $REPO's default branch"
+lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$T/roadmap.md"
+case $? in
+    0) ;;
+    1) REASON="$ROADMAP is not on $DEFAULT_BRANCH"; finish features-open ;;
+    *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
 esac
+# A milestone whose verdict is owed blocks first, naming the milestone: it may
+# already read Done on the default branch (its verdict's edit merged, not yet
+# confirmed) or still In progress, and either way the roadmap isn't closed
+# until its verdict-owed row is confirmed away.
+BLOCKER=$(jq -c '[(.work // [])[] | select(.kind == "verdict-owed")][0] // null
+    | if . == null then null else {item, who, next} end' "$T/parsed.json")
+if [ "$BLOCKER" != null ]; then
+    REASON="verdict-owed $(printf '%s' "$BLOCKER" | jq -r .item): its verdict is owed; give it, and confirm its roadmap edit, before the roadmap closes"
+    finish verdict-owed
+fi
+lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
+# RM_SECTION and RM_WORD, from the reader: the item is a milestone on v3.
+ITEM=feature
+[ "$RM_WORD" = Milestone ] && ITEM=milestone
+if [ "$(jq length "$T/features.json")" -eq 0 ]; then
+    REASON="the roadmap lists no $ITEM under ## $RM_SECTION"; finish features-open
+fi
+OPEN=$(jq -c '[.[] | select(.done | not)]' "$T/features.json")
+if [ "$(printf '%s' "$OPEN" | jq length)" -gt 0 ]; then
+    BLOCKER=$(printf '%s' "$OPEN" | jq -c '.[0] | {id, title, status}')
+    REASON="$(printf '%s' "$OPEN" | jq length) $ITEM(s) not Done, Shipped or Dropped"
+    finish features-open
+fi
+if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then
+    BLOCKER=$(jq -c '.holdings[0] | {unit, worker, pull_request}' "$T/parsed.json")
+    REASON="Holdings is not empty"; finish holdings
+fi
+if [ "$(jq '.side_effects | length' "$T/parsed.json")" -gt 0 ]; then
+    # A milestone's pending reopen edit is named first, by its tag: the
+    # milestone may still read Done on the default branch, so nothing above
+    # caught it.
+    BLOCKER=$(jq -c '([.side_effects[] | select(.action == "milestone-reopen")] + .side_effects)[0] | {action, target}' "$T/parsed.json")
+    if [ "$(printf '%s' "$BLOCKER" | jq -r .action)" = milestone-reopen ]; then
+        REASON="reopen-pending $(printf '%s' "$BLOCKER" | jq -r '.target | split(" [")[0]'): its reopen edit is pending; confirm it with roadmap-status.sh --confirm, or drop it, before the roadmap closes"
+    else
+        REASON="Side effects in flight is not empty"
+    fi
+    finish side-effects
+fi
+BLOCKER=$(jq -c '[.deferrals[] | select(.disposition | test("^(filed #[1-9][0-9]*|closed: [\\s\\S]+)$") | not)][0] // null
+    | if . == null then null else {deferral, disposition} end' "$T/parsed.json")
+if [ "$BLOCKER" != null ]; then
+    REASON="a deferral is not filed or closed"; finish deferrals
+fi
+BLOCKER=$(jq -c '[(.decisions.entries // [])[] | select(.state != "settled")][0] // null
+    | if . == null then null else {decision, state, question} end' "$T/parsed.json")
+if [ "$BLOCKER" != null ]; then
+    REASON="a decision is not settled"; finish decisions
+fi
+REASON="every feature Done, Shipped or Dropped and the record is clear"
+finish ready

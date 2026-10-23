@@ -9,7 +9,6 @@ invalid_var:HOST_REPO	Host repository `{value}` must be `owner/repo`.
 invalid_var:CAP	The worker cap `{value}` must be a whole number from 1 to 99.
 invalid_var:PARKED_BOUND	The parked bound `{value}` must be a whole number from 1 to 99.
 invalid_var:ROTATION_DAYS	The rotation length `{value}` must be a whole number of days from 1 to 999.
-invalid_var:STORE	The store `{value}` must be `github` or `session`.
 duplicate_var	`{var}` was given more than once; give each setting once.
 invalid_var	`{value}` is not a valid value for {var} ({constraint}).
 import_requires_cloud	This host has no cloud session store; an import reads the run from the bucket, so configure the source host's bucket here first.

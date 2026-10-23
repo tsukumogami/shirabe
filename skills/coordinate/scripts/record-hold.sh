@@ -7,12 +7,12 @@
 #   record-hold.sh --session S --add --row-file F          add a hold
 #   record-hold.sh --session S --lift --hold H --by WHO    lift a `lifted` hold
 #   record-hold.sh --session S --list                      print every hold
-#   ... [--scope roadmap|discipline --name N --repo O/R --ref N
+#   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                            (tests)
 #
-# The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts; a discipline rotation on the session store has none); the
-# override flags exist for tests only.
+# The session gives the scope, name and host (coord-log.sh vars), and must
+# have a found record (coord-log.sh run-facts); the override flags exist for
+# tests only, with RS_SESSION naming the session that holds the record.
 #
 # --add takes F holding a hold's keys (hold, on, until, set_by, set) with
 # lifted empty, and appends it; a hold of the same name is refused. --lift
@@ -24,31 +24,31 @@
 # stood is written beside it as a Reversals row. --list prints the section as
 # a JSON array ([] when there is none).
 #
-# Every write renders with the Written: time of the version read and goes
+# Every write renders with the written time of the version read and goes
 # through the record's write core (record-write-core.sh), which re-reads the
 # target and checks provenance, directed transitions and repository
 # visibility first. This is the one script that sets HOLDS_WRITER=1; every
 # other writer must carry the section as the live record has it.
 #
-# On the session store (a roadmap record, or a discipline rotation) each add
-# and lift is also told as a `hold` entry in the account (record-append.sh),
-# since the record keeps no GitHub body that would show it.
+# Each add and lift is also told as a `hold` entry in the account
+# (record-append.sh), since the record keeps no history of its own that would
+# show it.
 #
-# Exit codes: 0 written (prints the URL) or printed; 2 a read failed; 10
-# refused (the target isn't an open record of this scope, provenance, or a
-# directed transition); 11 the write failed; 12 the record changed between
+# Exit codes: 0 written (prints the session holding the record) or printed; 2
+# a read failed; 10 refused (no found record, the session holds no record of
+# this scope, provenance, or a directed transition); 11 the write failed; 12
+# the record changed between
 # this script's read and its write; 13 the record is full; 14 the hold was
 # written but its session entry wasn't (the entry to post on stderr); 64 usage;
 # 65 the hold was refused (the reason on stderr).
 #
-# GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
-# --json body; the write happens only in the write core it sources
-# (record-write-core.sh).
+# The record is read through record-source.sh; the write happens only in the
+# write core it sources (record-write-core.sh).
 set -uo pipefail
 
 PROG=record-hold
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= ROWFILE= MODE= HOLD= BY=
+SESSION= SCOPE= NAME= REPO= ROWFILE= MODE= HOLD= BY=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -58,7 +58,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --row-file) [ $# -ge 2 ] || usage; ROWFILE=$2; shift 2 ;;
         --hold) [ $# -ge 2 ] || usage; HOLD=$2; shift 2 ;;
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
@@ -77,29 +76,18 @@ case "$MODE" in
 esac
 . "$HERE/record-common.sh"
 lib_facts
-if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-else
-    [ -z "$REF" ] || usage
-    FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
-    case $? in
-        0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
-        1) echo "$PROG: refused: the run has no found record" >&2; exit 10 ;;
-        *) lib_die2 "cannot read the run's facts" ;;
-    esac
-fi
-lib_ref_ok || usage
+lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 # The live record, through the seam (record-source.sh), which reads it with
 # the line endings the write core reads.
-rs_record "$WD/parsed.json" body --json body --jq .body
+rs_record "$WD/parsed.json" body
 case $? in
     0) ;;
-    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
-    3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
+    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
@@ -133,36 +121,34 @@ lift)
     ;;
 esac
 
-# The render keeps the Written: time of the version just read: the write core
-# compares it with the live body's and refuses when someone wrote in between,
-# then stamps its own time.
-bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$WD/parsed.json")" "$WD/next.json" > "$WD/body.md" 2> "$WD/render.err" \
+# The render keeps the written time of the version just read: the write core
+# compares it with the live record's and refuses when someone wrote in
+# between, then stamps its own time.
+bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$WD/parsed.json")" "$WD/next.json" > "$WD/body.md" 2> "$WD/render.err" \
     || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
 
 # Through the write core, with the Holds section opened to this script alone:
 # the core still refuses a write that drops or changes an existing hold
 # beyond stamping its blank Lifted cell.
-BODY="$WD/body.md" END= CLOSE=0 CORE_CLEANUP=$WD
+BODY="$WD/body.md" CORE_CLEANUP=$WD
 lib_write_guard
 . "$HERE/record-write-core.sh"
 HOLDS_WRITER=1
 core_write
 
-# On the session store the record keeps no GitHub body to show a hold's change,
-# so each add and lift is also told as a `hold` entry in the account.
-if [ "$CORE_STORE_READ" = session ]; then
-    if [ "$MODE" = add ]; then
-        jq -r '"Hold \(.hold) added on \(.on), until \(.until), set by \(.set_by)."' "$ROWFILE" > "$T/hold-entry" || lib_die2 "jq failed"
-    else
-        printf 'Hold %s lifted by %s.\n' "$HOLD" "$BY" > "$T/hold-entry"
-    fi
-    if [ "$OVERRIDE" = 1 ]; then
-        ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF")
-    else
-        ADDR_ARGS=(--session "$SESSION")
-    fi
-    if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind hold --text-file "$T/hold-entry" > /dev/null; then
-        echo "$PROG: the hold was written, but its entry wasn't; post it with record-append.sh --kind hold: $(cat "$T/hold-entry")" >&2
-        exit 14
-    fi
+# The record keeps no history of a hold's change, so each add and lift is also
+# told as a `hold` entry in the account.
+if [ "$MODE" = add ]; then
+    jq -r '"Hold \(.hold) added on \(.on), until \(.until), set by \(.set_by)."' "$ROWFILE" > "$T/hold-entry" || lib_die2 "jq failed"
+else
+    printf 'Hold %s lifted by %s.\n' "$HOLD" "$BY" > "$T/hold-entry"
+fi
+if [ "$OVERRIDE" = 1 ]; then
+    ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
+else
+    ADDR_ARGS=(--session "$SESSION")
+fi
+if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind hold --text-file "$T/hold-entry" > /dev/null; then
+    echo "$PROG: the hold was written, but its entry wasn't; post it with record-append.sh --kind hold: $(cat "$T/hold-entry")" >&2
+    exit 14
 fi

@@ -38,20 +38,21 @@
 # pause that holds it, or null.
 #
 # Usage:
-#   quiet-check.sh --session S [--now YYYY-MM-DDTHH:MM:SSZ]
-#   quiet-check.sh --session S --scope roadmap|discipline --name N --repo O/R
-#                  --ref N [--now T] [--no-seal]                     (tests)
+#   quiet-check.sh --session S [--now YYYY-MM-DDTHH:MM:SSZ] [--no-seal]
+#
+# The record is the run's, read through its session; --now and --no-seal are
+# for tests.
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# GitHub reads: record-holding.sh --list (gh issue|pr view);
-# gh pr view <n> --repo <repo> --json headRefOid;
+# The record through record-holding.sh --list and record-state.sh --list.
+# GitHub reads: gh pr view <n> --repo <repo> --json headRefOid;
 # gh api --method GET repos/<repo>/commits/<sha> --jq .commit.committer.date
 set -uo pipefail
 
 PROG=quiet-check
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= NOW=
+SESSION= SCOPE= NAME= REPO= NOW=
 NO_SEAL=0
 QUIET_SECONDS=1800
 
@@ -59,10 +60,6 @@ usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
-        --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
-        --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
-        --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --now) [ $# -ge 2 ] || usage; NOW=$2; shift 2 ;;
         --no-seal) NO_SEAL=1; shift ;;
         *) usage ;;
@@ -78,21 +75,11 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 T=$(mktemp -d "${TMPDIR:-/tmp}/quiet-check.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-if [ "$OVERRIDE" = 1 ]; then
-    [[ $REF =~ $RE_NUM ]] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-    bash "$HERE/record-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" --list > "$T/holdings.json" 2> "$T/h.err"
-else
-    [ -z "$REF" ] || usage
-    bash "$HERE/record-holding.sh" --session "$SESSION" --list > "$T/holdings.json" 2> "$T/h.err"
-fi
-[ $? -eq 0 ] || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/h.err")"
+bash "$HERE/record-holding.sh" --session "$SESSION" --list > "$T/holdings.json" 2> "$T/h.err" \
+    || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/h.err")"
 # The pauses, for the units the holdings carry.
-if [ "$OVERRIDE" = 1 ]; then
-    bash "$HERE/record-state.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" --list > "$T/state.json" 2> "$T/s.err"
-else
-    bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/s.err"
-fi
-[ $? -eq 0 ] || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/s.err")"
+bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/s.err" \
+    || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/s.err")"
 jq -c '[.[].unit]' "$T/holdings.json" > "$T/units.json" || lib_die2 "jq failed"
 bash "$HERE/pause-read.sh" --standing "$T/state.json" --units "$T/units.json" > "$T/pauses.json" 2> "$T/p.err" \
     || lib_die2 "cannot read the record's pauses: $(lib_scrub < "$T/p.err")"

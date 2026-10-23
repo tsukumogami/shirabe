@@ -16,7 +16,7 @@
 # them governs the step (a hook matching a typed command never sees a script
 # that calls it inside itself):
 #   merge     gh pr merge, merge-exec.sh, land-merge.sh
-#   close     gh issue close, gh pr close, record-write.sh --close
+#   close     gh's issue close and pull request close commands
 #   teardown  niwa destroy, claude rm, teardown-pass.sh
 #
 # Only the commands the skill runs stand for a step. The skill never runs
@@ -105,10 +105,14 @@ STEPS="merge close teardown"
 # names it as a pattern, isn't counted as a second place that runs it
 # (skills/execute/scripts/merge-exec_test.sh allows exactly one).
 MERGE_CMD="gh pr"' merge'
+# The close commands likewise: this file names them as patterns and closes
+# nothing, so a search for the scripts that close an issue or a pull request
+# doesn't find it.
+CLOSE_ISSUE="gh issue"' close' CLOSE_PR="gh pr"' close'
 step_patterns() {
     case "$1" in
         merge) printf '%s\n' "$MERGE_CMD" 'merge-exec.sh' 'land-merge.sh' ;;
-        close) printf '%s\n' 'gh issue close' 'gh pr close' 'record-write.sh --close' ;;
+        close) printf '%s\n' "$CLOSE_ISSUE" "$CLOSE_PR" ;;
         teardown) printf '%s\n' 'niwa destroy' 'claude rm' 'teardown-pass.sh' ;;
     esac
 }
@@ -118,9 +122,7 @@ step_commands() {
         merge) printf '%s\n' "$MERGE_CMD 12 --repo o/r --squash --match-head-commit 0" \
             'bash /p/skills/execute/scripts/merge-exec.sh o/r 12 0' '/p/skills/execute/scripts/merge-exec.sh o/r 12 0' \
             'bash /p/skills/coordinate/scripts/land-merge.sh --session s' '/p/skills/coordinate/scripts/land-merge.sh --session s' ;;
-        close) printf '%s\n' 'gh issue close 7 --repo o/r' 'gh pr close 7 --repo o/r' \
-            'bash /p/skills/coordinate/scripts/record-write.sh --session s --body-file f --close' \
-            '/p/skills/coordinate/scripts/record-write.sh --session s --body-file f --close' ;;
+        close) printf '%s\n' "$CLOSE_ISSUE 7 --repo o/r" "$CLOSE_PR 7 --repo o/r" ;;
         teardown) printf '%s\n' 'niwa destroy x' 'niwa destroy --force x' 'claude rm x' \
             'bash /p/skills/coordinate/scripts/teardown-pass.sh run --session s --keyseal k' '/p/skills/coordinate/scripts/teardown-pass.sh run --session s --keyseal k' ;;
     esac
