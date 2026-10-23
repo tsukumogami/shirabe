@@ -132,7 +132,20 @@ workspace maintainer reads.
 
 ### Step 6: pull requests still open at capture are listed in opened
 
-An open or draft pull request the unit made appears in the entry's new `opened` key, and a closed unmerged one appears in neither list.
+**Goal**: Credit's own read of each candidate also keeps one that reads open at capture, drafts included, and meets every credit condition but the merge, in a new entry key `opened` as `{repo, number, via: "session"}`; the holding's Pull request cell, when it reads open, is listed there as `via: "holding"`. `opened` is ordered by number, holds at most 100, follows `pulls`' public-host rule, and a read that fails leaves the candidate in neither list with `missing` naming `opened`.
+
+**Acceptance Criteria**:
+
+- [ ] A unit with a merged, an open, a draft and a closed-unmerged pull request, all from the holding's owner, not from a fork, on a gitBranch or linked within 120 seconds and created after dispatch, lists the merged one in `pulls`, the open one and the draft in `opened`, and the closed one in neither; an open one created before dispatch is in neither. The credit case that expects open pull request 47 to be uncredited now finds it in `opened` and still out of `pulls`.
+- [ ] A holding whose Pull request cell names a pull request that reads open lists it in `opened` as `via: "holding"`, read once and never also `via: "session"`; one that reads merged or closed is not in `opened`.
+- [ ] 101 open candidates give 100 `opened` entries, the lowest numbers, and `missing` holds `{figure: opened, reason: "entry size"}`; on a public host an open pull request in a repository not read as public is `{repo: "not public"}`.
+- [ ] A candidate whose `pr view` fails is in neither list, and `missing` names `opened` with `read failed` (or `time limit` once the budget is spent) as it names `pulls`; a capture with no open pull request writes `opened: []` and adds nothing to `missing`.
+
+**Check**: Run `bash skills/coordinate/scripts/unit-cost_test.sh` and see the `opened` cases pass, the draft and the open pull request listed and the closed one in neither list.
+
+**Dependencies**: Step 5
+
+**Files**: `skills/coordinate/scripts/unit-cost.sh`, `skills/coordinate/scripts/unit-cost_test.sh`, `skills/coordinate/scripts/testdata/gh`
 
 ### Step 7: kept removals are retried, expired and logged
 
