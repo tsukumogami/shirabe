@@ -3372,9 +3372,10 @@ request for the branch, `gh` or `shirabe` missing); run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
 
 Write the body about the change and how it was verified, in terms a reader of
-this repository understands: no review panel table, no override or deferral
-notes, no session, state or ledger names, no pointers to PLAN or ROADMAP files.
-Those records stay in this run's session. The repository can opt in to them:
+this repository understands. By default that means no review panel table, no
+override or deferral notes, no session, state or ledger names, no pointers to
+PLAN or ROADMAP files: those records stay in this run's session. The repository
+can opt in to them:
 `"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh"` prints `include` when it
 declares `## PR Workflow Content: include`, and `omit`, the default, otherwise.
 Under `omit` the `pr_body_conformant` gate also holds on a `## Review panel`

@@ -162,6 +162,11 @@ fi
 case "$BODY" in *"PLAN-topic"*) bad "default: the body names no PLAN file" "$BODY" ;; *) ok "default: the body names no PLAN file" ;; esac
 case "$BODY" in *"/scope"*) bad "default: the body names no skill" "$BODY" ;; *) ok "default: the body names no skill" ;; esac
 case "$BODY" in "The scoping documents for topic."*"#31"*"#32"*) ok "default: a plain sentence and the work items" ;; *) bad "default: a plain sentence and the work items" "$BODY" ;; esac
+if grep -q -- '--title docs: add the topic scoping documents --body-file' "$GHF/calls"; then
+    ok "default: the title names no skill and no exit value"
+else
+    bad "default: the title names no skill and no exit value" "$(grep '^pr create' "$GHF/calls")"
+fi
 eq "default: the session still records published_intent" "continue" "$(cat "$STORE/s-omit/published_intent" 2>/dev/null)"
 
 echo "== a second run after a successful one =="

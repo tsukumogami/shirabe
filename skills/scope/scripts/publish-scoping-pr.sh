@@ -362,11 +362,22 @@ esac
 DRAFT=1
 [ "$EXIT" = full-run ] && [ "$MODE" = multi-pr ] && DRAFT=0
 
-TITLE="docs(scope): ${TOPIC} (${EXIT})"
-
 # Whether the repository opts in to workflow content in its PR bodies.
 CONTENT=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" </dev/null) \
     || fail scope:pr-create "scripts/pr-workflow-content.sh could not read the repository's setting"
+
+# The title becomes the squash commit's subject. The skill's name and the
+# run's exit value are workflow records, kept for a repository that opts in
+# and for a coordination PR, which stays as it was with its body.
+if [ "$CONTENT" = include ] || { [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; }; then
+    TITLE="docs(scope): ${TOPIC} (${EXIT})"
+else
+    case "$EXIT" in
+        full-run) TITLE="docs: add the ${TOPIC} scoping documents" ;;
+        re-evaluation) TITLE="docs: ${TOPIC} scoping documents, for re-evaluation" ;;
+        *) TITLE="docs: ${TOPIC} scoping documents, abandoned" ;;
+    esac
+fi
 
 # render_steps -- a plan/v2 PLAN's work items: each `### Step <N>: <title>`
 # heading of `## Steps`, in PLAN order, inside one fenced code block. Control
