@@ -9,16 +9,18 @@
 # those cancels through skills/work-on/scripts/ci-cancel-after-merge.sh
 # (#952). /execute's owned_ci_passing reaches the same script with
 # `--owned <owned-pr.sh arguments>` (#958), so the rule has one copy, and
-# its three ci_monitor gates look the PR up with owned-pr.sh's
-# `--state open-else-merged`, so a MERGED PR is still the run's PR.
+# its ci_monitor gates look the PR up with owned-pr.sh's
+# `--state open-else-merged`, so a MERGED PR is still the run's PR. The
+# fourth gate, owned_pr_merged, answers whether that PR has merged (#917).
 #
 # Two parts:
 #
 #   script   ci-cancel-after-merge.sh --owned, against the real owned-pr.sh,
 #            in a throwaway git repository whose floor script is a stub
-#   wiring   owned_ci_passing, owned_merge_state_clean and monitor_owned_pr
-#            EXTRACTED FROM execute.md, with {{PLUGIN_ROOT}} and {{PLAN_SLUG}}
-#            substituted as koto would, so what ships is what runs
+#   wiring   owned_ci_passing, owned_merge_state_clean, monitor_owned_pr and
+#            owned_pr_merged EXTRACTED FROM execute.md, with {{PLUGIN_ROOT}}
+#            and {{PLAN_SLUG}} substituted as koto would, so what ships is
+#            what runs
 #
 # gh and koto are stubs on PATH, so no case reaches GitHub or a real session.
 # The gh stub serves per-PR fixture JSON and applies `--jq` with jq, as gh
@@ -293,6 +295,11 @@ if grep -qF "pr checks $REPO_URL/pull/7 " "$FIX/gh.log" && grep -qF "pr view $RE
 else
     fail "--owned: the PR was not read by its URL: $(cat "$FIX/gh.log")"
 fi
+if grep -qF "api repos/$R/actions/runs/200 --hostname github.com " "$FIX/gh.log"; then
+    pass "--owned: the runs are read from the host the lookup's URL names"
+else
+    fail "--owned: the run read did not name the URL's host: $(grep '^api' "$FIX/gh.log")"
+fi
 # The arguments reach owned-pr.sh as given: open-else-merged is the one value
 # that lists every state and still answers the MERGED PR here, while a
 # MERGED PR is no answer to --state open.
@@ -467,7 +474,7 @@ run_gate() {
     ERR=$(cat "$T/err")
 }
 
-for g in owned_ci_passing owned_merge_state_clean monitor_owned_pr; do
+for g in owned_ci_passing owned_merge_state_clean monitor_owned_pr owned_pr_merged; do
     c=$(gate_command "$g")
     # Every --state the command passes, deduplicated: exactly the one value.
     states=$(printf '%s' "$c" | grep -oE -- '--state [a-z-]+' | sort -u | tr '\n' ' ')
@@ -628,6 +635,83 @@ else
     fixture
     run_gate
     expect_exit "monitor_owned_pr: no PR is no single owned PR, as before" 3
+fi
+
+# --- owned_pr_merged -------------------------------------------------------------------
+# 0 routes a MERGED PR to merge_readiness whatever its checks say (#917), so
+# only the run's own MERGED PR may answer 0. Every other answer is 1, which
+# leaves ci_monitor's routes as they were.
+GATE_CMD=$(gate_command owned_pr_merged)
+if [ -z "$GATE_CMD" ]; then
+    fail "could not read owned_pr_merged from $TEMPLATE"
+else
+    case "$GATE_CMD" in
+        *' | xargs -r -I{} gh pr view {} --json state --jq .state | '*) \
+            pass "owned_pr_merged reads the state of the PR the lookup resolves, never the branch's" ;;
+        *) fail "owned_pr_merged does not read the resolved PR's state: $GATE_CMD" ;;
+    esac
+
+    fixture
+    pr 7 MERGED "$MINE" UNKNOWN -- "$PASS_CHECK" "$FAIL_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: the run's MERGED PR, a check failed" 0
+
+    fixture
+    pr 7 MERGED "$MINE" UNKNOWN -- "$PENDING_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: the run's MERGED PR, a check still running" 0
+
+    fixture
+    pr 7 MERGED - UNKNOWN -- "$PASS_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: an unmarked MERGED PR this login owns" 0
+
+    fixture
+    pr 7 OPEN "$MINE" CLEAN -- "$FAIL_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: the run's open PR is not merged" 1
+
+    fixture
+    pr 7 CLOSED "$MINE" UNKNOWN -- "$PASS_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: a closed-unmerged PR alone is not merged" 1
+    if [ "$(gh_calls "pr view")" = 0 ]; then pass "a closed-unmerged PR is never read: the lookup is empty"
+    else fail "a closed-unmerged PR was read: $(cat "$FIX/gh.log")"; fi
+
+    fixture
+    run_gate
+    expect_exit "owned_pr_merged: no PR is not merged" 1
+
+    fixture
+    pr 7 MERGED "$OTHER" UNKNOWN -- "$PASS_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: another run's MERGED PR is not this run's" 1
+    if [ "$(gh_calls "pr view")" = 0 ]; then pass "another run's MERGED PR is never read"
+    else fail "another run's MERGED PR was read: $(cat "$FIX/gh.log")"; fi
+
+    fixture
+    pr 7 MERGED - UNKNOWN -- "$PASS_CHECK"
+    export GH_LOGIN=someone-else
+    run_gate
+    unset GH_LOGIN
+    expect_exit "owned_pr_merged: another author's MERGED PR is not this run's" 1
+
+    fixture
+    pr 6 MERGED - UNKNOWN -- "$PASS_CHECK"
+    pr 7 OPEN "$MINE" CLEAN -- "$FAIL_CHECK"
+    run_gate
+    expect_exit "owned_pr_merged: an earlier MERGED PR beside this run's open one reads the open one" 1
+
+    fixture
+    pr 7 MERGED "$MINE" UNKNOWN -- "$PASS_CHECK"
+    rm -f "$FIX/view-7.json"
+    run_gate
+    expect_exit "owned_pr_merged: a failed state read is not merged" 1
+
+    fixture
+    pr 7 MERGED "$MINE" UNKNOWN -- "$PASS_CHECK"
+    run_gate "$T/empty-plugin"
+    expect_exit "owned_pr_merged exits exactly 1 when the lookup can't run" 1
 fi
 
 echo

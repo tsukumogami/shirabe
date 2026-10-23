@@ -15,7 +15,8 @@
 #        --skip-session-checks]                             (tests)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests only.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests only.
 #
 # Every mode reads the live body (gh issue view / gh pr view) and parses it
 # canonically. --read prints the row whose Worker equals T as one compact JSON
@@ -101,7 +102,7 @@ esac
 if [ -n "$TOPIC" ] && ! [[ $TOPIC =~ $RE_TOPIC ]]; then usage; fi
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
@@ -111,7 +112,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
 
 if [ "$MODE" = pushed ]; then
     set -- --pushed-head "$TOPIC" "$PUSHED"

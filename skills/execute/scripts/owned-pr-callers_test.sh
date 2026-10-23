@@ -154,7 +154,7 @@ fi
 
 # gh falls back to the checked-out branch's PR when handed an empty selector,
 # so every site that feeds owned-pr.sh's output to gh guards against empty.
-for g in owned_ci_passing owned_merge_state_clean; do
+for g in owned_ci_passing owned_merge_state_clean owned_pr_merged; do
     cmd=$(awk -v g="$g" '$0 ~ "^      " g ":" {f=1} f && /command:/ {print; exit}' "$E")
     case "$cmd" in
         *'| xargs -r -I{} gh pr '*) pass "$g fails before gh runs when the lookup is empty" ;;

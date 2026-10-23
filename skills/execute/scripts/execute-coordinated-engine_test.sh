@@ -95,6 +95,12 @@
 # directory name), the cases run a copy of the template with this checkout's
 # path written in for {{PLUGIN_ROOT}}, as terminal-retention_test.sh does.
 #
+# A tick a case needs to get past a default action goes through tick(), which
+# ticks again when koto stopped the action at its 30-second limit, as the
+# state's fallback says to, and fails naming the state when the limit outlasts
+# its retries: a loaded host can pass that limit with nothing wrong in the
+# action. The cases that hold a run at a failing action tick koto directly.
+#
 # Usage: execute-coordinated-engine_test.sh
 # Exit codes: 0 all pass, or koto absent (a loud SKIP); 1 a failure
 
@@ -201,13 +207,49 @@ open_run() {
     [ "$st" = coord_loop ] || { fail "$s stopped at $st, not coord_loop"; return 1; }
 }
 
+# action_timed_out -- the last tick's output ($CASE/next.json) shows a default
+# action koto stopped at its time limit; prints "<state>: <koto's message>".
+action_timed_out() {
+    jq -Rer 'fromjson? | .blocking_conditions // [] | .[]
+        | select(.type == "action" and .status == "timed_out")
+        | "\(.output.state // "?"): \(.output.stderr // "timed out")"' "$CASE/next.json" 2>/dev/null
+}
+
+# tick <session> [koto next args...] -- one `koto next` into $CASE/next.json.
+# koto runs a default action under a fixed 30-second limit that a template
+# can't raise, and on a loaded host coord_verdict's and coord_merge_confirm's
+# actions can pass it (#1062), which leaves the run at that state. Both
+# states' fallbacks say to tick again, which re-runs the action, so tick does
+# that up to TICK_RETRIES times. A timeout that outlasts them fails here,
+# naming the state, so the case reports the cause rather than a terminal or a
+# leg payload that never arrived. Three retries: an action that takes past
+# 30 seconds four times running is stuck, not slow, and each retry can cost
+# the suite another 30.
+TICK_RETRIES=3
+tick() {
+    local s="$1" n=0 why flag=""
+    shift
+    case " $* " in *" --no-cleanup "*) flag=--no-cleanup ;; esac
+    k next "$s" "$@" >"$CASE/next.json" 2>&1
+    while why=$(action_timed_out); do
+        if [ "$n" -ge "$TICK_RETRIES" ]; then
+            fail "$s: koto stopped the default action at $why, on $((n + 1)) ticks"
+            return 1
+        fi
+        n=$((n + 1))
+        echo "  note: $s: koto stopped the default action at $why; ticking again ($n of $TICK_RETRIES)"
+        # No --with-data: the first tick's evidence moved the run already, and
+        # a tick with none re-runs the state's action.
+        k next "$s" ${flag:+"$flag"} >"$CASE/next.json" 2>&1
+    done
+}
+
 # finish <slug> <loop_line> [--bare] -- submit the loop's stopping line.
 finish() {
     local s="execute-$1" line="$2" exit_kind flag="--no-cleanup"
     case "$line" in done:*) exit_kind=done ;; pause) exit_kind=pause ;; *) exit_kind=error ;; esac
     [ "${3:-}" = --bare ] && flag=""
-    # shellcheck disable=SC2086
-    k next "$s" --with-data "{\"loop_exit\":\"$exit_kind\",\"loop_line\":\"$line\"}" $flag >"$CASE/next.json" 2>&1
+    tick "$s" --with-data "{\"loop_exit\":\"$exit_kind\",\"loop_line\":\"$line\"}" ${flag:+"$flag"}
 }
 
 # record <slug> <helper> [args...] -- seed the run record of execute-<slug>
@@ -594,7 +636,7 @@ if [ "$(state_of cov2)" = coord_merge_confirm ]; then
     else
         fail "an override on confirmed_merged was accepted (rc $r1 / $r2)"
     fi
-    k next execute-cov2 --with-data '{"confirm_status":"unreadable"}' --no-cleanup >/dev/null 2>&1
+    tick execute-cov2 --with-data '{"confirm_status":"unreadable"}' --no-cleanup
     if [ "$(state_of cov2)" = ready_awaiting_merge ] && [ "$(payload cov2 reason)" = merge-not-observed ]; then
         pass "with the confirm read unreadable the run ends ready-awaiting-merge (merge-not-observed), never merged"
     else
@@ -852,19 +894,25 @@ else
         record leg ct_record_node "$CT_CORE" "$CT_REPO" 11
         finish leg "pause"
     fi
-    LEG=$(k request get "$REQ" 2>/dev/null | jq -c '[.. | objects | select(has("name") and .name == "execute")][0] // {}')
-    P=$(printf '%s' "$LEG" | jq -c '[.. | objects | select(has("outcome") and has("repos"))][0] // {}')
-    if [ "$(printf '%s' "$P" | jq -r '.outcome')" = paused-awaiting-merges ] \
-        && [ -n "$(printf '%s' "$P" | jq -r '.pr // ""')" ] && [ -n "$(printf '%s' "$P" | jq -r '.repos // ""')" ] \
-        && [ -n "$(printf '%s' "$P" | jq -r '.resume // ""')" ] && [ -n "$(printf '%s' "$P" | jq -r '.waiting // ""')" ]; then
-        pass "the execute leg's promoted payload carries outcome, pr, repos, resume, and waiting"
+    # The leg holds a result only once the run reached its terminal, so a run
+    # that stopped short is reported as that, not as an empty payload.
+    if [ "$(state_of leg)" != paused_awaiting_merges ]; then
+        fail "the leg's run stopped at $(state_of leg), not paused_awaiting_merges, so nothing reached the leg: $(head -c 600 "$CASE/next.json")"
     else
-        fail "the leg's payload: $P; leg: $(head -c 800 <<<"$LEG")"
-    fi
-    if grep -q '"execute-coordinated.md"' <<<"$LEG" && grep -q '"promoted"' <<<"$LEG"; then
-        pass "the leg was promoted from a session built from execute-coordinated.md"
-    else
-        fail "the leg's template or source: $(head -c 800 <<<"$LEG")"
+        LEG=$(k request get "$REQ" 2>/dev/null | jq -c '[.. | objects | select(has("name") and .name == "execute")][0] // {}')
+        P=$(printf '%s' "$LEG" | jq -c '[.. | objects | select(has("outcome") and has("repos"))][0] // {}')
+        if [ "$(printf '%s' "$P" | jq -r '.outcome')" = paused-awaiting-merges ] \
+            && [ -n "$(printf '%s' "$P" | jq -r '.pr // ""')" ] && [ -n "$(printf '%s' "$P" | jq -r '.repos // ""')" ] \
+            && [ -n "$(printf '%s' "$P" | jq -r '.resume // ""')" ] && [ -n "$(printf '%s' "$P" | jq -r '.waiting // ""')" ]; then
+            pass "the execute leg's promoted payload carries outcome, pr, repos, resume, and waiting"
+        else
+            fail "the leg's payload: $P; leg: $(head -c 800 <<<"$LEG")"
+        fi
+        if grep -q '"execute-coordinated.md"' <<<"$LEG" && grep -q '"promoted"' <<<"$LEG"; then
+            pass "the leg was promoted from a session built from execute-coordinated.md"
+        else
+            fail "the leg's template or source: $(head -c 800 <<<"$LEG")"
+        fi
     fi
 fi
 

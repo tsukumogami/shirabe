@@ -11,6 +11,7 @@ name: Check comp scripts
 # cases run on 3.2 and the engine cases run on Linux.
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/comp/scripts/**'
@@ -19,6 +20,23 @@ on:
       - 'skills/comp/references/**'
       # The script reaches the session through skill-session.sh, which opens it
       # from the store template, through koto-open.sh and assert-koto-floor.sh.
+      - 'scripts/skill-session.sh'
+      - 'koto-templates/skill-session.md'
+      - 'scripts/koto-open.sh'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/comp.list'
+      - '.tsuku.toml'
+      - '.github/workflows/check-comp-scripts.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/comp/scripts/**'
+      - 'skills/comp/SKILL.md'
+      - 'skills/comp/references/**'
       - 'scripts/skill-session.sh'
       - 'koto-templates/skill-session.md'
       - 'scripts/koto-open.sh'

@@ -1,6 +1,7 @@
 name: Check coordinate reconcile scripts
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/coordinate/scripts/reconcile-*'
@@ -13,6 +14,21 @@ on:
       - 'skills/coordinate/scripts/coord-log.sh'
       - 'skills/coordinate/scripts/coord-verdict.sh'
       # reconcile-deps.sh sources /execute's validators.
+      - 'skills/execute/scripts/coord-common.sh'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/coordinate-reconcile.list'
+      - '.github/workflows/check-coordinate-reconcile-scripts.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/coordinate/scripts/reconcile-*'
+      - 'skills/coordinate/scripts/record-*'
+      - 'skills/coordinate/scripts/state-*'
+      - 'skills/coordinate/scripts/coord-log.sh'
+      - 'skills/coordinate/scripts/coord-verdict.sh'
       - 'skills/execute/scripts/coord-common.sh'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/coordinate-reconcile.list'

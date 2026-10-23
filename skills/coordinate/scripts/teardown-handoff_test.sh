@@ -19,7 +19,10 @@
 # recovers the instance path from the one header for the topic and opens only
 # the headers that name the topic's slug, never a symlinked one; with no koto
 # session store the path comes from a transcript; only unrelated sessions, or
-# two instances for the topic, refuse.
+# two instances for the topic, refuse. With only unrelated sessions, a canary
+# header that names the topic's instance through a JSON escape stays
+# unparsed, so the refusal shows no unrelated header was parsed, whatever
+# read it; the same header, once grep can see the slug, recovers the path.
 #
 # teardown-pass_engine_test.sh keeps one refusal (an unmerged pull request)
 # to prove the refused arm reaches surface in real koto, and drives the
@@ -146,8 +149,11 @@ printf '{"type":"user"}\n' >"$TR"
 printf 'w5' >"$KOTO_STORE/context/coord/teardown_topic"
 N=0
 # fixture [state]: a durable, merged, handed-off w5 whose job is in that state
-# (done unless given), in a fresh state directory.
+# (done unless given), in a fresh state directory and with no removed-mode
+# session store: rfixture exports TEARDOWN_KOTO_SESSIONS after calling this,
+# so a case built here never reads the store a removed-mode case left behind.
 fixture() {
+    unset TEARDOWN_KOTO_SESSIONS
     N=$((N + 1))
     export ST="$T/state-$N"
     mkdir -p "$ST/ctx"
@@ -339,13 +345,38 @@ eq  "removed, no koto session store: the path and job come from the transcript" 
     "$(verdict | tr '\n' '|' | sed 's/|$//')"
 rm -rf "$RPD"
 
-# Only unrelated sessions and no transcript: no candidate, refused.
+# Only unrelated sessions and no transcript: no candidate, refused. One of
+# them is a canary whose header spells the `+` in w5's instance as a JSON
+# unicode escape: jq reads it as a path candidate() accepts, but grep's
+# fixed string doesn't match the file, so the prefilter never hands it on. A
+# seal that opened the unrelated headers by any means (head, sed, read) and
+# parsed them would recover the canary's path and turn ready, so the refusal
+# and the verdict's silence on that path hold without the head stand-in.
+# The doubled backslash is shell quoting: the file must hold the six-character
+# escape, never a plain `+`, or grep would match the canary and the case would
+# prove nothing.
+CANARY="$W/tsuku\\u002bw5-5e6f7a8b/public/repo"
 rfixture
 unrelated 20
+header canary "$CANARY"
 cseal
 case "$OUT" in "handoff-refused sealed:"*) ok "removed, only unrelated sessions: prints handoff-refused" ;; *) bad "removed, only unrelated sessions: prints handoff-refused" "$OUT $(cat "$T/seal.err")" ;; esac
 has "removed, only unrelated sessions: the verdict says why" "$(verdict | sed -n 2p)" "no instance path for w5 could be recovered"
-eq  "removed, only unrelated sessions: no header was opened" "" "$(cat "$ST/opened")"
+case "$(verdict)" in
+    *"$RINST"*) bad "removed, only unrelated sessions: no header was parsed, the canary's path isn't recovered" "$(verdict)" ;;
+    *) ok "removed, only unrelated sessions: no header was parsed, the canary's path isn't recovered" ;;
+esac
+eq  "removed, only unrelated sessions: no header was opened through head" "" "$(cat "$ST/opened")"
+
+# The canary's control: the same header with the slug also written plainly in
+# a later field, so grep hands it on. The seal must recover the instance path
+# from the escaped execution_dir; were candidate() to stop accepting it, the
+# case above would pass without testing anything.
+rfixture
+unrelated 4
+header canary "$CANARY" ',"note":"+w5-"'
+cseal
+eq  "removed, the canary's control: a header grep hands on recovers the canary's path" "$RVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
 
 # Two sessions in two instances for the topic: two candidates, refused.
 rfixture

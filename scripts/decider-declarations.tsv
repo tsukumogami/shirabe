@@ -8,7 +8,9 @@
 # A declaration whose input is a slice has the slice's contract (sources, the
 # script that builds it, why it's enough, its measured size) in
 # references/jev-criteria.md: coordinate's pick reads coord/pick_slice.json,
-# under coordinate/pick-choice there.
+# under coordinate/pick-choice there. coordinate's decision_verdict reads the
+# whole entry decision-next.sh writes, coord/decision.json, and its measured
+# contract is under coordinate/decision-verdict there.
 #
 # A decider-check gate's criteria aren't rows here: a check has no declared
 # values, only a pass, a fail and an escape, and its mode lives in the

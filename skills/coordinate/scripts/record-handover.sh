@@ -8,6 +8,9 @@
 #   record-handover.sh --session S [--check]
 #   record-handover.sh --scope roadmap|discipline --name N --repo O/R --ref N [--check]   (tests)
 #
+# The record number comes from the session's run-facts; a discipline rotation
+# on the session store has none.
+#
 # Prints, as one JSON object: arguments and cap (Run's rows, or null),
 # coordinator (the current address, or null), told (who has been told it),
 # workers (one per live holding: unit, worker, phase, told, next), work (every
@@ -27,6 +30,14 @@
 #                                            no end yet (PRD R15)
 #   not-told <worker>                        a live holding's Worker has no
 #                                            `told` row for the current address
+#   carry-unacknowledged                     a discipline rotation on the
+#                                            session store carried its
+#                                            predecessor's state, and no
+#                                            Standing go-ahead set since this
+#                                            run's start (not one the carry
+#                                            brought) acknowledges it; printed
+#                                            as carry: {carried, start,
+#                                            acknowledged}
 # A live holding is one dispatched and not merged: a row whose Dispatch status
 # is `dispatched` and that doesn't carry a Verified head with a blank Pull
 # request (merged, waiting for its teardown, so its worker has nothing left to
@@ -66,7 +77,7 @@ done
 . "$HERE/record-common.sh"
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [[ $REF =~ $RE_NUM ]] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
@@ -76,7 +87,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || lib_die2 "the record number is not a number"
+lib_ref_ok || lib_die2 "the record number is not a number"
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-handover.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
@@ -121,7 +132,38 @@ EOF
 jq -R -s 'split("\n") | map(select(. != "") | split("\t") | {worker: .[0], leg: .[1]})' "$WD/unclassified" > "$WD/unclassified.json" \
     || lib_die2 "jq failed"
 
-jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" '
+# A rotation that carried its predecessor's state (a record/rotation naming its
+# predecessor, or this run's carry report, coord/predecessor_carry.json, which
+# also covers the one-time bridge from a handoff file) dispatches and merges
+# nothing on it until a person acknowledges the carry: a Standing go-ahead set at
+# or after this run's start (the start of its chain of restarts, coord-log.sh
+# chain-start, so a crash restart doesn't ask again), and not one the carry
+# itself brought over (the report lists those).
+echo '{"carried": false}' > "$WD/carry.json"
+if [ -n "$SESSION" ] && lib_session_rotation; then
+    RS=${RS_SESSION:-$SESSION}
+    CARRIED=false
+    if rs_key "$SESSION" coord/predecessor_carry.json "$WD/report.json"; then
+        jq -e '.verdict == "carried"' "$WD/report.json" > /dev/null 2>&1 && CARRIED=true
+    else
+        case $? in 1) echo '{}' > "$WD/report.json" ;; *) lib_die2 "cannot read coord/predecessor_carry.json" ;; esac
+    fi
+    rs_rotation "$RS" "$WD/rotation.json"
+    case $? in
+        0) jq -e '.predecessor != null' "$WD/rotation.json" > /dev/null && CARRIED=true ;;
+        1) ;;
+        *) lib_die2 "cannot read record/rotation" ;;
+    esac
+    if [ "$CARRIED" = true ]; then
+        START=$(bash "$HERE/coord-log.sh" chain-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run's start"
+        START=$(printf '%s' "$START" | cut -c1-16)Z
+        jq -c --arg s "$START" '{carried: true, start: $s, carried_ids: [(.standing // [])[] | .standing]}' "$WD/report.json" > "$WD/carry.json" \
+            || lib_die2 "coord/predecessor_carry.json is not JSON"
+    fi
+fi
+
+jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+    --slurpfile carry "$WD/carry.json" '
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
@@ -138,7 +180,16 @@ jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "
              briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
              host: $host[0]}
       else . end
+    | (if $carry[0].carried then
+         ($carry[0].carried_ids) as $brought
+         | .carry = {carried: true, start: $carry[0].start,
+                     acknowledged: any(.standing[]; .kind == "go-ahead" and .set >= $carry[0].start
+                                                    and (.standing as $s | $brought | index($s) | not))}
+       else . end)
     | .gaps = ([
+        (if .carry.carried == true and (.carry.acknowledged | not)
+         then {gap: "carry-unacknowledged", fix: "show the person the carried holds and Standing rows (coord/predecessor_carry.json), then record their go-ahead: record-state.sh --standing go-ahead --what \"the carried state is acknowledged\" --owner <who>"}
+         else empty end),
         (if .arguments == null then {gap: "no-arguments", fix: "record-state.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
         (if .cap == null then {gap: "no-cap", fix: "record-state.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "record-state.sh --run coordinator <your address> --by <you>"} else empty end),

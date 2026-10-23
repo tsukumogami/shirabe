@@ -78,6 +78,9 @@ VERDICT_WRITER=0
 # Decisions 4, 10 and 11). SESSION_SEED=1 makes the write the first one into a
 # session holding no record/meta, or only the pending one an unfinished seed
 # left, with CORE_STORE=session; only record-open.sh and record-move.sh set it.
+# At discipline scope it seeds a rotation on the session store, which has no
+# pull request and so no record number (REF empty); record-open.sh opens it
+# that way, and carries a predecessor's sections into it the same way.
 # MOVE_WRITER=1 lifts the section-owner checks and the store-moved refusal for
 # the move's own writes, its copy into the session and its rewrite of the
 # GitHub body; only record-move.sh sets it. A structure test holds both to
@@ -114,15 +117,15 @@ core_live() {
     cp "$T/live.json.md" "$T/live.md"
     STATE=$(jq -r '.state' "$T/target.json")
     URL=$(jq -r '.url' "$T/target.json")
-    [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
-    grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
+    [ "$STATE" = OPEN ] || { echo "$PROG: refused: $(lib_record_name) is $STATE, not an open record" >&2; exit 10; }
+    grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: $(lib_record_name) does not carry this scope's declaration line" >&2; exit 10; }
     # A record moved to the session store keeps its GitHub body in the moved
     # shape, a Run section holding only `store session`: every writer but the
     # move refuses to change it, however its body was read (PRD R3, R8). Until
     # the move's last step, the state is still the GitHub body's, written as
     # before.
     if [ "$CORE_STORE_READ" = github ] && [ "$MOVE_WRITER" != 1 ] && [ $live_rc -eq 0 ] && rs_moved "$T/live.json"; then
-        echo "$PROG: refused: store-moved: #$REF's state lives in the coordinator's session store; write through the run on that store" >&2
+        echo "$PROG: refused: store-moved: $(lib_record_name)'s state lives in the coordinator's session store; write through the run on that store" >&2
         exit 65
     fi
     # Compare and swap on the Written: line. The body carries the Written: time of
@@ -137,12 +140,14 @@ core_live() {
         LIVE_W="(not a canonical record)"
     fi
     if [ -z "$BASE" ] || [ "$BASE" != "$LIVE_W" ]; then
-        echo "$PROG: refused: record-changed: #$REF was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
+        echo "$PROG: refused: record-changed: $(lib_record_name) was written at $LIVE_W, but this body was edited from ${BASE:-no version}; re-read it and redo the change" >&2
         exit 12
     fi
-    if [ "$SCOPE" = discipline ]; then
+    # A rotation on GitHub is its pull request on the record branch; a rotation on
+    # the session store has none.
+    if [ "$SCOPE" = discipline ] && [ "$CORE_STORE_READ" = github ]; then
         [ "$(jq -r '.headRefName' "$T/target.json")" = "$BRANCH" ] && [ "$(jq -r '.isCrossRepository' "$T/target.json")" = false ] \
-            || { echo "$PROG: refused: #$REF is not on $BRANCH in $REPO" >&2; exit 10; }
+            || { echo "$PROG: refused: $(lib_record_name) is not on $BRANCH in $REPO" >&2; exit 10; }
     fi
     # The Decisions section changes only through the decision writer, which
     # checks each transition; any other write must carry it as the live record
@@ -333,7 +338,7 @@ core_write_pushed() {
             *) lib_die2 "cannot read the run's facts" ;;
         esac
     fi
-    [[ $REF =~ $RE_NUM ]] || usage
+    lib_ref_ok || usage
     d=$(mktemp -d "${TMPDIR:-/tmp}/record-pushed.XXXXXX") || lib_die2 "mktemp failed"
     rs_key "$s" record/holdings "$d/holdings"
     case $? in
@@ -360,7 +365,36 @@ core_write_pushed() {
         rs_once_drop
     fi
     rm -rf "$d"
-    printf '%s\n' "https://github.com/$REPO/issues/$REF"
+    if [ -n "$REF" ]; then printf '%s\n' "https://github.com/$REPO/issues/$REF"; else printf '%s\n' "$s"; fi
+}
+
+# core_write_rotation <key> <json-file>: a discipline rotation's own key on the
+# session store, record/rotation (its window, host and predecessor) or
+# record/reasoning (what it leaves the next rotation), written whole. They
+# describe the rotation, not its tables, so they are no section and the record's
+# body never carries them. Only record-state.sh writes them, with
+# STATE_WRITER=1 (the structure test holds it there); the caller has checked
+# the value. Exits 65 refused (not the state writer, another key, or not
+# discipline scope); 10 the session holds no record (no record/meta, as for a
+# rotation on GitHub); 11 the write failed; 2 a read failed.
+core_write_rotation() {
+    local key=$1 s=${RS_SESSION:-$SESSION} d
+    case "$key" in record/rotation|record/reasoning) ;; *) echo "$PROG: refused: $key is not a rotation key" >&2; exit 65 ;; esac
+    [ "$STATE_WRITER" = 1 ] || { echo "$PROG: refused: $key changes only through record-state.sh" >&2; exit 65; }
+    [ "$SCOPE" = discipline ] || { echo "$PROG: refused: $key belongs to a discipline rotation" >&2; exit 65; }
+    [ -n "$s" ] || lib_die2 "$key needs the run's session"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-rotation.XXXXXX") || lib_die2 "mktemp failed"
+    rs_key "$s" record/meta "$d/meta"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; echo "$PROG: refused: session $s holds no record" >&2; exit 10 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $s's record/meta" ;;
+    esac
+    rs_once_drop
+    "$KOTO" context add "$s" "$key" --from-file "$2" < /dev/null > /dev/null 2> "$d/k.err" \
+        || { echo "$PROG: the $key write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rs_once_drop
+    rm -rf "$d"
 }
 
 # core_carry <from> <to>: copy a session-store record, its state and its
@@ -403,7 +437,8 @@ core_carry() {
     while IFS= read -r k; do
         case "$k" in
             record/meta) continue ;;
-            record/host) ;;
+            # A rotation's window and its reasoning go with it on a restart.
+            record/host|record/rotation|record/reasoning) ;;
             record/entries/*|record/posted/*) [[ $k =~ ^record/(entries|posted)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
             record/*) case "$secs" in *" $k "*) ;; *) rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k, not one of the session store's" >&2; exit 65 ;; esac ;;
             legs/*) [[ $k =~ ^legs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
@@ -445,7 +480,11 @@ core_validate() {
 }
 
 core_write() {
-    if [ -z "$REF" ]; then
+    # A rotation seeded on the session store has no record number, and the find
+    # that routed here sealed no record yet; every other write takes the run's.
+    local seed_rotation=0
+    [ "$SESSION_SEED" = 1 ] && [ "$SCOPE" = discipline ] && seed_rotation=1
+    if [ -z "$REF" ] && [ "$seed_rotation" = 0 ]; then
         FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
         case $? in
             0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
@@ -453,7 +492,11 @@ core_write() {
             *) lib_die2 "cannot read the run's facts" ;;
         esac
     fi
-    [[ $REF =~ $RE_NUM ]] || usage
+    if [ "$seed_rotation" = 1 ]; then
+        [ -z "$REF" ] || usage
+    else
+        lib_ref_ok || usage
+    fi
 
     T=$(mktemp -d "${TMPDIR:-/tmp}/record-write.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
@@ -485,10 +528,9 @@ core_write() {
             || { echo "$PROG: refused: no holding's Worker is $CORE_PUSHED_TOPIC" >&2; exit 65; }
     fi
     if [ "$SESSION_SEED" = 1 ]; then
-        [ "$CORE_STORE_READ" = session ] && [ "$SCOPE" = roadmap ] \
-            || lib_die2 "a seeding write goes only to the session store, at roadmap scope"
+        [ "$CORE_STORE_READ" = session ] || lib_die2 "a seeding write goes only to the session store"
         BASE=$(jq -r '.written // ""' "$T/parsed.json")
-        URL="https://github.com/$REPO/issues/$REF"
+        if [ -n "$REF" ]; then URL="https://github.com/$REPO/issues/$REF"; else URL=${RS_SESSION:-$SESSION}; fi
     else
         # The live record is read from the store this write goes to.
         RS_READ_STORE=$CORE_STORE_READ
@@ -566,7 +608,8 @@ core_write() {
 
     if [ "$CORE_STORE_READ" = session ]; then
         core_write_session "$OUT"
-        if [ "$CLOSE" = 1 ]; then
+        # A session rotation has no issue to close.
+        if [ "$CLOSE" = 1 ] && [ -n "$REF" ]; then
             gh issue close "$REF" --repo "$REPO" > /dev/null 2> "$T/w.err" < /dev/null \
                 || { echo "$PROG: the state was written but the close failed: $(lib_scrub < "$T/w.err")" >&2; exit 11; }
         fi

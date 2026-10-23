@@ -11,7 +11,8 @@
 #        --skip-session-checks]                            (tests)
 #
 # The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts); the override flags exist for tests only.
+# vars and run-facts; a discipline rotation on the session store has none); the
+# override flags exist for tests only.
 #
 # --add takes F holding a hold's keys (hold, on, until, set_by, set) with
 # lifted empty, and appends it; a hold of the same name is refused. --lift
@@ -29,9 +30,9 @@
 # visibility first. This is the one script that sets HOLDS_WRITER=1; every
 # other writer must carry the section as the live record has it.
 #
-# On the session store (roadmap scope) each add and lift is also told as a
-# `hold` entry in the account (record-append.sh), since the record keeps no
-# GitHub body that would show it.
+# On the session store (a roadmap record, or a discipline rotation) each add
+# and lift is also told as a `hold` entry in the account (record-append.sh),
+# since the record keeps no GitHub body that would show it.
 #
 # Exit codes: 0 written (prints the URL) or printed; 2 a read failed; 10
 # refused (the target isn't an open record of this scope, provenance, or a
@@ -77,7 +78,7 @@ esac
 . "$HERE/record-common.sh"
 lib_facts
 if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
+    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
     [ -z "$REF" ] || usage
     FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
@@ -87,7 +88,7 @@ else
         *) lib_die2 "cannot read the run's facts" ;;
     esac
 fi
-[[ $REF =~ $RE_NUM ]] || usage
+lib_ref_ok || usage
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT

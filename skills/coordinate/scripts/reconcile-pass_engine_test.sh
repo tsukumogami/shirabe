@@ -188,7 +188,7 @@ eq "reconcile_pass does not poll" null "$(jq -c '.states.reconcile_pass.default_
 eq "every reconcile_pass gate is overridable: false" true "$(jq '[.states.reconcile_pass.gates[] | .overridable == false] | all' "$CJ")"
 eq "reconcile_pass has one transition, to reconcile" '["reconcile"]' "$(jq -c '[.states.reconcile_pass.transitions[].target]' "$CJ")"
 eq "every reconcile gate is overridable: false" true "$(jq '[.states.reconcile.gates[] | .overridable == false] | all' "$CJ")"
-eq "no gate names reconcile/reasoning.md" 0 "$(jq '[.states[] | (.gates // {})[] | (.command // "") + (.key // "") | select(test("reasoning"))] | length' "$CJ")"
+eq "no gate names reconcile/reasoning.md" 0 "$(jq '[.states[] | (.gates // {})[] | (.command // "") + (.key // "") | select(test("reasoning\\.md"))] | length' "$CJ")"
 eq "the pass and the report check run from the plugin root" true \
     "$(jq '[.states.reconcile_pass.default_action.command, .states.reconcile.gates.reconcile_report.command] | all(startswith("\"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-"))' "$CJ")"
 eq "the reconcile_pass directive does not name RECONCILE_SEAL" 0 "$(jq '[.states.reconcile_pass | (.directive // "") + (.details // "") | select(test("RECONCILE_SEAL"))] | length' "$CJ")"

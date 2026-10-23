@@ -229,13 +229,11 @@ bash "$HERE/record-state.sh" --scope discipline --name ci-health --repo "$REPO" 
 eq "  ... store session too" 65 $?
 grep -q 'store-discipline' "$T/err" && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$T/err")"
 
-# The opener: a discipline --store is refused before any koto call; --store
-# session reaches koto.
+# The opener: at discipline scope --store decides nothing, so it isn't
+# refused; --store session reaches koto.
 open_with() { printf '%s' "$1" > "$T/args.json"; ( cd "$T" && bash "$HERE/coordinate-open.sh" --plugin-root "$PLUGIN_ROOT_REAL" "$T/args.json" ); }
-: > "$KOTO_STORE/calls"
-OUT=$(open_with '["--discipline", "ci-health", "--host", "acme/widgets", "--store", "github"]' 2>"$T/err"); rc=$?
-eq "--store at discipline scope is refused" "2 refused=store-discipline" "$rc $OUT"
-grep -q '^init' "$KOTO_STORE/calls" && bad "  ... and no session is opened" "$(cat "$KOTO_STORE/calls")" || ok "  ... and no session is opened"
+OUT=$(open_with '["--discipline", "ci-health", "--host", "acme/widgets", "--store", "github"]' 2>"$T/err")
+case "$OUT" in *refused=store*) bad "--store at discipline scope isn't refused by the opener" "$OUT" ;; *) ok "--store at discipline scope isn't refused by the opener" ;; esac
 OUT=$(open_with '["docs/roadmaps/ROADMAP-plugin-system.md", "--store", "session"]' 2>"$T/err")
 case "$OUT" in *refused=store*) bad "--store session at roadmap scope isn't refused by the opener" "$OUT" ;; *) ok "--store session at roadmap scope isn't refused by the opener" ;; esac
 
@@ -300,14 +298,16 @@ OUT=$(bash "$HERE/record-find.sh" --session "$SN2" 2>"$T/err")
 eq "  ... and without the features it stops" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
 jq -r .reason "$KOTO_STORE/context/$SN2/coord/record_find.json" | grep -q '^store-unsupported' \
     && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cat "$KOTO_STORE/context/$SN2/coord/record_find.json")"
-# The same at discipline scope, with any store.
+# At discipline scope the run's STORE decides nothing: with no rotation on
+# GitHub the find goes to the session store, so even STORE=github stops on the
+# missing features.
 SD=coordinate-discipline-ci-health-20260926T060000Z
 log_new "$SD" "$(discipline_vars ci-health | jq -c '. + {STORE: "github"}')"
 log_to "$SD" start_posture record_find 2026-09-26T06:01:00.000Z
 OUT=$(bash "$HERE/record-find.sh" --session "$SD" --today 2026-09-26 2>"$T/err")
-eq "a discipline run with a store is stopped at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
-jq -r .reason "$KOTO_STORE/context/$SD/coord/record_find.json" | grep -q '^store-discipline' \
-    && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$KOTO_STORE/context/$SD/coord/record_find.json")"
+eq "a discipline run with STORE=github still goes to the session store" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+jq -r .reason "$KOTO_STORE/context/$SD/coord/record_find.json" | grep -q '^store-unsupported' \
+    && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cat "$KOTO_STORE/context/$SD/coord/record_find.json")"
 
 # A candidate the find rejects is a record it didn't adopt, not a missing one:
 # coord/source.json says so, with the find's own verdict and reason.
