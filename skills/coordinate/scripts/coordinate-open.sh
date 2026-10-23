@@ -68,8 +68,10 @@
 #                                (STORE); a found record's own store row decides
 #                                for an existing one, and this flag is then
 #                                reported ignored. Without it a new roadmap
-#                                record is on GitHub; at discipline scope a new
-#                                rotation runs on its session whatever it says
+#                                record is on the session store (STORE=session);
+#                                only `--store github` opens one on GitHub, and
+#                                any other value is usage. At discipline scope a
+#                                new rotation runs on its session whatever it says
 #   --import <session>, --from <workspace path>, [--trust-template]
 #                                import that run from the bucket (with the
 #                                roadmap path, or a discipline's --discipline
@@ -166,11 +168,17 @@ if [ "$(printf '%s' "$MAPPED" | jq '.import | length')" -gt 0 ]; then
         || usage "--import resumes the imported run with its own settings; give none with it but a discipline's --discipline and --host"
 fi
 
-# The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2).
-# koto checks the value's shape. At roadmap scope GitHub stays the default:
-# only `--store session` opens a new scope's record on the session store. At
-# discipline scope it decides nothing: a new rotation opens on the session store
-# and one still on GitHub stays there (record-find.sh reports the flag ignored).
+# The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2;
+# docs/designs/current/DESIGN-coordinator-record-teardown.md, step 4). It is
+# github or session; anything else is refused here, naming it. At roadmap scope
+# a new scope opens on the session store unless `--store github` is given (the
+# roadmap branch below adds STORE=session when no --store is), and a record the
+# find adopts decides by its own store row. At discipline scope it decides
+# nothing: a new rotation opens on the session store and one still on GitHub
+# stays there (record-find.sh reports the flag ignored).
+BAD_STORE=$(printf '%s' "$MAPPED" | jq -c '[.pairs[] | select(.[0] == "STORE") | .[1] | select(. != "github" and . != "session")]')
+[ "$BAD_STORE" = '[]' ] || usage "--store takes github or session, not $(printf '%s' "$BAD_STORE" | jq -c '.[0]')"
+STORE_GIVEN=$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "STORE")] | length')
 
 NPOS=$(printf '%s' "$MAPPED" | jq '.positional | length')
 DISC=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')
@@ -201,6 +209,11 @@ else
     FORM=feature
     if [ -r "$ROADMAP" ] && bash "$HERE/milestone.sh" is-milestone "$ROADMAP" >/dev/null 2>&1; then FORM=milestone; fi
     EXTRA=$(jq -nc --arg r "$ROADMAP" --arg h "$HOST" --arg f "$FORM" '[["ROADMAP", $r], ["HOST_REPO", $h], ["ROADMAP_FORM", $f]]')
+    # A new roadmap scope starts on the session store unless --store says
+    # otherwise; an import takes the imported run's own settings.
+    if [ "$STORE_GIVEN" -eq 0 ] && [ -z "$IMPORT" ]; then
+        EXTRA=$(printf '%s' "$EXTRA" | jq -c '. + [["STORE", "session"]]')
+    fi
 fi
 
 # The scope slug, derived where every write script's live-session check

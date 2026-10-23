@@ -210,11 +210,13 @@ write_source() {
         store=${RECORD_STORE:-github}
         reason="the record's store"
         [ -n "$RECORD_STORE" ] || reason="the record has no store row"
-        [ -z "$flag" ] || reason="$reason; the invocation's --store $flag is ignored: the record decides"
+        [ -z "$flag" ] || reason="$reason; the run's store setting ($flag) is ignored: the record decides"
     elif [ "$VERDICT" = none ] || [ "$VERDICT" = unopened ]; then
+        # The opener sets STORE=session for a new roadmap scope unless --store
+        # github was given; a session opened some other way may carry none.
         store=${flag:-github}
-        reason="no record found: the invocation's store"
-        [ -n "$flag" ] || reason="no record found and no --store"
+        reason="no record found: the run's store setting"
+        [ -n "$flag" ] || reason="no record found and no store setting"
     else
         store=github
         reason="no record adopted: $VERDICT: $REASON"

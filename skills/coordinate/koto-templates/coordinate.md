@@ -198,7 +198,9 @@ variables:
   STORE:
     description: >-
       Where a new scope's record keeps its state, from coordinate-open.sh
-      --store: github or session, empty when not given. It decides only when
+      --store: github or session. At roadmap scope the opener sets session when
+      --store isn't given; a session opened another way may leave it empty,
+      which reads as github. It decides only when
       record_find finds no record; a found record's own `store` Run row decides
       otherwise, and record-find.sh writes the run's store, and why, to
       coord/source.json. At discipline scope it decides nothing: a new rotation
