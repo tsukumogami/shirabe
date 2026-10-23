@@ -102,14 +102,18 @@ export SHIRABE_STATE_DIR="$W/state"
 export TEST_CHANGE_LOCK_WAIT=1
 
 # --- koto stand-in: context add|get|exists under $SHIM_STORE/<s>/<key>, a
-# version at the floor, and status for a session whose directory exists.
+# version at the floor, and status for a session whose directory exists. The
+# version is read from assert-koto-floor.sh, so raising the floor doesn't
+# leave the stand-in below it.
 BIN="$W/bin"
 STORE="$W/store"
 mkdir -p "$BIN" "$STORE"
+SHIM_FLOOR=$(sed -n 's/^FLOOR="\${KOTO_FLOOR:-\(.*\)}"$/\1/p' "$PLUGIN/scripts/assert-koto-floor.sh")
+[ -n "$SHIM_FLOOR" ] || { echo "FAIL: could not read the koto floor from assert-koto-floor.sh"; exit 1; }
 cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
-    version) echo "koto 0.21.0 (shim)"; exit 0 ;;
+    version) echo "koto $SHIM_FLOOR (shim)"; exit 0 ;;
     status) [ -d "$SHIM_STORE/$2" ] || { echo "workflow not found" >&2; exit 2; }; echo '{}'; exit 0 ;;
     context) ;;
     *) echo "shim: unsupported $*" >&2; exit 2 ;;
@@ -123,7 +127,7 @@ case "$2" in
 esac
 SHIM
 chmod +x "$BIN/koto"
-export SHIM_STORE="$STORE"
+export SHIM_STORE="$STORE" SHIM_FLOOR
 
 # --- gh stand-in: logs every call and fails. Nothing test-change.sh does may
 # reach GitHub, so the log must stay empty to the end.
