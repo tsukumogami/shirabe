@@ -68,6 +68,7 @@ cost	handover_engine_test.sh	29
 cost	record-codec_test.sh	25
 cost	writeback_engine_test.sh	25
 cost	state-schema_test.sh	24
+cost	legacy-import_test.sh	23
 cost	read-once_test.sh	20
 cost	render-brief_test.sh	19
 cost	record-holding_test.sh	17
