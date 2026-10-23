@@ -80,6 +80,11 @@
 #   gh pr list --repo R --head coordinate/discipline-<name> --state all --limit 100 --json ...
 #   gh api graphql (a query: the candidate's author and editor logins)
 #   gh api --method GET repos/R/collaborators/<login>/permission --jq .permission
+#   gh api --method GET repos/R/git/ref/heads/<default branch> --jq .object.sha
+#   gh api --method GET "repos/R/contents/docs/disciplines/<name>.md?ref=<sha>" --jq .content
+# A discipline rotation on the session store makes the second, third and fourth
+# of these, each once; with no earlier session rotation it adds the last two,
+# each once (find-reads_test.sh counts them).
 set -uo pipefail
 
 PROG=record-find
@@ -435,7 +440,9 @@ rotation_dates() {
 # rotation.
 bridge_or_first() {
     local head
-    lib_default_branch || lib_die2 "cannot read $REPO's default branch"
+    # The discipline read already holds the default branch; read it again only
+    # without one.
+    [ -n "$DEFAULT_BRANCH" ] || lib_default_branch || lib_die2 "cannot read $REPO's default branch"
     head=$(gh api --method GET "repos/$REPO/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha 2> "$T/head.err" < /dev/null) \
         || lib_die2 "cannot read the head of $DEFAULT_BRANCH: $(lib_scrub < "$T/head.err")"
     [[ $head =~ $RE_SHA ]] || lib_die2 "the head of $DEFAULT_BRANCH is not a sha"
