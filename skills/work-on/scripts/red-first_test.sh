@@ -220,6 +220,26 @@ run red "$S" --marker "$MARKER" --passage-file "$W/passage" -- sh tests/run.sh
 has "a symlinked test file: refused" "is a symlink" "$OUT"
 git checkout -q main
 
+# A directory that is a symlink at the base, made a real directory by the unit:
+# copying its test there would write through the link, outside the worktree.
+mkdir -p "$W/outside"
+git checkout -q -b linkdir "$BASE"
+ln -s "$W/outside" evil
+git add evil
+git commit -q -m "a link at the base"
+new_session sl
+git rev-parse HEAD > "$STORE/sl/impl_base"
+git rm -q evil
+mkdir evil
+cp tests/greet_test.sh evil/x_test.sh
+git add evil
+git commit -q -m "the unit makes it a directory"
+run red sl --marker "$MARKER" --passage-file "$W/passage" -- sh tests/run.sh
+has "a test under a directory that is a symlink at the base: refused" "is a symlink at the base" "$OUT"
+[ -e "$W/outside/x_test.sh" ] && bad "nothing is written through the link" "found $W/outside/x_test.sh" \
+    || ok "nothing is written through the link"
+git checkout -q main
+
 # --- green and check-green ---------------------------------------------------------
 new_session g1
 git checkout -q -b green-test "$BASE"

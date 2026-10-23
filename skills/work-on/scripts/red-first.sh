@@ -31,7 +31,9 @@
 #                command runs on the base code with the unit's tests and none
 #                of its other changes. The reproducing tests are those files,
 #                or the existing tests named with --tests. A test file that is
-#                a symlink is refused. Paths among the command's words that
+#                a symlink at HEAD is refused, and so is one under a directory
+#                that is a symlink at the base, which would carry the copy
+#                outside the worktree. Paths among the command's words that
 #                name files at the base are recorded as harness files. The
 #                command runs with only PATH, HOME, LANG and TMPDIR in its
 #                environment, stdin closed, in its own process group, killed
@@ -356,6 +358,9 @@ cmd_red() {
     while IFS="$tab" read -r label path digest; do
         [ -n "$path" ] || continue
         [ "$digest" != deleted ] || continue
+        # The list below is one path per line, so a path that holds a control
+        # character (a newline, say) can't be carried in it.
+        case "$path" in *[[:cntrl:]]*) refuse "a test path in the diff holds a control character; rename it" ;; esac
         printf '%s\n' "$path" >> "$TMP/copy"
     done < "$TMP/classified"
     local p
@@ -378,8 +383,18 @@ cmd_red() {
     done < "$TMP/copy"
 
     make_worktree "$base"
+    local dir
     while IFS= read -r p; do
+        # The worktree holds the base's tree, so a directory on the path that
+        # is a symlink there would carry the copy outside the worktree; refuse
+        # it. A symlink at the path itself is removed, not followed.
+        dir=$(dirname "$p")
+        while [ "$dir" != . ] && [ "$dir" != / ]; do
+            [ ! -L "$WT/$dir" ] || refuse "the directory [$dir] is a symlink at the base, so the test [$p] can't be copied under it"
+            dir=$(dirname "$dir")
+        done
         mkdir -p "$WT/$(dirname "$p")"
+        [ ! -L "$WT/$p" ] || rm -f "$WT/$p"
         git cat-file blob "HEAD:$p" > "$WT/$p" || undecided "could not copy $p into the temporary worktree"
         mode=$(git ls-tree HEAD -- "$p" | awk '{ print $1; exit }')
         if [ "$mode" = 100755 ]; then chmod 755 "$WT/$p"; else chmod 644 "$WT/$p"; fi
