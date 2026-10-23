@@ -26,8 +26,12 @@
 # opt-in arrives as CLAUDE.local.md, which isn't committed, so a step that
 # runs with no checkout of the repository (after its instance is reaped, or
 # against GitHub alone) reads omit for a repository whose own run read
-# include. Omit is the safe side of that gap: the records stay out of the
-# pull request and remain in the run's session.
+# include. Omit is the safe side of that gap for the pull request's text: the
+# records stay out of it and remain in the run's session. It also means a gate
+# that, under include, checks a record in the body (the verification-deferral
+# record) checks nothing there and takes the run's own record instead. Run it
+# in the checkout the pull request comes from: niwa writes CLAUDE.local.md
+# into each worktree it provisions, so a linked worktree carries its own copy.
 #
 # The directory defaults to the root of the git work tree holding the current
 # directory, else the current directory. It is the one interface every skill,

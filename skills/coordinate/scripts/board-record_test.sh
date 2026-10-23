@@ -105,7 +105,7 @@ fresh; bt_board complete-board; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 'gh: S
 eq "a body that can't be read: board-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 
 echo "== the round recorded in the worker's session =="
-REQ=req-0d1e2f30-0000-4000-8000-000000000002
+REQ=req-board-record-round
 fresh; bt_board complete-board; printf 'Part one.\n\n---\n\nNo panel.\n' > "$T/body"; bt_prview CLEAN "$T/body"
 bt_leg_round "$REQ" work-on issue_12 "$(bt_round | jq -c '.seats[1].run = "agent-r1"')"
 OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err")

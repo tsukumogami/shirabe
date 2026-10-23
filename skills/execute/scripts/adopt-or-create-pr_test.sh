@@ -30,7 +30,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/adopt-or-create-test.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/adopt-or-create-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"
 mkdir -p "$BIN"

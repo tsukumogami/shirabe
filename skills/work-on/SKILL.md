@@ -174,6 +174,13 @@ uses. Under `omit`, `pr_creation`'s `pr_body_conformant` gate holds on the recor
 can see (`pr-body/workflow-content`). `references/phases/phase-6-pr.md` says what goes
 where under each setting.
 
+A coordinator that dispatched this run reads its review round from this run's session,
+not from the body. When the brief asks for the round, record it once the seats at the
+head you report ready have passed:
+`${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/review-round.sh record --session <WF> <round.json>`,
+the round a JSON object with `reviewed_head` and one `seats` entry per seat (`seat`,
+`model`, `run`, `verdict`). It refuses a round the land step would call malformed.
+
 ## Plan Input (Dispatcher)
 
 When `$ARGUMENTS` is a path to a PLAN.md file, `/work-on` acts as a thin dispatcher

@@ -1164,7 +1164,8 @@ check_shape "--pr-body, default: workflow records"
 [ "$(findings | jq -r 'select(.rule_id == "pr-body/workflow-content") | .rule_id' | grep -c .)" -eq 5 ] \
     && pass "--pr-body, default: the heading, the table, Plan:, Roadmap: and Implements are five findings" \
     || fail "--pr-body, default: workflow-content findings: $OUT"
-findings | jq -r .message | grep -qF 'a `## Review panel` heading (line 5)' \
+WC_MESSAGES=$(findings | jq -r .message)
+grep -qF 'a `## Review panel` heading (line 5)' <<<"$WC_MESSAGES" \
     && pass "--pr-body, default: a finding names the record and its line" \
     || fail "--pr-body, default: no line-numbered heading finding: $OUT"
 FAKE_SHIRABE_RC=2

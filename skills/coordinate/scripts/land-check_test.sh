@@ -200,7 +200,7 @@ bash "$CL" check --session "$S" --state land --sealed "$OUT" >/dev/null 2>&1 \
 eq "  ... and the changed files" '["skills/x.sh"]' "$("$KOTO_BIN" context get "$S" coord/land.json | jq -c .files)"
 
 echo "== the round recorded in the worker's session =="
-REQ=req-0d1e2f30-0000-4000-8000-000000000001
+REQ=req-land-check-round
 NOPANEL=$(printf '%s\n\n---\n\nNo panel here.\n' "$BT_PART1")
 evsrc() { "$KOTO_BIN" context get "$S" coord/land.json | jq -r '.evidence.source // ""'; }
 scenario "$PERMIT" "$PERMIT"
