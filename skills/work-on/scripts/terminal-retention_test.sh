@@ -579,17 +579,28 @@ else
     fail "a flagged child's result did not reach its parent: $(head -c 300 <<<"$RESP")"
 fi
 
-# The control: an unflagged child delivers too, and is not kept.
+# The control: an unflagged child delivers too, and the flag isn't what keeps
+# it. Before koto 0.23.0 it is removed at its success terminal. From 0.23.0 a
+# session with lineage is kept whatever the flag says, and the tick answers
+# `"retention": {"retained": true, "reason": "hierarchy"}`; a child kept for
+# any other reason, such as `no_cleanup`, fails here on either version.
 koto init unflagged --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
 init_or_die unflagged
 koto next unflagged --with-data "$TASKS" >/dev/null 2>&1
-koto next unflagged.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
+LEAF=$(koto next unflagged.leaf --with-data '{"status":"ok"}' 2>/dev/null)
 RESP=$(parent_tick unflagged)
-if printf '%s' "$RESP" | jq -e '.error == null and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1 \
-    && ! kept unflagged.leaf; then
-    pass "an unflagged child delivers its result and is not kept at a success terminal (control)"
+if ! kept unflagged.leaf; then
+    UNFLAGGED_KEPT=ok
+elif printf '%s' "$LEAF" | jq -e '.retention.retained == true and .retention.reason == "hierarchy"' >/dev/null 2>&1; then
+    UNFLAGGED_KEPT=ok
 else
-    fail "the unflagged control did not deliver, or was kept: $(head -c 300 <<<"$RESP")"
+    UNFLAGGED_KEPT=no
+fi
+if printf '%s' "$RESP" | jq -e '.error == null and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1 \
+    && [ "$UNFLAGGED_KEPT" = ok ]; then
+    pass "an unflagged child delivers its result and is removed, or kept only for its lineage (control)"
+else
+    fail "the unflagged control did not deliver, or was kept for something other than its lineage: leaf $(head -c 300 <<<"$LEAF"); parent $(head -c 300 <<<"$RESP")"
 fi
 
 # parent.md waits for the gate to pass, the shape a flagged child used to wedge.
