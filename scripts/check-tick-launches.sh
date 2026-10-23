@@ -38,6 +38,14 @@
 # or script unsets KOTO_SESSION_*: a line naming KOTO_SESSION_ after `unset`,
 # `env ... -u`, or, in Python, `.pop`, `del` or `startswith`.
 #
+# Limits, stated rather than hidden. The scan reads lines, not shell scope:
+# an unset anywhere above a launch in the same file clears it, even one inside
+# another function or branch. A launch through a variable is seen only when
+# the variable is named for the tool (NIWA, CLAUDE, or either with _BIN, _CLI,
+# _CMD, _COMMAND or _EXE). A script is followed only by a path written in a
+# command or script; a mode the callee takes from its arguments is not, which
+# is what scripts/check-tick-launches.allow records, one call at a time.
+#
 # Usage:
 #   check-tick-launches.sh [--root <plugin-root>] [<template>...]
 #
