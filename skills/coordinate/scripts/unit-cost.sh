@@ -1335,7 +1335,20 @@ elif uc_run "$B" "$WD/facts.json" bash "$DC_COORD_LOG" run-facts --session "$SES
             0) ROW_OK=1
                 uc_jq -c --slurpfile r "$WD/row.json" '. + {unit: ($r[0].unit // null)}' "$WD/facts.json" >"$WD/unit.json" \
                 || jq -c '. + {unit: null, unit_reason: "invalid input"}' "$WD/facts.json" >"$WD/unit.json" ;;
-            1) jq -c '. + {unit: null, unit_reason: "no source"}' "$WD/facts.json" >"$WD/unit.json" ;;
+            1) jq -c '. + {unit: null, unit_reason: "no source"}' "$WD/facts.json" >"$WD/unit.json"
+                # No row names the topic (the unit was retired, or removed
+                # before its pass): the Unit the dispatch recorded on its leg
+                # key, in the requesting coordinator's session, found through
+                # the unit's own koto request. The row's Unit pattern and cut
+                # apply to it the same way, in uc_attribution.
+                B=$(uc_bound "$FETCH_SECS")
+                if [ "$B" -gt 0 ] && ac_dispatch_request "$ARCH"/koto/*/ \
+                    && uc_run "$B" "$WD/leg.json" "${KOTO:-koto}" context get "$AC_BY" "legs/$AC_REQ/$AC_LEG"; then
+                    uc_jq -c --slurpfile l "$WD/leg.json" --arg q "$AC_REQ" \
+                        'if ($l[0] | type) == "object" and $l[0].request == $q and ($l[0].unit | type) == "string"
+                         then . + {unit: $l[0].unit} | del(.unit_reason) else . end' "$WD/unit.json" >"$WD/unit.new" \
+                        && mv "$WD/unit.new" "$WD/unit.json"
+                fi ;;
             *) jq -c '. + {unit: null, unit_reason: "read failed"}' "$WD/facts.json" >"$WD/unit.json" ;;
         esac
     fi

@@ -435,10 +435,17 @@ EOF
     RETURN_PATH="$req:$leg"
     # The leg as a key of the coordinator's own session (PRD R13), before any
     # holding names it. A failed write leaves the request open with no row
-    # naming it, which the next dispatch of the topic abandons above.
+    # naming it, which the next dispatch of the topic abandons above. It also
+    # holds the dispatch's unit, when its tag (the part before the first `: `)
+    # has the shape the cost capture reads, so a capture after the holding is
+    # gone still finds the milestone.
+    local unit
+    unit=$(jq -r '.unit // "" | strings | select(length <= 200 and (test("[[:cntrl:]]") | not))' "$INPUT") || unit=""
+    [[ ${unit%%: *} =~ ^[A-Za-z0-9][A-Za-z0-9\ _.#/-]{0,63}$ ]] || unit=""
     dc_leg_put "$SESSION" "$req" "$leg" "$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$TOPIC" \
-        --arg tp "$templates" --argjson in "$inputs" \
-        '{request: $r, leg: $l, topic: $t, state: "open", templates: ($tp | split(",")), inputs: $in}')" ||
+        --arg tp "$templates" --argjson in "$inputs" --arg u "$unit" \
+        '{request: $r, leg: $l, topic: $t, state: "open", templates: ($tp | split(",")), inputs: $in}
+         + (if $u == "" then {} else {unit: $u} end)')" ||
         die 2 "could not write the leg key for $TOPIC's leg $RETURN_PATH"
 }
 
@@ -712,7 +719,8 @@ EOF
 
     # 3. The new leg's key, naming where it came from.
     dc_leg_put "$SESSION" "$NEW" "$LEG" "$(jq -c --arg n "$NEW" --arg f "$REQ" --argjson in "$INPUTS" --arg t "$TEMPLATES" \
-        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, child, from: $f}' <<<"$KEY")" ||
+        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, child, from: $f}
+         + (if has("unit") then {unit} else {} end)' <<<"$KEY")" ||
         die 2 "could not write the leg key for $NEW:$LEG"
     # 4. The holding's return path, then 5. the old key marked.
     write_row "$(jq -c --arg rp "$(dc_rp_to_row "$NEW:$LEG")" '.return_path = $rp' <<<"$ROW")"

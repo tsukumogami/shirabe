@@ -628,6 +628,47 @@ eq "no green head: every head read, each failing one counted" "35 measured" "$(f
 eq "  ... the 66th head read too" 1 "$(grep -c -- "head_sha=$(hsha 66)" "$GH_DB.calls")"
 eq "  ... and green not recoverable" "null not recoverable" "$(fig "$OUT" dispatch_to_green_min)"
 
+echo "== the milestone from the dispatch's leg key =="
+# No Holdings row names the topic (the unit retired, or removed before its
+# pass): the Unit comes from the leg key its dispatch wrote in the requesting
+# coordinator's session, found through the unit's own koto request.
+seed_noholding() {
+    cat "$GH_DB.calls" >>"$T/allcalls" 2>/dev/null
+    db_init
+    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
+        --arg t "$TITLE" --arg b "$(render "$(record_json roadmap x | jq -c '.holdings = []')" issue 2026-10-01T08:00:00Z)"
+    db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
+}
+LREQ="$T/legreqs"
+rm -rf "$LREQ"; cp -R "$FX/requests" "$LREQ"
+jq -c --arg s "$S" 'if .request_id == "r_dispatch_x" and has("requested_by") then .requested_by = $s else . end' \
+    "$FX/requests/r_dispatch_x/request.jsonl" >"$LREQ/r_dispatch_x/request.jsonl"
+seed_noholding; fresh; prs "acme/widgets#21 $MERGE"
+legunit() { KOTO_REQUESTS="$LREQ" capture >/dev/null; last_entry | jq -r '"\(.milestone.value | tojson) \(.milestone.state)"'; }
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken","unit":"Feature 4: Example feature"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "no Holdings row, the leg key holding the Unit: its milestone, measured" \
+    '{"roadmap":"ROADMAP-x","tag":"Feature 4"} measured' "$(legunit)"
+POSTED=$((POSTED + 1))
+seed_noholding; fresh
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "a leg key with no Unit (a dispatch from before it was recorded): not recoverable" \
+    'null not recoverable' "$(legunit)"
+POSTED=$((POSTED + 1))
+seed_noholding; fresh
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken","unit":"$(x)"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "a leg key whose Unit is outside the pattern: not recoverable" 'null not recoverable' "$(legunit)"
+POSTED=$((POSTED + 1))
+koto context remove "$S" legs/r_dispatch_x/deliver >/dev/null 2>&1
+seed "Feature 9: The row's own"; fresh
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken","unit":"Feature 4: Example feature"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "a Holdings row and a leg key that differ: the row's" '{"roadmap":"ROADMAP-x","tag":"Feature 9"} measured' "$(legunit)"
+POSTED=$((POSTED + 1))
+koto context remove "$S" legs/r_dispatch_x/deliver >/dev/null 2>&1
+
 echo "== one entry per key =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a first capture posts" 0 $?
