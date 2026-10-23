@@ -377,7 +377,11 @@ The ledger agrees. On one host's decider ledger, from 2026-10-21T03:12Z to
 sessions, each paired with the agent's own verdict, read with
 `koto decider report --state decision_verdict --json` and the raw ledger
 lines. None was covered: 25 were below the 0.9 threshold, 9 escaped and 1
-timed out. The agent answered 24 settle and 11 escalate, and never hold.
+timed out. The agent answered 24 settle and 11 escalate, and never hold. The
+window ends at the last consultation the agent had answered when the ledger
+was read; a later one, still unanswered then, is left out. The issue counted
+32 consultations (25, 6 and 1; 23 settle and 9 escalate); the three added
+since are all escapes, one settled and two escalated by the agent.
 
 Each input was rebuilt from its session. The session log gives the decision
 number (`decision-next.sh`'s `DECISION_NEXT`), the size of the
@@ -425,8 +429,9 @@ the next time.
   someone else, a rule of one review panel at a time.
 
 So the low confidence isn't noise around a right answer. The decider can't
-see whose decision it is, and with no evidence on most entries, hold reads
-as plausible to it as either of the other two. No change to the input's size
+see whose decision it is, and with no evidence on most entries it leaned
+hold, or put hold next after the escape, on 10 of the 34 it answered or
+escaped, where the agent never held. No change to the input's size
 or cap would fix this: the largest input was a third of the cap, and every
 one arrived whole. Any input that could tell settle from escalate would need
 facts the entry doesn't hold: the run's scope, the person's standing rulings
@@ -448,7 +453,10 @@ names made neutral, in the 19-field shape `decision-next.sh` writes:
 spend, a feature split out of a roadmap the dispatcher raised), and two whose
 right answer is the escape: `empty-0`, an empty input, and `truncated-0`, an
 entry cut at 200 bytes. No observed input was empty or truncated, so those
-two are constructed. The fixtures haven't been run against the decider.
+two are constructed. An observed case's expected answer is the verdict the
+agent gave, which read the facts the input leaves out, so a decider that
+misses one is showing the gap above rather than a fault of its own. The
+fixtures haven't been run against the decider.
 
 ## rs-007
 
