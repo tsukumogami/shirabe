@@ -30,13 +30,12 @@ N=0
 # extraction. Sets S, OUT (stdout) and RC.
 run() {
     N=$((N + 1))
-    local ref=$((200 + N)) rec
+    local rec
     rec=$(record_json roadmap feat | jq -c --argjson e "${4:-[]}" '.decisions = {next: 10, entries: $e}')
     [ -n "${3-}" ] && rec=$(printf '%s' "$rec" | jq -c --argjson h "$3" '.holdings = [$h]')
-    db '.issues = [] | .issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-feat",
-        body: $b, state: "open", author: "coord", editor: null}]' --argjson k "$ref" --arg b "$(render "$rec" issue)"
     S="coordinate-roadmap-feat-q$N-$RUNSTAMP"
-    found_session "$S" "$(roadmap_vars feat)" "$ref"
+    found_session "$S" "$(roadmap_vars feat)"
+    seed_session "$S" "$rec"
     log_to "$S" wait take_report
     printf '%s' "$2" > "$T/report"
     koto context add "$S" worker_report --from-file "$T/report"
@@ -72,10 +71,10 @@ run "holding none w1" "$(cat "$HERE/testdata/report-questions/questions-shape.tx
     "[$(printf '%s' "$ENTRY" | jq -c '.source = "worker w2 [20260926T080000Z report 5.1]"')]"
 eq "a citation of another worker's entry is dropped" "null null" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
 
-# An archived entry (shirabe#827): the body names it on its Archived line, and
-# its row is in a `decisions` entry on the record.
+# An archived entry (shirabe#827): the section names it on its Archived line,
+# and its row is in a `decisions` entry in the run's session.
 SETTLED3=$(printf '%s' "$ENTRY" | jq -c '. + {state: "settled", verdict: "settle", outcome: "400", decided_by: "the coordinator"}')
-# archive_row <entry-json>: post the entry's row, as the body renders it, as a decisions entry.
+# archive_row <entry-json>: write the entry's row, as the body renders it, as a decisions entry.
 archive_row() {
     render "$(record_json roadmap feat | jq -c --argjson e "[$1]" '.decisions = {next: 10, entries: $e}')" issue \
         | bash "$HERE/record-parse.sh" | jq -r -L "$HERE" 'include "record-codec";
@@ -88,12 +87,11 @@ others_archive() { archive_row "$(printf '%s' "$SETTLED3" | jq -c '.source = "wo
 # run with the section archived: the record's entries list is empty, entry 3 archived.
 run_archived() {
     N=$((N + 1))
-    local ref=$((200 + N)) rec
+    local rec
     rec=$(record_json roadmap feat | jq -c --argjson h "$WORKER" ".holdings = [\$h] | $ARCHIVED")
-    db '.issues = [] | .comments = [] | .issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-feat",
-        body: $b, state: "open", author: "coord", editor: null}]' --argjson k "$ref" --arg b "$(render "$rec" issue)"
     S="coordinate-roadmap-feat-q$N-$RUNSTAMP"
-    found_session "$S" "$(roadmap_vars feat)" "$ref"
+    found_session "$S" "$(roadmap_vars feat)"
+    seed_session "$S" "$rec"
     "$1"
     log_to "$S" wait take_report
     printf '%s' "$(cat "$HERE/testdata/report-questions/questions-shape.txt")" > "$T/report"
@@ -180,11 +178,9 @@ RENDERED_ESC='{"decision":"4","round":"1","question":"Merge before the release?"
   "options":"merge now -- the format lands this week\nwait -- one upgrade carries both","state":"escalated",
   "source":"self [20260926T080000Z raise 2]","verdict":"escalate","recommendation":"wait","reason":"the release is Friday",
   "context":"The context.","problem":"The problem.","grounds":"scope","target":"coordinator ws","owed":"escalation","updated":"2026-09-26T09:00Z"}'
-db '.issues = [] | .issues += [{repo: "acme/widgets", number: 299, title: "Coordinator record: ROADMAP-low",
-    body: $b, state: "open", author: "coord", editor: null}]' \
-    --arg b "$(render "$(record_json roadmap low | jq -c --argjson e "[$RENDERED_ESC]" '.decisions = {next: 5, entries: $e}')" issue)"
 LOW="coordinate-roadmap-low-$RUNSTAMP"
-found_session "$LOW" "$(roadmap_vars low | jq -c '.REPORTS_TO = "ws"')" 299
+found_session "$LOW" "$(roadmap_vars low | jq -c '.REPORTS_TO = "ws"')"
+seed_session "$LOW" "$(record_json roadmap low | jq -c --argjson e "[$RENDERED_ESC]" '.decisions = {next: 5, entries: $e}')"
 log_to "$LOW" reconcile decision_next
 log_capture "$LOW" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$LOW" --state decision_next --token "escalate 4")"
 log_to "$LOW" decision_next escalate
@@ -242,11 +238,9 @@ eq "withdrawal: one relayed as a quote is unreadable, not dropped" "0 unreadable
 # The contract with decision-render.sh: a withdrawal it renders reads back
 # as a withdrawal, so the exact-shape check can't drift from the renderer.
 RENDERED_WDR=$(printf '%s' "$RENDERED_ESC" | jq -c '.state = "coordinator-verdict" | .owed = "withdrawal" | .asked = "2026-09-26T09:05Z" | del(.verdict)')
-db '.issues = [] | .issues += [{repo: "acme/widgets", number: 298, title: "Coordinator record: ROADMAP-wdr",
-    body: $b, state: "open", author: "coord", editor: null}]' \
-    --arg b "$(render "$(record_json roadmap wdr | jq -c --argjson e "[$RENDERED_WDR]" '.decisions = {next: 5, entries: $e}')" issue)"
 WDR="coordinate-roadmap-wdr-$RUNSTAMP"
-found_session "$WDR" "$(roadmap_vars wdr | jq -c '.REPORTS_TO = "ws"')" 298
+found_session "$WDR" "$(roadmap_vars wdr | jq -c '.REPORTS_TO = "ws"')"
+seed_session "$WDR" "$(record_json roadmap wdr | jq -c --argjson e "[$RENDERED_WDR]" '.decisions = {next: 5, entries: $e}')"
 log_to "$WDR" reconcile decision_next
 log_capture "$WDR" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$WDR" --state decision_next --token "withdraw 4")"
 log_to "$WDR" decision_next decision_withdraw
