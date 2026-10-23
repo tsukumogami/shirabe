@@ -94,7 +94,14 @@
 # most 200 candidates are read, one `gh pr view` each out of the read
 # budget, and `pulls` holds at most 100. The first reason a pull request was
 # left out is one `pulls` entry in `missing`: `no source` (dispatch not
-# recoverable), `read failed`, `time limit` or `entry size`. With a holding,
+# recoverable), `read failed`, `time limit` or `entry size`. `opened` holds
+# the pull requests still open at capture, drafts included: each candidate
+# meeting every condition but the merge (`via: session`), and the holding's
+# Pull request cell when it reads open (`via: holding`, one read, and then no
+# candidate), by number, at most 100, under the same public-host rule, and
+# `missing` naming `opened` with the reason a read failed or `entry size`. An
+# open pull request is never moved to `pulls`: a reader joins its later merge
+# on its number. One closed without merging is in neither. With a holding,
 # credit never changes a figure: green, merge and failing heads read the
 # holding's only. With a pull request file that names none (a capture after a
 # removal, unit-removed.sh), the holding's owner is the record repository's,
@@ -873,17 +880,45 @@ uc_pulls() {
     jq -s -c '.' "$WD/pulls.jsonl" >"$WD/pulls.json"
 }
 
+# The holding's own pull request, when its Pull request cell names one that
+# reads open at capture: `opened` lists it `via: "holding"`, and credit leaves
+# it out of its candidates. Only a capture reads the row, and a cell naming a
+# pull request the verdict already holds needs no read. OPENED_WHY holds the
+# reason a read failed.
+uc_opened_holding() {
+    local ref repo n rc
+    OPENED_WHY=""
+    echo '[]' >"$WD/opened-holding.json"
+    [ "${ROW_OK:-0}" = 1 ] || return 0
+    ref=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json") || ref=""
+    repo=${ref%#*} n=${ref##*#}
+    [ "$repo" != "$ref" ] && repo_ok "$repo" && [[ $n =~ $RE_NUM ]] || return 0
+    jq -e --arg k "$repo#$n" '($k | ascii_downcase) as $k | any(.[]; "\(.repo | ascii_downcase)#\(.number)" == $k)' \
+        "$WD/pulls.json" >/dev/null && return 0
+    uc_gh "$WD/oh.raw" pr view "$n" --repo "$repo" --json state
+    rc=$?
+    if [ "$rc" != 0 ]; then
+        OPENED_WHY=$(read_reason "$rc")
+        return 0
+    fi
+    uc_jq -c --arg r "$repo" --argjson n "$n" 'if type == "object" and .state == "OPEN" then [{repo: $r, number: $n}] else [] end' \
+        "$WD/oh.raw" >"$WD/opened-holding.json" || { echo '[]' >"$WD/opened-holding.json"; OPENED_WHY="invalid input"; }
+}
+
 # Credit, by the header's rule. The candidates are the scan's pr-link
 # records under the holding's owner (the owner of a pull request the sealed
 # verdict names), less the holding's own, one per repository and number
 # (case-insensitive), earliest link first; at most 200 are read. Each read
 # is one `gh pr view` out of the budget, its answer read only through jq for
 # the four conditions; a pull request that fails one is simply not credited.
-# CREDIT_WHY holds the first reason one was left out.
+# One that meets every condition but the merge and reads open (a draft reads
+# open) goes to opened.jsonl instead. CREDIT_WHY holds the first reason one
+# was left out, of either list, since both come from the same reads.
 uc_credit() {
     local total cand r n rc disp why
     CREDIT_WHY=""
     : >"$WD/credit.jsonl"
+    : >"$WD/opened.jsonl"
     echo '[]' >"$WD/credit.json"
     [ "$LAYOUT" = projects ] || return 0
     why=$(jq -r '.reason // ""' "$WD/scan.json")
@@ -891,12 +926,12 @@ uc_credit() {
         CREDIT_WHY=$why
         return 0
     fi
-    jq -c --slurpfile p "$WD/pulls.json" --slurpfile a "$WD/attribution.json" '
+    jq -c --slurpfile p "$WD/pulls.json" --slurpfile a "$WD/attribution.json" --slurpfile oh "$WD/opened-holding.json" '
         def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
         ([$p[0][] | .repo | ascii_downcase | split("/")[0]] | unique) as $held_owners
         | (if ($held_owners | length) > 0 then $held_owners
            else [$a[0].record.repo // empty | ascii_downcase | split("/")[0]] end) as $owners
-        | [$p[0][] | "\(.repo | ascii_downcase)#\(.number)"] as $held
+        | [($p[0] + $oh[0])[] | "\(.repo | ascii_downcase)#\(.number)"] as $held
         | [.links[] | select((.r | ascii_downcase | split("/")[0]) as $o | $owners | index([$o]) != null)
            | select("\(.r | ascii_downcase)#\(.n)" as $k | $held | index([$k]) == null)]
         | group_by([(.r | ascii_downcase), (.n | tonumber)])
@@ -940,16 +975,28 @@ uc_credit() {
             | (.mergeCommit | if type == "object" then .oid else null end | if str($sha) then . else null end) as $oid
             | (.headRefName | if type == "string" then . else null end) as $head
             | (.baseRefName | if type == "string" then . else null end) as $base
-            | if $hown == $own and .state == "MERGED" and $merged != null and $oid != null
-                 and $created != null and $created >= ($d | ts)
+            | if $hown == $own and $created != null and $created >= ($d | ts)
                  and (($head != null and $head != $base and ($s[0].branches | index([$head]) != null))
                       or any($c.ts[]; (ts - $created) | abs <= 120))
-              then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged, head: $head}
+              then (if .state == "MERGED" and $merged != null and $oid != null
+                    then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged, head: $head}
+                    elif .state == "OPEN" then {repo: $c.r, number: ($c.n | tonumber), open: true}
+                    else empty end)
               else empty end' "$WD/cr.raw" >"$WD/cr.out" || { [ -n "$CREDIT_WHY" ] || CREDIT_WHY="read failed"; continue; }
-        cat "$WD/cr.out" >>"$WD/credit.jsonl"
+        jq -c 'select(.open != true)' "$WD/cr.out" >>"$WD/credit.jsonl"
+        jq -c 'select(.open == true) | del(.open)' "$WD/cr.out" >>"$WD/opened.jsonl"
     done <"$WD/cands"
     jq -s -c 'def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
         sort_by([(.merged_at | key), .number])' "$WD/credit.jsonl" >"$WD/credit.json"
+}
+
+# opened.json: the holding's open pull request and credit's open ones, by
+# number. Its reason in `missing` is the holding read's, else credit's.
+uc_opened() {
+    jq -s -c --slurpfile h "$WD/opened-holding.json" '
+        ($h[0] | map(. + {via: "holding"})) + map(. + {via: "session"})
+        | sort_by([.number, (.repo | ascii_downcase)])' "$WD/opened.jsonl" >"$WD/opened.json"
+    [ -n "$OPENED_WHY" ] || OPENED_WHY=$CREDIT_WHY
 }
 
 # The pull requests green, merge and failing heads read: the holding's, or,
@@ -1077,7 +1124,7 @@ uc_visibility() {
         jq -r '.[].repo' "$WD/pulls.json" >"$WD/vis.want"
         jq -r '.unit // "" | select(test("^[^#]+/[^#]+#[0-9]+$")) | sub("#[0-9]+$"; "")' "$WD/attribution.json" >>"$WD/vis.want"
     else
-        jq -r '.[].repo' "$WD/credit.json" >"$WD/vis.want"
+        jq -r '.[].repo' "$WD/credit.json" "$WD/opened.json" >"$WD/vis.want"
     fi
     if [ "$HOST_PUBLIC" = true ]; then
         while IFS= read -r r; do
@@ -1155,11 +1202,14 @@ uc_compute() {
     uc_niwa
     uc_pulls
     uc_visibility holding
+    uc_opened_holding
     uc_credit
+    uc_opened
     uc_visibility credited
     uc_figure_pulls
     jq -n -c --arg key "$KEY" --arg now "$now" --arg topic "$TOPIC" --argjson vbad "$VERDICT_BAD" \
         --arg cwhy "$CREDIT_WHY" --slurpfile credit "$WD/credit.json" --slurpfile niwa "$WD/niwa.json" \
+        --arg owhy "$OPENED_WHY" --slurpfile opened "$WD/opened.json" \
         --slurpfile att "$WD/attribution.json" --slurpfile shape "$WD/shape.json" \
         --slurpfile pulls "$WD/pulls.json" --slurpfile fpulls "$WD/figpulls.json" --slurpfile preasons "$WD/pull-reasons.json" \
         --slurpfile disp "$WD/dispatch.json" --slurpfile sess "$WD/sessions.json" --slurpfile vis "$WD/vis.json" \
@@ -1258,6 +1308,8 @@ uc_compute() {
          + [$credit[0][] | if shown(.repo) then {repo, number, merge_commit, merged_at, via: "session"} else {repo: "not public"} end]) as $all
         | ($all | .[0:100]) as $pulls_out
         | (if $cwhy != "" then $cwhy elif ($all | length) > 100 then "entry size" else null end) as $creditwhy
+        | [$opened[0][] | if shown(.repo) then {repo, number, via} else {repo: "not public"} end] as $oall
+        | (if $owhy != "" then $owhy elif ($oall | length) > 100 then "entry size" else null end) as $openedwhy
         | ($a.unit | if type == "string" and test("^[^#]+/[^#]+#[0-9]+$") and (shown(sub("#[0-9]+$"; "")) | not)
                      then "not public" else . end) as $unit
 
@@ -1268,6 +1320,7 @@ uc_compute() {
              $preasons[0][],
              (if $creditwhy != null and ([$preasons[0][] | select(.figure == "pulls")] | length) == 0
               then {figure: "pulls", reason: $creditwhy} else empty end),
+             (if $openedwhy != null then {figure: "opened", reason: $openedwhy} else empty end),
              (if $d.reason != null then {figure: "dispatch", reason: $d.reason} else empty end),
              (if $niwa[0].r != null then {figure: "niwa.dispatch.id", reason: $niwa[0].r} else empty end),
              ($figures | to_entries[] | select(.value.state == "not recoverable") | {figure: .key, reason: .value.reason}),
@@ -1278,7 +1331,7 @@ uc_compute() {
            ] | reduce .[] as $m ([]; if index([$m]) == null then . + [$m] else . end)) as $missing
         | {schema: "unit-cost/1", key: $key, captured_at: $now, topic: $topic,
            record: $a.record, unit: $unit, milestone: ($a.milestone | del(.reason)),
-           plan_shape: ($p | del(.reason)), pulls: $pulls_out, dispatch: ($d | del(.reason)),
+           plan_shape: ($p | del(.reason)), pulls: $pulls_out, opened: ($oall | .[0:100]), dispatch: ($d | del(.reason)),
            "niwa.dispatch.id": $niwa[0].v,
            figures: ($figures | map_values(del(.reason))),
            sessions: ($sessions | map(.figures |= map_values(del(.reason)))),

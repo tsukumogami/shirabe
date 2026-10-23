@@ -89,7 +89,7 @@ seed() {
     cat "$GH_DB.calls" >>"$T/allcalls" 2>/dev/null
     db_init
     local rec
-    rec=$(record_json roadmap x | jq -c --argjson h "$(holding feat-x "$(jq -nc --arg u "${1:-Feature 4: Example feature}" '{unit: $u}')")" '.holdings = [$h]')
+    rec=$(record_json roadmap x | jq -c --argjson h "$(holding feat-x "$(jq -nc --arg u "${1:-Feature 4: Example feature}" --arg p "${2:-[#21](https://github.com/acme/widgets/pull/21)}" '{unit: $u, pull_request: $p}')")" '.holdings = [$h]')
     db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
         --arg t "$TITLE" --arg b "$(render "$rec" issue 2026-10-01T08:00:00Z)"
     db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
@@ -210,7 +210,7 @@ echo "== compute: the entry's fields =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 OUT=$(compute); eq "compute exits 0" 0 $?
 eq "one line of output" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
-eq "every field of the entry, in order" "schema key captured_at topic record unit milestone plan_shape pulls dispatch niwa.dispatch.id figures sessions tokens complete missing" \
+eq "every field of the entry, in order" "schema key captured_at topic record unit milestone plan_shape pulls opened dispatch niwa.dispatch.id figures sessions tokens complete missing" \
     "$(q "$OUT" 'keys_unsorted | join(" ")')"
 eq "schema" "unit-cost/1" "$(q "$OUT" .schema)"
 eq "every baseline figure" "dispatch_to_green_min dispatch_to_merge_min writing_code_min review_min outside_share_pct review_share_pct panel_rounds failing_heads sessions_without_done summed_session_span_min minutes_per_unit" \
@@ -861,6 +861,8 @@ case "$(via "$OUT")" in *"#43"*) bad "a merged, same-owner pull request created 
 eq "a pull request the unit opened on a sibling node branch, absent from every gitBranch, linked within 120 s of its creation: credited via session" \
     "acme/widgets#42 session" "$(q "$OUT" '[.pulls[] | select(.number == 42) | "\(.repo)#\(.number) \(.via)"][0]')"
 case " $(q "$OUT" '.pulls | tojson') " in *impl/plan-node-2* | *feat/own* | *feat/other*) bad "  ... no branch name enters the entry" "$OUT" ;; *) ok "  ... no branch name enters the entry" ;; esac
+eq "  ... and open pull request 47, out of pulls, is in opened" "acme/widgets#47 session" \
+    "$(q "$OUT" '[.opened[] | "\(.repo)#\(.number) \(.via)"] | join("|")')"
 # The window is 120 seconds either way, inclusive.
 seed; mkcredit
 ghpr acme/widgets 51 2026-10-01T10:00:00Z MERGED b/51 2026-10-01T10:31:00Z
@@ -877,6 +879,8 @@ printf '{"type":"user","gitBranch":"main"}\n' >>"$CW"
 OUT=$(compute)
 eq "linked 120 s after or before creation is credited, 120.001 s is not; a gitBranch head is, a head that is its own base is not" \
     "acme/widgets#21 holding|acme/widgets#51 session|acme/widgets#52 session|acme/widgets#54 session" "$(via "$OUT")"
+eq "no open pull request: opened is empty and missing names nothing for it" "[]|" \
+    "$(q "$OUT" '.opened | tojson')|$(q "$OUT" '[.missing[] | select(.figure == "opened")] | length | if . == 0 then "" else . end')"
 # An unreadable linked pull request: left out, and credit never gates.
 seed; mkcredit
 ghpr acme/widgets 41 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
@@ -914,6 +918,65 @@ link acme/secret 9 2026-10-01T10:00:10.000Z
 OUT=$(compute)
 eq "a private credited pull request on a public host is {repo: not public} alone" '[{"repo":"acme/widgets","via":"holding"},{"repo":"not public"}]' \
     "$(q "$OUT" '[.pulls[] | if .repo == "not public" then . else {repo, via} end] | tojson')"
+echo "== opened: pull requests still open at capture =="
+opn() { q "$1" '[.opened[] | if .repo == "not public" then "not public" else "\(.repo)#\(.number) \(.via)" end] | join("|")'; }
+omiss() { q "$1" '[.missing[] | select(.figure == "opened") | .reason] | join(",")'; }
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 61 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
+link acme/widgets 61 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 62 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/widgets 62 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 63 2026-10-01T10:00:00Z OPEN feat/own ""
+db '(.prs[] | select(.number == 63)).isDraft = true'
+link acme/widgets 63 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 64 2026-10-01T10:00:00Z CLOSED feat/own ""
+link acme/widgets 64 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 65 2026-10-01T08:00:00Z OPEN feat/own ""
+link acme/widgets 65 2026-10-01T10:00:10.000Z
+OUT=$(compute)
+eq "merged in pulls; open and draft in opened; closed unmerged, and open but created before dispatch, in neither" \
+    "acme/widgets#21 holding|acme/widgets#61 session / acme/widgets#62 session|acme/widgets#63 session" "$(via "$OUT") / $(opn "$OUT")"
+eq "  ... nothing missing for opened or pulls" "|" "$(omiss "$OUT")|$(pmiss "$OUT")"
+eq "  ... an opened object is repo, number and via alone" true "$(q "$OUT" '[.opened[] | keys == ["number", "repo", "via"]] | all')"
+# More than 100 open: the lowest 100 numbers, and missing names opened.
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+db '.prs += [range(101; 202) as $i | {repo: "acme/widgets", number: $i, title: "x", body: "", state: "OPEN", isDraft: false,
+        isCrossRepository: false, baseRefName: "main", headRefName: "b/\($i)", headRefOid: $m, author: "alice", editor: null,
+        createdAt: "2026-10-01T10:00:00Z"}]' --arg m "$MERGE2"
+jq -nc 'range(201; 100; -1) as $i | {type: "pr-link", prNumber: $i, prRepository: "acme/widgets", timestamp: "2026-10-01T10:00:30.000Z"}' >>"$CW"
+OUT=$(compute)
+eq "101 open pull requests: 100 in opened, by number, missing naming opened entry size, pulls untouched" \
+    "100|101|200|entry size||1" \
+    "$(q "$OUT" '"\(.opened | length)|\(.opened[0].number)|\(.opened[99].number)"')|$(omiss "$OUT")|$(pmiss "$OUT")|$(q "$OUT" '.pulls | length')"
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/secret 9 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/secret 9 2026-10-01T10:00:10.000Z
+OUT=$(compute)
+eq "an open pull request in a private repository on a public host is {repo: not public} alone" '[{"repo":"not public"}]' "$(q "$OUT" '.opened | tojson')"
+# A failed read: in neither list, both name the reason.
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 62 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/widgets 62 2026-10-01T10:00:10.000Z
+db '.fail = [{match: "pr view 62 --repo acme/widgets --json state", rc: 1, stderr: "HTTP 502"}]'
+OUT=$(compute)
+eq "an unreadable open pull request is in neither list; missing names opened and pulls, read failed" \
+    "|acme/widgets#21 holding|read failed|read failed" "$(opn "$OUT")|$(via "$OUT")|$(omiss "$OUT")|$(pmiss "$OUT")"
+db '.fail = []'
+# The holding's own Pull request cell, read by a capture.
+seed "Feature 4: Example feature" "[#62](https://github.com/acme/widgets/pull/62)"; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 62 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/widgets 62 2026-10-01T10:00:10.000Z
+reset_calls
+capture >/dev/null
+POSTED=$((POSTED + 1))
+eq "the holding's Pull request cell reading open: in opened via holding, never also via session" \
+    "acme/widgets#62 holding" "$(opn "$(last_entry)")"
+eq "  ... read once" 1 "$(grep -c -- 'pr view 62 --repo acme/widgets --json state' "$GH_DB.calls")"
+seed "Feature 4: Example feature" "[#64](https://github.com/acme/widgets/pull/64)"; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 64 2026-10-01T10:00:00Z CLOSED feat/own ""
+capture >/dev/null
+POSTED=$((POSTED + 1))
+eq "a holding cell reading closed is not in opened, and nothing is missing for it" "|" "$(opn "$(last_entry)")|$(omiss "$(last_entry)")"
 # A budget spent after the first credit read: what was read is kept.
 seed; mkcredit
 db '.prs += [range(61; 76) as $i | {repo: "acme/widgets", number: $i, title: "x", body: "", state: "MERGED", isDraft: false,
