@@ -147,13 +147,41 @@ workspace maintainer reads.
 
 **Files**: `skills/coordinate/scripts/unit-cost.sh`, `skills/coordinate/scripts/unit-cost_test.sh`, `skills/coordinate/scripts/testdata/gh`
 
-### Step 7: kept removals are retried, expired and logged
+### Step 7: kept removals are retried, listed stale and logged
 
-A removal left pending is finished by a token-bearing sweep started at the end of the teardown pass and at each coordinator wake, under a lock per record, and one pending past 24 hours is listed stale, never dropped.
+**Goal**: A removal left pending is finished by a token-bearing sweep started at the end of the teardown pass and at each coordinator wake, under a lock per record, and one pending past 24 hours is listed stale, never dropped.
+
+**Acceptance Criteria**:
+
+- [ ] Every record a sweep handles adds one `removals.log` line beside the records, `<UTC time> <dispatch id> <outcome>`; a kept record whose `removed_at` is more than 24 hours old is kept, and its line on the output and in the log is followed by one `stale` line.
+- [ ] A kept record is tried again by every later sweep whatever its outcome was: one kept for `no coordinator` or `pending github` is captured once its cause is gone, and its record deleted; one whose unit another capture recorded meanwhile is deleted as `already recorded`.
+- [ ] With `GH_TOKEN` unset, a sweep archives and keeps the record `pending github`, the stub `gh` records no call and `record-append.sh` no post; a later sweep with the token posts to the dispatch's coordinator and deletes the record.
+- [ ] Two sweeps started together over one pending record post one entry and the second passes it over; a record lock whose holder's pid is gone is taken over and the capture runs; a sweep with no record makes no call at all.
+- [ ] A record written while a sweep runs is handled by that sweep before it exits.
+- [ ] `teardown-pass.sh` starts a detached sweep as it ends and still exits as before without waiting for it; the coordinate skill's wait guidance carries one line that starts `unit-removed.sh sweep` in the background at each wake, outside any koto action.
+
+**Check**: Run `bash skills/coordinate/scripts/unit-removed_test.sh` and see the retry, stale, lock and no-token cases pass; then `bash skills/coordinate/scripts/teardown-pass_test.sh` and see the pass start the sweep.
+
+**Dependencies**: Step 6
+
+**Files**: `skills/coordinate/scripts/unit-removed.sh`, `skills/coordinate/scripts/unit-removed_test.sh`, `skills/coordinate/scripts/teardown-pass.sh`, `skills/coordinate/scripts/teardown-pass_test.sh`, `skills/coordinate/SKILL.md`, `docs/prds/PRD-fleet-cost-capture.md`
 
 ### Step 8: the reference documents capture after a removal and the workspace's on-reap line
 
-A workspace maintainer reading `references/unit-cost.md` finds capture after a removal, `opened`, the floors, the placement switch, the last lines and the on-reap line to add.
+**Goal**: A workspace maintainer reading `references/unit-cost.md` finds capture after a removal, `opened`, the floors, the placement switch, the last lines and the on-reap line to add.
+
+**Acceptance Criteria**:
+
+- [ ] `skills/coordinate/references/unit-cost.md` has a section headed `## Capture after a removal` covering the removal record, the sweep, the coordinator rule, the token rule, retry, the `stale` listing and `removals.log` with its outcomes.
+- [ ] The reference documents `opened`, the failing-heads floor and its reasons, the dedupe by dispatch id under the post lock, the milestone from the leg key, the placement switch and where it is set (#1114, read through `scripts/pr-workflow-content.sh`), and each of the capture's last lines verbatim.
+- [ ] It shows the on-reap line a workspace adds, alone and combined with another tool's on-reap step, and its reading section reads entries from the coordinator's session.
+- [ ] The coordinate skill's Teardown bullet points at `unit-removed.sh` and that section.
+
+**Check**: Read the reference and see each of those present, every last line matching a `say` in `unit-cost.sh`; run `bash scripts/check-pipe-readers.sh` and see it pass.
+
+**Dependencies**: Step 7
+
+**Files**: `skills/coordinate/references/unit-cost.md`, `skills/coordinate/SKILL.md`
 
 ## Implementation Sequence
 
