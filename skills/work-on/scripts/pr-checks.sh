@@ -18,9 +18,10 @@
 #                     [--json <fields>] [--jq <filter>]
 #
 # 1. It runs `gh pr checks` with its arguments as given. Unless gh's stderr
-#    says the read was refused (`HTTP 403` or `Resource not accessible`), gh's
-#    stdout, stderr and exit status are passed through unchanged: where the
-#    token can read checks, nothing differs from calling gh directly.
+#    says the read was refused (`Resource not accessible`), gh's stdout,
+#    stderr and exit status are passed through unchanged: where the token can
+#    read checks, nothing differs from calling gh directly, whatever the
+#    arguments.
 # 2. On a refusal it reads, with `gh api` on the pull request's own host:
 #      gh pr view [<selector>] [--repo R] --json url,headRefOid,headRefName,baseRefName
 #      repos/R/actions/runs?head_sha=H           every run at the head
@@ -30,17 +31,24 @@
 #      repos/R/rules/branches/<base>             required checks from rulesets,
 #                                                the organisation's included
 #    and prints the list `gh pr checks --json` would: one entry per job (its
-#    check run carries the job's name), one per commit status, and one per
-#    run that has no job yet, so a queued run reads pending.
+#    check run carries the job's name) and one per commit status. It adds one
+#    entry per workflow run as well, for the run's own status and
+#    conclusion: a run still going may not have listed every job it will run
+#    (a later `needs` stage, a dynamic matrix), and a run can end cancelled or
+#    failed with every listed job green, so the run reads pending or red
+#    whatever its jobs say. A queued run with no job yet reads pending.
 #
 #    The entries carry gh's fields: name, workflow, link, state, bucket,
 #    description, event, startedAt, completedAt. bucket folds the state as gh
 #    does: pass (SUCCESS), skipping (SKIPPED, NEUTRAL), fail (FAILURE, ERROR,
 #    TIMED_OUT, ACTION_REQUIRED, STARTUP_FAILURE), cancel (CANCELLED) and
-#    pending (anything else). As gh does, a later check of the same name and
-#    workflow hides an earlier one: a new run of a workflow at the same head
-#    answers for it. A run for another head is never read, and a re-run's
-#    earlier attempts are not either.
+#    pending (anything else). A later run of the same workflow (by its id) on
+#    the same event answers for an earlier one, as coordinate's board reads
+#    it: its jobs hide the earlier run's jobs of the same name, and its own
+#    entry the earlier run's. Runs are ordered by when they were created, so a
+#    newer run still queued wins. A run for another head is never read, a
+#    re-run's earlier attempts are not either, and a run of another workflow
+#    or on another event never hides one.
 #
 #    What the token can't read stays visible. A required check (branch
 #    protection or a ruleset) that no job and no status answers is listed
@@ -83,30 +91,38 @@ FIELDS_OK=" name workflow link state bucket description event startedAt complete
 
 usage() { echo "$PROG: $*" >&2; echo "usage: pr-checks.sh [<number> | <url> | <branch>] [--repo <owner/repo>] [--json <fields>] [--jq <filter>]" >&2; exit 2; }
 
-SELECTOR="" REPO_ARG="" FIELDS="" JQF="" HAVE_JSON=0 HAVE_JQ=0
+# The arguments are read for the fallback only. Whatever they are, gh gets
+# them first, as given: a flag the fallback can't serve (--watch, --required,
+# --web) still works wherever the token can read checks, and is refused only
+# when the fallback would have to answer it.
+SELECTOR="" REPO_ARG="" FIELDS="" JQF="" HAVE_JSON=0 HAVE_JQ=0 BADARG=""
 ARGS=("$@")
 while [ $# -gt 0 ]; do
     case "$1" in
-        --repo|-R) [ $# -ge 2 ] || usage "$1 needs a value"; REPO_ARG=$2; shift 2 ;;
-        --json) [ $# -ge 2 ] || usage "--json needs a value"; FIELDS=$2; HAVE_JSON=1; shift 2 ;;
-        --jq|-q) [ $# -ge 2 ] || usage "$1 needs a value"; JQF=$2; HAVE_JQ=1; shift 2 ;;
-        -*) usage "unknown flag [$1]" ;;
-        *) [ -z "$SELECTOR" ] || usage "a second selector [$1]"; SELECTOR=$1; shift ;;
+        --repo|-R) [ $# -ge 2 ] || { BADARG="$1 needs a value"; break; }; REPO_ARG=$2; shift 2 ;;
+        --json) [ $# -ge 2 ] || { BADARG="--json needs a value"; break; }; FIELDS=$2; HAVE_JSON=1; shift 2 ;;
+        --jq|-q) [ $# -ge 2 ] || { BADARG="$1 needs a value"; break; }; JQF=$2; HAVE_JQ=1; shift 2 ;;
+        -*) BADARG="the flag [$1] can't be served from the Actions runs"; break ;;
+        *) [ -z "$SELECTOR" ] || { BADARG="a second selector [$1]"; break; }; SELECTOR=$1; shift ;;
     esac
 done
-[ "$HAVE_JQ" = 0 ] || [ "$HAVE_JSON" = 1 ] || usage "--jq needs --json"
+[ -n "$BADARG" ] || [ "$HAVE_JQ" = 0 ] || [ "$HAVE_JSON" = 1 ] || BADARG="--jq needs --json"
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/pr-checks.XXXXXX") || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
 # ---- 1. the check read itself ---------------------------------------------
+# Only GitHub's refusal of the check read falls back: "Resource not
+# accessible" is in both the GraphQL and the REST wording. Any other failure,
+# a 403 for a rate limit included, passes through as gh's own.
 gh pr checks ${ARGS[@]+"${ARGS[@]}"} </dev/null >"$TMP/out" 2>"$TMP/err"
 RC=$?
-if [ "$RC" -eq 0 ] || ! grep -Eq 'HTTP 403|Resource not accessible' "$TMP/err"; then
+if [ "$RC" -eq 0 ] || ! grep -q 'Resource not accessible' "$TMP/err"; then
     cat "$TMP/out"
     cat "$TMP/err" >&2
     exit "$RC"
 fi
+[ -z "$BADARG" ] || usage "the check read was refused, and $BADARG"
 
 # ---- 2. the fallback --------------------------------------------------------
 no() { echo "$PROG: $*" >&2; exit 1; }
@@ -219,17 +235,22 @@ jq -nc --argjson app "$ACTIONS_APP" --slurpfile runs "$TMP/runs.json" --slurpfil
         elif . == "CANCELLED" then "cancel"
         elif . == "UNREADABLE" then "unreadable"
         else "pending" end;
-    ([ $jobs[0][] | {name, workflow: (.run.name // ""), link: (.html_url // ""),
-        state: ((if .status == "completed" then (.conclusion // "") else .status end) | ascii_upcase),
+    # A run is keyed by its workflow (its id, else its name) and event, and
+    # the latest created answers for the key; a job by its run'"'"'s key and its
+    # name. Each kind is kept apart, so a job named like its workflow never
+    # hides the run entry, or the reverse.
+    def runkey: [(.workflow_id // .name // ""), (.event // "")];
+    def state_of: (if .status == "completed" then (.conclusion // "") else .status end) | ascii_upcase;
+    ([ $jobs[0][] | {name, workflow: (.run.name // ""), link: (.html_url // ""), state: state_of,
         description: "", event: (.run.event // ""), startedAt: (.started_at // ""),
-        completedAt: (.completed_at // ""), kind: "job"} ]
-     + [ $runs[0][] | . as $r | select(all($jobs[0][]; .run.id != $r.id))
-         | {name: (.name // ""), workflow: (.name // ""), link: (.html_url // ""),
-            state: ((if .status == "completed" then (.conclusion // "") else .status end) | ascii_upcase),
-            description: "", event: (.event // ""), startedAt: (.run_started_at // .created_at // ""),
-            completedAt: "", kind: "run"} ]
-     # gh keeps the latest check of each name in each workflow.
-     | group_by([.workflow, .name]) | map(max_by([.startedAt, .link])))
+        completedAt: (.completed_at // ""), kind: "job",
+        key: ((.run | runkey) + [.name]), order: [(.run.created_at // ""), (.run.id // 0), (.id // 0)]} ]
+     | group_by(.key) | map(max_by(.order)))
+    + ([ $runs[0][] | {name: (.name // ""), workflow: (.name // ""), link: (.html_url // ""), state: state_of,
+            description: "the workflow run", event: (.event // ""), startedAt: (.run_started_at // .created_at // ""),
+            completedAt: "", kind: "run", key: runkey, order: [(.created_at // ""), (.id // 0)]} ]
+     | group_by(.key) | map(max_by(.order)))
+    | map(del(.key, .order))
     as $actions
     | [ $st[0][] | {name: .context, workflow: "", link: (.target_url // ""), state: ((.state // "pending") | ascii_upcase),
           description: (.description // ""), event: "", startedAt: (.created_at // ""), completedAt: "", kind: "status"} ] as $statuses

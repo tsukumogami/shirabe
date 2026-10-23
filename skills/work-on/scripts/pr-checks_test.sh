@@ -184,10 +184,11 @@ fixture() {
 refuse() { printf '%s\n' "$REFUSAL" > "$FIX/refuse"; }
 
 # run_ <id> <workflow> <status> <conclusion|null> [head] [created_at] [event]
+# Runs of one workflow name share a workflow_id, as one workflow file's do.
 run_() {
     jq -nc --argjson id "$1" --arg n "$2" --arg s "$3" --arg c "$4" --arg h "${5:-$H}" \
         --arg at "${6:-2026-10-21T07:00:00Z}" --arg e "${7:-pull_request}" --arg r "$R" \
-        '{id: $id, name: $n, workflow_id: $id, event: $e, head_sha: $h, status: $s,
+        '{id: $id, name: $n, workflow_id: ($n | explode | add), event: $e, head_sha: $h, status: $s,
           conclusion: (if $c == "null" then null else $c end), run_attempt: 1, created_at: $at,
           run_started_at: $at, html_url: "https://github.com/\($r)/actions/runs/\($id)"}' >> "$FIX/runs.list"
 }
@@ -196,7 +197,7 @@ job_() {
     jq -nc --argjson run "$1" --argjson id "$2" --arg n "$3" --arg s "$4" --arg c "$5" \
         --arg at "${6:-2026-10-21T07:01:00Z}" --arg r "$R" \
         '{id: $id, run_id: $run, name: $n, status: $s, conclusion: (if $c == "null" then null else $c end),
-          started_at: $at, completed_at: null, run_attempt: 1,
+          started_at: (if $at == "null" then null else $at end), completed_at: null, run_attempt: 1,
           html_url: "https://github.com/\($r)/actions/runs/\($run)/job/\($id)"}' >> "$FIX/jobs-$1.list"
 }
 # status_ <context> <state>
@@ -293,6 +294,26 @@ pc 7
 expect_exit "allowed: gh's pending exit 8 passes through" 8
 
 fixture
+echo '[{"bucket":"pass","name":"test"}]' > "$FIX/checks.json"
+pc 7 --required --json bucket
+expect_exit "allowed: a flag the fallback can't serve still reaches gh" 0
+if [ "$(head -n 1 "$FIX/gh.log")" = "pr checks 7 --required --json bucket" ]; then pass "allowed: gh gets the flag as given"
+else fail "allowed: gh was called as [$(head -n 1 "$FIX/gh.log")]"; fi
+
+fixture
+echo "gh: API rate limit exceeded for user (HTTP 403)" > "$FIX/checks.err"
+green
+pc 7 --json bucket
+expect_exit "allowed: a 403 that isn't a refusal of the check read passes through" 1
+if [ "$(calls 'api ')" = 0 ]; then pass "allowed: a rate-limit 403 reads nothing more"
+else fail "allowed: a rate-limit 403 fell back: $(cat "$FIX/gh.log")"; fi
+
+fixture; refuse; green
+pc 7 --required --json bucket
+expect_exit "refused: a flag the fallback can't serve is a usage error there" 2
+expect_stderr "refused: and names the flag" "--required"
+
+fixture
 echo "gh: Not Found (HTTP 404)" > "$FIX/checks.err"
 green
 pc 7 --json bucket
@@ -308,8 +329,8 @@ fixture; refuse; green
 pc 7 --json name,bucket,workflow,link
 expect_exit "refused: green reads" 0
 expect_stderr "refused: the fallback says so on stderr" "the check read was refused"
-expect_list "refused: two jobs and a status, all pass" \
-    'length == 3 and all(.[]; .bucket == "pass") and ([.[].name] | sort) == ["ci/legacy", "lint", "test"]'
+expect_list "refused: two jobs, their run and a status, all pass" \
+    'length == 4 and all(.[]; .bucket == "pass") and ([.[].name] | sort) == ["CI", "ci/legacy", "lint", "test"]'
 expect_list "refused: a job carries its workflow and its link" \
     'any(.[]; .name == "test" and .workflow == "CI" and .link == "https://github.com/acme/widgets/actions/runs/100/job/1001")'
 eq_green=$(green_by_gate)
@@ -328,7 +349,7 @@ case "$OUT" in *"test	pass	CI	"*) pass "refused: the text form names the check, 
 
 fixture; refuse; green
 pc 7 --json bucket --jq 'length'
-expect_out "refused: --jq applies to the list" 3
+expect_out "refused: --jq applies to the list" 4
 
 fixture; refuse; green
 pc 7 --json bucket,conclusion
@@ -443,7 +464,7 @@ fixture; refuse; green
 run_ 300 CI completed failure "$OTHER_SHA"
 job_ 300 3001 test completed failure
 pc 7 --json name,bucket
-expect_list "refused: a run for another head is never read" 'all(.[]; .bucket == "pass") and length == 3'
+expect_list "refused: a run for another head is never read" 'all(.[]; .bucket == "pass") and length == 4'
 if grep -q 'runs/300/jobs' "$FIX/gh.log"; then fail "refused: another head's jobs were read"; else pass "refused: another head's jobs aren't read"; fi
 
 fixture; refuse
@@ -452,8 +473,8 @@ job_ 100 1001 test completed failure "2026-10-21T07:01:00Z"
 run_ 101 CI completed success "$H" "2026-10-21T08:00:00Z"
 job_ 101 1011 test completed success "2026-10-21T08:01:00Z"
 pc 7 --json name,bucket
-expect_list "refused: a later run of a workflow answers for the earlier one, as gh shows it" \
-    'length == 1 and .[0].bucket == "pass"'
+expect_list "refused: a later run of a workflow on the same event answers for the earlier one" \
+    'length == 2 and all(.[]; .bucket == "pass") and ([.[].name] | sort) == ["CI", "test"]'
 
 fixture; refuse
 run_ 100 CI completed success "$H" "2026-10-21T07:00:00Z"
@@ -461,7 +482,44 @@ job_ 100 1001 test completed success "2026-10-21T07:01:00Z"
 run_ 101 CI completed failure "$H" "2026-10-21T08:00:00Z"
 job_ 101 1011 test completed failure "2026-10-21T08:01:00Z"
 pc 7 --json name,bucket
-expect_list "refused: an earlier green never hides a later red" 'length == 1 and .[0].bucket == "fail"'
+expect_list "refused: an earlier green never hides a later red" 'length == 2 and all(.[]; .bucket == "fail")'
+
+fixture; refuse
+run_ 100 CI completed failure "$H" "2026-10-21T07:00:00Z" pull_request
+job_ 100 1001 test completed failure "2026-10-21T07:01:00Z"
+run_ 101 CI completed success "$H" "2026-10-21T08:00:00Z" workflow_dispatch
+job_ 101 1011 test completed success "2026-10-21T08:01:00Z"
+pc 7 --json name,bucket
+expect_list "refused: a later run on another event doesn't hide a red run" \
+    'any(.[]; .name == "test" and .bucket == "fail") and any(.[]; .name == "CI" and .bucket == "fail")'
+[ "$(green_by_gate)" = false ] && pass "refused: a red run on another event is not green" || fail "refused: a red run on another event read green"
+
+# The run's own state, whatever its listed jobs say.
+fixture; refuse
+run_ 100 CI in_progress null
+job_ 100 1001 test completed success
+pc 7 --json name,bucket
+expect_list "refused: a run still going with only green jobs listed so far is pending" \
+    'any(.[]; .name == "CI" and .bucket == "pending")'
+[ "$(green_by_gate)" = false ] && pass "refused: a run still going is not green, whatever its listed jobs" || fail "refused: a running run with green jobs read green"
+
+for c in cancelled failure; do
+    fixture; refuse
+    run_ 100 CI completed "$c"
+    job_ 100 1001 test completed success
+    pc 7 --json name,bucket
+    [ "$(green_by_gate)" = false ] && pass "refused: a $c run with every listed job green is not green" \
+        || fail "refused: a $c run with green jobs read green: $OUT"
+done
+
+fixture; refuse
+run_ 100 CI completed success "$H" "2026-10-21T07:00:00Z"
+job_ 100 1001 test completed success "2026-10-21T07:01:00Z"
+run_ 101 CI queued null "$H" "2026-10-21T08:00:00Z"
+job_ 101 1011 test queued null null
+pc 7 --json name,bucket
+expect_list "refused: a newer run still queued wins over an older green one" \
+    'any(.[]; .name == "test" and .bucket == "pending") and any(.[]; .name == "CI" and .bucket == "pending")'
 
 fixture; refuse
 run_ 100 CI completed failure "$H" "2026-10-21T07:00:00Z"
@@ -480,7 +538,7 @@ run_ 101 CI completed success "$H" "2026-10-21T08:00:00Z"
 job_ 101 1011 test completed success "2026-10-21T08:01:00Z"
 pc 7 --json name,bucket
 expect_list "refused: a job of the same name in another workflow doesn't hide a red one" \
-    'length == 2 and any(.[]; .bucket == "fail")'
+    '([.[] | select(.name == "test")] | length) == 2 and any(.[]; .name == "test" and .bucket == "fail")'
 
 # No checks, and reads that fail.
 fixture; refuse

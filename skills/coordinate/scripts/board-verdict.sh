@@ -52,8 +52,9 @@
 # required check with no app pin is matched by name, as GitHub matches it, so
 # an Actions job or a status of the same name answers for it. A private
 # repository on a plan without rulesets answers the rules read with a 403
-# saying so ("Upgrade to GitHub Pro ..."); no ruleset applies to it, so its
-# rules are none.
+# saying so ("Upgrade to GitHub Pro ..."); read from the Actions jobs, no
+# ruleset applies to it, so its rules are none. With the checks readable that
+# 403 is still required-set-unreadable, as it always was.
 # With --sha, there is no pull request: the head is the sha, the required set
 # comes from <base>'s protection and rules, and the rollup is the commit's
 # check runs and statuses (repos/R/commits/S/check-runs and .../status); no
@@ -344,8 +345,10 @@ JQ
 JUDGE="$NOT_RUN_DEF
 $JUDGE"
 
+PLAN_NO_RULES=0
 emit() {
     local f
+    [ "$PLAN_NO_RULES" = 1 ] && [ "$SOURCE" = checks ] && reason required-set-unreadable "branch rules of $BASEB"
     for f in snap runs jobs req ref files ann sup unseen; do [ -f "$TMPD/$f.json" ] || : > "$TMPD/$f.json"; done
     jq -nc --arg mode "$MODE" --arg sha "$SHA" --arg stopped "$STOPPED" --arg source "$SOURCE" \
         --argjson actions_app "$ACTIONS_APP" --slurpfile ann "$TMPD/ann.json" \
@@ -621,7 +624,11 @@ fi
 if ! bl_gh "$TMPD/rules.raw" api --method GET "repos/$REPO/rules/branches/$BASEB" --paginate; then
     if [ "$(cat "$TMPD/rules.raw.fail")" = deadline ]; then reason deadline "rules"; emit
     elif grep -q 'Upgrade to GitHub Pro or make this repository public to enable this feature' "$TMPD/rules.raw.err" 2>/dev/null; then
-        # No ruleset can apply to this repository: its rules are none.
+        # No ruleset can apply to this repository: its rules are none. Only
+        # the Actions-jobs reading takes that answer (emit checks the source
+        # once it is final); with the checks readable it stays the unreadable
+        # required set it always was.
+        PLAN_NO_RULES=1
         echo '[]' > "$TMPD/rules.raw"
     else reason required-set-unreadable "branch rules of $BASEB"; emit; fi
 fi
