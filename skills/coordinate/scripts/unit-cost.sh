@@ -936,8 +936,8 @@ uc_attribution() {
         | (if ($j.scope == "roadmap" or $j.scope == "discipline")
               and ($j.name | isstr and test("^[A-Za-z0-9._-]{1,100}$"))
               and ($j.repo | isstr and test($re_repo) and (contains("..") | not))
-           # ref stays in the object's shape, empty: the record is the run's
-           # session and has no issue or pull request number.
+           # ref stays in the object shape, empty: the record is the session
+           # of the run and has no issue or pull request number.
            then {scope: $j.scope, name: $j.name, repo: $j.repo, ref: ""}
            else null end) as $rec
         | (if $rec == null and ($j | has("scope")) then "invalid input" else $why end) as $recwhy
