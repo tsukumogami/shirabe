@@ -2590,7 +2590,9 @@ Report the record's number or URL up with every report, so a successor is
 handed it as a decision.
 
 At discipline scope the find reads `first` (the discipline's first rotation, on
-the session store), and the end is the start plus `{{ROTATION_DAYS}}` days:
+the session store), the start is today and the end is
+the start plus `{{ROTATION_DAYS}}` days less one, so the rotation is
+`{{ROTATION_DAYS}}` days long, the same window a carried rotation gets:
 the same command with `--start` and `--end` opens the rotation in this run's
 session (`--start <YYYY-MM-DD> --end <YYYY-MM-DD>`): no branch, no commit, no
 pull request. It writes the window to

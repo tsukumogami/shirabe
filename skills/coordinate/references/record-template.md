@@ -67,11 +67,13 @@ every report, so a successor is handed it as a decision and reads it directly.
 
 ## The Rotation's Pull Request Title
 
-`docs(coordinate): <name> rotation <start> to <end>`, with both dates in
-`YYYY-MM-DD` form from the day it opens. The end date is the start plus
-the rotation's length. If the human ends the rotation early, or sets a new
-length, edit the end date to match in the same update that records the
-decision; the title is where a successor reads it.
+For a rotation on GitHub: `docs(coordinate): <name> rotation <start> to <end>`,
+with both dates in `YYYY-MM-DD` form from the day it opens. The end date is
+the start plus the rotation's length. If the human ends the rotation early, or
+sets a new length, edit the end date to match in the same update that records
+the decision; the title is where a successor reads it. A rotation on the
+session store has no title: its window is `record/rotation`, the start today
+and the end the start plus the rotation's length less one day.
 
 ## The Body
 

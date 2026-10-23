@@ -97,7 +97,9 @@
 #                    is done before a close is attempted. Needs the session
 #   scope-complete   roadmap: the roadmap lists features and every one is
 #                    done (its Status opens Done, Shipped or Dropped)
-#   rotation-over    discipline: today UTC is after the record title's end date
+#   rotation-over    discipline: today UTC is after the rotation's end date (the
+#                    record title's on GitHub, record/rotation's on the session
+#                    store), or a session rotation's reasoning is written
 #   pick             anything else
 # The facts go to context key coord/pick.json as data (pick's decider input):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
