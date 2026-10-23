@@ -854,3 +854,13 @@ quiet-worker check bounds how long a resolved leg can go unread.
   --json` and matches it by its whole shape.
 - **No workspace root from niwa (niwa#326).** The scripts walk up to the root,
   guarded against a clone's own `.niwa/workspace.toml`.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The holding's reader and writer are `state-holding.sh` over the session's
+`record/holdings` key, in place of the record body this design reads and
+writes.

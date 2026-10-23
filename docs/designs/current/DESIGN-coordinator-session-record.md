@@ -644,3 +644,17 @@ and a reconcile gap, which the existing handover and restart scenarios cover.
 - `record-source.sh --show` prints the whole state as a record body, and koto's
   session view shows the keys.
 - The structure test names the seam in its refusal.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The GitHub backend this design keeps beside the session is removed, and so is
+the store choice (Decision 2): every coordinator runs on its session, and
+`state-stored-set.sh` refuses a `store` Run key. The moved shape of a
+session-source coordinator's GitHub record (Decision 10) and the move of an
+existing record (Decision 11) go with it; a record nobody moved is imported
+once by the legacy importer instead. Discipline scope, which this design left
+on the GitHub record, runs on the session.

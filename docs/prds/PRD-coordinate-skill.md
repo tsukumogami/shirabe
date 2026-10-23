@@ -534,3 +534,12 @@ Each criterion names the requirement it verifies.
 - **Reconcile is prose.** A coordinator can skip or shorten a prose
   procedure. The skill makes reconcile the first step and says what its
   report contains, but nothing enforces it in this version.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+R27's record on GitHub no longer holds: at either scope the record is the
+coordinator's koto session.

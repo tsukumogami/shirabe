@@ -583,3 +583,13 @@ target from the seal.
   archive.
 - Removing koto sessions waits for koto to list and remove them by execution
   directory.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The record row the coordinator clears last is a key in its session, not a row
+of a record body on GitHub, and clearing it is the coordinator's own write to
+that session.

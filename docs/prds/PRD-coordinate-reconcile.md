@@ -613,3 +613,14 @@ has the same problem.
   run beside R1, reading who else has written to the record's container
   recently, and would report without blocking. Externalised load would attach
   to the land step's merges, not to reconcile.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+R1's read of an issue or pull request body, and the read of a committed
+handoff file, move to the session: reconcile reads the coordinator's state
+through `state-read.sh`, and a predecessor's handoff is its session's
+`record/reasoning`.

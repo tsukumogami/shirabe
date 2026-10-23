@@ -552,3 +552,13 @@ The crash set and the seam:
   #711 are loop or `/execute` defects that hold whatever store the state lives in.
   shirabe#733 is a worker's run identity, `/execute`'s; the coordinator's own run
   identity across hosts is in scope (R12, R14): an imported run keeps its stamp.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+Discipline scope, which R4 kept out of this feature and deferred to this
+removal, is settled: a discipline coordinator runs on its session too, with
+`record/rotation` and `record/reasoning`.
