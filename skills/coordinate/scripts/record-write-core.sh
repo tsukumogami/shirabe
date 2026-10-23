@@ -1,7 +1,8 @@
 # record-write-core.sh -- the coordinator record's one write path. Sourced, never
 # run, and only by the agent-run write scripts (record-write.sh, which
-# record-holding.sh calls, the decision writer, the hold writer, and the move and
-# the opener for their session-store writes); no check
+# record-holding.sh calls, the decision writer, the hold writer, the move and
+# the opener for their session-store writes, and the legacy importer in
+# ../legacy-import for its import); no check
 # script sources it, which keeps record-common.sh's promise that everything a check sources
 # only reads.
 #
@@ -87,6 +88,12 @@ VERDICT_WRITER=0
 # those scripts.
 SESSION_SEED=0
 MOVE_WRITER=0
+# IMPORT_WRITER=1 opens core_import and core_import_meta, the legacy importer's
+# write of a GitHub record's state into a session that holds no record
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, "The legacy
+# importer"); only skills/coordinate/legacy-import/import.sh sets it, and a
+# structure test holds every script here to that.
+IMPORT_WRITER=0
 # A holding's last pushed head (Decision 9; PRD R17) lives beside its row in
 # record/holdings on the session store and never in a body: every Holdings write
 # carries each row's value forward by Worker, and only record-write.sh
@@ -423,6 +430,88 @@ core_validate() {
     echo "$PROG: refused: $(sed -n 's/.*refused: //p' "$T/schema.err" | head -1 | lib_scrub)" >&2
     [ -z "$PRIVATE" ] || echo "$PROG: private, or unreadable from the public host $REPO: $PRIVATE" >&2
     exit 65
+}
+
+# core_import <state-file> <entries-file> [<rotation-file>]: the legacy
+# importer's write of a GitHub record's state, as its own parser read it, into
+# the run's session, which must hold no record/meta. The state passes
+# core_validate whole before any key is written; each section key is then
+# written whole (a section the state doesn't hold loses its key), each entry in
+# <entries-file>, a JSON array of {n, stamp, kind, text} numbered from 1, as
+# record/entries/<n> (an entry key numbered past the last is removed), and at
+# discipline scope <rotation-file>, {start, end, host_repo, predecessor: null},
+# as record/rotation. record/meta is left to core_import_meta, which the
+# importer calls last, so an import cut short leaves no record and the next
+# start imports again, rewriting the same keys. Both need IMPORT_WRITER=1.
+# Exits 65 refused (the reason on stderr); 11 a write failed; 2 a read failed.
+core_import() {
+    local s=${RS_SESSION:-$SESSION} pair field key n
+    core_import_open "$s"
+    PRIVATE=
+    core_validate "$1"
+    jq -e 'type == "array" and (to_entries | all(.key as $i | .value | type == "object"
+            and keys == ["kind", "n", "stamp", "text"] and .n == $i + 1
+            and (.stamp | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+            and (.kind | type == "string" and test("^[a-z][a-z-]*$")) and (.text | type) == "string"))' "$2" > /dev/null 2>&1 \
+        || { echo "$PROG: refused: the entries are not a list of {n, stamp, kind, text} numbered from 1" >&2; exit 65; }
+    if [ "$SCOPE" = discipline ]; then
+        [ -n "${3:-}" ] && jq -e --arg r "$REPO" 'type == "object" and keys == ["end", "host_repo", "predecessor", "start"]
+                and .predecessor == null and .host_repo == $r and (.start | type) == "string" and (.end | type) == "string"' "$3" > /dev/null 2>&1 \
+            && lib_valid_date "$(jq -r .start "$3")" && lib_valid_date "$(jq -r .end "$3")" \
+            && [ ! "$(jq -r .end "$3")" \< "$(jq -r .start "$3")" ] \
+            || { echo "$PROG: refused: a discipline import needs its rotation, {start, end, host_repo, predecessor: null}" >&2; exit 65; }
+    fi
+    rs_list "$s" record/ "$T/keys" || lib_die2 "cannot list session $s's record keys: $(lib_scrub < "$T/keys.err")"
+    for pair in $RS_SECTIONS; do
+        field=${pair%%:*} key=${pair#*:}
+        if jq -e --arg f "$field" 'has($f)' "$1" > /dev/null; then
+            jq -c --arg f "$field" '.[$f]' "$1" > "$T/sec"
+            core_import_add "$s" "record/$key" "$T/sec"
+        elif jq -e --arg k "record/$key" 'index($k) != null' "$T/keys" > /dev/null; then
+            core_import_remove "$s" "record/$key"
+        fi
+    done
+    n=$(jq length "$2")
+    for i in $(jq -r 'keys[]' "$2"); do
+        jq -c --argjson i "$i" '.[$i]' "$2" > "$T/entry"
+        core_import_add "$s" "record/entries/$(printf '%06d' $((i + 1)))" "$T/entry"
+    done
+    for key in $(jq -r --argjson n "$n" '.[] | select(test("^record/entries/[0-9]{6}$")) | select((ltrimstr("record/entries/") | tonumber) > $n)' "$T/keys"); do
+        core_import_remove "$s" "$key"
+    done
+    [ "$SCOPE" != discipline ] || core_import_add "$s" record/rotation "$3"
+}
+
+# core_import_meta <state-file>: the import's last write, record/meta with the
+# state's scope and written time; from then the session holds the record.
+core_import_meta() {
+    local s=${RS_SESSION:-$SESSION}
+    core_import_open "$s"
+    jq -c '{scope, store: "session", written, pending: false}' "$1" > "$T/meta" || lib_die2 "jq failed"
+    core_import_add "$s" record/meta "$T/meta"
+}
+
+# core_import_open <session>: the checks both import writes make first: the
+# importer's flag, and a session holding no record/meta.
+core_import_open() {
+    [ "$IMPORT_WRITER" = 1 ] || { echo "$PROG: refused: only the legacy importer imports a record" >&2; exit 65; }
+    [ -n "$1" ] || lib_die2 "the import needs the run's session"
+    T=$(mktemp -d "${TMPDIR:-/tmp}/record-import.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
+    rs_key "$1" record/meta "$T/meta.now"
+    case $? in
+        1) ;;
+        0) echo "$PROG: refused: session $1 already holds a record" >&2; exit 65 ;;
+        *) lib_die2 "cannot read session $1's record/meta: $(lib_scrub < "$T/meta.now.err")" ;;
+    esac
+}
+core_import_add() { # core_import_add <session> <key> <file>
+    "$KOTO" context add "$1" "$2" --from-file "$3" < /dev/null > /dev/null 2> "$T/k.err" \
+        || { echo "$PROG: the import into $1 failed at $2: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+}
+core_import_remove() { # core_import_remove <session> <key>
+    "$KOTO" context remove "$1" "$2" < /dev/null > /dev/null 2> "$T/k.err" \
+        || { echo "$PROG: the import into $1 failed removing $2: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
 }
 
 core_write() {

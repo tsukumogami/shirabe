@@ -115,6 +115,14 @@ eq "only record-state.sh calls core_write_host" "" "$(fn_callers "$HERE" core_wr
 eq "only record-write.sh sets CORE_PUSHED_SET" "" "$(flag_setters "$HERE" CORE_PUSHED_SET '^record-write\.sh$')"
 printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\ncore_write_host "$f"\n' > "$FX/h.sh"
 eq "  ... and the rule refuses a script that calls it" "h.sh" "$(fn_callers "$FX" core_write_host '^record-state\.sh$' | cut -d: -f1)"
+# The legacy importer's write (core_import, core_import_meta, opened by
+# IMPORT_WRITER) belongs to ../legacy-import/import.sh alone: no script here
+# sets the flag or calls either.
+eq "no script here sets IMPORT_WRITER" "" "$(flag_setters "$HERE" IMPORT_WRITER '^$')"
+eq "  ... nor calls core_import or core_import_meta" "" "$(fn_callers "$HERE" 'core_import(_meta)?' '^$')"
+printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\nIMPORT_WRITER=1\ncore_import_meta "$f"\n' > "$FX/i.sh"
+eq "  ... and the rule refuses a script that does" "i.sh i.sh" \
+    "$( { flag_setters "$FX" IMPORT_WRITER '^$'; fn_callers "$FX" 'core_import(_meta)?' '^$'; } | grep '^i\.sh:' | cut -d: -f1 | tr '\n' ' ' | sed 's/ $//')"
 
 # ---- 2. rs_facts --------------------------------------------------------------------
 
