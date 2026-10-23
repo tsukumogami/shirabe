@@ -51,8 +51,11 @@ change that makes it bad) and 5 adversarial cases (input written to steer the
 answer), using at least 3 of the techniques `instruction`, `authority-claim`,
 `fake-answer`, `hidden-comment`, `vocabulary-mimicry` and `role-line`. Each case
 holds its input as the slice script reads it and the slice the script prints.
+A file may also hold `empty` cases, with no minimum: a slice with nothing to
+judge, whose right answer is the criterion's escape (`expected: unclear`).
 A run meets the bar when no seeded-bad or adversarial case is answered `pass`,
-at least 80% of good cases are, and every case got an answer.
+at least 80% of good cases are, no empty case is answered `pass` or `fail`,
+and every case got an answer.
 `jev_criteria.py fixtures <rule-id>` runs the file against Jev under the
 template's declaration and prints the `fixture_run` record a promotion keeps.
 
@@ -139,32 +142,89 @@ that first does must build all of these, for that seat:
 too light for the facts of the change.
 
 **Sources.** `review_facts.json`, which the state's own `default_action`
-(`review-level.sh facts`) writes from git, and `REVIEW_LEVEL`, the level the
-agent chose, which is what the criterion judges.
+(`review-level.sh facts`) writes from git; `review_level_rules.tsv`, the copy
+of `review-level-rules.tsv` that `review-level.sh init` stores as
+`review_level_choice`'s action, which `facts` derived the floor from (a
+session with no stored copy, one `init` never ran for, uses the shipped file,
+as `facts` does); and `REVIEW_LEVEL`, the level the agent chose, which is what
+the criterion judges.
 
 **Slice.** `review-level.sh slice` prints one JSON line of typed facts (changed
 lines and files as non-negative integers, at most 16 path-class names, whether
 tests or the acceptance criteria changed, whether a test was edited rather
-than only added to (`tests_edited`, which floors at `full`), whether any path
-fell in no class, and the facts floor), a line giving the order of the levels,
-and the chosen level. No path, reason, criteria text or issue text reaches it.
-`review-level.sh project` prints the same slice for a facts file, which is how
-the fixture cases and the measurement build theirs.
+than only added to (`tests_edited`), whether any path fell in no class, and
+the facts floor), a line giving the order of the levels, the level
+definitions, and the chosen level. The definitions are rendered from the
+stored rules copy, one line per level that raises the floor, then the default
+and what the floor is:
 
-**Completeness.** The question needs the facts, the floor the rules file
-derives from them, the order of the levels and the level chosen, and nothing
-else: the floor already applies every rule in `review-level-rules.tsv`, so the
-definitions add only which level is lighter than which, and the slice states
-that order. The verdict is `sufficient`.
+```
+the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12; or tests_edited
+the facts call for standard when classes has instruction, executable, test or manifest; or unclassified; or criteria_changed; or lines > 40
+the facts call for light otherwise
+floor: the most thorough level the facts call for
+```
 
-**Figures.** 166 `/work-on` sessions' recorded facts, each projected at the
-longest level name, largest 246, p90 229, none over the 2,048-byte budget
-(the gate's `max_bytes`). Measured before `tests_edited` joined the slice; the
-field adds at most 20 bytes, so the largest stays well under the budget.
+Every word in them comes from the rules parser, which admits only level
+names, `[a-z0-9_]` class names, digit thresholds and the fixed fact names, so
+no class glob, path, reason, criteria text or issue text reaches the slice.
+The slice doesn't say what "too light" means: the criterion's pass and fail
+texts carry that. With no facts recorded, or facts that don't parse, the
+facts line is `{}` and the definitions are left out, since there is nothing to
+apply them to, and the decider escapes. `review-level.sh project <facts>
+<level> [<rules>]` prints the same slice for a facts file and a rules copy
+(the shipped file when none is given), which is how the fixture cases and the
+measurement build theirs.
+
+**Completeness.** The question needs the facts, the definitions they are
+judged under and the level chosen. The definitions are the rules the floor was
+derived from, so the decider can check the floor against the facts as well as
+the level against the levels the facts call for. The order line alone wasn't
+enough: on one host's decider ledger, through the end of 2026-10-22 (UTC),
+46 of 125 consultations under the order-only slice escaped. Rebuilt from
+their sessions' stored facts and matched on koto's input hash, 32 of the 46
+were full facts. The other 14 had facts that changed later, but each was at
+least 167 bytes, and an empty slice is 51, so none was empty. The level
+ledger's `check` line for every one of the 125 records a known level and
+floor, so none had an unknown floor either. The decider leaned the right way
+and stayed under the 0.9 threshold. The verdict is `sufficient`.
+
+What the decider adds beyond the `level_floor` gate is bounded by that gate.
+Each consultation's level and floor, read from the session's `check` ledger
+line, put 33 below the floor (30 escapes and 3 fails), and `level_floor` held
+all 33 in the same evaluation. The other 92, 76 passes and 16 escapes, had a
+level at or above the floor. Those are the only ones where the decider's
+answer can differ from the gate's, so the live figures that decide its trust
+should count its fails at or above the floor apart from those below it.
+
+**Fixtures.** 19 good, 25 seeded-bad, 6 adversarial and 3 empty cases. The
+good cases cover each level at its floor and above it, and the seeded-bad
+cases include the too-light shapes the ledger's escapes held. Run against the
+configured decider (jev-1.14.0) on 2026-10-23 with
+`jev_criteria.py fixtures work-on/review-level-fits-facts`: good 17 pass and 2
+escapes, seeded-bad 24 fail and 1 escape, adversarial 6 fail, empty 3
+escapes, so the bar is met: 47 of the 50 full-facts cases got a pass or a
+fail, every one of them right. The three full-facts escapes are two
+`standard` levels over a `light` floor and a 41-line documentation change at
+`light`. The same rules introduced as "the highest level any rule below
+yields" instead of what the facts "call for", the phrase the criterion's pass
+and fail texts use, got an answer on only 29 or 30 of the 50 in two runs.
+The three are left as they are: an escape is never a pass, it falls back to the
+agent, and it counts against the live bar's answered share, so a slice that
+kept escaping couldn't earn trust. The same 38 cases with the order-only
+slice got 6 answers and 32 escapes. The dates in this section are UTC.
+`koto decider report --fixtures` runs fixtures only for a state's `accepts`
+fields, not a decider-check gate, so this runner is the one that applies.
+
+**Figures.** 268 `/work-on` sessions' recorded facts, each projected at the
+longest level name with the session's stored rules copy, largest 576, p90
+563, none over the 2,048-byte budget (the gate's `max_bytes`). Measured before
+`tests_edited` joined the slice; the field and its clause in the `full`
+definition add under 40 bytes, so the largest stays well under the budget.
 
 **State.** `untrusted`: it runs today, in veto mode for a user whose decider is
-in `auto`, and no fixture run or live window has been recorded. Its rule's text
-isn't preloaded in any directive, so nothing is withheld when it earns trust.
+in `auto`, and no live window has been recorded. Its rule's text isn't
+preloaded in any directive, so nothing is withheld when it earns trust.
 
 ## work-on/scrutiny-decision-reasons
 
@@ -217,6 +277,203 @@ window has been recorded. The fixtures' adversarial cases include
 inline layout mimicry (labelled `vocabulary-mimicry`): a reason that carries a
 second decision's `- choice:` and `reason:` text, which the collapsed
 whitespace keeps on the reason's own line.
+
+## coordinate/pick-choice
+
+`/coordinate`'s `pick` asks the decider which `choice` to make with one free
+slot under the cap. It is an evidence decider rather than a Jev criterion: it
+picks one of seven values instead of answering pass or fail, it runs in shadow
+and never acts, and it has no registry entry, so the 2,560-byte budget above
+doesn't bind it. Its input cap is the decider input's `max_bytes`, 12,000, and
+its modes are rows of `scripts/decider-declarations.tsv`. The slice is written
+down here so it meets the same tests as a criterion's: what it holds, why
+that's enough, and how big it gets.
+
+**Sources.** `coord/pick.json`, the facts `pick-facts.sh` writes as
+`pick_facts`' `default_action` from the record, the roadmap on the default
+branch or the discipline's issues, and the pauses; and `PARKED_BOUND`, a
+session variable. The agent writes neither.
+
+**Slice.** `pick-facts.sh` runs `pick-slice.jq`'s `pick_slice` over the
+`coord/pick.json` it built on that visit and stores the result as
+`coord/pick_slice.json`, before it seals its verdict, so a sealed verdict
+means both keys came from that visit. The decider reads the slice; the agent
+keeps reading the full facts. A unit whose `done` is true, with no holding
+covering it, `verdict_owed` false and `rework` unset becomes its tag in a
+`done` list. Every other unit keeps its row, and every holding keeps its row,
+with fields that are null, false or an empty list left out. A kept unit's
+`blocked_by` names its blockers by tag rather than by position, because the
+positions count the full list and the slice no longer carries the done units
+they would point at. `scope`, `name`, `host`, `cap`, `active`, `parked`,
+`parked_bound`, `paused_all`, `pauses`, `go_aheads` and `decisions` are the
+facts' own.
+
+**Completeness.** Pick's rules never act on a done unit that no holding
+covers, that isn't owed a verdict and that wasn't sent back: it can't be
+dispatched, scoped or sent its execution, and what a dependent needs from it
+is already in the dependent's own `blocked`, `blocked_by` and
+`blocker_landed`. Confirming a done unit's `landed` row is the agent's
+upkeep, read from the full facts, and no `choice` turns on it. A done unit
+that is held, owed a verdict or reworked keeps its full row, since the rules
+name each of those. A field left out reads the
+same as its null or false value, and the counts, the cap, the bound, the
+pauses and the decisions are passed whole. The verdict is `sufficient`.
+
+**Figures.** The last `coord/pick.json` of each of 44 `/coordinate` sessions in
+one host's koto store on 2026-10-22, read with `koto context get <session>
+coord/pick.json` and sliced with `jq -c -L skills/coordinate/scripts 'include
+"pick-slice"; pick_slice'`, sizes by `wc -c`. The full facts: largest 26,287,
+p90 18,462, 8 over 12,000. The slice: largest 10,090, p90 3,637, none over.
+The largest slice is mostly `pauses` (7.8 KB), which it keeps as they are.
+`pick-facts_test.sh` holds a roadmap of 200 Done features and 3 open ones
+under the cap.
+
+**Fixtures.** `coordinate.pick.choice.decider.jsonl`. Each case's `pick_facts`
+input is a slice, which `pick-facts_test.sh` checks by slicing it again, and
+five carry a `done` list of 150 or more.
+
+## coordinate/decision-verdict
+
+`/coordinate`'s `decision_verdict` asks the decider whether to settle a
+decision entry, escalate it to the run's target, or hold it for a fact. Like
+pick's, it is an evidence decider: it runs in shadow, never acts, and has no
+registry entry. Its input cap is the decider input's `max_bytes`, 12,000, and
+its modes are rows of `scripts/decider-declarations.tsv`. Every answer goes
+back to `decision_next`, so no answer changes a route.
+
+**Sources.** `coord/decision.json`, which `decision-next.sh` writes as
+`decision_next`'s `default_action` when its rule 8 finds an entry awaiting a
+verdict. It is the record's Decisions section as `record-decision.sh --list`
+reads it, filtered to that one entry. The agent writes the entry's question
+and options when it opens it, and a worker's report or the agent's own raise
+supplies its text; nothing selects what goes in.
+
+**Slice.** The whole entry, one compact JSON line: all 19 of its fields,
+`decision`, `round`, `question`, `options`, `state`, `source`, `verdict`,
+`recommendation`, `reason`, `context`, `problem`, `grounds`, `target`,
+`owed`, `asked`, `evidence`, `outcome`, `decided_by` and `updated`. While
+the entry awaits a verdict the eleven fields a verdict writes are empty, so
+what the decider reads is the question, the options, who raised it, the
+evidence lines and the time.
+
+**Completeness.** Whether an entry is the coordinator's to settle or has to
+go up isn't in the entry. The directive's escalate grounds are scope, a
+decision the dispatcher supplied, a step reserved for a person, and anything
+outside the coordinator's scope, and none of those facts reaches the input:
+
+- the run's scope: the roadmap on the default branch (which `pick-facts.sh`
+  reads into `coord/pick.json`) or the discipline, and the Run section's
+  `arguments`;
+- what a person already decided or reserved: the record's Standing rows
+  (`answer`, `approval`, `assignment`, `pause`), read by
+  `record-state.sh --list`;
+- the steps reserved for a person and the four grounds themselves: the
+  `decision_verdict` directive in `coordinate.md`, which only the agent reads;
+- who the run reports to: `REPORTS_TO` and the Run section's `reports-to`;
+- earlier verdicts on related entries: the rest of the Decisions section.
+
+The `grounds` field is written only when an escalate verdict is recorded, so
+it's always empty in the input. The completeness verdict is `insufficient`.
+
+The ledger agrees. On one host's decider ledger, from 2026-10-21T03:12Z to
+2026-10-23T01:25Z, there were 35 consultations in 8 `/coordinate`
+sessions, each paired with the agent's own verdict, read with
+`koto decider report --state decision_verdict --json` and the raw ledger
+lines. None was covered: 25 were below the 0.9 threshold, 9 escaped and 1
+timed out. The agent answered 24 settle and 11 escalate, and never hold. The
+window ends at the last consultation the agent had answered when the ledger
+was read; a later one, still unanswered then, is left out. The issue counted
+32 consultations (25, 6 and 1; 23 settle and 9 escalate); the three added
+since are all escapes, one settled and two escalated by the agent. Every
+time in this section is UTC, the ledger's own clock; the host runs four hours
+behind, so on its clock the window ended on the evening of 2026-10-22.
+
+Each input was rebuilt from its session. A session's koto store keeps only
+the latest `coord/decision.json`, so the rebuild works from two other things
+it keeps. The session's log, `koto-<session>.state.jsonl` in its session
+directory, gives the decision number (`decision-next.sh`'s `DECISION_NEXT`
+capture), the `context_added` event of the `coord/decision.json` write
+before the consultation, with its size, and the decider's `context_read` of
+it, with the SHA-256 of the bytes it read. The record's Decisions section,
+which the session stores as `record/decisions` (any later session on the
+same record holds it too), gives the entry as it is now. That entry was
+reset to its verdict-awaiting shape (`state` back to `coordinator-verdict`,
+the eleven verdict fields empty) and searched over the fields that move
+after a verdict: `round` as now or `0`, `evidence` as empty or any leading
+run of its current lines, `options` as now or with each line's ` -- `
+explanation cut (an escalation rewrites them), and `updated` as now or any
+minute in the 72 hours before the consultation. A match is a rebuilt line
+whose SHA-256 equals the logged one. Each match was then checked a second
+time against the ledger's `input_sha256`, which koto computes over the
+length-prefixed label and content, and all agreed. 27 of 35 rebuilt exactly. Six came from sessions whose record no
+session still holds, and two from an entry whose evidence was later
+rewritten. Those 8 have exact sizes but no text. 31 of the 35 inputs are
+distinct: four were consulted twice unchanged. Three of those pairs got the
+same answer both times; the fourth escaped once and leaned settle at 0.40
+the next time.
+
+- **Size.** Every input was a whole entry, none near the cap (the sizes are
+  under Figures), so none was truncated or empty.
+- **Evidence.** 25 of the 27 rebuilt inputs had an empty `evidence`, so the
+  decider read only the question and the options. Of the two that had
+  evidence, one held an earlier settled outcome of the same question and got
+  the second-highest confidence of the window (settle, 0.86). The other held
+  a worker asking the same question again; the decider leaned hold (0.63)
+  and the agent settled.
+- **Below threshold.** The decider leaned settle 18 times, hold 5 times and
+  escalate twice. Its confidence ran from 0.31 to 0.88, with a median of
+  0.51, 0.39 short of the threshold. It leaned the agent's way on 15 of the 25:
+  13 of the 17 the agent settled, but only 2 of the 8 it escalated, and those
+  2 were one input consulted twice, a question that asked in its own words
+  whether "the owner" accepted a residual risk.
+- **Escapes.** The escape's own probability had a median of 0.40, and the
+  next-best answer was hold 5 times and settle 4 times. The escape's
+  description, a missing, truncated or contradictory entry, matched none of
+  the 9 inputs by size or shape.
+- **Settle against escalate.** Nothing in the input tells the agent's settle
+  cases from its escalate cases. Of the 27 rebuilt, the agent settled 18
+  and escalated 9. The 18 it settled came from a worker 11 times, the
+  agent's own raise 6 times and the dispatcher once; the 9 it escalated came
+  from a worker 4 times, the agent's own raise 3 times and the dispatcher
+  twice. Escalations had longer options
+  (median 378 bytes against 202) and more of them (3 against 2), but a word
+  like "owner", "scope" or "merge" turns up in both: "owner" in 4 of 9
+  escalations and 3 of 18 settles. The agent's rationales name what decided
+  it, and it's never in the entry: a scope the dispatcher set, an owner
+  ruling that would be extended, a merge or a spending call that belongs to
+  someone else, a rule of one review panel at a time.
+
+So the low confidence isn't noise around a right answer. The decider can't
+see whose decision it is, and with no evidence on most entries it leaned
+hold, or put hold next after the escape, on 10 of the 34 consultations other
+than the timeout, where the agent never held. No change to the input's size
+or cap would fix this: the largest input was a third of the cap, and every
+one arrived whole. Any input that could tell settle from escalate would need
+facts the entry doesn't hold: the run's scope, the person's standing rulings
+and decisions, and the steps reserved for a person. Whether the site gets
+them or is dropped is a separate decision; this section only records what's
+missing.
+
+**Figures.** The 35 consultations above: smallest 504, median 856, p90
+1,394, largest 3,953, none over 12,000. Sizes are each consultation's `context_added` size for
+`coord/decision.json` in its session log, the last write before the
+consultation.
+
+**Fixtures.** `coordinate.decision_verdict.verdict.decider.jsonl`. The first
+42 cases hold eight of the entry's fields and put the deciding fact in the
+evidence. The eight cases after them are built from observed inputs, with
+names made neutral and the decision numbers, report stamps and times
+renumbered in the fixture file's own series, in the shape `decision-next.sh` writes, all 19 fields
+on one line ending in a newline, as `jq -c` prints it:
+`observed-settle-0` to `-2` (one with an earlier outcome as evidence),
+`observed-escalate-0` to `-2` (the owner's residual risk, a recurring macOS
+spend, a feature split out of a roadmap the dispatcher raised), and two whose
+right answer is the escape: `empty-0`, an empty input, and `truncated-0`, an
+entry cut at 200 bytes. No observed input was empty or truncated, so those
+two are constructed. An observed case's expected answer is the verdict the
+agent gave, which read the facts the input leaves out, so a decider that
+misses one is showing the gap above rather than a fault of its own. The
+fixtures haven't been run against the decider.
 
 ## rs-007
 

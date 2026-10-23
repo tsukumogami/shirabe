@@ -18,8 +18,16 @@
 #        - several children's reasons are each needed, and one reason given by
 #          the run and a child is asked for once;
 #        - hosted-ci with no reason, a failed child listing, a failed or odd
-#          key read, an empty key, no single owned PR, and bad usage can't be
-#          decided (2);
+#          key read, an empty key or one over two lines, no single owned PR,
+#          and bad usage can't be decided (2);
+#        - the time limits (#1053): a hung child read or listing, and slow
+#          reads over many children, are cut off at the child reads' share
+#          with 2 and the hung koto call killed, --list too; with the default
+#          limits a hung read answers at 8 s, far inside koto's 30 s; a hung
+#          owned-PR lookup gets check-pr-output.sh's own 2 inside what is
+#          left, and a hung body read is cut off at the total; slow reads
+#          inside the share still get the check's answer; bad time seams are
+#          a usage error;
 #        - --child reads exactly the named sessions (a coordinated node's
 #          work items) with no child listing, holding the PR on a named
 #          child's reason and ignoring a listed child it doesn't name;
@@ -69,16 +77,24 @@ mkdir -p "$BIN" "$STUB/ctx"
 # koto stub: `workflows --children <s>` prints $STUB/children.json (exit
 # $STUB/workflows.rc when that file exists); `context exists <c> <key>` is 0
 # when $STUB/ctx/<c> exists, else 1 (exit $STUB/exists.rc overrides);
-# `context get <c> <key>` prints that file.
+# `context get <c> <key>` prints that file. For the time limits: with
+# $STUB/workflows.hang or $STUB/exists.hang the call becomes a long sleep in
+# the same process (its PID in $STUB/hang.pid), so a kill of the call ends
+# it; $STUB/exists.sleep holds seconds `context exists` sleeps before it
+# answers.
 cat > "$BIN/koto" <<'EOF'
 #!/usr/bin/env bash
 STUB="${SDR_STUB:?}"
 printf '%s\n' "$*" >> "$STUB/koto.calls"
+hang() { printf '%s\n' "$$" > "$STUB/hang.pid"; exec sleep 60; }
 case "$1 ${2-}" in
     "workflows --children")
+        [ ! -f "$STUB/workflows.hang" ] || hang
         if [ -f "$STUB/workflows.rc" ]; then echo "koto: no session" >&2; exit "$(cat "$STUB/workflows.rc")"; fi
         cat "$STUB/children.json" ;;
     "context exists")
+        [ ! -f "$STUB/exists.hang" ] || hang
+        [ ! -f "$STUB/exists.sleep" ] || sleep "$(cat "$STUB/exists.sleep")"
         if [ -f "$STUB/exists.rc" ]; then echo "koto: store unreadable" >&2; exit "$(cat "$STUB/exists.rc")"; fi
         [ -f "$STUB/ctx/$3" ] ;;
     "context get")
@@ -86,18 +102,22 @@ case "$1 ${2-}" in
     *) echo "koto stub: unexpected call: $*" >&2; exit 64 ;;
 esac
 EOF
-# gh stub: `gh pr view <url> --json body` prints {"body": <$STUB/body.md>}.
+# gh stub: `gh pr view <url> --json body` prints {"body": <$STUB/body.md>};
+# with $STUB/gh.hang it sleeps instead.
 cat > "$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 STUB="${SDR_STUB:?}"
 printf '%s\n' "$*" >> "$STUB/gh.calls"
+[ ! -f "$STUB/gh.hang" ] || exec sleep 60
 jq -Rsc '{body: .}' "$STUB/body.md"
 EOF
-# owned-pr.sh stand-in: one URL, or $STUB/owned.rc's exit.
+# owned-pr.sh stand-in: one URL, or $STUB/owned.rc's exit; with
+# $STUB/owned.hang it sleeps instead.
 cat > "$BIN/owned-pr.sh" <<'EOF'
 #!/usr/bin/env bash
 STUB="${SDR_STUB:?}"
 printf '%s\n' "$*" >> "$STUB/owned.calls"
+[ ! -f "$STUB/owned.hang" ] || exec sleep 60
 if [ -f "$STUB/owned.rc" ]; then exit "$(cat "$STUB/owned.rc")"; fi
 echo https://github.com/acme/widgets/pull/12
 EOF
@@ -189,10 +209,10 @@ child_deferred execute-x.o-b "$REASON2"
 body "$REASON"
 run_stub hosted-ci "$REASON"
 expect "two children's reasons, the body records one: holds" 1
-grep -qF "verbatim: $REASON2" "$WORKDIR/err" \
+grep -qF "exactly: Reason: $REASON2" "$WORKDIR/err" \
     && pass "two reasons, one missing: stderr names the missing reason" \
     || fail "two reasons: stderr [$(cat "$WORKDIR/err")]"
-if grep -qF "verbatim: $REASON" "$WORKDIR/err"; then
+if grep -qF "exactly: Reason: $REASON" "$WORKDIR/err"; then
     fail "two reasons: the recorded reason is reported missing"
 else
     pass "two reasons: the recorded reason is not reported missing"
@@ -329,6 +349,142 @@ expect "--list: hosted-ci with no reason" 2
 (PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification local --child) >/dev/null 2>"$WORKDIR/err"
 RC=$?
 expect "--child with no session name: usage" 2
+
+reset_stub
+children execute-x.o-a
+printf 'line one\nline two' > "$STUB/ctx/execute-x.o-a"
+run_stub local ""
+expect "a child recorded a reason over two lines" 2
+
+echo "--- the time limits (koto stops a gate at 30 s; the script answers first)"
+
+# timed <total|-> <loop|-> <runner> <args>...: runs a run_* helper with the
+# two time seams set (- leaves one at its default) and puts the whole
+# seconds it took in ELAPSED.
+timed() {
+    local total="$1" loop="$2" start
+    shift 2
+    if [ "$total" != - ]; then export SHARED_DEFERRAL_RECORD_SECS="$total"; fi
+    if [ "$loop" != - ]; then export SHARED_DEFERRAL_RECORD_LOOP_SECS="$loop"; fi
+    start=$SECONDS
+    "$@"
+    ELAPSED=$((SECONDS - start))
+    unset SHARED_DEFERRAL_RECORD_SECS SHARED_DEFERRAL_RECORD_LOOP_SECS
+}
+# hung_call_gone: the stub koto call that hung was killed with the job.
+hung_call_gone() {
+    local pid
+    pid=$(cat "$STUB/hang.pid" 2>/dev/null) || return 1
+    sleep 0.5
+    ! kill -0 "$pid" 2>/dev/null
+}
+
+reset_stub
+children execute-x.o-a execute-x.o-b
+child_deferred execute-x.o-a "$REASON"
+body "$REASON"
+: > "$STUB/exists.hang"
+timed 6 2 run_stub hosted-ci "$REASON"
+expect "a hung child read is cut off at its share" 2
+[ "$ELAPSED" -le 5 ] && pass "a hung child read: the script answered in ${ELAPSED}s, inside its 2s share and slack" \
+    || fail "a hung child read: the script took ${ELAPSED}s with a 2s share"
+grep -qF "took longer than the 2s it had" "$WORKDIR/err" \
+    && pass "a hung child read: stderr says the reads ran out of time" \
+    || fail "a hung child read: stderr [$(cat "$WORKDIR/err")]"
+[ "$(count gh.calls)" = 0 ] && [ "$(count owned.calls)" = 0 ] \
+    && pass "a hung child read: nothing is read from GitHub" \
+    || fail "a hung child read: gh calls $(count gh.calls), owned calls $(count owned.calls)"
+hung_call_gone && pass "a hung child read: the hung koto call is killed with the job" \
+    || fail "a hung child read: the koto call $(cat "$STUB/hang.pid" 2>/dev/null) is still running"
+
+reset_stub
+names=()
+i=0
+while [ "$i" -lt 30 ]; do names+=("execute-x.o-$i"); i=$((i + 1)); done
+children "${names[@]}"
+printf '0.2\n' > "$STUB/exists.sleep"
+timed 6 2 run_stub local ""
+expect "slow reads over many children are cut off at the share" 2
+[ "$ELAPSED" -le 5 ] && pass "slow reads over many children: answered in ${ELAPSED}s" \
+    || fail "slow reads over many children: took ${ELAPSED}s with a 2s share"
+
+reset_stub
+: > "$STUB/workflows.hang"
+timed 6 2 run_stub local ""
+expect "a hung child listing is cut off at the share" 2
+hung_call_gone && pass "a hung child listing: the hung koto call is killed with the job" \
+    || fail "a hung child listing: the koto call is still running"
+
+reset_stub
+: > "$STUB/exists.hang"
+timed 6 2 run_list local "" work-on-t-core-1
+expect "--list: a hung child read is cut off at the share" 2
+[ -s "$WORKDIR/out" ] && fail "--list, hung read: printed [$(cat "$WORKDIR/out")]" \
+    || pass "--list, hung read: prints no reason"
+
+# The defaults themselves: a koto that never answers is cut off at the 8 s
+# share, far inside koto's 30 s stop. This case takes about 8 s.
+reset_stub
+children execute-x.o-a
+: > "$STUB/exists.hang"
+timed - - run_stub local ""
+expect "default limits: a hung child read" 2
+if [ "$ELAPSED" -ge 7 ] && [ "$ELAPSED" -le 12 ] && grep -qF "the 8s it had" "$WORKDIR/err"; then
+    pass "default limits: a hung child read answers 2 at the 8s share (${ELAPSED}s), well inside koto's 30s"
+else
+    fail "default limits: hung child read took ${ELAPSED}s, stderr [$(cat "$WORKDIR/err")]"
+fi
+
+# The PR check gets what is left of the total. owned-pr.sh's own limit is
+# cut to fit (here 10 - 5 = 5 s, less any whole second the reads took), and
+# check-pr-output.sh answers 2 itself.
+reset_stub
+children execute-x.o-a
+child_deferred execute-x.o-a "$REASON"
+body "$REASON"
+: > "$STUB/owned.hang"
+timed 10 1 run_stub local ""
+expect "a hung owned-PR lookup after the child reads" 2
+if [ "$ELAPSED" -le 8 ] && grep -qE "owned-pr.sh did not answer within [1-5]s" "$WORKDIR/err"; then
+    pass "a hung owned-PR lookup: check-pr-output.sh's limit is cut to what's left, answered in ${ELAPSED}s"
+else
+    fail "a hung owned-PR lookup: took ${ELAPSED}s, stderr [$(cat "$WORKDIR/err")]"
+fi
+
+# A hung read of the body, which check-pr-output.sh doesn't bound, is cut
+# off at the total.
+reset_stub
+children execute-x.o-a
+child_deferred execute-x.o-a "$REASON"
+body "$REASON"
+: > "$STUB/gh.hang"
+timed 7 1 run_stub local ""
+expect "a hung body read is cut off at the total" 2
+if [ "$ELAPSED" -le 10 ] && grep -qF "did not answer within the 7s" "$WORKDIR/err"; then
+    pass "a hung body read: the script answered 2 at its 7s total (${ELAPSED}s)"
+else
+    fail "a hung body read: took ${ELAPSED}s, stderr [$(cat "$WORKDIR/err")]"
+fi
+
+# Slow but in time: the answer is still the check's.
+reset_stub
+children execute-x.o-a
+child_deferred execute-x.o-a "$REASON"
+body "$REASON"
+printf '1\n' > "$STUB/exists.sleep"
+timed 10 3 run_stub local ""
+expect "a slow child read inside its share still checks the body: passes" 0
+rm -f "$STUB/body.md"
+body "$REASON2"
+timed 10 3 run_stub local ""
+expect "a slow child read inside its share still holds a body without the reason" 1
+
+for bad in "0 -" "x -" "1s -" "- 0" "5 5" "5 9"; do
+    reset_stub
+    # shellcheck disable=SC2086 # two words on purpose
+    timed $bad run_stub local ""
+    expect "time seams [$bad] are a usage error" 2
+done
 
 # --- 2. engine --------------------------------------------------------------------------
 

@@ -97,9 +97,12 @@ Hosted CI is the build of record for this change.
 
 `pr_creation`'s `verification_deferral_recorded` gate reads the body GitHub has
 (`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
-finds all three: a line saying local verification did not run, the reason
-verbatim, and a line saying hosted CI is the build of record. The wording is
-matched without regard to case; the reason is matched exactly. A run that
+finds all three: a line saying local verification did not run, the line
+`Reason: <reason>`, and a line saying hosted CI is the build of record. The
+wording is matched without regard to case. The reason line is matched exactly
+and whole: the reason showing up elsewhere in the body, inside the
+build-of-record line or a longer reason's line, doesn't count, nor does a
+`Reason:` line with a list marker, extra spaces or a trailing period. A run that
 didn't defer passes the gate without the section. On a deferred run, don't
 re-run tests locally after merging main either: the push is what CI checks.
 

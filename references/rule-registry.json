@@ -2769,6 +2769,11 @@
             "script": "skills/work-on/scripts/review-level.sh"
           },
           {
+            "what": "review_level_rules.tsv",
+            "writer": "gate-script",
+            "script": "skills/work-on/scripts/review-level.sh"
+          },
+          {
             "what": "REVIEW_LEVEL",
             "writer": "graded-artifact"
           }
@@ -2782,11 +2787,11 @@
         },
         "measured": {
           "population": "koto-sessions",
-          "runs": 166,
-          "max": 246,
-          "p90": 229,
+          "runs": 268,
+          "max": 576,
+          "p90": 563,
           "over_budget": 0,
-          "on": "2026-10-20",
+          "on": "2026-10-23",
           "command": "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --budget 2048"
         },
         "fixtures": "scripts/jev-criteria/fixtures/work-on-review-level-fits-facts.jsonl",

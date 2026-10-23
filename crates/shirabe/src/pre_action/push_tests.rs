@@ -878,34 +878,40 @@ fn the_runner_kills_a_child_that_prints_too_much_or_runs_too_long() {
         SystemGit::with_env([(OsString::from("PATH"), s.path("stub").into_os_string())])
     };
 
+    // Each elapsed-time bound is half of what a runner that got it wrong
+    // would wait for (the far deadline, or the child's own run), not a guess
+    // at how fast the host is: spawning, killing and reaping on a loaded
+    // runner has taken over two seconds (#1058).
     let git = stub_git("exec /usr/bin/yes");
     let start = Instant::now();
-    let far = start + Duration::from_secs(20);
+    let far_secs = 20;
+    let far = start + Duration::from_secs(far_secs);
     assert_eq!(
         git.run(&s.root, &["x"], None, 1024 * 1024, far),
         Err(GitError::TooLarge)
     );
-    assert!(start.elapsed() < Duration::from_secs(5));
+    assert!(start.elapsed() < Duration::from_secs(far_secs / 2));
 
-    let git = stub_git("exec /bin/sleep 5");
+    let child_secs = 20;
+    let git = stub_git(&format!("exec /bin/sleep {child_secs}"));
     let start = Instant::now();
     let soon = start + Duration::from_millis(300);
     assert_eq!(
         git.run(&s.root, &["x"], None, 1024, soon),
         Err(GitError::Timeout)
     );
-    assert!(start.elapsed() < Duration::from_secs(2));
+    assert!(start.elapsed() < Duration::from_secs(child_secs / 2));
 
     // A grandchild that keeps stdout open can't hold the runner past the
     // deadline either.
-    let git = stub_git("/bin/sleep 5 &\nexit 0");
+    let git = stub_git(&format!("/bin/sleep {child_secs} &\nexit 0"));
     let start = Instant::now();
     let soon = start + Duration::from_millis(300);
     assert_eq!(
         git.run(&s.root, &["x"], None, 1024, soon),
         Err(GitError::Timeout)
     );
-    assert!(start.elapsed() < Duration::from_secs(2));
+    assert!(start.elapsed() < Duration::from_secs(child_secs / 2));
 }
 
 #[test]

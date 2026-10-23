@@ -18,7 +18,7 @@
 #   review-level.sh check  <session> <level>
 #   review-level.sh agree  <session> <level>
 #   review-level.sh slice  <session> <level>
-#   review-level.sh project <facts-file> <level>
+#   review-level.sh project <facts-file> <level> [<rules-file>]
 #   review-level.sh report [<session>...]
 #   review-level.sh level  <session>
 #   review-level.sh classify <path>...
@@ -79,10 +79,14 @@
 #           goes.
 #   slice   the decider check's command: a typed projection of the facts
 #           (counts, class names, booleans, the floor), the order of the
-#           levels and a `level:` line. Never a path, a reason or criteria
-#           text.
+#           levels, the level definitions rendered from the stored rules
+#           copy (what the facts call for at each level, and the floor as
+#           the most thorough of them) and a `level:` line. With no facts
+#           recorded, the projection is `{}` and the definitions are left
+#           out. Never a path, a reason or criteria text.
 #   project the same slice for a facts file, for the Jev criteria fixtures
-#           and the slice measurement.
+#           and the slice measurement, with the rules file given (a
+#           session's stored copy) or else the shipped one.
 #   report  one tab-separated row per /work-on session, after a header:
 #           session chosen final floor ceiling raises lowers floor_raises
 #           vetoes breaches overrides seats. With no session named, every
@@ -165,7 +169,7 @@ usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh check  <session> <level>
        review-level.sh agree  <session> <level>
        review-level.sh slice  <session> <level>
-       review-level.sh project <facts-file> <level>
+       review-level.sh project <facts-file> <level> [<rules-file>]
        review-level.sh report [<session>...]
        review-level.sh level  <session>
        review-level.sh classify <path>..."
@@ -920,51 +924,126 @@ cmd_level() {
 
 # ---------------------------------------------------------------- slice -------
 
-# project_slice <facts-file> <level>: the decider check's slice. Every value is
-# typed, so a hand-edited facts key can't carry free text to Jev: counts are
-# non-negative integers (anything else is 0), class names match [a-z0-9_] and
-# there are at most 16 of them, the booleans are booleans and the floor is a
-# level or `unknown`. The order line is what makes the slice complete: the
-# floor already applies review-level-rules.tsv, so the order of the levels is
-# all the question still needs. A facts file jq can't parse projects as `{}`,
-# the same as no facts: the check then judges the level with nothing but the
-# order, and the level check itself holds on unreadable facts.
+# join_or <word>...: "a", "a or b", "a, b or c".
+join_or() {
+    local out="" n=$#
+    while [ $# -gt 0 ]; do
+        if [ -z "$out" ]; then
+            out="$1"
+        elif [ $# -eq 1 ]; then
+            out="$out or $1"
+        else
+            out="$out, $1"
+        fi
+        shift
+    done
+    if [ "$n" -gt 0 ]; then printf '%s' "$out"; fi
+}
+
+# render_rules: the loaded rules as the slice's definition lines, one per level
+# that raises the floor, full then standard (load_rules admits no other
+# level), then light as the default. On each line the class rules come first,
+# as one "classes has" list, then the other facts, each group in the rules
+# file's order. Every word comes from load_rules, which admits only level
+# names, [a-z0-9_] class names, digit thresholds and the fixed fact names, so
+# no path or free text reaches the slice. A `light` rule never raises the
+# floor and isn't printed.
+#
+# "Call for" is the phrase the criterion's pass and fail texts use; the
+# decider answered far more full-facts fixtures under it than under "the
+# highest level any rule yields" (references/jev-criteria.md has the run).
+render_rules() {
+    local lvl i fact parts classes
+    for lvl in full standard; do
+        parts=""
+        classes=""
+        i=0
+        while [ "$i" -lt "$NRULE" ]; do
+            if [ "${RULE_LEVEL[$i]}" = "$lvl" ]; then
+                fact="${RULE_FACT[$i]}"
+                case "$fact" in
+                    class:*) classes="$classes ${fact#class:}" ;;
+                    lines\>*) parts="$parts; or lines > ${fact#lines>}" ;;
+                    files\>*) parts="$parts; or files > ${fact#files>}" ;;
+                    *) parts="$parts; or $fact" ;;
+                esac
+            fi
+            i=$((i + 1))
+        done
+        # shellcheck disable=SC2086
+        [ -z "$classes" ] || parts="; or classes has $(join_or $classes)$parts"
+        [ -z "$parts" ] || echo "the facts call for $lvl when ${parts#; or }"
+    done
+    echo "the facts call for light otherwise"
+}
+
+# project_slice <facts-file> <level> <rules-file>: the decider check's slice.
+# Every value is typed, so a hand-edited facts key can't carry free text to
+# Jev: counts are non-negative integers (anything else is 0), class names match
+# [a-z0-9_] and there are at most 16 of them, the booleans are booleans and the
+# floor is a level or `unknown`.
+#
+# After the facts come the level definitions the question judges against: the
+# order of the levels, the rules file's floor rules and what the floor is, all
+# built from the rules the run's facts were derived from. With only the order
+# the decider escaped on full facts. The slice doesn't say what "too light"
+# means: the criterion's pass and fail texts carry that, and a slice that
+# equated it with "below the floor" would have the decider repeat the
+# level_floor gate.
+#
+# A facts file that is empty or that jq can't parse projects as `{}` and gets
+# no definitions: there is nothing to apply them to, so the decider escapes,
+# and the level check itself holds on missing or unreadable facts.
 project_slice() {
-    local facts=$1 level=$2
+    local facts=$1 level=$2 rules=$3 first='{}'
     valid_level "$level" || level=unset
     if [ -s "$facts" ]; then
-        jq -c 'def count: if type == "number" and . >= 0 and . == floor then . else 0 end;
+        first=$(jq -c 'def count: if type == "number" and . >= 0 and . == floor then . else 0 end;
                {lines: (.lines | count), files: (.files | count),
                 classes: ([.classes[]? | strings | select(test("^[a-z0-9_]+$"))] | .[:16]),
                 tests_changed: (.tests_changed == true), tests_edited: (.tests_edited == true),
                 criteria_changed: (.criteria_changed == true),
                 unclassified: (.unclassified == true),
                 floor: (.floor | if . == "light" or . == "standard" or . == "full" then . else "unknown" end)}' \
-            "$facts" 2>/dev/null || echo '{}'
-    else
-        echo '{}'
+            "$facts" 2>/dev/null) || first='{}'
+        [ -n "$first" ] || first='{}'
     fi
+    # Rules that don't load exit before anything is printed.
+    [ "$first" = '{}' ] || load_rules "$rules"
+    echo "$first"
     echo "levels: light < standard < full"
+    if [ "$first" != '{}' ]; then
+        render_rules
+        echo "floor: the most thorough level the facts call for"
+    fi
     echo "level: $level"
 }
 
+# cmd_slice judges with the rules copy init stored, the one `facts` derived the
+# floor from; a session init never ran for falls back to the shipped file, as
+# `facts` does. A stored copy that can't be read or parsed exits 66 or 64, and
+# koto records the criterion unanswered: never a pass.
 cmd_slice() {
-    local s="${1:-}" level="${2:-}"
+    local s="${1:-}" level="${2:-}" rules="$RULES_SHIPPED"
     if valid_session "$s" && ctx_get "$s" "$FACTS_KEY" "$WORK/facts" && [ -s "$WORK/facts" ]; then
-        project_slice "$WORK/facts" "$level"
+        ctx_get "$s" "$RULES_KEY" "$WORK/rules" || die 66 "could not read $RULES_KEY"
+        [ -s "$WORK/rules" ] && rules="$WORK/rules"
+        project_slice "$WORK/facts" "$level" "$rules"
     else
-        project_slice /dev/null "$level"
+        project_slice /dev/null "$level" "$rules"
     fi
     exit 0
 }
 
-# project <facts-file> <level>: the slice for a facts file, the way `slice`
-# prints it for a session, so anything that builds this slice outside a live
-# session (a fixture, a measurement) gets this script's output by construction.
+# project <facts-file> <level> [<rules-file>]: the slice for a facts file, the
+# way `slice` prints it for a session, so anything that builds this slice
+# outside a live session (a fixture, a measurement) gets this script's output
+# by construction. <rules-file> is the session's stored copy when there is
+# one; without it, the shipped rules.
 cmd_project() {
-    local facts="${1:-}" level="${2:-}"
+    local facts="${1:-}" level="${2:-}" rules="${3:-$RULES_SHIPPED}"
     [ -f "$facts" ] && [ -r "$facts" ] || die 64 "project: $facts is not a readable file"
-    project_slice "$facts" "$level"
+    project_slice "$facts" "$level" "$rules"
     exit 0
 }
 

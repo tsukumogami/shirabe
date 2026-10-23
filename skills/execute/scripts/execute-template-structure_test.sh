@@ -25,6 +25,9 @@
 #   escalate_dirty_merge_state still routes to done_blocked, ci_monitor's
 #     DIRTY edge (owned_merge_state_clean failing) targets it, and ci_monitor's
 #     green edge (no evidence) and failing_fixed edge target merge_readiness
+#   ci_monitor's one edge with owned_pr_merged at 0 targets merge_readiness on
+#     that gate and the lookup alone, every other edge with the lookup at 0
+#     needs owned_pr_merged at 1, and the gate is overridable: false (#917)
 #   no default_action command holds `${context.` (koto never substitutes it)
 #   every edge into a terminal assigns `outcome` as a literal, no assignment
 #     reads `${context.`, and a `step` or `reason` assignment is a literal
@@ -60,7 +63,8 @@
 #     variables to shared-deferral-record.sh
 #
 # and, so the checks are known to bite, that each fails on a mutated copy: an
-# assignment writing home_pr, an overridable merge_intent gate, an edge into
+# assignment writing home_pr, an overridable merge_intent gate, an overridable
+# owned_pr_merged gate, a merged edge that also needs green CI, an edge into
 # `done`, a second edge into `merged`, and a `${context.` in a default action.
 #
 # Usage: execute-template-structure_test.sh
@@ -117,6 +121,9 @@ CHECKS=(
 "escalate_dirty_merge_state routes to done_blocked|[.states.escalate_dirty_merge_state.transitions[].target] == [\"done_blocked\"]"
 "ci_monitor's DIRTY edge still targets escalate_dirty_merge_state|[.states.ci_monitor.transitions[] | select(.when[\"gates.owned_merge_state_clean.exit_code\"] == 1) | .target] == [\"escalate_dirty_merge_state\"]"
 "ci_monitor's green and failing_fixed edges target merge_readiness|[.states.ci_monitor.transitions[] | select((.when.ci_outcome == null and .when[\"gates.owned_ci_passing.exit_code\"] == 0) or .when.ci_outcome == \"failing_fixed\") | .target] | length == 2 and all(. == \"merge_readiness\")"
+"ci_monitor routes a MERGED owned PR to merge_readiness on the lookup and owned_pr_merged alone|[.states.ci_monitor.transitions[] | select(.when[\"gates.owned_pr_merged.exit_code\"] == 0)] | length == 1 and .[0].target == \"merge_readiness\" and .[0].when == {\"gates.monitor_owned_pr.exit_code\": 0, \"gates.owned_pr_merged.exit_code\": 0}"
+"every other ci_monitor edge with the lookup at 0 needs owned_pr_merged at 1|[.states.ci_monitor.transitions[] | select(.when[\"gates.monitor_owned_pr.exit_code\"] == 0 and .when[\"gates.owned_pr_merged.exit_code\"] != 0) | .when[\"gates.owned_pr_merged.exit_code\"] == 1] | length > 0 and all"
+"owned_pr_merged is a non-overridable command gate|.states.ci_monitor.gates.owned_pr_merged | (.type == \"command\" and .overridable == false)"
 "no default_action command holds \${context.|[.states[] | (.default_action.command // \"\") | contains(\"\${context.\")] | any | not"
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "no assignment reads \${context.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | contains(\"\${context.\")] | any | not"
@@ -267,6 +274,12 @@ mutate "an overridable merge_intent gate" \
 mutate "ci_monitor's green edge back on done" \
     "no transition targets done" \
     's/(      - target: )merge_readiness(\n        when:\n          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_ci_passing.exit_code: 0)/${1}done$2/'
+mutate "an overridable owned_pr_merged gate" \
+    "owned_pr_merged is a non-overridable command gate" \
+    's/(      owned_pr_merged:\n        type: command\n        overridable: )false/${1}true/'
+mutate "ci_monitor's merged edge needing green CI" \
+    "ci_monitor routes a MERGED owned PR to merge_readiness on the lookup and owned_pr_merged alone" \
+    's/(          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_pr_merged.exit_code: 0\n)/$1          gates.owned_ci_passing.exit_code: 0\n/'
 mutate "a second edge into merged" \
     "merged's only incoming edge is from merge_confirm" \
     's/(      - target: )ready_awaiting_merge(\n        when:\n          gates.merge_intent.exit_code: 0\n          merge_exec: refused)/${1}merged$2/'

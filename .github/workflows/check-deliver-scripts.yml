@@ -1,6 +1,7 @@
 name: Check deliver scripts
 
 on:
+  # The two paths lists below must match; edit both together.
   pull_request:
     paths:
       - 'skills/deliver/**'
@@ -31,6 +32,32 @@ on:
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/deliver.list'
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/deliver/**'
+      - 'scripts/plan-mode.sh'
+      - 'scripts/plan-mode_test.sh'
+      - 'scripts/koto-open.sh'
+      - 'scripts/skill-preflight.sh'
+      - 'scripts/lib/**'
+      - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/run-id.sh'
+      - 'skills/execute/scripts/merge-verdict.sh'
+      - 'skills/scope/scripts/publish-scoping-pr.sh'
+      - 'skills/execute/evals/fixtures/bin/gh'
+      - 'skills/scope/koto-templates/scope.md'
+      - '.github/workflows/check-deliver-scripts.yml'
+      - 'scripts/skill-session.sh'
+      - 'skills/coordinate/scripts/testdata/cloud-hosts.sh'
+      - 'skills/coordinate/scripts/testdata/fake-s3.py'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/deliver.list'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
 
