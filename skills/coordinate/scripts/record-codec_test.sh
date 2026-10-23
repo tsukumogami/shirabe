@@ -482,7 +482,7 @@ roundtrip "reports-to may be a role alone" "$(CRASH "$(RR reports-to "the human"
 for k in rules briefs friction reports-to; do
     v="a sha256:$SHA"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
     roundtrip "a $k row alone round-trips" "$(CRASH "$(RR "$k" "$v")")"
-    refuse "$k beside a store github row is refused, for the store row" "$(CRASH "$(RR store github), $(RR "$k" "$v")")" "store-malformed"
+    refuse "$k beside a store github row is refused, for the store row" "$(CRASH "$(RR store github), $(RR "$k" "$v")")" "a store row reads session"
 done
 refuse "a rules digest that isn't sha256 hex is refused" "$(CRASH "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
 refuse "a rules label used twice is refused" "$(CRASH "$STORE, $(RR rules "a sha256:$SHA"), $(RR rules "a sha256:$SHA")")" "label is used twice"
