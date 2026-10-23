@@ -15,6 +15,9 @@ skills/work-on/scripts/verify-cascade-commit_test.sh
 # Drives real koto sessions, and skips cleanly without them. Its
 # engine-free case invokes the discriminator it carries.
 skills/work-on/scripts/ci-monitor-role_test.sh
+# Needs no engine: it sources the pull request URL parse and checks its
+# answers, so every case runs on the floor.
+skills/work-on/scripts/pr-url_test.sh
 # Needs no engine: it runs the ci_passing fallback, and the live gate
 # expression, against stubbed gh and koto, so every case runs on the floor.
 skills/work-on/scripts/ci-cancel-after-merge_test.sh
