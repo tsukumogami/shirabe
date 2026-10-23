@@ -1,0 +1,5 @@
+workflow: .github/workflows/check-pr-workflow-content.yml
+# The PR workflow content switch reader. Its suite writes throwaway
+# CLAUDE.md files and needs only bash, awk, tr and git, so every case
+# runs on 3.2.
+scripts/pr-workflow-content_test.sh

@@ -1657,7 +1657,49 @@ scenario_push_anchor_design() {
         '[.steps[] | select(.detail != null and (.detail | test("not found or not resolvable")))] | length == 0' \
         "no step reports a missing seed path" || ok=false
 
+    # The repository declares no PR Workflow Content header, so the commit
+    # message is in the repository's own terms.
+    local subject
+    subject=$(git -C "$repo" log -1 --format=%s)
+    if [[ "$subject" != "docs: update the status of the documents this work completes" ]]; then
+        fail "$scenario: the default commit message is [$subject]"
+        ok=false
+    fi
+
     [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── The commit message, in a repository that opts in to workflow content ─────
+scenario_push_message_include() {
+    local scenario="Scenario 16c: --push in a repository that opts in keeps the cascade's message"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    printf '# repo\n\n## PR Workflow Content: include\n' > "$repo/CLAUDE.md"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    local output subject
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+    subject=$(git -C "$repo" log -1 --format=%s)
+    if [[ "$subject" == "chore(cascade): post-implementation artifact transitions" ]] \
+        && printf '%s' "$output" | jq -e '.cascade_status == "completed"' >/dev/null 2>&1; then
+        pass "$scenario"
+    else
+        fail "$scenario: subject [$subject], output [$output]"
+    fi
 
     rm -rf "$tmpdir"
     cd "$SCRIPT_DIR"
@@ -3716,6 +3758,7 @@ cd "$ORIG_DIR"
 # line here is silently a no-op, which is worth remembering given that the
 # branch these exercise went eighteen scenarios without being reached at all.
 scenario_push_anchor_design
+scenario_push_message_include
 cd "$ORIG_DIR"
 
 scenario_push_anchor_design_l06

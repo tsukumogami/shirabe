@@ -1099,6 +1099,43 @@
       }
     },
     {
+      "id": "pr-body/workflow-content",
+      "status": "active",
+      "summary": "The pull request body carries workflow records the repository hasn't opted in to",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "No workflow records in a pull request body unless the repository opts in.",
+        "last": "reviews in prose passes. CI and the PreToolUse hook don't run it."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-23",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Added after the offload baseline's pinned commit, so the baseline holds no text for it. It applies only when scripts/pr-workflow-content.sh prints omit, the default; a repository that declares ## PR Workflow Content: include gets no finding. The validator has no PB code for it: the gate script checks it."
+    },
+    {
       "id": "pr-body/conventional-title",
       "status": "active",
       "summary": "The pull request title is not a Conventional Commits title",

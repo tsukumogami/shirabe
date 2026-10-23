@@ -125,18 +125,41 @@ number, and a worker is inline code, as in every table the human sees. If a
 pull request's head moves after you hand the table over, it drops back to
 unverified until you read it again.
 
-Every row has passed the land check: the worker's Review panel table at a fresh
+Every row has passed the land check: the worker's review round at a fresh
 reviewed head, the body's mechanical checks, and your goal-fit call. Under the
 table, for each pull request, give the squash message the merge should carry
-(`message` in `coord/land.json`, the title and Part 1 as plain text) and say the
-seats' verdicts are in the body's Review panel section, so the person merging
-reads neither a second panel nor a hand-built message.
+(`message` in `coord/land.json`, the title and Part 1 as plain text) and say
+where the seats' verdicts are (the hand-over block `merge-order-entry.sh`
+prints names it), so the person merging reads neither a second panel nor a
+hand-built message.
 
-## The Review Panel Table
+## The Review Round
 
-A worker's pull request body carries its own review round in Part 2, the panel
-the land step reads instead of running one
-(`docs/designs/current/DESIGN-coordinate-merge-policy.md`):
+A worker records its own review round, the panel the land step reads instead
+of running one (`docs/designs/current/DESIGN-coordinate-merge-policy.md`), in
+its own /work-on run's session:
+
+```bash
+skills/coordinate/scripts/review-round.sh record --session <worker's run> <round.json>
+```
+
+```json
+{"reviewed_head": "<40-hex sha>",
+ "seats": [{"seat": "architect", "model": "sonnet", "run": "<run id>", "verdict": "pass"},
+           {"seat": "maintainer", "model": "sonnet", "run": "<run id>", "verdict": "pass"},
+           {"seat": "pragmatic", "model": "sonnet", "run": "<run id>", "verdict": "pass"}]}
+```
+
+At least three seats, each with its own Seat and a Run unique to that seat's
+run (an agent or session id, or `comment-<id>` for a review comment the seat's
+verdict was posted as), every Verdict `pass`, and one reviewed head for all of
+them: the head itself, or one that only merge-ins of the base branch have moved
+past since. The script stores it as the session's `review_round.json`, and the
+land step finds it through the leg the worker's holding returns on.
+
+A repository that opts in to workflow content in its PR bodies (it declares
+`## PR Workflow Content: include`; `scripts/pr-workflow-content.sh` reads it)
+also carries the round in Part 2 of the body, as the older home:
 
 ```markdown
 ## Review panel
@@ -148,12 +171,10 @@ the land step reads instead of running one
 | pragmatic | sonnet | <run id> | pass | <40-hex sha> |
 ```
 
-One row per seat, at least three, each with its own Seat and a Run unique to
-that seat's run (an agent or session id, or `comment-<id>` for a review comment
-the seat's verdict was posted as), every Verdict `pass`, and one Reviewed head
-for all rows: the head itself, or one that only merge-ins of the base branch
-have moved past since. `scripts/panel-evidence.sh` is the parser; its header
-lists every rule.
+The land step reads the session's round first and the body's table only when
+the session has none, which is also how a worker on an earlier version still
+lands. `scripts/panel-evidence.sh` is the parser of both (`--round` for the
+session's); its header lists every rule.
 
 ## Confirming a Merge
 

@@ -3724,16 +3724,18 @@ report is shaped.
 
 Reading the pull request's board. koto runs `board-record.sh` itself: it reads
 the head from the remote and judges every workflow run and job at that head.
-On a green board it also reads the body's Review panel table, and a malformed
-one is `unevidenced`, which sends you to `rebrief`.
+On a green board it also reads the worker's review round, the one recorded in
+its own run session or else the body's Review panel table, and a malformed one
+is `unevidenced`, which sends you to `rebrief`.
 
 <!-- details -->
 
-`unevidenced` means the worker's panel claim can't be read: a table whose seats
+`unevidenced` means the worker's panel claim can't be read: a round whose seats
 share a Seat or a Run, or that breaks another rule `panel-evidence.sh` lists.
-The rule broken is in `coord/board.json` (`evidence.reason`) and on the
-action's output. Fixing the table is the worker's: put the rule in the re-brief.
-A body with no table yet passes here; the land step asks for it.
+The rule broken is in `coord/board.json` (`evidence.reason`, with
+`evidence.source` saying whether the session or the body was read) and on the
+action's output. Fixing the round is the worker's: put the rule in the
+re-brief. No round yet passes here; the land step asks for it.
 
 A head is verified only when the board is non-empty, every run finished and none
 failed at startup, every job that ran concluded success on a named runner with at
@@ -3796,7 +3798,8 @@ verified sha, the run goes back to verify.
 
 Checking the land step. koto runs `land-check.sh` itself: it re-reads the pull
 request's head against the verified one and reads the merge state, then reads
-the worker's review round from the body's Review panel table, checks the head
+the worker's review round (the one it recorded in its own run session with
+`review-round.sh`, else the body's Review panel table), checks the head
 the seats reviewed, runs the body's mechanical checks, builds the squash message
 from the title and Part 1, reads the record's holds on the pull request, and
 re-reads the posture for the merge. `unready` sends you to `rebrief` with the
@@ -3808,8 +3811,11 @@ report again at the resume.
 <!-- details -->
 
 The land step never runs a review panel of its own: the worker's three-seat
-round, in its body, is the panel. An `unready` names what the worker fixes: no
-table (`no-evidence`), a table that breaks the format (`malformed:<rule>`), too
+round is the panel. It is read from the worker's run session first, found
+through the leg the holding returns on, and from the body's table only when the
+session holds none; `coord/land.json`'s `evidence.source` says which. An
+`unready` names what the worker fixes: no round in either
+(`no-evidence`), a round that breaks the format (`malformed:<rule>`), too
 few seats, a failing seat, a reviewed head further from the head than merge-ins
 of the base branch (`stale:<why>`), or a body or message that fails its checks.
 Put that reason in the re-brief.
@@ -4007,7 +4013,7 @@ back to unverified until you read it again.
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/merge-order-entry.sh" --session "{{SESSION_NAME}}"
 ```
 
-The block carries the seats' verdicts from the pull request's Review panel, the
+The block carries the seats' verdicts from the worker's review round, the
 holds the land check read with their states, and the squash message the merge
 will carry, so the person merging reads neither a second review nor a message
 you wrote by hand. A held pull request goes back through `verify` when the event

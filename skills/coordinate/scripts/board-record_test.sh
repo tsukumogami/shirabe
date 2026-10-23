@@ -13,7 +13,9 @@
 # single holding links (none, two repositories, a bad link) unlinked with a
 # reason for each (nothing read), each sealed with its reason in
 # coord/board.json in board-verdict.sh's shape; an unreadable record prints
-# board-unreadable; a failed context write exits 2; no
+# board-unreadable; the review round the worker recorded in its session,
+# read before the body's table (malformed: unevidenced; a failed request
+# read: exit 2); a failed context write exits 2; no
 # prediction since the latest arrival at verify exits 2 with
 # nothing read; the pull request from report_facts's REPORT capture (none,
 # stale, unsealed or absent exits 2); --no-seal; the repository from the
@@ -101,6 +103,28 @@ fresh; bt_board complete-board; bt_body "$H" fail > "$T/body"; bt_prview CLEAN "
 eq "a failing seat is land's to refuse, not verify's" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 fresh; bt_board complete-board; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/prview-12.err"; echo 1 > "$GH_BOARD_DIR/prview-12.rc"
 eq "a body that can't be read: board-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+
+echo "== the round recorded in the worker's session =="
+REQ=req-board-record-round
+fresh; bt_board complete-board; printf 'Part one.\n\n---\n\nNo panel.\n' > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round | jq -c '.seats[1].run = "agent-r1"')"
+OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err")
+eq "a malformed round in the session, no table in the body: unevidenced" "unevidenced 12 none" "${OUT% sealed:*}"
+eq "  ... and coord/board.json names the rule and the session" "run-repeated session" "$(ctx | jq -r '"\(.evidence.reason) \(.evidence.source)"')"
+eq "  ... with a reason saying it was the recorded round" "the recorded review round is malformed: run-repeated" "$(ctx | jq -r '.reasons[] | select(.code == "unevidenced") | .detail')"
+fresh; bt_board complete-board; bt_body | sed 's/comment-102/comment-101/' > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+eq "a well-formed session round is read before a malformed body table: verified" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board; bt_body | sed 's/comment-102/comment-101/' > "$T/body"; bt_prview CLEAN "$T/body"
+bt_leg_round "$REQ" work-on issue_12
+eq "a bound session with no round: the body's table is read" "unevidenced 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board; bt_prview CLEAN
+bt_leg_round "$REQ" work-on issue_12 "$(bt_round)"
+touch "$KOTO_BOARD_DIR/requests/$REQ.fail"
+bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal >/dev/null 2>&1
+eq "a request read that fails: exit 2" 2 $?
+rm -f "$KOTO_BOARD_DIR/requests/$REQ.fail"
+echo '[]' > "$BT_STATE/holdings"
 
 echo "== a board that can't be judged still leaves verify_board =="
 fresh; bt_board rules-unreadable

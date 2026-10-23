@@ -510,7 +510,9 @@ cc_deferral_record() {
         args+=(--child "work-on-$CC_SLUG-$1-$item")
     done
     IFS=$oldifs
-    args+=(-- --repo "$3" --head "$4" --state open)
+    # --body: a node PR's body carries the record whatever the repository's
+    # PR Workflow Content setting.
+    args+=(--body -- --repo "$3" --head "$4" --state open)
     [ -n "$COORD_RUN_ID" ] && args+=(--run-id "$COORD_RUN_ID")
     # Its stderr is shown only when it holds the node: a node with no
     # deferral prints nothing new.

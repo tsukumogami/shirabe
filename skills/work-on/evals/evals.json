@@ -683,15 +683,15 @@
       "name": "verification-deferred-to-hosted-ci",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/work-on #812 --verification=hosted-ci --verification-reason=\"host is in a measurement window until 02:40Z\" --koto-leg=req-ab12:work-on. The host must not run any local suite. How does the agent open the run, what happens when it reaches the point where verification would run, and what does it put in the pull request?",
-      "expected_output": "The agent sets the two deferral flags aside for mode detection and opens the session through work-on-open.sh with the original tokens, which maps them to VERIFICATION=hosted-ci and VERIFICATION_DEFERRAL_REASON. It does not pass them as --var itself, and it runs no local suite at setup or anywhere else. When the panels pass, koto routes the run to verification_deferred instead of verification, so run-verification.sh never starts and no supervisor is launched; the agent neither ticks into verification nor kills anything. The run goes on to finalization and PR creation. In Part 2 of the pull request body the agent adds a Verification section saying local verification did not run, the line Reason: followed by the reason exactly, and saying hosted CI is the build of record, because pr_creation holds pr_status: created until the body records it. It submits pr_url with pr_status: created so the leg result carries the pull request, and then waits on hosted CI at ci_monitor.",
+      "prompt": "/work-on #812 --verification=hosted-ci --verification-reason=\"host is in a measurement window until 02:40Z\" --koto-leg=req-ab12:work-on, in a repository whose CLAUDE.md declares no `## PR Workflow Content:` header. The host must not run any local suite. How does the agent open the run, what happens when it reaches the point where verification would run, and what does it put in the pull request?",
+      "expected_output": "The agent sets the two deferral flags aside for mode detection and opens the session through work-on-open.sh with the original tokens, which maps them to VERIFICATION=hosted-ci and VERIFICATION_DEFERRAL_REASON. It does not pass them as --var itself, and it runs no local suite at setup or anywhere else. When the panels pass, koto routes the run to verification_deferred instead of verification, so run-verification.sh never starts and no supervisor is launched; the agent neither ticks into verification nor kills anything. The run goes on to finalization and PR creation. The repository doesn't opt in to workflow content (scripts/pr-workflow-content.sh prints omit), so the body's Verification section says in plain terms that hosted CI verified the change, with no deferral note and no Reason: line; the reason stays in the run's context as verification_deferral, and verification_deferral_recorded passes without reading the body. It submits pr_url with pr_status: created so the leg result carries the pull request, and then waits on hosted CI at ci_monitor.",
       "files": [],
       "expectations": [
         "Agent opens the session through work-on-open.sh with the original tokens, deferral flags included, rather than passing VERIFICATION as --var",
         "Agent runs no local test, lint or verification command at any point",
         "Agent expects the run to pass through verification_deferred and never enter verification or start run-verification.sh",
         "Agent does not try to stop or kill a verification supervisor, since none is started",
-        "Agent records the deferral in Part 2 of the PR body: local verification did not run, a line reading Reason: followed by the reason exactly, and hosted CI as the build of record",
+        "Agent's PR body says in plain terms that hosted CI verified the change, and carries no deferral note, no Reason: line and no state or session name, because the repository doesn't declare ## PR Workflow Content: include",
         "Agent submits pr_status: created with pr_url so the result carries the pull request",
         "Agent treats hosted CI at ci_monitor as the build of record and waits for it to go green"
       ]
@@ -732,6 +732,35 @@
     },
     {
       "id": 52,
+      "name": "verification-deferred-to-hosted-ci-opted-in",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #812 --verification=hosted-ci --verification-reason=\"host is in a measurement window until 02:40Z\", in a repository whose CLAUDE.md declares `## PR Workflow Content: include`. What does the agent put in the pull request body about verification, and what holds pr_status: created until it is there?",
+      "expected_output": "The repository opts in to workflow content (scripts/pr-workflow-content.sh prints include), so the agent writes the deferral into Part 2 as it always has: a Verification section saying local verification did not run, the line Reason: followed by the reason exactly, and saying hosted CI is the build of record. pr_creation's verification_deferral_recorded gate reads the body from GitHub and holds pr_status: created until all three are there.",
+      "files": [],
+      "expectations": [
+        "Agent reads the repository's setting with scripts/pr-workflow-content.sh, or the header itself, and finds include",
+        "Agent records the deferral in Part 2 of the PR body: local verification did not run, a line reading Reason: followed by the reason exactly, and hosted CI as the build of record",
+        "Agent names verification_deferral_recorded as the gate that holds pr_status: created until the body records it"
+      ]
+    },
+    {
+      "id": 53,
+      "name": "pr-body-omits-workflow-records",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #815 in a repository whose CLAUDE.md declares no `## PR Workflow Content:` header. The run went through scrutiny and review with three seats each, all passing, and a coordinator's brief asks for the review round. What does the agent put in the PR body, and where does the review round go?",
+      "expected_output": "With no header the repository takes the default, omit: the PR title and body describe the change and how it was verified in plain terms, with no Review panel table, no seat or run list, no session, state or ledger name and no Plan: line. The review round goes in the run's own session with skills/coordinate/scripts/review-round.sh record, where the coordinator's land step reads it. A Review panel table or a Plan: line in the body would hold pr_creation's pr_body_conformant gate on pr-body/workflow-content.",
+      "files": [],
+      "expectations": [
+        "Agent's PR body carries no ## Review panel heading or Seat/Model/Run/Verdict/Reviewed head table",
+        "Agent's PR body names no koto session, state, gate or ledger and has no Plan: or Roadmap: line",
+        "Agent records the review round with review-round.sh record in its own run session",
+        "Agent knows pr_body_conformant holds on a review table or a Plan: line (pr-body/workflow-content) when the repository hasn't opted in"
+      ]
+    },
+    {
+      "id": 54,
       "name": "bug-fix-starts-red",
       "tier": 1,
       "mode": "plan_only",
@@ -748,7 +777,7 @@
       ]
     },
     {
-      "id": 53,
+      "id": 55,
       "name": "fix-determination-not-withdrawn",
       "tier": 1,
       "mode": "plan_only",
@@ -762,7 +791,7 @@
       ]
     },
     {
-      "id": 54,
+      "id": 56,
       "name": "edited-test-held-for-a-seat",
       "tier": 1,
       "mode": "plan_only",
@@ -779,7 +808,7 @@
       ]
     },
     {
-      "id": 55,
+      "id": 57,
       "name": "person-required-test-edit-waits",
       "tier": 1,
       "mode": "plan_only",
@@ -794,7 +823,7 @@
       ]
     },
     {
-      "id": 56,
+      "id": 58,
       "name": "edited-test-review-judgment",
       "tier": 1,
       "mode": "plan_only",

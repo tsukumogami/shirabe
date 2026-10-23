@@ -829,6 +829,15 @@ fi
 DREASON="host is in a measurement window until 02:40Z"
 FAKE_GH_RC=0
 export FAKE_GH_RC
+
+# The body holds the deferral only in a repository that opts in to workflow
+# content; everything from here to the rule registry runs in one, then the
+# default is pinned at the end of the section.
+SUITE_PWD=$PWD
+mkdir -p "$WORKDIR/include-repo" "$WORKDIR/omit-repo"
+printf '# A repo\n\n## PR Workflow Content: include\n' > "$WORKDIR/include-repo/CLAUDE.md"
+printf '# A repo\n' > "$WORKDIR/omit-repo/CLAUDE.md"
+cd "$WORKDIR/include-repo" || exit 2
 deferral_body() {
     # deferral_body <local line> <reason line> <record line>
     pr_json "feat: a deferred change" "A change.
@@ -1108,6 +1117,89 @@ done
 run --deferral-record --owned $OWNED_ARGS
 [ "$RC" -eq 2 ] && pass "--deferral-record: --owned with no --reason is a usage error (2)" \
     || fail "--deferral-record: --owned without a reason rc $RC"
+
+# --- workflow content: the default omits it, a repository opts in (#1114) ------
+
+cd "$WORKDIR/omit-repo" || exit 2
+rm -rf "$LOG/gh"
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: a deferred change" "A change.
+
+---
+
+Hosted CI verified this change.
+
+Fixes #12")
+run --deferral-record --reason "$DREASON"
+expect_rc "--deferral-record, default: passes without the deferral in the body" 0
+[ ! -e "$LOG/gh/calls" ] && pass "--deferral-record, default: reads nothing from GitHub" \
+    || fail "--deferral-record, default: gh was called"
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --owned $OWNED_ARGS
+expect_rc "--deferral-record --owned, default: passes too" 0
+run --deferral-record
+expect_rc "--deferral-record, default: still refuses a missing --reason (2)" 2
+
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+H40=0123456789abcdef0123456789abcdef01234567
+WC_BODY="Reads the review round from the session.
+
+---
+
+## Review panel
+
+| Seat | Model | Run | Verdict | Reviewed head |
+|---|---|---|---|---|
+| architect | sonnet | agent-1 | pass | $H40 |
+
+Plan: docs/plans/PLAN-demo.md
+Roadmap: docs/roadmaps/ROADMAP-demo.md
+Implements docs/plans/PLAN-demo.md.
+
+Fixes #12"
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: read the round" "$WC_BODY")
+run --pr-body
+expect_rc "--pr-body, default: workflow records in the body hold the gate (1)" 1
+check_shape "--pr-body, default: workflow records"
+[ "$(findings | jq -r 'select(.rule_id == "pr-body/workflow-content") | .rule_id' | grep -c .)" -eq 5 ] \
+    && pass "--pr-body, default: the heading, the table, Plan:, Roadmap: and Implements are five findings" \
+    || fail "--pr-body, default: workflow-content findings: $OUT"
+WC_MESSAGES=$(findings | jq -r .message)
+grep -qF 'a `## Review panel` heading (line 5)' <<<"$WC_MESSAGES" \
+    && pass "--pr-body, default: a finding names the record and its line" \
+    || fail "--pr-body, default: no line-numbered heading finding: $OUT"
+FAKE_SHIRABE_RC=2
+FAKE_SHIRABE_OUT=$(msg_json "$PB1")
+run --pr-body
+[ "$(findings | jq -r .rule_id | sort -u | tr '\n' ' ')" = "pr-body/conventional-title pr-body/workflow-content " ] \
+    && pass "--pr-body, default: workflow findings print beside the validator's" \
+    || fail "--pr-body, default: with a validator finding: $OUT"
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: read the round" "Reads the review round from the session.
+
+---
+
+The plan was to read the round from the review panel; the Plan file is gone.
+A run implements docs/plans/PLAN-demo.md in prose here.
+
+\`\`\`text
+## Review panel
+| Seat | Model | Run | Verdict | Reviewed head |
+Plan: docs/plans/PLAN-demo.md
+\`\`\`
+
+Fixes #12")
+run --pr-body
+expect_rc "--pr-body, default: prose about plans and panels, and records inside a fence, pass" 0
+[ "$(finding_count)" -eq 0 ] && pass "--pr-body, default: ... with no finding" || fail "--pr-body, default: fenced records: $OUT"
+
+cd "$WORKDIR/include-repo" || exit 2
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: read the round" "$WC_BODY")
+run --pr-body
+expect_rc "--pr-body, include: today's workflow records pass" 0
+[ "$(finding_count)" -eq 0 ] && pass "--pr-body, include: ... with no finding" || fail "--pr-body, include: $OUT"
+cd "$SUITE_PWD" || exit 2
 
 # --- the rule registry ----------------------------------------------------------
 
