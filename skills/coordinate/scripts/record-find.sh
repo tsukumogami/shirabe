@@ -365,7 +365,7 @@ session_find() {
     fi
     stamp=$(head -1 "$T/holders" | cut -d' ' -f1)
     cands=$(awk -v s="$stamp" '$1 == s { print $2 }' "$T/holders" | LC_ALL=C sort)
-    c=$(printf '%s\n' "$cands" | head -1)
+    c=${cands%%$'\n'*}
     NUM=$c
     if [ "$(printf '%s\n' "$cands" | grep -c .)" -gt 1 ]; then
         VERDICT=unreadable; REASON="two earlier rotations share the stamp $stamp: $(printf '%s' "$cands" | tr '\n' ' ' | sed 's/ $//')"; finish

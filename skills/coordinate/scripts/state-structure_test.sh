@@ -250,7 +250,6 @@ name scripts/record-write-core.sh
 name scripts/record-write.sh
 name scripts/record-write_test.sh
 store-codes koto-templates/coordinate.md
-store-codes scripts/coordinate-open_engine_test.sh
 store-codes scripts/record-codec.jq
 store-codes scripts/record-find.sh
 store-codes scripts/record-move_test.sh

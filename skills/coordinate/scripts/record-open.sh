@@ -61,7 +61,7 @@
 #                  --skip-session-checks --body-file F [...]         (tests)
 #
 # --start and --end are required at discipline scope and refused at roadmap
-# scope. Before any read, the session must pass `coord-log.sh provenance` and
+# scope; --store is refused at discipline scope (exit 65). Before any read, the session must pass `coord-log.sh provenance` and
 # show no directed transition in the run.
 #
 # Exit codes: 0 opened (prints record=<url>); 10 refused (a record exists, the
@@ -88,7 +88,7 @@ set -uo pipefail
 PROG=record-open
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= BODY= START= END= STORE=
-RECUT=0 SKIP_CHECKS=0 CARRY=0 NO_SEAL=0
+RECUT=0 SKIP_CHECKS=0 CARRY=0 NO_SEAL=0 STORE_FLAG=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -101,7 +101,7 @@ while [ $# -gt 0 ]; do
         --start) [ $# -ge 2 ] || usage; START=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; END=$2; shift 2 ;;
         --recut) RECUT=1; shift ;;
-        --store) [ $# -ge 2 ] || usage; STORE=$2; shift 2 ;;
+        --store) [ $# -ge 2 ] || usage; STORE=$2; STORE_FLAG=1; shift 2 ;;
         --carry) CARRY=1; shift ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
@@ -242,8 +242,12 @@ if [ -z "$STORE" ] && [ -n "$SESSION" ]; then
 fi
 case "${STORE:-github}" in github|session) ;; *) usage ;; esac
 # At discipline scope the store isn't the invocation's: the find decides, and a
-# new rotation opens on the session store (below).
+# new rotation opens on the session store (below). A --store given here is
+# refused rather than ignored.
 if [ "$SCOPE" = discipline ]; then
+    if [ "$STORE_FLAG" = 1 ]; then
+        echo "$PROG: refused: --store is for roadmap scope; the find decides a discipline rotation's store" >&2; exit 65
+    fi
     lib_valid_date "$START" && lib_valid_date "$END" || usage
     if [ "$END" \< "$START" ]; then echo "$PROG: refused: the end date $END is before the start $START" >&2; exit 65; fi
     PR_TITLE="docs(coordinate): $NAME rotation $START to $END"
