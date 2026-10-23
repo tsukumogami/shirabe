@@ -117,7 +117,16 @@ fi
 case "$SCOPE" in roadmap) CONTAINER=issue ;; discipline) CONTAINER=pr ;; *) refuse 5 failed "the run's scope is unreadable" ;; esac
 [[ $NAME =~ ^[A-Za-z0-9._-]+$ ]] || refuse 5 failed "the run's scope name is unreadable"
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
-rd_valid_number "$REF" || refuse 5 failed "the run's record number is unreadable"
+# A discipline rotation on the session store has no record number: its record
+# is the run's session.
+SESSION_ROTATION=0
+if [ -z "$REF" ] && [ "$SCOPE" = discipline ] && [ -n "$SESSION" ] && [ "$(rs_source)" = session ]; then
+    SESSION_ROTATION=1
+    # Its body is the one the session store renders: no pull request prefix.
+    CONTAINER=issue
+else
+    rd_valid_number "$REF" || refuse 5 failed "the run's record number is unreadable"
+fi
 
 # The body, live, through the seam (record-source.sh's rs_view), under this
 # reader's own deadline; this reader keeps its row-by-row salvage of a body the
@@ -215,7 +224,48 @@ HANDOFF=null
 REASONING=null
 # A reasoning file from an earlier read is not left to be taken as this one.
 [ -n "$REASONING_OUT" ] && [ -f "$REASONING_OUT" ] && rm -f "$REASONING_OUT"
-if [ "$SCOPE" = discipline ]; then
+# A rotation on the session store reads its predecessor's reasoning from the
+# predecessor's session (record/rotation names it): its record/reasoning,
+# present, or not_recorded when it never closed. Its rows came across in the
+# carry, so the predecessor adds none here. Only the one-time bridge from a
+# rotation that ran on GitHub (this run's carry report,
+# coord/predecessor_carry.json, names `handoff:<sha>`) reads the committed file,
+# below; with neither the reasoning is absent.
+READ_FILE=1
+if [ "$SESSION_ROTATION" = 1 ]; then
+    READ_FILE=0
+    rs_key "$SESSION" coord/predecessor_carry.json "$T/carry-report"
+    case $? in
+        0) case "$(jq -r '.predecessor // ""' "$T/carry-report")" in handoff:*) READ_FILE=1 ;; esac ;;
+        1) ;;
+        *) refuse 5 failed "this run's carry report could not be read" ;;
+    esac
+    if [ "$READ_FILE" = 0 ]; then
+        REASONING='"absent"'
+        rs_rotation "$SESSION" "$T/rotation"
+        case $? in
+            0) PRED=$(jq -r '.predecessor // ""' "$T/rotation") ;;
+            1) PRED= ;;
+            *) refuse 5 failed "the rotation's window (record/rotation) could not be read" ;;
+        esac
+        if [ -n "$PRED" ]; then
+            rs_reasoning "$PRED" "$T/reasoning"
+            case $? in
+                0) if jq -e 'gsub("^\\s+|\\s+$"; "") == ""' "$T/reasoning" > /dev/null; then
+                       REASONING='"not_recorded"'
+                   else
+                       REASONING='"present"'
+                       if [ -n "$REASONING_OUT" ]; then
+                           jq -j . "$T/reasoning" > "$REASONING_OUT" || refuse 5 failed "the reasoning could not be written"
+                       fi
+                   fi ;;
+                1) REASONING='"not_recorded"' ;;
+                *) refuse 5 failed "the predecessor's reasoning (record/reasoning) could not be read" ;;
+            esac
+        fi
+    fi
+fi
+if [ "$SCOPE" = discipline ] && [ "$READ_FILE" = 1 ]; then
     DEF=$(rd_deadline "$DEADLINE" gh api "repos/$REPO" --jq .default_branch 2>/dev/null)
     case $? in
         0) ;;

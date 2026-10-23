@@ -937,7 +937,9 @@ uc_attribution() {
         | (if ($j.scope == "roadmap" or $j.scope == "discipline")
               and ($j.name | isstr and test("^[A-Za-z0-9._-]{1,100}$"))
               and ($j.repo | isstr and test($re_repo) and (contains("..") | not))
-              and ($j.ref | tostring | test("^[1-9][0-9]{0,9}$"))
+              and (($j.ref | tostring | test("^[1-9][0-9]{0,9}$"))
+                   # a discipline rotation on the session store has no number
+                   or ($j.scope == "discipline" and $j.ref == ""))
            then {scope: $j.scope, name: $j.name, repo: $j.repo, ref: ($j.ref | tostring)}
            else null end) as $rec
         | (if $rec == null and ($j | has("scope")) then "invalid input" else $why end) as $recwhy
