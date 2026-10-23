@@ -323,6 +323,58 @@ core_write_host() {
     rm -rf "$d"
 }
 
+# core_write_pushed: set one holding's pushed head (CORE_PUSHED_TOPIC,
+# CORE_PUSHED_HEAD: 40 hex, or empty to clear it) by rewriting record/holdings
+# alone, the one key that keeps it. The head has no column in the body, so the
+# body, its Written: time and every other key stay as they are, and none of the
+# body checks apply: no live re-read, render, parse back or visibility read
+# (shirabe#1094, #1095). Only record-write.sh calls it, for --pushed-head with
+# no body. One key replaced whole is never seen half written, so the write
+# needs no pending mark. Exits 65 on a GitHub record, a malformed head or a
+# topic no holding has; 10 when the session holds no record; 11 when the write
+# fails; 2 when a read fails. Prints the record's URL.
+core_write_pushed() {
+    local s=${RS_SESSION:-$SESSION} d
+    [ "$(rs_source)" = session ] || { echo "$PROG: refused: a pushed head is kept only by a record on the session store" >&2; exit 65; }
+    [[ $CORE_PUSHED_HEAD =~ ^([0-9a-f]{40})?$ ]] || { echo "$PROG: refused: a pushed head is 40 hex, or empty to clear it" >&2; exit 65; }
+    if [ -z "$REF" ]; then
+        FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
+        case $? in
+            0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
+            1) echo "$PROG: refused: the run has no found record" >&2; exit 10 ;;
+            *) lib_die2 "cannot read the run's facts" ;;
+        esac
+    fi
+    lib_ref_ok || usage
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-pushed.XXXXXX") || lib_die2 "mktemp failed"
+    rs_key "$s" record/holdings "$d/holdings"
+    case $? in
+        0) ;;
+        1) rs_key "$s" record/meta "$d/meta"
+           case $? in
+               1) rm -rf "$d"; echo "$PROG: refused: session $s holds no record" >&2; exit 10 ;;
+               0) rm -rf "$d"; echo "$PROG: refused: no holding's Worker is $CORE_PUSHED_TOPIC" >&2; exit 65 ;;
+           esac
+           rm -rf "$d"; lib_die2 "cannot read session $s's record/meta" ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $s's record/holdings" ;;
+    esac
+    jq -e --arg t "$CORE_PUSHED_TOPIC" 'type == "array" and any(.[]; .worker == $t)' "$d/holdings" > /dev/null 2>&1 \
+        || { rm -rf "$d"; echo "$PROG: refused: no holding's Worker is $CORE_PUSHED_TOPIC" >&2; exit 65; }
+    jq -c --arg t "$CORE_PUSHED_TOPIC" --arg h "$CORE_PUSHED_HEAD" '
+        map(if .worker == $t then (if $h == "" then del(.pushed_head) else . + {pushed_head: $h} end) else . end)' \
+        "$d/holdings" > "$d/holdings.new" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    # The step's shared read is forgotten before the write and once it lands,
+    # as core_write forgets it.
+    rs_once_drop
+    if [ "$(jq -cS . "$d/holdings")" != "$(jq -cS . "$d/holdings.new")" ]; then
+        "$KOTO" context add "$s" record/holdings --from-file "$d/holdings.new" < /dev/null > /dev/null 2> "$d/k.err" \
+            || { echo "$PROG: the record/holdings write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+        rs_once_drop
+    fi
+    rm -rf "$d"
+    if [ -n "$REF" ]; then printf '%s\n' "https://github.com/$REPO/issues/$REF"; else printf '%s\n' "$s"; fi
+}
+
 # core_write_rotation <key> <json-file>: a discipline rotation's own key on the
 # session store, record/rotation (its window, host and predecessor) or
 # record/reasoning (what it leaves the next rotation), written whole. They
@@ -345,8 +397,10 @@ core_write_rotation() {
         1) rm -rf "$d"; echo "$PROG: refused: session $s holds no record" >&2; exit 10 ;;
         *) rm -rf "$d"; lib_die2 "cannot read session $s's record/meta" ;;
     esac
+    rs_once_drop
     "$KOTO" context add "$s" "$key" --from-file "$2" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the $key write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rs_once_drop
     rm -rf "$d"
 }
 
@@ -635,6 +689,12 @@ core_write() {
     fi
     OUT="$T/body.md"
 
+    # A step's shared read (record-source.sh rs_once_begin) is the record as it
+    # was before this write: forget it, so a read after the write is live. It
+    # is forgotten again once the write lands, since a reader running beside
+    # this one (the pass's settle and legs) may have read in between.
+    rs_once_drop
+
     if [ "$CORE_STORE_READ" = session ]; then
         core_write_session "$OUT"
         # A session rotation has no issue to close.
@@ -659,5 +719,6 @@ core_write() {
         gh pr edit "$REF" --repo "$REPO" "$@" > /dev/null 2> "$T/w.err" < /dev/null \
             || { echo "$PROG: the pull request edit failed: $(lib_scrub < "$T/w.err")" >&2; exit 11; }
     fi
+    rs_once_drop
     printf '%s\n' "$URL"
 }

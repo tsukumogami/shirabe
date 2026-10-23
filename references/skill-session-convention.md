@@ -1,8 +1,9 @@
 # The skill-session convention: a skill's state in its own koto session
 
 The normative rule for where a shirabe skill keeps its working state, how a
-chain parent and its children find each other's state, and when that state can
-be reclaimed. Normative prose like
+chain parent and its children find each other's state, and how a session
+records the session that dispatched it, the link koto's retention reads.
+Normative prose like
 [`koto-session-retention.md`](koto-session-retention.md): no skill loads this
 file at runtime, and it is reviewed as part of a PR. A skill that follows the
 convention cites it at the point it opens, reads or closes a session, in one or
@@ -16,7 +17,7 @@ and skills run inline read each other's files. The decisions behind it, and
 the alternatives they rejected, are in
 `docs/designs/current/DESIGN-resume-convention.md`.
 
-It describes koto 0.15.0 and later. shirabe's koto minimum is 0.21.0
+It describes koto 0.15.0 and later. shirabe's koto minimum is 0.22.0
 (`scripts/assert-koto-floor.sh`).
 
 ## The pieces
@@ -49,7 +50,10 @@ session is a root: no skill passes `koto init --parent`, and nothing a chain
 needs rests on parent-child lineage, the request store or a request leg. A
 skill opens its own session at its first phase, from its own koto template if
 it has one and from the store template otherwise
-(`skill-session.sh open <skill> <topic>`).
+(`skill-session.sh open <skill> <topic>`). A session some other session
+dispatched is opened with `--dispatched-by <dispatcher>` added, which records
+the dispatcher in the opened session (see **Recording the dispatcher**); a
+session nothing dispatched is opened without it.
 
 ### Key naming
 
@@ -66,7 +70,7 @@ The areas are fixed:
 | `research/` | agent outputs, reviewer verdicts | the session's own skill (through `ingest`) |
 | `chain/` | what passes between a parent and a child: `chain/dispatch`, `chain/roadmap-scope`, `chain/parent` | the parent writes `dispatch` and `roadmap-scope` in its own session; the child writes `parent` in its own |
 | `handoff/` | what one skill leaves for another's entry (`handoff/scope.md`, `handoff/charter.md`) | the leaving skill |
-| `session/` | the convention's bookkeeping: `session/branch` | `skill-session.sh` |
+| `session/` | the convention's bookkeeping: `session/branch`, and `session/link-warning` when a dispatcher link could not be recorded | `skill-session.sh`; `session/link-warning` by `scripts/lib/dispatch-link.sh`, for every opener that links |
 | `record/`, `legs/` | reserved for coordinator state | no skill under this convention |
 
 A skill run inside another skill's session writes under a sub-area there:
@@ -215,7 +219,47 @@ A child records what it matched as its first act:
 `skill-session.sh adopt <child> <topic>` writes `chain/parent`, the matched
 parent's session name, into the child's own session, or removes a
 `chain/parent` an earlier chained run left when nothing matched. A child that
-runs directly therefore never carries a stale parent.
+runs directly therefore never carries a stale parent. On one match it then
+records the parent as the session that dispatched it, the link step below; no
+match and two matches record nothing.
+
+### Recording the dispatcher
+
+koto keeps a session while anything in its hierarchy is alive, and a
+dispatched-by link is what puts a dispatched session in its dispatcher's
+hierarchy. `adopt`, on one match, and `skill-session.sh open <skill> <topic>
+--dispatched-by <dispatcher>` both run
+
+```
+koto session link <session> --dispatched-by <dispatcher>
+```
+
+which writes the link into `<session>`'s own context and nowhere else. For
+`adopt` the dispatcher is the parent's session name the script composed from
+the fixed parent and the checked topic, never the value of a key; for `open`
+it is the name the caller passed, refused when it names the session itself
+and checked against koto's own session-name rule before any koto call, so a
+name koto would refuse fails early with the same refusal; koto, not this
+document, defines that rule. `/work-on`'s `--koto-leg` opener,
+`skills/work-on/scripts/work-on-open.sh`, takes the same `--dispatched-by` and
+does the same after its open, and a coordinated `/execute` run's step agent
+opens each `/work-on` child with `koto init --dispatched-by execute-<slug>`
+(`skills/execute/references/step-agent-handoff.md`).
+
+A failed link is run once more. When the retry fails too, the script prints
+
+```
+warning=link-failed dispatched_by=<dispatcher>
+```
+
+records the same two facts in the session's own `session/link-warning` key
+(`warning=link-failed` and `dispatched_by=<dispatcher>`, one per line), and
+exits as it would have without the link: 0. The session is open and usable;
+it is only outside its dispatcher's hierarchy, so koto may reclaim it on its
+own schedule once it finishes, and the key is how a later reader finds out
+why. A link that works, at once or on the retry, prints nothing and removes a
+`session/link-warning` an earlier failure left. The retry, warning and record
+are one shared piece of code, `scripts/lib/dispatch-link.sh`.
 
 ### Closing
 
@@ -245,22 +289,23 @@ object, and leaves a finished or absent session alone.
 - A consumer of a handoff closes the `explore-<topic>` session once it has
   removed the handoff key and the session holds no other key.
 
-### The reclaimable rule
+### Whether a session may be reclaimed
 
-A session is reclaimable when it is finished and either has no `chain/parent`,
-or its `chain/parent` string-equals `scope-<topic>` or `charter-<topic>` for
-its own topic and that session is absent or finished. A live session is not
-reclaimable, nor is an absent one. A malformed `chain/parent` (another topic,
-another shape, a trailing newline) makes a session non-reclaimable: the value
-is compared, never interpolated. `skill-session.sh reclaimable <session>`
-prints `yes` or `no`; it derives the topic by removing the skill prefix,
-matched longest first against the skills the convention knows, and answers
-`no` for a name whose skill it doesn't know.
+koto answers it, and shirabe keeps no rule of its own:
 
-The rule never frees a session a live parent may still read. This convention
-only evaluates it; deleting is later prune work, which should also keep a
-finished `scope-` or `charter-` session until its next run has consumed the
-replaced result.
+```
+koto session hierarchy <session>
+```
+
+prints whether the session's hierarchy is kept and why: the members joined
+through dispatched-by links, `chain/parent` and koto's own lineage, which of
+them is still alive, and, once none is, when the retention passes. `--json`
+prints the same as JSON. A chain child is joined to its parent both by its
+`chain/parent` and by the dispatched-by link `adopt` records, so koto's
+prunes keep a finished child while its parent may still read it; they apply
+the same answer, and nothing here deletes a session itself. What happens to a
+session at its own terminal tick is a separate question:
+`koto-session-retention.md` covers it, including `--no-cleanup`.
 
 ### Content assembly and koto's absence
 
@@ -316,7 +361,9 @@ source.
   `^[a-z][a-z-]*-[a-z0-9][a-z0-9-]*$`, before any koto call. A `chain/parent`
   or `chain/dispatch` value read from a session is compared against a closed
   set and never placed on a command line, so a tampered key can't redirect a
-  close, a removal or a prune.
+  close, a removal or a prune. The dispatcher `adopt` links is the parent name
+  the script composed, not the key's value, and a `--dispatched-by` name is
+  checked against koto's session-name rule before any koto call.
 - **Forged keys.** A forged `chain/dispatch` can at most make a direct run of a
   child behave as a chain child (skip its push and routing prompt); a forged
   `chain/parent` can at most get a session closed early, and a closed session
@@ -325,7 +372,9 @@ source.
   from keys are untrusted text, and agents reading them keep the
   fixed-preamble discipline the reviewer prompts use. Values from keys reach
   commands only through `jq --arg` or as compared strings.
-- **Retention.** Sessions are kept until the later prune work exists. Nothing
-  secret belongs in a key; with koto's cloud backend configured, keys sync to
-  the configured bucket, which needs the same access control as the
+- **Retention.** koto's prunes keep a finished session until its retention
+  lets it go (`koto session hierarchy` says when); whether a session survives
+  its own terminal tick is covered in `koto-session-retention.md`. Nothing secret belongs in a
+  key; with koto's cloud backend configured, keys sync to the configured
+  bucket, which needs the same access control as the
   repositories whose work it holds.

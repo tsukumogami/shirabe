@@ -164,6 +164,10 @@ rd_idle "$T"
 # This pass's reads and deferral rows: its own directory, gone when it ends.
 R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"
+# One record read for the pass: reconcile-read.sh's read, and the holding rows
+# the settle and the legs classification read (record-holding.sh --read), all
+# take it from here; a write drops it (shirabe#1095).
+rs_once_begin "$T/once" || die "can't create the record read's directory"
 
 list_keys
 # A refusal belongs to the pass that wrote it; progress stays until this pass

@@ -25,10 +25,14 @@
 # prints $KOTO_STORE/cache/<$KOTO_COMPILED_HASH>.json so coord-log.sh
 # provenance can be passed or failed by the header's template_hash, or fails
 # when KOTO_COMPILE_FAIL is set. Anything
-# else exits 9.
+# else exits 9. With KOTO_CALL_DELAY=<seconds> set, every context call takes
+# that long first, as a real koto call does (about 0.1 s each, measured), so a
+# suite can show what a read costs in calls rather than on a stand-in that
+# answers at once.
 set -uo pipefail
 [ -n "${KOTO_STORE:-}" ] || { echo "koto stub: KOTO_STORE is not set" >&2; exit 9; }
 printf '%s\n' "$*" >> "$KOTO_STORE/calls"
+[ "${1:-}" = context ] && [ -n "${KOTO_CALL_DELAY:-}" ] && sleep "$KOTO_CALL_DELAY"
 case "${1:-} ${2:-}" in
     "session dir")
         printf '%s\n' "$KOTO_STORE/sessions/${3:-none}"

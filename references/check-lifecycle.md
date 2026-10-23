@@ -188,8 +188,9 @@ nothing is printed on standard output.
 
 ## On an older koto
 
-shirabe's koto floor is 0.21.0, the first release with the journal and
-response changes (tsukumogami/koto#393). On an older koto, 0.20.0 or before,
+0.21.0 is the first koto release with the journal and response changes
+(tsukumogami/koto#393), and shirabe's koto floor (`scripts/assert-koto-floor.sh`)
+is at or past it. On an older koto, 0.20.0 or before,
 block-stage checks behave exactly as before. A warn or shadow
 finding never fails a gate; koto keeps a passing check's findings only in the
 session log, so it reaches neither the journal nor the agent, and warn behaves

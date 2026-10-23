@@ -48,9 +48,10 @@
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# GitHub reads: record-holding.sh --read and --list (gh issue|pr view); on the
-# session store, record-holding.sh --pushed-head writes a changed head (no GitHub
-# write: the head is kept beside the row in the session);
+# GitHub reads: record-holding.sh --read and --list (gh issue|pr view), which
+# share one read of the record (rs_once_begin); on the session store,
+# record-holding.sh --pushed-head writes a changed head into the one session key
+# that keeps it, reading and writing no body (no GitHub write);
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
 # koto reads: on the leg path with Pull request empty, koto request get <request>.
 set -uo pipefail
@@ -79,6 +80,10 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
+# One record read for the whole step: every record-holding.sh call below (the
+# leg's holding list, the holding's row, the list again) takes it from here
+# rather than reading the record again (shirabe#1094).
+rs_once_begin "$T/once" || lib_die2 "cannot make a temporary directory"
 
 TOPIC=- ROW=null PRJ=null PRVIEW='{}' PROGRESS=0
 finish() {
