@@ -44,17 +44,18 @@
 #     file means nothing needs an acceptance. The sessions file lists, one per
 #     line, the koto sessions that exist now among those the ledger's
 #     coordinator lines name; the key file is the per-user key person lines
-#     are tagged with. Either may be absent, and then no coordinator line, or
-#     no person line, counts.
+#     are tagged with. Either may be absent, and then no coordinator
+#     acceptance, or no person line, counts.
 #
 #     The ledger's first line must be its header (`event: header`, with the
 #     author); without one every unit is held (`no header`). Every accept,
 #     decline and overrule line is judged again with acceptance_rule_decide
 #     from what the fold can establish now, never from flags the line stores:
 #     whether its seat was minted and unused at that point, the header's
-#     author and person-required flag, whether a coordinator's session is in
-#     the sessions file (a session cleaned up since stops its lines
-#     counting), and whether a person line's integrity tag checks under the
+#     author and person-required flag, whether a coordinator's acceptance
+#     names a session in the sessions file (a session cleaned up since stops
+#     its acceptances counting; its declines and overrules, which only hold
+#     the unit, stay in force), and whether a person line's integrity tag checks under the
 #     key (acceptance_rule_tag); a stored terminal or session_exists flag is
 #     never trusted. So a hand-written line the rule would refuse never
 #     counts. An overrule counts only when it targets an earlier accept line
@@ -226,12 +227,21 @@ $id"
         # A seat is used by its first judgment, allowed or not.
         used="$used
 $id"
-        # A coordinator's session is checked now, not taken from the line.
+        # A coordinator's session is checked now, not taken from the line,
+        # and only for an accept: an acceptance stops counting once its
+        # writer's session is gone, while a decline or an overrule, which can
+        # only hold the unit, stays in force. Either way the name must be a
+        # session name other than the run's, so neither the run nor one of its
+        # seats passes as a coordinator.
         sx=false
-        if [ "$kind" = agent ] && [ "$auth" = coordinator ] && [ -n "$sessions" ] && [ -f "$sessions" ]; then
+        if [ "$kind" = agent ] && [ "$auth" = coordinator ]; then
             name=${id#agent:}
-            if [ "$name" != "$run" ] && grep -Fxq -- "$name" "$sessions"; then
-                sx=true
+            if [ "$name" != "$run" ] && [[ $name =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+                if [ "$ev" != accept ]; then
+                    sx=true
+                elif [ -n "$sessions" ] && [ -f "$sessions" ] && grep -Fxq -- "$name" "$sessions"; then
+                    sx=true
+                fi
             fi
         fi
         term=false

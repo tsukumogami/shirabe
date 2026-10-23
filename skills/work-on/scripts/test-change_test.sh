@@ -63,7 +63,9 @@
 #   a coordinator whose session is gone
 #              its acceptance counts while the session exists; once the
 #              session is cleaned up status exits 1 and the unit is held,
-#              though the stored line still claims session_exists
+#              though the stored line still claims session_exists; a
+#              coordinator's overrule, or decline, still holds the unit after
+#              its session is cleaned up
 #   record of a fix
 #              the fix source, the red with its marker, the green, the
 #              reproducing test as added, and the state
@@ -638,6 +640,36 @@ eq "the stored line still claims the session existed" true "$(ledger "$S" | jq -
 run status "$S"
 eq "once the coordinator's session is cleaned up, status exits 1" 1 "$RC"
 has "and the unit stays held" "held: unaccepted tests/greet_test.sh" "$OUT"
+
+# An overrule, or a decline, outlives its writer's session: only an acceptance
+# stops counting when the session is gone.
+S=gone_ovr
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+run seat "$S"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "looks right"
+ACC_ID=$(ledger "$S" | jq -r 'select(.event == "accept") | .id')
+mkdir -p "$STORE/coord_h"
+run overrule "$S" --as agent:coord_h --authority coordinator --acceptance "$ACC_ID" --reason "loosens the assertion"
+eq "a coordinator overrules the seat's acceptance: exit 0" 0 "$RC"
+rm -rf "${STORE:?}/coord_h"
+run status "$S"
+eq "after the overruling coordinator's session is cleaned up, status still exits 1" 1 "$RC"
+has "and the unit is still held as overruled" "held: overruled tests/greet_test.sh by agent:coord_h" "$OUT"
+run record "$S"
+has "record still shows the overruled state" "held: overruled tests/greet_test.sh by agent:coord_h" "$OUT"
+S=gone_dec
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+mkdir -p "$STORE/coord_i"
+run decline "$S" --as agent:coord_i --authority coordinator --all --reason "weakens the check"
+eq "a coordinator declines: exit 0" 0 "$RC"
+rm -rf "${STORE:?}/coord_i"
+run status "$S"
+eq "after the declining coordinator's session is cleaned up, status still exits 1" 1 "$RC"
+has "and the unit is still held as declined" "held: declined tests/greet_test.sh by agent:coord_i" "$OUT"
 
 # --- record of a fix ---------------------------------------------------------------------------
 echo "--- record of a fix"

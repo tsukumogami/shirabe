@@ -17,9 +17,10 @@
 #                           refuses (an unminted reviewer, the author, a seat
 #                           used twice, a person line) never counts; the third
 #                           decline of one sorted path set prints
-#                           decline-limit; a coordinator line counts only
-#                           while its session is in the sessions file, so a
-#                           session cleaned up since stops it counting
+#                           decline-limit; a coordinator's acceptance counts
+#                           only while its session is in the sessions file,
+#                           so a session cleaned up since stops it counting,
+#                           while its decline or overrule stays in force
 #   person lines            count only with a tag that checks under the key;
 #                           an untagged, re-edited or wrongly tagged line, or
 #                           any line without the key, never counts
@@ -143,7 +144,17 @@ seated_accept() { seat "$1"; printf '{"event":"accept","id":"%s","identity":"%s"
 coord() { printf '{"event":"%s","id":"%s","identity":"agent:c","kind":"agent","authority":"coordinator","target":"%s","files":[{"path":"t.sh","digest":"%s"}]}\n' "$1" "$2" "${3:-}" "${4:-D1}"; }
 { hdr; seated_accept agent:run/accept-1 accept-3 D1; coord overrule overrule-4 accept-3; } > "$W/l"
 eq "a coordinator's overrule of a reviewer's acceptance holds it as overruled" "held	overruled t.sh by agent:c" "$(acceptance_rule_live "$W/l" "$W/cur" "$W/sessions")"
-eq "the same overrule whose session is gone doesn't count" counted "$(acceptance_rule_live "$W/l" "$W/cur" "$W/nosessions")"
+eq "the same overrule whose session is gone stays in force" "held	overruled t.sh by agent:c" "$(acceptance_rule_live "$W/l" "$W/cur" "$W/nosessions")"
+eq "and without a sessions file it stays in force too" "held	overruled t.sh by agent:c" "$(acceptance_rule_live "$W/l" "$W/cur")"
+{ hdr; seated_accept agent:run/accept-1 accept-3 D1
+  printf '%s\n' '{"event":"overrule","id":"overrule-4","identity":"agent:run/accept-2","kind":"agent","authority":"coordinator","target":"accept-3","files":[]}'; } > "$W/l"
+eq "a seat's name passed off as a coordinator's overrule never counts" counted "$(acceptance_rule_live "$W/l" "$W/cur" "$W/nosessions")"
+{ hdr; coord decline decline-2 "" D1; } > "$W/l"
+eq "a coordinator's decline whose session is gone stays in force" "held	declined t.sh by agent:c" "$(acceptance_rule_live "$W/l" "$W/cur" "$W/nosessions")"
+{ hdr; for n in 1 2 3; do coord decline "decline-$n" "" "D$n"; done; } > "$W/l"
+has "a gone coordinator's declines still count toward decline-limit" "held	decline-limit t.sh" "$(acceptance_rule_live "$W/l" "$W/none" "$W/nosessions")"
+{ hdr; printf '%s\n' '{"event":"decline","identity":"agent:run","kind":"agent","authority":"coordinator","files":[{"path":"t.sh","digest":"D1"}]}'; } > "$W/l"
+eq "the run's own session declining as a coordinator never counts" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur" "$W/nosessions")"
 { hdr; seated_accept agent:run/accept-1 accept-3 D1; seat agent:run/accept-2
   printf '%s\n' '{"event":"overrule","id":"overrule-5","identity":"agent:run/accept-2","kind":"agent","authority":"reviewer","target":"accept-3","files":[]}'; } > "$W/l"
 eq "an overrule at the same authority never counts" counted "$(acceptance_rule_live "$W/l" "$W/cur" "$W/sessions")"

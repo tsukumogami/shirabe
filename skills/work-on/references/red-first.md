@@ -179,10 +179,13 @@ seat and accept as it. The seat makes an accidental self-acceptance visible in
 the record as a named seat; it doesn't stop a determined one.
 
 The status gate replays the rule over every stored line each time it runs, and
-never trusts a flag a line stores. A coordinator's line counts only while its
-koto session still exists: once that session is cleaned up, its acceptances
-and its overrules stop counting. A coordinator keeps its session for as long
-as its judgment should stand.
+never trusts a flag a line stores. A coordinator's acceptance counts only while
+its koto session still exists: once that session is cleaned up, the acceptance
+stops counting, so a coordinator that accepts keeps its session for as long as
+that acceptance should stand. A coordinator's overrule or decline stays in
+force after its session is cleaned up, since either one only holds the unit;
+only a later acceptance lifts it, at the overruling's authority or above for an
+overrule.
 
 ### A repository that requires a person
 
