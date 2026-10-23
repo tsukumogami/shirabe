@@ -3,7 +3,7 @@
 A fix starts from a check that fails for the reported reason, recorded before
 the correcting change, and ends with the same check passing. This file says
 how a `/work-on` run knows its unit is a fix, what it records, and which gates
-read the records. `docs/designs/DESIGN-red-first-fixes.md` has the reasoning.
+read the records. `docs/designs/current/DESIGN-red-first-fixes.md` has the reasoning.
 
 ## Which units are fixes
 

@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A green check after a shirabe run can't be trusted to mean the behaviour
   landed. A pass that came from editing a test counts exactly like one that
@@ -23,7 +23,7 @@ upstream: docs/briefs/BRIEF-red-first-fixes.md
 
 ## Status
 
-In Progress
+Done
 
 Amended 2026-10-23: pull requests carry no workflow-tool record. R19's pull
 request section and the criteria that check it are withdrawn; the record lives
@@ -480,4 +480,4 @@ runs the repository's tests.
 
 ## Downstream Artifacts
 
-- `docs/designs/DESIGN-red-first-fixes.md` (planned): the technical approach.
+- `docs/designs/current/DESIGN-red-first-fixes.md` (planned): the technical approach.

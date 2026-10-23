@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   Whoever reads a green check after a shirabe run can't tell whether it means
   the behaviour landed: a pass that came from editing the test counts exactly
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 How a fix is recognised, what counts as a recorded observation for a bug no
 check can reproduce, the interim acceptance rule, and whether the red-first

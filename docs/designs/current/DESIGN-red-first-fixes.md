@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-red-first-fixes.md
 problem: |
   /work-on can't tell a fix from other work, records no failing check before
@@ -37,7 +37,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 Amended 2026-10-23: pull requests carry no workflow-tool record. Everything
 below that writes to a pull request is withdrawn: `test-change.sh render` and
