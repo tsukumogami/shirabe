@@ -1884,7 +1884,10 @@ states:
     # A held run in a repository that isn't person-required mints a seat
     # (test-change.sh seat) and commissions it with the brief the script
     # prints; the seat accepts or declines under its minted identity, and the
-    # next tick re-reads the ledger. Nothing here waits for a person.
+    # next tick re-reads the ledger. In a repository that declares
+    # `## Test Change Acceptance: person` no seat can accept: the run stops
+    # here, status prints the command a person runs at a terminal, and the
+    # resumed run's next tick finds the person's acceptance.
     #
     # A green that failed, or a decline, sends the run back to implementation,
     # whose clear_on_entry drops the panels' stale results; check-green
@@ -2286,14 +2289,25 @@ states:
       branch_docs_visibility:
         type: command
         command: 'test -n "{{SHARED_BRANCH}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=branch_docs_visibility SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --session "{{SESSION_NAME}}"; }'
+      # The pass counted at pass_counting, counted again before a pull
+      # request shows it (../references/red-first.md): test-change.sh status
+      # re-reads the committed diff, so a commit made after counting that
+      # edits a test, or changes an accepted one, holds here. Exit 1 holds;
+      # `precheck_status: recount` sends the run back to pass_counting,
+      # where the acceptance is given. Every pull request edge needs 0.
+      tests_still_counted:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=tests_still_counted "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"'
     accepts:
       precheck_status:
         type: enum
-        values: [override, blocked, check_unsatisfiable]
+        values: [override, blocked, check_unsatisfiable, recount]
         description: >-
           Absent on the passing path. The state advances with no evidence when
-          the gate passes, so the agent never sees it. check_unsatisfiable is the
+          the gates pass, so the agent never sees it. check_unsatisfiable is the
           named exit for a documents rule branch_docs_visibility keeps failing on.
+          recount returns the run to pass_counting while tests_still_counted
+          holds.
       detail:
         type: string
         description: Why the branch could not be settled.
@@ -2313,11 +2327,17 @@ states:
         when:
           gates.on_feature_branch_pr.exit_code: 0
           gates.branch_docs_visibility.exit_code: 0
+          gates.tests_still_counted.exit_code: 0
       - target: pr_creation
         when:
           gates.on_feature_branch_pr.exit_code: 1
           precheck_status: override
           gates.branch_docs_visibility.exit_code: 0
+          gates.tests_still_counted.exit_code: 0
+      - target: pass_counting
+        when:
+          precheck_status: recount
+          gates.tests_still_counted.exit_code: 1
       - target: done_blocked
         when:
           gates.on_feature_branch_pr.exit_code: 1
@@ -2511,23 +2531,6 @@ states:
       merge_state_clean:
         type: command
         command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
-      # A routing gate (DESIGN-output-gates Decision 9): is this run the
-      # root, or a child /execute materialized? session-role.sh reads koto's
-      # own parent_workflow and prints `root` or `child`. Exit 0 is root and
-      # exit 1 is child; a lookup that can't decide (koto or jq missing, the
-      # session not listed) prints `child` and says why on stderr, the safe
-      # direction the script documents. Its exit 1 is an answer, not a
-      # violation, so it prints no finding.
-      #
-      # Exit 2 is a role nobody decided: an unreachable PLUGIN_ROOT (the
-      # test -x guard), or session-role.sh printing neither word (it prints
-      # nothing on a usage error).
-      # No edge names it, so the state holds: an undecided role must neither
-      # run the cascade nor skip it. The script's stderr is left to koto, so
-      # the hold carries the reason.
-      is_root:
-        type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" || exit 2; case "$("{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" "{{SESSION_NAME}}")" in root) exit 0 ;; child) exit 1 ;; *) exit 2 ;; esac'
     accepts:
       ci_outcome:
         type: enum
@@ -2539,23 +2542,14 @@ states:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
-      # The cascade belongs to the run that owns the PLAN, and that is the root.
-      # A child materialized by /execute lands its own pull request and must not
-      # cascade: the chain is finalized once per plan, not once per issue in it,
-      # and a child that cascaded would race its siblings to delete the PLAN
-      # they are still working from. Green CI routes with no evidence.
-      - target: cascade_entry
+      # Green CI routes with no evidence, to ci_pass_counting: a pass is
+      # counted there before the run goes on, since a commit that fixed CI
+      # may have edited a test. The root-or-child split that sends a root to
+      # the cascade and a child to done is ci_pass_counting's.
+      - target: ci_pass_counting
         when:
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
-          gates.is_root.exit_code: 0
-      # A child stops here, and stops silently. It never reaches cascade_entry,
-      # so it never runs the anchor search and never sees a cascade directive.
-      - target: done
-        when:
-          gates.ci_passing.exit_code: 0
-          gates.merge_state_clean.exit_code: 0
-          gates.is_root.exit_code: 1
       # A DIRTY pull request stops, and stops explicitly, with a reason that
       # names the merge conflicts, whatever the CI gate reads: GitHub runs no
       # checks on one, so ci_passing can read green on an earlier head's
@@ -2593,6 +2587,115 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
+
+  ci_pass_counting:
+    # Entered only when CI passed on the open pull request (ci_monitor's
+    # green edge). The pass is counted again here, with pass_counting's two
+    # gates under the same names and commands (../references/red-first.md),
+    # because a commit that fixed CI may have edited a test or moved HEAD
+    # past a fix's green. A held run is accepted here as at pass_counting; a
+    # decline or a failed green returns it to ci_monitor, where the edit is
+    # reworked and pushed. A separate state rather than a shared one with a
+    # variable naming where it came from: a hand rebind of that variable
+    # could send a post-CI hold to finalization.
+    gates:
+      fix_green:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=fix_green "{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" check-green "{{SESSION_NAME}}"'
+      tests_counted:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=tests_counted "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"'
+      # A routing gate (DESIGN-output-gates Decision 9): is this run the
+      # root, or a child /execute materialized? session-role.sh reads koto's
+      # own parent_workflow and prints `root` or `child`. Exit 0 is root and
+      # exit 1 is child; a lookup that can't decide (koto or jq missing, the
+      # session not listed) prints `child` and says why on stderr, the safe
+      # direction the script documents. Its exit 1 is an answer, not a
+      # violation, so it prints no finding.
+      #
+      # Exit 2 is a role nobody decided: an unreachable PLUGIN_ROOT (the
+      # test -x guard), or session-role.sh printing neither word (it prints
+      # nothing on a usage error).
+      # No edge names it, so the state holds: an undecided role must neither
+      # run the cascade nor skip it. The script's stderr is left to koto, so
+      # the hold carries the reason.
+      is_root:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" || exit 2; case "$("{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" "{{SESSION_NAME}}")" in root) exit 0 ;; child) exit 1 ;; *) exit 2 ;; esac'
+    accepts:
+      counting_status:
+        type: enum
+        values: [green_failed, declined, blocked]
+        description: >-
+          Absent on the passing path: koto routes once fix_green and
+          tests_counted pass. `green_failed` and `declined` return to
+          ci_monitor; `blocked` stops the run when a hold can't be cleared.
+      detail:
+        type: string
+        description: Why the run can't be counted.
+    transitions:
+      # The cascade belongs to the run that owns the PLAN, and that is the root.
+      # A child materialized by /execute lands its own pull request and must not
+      # cascade: the chain is finalized once per plan, not once per issue in it,
+      # and a child that cascaded would race its siblings to delete the PLAN
+      # they are still working from. A counted pass routes with no evidence.
+      - target: cascade_entry
+        when:
+          gates.fix_green.exit_code: 0
+          gates.tests_counted.exit_code: 0
+          gates.is_root.exit_code: 0
+      # A child stops here, and stops silently. It never reaches cascade_entry,
+      # so it never runs the anchor search and never sees a cascade directive.
+      - target: done
+        when:
+          gates.fix_green.exit_code: 0
+          gates.tests_counted.exit_code: 0
+          gates.is_root.exit_code: 1
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 3
+        context_assignments:
+          failure_reason: "ci_pass_counting: the acceptance seats declined the same test edits three times. The ledger is in context as test_change_ledger.jsonl."
+      - target: ci_monitor
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 1
+          counting_status: green_failed
+      - target: ci_monitor
+        when:
+          gates.tests_counted.exit_code: 1
+          gates.fix_green.exit_code: 1
+          counting_status: green_failed
+      - target: ci_monitor
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: declined
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 1
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "ci_pass_counting blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 2
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "ci_pass_counting blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "ci_pass_counting blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.tests_counted.exit_code: 2
+          counting_status: blocked
+        context_assignments:
+          failure_reason: "ci_pass_counting blocked: ${evidence.detail}"
 
   cascade_entry:
     # Decides whether this run has a document chain to finalize, and routes past
@@ -3490,10 +3593,23 @@ one `held:` line each:
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"
 ```
 
-`held: unaccepted <path>` and `held: changed since acceptance <path>` need an
-acceptance from someone other than this run. You can't give it: the rule refuses
-the run's own identity (`agent:{{SESSION_NAME}}`) and any reviewer name the run
-didn't mint. Mint one acceptance seat and print its brief:
+`held: unaccepted <path>`, `held: changed since acceptance <path>` and
+`held: overruled <path> by <identity>` need an acceptance from someone other than
+this run. You can't give it: the rule refuses the run's own identity
+(`agent:{{SESSION_NAME}}`) and any reviewer name the run didn't mint. An overruled
+edit needs an acceptance at or above the overruling's authority, which a seat
+can't give: stop and report it.
+
+**A repository that requires a person.** When `status` prints a
+`person-required:` line, the repository declares `## Test Change Acceptance:
+person`, and no agent can accept: `seat` refuses, and an agent's accept is
+refused `person-required`. Commission nothing. Stop here and report the held
+files and the exact command `status` printed, which a person runs in their own
+terminal; it shows them the edited hunks and a code to type back. The run stays
+at `pass_counting`; once the person has accepted, resuming it ticks the gate and
+goes on to `finalization`.
+
+Otherwise, mint one acceptance seat and print its brief:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" seat "{{SESSION_NAME}}"
@@ -3698,6 +3814,8 @@ One more gate checks what the branch carries, and holds the state until it passe
 
 An exit 2 means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` it passes at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
+`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one that was accepted, holds here (`held:` lines name the file). Submit `precheck_status: recount` to go back to `pass_counting`, where it is accepted as before; nothing else moves the run past this gate while it holds.
+
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
 Submit `precheck_status: override` to proceed from the default branch anyway, or `blocked` with `detail` to stop. `override` still needs `branch_docs_visibility` to pass. On the passing path submit nothing -- the run advances on its own.
@@ -3794,19 +3912,10 @@ already says which state, which gate and why.
 Read `references/phases/phase-6-pr.md` for CI monitoring.
 
 koto routes green CI itself, so on the passing path you submit nothing. With
-every check on the current head green and the pull request not DIRTY, the
-`is_root` gate decides where the run goes: it runs
-`"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which
-reads koto's own `parent_workflow`, and passes only when it prints exactly `root`.
-A root goes on to `cascade_entry`; a child, or a lookup the script could not
-complete (it then answers `child`), goes to `done`. That is the safe direction: a
-child that wrongly stops has landed its pull request and left the chain for the run
-that owns it, while a child that wrongly cascades deletes a PLAN its siblings are
-still working from. When the gate exits 2 the role was never decided (PLUGIN_ROOT
-does not reach the script, or the script failed): the state holds rather than
-choosing either way. Read the gate's stderr, fix the cause, and tick again. A DIRTY
-pull request stops at `done_blocked` whatever its CI reads, since GitHub runs no
-checks on one.
+every check on the current head green and the pull request not DIRTY, the run
+goes on to `ci_pass_counting`, which counts the pass and then decides whether the
+run is the root (the cascade) or a child (`done`). A DIRTY pull request stops at
+`done_blocked` whatever its CI reads, since GitHub runs no checks on one.
 
 A repository that cancels a closed pull request's unfinished macOS floor runs
 (it has `scripts/check-macos-floor-setup.sh`, as shirabe does) can leave a
@@ -3848,6 +3957,39 @@ Retry cap: 3 fix pushes. When CI is still failing after the third, submit
 `done_blocked`. In an unattended run, don't ask the user instead: nobody is
 there to answer. The cap lives here until koto enforces it from its attempt counts, with
 the same number.
+
+## ci_pass_counting
+
+CI passed on the open pull request, and the pass is counted again before the run
+goes on (`references/red-first.md`): a commit that fixed CI may have edited a
+test, or moved HEAD past a fix's green. The two gates are `pass_counting`'s, and
+on the passing path you submit nothing.
+
+- `fix_green`: a fix whose green ran at an earlier HEAD holds. Record it again
+  with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/red-first.sh" green "{{SESSION_NAME}}"`
+  and tick; a green that exits non-zero is `counting_status: green_failed`, which
+  returns the run to `ci_monitor` to fix and push.
+- `tests_counted`: `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`.
+  An edited test held here is accepted exactly as at `pass_counting`: mint a seat
+  with `test-change.sh seat` and commission it with the brief, or, in a
+  repository that requires a person, stop and report the command `status`
+  prints. A decline is `counting_status: declined`, back to `ci_monitor`, where
+  the edit is reworked or reverted and pushed; the third decline of the same
+  paths ends at `done_blocked`.
+
+Once both pass, the `is_root` gate decides where the run goes: it runs
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which
+reads koto's own `parent_workflow`, and passes only when it prints exactly `root`.
+A root goes on to `cascade_entry`; a child, or a lookup the script could not
+complete (it then answers `child`), goes to `done`. That is the safe direction: a
+child that wrongly stops has landed its pull request and left the chain for the run
+that owns it, while a child that wrongly cascades deletes a PLAN its siblings are
+still working from. When the gate exits 2 the role was never decided (PLUGIN_ROOT
+does not reach the script, or the script failed): the state holds rather than
+choosing either way. Read the gate's stderr, fix the cause, and tick again.
+
+Submit `counting_status: blocked` with `detail` to stop the run when a hold can't
+be cleared.
 
 ## cascade_entry
 

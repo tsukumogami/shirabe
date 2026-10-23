@@ -27,12 +27,21 @@ stateDiagram-v2
     changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: false, paths_status: override
     changed_paths_record --> done_blocked : gates.changed_paths_recorded.exists: false, paths_status: blocked
     check_exit --> done_blocked
-    ci_monitor --> cascade_entry : gates.ci_passing.exit_code: 0, gates.is_root.exit_code: 0, gates.merge_state_clean.exit_code: 0
-    ci_monitor --> done : gates.ci_passing.exit_code: 0, gates.is_root.exit_code: 1, gates.merge_state_clean.exit_code: 0
+    ci_monitor --> ci_pass_counting : gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0
     ci_monitor --> done_blocked : gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 1
     ci_monitor --> done_blocked : gates.ci_passing.exit_code: 1, gates.merge_state_clean.exit_code: 1
     ci_monitor --> ci_monitor : ci_outcome: failing_fixed, gates.ci_passing.exit_code: 1, gates.merge_state_clean.exit_code: 0
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.ci_passing.exit_code: 1, gates.merge_state_clean.exit_code: 0
+    ci_pass_counting --> cascade_entry : gates.fix_green.exit_code: 0, gates.is_root.exit_code: 0, gates.tests_counted.exit_code: 0
+    ci_pass_counting --> done : gates.fix_green.exit_code: 0, gates.is_root.exit_code: 1, gates.tests_counted.exit_code: 0
+    ci_pass_counting --> done_blocked : gates.tests_counted.exit_code: 3
+    ci_pass_counting --> ci_monitor : counting_status: green_failed, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
+    ci_pass_counting --> ci_monitor : counting_status: green_failed, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 1
+    ci_pass_counting --> ci_monitor : counting_status: declined, gates.tests_counted.exit_code: 1
+    ci_pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 1, gates.tests_counted.exit_code: 0
+    ci_pass_counting --> done_blocked : counting_status: blocked, gates.fix_green.exit_code: 2, gates.tests_counted.exit_code: 0
+    ci_pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 1
+    ci_pass_counting --> done_blocked : counting_status: blocked, gates.tests_counted.exit_code: 2
     context_injection --> setup_issue_backed : gates.context_artifact.exists: true, status: completed
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
@@ -103,8 +112,9 @@ stateDiagram-v2
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
     pr_precheck --> check_exit : gates.branch_docs_visibility.exit_code: 1, precheck_status: check_unsatisfiable
-    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0
-    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
+    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0, gates.tests_still_counted.exit_code: 0
+    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, gates.tests_still_counted.exit_code: 0, precheck_status: override
+    pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 1, precheck_status: recount
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     pre_pr_evidence --> pr_precheck : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
@@ -194,10 +204,16 @@ stateDiagram-v2
         gate: ci_passing
     end note
     note left of ci_monitor
+        gate: merge_state_clean
+    end note
+    note left of ci_pass_counting
+        gate: fix_green
+    end note
+    note left of ci_pass_counting
         gate: is_root
     end note
-    note left of ci_monitor
-        gate: merge_state_clean
+    note left of ci_pass_counting
+        gate: tests_counted
     end note
     note left of context_injection
         gate: context_artifact
@@ -288,6 +304,9 @@ stateDiagram-v2
     end note
     note left of pr_precheck
         gate: on_feature_branch_pr
+    end note
+    note left of pr_precheck
+        gate: tests_still_counted
     end note
     note left of pre_pr_evidence
         gate: cleanup_referent

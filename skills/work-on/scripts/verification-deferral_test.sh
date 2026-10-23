@@ -572,7 +572,7 @@ open_leg() {
     S="vd-leg-$N"
     mkdir -p "$DIR"
     build "$DIR/work-on.md" work-on pr_creation \
-        "pr_creation ci_monitor cascade_entry done done_already_complete done_blocked" \
+        "pr_creation ci_monitor ci_pass_counting cascade_entry done done_already_complete done_blocked" \
         closing_keyword=0 ci_passing=0 merge_state_clean=0
     REQ=$(cd "$REPO" && koto request create \
         --with-data '{"legs":[{"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}}]}' \

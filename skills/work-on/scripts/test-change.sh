@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # test-change.sh -- for /work-on: hold a pass that came with an edited test or
-# an observation until someone other than the run accepts it.
+# an observation until someone other than the run accepts it, let a higher
+# authority overrule an acceptance, and read the record back from the session.
+# Nothing here writes to a pull request.
 #
 # references/red-first.md says what the hold means for a run. Everything here
 # is written to one context key in the run's own koto session,
@@ -16,19 +18,28 @@
 #   test-change.sh accept   <session> --as <identity> --authority <level>
 #                           (--files <item>... | --all) --reason <text> [--repo <owner/name>]
 #   test-change.sh decline  <session> (the same arguments as accept)
+#   test-change.sh overrule <session> --as <identity> --authority <level>
+#                           --acceptance <id> --reason <text> [--repo <owner/name>]
 #   test-change.sh status   <session>
 #   test-change.sh covered  <session> <item>...
+#   test-change.sh record   <session>
 #
 #   init      writes the ledger's header, the line every later attempt is
 #             judged against: the author (agent:<session>), impl_base, the
 #             work tree, the repository (owner/name from origin, or empty), a
-#             run nonce, and person_required (false: this version doesn't read
-#             a person-required declaration yet). Refused (exit 1) when a
-#             header is already written or the ledger already holds lines, and
-#             when impl_base is not where the unit started: an ancestor of
-#             HEAD that is HEAD itself, the merge-base of HEAD with the
-#             remote default branch (or local main), or, with a non-empty
-#             --shared-branch, the shared branch's remote tip. With --entry
+#             run nonce, and whether the repository requires a person to
+#             accept a test change, with the source of that answer. The
+#             declaration is `## Test Change Acceptance: person|agent`, read
+#             with scripts/lib/claude-md-header.sh from CLAUDE.md at impl_base
+#             and at the remote default branch's tip, and from the work tree's
+#             CLAUDE.local.md. `person` at any of them wins, so a local file
+#             can only tighten; a value that is neither (or a header declared
+#             twice) reads as `person` and is named in the source. Refused
+#             (exit 1) when a header is already written or the ledger already
+#             holds lines, and when impl_base is not where the unit started:
+#             HEAD itself, the merge-base of HEAD with the remote default
+#             branch (or local main), or, with a non-empty --shared-branch,
+#             the shared branch's remote tip. With --entry
 #             (fix_determination's action, which re-runs on every entry) an
 #             existing header is left alone and the exit is 0.
 #   classify  the unit's test files, one `<label>\t<path>\t<digest>` row each
@@ -45,32 +56,65 @@
 #             brief: the held items, the edited hunks, the observations, the
 #             run's notes and the unit's acceptance criteria, all framed as
 #             data, and the two commands the seat may run. The run passes the
-#             brief to the seat unchanged.
+#             brief to the seat unchanged. Refused (exit 1) in a repository
+#             that requires a person: no seat can accept there.
 #   accept    an acceptance of the named items (edited test paths, or
 #   decline   `observation:before` / `observation:after`), or of every item
 #             that needs one with --all, at the digests they have at the run's
 #             head. The rule decides; an allowed attempt appends an accept or
 #             decline line (exit 0), a refused one a `refuse` line naming the
 #             rule (exit 1). --repo is checked against the header first, and a
-#             mismatch is refused without a line.
-#   status    pass_counting's tests_counted gate. Exit 0 when nothing needs an
-#             acceptance or every item has a live one; exit 1 holding, one
-#             `held: <reason>` line each, then finding test-change/held: no
-#             header, uncommitted changes, `unaccepted <item>`, `changed since
-#             acceptance <item>`, `declined <item> by <identity>`. Exit 3 when
-#             one sorted path set has been declined three times
-#             (`held: decline-limit <paths>`), which the template routes to
+#             mismatch is refused without a line. A `person:` attempt counts
+#             as from a terminal only when stdin and stdout are one terminal
+#             and it is the process's controlling terminal (/dev/tty): the
+#             script prints the covered items, their digests and the edited
+#             hunks there, with control characters escaped, and a short code
+#             derived from them and a fresh nonce, and reads the code back
+#             from /dev/tty. Anything else, or a wrong code, is refused
+#             `no-terminal` and recorded. An allowed person line carries an
+#             integrity tag (acceptance_rule_tag) under the per-user key file
+#             `test-change.key` in the state directory, created on first use
+#             with mode 0600.
+#   overrule  ends the acceptance whose id (`accept-<n>`, from `record`) is
+#             named, for the items it covered, when the rule finds the
+#             overruling authority strictly higher than the acceptance's.
+#             The terminal and seat checks are as for accept. From then on an
+#             acceptance of those items counts only at or above the
+#             overruling's authority. It writes to the run's retained
+#             session, so it works after the run finished; `record` then
+#             shows the unit held as overruled.
+#   status    pass_counting's, pr_precheck's and ci_pass_counting's gate.
+#             Exit 0 when nothing needs an acceptance or every item has a
+#             live one; exit 1 holding, one `held: <reason>` line each, then
+#             finding test-change/held: no header, uncommitted changes,
+#             `unaccepted <item>`, `changed since acceptance <item>`,
+#             `declined <item> by <identity>`, `overruled <item> by
+#             <identity>`. In a repository that requires a person it also
+#             prints the exact accept command a person runs. Exit 3 when one
+#             sorted path set has been declined three times (`held:
+#             decline-limit <paths>`), which the template routes to
 #             done_blocked.
 #   covered   read-only: exit 0 when every named item has a live acceptance at
 #             its current digest. red-first.sh check-green asks it for an
 #             observation pair.
+#   record    read-only, for a person or a coordinator, and the one place who
+#             accepted under what authority reads back: the fix source, the
+#             red and green (or the observations), each test file as added or
+#             edited, every acceptance, decline, refusal, overrule and note
+#             with its time, and the unit's state. It works while the unit is
+#             held and after the run finished, and reports the state as
+#             undecided when the run's work tree is gone. Control characters
+#             are shown escaped.
 #
 # Ledger lines (JSON, one per line). The header comes first. Then `note`,
 # `seat` (identity, nonce), `accept` and `decline` (id, identity, kind,
 # authority, files [{path, digest}], reason, outcome allow, session_exists),
-# and `refuse` (action, identity, kind, authority, files, reason, rule_id,
-# detail). Every line has ts, event, source (`session`) and rule (`interim`,
-# the rule that judged it).
+# `overrule` (id, identity, kind, authority, target, target_authority, files,
+# reason, outcome allow, session_exists) and `refuse` (action, identity, kind,
+# authority, files, reason, rule_id, detail). A person line also carries `tag`.
+# Every line has ts, event, source (`session`) and rule (`interim`, the rule
+# that judged it). Stored session_exists and terminal flags are notes for a
+# reader: the rule re-derives both every time it folds the ledger.
 #
 # Identities match ^(agent|person):[A-Za-z0-9._:/-]{1,128}$. Session names
 # match [A-Za-z0-9._-], 1 to 128 characters, not starting with - or . and
@@ -78,18 +122,19 @@
 # repository-relative with no `..` segment and no leading - or /. Reasons and
 # paths have control characters stripped, and every line is built with jq.
 #
-# Writers (init, note, seat, accept, decline) hold a mkdir lock named for the
-# session in a per-user state directory (mode 0700, owner checked), record
-# their pid and its start time in it, break it only when that process is gone,
-# exit 75 when it stays held past TEST_CHANGE_LOCK_WAIT seconds (default 10),
-# and read the ledger back after writing. They need at least the koto
-# minimum scripts/assert-koto-floor.sh defines, which addresses a session by
-# name from any directory and keeps accepting context writes on a retained
-# session.
+# Writers (init, note, seat, accept, decline, overrule) hold a mkdir lock
+# named for the session in a per-user state directory (mode 0700, owner
+# checked), record their pid and its start time in it, break it only when
+# that process is gone, exit 75 when it stays held past TEST_CHANGE_LOCK_WAIT
+# seconds (default 10), and read the ledger back after writing. A person's
+# accept or overrule holds the lock while the code is typed. They need at
+# least the koto minimum scripts/assert-koto-floor.sh defines, which addresses
+# a session by name from any directory and keeps accepting context writes on
+# a retained session.
 #
 # Environment:
-#   SHIRABE_STATE_DIR      where the lock directory lives; default
-#                          ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe
+#   SHIRABE_STATE_DIR      where the lock directory and the tag key live;
+#                          default ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe
 #   TEST_CHANGE_LOCK_WAIT  seconds a writer waits for the lock (tests)
 #
 # Exit codes:
@@ -112,10 +157,12 @@ RULE_IDS="test-change/held"
 SCHEMA=shirabe-test-change/v1
 LEDGER=test_change_ledger.jsonl
 RECORD_KEY=red_first.json
+KIND_KEY=fix_kind.jsonl
 RULES_KEY=review_level_rules.tsv
 TEXT_MAX=300
 BRIEF_HUNKS_MAX=32768
 BRIEF_TEXT_MAX=12288
+DECL='Test Change Acceptance'
 
 show_errlog() {
     if [ -n "${ERRLOG:-}" ] && [ -s "$ERRLOG" ]; then
@@ -139,8 +186,10 @@ usage: test-change.sh init     <session> [--entry] [--shared-branch <name>]
        test-change.sh seat     <session>
        test-change.sh accept   <session> --as <identity> --authority <level> (--files <item>... | --all) --reason <text> [--repo <owner/name>]
        test-change.sh decline  <session> --as <identity> --authority <level> (--files <item>... | --all) --reason <text> [--repo <owner/name>]
+       test-change.sh overrule <session> --as <identity> --authority <level> --acceptance <id> --reason <text> [--repo <owner/name>]
        test-change.sh status   <session>
        test-change.sh covered  <session> <item>...
+       test-change.sh record   <session>
 EOF
     exit 64
 }
@@ -170,6 +219,8 @@ trap cleanup EXIT
 . "$PLUGIN_ROOT_SELF/scripts/lib/acceptance-rule.sh" || undecided "cannot load scripts/lib/acceptance-rule.sh"
 # shellcheck source=../../../scripts/lib/test-classify.sh
 . "$PLUGIN_ROOT_SELF/scripts/lib/test-classify.sh" || undecided "cannot load scripts/lib/test-classify.sh"
+# shellcheck source=../../../scripts/lib/claude-md-header.sh
+. "$PLUGIN_ROOT_SELF/scripts/lib/claude-md-header.sh" || undecided "cannot load scripts/lib/claude-md-header.sh"
 
 valid_session() {
     [ "${#1}" -le 128 ] || return 1
@@ -189,6 +240,14 @@ valid_identity() {
     [ "${#name}" -ge 1 ] && [ "${#name}" -le 128 ] || return 1
     case "$name" in *[!A-Za-z0-9._:/-]*) return 1 ;; esac
     return 0
+}
+
+valid_repo() {
+    case "$1" in
+        -*|/*|*/|*/*/*|*..*|*[!A-Za-z0-9_./-]*) return 1 ;;
+        */*) return 0 ;;
+    esac
+    return 1
 }
 
 # safe_path <path>: repository-relative, no `..` segment, no leading `-` or `/`.
@@ -230,6 +289,38 @@ koto_floor() {
         || undecided "koto is below shirabe's minimum, which the ledger needs (a session addressed by name from any directory, context writes on a retained session): $(tail -n 1 "$TMP/floor.out")"
 }
 
+# -------------------------------------------------------- state directory ----
+
+state_base() {
+    printf '%s\n' "${SHIRABE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shirabe}"
+}
+
+# private_dir <dir>: created with mode 0700 and owned by this user, or undecided.
+private_dir() {
+    ( umask 077; mkdir -p "$1" ) 2>>"$ERRLOG" || undecided "could not create $1"
+    [ -O "$1" ] || undecided "$1 is not owned by this user"
+    chmod 700 "$1" 2>>"$ERRLOG" || undecided "could not make $1 private"
+}
+
+# key_file: the per-user key person lines are tagged with (may not exist).
+key_file() {
+    printf '%s/test-change.key\n' "$(state_base)"
+}
+
+# ensure_key: the key file exists, owned by this user, mode 0600.
+ensure_key() {
+    local base kf
+    base=$(state_base)
+    private_dir "$base"
+    kf="$base/test-change.key"
+    if [ ! -e "$kf" ]; then
+        ( umask 077; od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$kf" ) 2>>"$ERRLOG" \
+            || undecided "could not create the tag key $kf"
+    fi
+    [ -O "$kf" ] && [ -s "$kf" ] || undecided "the tag key $kf is empty or not owned by this user"
+    chmod 600 "$kf" 2>>"$ERRLOG" || undecided "could not make $kf private"
+}
+
 # ------------------------------------------------------------------- lock ----
 
 proc_start() {
@@ -238,11 +329,10 @@ proc_start() {
 
 take_lock() {
     local s="$1" base dir wait_s start opid ostart
-    base="${SHIRABE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shirabe}"
+    base=$(state_base)
     dir="$base/locks"
-    ( umask 077; mkdir -p "$dir" ) 2>>"$ERRLOG" || undecided "could not create the lock directory $dir"
-    [ -O "$base" ] && [ -O "$dir" ] || undecided "the lock directory $dir is not owned by this user"
-    chmod 700 "$base" "$dir" 2>>"$ERRLOG" || undecided "could not make $dir private"
+    private_dir "$base"
+    private_dir "$dir"
     wait_s="${TEST_CHANGE_LOCK_WAIT:-10}"
     case "$wait_s" in ""|*[!0-9]*) wait_s=10 ;; esac
     start=$(date +%s)
@@ -271,9 +361,14 @@ take_lock() {
     done
 }
 
+drop_lock() {
+    [ -z "$LOCK" ] || rm -rf "$LOCK"
+    LOCK=""
+}
+
 # ----------------------------------------------------------------- ledger ----
 
-H_AUTHOR="" H_BASE="" H_WORKTREE="" H_REPO="" H_PERSON=false
+H_AUTHOR="" H_BASE="" H_WORKTREE="" H_REPO="" H_PERSON=false H_PERSON_SRC=""
 
 # load_ledger <session>: the ledger into $TMP/ledger.
 load_ledger() {
@@ -290,6 +385,7 @@ load_header() {
     H_WORKTREE=$(printf '%s' "$h" | jq -r '.worktree // ""')
     H_REPO=$(printf '%s' "$h" | jq -r '.repo // ""')
     H_PERSON=$(printf '%s' "$h" | jq -r 'if .person_required == true then "true" else "false" end')
+    H_PERSON_SRC=$(printf '%s' "$h" | jq -r '.person_required_source // ""')
     [ -n "$H_AUTHOR" ] && [ -n "$H_BASE" ] && [ -n "$H_WORKTREE" ] || return 1
     return 0
 }
@@ -302,6 +398,29 @@ append() {
 }
 
 G() { git -C "$H_WORKTREE" "$@"; }
+
+# live_sessions: $TMP/sessions, the koto sessions the ledger's coordinator
+# lines name that exist now. The rule re-checks each line against this list,
+# so a session cleaned up since stops counting.
+live_sessions() {
+    local name
+    : > "$TMP/sessions"
+    jq -Rr 'fromjson? | select(type == "object" and (.event == "accept" or .event == "decline" or .event == "overrule")
+            and .kind == "agent" and .authority == "coordinator") | .identity // empty' "$TMP/ledger" 2>/dev/null \
+        | sed 's/^agent://' | LC_ALL=C sort -u > "$TMP/coord.names"
+    while IFS= read -r name; do
+        valid_session "$name" || continue
+        if koto status "$name" >/dev/null 2>>"$ERRLOG"; then
+            printf '%s\n' "$name" >> "$TMP/sessions"
+        fi
+    done < "$TMP/coord.names"
+}
+
+# fold <items-file>: the rule's live fold over the ledger into $TMP/live.
+fold() {
+    live_sessions
+    acceptance_rule_live "$TMP/ledger" "$1" "$TMP/sessions" "$(key_file)" > "$TMP/live"
+}
 
 # ------------------------------------------------------------------ items ----
 
@@ -366,7 +485,117 @@ uncommitted() {
     done < "$TMP/untracked"
 }
 
+# person_command <session>: the exact accept command a person runs.
+person_command() {
+    local files
+    files=$(cut -f 1 "$TMP/items" | paste -sd ' ' -)
+    if [ -n "$files" ]; then
+        printf '"%s/test-change.sh" accept %s --as person:<your-name> --authority owner --files %s --reason "<why the edit is right>"\n' "$HERE" "$1" "$files"
+    else
+        printf '"%s/test-change.sh" accept %s --as person:<your-name> --authority owner --all --reason "<why the edit is right>"\n' "$HERE" "$1"
+    fi
+}
+
+# -------------------------------------------------------- terminal checks ----
+
+# one_terminal: 0 when stdin and stdout are one terminal and it is this
+# process's controlling terminal (/dev/tty opens). Evidence of a terminal,
+# not of a person: a tool that allocates a pseudo-terminal passes it.
+one_terminal() {
+    local in out ctl
+    [ -t 0 ] && [ -t 1 ] || return 1
+    ( : < /dev/tty ) 2>/dev/null || return 1
+    in=$(tty 2>/dev/null) || return 1
+    { out=$(tty 0<&3 2>/dev/null); } 3>&1 || return 1
+    [ -n "$in" ] && [ "$in" = "$out" ] || return 1
+    ctl=$(ps -o tty= -p "$$" 2>/dev/null | tr -d ' ')
+    case "$ctl" in ""|"?"|"??") return 1 ;; esac
+    [ "$in" = "/dev/$ctl" ]
+}
+
+# escaped <file>: control characters other than newline shown as ^X, so a
+# crafted path or line can't rewrite what the terminal shows.
+escaped() { LC_ALL=C cat -v "$1"; }
+
+# confirm_at_terminal <action> <cover-file> <paths-file>: prints the items,
+# their digests, the edited hunks and a code to the terminal and reads the
+# code back from /dev/tty. 0 only when it matches.
+confirm_at_terminal() {
+    local action="$1" cover="$2" paths="$3" salt code typed tab item digest
+    tab=$(printf '\t')
+    salt=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    { printf '%s\n' "$salt"; cat "$cover"; } > "$TMP/code.in"
+    code=$(_ar_sha256 < "$TMP/code.in") || return 1
+    code=$(printf '%s' "$code" | cut -c 1-6)
+    {
+        echo "=== test-change.sh: $action for the /work-on run's test changes ==="
+        echo "Items and the digests they have at the run's head:"
+        while IFS="$tab" read -r item digest; do
+            printf '  %s  %s\n' "$item" "$digest"
+        done < "$cover"
+        echo
+        if [ -s "$paths" ]; then
+            local -a pa=()
+            while IFS= read -r item; do pa[${#pa[@]}]="$item"; done < "$paths"
+            echo "The edited hunks (impl_base $H_BASE to HEAD):"
+            G diff -M "$H_BASE" HEAD -- "${pa[@]}" > "$TMP/hunks.tty" 2>>"$ERRLOG"
+            head -c "$BRIEF_HUNKS_MAX" "$TMP/hunks.tty"
+            echo
+        fi
+    } > "$TMP/screen"
+    escaped "$TMP/screen" > /dev/tty 2>/dev/null || return 1
+    printf 'Type the code %s to %s, or anything else to refuse: ' "$code" "$action" > /dev/tty
+    IFS= read -r typed < /dev/tty || typed=""
+    [ "$typed" = "$code" ]
+}
+
+# person_terminal <action> <cover-file> <paths-file>: sets TERM_OK and
+# TERM_DETAIL for a person's attempt.
+TERM_OK=false
+TERM_DETAIL=""
+person_terminal() {
+    TERM_OK=false
+    if ! one_terminal; then
+        TERM_DETAIL="stdin, stdout and /dev/tty are not one terminal"
+        return 0
+    fi
+    if confirm_at_terminal "$@"; then
+        TERM_OK=true
+    else
+        TERM_DETAIL="the code typed back at the terminal did not match"
+    fi
+}
+
+# tag_line <line-file>: adds the integrity tag to a person line.
+tag_line() {
+    local tag
+    ensure_key
+    jq -cS 'del(.tag)' "$1" > "$TMP/canon" || undecided "could not build the line's canonical form"
+    tag=$(acceptance_rule_tag "$(key_file)" < "$TMP/canon") || undecided "could not compute the integrity tag (no SHA-256 tool, or the key can't be read)"
+    jq -c --arg t "$tag" '. + {tag: $t}' "$1" > "$1.tagged" && mv "$1.tagged" "$1"
+}
+
 # ------------------------------------------------------------------- init ----
+
+# person_decl <where> <rc> <value>: folds one reading of the declaration into
+# PR_REQ and PR_SRC.
+PR_REQ=false
+PR_SRC=""
+person_decl() {
+    local where="$1" rc="$2" v="$3" lv
+    case "$rc" in
+        0)
+            lv=$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')
+            case "$lv" in
+                person) PR_REQ=true; PR_SRC="$PR_SRC; $where: person" ;;
+                agent) PR_SRC="$PR_SRC; $where: agent" ;;
+                *) PR_REQ=true; PR_SRC="$PR_SRC; $where: [$(clean "$v")] is neither person nor agent, read as person" ;;
+            esac
+            ;;
+        1) ;;
+        *) PR_REQ=true; PR_SRC="$PR_SRC; $where: declared more than once, read as person" ;;
+    esac
+}
 
 cmd_init() {
     [ $# -ge 1 ] || usage "init takes <session>"
@@ -426,22 +655,42 @@ cmd_init() {
         *) refuse "impl_base $base is neither HEAD, the merge-base with the default branch, nor the shared branch's remote tip; it is not where this unit started" ;;
     esac
 
+    # Does the repository require a person? CLAUDE.md at impl_base and at the
+    # remote default branch's tip, so the unit's own diff can't relax it, and
+    # the work tree's CLAUDE.local.md, which is generated and never committed;
+    # `person` at any of them wins.
+    local v rc tip
+    PR_REQ=false PR_SRC=""
+    v=$(claude_md_header_at "$base" "$DECL" 2>>"$ERRLOG"); rc=$?
+    person_decl "CLAUDE.md at impl_base" "$rc" "$v"
+    tip=$(git rev-parse -q --verify "refs/remotes/origin/HEAD^{commit}" 2>/dev/null) \
+        || tip=$(git rev-parse -q --verify "refs/remotes/origin/main^{commit}" 2>/dev/null) || tip=""
+    if [ -n "$tip" ]; then
+        v=$(claude_md_header_at "$tip" "$DECL" 2>>"$ERRLOG"); rc=$?
+        person_decl "CLAUDE.md at the remote default branch" "$rc" "$v"
+    fi
+    v=$(claude_md_header "$DECL" "$top/CLAUDE.local.md" 2>>"$ERRLOG"); rc=$?
+    person_decl "CLAUDE.local.md" "$rc" "$v"
+    PR_SRC=${PR_SRC#; }
+    [ -n "$PR_SRC" ] || PR_SRC="not declared (CLAUDE.md at impl_base$( [ -n "$tip" ] && printf ' and at the remote default branch'), CLAUDE.local.md)"
+
     local url repo=""
     url=$(git remote get-url origin 2>/dev/null) || url=""
     if [ -n "$url" ]; then
         repo=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')
-        case "$repo" in */*) case "$repo" in *[!A-Za-z0-9._/-]*) repo="" ;; esac ;; *) repo="" ;; esac
+        valid_repo "$repo" || repo=""
     fi
     local nonce
     nonce=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     jq -nc --arg ts "$(now)" --arg schema "$SCHEMA" --arg author "agent:$s" --arg session "$s" \
-        --arg base "$base" --arg wt "$top" --arg repo "$repo" --arg nonce "$nonce" --arg shared "$shared" '
+        --arg base "$base" --arg wt "$top" --arg repo "$repo" --arg nonce "$nonce" \
+        --arg shared "$shared" --argjson preq "$PR_REQ" --arg psrc "$PR_SRC" '
         {ts: $ts, event: "header", schema: $schema, author: $author, session: $session,
          impl_base: $base, worktree: $wt, repo: $repo, shared_branch: $shared, nonce: $nonce,
-         person_required: false, person_required_source: "not read by this version",
+         person_required: $preq, person_required_source: $psrc,
          source: "session", rule: "interim"}' > "$TMP/line"
     append "$s" "$TMP/line"
-    echo "recorded: header (author agent:$s, base $base)"
+    echo "recorded: header (author agent:$s, base $base, person required: $PR_REQ, from $PR_SRC)"
     exit 0
 }
 
@@ -520,6 +769,13 @@ cmd_seat() {
     take_lock "$s"
     load_ledger "$s"
     load_header || refuse "the ledger has no header; test-change.sh init writes it at fix_determination"
+    if [ "$H_PERSON" = true ]; then
+        drop_lock
+        compute_items "$s"
+        echo "refused: this repository requires a person to accept a test change ($H_PERSON_SRC); no seat can accept here. A person runs, in a terminal:"
+        printf '  %s\n' "$(person_command "$s")"
+        exit 1
+    fi
     n=$(jq -Rr 'fromjson? | select(type == "object" and .event == "seat") | .identity' "$TMP/ledger" | wc -l | tr -d ' ')
     n=$((n + 1))
     id="agent:$s/accept-$n"
@@ -527,8 +783,7 @@ cmd_seat() {
     jq -nc --arg ts "$(now)" --arg id "$id" --arg nonce "$nonce" '
         {ts: $ts, event: "seat", identity: $id, nonce: $nonce, source: "session", rule: "interim"}' > "$TMP/line"
     append "$s" "$TMP/line"
-    rm -rf "$LOCK"
-    LOCK=""
+    drop_lock
 
     compute_items "$s"
     local tab item digest paths=""
@@ -606,7 +861,59 @@ $item" ;; esac
     exit 0
 }
 
-# ------------------------------------------------------ accept and decline ----
+# ---------------------------------------------- accept, decline, overrule ----
+
+# judge_facts <session> <identity> <authority>: KIND, SEAT and SX for an
+# attempt, from the ledger and the koto store.
+KIND="" SEAT=false SX=false
+judge_facts() {
+    local s="$1" as="$2" authority="$3" name
+    KIND=${as%%:*}
+    SEAT=false
+    SX=false
+    if jq -Rr 'fromjson? | select(type == "object" and .event == "seat") | .identity' "$TMP/ledger" > "$TMP/seats" \
+        && jq -Rr 'fromjson? | select(type == "object" and (.event == "accept" or .event == "decline" or .event == "overrule")) | .identity' "$TMP/ledger" > "$TMP/judges"; then
+        if grep -Fxq -- "$as" "$TMP/seats" && ! grep -Fxq -- "$as" "$TMP/judges"; then
+            SEAT=true
+        fi
+    fi
+    if [ "$KIND" = agent ] && [ "$authority" = coordinator ]; then
+        name=${as#agent:}
+        if valid_session "$name" && [ "$name" != "$s" ] && koto status "$name" >/dev/null 2>>"$ERRLOG"; then
+            SX=true
+        fi
+    fi
+}
+
+# write_refusal <session> <action> <identity> <authority> <files-json> <reason> <verdict> [<extra-detail>]
+write_refusal() {
+    local s="$1" action="$2" as="$3" authority="$4" files="$5" reason="$6" verdict="$7" extra="${8:-}" rule detail
+    rule=$(printf '%s' "$verdict" | awk '{ print $2 }')
+    detail=$(printf '%s' "$verdict" | cut -d ' ' -f 3-)
+    [ -z "$extra" ] || detail="$detail ($extra)"
+    jq -nc --arg ts "$(now)" --arg action "$action" --arg who "$as" --arg kind "${as%%:*}" --arg auth "$authority" \
+        --slurpfile files "$files" --arg reason "$reason" --arg rule "$rule" --arg detail "$detail" '
+        {ts: $ts, event: "refuse", action: $action, identity: $who, kind: $kind, authority: $auth,
+         files: $files[0], reason: $reason, outcome: "refuse", rule_id: $rule, detail: $detail,
+         source: "session", rule: "interim"}' > "$TMP/line"
+    append "$s" "$TMP/line"
+    refuse "rule $rule: $detail (recorded)"
+}
+
+# decide_attempt <action> <identity> <authority> <cover-file> <paths-file> [<target-authority>]:
+# VERDICT and TERM_DETAIL for an attempt. A person is asked at the terminal
+# only when no earlier rule refuses the attempt anyway.
+VERDICT=""
+decide_attempt() {
+    local action="$1" as="$2" authority="$3" cover="$4" paths="$5" tauth="${6:-}" pre
+    TERM_OK=false
+    TERM_DETAIL=""
+    if [ "$KIND" = person ]; then
+        pre=$(acceptance_rule_decide "$as" "$KIND" "$authority" "$action" "$H_AUTHOR" "$H_PERSON" true "$SEAT" "$SX" "$tauth")
+        [ "$pre" != allow ] || person_terminal "$action" "$cover" "$paths"
+    fi
+    VERDICT=$(acceptance_rule_decide "$as" "$KIND" "$authority" "$action" "$H_AUTHOR" "$H_PERSON" "$TERM_OK" "$SEAT" "$SX" "$tauth")
+}
 
 cmd_judge() {
     local action="$1"
@@ -659,8 +966,7 @@ cmd_judge() {
     compute_items "$s"
 
     # The covered items at their current digests.
-    local tab item digest
-    tab=$(printf '\t')
+    local digest
     : > "$TMP/cover"
     if [ "$all" -eq 1 ]; then
         cp "$TMP/items" "$TMP/cover"
@@ -676,42 +982,81 @@ cmd_judge() {
         exit 0
     fi
     jq -Rn '[inputs | select(. != "") | split("\t") | {path: .[0], digest: .[1]}]' < "$TMP/cover" > "$TMP/files.json"
+    grep -v '^observation:' "$TMP/cover" | cut -f 1 > "$TMP/cover.paths"
 
-    # What the rule needs to know, from the ledger and the koto store.
-    local kind seat=false sx=false name verdict rule detail
-    kind=${as%%:*}
-    if jq -Rr 'fromjson? | select(type == "object" and .event == "seat") | .identity' "$TMP/ledger" | grep -Fxq -- "$as" \
-        && ! jq -Rr 'fromjson? | select(type == "object" and (.event == "accept" or .event == "decline")) | .identity' "$TMP/ledger" | grep -Fxq -- "$as"; then
-        seat=true
-    fi
-    if [ "$kind" = agent ] && [ "$authority" = coordinator ]; then
-        name=${as#agent:}
-        if valid_session "$name" && [ "$name" != "$s" ] && koto status "$name" >/dev/null 2>>"$ERRLOG"; then
-            sx=true
-        fi
-    fi
-    verdict=$(acceptance_rule_decide "$as" "$kind" "$authority" "$action" "$H_AUTHOR" "$H_PERSON" false "$seat" "$sx")
-    if [ "$verdict" = allow ]; then
+    judge_facts "$s" "$as" "$authority"
+    decide_attempt "$action" "$as" "$authority" "$TMP/cover" "$TMP/cover.paths"
+    if [ "$VERDICT" = allow ]; then
         local seq
         seq=$(( $(wc -l < "$TMP/ledger" | tr -d ' ') + 1 ))
-        jq -nc --arg ts "$(now)" --arg ev "$action" --arg id "$action-$seq" --arg who "$as" --arg kind "$kind" \
-            --arg auth "$authority" --slurpfile files "$TMP/files.json" --arg reason "$reason" --argjson sx "$sx" '
+        jq -nc --arg ts "$(now)" --arg ev "$action" --arg id "$action-$seq" --arg who "$as" --arg kind "$KIND" \
+            --arg auth "$authority" --slurpfile files "$TMP/files.json" --arg reason "$reason" --argjson sx "$SX" '
             {ts: $ts, event: $ev, id: $id, identity: $who, kind: $kind, authority: $auth,
              files: $files[0], reason: $reason, outcome: "allow", session_exists: $sx,
              source: "session", rule: "interim"}' > "$TMP/line"
+        [ "$KIND" != person ] || tag_line "$TMP/line"
         append "$s" "$TMP/line"
         echo "recorded: $action $action-$seq by $as at $authority of $(cut -f 1 "$TMP/cover" | paste -sd, -)"
         exit 0
     fi
-    rule=$(printf '%s' "$verdict" | awk '{ print $2 }')
-    detail=$(printf '%s' "$verdict" | cut -d ' ' -f 3-)
-    jq -nc --arg ts "$(now)" --arg action "$action" --arg who "$as" --arg kind "$kind" --arg auth "$authority" \
-        --slurpfile files "$TMP/files.json" --arg reason "$reason" --arg rule "$rule" --arg detail "$detail" '
-        {ts: $ts, event: "refuse", action: $action, identity: $who, kind: $kind, authority: $auth,
-         files: $files[0], reason: $reason, outcome: "refuse", rule_id: $rule, detail: $detail,
-         source: "session", rule: "interim"}' > "$TMP/line"
+    write_refusal "$s" "$action" "$as" "$authority" "$TMP/files.json" "$reason" "$VERDICT" "$TERM_DETAIL"
+}
+
+cmd_overrule() {
+    [ $# -ge 1 ] || usage "overrule takes <session>"
+    local s="$1" as="" authority="" reason="" has_reason=0 repo="" has_repo=0 target=""
+    shift
+    valid_session "$s" || usage "bad session name [$s]"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --as) [ $# -ge 2 ] || usage "--as needs an identity"; as="$2"; shift 2 ;;
+            --authority) [ $# -ge 2 ] || usage "--authority needs a level"; authority="$2"; shift 2 ;;
+            --acceptance) [ $# -ge 2 ] || usage "--acceptance needs an id"; target="$2"; shift 2 ;;
+            --reason) [ $# -ge 2 ] || usage "--reason needs a value"; reason="$2"; has_reason=1; shift 2 ;;
+            --repo) [ $# -ge 2 ] || usage "--repo needs owner/name"; repo="$2"; has_repo=1; shift 2 ;;
+            *) usage "unknown argument [$1]" ;;
+        esac
+    done
+    valid_identity "$as" || usage "--as [$as] is not an identity (agent:<name> or person:<name>)"
+    case "$authority" in ""|*[!a-z]*) usage "--authority [$authority] is not a level" ;; esac
+    case "$target" in accept-[0-9]*) case "${target#accept-}" in *[!0-9]*) usage "--acceptance [$target] is not an acceptance id (accept-<n>)" ;; esac ;;
+        *) usage "--acceptance [$target] is not an acceptance id (accept-<n>)" ;; esac
+    [ "$has_reason" -eq 1 ] || usage "overrule needs --reason"
+    reason=$(clean "$reason")
+    [ -n "$(printf '%s' "$reason" | tr -d ' ')" ] || usage "--reason is empty"
+
+    koto_floor
+    take_lock "$s"
+    load_ledger "$s"
+    load_header || refuse "the ledger has no header, so nothing can be judged against it; test-change.sh init writes it at fix_determination"
+    if [ "$has_repo" -eq 1 ] && [ "$repo" != "$H_REPO" ]; then
+        refuse "--repo [$repo] is not the run's repository [${H_REPO:-none recorded}]"
+    fi
+    jq -Rc --arg t "$target" 'fromjson? | select(type == "object" and .event == "accept" and .id == $t)' "$TMP/ledger" > "$TMP/target.all"
+    [ -s "$TMP/target.all" ] || refuse "the run's ledger holds no acceptance $target (test-change.sh record lists them)"
+    sed -n 1p "$TMP/target.all" > "$TMP/target"
+    local tauth
+    tauth=$(jq -r '.authority // ""' "$TMP/target")
+    jq -c '[(.files // [])[] | select(type == "object")]' "$TMP/target" > "$TMP/files.json"
+    jq -r '.[] | "\(.path)\t\(.digest)"' "$TMP/files.json" > "$TMP/cover"
+    grep -v '^observation:' "$TMP/cover" | cut -f 1 > "$TMP/cover.paths"
+
+    judge_facts "$s" "$as" "$authority"
+    decide_attempt overrule "$as" "$authority" "$TMP/cover" "$TMP/cover.paths" "$tauth"
+    if [ "$VERDICT" != allow ]; then
+        write_refusal "$s" overrule "$as" "$authority" "$TMP/files.json" "$reason" "$VERDICT" "$TERM_DETAIL"
+    fi
+    local seq
+    seq=$(( $(wc -l < "$TMP/ledger" | tr -d ' ') + 1 ))
+    jq -nc --arg ts "$(now)" --arg id "overrule-$seq" --arg who "$as" --arg kind "$KIND" --arg auth "$authority" \
+        --arg target "$target" --arg tauth "$tauth" --slurpfile files "$TMP/files.json" --arg reason "$reason" --argjson sx "$SX" '
+        {ts: $ts, event: "overrule", id: $id, identity: $who, kind: $kind, authority: $auth,
+         target: $target, target_authority: $tauth, files: $files[0], reason: $reason,
+         outcome: "allow", session_exists: $sx, source: "session", rule: "interim"}' > "$TMP/line"
+    [ "$KIND" != person ] || tag_line "$TMP/line"
     append "$s" "$TMP/line"
-    refuse "rule $rule: $detail (recorded)"
+    echo "recorded: overrule overrule-$seq by $as at $authority of $target ($tauth)"
+    exit 0
 }
 
 # ----------------------------------------------------------------- status ----
@@ -725,12 +1070,13 @@ cmd_status() {
     rf_require test-change/held
     load_ledger "$s"
     : > "$TMP/held"
+    : > "$TMP/items"
     if ! load_header; then
         echo "no header: the ledger has no header line, so nothing it holds can count (test-change.sh init writes it at fix_determination)" > "$TMP/held"
     else
         compute_items "$s"
         uncommitted >> "$TMP/held"
-        acceptance_rule_live "$TMP/ledger" "$TMP/items" > "$TMP/live"
+        fold "$TMP/items"
         grep '^held' "$TMP/live" | cut -f 2- >> "$TMP/held"
     fi
     if [ ! -s "$TMP/held" ]; then
@@ -742,6 +1088,10 @@ cmd_status() {
         exit 0
     fi
     sed 's/^/held: /' "$TMP/held"
+    if [ "$H_PERSON" = true ] && [ -s "$TMP/items" ]; then
+        echo "person-required: this repository requires a person to accept ($H_PERSON_SRC); no seat can. In a terminal, a person runs:"
+        printf '  %s\n' "$(person_command "$s")"
+    fi
     rf_finding test-change/held "$(paste -sd ';' "$TMP/held" | sed 's/;/; /g')"
     if grep -q '^decline-limit ' "$TMP/held"; then
         rf_dispute_hint
@@ -773,12 +1123,129 @@ cmd_covered() {
         [ -n "$digest" ] || { echo "held: $item is not recorded"; exit 1; }
         printf '%s\t%s\n' "$item" "$digest" >> "$TMP/want"
     done
-    acceptance_rule_live "$TMP/ledger" "$TMP/want" | grep '^held' | cut -f 2- | grep -v '^decline-limit ' > "$TMP/held"
+    fold "$TMP/want"
+    grep '^held' "$TMP/live" | cut -f 2- | grep -v '^decline-limit ' > "$TMP/held"
     if [ -s "$TMP/held" ]; then
         sed 's/^/held: /' "$TMP/held"
         exit 1
     fi
     echo "covered: $*"
+    exit 0
+}
+
+# ----------------------------------------------------------------- record ----
+
+# unit_view <session>: what record shows about the unit now.
+# Sets VIEW_STATE (counted, held or undecided) and VIEW_REASONS, and leaves
+# $TMP/classified, $TMP/items and $TMP/record. Committed state only: the work
+# tree's uncommitted changes are status's concern.
+VIEW_STATE="" VIEW_REASONS=""
+unit_view() {
+    local s="$1"
+    : > "$TMP/classified"
+    : > "$TMP/items"
+    ctx_get "$s" "$RECORD_KEY" "$TMP/record" || die66 "could not read $RECORD_KEY"
+    if [ ! -d "$H_WORKTREE" ] || ! G rev-parse -q --verify "HEAD^{commit}" >/dev/null 2>&1; then
+        VIEW_STATE=undecided
+        VIEW_REASONS="the run's work tree is gone, so its test files can't be classified now"
+        return 0
+    fi
+    compute_items "$s"
+    fold "$TMP/items"
+    if grep -q '^held' "$TMP/live"; then
+        VIEW_STATE=held
+        VIEW_REASONS=$(grep '^held' "$TMP/live" | cut -f 2- | paste -sd ';' - | sed 's/;/; /g')
+    else
+        VIEW_STATE=counted
+        VIEW_REASONS=""
+    fi
+}
+
+# kind_of <session>: KIND_LINE, the unit's kind and the source behind it.
+KIND_LINE=""
+kind_of() {
+    ctx_get "$1" "$KIND_KEY" "$TMP/kind" || die66 "could not read $KIND_KEY"
+    local fixsrc lastk
+    fixsrc=$(jq -Rr 'fromjson? | select(type == "object" and (.event == "determine" or .event == "declare") and .kind == "fix") | .source // ""' "$TMP/kind" | sed -n 1p)
+    lastk=$(jq -Rr 'fromjson? | select(type == "object" and (.event == "determine" or .event == "declare")) | .kind // ""' "$TMP/kind" | tail -n 1)
+    if [ -n "$fixsrc" ]; then
+        KIND_LINE="fix (source $fixsrc)"
+    elif [ -n "$lastk" ]; then
+        KIND_LINE="$lastk (not a fix)"
+    else
+        KIND_LINE="not determined"
+    fi
+}
+
+# history_rows: one tab-separated row per ledger event for record:
+# ts, event, identity, kind, authority, items, rule, reason, id, target.
+history_rows() {
+    jq -Rr 'fromjson? | select(type == "object" and .event != "header")
+        | [(.ts // ""), (.event // ""), (.identity // ""), (.kind // ""), (.authority // ""),
+           (if .event == "note" then (.file // "") else ([(.files // [])[] | select(type == "object") | .path] | join(",")) end),
+           (if .event == "refuse" then "\(.action // "") refused, rule \(.rule_id // "")" else (.rule // "") end),
+           (.reason // ""), (.id // ""), (.target // "")]
+        | map(tostring | gsub("[\t\n\r]"; " ") | if . == "" then "-" else . end) | join("\t")' "$TMP/ledger"
+}
+
+cmd_record() {
+    [ $# -eq 1 ] || usage "record takes <session>"
+    local s="$1" tab
+    tab=$(printf '\t')
+    valid_session "$s" || usage "bad session name [$s]"
+    load_ledger "$s"
+    load_header || refuse "the ledger has no header; test-change.sh init writes it at fix_determination"
+    kind_of "$s"
+    unit_view "$s"
+    {
+        echo "test-change record for $s (rule interim; identities are recorded claims)"
+        echo "author: $H_AUTHOR   base: $H_BASE   repository: ${H_REPO:-unknown}"
+        echo "person required: $H_PERSON ($H_PERSON_SRC)"
+        echo "unit: $KIND_LINE"
+        if [ -s "$TMP/record" ] && jq -e '.red != null' "$TMP/record" >/dev/null 2>&1; then
+            jq -r '.red | "red: \(.command | join(" ")) on base \(.base) exited \(.exit) at \(.ran_at)\n  reproducing tests: \([(.tests // [])[] | "\(.path) (\(.blob))"] | join(", "))\n  marker: \(.marker)\n  report passage (\(.report_source // "report")): \(.passage)\n  output around the marker:\n\(.marker_context | split("\n") | map("    " + .) | join("\n"))"' "$TMP/record"
+        else
+            echo "red: none recorded"
+        fi
+        if [ -s "$TMP/record" ] && jq -e '.green != null' "$TMP/record" >/dev/null 2>&1; then
+            jq -r '.green | "green: \(.command | join(" ")) at \(.head) exited \(.exit) at \(.ran_at)"' "$TMP/record"
+        else
+            echo "green: none recorded"
+        fi
+        if [ -s "$TMP/record" ] && jq -e '(.observations // {}) | length > 0' "$TMP/record" >/dev/null 2>&1; then
+            jq -r '(.observations // {}) | to_entries[] | "observation \(.key) (digest \(.value.digest), at \(.value.recorded_at)):\n\(.value.text // "" | split("\n") | map("    " + .) | join("\n"))"' "$TMP/record"
+        fi
+        echo "test files:"
+        if [ -s "$TMP/classified" ]; then
+            awk -F '\t' '{ printf "  %s %s (%s)\n", $1, $2, $3 }' "$TMP/classified"
+        elif [ "$VIEW_STATE" = undecided ]; then
+            echo "  (not classified: the work tree is gone)"
+        else
+            echo "  (none)"
+        fi
+        echo "history:"
+        history_rows > "$TMP/hist"
+        if [ -s "$TMP/hist" ]; then
+            local ts ev who kind auth items rule reason id target
+            while IFS="$tab" read -r ts ev who kind auth items rule reason id target; do
+                case "$ev" in
+                    seat) printf '  %s seat %s minted\n' "$ts" "$who" ;;
+                    note) printf '  %s note by %s on %s: %s\n' "$ts" "$who" "$items" "$reason" ;;
+                    overrule) printf '  %s %s %s by %s (%s at %s) of %s [%s]: %s\n' "$ts" "$ev" "$id" "$who" "$kind" "$auth" "$target" "$items" "$reason" ;;
+                    refuse) printf '  %s refuse: %s by %s (%s at %s) of %s: %s\n' "$ts" "$rule" "$who" "$kind" "$auth" "$items" "$reason" ;;
+                    *) printf '  %s %s %s by %s (%s at %s) of %s: %s\n' "$ts" "$ev" "$id" "$who" "$kind" "$auth" "$items" "$reason" ;;
+                esac
+            done < "$TMP/hist"
+        else
+            echo "  (nothing recorded)"
+        fi
+        if [ -n "$VIEW_REASONS" ]; then
+            echo "state: $VIEW_STATE: $VIEW_REASONS"
+        else
+            echo "state: $VIEW_STATE"
+        fi
+    } > "$TMP/record.out"
+    escaped "$TMP/record.out"
     exit 0
 }
 
@@ -794,7 +1261,9 @@ case "$sub" in
     seat)     cmd_seat "$@" ;;
     accept)   cmd_judge accept "$@" ;;
     decline)  cmd_judge decline "$@" ;;
+    overrule) cmd_overrule "$@" ;;
     status)   cmd_status "$@" ;;
     covered)  cmd_covered "$@" ;;
+    record)   cmd_record "$@" ;;
     *) usage "unknown subcommand [$sub]" ;;
 esac

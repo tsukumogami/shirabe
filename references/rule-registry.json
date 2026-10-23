@@ -2386,7 +2386,9 @@
       ],
       "level": "gate",
       "timing": [
-        "work-on:pass_counting"
+        "work-on:pass_counting",
+        "work-on:pr_precheck",
+        "work-on:ci_pass_counting"
       ],
       "guards": [
         "pr-create"
@@ -2394,7 +2396,9 @@
       "stage": "block",
       "stage_since": "2026-10-23",
       "gates": [
-        "work-on:pass_counting:tests_counted"
+        "work-on:pass_counting:tests_counted",
+        "work-on:pr_precheck:tests_still_counted",
+        "work-on:ci_pass_counting:tests_counted"
       ],
       "withhold": "never",
       "baseline_keys": [],

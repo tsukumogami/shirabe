@@ -173,6 +173,19 @@ the rules; this is the route.
   seat accepts or declines under its minted identity; nothing waits for a person.
   A decline returns the run to implementation, and the third decline of the same
   tests ends it at `done_blocked`. A unit that only adds tests is counted at once.
+  A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` takes
+  no seat: the run stops at `pass_counting`, `status` prints the exact
+  `test-change.sh accept` command a person runs in a terminal, and the run is
+  resumed once they have. A higher authority can overrule an acceptance with
+  `test-change.sh overrule`, before or after the run finished.
+- **`pr_precheck`** re-runs `status` as `tests_still_counted`, so a commit made
+  after counting that edits a test is held again (`precheck_status: recount`
+  goes back to `pass_counting`).
+- **`ci_pass_counting`**, after CI passes on the open pull request. The same two
+  gates run again, since a commit that fixed CI may have edited a test; a decline
+  returns the run to `ci_monitor`. Who accepted, under what authority, reads back
+  from the session with `test-change.sh record`; nothing is written to the pull
+  request.
 
 ### Finalization and No Silent Deferral
 
@@ -498,7 +511,7 @@ leg, since one leg answers one session.
 - `scripts/session-role.sh <session-name>` — prints `root` or `child`, from
   koto's `parent_workflow`. The discriminator for any `/work-on` behaviour that
   must differ between a directly-invoked run and one materialized as a child of
-  `/execute`; its one caller today is `ci_monitor`'s `is_root` gate, which
+  `/execute`; its one caller today is `ci_pass_counting`'s `is_root` gate, which
   sends a root to the cascade and a child to `done`. Call it as
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, and
   **treat any answer that is not exactly `root` as `child`** — that is what
@@ -569,12 +582,15 @@ leg, since one leg answers one session.
   `check-green` as the `red_recorded` and `fix_green` gates, which report
   `red-first/no-red` and `red-first/no-green`. `scripts/red-first_test.sh` and
   `scripts/red-first-routes_test.sh` are its harnesses.
-- `scripts/test-change.sh init|classify|note|seat|accept|decline|status|covered`
+- `scripts/test-change.sh init|classify|note|seat|accept|decline|overrule|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the
   `test_change_ledger.jsonl` context key. koto runs `init --entry` in
-  `fix_determination`'s action and `status` as `pass_counting`'s `tests_counted`
-  gate (finding `test-change/held`); the agent runs `note` while implementing and
-  `seat` at a hold, and the seat runs `accept` or `decline`. Every decision is
+  `fix_determination`'s action and `status` as `pass_counting`'s and
+  `ci_pass_counting`'s `tests_counted` gate and `pr_precheck`'s
+  `tests_still_counted` (finding `test-change/held`); the agent runs `note` while
+  implementing and `seat` at a hold, and the seat runs `accept` or `decline`. A
+  person runs `accept` at a terminal, a coordinator or person `overrule`, and
+  anyone `record` to read the ledger back. Every decision is
   asked of `scripts/lib/acceptance-rule.sh`, the interim rule, which a later
   shared decision rule replaces in that one file. Exit codes are in its header;
   `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and

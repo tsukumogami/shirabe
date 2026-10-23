@@ -124,9 +124,16 @@ been classified.
 The record is the context key `test_change_ledger.jsonl` in the run's own koto
 session, written only by `test-change.sh`. Its first line, the header, is
 written by `test-change.sh init` in `fix_determination`'s action: the author
-(`agent:<session>`), `impl_base`, the work tree and the repository. Every later
-attempt is judged against it; a ledger with no header holds the unit, and
-`init` refuses to run twice.
+(`agent:<session>`), `impl_base`, the work tree, the repository, the issue's
+repository when it is another one, and whether the repository requires a
+person (below), with the source of that answer. Every later attempt is judged
+against it; a ledger with no header holds the unit, and `init` refuses to run
+twice.
+
+The same gate runs three times: at `pass_counting`, again at `pr_precheck`
+(`tests_still_counted`, so a commit made after counting is held again before
+the pull request opens), and at `ci_pass_counting` after CI passes on the open
+pull request (below).
 
 In a repository that is not person-required, a held run mints an acceptance
 seat and hands it the seat's brief:
@@ -171,14 +178,98 @@ Identities are recorded claims, not authentication: the run itself can mint a
 seat and accept as it. The seat makes an accidental self-acceptance visible in
 the record as a named seat; it doesn't stop a determined one.
 
+The status gate replays the rule over every stored line each time it runs, and
+never trusts a flag a line stores. A coordinator's line counts only while its
+koto session still exists: once that session is cleaned up, its acceptances
+and its overrules stop counting. A coordinator keeps its session for as long
+as its judgment should stand.
+
+### A repository that requires a person
+
+A repository declares in its `CLAUDE.md`:
+
+```markdown
+## Test Change Acceptance: person
+```
+
+`init` reads the declaration from `CLAUDE.md` at `impl_base` and at the remote
+default branch's tip, so the unit's own diff can't relax it, and from the work
+tree's `CLAUDE.local.md`. `person` at any of them wins, so a local file can only
+tighten. A value that is neither `person` nor `agent`, or a header declared
+twice, reads as `person`, and the header's `person_required_source` names it.
+
+In such a repository no agent can accept (rule `person-required`), and `seat`
+refuses to commission one. A held run stops at `pass_counting`: `status` names
+each held file and prints the exact command a person runs in a terminal:
+
+```bash
+test-change.sh accept <session> --as person:<name> --authority owner --files <path>... --reason '<why>'
+```
+
+A person's attempt counts only from a terminal: stdin and stdout must be one
+terminal, the process's controlling terminal. The script prints the covered
+files, their digests and the edited hunks there, with control characters
+escaped, and a six-character code derived from them and a fresh nonce, and
+reads the code back from `/dev/tty`. Run without a terminal, or with a wrong
+code, the attempt is refused `no-terminal` and recorded. An allowed person line
+carries an integrity tag: a SHA-256 over the line keyed with a per-user key
+file, `test-change.key` in the state directory (mode 0600). The status gate
+counts a person line only when its tag checks, so a hand-written or edited
+line never counts. That guards against accidents, not against an agent running
+as the same user, which can read the key or drive a pseudo-terminal. The
+terminal check was measured in a macOS shell and under a Python `pty` in the
+test suite, which is the point: it shows a terminal, not a person.
+
+### Overruling an acceptance
+
+A higher authority can end an acceptance, before or after the run finished:
+
+```bash
+test-change.sh overrule <session> --as agent:<coordinator-session> --authority coordinator \
+    --acceptance accept-<n> --reason '<why>'
+```
+
+`test-change.sh record <session>` lists acceptance ids. The overrule needs an
+authority strictly higher than the acceptance's (rule `not-higher`):
+`coordinator` over a `reviewer`, a person at `owner` over either. It covers the
+items the acceptance covered, which are then held, `overruled <path> by
+<identity>`. From then on an acceptance of those items counts only at or above
+the overruling's authority: a fresh seat at `reviewer` leaves them held, a
+coordinator or a person at `owner` counts them again.
+
+An overrule writes to the run's retained session under the same lock, from any
+directory, so it works after the run reached `done`.
+
+### The record
+
+Acceptances, refusals and overrulings live in the session ledger and nowhere
+else: nothing here writes to a pull request, its body or its comments. They
+read back through `test-change.sh record <session>`, which prints, for a
+person or a coordinator, the fix source, the red and green or the
+observations, each test file as added or edited, every acceptance, decline,
+refusal, overrule and note with its time, and the unit's state. It works while
+the unit is held and after the run finished, and says the state is undecided
+when the run's work tree is gone.
+
+### After CI: `ci_pass_counting`
+
+A commit that edits a test while fixing CI on the open pull request is held
+too. When CI passes, `ci_monitor` goes to `ci_pass_counting`, which runs the
+same `fix_green` and `tests_counted` gates before the run goes on to
+`cascade_entry` (a root) or `done` (a child of `/execute`). A seat, or a person
+in a person-required repository, accepts there as at `pass_counting`; a decline
+returns the run to `ci_monitor`, where the edit is reverted and pushed. A fix's
+green recorded before the CI fix no longer matches HEAD: record it again.
+
 ## The gates and their rules
 
 | Gate | State | Script | Rule |
 |------|-------|--------|------|
 | `kind_unchanged` | `fix_determination` | `fix-kind.sh agree` | none; it prints a `hold:` line |
 | `red_recorded` | `reproduce` | `red-first.sh check-red` | `red-first/no-red` |
-| `fix_green` | `pass_counting` | `red-first.sh check-green` | `red-first/no-green` |
-| `tests_counted` | `pass_counting` | `test-change.sh status` | `test-change/held` |
+| `fix_green` | `pass_counting`, `ci_pass_counting` | `red-first.sh check-green` | `red-first/no-green` |
+| `tests_counted` | `pass_counting`, `ci_pass_counting` | `test-change.sh status` | `test-change/held` |
+| `tests_still_counted` | `pr_precheck` | `test-change.sh status` | `test-change/held` |
 
 | Rule | Holds when |
 |------|------------|

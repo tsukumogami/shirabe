@@ -25,7 +25,8 @@
 # refused rather than resolved, since either choice would let a later edit
 # hide behind an earlier line.
 #
-# Callers: skills/work-on/scripts/fix-kind.sh reads `## Fix Labels:` with it.
+# Callers: skills/work-on/scripts/fix-kind.sh reads `## Fix Labels:` with it,
+# and skills/work-on/scripts/test-change.sh `## Test Change Acceptance:`.
 #
 # Written for the bash 3.2 floor.
 

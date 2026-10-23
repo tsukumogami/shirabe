@@ -38,6 +38,39 @@
 #              and an edited unit stays held
 #   the lock   a live owner makes a writer exit 75; a dead owner's lock is
 #              broken
+#   the person-required declaration
+#              `## Test Change Acceptance: person` in CLAUDE.md at impl_base or
+#              at the remote default branch's tip makes the header record
+#              person_required true with its source; a CLAUDE.local.md saying
+#              agent leaves it true, one saying person makes it true, an
+#              unknown value reads as person and is named; nothing declared is
+#              false
+#   a person-required repository
+#              an edit holds and status prints the exact command a person
+#              runs; seat refuses to commission a seat; an agent's accept is
+#              refused person-required and a person's without a terminal
+#              no-terminal, both recorded; under a pseudo-terminal (python3)
+#              a wrong code is refused no-terminal, the right one counts the
+#              unit at owner with the hunk and digest shown and a tag on the
+#              line, and a line edited after tagging stops counting
+#   overrule   refused for the author (author), a coordinator naming no
+#              session (unknown-session), a seat at the same authority
+#              (not-higher) and an acceptance id the ledger lacks; a
+#              coordinator's overrule holds the unit `overruled`; a later
+#              acceptance below coordinator leaves it held, one at
+#              coordinator counts it again; record prints the kind, the test
+#              files, every acceptance, refusal and overrule, and the state
+#   a coordinator whose session is gone
+#              its acceptance counts while the session exists; once the
+#              session is cleaned up status exits 1 and the unit is held,
+#              though the stored line still claims session_exists
+#   record of a fix
+#              the fix source, the red with its marker, the green, the
+#              reproducing test as added, and the state
+#   nothing reaches a pull request
+#              gh is a stand-in that logs every call, and the log stays
+#              empty; the script holds no gh pr edit or comment and has no
+#              render subcommand
 #
 # Usage: bash skills/work-on/scripts/test-change_test.sh
 set -uo pipefail
@@ -89,6 +122,51 @@ esac
 SHIM
 chmod +x "$BIN/koto"
 export SHIM_STORE="$STORE"
+
+# --- gh stand-in: logs every call and fails. Nothing test-change.sh does may
+# reach GitHub, so the log must stay empty to the end.
+export GH_LOG="$W/gh.calls"
+: > "$GH_LOG"
+cat > "$BIN/gh" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GH_LOG"
+exit 1
+SHIM
+chmod +x "$BIN/gh"
+
+# --- a pseudo-terminal for a person's attempt: runs the command under a pty,
+# types back the code it prints (right) or another (wrong), and prints what the
+# terminal showed. Exit: the command's.
+PTY="$W/term_drive.py"
+cat > "$PTY" <<'PY'
+import os, pty, re, select, sys, time
+mode, argv = sys.argv[1], sys.argv[2:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(argv[0], argv)
+out, sent, deadline = b"", False, time.time() + 60
+while time.time() < deadline:
+    r, _, _ = select.select([fd], [], [], 0.5)
+    if fd not in r:
+        continue
+    try:
+        data = os.read(fd, 4096)
+    except OSError:
+        break
+    if not data:
+        break
+    out += data
+    if not sent:
+        m = re.search(rb"Type the code ([0-9a-f]{6})", out)
+        if m:
+            os.write(fd, (m.group(1) if mode == "right" else b"zzzzzz") + b"\n")
+            sent = True
+_, status = os.waitpid(pid, 0)
+sys.stdout.write(out.decode("utf-8", "replace"))
+sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 99)
+PY
+HAVE_PTY=0
+command -v python3 >/dev/null 2>&1 && python3 -c 'import pty' 2>/dev/null && HAVE_PTY=1
 
 # --- the fixture repository --------------------------------------------------------
 R="$W/repo"
@@ -375,6 +453,218 @@ kill "$LIVE" 2>/dev/null
 wait "$LIVE" 2>/dev/null
 run note "$S" --file tests/greet_test.sh --reason "x"
 eq "a dead owner's lock is broken" 0 "$RC"
+
+# --- the person-required declaration -----------------------------------------------------
+echo "--- the person-required declaration"
+
+# start_here <session> [<init args>...]: a session whose impl_base is HEAD.
+start_here() {
+    local s="$1"
+    shift
+    rm -rf "${STORE:?}/$s"
+    mkdir -p "$STORE/$s"
+    git rev-parse HEAD > "$STORE/$s/impl_base"
+    cp "$RULES" "$STORE/$s/review_level_rules.tsv"
+    printf '## Acceptance Criteria\n\n- [ ] the greeting\n' > "$STORE/$s/context.md"
+    run init "$s" "$@"
+    [ "$RC" = 0 ] || bad "$s: init" "exit $RC: $OUT $(cat "$W/err")"
+}
+hdr_of() { ledger "$1" | head -n 1 | jq -r "$2"; }
+
+git checkout -q main
+git checkout -q -B b-undeclared
+start_here und
+eq "nothing declared: person_required false" false "$(hdr_of und .person_required)"
+has "nothing declared: the source says so" "not declared" "$(hdr_of und .person_required_source)"
+
+git checkout -q -B b-person main
+printf '# greet\n\n```\n## Test Change Acceptance: agent\n```\n\n## Test Change Acceptance: person\n' > CLAUDE.md
+git add CLAUDE.md && git commit -q -m "docs: require a person"
+PERSON_BASE=$(git rev-parse HEAD)
+start_here dp
+eq "person at impl_base: person_required true" true "$(hdr_of dp .person_required)"
+has "person at impl_base: the source names it" "CLAUDE.md at impl_base: person" "$(hdr_of dp .person_required_source)"
+printf '## Test Change Acceptance: agent\n' > CLAUDE.local.md
+start_here dpl
+eq "a CLAUDE.local.md saying agent leaves it true" true "$(hdr_of dpl .person_required)"
+has "the local file is named in the source" "CLAUDE.local.md: agent" "$(hdr_of dpl .person_required_source)"
+rm -f CLAUDE.local.md
+
+git checkout -q -B b-local main
+printf '## Test Change Acceptance: person\n' > CLAUDE.local.md
+start_here dlocal
+eq "a CLAUDE.local.md saying person tightens to true" true "$(hdr_of dlocal .person_required)"
+rm -f CLAUDE.local.md
+
+git checkout -q -B b-unknown main
+printf '## Test Change Acceptance: humans\n' > CLAUDE.md
+git add CLAUDE.md && git commit -q -m "docs: an unknown value"
+start_here dunk
+eq "an unknown value reads as person" true "$(hdr_of dunk .person_required)"
+has "the unknown value is named in the record" "[humans] is neither person nor agent, read as person" "$(hdr_of dunk .person_required_source)"
+
+git checkout -q -B b-tip main
+git update-ref refs/remotes/origin/main "$PERSON_BASE"
+start_here dtip
+eq "person at the remote default branch's tip: true" true "$(hdr_of dtip .person_required)"
+has "the tip is named in the source" "CLAUDE.md at the remote default branch: person" "$(hdr_of dtip .person_required_source)"
+git update-ref -d refs/remotes/origin/main
+
+
+# --- a person-required repository ----------------------------------------------------------
+echo "--- a person-required repository"
+git checkout -q -B b-pr "$PERSON_BASE"
+S=preq
+start_here "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: drop the mark"
+run status "$S"
+eq "person-required: an edit holds" 1 "$RC"
+has "the hold names the file" "held: unaccepted tests/greet_test.sh" "$OUT"
+has "the hold prints the exact command a person runs" \
+    "\"$HERE/test-change.sh\" accept $S --as person:<your-name> --authority owner --files tests/greet_test.sh --reason" "$OUT"
+run seat "$S"
+eq "person-required: seat exits 1" 1 "$RC"
+has "person-required: seat refuses to commission a seat" "refused: this repository requires a person" "$OUT"
+eq "person-required: no seat was minted" 0 "$(ledger "$S" | jq -r 'select(.event == "seat")' | wc -l | tr -d ' ')"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "x"
+eq "person-required: an agent's accept exits 1" 1 "$RC"
+has "person-required: rule person-required" "rule person-required" "$OUT"
+run accept "$S" --as person:pat --authority owner --all --reason "test was wrong"
+eq "a person without a terminal: exit 1" 1 "$RC"
+has "a person without a terminal: rule no-terminal" "rule no-terminal" "$OUT"
+eq "both refusals are recorded" "person-required,no-terminal" \
+    "$(ledger "$S" | jq -r 'select(.event == "refuse") | .rule_id' | paste -sd, -)"
+has "the no-terminal refusal says why" "not one terminal" "$(ledger "$S" | jq -r 'select(.rule_id == "no-terminal") | .detail')"
+
+if [ "$HAVE_PTY" -eq 1 ]; then
+    OUT=$(cd "$R" && PATH="$BIN:$PATH" python3 -I "$PTY" wrong bash "$SCRIPT" accept "$S" --as person:pat --authority owner --all --reason "test was wrong" 2>&1); RC=$?
+    eq "a person at a terminal typing the wrong code: exit 1" 1 "$RC"
+    has "the wrong code: rule no-terminal" "rule no-terminal" "$OUT"
+    run status "$S"
+    eq "after the wrong code the unit is still held" 1 "$RC"
+    OUT=$(cd "$R" && PATH="$BIN:$PATH" python3 -I "$PTY" right bash "$SCRIPT" accept "$S" --as person:pat --authority owner --all --reason "test was wrong" 2>&1); RC=$?
+    eq "a person at a terminal typing the code back: exit 0" 0 "$RC"
+    has "the terminal showed the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
+    has "the terminal showed the file and its digest" "tests/greet_test.sh  $(git rev-parse HEAD:tests/greet_test.sh)" "$OUT"
+    run status "$S"
+    eq "the person's acceptance counts the unit" 0 "$RC"
+    PL=$(ledger "$S" | jq -c 'select(.event == "accept")')
+    eq "the person line records person:pat at owner" "person:pat|person|owner" "$(printf '%s' "$PL" | jq -r '"\(.identity)|\(.kind)|\(.authority)"')"
+    has "the person line carries a tag" '"tag":"' "$PL"
+    cp "$STORE/$S/test_change_ledger.jsonl" "$W/preq.ledger"
+    jq -c 'if .event == "accept" then .reason = "edited by hand" else . end' "$W/preq.ledger" > "$STORE/$S/test_change_ledger.jsonl"
+    run status "$S"
+    eq "a person line whose tag no longer checks never counts" 1 "$RC"
+    cp "$W/preq.ledger" "$STORE/$S/test_change_ledger.jsonl"
+    run status "$S"
+    eq "restored, the tagged line counts again" 0 "$RC"
+else
+    echo "SKIP: python3 with pty not found; the pseudo-terminal person cases did not run"
+fi
+
+# --- overrule ----------------------------------------------------------------------------------
+echo "--- overrule"
+git checkout -q main
+S=ovr
+start "$S"
+printf '{"ts":"t","event":"determine","kind":"change","source":"none"}\n' > "$STORE/$S/fix_kind.jsonl"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+run seat "$S"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "looks right"
+ACC_ID=$(ledger "$S" | jq -r 'select(.event == "accept") | .id')
+run status "$S"
+eq "accepted by the seat: counted" 0 "$RC"
+mkdir -p "$STORE/coord_c"
+run overrule "$S" --as "agent:$S" --authority coordinator --acceptance "$ACC_ID" --reason x
+eq "the author overruling: exit 1" 1 "$RC"
+has "the author overruling: rule author" "rule author" "$OUT"
+run overrule "$S" --as agent:no-such-session --authority coordinator --acceptance "$ACC_ID" --reason x
+eq "a coordinator naming no session: exit 1" 1 "$RC"
+has "a coordinator naming no session: rule unknown-session" "rule unknown-session" "$OUT"
+run seat "$S"
+run overrule "$S" --as "agent:$S/accept-2" --authority reviewer --acceptance "$ACC_ID" --reason x
+eq "an overrule at the same authority: exit 1" 1 "$RC"
+has "an overrule at the same authority: rule not-higher" "rule not-higher" "$OUT"
+run overrule "$S" --as agent:coord_c --authority coordinator --acceptance accept-999 --reason x
+eq "an overrule naming no acceptance: exit 1" 1 "$RC"
+has "an overrule naming no acceptance: refused without a line" "holds no acceptance accept-999" "$OUT"
+run status "$S"
+eq "after refused overrules the unit is still counted" 0 "$RC"
+run overrule "$S" --as agent:coord_c --authority coordinator --acceptance "$ACC_ID" --reason "loosens the assertion"
+eq "a coordinator overrules the reviewer's acceptance: exit 0" 0 "$RC"
+run status "$S"
+eq "overruled: status exits 1" 1 "$RC"
+has "overruled: held with the reason" "held: overruled tests/greet_test.sh by agent:coord_c" "$OUT"
+eq "the refusals name their rules" "author,unknown-session,not-higher" \
+    "$(ledger "$S" | jq -r 'select(.event == "refuse" and .action == "overrule") | .rule_id' | paste -sd, -)"
+OVR=$(ledger "$S" | jq -c 'select(.event == "overrule")')
+eq "the overrule line names its target and its authority" "$ACC_ID|reviewer|coordinator|tests/greet_test.sh" \
+    "$(printf '%s' "$OVR" | jq -r '"\(.target)|\(.target_authority)|\(.authority)|\(.files[0].path)"')"
+run seat "$S"
+run accept "$S" --as "agent:$S/accept-3" --authority reviewer --all --reason "fine by me"
+eq "a seat's accept after the overrule is recorded" 0 "$RC"
+run status "$S"
+eq "an acceptance below the overruling's authority leaves it held" 1 "$RC"
+has "still overruled" "held: overruled tests/greet_test.sh" "$OUT"
+mkdir -p "$STORE/coord_d"
+run accept "$S" --as agent:coord_d --authority coordinator --all --reason "the coordinator agrees after all"
+run status "$S"
+eq "an acceptance at the overruling's authority counts it again" 0 "$RC"
+
+run record "$S"
+eq "record exits 0" 0 "$RC"
+has "record prints the unit's kind" "unit: change (not a fix)" "$OUT"
+has "record prints each test file as edited or added" "edited tests/greet_test.sh" "$OUT"
+has "record prints the acceptance" "accept $ACC_ID by agent:$S/accept-1 (agent at reviewer)" "$OUT"
+has "record prints the overrule" "overrule overrule-" "$OUT"
+has "record prints a refusal with its rule" "refuse: overrule refused, rule not-higher" "$OUT"
+has "record prints the state" "state: counted" "$OUT"
+
+# The coordinator's session, cleaned up: its lines stop counting at replay.
+echo "--- a coordinator whose session is gone"
+S=gone
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+mkdir -p "$STORE/coord_g"
+run accept "$S" --as agent:coord_g --authority coordinator --all --reason "accepted by the coordinator"
+eq "a coordinator naming an existing session accepts: exit 0" 0 "$RC"
+run status "$S"
+eq "while its session exists the acceptance counts" 0 "$RC"
+rm -rf "${STORE:?}/coord_g"
+eq "the stored line still claims the session existed" true "$(ledger "$S" | jq -r 'select(.event == "accept") | .session_exists')"
+run status "$S"
+eq "once the coordinator's session is cleaned up, status exits 1" 1 "$RC"
+has "and the unit stays held" "held: unaccepted tests/greet_test.sh" "$OUT"
+
+# --- record of a fix ---------------------------------------------------------------------------
+echo "--- record of a fix"
+S=rec
+start "$S"
+printf '{"ts":"t","event":"determine","kind":"fix","source":"label:bug","report_source":"issue"}\n' > "$STORE/$S/fix_kind.jsonl"
+printf '#!/bin/sh\nfalse\n' > tests/empty_test.sh && git add -A && git commit -q -m "test: reproduce"
+jq -n --arg b "$(git rev-parse HEAD:tests/empty_test.sh)" --arg base "$BASE" --arg head "$(git rev-parse HEAD)" '{schema: "shirabe-red-first/v1",
+    red: {command: ["sh", "tests/run.sh"], base: $base, head: $base, tests: [{path: "tests/empty_test.sh", blob: $b}], harness: [], exit: 1,
+          marker_context: "running\nerror: name required\ndone", passage: "prints Hello, ! instead of error: name required",
+          marker: "error: name required", report_source: "issue", ran_at: "t1"},
+    observations: {}, green: {command: ["sh", "tests/run.sh"], head: $head, exit: 0, ran_at: "t2"}}' > "$STORE/$S/red_first.json"
+run record "$S"
+eq "record of a fix: exit 0" 0 "$RC"
+has "record prints the fix source" "unit: fix (source label:bug)" "$OUT"
+has "record prints the red" "red: sh tests/run.sh on base $BASE exited 1" "$OUT"
+has "record prints the marker" "marker: error: name required" "$OUT"
+has "record prints the green" "green: sh tests/run.sh at $(git rev-parse HEAD) exited 0" "$OUT"
+has "record prints the reproducing test as added" "added tests/empty_test.sh" "$OUT"
+has "record prints the state" "state: counted" "$OUT"
+
+# --- nothing reaches a pull request --------------------------------------------------------
+echo "--- nothing reaches a pull request"
+eq "no subcommand called gh" "" "$(cat "$GH_LOG")"
+eq "test-change.sh has no gh pr edit or gh pr comment" 0 "$(grep -cE 'gh pr (edit|comment)' "$SCRIPT")"
+run render rec
+eq "there is no render subcommand" 64 "$RC"
 
 # --- the swap ------------------------------------------------------------------------------
 echo "--- a refuse-all rule"
