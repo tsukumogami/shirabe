@@ -97,9 +97,22 @@ workspace maintainer reads.
 
 **Files**: `skills/coordinate/scripts/unit-cost.sh`, `skills/coordinate/scripts/unit-cost_test.sh`, `skills/coordinate/scripts/testdata/gh`
 
-### Step 4: entries stay off the unit's own pull requests and issues unless the workspace turns them on
+### Step 4: entries stay off the unit's own pull requests and issues unless the repository opts in
 
-On the session store a capture keeps the entry in the coordinator's session unless the repository opts in through #1114's switch, which restores today's placement.
+**Goal**: On the session store a capture keeps the cost entry in the coordinator's session (`record-append.sh --on none`). It restores today's placement on the holding's pull request, else the Unit's issue, only when #1124's reader (`scripts/pr-workflow-content.sh <dir>`, the opt-in #1114 adds) answers `include` for that item's repository, read through one accessor in `unit-cost.sh`.
+
+**Acceptance Criteria**:
+
+- [ ] On the session store with no reader present, and with a stub reader that answers `omit`, exits non-zero, or prints anything else, the capture runs `record-append.sh --on none`, the stub `gh` records no write to any pull request or issue, and the last line is the kept-in-the-session line.
+- [ ] With a stub reader that answers `include` for the repository, the capture posts as before: on the holding's pull request, else the Unit's issue, else nowhere.
+- [ ] The accessor reads the repository's `CLAUDE.md` from GitHub into a directory of its own and hands that directory to the reader. A failed read of it is omit.
+- [ ] A run on a GitHub record still posts on its record issue whatever the reader says.
+
+**Check**: Run `bash skills/coordinate/scripts/unit-cost-on_test.sh` and see the omit cases end with `--on none` and the include case post where it did before.
+
+**Dependencies**: Step 3
+
+**Files**: `skills/coordinate/scripts/unit-cost.sh`, `skills/coordinate/scripts/unit-cost-on_test.sh`, `skills/coordinate/scripts/testdata/gh`
 
 ### Step 5: the milestone survives the holding
 
