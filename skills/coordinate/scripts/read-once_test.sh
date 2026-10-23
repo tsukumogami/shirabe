@@ -11,11 +11,15 @@
 # once; a reconcile pass's reads (reconcile-read.sh, then the holding rows the
 # settle and the legs classification read) sharing one read on either store; a
 # write in the step dropping the shared read, so the next read is live and sees
-# it, even when a read the step gave up on lands after the write; a session-store record at the 60,000-byte record budget read by
-# reconcile-read.sh inside its own 8-second deadline and the pass's 12, and a
-# read past its deadline still named as the record read that timed out; and
-# report-facts.sh on that record with a moved head, writing only the holding's
-# pushed head, the body and its Written: time untouched, well inside its limit.
+# it, even when a read the step gave up on lands after the write.
+#
+# And a session-store record at the 60,000-byte record budget, with every koto
+# call held to a real one's 0.1 s: reconcile-read.sh reads it in one assembly
+# of a bounded few calls, inside its own 8-second deadline and the pass's 12;
+# the pass's three reads of it make one assembly, where they made three; a
+# read past its deadline is still named as the record read that timed out; and
+# report-facts.sh on it with a moved head writes only the holding's pushed
+# head, the body and its Written: time untouched, well inside its limit.
 #
 # The wall-clock cases read the host's own speed: this suite is not on the
 # macOS bash 3.2 floor list, whose runners are slower and shared.
@@ -192,11 +196,28 @@ done
 [ "$SIZE" -gt 57000 ] && ok "the record's body is at the budget ($SIZE of 60000 bytes, $n holdings)" || bad "the record's body is at the budget" "$SIZE bytes"
 session_keys "$SB" "$T/brec.json"
 log_to "$SB" reconcile wait
+# Every koto call from here on costs what a real one does (about 0.1 s), so a
+# read's time counts its calls: one assembly is still one call per key, koto
+# having no multi-key get, and what the change bounds is how many assemblies a
+# pass makes.
+export KOTO_CALL_DELAY=0.1
+zero
 T0=$(now)
 bash "$RR" --session "$SB" > "$T/rb.json" 2> "$T/rb.err"; RC=$?
 EL=$(( $(now) - T0 ))
 eq "reconcile-read.sh reads it, inside its own 8 s deadline on the read" "0 found" "$RC $(jq -r .status "$T/rb.json")"
 [ "$EL" -lt 12 ] && ok "  ... and the whole read inside the pass's 12 s (${EL}s)" || bad "  ... and the whole read inside the pass's 12 s" "${EL}s"
+KC=$(grep -c '^context ' "$KOTO_STORE/calls")
+[ "$KC" -le 16 ] && ok "  ... in one assembly of a bounded few koto calls ($KC)" || bad "  ... in one assembly of a bounded few koto calls" "$KC calls"
+zero
+T0=$(now)
+pass_reads "$SB"
+EL=$(( $(now) - T0 ))
+eq "the pass's three reads of it, the record and two holdings, make one assembly (they made three)" "0 found 0 0 1" \
+    "$RR_RC $(jq -r .status "$T/rr.json") $H3 $H9 $(assemblies "$SB")"
+[ "$EL" -lt 12 ] && ok "  ... all three inside the pass's 12 s (${EL}s)" || bad "  ... all three inside the pass's 12 s" "${EL}s"
+# One assembly at 0.1 s a call takes over a second, so a 1-second deadline
+# always fires.
 RECONCILE_READ_DEADLINE=1 bash "$RR" --session "$SB" > "$T/rt.json" 2>/dev/null; RC=$?
 eq "a read past its deadline still names the record read" '5 reading the record timed out' "$RC $(jq -r .reason "$T/rt.json")"
 
@@ -211,5 +232,6 @@ eq "  ... with no failed write named" "" "$(grep 'pushed head' "$T/err")"
 eq "  ... writing only record/holdings, never the body's keys or its Written: time" "$(cat "$T/snap.before")" "$(session_snapshot "$SB" | grep -v '^./holdings ')"
 eq "  ... from one assembly of the record" 1 "$(assemblies "$SB")"
 [ "$EL" -lt 15 ] && ok "  ... well inside the 30 s action limit (${EL}s)" || bad "  ... well inside the 30 s action limit" "${EL}s"
+unset KOTO_CALL_DELAY
 
 done_tests read-once_test

@@ -84,6 +84,18 @@
 #       core's compare read, the move's GitHub read) are made live, as
 #       without RS_ONCE. A read that fails is never kept. Returns 2 when <dir>
 #       can't be made.
+#
+#       What this bounds is the number of reads a step makes, not the cost of
+#       one. A session-store assembly is still one koto call per key and a
+#       listing or two (koto has no multi-key get), and the reconcile deadlines
+#       stay 8 and 12 seconds rather than growing with the record. Reading
+#       once is enough because the assembly's calls were never the slow part:
+#       at the budget they take about a second at a real koto's 0.1 s each,
+#       while rendering the body and parsing it took most of the read, and a
+#       pass rendered and parsed it up to three times (reconcile-read.sh's
+#       read, then the settle's and the legs classification's) and parsed the
+#       first read back a second time for nobody. A deadline that grew with
+#       the record would instead let a slow read hide a hung one.
 #   rs_once_drop
 #       Forgets the step's read, so the next read is live. record-write-core.sh
 #       calls it before it writes and again once the write lands, so nothing in

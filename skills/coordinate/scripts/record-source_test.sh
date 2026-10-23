@@ -29,7 +29,8 @@
 #   6. the session store's read: the same state and body as GitHub's, a
 #      pending, absent or other-scope record refused, and --show;
 #   7. one read per step (rs_once_begin): reads inside the shared read's fields
-#      take it, and one asking for a field outside them is made live.
+#      take it, and one asking for a field outside them is made live; and
+#      reconcile-read.sh's read of a session-store record parses its body once.
 #
 # Usage: bash skills/coordinate/scripts/record-source_test.sh
 set -uo pipefail
@@ -494,6 +495,21 @@ eq "reads inside the shared read's fields, and one outside them, all answer" "a0
 eq "  ... from two reads of #7: the shared one, and the live one for the field it lacks" 2 "$(grep -c '^issue view 7 ' "$GH_DB.calls")"
 eq "  ... the live one with the field it asked for" alice "$(jq -r .author.login "$T/once/b.raw")"
 eq "  ... and the shared reads with the record's body" "$(cat "$T/g.md")" "$(cat "$T/once/c.md")"
+# The read reconcile-read.sh makes on the session store parses the body once:
+# the seam's view assembles and renders it, and reconcile-read.sh parses it
+# itself, where the seam used to parse it back first for nobody. Counted in a
+# copy of the scripts whose record-parse.sh logs each run.
+TR="$T/parse-tree/skills/coordinate/scripts"
+mkdir -p "$TR" "$T/parse-tree/skills/execute"
+cp "$HERE"/*.sh "$HERE"/*.jq "$TR/"
+cp -R "$HERE/../../execute/scripts" "$T/parse-tree/skills/execute/"
+mv "$TR/record-parse.sh" "$TR/record-parse.real"
+printf '#!/usr/bin/env bash\necho parse >> "%s"\nexec bash "%s" "$@"\n' "$T/parses" "$TR/record-parse.real" > "$TR/record-parse.sh"
+chmod +x "$TR/record-parse.sh"
+: > "$T/parses"
+bash "$TR/reconcile-read.sh" --session "$SW" > "$T/rr.json" 2> "$T/rr.err"
+eq "reconcile-read.sh reads a session-store record" "0 found" "$? $(jq -r .status "$T/rr.json" 2>/dev/null)"
+eq "  ... parsing its body once (the seam parsed it back first, a second time)" 1 "$(grep -c parse "$T/parses")"
 
 echo "== the resume decision (PRD R12) =="
 # rs_resume_candidate over this host's runs of one scope, on the koto stand-in:
