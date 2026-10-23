@@ -1,6 +1,11 @@
 name: Check execute scripts
 
 on:
+  # No push trigger, unlike the other macOS floor workflows: its macOS leg is
+  # one of the two longest and most merges touch its paths, so a run per merge
+  # would crowd pull requests' macOS legs in the runner queue. Its suite's
+  # floor read on main is macos-floor.yml's daily run, which files an issue
+  # when it fails (shirabe#1085).
   pull_request:
     paths:
       - 'skills/execute/scripts/**'

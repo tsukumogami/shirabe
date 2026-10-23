@@ -5,14 +5,14 @@
 # PRD R7).
 #
 # Proves, one line per case:
-#   1. a run opened with --store session opens its record there: the GitHub
-#      body is the moved shape, the state is in the run's record/ keys, and
-#      the next find reaches reconcile;
+#   1. a run opened with no --store (a new roadmap scope's default) opens its
+#      record on the session store: the GitHub body is the moved shape, the
+#      state is in the run's record/ keys, and the next find reaches reconcile;
 #   2. writes through record-write.sh and record-state.sh land in the keys and
 #      not on GitHub, and the run passes reconcile on them;
-#   2b. a second start on the same host resumes the run (PRD R12): it prints
-#      the first run's name with resumed=1, opens and cancels nothing, and the
-#      run goes on where it stood;
+#   2b. a second start on the same host, again with no --store, resumes the
+#      run on its moved record (PRD R12): it prints the first run's name with
+#      resumed=1, opens and cancels nothing, and the run goes on where it stood;
 #   3. each refusal the write guarantees name leaves every record/ key
 #      byte-identical: a non-owner's change (65), a body edited from an older
 #      written time (12), a state rendering past 60,000 bytes (13), a run moved
@@ -70,10 +70,11 @@ jq -n '{permissions: {defaultMode: "bypassPermissions"}}' > "$WD/.claude/setting
 tick() { (cd "$WD" && koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"); }
 at() { tick "$@" | jq -r '.state // empty'; }
 # open_run: a fresh session of the scope from coordinate-open.sh, which takes
-# its args file away; sets S.
+# its args file away; sets S. With no --store a new roadmap scope opens on the
+# session store.
 open_run() { # open_run [plugin-root]: the opener's output in OPEN_OUT, the session in S
     local root=${1:-$PR}
-    printf '["docs/roadmaps/ROADMAP-store.md", "--store", "session"]' > "$T/args.json"
+    printf '["docs/roadmaps/ROADMAP-store.md"]' > "$T/args.json"
     OPEN_OUT=$(cd "$WD" && bash "$root/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$root" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
@@ -103,9 +104,11 @@ edited() { # edited <jq program> <out>: the current state changed by the program
 db_init
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-store.md"] = $t' --arg t "$(printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Planned\n')"
 
-echo "== 1. a run opened with --store session =="
+echo "== 1. a run opened with no --store =="
 open_run || { bad "the session opens" "$(cat "$T/open.err")"; done_tests session-store-engine; exit 1; }
 ok "the session opens"
+eq "  ... with the session store as its store, no --store given" session \
+    "$(cd "$WD" && bash "$PS/coord-log.sh" vars --session "$S" | jq -r '.STORE // ""')"
 # A koto older than the session store's features (shirabe's minimum koto runs
 # this suite too) stops the start at the find, naming what it lacks, and writes
 # nothing (PRD R2). The branch is on what koto offers, never on the outcome.

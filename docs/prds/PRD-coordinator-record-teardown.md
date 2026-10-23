@@ -234,9 +234,11 @@ collaborator-permission read is involved.
 
 **R7. Existing GitHub records are left alone.** Nothing the removal does
 deletes, closes or edits an existing coordinator issue, issue comment, rotation
-pull request or rotation branch. A roadmap progress line that already cites a
-comment on a coordinator issue is still accepted by `roadmap-status.sh
---confirm`.
+pull request or rotation branch. The one exception is the legacy importer's
+note: when a start imports a record nobody moved, it adds one `moved` comment
+to that record naming the session, and makes no other change to it. A roadmap
+progress line that already cites a comment on a coordinator issue is still
+accepted by `roadmap-status.sh --confirm`.
 
 **R8. Every write-core guarantee survives on the session.** The baseline is
 `skills/coordinate/scripts/record-codec.jq` and `record-write-core.sh` at the

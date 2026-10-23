@@ -103,6 +103,23 @@ The structural checks (PB2, PB3) scan the body with fenced code blocks
 removed, so a `---` or a `Co-Authored-By:` line shown inside an example
 fence (as this document does) does not trip the check.
 
+## Workflow content (workflow gate only)
+
+No workflow records in a pull request body unless the repository opts in.
+By default a body describes the change and how it was verified, in terms a
+reader of the repository understands; the workflow's own records (the review
+round, the run's record lines, pointers to PLAN and ROADMAP files, which are
+deleted when the work completes) stay in the run's session. A repository opts
+in with `## PR Workflow Content: include` in its `CLAUDE.local.md` or
+`CLAUDE.md`, read by `scripts/pr-workflow-content.sh`; with it, none of this
+section applies. Without it, the /work-on and /execute pull request gate
+reports each of these, outside fenced code, as `pr-body/workflow-content`:
+a `## Review panel` section title; a table whose first row reads Seat, Model, Run,
+Verdict and Reviewed head; and a line starting `Plan:` or `Roadmap:`, or
+starting `Implements` and naming a `PLAN-` or `ROADMAP-` file. The check
+matches these shapes only, never words, so a body that discusses plans or
+reviews in prose passes. CI and the PreToolUse hook don't run it.
+
 ## What stays advisory (subjective)
 
 Everything else is judgment and is **not** gated:

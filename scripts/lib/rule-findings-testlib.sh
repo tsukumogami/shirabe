@@ -143,6 +143,9 @@ rf_test_stage_copy() {
         ln -s "$rel" "$d/scripts/lib/${rel##*/}" || return 1
     done
     ln -s "$RF_TEST_HELPER" "$d/scripts/rule-registry.sh" || return 1
+    # The switch reader the PR-body gate asks before it scans for workflow
+    # records.
+    ln -s "$RF_TEST_ROOT/scripts/pr-workflow-content.sh" "$d/scripts/pr-workflow-content.sh" || return 1
     ln -s "$RF_TEST_ROOT/.claude-plugin/plugin.json" "$d/.claude-plugin/plugin.json" || return 1
     cp "$RF_TEST_REGISTRY" "$d/references/rule-registry.json" || return 1
     while IFS= read -r rel; do
@@ -258,7 +261,8 @@ rf_test_expected_range() {
 # worktree is cut from `git stash create` when the checkout has uncommitted
 # changes to tracked files, so it holds what the suite is testing rather than
 # the last commit; a new file nothing has added yet is not in it. The paths
-# are the registry, the reader, the library, plugin.json, CLAUDE.md, the
+# are the registry, the reader, the library, the PR workflow content switch
+# reader, plugin.json, CLAUDE.md, the
 # writing-style rules, the scripts of the skills whose gate scripts report
 # registry rules (and the scripts they call), and every file a rule's text
 # points at. <dest> must not exist; rf_test_drop_plugin removes it.
@@ -269,7 +273,7 @@ rf_test_copy_plugin() {
     [ -n "$base" ] || base=$(git -C "$RF_TEST_ROOT" rev-parse HEAD) || return 1
     git -C "$RF_TEST_ROOT" worktree add --quiet --detach --no-checkout "$d" "$base" || return 1
     {
-        printf '%s\n' /scripts/lib/ /scripts/rule-registry.sh /references/rule-registry.json \
+        printf '%s\n' /scripts/lib/ /scripts/rule-registry.sh /scripts/pr-workflow-content.sh /references/rule-registry.json \
             /.claude-plugin/plugin.json /CLAUDE.md /skills/writing-style/ \
             /skills/work-on/scripts/ /skills/scope/scripts/ /skills/execute/scripts/
         jq -r '[.rules[].text.path | select(type == "string")] | unique | .[] | "/" + .' \

@@ -154,7 +154,7 @@ C141	skills/coordinate/scripts/record-find.sh	-	matched on the exact title	chang
 C142	skills/coordinate/koto-templates/coordinate.md	record_find	a title match without the declaration line, several matches	changed: record-find.sh routes the three outcomes to found, record_open or record_conflict
 C143	skills/coordinate/koto-templates/coordinate.md	record_find	the previous rotation's record still open past its end date	changed: record-find.sh reads the rotation's dates and routes to the predecessor close-out states
 C144	skills/coordinate/koto-templates/coordinate.md	record_conflict	isn't a record is a scope question
-C145	skills/coordinate/koto-templates/coordinate.md	record_open	`--recut` when the find read	changed: deleting and re-cutting a stale branch is record-open.sh --recut
+C145	skills/coordinate/scripts/record-open.sh	-	refused unless --recut, which deletes the remote ref	changed: deleting and re-cutting a stale branch is record-open.sh --recut, which no discipline find routes to now
 C146	skills/coordinate/scripts/record-open.sh	-	default branch's head with one empty commit	changed: cutting the branch, the empty commit and the draft pull request are record-open.sh
 C147	skills/coordinate/koto-templates/coordinate.md	record_open	the start plus `{{ROTATION_DAYS}}` days
 C148	skills/coordinate/references/record-template.md	-	edit the end date to match in the same update
@@ -258,3 +258,8 @@ S16	skills/coordinate/SKILL.md	-	Every worker's leg is a key of the coordinator'
 S17	skills/coordinate/koto-templates/coordinate.md	reconcile	until each leg has an end (`leg-unclassified <worker>`)
 S18	skills/coordinate/koto-templates/coordinate.md	failure	--topic <its topic> --strand
 S19	skills/coordinate/koto-templates/coordinate.md	take_report	so it stands as a message report from `worker <topic>`
+S20	skills/coordinate/koto-templates/coordinate.md	record_find	the find reads this host's sessions
+S21	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	the handover gate lists `carry-unacknowledged`
+S22	skills/coordinate/koto-templates/coordinate.md	rotation_end	Writing it closes the rotation
+S23	skills/coordinate/koto-templates/coordinate.md	record_open	the same command with `--start` and `--end` opens
+S24	skills/coordinate/koto-templates/coordinate.md	record_conflict	whether that session is the predecessor

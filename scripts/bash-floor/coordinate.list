@@ -4,7 +4,9 @@ workflow: .github/workflows/check-coordinate-scripts.yml
 # Its engine suites (*_engine_test.sh) need real koto and run on
 # ubuntu only.
 skills/coordinate/scripts/record-codec_test.sh
+skills/coordinate/legacy-import/legacy-import_test.sh
 skills/coordinate/scripts/state-schema_test.sh
+skills/coordinate/scripts/discipline-session_test.sh
 skills/coordinate/scripts/coord-log_test.sh
 skills/coordinate/scripts/coordinate-report_test.sh
 skills/coordinate/scripts/rule-coverage_test.sh
@@ -22,6 +24,7 @@ skills/coordinate/scripts/board-verdict_test.sh
 scripts/lib/squash-message_test.sh
 skills/coordinate/scripts/board-record_test.sh
 skills/coordinate/scripts/land-check_test.sh
+skills/coordinate/scripts/review-round_test.sh
 skills/coordinate/scripts/land-merge_test.sh
 skills/coordinate/scripts/merge-confirm_test.sh
 skills/coordinate/scripts/merged-facts_test.sh

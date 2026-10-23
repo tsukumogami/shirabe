@@ -35,9 +35,29 @@
 # args file inside the work tree, and no koto binary.
 #
 # Usage:
-#   work-on-open.sh --workflow <name> [--var NAME=VALUE]... <tokens-file>
+#   work-on-open.sh --workflow <name> [--var NAME=VALUE]...
+#                   [--dispatched-by <dispatcher>] <tokens-file>
 #
 #   --workflow     the session name, <WF> in SKILL.md: issue_<N> or task_<slug>.
+#   --dispatched-by
+#                  the session that dispatched this run, when one did: any koto
+#                  session name (^[A-Za-z0-9][A-Za-z0-9._-]*$, at most 200
+#                  bytes) other than <name>, given at most once. Anything else
+#                  is this script's own usage refusal, before any koto call.
+#                  Once the session is opened or attached, the script runs
+#                  `koto session link <name> --dispatched-by <dispatcher>`,
+#                  which records the link in the run's own session so koto
+#                  keeps it while the dispatcher's hierarchy is alive
+#                  (`koto session hierarchy <name>`). A failed link is run once
+#                  more; a second failure prints
+#                    warning=link-failed dispatched_by=<dispatcher>
+#                  after session=<name>, records the same two facts in the
+#                  run's own key session/link-warning, and leaves the exit
+#                  code as the open's: the run goes on, only not joined to its
+#                  dispatcher. A link that works prints nothing. Without the
+#                  flag no link is written and the script behaves as before.
+#                  The retry, warning and record are scripts/lib/
+#                  dispatch-link.sh's, shared with skill-session.sh.
 #   --var          a template variable the agent derived for this run, as it
 #                  would pass it to `koto init --var`: ISSUE_NUMBER and
 #                  ARTIFACT_PREFIX, and ISSUE_REPO for an issue in another
@@ -109,7 +129,9 @@
 # `review-level.sh set <session> <level>` clears.
 #
 # Output: koto-open.sh's lines (opened=..., rebound=..., leg=..., refused=...,
-# failed=...), then `session=<name>` when a session was opened or attached.
+# failed=...), then `session=<name>` when a session was opened or attached,
+# then, under --dispatched-by, `warning=link-failed dispatched_by=<dispatcher>`
+# when the link could not be recorded.
 # koto's refusal wording goes to stderr.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
@@ -131,6 +153,8 @@ TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
 KOTO_OPEN="$PLUGIN_DIR/scripts/koto-open.sh"
 # shellcheck source=../../../scripts/lib/verification-deferral.sh
 . "$PLUGIN_DIR/scripts/lib/verification-deferral.sh" || exit 64
+# shellcheck source=../../../scripts/lib/dispatch-link.sh
+. "$PLUGIN_DIR/scripts/lib/dispatch-link.sh" || exit 64
 
 RE_LEG='^[a-z0-9_][a-z0-9_-]{0,63}:work-on$'
 RE_VAR='^[A-Z][A-Z0-9_]*='
@@ -164,6 +188,8 @@ own_refusal() {
 WORKFLOW=""
 VARS=()
 POS=0
+DISPATCHER=""
+HAVE_DISPATCHER=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --workflow)
@@ -173,6 +199,10 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || own_refusal "--var needs NAME=VALUE"
             [[ "$2" =~ $RE_VAR ]] || own_refusal "--var must be NAME=VALUE, got [$2]"
             VARS+=("$2"); shift ;;
+        --dispatched-by)
+            [ "$#" -ge 2 ] || own_refusal "--dispatched-by needs the dispatcher's session name"
+            HAVE_DISPATCHER=$((HAVE_DISPATCHER + 1))
+            DISPATCHER="$2"; shift ;;
         -*) own_refusal "unknown option: $1" ;;
         *)
             POS=$((POS + 1))
@@ -182,12 +212,19 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
-[ -n "$TOKENS_FILE" ] || own_refusal "usage: work-on-open.sh --workflow <name> [--var NAME=VALUE]... <tokens-file>"
+[ -n "$TOKENS_FILE" ] || own_refusal "usage: work-on-open.sh --workflow <name> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>"
 if [ ! -f "$TOKENS_FILE" ]; then
     MISSING="$TOKENS_FILE"; TOKENS_FILE=""
     own_refusal "no tokens file at [$MISSING]"
 fi
 [ -n "$WORKFLOW" ] || own_refusal "--workflow is required"
+# Checked once the tokens file is known, so a refusal removes it.
+[ "$HAVE_DISPATCHER" -le 1 ] || own_refusal "--dispatched-by given more than once"
+if [ "$HAVE_DISPATCHER" -eq 1 ]; then
+    dl_valid_dispatcher "$DISPATCHER" \
+        || own_refusal "--dispatched-by must name a koto session: ^[A-Za-z0-9][A-Za-z0-9._-]*\$, at most 200 bytes, got [$DISPATCHER]"
+    [ "$DISPATCHER" != "$WORKFLOW" ] || own_refusal "--dispatched-by names $WORKFLOW itself; a session is not its own dispatcher"
+fi
 command -v jq >/dev/null || { remove_tokens; printf 'failed=jq_missing\n'; echo "$PROG: jq is not on PATH" >&2; exit 127; }
 jq -e 'type == "array" and all(.[]; type == "string")' "$TOKENS_FILE" >/dev/null \
     || own_refusal "the tokens file is not a JSON array of strings"
@@ -275,6 +312,14 @@ OUT=$(bash "$KOTO_OPEN" "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE" --attach-live --ko
 RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 case "$OUT" in
-    opened=*) printf 'session=%s\n' "$WORKFLOW" ;;
+    opened=*)
+        printf 'session=%s\n' "$WORKFLOW"
+        # A failed link has printed its warning and recorded it; the open stands.
+        # koto-open.sh prints opened= only on exit 0; the check keeps it so if
+        # that ever changes. It runs the koto KOTO_BIN names, as this does.
+        if [ "$HAVE_DISPATCHER" -eq 1 ] && [ "$RC" -eq 0 ]; then
+            dl_link "${KOTO_BIN:-koto}" "$WORKFLOW" "$DISPATCHER" || true
+        fi
+        ;;
 esac
 exit "$RC"

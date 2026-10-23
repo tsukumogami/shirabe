@@ -30,7 +30,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/adopt-or-create-test.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/adopt-or-create-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"
 mkdir -p "$BIN"
@@ -105,8 +105,13 @@ ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 # tallied here, and the end of the suite asserts none of them released it.
 RELEASED_ELSEWHERE=""
 OTHER_EXITS=""
+# Runs in REPO_DIR: a repository with no `## PR Workflow Content:` header (the
+# default, omit), unless a case points it at one that opts in.
+mkdir -p "$WORK/omit-repo" "$WORK/include-repo"
+printf '## PR Workflow Content: include\n' > "$WORK/include-repo/CLAUDE.md"
+REPO_DIR="$WORK/omit-repo"
 run_adopt() {
-    OUT=$(env KOTO_STORE="$CASE" GH_FIX="$CASE" PATH="$BIN:$PATH" bash "$ADOPT" "$@" </dev/null 2>"$CASE/stderr")
+    OUT=$(cd "$REPO_DIR" && env KOTO_STORE="$CASE" GH_FIX="$CASE" PATH="$BIN:$PATH" bash "$ADOPT" "$@" </dev/null 2>"$CASE/stderr")
     RC=$?
     if [ "$RC" -ne 6 ]; then
         OTHER_EXITS="$OTHER_EXITS $RC"
@@ -163,11 +168,28 @@ else
 fi
 RID=$(ctx run_id)
 if [[ $RID =~ ^[0-9a-f]{32}$ ]] \
-    && [ "$(head -1 "$CASE/created-body")" = "Implements docs/plans/PLAN-topic.md." ] \
+    && [ "$(head -1 "$CASE/created-body")" = "Draft of the topic work; its description is written when the work is done." ] \
     && grep -qxF "<!-- shirabe-run: $RID -->" "$CASE/created-body"; then
     pass "the created PR's body carries this run's marker, and the run's id is recorded"
 else
     fail "created body [$(cat "$CASE/created-body" 2>/dev/null)], run_id [$RID]"
+fi
+if grep -q 'PLAN-' "$CASE/created-body"; then
+    fail "default: the created body points at the PLAN: [$(cat "$CASE/created-body")]"
+else
+    pass "default: the created body names no PLAN file"
+fi
+
+new_case create-include
+echo '[]' > "$CASE/list.out.1"
+echo "[$(owned 7)]" > "$CASE/list.out.2"
+REPO_DIR="$WORK/include-repo"
+run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
+REPO_DIR="$WORK/omit-repo"
+if [ "$RC" -eq 0 ] && [ "$(head -1 "$CASE/created-body")" = "Implements docs/plans/PLAN-topic.md." ]; then
+    pass "a repository that opts in to workflow content: the body points at the PLAN, as before"
+else
+    fail "include: exit $RC, created body [$(cat "$CASE/created-body" 2>/dev/null)]"
 fi
 
 # --- the run marker -------------------------------------------------------------

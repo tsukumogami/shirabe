@@ -38,6 +38,9 @@
 #   the hand-off's coordinated template names the session the step agent
 #     opens, the dispatch variables, and that it makes no push and no gh
 #     write, and its fenced block never tells the agent to run node-push.sh;
+#   the `koto init` in that block, rendered with every substitution filled,
+#     carries `--dispatched-by execute-<plan-slug>` once, in the command
+#     itself rather than in prose around it;
 #
 # and, so the check is known to bite, that a copy of the section with one
 # phrase changed is reported missing that phrase, and that a copy of
@@ -310,7 +313,8 @@ fi
 cat > "$WORK/coord-handoff.txt" <<'EOF'
 `work-on-<plan-slug>-<node>-<item>`
 in the node's worktree
-koto init {{CHILD}} --template {{PLUGIN_ROOT}}/skills/work-on/koto-templates/work-on.md --var ARTIFACT_PREFIX={{CHILD}} --var ISSUE_SOURCE={{ISSUE_SOURCE}} --var ISSUE_NUMBER={{ISSUE_NUMBER}} --var PLAN_DOC={{PLAN_DOC}} --var SHARED_BRANCH={{SHARED_BRANCH}} --var PLUGIN_ROOT={{PLUGIN_ROOT}} {{BOUND_VARS}} {{DEFERRAL_VARS}}
+koto init {{CHILD}} --template {{PLUGIN_ROOT}}/skills/work-on/koto-templates/work-on.md --var ARTIFACT_PREFIX={{CHILD}} --var ISSUE_SOURCE={{ISSUE_SOURCE}} --var ISSUE_NUMBER={{ISSUE_NUMBER}} --var PLAN_DOC={{PLAN_DOC}} --var SHARED_BRANCH={{SHARED_BRANCH}} --var PLUGIN_ROOT={{PLUGIN_ROOT}} {{BOUND_VARS}} {{DEFERRAL_VARS}} --dispatched-by execute-{{PLAN_SLUG}}
+`{{PLAN_SLUG}}` | the run's plan slug, so `execute-{{PLAN_SLUG}}` is the owning session's own name
 `--var REVIEW_FLOOR=<floor>` and `--var REVIEW_CEILING=<ceiling>`
 `--var VERIFICATION=hosted-ci --var 'VERIFICATION_DEFERRAL_REASON=<reason>'`
 the `plan_abs` value
@@ -325,6 +329,30 @@ seats=unavailable
 at most ten lines
 EOF
 check "the coordinated hand-off template" "$WORK/coord-handoff.flat" "$WORK/coord-handoff.txt"
+
+# The command the step agent runs, rendered the way the owning session fills
+# the block: every substitution replaced with a value of its shape. The child's
+# `koto init` carries the owning session's own name, execute-<plan-slug>, as
+# its dispatcher.
+awk '
+    /^  koto init / { on = 1 }
+    on && /^  and submit/ { exit }
+    on { print }
+' "$WORK/coord-block.md" | tr '\n' ' ' | tr -s ' ' | sed \
+    -e 's|{{CHILD}}|work-on-my-plan-n1-3|g' -e 's|{{PLUGIN_ROOT}}|/plugins/shirabe|g' \
+    -e 's|{{ISSUE_SOURCE}}|plan_outline|g' -e 's|{{ISSUE_NUMBER}}|3|g' \
+    -e 's|{{PLAN_DOC}}|/work/coord/docs/plans/PLAN-my-plan.md|g' -e 's|{{SHARED_BRANCH}}|impl/my-plan-n1|g' \
+    -e 's|{{PLAN_SLUG}}|my-plan|g' -e 's|{{BOUND_VARS}}|--var REVIEW_FLOOR=standard|g' -e 's|{{DEFERRAL_VARS}}||g' \
+    > "$WORK/coord-init.txt"
+RENDERED=$(sed 's/ *$//' "$WORK/coord-init.txt")
+if grep -q '{{' "$WORK/coord-init.txt"; then
+    fail "the coordinated koto init has a substitution this test does not fill: [$RENDERED]"
+elif [ "$(grep -o -- '--dispatched-by [^ ]*' "$WORK/coord-init.txt")" = "--dispatched-by execute-my-plan" ] \
+    && grep -q '^ *koto init work-on-my-plan-n1-3 ' "$WORK/coord-init.txt"; then
+    pass "the rendered koto init for the /work-on child carries --dispatched-by execute-<plan-slug>, once: [$RENDERED]"
+else
+    fail "the rendered koto init for the /work-on child lacks --dispatched-by execute-my-plan: [$RENDERED]"
+fi
 
 if grep -qF -- "node-push.sh" "$WORK/coord-block.md"; then
     fail "the coordinated template's block names node-push.sh; only the owning session runs it"

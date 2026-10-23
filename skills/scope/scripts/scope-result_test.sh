@@ -89,6 +89,8 @@ mkdir -p "$KH"
 N=0
 R=""; GHF=""
 # repo <topic> -- a bare origin with main, a clone on docs/<topic>. Sets R, GHF.
+# The repository opts in to workflow content, so the published body carries
+# the intent= record line these cases read.
 repo() {
     N=$((N + 1))
     R="$T/work$N"; GHF="$T/gh$N"
@@ -96,7 +98,8 @@ repo() {
     git init -q --bare -b main "$T/origin$N.git"
     git init -q -b main "$R"
     printf '# repo\n' >"$R/README.md"
-    git -C "$R" add README.md && git -C "$R" commit -q -m init
+    printf '# repo\n\n## PR Workflow Content: include\n' >"$R/CLAUDE.md"
+    git -C "$R" add README.md CLAUDE.md && git -C "$R" commit -q -m init
     git -C "$R" remote add origin "$T/origin$N.git"
     git -C "$R" push -q -u origin main
     git -C "$R" checkout -q -b "docs/$1"

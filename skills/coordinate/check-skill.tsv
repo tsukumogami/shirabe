@@ -51,12 +51,14 @@ cost	reconcile-pass_test.sh	59
 cost	record-write_test.sh	57
 cost	dispatch-worker_test.sh	56
 cost	teardown-pass_engine_test.sh	55
+cost	discipline-session_engine_test.sh	55
 cost	land-merge_test.sh	53
 cost	holding-link_test.sh	48
 cost	board-land_engine_test.sh	47
 cost	quiet-check_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
+cost	discipline-session_test.sh	40
 cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
@@ -66,6 +68,8 @@ cost	handover_engine_test.sh	29
 cost	record-codec_test.sh	25
 cost	writeback_engine_test.sh	25
 cost	state-schema_test.sh	24
+cost	legacy-import_test.sh	23
+cost	read-once_test.sh	20
 cost	render-brief_test.sh	19
 cost	record-holding_test.sh	17
 cost	record-find_test.sh	16
@@ -107,6 +111,7 @@ cost	report-pr_test.sh	2
 cost	start-check_test.sh	2
 cost	dispatch-common_test.sh	1
 cost	panel-evidence_test.sh	1
+cost	review-round_test.sh	1
 cost	pause-read_test.sh	1
 cost	coordinate-report_test.sh	0
 cost	skill-states_test.sh	0

@@ -42,7 +42,14 @@
 #      as `state=wait` with `tick=moved`; the check the hub's directive asks
 #      on every visit says a reconcile is owed, and says it again when read
 #      again; the moved tick takes it through a full reconcile whose report is
-#      read on the new host and names its source, and the check is clear.
+#      read on the new host and names its source, and the check is clear;
+#   7. a discipline rotation on the session store
+#      (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3):
+#      a second rotation carries the first's hold and go-ahead and reports
+#      them, its handover gate lists carry-unacknowledged until a person's
+#      go-ahead set after its start (the carried go-ahead doesn't clear it),
+#      and host B imports it into a fresh workspace, resuming it there with
+#      record/rotation as on A.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -279,5 +286,51 @@ grep -qF "This run was imported from session \`$S\` in workspace \`$WS_B\`" <<< 
     && ok "  ... whose report was read on C, naming B as the source" \
     || bad "  ... whose report was read on C, naming B as the source" "$(host_on c koto context get "$S" reconcile/report.md 2>&1 | head -5)"
 eq "  ... and the handover read still carries the cap" "1" "$(handover | jq -r .cap)"
+
+echo "== 7. a discipline rotation on the session: the carry, its gate and the import =="
+# docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3: host A
+# runs a first rotation that sets a hold and a go-ahead and closes; the second
+# rotation carries them, and its handover gate holds until a person's go-ahead
+# set after its start; host B then imports the second rotation.
+ON=a
+rota_open() { # rota_open: a run of the rota discipline on host A, its session in S
+    printf '["--discipline", "rota", "--host", "acme/widgets"]' > "$T/args.json"
+    S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+    [ -n "$S" ]
+}
+rota_open || bad "the first rotation's run opens" "$(cat "$T/open.err")"
+R1=$S
+eq "the first rotation stops at record_open" record_open "$(at)"
+render "$(record_json discipline rota)" issue > "$T/rota.md"
+run record-open.sh --body-file "$T/rota.md" --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
+eq "  ... opens in its session" 0 $?
+eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+jq -n '{hold: "after-cutover", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-10-01T10:00Z", lifted: ""}' > "$T/rhold.json"
+{ run record-hold.sh --add --row-file "$T/rhold.json" \
+  && state --standing go-ahead --what "ship the cutover" --owner "the human"; } > /dev/null 2> "$T/w.err"
+eq "the first rotation sets a hold and a go-ahead" 0 $?
+printf 'The cutover waits on the vendor.\n' > "$T/rwhy.txt"
+state --reasoning-file "$T/rwhy.txt"; eq "  ... and closes with its reasoning" 0 $?
+rota_open || bad "the second rotation's run opens" "$(cat "$T/open.err")"
+R2=$S
+[ "$R2" != "$R1" ] && ok "the next start opens the second rotation" || bad "the next start opens the second rotation" "$R2"
+eq "  ... whose find reads the predecessor" predecessor_carry "$(at)"
+run record-open.sh --carry > "$T/rcarry.out" 2> "$T/w.err"; eq "  ... and carries it" 0 $?
+eq "  ... reporting the hold and the go-ahead" "after-cutover|go-ahead:the human" \
+    "$(host_on a koto context get "$R2" coord/predecessor_carry.json | jq -r '"\([.holds[].hold] | join(" "))|\([.standing[] | "\(.kind):\(.owner)"] | join(" "))"')"
+eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"carry":"carried"}')"
+rgaps() { handover | jq -r '[.gaps[].gap] | join(" ")'; }
+case " $(rgaps) " in *" carry-unacknowledged "*) ok "the gate lists carry-unacknowledged" ;; *) bad "the gate lists carry-unacknowledged" "$(rgaps)" ;; esac
+eq "  ... though the carry brought the first rotation's go-ahead" "go-ahead" "$(host_on a koto context get "$R2" record/standing | jq -r '.[0].kind')"
+state --standing go-ahead --what "the carried hold and go-ahead are acknowledged" --owner "the human"
+eq "a person's go-ahead is recorded" 0 $?
+case " $(rgaps) " in *" carry-unacknowledged "*) bad "  ... and clears it" "$(rgaps)" ;; *) ok "  ... and clears it" ;; esac
+RROT=$(host_on a koto context get "$R2" record/rotation)
+ON=b
+printf '["--discipline", "rota", "--host", "acme/widgets", "--import", "%s", "--from", "%s"]' "$R2" "$WS_A" > "$T/args.json"
+OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+eq "host B imports the second rotation" 0 $?
+grep -qx 'resumed=1' <<< "$OUT" && grep -qx "session=$R2" <<< "$OUT" && ok "  ... resuming it there" || bad "  ... resuming it there" "$OUT $(cat "$T/open.err")"
+eq "  ... its record/rotation reading the same as on A" "$RROT" "$(host_on b koto context get "$R2" record/rotation)"
 
 done_tests handover-engine

@@ -16,11 +16,18 @@
 #   every call it gets, so they pin what the script refuses before reaching
 #   koto: names, parents and children, get/put keys and paths, koto missing
 #   from PATH and koto below the floor. They also read the script itself:
-#   no eval, no --parent, and --no-cleanup on every koto next.
+#   no eval, no --parent, and --no-cleanup on every koto next. A second
+#   stand-in that keeps sessions and keys in files runs the link step through
+#   adopt and open --dispatched-by: the link verb's arguments, a retry that
+#   works, two failures (the warning= line and the session/link-warning key,
+#   exit 0), and no link on no match, two matches, an open without the flag
+#   or a refused open. `reclaimable` is an unknown subcommand.
 #
 #   engine-backed cases, which drive the real koto in a store isolated by
 #   KOTO_SESSIONS_BASE (and a private HOME), from a throwaway git repository:
-#   every subcommand, the parent-and-child case, and the read-only status. They
+#   every subcommand, the parent-and-child case with its dispatched-by link
+#   and `koto session hierarchy` joining the two, open --dispatched-by, and
+#   the read-only status. They
 #   skip with a message when koto is absent, like the other engine-backed
 #   suites; the CI job that runs this asserts koto is present first, so a skip
 #   there cannot pass as green.
@@ -248,7 +255,15 @@ check_refused "dispatch clear from a parent not in the closed set" dispatch clea
 check_refused "adopt with child a_b" adopt a_b t1
 check_refused "close-children from a parent not in the closed set" close-children design t1 done
 check_refused "close-children with value x" close-children scope t1 x
-check_refused "reclaimable of ../x" reclaimable ../x
+check_refused "reclaimable, retired for koto session hierarchy, is an unknown subcommand" reclaimable brief-t1
+assert_contains "reclaimable is refused as an unknown subcommand" "unknown subcommand: reclaimable" "$STDERR"
+assert_not_contains "the usage line no longer lists reclaimable" "reclaimable" "$(printf '%s\n' "$STDERR" | grep '^skill-session: usage:')"
+check_refused "open with --dispatched-by and no name" open brief t1 --dispatched-by
+check_refused "open with an option other than --dispatched-by" open brief t1 --parent scope-t1
+check_refused "open with --dispatched-by ../x" open brief t1 --dispatched-by ../x
+check_refused "open with --dispatched-by -x" open brief t1 --dispatched-by -x
+check_refused "open with --dispatched-by naming the session itself" open brief t1 --dispatched-by brief-t1
+check_refused "open with a --dispatched-by over 200 bytes" open brief t1 --dispatched-by "$(printf 'a%.0s' $(seq 1 201))"
 check_refused "get from session Foo-x" get Foo-x work/a.md "$T"
 check_refused "an unknown subcommand" frobnicate
 
@@ -326,6 +341,232 @@ else
     pass "a koto below the floor is asked only for its version"
 fi
 assert_no_staging "koto below the floor (stand-in): no file is created under the staging folder"
+
+# --- the link step, against a stand-in koto ----------------------------------------
+#
+# A stand-in that keeps sessions and keys in files under $LINK_STORE, so open,
+# adopt and the link step run end to end without a koto that has the link verb.
+# Every call is recorded in $STUB_LOG. `koto session link` fails the first
+# $LINK_FAILS times it is called (0 when unset) and succeeds after that;
+# LINK_ADD_FAILS makes `context add` of the warning key fail too.
+LINK_STUB_DIR="$T/linkbin"
+mkdir -p "$LINK_STUB_DIR"
+LINK_STORE="$T/link-store"
+cat >"$LINK_STUB_DIR/koto" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+S="$LINK_STORE"
+case "${1:-} ${2:-}" in
+    "version "*) printf 'koto 99.0.0 (stub)\n'; exit 0 ;;
+    "init "*)
+        mkdir -p "$S/status" "$S/keys/$2"
+        printf 'live\n' >"$S/status/$2"
+        printf '{"outcome":"created"}\n'
+        exit 0 ;;
+    "next "*) printf '{"state":"open"}\n'; exit 0 ;;
+    "status "*)
+        if [ -f "$S/status/$2" ]; then
+            if [ "$(cat "$S/status/$2")" = live ]; then printf '{"is_terminal":false}\n'; else printf '{"is_terminal":true}\n'; fi
+            exit 0
+        fi
+        printf '{"error":"workflow %s not found"}\n' "$2"
+        exit 2 ;;
+    "context add")
+        if [ -n "${LINK_ADD_FAILS:-}" ] && [ "$4" = session/link-warning ]; then exit 1; fi
+        mkdir -p "$(dirname "$S/keys/$3/$4")"
+        cat >"$S/keys/$3/$4"
+        exit 0 ;;
+    "context exists") [ -f "$S/keys/$3/$4" ] && exit 0; exit 1 ;;
+    "context get") cat "$S/keys/$3/$4" 2>/dev/null || exit 1; exit 0 ;;
+    "context remove") rm -f "$S/keys/$3/$4"; exit 0 ;;
+    "session link")
+        n=$(cat "$S/link-count" 2>/dev/null || echo 0)
+        n=$((n + 1))
+        printf '%s\n' "$n" >"$S/link-count"
+        if [ "$n" -le "${LINK_FAILS:-0}" ]; then
+            printf '{"error":{"code":"stub_link_failed","message":"stub"}}\n'
+            exit 1
+        fi
+        printf '{"linked":true}\n'
+        exit 0 ;;
+esac
+printf '{"error":"stub"}\n'
+exit 1
+STUB
+chmod +x "$LINK_STUB_DIR/koto"
+export LINK_STORE
+
+# link_fresh -- an empty store and call log.
+link_fresh() { rm -rf "$LINK_STORE"; mkdir -p "$LINK_STORE/status" "$LINK_STORE/keys"; rm -f "$STUB_LOG"; }
+# link_session <name> <live|finished> -- a session the stand-in answers for.
+link_session() { mkdir -p "$LINK_STORE/keys/$1"; printf '%s\n' "$2" >"$LINK_STORE/status/$1"; }
+# link_key <session> <key> <value> -- a key the stand-in holds.
+link_key() { mkdir -p "$(dirname "$LINK_STORE/keys/$1/$2")"; printf '%s' "$3" >"$LINK_STORE/keys/$1/$2"; }
+link_has() { [ -f "$LINK_STORE/keys/$1/$2" ]; }
+link_val() { cat "$LINK_STORE/keys/$1/$2" 2>/dev/null; }
+# link_calls -- the stand-in's `session link` calls, one per line.
+link_calls() { [ -f "$STUB_LOG" ] && grep '^session link ' "$STUB_LOG"; return 0; }
+# call_order <session> <key> -- the order of the write of <key> into <session>
+# and the link calls, as <key>|link|...
+call_order() {
+    awk -v add="context add $1 $2" '
+        $0 == add { printf "%s|", "'"$2"'" }
+        /^session link / { printf "link|" }
+    ' "$STUB_LOG"
+}
+run_link() {
+    RC=0
+    (cd "$REPO" && KOTO_BIN="$LINK_STUB_DIR/koto" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" "$@") \
+        >"$T/stdout" 2>"$T/stderr" || RC=$?
+    STDOUT=$(cat "$T/stdout")
+    STDERR=$(cat "$T/stderr")
+}
+# A parent scope-<topic> that dispatched design, on this repository's branch.
+link_parent() {
+    link_session "scope-$1" live
+    link_key "scope-$1" session/branch "main"
+    link_key "scope-$1" chain/dispatch "child: design
+suppress_status_aware_prompt: true
+rationale: fresh-chain
+"
+}
+
+# adopt, one match: chain/parent first, then the link, naming the parent.
+link_fresh
+link_parent lk1
+link_session design-lk1 live
+LINK_FAILS=0 run_link adopt design lk1
+assert_eq "adopt with one match exits 0" "0" "$RC"
+assert_eq "adopt with one match prints only adopted=" "adopted=scope-lk1" "$STDOUT"
+assert_eq "adopt runs the link verb once, naming the child and the parent" \
+    "session link design-lk1 --dispatched-by scope-lk1" "$(link_calls)"
+assert_eq "chain/parent is written before the link" "chain/parent|link|" "$(call_order design-lk1 chain/parent)"
+if link_has design-lk1 session/link-warning; then fail "a link that worked recorded a warning key"; else pass "a link that worked records no warning key"; fi
+
+# adopt, a link that fails once and works on the retry.
+link_fresh
+link_parent lk2
+link_session design-lk2 live
+LINK_FAILS=1 run_link adopt design lk2
+assert_eq "adopt with a link that fails once exits 0" "0" "$RC"
+assert_eq "a link that works on the retry prints no warning" "adopted=scope-lk2" "$STDOUT"
+assert_eq "the link is run twice" "2" "$(link_calls | grep -c 'session link design-lk2 --dispatched-by scope-lk2')"
+if link_has design-lk2 session/link-warning; then fail "a link that worked on the retry recorded a warning key"; else pass "a link that works on the retry records no warning key"; fi
+
+# adopt, a link that fails twice: warn, record, exit 0.
+link_fresh
+link_parent lk3
+link_session design-lk3 live
+LINK_FAILS=2 run_link adopt design lk3
+assert_eq "adopt with a link that fails twice still exits 0" "0" "$RC"
+assert_eq "adopt prints adopted= and then the warning naming the parent" \
+    "adopted=scope-lk3
+warning=link-failed dispatched_by=scope-lk3" "$STDOUT"
+assert_eq "the link is tried twice and no more" "2" "$(link_calls | wc -l | tr -d ' ')"
+assert_eq "the warning is recorded in the child's own session" "warning=link-failed
+dispatched_by=scope-lk3" "$(link_val design-lk3 session/link-warning)"
+if link_has scope-lk3 session/link-warning; then fail "the warning was written into the parent's session"; else pass "nothing is written into the parent's session"; fi
+assert_eq "chain/parent stands after a failed link" "scope-lk3" "$(link_val design-lk3 chain/parent)"
+assert_contains "the failure is said on stderr" "scope-lk3" "$STDERR"
+
+# The warning key itself can't be written: still exit 0, said on stderr.
+link_fresh
+link_parent lk4
+link_session design-lk4 live
+LINK_FAILS=2 LINK_ADD_FAILS=1 run_link adopt design lk4
+assert_eq "a warning key that can't be written: adopt still exits 0" "0" "$RC"
+assert_contains "it still prints the warning" "warning=link-failed dispatched_by=scope-lk4" "$STDOUT"
+assert_contains "and says the key was not written" "session/link-warning" "$STDERR"
+
+# A later link that works removes the earlier failure's record.
+link_fresh
+link_parent lk5
+link_session design-lk5 live
+link_key design-lk5 session/link-warning "warning=link-failed
+dispatched_by=scope-lk5
+"
+LINK_FAILS=0 run_link adopt design lk5
+if link_has design-lk5 session/link-warning; then fail "a link that worked left an earlier warning key"; else pass "a link that works removes an earlier warning key"; fi
+
+# adopt, no match and two matches: no link.
+link_fresh
+link_session design-lk6 live
+run_link adopt design lk6
+assert_eq "adopt with no match prints adopted=none" "adopted=none" "$STDOUT"
+assert_eq "adopt with no match runs no link" "" "$(link_calls)"
+link_fresh
+link_parent lk7
+link_session charter-lk7 live
+link_key charter-lk7 session/branch "main"
+link_key charter-lk7 chain/dispatch "child: design
+suppress_status_aware_prompt: true
+rationale: revise
+"
+link_session design-lk7 live
+run_link adopt design lk7
+assert_eq "adopt with two matches exits 3" "3" "$RC"
+assert_eq "adopt with two matches runs no link" "" "$(link_calls)"
+
+# open --dispatched-by: open, then link from the opened session.
+link_fresh
+LINK_FAILS=0 run_link open brief lk8 --dispatched-by deliver-lk8
+assert_eq "open --dispatched-by exits 0" "0" "$RC"
+assert_eq "open --dispatched-by prints the open's lines only" "session=brief-lk8
+opened=new" "$STDOUT"
+assert_eq "open --dispatched-by runs the link verb once, naming the session and the dispatcher" \
+    "session link brief-lk8 --dispatched-by deliver-lk8" "$(link_calls)"
+assert_eq "the link comes after the session's branch is written" "session/branch|link|" "$(call_order brief-lk8 session/branch)"
+
+link_fresh
+LINK_FAILS=1 run_link open brief lk9 --dispatched-by deliver-lk9
+assert_eq "open --dispatched-by with a link that fails once exits 0" "0" "$RC"
+assert_eq "a retry that works prints no warning" "session=brief-lk9
+opened=new" "$STDOUT"
+assert_eq "the link is run twice" "2" "$(link_calls | wc -l | tr -d ' ')"
+if link_has brief-lk9 session/link-warning; then fail "open recorded a warning for a link that worked on the retry"; else pass "open records no warning for a link that works on the retry"; fi
+
+link_fresh
+LINK_FAILS=2 run_link open brief lk10 --dispatched-by deliver-lk10
+assert_eq "open --dispatched-by with a link that fails twice still exits 0" "0" "$RC"
+assert_eq "open prints its lines and then the warning naming the dispatcher" "session=brief-lk10
+opened=new
+warning=link-failed dispatched_by=deliver-lk10" "$STDOUT"
+assert_eq "the warning is recorded in the opened session" "warning=link-failed
+dispatched_by=deliver-lk10" "$(link_val brief-lk10 session/link-warning)"
+assert_eq "the opened session keeps its branch" "main" "$(link_val brief-lk10 session/branch)"
+
+# open without the flag: no link, the same lines as before.
+link_fresh
+LINK_FAILS=0 run_link open brief lk11
+assert_eq "open without --dispatched-by exits 0" "0" "$RC"
+assert_eq "open without --dispatched-by prints what it always has" "session=brief-lk11
+opened=new" "$STDOUT"
+assert_eq "open without --dispatched-by runs no link" "" "$(link_calls)"
+if [ -f "$STUB_LOG" ] && grep -q 'link-warning' "$STUB_LOG"; then
+    fail "open without --dispatched-by touched the warning key"
+else
+    pass "open without --dispatched-by never touches the warning key"
+fi
+
+# A refused open links nothing.
+link_fresh
+link_session brief-lk12 live
+link_key brief-lk12 session/branch "elsewhere"
+cat >"$LINK_STUB_DIR/koto-attach" <<'STUB'
+#!/bin/bash
+if [ "${1:-}" = init ]; then
+    printf '%s\n' "$*" >>"$STUB_LOG"
+    printf '{"outcome":"attached","rebound":{}}\n'
+    exit 0
+fi
+exec "$(dirname "$0")/koto" "$@"
+STUB
+chmod +x "$LINK_STUB_DIR/koto-attach"
+RC=0
+(cd "$REPO" && KOTO_BIN="$LINK_STUB_DIR/koto-attach" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" open brief lk12 --dispatched-by deliver-lk12) \
+    >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "an open refused for another branch exits 5" "5" "$RC"
+assert_eq "a refused open runs no link" "" "$(link_calls)"
 
 # --- import, against a stand-in koto -----------------------------------------------
 #
@@ -825,6 +1066,29 @@ run dispatch write scope t10 brief fresh-chain
 assert_eq "dispatch write into a parent with no branch key succeeds" "0" "$RC"
 assert_eq "it records the parent's branch" "main" "$(kget scope-t10 session/branch)"
 
+# --- open --dispatched-by ---
+
+run open prd dx --dispatched-by deliver-dx
+assert_eq "open --dispatched-by exits 0" "0" "$RC"
+assert_eq "open --dispatched-by prints the open's lines and nothing else" "session=prd-dx
+opened=new" "$STDOUT"
+if khas prd-dx koto/links/dispatched-by/deliver-dx; then
+    pass "open --dispatched-by records the link in the opened session (the dispatcher need not exist)"
+else
+    fail "open --dispatched-by left no koto/links/dispatched-by/deliver-dx in prd-dx"
+fi
+run open prd dx --dispatched-by deliver-dx
+assert_eq "an attach with the same dispatcher exits 0 with no warning" "session=prd-dx
+opened=attached" "$STDOUT"
+run open prd dy
+if k context list prd-dy 2>/dev/null | jq -e 'any(.[]; startswith("koto/links/dispatched-by/"))' >/dev/null 2>&1; then
+    fail "open without --dispatched-by wrote a dispatched-by link"
+else
+    pass "open without --dispatched-by writes no link"
+fi
+run close prd-dx done
+run close prd-dy done
+
 # --- the parent-and-child case ---
 
 run open scope pc
@@ -845,6 +1109,17 @@ assert_eq "the child's dispatch read finds scope-<topic> by name" "parent=scope-
 run adopt design pc
 assert_eq "adopt reports the parent" "adopted=scope-pc" "$STDOUT"
 assert_eq "adopt writes chain/parent" "scope-pc" "$(kget design-pc chain/parent)"
+if khas design-pc koto/links/dispatched-by/scope-pc; then
+    pass "adopt records the dispatched-by link in the child's own session"
+else
+    fail "adopt left no koto/links/dispatched-by/scope-pc in design-pc"
+fi
+if khas scope-pc koto/links/dispatched-by/design-pc; then fail "adopt wrote a link into the parent"; else pass "adopt writes no link into the parent"; fi
+if khas design-pc session/link-warning; then fail "a link that worked left a warning key"; else pass "a link that worked records no warning key"; fi
+assert_eq "koto session hierarchy joins the child to its parent" "true" \
+    "$(k session hierarchy design-pc --json 2>/dev/null | jq '[.members[]?.name] | index("scope-pc") != null' 2>/dev/null)"
+run adopt design pc
+assert_eq "adopting again links again without a warning" "adopted=scope-pc" "$STDOUT"
 
 CHILD_SCR=$(PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" scratch)
 printf 'the summary\n' >"$CHILD_SCR/summary.md"
@@ -1115,55 +1390,6 @@ run put brief-t2 work/decisions.md "$SCR6/decisions.md"
 assert_eq "put into a finished session is refused" "2" "$RC"
 rm -rf "$SCR6" "$SCR7"
 
-# --- reclaimable ---
-
-run open vision r1
-run reclaimable vision-r1
-assert_eq "a live session is not reclaimable" "no" "$STDOUT"
-run close vision-r1 done
-run reclaimable vision-r1
-assert_eq "a finished session with no chain/parent is reclaimable" "yes" "$STDOUT"
-
-run open scope r2
-run open prd r2
-kadd prd-r2 chain/parent "scope-r2"
-run close prd-r2 done
-run reclaimable prd-r2
-assert_eq "a finished child whose parent is live is not reclaimable" "no" "$STDOUT"
-run close scope-r2 done
-run reclaimable prd-r2
-assert_eq "a finished child whose parent is finished is reclaimable" "yes" "$STDOUT"
-
-run open roadmap r2
-kadd roadmap-r2 chain/parent "charter-r2"
-run close roadmap-r2 done
-run reclaimable roadmap-r2
-assert_eq "a finished child whose parent is absent is reclaimable" "yes" "$STDOUT"
-
-run open strategy r3
-kadd strategy-r3 chain/parent "scope-other"
-run close strategy-r3 done
-run reclaimable strategy-r3
-assert_eq "a chain/parent naming another topic is malformed: not reclaimable" "no" "$STDOUT"
-kadd strategy-r3 chain/parent "../x"
-run reclaimable strategy-r3
-assert_eq "a chain/parent outside the grammar is malformed: not reclaimable" "no" "$STDOUT"
-kadd strategy-r3 chain/parent "scope-r3
-"
-run reclaimable strategy-r3
-assert_eq "a chain/parent with a trailing newline is malformed: not reclaimable" "no" "$STDOUT"
-
-run open review-plan r4
-run close review-plan-r4 done
-run reclaimable review-plan-r4
-assert_eq "a hyphenated skill's topic is derived longest first" "yes" "$STDOUT"
-run reclaimable nobody-r1
-assert_eq "an absent session is not reclaimable" "no" "$STDOUT"
-k init unknown-r5 --template "$TEMPLATE" >/dev/null 2>&1
-k next unknown-r5 --no-cleanup --with-data '{"close":"done"}' >/dev/null 2>&1
-run reclaimable unknown-r5
-assert_eq "a session of a skill the convention doesn't know is not reclaimable" "no" "$STDOUT"
-
 # --- close refuses a session from another template ---
 
 cat >"$T/other-tpl/two-step.md" <<'TPL'
@@ -1225,19 +1451,6 @@ if [ -n "${SKILL_SESSION_IMPORT_FROM:-}" ]; then
 else
     echo "SKIP: SKILL_SESSION_IMPORT_FROM not set -- the real-bucket import case did not run"
 fi
-
-# --- reclaimable: the leaf skills ---
-
-run open comp r6
-run close comp-r6 done
-run reclaimable comp-r6
-assert_eq "a finished comp session with no chain/parent is reclaimable" "yes" "$STDOUT"
-run open release r6
-run reclaimable release-r6
-assert_eq "a live release session is not reclaimable" "no" "$STDOUT"
-run close release-r6 done
-run reclaimable release-r6
-assert_eq "a finished release session with no chain/parent is reclaimable" "yes" "$STDOUT"
 
 assert_no_staging "the whole engine run wrote nothing under the staging folder"
 
