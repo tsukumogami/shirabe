@@ -13,14 +13,18 @@
 # one report_facts routed on, to send a report with no questions on to
 # classification only when it had a holding. Also: the design's decision
 # states and edges exist; no cycle is made of check states only; the state set is the design's; no write script
-# (record-open, record-write, record-holding, rotation-close, land-merge,
-# merge-exec) appears in any default action or gate; no directive names
+# (record-open, record-write, record-holding, land-merge, merge-exec)
+# appears in any default action or gate; no directive names
 # merge-exec.sh; no check script calls `gh api` without --method GET (GraphQL
 # queries aside) or sends a GraphQL mutation; nothing says the human merges;
 # every reference file is named by a state; the three deciders are declared
 # with their inputs gated; teardown takes `removed` into the inventory, whose
 # gate passes --absent-route and routes exit 5 to teardown_handoff and exit 6
-# back to teardown with teardown_topic kept.
+# back to teardown with teardown_topic kept. The GitHub record is gone
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md): no STORE
+# variable, no move, predecessor close-out or rotation close-out state, a
+# rotation's end (pick_facts's rotation-over and the hub's `end`) goes straight
+# to rotation_end, and a roadmap's close ends the run with nothing to close.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -35,9 +39,21 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX") || exit 1; trap 'rm -rf 
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts milestone_reopen milestone_verdict pick pick_facts posture_ask predecessor_carry predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_move record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_close rotation_done rotation_end rotation_step start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
+WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts milestone_reopen milestone_verdict pick pick_facts posture_ask predecessor_carry promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_end start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
+
+# The GitHub record's states and its store choice are gone, and a rotation's
+# end and a roadmap's close no longer pass through a close-out on GitHub.
+GONE=$(jq -r '[(.states | keys[] | select(test("^(record_move|predecessor_(handoff|close|step|done|handed_over)|rotation_(close|step|done))$"))),
+               (.variables // {} | keys[] | select(. == "STORE"))] | .[]' "$J")
+[ -z "$GONE" ] && pass "no GitHub record state or STORE variable is declared" || fail "no GitHub record state or STORE variable is declared" "$GONE"
+jq -e '([.states.pick_facts.transitions[] | select(.when["gates.pick_facts_verdict.exit_code"] == 32) | .target] == ["rotation_end"])
+       and ([.states.wait.transitions[] | select(.when.event == "end" and .when["vars.DISCIPLINE"].is_set == true) | .target] == ["rotation_end"])
+       and ([.states.record_find.transitions[] | .when["gates.record_find_verdict.exit_code"] | select(. == 17 or . == 18 or . == 19)] == [])
+       and ([.states.roadmap_close_step.transitions[] | select(.when.step == "closed") | [.target, .context_assignments.outcome]] == [["done", "closed"]])' "$J" >/dev/null \
+    && pass "a rotation's end goes straight to rotation_end and a roadmap's close ends the run" \
+    || fail "a rotation's end goes straight to rotation_end and a roadmap's close ends the run"
 
 # The dispatch path's three action states keep their own contract, checked in
 # DISPATCH below: leg_pick routes on a context-matches gate over the
@@ -218,7 +234,7 @@ jq '(.states.roadmap_close.transitions[] | select(.target == "roadmap_blocked"))
 NONOVR=$(jq -r '.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key)"' "$J")
 [ -z "$NONOVR" ] && pass "every gate in the template is overridable: false" || fail "every gate in the template is overridable: false" "$NONOVR"
 
-WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-hold\\.sh|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|rotation-close|land-merge|merge-exec")) | $s' "$J")
+WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-hold\\.sh|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|land-merge|merge-exec")) | $s' "$J")
 [ -z "$WRITES" ] && pass "no write script runs as an action or a gate" || fail "no write script runs as an action or a gate" "$WRITES"
 
 MEXEC=$(jq -r '.states | to_entries[] | select(((.value.directive // "") + (.value.details // "")) | test("merge-exec")) | .key' "$J")

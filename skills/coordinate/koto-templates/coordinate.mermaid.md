@@ -109,22 +109,12 @@ stateDiagram-v2
     pick --> wait : choice: hold
     pick_facts --> pick : gates.pick_facts_verdict.exit_code: 30, gates.pick_input.exists: true, gates.pick_slice_input.exists: true
     pick_facts --> roadmap_close : gates.pick_facts_verdict.exit_code: 31
-    pick_facts --> rotation_close : gates.pick_facts_verdict.exit_code: 32
+    pick_facts --> rotation_end : gates.pick_facts_verdict.exit_code: 32
     pick_facts --> decision_next : gates.pick_facts_verdict.exit_code: 136
     posture_ask --> record : merge: permitted
     posture_ask --> record : merge: reserved
     predecessor_carry --> record_find : carry: carried
     predecessor_carry --> record_conflict : carry: refused
-    predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 120
-    predecessor_close --> predecessor_step : gates.predecessor_close_verdict.exit_code: 122
-    predecessor_close --> predecessor_done : gates.predecessor_close_verdict.exit_code: 90
-    predecessor_close --> record_conflict : gates.predecessor_close_verdict.exit_code: 125
-    predecessor_done --> record_find : recheck: recheck
-    predecessor_handed_over --> record_find : recheck: recheck
-    predecessor_handoff --> predecessor_close : gates.predecessor_handoff_verdict.exit_code: 110
-    predecessor_handoff --> record_conflict : gates.predecessor_handoff_verdict.exit_code: 111
-    predecessor_step --> predecessor_close : step_result: done
-    predecessor_step --> predecessor_handed_over : step_result: handed_over
     promote --> teardown_inventory : promoted: promoted
     promote --> surface : promoted: escalate
     quiet_check --> wait : gates.quiet_check_verdict.exit_code: 100
@@ -148,14 +138,9 @@ stateDiagram-v2
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 14
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 15
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 16
-    record_find --> record_conflict : gates.record_find_verdict.exit_code: 17
-    record_find --> predecessor_handoff : gates.record_find_verdict.exit_code: 18
-    record_find --> record_move : gates.record_find_verdict.exit_code: 19
     record_find --> record_open : gates.record_find_verdict.exit_code: 205
     record_find --> predecessor_carry : gates.record_find_verdict.exit_code: 206
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 172
-    record_move --> record_find : move: done
-    record_move --> record_conflict : move: refused
     record_open --> record_find : opened: opened
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 60, gates.report_input.exists: true
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 61
@@ -183,21 +168,12 @@ stateDiagram-v2
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 134
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 136
     roadmap_close --> done : gates.roadmap_close_verdict.exit_code: 135
-    roadmap_close_step --> roadmap_close : step: closed
+    roadmap_close_step --> done : step: closed
     roadmap_close_step --> done_handed_over : step: handed_over
     roadmap_status --> record : evidence.unit: present, status: opened
     roadmap_status --> milestone_verdict : evidence.unit: present, status: verdict_owed
     roadmap_status --> wait : status: failed
-    rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 120
-    rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 121
-    rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 122
-    rotation_close --> rotation_done : gates.rotation_close_verdict.exit_code: 90
-    rotation_close --> record_conflict : gates.rotation_close_verdict.exit_code: 125
-    rotation_close --> rotation_end : gates.rotation_close_verdict.exit_code: 208
-    rotation_done --> done : deleted: deleted
     rotation_end --> done : gates.reasoning_written.exit_code: 0, reasoning: written
-    rotation_step --> rotation_close : step_result: done
-    rotation_step --> done_handed_over : step_result: handed_over
     start --> start_posture : gates.start_verdict.exit_code: 20
     start --> start_posture : gates.start_verdict.exit_code: 21
     start --> done_not_active : gates.start_verdict.exit_code: 22
@@ -259,7 +235,7 @@ stateDiagram-v2
     wait --> pick_facts : event: resume
     wait --> reconcile_pass : event: moved
     wait --> failure : event: redispatch
-    wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
+    wait --> rotation_end : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted
     wait_leg --> leg_spent : gates.leg_result.disposition: resolved, gates.leg_result.source: explicit
@@ -323,12 +299,6 @@ stateDiagram-v2
     note left of pick_facts
         gate: pick_slice_input
     end note
-    note left of predecessor_close
-        gate: predecessor_close_verdict
-    end note
-    note left of predecessor_handoff
-        gate: predecessor_handoff_verdict
-    end note
     note left of quiet_check
         gate: quiet_check_verdict
     end note
@@ -364,9 +334,6 @@ stateDiagram-v2
     end note
     note left of roadmap_close
         gate: roadmap_close_verdict
-    end note
-    note left of rotation_close
-        gate: rotation_close_verdict
     end note
     note left of rotation_end
         gate: reasoning_written
