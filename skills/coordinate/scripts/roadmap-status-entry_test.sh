@@ -11,7 +11,8 @@
 # to confirm names the entry, and pushing a second commit whose Progress line
 # names that comment and the entry's hash, nothing posted on the record
 # issue; --confirm clearing it once main
-# reads Done. A changes-needed verdict's milestone-verdict row confirmed from
+# reads Done, close-out (closeout-read.sh) reading the verdict owed before and
+# not after. A changes-needed verdict's milestone-verdict row confirmed from
 # record/posted/<n>: 1 before main carries the line, refused for a comment by
 # another login and for one whose text no longer hashes to the line, then its
 # rework row. A failed post (14, naming the pull request, its row written),
@@ -26,7 +27,7 @@
 # comment posted and no posted key kept, the pull request body carrying the
 # entry, one commit whose Progress line names the entry's hash alone, a
 # second run changing nothing, and --confirm reading the session entry: a
-# verified verdict cleared, a changes-needed one refused while its entry no
+# verified verdict cleared (close-out reading it owed before and not after), a changes-needed one refused while its entry no
 # longer hashes to the line and then its rework row (Who the entry's number),
 # and --reopen's line and rework row the same way; an opted-in edit whose post
 # failed, run again after the opt-in went, finishing with the hash-only line
@@ -138,6 +139,9 @@ sv_seed() {
     db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
 }
 optout() { db 'del(.files["acme/widgets"]["main:CLAUDE.md"])'; }
+# closeout: where the roadmap's close-out stands (closeout-read.sh), its
+# reason line kept in $T/cerr.
+closeout() { "${SEN[@]}" bash "$HERE/closeout-read.sh" "${RM[@]}" --roadmap "$ROADMAP" --no-seal 2>"$T/cerr"; }
 rs() { "${SEN[@]}" bash "$RS" "${W[@]}" "$@"; }
 slive() { "${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh"; }
 on_branch() { jq -r --arg b "$1" '.files["acme/widgets"][$b + ":" + $p] // empty' --arg p "$ROADMAP" "$GH_DB"; }
@@ -195,9 +199,11 @@ reset_calls
 OUT=$(rs --verdict MV1 --entry "$N1" 2>"$T/err"); rc=$?
 eq "run again it changes nothing" "0 https://github.com/acme/widgets/pull/8 1 0 0" "$rc $OUT $(jq '.prs | length' "$GH_DB") $(puts) $(grep -c 'comments --input' "$GH_DB.calls")"
 rs --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm while main doesn't read Done is 1" 1 $?
+eq "close-out reads MV1's verdict as owed while its edit is pending" "verdict-owed 7" "$(closeout)"
 to_main "$(on_branch "$PRB")"
 rs --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm once main reads Done" 0 $?
 eq "  ... clears the row" 0 "$(slive | jq '.side_effects | length')"
+eq "  ... and close-out no longer reads a verdict owed, only MV2 still open" "features-open 7" "$(closeout)"
 
 echo "== --verdict --entry: changes needed, confirmed from the posted comment =="
 sv_seed "$MV" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
@@ -304,10 +310,12 @@ eq "  ... a milestone-done row naming the entry" "milestone-done|the roadmap on 
 reset_calls
 OUT=$(rs --verdict MV1 --entry "$N7" 2>"$T/err"); rc=$?
 eq "run again it changes nothing" "0 https://github.com/acme/widgets/pull/8 1 0 0" "$rc $OUT $(jq '.prs | length' "$GH_DB") $(puts) $(ncomments)"
+eq "close-out reads MV1's verdict as owed while its edit is pending" "verdict-owed 7" "$(closeout)"
 to_main "$(on_branch "$(branch_of 8)")"
 rs --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main reads Done" 0 "$rc"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... clears the row" 0 "$(slive | jq '.side_effects | length')"
+eq "  ... and close-out no longer reads a verdict owed, only MV2 still open" "features-open 7" "$(closeout)"
 
 echo "== the default: changes needed, confirmed from the session entry =="
 sv_seed "$MV" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"

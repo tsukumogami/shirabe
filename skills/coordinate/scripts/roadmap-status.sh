@@ -599,7 +599,8 @@ entry_posts() {
         1) ;;
         *) lib_die2 "cannot read record/posted/$EN: $(lib_scrub < "$WD/posted.key.err")" ;;
     esac
-    [ "$(bash "$HERE/repo-pr-content.sh" "$REPO" 2> /dev/null)" = include ] && POSTS=1
+    if [ "$(bash "$HERE/repo-pr-content.sh" "$REPO" 2> "$WD/pc.err")" = include ]; then POSTS=1
+    else echo "$PROG: entry $ENUM stays in the session and is posted on no pull request: $(lib_scrub < "$WD/pc.err")" >&2; fi
     return 0
 }
 # progress_commit <message>: PROGRESS's lines added to `## Progress` on the
