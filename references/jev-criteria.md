@@ -179,20 +179,22 @@ measurement build theirs.
 judged under and the level chosen. The definitions are the rules the floor was
 derived from, so the decider can check the floor against the facts as well as
 the level against the levels the facts call for. The order line alone wasn't
-enough: on one host's decider ledger, read on 2026-10-23, 46 of 125
-consultations under the order-only slice escaped. Rebuilt from their
-sessions' stored facts and matched on koto's input hash, 32 of the 46 were
-full facts. The other 14 had facts that changed later, but each was at least
-167 bytes, and an empty slice is 51, so none was empty, and none had an
-unknown floor. The decider leaned the right way and stayed under the 0.9
-threshold. The verdict is `sufficient`.
+enough: on one host's decider ledger, through the end of 2026-10-22 (UTC),
+46 of 125 consultations under the order-only slice escaped. Rebuilt from
+their sessions' stored facts and matched on koto's input hash, 32 of the 46
+were full facts. The other 14 had facts that changed later, but each was at
+least 167 bytes, and an empty slice is 51, so none was empty. The level
+ledger's `check` line for every one of the 125 records a known level and
+floor, so none had an unknown floor either. The decider leaned the right way
+and stayed under the 0.9 threshold. The verdict is `sufficient`.
 
 What the decider adds beyond the `level_floor` gate is bounded by that gate.
 Each consultation's level and floor, read from the session's `check` ledger
 line, put 33 below the floor (30 escapes and 3 fails), and `level_floor` held
 all 33 in the same evaluation. The other 92, 76 passes and 16 escapes, had a
 level at or above the floor. Those are the only ones where the decider's
-answer can differ from the gate's.
+answer can differ from the gate's, so the live figures that decide its trust
+should count its fails at or above the floor apart from those below it.
 
 **Fixtures.** 19 good, 25 seeded-bad, 6 adversarial and 3 empty cases. The
 good cases cover each level at its floor and above it, and the seeded-bad
@@ -202,7 +204,10 @@ configured decider (jev-1.14.0) on 2026-10-23 with
 escapes, seeded-bad 24 fail and 1 escape, adversarial 6 fail, empty 3
 escapes, so the bar is met. The three full-facts escapes are two `standard`
 levels over a `light` floor and a 41-line documentation change at `light`.
-The same 38 cases with the order-only slice got 6 answers and 32 escapes.
+They are left as they are: an escape is never a pass, it falls back to the
+agent, and it counts against the live bar's answered share, so a slice that
+kept escaping couldn't earn trust. The same 38 cases with the order-only
+slice got 6 answers and 32 escapes. The dates in this section are UTC.
 `koto decider report --fixtures` runs fixtures only for a state's `accepts`
 fields, not a decider-check gate, so this runner is the one that applies.
 
