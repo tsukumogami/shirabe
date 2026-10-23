@@ -137,6 +137,11 @@ coordinator() {
 # holding the leg key its dispatch wrote, and the unit's surviving state: its
 # transcripts under the Claude home, its koto sessions with their execution
 # directory in the instance, and its koto request, requested by $S.
+#
+# The record issue is the same GitHub-record fixture unit-cost_test.sh seeds,
+# and this file is on state-structure_test.sh's allow list for its title. When
+# the GitHub record is removed, this fixture goes with unit-cost_test.sh's and
+# the suite runs against the session store alone.
 seed() {
     db_init
     db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-x", body: $b, state: "open", author: "alice", editor: null}]' \

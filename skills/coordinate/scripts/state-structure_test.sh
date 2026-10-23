@@ -299,6 +299,7 @@ title scripts/testdata/coordinate-engine-lib.sh
 title scripts/testdata/rule-coverage.tsv
 title scripts/unit-cost-on_test.sh
 title scripts/unit-cost_test.sh
+title scripts/unit-removed_test.sh
 title scripts/writeback_engine_test.sh
 EOF
 : > "$T/empty"
