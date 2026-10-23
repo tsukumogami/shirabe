@@ -17,7 +17,9 @@
 # retired: C139 C140 C141 C142 C143 C144 -- the find no longer searches GitHub for a record issue or a rotation pull request, so the title, the declaration line, several candidates and a predecessor left open are gone
 # retired: C145 C146 C171 -- a rotation opens no branch and no pull request, so there is no branch to cut or re-cut and no title to correct
 # retired: C172 C173 -- no successor renders a handoff for a predecessor; it carries the predecessor's session
+# retired: C150 C167 -- there is no record pull request body and no committed handoff file, so neither header is written
 # retired: S5 S6 -- no record moves from GitHub onto the session; the opener imports a legacy record once
+# retired: S1 S3 -- there is no choice of store: the session is the only one, and no `store` row is written
 C1	skills/coordinate/SKILL.md	-	--discipline <name> --host <owner/repo>` runs one
 C2	skills/coordinate/koto-templates/coordinate.md	start	It is never an instruction for how to coordinate
 C3	skills/coordinate/koto-templates/coordinate.md	start	**A roadmap scope must be Active.**
@@ -155,9 +157,8 @@ C136	skills/coordinate/references/record-template.md	-	The renderer refuses a Wo
 C137	skills/coordinate/koto-templates/coordinate.md	record	it never names a private
 C138	skills/coordinate/koto-templates/coordinate.md	record	Quoted material such as a CI log line goes in a cell	changed: quoted text goes in a table cell, encoded by the renderer, instead of a fence
 C147	skills/coordinate/koto-templates/coordinate.md	record_open	the start plus `{{ROTATION_DAYS}}` days
-C148	skills/coordinate/references/record-template.md	-	edit the end date to match in the same update
+C148	skills/coordinate/references/record-template.md	-	tick the hub with `event: end`	changed: a rotation has no pull request title; the human ending it early is the hub event `end`
 C149	skills/coordinate/koto-templates/coordinate.md	record_open	--body-file <body.md>
-C150	skills/coordinate/references/record-template.md	-	starts with the fixed Part 1 line and a single `---`	changed: the renderer writes Part 1 itself (--container pr) instead of the author following pr-body-conformance.md
 C151	skills/coordinate/references/record-template.md	-	> This is a **coordinator record** for
 C152	skills/coordinate/references/record-template.md	-	| Unit | Entry point | Mode | Phase | Dispatch status |	changed: Holdings gained Phase, Dispatch status and Return path columns
 C153	skills/coordinate/references/record-template.md	-	| Deferral | Reason | Raised | Disposition |	changed: Deferrals gained a Disposition column that the dispatch check reads
@@ -173,9 +174,8 @@ C162	skills/coordinate/koto-templates/coordinate.md	decision_apply	new one, the 
 C163	skills/coordinate/koto-templates/coordinate.md	dispatch_check	no deferral raised before	changed: deferral-check.sh refuses a dispatch while any inherited deferral lacks a disposition
 C164	skills/coordinate/koto-templates/coordinate.md	deferral_dispose	every open deferral, because nobody succeeds it.
 C165	skills/coordinate/koto-templates/coordinate.md	roadmap_close	feature Done or Dropped, no holdings, nothing in flight
-C166	skills/coordinate/references/record-template.md	-	discipline, overwritten each rotation.
-C167	skills/coordinate/references/record-template.md	-	Rotation from <start> to <end>. Host repository:
-C168	skills/coordinate/references/record-template.md	-	## Reasoning for the next rotation
+C166	skills/coordinate/references/record-template.md	-	Write it fresh each rotation; never append	changed: the reasoning for the next rotation is record/reasoning, written fresh each rotation, not a committed handoff file
+C168	skills/coordinate/koto-templates/coordinate.md	rotation_end	what this rotation learned that its tables can't say	changed: the reasoning for the next rotation is record/reasoning, not a section of a committed handoff file
 C169	skills/coordinate/koto-templates/coordinate.md	rotation_end	never appended to the previous one's	changed: the reasoning for the next rotation is written into record/reasoning, not a committed handoff file
 C170	skills/coordinate/koto-templates/coordinate.md	rotation_end	Write the reasoning for the next rotation	changed: the reasoning for the next rotation is written into record/reasoning, not a committed handoff file
 C174	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	The carry copies the predecessor's Holdings, Deferrals	changed: the carry copies the predecessor session's open deferrals; no handoff is rendered for it
@@ -234,11 +234,9 @@ M17	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reads blocke
 M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens nothing by itself
 M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
-S1	skills/coordinate/SKILL.md	-	only its owner moves it, by writing that row
 S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
-S3	skills/coordinate/references/record-template.md	-	a record without one is on GitHub, a
-S4	skills/coordinate/references/record-template.md	-	a write is refused, changing no key, from a run that isn
-S7	skills/coordinate/SKILL.md	-	(`store-conflict`), and a koto without the session store
+S4	skills/coordinate/references/record-template.md	-	is refused, changing no key, from a run that isn
+S7	skills/coordinate/SKILL.md	-	anything opens (`store-unsupported`)	changed: the session is the only store, so a koto without its features is refused at the start
 S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
 S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
 S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
