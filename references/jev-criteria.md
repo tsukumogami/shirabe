@@ -274,6 +274,60 @@ inline layout mimicry (labelled `vocabulary-mimicry`): a reason that carries a
 second decision's `- choice:` and `reason:` text, which the collapsed
 whitespace keeps on the reason's own line.
 
+## coordinate/pick-choice
+
+`/coordinate`'s `pick` asks the decider which `choice` to make with one free
+slot under the cap. It is an evidence decider rather than a Jev criterion: it
+picks one of seven values instead of answering pass or fail, it runs in shadow
+and never acts, and it has no registry entry, so the 2,560-byte budget above
+doesn't bind it. Its input cap is the decider input's `max_bytes`, 12,000, and
+its modes are rows of `scripts/decider-declarations.tsv`. The slice is written
+down here so it meets the same tests as a criterion's: what it holds, why
+that's enough, and how big it gets.
+
+**Sources.** `coord/pick.json`, the facts `pick-facts.sh` writes as
+`pick_facts`' `default_action` from the record, the roadmap on the default
+branch or the discipline's issues, and the pauses; and `PARKED_BOUND`, a
+session variable. The agent writes neither.
+
+**Slice.** `pick-facts.sh` runs `pick-slice.jq`'s `pick_slice` over the
+`coord/pick.json` it built on that visit and stores the result as
+`coord/pick_slice.json`, before it seals its verdict, so a sealed verdict
+means both keys came from that visit. The decider reads the slice; the agent
+keeps reading the full facts. A unit whose `done` is true, with no holding
+covering it, `verdict_owed` false and `rework` unset becomes its tag in a
+`done` list. Every other unit keeps its row, and every holding keeps its row,
+with fields that are null, false or an empty list left out. A kept unit's
+`blocked_by` names its blockers by tag rather than by position, because the
+positions count the full list and the slice no longer carries the done units
+they would point at. `scope`, `name`, `host`, `cap`, `active`, `parked`,
+`parked_bound`, `paused_all`, `pauses`, `go_aheads` and `decisions` are the
+facts' own.
+
+**Completeness.** Pick's rules never act on a done unit that no holding
+covers, that isn't owed a verdict and that wasn't sent back: it can't be
+dispatched, scoped or sent its execution, and what a dependent needs from it
+is already in the dependent's own `blocked`, `blocked_by` and
+`blocker_landed`. Confirming a done unit's `landed` row is the agent's
+upkeep, read from the full facts, and no `choice` turns on it. A done unit
+that is held, owed a verdict or reworked keeps its full row, since the rules
+name each of those. A field left out reads the
+same as its null or false value, and the counts, the cap, the bound, the
+pauses and the decisions are passed whole. The verdict is `sufficient`.
+
+**Figures.** The last `coord/pick.json` of each of 44 `/coordinate` sessions in
+one host's koto store on 2026-10-22, read with `koto context get <session>
+coord/pick.json` and sliced with `jq -c -L skills/coordinate/scripts 'include
+"pick-slice"; pick_slice'`, sizes by `wc -c`. The full facts: largest 26,287,
+p90 18,462, 8 over 12,000. The slice: largest 10,090, p90 3,637, none over.
+The largest slice is mostly `pauses` (7.8 KB), which it keeps as they are.
+`pick-facts_test.sh` holds a roadmap of 200 Done features and 3 open ones
+under the cap.
+
+**Fixtures.** `coordinate.pick.choice.decider.jsonl`. Each case's `pick_facts`
+input is a slice, which `pick-facts_test.sh` checks by slicing it again, and
+five carry a `done` list of 150 or more.
+
 ## rs-007
 
 Does Part 1 of the pull request body claim only changes the file list shows?
