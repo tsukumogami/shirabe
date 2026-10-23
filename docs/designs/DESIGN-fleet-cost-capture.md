@@ -18,7 +18,8 @@ decision: |
   takes the dispatch id and milestone from the removal record and the dispatch
   leg key when niwa and Holdings no longer have them, lists open pull requests
   in a new `opened` key, reads runs per head until green, and keeps entries
-  off the unit's items unless `SHIRABE_PR_INTEGRATION=on`.
+  off the unit's items unless the repository opts in to workflow-tool content
+  in pull requests through the switch #1114 adds.
 rationale: |
   niwa already runs one workspace command at every removal it makes, with the
   dispatch id, so hooking it reaches every removal path without a koto or niwa
@@ -42,6 +43,10 @@ survived the decision reports is carried in Considered Options below. This
 design amends one choice of `docs/designs/current/DESIGN-coordinator-record-teardown.md`
 (Decision 2): a cost entry is no longer posted on the pull request it concerns
 by default.
+
+Decision 6 was revised after acceptance: the switch is #1114's single opt-in
+for workflow-tool content in pull requests, read through one accessor, not a
+variable of this feature's own.
 
 ## Context and Problem Statement
 
@@ -222,15 +227,24 @@ signal: a head with exactly N runs can't be told complete.
 
 Resolved inline.
 
-**Chosen: `SHIRABE_PR_INTEGRATION`, read where the capture chooses `--on`.** The
-value `on`, exactly, restores today's session-store placement; anything else
-keeps the entry in the coordinator's session (`--on none`). A workspace sets it
-in its configuration's environment, and lists it in its on-reap step's `env` so
-a removal capture sees it. The wider tool-content switch (#1114) can read the
-same name.
+**Chosen: #1114's switch, read through one accessor where the capture chooses
+`--on`.** #1114 makes every kind of workflow-tool content a skill writes into a
+pull request opt-in behind one switch, with omit as the default, and its reader
+is the one place that answers for a repository. `unit-cost.sh` asks a single
+function, `uc_pr_content`, for the holding's repository: `include` restores
+today's session-store placement, anything else keeps the entry in the
+coordinator's session (`--on none`). Until #1114's reader exists the function
+answers `omit` without reading anything; when it lands, the function calls the
+reader and nothing else in the capture changes. Its suites reach the function
+through a reader path the tests set, the way they already override the record
+readers.
 
-*A CLAUDE.md header.* Rejected: that is the repository's configuration, and the
-ruling puts the switch in the workspace's.
+*A variable of this feature's own (`SHIRABE_PR_INTEGRATION`).* The first draft,
+and rejected because a repository would then hold two switches for one kind of
+content, and #1114 settles where that switch lives.
+
+*Reading the header here.* Rejected: #1114's reader owns the header's format and
+its lookup order, and a second parser would drift from it.
 
 *A Run row on the coordinator's record.* Rejected: per run, so every restart
 would need it set again.
@@ -315,7 +329,7 @@ instance path isn't absolute, holds `..`, or isn't under the directory the step
 runs in (niwa runs it from the workspace root, and every instance is under it),
 or `R` fails the checks above. It then starts the sweep detached, by its
 absolute path and with a scrubbed environment (`PATH`, `HOME`, `TMPDIR` and
-`SHIRABE_PR_INTEGRATION` when set, nothing else): `perl -MPOSIX -e
+nothing else): `perl -MPOSIX -e
 'POSIX::setsid(); exec @ARGV' -- "$SELF" sweep </dev/null >/dev/null 2>&1 &`,
 falling back to `nohup` when perl is absent; either way it exits 0 without
 waiting. A new session puts the sweep out of niwa's process group and out of
@@ -356,10 +370,9 @@ unit-removed.sh sweep
       map its last line (below) -> delete the record or keep it, log the outcome
 ```
 
-The sweep sets the capture's environment as the on-reap step received it, so
-`SHIRABE_PR_INTEGRATION` reaches the capture when the workspace lists it.
+The sweep sets the capture's environment as the on-reap step received it.
 `XDG_STATE_HOME`, `XDG_DATA_HOME`, `TEARDOWN_ARCHIVE_DIR` and `KOTO_REQUESTS`
-pass through as well when set, since they place `R`, the archive root and the
+pass through when set, since they place `R`, the archive root and the
 request store: the on-reap `env` must list them wherever a
 coordinator's sessions set them, or the two sides read different directories and
 the dedupe can't see the other's record. niwa refuses credential-shaped names in
@@ -411,8 +424,8 @@ past 1 MiB the sweep keeps its last 1,000 lines.
   and page matched first. A head not read whole sets the pull request's
   `runs_whole: false`; `prf()` then reports failing heads `bound`, and the
   figure's reason is the read's (`time limit`, `read failed`, `invalid input`).
-- **Placement.** On the session store `ON=none` unless
-  `SHIRABE_PR_INTEGRATION` is exactly `on`, in which case today's rule runs. A
+- **Placement.** On the session store `ON=none` unless `uc_pr_content` answers
+  `include` for the holding's repository, in which case today's rule runs. A
   GitHub-record run is unchanged.
 
 ### `dispatch-worker.sh`
@@ -446,7 +459,6 @@ s="$HOME/.claude/plugins/cache/shirabe/shirabe/$c/skills/coordinate/scripts/unit
 [ -n "$c" ] && [ -O "$s" ] && [ -x "$s" ] && "$s" record
 exit 0
 '''
-env = ["SHIRABE_PR_INTEGRATION"]
 ```
 
 It runs the newest released version in the plugin cache, by numeric version
@@ -467,7 +479,7 @@ One pull request, built in this order so each step leaves the suites green:
    `teardown-pass_test.sh` and `teardown-pass_engine_test.sh` unchanged.
 2. Failing heads per head (#1093), with the stub's paged runs and the new
    cases.
-3. Placement and `SHIRABE_PR_INTEGRATION`; `unit-cost-on_test.sh` cases.
+3. Placement through `uc_pr_content`; `unit-cost-on_test.sh` cases.
 4. `opened`, the empty-verdict rule, dedupe by dispatch id and the post lock.
 5. `unit` in the leg key; the capture's leg-key and removal-record fallbacks.
 6. `unit-removed.sh` and its suite.

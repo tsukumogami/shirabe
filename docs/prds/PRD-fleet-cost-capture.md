@@ -27,6 +27,12 @@ In Progress
 
 Absorbed [BRIEF-fleet-cost-capture](docs/briefs/BRIEF-fleet-cost-capture.md); carried in Absorbed Brief.
 
+Amended after acceptance: the switch that puts cost entries back on a unit's
+items is no longer a variable of this feature's own. It is the one switch
+#1114 adds for every kind of workflow-tool content in pull requests, read
+through one accessor (R11), so a repository turns all of it on or off in one
+place.
+
 ## Absorbed Brief
 
 The feature exists because a dispatched unit's cost is captured only when the
@@ -231,17 +237,19 @@ pass happened to remove, with no way to tell which pull requests are missing.
   90-second read budget ran out, `read failed` when a read failed or was cut at
   its own 8-second bound (`UNIT_COST_FETCH_SECS`), `invalid input` when a read's
   output was outside its shape.
-- **R10. Off the unit's items by default.** With the setting off, a
+- **R10. Off the unit's items by default.** With the switch at omit, a
   session-store capture writes the entry to the coordinator's session only
   (`record-append.sh --on none`); a GitHub-record capture posts it on the
-  coordinator's record issue, as today. With the setting on, a session-store
-  capture posts as today: the holding's pull request, else the Unit's issue,
-  else nowhere.
-- **R11. The setting.** `SHIRABE_PR_INTEGRATION`, read from the capture's
-  environment when it posts. The value `on`, exactly, is on; unset, empty or
-  anything else is off. A workspace sets it in its configuration's environment
-  and, for removal captures, passes it to its on-reap step; a retried record is
-  captured under the environment of the sweep that retries it.
+  coordinator's record issue, as today. With the switch at include, a
+  session-store capture posts as today: the holding's pull request, else the
+  Unit's issue, else nowhere.
+- **R11. The switch.** The capture reads the switch through one accessor in
+  `unit-cost.sh`, for the repository of the holding's pull request, when it
+  chooses where to post. The switch is #1114's opt-in for workflow-tool content
+  in pull requests; until #1114's reader exists the accessor answers omit, and
+  when it exists the accessor calls it and nothing else changes. The accessor
+  answers include only when the reader says include; a missing reader, a failed
+  read, or any other answer is omit. This feature adds no setting of its own.
 - **R12. Retry.** A removal record whose capture wrote no entry (`no
   coordinator`, `several coordinators`, a failed record read, a failed post) is
   kept, and its capture runs again at the next removal on the host: each removal
@@ -299,7 +307,7 @@ pass happened to remove, with no way to tell which pull requests are missing.
 - **R19. Documented.** `skills/coordinate/references/unit-cost.md` has a section
   headed `## Capture after a removal` (the removal record, the sweep, the coordinator
   rule, retry), and documents `opened`, the floor reasons for failing heads, the
-  setting with its name and on-value, and the last lines of R14. A guide
+  switch and where it is set (#1114), and the last lines of R14. A guide
   shows the on-reap line a workspace adds, alone and combined with another
   on-reap command.
 
@@ -361,11 +369,12 @@ Each criterion names the requirements it verifies. Suites run with stubbed
   input`; reads stop at the green head (the stub records no read for a later
   head); with no green head every head is read and green is `not recoverable`;
   a pull request with fewer than 100 runs gives the count today's suite expects.
-- [ ] (R10, R11, R13) On the session store with `SHIRABE_PR_INTEGRATION` unset,
-  empty, `true`, `ON` or `1`, the capture runs `record-append.sh --on none` and
-  the stub `gh` records no write call; with `on`, it runs `--on <the holding's
-  pull request>`, with no pull request `--on <the Unit's issue>`, else `--on
-  none`; a GitHub-record run posts on its record issue in each case. Each case's
+- [ ] (R10, R11, R13) On the session store with no reader, with a stub reader
+  that answers omit, fails, or prints something else, the capture runs
+  `record-append.sh --on none` and the stub `gh` records no write call; with a
+  stub reader that answers include, it runs `--on <the holding's pull request>`,
+  with no pull request `--on <the Unit's issue>`, else `--on none`; a
+  GitHub-record run posts on its record issue in each case. Each case's
   last stderr line is the R14 line for where the entry went.
 - [ ] (R15) A capture whose stub GitHub read hangs ends its reads at the budget
   with those figures `time limit` and still writes the entry; one whose stub
@@ -392,7 +401,7 @@ Each criterion names the requirements it verifies. Suites run with stubbed
   before and after this change, other than `opened`, has the same name and JSON
   type.
 - [ ] (R14, R19) `references/unit-cost.md` contains the heading `## Capture
-  after a removal`, the strings `SHIRABE_PR_INTEGRATION`, `opened` and
+  after a removal`, the strings `#1114`, `opened` and
   `removals.log`, and each last line of R14; the guide contains the
   on-reap line and a combined example.
 - [ ] (R1-R19) `unit-cost_test.sh`, `unit-cost-on_test.sh`,
@@ -466,7 +475,7 @@ Each criterion names the requirements it verifies. Suites run with stubbed
 - **The issue fallback goes off with the pull request.** The owner ruled pull
   requests out by default; an issue comment on the unit's issue puts the same
   bookkeeping in front of the same maintainers, so the default keeps the entry
-  in the coordinator's session and the setting restores both. The coordinator's
+  in the coordinator's session and the switch restores both. The coordinator's
   own record issue is its container, not the unit's, and keeps its entries.
 - **Ambiguous coordinator, no entry.** Writing to one of several live runs of a
   scope would put the entry on a record its reader may not read; keeping the

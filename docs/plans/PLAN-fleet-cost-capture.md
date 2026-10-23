@@ -23,7 +23,8 @@ request against the coordinate skill: an on-reap step and a detached sweep
 the collection code the sweep shares with the pass (`archive-common.sh`), and
 the capture's own changes in `unit-cost.sh`: dedupe by dispatch id under a host
 lock, the dispatch id and milestone fallbacks, the `opened` key, failing heads
-read per head, and the placement switch `SHIRABE_PR_INTEGRATION`. One field is
+read per head, and the placement default, read through one accessor for the
+switch #1114 adds. One field is
 added to the dispatch leg key in `dispatch-worker.sh`, and
 `references/unit-cost.md` documents all of it, the workspace's on-reap line
 included.
@@ -84,7 +85,7 @@ A 65-head pull request gets its full failing-head count, and one whose runs coul
 
 ### Step 4: entries stay off the unit's own pull requests and issues unless the workspace turns them on
 
-On the session store a capture keeps the entry in the coordinator's session unless `SHIRABE_PR_INTEGRATION=on` restores today's placement.
+On the session store a capture keeps the entry in the coordinator's session unless the repository opts in through #1114's switch, which restores today's placement.
 
 ### Step 5: the milestone survives the holding
 
