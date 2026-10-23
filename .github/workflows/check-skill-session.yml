@@ -2,7 +2,8 @@ name: Check skill-session
 
 # scripts/skill-session.sh carries the skill-session convention's shared
 # operations: open, status, close, the dispatch key, adopt, close-children,
-# ingest, get/put and the reclaimable rule. Its suite drives the real koto
+# ingest, get/put, and the dispatched-by link adopt and open --dispatched-by
+# record through scripts/lib/dispatch-link.sh. Its suite drives the real koto
 # against the store template, koto-templates/skill-session.md, and skips those
 # cases with exit 0 when koto is absent. The Linux leg installs koto and
 # asserts it meets the floor before the suite runs, so a skip cannot pass as
@@ -20,6 +21,8 @@ on:
       # through assert-koto-floor.sh.
       - 'scripts/koto-open.sh'
       - 'scripts/assert-koto-floor.sh'
+      # adopt and open --dispatched-by link through it.
+      - 'scripts/lib/dispatch-link.sh'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/skill-session.list'
       - '.tsuku.toml'
