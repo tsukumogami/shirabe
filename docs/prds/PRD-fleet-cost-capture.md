@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A coordinator-dispatched unit gets a `unit-cost/1` entry only when the
   coordinator's own teardown pass removes it. Units removed by hand or by a
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-fleet-cost-capture](docs/briefs/BRIEF-fleet-cost-capture.md); carried in Absorbed Brief.
 
