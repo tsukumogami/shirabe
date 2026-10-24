@@ -305,7 +305,7 @@ else
             add_cand "$SS" "$SW" local ""
             continue
         fi
-        if printf '%s\n' "$CHILDREN" | grep -qxF -- "$SS"; then
+        if grep -qxF -- "$SS" <<<"$CHILDREN"; then
             add_cand "$SS" "$SW" local ""
         elif (cd -- "$SW" && koto context exists "$SS" "koto/links/dispatched-by/$ROOT" </dev/null >/dev/null 2>&1); then
             add_cand "$SS" "$SW" local ""

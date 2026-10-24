@@ -240,6 +240,17 @@ cat > "$FAKE_ROOT/skills/work-on/scripts/session-role.sh" <<'EOF'
 echo root
 EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/*
+# record_keep's script is the real one, with the record scripts it reaches: a
+# root run that isn't a multi-pr item records record=skipped there and goes
+# on to done. It never reaches the shared address; were it to, it would land
+# in this suite's own directory.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$WORKDIR/shared"
+REAL_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+mkdir -p "$FAKE_ROOT/scripts/lib"
+cp "$SCRIPT_DIR/multi-pr-item-record.sh" "$FAKE_ROOT/skills/work-on/scripts/"
+cp "$REAL_ROOT/scripts/run-trail.sh" "$REAL_ROOT/scripts/run-record-pin.sh" "$FAKE_ROOT/scripts/"
+cp "$REAL_ROOT/scripts/lib/record-store.sh" "$FAKE_ROOT/scripts/lib/"
+chmod +x "$FAKE_ROOT/skills/work-on/scripts/multi-pr-item-record.sh" "$FAKE_ROOT/scripts/run-trail.sh" "$FAKE_ROOT/scripts/run-record-pin.sh"
 set_rc() { printf '%s\n' "$2" > "$RC_DIR/$1"; }
 reset_rc() { rm -f "$RC_DIR"/*; }
 calls() { grep -c -- "^$1" "$LOG" 2>/dev/null || true; }
@@ -333,6 +344,8 @@ build() {
             '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
+            '  ISSUE_SOURCE:' '    description: issue source' '    required: false' \
+            '  ARTIFACT_PREFIX:' '    description: artifact prefix' '    required: false' \
             '  PLAN_DOC:' '    description: plan' '    required: false' \
             '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
             '    pattern: ^(light|standard|full)?$'
@@ -572,7 +585,7 @@ open_leg() {
     S="vd-leg-$N"
     mkdir -p "$DIR"
     build "$DIR/work-on.md" work-on pr_creation \
-        "pr_creation ci_monitor ci_pass_counting cascade_entry done done_already_complete done_blocked" \
+        "pr_creation ci_monitor ci_pass_counting cascade_entry record_keep done done_already_complete done_blocked" \
         closing_keyword=0 ci_passing=0 merge_state_clean=0
     REQ=$(cd "$REPO" && koto request create \
         --with-data '{"legs":[{"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}}]}' \

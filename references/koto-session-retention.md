@@ -159,7 +159,12 @@ most 500 characters, the topic cut to fit.
 
 **A pin keeps only its session.** It doesn't keep the rest of the session's
 hierarchy, which the retention rule keeps or releases as before; that is why
-each session above is pinned on its own.
+each session above is pinned on its own. A pinned session also outlives a
+terminal tick that carried no `--no-cleanup`, and `koto init
+--replace-terminal` moves a pinned finished session aside as `<name>_r<N>`
+(its pinned `.`-children with it) rather than removing it. The flag rule above
+still holds: the pin is the record's keeper after the run, not a substitute
+for the flag on the run's own ticks.
 
 **Unpinned.** Below the floor no pin call is made (code `below-floor`). Under
 the cloud backend koto 0.24.0 refuses a pin (exit 2) until its cloud half is

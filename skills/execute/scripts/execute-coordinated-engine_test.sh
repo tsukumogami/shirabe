@@ -669,10 +669,16 @@ else
 fi
 fixture drop
 open_run drop true && finish drop "done:merged" --bare
-if k context get execute-drop repos >/dev/null 2>&1; then
-    fail "a terminal reached without --no-cleanup kept its context -- the control did not fire"
+# From koto 0.24.0 record_keep pins the root on the way to `merged`, and a
+# pinned session outlives a bare terminal tick too; below it nothing is
+# pinned and the bare tick disposes of the session. Either way the bare tick
+# alone keeps nothing: a session that survives it holds the pin.
+if ! k context get execute-drop repos >/dev/null 2>&1; then
+    pass "a terminal reached without --no-cleanup loses its context (control: nothing pinned it)"
+elif k context exists execute-drop koto/links/pin >/dev/null 2>&1; then
+    pass "a terminal reached without --no-cleanup is kept only by record_keep's pin"
 else
-    pass "a terminal reached without --no-cleanup loses its context (control)"
+    fail "a terminal reached without --no-cleanup kept its context with no pin -- the control did not fire"
 fi
 
 # --- the record across a pause --------------------------------------------------------

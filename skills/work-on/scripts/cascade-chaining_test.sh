@@ -145,6 +145,11 @@ states:
           ci_outcome: passing
 $(if [[ "$anchor_exit" == "real" ]]; then echo "$CASCADE_ENTRY"; else echo "$CASCADE_ENTRY" | sed "s|command: .*|command: \"exit $anchor_exit\"|"; fi)
 $run_block
+  # The shipped record_keep's chaining shape, one unconditional edge to done,
+  # without its pin action, which needs variables this fixture doesn't have.
+  record_keep:
+    transitions:
+      - target: done
   done:
     terminal: true
   done_blocked:
@@ -163,6 +168,9 @@ No action.
 
 ## cascade_run
 Run the cascade and report.
+
+## record_keep
+Pin the run's evidence.
 
 ## done
 Done.

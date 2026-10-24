@@ -140,7 +140,10 @@ if [ -f "$RC_DIR/role" ]; then cat "$RC_DIR/role"; else echo root; fi
 EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/*
 # record_keep's script is the real one, with the record scripts it reaches,
-# so a root run that isn't a multi-pr item records record=skipped there.
+# so a root run that isn't a multi-pr item records record=skipped there. That
+# run never reaches the shared address; were it to, it would land in this
+# suite's own directory, never the real one.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$WORKDIR/shared"
 mkdir -p "$FAKE_ROOT/scripts/lib"
 cp "$SCRIPT_DIR/multi-pr-item-record.sh" "$FAKE_ROOT/skills/work-on/scripts/"
 cp "$REAL_ROOT/scripts/run-trail.sh" "$REAL_ROOT/scripts/run-record-pin.sh" "$FAKE_ROOT/scripts/"

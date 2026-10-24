@@ -635,6 +635,11 @@ expect_control() {
     fi
     if [ "$got" = "$3" ] && ! kept "$s"; then
         pass "$1 without the flag: the tick's response carries outcome=$3 and the session is gone (control)"
+    elif [ "$got" = "$3" ] && kept "$s" && k context exists "$s" koto/links/pin >/dev/null 2>&1; then
+        # From koto 0.24.0 record_keep pins the root on the way to merged and
+        # ready_awaiting_merge, and a pinned session outlives a bare terminal
+        # tick: the flag didn't keep it, the pin did.
+        pass "$1 without the flag: the tick's response carries outcome=$3, and the session is kept only by record_keep's pin"
     else
         fail "$1 without the flag: response outcome [$got], session still present: $(kept "$s" && echo yes || echo no)"
     fi
