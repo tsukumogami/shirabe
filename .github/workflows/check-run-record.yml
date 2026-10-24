@@ -3,15 +3,24 @@ name: Check run-record
 # The run record: scripts/lib/record-store.sh (the shared address and koto's
 # read-only --workspace option), scripts/run-trail.sh (its one writer) and
 # scripts/run-record-lookup.sh (from a PR back to the session that ran its
-# plan). The suites run against the stand-in koto in
-# scripts/testdata/record-koto/ and a stub gh, so they need only jq: the
-# Linux leg runs them directly and the macOS leg runs them on the bash 3.2
-# floor through scripts/check-bash-floor.sh.
+# plan), scripts/run-record-pin.sh (the pins that keep a finished run's
+# sessions) and scripts/check-run-record-rules.sh (no unpin call, no retention
+# window of shirabe's own, no prune instruction that forgets the pinned
+# sessions, across skills/ and scripts/). The suites run against the
+# stand-in koto in scripts/testdata/record-koto/ and a stub gh, so they need
+# only jq: the Linux leg runs them directly and the macOS leg runs them on the
+# bash 3.2 floor through scripts/check-bash-floor.sh. run-record-pin_test.sh
+# also has a real-koto case, which the Linux leg runs on the koto the project
+# tool manifest installs and which skips itself where there is none.
 
 on:
-  # The two paths lists below must match; edit both together.
+  # The two paths lists below must match; edit both together. The rules check
+  # reads all of skills/ and scripts/, so both are listed whole.
   pull_request:
     paths:
+      - 'skills/**'
+      - 'scripts/**'
+      - 'references/koto-session-retention.md'
       - 'scripts/lib/record-store.sh'
       - 'scripts/record-store_test.sh'
       - 'scripts/run-trail.sh'
@@ -40,6 +49,9 @@ on:
     # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
     # merge commit's own run on the bash 3.2 floor.
     paths:
+      - 'skills/**'
+      - 'scripts/**'
+      - 'references/koto-session-retention.md'
       - 'scripts/lib/record-store.sh'
       - 'scripts/record-store_test.sh'
       - 'scripts/run-trail.sh'
@@ -99,6 +111,30 @@ jobs:
       - name: Run the multi-pr item record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/multi-pr-item-record_test.sh
+
+      - name: Run the run-record rules check (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-run-record-rules.sh
+
+      - name: Run the run-record rules check tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-run-record-rules_test.sh
+
+      # The pin suite's real-koto case: koto arrives through the project tool
+      # manifest, as in check-execute-scripts.yml.
+      - name: Install tsuku (Linux)
+        if: runner.os == 'Linux'
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install project tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Run the run-record pin tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/run-record-pin_test.sh
 
       - name: Run run-record suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'

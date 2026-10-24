@@ -14,10 +14,25 @@
 #   start  at the item's start: opens the plan root, then records the PLAN
 #          as committed now (`plan`, keyed by the item's step id) and the
 #          item (`item`: this run's session and the directory it runs in,
-#          no PR yet).
+#          no PR yet), and the plan root's name in this run's own session
+#          (`record_root`), which `keep` reads. Being the first point where
+#          a new item's run names the plan root, it then retries the pins an
+#          earlier item's run couldn't make (scripts/run-record-pin.sh
+#          --retry); a retry that fails only warns.
 #   pr     once the item's PR exists: records the item again with its PR,
 #          the PR in the root's trail (`pr`, role item, state open) and the
 #          PR's index entry (`index --mode multi-pr`), in that order.
+#   keep   the default action of work-on.md's `record_keep`, on the way to
+#          `done`, after CI passed on the item's ready PR: records the
+#          item's PR as `ready` in the root's trail (`pr-state`) and pins the
+#          plan root, this run's session and the PR's index session
+#          (run-record-pin.sh --root <plan root> --item <step> --result
+#          <this session>), which writes the `record` keys done's result
+#          reads. It reads the plan root from `record_root`; a run without
+#          one (no `start`) or whose item record holds no PR prints
+#          `skipped=no-record-root` or `skipped=no-pr`, pins nothing, and
+#          writes `record` as skipped (and `record_unpinned` empty), so
+#          done's result names no missing key.
 #
 # A plan-backed child of /execute does none of this: its parent records it.
 # The work-on template passes the run's own SHARED_BRANCH and ISSUE_SOURCE,
@@ -33,6 +48,8 @@
 #       --repo owner/repo --shared-branch VALUE --issue-source VALUE
 #   multi-pr-item-record.sh pr --session WF --plan PATH --step ID
 #       --repo owner/repo --number N --shared-branch VALUE --issue-source VALUE
+#   multi-pr-item-record.sh keep --session WF --plan PATH --step ID
+#       --shared-branch VALUE --issue-source VALUE
 #
 # PATH is docs/plans/PLAN-<topic>.md in the checkout that holds it, absolute
 # or relative to the directory this runs from; ID is the item's step id, the
@@ -43,7 +60,7 @@
 # empty.
 #
 # On success it prints `plan_root=<name>` and `recorded=start` or
-# `recorded=pr`.
+# `recorded=pr`; `keep` prints run-record-pin.sh's lines.
 #
 # Exit codes:
 #   0   recorded, or skipped (the reason on stdout)
@@ -57,12 +74,17 @@ set -uo pipefail
 
 PROG=multi-pr-item-record
 SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
-TRAIL=$(CDPATH='' cd "$SELF_DIR/../../../scripts" && pwd)/run-trail.sh || exit 64
+SCRIPTS=$(CDPATH='' cd "$SELF_DIR/../../../scripts" && pwd) || exit 64
+TRAIL=$SCRIPTS/run-trail.sh
+PIN=$SCRIPTS/run-record-pin.sh
+# shellcheck source=../../../scripts/lib/record-store.sh
+. "$SCRIPTS/lib/record-store.sh" || exit 64
 
 usage() {
     echo "$PROG: $*" >&2
     echo "usage: multi-pr-item-record.sh start --session WF --plan PATH --step ID --repo owner/repo --shared-branch VALUE --issue-source VALUE" >&2
     echo "       multi-pr-item-record.sh pr --session WF --plan PATH --step ID --repo owner/repo --number N --shared-branch VALUE --issue-source VALUE" >&2
+    echo "       multi-pr-item-record.sh keep --session WF --plan PATH --step ID --shared-branch VALUE --issue-source VALUE" >&2
     exit 64
 }
 
@@ -72,6 +94,7 @@ shift
 case "$SUB" in
     start) ALLOWED=" --session --plan --step --repo --shared-branch --issue-source " ;;
     pr) ALLOWED=" --session --plan --step --repo --number --shared-branch --issue-source " ;;
+    keep) ALLOWED=" --session --plan --step --shared-branch --issue-source " ;;
     *) usage "unknown subcommand [$SUB]" ;;
 esac
 
@@ -100,6 +123,38 @@ done
 if [ -n "$SHARED" ] || [ -n "$SOURCE" ]; then
     echo "skipped=plan-backed-child"
     exit 0
+fi
+# keep reads the plan root `start` recorded in this run's own session, not the
+# PLAN, which the item's cascade may have deleted by now: a run with no
+# record_root was never a multi-pr item's.
+if [ "$SUB" = keep ]; then
+    rs_valid_session "$SESSION" || { echo "$PROG: --session [$SESSION] is not a koto session name" >&2; exit 65; }
+    # keep_skipped <why>: nothing to pin; done's result still says so, so the
+    # keys it reads are always written on a root run.
+    keep_skipped() {
+        echo "skipped=$1"
+        printf 'skipped' | koto context add "$SESSION" record >/dev/null \
+            && printf '' | koto context add "$SESSION" record_unpinned >/dev/null \
+            || { echo "$PROG: could not write record in $SESSION" >&2; exit 70; }
+        exit 0
+    }
+    koto context exists "$SESSION" record_root </dev/null >/dev/null 2>&1 || keep_skipped no-record-root
+    rs_valid_step "$STEP" || { echo "$PROG: --step [$STEP] is not a step id" >&2; exit 65; }
+    ROOT=$(koto context get "$SESSION" record_root </dev/null) || { echo "$PROG: could not read record_root in $SESSION" >&2; exit 70; }
+    OWNER=$(rs_plan_root_owner "$ROOT") || { echo "$PROG: record_root [$ROOT] in $SESSION is not a plan root" >&2; exit 65; }
+    DIR=$(rs_shared_dir "$OWNER") || exit 65
+    ITEM_DOC=$(rs_koto_read "$DIR" context get "$ROOT" "trail/item/$STEP" </dev/null 2>/dev/null) || ITEM_DOC=""
+    IR=$(jq -r 'if type == "object" and (.pr | type) == "object" and (.pr.repo | type) == "string" then .pr.repo else "" end' <<<"$ITEM_DOC" 2>/dev/null) || IR=""
+    IN=$(jq -r 'if type == "object" and (.pr | type) == "object" and (.pr.number | type) == "number" then (.pr.number | tostring) else "" end' <<<"$ITEM_DOC" 2>/dev/null) || IN=""
+    if [ -z "$IR" ] || [ -z "$IN" ]; then
+        keep_skipped no-pr
+    fi
+    # The run reached `done` through green CI on its PR, which /work-on opens
+    # ready for review: record it so.
+    bash "$TRAIL" pr-state --session "$ROOT" --repo "$IR" --number "$IN" --state ready </dev/null \
+        || echo "$PROG: could not record $IR#$IN as ready in $ROOT" >&2
+    bash "$PIN" --root "$ROOT" --item "$STEP" --result "$SESSION" </dev/null
+    exit $?
 fi
 if [ -z "$PLAN" ]; then
     echo "skipped=no-plan"
@@ -131,6 +186,11 @@ case "$SUB" in
     start)
         bash "$TRAIL" plan --session "$ROOT" --step "$STEP" --plan "$PLAN" || exit $?
         bash "$TRAIL" item --session "$ROOT" --step "$STEP" --child "$SESSION" || exit $?
+        printf '%s' "$ROOT" | koto context add "$SESSION" record_root \
+            || { echo "$PROG: could not write record_root in $SESSION" >&2; exit 70; }
+        # An earlier item's pins koto refused, tried again; only a warning.
+        bash "$PIN" --root "$ROOT" --retry </dev/null >&2 \
+            || echo "$PROG: the retry of $ROOT's unpinned sessions failed; the next item tries again" >&2
         ;;
     pr)
         bash "$TRAIL" item --session "$ROOT" --step "$STEP" --child "$SESSION" \

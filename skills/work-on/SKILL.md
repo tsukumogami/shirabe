@@ -507,11 +507,16 @@ promoted `work-on` leg on both, since `validation_exit` is a success too, and ro
 a refusal on its source rather than on the payload: the leg records
 `result_source: refused`, which a `request-leg` gate exposes as `source`.
 
-The payload is `pr` alone. `done` and `done_already_complete` declare a `result:`
-map whose one key, `pr`, is the URL submitted as `pr_url` with `pr_status: created`.
-A run that opened no pull request (an already-complete issue, or a child on
-`/execute`'s shared branch) resolves `pr` to `""`, and koto lists it under
-`missing`. The payload carries no head: a coordinator reads that from GitHub when
+The payload is `pr`, and on `done` the pin outcome beside it.
+`done` and `done_already_complete` declare a `result:` map whose key `pr` is the
+URL submitted as `pr_url` with `pr_status: created`. A run that opened no pull
+request (an already-complete issue, or a child on `/execute`'s shared branch)
+resolves `pr` to `""`, and koto lists it under `missing`. `done` also declares
+`record` and `unpinned`, which `record_keep` writes on the way to it: for a
+top-level item of a `multi-pr` plan `pinned`, or `unpinned` with the names koto
+refused; for every other root run `skipped`, with `unpinned` empty. A child on
+`/execute`'s shared branch reaches `done` without `record_keep`, so koto lists
+both under `missing` there. The payload carries no head: a coordinator reads that from GitHub when
 it verifies. `done_blocked` and `validation_exit` declare no map, so their payload
 is koto's own. work-on.md declares no `outcome`, so a coordinator still routes on
 status and final state, and reads the pull request from `pr`.
@@ -786,7 +791,9 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
    Start fresh instead: `koto session cleanup <WF>` when its record is no longer
    wanted and then `koto init`, or `koto init` under a different workflow name to
    keep the record. (`koto init` on a name still in use refuses and says the
-   same.) Under `--koto-leg` either init goes through `work-on-open.sh`; a
+   same.) A pinned session is kept: a multi-pr item's run pins its session at
+   `record_keep`, and cleanup refuses a pinned one (exit 2, nothing removed),
+   so start that one under a different name. Under `--koto-leg` either init goes through `work-on-open.sh`; a
    renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so a leg that pins it
    still admits the session.
 3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`. Under

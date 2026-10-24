@@ -27,7 +27,9 @@
 #   comma-joined --repo, missing --head-branch, each invalid argument
 #                                                   usage exit, nothing written
 #   owned-pr.sh zero / several / read failure       pr-adopt / pr-adopt / status-read
-#   --confirm: merged, not observed, stale key, an ungrammatical line
+#   --confirm: merged, not observed, stale key, an ungrammatical line; a
+#     merged read also records the PR merged in the run's trail (role kept),
+#     and with no trail record the confirm stands and the write only warns
 #   never reads the `repos` key; makes no GitHub write
 #
 # Usage: record-merge-verdict_test.sh
@@ -430,6 +432,25 @@ if [ "$RC" -eq 0 ] && [ "$(ctx confirm_verdict)" = merged ] && [ "$(ctx merge_ve
     pass "--confirm: a MERGED read records confirm_verdict=merged and touches nothing else"
 else
     fail "--confirm merged: exit $RC, confirm [$(ctx confirm_verdict)]; $ERR"
+fi
+
+new_case confirm-trail
+mkdir -p "$CASE/ctx/$S/trail/pr"
+ctx_set trail/pr/o.r.7 '{"repo":"o/r","number":7,"role":"home","state":"ready","recorded_at":"2026-01-01T00:00:00Z"}'
+run_real --confirm --repo o/r --head-branch impl/topic --session "$S"
+if [ "$RC" -eq 0 ] && [ "$(ctx confirm_verdict)" = merged ] \
+    && [ "$(jq -r '.state + " " + .role' <<<"$(ctx trail/pr/o.r.7)")" = "merged home" ]; then
+    pass "--confirm: a MERGED read also records the PR merged in the run's trail, its role kept"
+else
+    fail "--confirm trail: exit $RC, trail [$(ctx trail/pr/o.r.7)]; $ERR"
+fi
+new_case confirm-trail-none
+run_real --confirm --repo o/r --head-branch impl/topic --session "$S"
+if [ "$RC" -eq 0 ] && [ "$(ctx confirm_verdict)" = merged ] && ! has trail/pr/o.r.7 \
+    && grep -q 'could not record o/r#7 as merged' <<<"$ERR"; then
+    pass "--confirm: with no trail record of the PR, the confirm still stands and the trail write only warns"
+else
+    fail "--confirm no trail: exit $RC, confirm [$(ctx confirm_verdict)]; $ERR"
 fi
 
 new_case confirm-open

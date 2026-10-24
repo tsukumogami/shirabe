@@ -10,13 +10,20 @@
 # It asserts, on the shipped template:
 #
 #   the states are exactly coord_setup (initial), coord_loop, coord_verdict,
-#     coord_merge_confirm, merged, ready_awaiting_merge,
+#     coord_merge_confirm, record_keep, merged, ready_awaiting_merge,
 #     paused_awaiting_merges, done_blocked, and done_error; no done_refused
+#   record_keep is the only way into merged and ready_awaiting_merge (both
+#     coord_merge_confirm edges and coord_verdict's ready edge go there), it
+#     routes merged on the same non-overridable confirmed_merged gate, never
+#     reaches paused_awaiting_merges, and its default action is
+#     run-record-pin.sh on this run's root ending `|| true`; every terminal
+#     reads record and unpinned from context; coord_loop records each readied
+#     node PR and the readied coordination PR through run-trail.sh pr-state
 #   coord_setup and coord_loop are agent-run (no default_action); coord_loop's
 #     edges key only on the agent's loop_exit, never on a gate or merge state
 #   coord_verdict takes no agent evidence and runs
 #     record-coordination-verdict.sh as its default action
-#   every edge into `merged` comes from coord_merge_confirm and no other state
+#   every edge into `merged` comes from record_keep and no other state
 #   coord_merge_confirm declares no command gate, and runs
 #     record-merge-verdict.sh --confirm with --repo read from home_repo (never
 #     the comma-joined repos) and --head-branch from coord_branch
@@ -381,7 +388,7 @@ compile() { koto template compile "$@" 2>/dev/null | tail -1; }
 holds() { jq -e "$2" "$1" >/dev/null 2>&1; }
 
 CHECKS=(
-"the states are exactly the envelope's nine|.states | keys == [\"coord_loop\",\"coord_merge_confirm\",\"coord_setup\",\"coord_verdict\",\"done_blocked\",\"done_error\",\"merged\",\"paused_awaiting_merges\",\"ready_awaiting_merge\"]"
+"the states are exactly the envelope's ten|.states | keys == [\"coord_loop\",\"coord_merge_confirm\",\"coord_setup\",\"coord_verdict\",\"done_blocked\",\"done_error\",\"merged\",\"paused_awaiting_merges\",\"ready_awaiting_merge\",\"record_keep\"]"
 "coord_setup is the initial state|.initial_state == \"coord_setup\""
 "no done_refused state is declared|.states | has(\"done_refused\") | not"
 "merged, ready_awaiting_merge, and paused_awaiting_merges are non-failure terminals|[.states.merged, .states.ready_awaiting_merge, .states.paused_awaiting_merges] | all(. != null and .terminal == true and ((.failure // false) == false))"
@@ -391,18 +398,24 @@ CHECKS=(
 "coord_loop's edges key only on loop_exit|[.states.coord_loop.transitions[] | .when | keys == [\"loop_exit\"]] | length == 3 and all"
 "coord_verdict takes no agent evidence|(.states.coord_verdict.accepts // {}) | length == 0"
 "coord_verdict's default action runs record-coordination-verdict.sh|(.states.coord_verdict.default_action.command // \"\") | test(\"record-coordination-verdict\\\\.sh \")"
-"every edge into merged comes from coord_merge_confirm|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"coord_merge_confirm\"]"
+"every edge into merged comes from record_keep|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"record_keep\"]"
+"record_keep routes merged on the same non-overridable confirmed_merged gate coord_merge_confirm reads|(.states.record_keep.gates == .states.coord_merge_confirm.gates) and (.states.record_keep.gates.confirmed_merged == {type: \"context-matches\", key: \"confirm_verdict\", pattern: \"^merged\$\", overridable: false}) and ([.states.record_keep.transitions[] | select(.target == \"merged\") | .when] == [{\"gates.confirmed_merged.matches\": true}]) and ([.states.record_keep.transitions[] | select(.target == \"ready_awaiting_merge\") | .when] == [{\"gates.confirmed_merged.matches\": false}])"
+"both coord_merge_confirm edges, and coord_verdict's ready edge, go to record_keep|([.states.coord_merge_confirm.transitions[].target] == [\"record_keep\",\"record_keep\"]) and ([.states.coord_verdict.transitions[] | select(.when[\"gates.verdict_ready.matches\"] == true) | .target] == [\"record_keep\"])"
+"every edge into ready_awaiting_merge comes from record_keep, and none from it reaches paused_awaiting_merges|([.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"ready_awaiting_merge\") | \$s] | length > 0 and all(. == \"record_keep\")) and ([.states.record_keep.transitions[].target] | index(\"paused_awaiting_merges\") == null)"
+"record_keep's default action pins this run's root with run-record-pin.sh and can't hold the run|(.states.record_keep.default_action.command // \"\") == \"\\\"{{PLUGIN_ROOT}}/scripts/run-record-pin.sh\\\" --root \\\"execute-{{PLAN_SLUG}}\\\" --result \\\"execute-{{PLAN_SLUG}}\\\" || true\""
+"coord_loop records each readied node PR and the readied coordination PR through run-trail.sh pr-state|.states.coord_loop.directive | ((split(\"scripts/run-trail.sh\\\" pr-state --session {{SESSION_NAME}}\") | length) == 3 and contains(\"--number <n> --state ready\"))"
 "coord_merge_confirm declares no command gate|[.states.coord_merge_confirm.gates[] | select(.type == \"command\")] | length == 0"
 "every coord_merge_confirm gate is a non-overridable context-matches gate|[.states.coord_merge_confirm.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
 "every coord_verdict gate is a non-overridable context-matches gate|[.states.coord_verdict.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
 "coord_merge_confirm runs record-merge-verdict.sh --confirm on home_repo and coord_branch|(.states.coord_merge_confirm.default_action.command // \"\") | (test(\"record-merge-verdict\\\\.sh --confirm \") and test(\"--repo \\\"\\\\\$\\\\(koto context get execute-\\\\{\\\\{PLAN_SLUG\\\\}\\\\} home_repo\\\\)\\\"\") and test(\"--head-branch \\\"\\\\\$\\\\(koto context get execute-\\\\{\\\\{PLAN_SLUG\\\\}\\\\} coord_branch\\\\)\\\"\") and (test(\" repos\\\\)\") | not))"
 "no edge out of coord_verdict assigns reason|[.states.coord_verdict.transitions[] | (.context_assignments // {}) | has(\"reason\")] | any | not"
 "only coord_verdict's absent-or-unmatched edge assigns step, the literal execute:status-read|[.states.coord_verdict.transitions[] | select((.context_assignments // {}) | has(\"step\"))] | length == 1 and .[0].context_assignments.step == \"execute:status-read\" and ([.[0].when | to_entries[] | select(.key | startswith(\"gates.\")) | .value] | all(. == false))"
-"coord_merge_confirm's not-merged edge assigns reason merge-not-observed|[.states.coord_merge_confirm.transitions[] | select(.target == \"ready_awaiting_merge\") | .context_assignments.reason] == [\"merge-not-observed\"]"
+"coord_merge_confirm's not-merged edge assigns reason merge-not-observed|[.states.coord_merge_confirm.transitions[] | select(.when[\"gates.confirmed_merged.matches\"] == false) | .context_assignments.reason] == [\"merge-not-observed\"]"
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "step and reason are assigned only as literals|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | to_entries[] | select(.key == \"step\" or .key == \"reason\") | .value | (contains(\"\${\") or contains(\"{{\"))] | any | not"
 "no assignment reads \${context. or \${gates.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | (contains(\"\${context.\") or contains(\"\${gates.\"))] | any | not"
-"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"body\",\"outcome\",\"pr\",\"reason\",\"recovered\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length == 5 and all"
+"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"body\",\"outcome\",\"pr\",\"reason\",\"record\",\"recovered\",\"repos\",\"resume\",\"step\",\"unpinned\",\"waiting\"]] | length == 5 and all"
+"every terminal reads record and unpinned from context|[.states[] | select(.terminal == true) | .result.record == \"\${context.record}\" and .result.unpinned == \"\${context.record_unpinned}\"] | length == 5 and all"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
 "every terminal reads body from context|[.states[] | select(.terminal == true) | .result.body == \"\${context.body}\"] | all"
 "every terminal reads recovered from context|[.states[] | select(.terminal == true) | .result.recovered == \"\${context.recovered}\"] | length == 5 and all"
@@ -503,8 +516,14 @@ mutate() { # mutate <label> <expected failing check> <perl substitution>
 }
 
 mutate "a second edge into merged (from coord_verdict)" \
-    "every edge into merged comes from coord_merge_confirm" \
+    "every edge into merged comes from record_keep" \
     's/(      - target: )coord_merge_confirm(\n        when:\n          gates.verdict_merged.matches: true)/${1}merged$2/'
+mutate "record_keep's pin able to hold the run" \
+    "record_keep's default action pins this run's root with run-record-pin.sh and can't hold the run" \
+    's/( --result "execute-\{\{PLAN_SLUG\}\}") \|\| true/$1/'
+mutate "coord_verdict's ready edge straight to its terminal" \
+    "both coord_merge_confirm edges, and coord_verdict's ready edge, go to record_keep" \
+    's/(      - target: )record_keep(\n        when:\n          gates.verdict_merged.matches: false\n          gates.verdict_ready.matches: true)/${1}ready_awaiting_merge$2/'
 mutate "a command gate on coord_merge_confirm" \
     "coord_merge_confirm declares no command gate" \
     's/(    gates:\n      confirmed_merged:\n)/$1        type: context-matches\n        key: confirm_verdict\n        pattern: x\n        overridable: false\n      confirm_exit:\n        type: command\n        command: "true"\n        overridable: false\n      confirmed_merged_2:\n/'

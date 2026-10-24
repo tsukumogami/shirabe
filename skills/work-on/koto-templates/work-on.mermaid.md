@@ -8,11 +8,11 @@ stateDiagram-v2
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
     analysis --> done_blocked : plan_outcome: blocked_missing_context
     cascade_entry --> cascade_run : gates.anchor_present.exit_code: 0
-    cascade_entry --> done : gates.anchor_present.exit_code: 1
+    cascade_entry --> record_keep : gates.anchor_present.exit_code: 1
     cascade_entry --> done_blocked : gates.anchor_present.exit_code: 2
     cascade_run --> done_blocked : cascade_status: partial
-    cascade_run --> done : cascade_status: completed, post_state: verified
-    cascade_run --> done : cascade_status: skipped, post_state: verified
+    cascade_run --> record_keep : cascade_status: completed, post_state: verified
+    cascade_run --> record_keep : cascade_status: skipped, post_state: verified
     cascade_run --> done_blocked : cascade_status: completed, post_state: plan_present
     cascade_run --> done_blocked : cascade_status: completed, post_state: no_commit
     cascade_run --> done_blocked : cascade_status: completed, post_state: wrong_status
@@ -131,6 +131,7 @@ stateDiagram-v2
     qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_retry
     qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_escalate
     qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 2, qa_outcome: blocking_escalate
+    record_keep --> done
     reproduce --> implementation : gates.red_recorded.exit_code: 0
     reproduce --> done_blocked : gates.red_recorded.exit_code: 1, reproduce_status: blocked
     reproduce --> done_blocked : gates.red_recorded.exit_code: 2, reproduce_status: blocked

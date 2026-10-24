@@ -43,6 +43,13 @@
 #          --state open|ready|merged|closed
 #          record root: `trail/pr/<owner>.<repo>.<n>`,
 #          {repo, number, role, state, recorded_at}.
+#   pr-state --session S --repo owner/repo --number N
+#          --state open|ready|merged|closed
+#          record root: the PR's existing `trail/pr/<owner>.<repo>.<n>`
+#          record with its state replaced and recorded_at renewed; the role
+#          stays as recorded. Where a run sees a PR readied or merged, it
+#          records the change this way, not knowing the role it was recorded
+#          under. A PR the root holds no record of is refused (65).
 #   index  --repo owner/repo --number N --session S
 #          --mode single-pr|coordinated|multi-pr --topic T
 #          the PR's index session at the shared address: `run/<run_id>`,
@@ -92,7 +99,10 @@
 #          trail key is written first; a koto copy that then fails is 70, and
 #          a retry records the decision again under the next n.
 #   snapshot --session S
-#          reads only: every `trail/` key of S but `trail/self`, as one JSON
+#          reads only: every `trail/` key of S but `trail/self` and
+#          `trail/unpinned` (scripts/run-record-pin.sh's list of the sessions
+#          koto refused to pin, which names the replaced run's sessions and is
+#          retried before the replace, never carried), as one JSON
 #          object {key: value} on stdout, each value its exact bytes. A key
 #          outside the layout above is left out, named on stderr.
 #   carry  --session S
@@ -126,7 +136,8 @@
 #   65  a value the verb refuses (outside its pattern, a stdin document that
 #       is not one JSON object with the verb's fields, a credential shape, an
 #       oversized text, a PLAN path outside docs/plans or not at HEAD, a step
-#       record naming another session without --supersede, a session
+#       record naming another session without --supersede, a pr-state for
+#       a PR the root holds no record of, a session
 #       with no run_id or session id to record, a PLAN the default branch
 #       never added, an item for a session that is not a plan root, or a
 #       multi-pr index that isn't a plan root's with its topic); nothing
@@ -158,6 +169,7 @@ usage() {
     echo "       run-trail.sh plan-root --repo owner/repo --plan docs/plans/PLAN-<topic>.md" >&2
     echo "       run-trail.sh item --session ROOT --step ID --child NAME [--child-workspace DIR] [--repo owner/repo --number N]" >&2
     echo "       run-trail.sh pr --session S --repo owner/repo --number N --role home|node|follow-up|coordination|item --state open|ready|merged|closed" >&2
+    echo "       run-trail.sh pr-state --session S --repo owner/repo --number N --state open|ready|merged|closed" >&2
     echo "       run-trail.sh index --repo owner/repo --number N --session S --mode single-pr|coordinated|multi-pr --topic T" >&2
     echo "       run-trail.sh plan --session S --step ID --plan docs/plans/PLAN-<topic>.md" >&2
     echo "       run-trail.sh step --session S --step ID --child NAME [--supersede] [--child-workspace DIR]" >&2
@@ -183,6 +195,7 @@ case "$VERB" in
     plan-root) ALLOWED=" --repo --plan " ;;
     item) ALLOWED=" --session --step --child "; OPTIONAL=" --child-workspace --repo --number " ;;
     pr) ALLOWED=" --session --repo --number --role --state " ;;
+    pr-state) ALLOWED=" --session --repo --number --state " ;;
     index) ALLOWED=" --session --repo --number --mode --topic " ;;
     plan) ALLOWED=" --session --step --plan " ;;
     step) ALLOWED=" --session --step --child "; SWITCHES=" --supersede "; OPTIONAL=" --child-workspace " ;;
@@ -239,7 +252,7 @@ check_number() {
     [[ $NUMBER =~ $RS_RE_NUMBER ]] || refuse "--number [$NUMBER] is not a PR number"
 }
 case "$VERB" in
-    pr|index) check_repo; check_number ;;
+    pr|pr-state|index) check_repo; check_number ;;
     plan-root) check_repo ;;
     item)
         GIVEN=0
@@ -522,6 +535,24 @@ case "$VERB" in
         printf '%s' "$DOC" | koto context add "$SESSION" "$KEY" \
             || failed "could not write $KEY in $SESSION"
         ;;
+    pr-state)
+        case "$STATE" in open|ready|merged|closed) ;; *) refuse "--state [$STATE] is not a PR state" ;; esac
+        KEY="trail/pr/${REPO%%/*}.${REPO#*/}.$NUMBER"
+        koto context exists "$SESSION" "$KEY" </dev/null
+        RC=$?
+        case "$RC" in
+            0) ;;
+            1) refuse "$SESSION holds no record of $REPO#$NUMBER ($KEY); nothing written" ;;
+            *) failed "could not check $KEY in $SESSION (koto exit $RC)" ;;
+        esac
+        CUR=$(koto context get "$SESSION" "$KEY" </dev/null) || failed "could not read $KEY in $SESSION"
+        ROLE=$(jq -r 'if type == "object" and (.role | type) == "string" then .role else "" end' <<<"$CUR" 2>/dev/null) || ROLE=""
+        case "$ROLE" in home|node|follow-up|coordination|item) ;; *) refuse "$KEY in $SESSION names no PR role; nothing written" ;; esac
+        DOC=$(jq -nc --arg repo "$REPO" --argjson n "$NUMBER" --arg role "$ROLE" --arg state "$STATE" --arg at "$(now)" \
+            '{repo: $repo, number: $n, role: $role, state: $state, recorded_at: $at}') || failed "jq failed"
+        printf '%s' "$DOC" | koto context add "$SESSION" "$KEY" \
+            || failed "could not write $KEY in $SESSION"
+        ;;
     index)
         case "$MODE" in single-pr|coordinated|multi-pr) ;; *) refuse "--mode [$MODE] is not a plan mode" ;; esac
         [[ $TOPIC =~ $RS_RE_TOPIC ]] || refuse "--topic [$TOPIC] must match ^[a-z0-9-]+\$"
@@ -660,6 +691,7 @@ case "$VERB" in
         while IFS= read -r K; do
             [ -n "$K" ] || continue
             [ "$K" = trail/self ] && continue
+            [ "$K" = trail/unpinned ] && continue
             if ! trail_key_ok "$K"; then
                 echo "$PROG: leaving out [$K] in $SESSION: it is outside the trail layout" >&2
                 continue

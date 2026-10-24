@@ -26,7 +26,10 @@
 # running record-merge-verdict.sh), merge_route routes on it through
 # non-overridable context-matches gates, merge_attempt is the agent-run merge
 # call behind a non-overridable MERGE gate, and merge_confirm re-reads the PR.
-# merge_confirm is the only state with an edge into `merged`. Every edge into a
+# Both merge_confirm's outcomes, and every way the run ends ready to merge,
+# pass through record_keep, which pins the run's evidence and is the only
+# state with an edge into `merged`, routed on the confirm read merge_confirm
+# wrote. Every edge into a
 # terminal assigns `outcome` (and `step` or `reason` only when the edge fixes
 # the value as a literal); a value that comes from a script's output is written
 # to context by the script, because an assignment cannot read ${context.<k>}.
@@ -1228,7 +1231,7 @@ states:
           gates.verdict_pending.matches: false
       # The condition reaches the result through the `reason` key the record
       # script wrote; this edge assigns no reason of its own.
-      - target: ready_awaiting_merge
+      - target: record_keep
         when:
           gates.verdict_merged.matches: false
           gates.verdict_mergeable.matches: false
@@ -1307,7 +1310,7 @@ states:
         type: string
         description: The line merge-exec.sh printed, for the log. Never read.
     transitions:
-      - target: ready_awaiting_merge
+      - target: record_keep
         when:
           gates.merge_intent.exit_code: 1
         context_assignments:
@@ -1318,7 +1321,7 @@ states:
         when:
           gates.merge_intent.exit_code: 0
           merge_exec: called
-      - target: ready_awaiting_merge
+      - target: record_keep
         when:
           gates.merge_intent.exit_code: 0
           merge_exec: refused
@@ -1327,7 +1330,7 @@ states:
           reason: merge-call-failed
       # No message the squash commit may carry (an empty Part 1, a title that
       # spans lines, an attribution line): no merge call was made.
-      - target: ready_awaiting_merge
+      - target: record_keep
         when:
           gates.merge_intent.exit_code: 0
           merge_exec: squash-message
@@ -1341,9 +1344,10 @@ states:
     # its exit code would always pass. record-merge-verdict.sh --confirm clears
     # confirm_verdict, re-resolves the owned PR itself (never from agent
     # evidence), and writes the confirm line only when it matches
-    # ^(merged|not-merged:merge-not-observed)$. This is the only state with an
-    # edge into `merged`, and row 1's already-merged verdict passes through it
-    # too.
+    # ^(merged|not-merged:merge-not-observed)$. It is the only state that
+    # writes the verdict record_keep routes into `merged` on, and row 1's
+    # already-merged verdict passes through it too. On `merged` it also
+    # records the home PR's state as merged in the run's trail.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/execute/scripts/record-merge-verdict.sh --confirm --session "execute-{{PLAN_SLUG}}" --merge "{{MERGE}}" --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head-branch "$(koto context get execute-{{PLAN_SLUG}} settled_branch)"'
       fallback: >-
@@ -1369,6 +1373,49 @@ states:
           keeps failing; it re-evaluates the gate without re-running the read,
           and a cleared key can only route to ready_awaiting_merge.
     transitions:
+      - target: record_keep
+        when:
+          gates.confirmed_merged.matches: true
+        context_assignments:
+          outcome: merged
+          waiting: ""
+      - target: record_keep
+        when:
+          gates.confirmed_merged.matches: false
+        context_assignments:
+          outcome: ready-awaiting-merge
+          reason: merge-not-observed
+
+  record_keep:
+    # The run's evidence is pinned on the way to the two terminals that leave
+    # the plan's PR ready or merged (references/koto-session-retention.md,
+    # "What shirabe pins"). run-record-pin.sh pins the record root, its
+    # qualifying step sessions and its PR's index session, records any pin
+    # koto refuses in trail/unpinned, and writes `record` and
+    # `record_unpinned`, which every terminal's result reads. It never holds
+    # the run: the command ends `|| true`, since a default action that fails
+    # stops the tick here, and a pin that didn't land is recorded and retried
+    # by the next invocation's opener, never a reason to keep the run from
+    # its terminal.
+    #
+    # This is the only state with an edge into `merged`, and it routes there
+    # on the same non-overridable confirmed_merged gate merge_confirm reads:
+    # confirm_verdict is written only by the confirm read, which
+    # record-merge-verdict.sh clears first, so `merged` is still reached only
+    # on a live read of MERGED. Every other way in ends ready_awaiting_merge.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/scripts/run-record-pin.sh" --root "execute-{{PLAN_SLUG}}" --result "execute-{{PLAN_SLUG}}" || true'
+      fallback: >-
+        The pin step never fails the run; if koto still reports this action
+        as failed, tick again. The run's sessions stay unpinned until a later
+        invocation's opener retries them.
+    gates:
+      confirmed_merged:
+        type: context-matches
+        key: confirm_verdict
+        pattern: '^merged$'
+        overridable: false
+    transitions:
       - target: merged
         when:
           gates.confirmed_merged.matches: true
@@ -1380,7 +1427,6 @@ states:
           gates.confirmed_merged.matches: false
         context_assignments:
           outcome: ready-awaiting-merge
-          reason: merge-not-observed
 
   escalate:
     # The accepts block is vestigial: koto today chains through a state whose
@@ -1422,6 +1468,8 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 
   merged:
     # Reached only from merge_confirm, on a live read of MERGED.
@@ -1434,6 +1482,8 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 
   ready_awaiting_merge:
     # The PR is ready and green as far as the run could take it, and a human
@@ -1449,6 +1499,8 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 
   done:
     # Legacy. No transition reaches it any more; it stays declared so a
@@ -1464,6 +1516,8 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 
   done_blocked:
     terminal: true
@@ -1480,6 +1534,8 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 ---
 
 ## orchestrator_setup
@@ -1850,10 +1906,12 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --run-id "$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})")
 # An empty $PR would make gh fall back to the checked-out branch's PR,
 # whoever opened it, so nothing runs without one.
-[ -n "$PR" ] && gh pr ready "$PR"
+[ -n "$PR" ] && gh pr ready "$PR" \
+  && "{{PLUGIN_ROOT}}/scripts/run-trail.sh" pr-state --session {{SESSION_NAME}} \
+       --repo "$(koto context get {{SESSION_NAME}} repos)" --number "${PR##*/}" --state ready
 ```
 
-The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain. If `gh pr ready` fails, carry on and tick: the PR stays a draft, and `merge_readiness`'s verdict ends the run at `step=execute:ready` without merging.
+The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain. If `gh pr ready` fails, carry on and tick: the PR stays a draft, and `merge_readiness`'s verdict ends the run at `step=execute:ready` without merging. Once the PR is ready, `run-trail.sh pr-state` records it ready in the run's trail; if that call exits nonzero, say so and carry on: it never holds the run.
 
 **Step 3: Tick.** Run step 2 before you tick, since the tick is what moves the run on. On a `completed` or `skipped` verdict, submit a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome); it is the only thing you submit here. koto reads the verdict from `cascade_result.json` through `cascade_completed`, `cascade_skipped` and `cascade_partial`, and the owned PR through `ready_owned_pr`:
 
@@ -1931,12 +1989,20 @@ Confirming the merge. koto runs the confirm read itself on entry; you only see t
 
 <!-- details -->
 
-The command is `record-merge-verdict.sh --confirm`. It clears `confirm_verdict`, resolves the owned PR again on the recorded repository and settled branch (never from anything submitted at `merge_attempt`), runs `merge-verdict.sh --confirm` on it, which re-reads the PR's state for up to 20 seconds, and records `merged` or `not-merged:merge-not-observed`. A recorded `merged` goes to `merged`; anything else, an absent record included, goes to `ready_awaiting_merge` with `reason=merge-not-observed`. This is the only way into `merged`.
+The command is `record-merge-verdict.sh --confirm`. It clears `confirm_verdict`, resolves the owned PR again on the recorded repository and settled branch (never from anything submitted at `merge_attempt`), runs `merge-verdict.sh --confirm` on it, which re-reads the PR's state for up to 20 seconds, and records `merged` or `not-merged:merge-not-observed`; on `merged` it also records the PR as merged in the run's trail. Either way the run goes through `record_keep`, where a recorded `merged` goes to `merged`; anything else, an absent record included, goes to `ready_awaiting_merge` with `reason=merge-not-observed`. This confirm read is the only way into `merged`.
 
 You are here because the script failed; the response above carries its exit code and stderr. Tick again to re-run it. If it keeps failing, submit `confirm_status: unreadable`, which re-evaluates the gate on the cleared key and ends the run ready-awaiting-merge naming merge-not-observed, never merged.
 
 Evidence schema (optional; the passing path submits neither):
 - `confirm_status`: `unreadable`
+
+## record_keep
+
+Pinning the run's evidence. koto runs the pin itself on entry and goes on to `merged` or `ready_awaiting_merge`; you only see this state if the action could not run at all.
+
+<!-- details -->
+
+The command is `scripts/run-record-pin.sh --root {{SESSION_NAME}} --result {{SESSION_NAME}}`. It pins, with `koto session pin`, the record root, each step session in its `trail/step/*` that is this run's koto child, and the index session of each PR the run recorded whose entry names this run, with the reason `record of plan <topic>: <owner>/<repo>#<n>`. A pin koto refuses is recorded in `trail/unpinned`, and the next `/execute` on this PLAN retries it before it replaces this session. The result's `record` says `pinned`, `unpinned` (with the names in `unpinned`) or `skipped`. The command never fails the run; tick again.
 
 ## merged
 
@@ -1948,6 +2014,8 @@ koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit
 
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds, the PR merged while `ci_monitor` watched it and its CI passed with cancelled macOS floor checks: read it with `koto context get` and name those checks in your final report.
 
+When the result's `record` is `unpinned`, name the sessions its `unpinned` lists in your final report: koto refused to pin them, and the next `/execute` on this PLAN retries.
+
 A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh <pr> --repo <repo>` (`gh pr checks` where the token can read checks, the Actions jobs and statuses where it can't), taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
 
 ## ready_awaiting_merge
@@ -1957,6 +2025,8 @@ The PR is ready, and the run did not merge it. The result's `reason` names why: 
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh
 ```
+
+When the result's `record` is `unpinned`, name the sessions its `unpinned` lists in your final report: koto refused to pin them, and the next `/execute` on this PLAN retries.
 
 ## paused_for_review
 

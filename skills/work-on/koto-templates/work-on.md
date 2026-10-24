@@ -2779,7 +2779,7 @@ states:
       - target: cascade_run
         when:
           gates.anchor_present.exit_code: 0
-      - target: done
+      - target: record_keep
         when:
           gates.anchor_present.exit_code: 1
       - target: done_blocked
@@ -2862,11 +2862,11 @@ states:
           cascade_status: partial
         context_assignments:
           failure_reason: "cascade_run: cascade reported partial: ${evidence.cascade_detail}"
-      - target: done
+      - target: record_keep
         when:
           cascade_status: completed
           post_state: verified
-      - target: done
+      - target: record_keep
         when:
           cascade_status: skipped
           post_state: verified
@@ -2931,9 +2931,36 @@ states:
         context_assignments:
           failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
 
+  # A root run's way to `done`, once CI passed on its ready pull request
+  # (a plan-backed child goes to `done` from ci_pass_counting and
+  # pr_creation directly, and its parent pins its evidence). For a top-level
+  # item of a multi-pr plan, multi-pr-item-record.sh keep records the item's
+  # PR as ready in the plan root's trail and pins the plan root, this run's
+  # session and the PR's index session (scripts/run-record-pin.sh,
+  # references/koto-session-retention.md "What shirabe pins"), writing
+  # `record` and `record_unpinned`, which done's result reads. Every other run
+  # (no record_root in its session, so not a multi-pr item) prints a
+  # `skipped=` line, pins nothing and records `record` as skipped. The
+  # command ends `|| true`: a default
+  # action that fails stops the tick here, and a pin never holds the run. A
+  # pin koto refuses is recorded in the plan root's trail/unpinned and
+  # retried by the next item's start. Its one edge is unconditional, so the
+  # tick chains through to `done`.
+  record_keep:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/multi-pr-item-record.sh" keep --session "{{SESSION_NAME}}" --plan "{{PLAN_DOC}}" --step "{{ARTIFACT_PREFIX}}" --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}" || true'
+      fallback: >-
+        The pin step never fails the run; if koto still reports this action
+        as failed, tick again.
+    transitions:
+      - target: done
+
   # The success terminals' result is the payload koto promotes onto a caller's
   # leg (--koto-leg), so a coordinator reads the pull request from koto's
-  # record instead of asking the worker for it (#995). pr_url is written on
+  # record instead of asking the worker for it (#995). done also carries
+  # `record` and `unpinned`, the outcome of record_keep's pins (`skipped` on a
+  # root run that isn't a multi-pr item; a plan-backed child never passes
+  # record_keep, so koto lists both under `missing` for it). pr_url is written on
   # pr_creation's created edge. A run that opened none (a child on
   # /execute's shared branch, or an already-complete issue) resolves pr to ""
   # and koto lists it under `missing`. There is no head: nothing on the run's
@@ -2944,6 +2971,8 @@ states:
     terminal: true
     result:
       pr: "${context.pr_url}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 
   done_already_complete:
     terminal: true
@@ -4141,6 +4170,14 @@ them published what it reached: the remote carries that commit, and recovery is
 a follow-up commit or a revert rather than a reset. Inspect the `steps` array to
 tell which shape you have; the verdict alone does not say.
 
+## record_keep
+
+Pinning a multi-pr item's evidence on the way to `done`. koto runs the pin
+itself on entry and goes on to `done`; you only see this state if the action
+could not run at all. It pins only for a top-level item of a multi-pr plan
+(the plan root, this run's session and its PR's index session); every other
+run prints a `skipped=` line. It never fails the run: tick again.
+
 ## done
 
 The workflow is complete. The PR has been created and CI is passing.
@@ -4148,6 +4185,10 @@ The workflow is complete. The PR has been created and CI is passing.
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds,
 CI passed on a MERGED pull request with cancelled macOS floor checks: read it
 with `koto context get` and name those checks in your final report.
+
+When the result's `record` is `unpinned`, name the sessions its `unpinned`
+lists in your final report: koto refused to pin them, and the next item's run
+retries.
 
 ## done_already_complete
 

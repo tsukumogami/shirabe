@@ -23,11 +23,21 @@
 #                     answer a read of an unused workspace is expected to
 #                     give; context exists answers 1, as for any absent key.
 #
-# Verbs: init (with --attach-live and --replace-terminal), context
-# add|get|exists|list|remove,
+# Verbs: init (with --attach-live, --replace-terminal, --parent <P> and
+# --dispatched-by <D>), context add|get|exists|list|remove,
 # status, session list, session import (marks the source migrated),
-# decisions record|list, version, and --help on any of them. Anything else
-# exits 9. `decisions record` takes --with-data as inline JSON or @<file>,
+# session pin, workflows --children, decisions record|list, version, and
+# --help on any of them. Anything else (`session unpin` among them) exits 9.
+#
+# The session pin, as koto 0.24.0 has it. `session pin --reason <R> <name>`
+# is a write: it stores {reason, set_at, set_by} under the session's
+# `koto/links/pin` key and prints {name, pin, store}; pinning a pinned
+# session changes nothing and prints the pin it holds. A name the workspace
+# doesn't hold is refused with exit 2. `init --parent <P>` makes the session
+# a koto child of <P> (`parent_workflow` in `session list`, listed by
+# `workflows --children <P>`), and `init --dispatched-by <D>` writes the
+# dispatched-by link `koto/links/dispatched-by/<D>` in its context, as koto
+# does. `decisions record` takes --with-data as inline JSON or @<file>,
 # refuses (2) an object without string choice and rationale, and keeps each
 # record as given; `decisions list` prints them in koto's shape.
 #
@@ -52,6 +62,12 @@
 #   RECORD_KOTO_LIST_EXTRA        a JSON array of rows `session list` appends
 #                                 to its own, so a suite can show a reader a
 #                                 row the stub would never write
+#   RECORD_KOTO_VERSION           the version `koto version` reports
+#                                 (default 0.0.0-record-stub)
+#   RECORD_KOTO_PIN_FAIL          space-separated `<name>:<code>` pairs: a pin
+#                                 of <name> exits <code> and writes nothing,
+#                                 as koto 0.24.0 under the cloud backend
+#                                 refuses (2) or can't confirm (3) one
 #
 # Every call is appended to $RECORD_KOTO_STORE/calls.log as
 # `<canonical cwd><TAB><arguments>`, before anything is decided, so a test can
@@ -97,6 +113,7 @@ case "$VERB" in
     "context get"*|"context list"*|"context exists"*|"session list"*) KIND=read ;;
     "status "*) KIND=read ;;
     "version "*) KIND=read ;;
+    "workflows --children") KIND=read ;;
     "decisions list") KIND=read ;;
     *) KIND=write ;;
 esac
@@ -156,16 +173,40 @@ new_id() {
 }
 
 case "$VERB" in
-    "version "*) echo "koto 0.0.0-record-stub" ;;
+    "version "*) echo "koto ${RECORD_KOTO_VERSION:-0.0.0-record-stub}" ;;
     "init "*)
         name=${2:-}
         name_ok "$name" || err "invalid session name" 2
         attach=0
         replace=0
+        parent=""
+        dispatcher=""
+        prev=""
         for a in "$@"; do
             [ "$a" = --attach-live ] && attach=1
             [ "$a" = --replace-terminal ] && replace=1
+            [ "$prev" = --parent ] && parent=$a
+            [ "$prev" = --dispatched-by ] && dispatcher=$a
+            prev=$a
         done
+        if [ -n "$parent" ] && [ ! -d "$WSDIR/$name" ]; then
+            name_ok "$parent" && [ -d "$WSDIR/$parent" ] || err "parent workflow '$parent' not found" 2
+            mkdir -p "$WSDIR/$name/ctx"
+            new_id > "$WSDIR/$name/session_id"
+            printf '%s\n' "$parent" > "$WSDIR/$name/parent"
+        fi
+        if [ -n "$dispatcher" ]; then
+            name_ok "$dispatcher" || err "invalid dispatcher name" 2
+            mkdir -p "$WSDIR/$name/ctx/koto/links/dispatched-by"
+            [ -f "$WSDIR/$name/session_id" ] || new_id > "$WSDIR/$name/session_id"
+            : > "$WSDIR/$name/ctx/koto/links/dispatched-by/$dispatcher"
+            printf '{"name":"%s","state":"open"}\n' "$name"
+            exit 0
+        fi
+        if [ -n "$parent" ]; then
+            printf '{"name":"%s","state":"open"}\n' "$name"
+            exit 0
+        fi
         if [ -d "$WSDIR/$name" ] && [ "$replace" -eq 1 ]; then
             # The move-aside: the session and every `<name>.`/`<name>~` one.
             moving=()
@@ -241,9 +282,49 @@ case "$VERB" in
         for s in "$WSDIR"/*/; do
             [ -d "$s" ] || continue
             s=${s%/}; n=${s##*/}
-            jq -nc --arg id "$n" --arg sid "$(cat "$s/session_id")" --arg dir "$WS" \
-                '{id: $id, session_id: $sid, execution_dir: $dir, parent_workflow: null}'
+            p=""
+            [ -f "$s/parent" ] && p=$(cat "$s/parent")
+            jq -nc --arg id "$n" --arg sid "$(cat "$s/session_id")" --arg dir "$WS" --arg p "$p" \
+                '{id: $id, session_id: $sid, execution_dir: $dir, parent_workflow: (if $p == "" then null else $p end)}'
         done | jq -sc --argjson extra "${RECORD_KOTO_LIST_EXTRA:-[]}" '. + $extra'
+        ;;
+    "workflows --children")
+        p=${3:-}
+        name_ok "$p" || err "invalid session name" 2
+        for s in "$WSDIR"/*/; do
+            [ -f "$s/parent" ] || continue
+            [ "$(cat "$s/parent")" = "$p" ] || continue
+            s=${s%/}
+            jq -nc --arg n "${s##*/}" --arg p "$p" '{name: $n, parent_workflow: $p}'
+        done | jq -sc .
+        ;;
+    "session pin")
+        reason=""
+        name=""
+        shift 2
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --reason) [ $# -ge 2 ] || err "--reason needs a value" 2; reason=$2; shift ;;
+                *) name=$1 ;;
+            esac
+            shift
+        done
+        [ -n "$reason" ] && [ "${#reason}" -le 500 ] || err "invalid reason" 2
+        case "$reason" in *[[:cntrl:]]*) err "invalid reason" 2 ;; esac
+        name_ok "$name" || err "invalid session name" 2
+        for pair in ${RECORD_KOTO_PIN_FAIL:-}; do
+            if [ "${pair%:*}" = "$name" ]; then
+                printf '{"error":{"code":"pin_failed","message":"pin of %s failed"}}\n' "$name"
+                exit "${pair##*:}"
+            fi
+        done
+        [ -d "$WSDIR/$name" ] || { printf '{"error":{"code":"no_session","message":"session %s does not exist"}}\n' "$name"; exit 2; }
+        f="$WSDIR/$name/ctx/koto/links/pin"
+        if [ ! -f "$f" ]; then
+            mkdir -p "$(dirname "$f")"
+            jq -nc --arg r "$reason" '{reason: $r, set_at: "2026-01-01T00:00:00.000Z", set_by: null}' > "$f"
+        fi
+        jq -c --arg n "$name" '{name: $n, pin: ., store: "local"}' "$f"
         ;;
     "decisions record")
         need_session "${3:-}"

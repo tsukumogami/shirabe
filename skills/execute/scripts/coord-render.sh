@@ -34,7 +34,9 @@
 #      whose mergeCommit.oid is 40 hex, is recorded through
 #      `run-record.sh observe` (one document for all of them) before anything
 #      is rendered, so the body never shows a head the record doesn't hold; a
-#      refused or failed observe is body=stale;
+#      refused or failed observe is body=stale. Each one so recorded is also
+#      recorded merged in the run's trail (scripts/run-trail.sh pr-state), a
+#      write that only warns when it fails;
 #   4. only when some indexed repository is not the home (case-insensitive),
 #      read the home's and each other repository's visibility live
 #      (coord_repo_visibility); a failed read is body=stale;
@@ -217,6 +219,7 @@ ROWS=$(rr_q "$REC" '
 STATES='{}'
 OBSERVE='{}'
 OBSERVED=""
+SEEN_MERGED=""
 while IFS=$'\t' read -r key label repo pr mh; do
     [ -n "$key" ] || continue
     view=""
@@ -240,6 +243,8 @@ while IFS=$'\t' read -r key label repo pr mh; do
                 || stale "the observe document could not be built"
             OBSERVED="${OBSERVED}observed=$label:$oid
 "
+            SEEN_MERGED="${SEEN_MERGED}$repo	$pr
+"
         fi
     fi
 done <<<"$ROWS"
@@ -247,6 +252,16 @@ if [ "$OBSERVE" != '{}' ]; then
     printf '%s' "$OBSERVE" > "$WORK/observe.json" || stale "the observe document could not be staged"
     "$BASH" "$COORD_SELF_DIR/run-record.sh" observe --session "$SESSION" --json "$WORK/observe.json" </dev/null >&2 \
         || stale "run-record.sh observe did not record the merged heads"
+    # Each newly seen merge, merged by this run or by a person, is the run
+    # observing that PR merge: its trail records it (scripts/run-trail.sh
+    # pr-state, which keeps the PR's recorded role). The trail is the
+    # record, not the rendering, so a write that fails only warns.
+    while IFS=$'\t' read -r mrepo mpr; do
+        [ -n "$mrepo" ] || continue
+        "$BASH" "$COORD_SELF_DIR/../../../scripts/run-trail.sh" pr-state --session "$SESSION" \
+            --repo "$mrepo" --number "$mpr" --state merged </dev/null >/dev/null \
+            || echo "$PROG: could not record $mrepo#$mpr as merged in $SESSION's trail" >&2
+    done <<<"$SEEN_MERGED"
     printf '%s' "$OBSERVED"
     REC=$(rr_record "$SESSION") || stale "the run record could not be read back after the observe"
 fi

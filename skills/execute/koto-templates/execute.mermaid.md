@@ -16,17 +16,17 @@ stateDiagram-v2
     escalate --> done_blocked
     escalate_dirty_merge_state --> done_blocked
     escalate_upstream_drift --> done_blocked
-    merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 1
+    merge_attempt --> record_keep : gates.merge_intent.exit_code: 1
     merge_attempt --> merge_confirm : gates.merge_intent.exit_code: 0, merge_exec: called
-    merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 0, merge_exec: refused
-    merge_attempt --> ready_awaiting_merge : gates.merge_intent.exit_code: 0, merge_exec: squash-message
-    merge_confirm --> merged : gates.confirmed_merged.matches: true
-    merge_confirm --> ready_awaiting_merge : gates.confirmed_merged.matches: false
+    merge_attempt --> record_keep : gates.merge_intent.exit_code: 0, merge_exec: refused
+    merge_attempt --> record_keep : gates.merge_intent.exit_code: 0, merge_exec: squash-message
+    merge_confirm --> record_keep : gates.confirmed_merged.matches: true
+    merge_confirm --> record_keep : gates.confirmed_merged.matches: false
     merge_readiness --> merge_route : gates.verdict_recorded.exists: true
     merge_readiness --> done_blocked : gates.verdict_recorded.exists: false, readiness_status: blocked
     merge_route --> merge_confirm : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: true, gates.verdict_pending.matches: false
     merge_route --> merge_attempt : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: true, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false
-    merge_route --> ready_awaiting_merge : gates.verdict_awaiting.matches: true, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false
+    merge_route --> record_keep : gates.verdict_awaiting.matches: true, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false
     merge_route --> done_blocked : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: true, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false
     merge_route --> merge_readiness : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: true, recheck: waited
     merge_route --> merge_readiness : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false, gates.verdict_present.matches: false, recheck: waited
@@ -48,6 +48,8 @@ stateDiagram-v2
     pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 2
     pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 3
     pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 2
+    record_keep --> merged : gates.confirmed_merged.matches: true
+    record_keep --> ready_awaiting_merge : gates.confirmed_merged.matches: false
     settled_branch_record --> drift_facts : gates.settled_branch_recorded.matches: true
     settled_branch_record --> done_blocked : gates.settled_branch_recorded.matches: false, status: blocked
     spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true
@@ -142,6 +144,9 @@ stateDiagram-v2
     end note
     note left of pr_finalization
         gate: settled_docs_visibility
+    end note
+    note left of record_keep
+        gate: confirmed_merged
     end note
     note left of settled_branch_record
         gate: settled_branch_recorded

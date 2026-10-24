@@ -157,6 +157,11 @@
 # exit 70; stderr names the snapshot). So a pause's replace never drops the
 # trail of the run it resumes.
 #
+# The pins. Before that snapshot, a finished session's pins koto refused at
+# its record_keep (`trail/unpinned`) are retried, `run-record-pin.sh --root
+# <session> --retry`, its lines on stderr; a retry that fails only warns, and
+# a session with nothing unpinned makes no pin call.
+#
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
 # the run carries; a coordinated session has one once its setup ran. When
@@ -489,6 +494,16 @@ if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
             }
         fi
     fi
+fi
+
+# The pins koto refused when the finished run reached record_keep (its
+# `trail/unpinned`), tried again before the replace moves the session aside:
+# the names are that run's sessions, so they are retried under its name, and
+# the trail snapshot below leaves the key out. A retry that fails, or pins
+# nothing, only warns; the opener goes on either way.
+if [ "$NAMED" -eq 1 ] && [ "$FINISHED" -eq 1 ]; then
+    bash "$PLUGIN_DIR/scripts/run-record-pin.sh" --root "$SESSION" --retry </dev/null >&2 \
+        || echo "$PROG: could not retry the sessions $SESSION's run left unpinned" >&2
 fi
 
 # The trail snapshot: a finished session's `trail/` keys, kept before koto

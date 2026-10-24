@@ -15,6 +15,13 @@
 #                   multi-pr PLAN, record the item (session, workspace, PR),
 #                   the PLAN as the item began, the PR in the root's list
 #                   (role item) and the PR's index entry naming the root
+#   keep            record_keep's default action, as the template declares it
+#                   (the run's own variables, ending `|| true`): for the item,
+#                   start's record_root is read back, the item's PR is
+#                   recorded ready and the plan root, the item's session and
+#                   its index session are pinned, record=pinned in the item's
+#                   session; a plan-backed child is skipped with no koto
+#                   call, and a run with no record_root pins nothing
 #   not an item     no PLAN_DOC, or a PLAN that isn't multi-pr: skipped, no
 #                   koto call
 #   refusals        a PLAN path outside docs/plans/PLAN-<topic>.md is 65; an
@@ -180,6 +187,42 @@ if [ "$(jq -r '[.role, .state] | join(" ")' <<<"$TRAIL_PR")" = "item open" ] \
 else
     fail "trail/pr [$TRAIL_PR], index entry [$ENTRY]"
 fi
+
+# --- record_keep: keep ------------------------------------------------------------------------
+
+# The default action record_keep declares, as the template carries it.
+KEEP_LINE=$(sed -n "s/^      command: '\(.*multi-pr-item-record\.sh\" keep .*\)'\$/\1/p" "$TEMPLATE")
+case "$KEEP_LINE" in
+    *'keep --session "{{SESSION_NAME}}" --plan "{{PLAN_DOC}}" --step "{{ARTIFACT_PREFIX}}" --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}" || true')
+        pass "record_keep runs keep with the run's own session, PLAN_DOC, ARTIFACT_PREFIX, SHARED_BRANCH and ISSUE_SOURCE, ending || true"
+        ;;
+    *) fail "record_keep's command: [$KEEP_LINE]" ;;
+esac
+if [ "$(cd "$W" && koto context get work-on-item-1 record_root 2>/dev/null)" = "$ROOT" ]; then
+    pass "an item: start recorded the plan root in the run's own session (record_root)"
+else
+    fail "record_root in work-on-item-1: [$(cd "$W" && koto context get work-on-item-1 record_root 2>&1)]"
+fi
+MARK=$(log_len)
+RECORD_KOTO_VERSION=0.24.0 run_line "$W" "$(render "$KEEP_LINE" work-on-item-1 docs/plans/PLAN-mp.md issue_1 "" "")"
+PINS=$(tail -n +"$((MARK + 1))" "$RECORD_KOTO_STORE/calls.log" | awk -F'\t' '$2 ~ /^session pin / { n = split($2, a, " "); print a[n] }' | LC_ALL=C sort | tr '\n' ' ')
+if [ "$RC" -eq 0 ] && [ "$PINS" = "$ROOT pr.$OWNER.r.71 work-on-item-1 " ] \
+    && [ "$(cd "$W" && koto context get work-on-item-1 record 2>/dev/null)" = pinned ] \
+    && [ "$(jq -r .state <<<"$(get "$ROOT" "trail/pr/$OWNER.r.71")")" = ready ]; then
+    pass "keep: the item's PR is recorded ready, and the plan root, the item's session and its index session are pinned; record=pinned in the item's session"
+else
+    fail "keep: exit $RC, pins [$PINS], out [$OUT], stderr [$(cat "$WORK/stderr")]"
+fi
+MARK=$(log_len)
+run_line "$W" "$(render "$KEEP_LINE" execute-p.step-1 docs/plans/PLAN-mp.md step-1 impl/x plan_outline)"
+[ "$RC" -eq 0 ] && [ "$OUT" = skipped=plan-backed-child ] && [ "$(log_len)" -eq "$MARK" ] \
+    && pass "keep, plan-backed child: skipped=plan-backed-child, no koto call (its parent pins it)" \
+    || fail "keep plan-backed: exit $RC, out [$OUT]"
+(cd "$W" && koto init work-on-solo --template work-on.md >/dev/null)
+run_line "$W" "$(render "$KEEP_LINE" work-on-solo "" issue_9 "" "")"
+[ "$RC" -eq 0 ] && [ "$OUT" = skipped=no-record-root ] \
+    && pass "keep, a run that never recorded itself as an item: skipped=no-record-root, nothing pinned" \
+    || fail "keep solo: exit $RC, out [$OUT]"
 
 # --- not an item ---------------------------------------------------------------------------
 

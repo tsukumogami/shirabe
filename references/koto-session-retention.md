@@ -46,7 +46,8 @@ reports its state (`current_state`, `is_terminal`), and `koto context get <name>
 writes. For a kept child, the parent's `retry_failed` and `koto rewind` still
 act on it. Kept children are removed along with their parent, and `koto
 workspace prune --root <name>` (which reclaims that session and its children)
-and `koto session cleanup <name>` reclaim any kept session.
+and `koto session cleanup <name>` reclaim any kept session that holds no pin. A
+pinned session is kept through both (see "What shirabe pins" below).
 
 ## The rule
 
@@ -123,6 +124,62 @@ claiming work it didn't do. `koto workflows` lists a retained terminal session
 with nothing marking it terminal, so finding a session isn't evidence that it's
 resumable either; `is_terminal` from `koto status` remains the read-only way to
 ask when a skill needs to know outside its entry path.
+
+## What shirabe pins
+
+`--no-cleanup` keeps a session past its terminal tick; koto's retention rule
+still removes a finished session once its hierarchy's retention has passed
+(`koto session prune`). A plan's run is its own record, so the sessions that
+hold a finished run's evidence are pinned with `koto session pin` (koto 0.24.0,
+the pin floor `RECORD_PIN_FLOOR`), which keeps a session past every removal by
+rule. `scripts/run-record-pin.sh` makes one pin call per session.
+
+**When.** In a `record_keep` state, a default action on the way to each
+terminal that leaves the plan's PRs ready or merged: `merged` and
+`ready_awaiting_merge` in `execute.md` and `execute-coordinated.md` (not
+`paused_awaiting_merges`, where a node still waits, so not every PR is ready),
+and `done` in `work-on.md` for a top-level item of a `multi-pr` plan. A
+plan-backed child of `/execute` pins nothing; its parent pins it. The state
+never holds the run: a pin that didn't land is recorded and retried.
+
+**Which sessions.** The run's record root (`execute-<topic>`, or a multi-pr
+plan's root `plan.<owner>.<repo>.<topic>.<sha12>`); each step session the root's
+`trail/step/*` names that is the root's own koto child or whose dispatched-by
+link names the root (a coordinated work item), never one listed as superseded;
+the index session `pr.<owner>.<repo>.<n>` of each PR the run recorded, when its
+entry for the run names the root and the root's session id; and for a multi-pr
+item, the plan root, the item's own `/work-on` session and its PR's index
+session. What belongs to the run is decided from local facts and the run's own
+records. A session whose recorded workspace isn't on this host is not pinned:
+it is recorded unpinned with the code `other-workspace`.
+
+**The reason.** `record of plan <topic>: <owner>/<repo>#<n>`, naming the run's
+own PR (an index session names its PR): no plan prose, no control character, at
+most 500 characters, the topic cut to fit.
+
+**A pin keeps only its session.** It doesn't keep the rest of the session's
+hierarchy, which the retention rule keeps or releases as before; that is why
+each session above is pinned on its own.
+
+**Unpinned.** Below the floor no pin call is made (code `below-floor`). Under
+the cloud backend koto 0.24.0 refuses a pin (exit 2) until its cloud half is
+released, and a pin it can't confirm exits 3. Each such session is written to
+the root's `trail/unpinned` with koto's code, and the terminal's result says
+`record: unpinned` with the names. The next invocation's opener retries them
+(`run-record-pin.sh --retry`: `execute-open.sh` before it replaces a finished
+root, and a multi-pr item's start for its plan root), putting each through the
+same checks first, and removes `trail/unpinned` once none is left.
+
+**How a pin comes off.** shirabe never unpins, and
+`scripts/check-run-record-rules.sh` fails on any unpin call in shirabe's skills
+and scripts, on a retention window shirabe sets itself, and on a skill
+paragraph that tells the reader to prune or clean up sessions without saying
+the pinned ones are kept. A person releases a pin with koto's own unpin
+command, either by hand from a shell with no `KOTO_ANCHOR` set, or from an
+agent session whose start was handed koto's `release-pin` authority. A
+session with a pin is kept by `koto session prune` (`kept_by_pin: true`, with
+the reason) and refused by `koto session cleanup` (exit 2, nothing removed)
+until then.
 
 ## Where a skill states its position
 

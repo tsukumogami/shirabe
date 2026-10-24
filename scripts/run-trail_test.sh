@@ -10,6 +10,10 @@
 #          number as a number, the role and the state; a role, state,
 #          repository or number outside its pattern refuses (65) and writes
 #          nothing
+#   pr-state
+#          an existing trail/pr record's state replaced (ready, then merged),
+#          its role kept; a PR the root holds no record of, or a state outside
+#          the set, refuses (65) and writes nothing; --role is 64
 #   index  run/<run_id> in pr.<owner>.<repo>.<n>, opened and written from
 #          the shared address, naming the root's workspace, session, session
 #          id, mode and topic; trail/self written first when it's absent,
@@ -37,7 +41,8 @@
 #          counting up; a decision's actor (agent:<name>, person,
 #          person:<login>) in its trail key and its choice and rationale in
 #          koto's decision log
-#   carry  a snapshot of one session's trail (trail/self left out) carried
+#   carry  a snapshot of one session's trail (trail/self left out, and
+#          trail/unpinned left out with nothing said) carried
 #          into a fresh session byte for byte; a key the session holds is
 #          kept; a snapshot that isn't an object of text, or names a key
 #          outside the layout, refuses (65) and writes nothing
@@ -193,6 +198,31 @@ for args in "--repo o/r --number 7 --role boss --state open" \
     [ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && pass "pr refuses [$args] (65), nothing written" \
         || fail "pr [$args]: exit $RC, writes $(writes)"
 done
+
+# --- pr-state ---------------------------------------------------------------------------
+
+new_store
+run_trail pr --session "$S" --repo octo/repo --number 12 --role coordination --state open
+run_trail pr-state --session "$S" --repo Octo/Repo --number 12 --state ready
+DOC=$(root_get trail/pr/octo.repo.12)
+[ "$RC" -eq 0 ] && [ "$(jq -c '{repo, number, role, state}' <<<"$DOC")" = '{"repo":"octo/repo","number":12,"role":"coordination","state":"ready"}' ] \
+    && pass "pr-state: the recorded PR's state becomes ready, its role kept" \
+    || fail "pr-state ready: exit $RC, [$DOC], stderr [$(cat "$WORK/stderr")]"
+run_trail pr-state --session "$S" --repo octo/repo --number 12 --state merged
+[ "$RC" -eq 0 ] && [ "$(jq -r '.state + " " + .role' <<<"$(root_get trail/pr/octo.repo.12)")" = "merged coordination" ] \
+    && pass "pr-state: then merged, its role still kept" \
+    || fail "pr-state merged: exit $RC, [$(root_get trail/pr/octo.repo.12)]"
+: > "$RECORD_KOTO_STORE/calls.log"
+run_trail pr-state --session "$S" --repo octo/repo --number 13 --state ready
+[ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && [ -z "$(root_get trail/pr/octo.repo.13)" ] \
+    && pass "pr-state: a PR the root holds no record of refuses (65), nothing written" \
+    || fail "pr-state unknown PR: exit $RC, writes $(writes)"
+: > "$RECORD_KOTO_STORE/calls.log"
+run_trail pr-state --session "$S" --repo octo/repo --number 12 --state shipped
+[ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && pass "pr-state: a state outside the set refuses (65), nothing written" \
+    || fail "pr-state bad state: exit $RC, writes $(writes)"
+run_trail pr-state --session "$S" --repo octo/repo --number 12 --role home --state ready
+[ "$RC" -eq 64 ] && pass "pr-state takes no --role (64)" || fail "pr-state --role: exit $RC"
 
 # --- index ------------------------------------------------------------------------------
 
@@ -466,12 +496,13 @@ run_trail step --session "$S" --step step-1 --child "$S.step-1"
 doc '{"what": "w", "why": "y"}'
 run_trail_in "$WORK/in.json" departure --session "$S" --step step-1 --kind entry-rewritten
 (cd "$A" && printf 'x' | koto context add "$S" trail/stray)
+(cd "$A" && printf '{"names":[],"at":"x"}' | koto context add "$S" trail/unpinned)
 run_trail snapshot --session "$S"
 printf '%s' "$OUT" > "$WORK/snap.json"
 if [ "$RC" -eq 0 ] && [ "$(jq -c 'keys' "$WORK/snap.json")" \
         = '["trail/departure/1.json","trail/plan/step-1.json","trail/plan/step-1.md","trail/step/step-1"]' ] \
-    && grep -q 'trail/stray' "$WORK/stderr"; then
-    pass "snapshot: every trail key but trail/self, one outside the layout left out and named"
+    && grep -q 'trail/stray' "$WORK/stderr" && ! grep -q 'trail/unpinned' "$WORK/stderr"; then
+    pass "snapshot: every trail key but trail/self and trail/unpinned (left out silently), one outside the layout left out and named"
 else
     fail "snapshot: exit $RC, keys [$(jq -c keys "$WORK/snap.json")], stderr [$(cat "$WORK/stderr")]"
 fi

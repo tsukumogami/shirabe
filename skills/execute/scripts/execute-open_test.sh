@@ -58,7 +58,9 @@
 #     a retained paused_for_review session: replaced, and the resume passes
 #       PAUSE_BEFORE_FINALIZE=false; the trail/ keys the paused root held
 #       (a step record and a departure) are still there after the replace
-#       (trail_carried=2), and the snapshot is gone
+#       (trail_carried=2), and the snapshot is gone; a step session the
+#       paused root's trail/unpinned lists is pinned by the retry before the
+#       replace (pinned=<name> on stderr), and trail/unpinned isn't carried
 #     --review-floor=standard --review-ceiling=full: both variables set on
 #       the session; resumed without them, both rebound to empty, never
 #       inherited, like MERGE; --review-floor=medium: invalid_var, no session;
@@ -741,6 +743,18 @@ TRAIL="$REPO_ROOT/scripts/run-trail.sh"
     || fail "could not write execute-paused's trail before the pause"
 TRAIL_BEFORE_STEP=$(k context get execute-paused trail/step/step-1 2>/dev/null)
 TRAIL_BEFORE_DEP=$(k context get execute-paused trail/departure/1.json 2>/dev/null)
+# The step session the trail names, a finished koto child of the root, which
+# the finished run's record_keep is taken to have failed to pin.
+{
+    printf -- '---\nname: plain-step\nversion: "1.0"\ninitial_state: work\nstates:\n'
+    printf '  work:\n    accepts:\n      go:\n        type: enum\n        values: [yes]\n        required: true\n'
+    printf '    transitions:\n      - target: fin\n        when:\n          go: yes\n'
+    printf '  fin:\n    terminal: true\n---\n## work\nWork.\n## fin\nDone.\n'
+} > "$WORK/plain-step.md"
+printf '{"go": "yes"}' > "$WORK/go.json"
+{ k init execute-paused.step-1 --parent execute-paused --template "$WORK/plain-step.md" \
+    && k next execute-paused.step-1 --with-data @"$WORK/go.json" --no-cleanup; } >/dev/null 2>&1 \
+    || fail "could not run execute-paused.step-1 to its terminal"
 # The first hop leaves write_set_record across repos_recorded, which is
 # overridable: false. From koto 0.14 (koto#257) a directed hop across such a
 # gate is refused unless the gate's current result satisfies the edge, so the
@@ -751,6 +765,10 @@ for t in orchestrator_setup settled_branch_record drift_facts worktree_sync work
     k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; then
+    FIX_P=$(cd "$FIXREPO" && pwd -P)
+    jq -nc --arg w "$FIX_P" '{names: [{session: "execute-paused.step-1", workspace: $w, code: "2"}], at: "2026-01-01T00:00:00Z"}' \
+        | k context add execute-paused trail/unpinned >/dev/null 2>&1 \
+        || fail "could not write execute-paused's trail/unpinned"
     run_open '["docs/plans/PLAN-paused.md"]'
     if [ "$RC" -eq 0 ] && line 'opened=replaced' && line 'replaced_state=paused_for_review' \
         && [ "$(session_var execute-paused PAUSE_BEFORE_FINALIZE)" = false ]; then
@@ -779,6 +797,20 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
         pass "after the pause's replace, the replacement still holds the earlier trail/ keys (trail_carried=2), the snapshot removed"
     else
         fail "trail after replacement: out [$OUT], step [$(k context get execute-paused trail/step/step-1 2>/dev/null)], was [$TRAIL_BEFORE_STEP]; $ERR"
+    fi
+    # The retry: before the replace, the finished run's unpinned step session
+    # is pinned under the run's own name, and the replacement carries no
+    # trail/unpinned. koto moves a pinned session aside with its parent.
+    PINNED_STEP=$(k session list 2>/dev/null | jq -r '[.[] | .id | select(test("^execute-paused(_r[0-9]+)?\\.step-1$"))] | .[]' 2>/dev/null)
+    PIN_HELD=""
+    for s in $PINNED_STEP; do
+        k context exists "$s" koto/links/pin >/dev/null 2>&1 && PIN_HELD=$s
+    done
+    if grep -qx 'pinned=execute-paused.step-1' <<<"$ERR" && [ -n "$PIN_HELD" ] \
+        && ! k context exists execute-paused trail/unpinned >/dev/null 2>&1; then
+        pass "the opener retries the finished run's unpinned sessions before the replace (pinned=execute-paused.step-1, now $PIN_HELD), and trail/unpinned isn't carried"
+    else
+        fail "retry before replace: step sessions [$PINNED_STEP], pinned [$PIN_HELD]; $ERR"
     fi
 else
     fail "could not walk execute-paused to paused_for_review"

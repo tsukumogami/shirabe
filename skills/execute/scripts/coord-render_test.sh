@@ -21,7 +21,9 @@
 #   Part 1 edited before the post     body=stale, no pr edit
 #   a node newly merged               run/node gains merged_head (the
 #                                     shim's merge commit), and its koto
-#                                     write comes before the pr edit showing it
+#                                     write comes before the pr edit showing it;
+#                                     its trail/pr record becomes merged,
+#                                     role kept
 #   an observe the record can't take  body=stale, nothing posted
 #   a body over 60,000 bytes          body=full, no pr edit
 #   --before-coordination             a stale or full body records
@@ -233,6 +235,11 @@ fi
 
 base_case observe
 ct_write_db
+# The node PR as node-push.sh recorded it in the run's trail, readied since.
+TRAIL_KEY="trail/pr/$(printf '%s' "$CT_REPO" | tr '[:upper:]/' '[:lower:].').11"
+mkdir -p "$(dirname "$CASE/ctx/$S/$TRAIL_KEY")"
+jq -cn --arg r "$(printf '%s' "$CT_REPO" | tr '[:upper:]' '[:lower:]')" \
+    '{repo: $r, number: 11, role: "node", state: "ready", recorded_at: "2026-01-01T00:00:00Z"}' > "$CASE/ctx/$S/$TRAIL_KEY"
 run_render
 gh shim-mark-merged "$CT_REPO" 11
 WANT_SHA=$(merge_sha "$CT_REPO" 11)
@@ -254,6 +261,11 @@ if [ -n "$ADD_AT" ] && [ -n "$EDIT_AT" ] && [ "$ADD_AT" -lt "$EDIT_AT" ]; then
     pass "in the request log, the koto write of run/node/$CT_CORE comes before the pr edit that shows it"
 else
     fail "order: add at [$ADD_AT], edit at [$EDIT_AT]: $ORDER"
+fi
+if [ "$(jq -r '.state + " " + .role' "$CASE/ctx/$S/$TRAIL_KEY" 2>/dev/null)" = "merged node" ]; then
+    pass "the newly merged node is also recorded merged in the run's trail, its role kept"
+else
+    fail "trail after the observe: [$(cat "$CASE/ctx/$S/$TRAIL_KEY" 2>/dev/null)]"
 fi
 run_render
 if [ "$OUT" = "body=unchanged" ]; then

@@ -20,7 +20,8 @@
 #      extracted from the
 #      template at run time) is opened on a `work-on` leg and driven to each
 #      terminal, and koto's record of the leg is read:
-#        - created + pr_url, CI green, no anchor: done, payload.pr the URL;
+#        - created + pr_url, CI green, no anchor: done through record_keep,
+#          payload.pr the URL and payload.record skipped, nothing missing;
 #        - the same as a child (ci_pass_counting straight to done): the URL;
 #        - created with no pr_url: pr "", read as naming none;
 #        - done_already_complete with pr_url in context: the URL;
@@ -138,6 +139,13 @@ cat > "$FAKE_ROOT/skills/work-on/scripts/session-role.sh" <<EOF
 if [ -f "$RC_DIR/role" ]; then cat "$RC_DIR/role"; else echo root; fi
 EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/*
+# record_keep's script is the real one, with the record scripts it reaches,
+# so a root run that isn't a multi-pr item records record=skipped there.
+mkdir -p "$FAKE_ROOT/scripts/lib"
+cp "$SCRIPT_DIR/multi-pr-item-record.sh" "$FAKE_ROOT/skills/work-on/scripts/"
+cp "$REAL_ROOT/scripts/run-trail.sh" "$REAL_ROOT/scripts/run-record-pin.sh" "$FAKE_ROOT/scripts/"
+cp "$REAL_ROOT/scripts/lib/record-store.sh" "$FAKE_ROOT/scripts/lib/"
+chmod +x "$FAKE_ROOT/skills/work-on/scripts/multi-pr-item-record.sh" "$FAKE_ROOT/scripts/run-trail.sh" "$FAKE_ROOT/scripts/run-record-pin.sh"
 
 # stub_block <block> <gate=exit>...: the named gates' commands replaced by
 # fixed exits, keyed on the gate name above each command.
@@ -158,8 +166,8 @@ stub_block() {
 build() {
     local dir="$1"; shift
     local s blocks="" t stubs=""
-    local shipped="pr_creation ci_monitor ci_pass_counting cascade_entry done done_already_complete done_blocked"
-    for s in pr_creation ci_monitor ci_pass_counting cascade_entry; do
+    local shipped="pr_creation ci_monitor ci_pass_counting cascade_entry record_keep done done_already_complete done_blocked"
+    for s in pr_creation ci_monitor ci_pass_counting cascade_entry record_keep; do
         blocks="$blocks$(stub_block "$(extract_state "$s")" "$@")
 "
     done
@@ -174,6 +182,8 @@ build() {
             '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
+            '  ISSUE_SOURCE:' '    description: issue source' '    required: false' \
+            '  ARTIFACT_PREFIX:' '    description: artifact prefix' '    required: false' \
             '  PLAN_DOC:' '    description: plan' '    required: false' \
             '  VERIFICATION:' '    description: verification' '    required: false' \
             '    default: local' '    values: [local, hosted-ci]' \
@@ -244,6 +254,8 @@ if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
     eq "root: the leg's status is success" '"success"' "$(leg .result.status)"
     eq "root: the leg's payload carries the pull request" "\"$URL\"" "$(leg .result.payload.pr)"
     eq "root: the payload lists nothing missing" null "$(leg .result.payload.missing)"
+    eq "root: record_keep passed on the way, and the payload says it pinned nothing (not a multi-pr item)" \
+        '"skipped"' "$(leg .result.payload.record)"
     if [ -f "$COORD_SCRIPTS/record-common.sh" ]; then
         eq "root: lib_report_pr reads the pull request" "$URL" "$(report_pr)"
     fi

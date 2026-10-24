@@ -372,7 +372,7 @@ esac
 # writer.
 REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd)
 # A new script that records through run-trail.sh joins this list.
-WRITERS='"\$[A-Za-z_{}]+/[^" ]*(lib/record-store|run-trail|run-record-lookup|multi-pr-item-record|adopt-or-create-pr|record-coord-setup|node-push)\.sh"'
+WRITERS='"\$[A-Za-z_{}]+/[^" ]*(lib/record-store|run-trail|run-record-lookup|run-record-pin|multi-pr-item-record|adopt-or-create-pr|record-coord-setup|node-push)\.sh"'
 UNSET=""
 for f in "$REPO_ROOT"/scripts/*_test.sh "$REPO_ROOT"/skills/*/scripts/*_test.sh "$REPO_ROOT"/skills/*/scripts/*-helpers.sh; do
     [ -f "$f" ] || continue
