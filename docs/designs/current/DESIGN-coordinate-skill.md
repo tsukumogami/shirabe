@@ -597,3 +597,6 @@ Decision 2's layout of the record on GitHub no longer holds, and neither do
 both of its containers, the roadmap scope's issue and the discipline scope's
 rotation pull request. At either scope a coordinator's record is the set of
 `record/` keys in its koto session. The rest of this design stands.
+
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer.

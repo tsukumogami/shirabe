@@ -562,3 +562,12 @@ what no longer holds.
 Discipline scope, which R4 kept out of this feature and deferred to this
 removal, is settled: a discipline coordinator runs on its session too, with
 `record/rotation` and `record/reasoning`.
+
+The coordinate scripts named above have new names: `record-append.sh` is
+`state-entry.sh`, `record-decision.sh` is `state-decision.sh`,
+`record-hold.sh` is `state-hold.sh`, `record-holding.sh` is
+`state-holding.sh`, `record-source.sh` is `state-read.sh`, `record-state.sh`
+is `state-stored-set.sh`, `record-write.sh` is `state-write.sh` and
+`record-write-core.sh` is `state-write-core.sh`. `record-parse.sh` is gone.
+`record-codec.jq` is gone; its checks live in `state-schema.jq`, which
+validates the state as JSON.

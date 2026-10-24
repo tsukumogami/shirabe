@@ -731,3 +731,9 @@ Standing and Work are session keys, `record/standing` and `record/work`,
 written by `state-stored-set.sh`. A person's resume reaches the coordinator by
 message, not as a comment on the record: there is no record issue or pull
 request to comment on.
+
+The coordinate scripts named above have new names: `record-append.sh` is
+`state-entry.sh` and `record-common.sh` is `state-common.sh`.
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer. `record-codec.jq` is
+gone; its checks live in `state-schema.jq`, which validates the state as JSON.

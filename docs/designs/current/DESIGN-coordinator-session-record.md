@@ -658,3 +658,14 @@ session-source coordinator's GitHub record (Decision 10) and the move of an
 existing record (Decision 11) go with it; a record nobody moved is imported
 once by the legacy importer instead. Discipline scope, which this design left
 on the GitHub record, runs on the session.
+
+The coordinate scripts named above have new names: `record-append.sh` is
+`state-entry.sh`, `record-common.sh` is `state-common.sh`, `record-confirm.sh`
+is `state-confirm.sh`, `record-decision.sh` is `state-decision.sh`,
+`record-find.sh` is `state-find.sh`, `record-handover.sh` is
+`state-handover.sh`, `record-hold.sh` is `state-hold.sh`, `record-holding.sh`
+is `state-holding.sh`, `record-open.sh` is `state-open.sh`, `record-source.sh`
+is `state-read.sh`, `record-write.sh` is `state-write.sh` and
+`record-write-core.sh` is `state-write-core.sh`. `record-parse.sh` and
+`record-render.sh` are gone. `record-codec.jq` is gone; its checks live in
+`state-schema.jq`, which validates the state as JSON.

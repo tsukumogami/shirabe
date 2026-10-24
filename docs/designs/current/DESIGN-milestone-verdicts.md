@@ -796,3 +796,11 @@ Decisions are made from the coordinator's session plus the default branch, not
 from a record body. Verdict and failure entries are posted on the roadmap pull
 request (`state-entry.sh --on <roadmap pull request>`), not on a record
 issue.
+
+The coordinate scripts named above have new names: `record-common.sh` is
+`state-common.sh`, `record-confirm.sh` is `state-confirm.sh` and
+`record-state.sh` is `state-stored-set.sh`. `references/record-template.md` is
+now `references/state-keys.md`, which holds each key of the state, its JSON
+shape and its one writer. `record-parse.sh` and `record-render.sh` are gone.
+`record-codec.jq` is gone; its checks live in `state-schema.jq`, which
+validates the state as JSON.

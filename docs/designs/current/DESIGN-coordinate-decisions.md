@@ -1119,3 +1119,10 @@ Decisions are the session's `record/decisions` key, written by
 `record-full` refusal and the decisions archive are gone (`state-decision.sh`
 has no `--archive`). `--carry` reads the predecessor's session, not a handoff
 file.
+
+The coordinate scripts named above have new names: `record-common.sh` is
+`state-common.sh`, `record-find.sh` is `state-find.sh`, `record-holding.sh` is
+`state-holding.sh`, `record-open.sh` is `state-open.sh`, `record-write.sh` is
+`state-write.sh` and `record-write-core.sh` is `state-write-core.sh`.
+`record-parse.sh` and `reconcile-salvage.jq` are gone. `record-codec.jq` is
+gone; its checks live in `state-schema.jq`, which validates the state as JSON.

@@ -593,3 +593,6 @@ what no longer holds.
 The record row the coordinator clears last is a key in its session, not a row
 of a record body on GitHub, and clearing it is the coordinator's own write to
 that session.
+
+The coordinate scripts named above have new names: `record-confirm.sh` is
+`state-confirm.sh` and `record-state.sh` is `state-stored-set.sh`.

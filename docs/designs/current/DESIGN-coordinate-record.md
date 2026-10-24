@@ -834,3 +834,8 @@ container, no declaration-line authority, no `Written:` compare (the confirm
 compares the written time in `record/meta`) and no committed handoff file. The
 codec's checks survive as `state-schema.jq`, which validates the state as
 JSON; the markdown renderer and parser are gone.
+
+The coordinate scripts named above have new names: `record-common.sh` is
+`state-common.sh` and `record-holding.sh` is `state-holding.sh`.
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer.
