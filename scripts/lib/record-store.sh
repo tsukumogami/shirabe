@@ -73,7 +73,8 @@
 # With the workspace option, the canonical form of the shared address this
 # host's writers never used is a workspace koto holds nothing in, and koto is
 # expected to say so. rs_koto_read returns 68 for a nonzero exit whose output
-# says `not found`, so a reader goes on to the next form; every other nonzero
+# says `workflow '<name>' not found` (or session or workspace), so a reader
+# goes on to the next form; every other nonzero
 # exit is passed through, with koto's output, as a read that failed.
 #
 # The callers check every value before it reaches these functions; a
@@ -196,6 +197,7 @@ rs_koto_read() {
     else
         [ -d "$dir" ] || return 69
     fi
+    # The probe above has set RS_WORKSPACE_OPTION for the branch below.
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/record-store.XXXXXX") || {
         echo "record-store: mktemp failed" >&2
         return 70
@@ -206,7 +208,10 @@ rs_koto_read() {
         (cd -- "$dir" && koto "$@") >"$tmp/out" 2>"$tmp/err"
     fi
     rc=$?
-    if [ "$rc" -ne 0 ] && grep -qi 'not found' "$tmp/out" "$tmp/err"; then
+    # koto names what it didn't find: `workflow '<name>' not found` for a
+    # session it doesn't hold. A missing key reads "failed to read context
+    # key", a plain failure, and stays one.
+    if [ "$rc" -ne 0 ] && grep -qiE "(workflow|session|workspace) '[^']*' not found" "$tmp/out" "$tmp/err"; then
         rm -rf -- "$tmp"
         return 68
     fi

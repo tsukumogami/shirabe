@@ -241,6 +241,7 @@ read_steps() {
     : > "$WORK/step-keys"
     list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/step/ </dev/null) || return 2
     keys=$(json_keys "$list" "$MAX_STEPS") || return 2
+    # Each plan snapshot is two keys, the .md text and the .json record.
     list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/plan/ </dev/null) || return 2
     keys="$keys
 $(json_keys "$list" "$((MAX_STEPS * 2))")" || return 2

@@ -150,7 +150,7 @@ while [ $# -gt 0 ]; do
     case "$SWITCHES" in
         *" $1 "*)
             SEEN="$SEEN$1 "
-            SUPERSEDE=1
+            case "$1" in --supersede) SUPERSEDE=1 ;; esac
             shift
             continue
             ;;
@@ -390,7 +390,7 @@ case "$VERB" in
                 if [ "$CUR_SESSION" != "$CHILD" ]; then
                     [ "$SUPERSEDE" -eq 1 ] \
                         || refuse "$KEY already names $CUR_SESSION; a new step agent's session is recorded with --supersede"
-                    SUPERSEDED=$(jq -c --arg s "$CUR_SESSION" '(. + [$s]) | unique' <<<"$SUPERSEDED") || failed "jq failed"
+                    SUPERSEDED=$(jq -c --arg s "$CUR_SESSION" 'if index([$s]) then . else . + [$s] end' <<<"$SUPERSEDED") || failed "jq failed"
                 fi
                 ;;
             1) ;;

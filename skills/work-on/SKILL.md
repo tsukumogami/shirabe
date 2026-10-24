@@ -804,15 +804,18 @@ rm <scratch>/decision.json
 
 `scripts/run-trail.sh` keeps the decision in the run's record, with the step
 it belongs to and who made it, as `trail/decision/<n>.json` in this session,
-and sends the same choice and rationale through `koto decisions record`. The
-step is the run's `ARTIFACT_PREFIX` (`step-<N>` or `issue-<N>` for a
-plan-backed child). The actor is `agent:<WF>` for a call the agent made, and
+and sends the same choice and rationale through `koto decisions record`. Run
+it from this run's checkout, since the keys are written in the current
+directory's workspace. The step is the run's `ARTIFACT_PREFIX` (`step-<N>` or
+`issue-<N>` for a plan-backed child, `issue_<N>` or `task_<slug>` for a run
+of its own). The actor is `agent:<WF>` for a call the agent made, and
 `person` when a human made it, as at `deferral_approval`. The text goes only on
 stdin: the script refuses (exit 64 or 65, nothing recorded) text passed as an
 argument, a document without a choice and a rationale, and one holding a
 token, an `Authorization:` line or a private key. A refusal means the record is
 wrong, not that the decision goes unrecorded: fix the document and run it
-again.
+again. An exit 70 after the trail key was written (the message says so)
+already recorded the decision, so don't run it again for that one.
 
 The same script records the run's departures, each against its step, at the
 sites that make one: a deviated acceptance criterion at finalization
