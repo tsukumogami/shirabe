@@ -204,7 +204,7 @@ def check_holds($h; $private):
 # ---- the stored set: Run, Standing and Work ---------------------------------
 #
 # What a replacement coordinator needs to continue from the record alone
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3). Each sits
+# (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 3). Each sits
 # after Holds and before Decisions, in this order, and renders only once it
 # has a row, so a record written before them keeps its bytes. Only
 # record-state.sh changes them.

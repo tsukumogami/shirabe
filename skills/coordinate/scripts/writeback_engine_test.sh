@@ -2,7 +2,7 @@
 # writeback_engine_test.sh -- a landed feature's Status and Delivered line
 # written back to the roadmap, the shipped coordinate.md driven through real
 # koto against the testdata/gh stand-in
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 4;
+# (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 4;
 # tsukumogami/shirabe#497).
 #
 # Proves, one line per case:

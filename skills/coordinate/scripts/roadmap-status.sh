@@ -5,7 +5,7 @@
 # roadmap edit a checked verdict calls for, and open the edit that sends a
 # Done milestone back to In progress on a checked failure. Agent-run, at
 # roadmap scope only
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 4;
+# (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 4;
 # docs/designs/DESIGN-milestone-verdicts.md, Decisions 1 and 3).
 #
 # Usage:

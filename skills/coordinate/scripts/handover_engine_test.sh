@@ -3,7 +3,7 @@
 # its session, the shipped coordinate.md driven through real koto against the
 # testdata/gh stand-in, on two simulated hosts sharing koto's cloud backend
 # (testdata/cloud-hosts.sh over testdata/fake-s3.py)
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3;
+# (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 3;
 # docs/designs/DESIGN-coordinator-session-record.md; PRD R14, R17, R9, R22).
 #
 # The fixture is the shape of a real handover, on 2026-09-29, in which a
