@@ -221,6 +221,9 @@ has "dispatcher: /coordinate's args file is its first step's" "$(section "$E" Go
 E=$(bash "$S" --input "$(variant ep-workon '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-x.md"]')" --stdout)
 has "dispatcher: /work-on given a PLAN records it with link-dispatcher.sh" "$(section "$E" Goal)" \
     "link-dispatcher.sh\" <session> --dispatched-by $D"
+has "dispatcher: the template's Reporting names render-result.sh too" \
+    "$(awk '/^```markdown$/ { on = 1; next } on && /^```$/ { exit } on' "$HERE/../references/brief-template.md" | awk '/^## / { on = ($0 == "## Reporting"); next } on')" \
+    'scripts/render-result.sh --session <your session>'
 R=$(section "$B" Reporting)
 has "dispatcher: Reporting names render-result.sh as the report step" "$R" \
     'Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh" --session <your session>`'

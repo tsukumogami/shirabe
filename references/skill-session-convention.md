@@ -244,7 +244,11 @@ document, defines that rule. `/work-on`'s `--koto-leg` opener,
 `skills/work-on/scripts/work-on-open.sh`, takes the same `--dispatched-by` and
 does the same after its open, and a coordinated `/execute` run's step agent
 opens each `/work-on` child with `koto init --dispatched-by execute-<slug>`
-(`skills/execute/references/step-agent-handoff.md`).
+(`skills/execute/references/step-agent-handoff.md`). `/coordinate`'s opener,
+`coordinate-open.sh`, takes `--dispatched-by` too, and its
+`link-dispatcher.sh` links a session already open; a worker `/coordinate`
+dispatches on the message path runs the one its brief shows
+(`references/koto-session-retention.md`).
 
 A failed link is run once more. When the retry fails too, the script prints
 
@@ -258,7 +262,10 @@ exits as it would have without the link: 0. The session is open and usable;
 it is only outside its dispatcher's hierarchy, so koto may reclaim it on its
 own schedule once it finishes, and the key is how a later reader finds out
 why. A link that works, at once or on the retry, prints nothing and removes a
-`session/link-warning` an earlier failure left. The retry, warning and record
+`session/link-warning` an earlier failure left. A session linked to more than
+one dispatcher (a carried `/coordinate` run) keeps one `dispatched_by` line
+per dispatcher whose link failed under the one `warning=link-failed` line, and
+a link that works takes out only its own line. The retry, warning and record
 are one shared piece of code, `scripts/lib/dispatch-link.sh`.
 
 ### Closing

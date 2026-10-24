@@ -50,9 +50,11 @@ sections. `entry_args` is the positional argument and any flags the entry
 point allows (`references/entry-points.tsv`), and `run_mode` holds the
 execution flags, empty only for an entry point that takes none
 (`/shirabe:release`). `dispatcher_session` is your koto run, which a request
-leg names as its requester; it is never the address the worker reports to.
-That address, `reports_to`, comes from the record's Run `coordinator` row:
-`dispatch-worker.sh` writes it into the input, so leave it out. `phase` is
+leg names as its requester and a message-path worker records as its
+dispatcher; it is never the address the worker reports to. That address,
+`reports_to`, comes from the record's Run `coordinator` row. `dispatch-worker.sh`
+writes both into the input (`dispatcher_session` as the run rendering the
+brief), so leave them out. `phase` is
 `scoping` (the unit is its scoping alone, from pick's `scope`),
 `scoping-ahead` or `executing`. No checkpoint
 may wait on an approval, and no value may carry a session id.
@@ -76,6 +78,37 @@ to your session, the only source of direction; tooling problems to the
 discipline coordinator for the surface), shows the invocation with
 `--koto-leg` when the worker reports through a request leg, and adds the
 settings-file line and the keep-alive note.
+
+## The Dispatcher on the Message Path
+
+A worker on a request leg is joined to your run by the leg. A worker on the
+message path has no leg, so it records your run as its dispatcher itself, from
+its own session, and its brief tells it how. The Goal names your run as
+`dispatcher_session: <your run>` and shows the exact command, with
+`--dispatched-by <your run>` already filled in:
+
+| Entry point | The command |
+|-------------|-------------|
+| `/coordinate` | `coordinate-open.sh --plugin-root ... --dispatched-by <your run> "$ARGS_DIR/args.json"`, in place of the open its skill shows |
+| `/explore`, `/decision`, `/release` | `skill-session.sh open <skill> <topic> --dispatched-by <your run>`, in place of the open its skill shows |
+| `/scope`, `/deliver`, `/execute`, `/work-on` | `link-dispatcher.sh <session> --dispatched-by <your run>`, once the entry point has opened its session |
+
+The command links the worker's session to your run and, when the link fails,
+runs it once more. A second failure prints `warning=link-failed
+dispatched_by=<your run>` and records it in the worker's own context key
+`session/link-warning`; the worker's session stays open and it goes on. You
+learn of it from the worker's result, never by reading the worker's key.
+
+The Reporting section then names the worker's report step:
+`scripts/render-result.sh --session <its session>`, with `--pr <url>` per
+pull request, whose block goes in the final report. It reads the worker's own
+session and carries a `warning=link-failed dispatched_by=<your run>` line for
+a link that failed. No skill's text asks the worker to pass the warning on.
+
+A worker moved to the message path later (a re-brief, an execution sent to an
+entry point with no leg, a leg found unwatchable after an import) is
+re-briefed through `dispatch-worker.sh`, so its new brief carries the command
+too, and its `dispatcher_session` names the run that rendered it.
 
 ## The Worker's Authority
 
@@ -102,6 +135,10 @@ rendered ones the same.
 
 <One or two sentences: what exists or works when this is done, and the
 entry point to run, for example `/shirabe:deliver <topic> --auto`.>
+
+<On the message path only: `dispatcher_session: <your run>`, and the command
+that records it in the worker's session with `--dispatched-by <your run>`
+filled in (see The Dispatcher on the Message Path).>
 
 Run mode: `--auto` unless the human's decisions say otherwise. A
 background worker can't answer the confirmation `--interactive` waits for.
@@ -175,6 +212,12 @@ have one, names your pull request, and it is never your result. When your
 invocation carries a request leg, your result still comes through that leg
 when your entry point finishes; a checkpoint message doesn't stand in for it,
 so keep going to the end.
+
+On the message path only: your report step. When your entry point finishes,
+run `scripts/render-result.sh --session <your session>`, with `--pr <url>`
+for each pull request you opened, and put the block it prints in your final
+report, just before the `=== WORK IN FLIGHT ===` block. That block is your
+result; it carries a link to the coordinator that failed.
 
 A run the account's usage limit cut short (an eval or a nested session that
 executed nothing) is not a result: re-run it once the limit resets, and never
