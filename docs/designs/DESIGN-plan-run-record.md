@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A merged PR gives a reader a repository and a number, and nothing in shirabe gets from
   that to the koto session that ran the plan. PR text can't carry the pointer by default,
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
