@@ -99,8 +99,7 @@ to_reconcile() {
     local st path
     st=$(at); path=$st
     if [ "$st" = record_open ]; then
-        render "$(record_json discipline "$DISC")" issue > "$T/body.md"
-        agent record-open.sh --body-file "$T/body.md" --start "$TODAY" --end "$(day 6)" > "$T/open.out" 2> "$T/w.err" || { echo "$path open-failed"; return; }
+        agent record-open.sh --start "$TODAY" --end "$(day 6)" > "$T/open.out" 2> "$T/w.err" || { echo "$path open-failed"; return; }
         st=$(at --with-data '{"opened":"opened"}'); path="$path $st"
     elif [ "$st" = predecessor_carry ]; then
         agent record-open.sh --carry > "$T/carry.out" 2> "$T/w.err" || { echo "$path carry-failed"; return; }

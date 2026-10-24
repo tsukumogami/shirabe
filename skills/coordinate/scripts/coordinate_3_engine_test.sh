@@ -254,9 +254,8 @@ if [ "$REACHED" = pick ] \
     live_body | jq -c '.reversals += [{date: $d, reversed: "wait for the registry", now: "ship the loader first", reason: "the answer to decision 1", from: "a person"}]' \
         --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" > "$T/rev.json"
     # Edited from the live body, so it carries the live written time.
-    jq 'del(.written)' "$T/rev.json" > "$T/rev.next.json"
-    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rev.json")" "$T/rev.next.json" > "$T/rev.md"
-    write_as_agent record-write.sh --body-file "$T/rev.md"
+    state_json "$(cat "$T/rev.json")" "$(jq -r .written "$T/rev.json")" > "$T/rev.next.json"
+    write_as_agent record-write.sh --state-file "$T/rev.next.json"
     eq "13: record-write.sh (agent-run) adds the Reversals row" 0 $?
     # The entry came from the dispatcher, so its settle owes it a reply, which
     # the loop renders before it goes on.

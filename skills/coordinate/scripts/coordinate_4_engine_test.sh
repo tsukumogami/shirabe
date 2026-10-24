@@ -238,9 +238,8 @@ if to_pick nover "$(record_json roadmap nover | jq -c --argjson h "$(land_row "$
     sleep 1
     live_body | jq -c --arg h "$MOVED" --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" \
         '.side_effects += [{action: "merge", target: "acme/widgets#12", verified_head: $h, attempted: $d, how_to_confirm: "a person merged it; this run never verified the head"}]' > "$T/se.json"
-    jq 'del(.written)' "$T/se.json" > "$T/se.next.json"
-    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/se.json")" "$T/se.next.json" > "$T/se.md"
-    write_as_agent record-write.sh --body-file "$T/se.md"
+    state_json "$(cat "$T/se.json")" "$(jq -r .written "$T/se.json")" > "$T/se.next.json"
+    write_as_agent record-write.sh --state-file "$T/se.next.json"
     eq "24: record-write.sh (agent-run) adds the Side effects row" 0 $?
     eq "24: the row an unconfirmed merge gets confirms it, and the loop goes on to pick" pick "$(at)"
 else

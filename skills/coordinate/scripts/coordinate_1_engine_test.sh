@@ -12,8 +12,8 @@
 #
 # Proves, one line per case:
 #   1. dispatch is unreachable without the run's record: none stops at
-#      record_open, record-open.sh writes the record into the run's session and
-#      opens nothing on GitHub, the find then reaches reconcile with the session
+#      record_open, record-open.sh builds the scope's empty record (no body is
+#      handed to it) in the run's session and opens nothing on GitHub, the find then reaches reconcile with the session
 #      recorded as the run's store, and the run reaches pick with no evidence
 #      naming the record, after a new record's empty stored set held the
 #      reconcile handover gate until record-state.sh filled it;
@@ -21,7 +21,7 @@
 #      session, where it stood) and never enters record_open again or looks
 #      for a record on GitHub; the run's record names its session;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
-#      record-write.sh disposes it, then dispatch is reached;
+#      record-write.sh --state-file disposes it, then dispatch is reached;
 #   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
 #      Holdings row shows dispatched, so record and wait are unreachable until
 #      then, and record holds until the holding has its Work row;
@@ -51,8 +51,7 @@ if open_run one; then
     tick --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
     eq "1: record_open refuses pick's evidence and stays" record_open "$(now_at)"
     eq "1: dispatch is never entered without a record" 0 "$(entered dispatch)"
-    render "$(record_json roadmap one)" issue > "$T/open.md"
-    write_as_agent record-open.sh --body-file "$T/open.md"; rc=$?
+    write_as_agent record-open.sh; rc=$?
     eq "1: record-open.sh (agent-run) opens the record" 0 $rc
     (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the run's session" || bad "1:   ... in the run's session" "$(cat "$T/w.err")"
     grep -Eq '^(issue (create|edit|close)|pr create)' "$GH_DB.calls" \
@@ -77,8 +76,7 @@ fi
 echo "== 2. a restart resumes the run =="
 seed_roadmap restart
 if open_run restart && [ "$(at)" = record_open ]; then
-    render "$(record_json roadmap restart)" issue > "$T/open.md"
-    write_as_agent record-open.sh --body-file "$T/open.md"
+    write_as_agent record-open.sh
     eq "2: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" \
         || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
@@ -113,8 +111,8 @@ if to_pick defer "$REC3"; then
     # Edit the record keeping its written time: record-write.sh compares it
     # with the live record's before writing.
     live_body | jq -c '.deferrals[0].disposition = "closed: moot"' > "$T/rec.json"
-    jq 'del(.written)' "$T/rec.json" | bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rec.json")" > "$T/body.md"
-    write_as_agent record-write.sh --body-file "$T/body.md"; rc=$?
+    state_json "$(cat "$T/rec.json")" "$(jq -r .written "$T/rec.json")" > "$T/state.json"
+    write_as_agent record-write.sh --state-file "$T/state.json"; rc=$?
     eq "3: record-write.sh (agent-run) disposes the deferral" 0 $rc
     eq "3: once disposed, dispatch_check reaches dispatch" dispatch "$(at --with-data '{"rewritten":"rewritten"}')"
 else
