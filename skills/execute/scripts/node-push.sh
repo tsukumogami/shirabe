@@ -150,6 +150,11 @@
 #      recorded merged_head), coordination mode `run/cascade` {verdict:
 #      pushed, head} (`run-record.sh cascade`). A refused or failed write is
 #      exit 70, and nothing is rendered;
+#   5c. node mode: record the node PR in the run's trail through
+#      scripts/run-trail.sh: `pr` (role node, state open) in the root, then
+#      `index` (mode coordinated, topic <slug>) at the PR's owner's shared
+#      address, so a lookup from the node PR reaches the run. Either one
+#      failing is exit 70, naming the PR, and nothing is rendered;
 #   6. render the coordination PR's body from the record: coord-render.sh,
 #      which observes merges, validates the body with
 #      `shirabe validate --coordination-body`, and posts it with
@@ -168,9 +173,10 @@
 #   67  the branch is the remote's default branch
 #   68  the push failed; nothing was recorded
 #   69  HEAD, read back after the push, is not a commit id
-#   70  the run record write failed or was refused; the push happened, and
-#       the coordination PR's body was not rendered (the caller's
-#       execute:push)
+#   70  the run record write failed or was refused, or (node mode) the node
+#       PR's trail or index write failed, stderr naming the PR; the push
+#       happened, and the coordination PR's body was not rendered (the
+#       caller's execute:push)
 #   72  a GitHub read failed, or the run record could not be read (the
 #       caller's execute:status-read)
 #   73  no single owned PR where one must be adopted: the recorded
@@ -733,6 +739,20 @@ fi
 if ! "$BASH" "$COORD_SELF_DIR/run-record.sh" "$RR_VERB" --session "$SESSION" --json "$WORK/record.json" </dev/null >&2; then
     echo "$PROG: the run record write failed; the push happened, and the coordination PR's body was not rendered" >&2
     exit 70
+fi
+
+# 5c. Node mode: the node PR in the run's trail, in the same call that
+# recorded it: the root lists it (`trail/pr/*`, role node) and its index
+# session, at its owner's shared address, names the root, so a lookup from
+# the node PR (scripts/run-record-lookup.sh) reaches the run. Both go through
+# scripts/run-trail.sh, whose index entry takes the root's address from the
+# `trail/self` record-coord-setup.sh wrote in the coordination checkout.
+if [ "$MODE" = node ]; then
+    TRAIL="$COORD_SELF_DIR/../../../scripts/run-trail.sh"
+    "$BASH" "$TRAIL" pr --session "$SESSION" --repo "$REPO" --number "$PR_NUM" --role node --state open </dev/null >&2 \
+        || { echo "$PROG: could not record the node PR $PR_URL in $SESSION's run record; the push happened, and the body was not rendered" >&2; exit 70; }
+    "$BASH" "$TRAIL" index --repo "$REPO" --number "$PR_NUM" --session "$SESSION" --mode coordinated --topic "$SLUG" </dev/null >&2 \
+        || { echo "$PROG: could not write the index entry of the node PR $PR_URL; the push happened, and the body was not rendered" >&2; exit 70; }
 fi
 
 # 6. The body, rendered from the record just written.

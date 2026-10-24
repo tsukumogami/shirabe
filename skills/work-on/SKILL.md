@@ -197,10 +197,12 @@ When an acceptance criterion is unmet, finalization reports `deferral_requested`
 routes to the blocking `deferral_approval` human gate. The human makes an explicit
 decision:
 
-- **Approved** — the deferral is recorded as the human's decision via
-  `koto decisions record`, so the audit trail shows what was deferred and on whose
-  authority, and the PR body says in plain terms what the change leaves undone. The
-  workflow then proceeds to PR creation.
+- **Approved** — the deferral is recorded as the human's decision through
+  `scripts/run-trail.sh decision` with actor `person` (which also sends it through
+  `koto decisions record`), and as a `deferral` departure against the step, so the
+  audit trail shows what was deferred and on whose authority, and the PR body says
+  in plain terms what the change leaves undone. The workflow then proceeds to PR
+  creation.
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
@@ -796,8 +798,37 @@ During analysis and implementation, record non-obvious decisions. Write
 `decision.json` in the run's scratch directory, then:
 
 ```bash
-koto decisions record <WF> --with-data @<scratch>/decision.json
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" decision --session <WF> --step <ARTIFACT_PREFIX> --actor agent:<WF> < <scratch>/decision.json
 rm <scratch>/decision.json
+```
+
+`scripts/run-trail.sh` keeps the decision in the run's record, with the step
+it belongs to and who made it, as `trail/decision/<n>.json` in this session,
+and sends the same choice and rationale through `koto decisions record`. Run
+it from this run's checkout, since the keys are written in the current
+directory's workspace. The step is the run's `ARTIFACT_PREFIX` (`step-<N>` or
+`issue-<N>` for a plan-backed child, `issue_<N>` or `task_<slug>` for a run
+of its own). The actor is `agent:<WF>` for a call the agent made, and
+`person` when a human made it, as at `deferral_approval`. The text goes only on
+stdin: the script refuses (exit 64 or 65, nothing recorded) text passed as an
+argument, a document without a choice and a rationale, and one holding a
+token, an `Authorization:` line or a private key. A refusal means the record is
+wrong, not that the decision goes unrecorded: fix the document and run it
+again. An exit 70 after the trail key was written (the message says so)
+already recorded the decision, so don't run it again for that one.
+
+The same script records the run's departures, each against its step, at the
+sites that make one: a deviated acceptance criterion at finalization
+(`references/phases/phase-5-finalization.md`), an approved deferral at
+`deferral_approval`, and a scope change at either retry loop
+(`references/phases/phase-3-analysis.md`,
+`references/phases/phase-4-implementation.md`). Each writes
+`{"what": "...", "why": "..."}` to `departure.json` in the scratch directory and
+runs:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" departure --session <WF> --step <ARTIFACT_PREFIX> --kind <deviated|deferral|scope-change> < <scratch>/departure.json
+rm <scratch>/departure.json
 ```
 
 ## Output
@@ -815,8 +846,8 @@ mode, follow `references/decision-protocol.md` at decision points W1 (handling a
 `needs-triage` issue) and W2 (clarifying an ambiguity during introspection). Safety
 gates W3 (CI failure guidance) and W4 (accepting a red check) remain blocking in both
 modes: blocking means the run ends at `done_blocked` through `failing_unresolvable`,
-and an unattended run never asks the user instead. Use
-`koto decisions record <WF>` to capture any decisions made.
+and an unattended run never asks the user instead. Capture any decisions made
+with `scripts/run-trail.sh decision` (see **Decision Capture**).
 
 First, resolve the input using the Input Resolution section above. Once you have an
 issue number, read the issue with `gh issue view <issue-number>` (adding

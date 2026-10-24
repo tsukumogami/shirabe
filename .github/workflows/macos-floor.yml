@@ -123,7 +123,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install jq
-        if: matrix.suite == 'comp' || matrix.suite == 'execute' || matrix.suite == 'explore' || matrix.suite == 'koto-open' || matrix.suite == 'plan' || matrix.suite == 'release' || matrix.suite == 'skill-session'
+        if: matrix.suite == 'comp' || matrix.suite == 'execute' || matrix.suite == 'explore' || matrix.suite == 'koto-open' || matrix.suite == 'plan' || matrix.suite == 'release' || matrix.suite == 'run-record' || matrix.suite == 'skill-session'
         run: brew install jq
 
       - name: Install Rust toolchain

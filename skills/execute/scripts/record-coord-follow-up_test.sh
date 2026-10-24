@@ -44,6 +44,22 @@
 #                      and #27 (an id naming another number) each dropped with
 #                      follow-up-dropped:<url>; still record=recovered; a
 #                      failed read of a follow-up exits 72 with nothing written
+#   the run's record   a coordinated run walked end to end: the coordination
+#                      PR in acme-plans/coord, two node PRs in acme/repo-a and
+#                      acme/repo-b (node-cut.sh from a clone of each, then
+#                      node-push.sh), a follow-up on the first node. Setup
+#                      writes trail/self (the coordination checkout, the
+#                      run_id); run-record-lookup.sh from each of the four
+#                      PRs, run from a directory of its own, names execute-t,
+#                      the run_id and the same four PRs with their roles and
+#                      states; --steps lists each work item's
+#                      work-on-<slug>-<node>-<item> session, its node's
+#                      worktree and the PLAN at plan_abs as committed at its
+#                      hand-off (two SHAs, the owner having refined the PLAN
+#                      between the nodes), the snapshot's text that commit's;
+#                      the follow-up, closed and removed, stays in the trail
+#                      as closed with its index entry kept, and its lookup
+#                      still reaches the run
 #
 # Usage: record-coord-follow-up_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -339,6 +355,151 @@ unset GH_SHIM_FAIL
 [ "$RC" -eq 72 ] && [ -z "$(written)" ] && [ ! -f "$CASE/ctx/$S/run_id" ] \
     && pass "a follow-up read that fails exits 72 with nothing written, never dropping it" \
     || fail "read fails: rc=$RC written=[$(written | tr '\n' ' ')]"
+
+# --- a coordinated run's record: every PR leads to one root -----------------------------
+
+# The layout: the coordination checkout is acme-plans/coord (its PR #10, the
+# model's default_repo), the PLAN's two nodes land in acme/repo-a and
+# acme/repo-b, each cut from a clone of its own, and #60 in acme/repo-a is a
+# follow-up on the first node. The run goes the way execute-coordinated.md's
+# directives drive it: setup in the coordination checkout; for each node, the
+# dispatch step's record of each work item (run-trail.sh plan, from plan_abs,
+# and step, with the node's worktree as its workspace) right before the item
+# would be handed off, then node-push.sh node in the node's worktree; between
+# the nodes the owner commits a refined PLAN; then the follow-up recorded
+# through setup. Every lookup runs from a directory of its own.
+LOOKUP="$REPO_ROOT/scripts/run-record-lookup.sh"
+TRAIL="$REPO_ROOT/scripts/run-trail.sh"
+PLAN_TO_TASKS="$SCRIPT_DIR/../../plan/scripts/plan-to-tasks.sh"
+HOME_R=acme-plans/coord
+ct_case walk
+rm -f "$CASE/ctx/$S/run_id"
+WALK="$CT_WORK/walk"
+mkdir -p "$WALK/elsewhere"
+ct_repo "$WALK/home"
+ct_plan "$WALK/home" two-repo
+(cd "$WALK/home" && git add docs && git commit -q -m "docs: plan" && git push -q origin "$CT_CB")
+HOMEDIR=$(cd "$WALK/home" && pwd -P)
+for r in a b; do
+    ct_repo "$WALK/clone-$r"
+    (cd "$WALK/clone-$r" && git checkout -q main)
+done
+ct_follow_up_pr acme/repo-a 60
+ct_write_db
+jq --arg h "$HOME_R" '.repos[$h] = .repos["acme/repo-a"] | .default_repo = $h
+    | .prs |= map(if .number == 10 then .repo = $h else . end)' "$CASE/scenario/gh/db.json" > "$CASE/db" \
+    && mv "$CASE/db" "$CASE/scenario/gh/db.json"
+
+(cd "$HOMEDIR" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md >"$CASE/setup.out" 2>"$CASE/stderr")
+RC=$?
+RUN_W=$(val run_id)
+SELF=$(val trail/self)
+if [ "$RC" -eq 0 ] && grep -qx record=new "$CASE/setup.out" && [ "$(val home_repo)" = "$HOME_R" ] \
+    && [ "$(jq -c '{workspace, session, run_id}' <<<"$SELF")" = "$(jq -nc --arg w "$HOMEDIR" --arg s "$S" --arg r "$RUN_W" '{workspace: $w, session: $s, run_id: $r}')" ]; then
+    pass "a new coordinated run's setup writes trail/self: the coordination checkout, the session and the minted run_id"
+else
+    fail "walk setup: rc=$RC self=[$SELF] run_id=[$RUN_W] stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
+fi
+
+PLAN_ABS=$(val plan_abs)
+TASKS=$(bash "$PLAN_TO_TASKS" "$PLAN_ABS" 2>/dev/null)
+NODE_ROWS=$(jq -r '.[] | select(.vars.NODE_KIND == "pr") | [.name, .vars.REPO, .vars.ISSUES] | @tsv' <<<"$TASKS")
+: > "$WALK/steps.want"
+: > "$WALK/node-prs"
+WALK_OK=1
+while IFS=$'\t' read -r node repo issues; do
+    [ -n "$node" ] || continue
+    WT=$(cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-cut.sh" "$CT_SLUG" "$node" --repo-dir "$WALK/clone-${repo#acme/repo-}" 2>>"$CASE/cut.err" \
+        | sed -n 's/^worktree=//p')
+    [ -n "$WT" ] && [ -d "$WT" ] || { fail "node-cut.sh made no worktree for $node: $(cat "$CASE/cut.err")"; WALK_OK=0; break; }
+    WT=$(cd "$WT" && pwd -P)
+    for item in $(tr ',' ' ' <<<"$issues"); do
+        child="work-on-$CT_SLUG-$node-$item"
+        # The dispatch step's record, from the coordination checkout.
+        (cd "$HOMEDIR" && bash "$TRAIL" plan --session "$S" --step "$child" --plan "$PLAN_ABS" </dev/null \
+            && bash "$TRAIL" step --session "$S" --step "$child" --child "$child" --child-workspace "$WT" </dev/null) \
+            2>>"$CASE/trail.err" || { fail "the dispatch record of $child: $(tail -1 "$CASE/trail.err")"; WALK_OK=0; }
+        jq -nc --arg s "$child" --arg w "$WT" --arg sha "$(git -C "$HOMEDIR" rev-parse HEAD)" \
+            '{step: $s, session: $s, workspace: $w, sha: $sha}' >> "$WALK/steps.want"
+    done
+    (cd "$WT" && echo "$node" > "$node.txt" && git add "$node.txt" && git commit -q -m "feat: $node")
+    OUTP=$(cd "$WT" && bash "$SCRIPT_DIR/node-push.sh" node --session "$S" --slug "$CT_SLUG" --node "$node" --repo "$repo" \
+        --issues "$issues" --home-repo "$HOME_R" --coord-branch "$CT_CB" --plan "$PLAN_ABS" --run-id "$RUN_W" 2>>"$CASE/push.err") \
+        || { fail "node-push.sh node $node: $(tail -3 "$CASE/push.err")"; WALK_OK=0; break; }
+    url=$(sed -n 's/^pr=//p' <<<"$OUTP")
+    printf '%s\t%s\t%s\n' "$node" "$repo" "${url##*/}" >> "$WALK/node-prs"
+    # The owner refines the PLAN before the next node's work items.
+    (cd "$HOMEDIR" && printf '\nRefined after %s.\n' "$node" >> docs/plans/PLAN-t.md \
+        && git commit -q -am "docs(plan): refine after $node")
+done <<<"$NODE_ROWS"
+[ "$WALK_OK" -eq 1 ] && [ "$(wc -l < "$WALK/node-prs" | tr -d ' ')" -eq 2 ] \
+    && [ "$(cut -f2 "$WALK/node-prs" | tr '\n' ' ')" = "acme/repo-a acme/repo-b " ] \
+    && pass "the run pushes two nodes, one in each repository, recording each work item before its hand-off" \
+    || fail "the walk's nodes: [$(tr '\n' ';' < "$WALK/node-prs")]"
+NODE_A=$(sed -n 1p "$WALK/node-prs" | cut -f1)
+PR_A=$(sed -n 1p "$WALK/node-prs" | cut -f3)
+PR_B=$(sed -n 2p "$WALK/node-prs" | cut -f3)
+
+FU60="https://github.com/acme/repo-a/pull/60"
+(cd "$HOMEDIR" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md --follow-up "$NODE_A $FU60" >"$CASE/fu.out" 2>"$CASE/stderr")
+RC=$?
+[ "$RC" -eq 0 ] && grep -qx "follow-up=recorded:$FU60" "$CASE/fu.out" \
+    && pass "the follow-up on the first node is recorded through setup" \
+    || fail "walk follow-up: rc=$RC out=[$(cat "$CASE/fu.out")] stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
+
+walk_lookup() { # walk_lookup <owner/repo> <n> [--steps]: from a directory of its own
+    OUT=$(cd "$WALK/elsewhere" && bash "$LOOKUP" "$@" </dev/null 2>"$CASE/lookup.err")
+    RC=$?
+}
+want_prs() { # want_prs <follow-up state>
+    jq -nc --arg h "$HOME_R" --argjson a "$PR_A" --argjson b "$PR_B" --arg fs "$1" '[
+        {repo: $h, number: 10, role: "coordination", state: "open"},
+        {repo: "acme/repo-a", number: $a, role: "node", state: "open"},
+        {repo: "acme/repo-a", number: 60, role: "follow-up", state: $fs},
+        {repo: "acme/repo-b", number: $b, role: "node", state: "open"}] | sort_by(.repo, .number)'
+}
+WANT_ROOT=$(jq -nc --arg w "$HOMEDIR" --arg s "$S" '{workspace: $w, session: $s}')
+for pr in "$HOME_R 10" "acme/repo-a $PR_A" "acme/repo-b $PR_B" "acme/repo-a 60"; do
+    # shellcheck disable=SC2086
+    walk_lookup $pr
+    if [ "$RC" -eq 0 ] && [ "$(jq -c .record_root <<<"$OUT")" = "$WANT_ROOT" ] && [ "$(jq -r .run_id <<<"$OUT")" = "$RUN_W" ] \
+        && [ "$(jq -c .prs <<<"$OUT")" = "$(want_prs open)" ] && [ "$(jq -r '.complete and .unique' <<<"$OUT")" = true ]; then
+        pass "the lookup from ${pr% *}#${pr#* } names $S, the run_id, and all four PRs with their roles and states"
+    else
+        fail "lookup ${pr}: rc=$RC out=[$(jq -c . <<<"$OUT" 2>/dev/null)] stderr=[$(cat "$CASE/lookup.err")]"
+    fi
+done
+
+walk_lookup acme/repo-b "$PR_B" --steps
+GOT_STEPS=$(jq -c '[.steps[] | {step, session, workspace, sha: .plan.sha}] | sort_by(.step)' <<<"$OUT" 2>/dev/null)
+WANT_STEPS=$(jq -sc 'sort_by(.step)' "$WALK/steps.want")
+SHAS=$(jq -r '[.[].sha] | unique | length' <<<"$WANT_STEPS")
+if [ "$RC" -eq 0 ] && [ "$GOT_STEPS" = "$WANT_STEPS" ] && [ "$SHAS" -eq 2 ] \
+    && [ "$(jq -r '[.steps[].superseded | length] | add' <<<"$OUT")" -eq 0 ]; then
+    pass "--steps lists one step per work item: its work-on session, its node's worktree, and the PLAN at plan_abs as of its hand-off"
+else
+    fail "walk --steps: rc=$RC got=[$GOT_STEPS] want=[$WANT_STEPS]"
+fi
+TEXT_KEY=$(jq -r '.steps[0].plan.text_key' <<<"$OUT")
+FIRST_SHA=$(jq -r '.steps[0].plan.sha' <<<"$OUT")
+[ "$(cat "$CASE/ctx/$S/$TEXT_KEY" 2>/dev/null)" = "$(git -C "$HOMEDIR" show "$FIRST_SHA:docs/plans/PLAN-t.md")" ] \
+    && pass "a work item's PLAN snapshot is the PLAN's text at the commit it records" \
+    || fail "snapshot text at $TEXT_KEY differs from $FIRST_SHA's PLAN"
+
+# The follow-up closed and removed: the trail keeps it as closed, its index
+# entry stays, and a lookup from it still reaches the run.
+live_edit '(.prs[] | select(.repo == "acme/repo-a" and .number == 60) | .state) = "CLOSED"'
+(cd "$HOMEDIR" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md --follow-up "$NODE_A $FU60" \
+    --follow-up-remove true >"$CASE/fu.out" 2>"$CASE/stderr")
+RC=$?
+walk_lookup acme/repo-a 60
+if [ "$RC" -eq 0 ] && grep -qx "follow-up=removed:$FU60" "$CASE/fu.out" \
+    && [ -f "$CASE/ctx/pr.acme.repo-a.60/run/$RUN_W" ] \
+    && [ "$(jq -c .record_root <<<"$OUT")" = "$WANT_ROOT" ] && [ "$(jq -c .prs <<<"$OUT")" = "$(want_prs closed)" ]; then
+    pass "a removed follow-up stays in the root's trail as closed, its index entry kept, and its lookup still reaches the run"
+else
+    fail "removed follow-up: rc=$RC out=[$(jq -c . <<<"$OUT" 2>/dev/null)] stderr=[$(cat "$CASE/lookup.err") $(tail -1 "$CASE/stderr")]"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

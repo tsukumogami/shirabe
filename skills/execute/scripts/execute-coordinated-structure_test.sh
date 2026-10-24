@@ -45,6 +45,11 @@
 #     exit 80 stopping the loop as error:execute:deferral-record
 #   coord_loop's dispatch step hands the review-level bound to every child,
 #     naming both variables, only when not empty
+#   coord_loop's dispatch step records, right before each work item's step
+#     agent starts, the PLAN at plan_abs (run-trail.sh plan) and the step
+#     session work-on-<slug>-<node>-<item> with the node's worktree as its
+#     workspace (run-trail.sh step --child-workspace), and stops the loop on
+#     a failure (mutation: the plan call dropped)
 #   no default_action command holds ${context.
 #   STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE and ADOPT_RUN are
 #     optional and rebind, each with its pattern admitting empty; coord_setup
@@ -92,6 +97,10 @@
 # and that each structural check bites on a mutated copy: a second edge into
 # merged, a command gate on coord_merge_confirm, an overridable coord_verdict
 # gate, a reason assignment out of coord_verdict, and a done_refused state.
+#
+# The compile runs the real koto under a scratch HOME with every
+# KOTO_SESSION_* variable, KOTO_SESSIONS_BASE and KOTO_TICK_SESSION cleared,
+# and only once `koto session dir` resolves under the scratch directory.
 #
 # Usage: execute-coordinated-structure_test.sh
 # Exit codes: 0 all pass (or koto absent: the compiled checks SKIP loudly),
@@ -350,6 +359,23 @@ fi
 WORK="$T/compile"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
+# The real koto compiles here, so it must keep its store in this suite's
+# scratch HOME: the caller's koto session context (every KOTO_SESSION_*
+# variable, KOTO_SESSIONS_BASE, KOTO_TICK_SESSION) is cleared, and no compile
+# runs unless `koto session dir` resolves under the scratch directory.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+GUARD_DIR=$(koto session dir coord-structure-guard </dev/null 2>/dev/null) || GUARD_DIR=""
+T_P=$(cd "$T" && pwd -P) || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
+case "$GUARD_DIR" in
+    "$T"/*|"$T_P"/*) ;;
+    *)
+        echo "FAIL: koto's session directory [$GUARD_DIR] is not under this suite's scratch directory; nothing was compiled" >&2
+        exit 1
+        ;;
+esac
 
 compile() { koto template compile "$@" 2>/dev/null | tail -1; }
 holds() { jq -e "$2" "$1" >/dev/null 2>&1; }
@@ -398,6 +424,7 @@ CHECKS=(
 "coord_setup accepts blocked and the sixteen typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\",\"follow-up-node\",\"follow-up-repo\",\"follow-up-base\",\"follow-up-author\",\"follow-up-closed\"]"
 "coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
 "every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
+"the dispatch step records each work item's PLAN snapshot and step session through run-trail.sh before its hand-off|(.states.coord_loop.directive // \"\") | ((split(\"- \`dispatch:<node>\`\")[1] // \"\") | split(\"\\n- \`\")[0]) | (contains(\"Right before each work item's step agent starts\") and contains(\"run-trail.sh\\\" plan --session {{SESSION_NAME}} --step <step> --plan \\\"\$(koto context get {{SESSION_NAME}} plan_abs)\\\"\") and contains(\"run-trail.sh\\\" step --session {{SESSION_NAME}} --step <step> --child <step> --child-workspace <the node's worktree>\") and contains(\"\`<step>\` the child's session name \`work-on-{{PLAN_SLUG}}-<node>-<item>\`\") and contains(\"stops the loop before the step agent starts\"))"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail
@@ -487,6 +514,9 @@ mutate "an overridable coord_verdict gate" \
 mutate "a reason assigned out of coord_verdict" \
     "no edge out of coord_verdict assigns reason" \
     's/(        context_assignments:\n          outcome: paused-awaiting-merges\n)/$1          reason: predecessor-unmerged\n/'
+mutate "the dispatch step's PLAN snapshot dropped" \
+    "the dispatch step records each work item's PLAN snapshot and step session through run-trail.sh before its hand-off" \
+    's/first the PLAN as committed now, `"\{\{PLUGIN_ROOT\}\}\/scripts\/run-trail.sh" plan [^`]*`, //'
 mutate "a done_refused state" \
     "no done_refused state is declared" \
     's/(\n  done_error:\n)/\n  done_refused:\n    terminal: true\n    failure: true\n$1/; s/\z/\n## done_refused\n\nRefused.\n/'

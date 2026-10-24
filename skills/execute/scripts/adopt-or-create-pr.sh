@@ -10,6 +10,12 @@
 # key `home_pr`, and `waiting` as `<url>:human`. No transition and no agent
 # evidence ever writes `home_pr`.
 #
+# Recording the PR records it in the run's record too: the root's
+# `trail/pr/*` key and the PR's index entry, both through
+# scripts/run-trail.sh, so scripts/run-record-lookup.sh leads from the PR
+# back to this session. A failure there is exit 70, like a failed home_pr
+# write.
+#
 # Every lookup carries this run's identity (`run-id.sh get <session>`), so a
 # PR another run opened on the same branch is never adopted, and a PR this
 # script opens carries the run's marker line (`run-id.sh stamp`). An unmarked
@@ -61,7 +67,8 @@
 #       another run (owned-pr.sh 5); nothing        otherwise execute:pr-adopt
 #       recorded, nothing created
 #   64  usage error; no gh or koto call made
-#   70  the koto context write failed
+#   70  a koto context write failed, home_pr's or the run record's
+#       (trail/pr or the index entry; home_pr may already be recorded then)
 #
 # Requires: bash 3.2+, jq (through owned-pr.sh), gh, koto, od (run-id.sh).
 set -uo pipefail
@@ -140,6 +147,7 @@ fi
 
 SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 OWNED="$SELF_DIR/owned-pr.sh"
+TRAIL="$SELF_DIR/../../../scripts/run-trail.sh"
 
 RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) \
     || { echo "$PROG: could not read this run's identity (run-id.sh get $SESSION)" >&2; exit 70; }
@@ -158,8 +166,33 @@ record() {
         || { echo "$PROG: could not record home_pr" >&2; exit 70; }
     printf '%s' "$URL:human" | koto context add "$SESSION" waiting >/dev/null \
         || { echo "$PROG: could not record waiting" >&2; exit 70; }
+    record_trail
     printf '%s\n' "$URL"
     exit 0
+}
+
+# record_trail: the home PR in the run's record, in the same step that
+# records home_pr, so the PR's index entry exists before any later lookup can
+# see the PR again. The root lists the PR (`trail/pr/*`), and the PR's index
+# session names the root (scripts/run-trail.sh). The repository and number
+# come from the URL owned-pr.sh printed; the topic is the session's own,
+# execute-<topic>.
+record_trail() {
+    local path owner_repo number topic
+    path=${URL#https://*/}
+    owner_repo=${path%/pull/*}
+    number=${path##*/}
+    topic=${SESSION#execute-}
+    if [ "$topic" = "$SESSION" ] || ! [[ $topic =~ $RE_SLUG ]]; then
+        echo "$PROG: $SESSION is not execute-<topic>; its run record can't name a topic" >&2
+        exit 70
+    fi
+    "$BASH" "$TRAIL" pr --session "$SESSION" --repo "$owner_repo" --number "$number" \
+        --role home --state open </dev/null \
+        || { echo "$PROG: could not record the home PR in $SESSION's run record" >&2; exit 70; }
+    "$BASH" "$TRAIL" index --repo "$owner_repo" --number "$number" --session "$SESSION" \
+        --mode single-pr --topic "$topic" </dev/null \
+        || { echo "$PROG: could not write the home PR's index entry" >&2; exit 70; }
 }
 
 lookup

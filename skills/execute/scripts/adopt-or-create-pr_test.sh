@@ -37,14 +37,31 @@ mkdir -p "$BIN"
 S=execute-topic
 URL="https://github.com/o/r/pull/7"
 
+# The run record's writes reach it too (scripts/run-trail.sh): `init` opens
+# the index session, keys may hold slashes, and `session list` names every
+# session with one fixed id. koto-cwd.log keeps the directory each call ran
+# from, so a case can see the index written from the shared address.
+# KOTO_FAIL_KEY fails a `context add` of keys under that prefix.
 cat > "$BIN/koto" <<'STUB'
 #!/usr/bin/env bash
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto.log"
+printf '%s\t%s\n' "$(pwd -P)" "$*" >> "$store/koto-cwd.log"
+case "$1 ${2:-}" in
+    "init "*) mkdir -p "$store/ctx/$2"; echo '{}'; exit 0 ;;
+    "session list")
+        for s in "$store"/ctx/*/; do
+            n=${s%/}; n=${n##*/}
+            printf '{"id":"%s","session_id":"sid-0001"}\n' "$n"
+        done | jq -sc .
+        exit 0 ;;
+esac
 d="$store/ctx/$3"
 mkdir -p "$d"
 case "$1 $2" in
-    "context add") cat > "$d/$4" ;;
+    "context add")
+        case "$4" in "${KOTO_FAIL_KEY:-//}"*) exit 1 ;; esac
+        mkdir -p "$(dirname "$d/$4")"; cat > "$d/$4" ;;
     "context get") [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
     "context exists") [ -f "$d/$4" ] ;;
     *) exit 9 ;;
@@ -130,6 +147,55 @@ if [ "$RC" -eq 0 ] && [ "$OUT" = "$URL" ] && [ "$(ctx home_pr)" = "$URL" ] \
     pass "one owned PR: adopted, home_pr and waiting recorded, no pr create"
 else
     fail "adopt: exit $RC, out [$OUT], home_pr [$(ctx home_pr)], creates $(creates)"
+fi
+
+# The run record: the adopted PR is in the root's trail, and the PR's index
+# session names the root, written from the shared address.
+TRAIL_PR=$(ctx trail/pr/o.r.7)
+INDEX_ENTRY=$(cat "$CASE/ctx/pr.o.r.7/run/$SEEDED" 2>/dev/null)
+REPO_WS=$(cd "$REPO_DIR" && pwd -P)
+SHARED_WS=$(mkdir -p /tmp/shirabe-run-record/o && cd /tmp/shirabe-run-record/o && pwd -P)
+if [ "$(jq -r '[.repo, .number, .role, .state] | map(tostring) | join(" ")' <<<"$TRAIL_PR")" = "o/r 7 home open" ]; then
+    pass "the adopted home PR is recorded in the root's trail/pr, role home, state open"
+else
+    fail "trail/pr/o.r.7: [$TRAIL_PR]"
+fi
+if [ "$(jq -r '[.session, .mode, .topic, .workspace] | join(" ")' <<<"$INDEX_ENTRY")" = "$S single-pr topic $REPO_WS" ] \
+    && [ "$(jq -r '.workspace' <<<"$(ctx trail/self)")" = "$REPO_WS" ]; then
+    pass "the PR's index entry names the root, its mode, its topic and the checkout it runs in"
+else
+    fail "index entry [$INDEX_ENTRY], trail/self [$(ctx trail/self)]"
+fi
+if grep -qF "$(printf '%s\tinit pr.o.r.7 ' "$SHARED_WS")" "$CASE/koto-cwd.log" \
+    && grep -qF "$(printf '%s\tcontext add pr.o.r.7 run/%s' "$SHARED_WS" "$SEEDED")" "$CASE/koto-cwd.log" \
+    && ! grep -q -- '--workspace' "$CASE/koto.log"; then
+    pass "the index session is opened and written from the shared address, with no --workspace"
+else
+    fail "index writes: [$(cat "$CASE/koto-cwd.log")]"
+fi
+
+new_case trail-fails
+echo "[$(owned 7)]" > "$CASE/list.out"
+KOTO_FAIL_KEY=trail/pr
+export KOTO_FAIL_KEY
+run_adopt --session "$S" --repo o/r --head impl/topic
+unset KOTO_FAIL_KEY
+if [ "$RC" -eq 70 ] && [ -z "$OUT" ] && [ ! -e "$CASE/ctx/pr.o.r.7/run/$SEEDED" ]; then
+    pass "a failed run-record write: exit 70, no URL printed, no index entry"
+else
+    fail "trail fails: exit $RC, out [$OUT]"
+fi
+
+new_case index-fails
+echo "[$(owned 7)]" > "$CASE/list.out"
+KOTO_FAIL_KEY=run/
+export KOTO_FAIL_KEY
+run_adopt --session "$S" --repo o/r --head impl/topic
+unset KOTO_FAIL_KEY
+if [ "$RC" -eq 70 ] && [ -z "$OUT" ] && [ -n "$(ctx trail/pr/o.r.7)" ]; then
+    pass "a failed index write: exit 70 after the root's trail/pr is written"
+else
+    fail "index fails: exit $RC, out [$OUT]"
 fi
 
 new_case adopt-with-create

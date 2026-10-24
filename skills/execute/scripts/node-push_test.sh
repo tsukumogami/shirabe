@@ -15,7 +15,13 @@
 #   a second push records the new head; a push keeps a recorded merged_head;
 #   a push the remote rejects exits 68 and records nothing; a failed body post
 #   is body=stale (exit 0) and still leaves the head recorded; a record write
-#   that fails exits 70 and posts nothing; adoption reads the record, not the body: a recorded
+#   that fails exits 70 and posts nothing; a fresh push also records the
+#   node PR in the run's trail (trail/pr/<owner>.<repo>.<n>, role node) and
+#   writes its index entry (pr.<owner>.<repo>.<n>, run/<run_id> naming the
+#   root at its trail/self address), in that order after run/node; a failed
+#   index write exits 70 naming the PR and posts nothing, and a root with no
+#   trail/self is refused (70) rather than given the node worktree's address;
+#   adoption reads the record, not the body: a recorded
 #   PR with no owned PR to adopt, or other than the owned one, exits 73;
 #   coordination mode records run/cascade {verdict: pushed, head}; order mode
 #   records nothing; a session with no record, or a recorded coordination PR
@@ -273,6 +279,17 @@ WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $
     || fail "run/node after the push: [$(rec_node "$CT_CORE")]"
 ADD_AT=$(grep -n "^context add $S run/node/$CT_CORE" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
 [ -n "$ADD_AT" ] && pass "the head was written through the run record's writer" || fail "no run/node write in the koto log"
+# The node PR in the run's trail and its index entry, in the same call.
+TRAIL_AT=$(grep -n "^context add $S trail/pr/acme.repo-a.50" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
+INDEX_AT=$(grep -n "^context add pr.acme.repo-a.50 run/00112233445566778899aabbccddeeff" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
+if [ "$(jq -c '{repo, number, role, state}' "$CASE/ctx/$S/trail/pr/acme.repo-a.50" 2>/dev/null)" = '{"repo":"acme/repo-a","number":50,"role":"node","state":"open"}' ] \
+    && [ "$(jq -r '"\(.session) \(.mode) \(.topic)"' "$CASE/ctx/pr.acme.repo-a.50/run/00112233445566778899aabbccddeeff" 2>/dev/null)" = "$S coordinated t" ] \
+    && [ "$(jq -r .workspace "$CASE/ctx/pr.acme.repo-a.50/run/00112233445566778899aabbccddeeff")" = "$(jq -r .workspace "$CASE/ctx/$S/trail/self")" ] \
+    && [ -n "$TRAIL_AT" ] && [ -n "$INDEX_AT" ] && [ "$ADD_AT" -lt "$TRAIL_AT" ] && [ "$TRAIL_AT" -lt "$INDEX_AT" ]; then
+    pass "the node PR is in the root's trail (role node) and its index entry names the root at its trail/self address, after run/node"
+else
+    fail "node trail: trail=[$(cat "$CASE/ctx/$S/trail/pr/acme.repo-a.50" 2>/dev/null)] at $ADD_AT/$TRAIL_AT/$INDEX_AT"
+fi
 if grep -q -- '--coordination-body' "$CASE/shirabe-calls.log" && [ "$(ct_calls | grep -c '^pr edit 10')" -eq 1 ]; then
     pass "the new body was validated, then posted with one pr edit"
 else
@@ -566,6 +583,31 @@ if [ "$RC" -eq 70 ] && ! ct_calls | grep -q '^pr edit'; then
     pass "a run record write that fails exits 70 and posts nothing"
 else
     fail "record-fails: rc=$RC edits=$(ct_calls | grep -c '^pr edit')"
+fi
+
+# The node PR's index entry is written in the same call: a failed index write
+# is exit 70 naming the PR, never a silent success, and nothing is posted.
+np_case index-fails
+ct_write_db
+fresh_repo index-fails
+export KOTO_FAIL_ADD="run/00112233445566778899aabbccddeeff"
+push_node
+unset KOTO_FAIL_ADD
+if [ "$RC" -eq 70 ] && grep -q "index entry of the node PR https://github.com/acme/repo-a/pull/50" "$CASE/stderr" \
+    && ! ct_calls | grep -q '^pr edit'; then
+    pass "a failed index write exits 70 naming the node PR, and posts nothing"
+else
+    fail "index-fails: rc=$RC stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
+fi
+np_case self-missing
+ct_write_db
+fresh_repo self-missing
+rm -f "$CASE/ctx/$S/trail/self"
+push_node
+if [ "$RC" -eq 70 ] && [ ! -e "$CASE/ctx/$S/trail/self" ] && grep -q "pull/50" "$CASE/stderr"; then
+    pass "a root with no trail/self: the index is refused (70), and no address is written from the node's worktree"
+else
+    fail "self-missing: rc=$RC self=[$(cat "$CASE/ctx/$S/trail/self" 2>/dev/null)]"
 fi
 
 # --- a failing validation -----------------------------------------------------------

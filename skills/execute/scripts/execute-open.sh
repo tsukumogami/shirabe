@@ -142,7 +142,20 @@
 # removed. `merge_attempts` and `recovered` are removed, so every invocation
 # starts with no merge attempts and reports a recovery only when its own setup
 # made one. A single-pr open seeds the prior run_id and mints one when
-# the session still has none.
+# the session still has none, then records the session's address for the
+# run record, `trail/self` (scripts/run-trail.sh self).
+#
+# The trail, on both templates. Before koto replaces a finished session, its
+# `trail/` keys (all but `trail/self`, which names the session being
+# replaced) are written to `<carry root>/<session>.trail.json` with
+# `run-trail.sh snapshot`, merged over any snapshot an earlier open left
+# there; a read that fails is `failed=carry`, exit 70, nothing replaced. After
+# the open, a snapshot there is carried into the session with
+# `run-trail.sh carry`, which writes only the keys the session doesn't hold,
+# and removed once the carry succeeds (`trail_carried=<key-count>`); a carry
+# that fails keeps it for the next open (`carry=pending`, `failed=carry`,
+# exit 70; stderr names the snapshot). So a pause's replace never drops the
+# trail of the run it resumes.
 #
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
@@ -152,7 +165,8 @@
 # same place still owns the PR the earlier run opened.
 #
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
-# `carried=<n>` after a carry and `session=execute-<slug>` when a session was
+# `carried=<n>` after a carry, `trail_carried=<n>` after a trail carry, and
+# `session=execute-<slug>` when a session was
 # opened, or, on a refusal, the exit lines print-exit.sh --refused prints
 # (outcome=error, step=execute:refused). This script's own refusals print
 # `error=usage`, `error=multi-pr`, `error=flag-needs-setup`,
@@ -477,6 +491,46 @@ if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
     fi
 fi
 
+# The trail snapshot: a finished session's `trail/` keys, kept before koto
+# replaces it, on either template. The new snapshot's keys win over an older
+# one's, which an earlier carry that failed left behind.
+TRAIL_SNAP="$CR/$SESSION.trail.json"
+if [ "$NAMED" -eq 1 ] && [ "$FINISHED" -eq 1 ]; then
+    mkdir -p "$CR" && chmod 700 "$CR" || {
+        printf 'failed=carry\n'
+        echo "$PROG: could not make the carry directory for $SESSION" >&2
+        exit 70
+    }
+    TRAIL_TMP=$(mktemp "$CR/.$SESSION.trail.XXXXXX") || {
+        printf 'failed=carry\n'
+        echo "$PROG: could not make a file for $SESSION's trail snapshot; nothing was replaced" >&2
+        exit 70
+    }
+    if ! bash "$PLUGIN_DIR/scripts/run-trail.sh" snapshot --session "$SESSION" </dev/null > "$TRAIL_TMP"; then
+        rm -f -- "$TRAIL_TMP"
+        printf 'failed=carry\n'
+        echo "$PROG: could not read $SESSION's trail into a snapshot; nothing was replaced" >&2
+        exit 70
+    fi
+    if [ -f "$TRAIL_SNAP" ]; then
+        if ! jq -s '.[0] + .[1]' "$TRAIL_SNAP" "$TRAIL_TMP" > "$TRAIL_TMP.merged"; then
+            rm -f -- "$TRAIL_TMP" "$TRAIL_TMP.merged"
+            printf 'failed=carry\n'
+            echo "$PROG: could not merge $SESSION's trail with the snapshot kept at $TRAIL_SNAP; nothing was replaced" >&2
+            exit 70
+        fi
+        mv -- "$TRAIL_TMP.merged" "$TRAIL_TMP"
+    fi
+    if [ "$(jq 'length' "$TRAIL_TMP")" = 0 ]; then
+        rm -f -- "$TRAIL_TMP"
+    elif ! mv -- "$TRAIL_TMP" "$TRAIL_SNAP"; then
+        rm -f -- "$TRAIL_TMP"
+        printf 'failed=carry\n'
+        echo "$PROG: could not keep $SESSION's trail snapshot; nothing was replaced" >&2
+        exit 70
+    fi
+fi
+
 # The run identity a finished session carried (its `run_id`), read before koto
 # replaces the session: a replacement starts with empty context, and without
 # the id it would find the PR the earlier run opened carrying a foreign marker.
@@ -602,6 +656,25 @@ case "$OUT" in
             fi
             bash "$SELF_DIR/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
                 || echo "$PROG: could not record a run identity in $SESSION; its PR lookups will fail until it has one" >&2
+            # The run's address for its record (scripts/run-trail.sh self):
+            # this checkout, the session's koto id and its run_id, written on
+            # every open, since a replacement is a new session with a new id.
+            # Like the mint, a failure warns rather than refuses; the home
+            # PR's index write then records the address itself.
+            bash "$PLUGIN_DIR/scripts/run-trail.sh" self --session "$SESSION" </dev/null \
+                || echo "$PROG: could not record $SESSION's address in its run record (trail/self)" >&2
+        fi
+        # The trail a replaced session held (or an earlier carry left
+        # pending), carried in on either template.
+        if [ "$NAMED" -eq 1 ] && [ -f "$TRAIL_SNAP" ]; then
+            if TRAIL_OUT=$(bash "$PLUGIN_DIR/scripts/run-trail.sh" carry --session "$SESSION" < "$TRAIL_SNAP"); then
+                rm -f -- "$TRAIL_SNAP"
+                printf 'trail_%s\n' "$TRAIL_OUT"
+            else
+                printf 'carry=pending\nfailed=carry\n'
+                echo "$PROG: could not carry the trail into $SESSION; the snapshot is kept at $TRAIL_SNAP, and invoking /execute again retries the carry" >&2
+                exit 70
+            fi
         fi
         printf 'session=%s\n' "$SESSION"
         ;;

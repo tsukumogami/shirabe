@@ -19,7 +19,14 @@
 #                                  order, store github, coordination_pr 10,
 #                                  repos, mode, /scope's run lines; then
 #                                  run_id minted (a failed seal mints none; a
-#                                  record left without one gets one next time)
+#                                  record left without one gets one next time);
+#                                  then the trail: trail/self (the checkout,
+#                                  the session, its koto id, the run_id) and
+#                                  the coordination PR (role coordination)
+#                                  with its index entry at acme's shared
+#                                  address, before the fixed keys; a failed
+#                                  index or trail write exits 70 naming the
+#                                  PR, repos unwritten
 #   nothing started                record=new on both stores, no stop
 #   session-absent                 on session, a carried run_id, a rendered
 #                                  run= line, an index line, or an owned PR on
@@ -39,7 +46,10 @@
 #                                  PR not stampable and a re-run edits no PR
 #                                  twice; identity from the run line (live
 #                                  heads, never the body's; the PLAN's nodes;
-#                                  cascade not-run; store github; then the
+#                                  cascade not-run; store github; trail/self
+#                                  with the recovered run_id, the coordination
+#                                  and node PRs in the trail and re-indexed
+#                                  under the new session's id; then the
 #                                  loop's merge: setup's head read, the
 #                                  readiness reads and the merge at the live
 #                                  head, in that order in the log), unanimous
@@ -212,11 +222,39 @@ fi
     && pass "/scope's run lines above the first heading, the first of each key, are sealed" \
     || fail "run lines: [$(setup_val .run_lines)]"
 [[ $(val run_id) =~ ^[0-9a-f]{32}$ ]] && pass "a new run's setup mints run_id" || fail "run_id: [$(val run_id)]"
-ORDER=$(grep '^context add' "$CASE/koto-calls.log" | awk '{print $4}' | tr '\n' ' ')
+ORDER=$(grep "^context add $S " "$CASE/koto-calls.log" | awk '{print $4}' | tr '\n' ' ')
 case "$ORDER" in
-    "run/setup run_id plan_abs coord_branch home_repo repos ") pass "run/setup, then run_id, then the fixed keys, repos last" ;;
+    "run/setup run_id trail/self trail/pr/acme.repo-a.10 plan_abs coord_branch home_repo repos ")
+        pass "run/setup, then run_id, then the trail, then the fixed keys, repos last" ;;
     *) fail "the write order was [$ORDER]" ;;
 esac
+# The run's trail: its address and the coordination PR, indexed.
+SEAL_RID=$(val run_id)
+REPO_P=$(cd "$REPO" && pwd -P)
+[ "$(val trail/self | jq -c '{workspace, session, run_id}')" = "$(jq -nc --arg w "$REPO_P" --arg s "$S" --arg r "$SEAL_RID" '{workspace: $w, session: $s, run_id: $r}')" ] \
+    && [ -n "$(val trail/self | jq -r .session_id)" ] \
+    && pass "a new run's trail/self names the coordination checkout, the session, its koto id and the minted run_id" \
+    || fail "trail/self: [$(val trail/self)]"
+[ "$(val trail/pr/acme.repo-a.10 | jq -c '{repo, number, role, state}')" = '{"repo":"acme/repo-a","number":10,"role":"coordination","state":"open"}' ] \
+    && pass "the coordination PR is in the root's trail, role coordination, state open" \
+    || fail "trail/pr: [$(val trail/pr/acme.repo-a.10)]"
+ENTRY=$(cat "$CASE/ctx/pr.acme.repo-a.10/run/$SEAL_RID" 2>/dev/null)
+[ "$(jq -c '{workspace, session, mode, topic}' <<<"$ENTRY")" = "$(jq -nc --arg w "$REPO_P" --arg s "$S" '{workspace: $w, session: $s, mode: "coordinated", topic: "t"}')" ] \
+    && grep -q "^init pr.acme.repo-a.10 .*--attach-live" "$CASE/koto-calls.log" \
+    && pass "the coordination PR's index session, opened at its owner's shared address, names the root" \
+    || fail "index entry: [$ENTRY]"
+
+# A failed index write stops setup, naming the PR, before the fixed keys.
+setup_case seal-index-fails
+export KOTO_FAIL_INIT=pr.acme.repo-a.10; run_setup; unset KOTO_FAIL_INIT
+[ "$RC" -eq 70 ] && grep -q "acme/repo-a#10 (coordination)" "$CASE/stderr" && [ -z "$(val repos)" ] \
+    && pass "a failed index write exits 70 naming the PR, and repos is not written, so coord_setup's gates hold" \
+    || fail "index fails: rc=$RC repos=[$(val repos)] stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
+setup_case seal-trail-fails
+export KOTO_FAIL_ADD=trail/pr/acme.repo-a.10; run_setup; unset KOTO_FAIL_ADD
+[ "$RC" -eq 70 ] && grep -q "acme/repo-a#10 (coordination)" "$CASE/stderr" && [ -z "$(val repos)" ] \
+    && pass "a failed trail write exits 70 naming the PR, and repos is not written" \
+    || fail "trail fails: rc=$RC repos=[$(val repos)] stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
 
 # A seal that fails leaves no run_id behind, so the next start is not read as
 # a started run.
@@ -536,6 +574,19 @@ fi
     && pass "the node list comes from the PLAN, the cascade is not-run, the store github" \
     || fail "recovered setup: [$(val run/setup)] cascade=[$(val run/cascade)]"
 [ "$(val run_id)" = "$RID" ] && pass "the run line's id becomes the session's run_id" || fail "run_id: [$(val run_id)]"
+# The recovered root's trail: its address again (a new session id), and each
+# PR it rebuilt, re-indexed under the run's id so a lookup reaches this
+# session rather than the lost one.
+REPO_P=$(cd "$REPO" && pwd -P)
+TRAIL_ROLES=$(for k in acme.repo-a.10 acme.repo-a.11 acme.repo-a.12; do val "trail/pr/$k" | jq -r '"\(.number):\(.role):\(.state)"'; done | tr '\n' ' ')
+if [ "$(val trail/self | jq -c '{workspace, run_id}')" = "$(jq -nc --arg w "$REPO_P" --arg r "$RID" '{workspace: $w, run_id: $r}')" ] \
+    && [ "$TRAIL_ROLES" = "10:coordination:open 11:node:open 12:node:open " ] \
+    && [ -f "$CASE/ctx/pr.acme.repo-a.11/run/$RID" ] && [ -f "$CASE/ctx/pr.acme.repo-a.12/run/$RID" ] \
+    && [ "$(jq -r .session_id "$CASE/ctx/pr.acme.repo-a.11/run/$RID")" = "$(val trail/self | jq -r .session_id)" ]; then
+    pass "a recovery writes trail/self with the recovered run_id, and records and re-indexes the coordination and node PRs"
+else
+    fail "recovered trail: self=[$(val trail/self)] roles=[$TRAIL_ROLES]"
+fi
 grep -q "pr view 11 --repo acme/repo-a --json url,state,headRefOid,mergeCommit,body" "$GH_CALL_LOG" \
     && pass "each node PR is read live once" || fail "no live read of #11: [$(tr '\n' ';' < "$GH_CALL_LOG")]"
 no_remote_write "recovery by the run line"

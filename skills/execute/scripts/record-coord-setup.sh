@@ -41,7 +41,16 @@
 # and seed, adopt or mint on a recovery); the run record's `run/` keys, only
 # through run-record.sh (`setup` on a new run, `adopt` and `recover` on a
 # recovery, `follow-up` for --follow-up); and, after a recovery, the
-# `recovered` context key. On GitHub it makes two writes at most: adopt's
+# `recovered` context key. And the run's trail, only through
+# scripts/run-trail.sh, once the record and the identity exist: `trail/self`
+# (this checkout as the root's workspace, the session's koto id, the run_id)
+# on every start, and, each with `pr` and then `index` in the same call, the
+# coordination PR (role coordination), a recovery's node PRs (role node) and
+# kept follow-ups (role follow-up), and a --follow-up (role follow-up; a
+# removed one is recorded closed and its index entry written again, never
+# removed). Each index entry goes to its PR's owner's shared address. A
+# failed trail or index write exits 70 naming the PR, before the fixed keys
+# are written. On GitHub it makes two writes at most: adopt's
 # marker stamps on a recovering start given --adopt-run, and the coordination
 # PR's body, rendered by coord-render.sh after a follow-up is recorded or
 # removed.
@@ -174,7 +183,8 @@
 #   68  a different value is already recorded for this session
 #   69  the PLAN could not be read into nodes
 #   70  a koto context read or write failed, the run record write was
-#       refused, or no run identity could be minted
+#       refused, no run identity could be minted, or a trail or index write
+#       (scripts/run-trail.sh) failed; stderr names the PR
 #   71  a typed stop (stdout `stop=<code>`); nothing was written
 #   72  a GitHub read failed; nothing was written
 #
@@ -259,6 +269,10 @@ PLAN_PRESENT=0
 [ -f "$PLAN" ] && PLAN_PRESENT=1
 SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
+# The slug names the node branches and is the run record's topic, so it is
+# checked on every start, before anything is read or written.
+[[ $SLUG =~ $RE_COORD_SLUG ]] && [ "${#SLUG}" -le 100 ] \
+    || { echo "$PROG: the PLAN's slug [$SLUG] is outside ^[a-z0-9-]+\$" >&2; exit 66; }
 
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf -- "$WORK"; return 0; }
@@ -479,7 +493,6 @@ else
     OWNED_ROWS=""
     if [ "$PLAN_PRESENT" -eq 1 ]; then
         read_plan
-        [[ $SLUG =~ $RE_COORD_SLUG ]] || { echo "$PROG: the PLAN's slug [$SLUG] is outside ^[a-z0-9-]+\$" >&2; exit 66; }
         PR_NODES=$(printf '%s' "$NODES" | jq -r '.[] | select(.kind == "pr") | [.name, .repo] | @tsv') || exit 69
         while IFS=$'\t' read -r n r; do
             [ -n "$n" ] || continue
@@ -911,6 +924,55 @@ case "$START_KIND" in
 esac
 # The follow-up, once the record it joins exists.
 [ -n "$FU_DOC" ] && rr_write follow-up "$FU_DOC"
+
+# The run's record trail (scripts/run-trail.sh), once the record and the
+# identity it names exist: the root's address, then each PR this invocation
+# holds, each in the root's `trail/pr/*` and in its own index session, at its
+# owner's shared address, so a lookup from any of them
+# (scripts/run-record-lookup.sh) reaches this root. The address is written
+# here, in the coordination checkout, on every start: a new run's, a
+# recovered one's (whose session id is new), and a held one's. Node PRs are
+# recorded by node-push.sh as it opens or adopts them; the PRs recorded here
+# are the coordination PR, a recovery's node PRs and kept follow-ups (whose
+# index entries still name the lost session), and a --follow-up. A failed
+# write stops before the fixed keys below, so coord_setup's gates hold.
+TRAIL="$COORD_SELF_DIR/../../../scripts/run-trail.sh"
+trail_pr() { # trail_pr <owner/repo> <n> <role> <state>
+    "$BASH" "$TRAIL" pr --session "$SESSION" --repo "$1" --number "$2" --role "$3" --state "$4" </dev/null >&2 \
+        || { echo "$PROG: could not record $1#$2 ($3) in $SESSION's run record" >&2; exit 70; }
+    "$BASH" "$TRAIL" index --repo "$1" --number "$2" --session "$SESSION" --mode coordinated --topic "$SLUG" </dev/null >&2 \
+        || { echo "$PROG: could not write the index entry of $1#$2 ($3); a lookup from that PR would not reach this run" >&2; exit 70; }
+}
+pr_state() { # pr_state <GitHub state> -- the trail's state for it
+    case "$1" in
+        MERGED) echo merged ;;
+        CLOSED) echo closed ;;
+        *) echo open ;;
+    esac
+}
+"$BASH" "$TRAIL" self --session "$SESSION" </dev/null >&2 \
+    || { echo "$PROG: could not record this run's address (trail/self) in $SESSION" >&2; exit 70; }
+if [ "$START_KIND" = existing ]; then
+    trail_pr "$HOME_REPO" "$C_NUM" coordination "$(pr_state "$C_STATE")"
+else
+    trail_pr "$HOME_REPO" "$C_NUM" coordination "$(pr_state "$(printf '%s' "$C_JSON" | jq -r '.state // ""')")"
+fi
+if [ "$START_KIND" = recovered ]; then
+    while IFS=$'\t' read -r n r p url oid moid mk f; do
+        [ -n "$n" ] || continue
+        if [ "$moid" = - ]; then trail_pr "$r" "$p" node open; else trail_pr "$r" "$p" node merged; fi
+    done <<<"$RECOVER_ROWS"
+    while IFS=$'\t' read -r n r p oid moid; do
+        [ -n "$n" ] || continue
+        if [ "$moid" = - ]; then trail_pr "$r" "$p" follow-up open; else trail_pr "$r" "$p" follow-up merged; fi
+    done <<<"$FU_ROWS"
+fi
+# A removed follow-up stays in the trail as closed, and its index entry is
+# written again rather than removed, so a lookup from it still reaches the run.
+case "$FU_REPORT" in
+    removed:*) trail_pr "$FU_NODE_REPO" "$FU_NUM" follow-up closed ;;
+    recorded:*) trail_pr "$FU_NODE_REPO" "$FU_NUM" follow-up "$(pr_state "$FU_STATE")" ;;
+esac
 
 record_fixed_key() { # record_fixed_key <key> <value>
     local old

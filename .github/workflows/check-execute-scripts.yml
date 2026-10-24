@@ -45,6 +45,10 @@ on:
       # its exit 6, and its suite checks the released text against the entry.
       - 'references/rule-registry.json'
       - 'scripts/rule-registry.sh'
+      # adopt-or-create-pr.sh records the home PR in the run record, and
+      # execute-open.sh records the run's address, both through run-trail.sh.
+      - 'scripts/run-trail.sh'
+      - 'scripts/lib/record-store.sh'
       # The move engine test imports the run with skill-session.sh over the
       # simulated cloud hosts and their fake S3 server (both also under
       # skills/** above).
