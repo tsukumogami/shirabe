@@ -82,7 +82,7 @@ esac
 RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
 
 # A stranded holding's unit is going out again under a new topic
-# (record-holding.sh --strand): nothing its old worker sends stands for it,
+# (state-holding.sh --strand): nothing its old worker sends stands for it,
 # before the row is retired as after.
 if [ "$(jq -r '.dispatch_status // "" | strings' <<<"$ROW")" = stranded ]; then
     printf '%s: %s is stranded; its unit is dispatched again under a new topic\n' "$PROG" "$TOPIC" >&2

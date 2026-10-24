@@ -36,10 +36,10 @@ but the pass holds the workflow in `reconcile`.
 What the pass reads, per claim in the record. The report grades each claim as
 measured, verified by reading, or inferred:
 
-1. **The record.** It reads the record body live, parses it with the record
-   feature's parser, and treats every row as a claim as of its `Written:`
-   time. A row it can't parse is listed under "Not verified" with its raw
-   line, and every other row is still re-checked. At discipline scope it
+1. **The record.** It reads the record's state live from the session and
+   treats every row as a claim as of its `written` time. A state that fails
+   the schema is never read in part: the find stops on it before the pass
+   runs. At discipline scope it
    reads the predecessor's reasoning from that rotation's session
    (`record/reasoning`).
 2. **Each holding against GitHub.** For a holding with a pull request, it runs
@@ -72,7 +72,7 @@ measured, verified by reading, or inferred:
    on this host and the holding names it; any other worker moves to the
    message path, and its `legs/` key, when it has one, reads unwatchable. The
    report says which,
-   under "Changed since then", and `record-handover.sh` holds the run at
+   under "Changed since then", and `state-handover.sh` holds the run at
    `reconcile` (`leg-unclassified`) until each such leg has its end.
 5. **Re-check side effects in flight.** A merge is confirmed when GitHub's
    record shows the pull request merged from the verified head, with its
@@ -177,8 +177,7 @@ sections, in this order, each line carrying its grade:
   couldn't read is under "Not verified", with what it couldn't read.
 - **Predecessor's reasoning** (discipline scope): where the previous
   rotation's reasoning is, as its view, not re-checked.
-- **Not verified:** everything the pass couldn't read, and why, including
-  record rows it couldn't parse.
+- **Not verified:** everything the pass couldn't read, and why.
 
 What a person reads follows two rules, and the renderer enforces both: the
 one table above, in its four kinds and their order; and a pull request or

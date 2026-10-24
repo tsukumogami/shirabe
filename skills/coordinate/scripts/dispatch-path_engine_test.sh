@@ -7,7 +7,7 @@
 # unchanged, and every state they route to that isn't under test is a
 # terminal stand-in, so a route is read off the state the run stops at. The
 # scripts are the shipped ones; koto, its request store and coord-log.sh are
-# real; niwa, gh and the record feature's record-holding.sh are stand-ins.
+# real; niwa, gh and the record feature's state-holding.sh are stand-ins.
 #
 # Proves: dispatch doesn't leave on `sent` until the record shows the holding
 # dispatched, and no override record can stand in for the gate. A unit whose
@@ -74,8 +74,8 @@ export ST="$T/state"
 mkdir -p "$ST"
 printf '[]\n' >"$ST/rows.json"
 
-# record-holding.sh: the rows live in $ST/rows.json, keyed by worker.
-cat >"$S/record-holding.sh" <<'EOF'
+# state-holding.sh: the rows live in $ST/rows.json, keyed by worker.
+cat >"$S/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 MODE=""; TOPIC=""
 while [ $# -gt 0 ]; do
@@ -97,10 +97,10 @@ case "$MODE" in
     *) exit 64 ;;
 esac
 EOF
-# record-state.sh: the stored set, with no pause standing (the leg pick reads
+# state-stored-set.sh: the stored set, with no pause standing (the leg pick reads
 # the pauses through it; pause_engine_test.sh covers a paused leg) and the
 # coordinator's address in Run, which every brief names.
-cat >"$S/record-state.sh" <<'EOF'
+cat >"$S/state-stored-set.sh" <<'EOF'
 #!/usr/bin/env bash
 echo '{"run":[{"key":"coordinator","value":"coord-engine","set_by":"coord-engine","set":"2026-09-26T08:00Z"}],"standing":[],"work":[]}'
 EOF

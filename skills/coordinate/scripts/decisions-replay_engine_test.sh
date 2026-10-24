@@ -10,9 +10,9 @@
 # pass-through (take_report, pick_facts, classify_report) so one run can take
 # several arrivals. The states are cut from the shipped coordinate.md, and
 # every script is the shipped one, copied from this directory. The driver, the arrivals, the fixtures and the assertions use only
-# what the shipped scripts own: record-decision.sh's modes and flags, the sealed captures and context
+# what the shipped scripts own: state-decision.sh's modes and flags, the sealed captures and context
 # keys (coord/decision_message.txt, coord/questions.json), and records
-# rendered by the codec, with the forms the DESIGN records under "Forms the
+# normalized by state_json, with the forms the DESIGN records under "Forms the
 # scripts share".
 #
 # Proves:
@@ -58,7 +58,7 @@ ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/../koto-templates/coordinate.md"
 
-# test-lib.sh gives the GitHub DB, the codec-rendered records and ok/bad/eq.
+# test-lib.sh gives the GitHub DB, state_json and ok/bad/eq.
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
 # needs the real koto, so only the gh stand-in goes in front.
 . "$HERE/testdata/test-lib.sh"
@@ -203,13 +203,13 @@ seed_decisions() { edit_record "$1" '.decisions = $d' --argjson d "$2"; }    # <
 
 tick() { local s=$1; shift; koto next "$s" --no-cleanup "$@" > "$T/next.json" 2>&1; }
 at() { koto status "$1" | jq -r '.current_state // "gone"'; }
-section() { bash "$S/record-decision.sh" --session "$1" --list; }
+section() { bash "$S/state-decision.sh" --session "$1" --list; }
 entry() { section "$1" | jq -c --arg n "$2" '.entries[] | select(.decision == $n)'; }
 field() { entry "$1" "$2" | jq -r --arg f "$3" '.[$f] // ""'; }
 routed() { bash "$S/coord-log.sh" capture --session "$1" --name DECISION_NEXT --state decision_next | cut -d' ' -f2; }
-rd() { # rd <session> <mode args...>: record-decision.sh as the coordinator runs it
+rd() { # rd <session> <mode args...>: state-decision.sh as the coordinator runs it
     local s=$1; shift
-    bash "$S/record-decision.sh" --session "$s" "$@" >/dev/null 2>"$T/rd.err" || { RD_FAILED=1; bad "record-decision.sh $1 for $s" "$(cat "$T/rd.err")"; }
+    bash "$S/state-decision.sh" --session "$s" "$@" >/dev/null 2>"$T/rd.err" || { RD_FAILED=1; bad "state-decision.sh $1 for $s" "$(cat "$T/rd.err")"; }
 }
 # visits <session>: the states entered, in order, one per line.
 visits() {
@@ -337,7 +337,7 @@ replay_check() {
 # --- 1: the niwa#330 replay --------------------------------------------------------------
 
 # Entry 1 as an earlier run left it: settled, owing nothing, and so compacted
-# by the codec's compact_settled (verdict and evidence blank, options kept).
+# by state-schema.jq's compact_settled (verdict and evidence blank, options kept).
 SETTLED_D='{"next":2,"entries":[{"decision":"1","round":"0","question":"Which marketplace layout do we ship?",
   "options":"(c) per-project clones -- each project pins its own marketplace version\n(d) a shared clone -- one clone serves every project",
   "state":"settled","source":"worker w1 [20260920T080000Z report 3.1]",

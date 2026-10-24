@@ -18,12 +18,12 @@
 #       null and the milestone `not recoverable`.
 #   unit-cost.sh capture --session S --archive DIR --topic T --prs-file F
 #       Reads the run's record facts (coord-log.sh run-facts) and the
-#       Holdings row whose Worker is T (record-holding.sh --read), computes
+#       Holdings row whose Worker is T (state-holding.sh --read), computes
 #       the object, writes it to DIR/unit-cost.json through a temporary name
 #       in DIR (a symlink at that name is replaced, never written through),
 #       then, under the host's post lock (.post-lock in archive-common.sh's
 #       removals directory, which the sweep's captures take too), lists the
-#       record's entries (record-append.sh --list) and posts one entry of
+#       record's entries (state-entry.sh --list) and posts one entry of
 #       kind `cost` unless a `cost` entry's JSON already carries the same key
 #       or the same non-null "niwa.dispatch.id". A lock a live capture holds
 #       is waited for inside the list and post bounds; one still held then,
@@ -33,11 +33,11 @@
 #       entry per key and dispatch id, so a duplicate is harmless and a
 #       skipped post loses the unit. An object over 50,000 bytes is posted
 #       without the per-session `states` maps (`sessions.states`, `entry
-#       size`); unit-cost.json keeps them. It posts it with record-append.sh
+#       size`); unit-cost.json keeps them. It posts it with state-entry.sh
 #       --on on the item it is about: the holding's pull request (the row's
 #       Pull request cell, else the sealed verdict's first), else the Unit's
 #       issue (`#n` on the host or `owner/repo#n`), else `--on none`, which
-#       keeps it in the session, posted nowhere. record-append.sh posts on the
+#       keeps it in the session, posted nowhere. state-entry.sh posts on the
 #       item only when its repository opts in (`## PR Workflow Content:
 #       include`); otherwise it keeps the entry in the session. The last
 #       stderr line says which.
@@ -236,7 +236,7 @@ reg() { [ -f "$1" ] && [ ! -L "$1" ]; }
 # stderr discarded and its stdin empty. Returns its status, 124 on timeout.
 # dc_tree runs it in a process group of its own, so the deadline's TERM (or
 # this script's own trap) stops the whole group, and a hung gh under
-# record-append.sh dies with it.
+# state-entry.sh dies with it.
 uc_run() {
     local secs=$1 out=$2
     shift 2
@@ -902,7 +902,7 @@ uc_opened_holding() {
     OPENED_WHY=""
     echo '[]' >"$WD/opened-holding.json"
     [ "${ROW_OK:-0}" = 1 ] || return 0
-    ref=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json") || ref=""
+    ref=$(uc_jq -r -L "$HERE" 'include "state-schema"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json") || ref=""
     repo=${ref%#*} n=${ref##*#}
     [ "$repo" != "$ref" ] && repo_ok "$repo" && [[ $n =~ $RE_NUM ]] || return 0
     jq -e --arg k "$repo#$n" '($k | ascii_downcase) as $k | any(.[]; "\(.repo | ascii_downcase)#\(.number)" == $k)' \
@@ -1427,12 +1427,12 @@ fi
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2): the
 # holding's pull request (its Pull request cell, else the first of the sealed
 # verdict's), else the Unit's issue (`#n` on the host, or `owner/repo#n`), else
-# nowhere, the entry kept in the session. record-append.sh posts on the item
+# nowhere, the entry kept in the session. state-entry.sh posts on the item
 # only when its repository opts in, and otherwise keeps the entry in the
 # session.
 ON=none
 RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
-[ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
+[ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "state-schema"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
 [[ $ON =~ $RE_ITEM ]] || ON=$(awk -v re="$RE_ITEM" '$1 ~ re { print $1; exit }' "$PRS_FILE")
 if ! [[ $ON =~ $RE_ITEM ]]; then
     ON=none
@@ -1484,7 +1484,7 @@ B=$(uc_bound "$LIST_SECS")
 # The reads spent the budget: no time is left to list, and a skipped post
 # loses the unit, so it posts without the check, saying so.
 [ "$B" -gt 0 ] || say "the read budget is spent; posting without the duplicate check"
-if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/record-append.sh" --session "$SESSION" --list; then
+if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/state-entry.sh" --session "$SESSION" --list; then
     if uc_jq -e --arg k "$KEY" --arg d "$DID" '
         [.[] | select(.kind == "cost") | (.text // "" | if type == "string" then . else "" end)
          | (capture("```json\n(?<j>[^\n]*)\n```") // empty) | .j | (try fromjson catch null)
@@ -1498,11 +1498,11 @@ fi
 uc_posted || { say "the entry text could not be written"; exit 1; }
 uc_text >"$WD/text" || { say "the entry text could not be written"; exit 1; }
 set -- --on "$ON"
-# record-append.sh posts on the item only when its repository opts in; it
+# state-entry.sh posts on the item only when its repository opts in; it
 # reads the opt-in itself, through the reader UNIT_COST_PR_CONTENT_READER
 # names when a test sets it.
-[ -z "${UNIT_COST_PR_CONTENT_READER:-}" ] || export RECORD_APPEND_PR_CONTENT_READER="$UNIT_COST_PR_CONTENT_READER"
-uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
+[ -z "${UNIT_COST_PR_CONTENT_READER:-}" ] || export STATE_ENTRY_PR_CONTENT_READER="$UNIT_COST_PR_CONTENT_READER"
+uc_run "$POST_SECS" "$WD/posted" bash "$HERE/state-entry.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
 RC=$?
 if [ "$RC" = 0 ]; then
     if [ "$ON" = none ]; then
@@ -1516,6 +1516,6 @@ if [ "$RC" = 0 ]; then
 fi
 case "$RC" in
     124) say "the post did not finish in time" ;;
-    *) say "the post failed (record-append exit $RC)" ;;
+    *) say "the post failed (state-entry exit $RC)" ;;
 esac
 exit 1

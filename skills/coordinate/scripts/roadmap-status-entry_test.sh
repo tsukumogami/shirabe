@@ -6,7 +6,7 @@
 #
 # Covers: --verdict --entry opening one pull request with the entry in its
 # body, posting the session entry on it as a comment by the coordinator
-# (marker, kind and text as record-append.sh posts them, an `@` escaped),
+# (marker, kind and text as state-entry.sh posts them, an `@` escaped),
 # keeping its URL in record/posted/<n>, writing a milestone-done row whose How
 # to confirm names the entry, and pushing a second commit whose Progress line
 # names that comment and the entry's hash, nothing posted on any issue;
@@ -31,12 +31,12 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-# record-append.sh posts on an item only when its repository opts in to
+# state-entry.sh posts on an item only when its repository opts in to
 # workflow content; acme/widgets does here, through the reader's stand-in.
 printf '#!/usr/bin/env bash\necho include\n' > "$T/pr-content-reader"
-export RECORD_APPEND_PR_CONTENT_READER="$T/pr-content-reader"
+export STATE_ENTRY_PR_CONTENT_READER="$T/pr-content-reader"
 RS="$HERE/roadmap-status.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 
 # A stand-in shirabe: `roadmap populate <file>` leaves the file as it is.
 mkdir -p "$T/bin"
@@ -130,7 +130,12 @@ sv_seed() {
     session_keys "$SV" "$T/sv.json"
 }
 rs() { "${SEN[@]}" bash "$RS" "${W[@]}" "$@"; }
-slive() { "${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh"; }
+# slive: the record as a reader is handed it (rs_record), in normal form.
+slive() {
+    ( RS_SESSION=$SV PROG=reader SCOPE=roadmap NAME=plugin-system
+      . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
+      rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" )
+}
 on_branch() { jq -r --arg b "$1" '.files["acme/widgets"][$b + ":" + $p] // empty' --arg p "$ROADMAP" "$GH_DB"; }
 to_main() { db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$1"; }
 branch_of() { jq -r --argjson n "$1" '.prs[] | select(.number == $n) | .headRefName' "$GH_DB"; }

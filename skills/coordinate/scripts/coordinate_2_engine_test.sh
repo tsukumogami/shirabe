@@ -87,7 +87,7 @@ if land_run landing; then
     eq "11: another tick still holds at verified_confirm" verified_confirm "$(at)"
     eq "11: land is not entered before the head is recorded" 0 "$(entered land)"
     record_verified
-    eq "11: record-holding.sh (agent-run) records the verified head" 0 $?
+    eq "11: state-holding.sh (agent-run) records the verified head" 0 $?
     eq "11: with the head recorded, land reads the round and permits, to goal_fit" goal_fit "$(at)"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name LAND)" in
         "permit 12 $H "*) ok "11: LAND is the sealed permit" ;; *) bad "11: LAND is the sealed permit" ;;
@@ -172,7 +172,7 @@ fi
 # its checkpoint is read as progress, its leg stays open, and the entry its
 # question opens names the worker as its source. Each part has a test of its
 # own (dispatch-path_engine_test.sh "progress, leg", the case above,
-# record-decision_test.sh --open-from-report); this one fails if a change
+# state-decision_test.sh --open-from-report); this one fails if a change
 # splits them.
 if snap_load progress-wait; then
     eq "19 leg question: a leg-bound worker's checkpoint asking a question opens a decision entry" decision_open \
@@ -181,8 +181,8 @@ if snap_load progress-wait; then
     eq "19 leg question: its leg was never read" 0 "$(entered wait_leg)"
     (cd "$WD" && koto context get "$S" coord/questions.json) \
         | jq '[.[] | {key: (.index | tostring), value: {question: .text, options: ["pin -- one upgrade", "float -- none"]}}] | from_entries' > "$T/words.json"
-    write_as_agent record-decision.sh --open-from-report --text-file "$T/words.json"
-    eq "19 leg question: record-decision.sh writes the entry" 0 $?
+    write_as_agent state-decision.sh --open-from-report --text-file "$T/words.json"
+    eq "19 leg question: state-decision.sh writes the entry" 0 $?
     case "$(live_body | jq -r '.decisions.entries[-1].source // ""')" in
         "worker feat-2 ["*) ok "19 leg question: the entry names the worker as its source" ;;
         *) bad "19 leg question: the entry names the worker as its source" "$(live_body | jq -c '.decisions')" ;;
@@ -241,7 +241,7 @@ if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGN
         *) bad "22: the brief names the record's address" "$(printf '%s' "$B22" | grep -i 'report to the coordinator') $(cat "$T/d22.err")" ;; esac
     case "$B22" in *"$S"*) bad "22: and never the koto session name" ;; *) ok "22: and never the koto session name" ;; esac
     eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"fix-591"}')"
-    write_as_agent record-state.sh --work "acme/widgets#591" --kind holding --who fix-591 --next "report at its first checkpoint"
+    write_as_agent state-stored-set.sh --work "acme/widgets#591" --kind holding --who fix-591 --next "report at its first checkpoint"
     eq "22: then back to pick, the issue covered" "pick fix-591" \
         "$(at) $(cd "$WD" && koto context get "$S" coord/pick.json | jq -r '.units[] | select(.unit == "acme/widgets#591") | .holding.worker')"
     eq "22: the release goes through the dispatch check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"release-0-25-0"}')"
@@ -252,7 +252,7 @@ if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGN
     grep -q 'Run `/shirabe:release v0.25.0` in acme/widgets' "$T/work/.niwa/dispatch-briefs/release-0-25-0.md" 2>/dev/null \
         && ok "22: the brief runs /shirabe:release with the version" || bad "22: the brief runs /shirabe:release with the version" "$(cat "$T/d22.err")"
     eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"release-0-25-0"}')"
-    write_as_agent record-state.sh --work "release acme/widgets v0.25.0" --kind holding --who release-0-25-0 --next "report the tag"
+    write_as_agent state-stored-set.sh --work "release acme/widgets v0.25.0" --kind holding --who release-0-25-0 --next "report the tag"
     eq "22: then back to pick" pick "$(at)"
 else
     bad "22: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -281,9 +281,9 @@ if snap_load verified-confirm; then
         esac
         # The agent clears the cell, as the directive says: the row read back,
         # pull_request emptied, nothing else changed.
-        (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
-        write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
-        eq "17: record-holding.sh (agent-run) clears the cell" 0 $?
+        (cd "$WD" && bash "$PS/state-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
+        write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"
+        eq "17: state-holding.sh (agent-run) clears the cell" 0 $?
         eq "17: with the cell cleared, record confirms and the run goes on to pick" pick "$(at)"
         live_body | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
             | length == 1 and .[0].pull_request == "" and .[0].verified_head == $h' >/dev/null \

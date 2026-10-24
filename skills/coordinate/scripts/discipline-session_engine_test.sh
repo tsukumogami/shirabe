@@ -91,7 +91,7 @@ open_run() {
 # the agent writes it.
 rotation_end_date() {
     key "$1" record/rotation | jq -c --arg e "$2" '.end = $e | if .start > $e then .start = $e else . end' > "$T/rot.json"
-    (cd "$WD" && bash "$PS/record-state.sh" --session "$1" --rotation "$T/rot.json") > /dev/null 2> "$T/w.err"
+    (cd "$WD" && bash "$PS/state-stored-set.sh" --session "$1" --rotation "$T/rot.json") > /dev/null 2> "$T/w.err"
 }
 # to_reconcile: from a fresh run, through the find (and the open or the carry it
 # names) to reconcile; prints the states it passed, space-separated.
@@ -99,11 +99,10 @@ to_reconcile() {
     local st path
     st=$(at); path=$st
     if [ "$st" = record_open ]; then
-        render "$(record_json discipline "$DISC")" issue > "$T/body.md"
-        agent record-open.sh --body-file "$T/body.md" --start "$TODAY" --end "$(day 6)" > "$T/open.out" 2> "$T/w.err" || { echo "$path open-failed"; return; }
+        agent state-open.sh --start "$TODAY" --end "$(day 6)" > "$T/open.out" 2> "$T/w.err" || { echo "$path open-failed"; return; }
         st=$(at --with-data '{"opened":"opened"}'); path="$path $st"
     elif [ "$st" = predecessor_carry ]; then
-        agent record-open.sh --carry > "$T/carry.out" 2> "$T/w.err" || { echo "$path carry-failed"; return; }
+        agent state-open.sh --carry > "$T/carry.out" 2> "$T/w.err" || { echo "$path carry-failed"; return; }
         st=$(at --with-data '{"carry":"carried"}'); path="$path $st"
     fi
     echo "$path"
@@ -159,7 +158,7 @@ eq "  ... the rotation names the predecessor" "$S2" "$(key "$S3" record/rotation
 
 echo "== 5. a start after an early close =="
 printf 'The deploy job flakes on Mondays; watch it.\n' > "$T/why.txt"
-(cd "$WD" && bash "$PS/record-state.sh" --session "$S3" --reasoning-file "$T/why.txt") > /dev/null 2> "$T/w.err"
+(cd "$WD" && bash "$PS/state-stored-set.sh" --session "$S3" --reasoning-file "$T/why.txt") > /dev/null 2> "$T/w.err"
 eq "the second rotation closes early with its reasoning" 0 $?
 open_run ops
 S4=$S
@@ -170,18 +169,18 @@ eq "  ... verbatim" "The deploy job flakes on Mondays; watch it." "$(key "$S4" r
 
 echo "== 6. the rotation ends at rotation_end =="
 S=$S4
-{ agent record-state.sh --run arguments "--discipline ops --host acme/widgets" --by "the human" \
-  && agent record-state.sh --run cap 2 --by "the human" \
-  && agent record-state.sh --run coordinator ops-lead --by ops-lead \
-  && agent record-state.sh --run reports-to "the human" --by "the human" \
-  && agent record-state.sh --standing go-ahead --what "the carried state is acknowledged" --owner "the human"; } > /dev/null 2> "$T/w.err"
+{ agent state-stored-set.sh --run arguments "--discipline ops --host acme/widgets" --by "the human" \
+  && agent state-stored-set.sh --run cap 2 --by "the human" \
+  && agent state-stored-set.sh --run coordinator ops-lead --by ops-lead \
+  && agent state-stored-set.sh --run reports-to "the human" --by "the human" \
+  && agent state-stored-set.sh --standing go-ahead --what "the carried state is acknowledged" --owner "the human"; } > /dev/null 2> "$T/w.err"
 eq "the handover facts and the carry's go-ahead are written" 0 $?
 rotation_end_date "$S4" "$YESTERDAY"
 ST=$(at --with-data '{"reconciled":"reported"}')
 eq "past its window the rotation reaches rotation_end" rotation_end "$ST"
 eq "  ... and holds there until the reasoning is written" rotation_end "$(at --with-data '{"reasoning":"written"}')"
 printf 'Nothing carried over that the tables miss.\n' > "$T/why.txt"
-agent record-state.sh --reasoning-file "$T/why.txt" > /dev/null 2> "$T/w.err"
+agent state-stored-set.sh --reasoning-file "$T/why.txt" > /dev/null 2> "$T/w.err"
 OUT=$(tick --with-data '{"reasoning":"written"}')
 eq "the run ends at done" done "$(printf '%s' "$OUT" | jq -r '.state // empty' 2>/dev/null)"
 printf '%s\n' "$OUT" > "$T/done.json"; (cd "$WD" && koto status "$S4") > "$T/status.json" 2>&1

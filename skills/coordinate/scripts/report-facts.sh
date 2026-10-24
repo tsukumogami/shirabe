@@ -3,7 +3,7 @@
 # reporting worker's holding and check that its pull request may be verified.
 #
 # The unit is the `unit` of the latest `wait` evidence whose event is
-# `report` or `progress`. Its holding is read with record-holding.sh --read (the row whose
+# `report` or `progress`. Its holding is read with state-holding.sh --read (the row whose
 # Worker is that topic). When the row links a pull request, it is refused when:
 #   out-of-scope-repo  the link's repository is neither the host nor the Repo
 #                      of any Holdings row
@@ -13,7 +13,7 @@
 # With Branch empty there is nothing to compare.
 #
 # With Pull request empty, the pull request the report itself names is read
-# instead (record-common.sh lib_report_pr: the `pr` of the leg's result in
+# instead (state-common.sh lib_report_pr: the `pr` of the leg's result in
 # koto's record of the leg, or the `pull_request` field of the message's
 # `wait` evidence). A report naming none gives `holding none`. One naming a
 # pull request gives `link`: the holding should carry it, and report_link has
@@ -48,8 +48,8 @@
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# The record through record-holding.sh --read and --list, which share one read
-# of it (rs_once_begin), and record-holding.sh --pushed-head writes a changed
+# The record through state-holding.sh --read and --list, which share one read
+# of it (rs_once_begin), and state-holding.sh --pushed-head writes a changed
 # head into the one session key that keeps it, reading and writing no body.
 # GitHub reads:
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
@@ -73,13 +73,13 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || usage
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
-# One record read for the whole step: every record-holding.sh call below (the
+# One record read for the whole step: every state-holding.sh call below (the
 # leg's holding list, the holding's row, the list again) takes it from here
 # rather than reading the record again (shirabe#1094).
 rs_once_begin "$T/once" || lib_die2 "cannot make a temporary directory"
@@ -96,23 +96,23 @@ finish() {
     lib_emit report_facts "$tok" coord/report.json "$T/report.json"
 }
 
-hold() { # hold <mode args...>: record-holding.sh with this run's facts
+hold() { # hold <mode args...>: state-holding.sh with this run's facts
     if [ "$OVERRIDE" = 1 ]; then
-        bash "$HERE/record-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" "$@"
+        bash "$HERE/state-holding.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" "$@"
     else
-        bash "$HERE/record-holding.sh" --session "$SESSION" "$@"
+        bash "$HERE/state-holding.sh" --session "$SESSION" "$@"
     fi
 }
 
-# The unit, from the log alone (record-common.sh lib_unit, which
-# record-confirm.sh uses too). On the message path it is the latest `wait`
+# The unit, from the log alone (state-common.sh lib_unit, which
+# state-confirm.sh uses too). On the message path it is the latest `wait`
 # evidence with event report. On the leg path (the dispatch path's wait_leg,
 # then take_report, then here) the hub's evidence carries no unit, so the
 # unit is the holding whose Return path is the leg the engine captured:
 # `leg <WAIT_REQ>:<WAIT_LEG>`. Which path applies is read from the log (the
 # later of the two arrivals), never from a context key.
 leg_holdings() {
-    hold --list 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
+    hold --list 2> "$T/list.err" || lib_die2 "state-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
 }
 lib_unit "" 'report|progress' leg_holdings || finish "unknown -"
 TOPIC=$UNIT
@@ -127,9 +127,9 @@ ROW=$(hold --topic "$TOPIC" --read 2> "$T/read.err")
 case $? in
     0) ;;
     1) ROW=null; finish "unknown $TOPIC" ;;
-    *) lib_die2 "record-holding.sh --read failed: $(lib_scrub < "$T/read.err")" ;;
+    *) lib_die2 "state-holding.sh --read failed: $(lib_scrub < "$T/read.err")" ;;
 esac
-hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
+hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "state-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
 
 CELL=$(printf '%s' "$ROW" | jq -r '.pull_request // ""')
 BR=$(printf '%s' "$ROW" | jq -r '.branch // ""')
@@ -155,7 +155,7 @@ if [ -n "$BR" ] && [ "$(printf '%s' "$PRVIEW" | jq -r '.headRefName // ""')" != 
     finish "refused $TOPIC branch-mismatch"
 fi
 # A holding keeps the head this read saw (PRD R17). This
-# script is a check and writes nothing itself: record-holding.sh writes it in
+# script is a check and writes nothing itself: state-holding.sh writes it in
 # its own process, its output kept off the verdict line, and a write that fails
 # or is refused is named on stderr and changes no verdict. A link's head is
 # written by holding-link.sh with the link.

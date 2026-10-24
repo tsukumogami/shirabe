@@ -51,8 +51,8 @@
 # a public host never naming a repository it doesn't read as public; the
 # GitHub wrapper's admitted and refused calls; no GitHub write across the
 # suite but one comment POST per captured unit, on the unit's pull request;
-# and the scripts that read record entries (record-state.sh, through
-# record-append.sh --list, is the one) giving the same output with a cost
+# and the scripts that read record entries (state-stored-set.sh, through
+# state-entry.sh --list, is the one) giving the same output with a cost
 # entry on the record. The record is the run's session's: the entries are its
 # keys, and a cost entry is posted on the sealed verdict's first pull request
 # (#21), the holding naming none.
@@ -71,7 +71,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 export HOME="$T/home" KOTO_SESSIONS_BASE="$T/koto-home"
 mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 UC="$HERE/unit-cost.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 FX="$HERE/testdata/unit-cost"
 KEY=2026-10-01-feat-x-0a1b2c3d
 YKEY=2026-10-02-fix-y-0e0f1a2b
@@ -367,7 +367,7 @@ capture; eq "a failed Holdings read (and so a failed post) exits 1" 1 $?
 unset KOTO_NO_LIST_PREFIX
 eq "  ... the archive copy says read failed" "not recoverable|read failed" \
     "$(jq -r '"\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"' "$A/unit-cost.json")"
-eq "  ... and the last stderr line is a fixed string" "unit-cost: the post failed (record-append exit 2)" "$(tail -n 1 "$T/cap.err")"
+eq "  ... and the last stderr line is a fixed string" "unit-cost: the post failed (state-entry exit 2)" "$(tail -n 1 "$T/cap.err")"
 seed; fresh
 NOREC=coordinate-roadmap-x-20261001T090000Z
 log_new "$NOREC" "$(roadmap_vars x)"
@@ -713,7 +713,7 @@ echo "== the post lock =="
 # The list and the post run under .post-lock in the removals directory (under
 # HOME here, XDG_STATE_HOME being unset). Two captures of one unit with the
 # same dispatch id and different keys meet at a barrier on the session's entry
-# list, which record-append.sh reads (koto context list --prefix
+# list, which state-entry.sh reads (koto context list --prefix
 # record/entries/) only inside the lock: a koto ahead of the stand-in on PATH
 # holds every such call until $T/go exists and notes each one in $T/listing.
 # With the lock, one capture is at the barrier and the other waits for the
@@ -1160,24 +1160,24 @@ eq "every read the capture made was one the wrapper admits" "" \
         done)"
 
 echo "== the entries' readers =="
-# record-state.sh chooses a Standing id from the entry stream (the one
-# script that reads entries, through record-append.sh --list); a cost entry
+# state-stored-set.sh chooses a Standing id from the entry stream (the one
+# script that reads entries, through state-entry.sh --list); a cost entry
 # on the record changes nothing it prints or writes.
 RM=(--scope roadmap --name x --repo acme/widgets)
 standing() {
     seed
     [ "$1" = with ] && { sed '1,3d' "$FX/example-comment.md" >"$T/cost.txt"; bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; }
-    bash "$HERE/record-state.sh" "${RM[@]}" --skip-session-checks --standing answer --what "panels are the cost" --owner "the human" 2>&1 \
+    bash "$HERE/state-stored-set.sh" "${RM[@]}" --skip-session-checks --standing answer --what "panels are the cost" --owner "the human" 2>&1 \
         | grep -v '^record/entries/'
     session_state "$S" | jq -c '.standing | map(del(.set))'
 }
 WITHOUT=$(standing without)
-case "$WITHOUT" in *'"standing":"s1","kind":"answer"'*) ok "record-state.sh writes Standing s1 on a record without one" ;;
-    *) bad "record-state.sh writes Standing s1 on a record without one" "$WITHOUT" ;; esac
+case "$WITHOUT" in *'"standing":"s1","kind":"answer"'*) ok "state-stored-set.sh writes Standing s1 on a record without one" ;;
+    *) bad "state-stored-set.sh writes Standing s1 on a record without one" "$WITHOUT" ;; esac
 eq "  ... and the same with a cost entry on the record" "$WITHOUT" "$(standing with)"
 seed
 sed '1,3d' "$FX/example-comment.md" >"$T/cost.txt"
-bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; eq "record-append.sh admits kind cost" 0 $?
+bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; eq "state-entry.sh admits kind cost" 0 $?
 eq "  ... and lists it back whole" "cost|$(cat "$T/cost.txt")" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[0] | "\(.kind)|\(.text)"')"
 
 done_tests unit-cost

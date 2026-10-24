@@ -61,10 +61,10 @@ version: "1.0"
 #                               verdict (decision_verdict's decider input;
 #                               decision_input requires it)
 #   coord/questions.json        report_questions on `questions`: the extracted
-#                               questions, sealed; record-decision.sh
+#                               questions, sealed; state-decision.sh
 #                               --open-from-report reads it only through the seal
 #   coord/decision_message.txt  the render states: the message to send, sealed;
-#                               record-decision.sh --sent checks it
+#                               state-decision.sh --sent checks it
 #   coord/decision_question.json  escalate: the same escalation as a question
 #                               with explained options, sealed, for asking a
 #                               person with a question tool
@@ -104,7 +104,7 @@ version: "1.0"
 #
 # Scripts already handle states the dispatch path (shirabe#404) adds:
 # leg_pick, wait_leg, take_report (report-facts.sh's leg path, captures
-# WAIT_REQ and WAIT_LEG), teardown_inventory and destroy (record-confirm.sh,
+# WAIT_REQ and WAIT_LEG), teardown_inventory and destroy (state-confirm.sh,
 # capture TEARDOWN_SEAL, key teardown_verdict). The reconcile feature
 # (shirabe#406) adds reconcile_pass (verdict `reconciled`, 140).
 description: >
@@ -136,7 +136,7 @@ description: >
   on a state that starts with a read. Every spoke that changes what the record
   must hold returns through `record`, whose check confirms the change in the
   session before the loop goes round through pick again, except the decision
-  writes: record-decision.sh re-reads the record itself, and every decision
+  writes: state-decision.sh re-reads the record itself, and every decision
   state returns through `decision_next`, whose check reads what is owed next,
   including a write that didn't land.
 initial_state: start
@@ -249,7 +249,7 @@ states:
 
   record_find:
     default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-find.sh" --session "{{SESSION_NAME}}"'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-find.sh" --session "{{SESSION_NAME}}"'
       capture_stdout_as: RECORD_FIND
       fallback: >-
         The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
@@ -280,7 +280,7 @@ states:
       - target: record_conflict
         when:
           gates.record_find_verdict.exit_code: 16  # malformed
-      # A discipline rotation (record-find.sh session_find): the discipline's
+      # A discipline rotation (state-find.sh session_find): the discipline's
       # first rotation opens, an ended predecessor's state is carried, and a
       # predecessor that fails a rule stops for the person.
       - target: record_open
@@ -299,7 +299,7 @@ states:
         type: enum
         values: [opened]
         required: true
-        description: Submit after record-open.sh printed record=<url>, or after it refused because a record now exists.
+        description: Submit after state-open.sh printed record=<url>, or after it refused because a record now exists.
     transitions:
       - target: record_find
         when:
@@ -333,7 +333,7 @@ states:
         type: enum
         values: [carried, refused]
         required: true
-        description: carried after record-open.sh --carry printed carried=<predecessor>; refused after it refused, with its reason as the detail.
+        description: carried after state-open.sh --carry printed carried=<predecessor>; refused after it refused, with its reason as the detail.
       detail:
         type: string
     transitions:
@@ -376,7 +376,7 @@ states:
       # store, also who this coordinator reports to (no-reports-to).
       reconcile_handover:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-handover.sh" --session "{{SESSION_NAME}}" --check'
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-handover.sh" --session "{{SESSION_NAME}}" --check'
         overridable: false
     accepts:
       reconciled:
@@ -605,7 +605,7 @@ states:
         type: enum
         values: [rewritten]
         required: true
-        description: Submit after record-write.sh wrote every open deferral's disposition.
+        description: Submit after state-write.sh wrote every open deferral's disposition.
     transitions:
       - target: dispatch_check
         when:
@@ -615,7 +615,7 @@ states:
     # The coordinator runs dispatch-worker.sh, which writes the holding before
     # it launches the worker and confirms it after; `sent` leaves only when the
     # record shows the holding dispatched. The gate reads the record through
-    # record-holding.sh, never a value the coordinator submits: 0 dispatched,
+    # state-holding.sh, never a value the coordinator submits: 0 dispatched,
     # 1 no holding, 2 unreadable or refused, 3 dispatch-failed, 4 dispatching.
     gates:
       holding_recorded:
@@ -646,7 +646,7 @@ states:
 
   record:
     default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-confirm.sh" --session "{{SESSION_NAME}}"'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-confirm.sh" --session "{{SESSION_NAME}}"'
       capture_stdout_as: CONFIRM
       fallback: >-
         The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
@@ -1165,9 +1165,6 @@ states:
       - target: classify_report
         when:
           gates.decision_next_verdict.exit_code: 162  # clear-report
-      - target: record_conflict
-        when:
-          gates.decision_next_verdict.exit_code: 163  # record-full
 
   decision_carry:
     accepts:
@@ -1175,7 +1172,7 @@ states:
         type: enum
         values: [carried]
         required: true
-        description: carried after record-decision.sh --carry.
+        description: carried after state-decision.sh --carry.
     transitions:
       - target: decision_next
         when:
@@ -1187,7 +1184,7 @@ states:
         type: enum
         values: [taken]
         required: true
-        description: taken after record-decision.sh --take.
+        description: taken after state-decision.sh --take.
     transitions:
       - target: decision_next
         when:
@@ -1234,7 +1231,7 @@ states:
         type: enum
         values: [opened]
         required: true
-        description: opened after record-decision.sh --open-from-report.
+        description: opened after state-decision.sh --open-from-report.
     transitions:
       - target: decision_next
         when:
@@ -1246,7 +1243,7 @@ states:
         type: enum
         values: [raised]
         required: true
-        description: raised after record-decision.sh --open.
+        description: raised after state-decision.sh --open.
     transitions:
       - target: decision_next
         when:
@@ -1258,7 +1255,7 @@ states:
         type: enum
         values: [recorded, reversal]
         required: true
-        description: recorded after record-decision.sh --answer; reversal when the answer reverses a supplied decision.
+        description: recorded after state-decision.sh --answer; reversal when the answer reverses a supplied decision.
     transitions:
       - target: decision_next
         when:
@@ -1273,7 +1270,7 @@ states:
         type: enum
         values: [recorded]
         required: true
-        description: recorded after record-decision.sh --evidence.
+        description: recorded after state-decision.sh --evidence.
     transitions:
       - target: decision_next
         when:
@@ -1307,7 +1304,7 @@ states:
         type: enum
         values: [sent, answered]
         required: true
-        description: sent after sending the rendered text and record-decision.sh --sent; answered when the person answered the question tool, after --sent.
+        description: sent after sending the rendered text and state-decision.sh --sent; answered when the person answered the question tool, after --sent.
       decision:
         type: string
         description: Required with answered, which does not leave escalate_send without it; the decision entry the answer names.
@@ -1348,7 +1345,7 @@ states:
         type: enum
         values: [sent]
         required: true
-        description: sent after sending the rendered text and record-decision.sh --sent.
+        description: sent after sending the rendered text and state-decision.sh --sent.
     transitions:
       - target: decision_next
         when:
@@ -1378,7 +1375,7 @@ states:
         type: enum
         values: [sent]
         required: true
-        description: sent after sending the rendered text and record-decision.sh --sent.
+        description: sent after sending the rendered text and state-decision.sh --sent.
     transitions:
       - target: decision_next
         when:
@@ -1408,7 +1405,7 @@ states:
         type: enum
         values: [sent]
         required: true
-        description: sent after sending the rendered text and record-decision.sh --sent.
+        description: sent after sending the rendered text and state-decision.sh --sent.
     transitions:
       - target: decision_next
         when:
@@ -1578,7 +1575,7 @@ states:
 
   verified_confirm:
     default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-confirm.sh" --session "{{SESSION_NAME}}" --verified'
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-confirm.sh" --session "{{SESSION_NAME}}" --verified'
       capture_stdout_as: VCONFIRM
       fallback: >-
         The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
@@ -2213,21 +2210,21 @@ states:
           outcome: handed-over
 
   # A rotation ends here, from pick_facts's rotation-over or the hub's `end`:
-  # the coordinator writes its reasoning for the next rotation (record-state.sh
+  # the coordinator writes its reasoning for the next rotation (state-stored-set.sh
   # --reasoning-file), which closes the rotation by the window rule, and the
   # run ends. Nothing is committed and no pull request is opened. The gate is
-  # record-state.sh's read-only --reasoning-check, which writes nothing.
+  # state-stored-set.sh's read-only --reasoning-check, which writes nothing.
   rotation_end:
     accepts:
       reasoning:
         type: enum
         values: [written]
         required: true
-        description: Submit after record-state.sh --reasoning-file wrote the reasoning for the next rotation into record/reasoning.
+        description: Submit after state-stored-set.sh --reasoning-file wrote the reasoning for the next rotation into record/reasoning.
     gates:
       reasoning_written:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session "{{SESSION_NAME}}" --reasoning-check'
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session "{{SESSION_NAME}}" --reasoning-check'
         overridable: false
     transitions:
       - target: done
@@ -2329,7 +2326,7 @@ is a default, not a permission rule of this skill's own.
 ## record_find
 
 Finding this scope's record in this host's coordinator sessions. koto runs
-`record-find.sh` itself; it reads this run's session and, at discipline scope,
+`state-find.sh` itself; it reads this run's session and, at discipline scope,
 the discipline's earlier rotations on this host, and routes on what it finds.
 Nothing on GitHub is searched or read for the record: the session is its only
 store.
@@ -2340,7 +2337,7 @@ The record stores only what GitHub can't recompute: the holdings (including
 workers with no pull request yet), deferrals, side effects in flight such as a
 merge attempted and never confirmed, and the reasoning behind reversals. Feature
 state is never stored; it is read from the roadmap and the pull requests every
-time. `references/record-template.md` has the shape of each section.
+time. `references/state-keys.md` has the shape of each section.
 
 The record is a set of keys in this run's koto session (`record/meta` and one
 key per section). A run started on a host that never held this scope's session
@@ -2371,17 +2368,17 @@ and `record/reasoning`):
 ## record_open
 
 No record exists for this scope ({{RECORD_FIND}}). Open exactly one with
-`record-open.sh`, then submit `opened: opened`; the next state reads the record
+`state-open.sh`, then submit `opened: opened`; the next state reads the record
 again from this run's session, and only that read satisfies the check.
 
 <!-- details -->
 
-Write the body with `record-render.sh` from a JSON file: the scope. A
+The script builds the scope's empty record itself; you write no file for it. A
 discipline rotation that follows another carries its predecessor through
-`predecessor_carry`, not here. Then, at roadmap scope:
+`predecessor_carry`, not here. At roadmap scope:
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}" --body-file <body.md>
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}"
 ```
 
 The script refuses when a record now exists (a restart that finds its record
@@ -2409,13 +2406,9 @@ and ask once, with a recommendation; submit `recheck` after they resolve it, or
 
 This state is reached from a session record that doesn't read back as a record
 of this scope (`malformed`), or a record check that found a `koto next --to` in
-this run. It is also reached from the decision states: a record too full for
-the next decision write (`record-full`: the record is near its size budget with
-nothing left that can move, since decision-next.sh has already archived every
-settled entry it could; the way out, as the script says, is to prune the
-record, which is the human's call), and a message the workflow refused to
-render (`refused`: the entry no longer owes it as recorded, so the record
-changed underneath). Don't repair a record by hand: the human decides.
+this run. It is also reached from the decision states: a message the workflow
+refused to render (`refused`: the entry no longer owes it as recorded, so the
+record changed underneath). Don't repair a record by hand: the human decides.
 
 At discipline scope it is also reached from a predecessor
 the find read as `unreadable <session>` (the reason is in coord/record_find.json),
@@ -2430,7 +2423,7 @@ Carry the predecessor's state into this rotation ({{RECORD_FIND}}), then submit
 with its reason as the detail when it refuses; the find then runs again.
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}" --carry
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --carry
 ```
 
 <!-- details -->
@@ -2460,7 +2453,7 @@ it happens again, say what it names up to the human and stop. Never write a
 The pass (`scripts/reconcile-pass.sh`, run by the engine, not by you) reads the
 record once per visit to this state and does the reads a full reconcile has
 always meant, at most four at a time.
-Treat every claim in the record as a snapshot dated by its `Written:` time: that is what the pass does. Re-check each against GitHub (pull request state and head sha, whether the branch
+Treat every claim in the record as a snapshot dated by its `written` time: that is what the pass does. Re-check each against GitHub (pull request state and head sha, whether the branch
 exists, CI results, a merge or close in flight) and against the host (whether
 each worker's instance still exists, and what unique material it holds): the
 pass does both. Where the record and GitHub disagree, GitHub wins, and the
@@ -2481,8 +2474,8 @@ and report it up; then submit `reconciled: reported`. Load `references/loop.md`,
 Reconcile, in Order", for how to present it.
 
 Before you submit, make the record one a replacement could continue from: run
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-handover.sh" --session {{SESSION_NAME}} --check`
-and close every gap it names with the `record-state.sh` call it gives. Write
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-handover.sh" --session {{SESSION_NAME}} --check`
+and close every gap it names with the `state-stored-set.sh` call it gives. Write
 this run's arguments and the cap if the record has neither, and your own address
 (`--run coordinator`) if the record names another coordinator's or none. A new
 address leaves every live worker untold: send each one a line naming it, then
@@ -2514,7 +2507,7 @@ verified or inferred, and it doesn't go among the re-checked claims.
 This state's gate re-checks that `reconcile/report.json` is the report the pass
 sealed in this visit; a report written or changed by anyone else holds the
 workflow here. Its handover gate re-reads the record's stored set (Run, Standing,
-Work, `references/record-template.md`) and holds the workflow while the record
+Work, `references/state-keys.md`) and holds the workflow while the record
 lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
 address; a holding merged and waiting for its teardown is exempt. It also
@@ -2548,7 +2541,7 @@ Until the answer is in the record, every finishing step stays reserved. The
 answer is the one posture fact the workflow takes on your relay, which is why it
 goes into the record with who decided it; the land step treats a `permitted`
 merge as permitted only while that row is in the record. This is not a
-hold: a hold on one pull request is a Holds row (`record-hold.sh`), which the
+hold: a hold on one pull request is a Holds row (`state-hold.sh`), which the
 land check reads.
 
 ## pick_facts
@@ -2604,7 +2597,7 @@ and drive every worker to landed work.
   submit `hold`, unless a go-ahead in `go_aheads` lets one unit through (its
   `paused` reads null), which you may choose; end the go-ahead once the step
   it allowed is done. A pause in `pauses` whose `state` is `met` holds nothing
-  any more; end its row, `record-state.sh --session {{SESSION_NAME}} --end
+  any more; end its row, `state-stored-set.sh --session {{SESSION_NAME}} --end
   <id> --by "its condition, <until>"`, and send the resume (see `wait`).
 - **Fill every free slot.** Dispatch until active workers equal the cap
   (`cap` in `coord/pick.json`: the record's Run cap when it has one, else
@@ -2636,12 +2629,12 @@ and drive every worker to landed work.
   to the next unit in order. While its
   `awaiting` is set, never dispatch it. Once `answered` is set the entry is
   settled: dispatch the unit with the answer in its brief's decisions, or,
-  when the answer drops it, remove the row with `record-state.sh --session
+  when the answer drops it, remove the row with `state-stored-set.sh --session
   {{SESSION_NAME}} --done "<unit>" --kind decision`.
 - **Asking up.** When slots are free and the scope has no unit left, ask whoever
   dispatched you for out-of-scope work (`ask_up`) and invent none. Work you are
   assigned becomes a holding like any other; a proposal of your own stays
-  unacted on until answered. Record an assignment first, `record-state.sh
+  unacted on until answered. Record an assignment first, `state-stored-set.sh
   --session {{SESSION_NAME}} --standing assignment --on <owner/repo#n, or
   release owner/repo <tag>> --what <what> --owner <who assigned it>`: pick
   then lists it as a unit (`assigned` set), at roadmap scope too. End its row
@@ -2724,7 +2717,7 @@ its verdict's roadmap edit is confirmed.
 
 A deferral is open. Dispose of each one (file it as an issue, close it, or carry
 it forward with a reason and the time), rewrite the record with
-`record-write.sh`, then submit `rewritten: rewritten`.
+`state-write.sh`, then submit `rewritten: rewritten`.
 
 <!-- details -->
 
@@ -2751,7 +2744,7 @@ for one scoped ahead, with its execution sent later, or scoped alone (phase
 whose `follow_up` is set, its execution. The brief lists the
 checkpoints the worker reports at, and tells it to report and continue at each
 one: it waits on no approval. Once it is sent, write the holding's next step,
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session
 {{SESSION_NAME}} --work "<the unit>" --kind holding --who <topic> --next "<what
 happens next>"`: the record step waits for it, since a successor reads each
 holding's next step there. It also records the worker as told your address,
@@ -2762,7 +2755,7 @@ which its brief names.
 Write the worker's brief from `references/brief-template.md` as that input:
 `render-brief.sh` renders the template's sections from it, so no section is
 left out. `dispatch-worker.sh` is how you
-record the dispatch as a holding with `record-holding.sh`, before any other
+record the dispatch as a holding with `state-holding.sh`, before any other
 action and before the worker launches. A worker's goal is the next checkpoint,
 not "done": it pauses to report at each checkpoint and never waits on an
 approval.
@@ -2841,31 +2834,31 @@ The worker's dispatch topic is its name everywhere, in the record and in every
 pull request: never a session id, instance path or job id.
 ## record
 
-Confirming the last change in the record. koto runs `record-confirm.sh` itself; it
+Confirming the last change in the record. koto runs `state-confirm.sh` itself; it
 stays here until the record shows what the step before it implies, with a newer
-`Written:` time.
+`written` time.
 
 <!-- details -->
 
 Write the record after every dispatch, every verified report, every merge or
 attempted merge, every new deferral and every reversal, in the same turn as the
 event, and never write a fact GitHub can recompute. Load
-`references/record-template.md`. Parse the live body, change the JSON, render the
-whole body again, and write it with `record-write.sh` or `record-holding.sh`;
+`references/state-keys.md`. Read the state, change the JSON, and write the
+whole next state with `state-write.sh --state-file` or `state-holding.sh`;
 never edit the record's session keys by hand, and never append a comment.
 
 When the record's host repository is public, it never names a private
 repository, path or issue: a holding that would need one is a scope question for
-the human. Quoted material such as a CI log line goes in a cell as it is; the
-renderer keeps it from breaking the table.
+the human. Quoted material such as a CI log line goes in a field as it is;
+the state is JSON, so nothing needs encoding.
 
-A write is a compare-and-swap on the `Written:` line: edit the body you just
-read, keeping its `Written:` line, and `record-write.sh` refuses with exit 12
+A write is a compare-and-swap on the written time: edit the state you just
+read, keeping its `written` time, and `state-write.sh` refuses with exit 12
 (`record-changed`) when the live record was written since, by another
-coordinator or a person. Then re-read it and redo your change on the new body;
+coordinator or a person. Then re-read it and redo your change on the new state;
 when the other change is one you can't reconcile with yours, don't overwrite it:
 report both versions to the human and ask once, as at `record_conflict`.
-`record-holding.sh` does the read and the compare for you.
+`state-holding.sh` does the read and the compare for you.
 
 If this state stays blocked, the record doesn't yet show what this state expects.
 What that is depends on the state you came from: `koto context get <session>
@@ -2914,7 +2907,7 @@ Two writes come before acting, whatever event follows. When a person's word
 arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a
 release go-ahead, an approval relayed from another session, a standing
 answer), write it with
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session {{SESSION_NAME}}`:
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session {{SESSION_NAME}}`:
 `--standing <pause|go-ahead|approval|answer> --what "<what it says>" --owner
 "<the person>" --relayed-by "<who carried it>"` (no relayer when they told you
 directly), `--end <id> --by "<who>"` when it stops binding, `--run cap <n> --by
@@ -2965,7 +2958,7 @@ been silent for 30 minutes; nothing is armed to make that wake happen.
 the account's reset does, so write no Standing row for one. It shows as a
 worker's runs executing nothing (nested sessions exiting without running), as
 silence, or as your own session stopping. Write one entry with
-`record-append.sh` saying what you saw. On the reset (your session running
+`state-entry.sh` saying what you saw. On the reset (your session running
 again, a person saying so, or a worker's next message), message each live
 worker to continue from its last checkpoint and re-run whatever executed
 nothing.
@@ -2995,7 +2988,7 @@ or blocked, is a `report`. koto 0.14.0 records a wake when a leg this session
 requested resolves (koto#250); the leg watch above is how you hear it.
 
 Each wake counts for the record: a holding's Work row carries its Wakes, which
-`record-state.sh --work` brings up to date from this run's log at each write
+`state-stored-set.sh --work` brings up to date from this run's log at each write
 (the events report, progress, leg, quiet, merged and resume, each counted for
 the worker it names, the leg it read or the topics a quiet sweep named), and
 the final count goes into an entry when the holding's row leaves Work. Name
@@ -3117,7 +3110,7 @@ front of the human at surface.
 
 The script takes no pull request from you: it reads the one report_facts
 checked from the session log, re-checks it on GitHub, and writes it with the
-pull request's own head branch through `record-holding.sh`. `report_facts`
+pull request's own head branch through `state-holding.sh`. `report_facts`
 then reads the holding again, so a write that didn't land comes back here. A
 refusal goes to the human with its reason: the pull request stays unadopted
 until someone says whose it is.
@@ -3160,9 +3153,9 @@ Every decision write returns here, so nothing owed waits on the next pick. When
 nothing is owed, a report whose questions were just recorded goes on to
 classification, and anything else to `pick_facts`. A held entry is skipped: its
 verdict waits on the fact its hold names, which comes back through `wait` as
-evidence. A record too full for the next write goes to `record_conflict`.
+evidence.
 
-When a `record-decision.sh` write in any decision state refuses (exit 65), the
+When a `state-decision.sh` write in any decision state refuses (exit 65), the
 record changed after this state was routed. Don't retry it by hand and don't
 send a message again: submit the state's evidence as the directive says, and
 `decision_next` routes from the record as it now stands. A message already
@@ -3170,7 +3163,7 @@ sent may then go out once more (sending is at least once).
 
 ## decision_carry
 
-Run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
+Run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh" --session
 {{SESSION_NAME}} --carry`, then submit `carried: carried`.
 
 <!-- details -->
@@ -3183,13 +3176,13 @@ its first dispatch. A rotation normally carried them already when it opened
 ## decision_take
 
 Take up the proposed entry {{DECISION_NEXT}} names: run
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh" --session
 {{SESSION_NAME}} --take`, then submit `taken: taken`.
 
 ## decision_verdict
 
 Judge the entry in `coord/decision.json` and record one verdict with
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh" --session
 {{SESSION_NAME}}`, then submit it as `verdict` with your `rationale`. When the
 question isn't obviously answerable (more than one option a reasonable person
 would pick, or a trade-off the facts in hand don't settle), run
@@ -3219,7 +3212,7 @@ entry back here.
 
 Word each item of `coord/questions.json` for the record and open them together:
 write a file mapping each item's `index` to `{"question": ..., "options": [...]}`
-in your own words, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+in your own words, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --open-from-report --text-file <file>`, then submit
 `opened: opened`.
 
@@ -3239,11 +3232,11 @@ that the entry is taken up and gets your verdict like any other.
 ## decision_raise
 
 Open the decision you need made as an entry: run
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh" --session
 {{SESSION_NAME}} --open --question <question> --option <option> [--option
 <option>]... [--source self|dispatcher]`, then submit `raised: raised`. From
 pick's `await_decision`, also park the unit on the new entry:
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session
 {{SESSION_NAME}} --work "<the unit>" --kind decision --who "decision <n>"
 --next "<what it starts with once decided>"`.
 
@@ -3261,7 +3254,7 @@ yet), don't open a second one: write only the park, on that entry.
 
 ## decision_answer
 
-Record the answer: run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+Record the answer: run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --answer --outcome <option or outcome> [--reason
 <reason>] [--final <decider>]`, then submit `answered: recorded`, or `answered:
 reversal` when the outcome reverses or extends a decision the dispatcher
@@ -3277,7 +3270,7 @@ for a new verdict. A reversal goes on to `decision_apply`, which records it.
 
 ## decision_evidence
 
-Record the evidence: run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+Record the evidence: run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --evidence --source <who> --text <what it says>`,
 then submit `recorded: recorded`.
 
@@ -3307,7 +3300,7 @@ escalation check; only a record changed underneath causes that, so it goes to
 ## escalate_send
 
 Send the escalation in `coord/decision_message.txt` to the run's target, then
-mark it with `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+mark it with `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --sent --route <tool|message>`. A coordinator target
 ({{REPORTS_TO}} set) always gets the text as a message: send it exactly, then
 `--sent --route message` and submit `sent: sent`.
@@ -3341,7 +3334,7 @@ evidence reopened it.
 ## decision_withdraw_send
 
 Send the text in `coord/decision_message.txt` to the run's target exactly as
-rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --sent`, then submit `sent: sent`.
 
 ## decision_reply
@@ -3353,7 +3346,7 @@ the entry came from.
 ## decision_reply_send
 
 Send the text in `coord/decision_message.txt` to the entry's source exactly as
-rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --sent`, then submit `sent: sent`.
 
 ## decision_redirect
@@ -3365,7 +3358,7 @@ entries now hold them.
 ## decision_redirect_send
 
 Send the text in `coord/decision_message.txt` to the entry's source exactly as
-rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh"
+rendered, run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-decision.sh"
 --session {{SESSION_NAME}} --sent`, then submit `sent: sent`.
 
 <!-- details -->
@@ -3505,7 +3498,7 @@ here, reads `no-pr` and goes back to waiting.
 
 ## verified_confirm
 
-Write the verified head into the holding with `record-holding.sh` and your
+Write the verified head into the holding with `state-holding.sh` and your
 verify report up; koto confirms the holding's Verified head on GitHub equals the
 sha the board read verified, then goes to land.
 
@@ -3602,7 +3595,7 @@ clause 1 first:
    Fix the entry until it passes.
 3. Post it on the pull request its first line names, the `<owner/repo#n>`
    after `Goal fit:`:
-   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --on <owner/repo#n> --text-file <entry file>`.
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-entry.sh" --session {{SESSION_NAME}} --kind goal-fit --on <owner/repo#n> --text-file <entry file>`.
 4. Submit, with `clauses` set to the entry's Clauses value.
 
 `advances none` is recorded, not a gap: `fit` alone decides where the pull
@@ -3632,7 +3625,7 @@ state confirms the merge from GitHub's record: merged from the verified head,
 its merge commit on the default branch, not by trusting the command's exit.
 
 A hold is not decided here. When someone asks you to hold a merge, record it
-with `record-hold.sh --add` at once: the land check reads every hold in the
+with `state-hold.sh --add` at once: the land check reads every hold in the
 record and sends a held pull request to the person, and `land-merge.sh`
 re-reads them and refuses a pull request a hold recorded since stands on, so a
 hold you only remember never stops a merge. Submit `merge: failed` on that
@@ -3647,7 +3640,7 @@ on the default branch.
 <!-- details -->
 
 A merge confirmed keeps the holding until teardown and clears its Pull request
-cell: read the row with `record-holding.sh --read`, write it back with
+cell: read the row with `state-holding.sh --read`, write it back with
 `pull_request` empty and nothing else changed (`--row-file`), and the record
 step waits for that. The row goes only at the teardown's destroy step. A merge
 not confirmed keeps the holding and its link and adds a Side effects row
@@ -3656,7 +3649,7 @@ later reconcile settles.
 
 A holding at Phase `scoping` landed its unit's scoping alone (pick's `scope`),
 so the unit isn't done: record its execution as a follow-up,
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session
 {{SESSION_NAME}} --work "<the unit>" --kind follow-up --who <owner/repo#n of
 the merged pull request> --next "<its execution, such as /shirabe:execute
 docs/plans/PLAN-<topic>.md>"`, which the record step also waits for, and don't
@@ -3669,7 +3662,7 @@ What the roadmap needs once a unit's work lands depends on its form: read
 and do what it says.
 
 A merge made while a hold in the record still stood on the pull request
-(`record-hold.sh --list`) is written down, whoever made it: add a Reversals row
+(`state-hold.sh --list`) is written down, whoever made it: add a Reversals row
 whose Reversed is `hold <name> on <owner/repo#n>`, whose Now is `merged while
 held, by <login>` (the login `gh pr view <n> --repo <owner/repo> --json
 mergedBy` reads), with the time and the reason as far as you know it. The
@@ -3686,7 +3679,7 @@ none.
 <!-- details -->
 
 As after a merge you made: a merge confirmed keeps the holding until teardown
-and clears its Pull request cell (`record-holding.sh --read`, then the row
+and clears its Pull request cell (`state-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
 record step waits for; the row goes only at the teardown's destroy step. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
@@ -3704,7 +3697,7 @@ its form: read
 and do what it says.
 
 A merge made while a hold in the record still stood on the pull request
-(`record-hold.sh --list`) is written down, whoever made it: add a Reversals row
+(`state-hold.sh --list`) is written down, whoever made it: add a Reversals row
 whose Reversed is `hold <name> on <owner/repo#n>`, whose Now is `merged while
 held, by <login>` (the login `gh pr view <n> --repo <owner/repo> --json
 mergedBy` reads), with the time and the reason as far as you know it. The
@@ -3747,7 +3740,7 @@ holds the land check read with their states, and the squash message the merge
 will carry, so the person merging reads neither a second review nor a message
 you wrote by hand. A held pull request goes back through `verify` when the event
 its hold names arrives: the other pull request merging, the tag, or the
-person's word, which you record with `record-hold.sh --lift`.
+person's word, which you record with `state-hold.sh --lift`.
 
 ## surface_check
 
@@ -3878,7 +3871,7 @@ The teardown agent is a local agent in this session, started on your first
 teardown with your harness's subagent tool and the charter in
 `{{PLUGIN_ROOT}}/skills/coordinate/references/teardown-agent.md`, followed by
 the pass; later passes go to the same agent. Record it as a Work row
-(`record-state.sh --kind local-agent`) before it starts. Never ask another
+(`state-stored-set.sh --kind local-agent`) before it starts. Never ask another
 session to tear down, and never run the pass's commands yourself: the agent
 runs `teardown-pass.sh run --session "{{SESSION_NAME}}" --keyseal <keyseal>`,
 which reads its target from this session's sealed verdict, re-reads every
@@ -3970,7 +3963,7 @@ its brief from `references/brief-template.md`.
 A worker on the message path that went quiet (a second silence, or a worker
 that moved to message after an import and never answered) is stranded when
 you redispatch its unit: mark it with
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-holding.sh" --session {{SESSION_NAME}} --topic <its topic> --strand`
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session {{SESSION_NAME}} --topic <its topic> --strand`
 before you submit `redispatch`, and dispatch the unit under a new topic. The
 script refuses a leg-bound worker, whose end still arrives on its leg. The
 new worker's brief names the stranded worker's branch and last pushed head,
@@ -4034,7 +4027,7 @@ several pull requests is sent once, after the last.
 
 A milestone's verdict is owed. Check the shipped work against each Evidence
 clause, write the verdict entry, check it with `milestone.sh check-verdict`,
-record it with `record-append.sh --kind milestone-verdict --on none`, run
+record it with `state-entry.sh --kind milestone-verdict --on none`, run
 `roadmap-status.sh --verdict` with the entry number it printed, and submit
 `verdict: recorded` with the milestone's tag as `unit`. When the verdict can't
 be given now, submit `verdict: deferred`: the milestone stays verdict-owed and
@@ -4077,9 +4070,9 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
    when a person gave the verdict, name the person. On a public host the
    entry is public: no tokens, host paths or private repositories.
 4. Check it: `"$S/milestone.sh" check-verdict <roadmap file> "<tag>" <entry file> --worker <the Who of the milestone's verdict-owed row>`
-   (`record-state.sh --session {{SESSION_NAME}} --list` shows the row; leave
+   (`state-stored-set.sh --session {{SESSION_NAME}} --list` shows the row; leave
    `--worker` off when its Who is `none`). Fix the entry until it passes.
-5. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-verdict --on none --text-file <entry file>`,
+5. Record it: `"$S/state-entry.sh" --session {{SESSION_NAME}} --kind milestone-verdict --on none --text-file <entry file>`,
    which writes it into the record and prints `record/entries/<n>`; it posts
    nothing yet.
 6. Open the roadmap edit:
@@ -4130,7 +4123,7 @@ and every pick follow only the record and the default branch.
 
 A failure was reported against a milestone that reads Done. Write the failure
 entry, check it with `milestone.sh check-failure`, record it with
-`record-append.sh --kind milestone-failure --on none`, run
+`state-entry.sh --kind milestone-failure --on none`, run
 `roadmap-status.sh --reopen` with the entry number it printed, and submit `status: opened` with the milestone's tag
 as `unit`. When the entry can't be checked or the script refuses, submit
 `status: failed`: nothing changes.
@@ -4163,7 +4156,7 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
 3. Check it: `"$S/milestone.sh" check-failure <roadmap file> "<tag>" <entry file>`.
    It refuses a milestone that doesn't read Done and a clause it doesn't
    have. Fix the entry until it passes.
-4. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --on none --text-file <entry file>`,
+4. Record it: `"$S/state-entry.sh" --session {{SESSION_NAME}} --kind milestone-failure --on none --text-file <entry file>`,
    which writes it into the record and prints `record/entries/<n>`; it posts
    nothing yet.
 5. Open the reopen edit:
@@ -4234,7 +4227,7 @@ and no pull request. Write the reasoning for the next rotation, then submit
 `reasoning: written`.
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session "{{SESSION_NAME}}" --reasoning-file <reasoning.md>
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session "{{SESSION_NAME}}" --reasoning-file <reasoning.md>
 ```
 
 <!-- details -->

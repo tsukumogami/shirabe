@@ -65,7 +65,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# test-lib.sh: the GitHub DB helpers, state_json and the counters. It
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
@@ -110,9 +110,9 @@ run() { # run <script> <args...>: a coordinate script on session $S, on host $ON
     local s=$1; shift
     host_on "$ON" bash "$PS/$s" --session "$S" "$@"
 }
-state() { run record-state.sh "$@" >"$T/w.out" 2>"$T/w.err"; }
-handover() { run record-handover.sh "$@"; }
-entries() { run record-append.sh --list; }
+state() { run state-stored-set.sh "$@" >"$T/w.out" 2>"$T/w.err"; }
+handover() { run state-handover.sh "$@"; }
+entries() { run state-entry.sh --list; }
 # keys <host>: every record/ and legs/ key of $S on the host but record/host,
 # with its content (run-tests.sh's PATH has no cksum, so no digest).
 keys() {
@@ -146,8 +146,7 @@ S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2
 [ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
 ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap handover)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "record-open.sh opens the record in the run's session" 0 $?
+run state-open.sh >/dev/null 2>"$T/w.err"; eq "state-open.sh opens the record in the run's session" 0 $?
 grep -Eq '^(issue|pr) create' "$GH_DB.calls" && bad "  ... opening nothing on GitHub" "$(grep -E '^(issue|pr) create' "$GH_DB.calls")" \
     || ok "  ... opening nothing on GitHub"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
@@ -159,10 +158,10 @@ jq -n '{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "
 # 64 hex characters each, written out: run-tests.sh's PATH has no seq.
 RULES=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 BRIEFS=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-{ run record-holding.sh --topic worker-f1 --row-file "$T/f1.json" \
-  && run record-holding.sh --topic worker-f2 --row-file "$T/f2.json" \
-  && run record-holding.sh --topic worker-f1 --pushed-head "$SHA_HEAD" \
-  && run record-hold.sh --add --row-file "$T/hold.json"; } >/dev/null 2>"$T/w.err"
+{ run state-holding.sh --topic worker-f1 --row-file "$T/f1.json" \
+  && run state-holding.sh --topic worker-f2 --row-file "$T/f2.json" \
+  && run state-holding.sh --topic worker-f1 --pushed-head "$SHA_HEAD" \
+  && run state-hold.sh --add --row-file "$T/hold.json"; } >/dev/null 2>"$T/w.err"
 eq "the holdings, a pushed head and the hold are written" 0 $?
 state --run arguments "--roadmap docs/roadmaps/ROADMAP-handover.md --cap 3" --by "the human" \
     && state --run cap 1 --by "the human, via the process owner" \
@@ -224,7 +223,7 @@ eq "the coordinator's address and who has been told it" "lane-v1: worker-f1 work
 eq "the crash set: rules, briefs, friction and reports-to" "coordinate sha256:$RULES|lane sha256:$BRIEFS|lane-friction|the human" \
     "$(printf '%s' "$H" | jq -r '[(.rules[0] // ""), (.briefs[0] // ""), .friction, .reports_to] | join("|")')"
 eq "  ... and where the files live" "$WS_A/rules.md $WS_A/friction.md" "$(printf '%s' "$H" | jq -r '"\(.host["rules:coordinate"]) \(.host.friction)"')"
-eq "worker-f1's pushed head" "$SHA_HEAD" "$(run record-holding.sh --topic worker-f1 --read | jq -r .pushed_head)"
+eq "worker-f1's pushed head" "$SHA_HEAD" "$(run state-holding.sh --topic worker-f1 --read | jq -r .pushed_head)"
 eq "and, for the old coordinator, no gaps" "0" "$(printf '%s' "$H" | jq '.gaps | length')"
 
 echo "== 2. a new address holds the gate until each worker is told =="
@@ -298,12 +297,11 @@ rota_open() { # rota_open: a run of the rota discipline on host A, its session i
 rota_open || bad "the first rotation's run opens" "$(cat "$T/open.err")"
 R1=$S
 eq "the first rotation stops at record_open" record_open "$(at)"
-render "$(record_json discipline rota)" issue > "$T/rota.md"
-run record-open.sh --body-file "$T/rota.md" --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
+run state-open.sh --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
 eq "  ... opens in its session" 0 $?
 eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 jq -n '{hold: "after-cutover", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-10-01T10:00Z", lifted: ""}' > "$T/rhold.json"
-{ run record-hold.sh --add --row-file "$T/rhold.json" \
+{ run state-hold.sh --add --row-file "$T/rhold.json" \
   && state --standing go-ahead --what "ship the cutover" --owner "the human"; } > /dev/null 2> "$T/w.err"
 eq "the first rotation sets a hold and a go-ahead" 0 $?
 printf 'The cutover waits on the vendor.\n' > "$T/rwhy.txt"
@@ -312,7 +310,7 @@ rota_open || bad "the second rotation's run opens" "$(cat "$T/open.err")"
 R2=$S
 [ "$R2" != "$R1" ] && ok "the next start opens the second rotation" || bad "the next start opens the second rotation" "$R2"
 eq "  ... whose find reads the predecessor" predecessor_carry "$(at)"
-run record-open.sh --carry > "$T/rcarry.out" 2> "$T/w.err"; eq "  ... and carries it" 0 $?
+run state-open.sh --carry > "$T/rcarry.out" 2> "$T/w.err"; eq "  ... and carries it" 0 $?
 eq "  ... reporting the hold and the go-ahead" "after-cutover|go-ahead:the human" \
     "$(host_on a koto context get "$R2" coord/predecessor_carry.json | jq -r '"\([.holds[].hold] | join(" "))|\([.standing[] | "\(.kind):\(.owner)"] | join(" "))"')"
 eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"carry":"carried"}')"

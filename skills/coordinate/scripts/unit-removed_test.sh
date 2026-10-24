@@ -52,7 +52,7 @@ unset TEARDOWN_ARCHIVE_DIR TEARDOWN_KOTO_SESSIONS TEARDOWN_CLAUDE_HOME NIWA_REAP
 export GH_TOKEN=stub-token
 mkdir -p "$HOME" "$KOTO_REQUESTS"
 UR="$HERE/unit-removed.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 FX="$HERE/testdata/unit-cost"
 KEY=2026-10-01-feat-x-0a1b2c3d
 S=coordinate-roadmap-x-20261001T080000Z

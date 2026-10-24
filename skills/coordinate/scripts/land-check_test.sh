@@ -149,7 +149,7 @@ bt_record_body "[$HUMAN]"
 # The holds read comes first and goes through; the posture's read of the
 # Reversals row, after it, fails.
 echo 0 > "$KOTO_BOARD_DIR/get-count"; echo 1000 > "$KOTO_BOARD_DIR/get-fail-after"
-( PROG=t; HERE=$PS; . "$PS/record-common.sh"; rs_record_api "$T/one" "$S" > /dev/null 2>&1 )
+( PROG=t; HERE=$PS; . "$PS/state-common.sh"; rs_record_api "$T/one" "$S" > /dev/null 2>&1 )
 cp "$KOTO_BOARD_DIR/get-count" "$KOTO_BOARD_DIR/get-fail-after"; echo 0 > "$KOTO_BOARD_DIR/get-count"
 eq "a failed record read is confirm" "confirm 12 $H" "$(token)"
 rm -f "$KOTO_BOARD_DIR/get-fail-after" "$KOTO_BOARD_DIR/get-count"
@@ -445,7 +445,6 @@ milestone_record() {
             branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
             pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
         deferrals: [], side_effects: [], reversals: [], holds: []}' > "$T/rec.json"
-    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     bt_record_here
 }
 # main_roadmap <file>: the host's default branch, main, with <file> as the

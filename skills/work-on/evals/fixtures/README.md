@@ -4,8 +4,8 @@
 
 The shims in `bin/` answer from `scenarios/$EVAL_SCENARIO`, resolved against
 this directory, and nothing else lists or globs `scenarios/`. A folder here is
-read only when a scenario in `../evals.json` names it. Each of the 16 folders
-left is named by exactly one of work-on's scenarios.
+read only when a scenario in `../evals.json` names it. Each folder left is
+named by exactly one of work-on's scenarios.
 
 Three plan-run folders were removed because nothing read them:
 

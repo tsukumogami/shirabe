@@ -161,11 +161,11 @@ cat >"$P2/coord-log.sh" <<'EOF'
 [ "$1" = run-facts ] || exit 64
 echo '{"scope":"roadmap","name":"x","repo":"acme/widgets","ref":"7"}'
 EOF
-cat >"$P2/record-holding.sh" <<'EOF'
+cat >"$P2/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 echo '{"unit":"Feature 4: The example","worker":"w5"}'
 EOF
-cat >"$P2/record-append.sh" <<'EOF'
+cat >"$P2/state-entry.sh" <<'EOF'
 #!/usr/bin/env bash
 case " $* " in
     *" --list "*) echo '[]'; exit 0 ;;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # reconcile-settle_test.sh -- reconcile-settle.sh, the one record write the
-# reconcile pass makes, through the real record-holding.sh and record-write.sh
+# reconcile pass makes, through the real state-holding.sh and state-write.sh
 # against the gh and koto stand-ins.
 #
 # Covers: a row still dispatching is rewritten dispatched and nothing else in
