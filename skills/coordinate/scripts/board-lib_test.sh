@@ -2,7 +2,8 @@
 # board-lib_test.sh -- bl_gh's deadline: a quick read leaves nothing of its
 # deadline running, a TERM dropped as the deadline's watcher installs its
 # trap doesn't hold the read until the deadline, and a read past the deadline
-# fails as `deadline`.
+# fails as `deadline`. bl_posture_merge reads the merge step of a token that
+# ends with a release step.
 #
 # gh is a shell function here, so nothing leaves the host.
 #
@@ -122,6 +123,13 @@ unset -f gh
 eq "a read past the deadline fails" 1 "$RC"
 eq "a read past the deadline is named deadline" deadline "$(cat "$T/out.fail" 2>/dev/null)"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "a read past the deadline stops at the deadline"; else bad "a read past the deadline stops at the deadline" ""; fi
+
+# --- the posture token's merge step ---------------------------------------------------
+
+# posture-read.sh's token ends with a release step; the merge step reads the same.
+eq "the merge step of a four-step token" deny "$(bl_posture_merge 'readable merge:deny close:permit teardown:permit release:permit')"
+eq "the merge step beside an unread release" permit "$(bl_posture_merge 'unread merge:permit close:unread teardown:unread release:unread')"
+eq "the merge step with = as the separator" confirm "$(bl_posture_merge 'readable merge=confirm close=permit teardown=permit release=confirm')"
 
 printf '\nboard-lib: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -342,7 +342,7 @@ TPLEOF
 
 # koto refuses a capture holding `=`, so the posture tokens captured here use
 # `:` between a step and its value; land-check.sh reads either.
-PERMIT="readable merge:permit close:permit teardown:permit"
+PERMIT="readable merge:permit close:permit teardown:permit release:permit"
 CL="$PS/coord-log.sh"
 state() { printf '%s' "$1" | jq -r .state; }
 start() { # start <session> <board case> [posture] [body-file]
@@ -385,7 +385,7 @@ start coordinate-demo-20260926T150002Z dirty
 eq "an unverified board routes to failure" failure "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 start coordinate-demo-20260926T150003Z queued-run
 eq "a pending board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
-start coordinate-demo-20260926T150004Z complete-board "readable merge:deny close:permit teardown:permit"
+start coordinate-demo-20260926T150004Z complete-board "readable merge:deny close:permit teardown:permit release:permit"
 eq "a ready pull request under a denied merge reaches goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 case "$(bash "$CL" capture --session "$S" --name LAND)" in "deny 12 $H sealed:"*) ok "LAND is the sealed deny: ready, the merge reserved" ;; *) bad "LAND is the sealed deny" ;; esac
 eq "and a fit one is handed to the person (surface), not merged" surface "$(state "$(tick "$S" --with-data "$FITS")")"
@@ -403,7 +403,7 @@ entry_has() {
     case "$out" in *"$2"*) ok "$1: and says why it is handed over" ;; *) bad "$1: and says why it is handed over" "$out" ;; esac
 }
 entry_has "deny" "the workspace reserves the merge for you"
-start coordinate-demo-20260926T150011Z complete-board "readable merge:confirm close:permit teardown:permit"
+start coordinate-demo-20260926T150011Z complete-board "readable merge:confirm close:permit teardown:permit release:permit"
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a merge behind a person's confirmation is handed over too" surface "$(state "$(tick "$S" --with-data "$FITS")")"
 entry_has "confirm" "the merge is behind your confirmation"
@@ -446,7 +446,7 @@ bt_record_paused "[$(bt_pause s4 pause all lifted)]"
 (cd "$T/work" && bash "$PS/land-merge.sh" --session "$S" --repo acme/widgets >/dev/null 2>"$T/err"); eq "a pause written since makes land-merge.sh exit 12" 12 $?
 [ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and merge-exec is never called" || bad "  ... and merge-exec is never called"
 eq "merge: paused goes to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"outcome":"paused"}')")"
-start coordinate-demo-20260926T150016Z complete-board "readable merge:deny close:permit teardown:permit"
+start coordinate-demo-20260926T150016Z complete-board "readable merge:deny close:permit teardown:permit release:permit"
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a fit with follow-ups under a denied merge is handed to the person too" surface \
     "$(state "$(tick "$S" --with-data '{"fit":"fits_with_follow_ups","rationale":"follow-up: docs"}')")"

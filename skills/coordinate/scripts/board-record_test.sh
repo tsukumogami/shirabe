@@ -37,7 +37,7 @@ bt_setup
 BT_PRVIEW_BODY=$(printf 'Part one.\n\n---\n\nNo panel yet.\n')
 BR="$PS/board-record.sh"
 CL="$PS/coord-log.sh"
-PERMIT="readable merge:permit close:permit teardown:permit"
+PERMIT="readable merge:permit close:permit teardown:permit release:permit"
 N=0
 fresh() { # a run at verify_board with its prediction
     N=$((N + 1))

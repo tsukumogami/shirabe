@@ -27,7 +27,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 MC="$PS/merge-confirm.sh"
 CL="$PS/coord-log.sh"
-PERMIT="readable merge:permit close:permit teardown:permit"
+PERMIT="readable merge:permit close:permit teardown:permit release:permit"
 N=0
 at_confirm() { # a run whose land sealed permit 12 H and whose merge was attempted
     N=$((N + 1))
