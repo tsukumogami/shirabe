@@ -470,7 +470,15 @@ one of two kinds:
   and `**Dependencies**:` (`None`, or `Step <N>` references to
   earlier steps, comma-separated). `**Files**:` is an optional hint
   for conflict detection and never counts as a criterion. `**Type**:`
-  and `**Complexity**:` keep their `plan/v1` meaning.
+  and `**Complexity**:` keep their `plan/v1` meaning. `**Fixes**:` is
+  optional too: it marks a step that corrects behaviour reported as
+  wrong, and names the report, an issue reference or one sentence
+  stating the wrong behaviour. `/execute` hands the line to the step's
+  `/work-on` run as its fix report, so the run records a failing check
+  before its correcting change, with a passage copied verbatim from
+  this line (`skills/work-on/references/red-first.md`). Write it with
+  letters, digits, spaces and `. _ / : @ + -` only, the characters a
+  koto variable holds; `plan-to-tasks.sh` refuses any other.
 - **Outline** -- the heading and exactly one non-blank line naming
   the behaviour the step will add. No `**Field**:` line of any kind:
   the validator counts a one-line `**Dependencies**:` as an outline,

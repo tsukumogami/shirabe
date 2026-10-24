@@ -51,6 +51,20 @@ an outline. Detailed steps come first: no detailed step follows an outline.
 Drop the `**Files**:` line when there is no hint to give. `**Type**:` and
 `**Complexity**:` may be added with their `plan/v1` meaning.
 
+A step that corrects behaviour someone reported as wrong adds a
+`**Fixes**:` line after its goal, naming the report in one sentence or
+by issue reference:
+
+```markdown
+**Fixes**: greet prints Hello for an empty name instead of error: name required
+```
+
+The step's run is then a fix: it records a failing check whose output
+holds a marker from this line before it changes any code
+(`../../../work-on/references/red-first.md`). Use only letters, digits,
+spaces and `. _ / : @ + -`; `plan-to-tasks.sh` refuses other characters,
+because the line reaches the run as a koto variable.
+
 ## Outline Step
 
 ```markdown

@@ -21,8 +21,8 @@
 #   2. Every task array /execute builds for its children sets the required
 #      variables that plan-to-tasks.sh does not emit. It is not derived from the
 #      template because the split is real: ARTIFACT_PREFIX reaches a child from
-#      /plan's script, PLUGIN_ROOT and SHARED_BRANCH from /execute's own jq
-#      (plan-to-tasks-contract.md is the authority for which is which).
+#      /plan's script, PLUGIN_ROOT, SHARED_BRANCH and PLAN_DOC from /execute's
+#      own jq (plan-to-tasks-contract.md is the authority for which is which).
 #   3. Every TEST HARNESS that inits the shipped template passes them too. This
 #      third category was not in the first version of this check, and its absence
 #      cost two suites: a required variable was added, two harnesses that init
@@ -101,7 +101,9 @@ if [[ "$TASK_BUILDS" -eq 0 ]]; then
     note_failure "no task array build found in $EXECUTE_TEMPLATE — children are materialized somewhere this check does not see"
 fi
 
-for var in PLUGIN_ROOT SHARED_BRANCH; do
+# PLAN_DOC isn't required by work-on.md, but a plan/v2 child's step_detail gate
+# refuses without it, so a task build that drops it strands every child (#1160).
+for var in PLUGIN_ROOT SHARED_BRANCH PLAN_DOC; do
     injections=$(grep -c "\.vars\.${var}[[:space:]]*=" "$EXECUTE_TEMPLATE")
     if [[ "$injections" -ne "$TASK_BUILDS" ]]; then
         note_failure "$EXECUTE_TEMPLATE builds $TASK_BUILDS task array(s) but injects .vars.$var into $injections of them"

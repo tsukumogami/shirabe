@@ -249,6 +249,11 @@ reader and nothing else in the capture changes. Its suites reach the function
 through a reader path the tests set, the way they already override the record
 readers.
 
+As built, the one place moved one level down: `record-append.sh` reads the
+switch itself for every entry it posts with `--on` (#1186), so no outward
+entry of any kind reaches a pull request or issue without the opt-in, and the
+capture only chooses the item and passes its suites' reader path through.
+
 *A variable of this feature's own (`SHIRABE_PR_INTEGRATION`).* The first draft,
 and rejected because a repository would then hold two switches for one kind of
 content, and #1114 settles where that switch lives.
@@ -431,9 +436,9 @@ past 1 MiB the sweep keeps its last 1,000 lines.
   and page matched first. A head not read whole sets the pull request's
   `runs_whole: false`; `prf()` then reports failing heads `bound`, and the
   figure's reason is the read's (`time limit`, `read failed`, `invalid input`).
-- **Placement.** On the session store `ON=none` unless `uc_pr_content` answers
-  `include` for the holding's repository, in which case today's rule runs. A
-  GitHub-record run is unchanged.
+- **Placement.** The capture chooses the item by today's rule, and
+  `record-append.sh` posts on it only when its repository opts in; otherwise
+  the entry stays in the coordinator's session.
 
 ### `dispatch-worker.sh`
 

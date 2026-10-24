@@ -104,6 +104,12 @@ lap, `review-level.sh facts` records the change's facts in
 - which path classes the changed paths fall in, and whether any path falls in
   none (`unclassified`);
 - whether a test file changed (a path in the `test` class);
+- whether a test file was edited rather than only added to (`tests_edited`):
+  its diff removes or changes a line, it was deleted, renamed with a change or
+  is a binary file that changed, or, for a fix, a reproducing test changed
+  after its red. `scripts/lib/test-classify.sh` decides it, the same
+  classifier the hold at `pass_counting` and the review packet's
+  `## Test changes` section use, over the same base the facts chose;
 - whether the acceptance criteria changed: a path under `docs/plans/` or
   `docs/prds/` changed, or the acceptance-criteria section of `context.md`
   differs from the copy `init` stored.
@@ -129,10 +135,12 @@ counts. The shipped classes:
 The rules:
 
 - `full` when a path is in the `ci`, `security`, `template` or `engine`
-  class, or changed lines exceed 400, or changed files exceed 12;
+  class, or changed lines exceed 400, or changed files exceed 12, or a test
+  file was edited (`tests_edited`), so the QA seat reviews the edit as well;
 - `standard` when a path is in the `instruction`, `executable`, `test` or
   `manifest` class, or a path is in no class at all (`unclassified`), or the
-  acceptance criteria changed, or changed lines exceed 40;
+  acceptance criteria changed, or changed lines exceed 40. A change whose
+  only test change is a new test file or lines added to one floors here;
 - `light` otherwise.
 
 So `light` is reachable only when every changed path is documentation or in a

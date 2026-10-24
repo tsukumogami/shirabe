@@ -47,6 +47,18 @@ on:
       # work-on-open.sh sources the verification deferral's opener checks,
       # and the link --dispatched-by records.
       - 'scripts/lib/verification-deferral.sh'
+      # fix-kind.sh and red-first.sh source these, and their tests sit beside
+      # them.
+      - 'scripts/lib/claude-md-header.sh'
+      - 'scripts/lib/claude-md-header_test.sh'
+      - 'scripts/lib/test-classify.sh'
+      - 'scripts/lib/test-classify_test.sh'
+      # test-change.sh sources the interim acceptance rule.
+      - 'scripts/lib/acceptance-rule.sh'
+      - 'scripts/lib/acceptance-rule_test.sh'
+      # The suites that walk work-on.md past fix_determination serve its gh
+      # call from this stand-in.
+      - 'scripts/lib/gh-issue-testlib.sh'
       - 'scripts/lib/dispatch-link.sh'
       # The verification map schema test reads shirabe's map and the
       # extension file that points at it.
@@ -81,6 +93,13 @@ on:
       - 'crates/**'
       - 'Cargo.lock'
       - 'scripts/lib/verification-deferral.sh'
+      - 'scripts/lib/claude-md-header.sh'
+      - 'scripts/lib/claude-md-header_test.sh'
+      - 'scripts/lib/test-classify.sh'
+      - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/acceptance-rule.sh'
+      - 'scripts/lib/acceptance-rule_test.sh'
+      - 'scripts/lib/gh-issue-testlib.sh'
       - 'scripts/lib/dispatch-link.sh'
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
@@ -458,6 +477,58 @@ jobs:
         env:
           SHIRABE_BIN: ${{ runner.temp }}/work-on-bin/shirabe
         run: skills/work-on/scripts/step-detail-check_test.sh
+
+      # The red-first libraries: the fence-aware CLAUDE.md header reader, read
+      # at a commit, and the classifier that labels each test file a diff
+      # touched added, edited or unchanged. git fixtures only; the macOS leg
+      # runs both on the floor through the work-on suite.
+      - name: Run CLAUDE.md header reader tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/claude-md-header_test.sh
+
+      - name: Run test classifier tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/test-classify_test.sh
+
+      # fix-kind.sh (a fix from a label, a Fixes line or a declaration, never
+      # withdrawn) and red-first.sh (the red on the base, observations, the
+      # green, and both gates) against git fixtures through koto and gh
+      # stand-ins. No engine; the macOS leg runs them on the floor too.
+      - name: Run fix kind tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/fix-kind_test.sh
+
+      - name: Run red-first tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/red-first_test.sh
+
+      # Drives the shipped work-on.md through a real koto in the walkthrough
+      # repository: a bug-labelled fix held at reproduce until its red is
+      # recorded on the base, held at pass_counting until its green at HEAD,
+      # and a change that takes neither. Skips without koto, so it runs here.
+      - name: Run red-first route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/red-first-routes_test.sh
+
+      # The interim acceptance rule called directly, and test-change.sh (the
+      # ledger's header, the seat, accept and decline, the status gate)
+      # against repository fixtures through a koto stand-in. No engine; the
+      # macOS leg runs both on the floor too.
+      - name: Run acceptance rule tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/acceptance-rule_test.sh
+
+      - name: Run test change tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/test-change_test.sh
+
+      # Drives the shipped work-on.md through a real koto: an edited test held
+      # at pass_counting until a minted seat accepts it, refused for the run
+      # and an unminted name, held again after a later edit, declines back to
+      # implementation and the third to done_blocked. Skips without koto.
+      - name: Run test change route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/test-change-routes_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

@@ -17,7 +17,16 @@
 # a public destination refused, kept in the session; a private destination
 # naming it posted; a destination whose visibility can't be read counted as
 # public; a named repository whose visibility can't be read counted as
-# private; a home-directory path refused); `@` posted escaped; a failed post
+# private; a home-directory path refused); a private repository named bare or
+# in a JSON repo field refused, naming it, as is an unreadable JSON repo field
+# and an unreadable bare name under the host's owner, while prose (and/or), a
+# schema name, an unreadable bare name of another owner, a public repository
+# and a path post, more than 40 bare names are refused, and --repost scans the
+# same way; an item whose repository doesn't opt in (a public pull request,
+# for cost and goal-fit, and a private repository's issue) getting no
+# comment, the entry kept in the session and its key printed, and a verdict's
+# --repost on a public roadmap pull request refused, and the entry posting
+# once the repository opts in; `@` posted escaped; a failed post
 # (14) naming the retry, and the retry: posted once, then nothing; a comment
 # by the coordinator's login (any case) at or after the stamp standing in for
 # the post; one by another login, an older one or one another entry already
@@ -33,6 +42,17 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RA="$HERE/record-append.sh"
+# The opt-in reader's stand-in: it answers what $T/opt-in holds, else omit.
+# The cases below post while the item's repository opts in; the gate's own
+# cases opt out.
+cat > "$T/reader" <<EOF
+#!/usr/bin/env bash
+cat "$T/opt-in" 2>/dev/null || echo omit
+EOF
+export RECORD_APPEND_PR_CONTENT_READER="$T/reader"
+opt_in() { echo include > "$T/opt-in"; }
+opt_out() { rm -f "$T/opt-in"; }
+opt_in
 
 RM=(--scope roadmap --name plugin-system --repo "$REPO")
 SE=coordinate-roadmap-plugin-system-20260926T150000Z
@@ -155,6 +175,71 @@ ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>"$T/
 printf 'Asked @alice & @bob.\n' > "$T/at.txt"
 ra --kind cost --on acme/widgets#12 --text-file "$T/at.txt" >/dev/null 2>"$T/err"
 eq "an @ is posted escaped" "Asked &#64;alice &amp; &#64;bob." "$(jq -r '.comments[-1].body' "$GH_DB" | sed -n '4,$p')"
+
+echo "== a repository named bare, or in a JSON repo field =="
+seed
+refused_naming() { # refused_naming <label> <repo> [record-append args...]
+    local label=$1 r=$2
+    shift 2
+    ra "$@" >/dev/null 2>"$T/err"; eq "$label" 65 $?
+    grep -q "names $r, a repository that isn't public" "$T/err" && ok "  ... naming $r" || bad "  ... naming $r" "$(cat "$T/err")"
+}
+entry "Blocked on acme/secret landing."
+refused_naming "a private repository named bare is refused for a public destination" acme/secret \
+    --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+entry "Blocked on acme/secret."
+refused_naming "  ... and ending a sentence" acme/secret --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+printf 'Cost of feat-a (k): 3 sessions.\n\n```json\n{"schema":"unit-cost/1","record":{"scope":"roadmap","name":"x","repo":"acme/secret","ref":"12"}}\n```\n' > "$T/json.txt"
+refused_naming "a private repository in a JSON repo field is refused" acme/secret --kind cost --on acme/widgets#12 --text-file "$T/json.txt"
+printf '{"record": {"repo": "elsewhere/gone", "ref": "3"}}\n' > "$T/json.txt"
+refused_naming "  ... and one whose visibility can't be read, whatever its owner" elsewhere/gone \
+    --kind cost --on acme/widgets#12 --text-file "$T/json.txt"
+entry "Moved to acme/gone."
+refused_naming "a bare name under the host's owner whose visibility can't be read is refused" acme/gone \
+    --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+eq "  ... each kept in the session, posted nowhere" "5 0" "$(nentries) $(ncomments)"
+entry "and/or, CI/CD, schema unit-cost/1, elsewhere/gone and acme/gadgets, in skills/coordinate/scripts/x.sh"
+O=$(ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
+eq "prose, a schema name, an unreadable bare name of another owner, a public repository and a path post" \
+    "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
+for i in {1..41}; do printf 'other/r%s ' "$i"; done > "$T/entry.txt"
+ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "more than 40 bare names are refused" 65 $?
+grep -q 'more than 40 owner/repo names' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+entry "Blocked on acme/secret landing."
+O=$(ra --kind cost --on none --text-file "$T/entry.txt" 2>"$T/err")
+refused_naming "--repost --on scans the same way" acme/secret --repost "${O##*/}" --on acme/widgets#12
+eq "  ... posting nothing" 1 "$(ncomments)"
+
+echo "== an item whose repository doesn't opt in =="
+seed
+opt_out
+kept() { # kept <label> <record-append args...>: the entry stays in the session, posted nowhere
+    local label=$1 n0
+    shift
+    n0=$(ncomments)
+    O=$(ra "$@" 2>"$T/err"); rc=$?
+    case "$rc $O" in "0 record/entries/"[0-9]*) ok "$label" ;; *) bad "$label" "$rc $O $(cat "$T/err")" ;; esac
+    eq "  ... posting nothing" "$n0" "$(ncomments)"
+    grep -q "doesn't opt in to workflow content" "$T/err" && ok "  ... saying why" || bad "  ... saying why" "$(cat "$T/err")"
+}
+entry "Cost of feat-a: 3 sessions."
+kept "a cost entry on a public pull request is kept in the session" --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+printf 'Goal fit: acme/widgets#12 -- MV1\nFit: fits\nClauses: 1\nRationale: it ships the list.\n' > "$T/gf.txt"
+kept "a goal-fit entry on its public pull request is kept in the session" --kind goal-fit --on acme/widgets#12 --text-file "$T/gf.txt"
+eq "  ... its entry written" "goal-fit" "$(koto context get "$SE" record/entries/000002 | jq -r .kind)"
+jq -nc --argjson a "$(holding feat-s '{"repo": "acme/secret"}')" '[$a]' | koto context add "$SE" record/holdings
+kept "a cost entry on a private repository's issue is kept too" --kind cost --on acme/secret#3 --text-file "$T/entry.txt"
+entry "Verdict: MV1 -- verified"
+O=$(ra --kind milestone-verdict --on none --text-file "$T/entry.txt" 2>"$T/err")
+EN=$((10#${O##*/}))
+jq -nc --arg h "the roadmap on main reads MV1 Done (entry $EN)" '[{action: "milestone-done", target: "MV1 [#8](https://github.com/acme/widgets/pull/8)",
+    verified_head: "", attempted: "2026-10-12T09:00Z", how_to_confirm: $h}]' | koto context add "$SE" record/side-effects
+ra --repost "$EN" --on acme/widgets#8 >/dev/null 2>"$T/err"; eq "a verdict's --repost on a public roadmap pull request is refused" 65 $?
+grep -q "stays in the session; it isn't posted on acme/widgets#8" "$T/err" && ok "  ... the entry staying in the session" || bad "  ... the entry staying in the session" "$(cat "$T/err")"
+eq "  ... posting nothing" 0 "$(ncomments)"
+opt_in
+O=$(ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
+eq "once the repository opts in, the entry posts" "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
 
 echo "== the retry =="
 seed

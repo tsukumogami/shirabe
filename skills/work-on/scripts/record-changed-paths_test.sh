@@ -417,6 +417,18 @@ chmod +x "$FAKE_ROOT/skills/work-on/scripts/record-changed-paths.sh"
 ln -s "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" "$FAKE_ROOT/skills/work-on/scripts/review-level.sh"
 ln -s "$PLUGIN_ROOT/skills/work-on/koto-templates" "$FAKE_ROOT/skills/work-on/koto-templates"
 ln -s "$PLUGIN_ROOT/skills/work-on/references" "$FAKE_ROOT/skills/work-on/references"
+# fix_determination's action and gate, and the library they source, the same way.
+ln -s "$PLUGIN_ROOT/skills/work-on/scripts/fix-kind.sh" "$FAKE_ROOT/skills/work-on/scripts/fix-kind.sh"
+mkdir -p "$FAKE_ROOT/scripts"
+ln -s "$PLUGIN_ROOT/scripts/lib" "$FAKE_ROOT/scripts/lib"
+# The same action writes the test-change ledger's header first, after
+# checking koto against shirabe's minimum.
+ln -s "$PLUGIN_ROOT/skills/work-on/scripts/test-change.sh" "$FAKE_ROOT/skills/work-on/scripts/test-change.sh"
+ln -s "$PLUGIN_ROOT/scripts/assert-koto-floor.sh" "$FAKE_ROOT/scripts/assert-koto-floor.sh"
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 
 RESP=""
 STATE=""
@@ -500,6 +512,9 @@ to_implementation() {
 # from the session's own plugin root, which its rebind passes as PLUGIN_ROOT.
 choose_level() {
     (cd "$FX/repo" && "${2:-$PLUGIN_ROOT}/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    tick "$1"
     tick "$1"
 }
 

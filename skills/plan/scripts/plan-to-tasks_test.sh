@@ -3728,6 +3728,58 @@ test_unknown_schema_names_both_versions() {
     teardown
 }
 
+# A step's **Fixes**: line reaches its task as vars.FIX_REPORT, the run's fix
+# report (skills/work-on/references/red-first.md). The fixture gains a Fixes
+# line in step 2 and one inside a fenced block in step 1, which is not a
+# declaration; steps 1 and 3 get no FIX_REPORT, and the plan still validates.
+test_plan_v2_fixes_line() {
+    local name="plan/v2 a step's Fixes line becomes its FIX_REPORT"
+    setup
+
+    awk '
+        { print }
+        /^\*\*Goal\*\*: The command line reaches/ { print ""; print "```"; print "**Fixes**: not a declaration, it is in a fence"; print "```" }
+        /^\*\*Goal\*\*: A `greeting` value/ { print ""; print "**Fixes**: greet prints Hello for an empty name instead of error: name required" }
+    ' "$PLAN_V2_FIXTURE" > "$TEST_DIR/PLAN-fixes.md"
+    local output="" rc=0 got
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-fixes.md" 2>"$TEST_DIR/stderr") || rc=$?
+    got=$(printf '%s' "$output" | jq -c '[.[] | [.name, (.vars.FIX_REPORT // null)]]' 2>/dev/null) || got=""
+    local want='[["step-1",null],["step-2","greet prints Hello for an empty name instead of error: name required"],["step-3",null]]'
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+    elif [[ "$got" != "$want" ]]; then
+        fail "$name" "expected $want, got $got"
+    elif ! "$SHIRABE_BIN" validate "$TEST_DIR/PLAN-fixes.md" >"$TEST_DIR/validate.out" 2>&1; then
+        fail "$name" "a plan with a Fixes line does not pass shirabe validate: $(cat "$TEST_DIR/validate.out")"
+    else
+        pass "$name"
+    fi
+
+    # A Fixes line koto would refuse as a variable value (a comma, a
+    # backtick) is refused here, naming the step, rather than failing the
+    # child at init.
+    sed 's/^\*\*Fixes\*\*: greet prints Hello for an empty name/**Fixes**: `greet` prints Hello, for an empty name/' \
+        "$TEST_DIR/PLAN-fixes.md" > "$TEST_DIR/PLAN-badfix.md"
+    rc=0
+    "$PARSER_SCRIPT" "$TEST_DIR/PLAN-badfix.md" >/dev/null 2>"$TEST_DIR/stderr" || rc=$?
+    if [[ $rc -eq 2 ]] && grep -q "step 2's \*\*Fixes\*\*: line uses a character koto refuses" "$TEST_DIR/stderr"; then
+        pass "plan/v2 a Fixes line with a character koto refuses: exit 2 naming the step"
+    else
+        fail "plan/v2 a Fixes line with a character koto refuses: exit 2 naming the step" "rc=$rc: $(cat "$TEST_DIR/stderr")"
+    fi
+
+    # The colon inside the bold reads the same.
+    sed 's/^\*\*Fixes\*\*: greet/**Fixes:** greet/' "$TEST_DIR/PLAN-fixes.md" > "$TEST_DIR/PLAN-colon.md"
+    got=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-colon.md" 2>/dev/null | jq -r '.[1].vars.FIX_REPORT // ""')
+    if [[ "$got" == "greet prints Hello for an empty name instead of error: name required" ]]; then
+        pass "plan/v2 a **Fixes:** line with the colon inside the bold reads the same"
+    else
+        fail "plan/v2 a **Fixes:** line with the colon inside the bold reads the same" "got [$got]"
+    fi
+
+    teardown
+}
+
 # A step plan whose titles carry a command substitution, backticks, a leading
 # `--`, an ANSI escape, a closing keyword and a mention. The fixture is
 # /execute's (skills/execute/scripts/testdata/), shared with the scope and
@@ -3818,6 +3870,7 @@ test_plan_v2_coordinated_refused
 test_plan_v2_unresolved_step_refuses
 test_plan_v2_outline_steps_wait_on_the_step_before
 test_plan_v2_hostile_titles
+test_plan_v2_fixes_line
 test_unknown_schema_names_both_versions
 
 echo "" >&2

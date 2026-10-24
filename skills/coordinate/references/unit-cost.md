@@ -62,9 +62,10 @@ none`): the unit's own pull requests and issues carry nothing about the
 tools. A repository opts in to
 today's placement with the header `## PR Workflow Content: include` in its
 `CLAUDE.local.md` or `CLAUDE.md` (#1114), read only through
-`scripts/pr-workflow-content.sh`; the capture fetches the repository's
-`CLAUDE.md` from GitHub into a directory of its own and hands that to the
-reader, since it has no checkout, so an opt-in only in an uncommitted
+`scripts/pr-workflow-content.sh`. `record-append.sh` makes that check itself
+for every entry it posts with `--on`, this one included: it fetches the
+repository's `CLAUDE.md` from GitHub into a directory of its own and hands
+that to the reader, since it has no checkout, so an opt-in only in an uncommitted
 `CLAUDE.local.md` reads as omit here. Only the reader's `include` restores
 placement; a missing reader, a failed read or any other answer keeps the
 entry in the session. With `include`, the entry is posted with

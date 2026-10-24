@@ -33,14 +33,14 @@
 #       entry per key and dispatch id, so a duplicate is harmless and a
 #       skipped post loses the unit. An object over 50,000 bytes is posted
 #       without the per-session `states` maps (`sessions.states`, `entry
-#       size`); unit-cost.json keeps them. It keeps the entry in the
-#       coordinator's session (`--on none`),
-#       unless the repository of the item it is about opts in
-#       (scripts/pr-workflow-content.sh answers include, uc_pr_content
-#       below); then it posts with record-append.sh --on on that item: the
-#       holding's pull request (the row's Pull request cell, else the sealed
-#       verdict's first), else the Unit's issue (`#n` on the host or
-#       `owner/repo#n`). The last stderr line says which.
+#       size`); unit-cost.json keeps them. It posts it with record-append.sh
+#       --on on the item it is about: the holding's pull request (the row's
+#       Pull request cell, else the sealed verdict's first), else the Unit's
+#       issue (`#n` on the host or `owner/repo#n`), else `--on none`, which
+#       keeps it in the session, posted nowhere. record-append.sh posts on the
+#       item only when its repository opts in (`## PR Workflow Content:
+#       include`); otherwise it keeps the entry in the session. The last
+#       stderr line says which.
 #   unit-cost.sh gh-check <gh arguments...>
 #       Runs nothing: 0 when the capture's GitHub wrapper would make that
 #       call, 1 when it refuses it. The suite's view of the wrapper.
@@ -1423,35 +1423,13 @@ else
 fi
 [ -z "$RECW" ] || jq -n -c --arg r "$RECW" '{unit_reason: $r}' >"$WD/unit.json"
 
-# uc_pr_content <owner/repo>: `include` when the repository opts in to
-# workflow-tool content on its pull requests, else `omit`. The one place the
-# capture asks. The answer is the reader's, scripts/pr-workflow-content.sh
-# (UNIT_COST_PR_CONTENT_READER overrides its path, for tests), run on a
-# directory holding the repository's CLAUDE.md as GitHub serves it from the
-# default branch: the capture has no checkout of the unit's repository. Only
-# the reader's exit 0 with `include` is include; a missing reader, a failed
-# read of CLAUDE.md, a reader that fails or answers anything else is omit, so
-# nothing is ever posted on a repository's items by accident.
-uc_pr_content() {
-    local repo=$1 reader=${UNIT_COST_PR_CONTENT_READER:-$HERE/../../../scripts/pr-workflow-content.sh} d out
-    [ -f "$reader" ] && repo_ok "$repo" || { echo omit; return 0; }
-    d="$WD/pr-content"
-    rm -rf "$d"; mkdir -p "$d" || { echo omit; return 0; }
-    uc_gh "$WD/claude-md.raw" api --method GET "repos/$repo/contents/CLAUDE.md" || { echo omit; return 0; }
-    uc_jq -r '.content // "" | strings' "$WD/claude-md.raw" | base64 --decode >"$d/CLAUDE.md" 2>"$WD/base64.err" \
-        || { echo omit; return 0; }
-    out=$(uc_run "$FETCH_SECS" "$WD/pr-content.out" bash "$reader" "$d" && head -n 1 "$WD/pr-content.out") || { echo omit; return 0; }
-    [ "$out" = include ] && echo include || echo omit
-}
-
-# Where the entry goes. It stays in the coordinator's session (`--on none`):
-# the unit's own pull requests and issues carry nothing about the tools unless
-# the item's repository opts in (uc_pr_content). Then it posts on the item it
-# is about (docs/designs/current/DESIGN-coordinator-record-teardown.md,
-# Decision 2): the holding's pull request (its Pull request cell, else the
-# first of the sealed verdict's), else the Unit's issue (`#n` on the host, or
-# `owner/repo#n`), else nowhere. The opt-in's read of CLAUDE.md comes out of
-# the reads' budget.
+# Where the entry goes: on the item it is about
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2): the
+# holding's pull request (its Pull request cell, else the first of the sealed
+# verdict's), else the Unit's issue (`#n` on the host, or `owner/repo#n`), else
+# nowhere, the entry kept in the session. record-append.sh posts on the item
+# only when its repository opts in, and otherwise keeps the entry in the
+# session.
 ON=none
 RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
 [ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
@@ -1463,9 +1441,6 @@ if ! [[ $ON =~ $RE_ITEM ]]; then
     if [[ $U =~ ^#[1-9][0-9]*$ ]] && repo_ok "$H"; then ON="$H$U"
     elif [[ $U =~ $RE_ITEM ]]; then ON=$U
     fi
-fi
-if [ "$ON" != none ] && [ "$(uc_pr_content "${ON%#*}")" != include ]; then
-    ON=none
 fi
 
 uc_compute || { say "the entry could not be computed"; exit 1; }
@@ -1523,13 +1498,20 @@ fi
 uc_posted || { say "the entry text could not be written"; exit 1; }
 uc_text >"$WD/text" || { say "the entry text could not be written"; exit 1; }
 set -- --on "$ON"
+# record-append.sh posts on the item only when its repository opts in; it
+# reads the opt-in itself, through the reader UNIT_COST_PR_CONTENT_READER
+# names when a test sets it.
+[ -z "${UNIT_COST_PR_CONTENT_READER:-}" ] || export RECORD_APPEND_PR_CONTENT_READER="$UNIT_COST_PR_CONTENT_READER"
 uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
 RC=$?
 if [ "$RC" = 0 ]; then
-    case "$ON" in
-        none) say "kept the cost entry in the session: it is posted on no pull request or issue unless the repository opts in" ;;
-        *) say "posted the cost entry on $ON" ;;
-    esac
+    if [ "$ON" = none ]; then
+        say "kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere"
+    elif grep -q '^record/entries/' "$WD/posted"; then
+        say "kept the cost entry in the session: ${ON%#*} doesn't opt in to workflow content, so $ON gets nothing"
+    else
+        say "posted the cost entry on $ON"
+    fi
     exit 0
 fi
 case "$RC" in

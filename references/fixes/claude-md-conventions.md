@@ -98,6 +98,29 @@ convention headers shirabe uses:
 - **`## Release Notes Convention: <path>`** -- the directory or
   file path the release-notes skill targets when emitting
   release-notes prose.
+- **`## Fix Labels: <label>, <label>...`** -- the issue labels that
+  make a `/work-on` unit a fix, which then records a failing check
+  before its correcting change
+  (`skills/work-on/references/red-first.md`). Comma-separated; a label
+  may contain spaces and matches in any case. Default `bug` when the
+  header is absent; an empty value means no label marks a fix, though
+  a plan step's `**Fixes**:` line or the run's own declaration still
+  can. Read by `fix-kind.sh` from `CLAUDE.md` as it stands at the
+  run's base, so a unit's own diff can't change it, with a
+  fence-aware scan (`scripts/lib/claude-md-header.sh`) that ignores
+  an example inside a code block. Declaring the header twice is
+  refused rather than resolved.
+- **`## Test Change Acceptance: person|agent`** -- who may accept a
+  `/work-on` pass that came with an edited test
+  (`skills/work-on/references/red-first.md`). `person` means only a
+  person at a terminal can, and a run stops and waits for one; `agent`,
+  the default when the header is absent, lets an acceptance seat the
+  run mints accept. Read by `test-change.sh init` from `CLAUDE.md` at
+  the run's base and at the remote default branch's tip, and from
+  `CLAUDE.local.md`, with the same fence-aware scan; `person` in any of
+  them wins, so a local file can only tighten. A value that is neither,
+  or the header declared twice, reads as `person` and is named in the
+  run's record.
 - **`## PR Workflow Content: include|omit`** -- whether the pull
   request titles, bodies and commit messages the skills write carry
   the workflow's own records (review panel tables, override and

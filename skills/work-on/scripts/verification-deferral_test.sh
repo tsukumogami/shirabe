@@ -8,8 +8,9 @@
 #
 # work-on.md splits every edge into `verification` on VERIFICATION: `local`
 # (the default) keeps the edge, and a twin with `hosted-ci` goes to
-# `verification_deferred`, which runs no command and goes on to finalization
-# with the reason in context as `verification_deferral`, or to done_blocked
+# `verification_deferred`, which runs no command and goes on, through
+# pass_counting, to finalization with the reason in context as
+# `verification_deferral`, or to done_blocked
 # when no reason was given. pr_creation's verification_deferral_recorded gate
 # holds the created edge until check-pr-output.sh --deferral-record finds the
 # deferral in the body; on a local run it passes without running anything.
@@ -29,8 +30,8 @@
 #      PLUGIN_ROOT that logs its calls:
 #        - qa_validation, light_review and review (at standard) with
 #          hosted-ci and a reason reach finalization through
-#          verification_deferred, the reason is in context, and
-#          run-verification.sh is never called;
+#          verification_deferred and pass_counting (whose fix_green runs),
+#          the reason is in context, and run-verification.sh is never called;
 #        - the same states with the default `local` enter verification, whose
 #          action calls run-verification.sh --start, and reach finalization on
 #          its verdict;
@@ -224,7 +225,7 @@ mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 # Each fake logs `<script> <args>` and exits with the number in
 # $RC_DIR/<script><first-argument>, else $RC_DIR/<script>, else 0.
 for s in panel-scope.sh review-level.sh has-commits.sh run-verification.sh check-verification.sh \
-         check-pr-output.sh find-anchor-plan.sh; do
+         check-pr-output.sh find-anchor-plan.sh red-first.sh test-change.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "$s \$*" >> "$LOG"
@@ -373,8 +374,9 @@ build() {
 
 N=0
 # run_entry <source state> <var>...: builds a fixture from the shipped
-# <source state>, verification, verification_deferred and done_blocked,
-# inits it with the given --var arguments and ticks once. Sets S, STATE and
+# <source state>, verification, verification_deferred, pass_counting and
+# done_blocked (its fix_green and tests_counted gates fakes that pass, as for
+# a change with no edited test), inits it with the given --var arguments and ticks once. Sets S, STATE and
 # RESP; the fakes' calls are in $LOG.
 run_entry() {
     local src="$1"; shift
@@ -383,7 +385,7 @@ run_entry() {
     S="vd-$N"
     mkdir -p "$dir"
     build "$dir/fixture.md" verification-deferral-fixture "$src" \
-        "$src verification verification_deferred done_blocked"
+        "$src verification verification_deferred pass_counting done_blocked"
     : > "$LOG"
     if ! (cd "$REPO" && koto init "$S" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" "$@") \
         >"$dir/init.out" 2>&1; then
@@ -404,6 +406,11 @@ for src in qa_validation light_review review; do
     eq "$src, hosted-ci: the reason is in context as verification_deferral" "$REASON" "$(ctx verification_deferral)"
     eq "$src, hosted-ci: run-verification.sh is never called" 0 "$(calls run-verification.sh)"
     eq "$src, hosted-ci: check-verification.sh is never called" 0 "$(calls check-verification.sh)"
+    if [ "$(calls "red-first.sh check-green")" -ge 1 ]; then
+        pass "$src, hosted-ci: the deferral is counted at pass_counting"
+    else
+        fail "$src, hosted-ci: pass_counting's fix_green never ran"
+    fi
 
     # shellcheck disable=SC2086
     run_entry "$src" $extra
@@ -422,7 +429,8 @@ for src in qa_validation light_review review; do
 done
 
 # run_routing <issue_type> <var>...: builds a fixture from the shipped
-# issue_type_routing, verification, verification_deferred and done_blocked,
+# issue_type_routing, verification, verification_deferred, pass_counting and
+# done_blocked,
 # inits it with the given --var arguments, adds the two keys issue_type's
 # decider reads, ticks into issue_type_routing and submits <issue_type>. Sets
 # S, ROUTED (the state after the first tick) and STATE; the fakes' calls are
@@ -434,7 +442,7 @@ run_routing() {
     S="vd-route-$N"
     mkdir -p "$dir"
     build "$dir/fixture.md" verification-deferral-fixture issue_type_routing \
-        "issue_type_routing verification verification_deferred done_blocked"
+        "issue_type_routing verification verification_deferred pass_counting done_blocked"
     : > "$LOG"
     if ! (cd "$REPO" && koto init "$S" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" "$@") \
         >"$dir/init.out" 2>&1; then
@@ -564,7 +572,7 @@ open_leg() {
     S="vd-leg-$N"
     mkdir -p "$DIR"
     build "$DIR/work-on.md" work-on pr_creation \
-        "pr_creation ci_monitor cascade_entry done done_already_complete done_blocked" \
+        "pr_creation ci_monitor ci_pass_counting cascade_entry done done_already_complete done_blocked" \
         closing_keyword=0 ci_passing=0 merge_state_clean=0
     REQ=$(cd "$REPO" && koto request create \
         --with-data '{"legs":[{"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}}]}' \

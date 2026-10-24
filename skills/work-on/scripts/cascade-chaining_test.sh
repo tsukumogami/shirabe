@@ -106,8 +106,9 @@ CASCADE_RUN=$(extract_state cascade_run)
 [[ -n "$CASCADE_RUN" ]] || { echo "cascade_run not found in $TEMPLATE"; exit 2; }
 
 # Build a runnable fixture around the extracted states. `start` stands in for
-# ci_monitor: it accepts evidence and routes into cascade_entry, so a tick that
-# submits that evidence is the same shape as the real one.
+# ci_pass_counting, the state before cascade_entry: it accepts evidence and
+# routes into cascade_entry, so a tick that submits that evidence is the same
+# shape as the real one.
 build_fixture() {
     local dir="$1" run_block="$2" anchor_exit="$3"
     cat > "$dir/fixture.md" <<FIXTURE
@@ -129,9 +130,9 @@ variables:
       without it and exercise what the gate does with an unresolved root.
     required: false
 states:
-  # `start` is this fixture's own stand-in for ci_monitor. Its
-  # `ci_outcome: passing` is fixture-only: the shipped ci_monitor routes green
-  # CI on its gates and accepts no such value.
+  # `start` is this fixture's own stand-in for ci_pass_counting. Its
+  # `ci_outcome: passing` is fixture-only: the shipped ci_pass_counting
+  # routes a counted pass on its gates and accepts no such value.
   start:
     accepts:
       ci_outcome:
@@ -155,7 +156,7 @@ $run_block
 ---
 
 ## start
-Stand-in for ci_monitor.
+Stand-in for ci_pass_counting.
 
 ## cascade_entry
 No action.

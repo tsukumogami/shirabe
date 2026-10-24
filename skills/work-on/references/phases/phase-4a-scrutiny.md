@@ -12,6 +12,8 @@ Spawn all three simultaneously using the Task tool:
 - **Justification reviewer**: Are deviations genuinely explained? Do reasons reflect real trade-offs, not shortcuts?
 - **Intent reviewer**: Does the implementation match the design doc's described behavior, not just the literal AC text? Does it provide a sufficient foundation for downstream issues?
 
+Every seat also judges each test the packet's `## Test changes` section lists as edited: does the edit correct a test that checked the wrong thing (`corrects`), or does it check less than before, or something easier to pass (`weakens`)? It returns one `test_edits` item per edited test, `{"path": "<test>", "judgment": "corrects|weakens", "reason": "<one line>"}`. `--record` refuses a round in which a seat skipped an edited test, and records each `weakens` as a blocking finding raised by that seat (`../review-panel-orchestration.md`, "Edited tests"). A test the section lists as added needs no judgment.
+
 ## Which Seats Run
 
 koto decides this before you spawn anything. On entering `scrutiny` it runs `scripts/panel-scope.sh --plan scrutiny`, which reads the findings ledger and writes `scrutiny_scope.json`. The panel's findings, not its seats, decide what runs:
@@ -47,6 +49,7 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
   "cited": [{"path": "src/a.sh", "lines": "10-24"}, {"path": "README.md"}],
   "findings": [{"severity": "blocking", "summary": "<one line>", "path": "src/a.sh", "lines": "12"},
                {"severity": "advisory", "summary": "<one line>", "path": "README.md"}],
+  "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```
@@ -63,13 +66,14 @@ After every spawned run returns, record the round in the verdict ledger, passed 
 [{"seat": "completeness", "run": "scrutiny-r1-completeness",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
   "findings": [{"severity": "blocking", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
-  "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed", "reason": "<one line>"}]},
+  "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed", "reason": "<one line>"}],
+  "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects|weakens", "reason": "<one line>"}]},
  {"seat": "reverifier", "run": "scrutiny-r2-reverifier",
   "answers": [{"id": "<finding id>", "record": "reverified", "reason": "<what in the fix diff resolves it>"}],
   "findings": [{"severity": "blocking", "summary": "<a defect the fix introduced>", "path": "src/b.sh", "lines": "3"}]}]
 ```
 
-`answers` answer the findings the decision handed the run, by id, and no others. A `full` seat may answer its own findings `holds`, `reverified` or `dismissed`, and a dismissal needs a reason. The re-verifier may answer only `holds` or `reverified`, with a reason on each `reverified`, and may carry `findings` only when its decision planned the fix-diff review; those are raised by reviewer `fix-review`. A due finding left unanswered keeps its status and stays due. `--record` refuses (65) a run the scope didn't mint, a run recorded twice, an answer for an id the decision didn't plan, and two findings of one run with the same id, and the ledger is left as it was.
+`answers` answer the findings the decision handed the run, by id, and no others. A `full` seat may answer its own findings `holds`, `reverified` or `dismissed`, and a dismissal needs a reason. The re-verifier may answer only `holds` or `reverified`, with a reason on each `reverified`, and may carry `findings` only when its decision planned the fix-diff review; those are raised by reviewer `fix-review`. A due finding left unanswered keeps its status and stays due. Every real seat's entry carries its `test_edits`, one item for each test the packet lists as edited; `--record` refuses (65, rule `review/test-edit-judgment`) a round in which one is missing, and records a `weakens` as a blocking finding the seat raised, under rule `review/test-edit-weakens`. The re-verifier carries none. `--record` refuses (65) a run the scope didn't mint, a run recorded twice, an answer for an id the decision didn't plan, and two findings of one run with the same id, and the ledger is left as it was.
 
 ```bash
 ROUND=$(mktemp)

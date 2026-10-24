@@ -10,11 +10,11 @@
 #   verification     verification_verdict   a poll: gate over the runner
 #   finalization, deferral_approval, pre_pr_evidence
 #                    commit_convention      every commit, not only the tip
-#   pr_precheck      branch_docs_visibility
+#   pr_precheck      branch_docs_visibility, tests_still_counted
 #   pr_creation      pr_body_conformant
 #   scrutiny, review, qa_validation, light_review
 #                    <panel>_verdict        the panel's pass, from the ledger
-#   ci_monitor       is_root                decides root or child, no evidence
+#   ci_pass_counting is_root                decides root or child, no evidence
 #
 # This file checks four things:
 #
@@ -227,7 +227,7 @@ render() {
     printf '%s' "$c"
 }
 
-IS_ROOT_CMD=$(gate_command ci_monitor is_root)
+IS_ROOT_CMD=$(gate_command ci_pass_counting is_root)
 STALE_CMD=$(gate_command staleness_check staleness_fresh)
 [ -n "$IS_ROOT_CMD" ] && [ -n "$STALE_CMD" ] || { echo "could not extract the routing gates' commands" >&2; exit 2; }
 
@@ -275,7 +275,8 @@ FAKE_ROOT="$WORKDIR/plugin"
 RC_DIR="$WORKDIR/rc"
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 for s in check-staleness.sh run-verification.sh check-verification.sh check-branch-output.sh \
-         check-pr-output.sh check-pre-pr-referents.sh panel-scope.sh has-commits.sh review-level.sh; do
+         check-pr-output.sh check-pre-pr-referents.sh panel-scope.sh has-commits.sh review-level.sh \
+         test-change.sh red-first.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 f="$RC_DIR/$s\$1"
@@ -414,7 +415,8 @@ drive staleness_check "" '{"staleness_signal":"blocked","detail":"usage error"}'
 expect "staleness_signal: blocked on exit 2" done_blocked
 
 # verification: the verdict routes; 75 waits, 2 holds; blocked is the one evidence.
-for pair in 0:finalization 1:implementation 3:done_blocked 4:done_blocked; do
+# A pass is counted at pass_counting before finalization (red-first.md).
+for pair in 0:pass_counting 1:implementation 3:done_blocked 4:done_blocked; do
     reset_rc; set_rc check-verification.sh--verdict "${pair%%:*}"
     drive verification "" ""
     expect "verification_verdict exit ${pair%%:*}, no evidence" "${pair#*:}"
@@ -444,17 +446,25 @@ holds "verification_verdict exit -1 (timed out), no evidence" verification verif
 TIMEOUT_GATE=verification_verdict drive verification "" '{"verification_status":"blocked","detail":"the check keeps timing out"}'
 expect "verification_status: blocked on exit -1" done_blocked
 
-# ci_monitor: green CI routes on is_root; the two failing values route on red CI.
+# ci_monitor: green CI goes on to ci_pass_counting, which counts the pass and
+# routes on is_root; the two failing values route on red CI.
 reset_rc
 drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
-expect "green CI, is_root exit 0" cascade_entry
+expect "green CI on a clean pull request" ci_pass_counting
+drive ci_pass_counting "" ""
+expect "a counted pass, is_root exit 0" cascade_entry
 set_rc role child
-drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
-expect "green CI, is_root exit 1" done
+drive ci_pass_counting "" ""
+expect "a counted pass, is_root exit 1" done
 # is_root exit 2, a role nobody decided: neither the cascade nor done.
 reset_rc
-drive ci_monitor "" "" ci_passing=0 merge_state_clean=0 is_root=2
-holds "green CI, is_root exit 2" ci_monitor is_root
+drive ci_pass_counting "" "" is_root=2
+holds "a counted pass, is_root exit 2" ci_pass_counting is_root
+reset_rc; set_rc test-change.shstatus 1
+drive ci_pass_counting "" ""
+holds "tests_counted exit 1 after CI" ci_pass_counting tests_counted
+drive ci_pass_counting "" '{"counting_status":"declined"}'
+expect "counting_status: declined after CI" ci_monitor
 reset_rc
 drive ci_monitor "" "" ci_passing=0 merge_state_clean=1
 expect "green CI on a DIRTY pull request" done_blocked
@@ -507,6 +517,18 @@ done
 reset_rc
 drive pr_precheck "" "" on_feature_branch_pr=0
 expect "the branch check passes" pr_creation
+# tests_still_counted: status re-run before a pull request opens.
+set_rc test-change.shstatus 1
+drive pr_precheck "" "" on_feature_branch_pr=0
+holds "tests_still_counted exit 1" pr_precheck tests_still_counted
+drive pr_precheck "" '{"precheck_status":"recount"}' on_feature_branch_pr=0
+expect "precheck_status: recount while tests_still_counted holds" pass_counting
+drive pr_precheck "" '{"precheck_status":"override"}' on_feature_branch_pr=1
+holds "override does not pass a tests_still_counted hold" pr_precheck tests_still_counted
+set_rc test-change.shstatus 3
+drive pr_precheck "" '{"precheck_status":"recount"}' on_feature_branch_pr=0
+expect "precheck_status: recount on the decline limit (exit 3)" pass_counting
+reset_rc
 
 # pr_creation: the body check holds the created edge.
 for rc in 1 2; do

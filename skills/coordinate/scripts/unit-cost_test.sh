@@ -79,15 +79,14 @@ MERGE=5555555555555555555555555555555555555555
 MERGE2=6666666666666666666666666666666666666666
 MERGEY=3434343434343434343434343434343434343434
 export KOTO_REQUESTS="$FX/requests" UNIT_COST_NOW=2026-10-01T12:00:00Z UNIT_COST_FETCH_SECS=5
+# acme/widgets is public, so its pull request gets the entry only while it
+# opts in: the opt-in reader's stand-in says it does. unit-cost-on_test.sh
+# covers a repository that doesn't.
+printf '#!/usr/bin/env bash\necho include\n' >"$T/reader"
+export UNIT_COST_PR_CONTENT_READER="$T/reader"
 S=coordinate-roadmap-x-20261001T080000Z
 REASONS='["no source","read failed","time limit","entry size","invalid input"]'
 POSTED=0
-# The example repository opts in to workflow content (its CLAUDE.md, seeded
-# below, and a reader that answers include), so the entry is posted on the
-# unit's pull request, where this suite reads it. unit-cost-on_test.sh covers
-# the default, the entry kept in the session.
-printf '#!/usr/bin/env bash\necho include\n' >"$T/reader-include"
-export UNIT_COST_PR_CONTENT_READER="$T/reader-include"
 : >"$T/allcalls"
 
 # seed [unit] [pull request cell]: the record (ROADMAP-x on acme/widgets), in
@@ -805,11 +804,9 @@ eq "  ... green and failing heads read failed" "read failed|read failed" \
     "$(last_entry | jq -r '"\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
 seed; fresh
 UNIT_COST_BUDGET_SECS=0 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
-# With no budget left the opt-in's CLAUDE.md can't be read either, so the
-# entry is kept in the session, nothing posted; the archive's copy is read.
-eq "with the budget spent, the capture still writes its entry, kept in the session" \
-    "0 0 unit-cost: kept the cost entry in the session" "$? $(cost_bodies | jq length) $(tail -n 1 "$T/cap.err" | cut -d: -f1-2)"
-SPENT=$(jq -c . "$A/unit-cost.json")
+eq "with the budget spent, the capture still posts" "0 1" "$? $(cost_bodies | jq length)"
+POSTED=$((POSTED + 1))
+SPENT=$(last_entry)
 eq "  ... what it could not take is time limit" "false|time limit|time limit|time limit|time limit|time limit|time limit" \
     "$(q "$SPENT" '"\(.complete)|\([.missing[] | select(.figure == "milestone") | .reason][0])|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_merge_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\([.missing[] | select(.figure == "tokens.worker") | .reason][0])"')"
 eq "  ... the figures already computed are kept" "40.5 measured|29.5 measured|3 measured|99.3 measured" \

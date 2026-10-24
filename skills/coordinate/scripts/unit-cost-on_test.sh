@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
-# unit-cost-on_test.sh -- unit-cost.sh capture, which keeps the cost entry
-# in the coordinator's session unless the item it is about opts in to
-# workflow-tool content (the reader shirabe#1124 adds, a stub here), and then
-# posts it on that item
+# unit-cost-on_test.sh -- unit-cost.sh capture, which posts the cost entry
+# on the item it is about
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2),
 # over the example archive, the gh and koto stand-ins and the real record
 # scripts. unit-cost_test.sh covers the entry itself.
 #
-# Covers: with no reader, and with a reader that answers omit, fails or
-# answers anything else, the entry kept in the session (`--on none`), no
-# comment on any pull request or issue, the output saying so, whichever item
-# the entry is about (the holding's pull request, the sealed verdict's first,
-# the unit's issue); with a reader
-# that answers include, given a directory holding the repository's CLAUDE.md as
-# GitHub serves it: a unit whose holding names its pull request posted there
-# with today's marker line, its URL kept in the session; a holding with no Pull
+# Covers: a unit whose holding names its pull request posted there with
+# today's marker line, its URL kept in the session; a holding with no Pull
 # request cell posted on the sealed verdict's first pull request; a unit that
-# is an issue (`#n: ...`) posted on that issue of the host; a CLAUDE.md that
-# can't be read kept in the session; a unit with neither kept in the session,
-# posted nowhere, the output saying so, and a second capture of it finding the
-# session's entry and adding none; nothing ever posted on an issue the unit
-# isn't.
+# is an issue (`#n: ...`) posted on that issue of the host; a unit with
+# neither kept in the session, posted nowhere, the output saying so, and a
+# second capture of it finding the session's entry and adding none; nothing
+# ever posted on an issue the unit isn't. Those post while acme/widgets opts
+# in; until it does, the holding's pull request, the sealed verdict's and its
+# issue get no comment and the session keeps the entry, the last line saying
+# why, and a private repository's pull request that doesn't opt in gets none
+# either.
 #
 # Usage: bash skills/coordinate/scripts/unit-cost-on_test.sh
 set -uo pipefail
@@ -40,34 +35,26 @@ MERGE=5555555555555555555555555555555555555555
 # five-second bound, and a timed-out read would hide the row this suite is about.
 export KOTO_REQUESTS="$FX/requests" UNIT_COST_NOW=2026-10-01T12:00:00Z UNIT_COST_FETCH_SECS=60 UNIT_COST_BUDGET_SECS=300
 S=coordinate-roadmap-x-20261001T080000Z
-
-# The opt-in reader's stand-in: given a directory, it answers what
-# $T/reader.answer holds and exits $T/reader.rc, and records the CLAUDE.md it
-# was handed. With no $T/reader.answer it is not there at all.
-READER="$T/pr-workflow-content.sh"
-cat >"$READER" <<EOF
+# The opt-in reader's stand-in: it answers what $T/opt-in holds, else omit.
+# An item gets the entry only while its repository opts in; unit-cost.sh
+# hands this override to record-append.sh, which reads the opt-in.
+cat >"$T/reader" <<EOF
 #!/usr/bin/env bash
-cp "\$1/CLAUDE.md" "$T/reader.saw" 2>/dev/null
-cat "$T/reader.answer"
-exit "\$(cat "$T/reader.rc")"
+cat "$T/opt-in" 2>/dev/null || echo omit
 EOF
-reader() { # reader <answer> [rc]
-    printf '%s\n' "$1" >"$T/reader.answer"
-    printf '%s\n' "${2:-0}" >"$T/reader.rc"
-    rm -f "$T/reader.saw"
-}
-export UNIT_COST_PR_CONTENT_READER="$READER"
+export UNIT_COST_PR_CONTENT_READER="$T/reader"
+opt_in() { echo include >"$T/opt-in"; }
+opt_out() { rm -f "$T/opt-in"; }
 
 # seed <holding-json>: the record (ROADMAP-x on acme/widgets) in its run's
 # session, whose find sealed `found`, holding feat-x as given; GitHub's side of
-# the example's fixtures, issue 5, an ordinary issue 7 no entry is ever posted
-# on, and the repository's CLAUDE.md on its default branch.
+# the example's fixtures, issue 5, and an ordinary issue 7 no entry is ever
+# posted on.
 seed() {
     db_init
     db '.issues += [{repo: "acme/widgets", number: 7, title: "the plugin tracker", body: "", state: "open", author: "alice", editor: null},
                     {repo: "acme/widgets", number: 5, title: "fix it", body: "", state: "open", author: "alice", editor: null}]'
     db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
-    db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
     rm -rf "$KOTO_STORE/context/$S" "$KOTO_STORE/sessions/$S"
     found_session "$S" "$(roadmap_vars x)"
     record_json roadmap x | jq -c --argjson h "$1" '.holdings = [$h] | .written = "2026-10-01T08:00:00Z"' > "$T/rec.json"
@@ -83,49 +70,42 @@ costs() { # the session's cost entries
     koto context list --prefix record/entries/ "$S" | jq -r '.[]' | while read -r k; do koto context get "$S" "$k"; echo; done \
         | jq -s -c '[.[] | select(.kind == "cost")]'
 }
-KEPT="unit-cost: kept the cost entry in the session: it is posted on no pull request or issue unless the repository opts in"
-HOLD22='{"unit": "Feature 4: Example feature", "pull_request": "[#22](https://github.com/acme/widgets/pull/22)"}'
 
-echo "== the repository doesn't opt in =="
-for c in "no reader" "omit 0" "include 1" "yes 0"; do
-    seed "$(holding feat-x "$HOLD22")"
-    fresh; prs "acme/widgets#21 $MERGE"
-    case "$c" in
-        "no reader") rm -f "$T/reader.answer"; UNIT_COST_PR_CONTENT_READER="$T/absent.sh" capture ;;
-        *) reader "${c% *}" "${c#* }"; capture ;;
-    esac
-    eq "$c: the capture exits 0" 0 $?
-    eq "  ... no comment on any pull request or issue" 0 "$(ncomments)"
-    eq "  ... the session holds the entry" 1 "$(costs | jq length)"
-    eq "  ... saying so" "$KEPT" "$(tail -n 1 "$T/cap.err")"
-done
-# Every item the capture can post on is held back without the opt-in: the
-# holding's pull request (above), the sealed verdict's first pull request, and
-# the unit's issue.
-for c in "the verdict's pull request" "the unit's issue"; do
-    case "$c" in
-        "the verdict's pull request") seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"
-            fresh; prs "acme/widgets#21 $MERGE" ;;
-        *) seed "$(holding feat-x '{"unit": "#5: fix it", "pull_request": ""}')"
-            fresh; : >"$T/prs" ;;
-    esac
-    UNIT_COST_PR_CONTENT_READER="$T/absent.sh" capture
-    eq "no opt-in, $c: no comment on any pull request or issue, the entry kept in the session" "0 0 1 $KEPT" \
-        "$? $(ncomments) $(costs | jq length) $(tail -n 1 "$T/cap.err")"
-done
-reader include
-seed "$(holding feat-x "$HOLD22")"
+echo "== a public repository that hasn't opted in =="
+opt_out
+seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "[#22](https://github.com/acme/widgets/pull/22)"}')"
 fresh; prs "acme/widgets#21 $MERGE"
-db '.files["acme/widgets"] = {}'
-capture; eq "a CLAUDE.md that can't be read is omit" "0 0 $KEPT" "$? $(ncomments) $(tail -n 1 "$T/cap.err")"
-eq "  ... and the reader is never run" no "$([ -e "$T/reader.saw" ] && echo yes || echo no)"
+capture; eq "a capture exits 0" 0 $?
+eq "  ... posting no comment anywhere" 0 "$(ncomments)"
+eq "  ... and says why" "unit-cost: kept the cost entry in the session: acme/widgets doesn't opt in to workflow content, so acme/widgets#22 gets nothing" \
+    "$(tail -n 1 "$T/cap.err")"
+eq "  ... the session holds the entry" "$(jq -r .key "$A/unit-cost.json")" "$(costs | jq -r '.[0].text | split("\n") | .[3] | fromjson | .key')"
+eq "  ... and no posted URL" "" "$(koto context get "$S" "record/posted/$(printf '%06d' "$(costs | jq -r '.[0].n')")" 2>/dev/null)"
+seed "$(holding feat-x '{"unit": "#5: fix it", "pull_request": ""}')"
+fresh; : >"$T/prs"
+capture; eq "a unit that is a public issue" "0 0" "$? $(ncomments)"
+# The sealed verdict's pull request, the fallback when the holding names none,
+# is held back the same way.
+seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"
+fresh; prs "acme/widgets#21 $MERGE"
+capture; eq "the sealed verdict's pull request, without opting in, gets no comment and the session keeps the entry" \
+    "0 0 1 unit-cost: kept the cost entry in the session: acme/widgets doesn't opt in to workflow content, so acme/widgets#21 gets nothing" \
+    "$? $(ncomments) $(costs | jq length) $(tail -n 1 "$T/cap.err")"
 
-echo "== the holding's pull request, the repository opting in =="
-reader include
-seed "$(holding feat-x "$HOLD22")"
+echo "== a private repository's pull request, without opting in =="
+seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "[#30](https://github.com/acme/secret/pull/30)"}')"
+db '.prs += [{repo: "acme/secret", number: 30, title: "x", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
+    baseRefName: "main", headRefName: "feat/30", headRefOid: "2222222222222222222222222222222222222222", author: "alice", editor: null}]'
+fresh; prs "acme/widgets#21 $MERGE"
+capture; eq "a capture exits 0" 0 $?
+eq "  ... posting nothing on it either" "0 unit-cost: kept the cost entry in the session: acme/secret doesn't opt in to workflow content, so acme/secret#30 gets nothing" \
+    "$(ncomments) $(tail -n 1 "$T/cap.err")"
+
+opt_in
+echo "== the holding's pull request =="
+seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "[#22](https://github.com/acme/widgets/pull/22)"}')"
 fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a capture posts" 0 $?
-eq "  ... the reader handed the repository's CLAUDE.md" "## PR Workflow Content: include" "$(tail -n 1 "$T/reader.saw")"
 eq "  ... on the holding's pull request" 1 "$(cost_on 22 | jq length)"
 eq "  ... saying so" "unit-cost: posted the cost entry on acme/widgets#22" "$(tail -n 1 "$T/cap.err")"
 eq "  ... with today's marker and stamp lines" "<!-- coordinator-record-entry v1 kind=cost -->|cost" \
@@ -135,13 +115,13 @@ eq "  ... its URL kept in the session" "https://github.com/acme/widgets/pull/22#
     "$(koto context get "$S" "record/posted/$(printf '%06d' "$(costs | jq -r '.[0].n')")")"
 eq "  ... and nothing on any other issue" "[]" "$(cost_on 7)"
 
-echo "== the sealed verdict's pull request, the repository opting in =="
+echo "== the sealed verdict's pull request =="
 seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"
 fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a holding with no Pull request cell posts" 0 $?
 eq "  ... on the verdict's first pull request" "1 unit-cost: posted the cost entry on acme/widgets#21" "$(cost_on 21 | jq length) $(tail -n 1 "$T/cap.err")"
 
-echo "== the unit's issue, the repository opting in =="
+echo "== the unit's issue =="
 seed "$(holding feat-x '{"unit": "#5: fix it", "pull_request": ""}')"
 fresh; : >"$T/prs"
 capture; eq "a unit that is an issue posts" 0 $?
@@ -152,7 +132,7 @@ seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "
 fresh; : >"$T/prs"
 capture; eq "a unit with neither exits 0" 0 $?
 eq "  ... posted nowhere" 0 "$(ncomments)"
-eq "  ... and says so" "$KEPT" "$(tail -n 1 "$T/cap.err")"
+eq "  ... and says so" "unit-cost: kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere" "$(tail -n 1 "$T/cap.err")"
 eq "  ... the session holds it" "$(jq -r .key "$A/unit-cost.json")" "$(costs | jq -r '.[0].text | split("\n") | .[3] | fromjson | .key')"
 capture; eq "a second capture exits 0" 0 $?
 eq "  ... finding the session's entry and adding none" "1 unit-cost: the record already holds this unit's cost entry" "$(costs | jq length) $(tail -n 1 "$T/cap.err")"
