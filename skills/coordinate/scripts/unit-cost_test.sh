@@ -744,6 +744,14 @@ seed; fresh
 mkdir -p "$PL"; printf '%s %s\n' 999999 "$(date +%s)" >"$PL/owner"
 capture; eq "a lock whose holder is gone is taken over, and the capture posts" "0 1" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
+# A lock with no owner may be one its holder hasn't written yet: it is waited
+# on for two seconds, and then, still ownerless, taken over.
+seed; fresh
+mkdir -p "$PL"
+S0=$(date +%s)
+capture; eq "a lock with no owner is waited on, then taken over, and the capture posts" "0 1 yes" \
+    "$? $(cost_bodies | jq length) $([ $(($(date +%s) - S0)) -ge 2 ] && echo yes || echo no)"
+POSTED=$((POSTED + 1))
 # A lock a live process holds is waited for inside the list and post bounds,
 # then the capture lists and posts without it, saying so.
 seed; fresh

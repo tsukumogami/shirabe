@@ -311,10 +311,12 @@ ac_removal_for_path() {
 # that is older, is taken over: renamed aside, its owner read again from the
 # renamed copy, and removed only when that is still the owner judged stale (a
 # copy that changed, because another process took the lock meanwhile, is moved
-# back). Returns 0 holding the lock, 1 when it is still held at the end of the
-# wait (AC_WHY says so).
+# back). A lock with no owner yet may be one its holder has just made and not
+# yet written, so it is judged stale only once it has stayed ownerless for two
+# seconds. Returns 0 holding the lock, 1 when it is still held at
+# the end of the wait (AC_WHY says so).
 ac_lock() {
-    local d=$1 max=$2 wait=$3 own pid at now waited=0 side
+    local d=$1 max=$2 wait=$3 own pid at now waited=0 side blank=0
     while :; do
         if mkdir -- "$d" 2>/dev/null; then
             printf '%s %s\n' "$$" "$(date +%s)" >"$d/owner" || { rm -rf -- "$d"; AC_WHY="cannot write $d/owner"; return 1; }
@@ -324,6 +326,11 @@ ac_lock() {
         pid=${own%% *} at=${own##* }
         now=$(date +%s)
         case "$pid$at" in '' | *[!0-9]*) pid="" at=0 ;; esac
+        if [ -z "$pid" ] && [ "$blank" -lt 2 ]; then
+            blank=$((blank + 1))
+            sleep 1
+            continue
+        fi
         if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null || [ $((now - at)) -gt "$max" ]; then
             side="$d.stale.$$"
             if mv -- "$d" "$side" 2>/dev/null; then

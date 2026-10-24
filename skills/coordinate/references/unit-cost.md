@@ -490,7 +490,7 @@ where `record-append.sh --session <session> --list` returns them as entries
 of kind `cost`, each one's text the same summary line and fenced block:
 
 ```bash
-bash scripts/record-append.sh --session <session> --list \
+"${CLAUDE_SKILL_DIR}/scripts/record-append.sh" --session <session> --list \
   | jq -r '.[] | select(.kind == "cost") | .text' \
   | sed -n '/^```json$/,/^```$/p' | grep -v '^```' \
   | jq -c 'select(.schema == "unit-cost/1")
@@ -525,8 +525,9 @@ done < units.txt \
 Every entry is also in its archive's `unit-cost.json`.
 
 A record can hold the same key twice, or the same `"niwa.dispatch.id"` under
-two keys (a capture that couldn't list the record or take the post lock
-posts anyway, and a takeover of a live lock holder past its bound can let
+two keys (a capture that couldn't list the record, had no read budget left
+to list it, or couldn't take the post lock posts anyway, saying so, and a
+takeover of a live lock holder past its bound can let
 two captures post); keep the latest per key and per dispatch id, and report
 the repeat. Read a figure's `state` before its `value`: a `bound` or `not
 recoverable` figure is not a measurement and doesn't belong in a sum. A pull

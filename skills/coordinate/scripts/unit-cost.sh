@@ -21,26 +21,35 @@
 #       Holdings row whose Worker is T (record-holding.sh --read), computes
 #       the object, writes it to DIR/unit-cost.json through a temporary name
 #       in DIR (a symlink at that name is replaced, never written through),
-#       lists the record's entries (record-append.sh --list) and posts one
-#       entry of kind `cost` unless a `cost` entry's JSON already carries the
-#       same key. A list that fails posts anyway: readers keep the latest
-#       entry per key, so a duplicate is harmless and a skipped post loses
-#       the unit. An object over 50,000 bytes is posted without the
-#       per-session `states` maps (`sessions.states`, `entry size`);
-#       unit-cost.json keeps them. A run on the GitHub store posts it on its
-#       record issue. A run on the session store (coord-log.sh run-store)
-#       posts it with record-append.sh --on on the item it is about: the
+#       then, under the host's post lock (.post-lock in archive-common.sh's
+#       removals directory, which the sweep's captures take too), lists the
+#       record's entries (record-append.sh --list) and posts one entry of
+#       kind `cost` unless a `cost` entry's JSON already carries the same key
+#       or the same non-null "niwa.dispatch.id". A lock a live capture holds
+#       is waited for inside the list and post bounds; one still held then,
+#       or a removals directory that can't be used, leaves the list check
+#       alone, saying so. A list that fails, or that the spent read budget
+#       leaves no time for, posts anyway, saying so: readers keep the latest
+#       entry per key and dispatch id, so a duplicate is harmless and a
+#       skipped post loses the unit. An object over 50,000 bytes is posted
+#       without the per-session `states` maps (`sessions.states`, `entry
+#       size`); unit-cost.json keeps them. A run on the GitHub store posts it
+#       on its record issue. A run on the session store (coord-log.sh
+#       run-store) keeps it in the coordinator's session (`--on none`),
+#       unless the repository of the item it is about opts in
+#       (scripts/pr-workflow-content.sh answers include, uc_pr_content
+#       below); then it posts with record-append.sh --on on that item: the
 #       holding's pull request (the row's Pull request cell, else the sealed
 #       verdict's first), else the Unit's issue (`#n` on the host or
-#       `owner/repo#n`), else `--on none`, which keeps it in the session,
-#       posted nowhere; the last stderr line says which.
+#       `owner/repo#n`). The last stderr line says which.
 #   unit-cost.sh gh-check <gh arguments...>
 #       Runs nothing: 0 when the capture's GitHub wrapper would make that
 #       call, 1 when it refuses it. The suite's view of the wrapper.
 #
 # The object holds, in this order: schema, key, captured_at, topic, record,
-# unit, milestone, plan_shape, pulls, dispatch, "niwa.dispatch.id", figures,
-# sessions, tokens, complete and missing. A figure is {value, raw, state, source}; state is
+# unit, milestone, plan_shape, pulls, opened, dispatch, "niwa.dispatch.id",
+# figures, sessions, tokens, complete and missing. A figure is {value, raw,
+# state, source}; state is
 # `measured`, `bound`, `not recoverable` or `not applicable`, and every figure
 # not taken is listed in `missing` with a reason from a closed list: `no
 # source`, `read failed`, `time limit`, `entry size`, `invalid input`.
@@ -58,7 +67,10 @@
 # Milestone: the Unit cell cut at its first `: `. An issue reference (`#n`,
 # `owner/repo#n`) or a discipline record gives `none`; a roadmap record gives
 # {roadmap: ROADMAP-<name>, tag}. A Unit outside the safety pattern is null,
-# its milestone `not recoverable` (`invalid input`).
+# its milestone `not recoverable` (`invalid input`). With no Holdings row for
+# the topic, a capture takes the Unit the dispatch wrote on its leg key in the
+# requesting coordinator's session (dispatch-worker.sh, which writes it only
+# when its tag has this same pattern), found through the unit's koto request.
 #
 # The archive's transcripts: claude-projects/<project directory>/, every
 # Claude Code project directory of the instance (teardown-pass.sh). A main
@@ -153,8 +165,9 @@
 # budget; once it is spent, what is not yet taken is `time limit` and the
 # capture goes straight to writing and posting what it has.
 #
-# Exit codes: 0 printed (compute), posted, kept in the session (a
-# session-store unit with no pull request or issue) or already posted (capture), or
+# Exit codes: 0 printed (compute), posted, kept in the session (every
+# session-store unit whose repository doesn't opt in, and one with no pull
+# request or issue) or already posted (capture), or
 # admitted (gh-check); 1 not posted, or refused (gh-check); 64 usage; 65 the
 # archive's name is not a capture key for the topic.
 #
@@ -1500,6 +1513,9 @@ else
 fi
 DID=$(uc_jq -r '."niwa.dispatch.id" // "" | strings' "$WD/entry.json") || DID=""
 B=$(uc_bound "$LIST_SECS")
+# The reads spent the budget: no time is left to list, and a skipped post
+# loses the unit, so it posts without the check, saying so.
+[ "$B" -gt 0 ] || say "the read budget is spent; posting without the duplicate check"
 if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/record-append.sh" --session "$SESSION" --list; then
     if uc_jq -e --arg k "$KEY" --arg d "$DID" '
         [.[] | select(.kind == "cost") | (.text // "" | if type == "string" then . else "" end)
