@@ -285,7 +285,7 @@ in_settings "$(hook Bash 'merge-guard-hook' bypassPermissions)"
 eq "an unread release leaves the leading word alone" "readable merge:deny close:deny teardown:deny release:unread" "$(read_roots)"
 
 echo "== the grant =="
-SID=0f1e2d3c-4b5a-4968-8776-655443322110
+SID=session-under-test
 STUB="$T/stub"
 mkdir -p "$STUB"
 # The stub logs its arguments and answers from $T/answer.json, or as
@@ -321,8 +321,8 @@ bound_doc() {
     jq -nc --arg g "$1" --arg l "$2" '
         {autonomous: ["session", "off"], supervised: ["dispatcher", "on"], strict: ["person", "on"]}[$l] as $d
         | {schema: "niwa.authority.check/v1", state: "bound", binding: "mapping",
-           dispatch_id: "3c803591-4c01-486f-a927-f96ec399d6a7",
-           parent: {dispatch_id: "9f0c2a11-77b2-4d0e-8a51-0c1d2e3f4a5b", instance: "ws+coordinator-1a2b3c4d"},
+           dispatch_id: "dispatch-under-test",
+           parent: {dispatch_id: "parent-dispatch", instance: "coordinator-instance"},
            grant: [$g | split(",")[] | select(. != "") | {authority: ., sources: ["dispatch"]}],
            level: $l, level_source: "workspace", grant_ceiling_source: "workspace",
            points: [("merge-pr", "close-issue", "cut-release") | {point: ., decider: $d[0], author_exclusion: $d[1]}]}'
@@ -383,7 +383,7 @@ eq "with an unreadable hook the grant still decides merge, close and release" \
 gate_fixture; answer "$(bound_doc "$ALL3" autonomous)"
 eq "with niwa off PATH, NIWA_BIN names it" "readable merge:permit close:permit teardown:permit release:permit" \
     "$(seen "$(CLAUDE_CODE_SESSION_ID=$SID NIWA_BIN="$STUB/niwa" PATH="$NOPATH" bash "$PRD" --instance-root "$IN" --workspace-root "$WS" --no-seal 2>"$T/err")")"
-answer '{"schema":"niwa.authority.check/v1","state":"record-unusable","reason":"record-missing","dispatch_id":"3c803591-4c01-486f-a927-f96ec399d6a7","grant":[]}'
+answer '{"schema":"niwa.authority.check/v1","state":"record-unusable","reason":"record-missing","dispatch_id":"dispatch-under-test","grant":[]}'
 eq "record-unusable denies the merge and reads the rest as today" \
     "readable merge:deny close:confirm teardown:permit release:confirm" "$(read_grant)"
 
@@ -441,7 +441,7 @@ eq "the grant's steps record source=grant" "merge=grant close=grant teardown=wor
     "$(jq -r '[.steps | to_entries[] | "\(.key)=\(.value.source)"] | join(" ")' "$D")"
 eq "a missing authority's reason names what the grant holds and lacks" "the grant holds merge-pr,close-issue; needs cut-release" \
     "$(jq -r .steps.release.why "$D")"
-eq "the detail keeps the lookup's state, grant and parent" "bound merge-pr,close-issue ws+coordinator-1a2b3c4d" \
+eq "the detail keeps the lookup's state, grant and parent" "bound merge-pr,close-issue coordinator-instance" \
     "$(jq -r '.grant_check | "\(.state) \(.grant | join(",")) \(.parent.instance)"' "$D")"
 # A rule stricter than the grant's answer decides the step, so the step stays
 # the workspace's, with the rule as its reason.
