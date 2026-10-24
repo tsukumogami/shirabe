@@ -362,6 +362,40 @@ case "$WROTE" in
     *) fail "the write landed at [$WROTE], outside [$SHARED]" ;;
 esac
 
+# --- the latest index entry ---------------------------------------------------------
+
+# entry <n> <run_id> <written_at>: one run/<id> entry in o/r#<n>'s index session.
+entry() {
+    lib "rs_koto_write \"\$(rs_shared_dir $OWNER)\" init pr.$OWNER.r.$1 --template t --attach-live >/dev/null 2>&1; printf '{\"written_at\":\"$3\"}' | rs_koto_write \"\$(rs_shared_dir $OWNER)\" context add pr.$OWNER.r.$1 run/$2"
+}
+A1=11111111111111111111111111111111
+A2=22222222222222222222222222222222
+reset_store
+lib "rs_index_latest_run $OWNER/r 5"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "rs_index_latest_run: a PR with no entry prints nothing (0)" \
+    || fail "no entry: exit $RC, [$OUT]"
+entry 5 "$A2" 2026-01-01T00:00:00Z
+entry 5 "$A1" 2026-02-01T00:00:00Z
+lib "rs_index_latest_run $OWNER/r 5"
+[ "$RC" -eq 0 ] && [ "$OUT" = "$A1" ] && pass "rs_index_latest_run: the greatest written_at wins" \
+    || fail "latest by time: exit $RC, [$OUT]"
+entry 6 "$A1" 2026-01-01T00:00:00Z
+entry 6 "$A2" 2026-01-01T00:00:00Z
+lib "rs_index_latest_run $OWNER/r 6"
+[ "$RC" -eq 0 ] && [ "$OUT" = "$A2" ] && pass "rs_index_latest_run: a tie goes to the greater run_id" \
+    || fail "tie: exit $RC, [$OUT]"
+entry 7 "$A1" 2026-01-01T00:00:00Z
+entry 7 "$A2" not-a-time
+lib "rs_index_latest_run $OWNER/r 7"
+[ "$RC" -eq 0 ] && [ "$OUT" = "$A1" ] && pass "rs_index_latest_run: an entry whose written_at fails its pattern is passed over" \
+    || fail "malformed: exit $RC, [$OUT]"
+lib "RECORD_KOTO_FAIL_READS=1 rs_index_latest_run $OWNER/r 5"
+[ "$RC" -eq 2 ] && [ -z "$OUT" ] && pass "rs_index_latest_run: an unreadable form is 2, never a guess" \
+    || fail "unreadable: exit $RC, [$OUT]"
+lib "rs_index_latest_run $OWNER/r 0"
+[ "$RC" -eq 64 ] && pass "rs_index_latest_run: a PR number outside the pattern is 64" \
+    || fail "bad number: exit $RC, [$OUT]"
+
 # --- no suite writes under the real shared root ------------------------------------
 
 # Every suite that runs a script reaching record-store.sh (the library

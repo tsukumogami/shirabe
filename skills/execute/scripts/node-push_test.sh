@@ -492,7 +492,8 @@ ct_write_db
 fresh_repo defer-omit
 defer_child 2 "$REASON2"
 push_node
-if [ "$RC" -eq 0 ] && ! db_pr 50 | jq -r '.body' | grep -q -e '## Verification' -e '^Reason:'; then
+OMIT_BODY=$(db_pr 50 | jq -r '.body')
+if [ "$RC" -eq 0 ] && ! grep -q -e '## Verification' -e '^Reason:' <<<"$OMIT_BODY"; then
     pass "omit: a deferral leaves no Verification section in the new node PR's body"
 else
     fail "defer-omit: rc=$RC body=[$(db_pr 50 | jq -r '.body')]"

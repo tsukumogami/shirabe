@@ -148,17 +148,20 @@ Two more flags, on both paths:
   `ADOPT_RUN`, all rebind and passed on every coordinated invocation (empty when
   the flag is absent), so none persists from an earlier invocation:
   - `--store github|session` — where the run's record lives, sealed in the run
-    record at the run's first setup (`github` without the flag); a later
+    record at the run's first setup (`github` without the flag, `session`
+    when the run's recorded PR content switch is `omit`, whose coordination
+    body carries no record to recover from); a later
     invocation with the other value stops `store-mismatch` and changes nothing,
     and one without the flag reads the sealed value.
   - `--coordination-pr <url>` — the coordination PR, verified at setup through
     the ownership lookup and its number recorded; a PR by another author or on
-    another branch, one without the marker, or one other than the lookup's
-    stops `coordination-pr-mismatch`.
+    another branch, one without the declaration (under `include`), or one
+    other than the lookup's stops `coordination-pr-mismatch`.
   - `--adopt-run <id>` — honoured only on a start that recovers a lost
     record (see **Recovery**): `<id>` becomes the run's identity, outranking a
-    carried `run_id`, and setup stamps its marker on the node PRs that carry
-    another run's or none, recording who adopted the run and when. On a
+    carried `run_id`, and the recovery's own index entries make the node PRs
+    another run (or none) recorded this run's, with no PR edited, recording
+    who adopted the run and when. On a
     start that doesn't recover, setup stops first with `session-absent` or
     `recovery-plan-gone` when one of those applies, and with
     `adopt-run-refused` otherwise; each changes nothing.
@@ -401,8 +404,10 @@ The loop reads **work items and PR status** and the merge-gate result, never a
 child PR's body. It runs against an existing coordination PR; creating it stays
 `/scope`'s job. Setup finds it once, by an ownership-filtered head-branch lookup
 on the coordination branch (never by title), or verifies the one
-`--coordination-pr` hands it against that lookup; it must carry the
-`This is a **coordination PR**` marker, and setup records its number.
+`--coordination-pr` hands it against that lookup; under the run's recorded
+PR content switch `include` it must carry the `This is a **coordination PR**`
+marker (under `omit`, the default, its body is a plain description and carries
+none), and setup records its number.
 
 **The run record is the run's store.** A coordinated run keeps its
 control-plane facts as `run/` keys in its own session, `execute-<plan-slug>`,
@@ -431,10 +436,14 @@ renders it through `scripts/lib/coordination-body.sh` after every transition it
 shows (a node PR opened or pushed, a node or follow-up PR GitHub reports
 MERGED, a follow-up recorded or removed, the cascade pushed or failed) and
 before every terminal, and posts it only when it differs from the live body, so a change in live state alone (checks finishing, a ready toggle)
-posts nothing. The body keeps the live Part 1 (everything above its first
+posts nothing. Under the run's recorded switch `omit`, the default, the body is
+its Part 1 alone: the live Part 1, or the whole live body when it has no
+top-level `---`, or one composed sentence when it is empty, and nothing else;
+the merge-last gate then takes its refs from the record. Under `include` the
+body keeps the live Part 1 (everything above its first
 top-level `---`) byte for byte, or composes one sentence when there is none
 (`/scope`'s body is replaced whole), then carries the declaration marker, the
-run lines with `store=` and `run=`, one PR Index line per recorded node and
+run lines with `store=` and `run=`, the one `Run record:` line, one PR Index line per recorded node and
 follow-up (`- <node>[/follow-up-<n>] | <repo>:<path>#<n> | <state> | head=<sha>`,
 where `<state>` is `open`, `merged`, `closed` or `unknown`),
 and the merge-order block from `run/setup`'s node list, so the block outlives
@@ -517,8 +526,9 @@ session of either template is replaced.
 lookup goes through `owned-pr.sh` with the run's `--run-id`, keeping
 only PRs with `isCrossRepository == false`, the authenticated author, the
 default branch as base, for a recorded node PR head branch `impl/<slug>-<node-id>`
-for that node, and a run marker that names this run or none. Zero survivors let `node-push.sh` open a node's PR, stamped with the
-run's marker; where an existing PR must be adopted (a recorded node PR) zero
+for that node, and no index entry naming another run as the PR's latest. Zero
+survivors let `node-push.sh` open a node's PR, which it then indexes as this
+run's; where an existing PR must be adopted (a recorded node PR) zero
 survivors, or a survivor other than the recorded PR, end
 `step=execute:pr-adopt`; several, an ambiguous lookup, or another run's PR end
 `step=execute:pr-adopt`, and a failed read ends `step=execute:status-read`.
@@ -573,21 +583,22 @@ the same `run_id` and record, and no recovery runs. On `github` setup rebuilds t
 codec's `cb_parse`: the node list comes from the PLAN (none left stops
 `recovery-plan-gone`, or `coordination-index-missing` when the body has no
 index line either), each indexed node must be one of the PLAN's PR nodes, the
-one owned PR on its branch, and carry the run's marker, and each head is read
-live, never taken from the body's `head=`. The identity is, in order,
-`--adopt-run`, the carried `run_id`, the body's `run=` line, the one id every
-node PR's marker names, and a freshly minted one only when the index holds no
-node PR. A node PR with another run's marker or none, or every node PR when no
-identity is found, stops `recovery-unproven` naming each with its reason and
-URL; `--adopt-run <id>` stamps exactly those instead, never one that failed
-the ownership lookup, and a stamp that fails stops naming that PR as not
-stampable. An index with no node line beside an owned node PR stops
+one owned PR on its branch, and have no index entry naming another run as its
+latest (the index only takes a PR away), and each head is read live, never
+taken from the body's `head=`. The identity is, in order, `--adopt-run`, the
+carried `run_id`, the body's `run=` line, the one id every node PR with an
+index entry names, and a freshly minted one only when the index holds no node
+PR. A node PR another run recorded last, or every node PR when no identity is
+found, stops `recovery-unproven` naming each with its
+reason and URL; `--adopt-run <id>` takes exactly those over instead, never
+one that failed the ownership lookup, through the recovery's own index
+entries, with no PR edited. An index with no node line beside an owned node PR stops
 `coordination-index-missing`, and a body over the size cap
 `coordination-body-full`. The recovered record holds `run/setup`, each node's
 `run/node/<node>`, the cascade `not-run`, and `run/recovered` (the coordination
 PR and the identity's source); the run continues from it, and the exit lines
 carry `recovered=<url>`. Each follow-up line is kept or dropped: kept, with
-its live head and no marker asked of it, when its node is one the recovery
+its live head and no index entry asked of it, when its node is one the recovery
 rebuilt, it is in that node's repository, its id names the number its ref
 does, and a live read finds it based on the default branch, by the invoking
 login and not a fork, and not closed unmerged; dropped otherwise, which setup
@@ -754,17 +765,13 @@ against its chain shape:
      default is `.local/state/shirabe` under the home directory, in
      `execute-carry/`, mode 0700) only until the
      carry succeeds.
-   - **Node PR marker edits** (`gh pr edit --body-file`), only from
-     `record-coord-setup.sh` on a recovering start given `--adopt-run`, after
-     every recovery check passed, and only on node PRs that passed the
-     ownership lookup: `run-id.sh` restamps or stamps the body with the
-     adopted id's marker, the rest of it kept, and a re-read must show the
-     id.
    - **koto context keys** this run's scripts write: `repos` (the write set,
      fixed at start), `home_pr` (only from `owned-pr.sh`'s output), `waiting`,
      `expected_head` (only after a successful push), `cascade_result.json`
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
-     `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
+     `confirm_verdict`, `reason`, `step`, and `pr_content` (the PR content
+     switch, recorded once per invocation by the opener through
+     `scripts/pr-workflow-content.sh --record`); on coordinated, `home_repo`,
      `coord_branch`, `plan_abs`, `merge_attempts` (`<id>:<result>` entries,
      the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:
      merge-not-observed, merge-call-failed or merge-refused from
@@ -776,7 +783,7 @@ against its chain shape:
      it at every invocation's start), and
      `run_id`, minted by `record-coord-setup.sh` when it seals a new run record
      or recovers one with no identity (by `execute-open.sh` on single-pr),
-     seeded from the run line or the markers on a recovery, and overwritten
+     seeded from the run line or the node PRs' index entries on a recovery, and overwritten
      only by `run-id.sh adopt` on a recovery given `--adopt-run`; and the
      `outcome`, `step`, `reason`,
      `loop_line`, and `waiting` keys the templates' own edges assign.
@@ -804,7 +811,7 @@ against its chain shape:
    node's repository against the write set and its PR against the ownership
    filter. The one read of the body is setup's on a start with no record,
    through the codec: what it names is only a claim, which the PLAN's node
-   list, the ownership lookup, the run's marker and a live head read must each
+   list, the ownership lookup, the PR's index entry and a live head read must each
    bear out before anything is recorded, and a head the body shows is never
    used.
 4. **Visibility boundary.** `/execute` runs in public and private repositories, and a

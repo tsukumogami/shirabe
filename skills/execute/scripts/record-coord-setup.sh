@@ -78,9 +78,10 @@
 # rendered `run=` line, a PR Index line (a node's or a follow-up's), or an
 # owned PR on a PLAN node's branch. The store of that run is --store, else
 # the body's `store=` line, else github; a --store that differs from the
-# body's line stops store-mismatch. Under the run's recorded switch omit the
-# store is session (the body carries no record to recover from), and a
-# --store github stops store-mismatch.
+# body's line stops store-mismatch. Under the run's recorded switch omit a
+# new run's store is session (its body will carry no record to recover
+# from), and a --store github stops store-mismatch; a run that had started
+# keeps the store its body names.
 #
 #   Nothing started: a new run. It seals run/setup through `run-record.sh
 #   setup` (the store, the coordination PR's number, repos, mode
@@ -100,14 +101,15 @@
 #   stops coordination-index-missing. Each node line must name a PR node of
 #   the PLAN in that node's repository, the one owned PR on its branch (no PR,
 #   several, a PR closed unmerged, another author, branch, base or a fork all
-#   fail), and then have its latest index entry name the run (the PR's index
-#   session, read through record-store.sh's rs_index_latest_run, as
-#   owned-pr.sh reads it). The run's identity is, in order: --adopt-run, the
-#   carried run_id, the body's run= line, the one id every node PR's index
-#   entry names, and, only when the index holds no node line, a minted one. A
-#   node PR whose entry names another run, or that has none, and every node
-#   PR when there is no identity, stops recovery-unproven naming each, with
-#   its reason and URL. With --adopt-run those PRs (and only those) are taken
+#   fail), and then have no index entry naming another run as its latest (the
+#   PR's index session, read through record-store.sh's rs_index_latest_run, as
+#   owned-pr.sh reads it: the index only takes a PR away, so one with no entry
+#   stands on the ownership lookup). The run's identity is, in order:
+#   --adopt-run, the carried run_id, the body's run= line, the one id every
+#   node PR that has an entry names, and, only when the index holds no node
+#   line, a minted one. A node PR whose latest entry names another run, and
+#   every node PR when there is no identity, stops recovery-unproven naming
+#   each, with its reason and URL. With --adopt-run those PRs (and only those) are taken
 #   over instead: the recovery's own index entries, written under the adopted
 #   id once the record is, make them this run's, and nothing on GitHub is
 #   edited. Each follow-up line is kept or dropped: kept when its node is a
@@ -541,9 +543,10 @@ else
         stop store-mismatch "the coordination PR's body says this run's store is $BODY_STORE, and this invocation asked for $STORE"
     fi
     [ -n "$STORE" ] || STORE="$BODY_STORE"
-    # Under omit the body carries no record, so a recovery from it is
-    # impossible: the run keeps its record in its session.
-    if [ "$COORD_CONTENT" = omit ]; then
+    # Under omit a new run's body carries no record, so a recovery from it
+    # would be impossible: a new run keeps its record in its session. A run
+    # that started earlier keeps the store its body's store= line names.
+    if [ "$COORD_CONTENT" = omit ] && [ "$STARTED" -eq 0 ]; then
         if [ -n "$STORE" ] && [ "$STORE" != session ]; then
             stop store-mismatch "this run's PR content switch is omit, so its coordination PR's body carries no record to recover from; its store is session, and this invocation asked for $STORE"
         fi
@@ -643,7 +646,7 @@ else
         # own. The run= line is the last render's. Unanimous index entries
         # prove the node PRs agree on one run. A minted id is allowed only
         # when the index names no node PR, since a fresh id would disown them.
-        MARKS=$(printf '%s' "$PASS3" | awk -F'\t' 'NF >= 7 { print $7 }' | LC_ALL=C sort -u)
+        MARKS=$(printf '%s' "$PASS3" | awk -F'\t' 'NF >= 7 && $7 != "none" { print $7 }' | LC_ALL=C sort -u)
         if [ -n "$ADOPT" ]; then
             SOURCE=adopted; RUN_ID="$ADOPT"
         elif [ -n "$CARRIED" ]; then
@@ -661,14 +664,14 @@ else
                 unproven "$n" "$url" "no identity to prove it by (no carried run_id, no run= line, and the node PRs' index entries don't name one run); its entry names: $mk" index
                 continue
             fi
-            [ "$mk" = "$RUN_ID" ] && continue
+            # A PR with no index entry stands on the ownership lookup it
+            # passed: the index can only take a PR away (owned-pr.sh's rule),
+            # and it lives on the host that wrote it.
+            [ "$mk" = "$RUN_ID" ] || [ "$mk" = none ] && continue
             # --adopt-run takes the PR over: the recovery's own index entries,
             # written below under the adopted id, make it this run's.
             [ -n "$ADOPT" ] && continue
-            case "$mk" in
-                none) unproven "$n" "$url" "no index entry" index ;;
-                *) unproven "$n" "$url" "another run's index entry" index ;;
-            esac
+            unproven "$n" "$url" "another run's index entry" index
         done <<<"$PASS3"
         if [ -n "$UNPROVEN" ]; then
             hint=""

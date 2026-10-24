@@ -669,8 +669,17 @@ node_prs "index=\"$OTHER_ID\"" "body=$PLAIN_BODY"
 ct_write_db "$CASE/body.md"
 run_setup
 stopped "a node PR another run recorded and one with no entry" recovery-unproven
-grep -q "$CT_CORE ($URL11): another run's index entry" "$CASE/stderr" && grep -q "$CT_CLI ($URL12): no index entry" "$CASE/stderr" \
-    && pass "both are named, each with its reason" || fail "unproven-two stderr: [$(cat "$CASE/stderr")]"
+grep -q "$CT_CORE ($URL11): another run's index entry" "$CASE/stderr" && ! grep -q "$CT_CLI (" "$CASE/stderr" \
+    && pass "only the PR another run recorded is named; one with no entry stands on the ownership lookup" \
+    || fail "unproven-two stderr: [$(cat "$CASE/stderr")]"
+# A node PR with no entry, beside the run line's identity, is the run's: the
+# index only takes a PR away.
+setup_case no-entry
+ct_rendered_body "$CASE/body.md" "$RID" github "$CT_CORE=11" "$CT_CLI=12"
+node_prs "index=\"$RID\"" "body=$PLAIN_BODY"
+ct_write_db "$CASE/body.md"
+run_setup
+recovered_ok "a node PR with no index entry beside one the run recorded" run-line
 no_remote_write "recovery-unproven"
 setup_case no-identity
 ct_index_line "$CT_CORE" "$CT_REPO" 11
