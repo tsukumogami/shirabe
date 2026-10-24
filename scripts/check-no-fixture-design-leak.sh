@@ -22,9 +22,10 @@ CURRENT_DIR="$REPO_ROOT/docs/designs/current"
 
 errors=0
 
-# Collect the set of DESIGN fixture basenames (sorted, unique).
+# Collect the set of DESIGN fixture basenames (sorted, unique). The sed strips
+# the directory, since BSD find (macOS) can't print a bare basename itself.
 fixture_basenames=$(find "$REPO_ROOT/skills" -path '*/evals/fixtures/designs/*' \
-  -name 'DESIGN-*.md' -printf '%f\n' 2>/dev/null | sort -u)
+  -name 'DESIGN-*.md' -print 2>/dev/null | sed 's|.*/||' | sort -u)
 
 # Read the frontmatter `upstream:` value of a file (first match inside the
 # leading `---` block). Prints empty string if absent.
