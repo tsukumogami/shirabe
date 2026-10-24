@@ -46,7 +46,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# test-lib.sh: the GitHub DB helpers, state_json and the counters. It
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
@@ -157,8 +157,7 @@ S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2
 [ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests legs-move-engine; exit 1; }
 ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap legs)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
+run record-open.sh >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 # leg <topic>: a request on A's store with one deliver leg pinning TOPIC, as

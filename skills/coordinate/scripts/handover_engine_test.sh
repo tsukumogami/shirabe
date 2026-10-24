@@ -65,7 +65,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# test-lib.sh: the GitHub DB helpers, state_json and the counters. It
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
@@ -146,8 +146,7 @@ S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2
 [ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
 ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap handover)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "record-open.sh opens the record in the run's session" 0 $?
+run record-open.sh >/dev/null 2>"$T/w.err"; eq "record-open.sh opens the record in the run's session" 0 $?
 grep -Eq '^(issue|pr) create' "$GH_DB.calls" && bad "  ... opening nothing on GitHub" "$(grep -E '^(issue|pr) create' "$GH_DB.calls")" \
     || ok "  ... opening nothing on GitHub"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
@@ -298,8 +297,7 @@ rota_open() { # rota_open: a run of the rota discipline on host A, its session i
 rota_open || bad "the first rotation's run opens" "$(cat "$T/open.err")"
 R1=$S
 eq "the first rotation stops at record_open" record_open "$(at)"
-render "$(record_json discipline rota)" issue > "$T/rota.md"
-run record-open.sh --body-file "$T/rota.md" --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
+run record-open.sh --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
 eq "  ... opens in its session" 0 $?
 eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 jq -n '{hold: "after-cutover", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-10-01T10:00Z", lifted: ""}' > "$T/rhold.json"

@@ -53,8 +53,7 @@ open_run fresh || { bad "1: the fresh start opens a session" "$(cat "$T/open.err
 ok "1: the fresh start opens a session"
 grep -qx 'resumed=1' <<< "$OPEN_OUT" && bad "1:   ... resuming nothing" "$OPEN_OUT" || ok "1:   ... resuming nothing"
 eq "1: with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap fresh)" issue > "$T/open.md"
-write_as_agent record-open.sh --body-file "$T/open.md"
+write_as_agent record-open.sh
 eq "1: record-open.sh (agent-run) opens the record" 0 $?
 (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the session's record/meta" || bad "1:   ... in the session's record/meta" "$(cat "$T/w.err")"
 grep -Eq '^(issue|pr) create|^api --method POST' "$GH_DB.calls" \

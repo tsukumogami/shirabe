@@ -38,7 +38,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# test-lib.sh: the GitHub DB helpers, state_json and the counters. It
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
@@ -127,8 +127,7 @@ has_args 1 "--scope roadmap" "--name calls" "--repo acme/widgets" && ok "1:   ..
 grep -q -- '--ref' "$T/import.calls" && bad "1:   ... and with no record on GitHub, no import" "$(cat "$T/import.calls")" \
     || ok "1:   ... and with no record on GitHub, no import"
 eq "1: the run stops at record_open" record_open "$(at)"
-render "$(record_json roadmap calls)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" > /dev/null 2> "$T/w.err"; eq "1: record-open.sh opens the record in the session" 0 $?
+run record-open.sh > /dev/null 2> "$T/w.err"; eq "1: record-open.sh opens the record in the session" 0 $?
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 echo "== 2. a resume =="
@@ -168,7 +167,7 @@ echo "== 6. a fresh start whose lookup finds a record =="
 TITLE_PREFIX=$(sed -n 's/^TITLE="\(.*\)\$NAME"$/\1/p' "$REPO_ROOT/skills/coordinate/legacy-import/import.sh")
 [ -n "$TITLE_PREFIX" ] || bad "6: the importer's record title is read" "no TITLE= line in import.sh"
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-oldrec.md"] = $t' --arg t "$(printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Planned\n')"
-render "$(record_json roadmap oldrec | jq -c --argjson h "$(holding feat-1 '{"unit": "Feature 1", "pull_request": "", "branch": ""}')" '.holdings = [$h]')" issue > "$T/oldrec.md"
+sed 's/ROADMAP-plugin-system/ROADMAP-oldrec/' "$REPO_ROOT/skills/coordinate/legacy-import/testdata/roadmap.md" > "$T/oldrec.md" # a GitHub record body for this scope, as the importer reads one
 db '.issues += [{repo: "acme/widgets", number: 41, title: ($p + "oldrec"), body: $b, state: "open", author: "coord", editor: null}]' \
     --arg p "$TITLE_PREFIX" --rawfile b "$T/oldrec.md"
 start '["docs/roadmaps/ROADMAP-oldrec.md"]' || bad "6: the start opens" "$(cat "$T/open.err")"
