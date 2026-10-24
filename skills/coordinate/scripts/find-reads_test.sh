@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# find-reads_test.sh -- the reads record-find.sh makes at discipline scope
+# find-reads_test.sh -- the reads state-find.sh makes at discipline scope
 # (shirabe#1141), counted through the gh and koto stand-ins.
 #
 # Covers: a discipline's first rotation, a predecessor session and this run's
@@ -43,7 +43,7 @@ rotation() {
 find_token() {
     [ -d "$KOTO_STORE/sessions/$1" ] || log_new "$1" "$(discipline_vars "$2")"
     reset_calls; : > "$KOTO_STORE/calls"
-    bash "$HERE/record-find.sh" --session "$1" --no-seal 2> "$T/find.err"
+    bash "$HERE/state-find.sh" --session "$1" --no-seal 2> "$T/find.err"
 }
 # gh_reads: the gh calls since find_token, one per line, as the stand-in logs
 # them; gh_count <pattern>: how many of them match.

@@ -21,7 +21,7 @@
 #                         this one restarted still counts), or a `filed #<n>` naming no
 #                         issue in the host repository. A discipline rotation's
 #                         predecessor's deferrals are rows of this record from
-#                         its first state (record-open.sh --carry), judged the
+#                         its first state (state-open.sh --carry), judged the
 #                         same way
 #   paused <id>           a pause in the record's Standing section holds
 #                         this dispatch (pause-read.sh): a dispatch whose
@@ -48,9 +48,7 @@
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
-#                         it an unrecorded write or an owed message; `archive`
-#                         (settled entries to move out of a full record)
-#                         blocks either way
+#                         it an unrecorded write or an owed message
 #   unresolved-topic      a redispatch (or any visit not from a pick) whose
 #                         unit resolves to no dispatch topic: the failed
 #                         unit can't be found (a leg no Holdings row
@@ -77,7 +75,7 @@
 #                         path into it (the pick after the latest entry into
 #                         pick, or on a redispatch the unit that failed),
 #                         always a dispatch topic: with none, the verdict is
-#                         unknown-topic or unresolved-topic. record-confirm.sh holds the
+#                         unknown-topic or unresolved-topic. state-confirm.sh holds the
 #                         dispatch that follows to this topic
 # A row is parked when it has a Verified head and its pull request is open and
 # not a draft; a row with a Verified head and a cleared Pull request cell is
@@ -115,7 +113,7 @@
 # Exit codes, check mode: 0 a verdict was printed; 2 a read failed; 64 usage.
 # Row mode: 0 disposed or raised-this-run; 1 undisposed; 64 usage.
 #
-# The record is read through record-source.sh. GitHub reads:
+# The record is read through state-read.sh. GitHub reads:
 # gh api --method GET repos/R/issues/<n> (a filed deferral's issue);
 # gh pr view <n> --repo <repo> --json state,isDraft for each verified holding.
 set -uo pipefail
@@ -139,7 +137,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 # dc_valid_topic: the dispatch topic's grammar, the dispatch path's own.
 . "$HERE/dispatch-common.sh"
 
@@ -217,7 +215,7 @@ finish() {
 # pick evidence submitted after the latest entry into pick. From failure (a
 # redispatch): the unit that failed, which is the topic this state sealed on its
 # previous visit when the failure came from dispatch, else the latest `wait`
-# evidence's unit. record-confirm.sh then holds the dispatch to this topic.
+# evidence's unit. state-confirm.sh then holds the dispatch to this topic.
 CL="$HERE/coord-log.sh"
 # rd <var> <args...>: a coord-log.sh read into <var>, in this shell (not a
 # command substitution, so a failure exits the script). Exit 1 means "none"
@@ -274,17 +272,13 @@ esac
 
 # The run's record.
 lib_run_found || { REASON="the run has no found record"; finish record-changed; }
-# The record, through the seam (record-source.sh).
-rs_record "$T/parsed.json" json; RS_RC=$?
-if [ $RS_RC -eq 4 ]; then
-    REASON="$(lib_record_name) holds no record: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed
-fi
-{ [ $RS_RC -eq 2 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)"
-cp "$T/parsed.json.raw" "$T/rec.json"
+# The record, through the seam (state-read.sh).
+rs_record "$T/parsed.json"; RS_RC=$?
 case $RS_RC in
     0) ;;
-    3|65) REASON="$(lib_record_name) is no longer a canonical $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    4) REASON="$(lib_record_name) holds no record: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
+    65) REASON="$(lib_record_name) no longer reads back as a $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
 esac
 # The cap a person set in the record's Run section wins over the session's.
 # The first lib_bounds, above, read only the session, for the verdicts that

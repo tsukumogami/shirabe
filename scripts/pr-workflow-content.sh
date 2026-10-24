@@ -8,7 +8,8 @@
 #   include   the repository declares `## PR Workflow Content: include`: the
 #             skills write today's workflow records (the review round table,
 #             override and deferral notes, the run's record lines, pointers to
-#             PLAN and ROADMAP files, per-child outcome tables)
+#             PLAN and ROADMAP files, per-child outcome tables, the artifact
+#             skills' jury verdicts)
 #   omit      anything else, the default: titles, bodies and commit messages
 #             describe the change and how it was verified in plain terms, and
 #             the records stay in the run's own session

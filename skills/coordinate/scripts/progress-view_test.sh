@@ -39,7 +39,7 @@ jq '.holdings += [{worker: "plugin-done", unit: "Feature 8: Hooks", phase: "exec
 MOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-merged.json" 2> "$T/err")
 grep -qF '| Ongoing | Feature 8: Hooks | `plugin-done` | none yet | merged | tear down its worker |' <<<"$MOUT" \
     && ok "a merged row reads merged, its worker to tear down" || bad "a merged row reads merged, its worker to tear down" "$MOUT $(cat "$T/err")"
-# A stranded row (record-holding.sh --strand): its unit goes out again under a new topic.
+# A stranded row (state-holding.sh --strand): its unit goes out again under a new topic.
 jq '.holdings += [{worker: "plugin-quiet", unit: "Feature 9: Themes", phase: "executing", dispatch_status: "stranded", parked: false, pull_request: ""}]' "$F" > "$T/pick-stranded.json"
 SOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-stranded.json" 2> "$T/err")
 grep -qF '| Ongoing | Feature 9: Themes | `plugin-quiet` | none yet | stranded | dispatch its unit again under a new topic |' <<<"$SOUT" \

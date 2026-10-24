@@ -7,21 +7,20 @@
 #   decision-next.sh --session S                  route: print the sealed verdict
 #   decision-next.sh --session S --owed dispatch|pick [--parsed FILE]
 #
-# --parsed, with --owed only, names the record this session's caller read and
-# parsed in the same tick: rs_record's output FILE, with the body it parsed at
-# FILE.md, both readable (otherwise usage, 64). pick-facts.sh and
-# deferral-check.sh pass their own, so the record is read once in the tick
-# (shirabe#840, shirabe#1156). Nothing checks that FILE
+# --parsed, with --owed only, names the record this session's caller read in
+# the same tick: rs_record's output FILE, readable (otherwise usage, 64).
+# pick-facts.sh and deferral-check.sh pass their own, so the record is read
+# once in the tick (shirabe#840, shirabe#1156). Nothing checks that FILE
 # is this session's record; only a caller that just read it may pass it.
 # Without --parsed the record is read here.
 #
-# It reads the Decisions section (record-decision.sh --list, or its projection
+# It reads the Decisions section (state-decision.sh --list, or its projection
 # over the --parsed record) and the session log (coord-log.sh). The rules, in
 # routing order; the first that holds is the verdict:
 #
 #   1 carry             never printed now: a discipline rotation carries its
 #                       predecessor's unsettled entries and Next decision when
-#                       it opens (record-open.sh --carry), so nothing is left
+#                       it opens (state-open.sh --carry), so nothing is left
 #                       to carry by the time this runs; the rule keeps its
 #                       place in the order
 #   2 unrecorded-open   the latest report_questions visit sealed a list, the run
@@ -32,7 +31,7 @@
 #                       escalate_send's `answered`) reached decision_answer and
 #                       no line carries this run's `wait <seq>` stamp for it (a
 #                       re-sent identical answer writes its own stamped line
-#                       too). An arrival record-decision.sh can't write (no
+#                       too). An arrival state-decision.sh can't write (no
 #                       decision, one that isn't a plain number, one the
 #                       record has no entry for, or an answer with no plain
 #                       round) is never owed: routing back to it would loop
@@ -43,7 +42,7 @@
 #                       park's (the pick before it chose await_decision, with
 #                       no visit to wait between), instead, until the next
 #                       pick: no `decision` Work row
-#                       (record-state.sh --list) parks the unit pick named,
+#                       (state-stored-set.sh --list) parks the unit pick named,
 #                       on a new entry or on one already open
 #   3 withdraw <n>      an entry owes a withdrawal
 #   4 reply <n>         an entry owes a reply
@@ -60,23 +59,11 @@
 #                       decision_open, and neither classify_report nor wait has
 #                       been entered since: the report is still to classify
 #     clear             nothing owed
-#   record-full         something is owed that needs a write, and the record is
-#                       within 4,096 bytes of the write core's 60,000-byte
-#                       budget: a stop for the human, never a write the core
-#                       would refuse
 #
-# Before any rule, a record within that margin whose Decisions section holds a
-# settled entry that owes nothing (the codec's d_archivable) has those entries
-# archived (record-decision.sh --archive), except one a `decision` Work row
-# still parks a unit on (d_parked), whose outcome pick-facts.sh reads: their
-# rows move to `decisions` entries on the record, and the body keeps their
-# identifiers and this run's stamps on them, which the rules below read as they
-# read a row's. The rules then read the section as it is after the move, so
-# record-full is left only for a record that is full of what can't move. With
-# --owed the move is `archive`, ahead of every rule, blocking dispatch and pick
-# alike, so a restarted run on a full record comes here before it does anything
-# else. An arrival naming an archived entry is writable: record-decision.sh
-# restores the entry first.
+# A record moved from a GitHub record may keep archived entries (an Archived
+# line, and this run's stamps on them as kept stamps), which the rules read as
+# they read a row's. An arrival naming an archived entry is writable:
+# state-decision.sh restores the entry first.
 #
 # --owed prints the rule that blocks the given step, or `none`, and seals and
 # writes nothing. What each rule blocks (the DESIGN's table):
@@ -102,10 +89,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || usage
-[ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ] && [ -r "$PARSED.md" ]; } || usage
+[ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ]; } || usage
 case "$OWED" in ''|dispatch|pick) ;; *) usage ;; esac
 SCOPE= NAME= REPO=
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_run_stamp
 T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX") || lib_die2 "cannot make a temporary directory"
@@ -114,52 +101,9 @@ CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 
 # The section and the log facts the rules read.
 if [ -n "$PARSED" ]; then
-    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
+    jq -c -L "$HERE" 'include "state-schema"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
 else
-    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
-        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
-fi
-# live_size: the live body's size in bytes, into SIZE, and the parsed record,
-# into LIVE: the --parsed record when the caller passed one, otherwise the
-# record read here.
-live_size() {
-    if [ -n "$PARSED" ]; then
-        cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
-        LIVE=$PARSED
-    else
-        lib_run_found || lib_die2 "the run has no found record"
-        rs_record "$T/live" body
-        case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
-        LIVE=$T/live
-    fi
-    SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
-}
-# The archive: settled entries leave a record within the margin, except one a
-# unit is parked on (the codec's d_parked). The plain d_archivable is only a
-# pre-filter, so a section with nothing settled never reads the live record;
-# d_archivable($p) decides.
-ARCHIVE=false
-if jq -e -L "$HERE" 'include "record-codec"; any(.entries[]; d_archivable)' "$T/section.json" > /dev/null; then
-    live_size
-    if [ "$SIZE" -gt $((60000 - 4096)) ]; then
-        jq -e -L "$HERE" --slurpfile r "$LIVE" 'include "record-codec"; ($r[0] | d_parked) as $p | any(.entries[]; d_archivable($p))' \
-            "$T/section.json" > /dev/null 2> "$T/parked.err"
-        case $? in
-            0) ARCHIVE=true ;;
-            1) ;;
-            *) cat "$T/parked.err" >&2; lib_die2 "cannot read the Work section" ;;
-        esac
-    fi
-fi
-if [ "$ARCHIVE" = true ]; then
-    [ -z "$OWED" ] || { printf 'archive\n'; exit 0; }
-    bash "$HERE/record-decision.sh" --session "$SESSION" --archive > /dev/null 2> "$T/ar.err"
-    case $? in
-        0) ;;
-        12) cat "$T/ar.err" >&2; lib_die2 "the record changed while settled decisions were archived; run it again" ;;
-        *) cat "$T/ar.err" >&2; lib_die2 "cannot archive settled decisions" ;;
-    esac
-    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
+    bash "$HERE/state-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
         || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
 fi
 # The latest entry into each state the rules read, 0 when none, in one read
@@ -199,7 +143,7 @@ RCAP=$(CL capture --name REPORT --state report_facts 2>/dev/null) || RCAP=
 # from pick, or one the run came back for. A park is judged by the unit pick
 # named having its decision row, not by a stamp, since a visit it came back for
 # opens nothing; it is judged until the next pick, and the chain can't reach a
-# pick before the row is there. The Work section (record-state.sh, its one
+# pick before the row is there. The Work section (state-stored-set.sh, its one
 # reader) is read only while it is judged.
 PARK=false CHAIN=false PARK_UNIT= PARK_SINCE=
 if [ "$RAISE_SEQ" -gt 0 ]; then
@@ -218,9 +162,9 @@ if [ "$PARK" = true ]; then
     # The pick's minute: a park row older than the pick is an earlier park.
     PARK_SINCE=$(printf '%s' "$PICK_EV" | jq -r '(.timestamp // "")[0:16]')
     if [ -n "$PARSED" ]; then
-        jq -c -L "$HERE" 'include "record-codec"; state_list' "$PARSED" > "$T/state.json" || lib_die2 "cannot read the Work section"
+        jq -c -L "$HERE" 'include "state-schema"; state_list' "$PARSED" > "$T/state.json" || lib_die2 "cannot read the Work section"
     else
-        bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
+        bash "$HERE/state-stored-set.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
             || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
     fi
 else
@@ -228,7 +172,7 @@ else
 fi
 
 # Rule 1: the carry. A rotation carried its predecessor's unsettled entries
-# when it opened (record-open.sh --carry), so there is nothing left to carry.
+# when it opened (state-open.sh --carry), so there is nothing left to carry.
 CARRY=false
 
 # Rules 2 to 9, over the section and the log facts.
@@ -237,7 +181,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
     --argjson an "$ANSWER_SEQ" --argjson evs "$EVID_SEQ" --argjson rs "$RAISE_SEQ" \
     --argjson wans "$WAIT_ANS" --argjson tans "$TOOL_ANS" --argjson wevi "$WAIT_EVI" \
     --argjson park "$PARK" --argjson chain "$CHAIN" --arg pu "$PARK_UNIT" --arg since "$PARK_SINCE" --arg host "$REPO" --slurpfile st "$T/state.json" '
-  include "record-codec";
+  include "state-schema";
   .entries as $es
   | (.archived // []) as $archived
   | [d_section_stamps[] | select(.run == $run)] as $mine
@@ -254,7 +198,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
   | ($listed and $op > $rq and $wt < $rq) as $to_open
   # The latest answer, by either route, and whether it reached decision_answer.
   | ([$wans, $tans] | map(select(.seq != null)) | max_by(.seq)) as $ans
-  # An arrival record-decision.sh can write: a decision that is a plain
+  # An arrival state-decision.sh can write: a decision that is a plain
   # number with an entry in the record, and for an answer a plain-number
   # round. Anything else it refuses, so owing it would loop back forever.
   | def writable($a; $round):
@@ -262,7 +206,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
       | ($d | test("^[1-9][0-9]*$")) and (any($es[]; .decision == $d) or (($archived | index($d | tonumber)) != null))
         and ((($round | not)) or ((($a.fields.round // "") | tostring) | test("^[1-9][0-9]*$")));
   (if $ans == null or (writable($ans; true) | not) then false else $an > $ans.seq end) as $ans_taken
-  # Every answer record-decision.sh takes, a re-sent identical one included,
+  # Every answer state-decision.sh takes, a re-sent identical one included,
   # writes a line with its arrival stamp, so the stamp alone says it landed; an
   # answer line without it may be another answer for the same round.
   | ($ans_taken and stamped("wait"; ($ans.seq | tostring))) as $ans_recorded
@@ -301,17 +245,6 @@ if [ -n "$OWED" ]; then
     esac
     exit 0
 fi
-
-# A write that is owed on a record too close to the budget stops for the human.
-case "$WORD" in
-    clear|clear-report) ;;
-    *)
-        live_size
-        if [ "$SIZE" -gt $((60000 - 4096)) ]; then
-            echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD, with no settled entry left that can be archived; prune the record" >&2
-            NEXT=record-full WORD=record-full
-        fi ;;
-esac
 
 if [ "$WORD" = verdict ]; then
     jq -c --arg n "${NEXT#* }" '.entries[] | select(.decision == $n)' "$T/section.json" > "$T/decision.json" || lib_die2 "cannot write the entry"

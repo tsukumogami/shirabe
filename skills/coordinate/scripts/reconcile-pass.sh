@@ -165,7 +165,7 @@ rd_idle "$T"
 R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"
 # One record read for the pass: reconcile-read.sh's read, and the holding rows
-# the settle and the legs classification read (record-holding.sh --read), all
+# the settle and the legs classification read (state-holding.sh --read), all
 # take it from here; a write drops it (shirabe#1095).
 rs_once_begin "$T/once" || die "can't create the record read's directory"
 
@@ -345,7 +345,7 @@ collect() {
                 # Say how it ended, so the report names what couldn't be read
                 # rather than only that nothing came back: its exit code and
                 # the last line it wrote to stderr (launch always creates the
-                # .err file), token-shaped text redacted by record-common.sh's
+                # .err file), token-shaped text redacted by state-common.sh's
                 # lib_redact rule, copied since this pass doesn't source it.
                 why=$(tail -n 1 "$R/$id.err" | tr -d '\r' \
                     | sed -E 's/(gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{6,})/[redacted]/g' \

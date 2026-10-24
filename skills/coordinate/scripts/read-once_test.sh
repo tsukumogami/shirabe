@@ -13,13 +13,14 @@
 # assembly; a write in the step dropping the shared read, so the next read is
 # live and sees it, even when a read the step gave up on lands after the write.
 #
-# And a session record at the 60,000-byte record budget, with every koto call
+# And a session record of about 60,000 bytes (the size the old record budget
+# stopped at; nothing limits it now), with every koto call
 # held to a real one's 0.1 s: reconcile-read.sh reads it in one assembly of a
 # bounded few calls, inside its own 8-second deadline and the pass's 12; the
 # pass's three reads of it make one assembly, where they made three; a read
 # past its deadline is still named as the record read that timed out; and
 # report-facts.sh on it with a moved head writes only the holding's pushed
-# head, the body and its Written: time untouched, well inside its limit.
+# head, the other keys and the written time untouched, well inside its limit.
 #
 # The wall-clock cases read the host's own speed: this suite is not on the
 # macOS bash 3.2 floor list, whose runners are slower and shared.
@@ -32,7 +33,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RF="$HERE/report-facts.sh"
 RR="$HERE/reconcile-read.sh"
-RH="$HERE/record-holding.sh"
+RH="$HERE/state-holding.sh"
 
 zero() { : > "$KOTO_STORE/calls"; }
 # assemblies <session>: the session reads made, one per pair of record/meta gets.
@@ -136,20 +137,20 @@ bash "$RH" "${OV[@]}" --topic worker-3 --read > "$T/after.json" 2>/dev/null
 eq "  ... as does the step's next read" scoping "$(jq -r .phase "$T/after.json")"
 unset RS_ONCE RS_SESSION
 
-echo "== a session record at the budget, inside the deadlines =="
+echo "== a session record of 60,000 bytes, inside the deadlines =="
 # The other run ends, so this one is the scope's live run.
 log_end "$SS"
 SB=coordinate-roadmap-plugin-system-20260926T100000Z
 found_session "$SB" "$(roadmap_vars plugin-system)"
-# The largest row count whose body is still inside the 60,000-byte budget.
+# The largest row count whose state is still inside 60,000 bytes.
 n=245
 while :; do
     record_json roadmap plugin-system | jq -c --argjson h "$(holdings "$n")" '.holdings = $h | .written = "2026-10-01T08:00:00Z"' > "$T/brec.json"
-    SIZE=$(render "$(cat "$T/brec.json")" issue 2026-10-01T08:00:00Z | wc -c | tr -d ' ')
+    SIZE=$(state_json "$(cat "$T/brec.json")" 2026-10-01T08:00:00Z | wc -c | tr -d ' ')
     [ "$SIZE" -le 60000 ] && break
     n=$((n - 5))
 done
-[ "$SIZE" -gt 57000 ] && ok "the record's body is at the budget ($SIZE of 60000 bytes, $n holdings)" || bad "the record's body is at the budget" "$SIZE bytes"
+[ "$SIZE" -gt 57000 ] && ok "the record's state is about 60,000 bytes ($SIZE bytes, $n holdings)" || bad "the record's state is about 60,000 bytes" "$SIZE bytes"
 session_keys "$SB" "$T/brec.json"
 log_to "$SB" reconcile wait
 # Every koto call from here on costs what a real one does (about 0.1 s), so a
@@ -172,9 +173,9 @@ EL=$(( $(now) - T0 ))
 eq "the pass's three reads of it, the record and two holdings, make one assembly (they made three)" "0 found 0 0 1" \
     "$RR_RC $(jq -r .status "$T/rr.json") $H3 $H9 $(assemblies "$SB")"
 [ "$EL" -lt 12 ] && ok "  ... all three inside the pass's 12 s (${EL}s)" || bad "  ... all three inside the pass's 12 s" "${EL}s"
-# One assembly at 0.1 s a call takes over a second, so a 1-second deadline
-# always fires.
-RECONCILE_READ_DEADLINE=1 bash "$RR" --session "$SB" > "$T/rt.json" 2>/dev/null; RC=$?
+# An assembly makes at least three koto calls; at 0.5 s a call it takes over
+# a second however fast the host, so a 1-second deadline always fires.
+KOTO_CALL_DELAY=0.5 RECONCILE_READ_DEADLINE=1 bash "$RR" --session "$SB" > "$T/rt.json" 2>/dev/null; RC=$?
 eq "a read past its deadline still names the record read" '5 reading the record timed out' "$RC $(jq -r .reason "$T/rt.json")"
 
 session_snapshot "$SB" | grep -v '^./holdings ' > "$T/snap.before"
@@ -185,7 +186,7 @@ EL=$(( $(now) - T0 ))
 eq "report-facts.sh on it, worker-5's head moved, finds the report" "0 holding 105 worker-5" "$RC ${OUT% sealed:*}"
 eq "  ... and keeps the new head beside the holding" "$SHA_HEAD" "$(koto context get "$SB" record/holdings | jq -r '.[] | select(.worker == "worker-5") | .pushed_head')"
 eq "  ... with no failed write named" "" "$(grep 'pushed head' "$T/err")"
-eq "  ... writing only record/holdings, never the body's keys or its Written: time" "$(cat "$T/snap.before")" "$(session_snapshot "$SB" | grep -v '^./holdings ')"
+eq "  ... writing only record/holdings, never the other keys or the written time" "$(cat "$T/snap.before")" "$(session_snapshot "$SB" | grep -v '^./holdings ')"
 eq "  ... from one assembly of the record" 1 "$(assemblies "$SB")"
 [ "$EL" -lt 15 ] && ok "  ... well inside the 30 s action limit (${EL}s)" || bad "  ... well inside the 30 s action limit" "${EL}s"
 unset KOTO_CALL_DELAY

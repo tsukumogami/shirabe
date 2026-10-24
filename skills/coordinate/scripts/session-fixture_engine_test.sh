@@ -11,8 +11,8 @@
 # per section, the Run section holding the legacy `store session` row beside
 # the stored set and two crash-set rows, a holding's pushed head, three entries
 # (record/entries/<n>), a finished leg's key (legs/<request>/<leg>) and
-# coord/source.json reading `session`. The sections were rendered and parsed by
-# the codec, so each row has the columns a writer leaves.
+# coord/source.json reading `session`. The sections are in state-schema.jq's
+# normal form, so each row has the columns a writer leaves.
 #
 # Proves, one line per case:
 #   1. the fixture's keys, written into a run of its scope that a fresh start

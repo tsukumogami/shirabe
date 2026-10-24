@@ -46,7 +46,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# test-lib.sh: the GitHub DB helpers, state_json and the counters. It
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
@@ -90,14 +90,14 @@ run() { # run <script> <args...>: a coordinate script on session $S, on host $ON
     local s=$1; shift
     host_on "$ON" bash "$PS/$s" --session "$S" "$@"
 }
-handover() { run record-handover.sh "$@"; }
+handover() { run state-handover.sh "$@"; }
 # key <request>: the leg's key on host $ON, or nothing when there is none
 # (koto prints its own refusal on stdout, so presence comes from a listing).
 key() {
     host_on "$ON" koto context list "$S" --prefix "legs/$1/" | jq -e --arg k "legs/$1/deliver" 'index($k) != null' >/dev/null || return 0
     host_on "$ON" koto context get "$S" "legs/$1/deliver"
 }
-row() { run record-holding.sh --topic "$1" --read 2>/dev/null; }
+row() { run state-holding.sh --topic "$1" --read 2>/dev/null; }
 
 # A stand-in /deliver: one state, then a terminal whose result the leg gets.
 mkdir -p "$T/tpl"
@@ -157,8 +157,7 @@ S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2
 [ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests legs-move-engine; exit 1; }
 ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap legs)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
+run state-open.sh >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 # leg <topic>: a request on A's store with one deliver leg pinning TOPIC, as
@@ -171,7 +170,7 @@ leg() {
 holding_on() {
     holding "$1" "{\"unit\": \"Feature 1\", \"entry_point\": \"deliver\", \"mode\": \"--auto\", \"branch\": \"\",
         \"return_path\": \"leg $3:deliver\", \"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\"}" > "$T/row.json"
-    run record-holding.sh --topic "$1" --row-file "$T/row.json" >/dev/null 2>"$T/w.err" || bad "the holding $1 is written" "$(cat "$T/w.err")"
+    run state-holding.sh --topic "$1" --row-file "$T/row.json" >/dev/null 2>"$T/w.err" || bad "the holding $1 is written" "$(cat "$T/w.err")"
 }
 # legkey <request> <topic>: the leg's key, as dispatch-worker.sh writes it.
 legkey() {

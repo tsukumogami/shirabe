@@ -7,8 +7,8 @@
 # Usage:
 #   pause-read.sh --standing FILE [--units FILE]
 #
-# FILE is JSON holding a `standing` array of Standing rows, as record-parse.sh
-# and record-state.sh --list print them. --units names a JSON array of unit
+# FILE is JSON holding a `standing` array of Standing rows, as a record's state
+# and state-stored-set.sh --list print them. --units names a JSON array of unit
 # strings (a feature's tag, `<tag>: <title>`, `#<n>` or `<owner/repo>#<n>`, as
 # a Holdings row's Unit cell or pick's unit carries them) to say coverage for.
 #
@@ -29,7 +29,7 @@
 # A unit is covered by the first in-force or unreadable pause on `all` or on
 # that unit, unless a go-ahead names it: a go-ahead lets its unit through any
 # pause, `all` or its own. A pause's On, and a go-ahead's, matches a unit
-# when they are equal or share a tag key (record-common.sh tag_key), when the
+# when they are equal or share a tag key (state-common.sh tag_key), when the
 # unit is `<tag>: <title>` and its tag matches the On either way, or when one
 # is `#<n>` and the other `<owner/repo>#<n>`. The key makes `Feature 3` and
 # `Milestone 3` one unit, so a pause written before a roadmap moved to

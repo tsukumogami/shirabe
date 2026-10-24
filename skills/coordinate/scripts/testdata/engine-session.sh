@@ -4,24 +4,22 @@
 # own keys, before the run's first find, rather than into the gh stand-in.
 # Not shipped behaviour.
 #
-# Sourced after testdata/test-lib.sh (render, session_keys), with HERE set to
+# Sourced after testdata/test-lib.sh (state_json, session_keys), with HERE set to
 # skills/coordinate/scripts. Every koto call runs in the caller's directory and
 # environment, so a suite runs these from the directory its session's koto
 # calls run in.
 #
 #   session_seed <session> <record-json> [written]
-#       the record, rendered by the codec at <written> (test-lib.sh's render
-#       default when not given) and parsed back with the parse half's copy the
-#       legacy importer keeps (legacy-import/record-parse.jq, which reads a
-#       body to the same JSON), so every column a writer leaves is there,
-#       written whole into the session's record/meta and one
+#       the record in normal form at <written> (test-lib.sh's state_json,
+#       whose default applies when not given), so every column a writer
+#       leaves is there, written whole into the session's record/meta and one
 #       key per section the record holds (test-lib.sh's session_keys); a
 #       section key the session had that the record doesn't hold is removed.
 #       Entries, legs and every other key are left as they are.
 #   session_record <session>
 #       the session's record as JSON on stdout: record/meta's scope and
 #       written time and one field per section key, pushed heads dropped, as
-#       a body rendered from the keys parses back. Exits 1 when the session
+#       a reader is handed it. Exits 1 when the session
 #       holds no record/meta.
 #   koto_store_ready
 #       0 when this koto has what the session store needs (`context list
@@ -33,8 +31,7 @@ ES_SECTIONS="holdings:holdings deferrals:deferrals side_effects:side-effects rev
 session_seed() {
     local s=$1 j=$2 w=${3-} f pair field key
     f=$(mktemp "$T/session-seed.XXXXXX") || return 1
-    if [ -n "$w" ]; then render "$j" issue "$w" > "$f.md"; else render "$j" issue > "$f.md"; fi || return 1
-    jq -R -s -L "$HERE/../legacy-import" 'include "record-parse"; parse_record' < "$f.md" > "$f" || return 1
+    if [ -n "$w" ]; then state_json "$j" "$w" > "$f"; else state_json "$j" > "$f"; fi || return 1
     koto context list "$s" --prefix record/ > "$f.keys" 2> /dev/null || return 1
     for pair in $ES_SECTIONS; do
         field=${pair%%:*} key=${pair#*:}

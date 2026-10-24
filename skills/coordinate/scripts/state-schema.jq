@@ -7,20 +7,14 @@
 # string in the state. Each function takes the state, a section or a cell as
 # JSON and refuses with a jq error() whose message starts with "refused: ".
 #
-# Two callers run the same functions. record-write-core.sh runs check_record
-# over the next state before it writes anything, and record-codec.jq carries a
-# verbatim copy of everything below this header, so its renderer refuses
-# exactly what the write core refuses. state-schema_test.sh fails when the copy
-# differs, so a change here is copied into the codec in the same change. A
-# script reaches these functions with
-# `jq -L <scripts dir> 'include "state-schema"; ...'`, or through record-codec.jq.
+# state-write-core.sh runs normalize_state over the next state before it
+# writes anything, and state-read.sh over every state it hands a reader, so
+# a reader and a writer see one normal form. A script reaches these functions
+# with `jq -L <scripts dir> 'include "state-schema"; ...'`.
 #
 # $private, wherever a function takes it, is the list of repositories the host
-# can't show as public (record-write-core.sh reads each named repository's
+# can't show as public (state-write-core.sh reads each named repository's
 # visibility); a value naming one is refused. A private host passes [].
-#
-# The copy in record-codec.jq starts at the next comment line, which
-# state-schema_test.sh finds by its text: keep that line's wording.
 
 # The four sections every record has, in order, with their columns.
 def sections: [
@@ -44,19 +38,17 @@ def sections: [
 def refuse($m): error("refused: " + $m);
 
 def re_time_min: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$";
-def re_time_sec: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$";
 def re_date: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
 def re_repo: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$";
 def re_name: "^[A-Za-z0-9._-]+$";
-def re_pr_url: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$";
-# A dispatch topic, the Worker cell's shape: record-common.sh's RE_TOPIC, the
+# A dispatch topic, the Worker cell's shape: state-common.sh's RE_TOPIC, the
 # grammar every bash script holds a topic to.
 def re_topic: "^[A-Za-z0-9][A-Za-z0-9._-]*$";
 
 # pr_link_parts: a Pull request cell `[#a](https://github.com/o/r/pull/b)` as
 # {a, r, b}, or nothing for any other value. The one jq parser of the cell
-# (record-common.sh lib_pr_link is the bash one); a script reaches it with
-# `jq -L <scripts dir> 'include "state-schema"; ...'`, or through record-codec.jq.
+# (state-common.sh lib_pr_link is the bash one); a script reaches it with
+# `jq -L <scripts dir> 'include "state-schema"; ...'`.
 def pr_link_parts:
   strings | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$");
 # pr_link: the cell as {repo, number} when its two numbers agree, else nothing.
@@ -99,15 +91,15 @@ def names_repo($r):
   | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "(\\.git)?\\.*($|[^A-Za-z0-9_.-])");
 
 # Free text a person reads on a public host: a Decisions text column, or a
-# record entry (record-append.sh). text_named_repos lists the repositories the
+# record entry (state-entry.sh). text_named_repos lists the repositories the
 # text names unambiguously, a github.com/<owner>/<repo> link or
 # <owner>/<repo>#<n>, since in prose "and/or" or "CI/CD" is not a repository;
-# both callers (record-write-core.sh for the Decisions columns,
-# record-append.sh for an entry) read each one's visibility and pass the ones
+# both callers (state-write-core.sh for the Decisions columns,
+# state-entry.sh for an entry) read each one's visibility and pass the ones
 # that aren't public back as $private. text_problem($private) is null, or what
 # makes the text unfit: a repository on the $private list, a home-directory
 # path or a token-shaped string. check_dcell, the stored set's text cells,
-# scan_strings and record-append.sh use it.
+# scan_strings and state-entry.sh use it.
 def text_named_repos:
   def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
   [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
@@ -205,9 +197,9 @@ def check_holds($h; $private):
 #
 # What a replacement coordinator needs to continue from the record alone
 # (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 3). Each sits
-# after Holds and before Decisions, in this order, and renders only once it
-# has a row, so a record written before them keeps its bytes. Only
-# record-state.sh changes them.
+# after Holds and before Decisions, in this order, and a state holds it only
+# once it has a row (normalize_state leaves an empty one out). Only
+# state-stored-set.sh changes them.
 #
 # Run, one row per key from a closed set; `told` repeats, and `rules` and
 # `briefs` once per label:
@@ -249,7 +241,7 @@ def check_holds($h; $private):
 #            clears it) | rework (a milestone a confirmed changes-needed
 #            verdict, or a confirmed reopen on a reported failure, sent back
 #            for more work; roadmap-status.sh --confirm writes it,
-#            record-state.sh --done removes it once a worker is dispatched
+#            state-stored-set.sh --done removes it once a worker is dispatched
 #            for it)
 #   Who      a holding's Worker (a dispatch topic), or who does the work; for
 #            a decision row `decision <n>`, the entry it waits on; for a
@@ -264,7 +256,7 @@ def check_holds($h; $private):
 #            failure's `Evidence clause <n> failed: <what was seen>`, one
 #            paragraph of at most 600 bytes with no URL or markdown link
 #            (rework_problem), since the next brief quotes it
-#   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
+#   Wakes    a holding's wakes counted so far (state-stored-set.sh adds this run's
 #            from the session log at each write); 0 for a local agent, and
 #            read as 0 when blank (docs/designs/current/DESIGN-coordinate-paused-state.md,
 #            Decision 4)
@@ -356,7 +348,7 @@ def check_srow($sec; $private):
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
-       elif .key == "store" then (if .value == "session" then . else refuse("run.value: store-malformed: the store is the session; a store row reads session, never \(.value)") end)
+       elif .key == "store" then (if .value == "session" then . else refuse("run.value: the store is the session; a store row reads session, never \(.value)") end)
        elif .key == "rules" or .key == "briefs" then
          (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
           else refuse("run.value: a \(.key) row is `<label> sha256:<64 hex>`, the label letters, digits, `.`, `_` and `-`") end)
@@ -407,7 +399,7 @@ def check_state($sec; $rows; $private):
         ($r | map(select(.key != "told" and .key != "rules" and .key != "briefs") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
         | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
-        | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: store-malformed: the store row is used twice")
+        | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: the store row is used twice")
           elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
           elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
@@ -510,11 +502,11 @@ def check_decisions($d; $private):
     | if ($ids | unique | length) != ($ids | length) then refuse("decisions: an identifier is used twice")
       elif any($ids[]; . >= $d.next) then refuse("decisions: an identifier at or above Next decision (\($d.next))")
       elif any($arch[]; . >= $d.next) then refuse("decisions.archived: an identifier at or above Next decision (\($d.next))")
-      elif any($arch[]; . as $a | $ids | index($a)) then refuse("decisions.archived: an identifier the body still holds")
+      elif any($arch[]; . as $a | $ids | index($a)) then refuse("decisions.archived: an identifier the section still holds")
       elif $d.kept != null and any($d.kept.stamps[]; .decision as $k | $arch | index($k) | not)
         then refuse("decisions.kept: a stamp of an entry that isn't archived")
-      # floor: a number written 7.0 or 7e0 renders as 7, the one form the
-      # parser reads back.
+      # floor: a number written 7.0 or 7e0 is kept as 7, the one form a
+      # reader is handed.
       else {next: ($d.next | floor), entries: $rows}
         + (if ($arch | length) > 0 then {archived: $arch} else {} end)
         + (if $d.kept != null then {kept: $d.kept} else {} end) end
@@ -555,8 +547,8 @@ def scan_strings($private):
   | if $hit == null then $v
     else refuse("\($hit.p | map(if type == "number" then "[\(.)]" else ".\(.)" end) | join("") | ltrimstr(".") | if . == "" then "value" else . end): \($hit.why)") end;
 
-# check_record($private): a whole state, checked in the order the renderer
-# checks it: the top-level fields, the scope, the four sections, Holds, the
+# check_record($private): a whole state, checked in this order: the
+# top-level fields, the scope, the four sections, Holds, the
 # stored set and Decisions, then every string in it (scan_strings). Gives the
 # state back as the checks normalize it (every column present, a blank Wakes
 # read as 0, an absent optional section left out), or refuses with the first
@@ -575,3 +567,141 @@ def check_record($private):
     + (check_decisions($in.decisions; $private) | if . == null then {} else {decisions: .} end)) as $out
   | ($in | scan_strings($private)) as $_
   | $out;
+
+# normalize_state($private): the state as a reader is handed it and a writer
+# stores it. check_record's normal form, less the optional sections that hold
+# nothing: a Holds or stored-set section with no rows, and a Decisions section
+# with no entries whose Next decision is 1. Those are the sections a record
+# with nothing in them never carried, so a state written through here holds no
+# key for them, as a state written through the old markdown body never did
+# (normalize_test.sh holds normalize_state to that result for every section
+# shape).
+def normalize_state($private):
+  check_record($private)
+  | (if (.holds // null) == [] then del(.holds) else . end)
+  | reduce state_secs[] as $sec (.; if (.[$sec.key] // null) == [] then del(.[$sec.key]) else . end)
+  | (if .decisions != null and (.decisions.entries | length) == 0 and .decisions.next == 1 then del(.decisions) else . end);
+
+# ---- the Decisions entries' helpers -----------------------------------------
+#
+# escalation_problems($target): what keeps a recorded escalate verdict from
+# being escalated to $target, as a list (empty when it may be). The one
+# validator state-decision.sh and decision-render.sh share.
+#
+# An escalated entry's Options lines each carry an explanation, written
+# `<option> -- <explanation>` so the column's grammar is unchanged; the
+# recommendation names the option part. d_options gives them as
+# {label, explanation}, in the record's order.
+def d_options:
+  (.options // "") | split("\n") | map(select(length > 0)
+    | split(" -- ") as $p | {label: $p[0], explanation: ($p[1:] | join(" -- "))});
+def escalation_problems($target):
+  def blank: (. // "") | gsub("^\\s+|\\s+$"; "") | . == "";
+  . as $e
+  | [ (if ([$e | d_options[].label] | index($e.recommendation // "")) == null then "the recommendation is not one of the options" else empty end),
+      (if any($e | d_options[]; .explanation | blank) then "an option has no explanation" else empty end),
+      (if ($e.reason | blank) then "the reason is empty" else empty end),
+      (if ($e.context | blank) then "the context is empty" else empty end),
+      (if ($e.problem | blank) then "the problem is empty" else empty end),
+      (if ($e.grounds | blank) then "no ground" else empty end),
+      (if ($e.target // "") != $target then "the target is not the run's (\($target))" else empty end) ];
+
+# The stamps an entry carries, by position: the one ending its Source, and the
+# one after each Evidence line's source. A stamp-like string inside a line's
+# text is not a stamp. Each is {run, kind, seq, text}; text is the Evidence
+# line's text, "" for the Source's.
+def d_stamps:
+  [ ((.source // "") | capture(" \\[(?<run>[0-9]{8}T[0-9]{6}Z) (?<kind>[a-z]+) (?<seq>[0-9.]+)\\]$") | . + {text: ""}),
+    ((.evidence // "") | split("\n")[] | select(length > 0)
+      | capture("^[^ ]+ [^\\[]+ \\[(?<run>[0-9]{8}T[0-9]{6}Z) (?<kind>[a-z]+) (?<seq>[0-9.]+)\\]: (?<text>.*)$")) ];
+# The text of the Evidence line that marks an extracted question as addressed
+# to a person, stamped with the report that carried it. A report with one owes
+# its worker a redirect; decision-next.sh routes it, decision-render.sh renders
+# it, and state-decision.sh --open-from-report writes the mark.
+def d_addressed_mark: "addressed to a person";
+
+# compact_settled: a settled entry that owes nothing keeps its identity, round,
+# question, options, source, outcome, who decided, when, and its redirect
+# lines; every other cell is blanked. `Next decision` keeps its identifier from
+# being reused.
+def compact_settled:
+  if .state == "settled" and (.owed // "") == "" then
+    . as $e | reduce (decisions_cols[] | .[0]) as $k ({}; .[$k] = "")
+    | .decision = $e.decision | .round = $e.round | .question = $e.question
+    | .options = $e.options
+    | .state = "settled" | .source = $e.source | .outcome = $e.outcome
+    | .decided_by = $e.decided_by | .updated = $e.updated
+    # Options stay because evidence can reopen a settled entry, which then
+    # needs them to be escalated again; a redirect line stays because losing it
+    # would owe the report's redirect a second time.
+    | .evidence = ([($e.evidence // "") | split("\n")[]
+        | select(test("^[^ ]+ [^\\[]+ \\[[0-9]{8}T[0-9]{6}Z redirect [0-9]+\\]: "))] | join("\n"))
+  else . end;
+
+# A record moved from a GitHub record may keep entries its body archived: an
+# `archived` list of identifiers, and `kept`, the archiving run's stamps on
+# them, {run, stamps: [{decision, kind, seq, addressed}]}. The replay guard
+# (state-decision.sh) and the unrecorded and redirect rules (decision-next.sh)
+# read a kept stamp as they read a row's. Nothing archives an entry any more.
+#
+# d_section_stamps: every stamp a Decisions section holds, in its rows and kept,
+# each {run, kind, seq, text, decision}; a kept stamp's text is the addressed
+# mark or empty.
+def d_section_stamps:
+  [(.entries // [])[] | . as $e | d_stamps[] | . + {decision: $e.decision}]
+  + (if .kept == null then [] else .kept.run as $r
+       | [.kept.stamps[] | {run: $r, kind, seq, text: (if .addressed then d_addressed_mark else "" end), decision: (.decision | tostring)}] end);
+
+# d_archive_rows: the entries a `decisions` entry's text holds, the rows of a
+# Decisions table a GitHub record's body archived, under the table's header,
+# whatever precedes it. A cell was written escaped (dec_d reads it back), and
+# state-decision.sh restores an archived entry from the latest entry holding
+# its row.
+def dec:
+  gsub("&#9;"; "\t") | gsub("&#32;"; " ") | gsub("<br>"; "\n")
+  | gsub("&#13;"; "\r") | gsub("\\\\\\|"; "|") | gsub("&#92;"; "\\")
+  | gsub("&gt;"; ">") | gsub("&lt;"; "<") | gsub("&amp;"; "&");
+def dec_d: gsub("&#64;"; "@") | dec;
+def d_header:
+  ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") + "\n"
+  + ("|" + (decisions_cols | map("---") | join("|")) + "|");
+def parse_drow:
+  (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
+   | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec_d)) as $cells
+  | if ($cells | length) != (decisions_cols | length) then refuse("Decisions: a row with \($cells | length) cells, not \(decisions_cols | length)")
+    else [range(0; decisions_cols | length) as $i | {(decisions_cols[$i][0]): $cells[$i]}] | add end;
+def d_archive_rows:
+  split("\n") | (index([d_header | split("\n")[0]]) // null) as $h
+  | if $h == null then [] else .[$h + 2:] | map(select(startswith("| ")) | parse_drow) end;
+
+# ---- the rework text ---------------------------------------------------------
+#
+# rework_cap: a failure's rework text held to the 600 bytes rework_problem
+# allows. What was seen may itself be 600 bytes and the row's text puts
+# `Evidence clause <n> failed: ` before it, so a longer text is cut, a whole
+# codepoint at a time, and ends `...` to show the cut. A changes-needed
+# verdict's text is refused instead (roadmap-status.sh --verdict), since the
+# coordinator writes it and can shorten it.
+def rework_cap:
+  if utf8bytelength <= 600 then .
+  else (explode | until((implode | utf8bytelength) <= 597; .[:-1]) | implode) + "..." end;
+
+# ---- the listers' projections ------------------------------------------------
+# What state-holding.sh, state-stored-set.sh, state-decision.sh and
+# roadmap-status.sh print for --list, from a record. pick-facts.sh takes all of
+# them from one read rather than running each lister, which would read the
+# record once apiece (shirabe#840).
+def holdings_list: .holdings;
+def state_list: {run: (.run // []), standing: (.standing // []), work: (.work // [])};
+def decisions_list: .decisions // {next: 1, entries: []};
+# The Side effects Actions that are roadmap edits: a feature's Done
+# (roadmap-status), a milestone verdict's (milestone-done, milestone-verdict)
+# and a milestone's reopen (milestone-reopen).
+def roadmap_edit_actions: ["roadmap-status", "milestone-done", "milestone-verdict", "milestone-reopen"];
+# The pending roadmap pull requests, {unit, pull_request, attempted, action,
+# how_to_confirm}: the Target is `<TAG> [#n](URL)`.
+def pending_rows: roadmap_edit_actions as $acts
+  | [.side_effects[] | select(.action as $a | any($acts[]; . == $a))
+     | (.target | capture("^(?<unit>.+) (?<pr>\\[#[0-9]+\\]\\(https://github\\.com/[^)]+\\))$")) as $t
+     | {unit: ($t.unit // .target), pull_request: ($t.pr // ""), attempted, action, how_to_confirm}];
+def pending_list: pending_rows | map(del(.how_to_confirm));

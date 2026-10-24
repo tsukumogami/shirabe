@@ -1,0 +1,19 @@
+{
+  "deferrals": [],
+  "holdings": [],
+  "reversals": [],
+  "run": [
+    {
+      "key": "friction",
+      "set": "2026-10-13T10:00Z",
+      "set_by": "alice",
+      "value": "friction-log"
+    }
+  ],
+  "scope": {
+    "kind": "roadmap",
+    "name": "plugin-system"
+  },
+  "side_effects": [],
+  "written": "2026-10-01T09:00:00Z"
+}

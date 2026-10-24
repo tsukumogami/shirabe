@@ -6,7 +6,7 @@
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md; PRD R12). The
 # session store needs koto's `context list --prefix` and `session import`; a
 # koto without either is refused before anything else (`refused=store-unsupported`,
-# exit 2), naming what it lacks. A start then asks record-source.sh --candidate
+# exit 2), naming what it lacks. A start then asks state-read.sh --candidate
 # about this host's runs of the scope that hold a record, against the shipped
 # template's hash. At discipline scope the candidate is only a rotation still
 # open by the window rule (today on or before its end date, no reasoning
@@ -281,9 +281,9 @@ if [ -n "$IMPORT" ]; then
         1) refuse_import session-directed "$IMPORT has a directed transition in its log; it stays on this host, and a plain start carries its record into a new run" ;;
         *) echo "failed=directed_read"; echo "coordinate-open: $IMPORT's log couldn't be read for directed transitions" >&2; exit 1 ;;
     esac
-    bash "$HERE/record-state.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
+    bash "$HERE/state-stored-set.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
         --host template_hash "$HASH" > /dev/null 2>&1 \
-        || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run record-state.sh --host for it" >&2; exit 1; }
+        || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run state-stored-set.sh --host for it" >&2; exit 1; }
     printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
     # The run reconciles again on this host. At reconcile it does so by itself
     # (its sealed report names another host's import facts). The hub takes the
@@ -303,7 +303,7 @@ fi
 # The record lives in a run's session on this host, so a start first looks
 # here for the scope's run that holds it
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12).
-# record-source.sh --candidate decides, against the shipped template's hash:
+# state-read.sh --candidate decides, against the shipped template's hash:
 # resume keeps that run (no new session, no cancel, and the run keeps its
 # stamp); carry opens a new run below and copies its record/ and legs/ keys in;
 # none opens a new run, a fresh start. At discipline scope the window rule decides
@@ -319,7 +319,7 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
     [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was opened" >&2; exit 1; }
-    CAND=$(bash "$HERE/record-source.sh" --candidate --scope "$SCOPE" --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
+    CAND=$(bash "$HERE/state-read.sh" --candidate --scope "$SCOPE" --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
         || { echo "failed=resume_candidate"; echo "coordinate-open: could not read this host's runs of $SLUG; nothing was opened" >&2; exit 1; }
     [ "$(printf '%s' "$CAND" | jq -r '.session // empty')" = "" ] && FRESH=1
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
@@ -360,11 +360,11 @@ done
 # and the next start carries again.
 if [ -n "$CARRY_FROM" ]; then
     PROG=coordinate-open SKIP_CHECKS=0 REPO=$HOST
-    . "$HERE/record-common.sh"
+    . "$HERE/state-common.sh"
     lib_write_guard
     T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") || { echo "failed=carry"; exit 1; }
     trap 'rm -rf "$T"' EXIT
-    . "$HERE/record-write-core.sh"
+    . "$HERE/state-write-core.sh"
     ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
     echo "carried=$CARRY_FROM"
 elif [ "$FRESH" = 1 ]; then

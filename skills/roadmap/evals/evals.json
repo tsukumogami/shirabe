@@ -255,6 +255,20 @@
         "Transcript does NOT offer in-place sharpening for a roadmap/v1 roadmap",
         "Transcript does NOT change the roadmap's schema line or rename its Features section while sharpening"
       ]
+    },
+    {
+      "name": "pr-body-omits-workflow-records",
+      "prompt": "/roadmap q4-platform -- a direct run in a repository whose CLAUDE.md and CLAUDE.local.md declare no `## PR Workflow Content:` header. All three jury reviewers passed, the dependency validator flagging Feature C's external-API stub as borderline but not blocking, and the user approved at 4.5. The ROADMAP's frontmatter names docs/strategies/STRATEGY-platform.md as its upstream.",
+      "expected_output": "At step 4.6, after the transition and commit, the agent asks scripts/pr-workflow-content.sh for the repository's setting, which prints omit, and writes the body for a reader of the repository: the features the ROADMAP sequences and their order, in a sentence or two, and a link to docs/strategies/STRATEGY-platform.md. The ROADMAP is in the diff. The body carries no jury verdicts, no mention of the Feature C flag, no session or key names, and no pointer line to a ROADMAP or PLAN file.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh rather than parsing the header itself, and finds omit",
+        "PR body names the sequenced features and links docs/strategies/STRATEGY-platform.md",
+        "PR body has no jury verdicts, no PASS or FAIL marker and no reviewer caveat",
+        "PR body has no Roadmap: or Plan: line and no link to a ROADMAP or PLAN file",
+        "PR body names no koto session or context key"
+      ],
+      "id": 18
     }
   ]
 }

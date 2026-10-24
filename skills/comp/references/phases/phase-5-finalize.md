@@ -41,6 +41,24 @@ staging path, or the document leaves a dangling reference.
 Commit the COMP document and open a pull request. The COMP lives in a
 private repo, so the PR may reference the competitive content directly.
 
+The body describes the COMP in terms a reader of the repository
+understands: the survey's finding and its leading implication, in a
+sentence or two, and a link to `docs/competitive/COMP-<topic>.md`. By
+default it carries none of the workflow's own records: no jury verdicts,
+reviewer findings or list of the fixes they prompted, no session or key
+names, and no link to a ROADMAP or PLAN, which is deleted when its work
+completes. Those stay in the `comp-<topic>` session. A repository opts in
+to them with `## PR Workflow Content: include` in its `CLAUDE.local.md` or
+`CLAUDE.md`; ask the one reader rather than reading the header yourself:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"
+```
+
+It prints `include` or `omit` (the default). Under `include`, the body may
+also summarize the jury's verdicts and link a ROADMAP or PLAN the COMP
+informs.
+
 ## 5.5 Emit the FINALIZED Stdout Contract
 
 Emit this exact block to stdout so a caller can capture the outcome by

@@ -2,7 +2,7 @@
 # decision-render.sh -- render the message a decision entry owes, from the
 # live entry. The render states' default action (escalate, decision_withdraw,
 # decision_reply, decision_redirect): the coordinator sends exactly the text
-# this writes and marks it sent with record-decision.sh --sent, which checks
+# this writes and marks it sent with state-decision.sh --sent, which checks
 # the text against this render's seal.
 #
 # Usage: decision-render.sh --session S --state ST --kind escalation|withdrawal|reply|redirect
@@ -11,12 +11,12 @@
 # (`escalate <n>`, `withdraw <n>`, `reply <n>` or `redirect <n>`), whose word
 # must be the kind's. Never an argument. The run's escalation target is its
 # REPORTS_TO variable (coord-log.sh vars): `a person` when empty, else
-# `coordinator <topic>`. The entry is read live through record-decision.sh
+# `coordinator <topic>`. The entry is read live through state-decision.sh
 # --read.
 #
 # It refuses (prints `refused`, sealed) unless the entry owes that kind right
 # now, so a second rendering after the owing cleared is refused too:
-#   escalation  State escalated, Owed escalation, and the codec's
+#   escalation  State escalated, Owed escalation, and state-schema.jq's
 #               escalation_problems for the run's target is empty (the
 #               recommendation one of the options; every option explained,
 #               `<option> -- <explanation>`; reason, context and problem
@@ -27,10 +27,10 @@
 #   redirect    decision_next routed `redirect <n> <seq>`, naming the report by
 #               its log sequence; entry <n> holds this run's `report <seq>.<i>`
 #               stamp; some entry holds that report's addressed mark (the
-#               codec's d_addressed_mark, an Evidence line record-decision.sh
+#               state-schema.jq's d_addressed_mark, an Evidence line state-decision.sh
 #               --open-from-report writes); and no entry has an Evidence line
 #               stamped `redirect <seq>`, which --sent writes. Stamps are read by
-#               position (the codec's d_stamps), never from a line's text.
+#               position (state-schema.jq's d_stamps), never from a line's text.
 #
 # On a render it writes the text to the context key coord/decision_message.txt
 # with coord-log.sh seal --file --key and prints
@@ -86,7 +86,7 @@ case "$KIND" in
     *) usage ;;
 esac
 SCOPE= NAME= REPO=
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_run_stamp
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/decision-render.XXXXXX") || lib_die2 "cannot make a temporary directory"
@@ -119,7 +119,7 @@ VARS=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot 
 RT=$(printf '%s' "$VARS" | jq -r '.REPORTS_TO // ""')
 if [ -n "$RT" ]; then TARGET="coordinator $RT"; else TARGET="a person"; fi
 
-bash "$HERE/record-decision.sh" --session "$SESSION" --read "$N" > "$T/entry.json" 2> "$T/read.err"
+bash "$HERE/state-decision.sh" --session "$SESSION" --read "$N" > "$T/entry.json" 2> "$T/read.err"
 case $? in
     0) ;;
     1) refuse "the record has no entry $N" ;;
@@ -129,7 +129,7 @@ esac
 
 # A redirect is owed per report, so its check reads the whole section.
 if [ "$KIND" = redirect ]; then
-    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/read.err" \
+    bash "$HERE/state-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/read.err" \
         || { cat "$T/read.err" >&2; lib_die2 "cannot read the Decisions section"; }
 else
     printf '{"next":1,"entries":[]}\n' > "$T/section.json"
@@ -137,7 +137,7 @@ fi
 
 # Whether the entry owes this kind now; stderr says why not.
 jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slurpfile sec "$T/section.json" '
-  include "record-codec";
+  include "state-schema";
   def of_report: .run == $run and .kind == "report" and (.seq | split(".")[0]) == $rep;
   if $k == "escalation" then
     if .state != "escalated" then "entry \(.decision) is \(.state), not escalated"
@@ -161,7 +161,7 @@ jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slur
 
 # The text. `@` is encoded in every free-text cell, as in the record.
 jq -r --arg k "$KIND" '
-  include "record-codec";
+  include "state-schema";
   def e: gsub("@"; "&#64;");
   def src_ref: if (.source | test("^coordinator ")) then (.source | capture("#(?<n>[0-9]+) round (?<r>[0-9]+)") | "decision \(.n) round \(.r)")
                else "decision \(.decision) round \(.round)" end;
@@ -203,7 +203,7 @@ if [ "$KIND" = escalation ]; then
     printf 'Digest: %s\n' "$DIGEST" >> "$T/message.txt"
     # The structured form, for asking a person with a question tool: the same
     # entry, the recommended option first, every option with its explanation.
-    jq -c -L "$HERE" 'include "record-codec";
+    jq -c -L "$HERE" 'include "state-schema";
       def e: gsub("@"; "&#64;");
       .recommendation as $r
       | {decision: (.decision | tonumber), round: (.round | tonumber), question: (.question | e),

@@ -31,7 +31,7 @@
 # and `### Feature N:`. TAG and every record row and entry this script
 # matches to a heading (a holding, a pending row, a Work row, a verdict or
 # failure entry, a follow-up, an amendment, a Progress reopen line) compare
-# by record-common.sh's tag key, so a record that names `Feature 2` still
+# by state-common.sh's tag key, so a record that names `Feature 2` still
 # finds a v3 roadmap's `### Milestone 2:`. Rows keep TAG as given; what the
 # edit writes into the roadmap (a Progress line, the commit and pull request
 # titles) names the milestone as the roadmap spells its heading.
@@ -77,7 +77,7 @@
 # whoever merges roadmap changes does.
 #
 # --verdict opens the roadmap edit a checked verdict entry calls for. The entry
-# is record/entries/N, written with record-append.sh --kind milestone-verdict
+# is record/entries/N, written with state-entry.sh --kind milestone-verdict
 # --on none, at most 16 KiB. It requires TAG's verdict-owed row, requires the
 # default branch to contain the commit the entry's
 # Source line names (the compare API: identical or ahead), reads the roadmap
@@ -127,7 +127,7 @@
 # changes needed. It never merges.
 #
 # --reopen opens the roadmap edit a failure reported against a Done milestone
-# calls for. The entry is record/entries/N, written with record-append.sh
+# calls for. The entry is record/entries/N, written with state-entry.sh
 # --kind milestone-failure --on none, at most 16 KiB, taken as --verdict takes
 # its own. It refuses (exit 65, nothing opened)
 # while any roadmap pull request is pending, so a second failure recorded
@@ -156,11 +156,11 @@
 # Progress lines is committed on the new branch, the pull request opens with
 # the entry in its body, the Side effects row is written (its How to confirm
 # ends `(entry N)`), the entry is posted on the pull request with
-# record-append.sh --repost N --on <host>#<pull request> (so the content
+# state-entry.sh --repost N --on <host>#<pull request> (so the content
 # checks and the `@` escaping apply), and a second commit adds the Progress
 # lines with the comment's URL and hash. When the post or that commit fails,
 # it exits 14 naming the pull request; run with the same entry again it finds
-# its row, posts once (record-append.sh's retry finds a post that landed) and
+# its row, posts once (state-entry.sh's retry finds a post that landed) and
 # pushes only the missing commit, so no second pull request opens. An entry
 # already posted anywhere else is refused, so after --drop the edit opens
 # again from the same verdict or failure written as a new entry.
@@ -177,13 +177,13 @@
 # a milestone row also removes TAG's verdict-owed
 # and rework Work rows. Confirming a `milestone-reopen` row writes a rework
 # Work row for TAG (Who `failure <comment id>`) whose Next step is
-# `Evidence clause <n> failed: <what was seen>`, cut to the codec's 600
+# `Evidence clause <n> failed: <what was seen>`, cut to state-schema.jq's 600
 # bytes (rework_cap). Confirming a `milestone-verdict` (changes needed)
 # row re-reads its entry, which must still hash to its Progress line's
 # hash8, and writes a rework Work row for TAG (Who `verdict <comment id>`)
 # whose Next step is the rework text: `Evidence clauses not held: <n, n>.`,
 # `The work does not fit the strategy.` when it doesn't, and `Changes
-# needed: <the line>`, one paragraph the codec holds to 600 bytes with no URL
+# needed: <the line>`, one paragraph state-schema.jq holds to 600 bytes with no URL
 # or link. pick-facts.sh reports it, render-brief.sh quotes it into the
 # milestone's next brief, and dispatch-worker.sh removes it once a worker is
 # dispatched. While the default branch doesn't show it: exit 1, nothing
@@ -201,27 +201,27 @@
 # record was on GitHub, is checked against that comment in the host
 # repository, bounded by its marker, kind, text and hash.
 # --list prints the pending rows as a JSON array of {unit, pull_request,
-# attempted, action}, record-codec.jq pending_list, the projection pick-facts.sh
+# attempted, action}, state-schema.jq pending_list, the projection pick-facts.sh
 # also takes from its own parse to mark landed units.
 #
-# Each change to the record is told as an entry with record-append.sh, kind
-# roadmap-status, after the body is written.
+# Each change to the record is told as an entry with state-entry.sh, kind
+# roadmap-status, after the state is written.
 #
-# A failed record write after the pull request opened (11, 12 or 13) leaves
+# A failed record write after the pull request opened (11 or 12) leaves
 # the pull request with no row: close it by hand before running --unit,
 # --verdict or --reopen again, which would open a second one on a new branch.
 #
 # Exit codes: 0 done (prints the pull request's URL, `verdict-owed TAG`, or the
 # session holding the record) or printed; 1 --confirm: the roadmap doesn't show it yet; 2 a
-# read failed; 10 refused about the record (no found record, not a canonical
-# one, or from the write core: not open, provenance, a directed transition);
-# 11 a write failed; 12 the record changed between this script's read and its
-# write; 13 the record is full; 14 the record was written but its entry
+# read failed; 10 refused about the record (no found record, one that doesn't
+# read back as this roadmap's, or from the write core: not open, provenance, a
+# directed transition); 11 a write failed; 12 the record changed between this
+# script's read and its write; 14 the record was written but its entry
 # wasn't posted; 64 usage (and any scope but a roadmap); 65 refused about the
 # request: the tag, the feature's state, the entry, a pending pull request
 # (the reason on stderr).
 #
-# The record is read through record-source.sh.
+# The record is read through state-read.sh.
 # GitHub calls:
 #   reads:  gh api --method GET repos/R --jq .default_branch
 #           gh api --method GET repos/R/git/ref/heads/<default> --jq .object.sha
@@ -236,8 +236,8 @@
 #   writes: gh api --method POST repos/R/git/refs -f ref=... -f sha=...
 #           gh api --method PUT repos/R/contents/<roadmap> (message, content, sha, branch)
 #           gh pr create --repo R --head <branch> --base <default> --title T --body-file F
-#           the record, through record-write-core.sh; the entry, through record-append.sh
-#           (the posted entry too, through record-append.sh --repost --on)
+#           the record, through state-write-core.sh; the entry, through state-entry.sh
+#           (the posted entry too, through state-entry.sh --repost --on)
 set -uo pipefail
 
 PROG=roadmap-status
@@ -289,13 +289,13 @@ case "$MODE" in
     confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS$ENTRY_N" ] || usage ;;
     *) usage ;;
 esac
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 [ -z "$ARG_ROADMAP" ] || { [ "$OVERRIDE" = 1 ] || usage; ROADMAP=$ARG_ROADMAP; }
 [ "$SCOPE" = roadmap ] || { echo "$PROG: a feature's status is a roadmap's; this run's scope is $SCOPE" >&2; exit 64; }
 lib_roadmap_path
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
-# The record's address, for record-append.sh.
+# The record's address, for state-entry.sh.
 if [ "$OVERRIDE" = 1 ]; then ADDR=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
 else ADDR=(--session "$SESSION"); fi
 # --entry N reads the session's entry N (EN its key's six digits, ENUM the
@@ -318,23 +318,21 @@ case "$OUTCOME$REASON" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome and --reason a
 WD=$(mktemp -d "${TMPDIR:-/tmp}/roadmap-status.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-rs_record "$WD/parsed.json" body
+rs_record "$WD/parsed.json"
 case $? in
     0) ;;
-    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
-    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical roadmap record for $NAME" >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a roadmap record for $NAME" >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
-    *) lib_die2 "record-parse.sh failed" ;;
+    *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err")" ;;
 esac
-cp "$WD/parsed.json.md" "$WD/live.md"
 
 # The pending rows, {unit, pull_request, attempted, action, how_to_confirm}
-# (record-codec.jq pending_rows, which pick-facts.sh reads the same way).
-jq -c -L "$HERE" 'include "record-codec"; pending_rows' "$WD/parsed.json" > "$WD/pending.json" \
+# (state-schema.jq pending_rows, which pick-facts.sh reads the same way).
+jq -c -L "$HERE" 'include "state-schema"; pending_rows' "$WD/parsed.json" > "$WD/pending.json" \
     || lib_die2 "jq failed"
 if [ "$MODE" = list ]; then
-    jq -c -L "$HERE" 'include "record-codec"; pending_list' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "state-schema"; pending_list' "$WD/parsed.json"
     exit 0
 fi
 
@@ -361,19 +359,22 @@ words_read() {
 # text is kept outside $WD. Only this script changes a verdict-owed Work row
 # (the write core holds every other writer to that).
 write_record() {
-    bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$WD/parsed.json")" "$1" > "$WD/body.md" 2> "$WD/render.err" \
-        || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
+    # The state carries the written time of the version read, which the write
+    # core compares with the live record's; its file stays in $WD, readable by
+    # its owner only, and goes with it.
+    jq --arg w "$(jq -r '.written' "$WD/parsed.json")" '.written = $w' "$1" > "$WD/state.json" || lib_die2 "jq failed"
+    chmod 600 "$WD/state.json" || lib_die2 "cannot make the state file private"
     ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/roadmap-status-entry.XXXXXX") || lib_die2 "cannot make a temporary file"
     printf '%s\n' "$2" > "$ENTRY_FILE"
     if [ "$OVERRIDE" = 1 ]; then ADDR=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
     else ADDR=(--session "$SESSION"); fi
-    BODY="$WD/body.md" CORE_CLEANUP=$WD
+    STATE_FILE="$WD/state.json" CORE_CLEANUP=$WD
     lib_write_guard
-    . "$HERE/record-write-core.sh"
+    . "$HERE/state-write-core.sh"
     VERDICT_WRITER=1
     core_write > /dev/null
-    if ! bash "$HERE/record-append.sh" "${ADDR[@]}" --kind roadmap-status --text-file "$ENTRY_FILE" > /dev/null; then
-        echo "$PROG: the record was written, but its entry wasn't posted; post it with record-append.sh --kind roadmap-status: $(cat "$ENTRY_FILE")" >&2
+    if ! bash "$HERE/state-entry.sh" "${ADDR[@]}" --kind roadmap-status --text-file "$ENTRY_FILE" > /dev/null; then
+        echo "$PROG: the record was written, but its entry wasn't posted; post it with state-entry.sh --kind roadmap-status: $(cat "$ENTRY_FILE")" >&2
         rm -f "$ENTRY_FILE"; exit 14
     fi
     rm -f "$ENTRY_FILE"
@@ -382,7 +383,7 @@ write_record() {
 # with clear-owed also without TAG's verdict-owed and rework Work rows (a
 # confirmed verdict or reopen supersedes the rework an earlier one left).
 without_row() {
-    jq -L "$HERE" --arg t "$TAG" --argjson owed "${2:-false}" 'include "record-codec"; '"$JQ_TAG_KEY"' roadmap_edit_actions as $acts | del(.written)
+    jq -L "$HERE" --arg t "$TAG" --argjson owed "${2:-false}" 'include "state-schema"; '"$JQ_TAG_KEY"' roadmap_edit_actions as $acts | del(.written)
         | .side_effects = [.side_effects[] | select(((.action as $a | any($acts[]; . == $a))
                                                      and (.target | index(" [") as $i | $i != null and (.[0:$i] | tag_key) == ($t | tag_key))) | not)]
         | if $owed then .work = [(.work // [])[] | select(((.kind == "verdict-owed" or .kind == "rework") and (.item | tag_key) == ($t | tag_key)) | not)]
@@ -445,7 +446,7 @@ follow_up_refuse() {
 }
 OWED_WHO=$(jq -r --arg t "$TAG" "$JQ_TAG_KEY"'[(.work // [])[] | select(.kind == "verdict-owed" and (.item | tag_key) == ($t | tag_key)) | .who][0] // empty' "$WD/parsed.json")
 
-# norm_entry <in> <out>: an entry's text as record-append.sh posts it: CR
+# norm_entry <in> <out>: an entry's text as state-entry.sh posts it: CR
 # dropped, leading and trailing blank lines dropped, one final line break.
 norm_entry() {
     tr -d '\r' < "$1" | awk '{ l[NR] = $0 } END { s = 1; while (s <= NR && l[s] ~ /^[ \t]*$/) s++
@@ -466,7 +467,7 @@ coordinator_login() {
         || lib_die2 "cannot read the login this run posts as: $(lib_scrub < "$WD/u.err")"
 }
 # posted_entry <comment-id> <out> <kind> [<pull request>]: the text of comment
-# ID, as record-append.sh posted it, normalised as norm_entry does. The issue
+# ID, as state-entry.sh posted it, normalised as norm_entry does. The issue
 # or pull request it sits on is the API's issue_url, never the URL's path, and
 # must be in the host repository. Given a pull request, the comment must be on
 # it and its author the coordinator's login (anyone can comment on a pull
@@ -497,8 +498,8 @@ posted_entry() {
     fi
     printf '%s' "$c" | jq -r '.body // ""' | tr -d '\r' > "$WD/pc.body" || lib_die2 "comment $1 is not JSON"
     [ "$(head -1 "$WD/pc.body")" = "${ENTRY_MARKER_PREFIX}$3 -->" ] \
-        || refuse "comment $1 is not a $3 entry (one record-append.sh --kind $3 posted)"
-    # record-append.sh writes `&` as `&amp;` and `@` as `&#64;`; decoded in
+        || refuse "comment $1 is not a $3 entry (one state-entry.sh --kind $3 posted)"
+    # state-entry.sh writes `&` as `&amp;` and `@` as `&#64;`; decoded in
     # its reader's order, the text comes back as written.
     tail -n +4 "$WD/pc.body" | sed -e 's/&#64;/@/g' -e 's/&amp;/\&/g' > "$WD/pc.raw"
     norm_entry "$WD/pc.raw" "$2"
@@ -516,7 +517,7 @@ session_entry() {
     esac
     local k
     k=$(jq -r '.kind // ""' "$WD/sentry.json") || lib_die2 "record/entries/$EN is not JSON"
-    [ "$k" = "$1" ] || refuse "entry $ENUM is a ${k:-kindless} entry, not a $1 entry (record-append.sh --kind $1 --on none writes one)"
+    [ "$k" = "$1" ] || refuse "entry $ENUM is a ${k:-kindless} entry, not a $1 entry (state-entry.sh --kind $1 --on none writes one)"
     jq -r '.text // ""' "$WD/sentry.json" > "$WD/sentry.txt" || lib_die2 "record/entries/$EN is not JSON"
     local size
     size=$(wc -c < "$WD/sentry.txt" | tr -d ' ')
@@ -550,11 +551,11 @@ own_row() {
     esac
 }
 # post_session_entry: ENTRY_URL, the comment entry N becomes on PR_NUM,
-# posted through record-append.sh so its content checks, its `@` escaping and
+# posted through state-entry.sh so its content checks, its `@` escaping and
 # its retry (a post that landed before a crash stands) apply. A failure exits
 # 14 naming the pull request, which a run with the same entry finishes.
 post_session_entry() {
-    if ! ENTRY_URL=$(bash "$HERE/record-append.sh" "${ADDR[@]}" --repost "$ENUM" --on "$REPO#$PR_NUM" 2> "$WD/pe.err" < /dev/null); then
+    if ! ENTRY_URL=$(bash "$HERE/state-entry.sh" "${ADDR[@]}" --repost "$ENUM" --on "$REPO#$PR_NUM" 2> "$WD/pe.err" < /dev/null); then
         echo "$PROG: the roadmap pull request $PR_URL is open and its row written, but entry $ENUM wasn't posted on it: $(lib_scrub < "$WD/pe.err"); run this again with --entry $ENUM, which posts it once and pushes its Progress line" >&2
         exit 14
     fi
@@ -642,7 +643,7 @@ follow_ups_read() {
     # (the Evidence reader refuses a tab), no token or home-directory path,
     # and no path into a work-in-progress directory.
     LC_ALL=C grep -q $'[\001-\010\011\013-\037\177]' "$FOLLOW_UPS" && refuse "the follow-ups file holds a control character or a tab"
-    why=$(jq -R -s -r -L "$HERE" 'include "record-codec"; text_problem([]) // empty' < "$FOLLOW_UPS")
+    why=$(jq -R -s -r -L "$HERE" 'include "state-schema"; text_problem([]) // empty' < "$FOLLOW_UPS")
     [ -z "$why" ] || refuse "the follow-ups file holds $why"
     # (The bracket keeps the directory's name out of this file, which the
     # skill's hygiene suite holds to naming no staging path.)
@@ -779,21 +780,21 @@ follow_ups_apply() {
         done < "$WD/fu-plan.tsv"
     fi
 }
-# rework_problem_of <text>: why the codec would refuse TEXT as a rework row's
+# rework_problem_of <text>: why state-schema.jq would refuse TEXT as a rework row's
 # Next step (its closed shape, or text a public record never carries), or
 # nothing.
 rework_problem_of() {
-    printf '%s' "$1" | jq -R -s -r -L "$HERE" 'include "record-codec"; (rework_problem // text_problem([])) // empty'
+    printf '%s' "$1" | jq -R -s -r -L "$HERE" 'include "state-schema"; (rework_problem // text_problem([])) // empty'
 }
 # failure_rework_of <entry>: the rework text a confirmed reopen leaves for the
 # milestone's next brief, `Evidence clause <n> failed: <what was seen>`, cut
-# to the codec's 600 bytes (rework_cap): What was seen may be 600 bytes
+# to state-schema.jq's 600 bytes (rework_cap): What was seen may be 600 bytes
 # itself, and the prefix would put the whole over. render-brief.sh picks its
 # failure wording on that prefix, so the two change together.
 failure_rework_of() {
     awk '/^Clause: / { c = substr($0, 9) } /^What was seen: / { w = substr($0, 16) }
          END { printf "Evidence clause %s failed: %s", c, w }' "$1" \
-        | jq -R -s -j -L "$HERE" 'include "record-codec"; rework_cap'
+        | jq -R -s -j -L "$HERE" 'include "state-schema"; rework_cap'
 }
 # reopen_line <roadmap>: the last `## Progress` line naming TAG (its tag
 # compared by key, so `Feature 2` and `Milestone 2` are one), when it is a

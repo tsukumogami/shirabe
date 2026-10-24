@@ -5,11 +5,8 @@ on:
   pull_request:
     paths:
       - 'skills/coordinate/scripts/reconcile-*'
-      # The record feature's parser and session-log helpers, which the
+      # The record's reader, writers and state schema (state-*), which the
       # reader's contract cases and the pass run for real.
-      - 'skills/coordinate/scripts/record-*'
-      # The state schema the codec includes, and the session-only state- files
-      # that follow it.
       - 'skills/coordinate/scripts/state-*'
       - 'skills/coordinate/scripts/coord-log.sh'
       - 'skills/coordinate/scripts/coord-verdict.sh'
@@ -25,7 +22,6 @@ on:
     # merge commit's own run on the bash 3.2 floor.
     paths:
       - 'skills/coordinate/scripts/reconcile-*'
-      - 'skills/coordinate/scripts/record-*'
       - 'skills/coordinate/scripts/state-*'
       - 'skills/coordinate/scripts/coord-log.sh'
       - 'skills/coordinate/scripts/coord-verdict.sh'

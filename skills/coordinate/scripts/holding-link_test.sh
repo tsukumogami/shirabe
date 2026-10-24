@@ -184,7 +184,7 @@ eq "and nothing was written" '{"branch":"","pull_request":""}' "$(row zeta)"
 seed "$HOLD"
 message zeta "acme/widgets#20"
 export KOTO_FAIL_ADD=record/holdings
-link; eq "a write that fails is record-holding.sh's 11, to run again" 11 "$RC"
+link; eq "a write that fails is state-holding.sh's 11, to run again" 11 "$RC"
 unset KOTO_FAIL_ADD
 seed "$HOLD"
 message zeta "acme/widgets#20"
@@ -205,7 +205,7 @@ eq "  ... into the session's holding, with the head GitHub reports" "feat/zeta-w
     "$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "zeta") | "\(.branch) \(.pushed_head)"')"
 eq "  ... and nothing written on GitHub" "" "$(gh_writes)"
 # A later report on the linked pull request: report-facts.sh keeps the head it
-# reads when it moved. Its write goes through record-holding.sh, so a refused
+# reads when it moved. Its write goes through state-holding.sh, so a refused
 # write (here: another run of the scope is live) changes no verdict.
 OTHER=coordinate-roadmap-plugin-system-20260926T090000Z
 found_session "$OTHER" "$(roadmap_vars plugin-system)"

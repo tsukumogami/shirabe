@@ -36,7 +36,11 @@
 # 120-second window both ways, a sibling branch, an unreadable pull request,
 # no dispatch, more than 100, a private repository on a public host, a
 # budget spent mid-way, and hostile links and branches that no read names);
-# niwa's dispatch id from teardown.json; one
+# niwa's dispatch id from teardown.json, or, when it holds none, from the
+# removal record for the archive's instance path (not another path's, not a
+# removals directory that isn't mode 0700); a pull request file naming none,
+# credit's owner then the record repository's and green, merge and failing
+# heads read over the credited pull requests; one
 # entry per key (twice posts once, another key's entry doesn't stop a post, a
 # failed list posts anyway); missing transcripts, a failing `gh run list`, a
 # failing `gh pr view` and a spent budget still posting an entry with
@@ -47,8 +51,8 @@
 # a public host never naming a repository it doesn't read as public; the
 # GitHub wrapper's admitted and refused calls; no GitHub write across the
 # suite but one comment POST per captured unit, on the unit's pull request;
-# and the scripts that read record entries (record-state.sh, through
-# record-append.sh --list, is the one) giving the same output with a cost
+# and the scripts that read record entries (state-stored-set.sh, through
+# state-entry.sh --list, is the one) giving the same output with a cost
 # entry on the record. The record is the run's session's: the entries are its
 # keys, and a cost entry is posted on the sealed verdict's first pull request
 # (#21), the holding naming none.
@@ -67,7 +71,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 export HOME="$T/home" KOTO_SESSIONS_BASE="$T/koto-home"
 mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 UC="$HERE/unit-cost.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 FX="$HERE/testdata/unit-cost"
 KEY=2026-10-01-feat-x-0a1b2c3d
 YKEY=2026-10-02-fix-y-0e0f1a2b
@@ -75,21 +79,28 @@ MERGE=5555555555555555555555555555555555555555
 MERGE2=6666666666666666666666666666666666666666
 MERGEY=3434343434343434343434343434343434343434
 export KOTO_REQUESTS="$FX/requests" UNIT_COST_NOW=2026-10-01T12:00:00Z UNIT_COST_FETCH_SECS=5
+# acme/widgets is public, so its pull request gets the entry only while it
+# opts in: the opt-in reader's stand-in says it does. unit-cost-on_test.sh
+# covers a repository that doesn't.
+printf '#!/usr/bin/env bash\necho include\n' >"$T/reader"
+export UNIT_COST_PR_CONTENT_READER="$T/reader"
 S=coordinate-roadmap-x-20261001T080000Z
 REASONS='["no source","read failed","time limit","entry size","invalid input"]'
 POSTED=0
 : >"$T/allcalls"
 
-# seed [unit]: the record (ROADMAP-x on acme/widgets), in the run's session,
-# holding feat-x with that Unit and no pull request, no entries yet, and
-# GitHub's side of the fixtures (testdata/unit-cost/github.json: the pull
-# requests, their heads and the runs on them).
+# seed [unit] [pull request cell]: the record (ROADMAP-x on acme/widgets), in
+# the run's session, holding feat-x with that Unit and that Pull request cell
+# (none by default), no entries yet; GitHub's side of the fixtures
+# (testdata/unit-cost/github.json: the pull requests, their heads and the runs
+# on them), and acme/widgets's CLAUDE.md, which opts in to workflow content.
 seed() {
     cat "$GH_DB.calls" >>"$T/allcalls" 2>/dev/null
     db_init
     local rec
-    rec=$(record_json roadmap x | jq -c --argjson h "$(holding feat-x "$(jq -nc --arg u "${1:-Feature 4: Example feature}" '{unit: $u, pull_request: ""}')")" '.holdings = [$h]')
+    rec=$(record_json roadmap x | jq -c --argjson h "$(holding feat-x "$(jq -nc --arg u "${1:-Feature 4: Example feature}" --arg p "${2:-}" '{unit: $u, pull_request: $p}')")" '.holdings = [$h]')
     seed_session "$S" "$rec" 2026-10-01T08:00:00Z
+    db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
     db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
 }
 fresh() { rm -rf "$T/a"; mkdir -p "$T/a"; cp -R "$FX/archive/$KEY" "$T/a/"; A="$T/a/$KEY"; }
@@ -210,7 +221,7 @@ echo "== compute: the entry's fields =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 OUT=$(compute); eq "compute exits 0" 0 $?
 eq "one line of output" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
-eq "every field of the entry, in order" "schema key captured_at topic record unit milestone plan_shape pulls dispatch niwa.dispatch.id figures sessions tokens complete missing" \
+eq "every field of the entry, in order" "schema key captured_at topic record unit milestone plan_shape pulls opened dispatch niwa.dispatch.id figures sessions tokens complete missing" \
     "$(q "$OUT" 'keys_unsorted | join(" ")')"
 eq "schema" "unit-cost/1" "$(q "$OUT" .schema)"
 eq "every baseline figure" "dispatch_to_green_min dispatch_to_merge_min writing_code_min review_min outside_share_pct review_share_pct panel_rounds failing_heads sessions_without_done summed_session_span_min minutes_per_unit" \
@@ -356,7 +367,7 @@ capture; eq "a failed Holdings read (and so a failed post) exits 1" 1 $?
 unset KOTO_NO_LIST_PREFIX
 eq "  ... the archive copy says read failed" "not recoverable|read failed" \
     "$(jq -r '"\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"' "$A/unit-cost.json")"
-eq "  ... and the last stderr line is a fixed string" "unit-cost: the post failed (record-append exit 2)" "$(tail -n 1 "$T/cap.err")"
+eq "  ... and the last stderr line is a fixed string" "unit-cost: the post failed (state-entry exit 2)" "$(tail -n 1 "$T/cap.err")"
 seed; fresh
 NOREC=coordinate-roadmap-x-20261001T090000Z
 log_new "$NOREC" "$(roadmap_vars x)"
@@ -488,8 +499,10 @@ eq "a head branch starting with -: green and failing heads are invalid input" "i
     "$(q "$OUT" '"\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\(.figures.dispatch_to_merge_min.value) \(.figures.dispatch_to_merge_min.state)"')"
 grep -q -- 'run list .*--branch -x' "$GH_DB.calls" && bad "  ... and no run list is made for it" || ok "  ... and no run list is made for it"
 seed; fresh
-db '(.runs[] | select(.databaseId == 102)).headSha = "not-a-sha"'
-eq "a run whose head isn't a sha: invalid input" "null not recoverable|invalid input" \
+# The second head's page of runs comes back outside its shape: the first head
+# (one failing run) is counted, and the count is a floor naming the reason.
+db '.runs_page_bad = {"8888888888888888888888888888888888888888": 1}'
+eq "a head whose runs come back outside their shape: a floor over the heads read, invalid input" "1 bound|invalid input" \
     "$(compute | jq -r '"\(.figures.failing_heads.value) \(.figures.failing_heads.state)|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
 seed; fresh
 printf '{"seq":12,"timestamp":"2026-10-01T10:2\n' >>"$A/koto/execute-x.o-issue-1/koto-execute-x.o-issue-1.state.jsonl"
@@ -577,6 +590,97 @@ eq "with no record known, the host counts as public: each repository is looked u
     "api --method GET repos/acme/widgets --jq .private|api --method GET repos/acme/gadgets --jq .private" \
     "$(grep -- '--jq .private' "$GH_DB.calls" | tr '\n' '|' | sed 's/|$//')"
 
+echo "== failing heads over every head =="
+# A pull request with 65 heads (#40): every odd head has a failing run and
+# every even one a cancelled run (neither failing nor green), head 30 holds 250
+# runs over three pages of 100 with one failure among them, and head 65 is
+# green. A 66th head after it has a failing run nobody reads.
+seed; fresh
+hsha() { printf '%040x' "$((0xabc000 + $1))"; }
+HEADS40=$(for ((k = 1; k <= 66; k++)); do hsha "$k"; echo; done | jq -R . | jq -s -c .)
+RUNS40=$(jq -n -c --argjson hs "$HEADS40" '
+    [range(0; 66) as $i | ($i + 1) as $k | $hs[$i] as $h
+     | if $k == 30 then (range(0; 250) as $j | {databaseId: (40000 + $j), headSha: $h, conclusion: (if $j == 7 then "failure" else "success" end)})
+       elif $k == 65 then {databaseId: (41000 + $k), headSha: $h, conclusion: "success"}
+       elif $k == 66 then {databaseId: (41000 + $k), headSha: $h, conclusion: "failure"}
+       elif ($k % 2) == 1 then {databaseId: (41000 + $k), headSha: $h, conclusion: "failure"}
+       else {databaseId: (41000 + $k), headSha: $h, conclusion: "cancelled"} end]
+    | map(. + {repo: "acme/widgets", headBranch: "feat/forty", attempt: 1, status: "completed",
+               updatedAt: "2026-10-01T10:30:00Z", attempts: []})')
+db '(.prs[] | select(.repo == "acme/widgets" and .number == 21)) as $p
+    | .prs += [$p | .number = 40 | .headRefName = "feat/forty"]
+    | .pr_commits["acme/widgets#40"] = $h | .runs += $r' --argjson h "$HEADS40" --argjson r "$RUNS40"
+prs "acme/widgets#40 $MERGE"
+reset_calls
+OUT=$(compute)
+# Failing heads up to the green 65th: the 32 odd heads before it, and head 30.
+eq "65 heads, one of them with 250 runs over three pages: every failing head counted, measured" "33 measured" "$(fig "$OUT" failing_heads)"
+eq "  ... nothing missing for it" "" "$(q "$OUT" '[.missing[] | select(.figure == "failing_heads")] | length | if . == 0 then "" else tostring end')"
+eq "  ... head 30's three pages each read" "1 2 3" \
+    "$(grep -- "head_sha=$(hsha 30)&per_page=100&page=" "$GH_DB.calls" | sed 's/.*&page=\([0-9]*\).*/\1/' | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... the reads stop at the green head: none for the head after it" "" "$(grep -- "head_sha=$(hsha 66)" "$GH_DB.calls")"
+eq "  ... and no run list is made" "" "$(grep -- '^run list' "$GH_DB.calls")"
+# With the budget out at head 30 (the read answers as uc_gh does when it is
+# spent), the count is a floor over the 29 heads read, naming time limit.
+db '.fail = [{match: $m, rc: 125, stderr: "budget"}]' --arg m "head_sha=$(hsha 30)"
+OUT=$(compute)
+eq "the budget spent at head 30: a floor over the heads read, time limit" "15 bound|time limit" \
+    "$(q "$OUT" '"\(.figures.failing_heads.value) \(.figures.failing_heads.state)|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
+eq "  ... and green not recoverable, time limit" "null not recoverable|time limit" \
+    "$(q "$OUT" '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])"')"
+db '.fail = [{match: $m, rc: 1, stderr: "HTTP 502"}]' --arg m "head_sha=$(hsha 30)&per_page=100&page=2"
+eq "a failed page read at head 30: a floor over the heads read, read failed" "15 bound|read failed" \
+    "$(compute | jq -r '"\(.figures.failing_heads.value) \(.figures.failing_heads.state)|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
+db '.fail = []'
+# No green head: every head is read and green is not recoverable.
+db '(.runs[] | select(.headSha == $g)).conclusion = "failure"' --arg g "$(hsha 65)"
+reset_calls
+OUT=$(compute)
+eq "no green head: every head read, each failing one counted" "35 measured" "$(fig "$OUT" failing_heads)"
+eq "  ... the 66th head read too" 1 "$(grep -c -- "head_sha=$(hsha 66)" "$GH_DB.calls")"
+eq "  ... and green not recoverable" "null not recoverable" "$(fig "$OUT" dispatch_to_green_min)"
+
+echo "== the milestone from the dispatch's leg key =="
+# No Holdings row names the topic (the unit retired, or removed before its
+# pass): the Unit comes from the leg key its dispatch wrote in the requesting
+# coordinator's session, found through the unit's own koto request.
+seed_noholding() {
+    cat "$GH_DB.calls" >>"$T/allcalls" 2>/dev/null
+    db_init
+    seed_session "$S" "$(record_json roadmap x | jq -c '.holdings = []')" 2026-10-01T08:00:00Z
+    db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
+    db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
+}
+LREQ="$T/legreqs"
+rm -rf "$LREQ"; cp -R "$FX/requests" "$LREQ"
+jq -c --arg s "$S" 'if .request_id == "r_dispatch_x" and has("requested_by") then .requested_by = $s else . end' \
+    "$FX/requests/r_dispatch_x/request.jsonl" >"$LREQ/r_dispatch_x/request.jsonl"
+seed_noholding; fresh; prs "acme/widgets#21 $MERGE"
+legunit() { KOTO_REQUESTS="$LREQ" capture >/dev/null; last_entry | jq -r '"\(.milestone.value | tojson) \(.milestone.state)"'; }
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken","unit":"Feature 4: Example feature"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "no Holdings row, the leg key holding the Unit: its milestone, measured" \
+    '{"roadmap":"ROADMAP-x","tag":"Feature 4"} measured' "$(legunit)"
+POSTED=$((POSTED + 1))
+seed_noholding; fresh
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "a leg key with no Unit (a dispatch from before it was recorded): not recoverable" \
+    'null not recoverable' "$(legunit)"
+POSTED=$((POSTED + 1))
+seed_noholding; fresh
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken","unit":"$(x)"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "a leg key whose Unit is outside the pattern: not recoverable" 'null not recoverable' "$(legunit)"
+POSTED=$((POSTED + 1))
+koto context remove "$S" legs/r_dispatch_x/deliver >/dev/null 2>&1
+seed "Feature 9: The row's own"; fresh
+printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken","unit":"Feature 4: Example feature"}' \
+    | koto context add "$S" legs/r_dispatch_x/deliver
+eq "a Holdings row and a leg key that differ: the row's" '{"roadmap":"ROADMAP-x","tag":"Feature 9"} measured' "$(legunit)"
+POSTED=$((POSTED + 1))
+koto context remove "$S" legs/r_dispatch_x/deliver >/dev/null 2>&1
+
 echo "== one entry per key =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a first capture posts" 0 $?
@@ -584,16 +688,94 @@ POSTED=$((POSTED + 1))
 capture; eq "a second capture of the same unit exits 0" 0 $?
 eq "  ... having posted nothing" 1 "$(cost_bodies | jq length)"
 eq "  ... and says so" "unit-cost: the record already holds this unit's cost entry" "$(tail -n 1 "$T/cap.err")"
+# The same unit archived on another day: another key, the same dispatch id.
 mkdir -p "$T/b"; rm -rf "$T/b/2026-10-02-feat-x-0a1b2c3d"; cp -R "$A" "$T/b/2026-10-02-feat-x-0a1b2c3d"
 bash "$UC" capture --session "$S" --archive "$T/b/2026-10-02-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
-eq "a record holding a cost entry for another key still gets this one" "0 2" "$? $(cost_bodies | jq length)"
+eq "another key with the same dispatch id posts nothing" "0 1" "$? $(cost_bodies | jq length)"
+eq "  ... and says the record already holds the unit's entry" "unit-cost: the record already holds this unit's cost entry" "$(tail -n 1 "$T/cap.err")"
+# With no dispatch id on either side, another key is another unit.
+NOID="$T/b/2026-10-03-feat-x-0a1b2c3d"
+rm -rf "$NOID"; cp -R "$A" "$NOID"
+jq -c '.niwa = {dispatch_id: null, reason: "no source"}' "$NOID/teardown.json" >"$T/td" && cp "$T/td" "$NOID/teardown.json"
+bash "$UC" capture --session "$S" --archive "$NOID" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
+eq "a capture with no dispatch id and another key still gets its entry" "0 2" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
+bash "$UC" capture --session "$S" --archive "$NOID" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
+eq "  ... and the same key with no dispatch id is still one entry" "0 2" "$? $(cost_bodies | jq length)"
 # An entry key that isn't JSON fails the list; the post still finds its number.
 printf 'not json' | koto context add "$S" record/entries/000090
 capture; eq "a failed list posts anyway" "0 3" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
 eq "  ... a second entry for the key, which readers report as a repeat" 2 \
     "$(cost_bodies | jq --arg k "$KEY" '[.[] | split("\n") | .[6] | fromjson | select(.key == $k)] | length')"
+
+echo "== the post lock =="
+# The list and the post run under .post-lock in the removals directory (under
+# HOME here, XDG_STATE_HOME being unset). Two captures of one unit with the
+# same dispatch id and different keys meet at a barrier on the session's entry
+# list, which state-entry.sh reads (koto context list --prefix
+# record/entries/) only inside the lock: a koto ahead of the stand-in on PATH
+# holds every such call until $T/go exists and notes each one in $T/listing.
+# With the lock, one capture is at the barrier and the other waits for the
+# lock; without it both would list an empty record there and both would post.
+PL="$HOME/.local/state/shirabe/removals/.post-lock"
+seed; fresh; prs "acme/widgets#21 $MERGE"
+rm -rf "$T/c" "$T/barrier" "$T/go" "$T/listing"; mkdir -p "$T/c" "$T/barrier"; cp -R "$A" "$T/c/2026-10-04-feat-x-0a1b2c3d"
+cat >"$T/barrier/koto" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+    *"context list --prefix record/entries/"*)
+        echo \$\$ >>'$T/listing'
+        i=0
+        while [ ! -e '$T/go' ] && [ "\$i" -lt 600 ]; do sleep 0.1; i=\$((i + 1)); done ;;
+esac
+exec '$HERE/testdata/koto' "\$@"
+EOF
+chmod +x "$T/barrier/koto"
+PATH="$T/barrier:$PATH" UNIT_COST_LIST_SECS=40 UNIT_COST_POST_SECS=20 \
+    bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap1.err" &
+P1=$!
+PATH="$T/barrier:$PATH" UNIT_COST_LIST_SECS=40 UNIT_COST_POST_SECS=20 \
+    bash "$UC" capture --session "$S" --archive "$T/c/2026-10-04-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/cap2.err" &
+P2=$!
+i=0
+until [ -s "$T/listing" ] || [ "$i" -ge 600 ]; do sleep 0.1; i=$((i + 1)); done
+# Time for the other capture to reach the lock, or, without one, the barrier.
+sleep 3
+eq "two captures of one unit: one is at the barrier inside the lock, the other held out of it" 1 "$(grep -c . "$T/listing")"
+touch "$T/go"
+wait "$P1"; wait "$P2"
+POSTED=$((POSTED + 1))
+eq "  ... released, they leave one entry" 1 "$(cost_bodies | jq length)"
+eq "  ... one posts, and the other, listing after it, says the record already holds the entry" \
+    "unit-cost: posted the cost entry on acme/widgets#21|unit-cost: the record already holds this unit's cost entry" \
+    "$({ tail -n 1 "$T/cap1.err"; tail -n 1 "$T/cap2.err"; } | LC_ALL=C sort | tr '\n' '|' | sed 's/|$//')"
+eq "  ... the lock is released after them" no "$([ -e "$PL" ] && echo yes || echo no)"
+# A lock left by a process that is gone is taken over.
+seed; fresh
+mkdir -p "$PL"; printf '%s %s\n' 999999 "$(date +%s)" >"$PL/owner"
+capture; eq "a lock whose holder is gone is taken over, and the capture posts" "0 1" "$? $(cost_bodies | jq length)"
+POSTED=$((POSTED + 1))
+# A lock with no owner may be one its holder hasn't written yet: it is waited
+# on for two seconds, and then, still ownerless, taken over.
+seed; fresh
+mkdir -p "$PL"
+S0=$(date +%s)
+capture; eq "a lock with no owner is waited on, then taken over, and the capture posts" "0 1 yes" \
+    "$? $(cost_bodies | jq length) $([ $(($(date +%s) - S0)) -ge 2 ] && echo yes || echo no)"
+POSTED=$((POSTED + 1))
+# A lock a live process holds is waited for inside the list and post bounds,
+# then the capture lists and posts without it, saying so.
+seed; fresh
+# The holder is this suite's own shell, which outlives the capture.
+LIVE=$$
+mkdir -p "$PL"; printf '%s %s\n' "$LIVE" "$(date +%s)" >"$PL/owner"
+UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=10 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
+eq "a lock a live process holds is waited out, then the capture posts without it" "0 1" "$? $(cost_bodies | jq length)"
+POSTED=$((POSTED + 1))
+case "$(cat "$T/cap.err")" in *"the post lock is held"*) ok "  ... saying so" ;; *) bad "  ... saying so" "$(cat "$T/cap.err")" ;; esac
+eq "  ... and leaves the live process's lock in place" "$LIVE" "$(cut -d' ' -f1 "$PL/owner")"
+rm -rf "$PL"
 
 echo "== partial entries =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
@@ -603,8 +785,8 @@ POSTED=$((POSTED + 1))
 eq "  ... complete false, naming the token rows" "false|tokens.worker:no source,tokens.nested:no source" \
     "$(last_entry | jq -r '"\(.complete)|\([.missing[] | select(.figure | startswith("tokens")) | "\(.figure):\(.reason)"] | join(","))"')"
 seed; fresh
-db '.fail = [{match: "run list", rc: 1, stderr: "HTTP 502"}]'
-capture; eq "with gh run list failing, the capture posts" 0 $?
+db '.fail = [{match: "actions/runs?head_sha", rc: 1, stderr: "HTTP 502"}]'
+capture; eq "with the runs read failing, the capture posts" 0 $?
 POSTED=$((POSTED + 1))
 eq "  ... complete false, the run figures read failed, the rest kept" "false|dispatch_to_green_min:read failed,outside_share_pct:read failed,review_share_pct:read failed,failing_heads:read failed|150 measured|40.5 measured" \
     "$(last_entry | jq -r '"\(.complete)|\([.missing[] | select(.figure | test("green|share|failing")) | "\(.figure):\(.reason)"] | join(","))|\(.figures.dispatch_to_merge_min.value) \(.figures.dispatch_to_merge_min.state)|\(.figures.writing_code_min.value) \(.figures.writing_code_min.state)"')"
@@ -624,11 +806,12 @@ seed; fresh
 UNIT_COST_BUDGET_SECS=0 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
 eq "with the budget spent, the capture still posts" "0 1" "$? $(cost_bodies | jq length)"
 POSTED=$((POSTED + 1))
+SPENT=$(last_entry)
 eq "  ... what it could not take is time limit" "false|time limit|time limit|time limit|time limit|time limit|time limit" \
-    "$(last_entry | jq -r '"\(.complete)|\([.missing[] | select(.figure == "milestone") | .reason][0])|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_merge_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\([.missing[] | select(.figure == "tokens.worker") | .reason][0])"')"
+    "$(q "$SPENT" '"\(.complete)|\([.missing[] | select(.figure == "milestone") | .reason][0])|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_merge_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\([.missing[] | select(.figure == "tokens.worker") | .reason][0])"')"
 eq "  ... the figures already computed are kept" "40.5 measured|29.5 measured|3 measured|99.3 measured" \
-    "$(last_entry | jq -r '[.figures.writing_code_min, .figures.review_min, .figures.panel_rounds, .figures.summed_session_span_min] | map("\(.value) \(.state)") | join("|")')"
-eq "  ... and a repository it could not look up is not public" '[{"repo":"not public"}]' "$(last_entry | jq -c .pulls)"
+    "$(q "$SPENT" '[.figures.writing_code_min, .figures.review_min, .figures.panel_rounds, .figures.summed_session_span_min] | map("\(.value) \(.state)") | join("|")')"
+eq "  ... and a repository it could not look up is not public" '[{"repo":"not public"}]' "$(q "$SPENT" '.pulls | tojson')"
 
 echo "== an entry over 50,000 bytes =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
@@ -726,6 +909,8 @@ case "$(via "$OUT")" in *"#43"*) bad "a merged, same-owner pull request created 
 eq "a pull request the unit opened on a sibling node branch, absent from every gitBranch, linked within 120 s of its creation: credited via session" \
     "acme/widgets#42 session" "$(q "$OUT" '[.pulls[] | select(.number == 42) | "\(.repo)#\(.number) \(.via)"][0]')"
 case " $(q "$OUT" '.pulls | tojson') " in *impl/plan-node-2* | *feat/own* | *feat/other*) bad "  ... no branch name enters the entry" "$OUT" ;; *) ok "  ... no branch name enters the entry" ;; esac
+eq "  ... and open pull request 47, out of pulls, is in opened" "acme/widgets#47 session" \
+    "$(q "$OUT" '[.opened[] | "\(.repo)#\(.number) \(.via)"] | join("|")')"
 # The window is 120 seconds either way, inclusive.
 seed; mkcredit
 ghpr acme/widgets 51 2026-10-01T10:00:00Z MERGED b/51 2026-10-01T10:31:00Z
@@ -742,6 +927,8 @@ printf '{"type":"user","gitBranch":"main"}\n' >>"$CW"
 OUT=$(compute)
 eq "linked 120 s after or before creation is credited, 120.001 s is not; a gitBranch head is, a head that is its own base is not" \
     "acme/widgets#21 holding|acme/widgets#51 session|acme/widgets#52 session|acme/widgets#54 session" "$(via "$OUT")"
+eq "no open pull request: opened is empty and missing names nothing for it" "[]|" \
+    "$(q "$OUT" '.opened | tojson')|$(q "$OUT" '[.missing[] | select(.figure == "opened")] | length | if . == 0 then "" else . end')"
 # An unreadable linked pull request: left out, and credit never gates.
 seed; mkcredit
 ghpr acme/widgets 41 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
@@ -779,16 +966,74 @@ link acme/secret 9 2026-10-01T10:00:10.000Z
 OUT=$(compute)
 eq "a private credited pull request on a public host is {repo: not public} alone" '[{"repo":"acme/widgets","via":"holding"},{"repo":"not public"}]' \
     "$(q "$OUT" '[.pulls[] | if .repo == "not public" then . else {repo, via} end] | tojson')"
+echo "== opened: pull requests still open at capture =="
+opn() { q "$1" '[.opened[] | if .repo == "not public" then "not public" else "\(.repo)#\(.number) \(.via)" end] | join("|")'; }
+omiss() { q "$1" '[.missing[] | select(.figure == "opened") | .reason] | join(",")'; }
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 61 2026-10-01T10:00:00Z MERGED feat/own 2026-10-01T10:30:00Z
+link acme/widgets 61 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 62 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/widgets 62 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 63 2026-10-01T10:00:00Z OPEN feat/own ""
+db '(.prs[] | select(.number == 63)).isDraft = true'
+link acme/widgets 63 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 64 2026-10-01T10:00:00Z CLOSED feat/own ""
+link acme/widgets 64 2026-10-01T10:00:10.000Z
+ghpr acme/widgets 65 2026-10-01T08:00:00Z OPEN feat/own ""
+link acme/widgets 65 2026-10-01T10:00:10.000Z
+OUT=$(compute)
+eq "merged in pulls; open and draft in opened; closed unmerged, and open but created before dispatch, in neither" \
+    "acme/widgets#21 holding|acme/widgets#61 session / acme/widgets#62 session|acme/widgets#63 session" "$(via "$OUT") / $(opn "$OUT")"
+eq "  ... nothing missing for opened or pulls" "|" "$(omiss "$OUT")|$(pmiss "$OUT")"
+eq "  ... an opened object is repo, number and via alone" true "$(q "$OUT" '[.opened[] | keys == ["number", "repo", "via"]] | all')"
+# More than 100 open: the lowest 100 numbers, and missing names opened.
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+db '.prs += [range(101; 202) as $i | {repo: "acme/widgets", number: $i, title: "x", body: "", state: "OPEN", isDraft: false,
+        isCrossRepository: false, baseRefName: "main", headRefName: "b/\($i)", headRefOid: $m, author: "alice", editor: null,
+        createdAt: "2026-10-01T10:00:00Z"}]' --arg m "$MERGE2"
+jq -nc 'range(201; 100; -1) as $i | {type: "pr-link", prNumber: $i, prRepository: "acme/widgets", timestamp: "2026-10-01T10:00:30.000Z"}' >>"$CW"
+OUT=$(compute)
+eq "101 open pull requests: 100 in opened, by number, missing naming opened entry size, pulls untouched" \
+    "100|101|200|entry size||1" \
+    "$(q "$OUT" '"\(.opened | length)|\(.opened[0].number)|\(.opened[99].number)"')|$(omiss "$OUT")|$(pmiss "$OUT")|$(q "$OUT" '.pulls | length')"
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/secret 9 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/secret 9 2026-10-01T10:00:10.000Z
+OUT=$(compute)
+eq "an open pull request in a private repository on a public host is {repo: not public} alone" '[{"repo":"not public"}]' "$(q "$OUT" '.opened | tojson')"
+# A failed read: in neither list, both name the reason.
+seed; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 62 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/widgets 62 2026-10-01T10:00:10.000Z
+db '.fail = [{match: "pr view 62 --repo acme/widgets --json state", rc: 1, stderr: "HTTP 502"}]'
+OUT=$(compute)
+eq "an unreadable open pull request is in neither list; missing names opened and pulls, read failed" \
+    "|acme/widgets#21 holding|read failed|read failed" "$(opn "$OUT")|$(via "$OUT")|$(omiss "$OUT")|$(pmiss "$OUT")"
+db '.fail = []'
+# The holding's own Pull request cell, read by a capture.
+seed "Feature 4: Example feature" "[#62](https://github.com/acme/widgets/pull/62)"; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 62 2026-10-01T10:00:00Z OPEN feat/own ""
+link acme/widgets 62 2026-10-01T10:00:10.000Z
+reset_calls
+UNIT_COST_PR_CONTENT_READER="$T/absent.sh" capture >/dev/null
+eq "the holding's Pull request cell reading open: in opened via holding, never also via session" \
+    "acme/widgets#62 holding" "$(opn "$(cat "$A/unit-cost.json")")"
+eq "  ... read once" 1 "$(grep -c -- 'pr view 62 --repo acme/widgets --json state' "$GH_DB.calls")"
+seed "Feature 4: Example feature" "[#64](https://github.com/acme/widgets/pull/64)"; mkcredit; prs "acme/widgets#21 $MERGE"
+ghpr acme/widgets 64 2026-10-01T10:00:00Z CLOSED feat/own ""
+UNIT_COST_PR_CONTENT_READER="$T/absent.sh" capture >/dev/null
+eq "a holding cell reading closed is not in opened, and nothing is missing for it" "|" \
+    "$(opn "$(cat "$A/unit-cost.json")")|$(omiss "$(cat "$A/unit-cost.json")")"
 # A budget spent after the first credit read: what was read is kept.
 seed; mkcredit
 db '.prs += [range(61; 76) as $i | {repo: "acme/widgets", number: $i, title: "x", body: "", state: "MERGED", isDraft: false,
         isCrossRepository: false, baseRefName: "main", headRefName: "b/\($i)", headRefOid: $m, author: "alice", editor: null,
         createdAt: "2026-10-01T10:\($i - 50):00Z", mergedAt: "2026-10-01T11:\($i - 50):00Z", mergeCommit: $m}]' --arg m "$MERGE2"
 for i in 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75; do link acme/widgets "$i" "2026-10-01T10:$((i - 50)):30.000Z"; done
-printf '#!/usr/bin/env bash\ncase "$*" in "pr view "*"--json state,createdAt"*) echo x >>"%s/slow.n"; sleep 0.6 ;; esac\nexec gh "$@"\n' "$T" >"$T/slowgh"
+printf '#!/usr/bin/env bash\ncase "$*" in "pr view "*"--json state,createdAt"*) echo x >>"%s/slow.n"; sleep 2 ;; esac\nexec gh "$@"\n' "$T" >"$T/slowgh"
 chmod +x "$T/slowgh"
 : >"$T/slow.n"
-OUT=$(GH="$T/slowgh" UNIT_COST_BUDGET_SECS=6 compute)
+OUT=$(GH="$T/slowgh" UNIT_COST_BUDGET_SECS=20 compute)
 NC=$(q "$OUT" '[.pulls[] | select(.via == "session")] | length')
 [ "$NC" -ge 1 ] && [ "$NC" -lt 15 ] && ok "a budget spent mid-way keeps the credit read before it ($NC of 15)" || bad "a budget spent mid-way keeps the credit read before it" "$NC: $OUT"
 eq "  ... the earliest-linked first, in order" "$(awk -v n="$NC" 'BEGIN { for (i = 61; i <= 60 + n; i++) printf "%s%d", (i > 61 ? " " : ""), i }')" "$(q "$OUT" '[.pulls[] | select(.via == "session") | .number | tostring] | join(" ")')"
@@ -825,6 +1070,52 @@ printf 'not json\n' >"$A/teardown.json"
 eq "a teardown.json that isn't JSON: null, invalid input" 'null|invalid input' "$(nid)"
 rm -f "$A/teardown.json"
 eq "no teardown.json: null, no source" 'null|no source' "$(nid)"
+# A removal record (archive-common.sh's removals directory, under
+# XDG_STATE_HOME) for the archive's instance path gives the id teardown.json
+# lacks; one for another path, or a removals directory not mode 0700, doesn't.
+fresh
+jq -c '.niwa = {dispatch_id: null, reason: "no source"}' "$A/teardown.json" >"$T/td" && cp "$T/td" "$A/teardown.json"
+export XDG_STATE_HOME="$T/xdg"
+RMD="$XDG_STATE_HOME/shirabe/removals"
+mkdir -p "$RMD"
+chmod 700 "$RMD"
+removal() { # removal <dispatch id> <instance path>
+    jq -n -c --arg d "$1" --arg p "$2" '{schema: "unit-removal/1", dispatch_id: $d, session_id: "0a1b2c3d-77aa",
+        instance_path: $p, removed_at: "2026-10-01T12:00:00Z", attempts: 0, last: null}' >"$RMD/$1.json"
+}
+removal dsp-removed.3 /work/inst/feat-x
+eq "a teardown.json with no id takes the removal record's for its instance path" '"dsp-removed.3"|' "$(nid)"
+chmod 755 "$RMD"
+eq "  ... not from a removals directory that isn't mode 0700" 'null|no source' "$(nid)"
+chmod 700 "$RMD"
+rm -f "$RMD"/*.json
+removal dsp-removed.3 /work/inst/feat-x-2
+eq "  ... nor from a record for another instance path" 'null|no source' "$(nid)"
+fresh
+removal dsp-removed.4 /work/inst/feat-x
+eq "teardown.json's own id stands over a removal record's" '"dsp-feat-x.1"|' "$(nid)"
+unset XDG_STATE_HOME
+
+echo "== a pull request file naming none: the credited pull requests read =="
+# A capture after a removal has no sealed verdict: credit's owner is the
+# record repository's, and green, merge and failing heads read the credited
+# pull requests. #23 has a failing head then a green one, gadgets#7 one green
+# head.
+seed; fresh; : >"$T/prs"
+H1=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1 H2=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2 H3=c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3
+db '.pr_commits["acme/widgets#23"] = [$a, $b] | .pr_commits["acme/gadgets#7"] = [$c]
+    | .runs += [{repo: "acme/widgets", databaseId: 301, headBranch: "feat/x-docs", headSha: $a, attempt: 1, status: "completed", conclusion: "failure", updatedAt: "2026-10-01T10:40:00Z", attempts: []},
+                {repo: "acme/widgets", databaseId: 302, headBranch: "feat/x-docs", headSha: $b, attempt: 1, status: "completed", conclusion: "success", updatedAt: "2026-10-01T11:00:00Z", attempts: []},
+                {repo: "acme/gadgets", databaseId: 303, headBranch: "feat/x-gadgets", headSha: $c, attempt: 1, status: "completed", conclusion: "success", updatedAt: "2026-10-01T11:20:00Z", attempts: []}]' \
+    --arg a "$H1" --arg b "$H2" --arg c "$H3"
+printf '%s' '{"scope":"roadmap","name":"x","repo":"acme/widgets","ref":"7","unit":"Feature 4: Example feature"}' >"$T/unit.json"
+OUT=$(compute --unit-json "$T/unit.json")
+eq "the credited pull requests are the entry's, via session" "acme/widgets#23 session|acme/gadgets#7 session" "$(via "$OUT")"
+eq "  ... merge is the later of their merges" "145 measured" "$(fig "$OUT" dispatch_to_merge_min)"
+eq "  ... green the later of their green heads" "140 measured" "$(fig "$OUT" dispatch_to_green_min)"
+eq "  ... failing heads counted over their heads" "1 measured" "$(fig "$OUT" failing_heads)"
+OUT=$(compute)
+eq "with no record known, no owner: nothing credited, the GitHub figures no source" "|null not recoverable" "$(via "$OUT")|$(fig "$OUT" dispatch_to_merge_min)"
 
 echo "== the GitHub wrapper =="
 admit() { bash "$UC" gh-check "$@"; eq "admits: $*" 0 $?; }
@@ -869,24 +1160,24 @@ eq "every read the capture made was one the wrapper admits" "" \
         done)"
 
 echo "== the entries' readers =="
-# record-state.sh chooses a Standing id from the entry stream (the one
-# script that reads entries, through record-append.sh --list); a cost entry
+# state-stored-set.sh chooses a Standing id from the entry stream (the one
+# script that reads entries, through state-entry.sh --list); a cost entry
 # on the record changes nothing it prints or writes.
 RM=(--scope roadmap --name x --repo acme/widgets)
 standing() {
     seed
     [ "$1" = with ] && { sed '1,3d' "$FX/example-comment.md" >"$T/cost.txt"; bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; }
-    bash "$HERE/record-state.sh" "${RM[@]}" --skip-session-checks --standing answer --what "panels are the cost" --owner "the human" 2>&1 \
+    bash "$HERE/state-stored-set.sh" "${RM[@]}" --skip-session-checks --standing answer --what "panels are the cost" --owner "the human" 2>&1 \
         | grep -v '^record/entries/'
     session_state "$S" | jq -c '.standing | map(del(.set))'
 }
 WITHOUT=$(standing without)
-case "$WITHOUT" in *'"standing":"s1","kind":"answer"'*) ok "record-state.sh writes Standing s1 on a record without one" ;;
-    *) bad "record-state.sh writes Standing s1 on a record without one" "$WITHOUT" ;; esac
+case "$WITHOUT" in *'"standing":"s1","kind":"answer"'*) ok "state-stored-set.sh writes Standing s1 on a record without one" ;;
+    *) bad "state-stored-set.sh writes Standing s1 on a record without one" "$WITHOUT" ;; esac
 eq "  ... and the same with a cost entry on the record" "$WITHOUT" "$(standing with)"
 seed
 sed '1,3d' "$FX/example-comment.md" >"$T/cost.txt"
-bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; eq "record-append.sh admits kind cost" 0 $?
+bash "$RA" "${RM[@]}" --kind cost --on none --text-file "$T/cost.txt" >/dev/null 2>&1; eq "state-entry.sh admits kind cost" 0 $?
 eq "  ... and lists it back whole" "cost|$(cat "$T/cost.txt")" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[0] | "\(.kind)|\(.text)"')"
 
 done_tests unit-cost

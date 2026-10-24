@@ -103,7 +103,7 @@
 #   dc_rp_from_row <cell> / dc_rp_to_row <return-path>
 #       A return path is `message` or `<request-id>:<leg>` inside these
 #       scripts, and `message` or `leg <request-id>:<leg>` in the record's
-#       Return path cell, the record codec's form. These convert between
+#       Return path cell, state-schema.jq's form. These convert between
 #       the two; every read and write of a single cell goes through them
 #       (wait-target.sh's jq filter over the whole list reads the same form).
 #
@@ -119,7 +119,7 @@
 #       a listing, so an absent key and a failed read stay apart: `context
 #       get` fails the same way for both, and `context exists` on koto's
 #       cloud backend retries an absent key's 404 for about a second
-#       (record-source.sh rs_list).
+#       (state-read.sh rs_list).
 #
 #   dc_leg_put <session> <request> <leg> <json>
 #       Writes the leg key whole. Returns 0, or 2 when the value isn't a JSON
@@ -146,12 +146,11 @@
 #
 #   dc_record_write <session> <topic> <row-file>
 #       Adds or replaces the topic's holding row whole. Returns the writer's
-#       code: 0 written, 10 refused, 13 the record is full (record-full), 65
-#       row refused, 2 otherwise. The
+#       code: 0 written, 10 refused, 65 row refused, 2 otherwise. The
 #       writer's 12 (the record changed under it) is retried up to
 #       three times, then reads as a failed write.
 #
-#   The record's scripts belong to the record feature: record-holding.sh
+#   The record's scripts belong to the record feature: state-holding.sh
 #   ships with it, beside these scripts (it is not holding-recorded.sh, the
 #   dispatch gate). It derives the record's scope, name, repository and reference from
 #   the session's own log, so these pass the session and nothing else. When
@@ -164,7 +163,7 @@
 #       `sealed:<seq>:<sha256>` token, where seq is the state's latest entry
 #       in the session log and the hash covers the session, state, seq and the
 #       verdict's bytes. The helper ships with the record feature, like
-#       record-holding.sh. DC_COORD_LOG overrides its path.
+#       state-holding.sh. DC_COORD_LOG overrides its path.
 #
 #   dc_seal_check <session> <state> <token> <context-key>
 #       Prints the sealed verdict's bytes when the token still matches them and
@@ -201,6 +200,19 @@
 #       It sets a TERM trap and toggles `set -m` in the shell that runs it,
 #       so it runs in a subshell of its own, as dc_with_deadline's command
 #       does, never in a caller's shell.
+#
+#   dc_job_finished <claude-home> <job-id> <listing-row-json>
+#       0 when the Claude Code background job is finished, by evidence that
+#       still means it: its own <claude-home>/jobs/<id>/state.json reads
+#       `state` done, stopped or failed, and its `claude agents --json --all`
+#       row shows no pid, or a pid no process holds (`kill -0` and `ps -p`
+#       both find none). The row's `state` is activity, not lifecycle, and
+#       isn't read: Claude Code 2.1.309 lists every job as `working`, a
+#       stopped one included. Otherwise 1, printing why: a job id that isn't
+#       one (it never reaches a path), a row that isn't a JSON object, a pid
+#       that isn't one, a live pid, or a state file that is missing, isn't
+#       JSON, reads `working` or reads anything else. A caller about to
+#       remove a job refuses on 1; a wrong answer here only refuses.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -227,10 +239,10 @@ DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
 # A koto session name, as a leg's bound child is recorded.
 DC_RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
-DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
-# The stored set's reader, for the pauses (record-state.sh --list); tests use
+DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/state-holding.sh}"
+# The stored set's reader, for the pauses (state-stored-set.sh --list); tests use
 # a stand-in.
-DC_RECORD_STATE="${DC_RECORD_STATE:-$DC_HERE/record-state.sh}"
+DC_RECORD_STATE="${DC_RECORD_STATE:-$DC_HERE/state-stored-set.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
 
 # The dispatch topic's grammar, which a refusal names as the accepted values.
@@ -464,7 +476,7 @@ dc_leg_put() {
 
 dc_record_present() {
     [ -f "$DC_RECORD_HOLDING" ] && return 0
-    printf 'dispatch-common: the record feature'"'"'s record-holding.sh is not installed at %s\n' "$DC_RECORD_HOLDING" >&2
+    printf 'dispatch-common: the record feature'"'"'s state-holding.sh is not installed at %s\n' "$DC_RECORD_HOLDING" >&2
     return 2
 }
 
@@ -676,4 +688,44 @@ dc_tree() {
     set +m 2>/dev/null
     trap 'kill -TERM -- "-$p" >/dev/null 2>&1; kill -TERM "$p" >/dev/null 2>&1; exit 143' TERM
     wait "$p"
+}
+
+dc_job_finished() {
+    local home="$1" job="$2" row="$3" pid f st
+    if ! grep -Eq '^[0-9a-f]{6,64}$' <<<"$job"; then
+        printf 'the job id [%s] is not a job id\n' "$job"
+        return 1
+    fi
+    pid=$(printf '%s' "$row" | jq -r 'if type != "object" then error("not an object")
+        elif .pid == null then "" else .pid | tostring end' 2>/dev/null) || {
+        printf 'the listing row for job %s is not a JSON object\n' "$job"
+        return 1
+    }
+    if [ -n "$pid" ]; then
+        if ! grep -Eq '^[1-9][0-9]{0,9}$' <<<"$pid"; then
+            printf 'job %s lists pid [%s], which is not a pid\n' "$job" "$pid"
+            return 1
+        fi
+        # kill -0 fails on a live process another user owns, so ps has the
+        # last word: the pid is dead only when neither finds it.
+        if kill -0 "$pid" 2>/dev/null || ps -p "$pid" >/dev/null 2>&1; then
+            printf 'job %s is still running (pid %s)\n' "$job" "$pid"
+            return 1
+        fi
+    fi
+    f="$home/jobs/$job/state.json"
+    if [ ! -f "$f" ]; then
+        printf 'job %s has no state file at %s\n' "$job" "$f"
+        return 1
+    fi
+    st=$(jq -r '.state // "" | strings' "$f") || {
+        printf 'the state file of job %s is not readable JSON\n' "$job"
+        return 1
+    }
+    case "$st" in
+        done | stopped | failed) return 0 ;;
+        working) printf 'the state file of job %s reads working\n' "$job" ;;
+        *) printf "the state file of job %s reads [%s], which isn't known to be finished\n" "$job" "$st" ;;
+    esac
+    return 1
 }

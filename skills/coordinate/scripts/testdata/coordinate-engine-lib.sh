@@ -32,7 +32,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh gives the GitHub DB helpers, the record renderer and the
+# test-lib.sh gives the GitHub DB helpers, state_json and the
 # ok/bad/eq counters. It also puts testdata/ (the koto stand-in included)
 # first on PATH; these suites need the real koto, so PATH is rebuilt with only
 # the gh stand-in in front, and the stand-in koto's variables are dropped.
@@ -244,7 +244,7 @@ land_run() {
 
 record_verified() { # the agent writes the verified head into the unit's row
     land_row "$H" > "$T/row.json"
-    write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+    write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"
 }
 
 assigned_brief() { # assigned_brief <topic> <unit> <entry point> <positional> <run mode>
