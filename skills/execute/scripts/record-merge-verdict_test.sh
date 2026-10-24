@@ -71,10 +71,16 @@ case "$2" in
     get) [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
     remove) rm -f "$d/$4" ;;
     exists) [ -f "$d/$4" ] ;;
+    # list <s> --prefix <p>: the keys under <p>, as a JSON array (owned-pr.sh's
+    # index read).
+    list) p=""; [ "${4:-}" = --prefix ] && p=${5:-}
+          (cd "$d" && find . -type f | sed 's#^\./##' | grep "^$p") | jq -Rsc 'split("\n") | map(select(length > 0))' ;;
     *) exit 9 ;;
 esac
 STUB
 chmod +x "$BIN/koto"
+# The PRs' index sessions sit at a shared address of this suite's own.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$WORK/shared-record"
 
 cat > "$BIN/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -103,9 +109,11 @@ exit "$rc"
 STUB
 chmod +x "$BIN/gh"
 
-# A copy of the script beside the real owned-pr.sh and a stub merge-verdict.sh.
-STUBDIR="$WORK/scripts"
-mkdir -p "$STUBDIR"
+# A copy of the script beside the real owned-pr.sh and a stub merge-verdict.sh,
+# laid out as the plugin is, so owned-pr.sh finds scripts/lib/record-store.sh.
+STUBDIR="$WORK/plugin/skills/execute/scripts"
+mkdir -p "$STUBDIR" "$WORK/plugin/scripts/lib"
+cp "$SCRIPT_DIR/../../../scripts/lib/record-store.sh" "$WORK/plugin/scripts/lib/record-store.sh"
 cp "$RECORD" "$STUBDIR/record-merge-verdict.sh"
 cp "$SCRIPT_DIR/owned-pr.sh" "$STUBDIR/owned-pr.sh"
 cp "$SCRIPT_DIR/run-id.sh" "$STUBDIR/run-id.sh"
@@ -330,12 +338,16 @@ fi
 
 MINE=0123456789abcdef0123456789abcdef
 OTHER=fedcba9876543210fedcba9876543210
+# plant <n> <run_id>: an index entry naming <run_id> for PR o/r#<n>.
+plant() {
+    mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/o" "$CASE/ctx/pr.o.r.$1/run"
+    printf '{"workspace":"/w","session":"%s","session_id":"sid-1","mode":"single-pr","topic":"topic","written_at":"2026-01-01T00:00:00Z"}' \
+        "$S" > "$CASE/ctx/pr.o.r.$1/run/$2"
+}
 
 new_case lookup-foreign-run
 ctx_set run_id "$MINE"
-jq -nc --arg url "$URL" --arg o "$OTHER" '[{url: $url, state: "OPEN", isCrossRepository: false,
-    author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic",
-    body: ("x\n<!-- shirabe-run: " + $o + " -->")}]' > "$CASE/list.out"
+plant 7 "$OTHER"
 VERDICT_LINE=merged run_stub
 if [ "$(ctx step)" = "execute:pr-adopt" ] && ! has home_pr && [ ! -s "$CASE/verdict-args.log" ]; then
     pass "another run's PR on the branch: execute:pr-adopt, no verdict computed on it"
@@ -345,9 +357,7 @@ fi
 
 new_case lookup-own-run
 ctx_set run_id "$MINE"
-jq -nc --arg url "$URL" --arg o "$MINE" '[{url: $url, state: "OPEN", isCrossRepository: false,
-    author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic",
-    body: ("x\n<!-- shirabe-run: " + $o + " -->")}]' > "$CASE/list.out"
+plant 7 "$MINE"
 VERDICT_LINE=merged run_stub
 if [ "$(ctx home_pr)" = "$URL" ] && [ "$(ctx merge_verdict)" = merged ]; then
     pass "the PR this run opened: its verdict is recorded"
@@ -357,12 +367,12 @@ fi
 
 new_case lookup-ambiguous
 ctx_set run_id "$MINE"
-jq -nc --arg o "$MINE" '[1,2] | map({url: ("https://github.com/o/r/pull/" + tostring), state: "OPEN",
-    isCrossRepository: false, author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic"})
-    | .[0].body = ("<!-- shirabe-run: " + $o + " -->")' > "$CASE/list.out"
+jq -nc '[1,2] | map({url: ("https://github.com/o/r/pull/" + tostring), state: "OPEN",
+    isCrossRepository: false, author: {login: "octo"}, baseRefName: "main", headRefName: "impl/topic"})' > "$CASE/list.out"
+plant 1 "$MINE"
 VERDICT_LINE=merged run_stub
 if [ "$(ctx step)" = "execute:pr-adopt" ] && [ "$RC" -eq 0 ]; then
-    pass "an ambiguous lookup (a marked and an unmarked PR): execute:pr-adopt"
+    pass "an ambiguous lookup (a PR this run recorded beside one with no entry): execute:pr-adopt"
 else
     fail "ambiguous: exit $RC, step [$(ctx step)]"
 fi

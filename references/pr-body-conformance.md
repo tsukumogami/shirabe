@@ -111,12 +111,18 @@ reader of the repository understands; the workflow's own records (the review
 round, the run's record lines, pointers to PLAN and ROADMAP files, which are
 deleted when the work completes) stay in the run's session. A repository opts
 in with `## PR Workflow Content: include` in its `CLAUDE.local.md` or
-`CLAUDE.md`, read by `scripts/pr-workflow-content.sh`; with it, none of this
-section applies. Without it, the /work-on and /execute pull request gate
-reports each of these, outside fenced code, as `pr-body/workflow-content`:
-a `## Review panel` section title; a table whose first row reads Seat, Model, Run,
-Verdict and Reviewed head; and a line starting `Plan:` or `Roadmap:`, or
-starting `Implements` and naming a `PLAN-` or `ROADMAP-` file. The check
+`CLAUDE.md`, read by `scripts/pr-workflow-content.sh`, which a run records once
+at its open and its gates read back (`--session`); with it, none of this
+section applies, and a plan's run adds one Part 2 line naming its record,
+`Run record: <session> (run <run_id>)`. Without it, the /work-on and /execute
+pull request gate reports each of these, outside fenced code, as
+`pr-body/workflow-content`: a `## Review panel` section title; a table whose
+first row reads Seat, Model, Run, Verdict and Reviewed head; a line starting
+`Plan:` or `Roadmap:`, or starting `Implements` and naming a `PLAN-` or
+`ROADMAP-` file; and the run's own traces: a run marker comment, a run line
+(`topic=`, `exit=`, `outcome=`, `intent=`, `mode=`, `store=`, `run=`), a
+`## PR Index` or `## Merge Order` section title or a PR index line, a `Run record:`
+line, and a `record:` or `unpinned` result line. The check
 matches these shapes only, never words, so a body that discusses plans or
 reviews in prose passes. CI and the PreToolUse hook don't run it.
 

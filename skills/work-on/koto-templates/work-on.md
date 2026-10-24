@@ -2400,11 +2400,11 @@ states:
       # default pass-through list, so the template declares no pass_env.
       pr_body_conformant:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body --session {{SESSION_NAME}}'
       # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
       # verification_deferred) records the deferral where a reviewer reads it.
-      # In a repository that doesn't opt in to workflow content
-      # (scripts/pr-workflow-content.sh prints omit) the script exits 0 with no
+      # When the run's recorded switch reads omit
+      # (scripts/pr-workflow-content.sh --session) the script exits 0 with no
       # GitHub read: verification_deferral in context is the record. Otherwise
       # check-pr-output.sh --deferral-record reads the pull request body from
       # GitHub and exits 0 when it says local verification did not run, has
@@ -2416,7 +2416,7 @@ states:
       # no GitHub read.
       verification_deferral_recorded:
         type: command
-        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
+        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --session {{SESSION_NAME}} --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
     accepts:
       pr_status:
         type: enum
@@ -3966,19 +3966,25 @@ holds and each finding names the rule it breaks; a banned word is
 instead. Fix the title or body with `gh pr edit` and submit `pr_status: created`
 again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
-`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body --session {{SESSION_NAME}}` for the reason.
 
 Write the body about the change and how it was verified, in terms a reader of
 this repository understands. By default that means no review panel table, no
-override or deferral notes, no session, state or ledger names, no pointers to
-PLAN or ROADMAP files: those records stay in this run's session. The repository
-can opt in to them:
-`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh"` prints `include` when it
-declares `## PR Workflow Content: include`, and `omit`, the default, otherwise.
+override or deferral notes, no session, state or ledger names, no run lines,
+no pointers to PLAN or ROADMAP files: those records stay in this run's session.
+The repository can opt in to them:
+`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh" --session {{SESSION_NAME}}`
+prints `include` when the run recorded `## PR Workflow Content: include` at its
+open (or, for a session that recorded nothing, the checkout declares it), and
+`omit`, the default, otherwise.
 Under `omit` the `pr_body_conformant` gate also holds on a `## Review panel`
-heading or table, a `Plan:` or `Roadmap:` line, or an `Implements` line naming a
-PLAN or ROADMAP file (`pr-body/workflow-content`); `references/phases/phase-6-pr.md`
-says what goes where under each.
+heading or table, a `Plan:` or `Roadmap:` line, an `Implements` line naming a
+PLAN or ROADMAP file, a run marker, a run line, a PR index line or a
+`Run record:` line (`pr-body/workflow-content`); `references/phases/phase-6-pr.md`
+says what goes where under each. Under `include`, a multi-pr item's body also
+carries, in Part 2, the one line
+`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh" --reference {{SESSION_NAME}}`
+prints, naming the plan's record root.
 
 A run that deferred verification to hosted CI (it passed through
 `verification_deferred`, and `verification_deferral` is in context) says so in
@@ -3990,7 +3996,7 @@ deferral in Part 2, under a `Verification` heading, with the three lines
 hosted CI is the build of record for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
-pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`. Under
+pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}} --reason <reason>`. Under
 `omit` it passes without reading GitHub. Under `include` it reads the body from
 GitHub and holds the state until it says local verification did not run, has the
 line `Reason: <reason>` exactly and whole (the reason anywhere else in the body

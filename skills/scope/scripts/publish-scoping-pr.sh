@@ -23,9 +23,9 @@
 #      with --state open, --base <default>, and this run's identity:
 #        one survivor   reused; with --session, its body is rewritten with
 #                       `gh pr edit --body-file` unless the session's
-#                       published_intent key already equals --intent,
-#                       keeping any run marker line the live body carries
-#                       (`run-id.sh carry`)
+#                       published_intent key already equals --intent; the
+#                       new body is the template alone, nothing of the live
+#                       one kept
 #        zero           one `gh pr create --head <branch> --base <default>
 #                       --title <title> --body-file <file>` (a foreign-only
 #                       branch counts as zero), then looked up again
@@ -36,9 +36,9 @@
 # The run identity. Every lookup carries --run-id when the script has one:
 # given as --run-id (/deliver's probe passes its own), or read from --session
 # through skills/execute/scripts/run-id.sh get (scope-open.sh minted it). /scope
-# stamps no marker on the PR it opens, so its own PR is matched on owned-pr.sh's
-# login-and-branch fallback; the identity is what keeps a PR another run
-# marked from being reused, edited, or verified. With neither flag (a hand
+# records no index entry for the PR it opens, so its own PR is matched on
+# owned-pr.sh's five checks; the identity is what keeps a PR another run
+# recorded from being reused, edited, or verified. With neither flag (a hand
 # run) the lookups match by login and branch alone.
 #
 # Draft or ready (R9): a draft for a single-pr or coordinated full-run and for
@@ -58,11 +58,14 @@
 #
 # Which of those fields a body carries depends on the repository. The record
 # lines (topic=, exit=, outcome=, intent=, mode=) and the PLAN's own path are
-# the run's records, written only when scripts/pr-workflow-content.sh prints
-# include for the repository. By default the body is one sentence naming the
-# topic, the durable documents under `## Documents`, and the work items. A
-# coordination body is written whole either way, since the merge gate reads
-# its index.
+# the run's records, written only when the switch scope-open.sh recorded for
+# this invocation (scripts/pr-workflow-content.sh --session; the files on a
+# hand run) is include. By default the body is one sentence naming the
+# topic, the durable documents under `## Documents`, and the work items, and
+# that holds for a coordinated full-run too: the coordination body (its
+# declaration, index and merge order) is written only under include, and
+# under omit /execute keeps the plain description as the coordination PR's
+# Part 1.
 #
 # The intent last published. The body's `intent=` line is text for people; no
 # step reads it back. With --session, a successful publish writes the intent
@@ -72,8 +75,8 @@
 #   publish   rewrites a reused PR's body when the key is absent or differs
 #             from --intent. A session without the key (a new run
 #             republishing, or one from before the key existed) always
-#             rewrites: the body is a fixed template and the run marker is
-#             carried, so a rewrite that changes nothing is harmless. With no
+#             rewrites: the body is a fixed template, so a rewrite that
+#             changes nothing is harmless. With no
 #             --session (a hand run) there is no run state to compare, so a
 #             reused PR's body is left as it is.
 #   verify    --expect-intent <v> passes only when the key equals <v>. It
@@ -362,14 +365,21 @@ esac
 DRAFT=1
 [ "$EXIT" = full-run ] && [ "$MODE" = multi-pr ] && DRAFT=0
 
-# Whether the repository opts in to workflow content in its PR bodies.
-CONTENT=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" </dev/null) \
-    || fail scope:pr-create "scripts/pr-workflow-content.sh could not read the repository's setting"
+# Whether the repository opts in to workflow content in its PR bodies: the
+# value scope-open.sh recorded for this invocation (--session), else, on a
+# hand run with no session, the files.
+if [ -n "$SESSION" ]; then
+    CONTENT=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" --session "${KOTO_TICK_SESSION:-$SESSION}" </dev/null) \
+        || fail scope:pr-create "scripts/pr-workflow-content.sh could not read the run's recorded setting"
+else
+    CONTENT=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" </dev/null) \
+        || fail scope:pr-create "scripts/pr-workflow-content.sh could not read the repository's setting"
+fi
 
 # The title becomes the squash commit's subject. The skill's name and the
-# run's exit value are workflow records, kept for a repository that opts in
-# and for a coordination PR, which stays as it was with its body.
-if [ "$CONTENT" = include ] || { [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; }; then
+# run's exit value are workflow records, kept only for a repository that
+# opts in, a coordination PR included.
+if [ "$CONTENT" = include ]; then
     TITLE="docs(scope): ${TOPIC} (${EXIT})"
 else
     case "$EXIT" in
@@ -414,12 +424,15 @@ render_steps() {
 # plan's step headings are listed as literal text (render_steps).
 render_body() {
     local f="$1" p ids records=1 coord=0
-    [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ] && coord=1
     # The run's record (the topic=/exit=/outcome=/intent=/mode= lines and the
     # PLAN's path, a file deleted when the work completes) is written only for a
-    # repository that opts in to workflow content. A coordination body keeps
-    # its record whatever the switch says: the merge gate reads its index.
-    [ "$coord" = 1 ] || [ "$CONTENT" = include ] || records=0
+    # repository that opts in to workflow content. A coordination body is
+    # written whole (the declaration, the index and the merge order the
+    # merge-last gate reads) only then too: under omit it is the plain
+    # description, which /execute keeps as the coordination PR's Part 1, and
+    # the gate's refs come from the run's record.
+    [ "$CONTENT" = include ] || records=0
+    [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ] && [ "$records" = 1 ] && coord=1
     {
         if [ "$coord" = 1 ]; then
             printf '# Coordination PR: %s\n\n' "$TOPIC"
@@ -477,14 +490,14 @@ render_body() {
                 printf '%s\n' "$ids" | sed 's/^/- /'
             fi
         fi
-        if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
+        if [ "$coord" = 1 ]; then
             printf '\n## PR Index\n\nNo node PR is open yet; /execute opens one per PR node.\n\n'
             printf '## Merge Order\n\n```merge-order\n'
             printf "# /execute renders the PLAN's merge order here (PR and gate nodes, one per line).\n"
             printf '```\n'
         fi
     } >"$f"
-    if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
+    if [ "$coord" = 1 ]; then
         command -v shirabe >/dev/null 2>&1 \
             || fail scope:pr-create "shirabe is not on PATH; a coordination body cannot be validated without it"
         shirabe validate --coordination-body "$f" >&2 \
@@ -513,11 +526,8 @@ if [ -n "$URL" ]; then
     LAST=$(published_intent) || fail scope:pr-create "the session's published_intent cannot be read"
     # No --session: no run state to compare against, so the PR is reused as is.
     if [ -n "$SESSION" ] && [ "$LAST" != "$INTENT" ]; then
-        # A full-body rewrite keeps whatever run marker the live body carries.
-        gh pr view "$URL" --json body --jq .body </dev/null > "$SCRATCH/live-body.md" \
-            || fail scope:pr-create "the owned PR's body cannot be read"
-        bash "$RUNID" carry "$SCRATCH/live-body.md" "$BODY" </dev/null \
-            || fail scope:pr-create "could not carry the PR's run marker into the new body"
+        # A full-body rewrite: the body is the fixed template, and nothing of
+        # the live one is kept.
         gh pr edit "$URL" --body-file "$BODY" </dev/null >&2 \
             || fail scope:pr-create "gh pr edit --body-file failed"
     fi

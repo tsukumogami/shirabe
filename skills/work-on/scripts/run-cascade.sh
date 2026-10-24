@@ -84,7 +84,8 @@ PLAN_DOC=""
 REPO_ROOT=""
 SESSION=""
 # This script's own directory, for the plugin's shared
-# scripts/pr-workflow-content.sh (the publish step's commit message).
+# scripts/pr-workflow-content.sh (the publish step's commit message; with
+# --session it reads the value that session's run recorded).
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # Outline-AC completeness suppression. When WORK_ON_ALLOW_UNTRACKED_ACS=1 is
@@ -1219,10 +1220,16 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     # the step's detail is the field execute.md sends the agent to read.
     # The message says what the commit changes in the repository's own terms;
     # the workflow's name for the step goes in it only for a repository that
-    # opts in to workflow content (scripts/pr-workflow-content.sh), and a
-    # setting that can't be read is the default.
+    # opts in to workflow content (scripts/pr-workflow-content.sh: with
+    # --session, the value the run recorded at its open; without, the
+    # repository's files), and a setting that can't be read is the default.
     cascade_msg="docs: update the status of the documents this work completes"
-    if [ "$(bash "$SCRIPT_DIR/../../../scripts/pr-workflow-content.sh" "$REPO_ROOT" 2>/dev/null </dev/null)" = include ]; then
+    if [[ -n "$SESSION" ]]; then
+        cascade_content=$(bash "$SCRIPT_DIR/../../../scripts/pr-workflow-content.sh" --session "$SESSION" 2>/dev/null </dev/null) || cascade_content=omit
+    else
+        cascade_content=$(bash "$SCRIPT_DIR/../../../scripts/pr-workflow-content.sh" "$REPO_ROOT" 2>/dev/null </dev/null) || cascade_content=omit
+    fi
+    if [ "$cascade_content" = include ]; then
         cascade_msg="chore(cascade): post-implementation artifact transitions"
     fi
     if ! git_out=$(git commit -q -m "$cascade_msg" 2>&1); then

@@ -1705,6 +1705,55 @@ scenario_push_message_include() {
     cd "$SCRIPT_DIR"
 }
 
+# ── The commit message reads the run's recorded switch with --session ────────
+# The run recorded omit at its open; the repository's file now says include.
+# With --session the recorded value decides, so the message stays plain.
+scenario_push_message_recorded() {
+    local scenario="Scenario 16d: --push --session takes the run's recorded switch over the files"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local stub_dir="$tmpdir/koto-stub"
+    mkdir -p "$stub_dir"
+    cat > "$stub_dir/koto" <<'EOF'
+#!/usr/bin/env bash
+[ -t 0 ] || cat >/dev/null
+case "$1 ${2:-} ${4:-}" in
+    "context get pr_content") printf 'omit' ;;
+esac
+exit 0
+EOF
+    chmod +x "$stub_dir/koto"
+    local saved_stub="${GH_STUB_DIR:-}"
+    GH_STUB_DIR="$stub_dir"
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    printf '# repo\n\n## PR Workflow Content: include\n' > "$repo/CLAUDE.md"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+
+    commit_and_push_all
+
+    local output subject
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push --session execute-cascade-test-short)
+    subject=$(git -C "$repo" log -1 --format=%s)
+    GH_STUB_DIR="$saved_stub"
+    if [[ "$subject" == "docs: update the status of the documents this work completes" ]] \
+        && printf '%s' "$output" | jq -e '.cascade_status == "completed"' >/dev/null 2>&1; then
+        pass "$scenario"
+    else
+        fail "$scenario: subject [$subject], output [$output]"
+    fi
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Post-verify: L06 suppression detail survives the ok arm ───────────────────
 scenario_push_anchor_design_l06() {
     local scenario="Scenario 16b: --push post-verify preserves the L06 detail"
@@ -3759,6 +3808,7 @@ cd "$ORIG_DIR"
 # branch these exercise went eighteen scenarios without being reached at all.
 scenario_push_anchor_design
 scenario_push_message_include
+scenario_push_message_recorded
 cd "$ORIG_DIR"
 
 scenario_push_anchor_design_l06

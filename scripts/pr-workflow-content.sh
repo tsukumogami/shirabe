@@ -44,7 +44,10 @@
 #
 # The reference. `--reference <record root session>` prints the one Part 2
 # line a PR gets under include, `Run record: <session> (run <run_id>)`, the
-# run_id read from that session, and prints nothing under omit. Every PR
+# run_id read from that session, and prints nothing under omit. For a
+# multi-pr item's /work-on session (one holding `record_root`) the line names
+# the plan root and its run_id, read at the shared address through
+# lib/record-store.sh. Every PR
 # writer of a plan's run puts that output, and nothing else of the run, below
 # the body's top-level `---`, never in the title or Part 1. It reads the
 # recorded value as --session does, so it is the same switch.
@@ -142,12 +145,32 @@ case "$MODE" in
         [ $# -eq 0 ] || usage "--reference takes no directory: the recorded value is the run's"
         V=$("$BASH" "$0" --session "$SESSION") || exit $?
         [ "$V" = include ] || exit 0
-        RID=$(koto context get "$SESSION" run_id </dev/null 2>/dev/null) || RID=""
+        ROOT=$SESSION
+        if koto context exists "$SESSION" record_root </dev/null >/dev/null 2>&1; then
+            # A multi-pr item: its record is the plan root at the shared
+            # address (skills/work-on/scripts/multi-pr-item-record.sh), and
+            # the run_id is the plan root's.
+            # shellcheck source=lib/record-store.sh
+            . "$(dirname "$0")/lib/record-store.sh" || exit 66
+            ROOT=$(koto context get "$SESSION" record_root </dev/null 2>/dev/null) || ROOT=""
+            OWNER=$(rs_plan_root_owner "$ROOT") || {
+                echo "$PROG: session $SESSION's record_root is not a plan root; no reference written" >&2
+                exit 66
+            }
+            RID=""
+            while IFS= read -r FORM; do
+                [ -n "$FORM" ] || continue
+                RID=$(rs_koto_read "$FORM" context get "$ROOT" run_id </dev/null 2>/dev/null) && break
+                RID=""
+            done <<<"$(rs_shared_forms "$OWNER")"
+        else
+            RID=$(koto context get "$SESSION" run_id </dev/null 2>/dev/null) || RID=""
+        fi
         if ! [[ $RID =~ ^[0-9a-f]{32}$ ]]; then
-            echo "$PROG: session $SESSION holds no usable run_id; no reference written" >&2
+            echo "$PROG: $ROOT holds no usable run_id; no reference written" >&2
             exit 66
         fi
-        printf 'Run record: %s (run %s)\n' "$SESSION" "$RID"
+        printf 'Run record: %s (run %s)\n' "$ROOT" "$RID"
         ;;
     session)
         [ $# -eq 0 ] || usage "--session takes no directory: the recorded value is the run's"

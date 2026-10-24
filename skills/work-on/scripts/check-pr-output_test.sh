@@ -1201,6 +1201,59 @@ expect_rc "--pr-body, include: today's workflow records pass" 0
 [ "$(finding_count)" -eq 0 ] && pass "--pr-body, include: ... with no finding" || fail "--pr-body, include: $OUT"
 cd "$SUITE_PWD" || exit 2
 
+# The run's own traces, refused under omit: a marker line (built from parts
+# so this file carries none), a run line, the PR index heading and a line of
+# it, the merge order heading, a Run record line, and a result line.
+RUN_TRACES="Reads the round.
+
+---
+
+<!-- shirabe""-run: 0123456789abcdef0123456789abcdef -->
+topic=demo
+run=0123456789abcdef0123456789abcdef
+
+## PR Index
+
+- core | acme/repo:docs/plans/PLAN-demo.md#11 | open
+
+## Merge Order
+
+Run record: execute-demo (run 0123456789abcdef0123456789abcdef)
+record: unpinned
+
+Fixes #12"
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: read the round" "$RUN_TRACES")
+run --pr-body
+expect_rc "--pr-body, default: the run's traces in the body hold the gate (1)" 1
+[ "$(findings | jq -r 'select(.rule_id == "pr-body/workflow-content") | .rule_id' | grep -c .)" -eq 8 ] \
+    && pass "--pr-body, default: marker, two run lines, two headings, an index line, a Run record line and a result line are eight findings" \
+    || fail "--pr-body, default: run trace findings: $OUT"
+
+# --session reads the switch the run recorded, not the checkout's files. The
+# session lives in the record stub koto, asserted to be the koto on PATH.
+REC_STUB=$(cd "$SCRIPT_DIR/../../../scripts/testdata/record-koto" && pwd)
+export RECORD_KOTO_STORE="$WORKDIR/record-koto-store"
+mkdir -p "$RECORD_KOTO_STORE"
+case "$(PATH="$REC_STUB:$PATH" command -v koto)" in
+    "$REC_STUB/koto") pass "--session cases: the koto on PATH is the record stub" ;;
+    *) fail "--session cases: the koto on PATH is not the record stub"; exit 1 ;;
+esac
+(cd "$SUITE_PWD" && PATH="$REC_STUB:$PATH" koto init work-inc --template t >/dev/null \
+    && printf 'include' | PATH="$REC_STUB:$PATH" koto context add work-inc pr_content >/dev/null)
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: read the round" "$WC_BODY")
+PATH="$REC_STUB:$PATH" run --pr-body --session work-inc
+expect_rc "--pr-body --session: a run that recorded include passes its records, whatever the files say" 0
+(cd "$WORKDIR/include-repo" && PATH="$REC_STUB:$PATH" koto init work-omit --template t >/dev/null \
+    && printf 'omit' | PATH="$REC_STUB:$PATH" koto context add work-omit pr_content >/dev/null)
+cd "$WORKDIR/include-repo" || exit 2
+PATH="$REC_STUB:$PATH" run --pr-body --session work-omit
+expect_rc "--pr-body --session: a run that recorded omit refuses its records in an include checkout (1)" 1
+PATH="$REC_STUB:$PATH" run --deferral-record --session work-omit --reason "$DREASON"
+expect_rc "--deferral-record --session: a run that recorded omit passes without the body" 0
+cd "$SUITE_PWD" || exit 2
+run --pr-body --session 'a b'
+expect_rc "--pr-body --session with a bad name is a usage error (2)" 2
+
 # --- the rule registry ----------------------------------------------------------
 
 # The stand-in validator reports a PB3 violation, so the unaltered copy's

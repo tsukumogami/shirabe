@@ -133,6 +133,20 @@ printf '## PR Workflow Content: include\n' > "$R/CLAUDE.local.md"
 OUT=$(cd "$R" && PATH="$KPATH" bash "$S" --reference execute-norid 2>/dev/null); RC=$?
 eq "--reference with no run_id under include prints nothing, exit 66" "/66" "$OUT/$RC"
 
+# A multi-pr item's session names its plan root (record_root); the line names
+# the plan root and the run_id it holds at the shared address.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
+PROOT=plan.o.r.topic.0123456789ab
+PRID=fedcba9876543210fedcba9876543210
+mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/o"
+(cd "$SHIRABE_RUN_RECORD_TEST_ROOT/o" && PATH="$KPATH" koto init "$PROOT" --template t >/dev/null \
+    && printf '%s' "$PRID" | PATH="$KPATH" koto context add "$PROOT" run_id >/dev/null)
+(cd "$R" && PATH="$KPATH" koto init item-7 --template t >/dev/null \
+    && printf '%s' "$PROOT" | PATH="$KPATH" koto context add item-7 record_root >/dev/null \
+    && PATH="$KPATH" bash "$S" --record item-7 >/dev/null)
+eq "--reference for a multi-pr item names its plan root and the root's run_id" \
+    "Run record: $PROOT (run $PRID)" "$(cd "$R" && PATH="$KPATH" bash "$S" --reference item-7)"
+
 bash "$S" --record >/dev/null 2>&1; eq "--record without a session: exit 64" 64 $?
 bash "$S" --session 'a b' >/dev/null 2>&1; eq "--session with a bad name: exit 64" 64 $?
 bash "$S" --session execute-t "$R" >/dev/null 2>&1; eq "--session with a directory: exit 64" 64 $?

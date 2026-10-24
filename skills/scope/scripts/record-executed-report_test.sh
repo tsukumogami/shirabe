@@ -46,9 +46,14 @@ case "$2" in
     remove) rm -f "$d/$4" ;;
     exists) [ -f "$d/$4" ] ;;
     get) cat "$d/$4" 2>/dev/null || exit 1 ;;
+    # list <s> --prefix <p>: the keys under <p> (owned-pr.sh's index read).
+    list) p=""; [ "${4:-}" = --prefix ] && p=${5:-}
+          (cd "$d" 2>/dev/null && find . -type f | sed 's#^\./##' | grep "^$p") | jq -Rsc 'split("\n") | map(select(length > 0))' ;;
     *) exit 2 ;;
 esac
 STUB
+# The PRs' index sessions sit at a shared address of this suite's own.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
 
 # The gh stub: $GHF/<key>.json is stdout, <key>.rc the exit status; a trailing
 # --jq is applied. Every call is logged to $GHF/calls.
@@ -146,8 +151,13 @@ eq "a foreign-only branch: none" "none" "$(key s-foreign executed_verdict)"
 if grep -rq "pull/7\|pull/8\|pull/9" "$STORE/s-foreign" 2>/dev/null; then bad "no foreign URL reaches context"; else ok "no foreign URL reaches context"; fi
 
 echo "== another run's PR =="
-fixture "[$(pr "$URL" OPEN false me main | sed 's/}$/,"body":"x\\n<!-- shirabe-run: '"$OTHER"' -->"}/')]"
+fixture "[$(pr "$URL" OPEN false me main)]"
+# The PR's index entry names another run.
+mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/acme" "$STORE/pr.acme.widgets.42/run"
+printf '{"workspace":"/w","session":"execute-exec-topic","session_id":"sid-1","mode":"single-pr","topic":"exec-topic","written_at":"2026-01-01T00:00:00Z"}' \
+    >"$STORE/pr.acme.widgets.42/run/$OTHER"
 run s-otherrun
+rm -rf "$STORE/pr.acme.widgets.42" "$SHIRABE_RUN_RECORD_TEST_ROOT"
 eq "the one PR is another run's (owned-pr.sh exit 5): foreign" "foreign" "$(key s-otherrun executed_verdict)"
 if has s-otherrun executed_pr; then bad "foreign writes no executed_pr"; else ok "foreign writes no executed_pr"; fi
 

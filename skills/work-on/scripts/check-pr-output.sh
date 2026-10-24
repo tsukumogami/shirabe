@@ -385,7 +385,7 @@ check_pr_body() {
     fi
     while IFS= read -r rec; do
         [ -n "$rec" ] || continue
-        finding pr-body/workflow-content "$rec; the repository doesn't declare ## PR Workflow Content: include, so it belongs in the run's session, not the body"
+        finding pr-body/workflow-content "$rec; the run's PR content switch reads omit (the repository doesn't declare ## PR Workflow Content: include), so it belongs in the run's session, not the body"
     done < "$WORK/records"
     # The fallback stands in for a violation the validator didn't list, so it
     # prints only when nothing was listed: a listed finding below block is

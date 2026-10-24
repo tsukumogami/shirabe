@@ -90,17 +90,25 @@ none of the workflow's own records:
 
 Those records already live in this run's session. A repository opts in to them
 with `## PR Workflow Content: include` in its `CLAUDE.local.md` or `CLAUDE.md`.
-Ask the one reader rather than reading the header yourself:
+The run reads the header once, when it opens, and records it; ask for that
+recorded value rather than reading the header yourself:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh --session <WF>
 ```
 
 It prints `include` or `omit` (the default). Under `omit`, `pr_body_conformant`
-also holds on a `## Review panel` heading or table, a `Plan:` or `Roadmap:` line, or
-an `Implements` line naming a PLAN or ROADMAP file, each a `pr-body/workflow-content`
-finding; move the record out and submit again. Under `include` every section
-below is written as it says, and nothing is refused for carrying a record.
+also holds on a `## Review panel` heading or table, a `Plan:` or `Roadmap:` line,
+an `Implements` line naming a PLAN or ROADMAP file, a run marker, a run line
+(`topic=`, `run=` and the like), a PR index line or a `Run record:` line, each a
+`pr-body/workflow-content` finding; move the record out and submit again. Under
+`include` every section below is written as it says, and nothing is refused for
+carrying a record. A multi-pr item under `include` also puts, in Part 2 and
+nowhere else, the one line naming its plan's record root:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh --reference <WF>
+```
 
 A Verification section, when the change needs one, says what ran and what it
 showed, in plain terms: "the coordinate script suites pass", "hosted CI built and
