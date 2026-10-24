@@ -417,14 +417,19 @@ else
     STEP1=$(printf '%s' "$SPAWNED" | jq -c '.[]? | select(.name == "step-1")' 2>/dev/null)
 
     # from_task <session> <task>: a child with the task's vars and no others,
-    # as koto materializes one, from init to plan_validation.
+    # as koto materializes one, from init to plan_validation. The template's
+    # required variables are named on the init line, from the task like the
+    # rest, so scripts/check-init-site-vars.sh can see this site passes them.
     from_task() {
-        local kv
+        local kv prefix root
         local -a vars=()
+        prefix=$(printf '%s' "$2" | jq -r '.vars.ARTIFACT_PREFIX // empty')
+        root=$(printf '%s' "$2" | jq -r '.vars.PLUGIN_ROOT // empty')
         while IFS= read -r kv; do
             vars+=(--var "$kv")
-        done < <(printf '%s' "$2" | jq -r '.vars | to_entries[] | "\(.key)=\(.value)"')
-        (cd "$ER" && PATH="$ENGINE_PATH" koto init "$1" --template "$TEMPLATE" "${vars[@]}" >/dev/null 2>&1)
+        done < <(printf '%s' "$2" | jq -r '.vars | del(.ARTIFACT_PREFIX, .PLUGIN_ROOT) | to_entries[] | "\(.key)=\(.value)"')
+        (cd "$ER" && PATH="$ENGINE_PATH" koto init "$1" --template "$TEMPLATE" \
+            --var ARTIFACT_PREFIX="$prefix" --var PLUGIN_ROOT="$root" "${vars[@]}" >/dev/null 2>&1)
         tick "$1"
         [ "$STATE" = entry ] && tick "$1" '{"mode":"plan_backed","issue_source":"plan_outline"}'
         printf 'the outline item\n' | (cd "$ER" && koto context add "$1" context.md) >/dev/null 2>&1
