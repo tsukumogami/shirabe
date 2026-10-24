@@ -287,6 +287,26 @@ impl Scratch {
         self.git("work", &["config", key, value]);
     }
 
+    /// Write `contents` to `rel` as an executable script; its path. A child
+    /// shell writes the file, so this process never holds it open for
+    /// writing: a parallel test that forked to spawn while it did would keep
+    /// a copy of that handle until its child's exec, and running the script
+    /// in that window fails with ETXTBSY (#1213). The mode is set by path,
+    /// which opens nothing.
+    fn script(&self, rel: &str, contents: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = self.path(rel);
+        let status = Command::new("/bin/sh")
+            .args(["-c", "printf '%s' \"$2\" > \"$1\"", "sh"])
+            .arg(&path)
+            .arg(contents)
+            .status()
+            .unwrap();
+        assert!(status.success(), "writing {}: {status}", path.display());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
     /// The real runner, with this scratch's `HOME`.
     fn system_git(&self) -> SystemGit {
         SystemGit::with_env([
@@ -866,15 +886,12 @@ fn a_partial_clone_is_refused_below_git_2_44_and_checked_from_it() {
 
 #[test]
 fn the_runner_kills_a_child_that_prints_too_much_or_runs_too_long() {
-    use std::os::unix::fs::PermissionsExt;
     let s = Scratch::empty();
     std::fs::create_dir_all(s.path("stub")).unwrap();
-    let stub = s.path("stub/git");
     // The stub's PATH holds only its own directory, so it names every
     // program by absolute path.
     let stub_git = |body: &str| {
-        std::fs::write(&stub, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        s.script("stub/git", &format!("#!/bin/sh\n{body}\n"));
         SystemGit::with_env([(OsString::from("PATH"), s.path("stub").into_os_string())])
     };
 
@@ -1035,17 +1052,13 @@ fn a_command_breaking_pr_and_push_rules_gets_one_header_and_registry_order() {
 fn a_repository_configured_to_run_programs_runs_none() {
     let s = Scratch::repo();
     let marker = s.path("marker");
-    let mark = s.path("mark.sh");
-    std::fs::write(
-        &mark,
-        format!(
+    let mark = s.script(
+        "mark.sh",
+        &format!(
             "#!/bin/sh\necho \"$0 $*\" >> '{}'\ncat >/dev/null 2>&1\nexit 0\n",
             marker.display()
         ),
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&mark, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     std::fs::create_dir_all(s.path("hooks")).unwrap();
     for hook in [
         "reference-transaction",
