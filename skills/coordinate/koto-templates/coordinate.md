@@ -1789,7 +1789,7 @@ states:
       clauses:
         type: string
         required: false
-        description: On a milestone roadmap, the Clauses value of the goal-fit entry you posted, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
+        description: On a milestone roadmap, the Clauses value of the goal-fit entry you recorded, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
     gates:
       goal_fit_land:
         type: command
@@ -4312,7 +4312,8 @@ several pull requests is sent once, after the last.
 A milestone's verdict is owed. Check the shipped work against each Evidence
 clause, write the verdict entry, check it with `milestone.sh check-verdict`,
 record it with `record-append.sh --kind milestone-verdict`, run
-`roadmap-status.sh --verdict` with the entry or URL it printed, and submit
+`roadmap-status.sh --verdict` with the entry's number (`--entry <n>`, the
+`<n>` of the `record/entries/<n>` it printed) or the URL it printed, and submit
 `verdict: recorded` with the milestone's tag as `unit`. When the verdict can't
 be given now, submit `verdict: deferred`: the milestone stays verdict-owed and
 pick passes over it.
@@ -4411,7 +4412,7 @@ and the default branch.
 A failure was reported against a milestone that reads Done. Write the failure
 entry, check it with `milestone.sh check-failure`, record it with
 `record-append.sh --kind milestone-failure`, run `roadmap-status.sh --reopen`
-with the entry or URL it printed, and submit `status: opened` with the milestone's tag
+with the entry's number (`--entry <n>`) or the URL it printed, and submit `status: opened` with the milestone's tag
 as `unit`. When the entry can't be checked or the script refuses, submit
 `status: failed`: nothing changes.
 

@@ -17,12 +17,14 @@
 # the next, at most three times (entry-exists, exit 65, after that). The outward
 # kinds (cost, milestone-verdict, goal-fit, milestone-failure), which readers
 # outside the coordinator read from GitHub, are then also posted as the comment
-# below, and the comment's URL kept in record/posted/<n>. Every outward kind
-# but cost (whose placement unit-cost.sh decides) is posted only when the
-# repository the comment would land on opts in to workflow content on its
-# pull requests and issues (`## PR Workflow Content: include`, read by
-# repo-pr-content.sh); otherwise the entry stays in the session, its key
-# printed, and a --repost of it is refused (65).
+# below, and the comment's URL kept in record/posted/<n>. On the session
+# store every outward kind but cost (whose placement unit-cost.sh decides) is
+# posted only when the repository the comment would land on opts in to
+# workflow content on its pull requests and issues (`## PR Workflow Content:
+# include`, read by repo-pr-content.sh); otherwise the entry stays in the
+# session, its key printed, and a --repost of it is refused (65). That covers
+# a verdict or failure entry too, which roadmap-status.sh posts through
+# --repost after writing it here with --on none.
 #
 # --on puts an outward entry on the item it concerns instead
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2),

@@ -838,7 +838,9 @@ failure_rework_of() {
 # reopen_line <roadmap>: the last `## Progress` line naming TAG (its tag
 # compared by key, so `Feature 2` and `Milestone 2` are one), when it is a
 # reopen line --reopen writes for a failure posted on this run's record, or
-# on the row's own pull request (ROW_PR), or kept in the session (RL_ENTRY).
+# on the row's own pull request (ROW_PR), or kept in the session (RL_ENTRY,
+# which the caller sets to the row's entry number when record/posted holds no
+# comment for it, and leaves empty otherwise).
 # Sets RL_CLAUSE, RL_URL, RL_ID and RL_HASH; returns 1 otherwise. The key and the
 # record's URL are compared as text, never as patterns.
 reopen_line() {
@@ -993,13 +995,9 @@ confirm|drop)
             ST=$(bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$TAG" 2> /dev/null | jq -r '.status // empty')
             [ "$ST" = "In progress" ] \
                 || { echo "$PROG: $TAG reads ${ST:-no status} on $DEFAULT_BRANCH; its reopen pull request, $PRL, hasn't landed" >&2; exit 1; }
-            # The row's How to confirm names no entry, so the failure is the
-            # one the merged edit wrote: the last Progress line naming TAG.
-            # A later line about TAG (a verdict's) or none at all means the
-            # default branch doesn't show this edit, whatever its Status
-            # says, and nothing is confirmed.
             # An --entry edit's row names its entry: kept in the session
-            # unless record/posted holds its comment.
+            # unless record/posted holds its comment, and then RL_ENTRY
+            # names it for reopen_line.
             RL_ENTRY=$(printf '%s' "$ROW" | jq -r '.how_to_confirm | capture(" \\(entry (?<n>[1-9][0-9]{0,5})\\)$").n // empty')
             if [ -n "$RL_ENTRY" ]; then
                 rs_key "${RS_SESSION:-$SESSION}" "record/posted/$(printf '%06d' "$RL_ENTRY")" "$WD/rowposted"
@@ -1009,6 +1007,10 @@ confirm|drop)
                     *) lib_die2 "cannot read record/posted/$RL_ENTRY: $(lib_scrub < "$WD/rowposted.err")" ;;
                 esac
             fi
+            # The failure is the one the merged edit wrote: the last Progress
+            # line naming TAG. A later line about TAG (a verdict's) or none at
+            # all means the default branch doesn't show this edit, whatever
+            # its Status says, and nothing is confirmed.
             reopen_line "$WD/roadmap.md" \
                 || { echo "$PROG: $ROADMAP on $DEFAULT_BRANCH reads $TAG In progress, but its last Progress line about $TAG is no reopen on this run's record; its reopen pull request, $PRL, hasn't landed" >&2; exit 1; }
             # The failure as reported, which must still be the text the
