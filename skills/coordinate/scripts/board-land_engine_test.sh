@@ -17,8 +17,9 @@
 # panel each go to rebrief, the reason in coord/land.json; a
 # malformed table stops verify_board (unevidenced); and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
-# wait; a refused check rollup green from the Actions jobs routes to surface
-# and never to land, even when a check only isRequired names is unseen; an
+# wait; a refused check rollup green from the Actions jobs and statuses
+# routes to land like any verified board, and one whose required check only
+# another app's check run reports routes to surface and never to land; an
 # unreadable board routes to wait, which then takes the next event, and a pull
 # request merged outside the run routes to surface, so verify_board never holds
 # the run; a denied posture routes land through goal_fit to surface; `koto next --to verify_board`
@@ -465,10 +466,10 @@ case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "unevidenced 12 n
 
 echo "== a board that can't be judged leaves verify_board =="
 start coordinate-demo-20260926T150007Z checks-refused
-eq "a refused check rollup, green from the Actions jobs, routes to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
-bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and never reaches land" 1 $?
+eq "a refused check rollup, green from the Actions jobs and statuses, reaches goal_fit through land" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name LAND)" in "permit 12 $H sealed:"*) ok "  ... and the land check permits the verified head" ;; *) bad "  ... and the land check permits the verified head" ;; esac
 start coordinate-demo-20260926T150010Z checks-refused-rollup-only-required
-eq "a check only isRequired names, unseen under the fallback: surface, not land" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "a required check only another app's check run reports, unseen under the fallback: surface, not land" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and the run doesn't land it" 1 $?
 start coordinate-demo-20260926T150008Z rules-unreadable
 eq "an unreadable board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
