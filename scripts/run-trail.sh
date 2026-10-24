@@ -527,7 +527,7 @@ case "$VERB" in
         [[ $TOPIC =~ $RS_RE_TOPIC ]] || refuse "--topic [$TOPIC] must match ^[a-z0-9-]+\$"
         if [ "$PLAN_ROOT" -eq 1 ]; then
             [ "$MODE" = multi-pr ] || refuse "a plan root's PRs are indexed with --mode multi-pr; nothing written"
-            [[ $SESSION =~ $RS_RE_PLAN_ROOT ]] && [ "${BASH_REMATCH[4]}" = "$TOPIC" ] \
+            [ "$(rs_plan_root_topic "$SESSION")" = "$TOPIC" ] \
                 || refuse "--topic [$TOPIC] is not the topic of $SESSION; nothing written"
         elif [ "$MODE" = multi-pr ]; then
             refuse "--mode multi-pr indexes a plan root, plan.<owner>.<repo>.<topic>.<sha12>; [$SESSION] is not one; nothing written"

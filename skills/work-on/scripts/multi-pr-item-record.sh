@@ -35,8 +35,9 @@
 #       --repo owner/repo --number N --shared-branch VALUE --issue-source VALUE
 #
 # PATH is docs/plans/PLAN-<topic>.md in the checkout that holds it, absolute
-# or relative to the directory this runs from; ID is the item's step id
-# (`step-<N>` for a plan/v2 step, `issue-<N>` for a plan/v1 issue). Run it
+# or relative to the directory this runs from; ID is the item's step id, the
+# run's ARTIFACT_PREFIX as the template passes it (`issue_<N>` for an issue,
+# `task_<slug>` for free-form work). Run it
 # from the item's own checkout: that directory is the item's recorded
 # workspace. --shared-branch and --issue-source are required and may be
 # empty.
@@ -105,7 +106,10 @@ if [ -z "$PLAN" ]; then
     exit 0
 fi
 [ -f "$PLAN" ] || { echo "$PROG: --plan [$PLAN] is not a file" >&2; exit 65; }
-# The frontmatter is the block between the first two `---` lines.
+# The frontmatter is the block between the first two `---` lines. Only
+# execution_mode is read, and only to skip a PLAN that isn't multi-pr; the
+# PLAN's validity is shirabe validate's job, and the record verbs below hold
+# every value they write to its own pattern.
 MODE=$(awk 'NR == 1 && $0 != "---" { exit } NR > 1 && $0 == "---" { exit }
     NR > 1 && /^execution_mode:[ \t]*/ { sub(/^execution_mode:[ \t]*/, ""); sub(/[ \t]+$/, ""); print; exit }' "$PLAN") \
     || { echo "$PROG: could not read $PLAN" >&2; exit 70; }

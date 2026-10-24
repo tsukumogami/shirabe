@@ -172,6 +172,12 @@ lib "rs_plan_root_name o/$LONG_REPO $LONG_TOPIC 0123456789ab"
 lib 'rs_plan_root_owner plan.octo-cat.my.repo_1.plan-x.0123456789ab'
 [ "$RC" -eq 0 ] && [ "$OUT" = octo-cat ] && pass "a plan root's name decodes to its owner" \
     || fail "plan root owner: exit $RC, [$OUT]"
+lib 'rs_plan_root_topic plan.octo-cat.my.repo_1.plan-x.0123456789ab'
+[ "$RC" -eq 0 ] && [ "$OUT" = plan-x ] && pass "a plan root's name decodes to its topic" \
+    || fail "plan root topic: exit $RC, [$OUT]"
+lib 'rs_plan_root_topic execute-plan-x'
+[ "$RC" -eq 1 ] && [ -z "$OUT" ] && pass "a name that isn't a plan root's has no topic (1)" \
+    || fail "topic of execute-plan-x: exit $RC, [$OUT]"
 for bad in execute-plan-x pr.o.r.7 plan.o.r.t plan.o.r.t.0123456789abc plan.o.r.T.0123456789ab "plan..r.t.0123456789ab"; do
     lib "rs_plan_root_owner '$bad'"
     [ "$RC" -eq 1 ] && [ -z "$OUT" ] && pass "[$bad] is not a plan root's name (1)" \
@@ -365,6 +371,7 @@ esac
 # only names one in its text, or reads or writes one as a file, is not a
 # writer.
 REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd)
+# A new script that records through run-trail.sh joins this list.
 WRITERS='"\$[A-Za-z_{}]+/[^" ]*(lib/record-store|run-trail|run-record-lookup|multi-pr-item-record|adopt-or-create-pr|record-coord-setup|node-push)\.sh"'
 UNSET=""
 for f in "$REPO_ROOT"/scripts/*_test.sh "$REPO_ROOT"/skills/*/scripts/*_test.sh "$REPO_ROOT"/skills/*/scripts/*-helpers.sh; do

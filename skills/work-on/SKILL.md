@@ -248,7 +248,9 @@ branch interpolation** (an out-of-set value halts with a clear error). Then rout
   run it as a single issue-backed unit against the repo-persisted PLAN, each landing
   its own PR. There is no shared branch and no cross-issue carry-forward — multi-pr
   issues are independent, per the DESIGN's ephemeral-home model. Each item's init
-  adds `--var PLAN_DOC=<PLAN>`, the PLAN's path as given: the template's hooks
+  adds `--var PLAN_DOC=<PLAN>`, the PLAN's path as given, and leaves
+  `SHARED_BRANCH` and `ISSUE_SOURCE` unset, since either one marks a plan-backed
+  child of `/execute`, whose parent records it: the template's hooks
   record the item and its PR in the plan's one record root
   (`scripts/multi-pr-item-record.sh`), which leads a reader from any item's PR to
   every other. On a `plan/v2` step

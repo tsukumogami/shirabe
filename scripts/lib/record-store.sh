@@ -56,6 +56,9 @@
 #                                 its pattern
 #   rs_plan_root_owner <name>     the owner a plan root's name encodes, on
 #                                 stdout; 1 when the name is not a plan root's
+#   rs_plan_root_topic <name>     the PLAN topic a plan root's name encodes,
+#                                 on stdout; 1 when the name is not a plan
+#                                 root's
 #   rs_moved_candidates <name>    the names a root may hold after re-runs,
 #                                 one per line: <name>, then <name>_r1 to
 #                                 <name>_r$RS_MAX_MOVED, each in the session
@@ -212,6 +215,14 @@ rs_plan_root_owner() {
     rs_valid_owner "$owner" || return 1
     rs_valid_repo "$repo" || return 1
     printf '%s\n' "$owner"
+}
+
+rs_plan_root_topic() {
+    local topic
+    rs_plan_root_owner "$1" >/dev/null || return 1
+    [[ $1 =~ $RS_RE_PLAN_ROOT ]] || return 1
+    topic=${BASH_REMATCH[4]}
+    printf '%s\n' "$topic"
 }
 
 RS_MAX_MOVED=10
