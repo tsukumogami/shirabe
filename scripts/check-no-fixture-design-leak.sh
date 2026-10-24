@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Fails the build if an eval-fixture DESIGN leaks into docs/designs/current/.
 #
-# The execute/work-on cascade evals run finalize-chain against the live tree,
+# The execute cascade evals run finalize-chain against the live tree,
 # which `git mv`s a fixture DESIGN into docs/designs/current/. If that moved
 # artifact is accidentally `git add`-ed and committed, it collides with the
 # next eval run's `git mv` ("destination exists"), halting the cascade
