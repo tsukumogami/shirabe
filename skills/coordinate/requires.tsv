@@ -101,3 +101,10 @@ koto	request attach	--session	always
 # koto finds the run's template in this host's cache), and passes --from
 # always and --trust-template only when the operator gave it.
 koto	session import	--from,--trust-template	mode:session-store
+#
+# The on-reap step (scripts/unit-removed.sh record, which niwa runs when it
+# removes a session) starts its sweep in a new session through perl's
+# POSIX::setsid, so the sweep outlives niwa's process group. perl is a
+# preference: without it the step falls back to nohup, then to a plain
+# background job, so the record is mode:on-reap and never checked at load.
+perl	-	-	mode:on-reap

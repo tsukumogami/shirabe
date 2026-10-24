@@ -50,7 +50,11 @@
 # "pr_commits": {"R#<n>": [...]}), `run list --repo R [--branch B]` and GET
 # repos/R/actions/runs/<id>/attempts/<n> (from "runs": [{repo, databaseId,
 # headBranch, headSha, attempt, status, conclusion, updatedAt, attempts:
-# [{attempt, status, conclusion, updated_at}]}], the earlier attempts).
+# [{attempt, status, conclusion, updated_at}]}], the earlier attempts), and
+# GET repos/R/actions/runs?head_sha=<sha>&per_page=<n>&page=<k> (the same runs
+# on that head, as {total_count, workflow_runs: [{id, head_sha, run_attempt,
+# status, conclusion, updated_at}]}, one page of them; "runs_page_bad":
+# {"<sha>": <k>} answers that page with JSON outside the shape).
 #
 # Also served, for the close-out and turn scripts: GET repos/R/issues/<n> (an
 # issue or pull request, 404 when absent), GET repos/R/commits/<sha> (the
@@ -264,6 +268,19 @@ case "$W1 $W2" in
         need_repo "$r"
         emit "$(jq -c --arg k "$r#$n" '[(.pr_commits[$k] // [])[] | {sha: .}]' "$GH_DB")"
         ;;
+    "GET repos/"*/actions/runs\?*)
+        r=${path#repos/}; r=${r%%/actions/*}
+        need_repo "$r"
+        sha=$(printf '%s' "$path" | sed -n 's/.*head_sha=\([0-9a-f]*\).*/\1/p')
+        per=$(printf '%s' "$path" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p'); [ -n "$per" ] || per=30
+        pg=$(printf '%s' "$path" | sed -n 's/.*[?&]page=\([0-9]*\).*/\1/p'); [ -n "$pg" ] || pg=1
+        out=$(jq -c --arg r "$r" --arg s "$sha" --argjson per "$per" --argjson pg "$pg" '
+            if ((.runs_page_bad // {})[$s] // 0) == $pg then {workflow_runs: "not a list"}
+            else [(.runs // [])[] | select(.repo == $r and .headSha == $s)
+                  | {id: .databaseId, head_sha: .headSha, run_attempt: .attempt, status, conclusion, updated_at: .updatedAt}] as $all
+              | {total_count: ($all | length), workflow_runs: $all[(($pg - 1) * $per):($pg * $per)]} end' "$GH_DB")
+        emit "$out"
+        ;;
     "GET repos/"*/actions/runs/*/attempts/*)
         r=${path#repos/}; r=${r%%/actions/*}
         id=${path#*/actions/runs/}; id=${id%%/*}
@@ -290,7 +307,10 @@ case "$W1 $W2" in
         ;;
     "GET repos/"*/contents/*)
         r=${path#repos/}; r=${r%%/contents/*}
-        f=${path#*/contents/}; ref=${f#*\?ref=}; f=${f%%\?*}
+        # No ?ref= reads the default branch, which the DB calls main.
+        f=${path#*/contents/}; ref=main
+        case "$f" in *\?ref=*) ref=${f#*\?ref=} ;; esac
+        f=${f%%\?*}
         need_repo "$r"
         text=$(jq -r --arg r "$r" --arg k "$ref:$f" '.files[$r][$k] // empty' "$GH_DB")
         # A ref that is a commit some branch points at reads that branch's file.

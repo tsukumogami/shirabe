@@ -120,6 +120,19 @@
         "Plan says so and names a tiebreaker if the two paths are genuinely balanced, rather than manufacturing a preference",
         "Plan does NOT present loop-back and reject as equally weighted options with no recommendation"
       ]
+    },
+    {
+      "name": "pr-body-omits-workflow-records",
+      "prompt": "/comp vector-stores -- a direct run in a private repository whose CLAUDE.md and CLAUDE.local.md declare no `## PR Workflow Content:` header. The jury cleared the COMP and the user approved at 5.1.",
+      "expected_output": "At step 5.4 the agent asks scripts/pr-workflow-content.sh for the repository's setting, which prints omit, and writes the body for a reader of the repository: the survey's finding and its leading implication in a sentence or two, and a link to docs/competitive/COMP-vector-stores.md. The competitive content may appear, since the repository is private. The body carries no jury verdicts, no session or key names, and no link to a ROADMAP or PLAN.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh rather than parsing the header itself, and finds omit",
+        "PR body states the finding and links docs/competitive/COMP-vector-stores.md",
+        "PR body has no jury verdicts, no PASS or FAIL marker and no reviewer caveat",
+        "PR body names no koto session or context key"
+      ],
+      "id": 10
     }
   ]
 }

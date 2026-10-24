@@ -185,11 +185,34 @@ acceptance summary. If no PR exists, create one:
 - **Body:**
   - Short summary (the bet in 1-2 sentences)
   - Link to the STRATEGY at `docs/strategies/STRATEGY-<topic>.md`
-  - Jury verdict summary (all three reviewers PASS, with any caveats
-    surfaced at Phase 5)
-  - Upstream link if applicable
+  - Link to the upstream document the STRATEGY's frontmatter names, if it
+    names one
   - Reminder that a downstream ROADMAP can now reference this STRATEGY
     as a stable upstream
+
+The body describes the document in terms a reader of the repository
+understands: the bet the STRATEGY settles, and links to it and to the
+durable documents above it. By default it carries none of the workflow's
+own records:
+
+- no jury verdict summary, no reviewer verdicts or caveats, and no list of
+  the fixes the jury prompted;
+- no session or key names;
+- no link to a ROADMAP or PLAN, which is deleted when its work completes.
+  The planned ROADMAP the Downstream Artifacts section names is not linked
+  from the body.
+
+Those records stay in the `strategy-<topic>` session. A repository opts in
+to them with `## PR Workflow Content: include` in its `CLAUDE.local.md` or
+`CLAUDE.md`. Ask the one reader rather than reading the header yourself:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"
+```
+
+It prints `include` or `omit` (the default). Under `include`, the body also
+carries the jury verdict summary (all three reviewers PASS, with any caveats
+surfaced at Phase 5).
 
 Push the branch and create the PR via the standard tooling (e.g., `gh pr
 create`). CI runs `shirabe validate` against the new STRATEGY file,
@@ -218,7 +241,9 @@ ledger that records how far along its execution is.
 - [ ] Open Questions section is empty or removed (no Draft-only content remains)
 - [ ] The session is closed (direct run) or left for the parent to close
 - [ ] No `wip/...` references remain in the committed STRATEGY or in other branch content
-- [ ] PR is created or updated with the STRATEGY summary
+- [ ] PR is created or updated with the STRATEGY summary, with no jury
+      verdicts and no ROADMAP or PLAN link unless `pr-workflow-content.sh`
+      prints `include`
 - [ ] Verdict bodies were fenced in code blocks when surfaced to the user
 
 ## Artifact State

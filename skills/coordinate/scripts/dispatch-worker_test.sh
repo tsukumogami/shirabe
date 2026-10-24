@@ -886,9 +886,13 @@ eq  "no record script: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/call
 lkey() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
 reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
-eq  "legkey: a dispatch on a leg writes its key, open, with the worker and the declaration" \
-    '{"request":"req_1","leg":"deliver","topic":"plugin-api","state":"open","templates":["deliver.md"],"inputs":{"TOPIC":"plugin-api"}}' \
+eq  "legkey: a dispatch on a leg writes its key, open, with the worker, the declaration and the unit" \
+    '{"request":"req_1","leg":"deliver","topic":"plugin-api","state":"open","templates":["deliver.md"],"inputs":{"TOPIC":"plugin-api"},"unit":"Feature 2: the plugin API"}' \
     "$(lkey req_1 deliver)"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature (2): the plugin API"')"
+printf '%s' "$PICK_ROADMAP" | jq -c '.units[1].unit = "Feature (2)"' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1
+eq  "legkey: a unit whose tag is outside the cost capture's pattern is left off the key" null "$(lkey req_1 deliver | jq -c .unit)"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
 run >/dev/null 2>&1
 eq  "legkey: a message-path dispatch writes none" "" "$(ls "$ST/ctx/legs" 2>/dev/null)"
@@ -979,6 +983,7 @@ eq  "imported: the holding's return path names the new leg" "leg req_1:deliver" 
 eq  "imported: the old key reads relegged, naming the new request" "relegged req_1" "$(lkey req_9 deliver | jq -r '"\(.state) \(.new_request)"')"
 eq  "imported: the new key is open, from the old request, with the child" "open req_9 deliver-plugin-api" \
     "$(lkey req_1 deliver | jq -r '"\(.state) \(.from) \(.child)"')"
+eq  "  ... and no unit, the old key having none" null "$(lkey req_1 deliver | jq -c .unit)"
 eq  "imported: no launch, no brief" "0 none" "$(grep -c '^niwa dispatch' "$ST/calls.log") $([ -f "$W/.niwa/dispatch-briefs/plugin-api.md" ] && echo some || echo none)"
 : >"$ST/calls.log"
 run --releg-imported plugin-api >/dev/null 2>&1; eq "imported: a re-run after it finished exits 0" 0 "$?"
@@ -1078,6 +1083,10 @@ eq  "  ... the old key is open again, naming no pending request" "open null" "$(
 eq  "  ... and the holding stays on its leg" "leg req_9:deliver" "$(row return_path)"
 unset KOTO_ATTACH_FAIL
 run --releg-imported plugin-api --rebrief >/dev/null 2>&1; eq "imported and rebrief together: usage" 2 "$?"
+imp_setup
+jq -c '.unit = "Feature 2: the plugin API"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
+run --releg-imported plugin-api >/dev/null 2>&1
+eq  "imported: an old key's unit is carried to the new key" '"Feature 2: the plugin API"' "$(lkey req_1 deliver | jq -c .unit)"
 
 # --- holding-recorded.sh ----------------------------------------------------------------------------------
 

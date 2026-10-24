@@ -198,6 +198,32 @@
         "Plan checks dispatch read before the other resume rows",
         "Plan does not create wip/ files or use koto init --parent"
       ]
+    },
+    {
+      "name": "pr-body-omits-workflow-records",
+      "prompt": "/strategy edge-runtime -- a direct run in a repository whose CLAUDE.md and CLAUDE.local.md declare no `## PR Workflow Content:` header. All three jury reviewers returned PASS, the bet-quality reviewer flagged Claim 3 as borderline but not blocking, and the user approved at 5.2. The STRATEGY's frontmatter names docs/visions/VISION-edge.md as its upstream, and its Downstream Artifacts section names a planned docs/roadmaps/ROADMAP-edge-runtime.md.",
+      "expected_output": "At 5.5 the agent asks scripts/pr-workflow-content.sh for the repository's setting, which prints omit, and writes the body for a reader of the repository: the bet in a sentence or two, a link to docs/strategies/STRATEGY-edge-runtime.md, a link to docs/visions/VISION-edge.md, and the note that a downstream ROADMAP can now use the STRATEGY as its upstream. The body carries no jury verdict summary, no PASS marker, no mention of the Claim 3 flag, no session or key names, and no link to the planned ROADMAP.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh rather than parsing the header itself, and finds omit",
+        "PR body links docs/strategies/STRATEGY-edge-runtime.md and docs/visions/VISION-edge.md",
+        "PR body has no jury verdict summary, no PASS or FAIL marker and no reviewer caveat",
+        "PR body does NOT link or name docs/roadmaps/ROADMAP-edge-runtime.md",
+        "PR body names no koto session or context key"
+      ],
+      "id": 14
+    },
+    {
+      "name": "pr-body-includes-workflow-records-on-opt-in",
+      "prompt": "/strategy edge-runtime -- a direct run in a repository whose CLAUDE.md declares `## PR Workflow Content: include`. All three jury reviewers returned PASS, the bet-quality reviewer flagged Claim 3 as borderline but not blocking, and the user approved at 5.2. The STRATEGY's frontmatter names docs/visions/VISION-edge.md as its upstream.",
+      "expected_output": "At 5.5 scripts/pr-workflow-content.sh prints include, so the body is the fuller one the skill has always written: the bet, a link to docs/strategies/STRATEGY-edge-runtime.md, the jury verdict summary (all three reviewers PASS, with the Claim 3 caveat surfaced at Phase 5), the upstream link, and the note that a downstream ROADMAP can now use the STRATEGY as its upstream.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh and finds include",
+        "PR body carries the jury verdict summary: all three reviewers PASS, with the Claim 3 caveat",
+        "PR body links docs/strategies/STRATEGY-edge-runtime.md and docs/visions/VISION-edge.md"
+      ],
+      "id": 15
     }
   ]
 }

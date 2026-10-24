@@ -77,6 +77,7 @@ cost	state-entry_test.sh	14
 cost	unit-cost-on_test.sh	14
 cost	coord-log_test.sh	13
 cost	roadmap-features_test.sh	13
+cost	unit-removed_test.sh	12
 cost	posture-read_test.sh	11
 cost	state-entry-on_test.sh	11
 cost	merge-confirm_test.sh	10

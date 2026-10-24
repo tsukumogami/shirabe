@@ -277,6 +277,24 @@ the recommended verdict: <verdict>".
    dispatch key, skip this step: `/scope` pushes and opens the pull request at its
    own exit.
 
+   The body describes the PRD in terms a reader of the repository understands:
+   what it settles, in a sentence or two, a link to `docs/prds/PRD-<topic>.md`,
+   and a link to the upstream document its frontmatter names, if it names one.
+   By default it carries none of the workflow's own records: no jury verdicts,
+   reviewer findings or list of the fixes they prompted, no session or key
+   names, and no link to a ROADMAP or PLAN, which is deleted when its work
+   completes. Those stay in the `prd-<topic>` session. A repository opts in to
+   them with `## PR Workflow Content: include` in its `CLAUDE.local.md` or
+   `CLAUDE.md`; ask the one reader rather than reading the header yourself:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"
+   ```
+
+   It prints `include` or `omit` (the default). Under `include`, the body may
+   also summarize the jury's verdicts and link a ROADMAP or PLAN the PRD
+   relates to.
+
 Then present routing options (under `/scope`'s dispatch key, skip them and return
 control to `/scope`, which decides the next hop):
 

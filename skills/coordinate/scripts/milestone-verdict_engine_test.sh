@@ -59,6 +59,10 @@ PATH="$T/bin:$ORIG_PATH"
 export PATH
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
 mkdir -p "$HOME"
+# state-entry.sh posts on an item only when its repository opts in to
+# workflow content; acme/widgets does here, through the reader's stand-in.
+printf '#!/usr/bin/env bash\necho include\n' > "$T/pr-content-reader"
+export STATE_ENTRY_PR_CONTENT_READER="$T/pr-content-reader"
 ln -s "$REPO_ROOT" "$T/plugin"
 PR="$T/plugin"
 PS="$PR/skills/coordinate/scripts"

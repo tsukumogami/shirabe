@@ -404,7 +404,9 @@ states never ask you to do these steps by hand.
   Before the destroy the pass posts the unit's `cost` entry on the record
   (`references/unit-cost.md`), which can add up to two minutes, so a
   coordinator running the pass itself asks its shell tool for the longest
-  timeout it allows.
+  timeout it allows. A unit niwa removes outside the pass gets its entry from
+  `scripts/unit-removed.sh`, which the workspace's on-reap step runs; that
+  reference's "Capture after a removal" has the line a workspace adds.
 
 ## Verdicts
 
@@ -613,8 +615,12 @@ worker's message and the teardown agent's report; one `koto request watch`
 with a two-hour bound covers every open leg, and while a `time` pause stands
 one silent wait until its minute brings the resume. No short watch that
 notifies on expiry, no polling, no check-in timer; a keep-alive only when the
-person asks. Each holding's Work row counts its wakes from the run's log at
-every write, and its final count goes into an entry when it leaves Work, so
+person asks. At each wake, run `scripts/unit-removed.sh start` once from your
+own shell, never inside a koto action or gate: it starts a sweep of this host's
+removal records in the background and returns at once, so a unit niwa removed
+while no token was at hand gets its cost entry with yours. Each holding's Work
+row counts its wakes from the run's log at every write, and its final count
+goes into an entry when it leaves Work, so
 the next rotation reads a figure. A usage-limit stop is the host's, not a
 person's pause: no Standing row, one entry saying what was seen, and on the
 reset each worker continues from its last checkpoint and re-runs whatever
