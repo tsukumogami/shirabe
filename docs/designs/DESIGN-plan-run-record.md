@@ -128,7 +128,8 @@ session for that PR: session `pr.<owner>.<repo>.<n>` (lowercased; owners can't c
 dot and the number is last, so the name decodes uniquely), key `run/<run_id>`, holding the
 record root's address. The address is the workspace path the root was created in, its
 session name and its koto `session_id`. The index session lives at a shared store address:
-the koto workspace prefix of the fixed identifier `shirabe-run-record`. A multi-pr plan's
+the koto workspace prefix of the identifier `shirabe-run-record/<owner>`, one per repository
+owner. A multi-pr plan's
 record root lives there too.
 
 Reaching an address other than the cwd's needs one koto capability that doesn't exist,
@@ -147,7 +148,8 @@ passed, so the same index and lookup work from the run's workspace path, on toda
 
 The lookup, `scripts/run-record-lookup.sh <owner/repo> <n>`, reads the index session
 (1 read), takes the entry written last, reads the root's PR list and step list (2 reads at
-most), and confirms the PR is in the root's own list. When the root's `session_id`
+most), and confirms the PR is in the root's own list. Every value it reads back is checked against
+the same closed patterns the writer used, and one that fails is reported in `missing`. When the root's `session_id`
 doesn't match, it checks `<name>_r1` up to `<name>_r10` for a matching `session_id`
 (1 read each). The bound is 2 + P + S reads, where P is the run's PR count and S its step
 count, plus 1 per predecessor checked.
@@ -243,7 +245,10 @@ Key assumptions:
 
 `scripts/run-record-pin.sh --root <session>` pins, one `koto session pin` call each, the
 record root, every step session named in `trail/step/*` (never one in `superseded`), and
-every index session the run wrote. A multi-pr item pins the plan root (a repeat pin is
+every index session the run wrote. It pins only names that pass the session-name patterns and
+belong to this run (the root, its `.o-*` children or `work-on-<slug>-*` sessions, and the
+`pr.*` and `plan.*` sessions it wrote), at most S + P + 1 per run, and reports any other name
+it's handed. A multi-pr item pins the plan root (a repeat pin is
 idempotent), its own session and its index session. The reason is
 `record of plan <topic>: <owner>/<repo>#<n>`, with the topic truncated so the whole stays
 within 500 characters. It never holds plan prose.
@@ -376,8 +381,8 @@ New files:
 - `scripts/run-trail.sh`: the one writer of `trail/` keys and index entries (verbs in
   Decision 2). Exit 0 written, 64 usage, 65 a value its verb refuses, 70 a koto write failed.
 - `scripts/run-record-lookup.sh <owner/repo> <n> [--steps]`: R1 and R2. JSON on stdout,
-  `{record_root: {workspace, session}, run_id, complete, missing: [], prs: [{repo, number,
-  state}], others: [run_id], steps: [...]}`. Exits 0, 3 (no index entry), 2 (read failure),
+  `{record_root: {workspace, session}, run_id, complete, unique, missing: [], prs: [{repo,
+  number, state}], others: [run_id], steps: [...]}`. Exits 0, 3 (no index entry), 2 (read failure),
   64 (malformed input).
 - `scripts/run-record-pin.sh --root <session> [--retry]`: R12-R17 (Decision 3).
 - `scripts/testdata/record-koto/koto`: the stub koto. It implements the pin as koto#444's PRD
@@ -526,32 +531,60 @@ README's checkout limit.
 
 ## Security Considerations
 
-**Untrusted text never reaches a shell or a pin reason.** PLAN entries, issue bodies,
-summaries and reports are data. `run-trail.sh` takes free text only from files and stores it
-through `jq`. Step ids, session names, repository names and numbers are checked against
-closed patterns before they reach a koto command line. The pin reason and the opt-in
-reference are fixed templates over the topic (already held to `^[a-z0-9-]+$`), the repository,
-the number, the session name and the `run_id`.
+**Trust model.** The bucket is the trust boundary. Anyone who can write to it can write index
+entries, trail keys and sessions. The design adds no authentication to records. It makes
+forgery visible and bounded, and a record is as trustworthy as the bucket's write access.
 
-**The store holds paths and plan text.** Index entries record a workspace path, which names a
-user and an instance, and `trail/plan/*` holds the PLAN's text. Both sit in the user's own
-bucket, readable by whoever holds its credentials, the same audience that can already read
-every session there. Neither ever reaches PR text under omit, and the reference under include
-names a session and a run id, never a path. A public repository's PLAN is public already.
+**Writes.** Untrusted text (PLAN entries, issue bodies, summaries, reports) is data.
+`run-trail.sh` takes free text only from files and stores it through `jq`. Step ids, session
+names, repository names and numbers are checked against closed patterns before they reach a
+koto command line, and each key has a size cap. The pin reason and the opt-in reference are
+fixed templates over the topic (held to `^[a-z0-9-]+$`), the repository, the number, the
+session name and the `run_id`. Neither carries plan prose.
 
-**A forged index entry can't capture a lookup.** The lookup returns a root only when the
-root's own `trail/pr/*` lists the PR. An entry written by someone with bucket access, naming
-an unrelated session, gets the reader a "no record" answer. That same check limits
-`owned-pr.sh`: a foreign entry makes a PR foreign, never mine, so the worst a forged entry can
-do is stop a run from adopting a PR, which it reports.
+**Reads.** Every value read back from the bucket (workspace, session, session id, step and item
+names, superseded names, `trail/unpinned` entries) is checked again against the same closed
+patterns before use. Values reach koto after `--` or as `--flag=value`, a workspace is treated
+as an opaque identifier, and the lookup builds its JSON only through `jq --arg`. A value that
+fails the check is reported in `missing` and never used.
 
-**Pins can be released by anyone at a shell.** That's koto's model (by hand, or with
-`release-pin` authority). shirabe adds no stronger guarantee and claims none.
+**Forged or competing entries.** The lookup returns a root only when the root's own
+`trail/pr/*` lists the PR. That stops a forged index entry naming an unrelated session. It
+doesn't stop someone who can write both an entry and a matching root, so the lookup never picks
+silently: it returns every other run id in `others` and reports `unique: false` when more than
+one record claims the PR. For ownership, a foreign entry makes a PR foreign, never mine, so a
+forged entry can at worst stop a run from adopting a PR, which the run reports.
 
-**Dropping the marker weakens nothing that the index doesn't restore.** On a koto below the K2
-floor, two runs in different workspaces sharing a login, topic and branch are told apart only
-by login and branch, as `/scope`'s PR is today. Two runs in one workspace still see each
-other's index entries.
+**Record text is data.** Plan text, departures and decision rationales come from PRs, issues and
+agents. A reader, person or agent, treats them as data and never as instructions.
+
+**Pins.** `run-record-pin.sh` pins only sessions that pass the name patterns and belong to this
+run (the root, its `.o-*` children or `work-on-*` step sessions, and the `pr.*` and `plan.*`
+sessions it wrote), at most S + P + 1 per run. A trail entry naming anything else is skipped
+and reported. shirabe never unpins. A pin comes off by hand or with koto's release authority,
+as koto defines it, and shirabe claims no stronger guarantee.
+
+**What the store holds.** Index entries name `owner/repo#n` and a workspace path, which names a
+user and an instance. `trail/plan/*` holds the PLAN's text, and the trail holds agent-written
+departure and decision text. The shared address is the identifier `shirabe-run-record/<owner>`,
+so one owner's index never shares a prefix with another's. A private repository's PLAN, names
+and paths are readable by every holder of that bucket's credentials, the same audience that can
+already read every session in it. A public repository's PLAN is public already, but its
+departure text is not, and it must hold no credentials. Under omit nothing from the store
+reaches PR text. Under include the reference names a session and a run id, never a path.
+`result:` text and `trail/unpinned` codes are never copied into PR text.
+
+**Dependencies.** No new packages. The floors (`RECORD_PIN_FLOOR`, `RECORD_STORE_FLOOR`) are
+checked against the installed koto's version and fail closed: `record: unpinned`, and the run's
+own workspace as the address. The stub koto is built from koto's specifications, so the floors
+are set only after the end-to-end walkthrough against a real koto passes. The stub is test-only
+and never on a production `PATH`. The workspace option is a new cross-prefix address in koto and
+gets koto's own review. It's an addressing option, not an access boundary.
+
+**Dropping the marker.** Removing the hidden marker removes workflow content from public PR
+text. On a koto below the workspace-option floor, two runs in different workspaces that share a
+login, topic and branch are told apart only by login and branch, as `/scope`'s PR is today. Two
+runs in one workspace still see each other's index entries.
 
 ## Consequences
 
