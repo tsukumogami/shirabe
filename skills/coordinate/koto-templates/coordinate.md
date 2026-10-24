@@ -17,10 +17,10 @@ version: "1.0"
 # report_input) or the facts a decider's slice is cut from (pick_input). The
 # dispatch path's keys, listed after these, are different: some are read by
 # its gates, each named there with what backs it.
-#   coord/record_find.json      record_find: the verdict, the record's ref and
-#                               URL, the candidates, the rotation's dates
-#   record_url                  record_find on `found`: the record's URL, for
-#                               the terminal results' `record`
+#   coord/record_find.json      record_find: the verdict, the record's
+#                               session, the candidates, the rotation's dates
+#   record_url                  record_find on `found`: the record's session
+#                               name, for the terminal results' `record`
 #   coord/posture.json          start_posture: each finishing step's posture
 #                               and why
 #   coord/pick.json             pick_facts: units in order, holdings with
@@ -54,8 +54,7 @@ version: "1.0"
 #                               couldn't be read) (goal_fit's reading;
 #                               merge-order-entry.sh's input)
 #   coord/quiet.json            quiet_check: the quiet workers and why
-#   coord/closeout.json         roadmap_close, rotation_close,
-#                               predecessor_close: the stage and its facts
+#   coord/closeout.json         roadmap_close: the stage and its facts
 #   dispatch_topic              pick's edges: the topic chosen, for the
 #                               dispatch path's dispatch-worker.sh
 #   coord/decision.json         decision_next on `verdict`: the entry awaiting a
@@ -125,9 +124,9 @@ description: >
   left from an earlier visit. Evidence is refused on a check state, and no
   override record can stand in for a check.
 
-  Every GitHub write (opening, rewriting or closing the record, a merge, a
-  close-out commit) is a script the coordinator runs from a directive, and
-  each re-reads GitHub and the session log first. koto 0.14.0 and later refuse
+  Every write (opening or rewriting the record in the session, a merge, a
+  roadmap pull request) is a script the coordinator runs from a directive,
+  and each re-reads what it writes over and the session log first. koto 0.14.0 and later refuse
   `koto next --to` past a failing non-overridable gate (koto#251); the write
   scripts and later readers also scan the log for any directed transition and
   refuse on one, as defence in depth.
@@ -135,8 +134,8 @@ description: >
   After the start and record phase, `wait` is a hub the coordinator ticks on
   every message or notification, naming the event. Every edge out of it lands
   on a state that starts with a read. Every spoke that changes what the record
-  must hold returns through `record`, whose check confirms the change on
-  GitHub before the loop goes round through pick again, except the decision
+  must hold returns through `record`, whose check confirms the change in the
+  session before the loop goes round through pick again, except the decision
   writes: record-decision.sh re-reads the record itself, and every decision
   state returns through `decision_next`, whose check reads what is owed next,
   including a write that didn't land.
@@ -194,18 +193,6 @@ variables:
       coordinate-open.sh --reports-to; empty when the run reports to a person.
       Fixed for the run: every escalation goes there.
     pattern: '^([A-Za-z0-9][A-Za-z0-9._-]*)?$'
-    default: ""
-  STORE:
-    description: >-
-      Where a new scope's record keeps its state, from coordinate-open.sh
-      --store: github or session. At roadmap scope the opener sets session when
-      --store isn't given; a session opened another way may leave it empty,
-      which reads as github. It decides only when
-      record_find finds no record; a found record's own `store` Run row decides
-      otherwise, and record-find.sh writes the run's store, and why, to
-      coord/source.json. At discipline scope it decides nothing: a new rotation
-      opens on the session store, and one on GitHub stays there.
-    pattern: '^(github|session)?$'
     default: ""
   PLUGIN_ROOT:
     description: >-
@@ -293,18 +280,9 @@ states:
       - target: record_conflict
         when:
           gates.record_find_verdict.exit_code: 16  # malformed
-      - target: record_conflict
-        when:
-          gates.record_find_verdict.exit_code: 17  # unauthorized
-      - target: predecessor_handoff
-        when:
-          gates.record_find_verdict.exit_code: 18  # predecessor
-      - target: record_move
-        when:
-          gates.record_find_verdict.exit_code: 19  # move
-      # A discipline rotation on the session store (record-find.sh session_find):
-      # the discipline's first rotation opens, an ended predecessor's state is
-      # carried, and a predecessor that fails a rule stops for the person.
+      # A discipline rotation (record-find.sh session_find): the discipline's
+      # first rotation opens, an ended predecessor's state is carried, and a
+      # predecessor that fails a rule stops for the person.
       - target: record_open
         when:
           gates.record_find_verdict.exit_code: 205  # first
@@ -314,23 +292,6 @@ states:
       - target: record_conflict
         when:
           gates.record_find_verdict.exit_code: 172  # unreadable
-
-  record_move:
-    accepts:
-      move:
-        type: enum
-        values: [done, refused]
-        required: true
-        description: Submit done after record-move.sh printed move=done, or refused after it printed move=refused.
-      detail:
-        type: string
-    transitions:
-      - target: record_find
-        when:
-          move: done
-      - target: record_conflict
-        when:
-          move: refused
 
   record_open:
     accepts:
@@ -382,89 +343,6 @@ states:
       - target: record_conflict
         when:
           carry: refused
-
-  predecessor_handoff:
-    default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/predecessor-handoff.sh" --session "{{SESSION_NAME}}"'
-      capture_stdout_as: HANDOFF
-      fallback: >-
-        The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
-    gates:
-      predecessor_handoff_verdict:
-        type: command
-        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state predecessor_handoff --capture "{{HANDOFF}}"'
-        overridable: false
-    transitions:
-      - target: predecessor_close
-        when:
-          gates.predecessor_handoff_verdict.exit_code: 110  # rendered
-      - target: record_conflict
-        when:
-          gates.predecessor_handoff_verdict.exit_code: 111  # unparseable
-
-  predecessor_close:
-    default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/closeout-read.sh" --session "{{SESSION_NAME}}" --predecessor'
-      capture_stdout_as: PREDECESSOR_CLOSE
-      fallback: >-
-        The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
-    gates:
-      predecessor_close_verdict:
-        type: command
-        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state predecessor_close --capture "{{PREDECESSOR_CLOSE}}"'
-        overridable: false
-    transitions:
-      - target: predecessor_step
-        when:
-          gates.predecessor_close_verdict.exit_code: 120  # handoff-missing
-      - target: predecessor_step
-        when:
-          gates.predecessor_close_verdict.exit_code: 122  # land
-      - target: predecessor_done
-        when:
-          gates.predecessor_close_verdict.exit_code: 90  # merged
-      - target: record_conflict
-        when:
-          gates.predecessor_close_verdict.exit_code: 125  # closed-unmerged
-
-  predecessor_step:
-    accepts:
-      step_result:
-        type: enum
-        values: [done, handed_over]
-        required: true
-        description: done after the stage's agent-run step; handed_over after handing the merge to a person.
-    transitions:
-      - target: predecessor_close
-        when:
-          step_result: done
-      - target: predecessor_handed_over
-        when:
-          step_result: handed_over
-
-  predecessor_done:
-    accepts:
-      recheck:
-        type: enum
-        values: [recheck]
-        required: true
-        description: Submit after rotation-close.sh --step delete-branch.
-    transitions:
-      - target: record_find
-        when:
-          recheck: recheck
-
-  predecessor_handed_over:
-    accepts:
-      recheck:
-        type: enum
-        values: [recheck]
-        required: true
-        description: Submit once the person has merged or closed the predecessor's record.
-    transitions:
-      - target: record_find
-        when:
-          recheck: recheck
 
   reconcile_pass:
     default_action:
@@ -578,7 +456,7 @@ states:
       - target: roadmap_close
         when:
           gates.pick_facts_verdict.exit_code: 31  # scope-complete
-      - target: rotation_close
+      - target: rotation_end
         when:
           gates.pick_facts_verdict.exit_code: 32  # rotation-over
       - target: decision_next
@@ -907,7 +785,7 @@ states:
       - target: failure
         when:
           event: redispatch
-      - target: rotation_close
+      - target: rotation_end
         when:
           event: end
           vars.DISCIPLINE:
@@ -1681,9 +1559,12 @@ states:
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 75  # unlinked
+      # A required check the token can't see (the checks refused, and no
+      # Actions job or status answers it): only a person who can see it can
+      # say whether it passed.
       - target: surface
         when:
-          gates.verify_board_verdict.exit_code: 76  # actions-green
+          gates.verify_board_verdict.exit_code: 76  # check-unreadable
       # Defensive: classify_report's report_pr gate keeps a report with no
       # pull request out of verify, so only a route that skips it reaches
       # this. As at classify_report, a report with nothing to verify is
@@ -2310,59 +2191,32 @@ states:
         when:
           noted: noted
 
+  # The roadmap's close read `ready` on the way here, and the record is the
+  # session, so there is nothing on GitHub to close: `closed` ends the run.
   roadmap_close_step:
     accepts:
       step:
         type: enum
         values: [closed, handed_over]
         required: true
-        description: closed after record-write.sh --close; handed_over after handing the close to a person.
+        description: closed where the posture permits closing; handed_over after handing the close to a person.
     transitions:
-      - target: roadmap_close
+      - target: done
         when:
           step: closed
+        context_assignments:
+          outcome: closed
       - target: done_handed_over
         when:
           step: handed_over
         context_assignments:
           outcome: handed-over
 
-  rotation_close:
-    default_action:
-      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/closeout-read.sh" --session "{{SESSION_NAME}}"'
-      capture_stdout_as: ROTATION_CLOSE
-      fallback: >-
-        The read failed or could not reach a verdict; the action's own output above says why. Fix the cause (a gh or koto error, a network failure) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
-    gates:
-      rotation_close_verdict:
-        type: command
-        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state rotation_close --capture "{{ROTATION_CLOSE}}"'
-        overridable: false
-    transitions:
-      - target: rotation_step
-        when:
-          gates.rotation_close_verdict.exit_code: 120  # handoff-missing
-      - target: rotation_step
-        when:
-          gates.rotation_close_verdict.exit_code: 121  # title-stale
-      - target: rotation_step
-        when:
-          gates.rotation_close_verdict.exit_code: 122  # land
-      - target: rotation_done
-        when:
-          gates.rotation_close_verdict.exit_code: 90  # merged
-      - target: record_conflict
-        when:
-          gates.rotation_close_verdict.exit_code: 125  # closed-unmerged
-      - target: rotation_end
-        when:
-          gates.rotation_close_verdict.exit_code: 208  # session-rotation
-
-  # A rotation on the session store ends here: the coordinator writes its
-  # reasoning for the next rotation (record-state.sh --reasoning-file), which
-  # closes the rotation by the window rule, and the run ends. Nothing is
-  # committed and no pull request is opened. The gate is record-state.sh's
-  # read-only --reasoning-check, which writes nothing.
+  # A rotation ends here, from pick_facts's rotation-over or the hub's `end`:
+  # the coordinator writes its reasoning for the next rotation (record-state.sh
+  # --reasoning-file), which closes the rotation by the window rule, and the
+  # run ends. Nothing is committed and no pull request is opened. The gate is
+  # record-state.sh's read-only --reasoning-check, which writes nothing.
   rotation_end:
     accepts:
       reasoning:
@@ -2380,37 +2234,6 @@ states:
         when:
           reasoning: written
           gates.reasoning_written.exit_code: 0
-        context_assignments:
-          outcome: closed
-
-  rotation_step:
-    accepts:
-      step_result:
-        type: enum
-        values: [done, handed_over]
-        required: true
-        description: done after the stage's agent-run step; handed_over after handing the merge to a person.
-    transitions:
-      - target: rotation_close
-        when:
-          step_result: done
-      - target: done_handed_over
-        when:
-          step_result: handed_over
-        context_assignments:
-          outcome: handed-over
-
-  rotation_done:
-    accepts:
-      deleted:
-        type: enum
-        values: [deleted]
-        required: true
-        description: Submit after rotation-close.sh --step delete-branch.
-    transitions:
-      - target: done
-        when:
-          deleted: deleted
         context_assignments:
           outcome: closed
 
@@ -2505,13 +2328,11 @@ is a default, not a permission rule of this skill's own.
 
 ## record_find
 
-Finding this scope's record on GitHub. koto runs `record-find.sh` itself; it
-lists every open issue (roadmap scope) or reads the rotation's branch and pull
-requests (discipline scope), never through GitHub's search, and routes on what
-it finds. A record is adopted only when it carries the declaration line (`> This
-is a **coordinator record** for ...`), an author and last editor with write
-access, and a canonical body; a title match without the declaration line is
-`foreign`, a stop for the human, never a record to take over.
+Finding this scope's record in this host's coordinator sessions. koto runs
+`record-find.sh` itself; it reads this run's session and, at discipline scope,
+the discipline's earlier rotations on this host, and routes on what it finds.
+Nothing on GitHub is searched or read for the record: the session is its only
+store.
 
 <!-- details -->
 
@@ -2519,95 +2340,57 @@ The record stores only what GitHub can't recompute: the holdings (including
 workers with no pull request yet), deferrals, side effects in flight such as a
 merge attempted and never confirmed, and the reasoning behind reversals. Feature
 state is never stored; it is read from the roadmap and the pull requests every
-time. `references/record-template.md` has the container rules and the shape.
+time. `references/record-template.md` has the shape of each section.
 
-At roadmap scope the record is an open issue titled exactly
-`Coordinator record: ROADMAP-<name>` in the roadmap's repository. At discipline
-scope a rotation still on GitHub is
-a draft pull request from `coordinate/discipline-<name>` in the host repository,
-titled `docs(coordinate): <name> rotation <start> to <end>`, and a new rotation
-is on the session store (below). Either GitHub record must carry the declaration line, and its author and last editor must have write
-access to the host repository; a candidate that fails any of that is never
-adopted.
+The record is a set of keys in this run's koto session (`record/meta` and one
+key per section). A run started on a host that never held this scope's session
+got its record from there through the opener's `--import`; a coordinator that
+still ran on a GitHub record was imported into its session once, by the opener,
+before this state ran.
 
 Where this goes next:
 
-- found: the record exists once with its four sections (and a Decisions section once it holds one); the run reconciles.
+- found: this run's session holds the record; the run reconciles.
 - none (roadmap scope): `record_open`.
-- a title match without the declaration line, several matches, a body that isn't
-  canonical, or an author without write access: `record_conflict`, a stop for the
-  human.
-- the previous rotation's record still open past its end date: its close-out
-  first (`predecessor_handoff`).
-- a record whose owner moved it onto the session store (its `store session`
-  row) and whose body still holds its state: the move (`record_move`).
+- malformed: the session's record doesn't read back as a record of this scope:
+  `record_conflict`, a stop for the human.
 
-At discipline scope a rotation with no open pull request on the record branch is
-on the session store, and the find reads this host's sessions of the discipline
-instead (the rotation's window and its reasoning are its session's
-`record/rotation` and `record/reasoning`):
+At discipline scope the find also reads this host's sessions of the discipline
+(the rotation's window and its reasoning are its session's `record/rotation`
+and `record/reasoning`):
 
 - found (bare): this run's own session holds the rotation; the run reconciles.
 - first: the discipline has no earlier rotation anywhere: `record_open`.
 - predecessor `<session>`: the latest earlier rotation ended, and its state is
-  carried into this run (`predecessor_carry`); predecessor `handoff:<sha>`: the
-  discipline's last rotation ran on GitHub, and its committed
-  `docs/disciplines/<name>.md` is carried once, the same way.
+  carried into this run (`predecessor_carry`).
 - unreadable `<session>`: the latest earlier rotation fails a rule (its name,
   provenance, discipline or host, an open window, another rotation already
   carried it, or a record that doesn't read back): `record_conflict`, carrying
   nothing.
 
-## record_move
-
-This scope's record moves from GitHub onto the session store ({{RECORD_FIND}}).
-Run the move, then submit `move: done` when it prints `move=done`, or `move:
-refused` when it prints `move=refused`; the find then runs again.
-
-```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-move.sh" --session "{{SESSION_NAME}}"
-```
-
-<!-- details -->
-
-The record's owner decided the move when they had the `store session` Run row
-written with `record-state.sh --run store session --by <person>`; the find acts
-on it only once the record's entries hold the `run` entry posted with the row.
-The move has three steps, and a re-run skips each one it finds done, so a stop
-part way (exit 11, or a failed read) is finished by running it again: the GitHub
-state is copied into this run's session, a `moved` entry naming this run's stamp
-is posted to the GitHub record, and the GitHub body is rewritten to the moved
-shape (every section empty, the Run section only the `store session` row). From
-then on every writer writes the session's keys, and a write to the GitHub body
-is refused as `store-moved`. A refusal (another session of this scope on this
-host holds its state, the record no longer reads `store session`, or it is
-already in the moved shape with no session here holding its state) is a stop
-for the human: submit `refused` with its reason as the detail.
-
 ## record_open
 
 No record exists for this scope ({{RECORD_FIND}}). Open exactly one with
 `record-open.sh`, then submit `opened: opened`; the next state reads the record
-again (GitHub at roadmap scope, this host's sessions for a discipline rotation),
-and only that read satisfies the check.
+again from this run's session, and only that read satisfies the check.
 
 <!-- details -->
 
 Write the body with `record-render.sh` from a JSON file: the scope. A
 discipline rotation that follows another carries its predecessor through
-`predecessor_carry`, not here. Then:
+`predecessor_carry`, not here. Then, at roadmap scope:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-open.sh" --session "{{SESSION_NAME}}" --body-file <body.md>
 ```
 
 The script refuses when a record now exists (a restart that finds its record
-never opens one) and prints `record=<url>`.
-Report the record's number or URL up with every report, so a successor is
-handed it as a decision.
+never opens one). It seeds the record's keys in this run's session, opening
+nothing on GitHub, and prints `record=<this session>`. Report the session name
+up as the record with every report, so a successor is handed it as a decision.
 
-At discipline scope the find reads `first` (the discipline's first rotation, on
-the session store), the start is today and the end is
+At discipline scope the find reads `first` (the discipline's first rotation),
+the start is today and the end is
 the start plus `{{ROTATION_DAYS}}` days less one, so the rotation is
 `{{ROTATION_DAYS}}` days long, the same window a carried rotation gets:
 the same command with `--start` and `--end` opens the rotation in this run's
@@ -2624,21 +2407,17 @@ and ask once, with a recommendation; submit `recheck` after they resolve it, or
 
 <!-- details -->
 
-This state is reached from a record that isn't one (a title or branch match
-without the declaration line), several candidates, a body that isn't canonical,
-an author or editor without write access, a predecessor whose handoff doesn't
-parse or whose rotation closed without merging, or a record check that found a
-`koto next --to` in this run. It is also reached from the decision states: a
-record too full for the next decision write (`record-full`: the record is near
-GitHub's size limit with nothing left that can move, since decision-next.sh
-has already archived every settled entry it could; the way out, as the script
-says, is to prune the record, which is the human's call), and a message the
-workflow refused to render (`refused`: the entry no longer owes it as
-recorded, so the record changed underneath). Don't pick among
-candidates and don't repair a record by hand: the human decides. A pull request
-on the record's branch that isn't a record is a scope question.
+This state is reached from a session record that doesn't read back as a record
+of this scope (`malformed`), or a record check that found a `koto next --to` in
+this run. It is also reached from the decision states: a record too full for
+the next decision write (`record-full`: the record is near its size budget with
+nothing left that can move, since decision-next.sh has already archived every
+settled entry it could; the way out, as the script says, is to prune the
+record, which is the human's call), and a message the workflow refused to
+render (`refused`: the entry no longer owes it as recorded, so the record
+changed underneath). Don't repair a record by hand: the human decides.
 
-At discipline scope on the session store it is also reached from a predecessor
+At discipline scope it is also reached from a predecessor
 the find read as `unreadable <session>` (the reason is in coord/record_find.json),
 and from a carry that was refused (coord/predecessor_carry.json); nothing was
 carried. The human decides whether that session is the predecessor; never carry
@@ -2665,60 +2444,6 @@ them up before anything acts on them, since an approval or a hold that came
 from the predecessor binds this rotation too. Until a person answers with a
 go-ahead, the handover gate lists `carry-unacknowledged`, so nothing dispatches
 or merges first. A refused carry stops at `record_conflict`.
-
-## predecessor_handoff
-
-Rendering the previous rotation's handoff from its record. koto runs
-`predecessor-handoff.sh` itself.
-
-<!-- details -->
-
-When the find reads a previous rotation's record still open past its end date,
-this successor closes it out and writes only what it can stand behind: the
-tables copied from the predecessor's body as it stands, under "As written by the
-previous rotation at <its Written time>; not re-checked.", and a reasoning
-section saying the outgoing rotation's reasoning was not recorded. Never write
-it on the predecessor's behalf. Its open deferrals carry into your own record,
-to be disposed of before your first dispatch.
-
-## predecessor_close
-
-Reading where the predecessor's close-out stands. koto runs
-`closeout-read.sh --predecessor` itself; each stage sends you to one step.
-
-<!-- details -->
-
-The ladder: commit the rendered handoff to the predecessor's branch unedited
-(`rotation-close.sh --step handoff`); then mark its pull request ready and merge
-it through `land-merge.sh --closeout` where the posture permits the merge, or
-hand the merge to the human as the last row of the merge-order table
-(`references/verification-checklist.md`) where it doesn't. A predecessor's title
-is never corrected: it did end on its date. After its merge, delete the branch;
-the find then reads the committed handoff as `predecessor handoff:<sha>` and
-this rotation carries it (`predecessor_carry`), or reads `first` when there is
-no handoff file.
-
-## predecessor_step
-
-Take the step the close-out stage named ({{PREDECESSOR_CLOSE}}), then submit
-`step_result: done`, or `handed_over` after handing the merge to the human.
-
-<!-- details -->
-
-- handoff-missing: `rotation-close.sh --step handoff --file <the rendered handoff>`.
-- land: where the merge is permitted, `rotation-close.sh --step ready` and then
-  `land-merge.sh --closeout`; otherwise the hand-over.
-
-## predecessor_done
-
-The predecessor's record merged. Delete its branch with
-`rotation-close.sh --step delete-branch`, then submit `recheck: recheck`.
-
-## predecessor_handed_over
-
-The predecessor's merge is with the human. This rotation can't carry the
-predecessor until its handoff has merged; submit `recheck: recheck` once it has
-merged or closed.
 
 ## reconcile_pass
 
@@ -2792,9 +2517,9 @@ workflow here. Its handover gate re-reads the record's stored set (Run, Standing
 Work, `references/record-template.md`) and holds the workflow while the record
 lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
-address; a holding merged and waiting for its teardown is exempt. On the
-session store it also holds while the record names nobody this coordinator
-reports to (`no-reports-to`). After an import it holds, on either store,
+address; a holding merged and waiting for its teardown is exempt. It also
+holds while the record names nobody this coordinator
+reports to (`no-reports-to`). After an import it holds
 until each leg has an end (`leg-unclassified <worker>`): a live holding whose
 leg names a request this host's store doesn't hold. The pass gives each such
 leg its end, re-legging a worker whose session came along unbound and moving
@@ -2819,10 +2544,10 @@ naming the posture, rewrite the record, then submit it: `permitted` or
 
 <!-- details -->
 
-Until the answer is on GitHub, every finishing step stays reserved. The answer is
-the one posture fact the workflow takes on your relay, which is why it goes into
-the record where anyone can read who decided it; the land step treats a
-`permitted` merge as permitted only while that row is on GitHub. This is not a
+Until the answer is in the record, every finishing step stays reserved. The
+answer is the one posture fact the workflow takes on your relay, which is why it
+goes into the record with who decided it; the land step treats a `permitted`
+merge as permitted only while that row is in the record. This is not a
 hold: a hold on one pull request is a Holds row (`record-hold.sh`), which the
 land check reads.
 
@@ -2979,8 +2704,7 @@ since the first of those cancelled runs started still counts, so you don't
 re-decide what you carried minutes earlier; a run that ended at a handover or a
 finish breaks that chain, so a successor still decides every one. Until the
 first check passes in this run, every deferral
-in the previous rotation's handoff must also appear in your record with a
-disposition. A restart is a new run: deferrals the previous run filed or closed
+the previous rotation carried into your record must have a disposition. A restart is a new run: deferrals the previous run filed or closed
 have dropped out of the record, so re-add each with its disposition before this
 run's first dispatch.
 
@@ -3117,7 +2841,7 @@ The worker's dispatch topic is its name everywhere, in the record and in every
 pull request: never a session id, instance path or job id.
 ## record
 
-Confirming the last change on GitHub. koto runs `record-confirm.sh` itself; it
+Confirming the last change in the record. koto runs `record-confirm.sh` itself; it
 stays here until the record shows what the step before it implies, with a newer
 `Written:` time.
 
@@ -3128,7 +2852,7 @@ attempted merge, every new deferral and every reversal, in the same turn as the
 event, and never write a fact GitHub can recompute. Load
 `references/record-template.md`. Parse the live body, change the JSON, render the
 whole body again, and write it with `record-write.sh` or `record-holding.sh`;
-never edit the body on GitHub by hand, and never append a comment.
+never edit the record's session keys by hand, and never append a comment.
 
 When the record's host repository is public, it never names a private
 repository, path or issue: a holding that would need one is a scope question for
@@ -3452,9 +3176,9 @@ Run `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
 <!-- details -->
 
 It copies the previous rotation's unsettled entries and its `Next decision` from
-its committed handoff into this record, so a successor meets them before its
-first dispatch. Only a rotation on GitHub comes here; a rotation on the session
-store carried them when it opened (`predecessor_carry`).
+the predecessor's session into this record, so a successor meets them before
+its first dispatch. A rotation normally carried them already when it opened
+(`predecessor_carry`), and then there is nothing left to copy.
 
 ## decision_take
 
@@ -3745,15 +3469,19 @@ each run's latest attempt counts; a skipped job that isn't required is listed,
 not failed. Unverified goes to the failure branch; a board still running goes
 back to waiting, and the worker's next message brings you here again.
 
-When the token can't read checks, the board is judged from the Actions jobs
-instead, and `coord/board.json` names the source it read. Red or running is
-still unverified or pending, but green that way is `actions-green`, never
-verified: without the rollup, a check that only an organisation's rules require
-can't be seen, so the run doesn't land it. It goes to surface, where the person
-is asked one thing: whether every check GitHub requires on that pull request
-passed, which they can see and the token can't. Tell them the Actions jobs at
-the head are green and the board couldn't read the required checks; their
-answer, or a token that can read checks, is what lets it land.
+When the token can't read checks, the board is judged from the Actions jobs and
+the commit's statuses instead, and `coord/board.json` names the source it read.
+The verdicts are the same from either source. A required check that no job and
+no status reports, once every run has finished, may be a check run the token
+can't see: the board reads `check-unreadable`, with a `required-unreadable`
+reason naming it in `coord/board.json`, never verified, and so does a ruleset
+rule whose checks only the rollup names. It goes to surface, where the person
+is asked one thing: whether that check passed on the pull request's head,
+which they can see and the token can't. Their answer, or a token that can read
+checks, is what lets it land. A red job still reads unverified first: the
+worker's failure comes before a question for the person. One thing the
+fallback can't see at all is a check run from another app that no rule
+requires; the token that can read checks is what shows it.
 
 A job that completed red with no step at all never ran: GitHub refused to
 start it, as it does for an account billing block or a missing runner, or it
@@ -3873,12 +3601,11 @@ clause 1 first:
    `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
    Fix the entry until it passes.
 3. Record it:
-   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`,
-   adding `--on <owner/repo#n>`, the pull request the entry names, when the
-   record is on the session store. There it is posted on that pull request
-   only when its repository opts in to workflow content
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --on <owner/repo#n> --text-file <entry file>`,
+   `--on` naming the pull request the entry's first line names. It is posted
+   on that pull request only when its repository opts in to workflow content
    (`## PR Workflow Content: include` in its CLAUDE.md), and otherwise stays
-   in your session: the script prints `record/entries/<n>` instead of a URL,
+   in the record: the script prints `record/entries/<n>` instead of a URL,
    and that is the entry recorded.
 4. Submit, with `clauses` set to the entry's Clauses value.
 
@@ -4311,9 +4038,8 @@ several pull requests is sent once, after the last.
 
 A milestone's verdict is owed. Check the shipped work against each Evidence
 clause, write the verdict entry, check it with `milestone.sh check-verdict`,
-record it with `record-append.sh --kind milestone-verdict`, run
-`roadmap-status.sh --verdict` with the entry's number (`--entry <n>`, the
-`<n>` of the `record/entries/<n>` it printed) or the URL it printed, and submit
+record it with `record-append.sh --kind milestone-verdict --on none`, run
+`roadmap-status.sh --verdict` with the entry number it printed, and submit
 `verdict: recorded` with the milestone's tag as `unit`. When the verdict can't
 be given now, submit `verdict: deferred`: the milestone stays verdict-owed and
 pick passes over it.
@@ -4357,24 +4083,24 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
 4. Check it: `"$S/milestone.sh" check-verdict <roadmap file> "<tag>" <entry file> --worker <the Who of the milestone's verdict-owed row>`
    (`record-state.sh --session {{SESSION_NAME}} --list` shows the row; leave
    `--worker` off when its Who is `none`). Fix the entry until it passes.
-5. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-verdict --text-file <entry file>`,
-   adding `--on none` when the record is on the session store. That prints
-   `record/entries/<n>`; on a GitHub record it prints the entry's URL.
+5. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-verdict --on none --text-file <entry file>`,
+   which writes it into the record and prints `record/entries/<n>`; it posts
+   nothing yet.
 6. Open the roadmap edit:
-   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --verdict "<tag>" --entry <n>`
-   on the session store, or `--entry-file <entry file> --entry-url <URL>` in
-   place of `--entry <n>` on a GitHub record, where it re-reads the comment at
-   the URL, which must hold the entry file's text. On the session store the
-   entry is posted on the pull request the edit opens only when the host
-   opts in to workflow content (`## PR Workflow Content: include` in its
-   CLAUDE.md); otherwise it stays in your session and the Progress line
-   names it by its hash. The script
-   requires the default branch to contain the Source commit, re-checks the
-   entry against the roadmap at its Source and opens one pull request: a
-   verified verdict sets the Status to Done, removes the Needs line and adds
-   the work checked to Delivered; changes needed leaves Status and Delivered
-   as they are. Either adds a Progress line naming the verdict, you and the
-   entry. Never merge it; it goes to whoever merges roadmap changes, in the
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --verdict "<tag>" --entry <n>`.
+   It reads the entry from the record, requires the default branch to
+   contain the Source commit, re-checks the entry against the roadmap at its
+   Source and opens one pull request, with the entry in its body: a verified
+   verdict sets the Status to Done, removes the Needs line and adds the work
+   checked to Delivered; changes needed leaves Status and Delivered as they
+   are. When the host opts in to workflow content (`## PR Workflow Content:
+   include` in its CLAUDE.md) it then posts the entry as a comment on that
+   pull request and adds a Progress line naming the verdict, you and that
+   comment; otherwise, the default, it posts nothing and the Progress line
+   names the entry by its hash, in the same commit. When it exits 14
+   (the post or the Progress commit failed), run it again with the same
+   entry: it finds its pull request and finishes, opening no second one.
+   Never merge it; it goes to whoever merges roadmap changes, in the
    merge-order table, and a person reviews the verdict there.
 
    For verified with follow-ups, write each follow-up's milestone section to
@@ -4401,18 +4127,18 @@ another roadmap pull request is pending (only one is open at a time). A
 deferred verdict stays verdict-owed: pick lists it as a verdict to give each
 pass, and ticking `landed` for the milestone reaches this step again. A
 pending edit whose pull request closed unmerged is dropped with
-`roadmap-status.sh --drop "<tag>" --reason "<why>"`, and the same entry's
-`--verdict` opens it again.
-An entry posted on the record changes nothing by itself: Done, the
-verdict-owed and rework rows and every pick follow only the record's body
-and the default branch.
+`roadmap-status.sh --drop "<tag>" --reason "<why>"`; to open it again, record
+the same verdict as a new entry and run `--verdict` with that entry, since an
+entry already posted is refused.
+The entry changes nothing by itself: Done, the verdict-owed and rework rows
+and every pick follow only the record and the default branch.
 
 ## milestone_reopen
 
 A failure was reported against a milestone that reads Done. Write the failure
 entry, check it with `milestone.sh check-failure`, record it with
-`record-append.sh --kind milestone-failure`, run `roadmap-status.sh --reopen`
-with the entry's number (`--entry <n>`) or the URL it printed, and submit `status: opened` with the milestone's tag
+`record-append.sh --kind milestone-failure --on none`, run
+`roadmap-status.sh --reopen` with the entry number it printed, and submit `status: opened` with the milestone's tag
 as `unit`. When the entry can't be checked or the script refuses, submit
 `status: failed`: nothing changes.
 
@@ -4444,20 +4170,20 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
 3. Check it: `"$S/milestone.sh" check-failure <roadmap file> "<tag>" <entry file>`.
    It refuses a milestone that doesn't read Done and a clause it doesn't
    have. Fix the entry until it passes.
-4. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --text-file <entry file>`,
-   adding `--on none` when the record is on the session store. That prints
-   `record/entries/<n>`; on a GitHub record it prints the entry's URL.
+4. Record it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --on none --text-file <entry file>`,
+   which writes it into the record and prints `record/entries/<n>`; it posts
+   nothing yet.
 5. Open the reopen edit:
-   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry <n>`
-   on the session store, or `--entry-file <entry file> --entry-url <URL>` in
-   place of `--entry <n>` on a GitHub record, where it re-reads the comment at
-   the URL, which must hold the entry file's text. As with a verdict, the
-   entry is posted on the pull request only when the host opts in to
-   workflow content, and otherwise stays in your session. The script
-   checks the entry against the roadmap on the default branch and opens one
-   pull request that sets the Status to In progress and adds a Progress line
-   naming the failed clause, the reporter and the entry; Delivered, Outcome
-   and Evidence stay. Never merge it; it goes to whoever merges roadmap
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry <n>`.
+   It reads the entry from the record, checks it against the roadmap on the
+   default branch and opens one pull request, with the entry in its body,
+   that sets the Status to In progress, and adds a Progress line naming the
+   failed clause and the reporter. As with a verdict, the entry is posted as
+   a comment on that pull request, and the line names that comment, only
+   when the host opts in to workflow content; otherwise the line names the
+   entry by its hash. Delivered, Outcome and Evidence stay. When
+   it exits 14, run it again with the same entry: it finishes the same pull
+   request. Never merge it; it goes to whoever merges roadmap
    changes, in the merge-order table, and a person reviews the report there.
    Only one roadmap edit is pending at a time: a second failure reported
    while one is pending opens nothing, so submit `failed` and report it again
@@ -4474,12 +4200,12 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
    entry (`Evidence clause <n> failed: <what was seen>`): pick offers the
    milestone again like any other once nothing blocks it, and its next brief
    quotes the failure. A pending edit whose pull request closed unmerged is
-   dropped with `roadmap-status.sh --drop "<tag>" --reason "<why>"`, and the
-   same entry's `--reopen` opens it again.
+   dropped with `roadmap-status.sh --drop "<tag>" --reason "<why>"`; to open
+   it again, record the same failure as a new entry and run `--reopen` with
+   that entry.
 
-A failure entry posted on the record reopens nothing by itself: the Status,
-the rework row and every pick follow only the record's body and the default
-branch.
+The failure entry reopens nothing by itself: the Status, the rework row and
+every pick follow only the record and the default branch.
 
 ## roadmap_close
 
@@ -4500,51 +4226,20 @@ Report what still blocks the roadmap's close ({{ROADMAP_CLOSE}}) and submit
 
 ## roadmap_close_step
 
-Write the final record with `record-write.sh --close` where the posture permits
-closing (`step: closed`), or hand the close to the human (`step: handed_over`).
-
-## rotation_close
-
-Reading the rotation close-out's stage. koto runs `closeout-read.sh` itself.
+The roadmap is clear ({{ROADMAP_CLOSE}}). Where the posture permits closing,
+submit `step: closed` and the run ends; otherwise hand the close to the human
+(`step: handed_over`).
 
 <!-- details -->
 
-A rotation on the session store writes no handoff file: the stage
-`session-rotation` sends it to `rotation_end`. For a rotation on GitHub:
-At rotation end, write `docs/disciplines/<name>.md` fresh: the same four
-sections, every hold as the record has it (a hold outlives its rotation;
-`rotation-close.sh` refuses a handoff without them), the unsettled decisions
-with the same `Next decision` when the record holds any (the handoff renderer
-carries them), and a reasoning section with what
-this rotation learned that the tables can't say,
-replacing the previous rotation's text, never appending to it. Commit
-it to the record branch, correct the title's end date if the rotation ended on
-another day, then mark the pull request ready and merge it through
-`land-merge.sh --closeout` where the posture permits, or hand it to the human as
-the last row of the merge-order table. The record's own board must verify before
-it lands.
-
-## rotation_step
-
-Take the step the stage named ({{ROTATION_CLOSE}}), then submit `step_result`.
-
-<!-- details -->
-
-- handoff-missing: render the handoff (`record-render.sh --format handoff`) and
-  `rotation-close.sh --step handoff --file <handoff.md>`.
-- title-stale: `record-write.sh --end <today>` with the final body.
-- land: `rotation-close.sh --step ready`, then `land-merge.sh --closeout` where
-  the merge is permitted; otherwise the hand-over (`handed_over`).
-
-## rotation_done
-
-The record merged. Delete its branch with `rotation-close.sh --step
-delete-branch` and submit `deleted: deleted`.
+The record is this run's session, so closing writes nothing on GitHub: there is
+no record issue to close, and the close's read already found every feature
+done and the record clear.
 
 ## rotation_end
 
-This rotation is on the session store, so it ends here: nothing to commit and no
-pull request. Write the reasoning for the next rotation, then submit
+The rotation is over, or the human ended it, so it ends here: nothing to commit
+and no pull request. Write the reasoning for the next rotation, then submit
 `reasoning: written`.
 
 ```bash

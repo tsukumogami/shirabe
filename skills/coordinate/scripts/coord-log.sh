@@ -36,18 +36,11 @@
 #       Prints "seq from->to" per directed transition after SEQ. Exit 0 none;
 #       1 some; 2 read failure.
 #   coord-log.sh run-facts --session S
-#       Prints {"scope","name","repo","ref"}. Exit 0; 1 no found record in the
-#       run (the find's token is `found <n>`, `found <n> session` or, for a
-#       record the run is moving onto the session store, `move <n>`; at
-#       discipline scope also a rotation on the session, `found`, `first`,
-#       `predecessor coordinate-<slug>-<stamp>` or `predecessor
-#       handoff:<sha>`, whose ref is "": it has no pull request); 2 read
-#       failure.
-#   coord-log.sh run-store --session S
-#       Prints the run's store from the sealed RECORD_FIND token: `session` for
-#       a token reading `found <n> session` or `move <n>`, or a discipline
-#       rotation on the session (the four tokens above), else `github` (a run
-#       with no found record, or a token that doesn't check, included). Exit 0.
+#       Prints {"scope","name","repo"}. Exit 0; 1 no found record in the run
+#       (the find's sealed token is `found`, the run's own session holding the
+#       record, or at discipline scope `first` or `predecessor
+#       coordinate-<slug>-<stamp>`, the rotation record_open or
+#       predecessor_carry puts there); 2 read failure.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
 #   coord-log.sh chain-start --session S
 #       Prints the created_at of the earliest run in the unbroken chain of
@@ -287,20 +280,17 @@ cmd_check() {
     fi
 }
 
-# session_rotation_token <token> <scope>: 0 when the find's token, its seal
-# stripped, is a discipline rotation on the session store: `found` alone (the
-# run's own session holds the rotation), `first` (the rotation record_open
-# opens there), `predecessor coordinate-<slug>-<stamp>` or `predecessor
-# handoff:<40 hex>` (the predecessor the run carries). Such a rotation has no
-# pull request, so no record number. `predecessor <n>`, a rotation still on
-# GitHub, is not one.
-session_rotation_token() {
-    [ "$2" = discipline ] || return 1
+# found_token <token> <scope>: 0 when the find's token, its seal stripped,
+# names a record this run holds or is putting in its own session: `found` (the
+# run's session holds it), and at discipline scope `first` (the rotation
+# record_open opens there) or `predecessor coordinate-<slug>-<stamp>` (the
+# predecessor the run carries in).
+found_token() {
     case "$1" in
-        found|first) return 0 ;;
+        found) return 0 ;;
+        first) [ "$2" = discipline ] ;;
         "predecessor "*)
-            local p=${1#predecessor }
-            [[ $p =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || [[ $p =~ ^handoff:[0-9a-f]{40}$ ]] ;;
+            [ "$2" = discipline ] && [[ ${1#predecessor } =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] ;;
         *) return 1 ;;
     esac
 }
@@ -377,36 +367,12 @@ run-facts)
     VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
     [ -n "$VARS" ] || die "no workflow_initialized event"
     FOUND=$(NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture) || exit 1
-    # A found record, a move, or a session rotation's token (no number). A
-    # GitHub `predecessor <n>` is the previous rotation's record, never this
-    # run's, so it reads as no found record.
-    RF_SCOPE=$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')
-    case "$FOUND" in found\ *|move\ *) ;; *) session_rotation_token "${FOUND% sealed:*}" "$RF_SCOPE" || exit 1 ;; esac
+    found_token "${FOUND% sealed:*}" "$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')" || exit 1
     (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || exit 1
-    if session_rotation_token "${FOUND% sealed:*}" "$RF_SCOPE"; then
-        REF=
-    else
-        REF=$(printf '%s' "$FOUND" | cut -d' ' -f2)
-        case "$REF" in ''|*[!0-9]*) exit 1 ;; esac
-    fi
-    printf '%s' "$VARS" | jq -c --arg ref "$REF" '{
+    printf '%s' "$VARS" | jq -c '{
         scope: .SCOPE,
         name: (if .SCOPE == "roadmap" then (.ROADMAP | split("/") | last | sub("^ROADMAP-"; "") | sub("\\.md$"; "")) else .DISCIPLINE end),
-        repo: .HOST_REPO, ref: $ref}'
-    ;;
-run-store)
-    # The run's store, from the same sealed RECORD_FIND token run-facts reads.
-    # A `found <n> session` token, and a `move <n>` token (a record this run
-    # is moving onto the session store), name the session store; `found <n>`, a
-    # run with no found record and a token whose seal doesn't check all read as
-    # the GitHub store. The token is matched without its seal.
-    need SESSION
-    LOG=$(session_log "$SESSION" 2>/dev/null) || { echo github; exit 0; }
-    FOUND=$({ NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture; } 2>/dev/null) || { echo github; exit 0; }
-    (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || { echo github; exit 0; }
-    case "${FOUND% sealed:*}" in "found "*" session"|"move "*) echo session; exit 0 ;; esac
-    RS_SCOPE=$(jq -r 'select(.type == "workflow_initialized") | .payload.variables.SCOPE // ""' "$LOG" | head -1)
-    if session_rotation_token "${FOUND% sealed:*}" "$RS_SCOPE"; then echo session; else echo github; fi
+        repo: .HOST_REPO}'
     ;;
 provenance)
     need SESSION

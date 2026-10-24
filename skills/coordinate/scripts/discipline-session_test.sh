@@ -8,23 +8,24 @@
 # the same JSON, and reasoning of 16 KiB plus one byte, a rotation missing
 # start, end or host_repo and a predecessor off the session-name pattern are
 # each refused (65) with no key written; --reasoning-check. The find's session
-# path seals found, first, predecessor <session>, predecessor handoff:<sha> or
-# unreadable <session>: one case per rule an earlier session breaks (its
+# path seals found, first, predecessor <session> or unreadable <session>: one
+# case per rule an earlier session breaks (its
 # name, provenance, discipline, host, a predecessor another rotation names, two
 # at one stamp, and, called directly, a rotation still open), and a
 # predecessor whose record/meta is malformed; a third rotation after a carried
 # second finds the second. record-open.sh opens a first rotation in the
-# session with no GitHub write; --carry carries a predecessor's hold, Standing
-# row, Work row, deferral, unsettled decision and next decision number, and
-# reports the holds and Standing rows; a carry run again reads as carried;
-# reconcile-read.sh classifies the predecessor's reasoning present, or
-# not_recorded when its window ended without it; the bridge carries a
-# committed handoff file once and reconcile reads its reasoning. The handover
-# gate lists carry-unacknowledged until a go-ahead set after the run's start,
-# and a carried go-ahead doesn't clear it. closeout-read.sh reads a session
-# rotation as session-rotation, pick-facts.sh reads its window, and
-# record-append.sh keeps its entries in the session and refuses an outward one
-# with nowhere to go.
+# session with no GitHub write and no store row; --carry carries a
+# predecessor's hold, Standing row, Work row, deferral, unsettled decision,
+# next decision number and the legacy store session row, and reports the holds
+# and Standing rows; a carry run again reads as carried; reconcile-read.sh
+# classifies the predecessor's reasoning present, or not_recorded when its
+# window ended without it. A committed handoff file is never read: with no
+# earlier session the rotation is first, and decision-next.sh owes no carry
+# from one. The handover gate lists carry-unacknowledged until a go-ahead set
+# after the run's start, and a carried go-ahead doesn't clear it.
+# closeout-read.sh has nothing to read at discipline scope, pick-facts.sh reads
+# the window, and record-append.sh keeps the entries in the session and refuses
+# an outward one with nowhere to go.
 #
 # Usage: bash skills/coordinate/scripts/discipline-session_test.sh
 set -uo pipefail
@@ -32,8 +33,6 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-# The session store's koto features, for the find's probe.
-export KOTO_FEATURES=1
 db_init
 
 day() { jq -rn --argjson n "$1" 'now + ($n * 86400) | strftime("%Y-%m-%d")'; }
@@ -108,20 +107,21 @@ eq "  ... and replaced" 0 $?
 eq "  ... reading back as the same JSON" "$(jq -R -s -c . "$T/why.txt")" "$(key "$S" record/reasoning | jq -c .)"
 bash "$HERE/record-state.sh" --session "$S" --reasoning-check > /dev/null 2>&1; eq "--reasoning-check reads it" 0 $?
 GH=coordinate-discipline-rsgh-20261001T100000Z
-log_new "$GH" "$(discipline_vars rsgh)"; sealed "$GH" "found 22"
+log_new "$GH" "$(discipline_vars rsgh)"; sealed "$GH" first
 printf '%s' '{"start":"2026-10-01","end":"2026-10-07","host_repo":"acme/widgets","predecessor":null}' > "$T/rot.json"
 bash "$HERE/record-state.sh" --session "$GH" --rotation "$T/rot.json" > /dev/null 2> "$T/err"
-eq "a rotation still on GitHub keeps no record/rotation" 65 $?
-# A GitHub predecessor (`predecessor <n>`) is no record of this run: run-facts
-# reads no found record for it, as before, while a session rotation's token
-# reads with an empty ref.
+eq "a session holding no record keeps no record/rotation" 10 $?
+# A predecessor that isn't a session (`predecessor <n>`, a rotation that ran on
+# GitHub) is no record of this run; a rotation's own token reads with no
+# record number.
 GHP=coordinate-discipline-rsghp-20261001T100000Z
 log_new "$GHP" "$(discipline_vars rsghp)"; sealed "$GHP" "predecessor 21"
 bash "$HERE/coord-log.sh" run-facts --session "$GHP" > /dev/null 2>&1
-eq "run-facts reads no record for a GitHub predecessor" 1 $?
+eq "run-facts reads no record for a predecessor that isn't a session" 1 $?
 SRF=coordinate-discipline-rsfirst-20261001T100000Z
 log_new "$SRF" "$(discipline_vars rsfirst)"; sealed "$SRF" first
-eq "  ... and an empty ref for a session rotation" '""' "$(bash "$HERE/coord-log.sh" run-facts --session "$SRF" | jq -c .ref)"
+eq "  ... and the scope, name and host, no number, for a first rotation" '{"scope":"discipline","name":"rsfirst","repo":"acme/widgets"}' \
+    "$(bash "$HERE/coord-log.sh" run-facts --session "$SRF")"
 
 echo "== the find: a rotation on the session store =="
 # Each case is its own discipline, so its sessions are the only ones of its slug.
@@ -188,7 +188,7 @@ OUT=$(bash "$HERE/record-open.sh" --session "$S" --body-file "$T/body.md" --star
 eq "the first rotation opens" "0 record=$S" "$? $OUT"
 eq "  ... with its window and no predecessor" "$(jq -nc --arg s "$TODAY" --arg e "$TOMORROW" '{start: $s, end: $e, host_repo: "acme/widgets", predecessor: null}')" \
     "$(key "$S" record/rotation | jq -c .)"
-eq "  ... and the store session row" "session" "$(key "$S" record/run | jq -r '.[] | select(.key == "store") | .value')"
+eq "  ... and no store row: the session holds no Run section" "" "$(key "$S" record/run)"
 grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT))' "$GH_DB.calls" && bad "  ... with no GitHub write" "$(calls)" || ok "  ... with no GitHub write"
 eq "  ... and the find then reads it as found" found "$(run_find "$S" first)"
 
@@ -220,6 +220,7 @@ eq "  ... the hold" "after-release" "$(key "$S" record/holds | jq -r '.[0].hold'
 eq "  ... the Standing rows" "s1 s2" "$(key "$S" record/standing | jq -r '[.[].standing] | join(" ")')"
 eq "  ... the Work row" "cache audit" "$(key "$S" record/work | jq -r '.[0].item')"
 eq "  ... the cap" "2" "$(key "$S" record/run | jq -r '.[] | select(.key == "cap") | .value')"
+eq "  ... and the legacy store session row as the predecessor held it" "session" "$(key "$S" record/run | jq -r '.[] | select(.key == "store") | .value')"
 eq "  ... the unsettled decision only, under the same next number" "5 3" "$(key "$S" record/decisions | jq -r '"\(.next) \([.entries[].decision] | join(" "))"')"
 eq "  ... the window from today, naming the predecessor" "$TODAY $P" "$(key "$S" record/rotation | jq -r '"\(.start) \(.predecessor)"')"
 eq "  ... and reports the holds and Standing rows" "after-release|s1:approval:the human s2:go-ahead:the human" \
@@ -243,29 +244,18 @@ bash "$HERE/record-open.sh" --session "$S" --carry > /dev/null 2> "$T/err"; eq "
 bash "$HERE/reconcile-read.sh" --session "$S" > "$T/rec.json" 2> "$T/err"
 eq "  ... and its reasoning is not_recorded" not_recorded "$(jq -r .reasoning "$T/rec.json" 2>/dev/null)"
 
-echo "== the bridge: a discipline whose last rotation ran on GitHub =="
+echo "== no bridge: a committed handoff file is never read =="
 HANDOFF=$(empty_record bridge | jq -c 'del(.written) | .deferrals = [{deferral: "renew the cert", reason: "next rotation", raised: "2026-09-20T10:00Z", disposition: "carried 2026-09-27T10:00Z: waits on the vendor"}]
     | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"}
     | .reasoning = "The cert renews through the vendor portal."')
 printf '%s' "$HANDOFF" | bash "$HERE/record-render.sh" --format handoff > "$T/handoff.md"
 db '.files["acme/widgets"]["main:docs/disciplines/bridge.md"] = $t' --rawfile t "$T/handoff.md"
 S=coordinate-discipline-bridge-20261005T100000Z
-eq "with no earlier session, the committed handoff file is the predecessor" "predecessor handoff:$SHA_MAIN" "$(run_find "$S" bridge)"
-sealed "$S" "predecessor handoff:$SHA_MAIN"
-OUT=$(bash "$HERE/record-open.sh" --session "$S" --carry 2> "$T/err")
-eq "the carry reads the file" "0 carried=handoff:$SHA_MAIN" "$? $(printf '%s\n' "$OUT" | tail -1)"
-eq "  ... carrying its deferral" "renew the cert" "$(key "$S" record/deferrals | jq -r '.[0].deferral')"
-eq "  ... and naming no predecessor session" null "$(key "$S" record/rotation | jq -c .predecessor)"
-bash "$HERE/reconcile-read.sh" --session "$S" --reasoning-out "$T/reasoning.txt" > "$T/rec.json" 2> "$T/err"
-eq "reconcile reads the file's reasoning, present" present "$(jq -r .reasoning "$T/rec.json" 2>/dev/null)"
-eq "  ... verbatim" "The cert renews through the vendor portal." "$(cat "$T/reasoning.txt" 2>/dev/null)"
-S2=coordinate-discipline-bridge-20261012T100000Z
-ended "$S"
-koto context add "$S" record/reasoning < <(printf '"done"')
-eq "the next rotation carries the session, not the file again" "predecessor $S" "$(run_find "$S2" bridge)"
-# A committed handoff file outlives the rotation that carried it. A decision it
-# holds unsettled may have settled since, so a later rotation's record lacks it;
-# decision-next's handoff carry is GitHub's and must not bring it back.
+reset_calls
+eq "with no earlier session the rotation is first, a committed handoff file or not" first "$(run_find "$S" bridge)"
+eq "  ... and the file is never read" "" "$(calls)"
+# A committed handoff file outlives the rotation that wrote it, and a decision
+# it holds unsettled may have settled since: decision-next.sh never carries one.
 STALE=$(empty_record carry | jq -c --argjson o "$(printf '%s' "$DEC_OPEN" | jq -c '.decision = "2"')" 'del(.written)
     | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/76"}
     | .reasoning = "The cache pin waits on a person." | .decisions = {next: 3, entries: [$o]}')
@@ -273,8 +263,10 @@ printf '%s' "$STALE" | bash "$HERE/record-render.sh" --format handoff > "$T/stal
 db '.files["acme/widgets"]["main:docs/disciplines/carry.md"] = $t' --rawfile t "$T/stale.md"
 S=coordinate-discipline-carry-20261008T100000Z
 OUT=$(bash "$HERE/decision-next.sh" --session "$S" --owed dispatch 2> "$T/err"); rc=$?
-case "$OUT" in carry*) bad "a stale committed handoff is no carry for a session rotation" "$rc $OUT $(cat "$T/err")" ;;
-    *) eq "a stale committed handoff is no carry for a session rotation" 0 "$rc" ;; esac
+case "$OUT" in carry*) bad "a committed handoff is no carry" "$rc $OUT $(cat "$T/err")" ;;
+    *) eq "a committed handoff is no carry" 0 "$rc" ;; esac
+S=coordinate-discipline-carry-20261008T100000Z
+bash "$HERE/record-decision.sh" --session "$S" --list > /dev/null 2> "$T/err"; eq "  ... and the carried record lists its decisions" 0 $?
 
 echo "== the handover gate: carry-unacknowledged =="
 S=coordinate-discipline-carry-20261008T100000Z
@@ -288,9 +280,10 @@ case " $(gaps) " in *" carry-unacknowledged "*) bad "  ... and clears it" "$(gap
 S=coordinate-discipline-own-20261005T100000Z
 case " $(gaps) " in *" carry-unacknowledged "*) bad "a rotation that carried nothing has no such gap" "$(gaps)" ;; *) ok "a rotation that carried nothing has no such gap" ;; esac
 
-echo "== the close-out, the pick and the entries of a session rotation =="
+echo "== the close-out, the pick and the entries of a rotation =="
 S=coordinate-discipline-own-20261005T100000Z
-eq "closeout-read.sh reads a session rotation as session-rotation" session-rotation "$(bash "$HERE/closeout-read.sh" --session "$S" --no-seal 2> "$T/err")"
+bash "$HERE/closeout-read.sh" --session "$S" --no-seal > /dev/null 2> "$T/err"
+eq "closeout-read.sh has no close-out to read at discipline scope" 64 $?
 printf 'A new entry.\n' > "$T/entry.txt"
 OUT=$(bash "$HERE/record-append.sh" --session "$S" --kind entry --text-file "$T/entry.txt" 2> "$T/err")
 eq "an entry is kept in the session" "0 record/entries/000001" "$? $OUT"

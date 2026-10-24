@@ -32,7 +32,7 @@ set -uo pipefail
 
 PROG=start-check
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= ARG_ROADMAP=
+SESSION= SCOPE= NAME= REPO= ARG_ROADMAP=
 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }

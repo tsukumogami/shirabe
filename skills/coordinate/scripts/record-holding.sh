@@ -11,14 +11,14 @@
 #   record-holding.sh --session S --list                    print every row
 #   record-holding.sh --session S --topic T --strand        mark it stranded
 #   record-holding.sh --session S --topic T --retire        remove a stranded row
-#   ... [--scope roadmap|discipline --name N --repo O/R --ref N
+#   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                             (tests)
 #
-# The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts; a discipline rotation on the session store has none); the
-# override flags exist for tests only.
+# The session gives the scope, name and host (coord-log.sh vars), and must
+# have a found record (coord-log.sh run-facts); the override flags exist for
+# tests only, with RS_SESSION naming the session that holds the record.
 #
-# Every mode reads the live body (gh issue view / gh pr view) and parses it
+# Every mode reads the live record through record-source.sh and parses it
 # canonically. --read prints the row whose Worker equals T as one compact JSON
 # object. --list prints every Holdings row as a JSON array in record order
 # ([] when Holdings is None.). A write takes F holding the Holdings keys
@@ -34,15 +34,13 @@
 # waiting for teardown (record-common.sh lib_row_merged): only the cleared
 # cell after a confirmed merge writes that pair, so no other write may.
 #
-# On the session store a holding also keeps its last pushed head, the pull
-# request's head as a report or a link last read it (PRD R17): 40 hex, never in
-# the body, so never on GitHub. --pushed-head sets it, or clears it with an
-# empty SHA, and changes nothing else; a row file may carry it as `pushed_head`.
-# --pushed-head reads no body: the body doesn't change, so record-write.sh
-# --pushed-head with no body rewrites only the session key that keeps the head
-# (shirabe#1094), and refuses it on a GitHub record or for a topic no holding has.
-# --read and --list print it on the session store. On a GitHub record either
-# is refused (65).
+# A holding also keeps its last pushed head, the pull request's head as a
+# report or a link last read it (PRD R17): 40 hex, never in the body.
+# --pushed-head sets it, or clears it with an empty SHA, and changes nothing
+# else; a row file may carry it as `pushed_head`. --pushed-head reads no body:
+# the body doesn't change, so record-write.sh --pushed-head with no body
+# rewrites only the session key that keeps the head (shirabe#1094), and refuses
+# it for a topic no holding has. --read and --list print it.
 #
 # --strand marks a holding `stranded`: the coordinator's choice to dispatch its
 # unit again when the worker reports by message and the quiet checks reached
@@ -55,21 +53,22 @@
 # that later arrives from the retired topic matches no holding and is refused.
 # --retire refuses (65) a row that isn't stranded.
 #
-# Exit codes: 0 written (prints the URL) or printed; 1 no row for the topic
-# (--read only); 2 a read failed; 10 refused (the target isn't an open record
-# of this scope, provenance, or a directed transition); 12 the record changed
+# Exit codes: 0 written (prints the session holding the record) or printed; 1
+# no row for the topic (--read only); 2 a read failed; 10 refused (no found
+# record, the session holds no record of this scope, provenance, or a directed
+# transition); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
 # the write failed; 13 the record is full (record-full: the body would pass
 # the write core's size budget); 64 usage; 65 the row was refused (the reason
 # on stderr).
 #
-# GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
-# --json body; writes happen only in record-write.sh.
+# The record is read through record-source.sh; writes happen only in
+# record-write.sh.
 set -uo pipefail
 
 PROG=record-holding
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TOPIC= ROWFILE= MODE= PUSHED=
+SESSION= SCOPE= NAME= REPO= TOPIC= ROWFILE= MODE= PUSHED=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -79,7 +78,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --topic) [ $# -ge 2 ] || usage; TOPIC=$2; shift 2 ;;
         --row-file) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=write; ROWFILE=$2; shift 2 ;;
         --pushed-head) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=pushed; PUSHED=$2; shift 2 ;;
@@ -101,24 +99,13 @@ esac
 # The topic is a Worker cell: the dispatch-topic shape.
 if [ -n "$TOPIC" ] && ! [[ $TOPIC =~ $RE_TOPIC ]]; then usage; fi
 lib_facts
-if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-else
-    [ -z "$REF" ] || usage
-    FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
-    case $? in
-        0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
-        1) echo "$PROG: refused: the run has no found record" >&2; exit 10 ;;
-        *) lib_die2 "cannot read the run's facts" ;;
-    esac
-fi
-lib_ref_ok || usage
+lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 if [ "$MODE" = pushed ]; then
     set -- --pushed-head "$TOPIC" "$PUSHED"
     [ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
     if [ "$OVERRIDE" = 1 ]; then
-        set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
+        set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO"
         [ "$SKIP_CHECKS" = 1 ] && set -- "$@" --skip-session-checks
     fi
     exec bash "$HERE/record-write.sh" "$@"
@@ -127,19 +114,19 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-rs_record "$T/parsed.json" body --json body --jq .body
+rs_record "$T/parsed.json" body
 case $? in
     0) ;;
-    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
-    3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    2) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
+    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$T/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$T/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
 cp "$T/parsed.json.md" "$T/live.md"
 
-# Each holding's pushed head, {worker: sha}, kept beside the row on the session
-# store only (the seam's <out>.pushed); {} on GitHub.
+# Each holding's pushed head, {worker: sha}, kept beside the row (the seam's
+# <out>.pushed); {} when none is kept.
 [ -s "$T/parsed.json.pushed" ] || echo '{}' > "$T/parsed.json.pushed"
 case "$MODE" in
 read)
@@ -188,17 +175,17 @@ if lib_dispatched; then
     lib_drop_disposed "$T/next.json" "$T/dropped.json"
     mv "$T/dropped.json" "$T/next.json"
 fi
-# The render keeps the Written: time of the version just read: record-write.sh
-# compares it with the live body's and refuses when someone wrote in between,
-# then stamps its own time.
-bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$T/parsed.json")" "$T/next.json" > "$T/body.md" 2> "$T/render.err" \
+# The render keeps the written time of the version just read: record-write.sh
+# compares it with the live record's and refuses when someone wrote in
+# between, then stamps its own time.
+bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$T/parsed.json")" "$T/next.json" > "$T/body.md" 2> "$T/render.err" \
     || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
 
 set -- --body-file "$T/body.md"
 [ "$MODE" = pushed ] && set -- "$@" --pushed-head "$TOPIC" "$PUSHED"
 [ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
 if [ "$OVERRIDE" = 1 ]; then
-    set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
+    set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO"
     [ "$SKIP_CHECKS" = 1 ] && set -- "$@" --skip-session-checks
 fi
 bash "$HERE/record-write.sh" "$@"

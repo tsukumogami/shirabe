@@ -5,14 +5,14 @@
       "id": 1,
       "name": "roadmap-invocation-extra-text-is-decisions",
       "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 3 waits until the 1.4 release ships; keep at most three workers running",
-      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and at most three workers. It finds or opens the record, an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, reconciles, and dispatches the unblocked features other than feature 3: feature 1 and feature 4, each through /shirabe:deliver. Feature 2 waits on feature 1. With room for three workers, the hold is the only thing that keeps feature 3 back. The extra text is never read as instructions on how to coordinate.",
+      "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and at most three workers. It finds or opens the record in its own koto session, opening no issue on GitHub, reconciles, and dispatches the unblocked features other than feature 3: feature 1 and feature 4, each through /shirabe:deliver. Feature 2 waits on feature 1. With room for three workers, the hold is the only thing that keeps feature 3 back. The extra text is never read as instructions on how to coordinate.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
         "The extra invocation text is treated as decisions (feature 3 held, at most three workers), not as a description of how to coordinate",
         "Before any unit is picked, the record is found or opened and a reconcile re-checks it against GitHub",
-        "The record is an issue titled \"Coordinator record: ROADMAP-plugin-system\" in the roadmap's repository, found or opened before any dispatch",
+        "The record is found or opened in the coordinator's koto session before any dispatch; no \"Coordinator record:\" issue is searched for or opened",
         "The entry point chosen for a roadmap feature dispatched to be built is /shirabe:deliver; a feature scoped ahead may use /shirabe:scope with its execution sent later",
         "Features 1 and 4 are dispatched (or briefed for dispatch) to be built, and feature 2 is not dispatched to be built before feature 1 lands (scoping it ahead is allowed)",
         "Feature 3 is not dispatched, and the reason given is the human's hold, not a lack of free slots",
@@ -173,15 +173,15 @@
     {
       "id": 9,
       "name": "discipline-rotation-start",
-      "prompt": "/shirabe:coordinate --discipline ci-health -- host repo: tsukumogami/shirabe; rotation length: 3 days. No coordinate/discipline-ci-health branch exists yet, and there is no docs/disciplines/ci-health.md.",
-      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. With no branch, it cuts coordinate/discipline-ci-health from the default branch, pushes an empty commit, and opens a draft pull request titled with the rotation's start and end dates three days apart, its body written from the record template. It finds no previous handoff, so there are no inherited deferrals, and it names the record's pull request and host in its report.",
+      "prompt": "/shirabe:coordinate --discipline ci-health -- host repo: tsukumogami/shirabe; rotation length: 3 days. This host has never run a ci-health rotation, so there is no earlier rotation session to carry.",
+      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with record-open.sh, --start today and --end two days later, writing the window to record/rotation, from a body written from the record template. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals, and it names the record's session and the host in its report.",
       "expectations": [
         "The host repository and the three-day rotation length are taken as decisions from the invocation",
-        "The branch coordinate/discipline-ci-health is cut from the default branch and a draft pull request is opened",
-        "The pull request's title carries the rotation's start and end dates, three days apart",
+        "The rotation is opened in the coordinator's koto session (record-open.sh with --start and --end), not as a branch or a pull request",
+        "The rotation's window is three days long: the end is two days after the start",
         "The record body is written from the template: declaration line, Written line, and the four sections",
-        "No handoff file is written at rotation start",
-        "The report names the record's pull request and the host repository"
+        "No branch is cut, nothing is committed and no pull request or handoff file is written at rotation start",
+        "The report names the record's session and the host repository"
       ],
       "requirements": [
         "R4",
@@ -193,17 +193,17 @@
     {
       "id": 10,
       "name": "record-found-not-duplicated-after-restart",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting: the previous session crashed about a minute after it opened its record issue. A search of the repository's issues for \"Coordinator record\" returns nothing, because the search index hasn't caught up.",
-      "expected_output": "The coordinator finds the existing record by listing the repository's open issues and matching the title \"Coordinator record: ROADMAP-plugin-system\" exactly, never through search, adopts it, and opens no second record. It reconciles from that record before acting.",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting: the previous coordinator session crashed about a minute after it opened its record. Nothing on GitHub mentions the record, and a search of the repository's issues for \"Coordinator record\" returns nothing.",
+      "expected_output": "The coordinator starts through the opener, which finds the scope's session on this host holding the record and resumes it (resumed=1), or carries it into a new run when it can't be resumed. It opens no second record and never looks for the record on GitHub: the empty search says nothing about whether a record exists. It reconciles from that record before acting.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
-        "The record is found by listing open issues and matching the exact title, not by a search",
+        "The record is found in the scope's koto session on this host, through the opener's resume or carry, not by a GitHub search or issue listing",
         "The empty search result is not taken as proof that no record exists",
-        "The existing record is adopted and no second record issue is opened",
-        "The adopted record carries the coordinator-record declaration line, and the coordinator checks for it",
-        "A reconcile against the adopted record runs before any dispatch"
+        "The existing record is kept and no second record is opened, on GitHub or in a new session",
+        "No \"Coordinator record:\" issue is opened",
+        "A reconcile against the record runs before any dispatch"
       ],
       "requirements": [
         "R7",
@@ -213,11 +213,11 @@
     {
       "id": 11,
       "name": "deferral-blocks-first-dispatch",
-      "prompt": "/shirabe:coordinate --discipline ci-health --host tsukumogami/shirabe -- The previous rotation's handoff at docs/disciplines/ci-health.md, merged yesterday, lists two open deferrals: \"flaky macOS runner in check-deliver-scripts\" (raised 2026-09-20T10:00Z) and \"retry budget for the integration job\" (raised 2026-09-22T15:30Z). Issue #1712 is ready to dispatch.",
-      "expected_output": "The coordinator opens the new rotation's record with both inherited deferrals and disposes of each before its first dispatch: files it as an issue, closes it with a reason, or carries it forward with a reason and the time. It rewrites the record and only then dispatches issue #1712.",
+      "prompt": "/shirabe:coordinate --discipline ci-health --host tsukumogami/shirabe -- The previous rotation's session, which ended yesterday, holds two open deferrals: \"flaky macOS runner in check-deliver-scripts\" (raised 2026-09-20T10:00Z) and \"retry budget for the integration job\" (raised 2026-09-22T15:30Z). Issue #1712 is ready to dispatch.",
+      "expected_output": "The coordinator's start carries the previous rotation's session into the new rotation (predecessor_carry), both inherited deferrals with it, and disposes of each before its first dispatch: files it as an issue, closes it with a reason, or carries it forward with a reason and the time. It rewrites the record and only then dispatches issue #1712.",
       "files": [],
       "expectations": [
-        "Both inherited deferrals appear in the new rotation's record",
+        "Both inherited deferrals appear in the new rotation's record, carried from the previous rotation's session",
         "No worker is dispatched while either deferral is undisposed",
         "Each deferral is filed as an issue, closed with a reason, or carried forward with a reason and a time",
         "The record is rewritten with the dispositions before the first dispatch",
@@ -405,10 +405,10 @@
     {
       "id": 21,
       "name": "rotation-start-carries-reasoning",
-      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. The previous rotation committed its handoff at docs/disciplines/ci-health.md. The engine has run the reconcile pass, and the session is in the reconcile state. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
+      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. This run's start carried the previous rotation's session, coordinate-ci-health-20260920T080000Z, which ended on 2026-09-26 (predecessor_carry); its record keys, as `koto context get` returns them, are in predecessor-session.json. The engine has run the reconcile pass, and the session is in the reconcile state. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
       "expected_output": "The coordinator reports the sealed reconcile report up in its own words: its opening lines as written, including that the reconcile scripts ran from outside the repository being worked on, and each section under its own name, \"Changed since then\" and \"Predecessor's reasoning\" among them. It keeps the flaky-integration row marked as the previous rotation's from 2026-09-26 and names the host repository, tsukumogami/tsuku. This first report comes before the first pick, so it renders no progress table of its own. It writes no reconcile/ context key, and submits `reconciled: reported` only once the report is up.",
       "files": [
-        "docs/disciplines/ci-health.md"
+        "predecessor-session.json"
       ],
       "expectations": [
         "The flaky-integration holding is marked as written by the previous rotation on 2026-09-26",
@@ -721,7 +721,7 @@
     {
       "id": 37,
       "name": "a-full-record-archives-its-settled-decisions",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, restarted after the previous session crashed. The record issue's body is 57,800 bytes: its Decisions section holds 44 settled entries, most from the earlier session and a dozen from this one, and one proposed entry a worker raised before the crash. At pick_facts the verdict is `decisions archive`, and at decision_next the script runs before anything is taken. What happens to the record, what does the body keep, and what if a worker later cites decision 12, one of the settled entries?",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, restarted after the previous session crashed. The record's body is 57,800 bytes: its Decisions section holds 44 settled entries, most from the earlier session and a dozen from this one, and one proposed entry a worker raised before the crash. At pick_facts the verdict is `decisions archive`, and at decision_next the script runs before anything is taken. What happens to the record, what does the body keep, and what if a worker later cites decision 12, one of the settled entries?",
       "expected_output": "Nothing is sent to a person and the record isn't pruned by hand. decision-next.sh sees the record within 4,096 bytes of the 60,000-byte budget with settled entries that owe nothing, and runs record-decision.sh --archive before it routes: every settled entry that owes nothing, this run's included, moves out of the body, its row posted verbatim as a `decisions` entry on the record through record-append.sh, and the body keeps an `Archived:` line naming their identifiers and a `Stamps kept for run` line holding this run's stamps on them, which the replay guard and the unrecorded and redirect rules read. The proposed entry stays and the verdict is then `take` for it, so the owed write goes through with the body well under the guard; Next decision doesn't change. When the worker's report cites decision 12, record-decision.sh --open-from-report restores entry 12 from the latest unedited decisions entry holding its row and records the citation on it in the same write, so the evidence reopens it as it would any settled entry.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"

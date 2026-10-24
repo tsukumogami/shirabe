@@ -45,10 +45,8 @@ renamed; it is not in the MANIFEST, and the archive's README says so) and
 posts one `cost` entry through `record-append.sh`. A record that already
 holds a `cost` entry with the same capture key gets nothing new.
 
-Where the entry is posted depends on the run's store. A run on a GitHub
-record posts it on the record issue. A run on the session store writes it
-to the session and posts it on the item the unit is about, with
-`record-append.sh --on`: the holding's pull request (its Pull request cell,
+The entry is written to the session and posted on the item the unit is
+about, with `record-append.sh --on`: the holding's pull request (its Pull request cell,
 else the first pull request of the sealed verdict), else the unit's issue
 (a Unit of `#n: ...` on the host, or `owner/repo#n: ...`), else nowhere. A
 unit with neither keeps its entry in the session and the capture's last
@@ -209,7 +207,7 @@ Cost of <topic> (<capture key>): <n> sessions, <worker output> output tokens, di
 | `key` | the archive directory's name, `<UTC date>-<topic>-<job id>` |
 | `captured_at` | UTC, to the second |
 | `topic` | the dispatch topic |
-| `record` | `{scope, name, repo, ref}` from the run facts, or `null` |
+| `record` | `{scope, name, repo}` from the run facts, with `ref` kept in the shape and always `""`, or `null` |
 | `unit` | the Unit's tag, `"not public"`, or `null` |
 | `milestone` | `{value, state, source: "record"}` |
 | `plan_shape` | `{value, state, source: "koto-state"}` |
@@ -282,9 +280,9 @@ computed what the archive holds, not that the archive holds what happened.
 
 ## Reading entries
 
-The entries are ordinary comments carrying the `kind=cost` marker. A run on
-a GitHub record posts them all on its record; with `gh` and `jq`, for a
-record `owner/repo#n`:
+The entries are ordinary comments carrying the `kind=cost` marker. A run from
+before the GitHub record was removed posted them all on its record issue; with
+`gh` and `jq`, for such a record `owner/repo#n`:
 
 ```bash
 gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
@@ -296,8 +294,8 @@ gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
               output_tokens: .tokens.worker.output, complete}'
 ```
 
-A run on the session store has no issue that collects them: each entry is on
-its unit's pull request or issue. List the scope's units (the pull requests
+A run now has no issue that collects them: each entry is on its unit's pull
+request or issue. List the scope's units (the pull requests
 in the session's Holdings, or the ones the roadmap's Delivered lines name),
 one `owner/repo#n` per line in `units.txt`, and read each one's comments.
 Anyone can comment on a pull request, so keep only the comments the

@@ -78,8 +78,6 @@ cost	merged-facts_test.sh	15
 cost	record-hold_test.sh	15
 cost	reconcile-read_test.sh	14
 cost	record-append_test.sh	14
-cost	record-move_test.sh	14
-cost	rotation-close_test.sh	14
 cost	unit-cost-on_test.sh	14
 cost	coord-log_test.sh	13
 cost	roadmap-features_test.sh	13
@@ -89,7 +87,6 @@ cost	merge-confirm_test.sh	10
 cost	record-open_test.sh	10
 cost	skill-hygiene_test.sh	10
 cost	teardown-pass_test.sh	10
-cost	predecessor-handoff_test.sh	7
 cost	reconcile-settle_test.sh	7
 cost	decision-phrasings_test.sh	6
 cost	milestone_test.sh	6
@@ -98,8 +95,14 @@ cost	progress-view_test.sh	6
 cost	reconcile-pass_engine_test.sh	6
 cost	reconcile-legs_test.sh	6
 cost	coordinate-open_engine_test.sh	5
+cost	fresh-run-calls_engine_test.sh	5
+cost	importer-call_engine_test.sh	5
+cost	legacy-records_engine_test.sh	5
+cost	session-fixture_engine_test.sh	5
+cost	session-start_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
+cost	find-reads_test.sh	4
 cost	state-structure_test.sh	4
 cost	teardown-handoff_test.sh	4
 cost	coord-log_engine_test.sh	3

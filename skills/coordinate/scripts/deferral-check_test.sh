@@ -14,10 +14,9 @@
 # every disposed form passing with the pick's topic; an earlier carry, an
 # empty Disposition before the run start, `filed #<n>` naming no issue or a
 # pull request, each deferral-open; a row raised this run exempt; a discipline
-# predecessor's handoff deferral (read from the host's default branch) missing
-# from the record or left without a disposition, compared only until the run's
-# first `ok`; record-changed for a closed, missing or non-canonical record and
-# a run without a found record; at-cap at the cap and at the parked bound, with
+# rotation's carried deferrals judged as its own rows, no handoff file read and
+# no carry owed at dispatch; record-changed for a session whose record is gone,
+# no longer canonical or another scope's, and a run without a found record; at-cap at the cap and at the parked bound, with
 # send_execution adding no active worker, and CAP from the session; a failed
 # read (2); the sealed token and its detail; every token in koto's capture
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
@@ -72,30 +71,34 @@ bash "$DC" --row-file "$T/row.json" >/dev/null 2>&1; eq "row mode without --run-
 bash "$DC" --row-file "$T/row.json" --run-start yesterday >/dev/null 2>&1; eq "a run start that isn't a time is a usage error" 64 $?
 
 echo "== check mode: deferrals =="
-ITITLE="Coordinator record: ROADMAP-plugin-system"
-seed() { # seed <record-json> [state]: the record issue #7, issue #12 and pull request #13
+# seed <record-json>: issue #12 and pull request #13 on the host, and the
+# record: written into the current run's session (S), and into each session
+# session() opens after.
+seed() {
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: ($s // "open"), author: "alice", editor: null},
-                    {repo: "acme/widgets", number: 12, title: "a filed deferral", body: "", state: "open", author: "alice", editor: null}]
+    db '.issues += [{repo: "acme/widgets", number: 12, title: "a filed deferral", body: "", state: "open", author: "alice", editor: null}]
         | .prs += [{repo: "acme/widgets", number: 13, title: "a pull request", body: "", state: "OPEN", isDraft: false,
                     isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null}]' \
-        --arg t "$ITITLE" --arg b "$(render "$1" issue)" --arg s "${2:-open}" --arg h "$SHA_HEAD"
+        --arg h "$SHA_HEAD"
+    REC=$1
+    [ -z "${S:-}" ] || seed_session "$S" "$REC"
 }
 def() { # def <disposition> [raised]
     jq -nc --arg d "$1" --arg r "${2:-2026-09-25T10:00Z}" --arg t "d-$RANDOM" '{deferral: $t, reason: "r", raised: $r, disposition: $d}'
 }
 with_deferrals() { record_json roadmap plugin-system | jq -c --argjson d "[$(IFS=,; echo "$*")]" '.deferrals = $d'; }
 N=0
-session() { # session <vars-json> <ref> [choice] [unit]: a run at dispatch_check after a pick
+session() { # session <vars-json> [choice] [unit]: a run at dispatch_check after a pick, holding the seeded record
     N=$((N + 1))
     S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
-    found_session "$S" "$1" "$2"
+    found_session "$S" "$1"
+    seed_session "$S" "$REC"
     log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
-    log_evidence "$S" pick "$(jq -nc --arg c "${3:-dispatch}" --arg u "${4:-beta}" '{choice: $c, unit: $u}')"
+    log_evidence "$S" pick "$(jq -nc --arg c "${2:-dispatch}" --arg u "${3:-beta}" '{choice: $c, unit: $u}')"
     log_to "$S" pick dispatch_check
 }
 check() { bash "$DC" --session "$S" 2>"$T/err" | sed 's/ sealed:.*//'; }
-seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" 7
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)"
 OUT=$(bash "$DC" --session "$S" 2>"$T/err")
 eq "a None. section passes with the pick's topic" "ok beta" "${OUT% sealed:*}"
 tok_shape "ok is in koto's capture alphabet" "$OUT"
@@ -129,7 +132,7 @@ PREV2=coordinate-roadmap-plugin-system-20260926T060000Z
 S=coordinate-roadmap-plugin-system-20260926T080000Z
 log_new "$PREV2" "$(roadmap_vars plugin-system)"; at "$PREV2" 2026-09-26T06:00:00.000Z; : > "$KOTO_STORE/sessions/$PREV2/.terminal"
 log_new "$PREV" "$(roadmap_vars plugin-system)"; at "$PREV" 2026-09-26T07:00:00.000Z; log_end "$PREV"
-found_session "$S" "$(roadmap_vars plugin-system)" 7
+found_session "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
 log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
 log_to "$S" pick dispatch_check
@@ -152,17 +155,15 @@ seed "$(with_deferrals "$(def 'filed #12')")"; db '.fail = [{match: "issues/12",
 check >/dev/null; eq "a failed issue read exits 2" 2 ${PIPESTATUS[0]}
 
 echo "== check mode: the record =="
-seed "$(record_json roadmap plugin-system)" closed
-OUT=$(check); eq "a closed record is record-changed" "record-changed" "$OUT"
+seed "$(record_json roadmap plugin-system)"; rm -rf "$KOTO_STORE/context/$S/record"
+OUT=$(check); eq "a session whose record is gone is record-changed" "record-changed" "$OUT"
 tok_shape "record-changed is in koto's capture alphabet" "$OUT"
-seed "$(record_json roadmap plugin-system)"; db '.issues |= map(select(.number != 7))'
-eq "a missing record is record-changed" "record-changed" "$(check)"
-seed "$(record_json roadmap plugin-system)"; db '(.issues[] | select(.number == 7)).body += "\nstray"'
+seed "$(record_json roadmap plugin-system)"; printf '"stray"' | koto context add "$S" record/holdings
 eq "a record no longer canonical is record-changed" "record-changed" "$(check)"
 seed "$(record_json roadmap other)"
-eq "another scope's record under the number is record-changed" "record-changed" "$(check)"
-seed "$(record_json roadmap plugin-system)"; db '.fail = [{match: "issue view", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
-check >/dev/null; eq "a failed record read exits 2" 2 ${PIPESTATUS[0]}
+eq "another scope's record in the session is record-changed" "record-changed" "$(check)"
+seed "$(record_json roadmap plugin-system)"
+KOTO_NO_LIST_PREFIX=1 bash "$DC" --session "$S" >/dev/null 2>&1; eq "a failed record read exits 2" 2 $?
 N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T08$(printf %02d "$N")00Z"
 log_new "$S" "$(roadmap_vars plugin-system)"; log_to "$S" pick dispatch_check
 seed "$(record_json roadmap plugin-system)"
@@ -184,13 +185,13 @@ later() {
 # row <label> <first-dispatch verdict> <later-dispatch verdict> <entries...>
 row_owed() {
     local label=$1 first=$2 next=$3; shift 3
-    seed "$(with_entries "$@")"; session "$(roadmap_vars plugin-system)" 7
+    seed "$(with_entries "$@")"; session "$(roadmap_vars plugin-system)"
     eq "$label: the first dispatch" "$first" "$(check)"
-    session "$(roadmap_vars plugin-system)" 7; later
+    session "$(roadmap_vars plugin-system)"; later
     eq "$label: a later dispatch" "$next" "$(check)"
 }
 # 2 an unrecorded write: a visit to decision_raise with no entry stamped for it.
-seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" 7
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)"
 log_to "$S" dispatch_check decision_raise; log_to "$S" decision_raise pick_facts; log_to "$S" pick_facts pick
 log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'; log_to "$S" pick dispatch_check
 eq "an unrecorded write: the first dispatch" "decision-owed unrecorded-raise" "$(check)"
@@ -206,7 +207,7 @@ row_owed "a proposed entry" "decision-owed take" "ok gamma" "$(dentry 6 proposed
 row_owed "an unjudged entry" "decision-owed verdict" "ok gamma" "$(dentry 7 coordinator-verdict)"
 row_owed "a held entry" "ok beta" "ok gamma" "$(dentry 7 coordinator-verdict '"verdict": "hold", "reason": "waits on the benchmark"')"
 row_owed "an escalated entry that owes nothing" "ok beta" "ok gamma" "$(dentry 5 escalated "$ESC")"
-OUT=$(seed "$(with_entries "$(dentry 6 proposed)")"; session "$(roadmap_vars plugin-system)" 7; bash "$DC" --session "$S" 2>/dev/null)
+OUT=$(seed "$(with_entries "$(dentry 6 proposed)")"; session "$(roadmap_vars plugin-system)"; bash "$DC" --session "$S" 2>/dev/null)
 tok_shape "decision-owed is in koto's capture alphabet" "$OUT"
 
 echo "== check mode: a topic already held =="
@@ -214,16 +215,16 @@ pr_dup() { db '.prs += [{repo: "acme/widgets", number: 41, title: "w", body: "",
     baseRefName: "main", headRefName: "feat/41", headRefOid: $h, author: "alice", editor: null}]' --arg h "$SHA_HEAD"; }
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
 pr_dup
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 OUT=$(check); eq "dispatching a topic a Holdings row already names is refused" "duplicate-topic beta" "$OUT"
 tok_shape "duplicate-topic is in koto's capture alphabet" "$OUT"
-session "$(roadmap_vars plugin-system)" 7 scope_ahead beta
+session "$(roadmap_vars plugin-system)" scope_ahead beta
 eq "scope_ahead on a held topic is refused too" "duplicate-topic beta" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 scope beta
+session "$(roadmap_vars plugin-system)" scope beta
 eq "scope on a held topic is refused too" "duplicate-topic beta" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 scope gamma
+session "$(roadmap_vars plugin-system)" scope gamma
 eq "scope on a free topic is clear" "ok gamma" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
 echo "== check mode: a milestone whose verdict is owed =="
@@ -233,36 +234,36 @@ echo "== check mode: a milestone whose verdict is owed =="
 OWEDROW() { jq -nc --arg t "$1" --arg w "$2" '{item: $t, kind: "verdict-owed", who: $w, next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"}'; }
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"unit": "MV1: the plugin list", "phase": "scoping-ahead", "pull_request": ""}')" \
     --argjson o "$(OWEDROW MV1 beta)" --argjson p "$(OWEDROW MV2 epsilon)" '.holdings = [$h] | .work = [$o, $p]')"
-session "$(roadmap_vars plugin-system)" 7 send_execution beta
+session "$(roadmap_vars plugin-system)" send_execution beta
 OUT=$(check); eq "sending a held milestone's worker more work is refused" "verdict-owed MV1" "$OUT"
 tok_shape "verdict-owed is in koto's capture alphabet" "$OUT"
-session "$(roadmap_vars plugin-system)" 7 dispatch epsilon
+session "$(roadmap_vars plugin-system)" dispatch epsilon
 eq "dispatching the topic a verdict-owed row names, its holding gone, is refused" "verdict-owed MV2" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
 echo "== check mode: the topic is the one this visit's path chose =="
 # A pick from an earlier visit of pick is not the one checked: a later visit
 # whose evidence names another unit is.
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 log_to "$S" dispatch_check dispatch; log_evidence "$S" dispatch '{"dispatched":"failed","topic":"gamma"}'
 log_to "$S" dispatch failure; log_evidence "$S" failure '{"move":"escalate"}'; log_to "$S" failure wait
 log_to "$S" wait pick_facts; log_to "$S" pick_facts pick
 log_evidence "$S" pick '{"choice":"dispatch","unit":"delta"}'; log_to "$S" pick dispatch_check
 eq "the pick after the latest entry into pick is checked, not an earlier one" "ok delta" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 log_to "$S" dispatch_check deferral_dispose; log_evidence "$S" deferral_dispose '{"rewritten":"rewritten"}'
 log_to "$S" deferral_dispose dispatch_check
 eq "back from deferral_dispose, the same pick is checked" "ok gamma" "$(check)"
 # A redispatch after a failed dispatch checks the unit this state sealed before.
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 log_capture "$S" DISPATCH_CHECK "$(bash "$CL" seal --session "$S" --state dispatch_check --token "ok gamma")"
 log_to "$S" dispatch_check dispatch; log_evidence "$S" dispatch '{"dispatched":"failed","topic":"gamma"}'
 log_to "$S" dispatch failure; log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
 eq "a redispatch after a failed dispatch checks the unit that failed" "ok gamma" "$(check)"
 # A redispatch of a held unit (a dead worker, via wait) is not a duplicate.
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record wait
 log_evidence "$S" wait '{"event":"failed","unit":"beta"}'; log_to "$S" wait failure
 log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
@@ -273,7 +274,7 @@ echo "== check mode: a redispatch on the leg path =="
 # no unit, so the unit is the holding whose Return path is the captured leg
 # (lib_unit, as report-facts.sh resolves it), never `-`.
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding theta '{"return_path": "leg req-1:execute", "pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
-session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+session "$(roadmap_vars plugin-system)" dispatch gamma
 log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record wait
 log_evidence "$S" wait '{"event":"leg"}'; log_to "$S" wait leg_pick
 log_capture "$S" WAIT_REQ req-1; log_to "$S" leg_pick wait_leg
@@ -296,7 +297,7 @@ jq -e '.reason | test("resolves to the Worker \\[Theta.v2\\]")' "$KOTO_STORE/con
 echo "== check mode: pick's unit must be a dispatch topic =="
 # A unit's tag from coord/pick.json in place of its topic (shirabe#492): refused
 # before any read, so nothing reaches dispatch, and nothing is written.
-seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" 7 dispatch "Feature 1"
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" dispatch "Feature 1"
 reset_calls
 OUT=$(bash "$DC" --session "$S" 2>"$T/err")
 eq "dispatch with unit \"Feature 1\" is refused" "unknown-topic" "${OUT% sealed:*}"
@@ -306,20 +307,20 @@ jq -e '.verdict == "unknown-topic" and .topic == "-" and (.reason | test("^pick.
     "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
     && ok "the refusal names the field, the value and the accepted pattern" || bad "the refusal names the field, the value and the accepted pattern" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 [ -s "$GH_DB.calls" ] && bad "the refusal makes no read and no write" "$(calls)" || ok "the refusal makes no read and no write"
-session "$(roadmap_vars plugin-system)" 7 scope_ahead "Feature 3"
+session "$(roadmap_vars plugin-system)" scope_ahead "Feature 3"
 eq "scope_ahead with a unit's tag is refused" "unknown-topic" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 scope "Feature 3"
+session "$(roadmap_vars plugin-system)" scope "Feature 3"
 eq "scope with a unit's tag is refused" "unknown-topic" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 send_execution "Feature 3"
+session "$(roadmap_vars plugin-system)" send_execution "Feature 3"
 eq "send_execution with a unit's tag is refused" "unknown-topic" "$(check)"
 jq -e '.reason | test("scoping-ahead holding")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
     && ok "send_execution's refusal says it names a scoping-ahead holding" || bad "send_execution's refusal says it names a scoping-ahead holding"
-session "$(roadmap_vars plugin-system)" 7 dispatch "Feature_1"
+session "$(roadmap_vars plugin-system)" dispatch "Feature_1"
 eq "a Worker-cell shape the dispatch path would refuse is refused here" "unknown-topic" "$(check)"
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 log_to "$S" dispatch_check pick; log_evidence "$S" pick '{"choice":"dispatch"}'; log_to "$S" pick dispatch_check
 eq "a dispatch with no unit is refused" "unknown-topic" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 dispatch "plugin-api"
+session "$(roadmap_vars plugin-system)" dispatch "plugin-api"
 eq "a dispatch topic passes" "ok plugin-api" "$(check)"
 
 echo "== check mode: the cap and the parked bound =="
@@ -333,32 +334,32 @@ parked() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widg
 with_holdings() { record_json roadmap plugin-system | jq -c --argjson h "[$(IFS=,; echo "$*")]" '.holdings = $h'; }
 seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(active a5 25)")"
 for n in 21 22 23 24 25; do pr $n OPEN true; done
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 OUT=$(check); eq "five active workers under a cap of five is at-cap" "at-cap 5/5 0/3" "$OUT"
 tok_shape "at-cap is in koto's capture alphabet" "$OUT"
-session "$(roadmap_vars plugin-system)" 7 scope beta
+session "$(roadmap_vars plugin-system)" scope beta
 eq "scope adds an active worker, so it is at-cap too" "at-cap 5/5 0/3" "$(check)"
 scoping() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"phase\": \"scoping-ahead\"}"; }
 seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(scoping a5 25)")"
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "send_execution to a scoping-ahead holding adds no active worker" "ok a5" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 send_execution a4
+session "$(roadmap_vars plugin-system)" send_execution a4
 eq "send_execution to a holding that isn't scoping ahead is judged as a dispatch" "at-cap 5/5 0/3" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 send_execution nobody
+session "$(roadmap_vars plugin-system)" send_execution nobody
 eq "send_execution to a unit with no holding is judged as a dispatch" "at-cap 5/5 0/3" "$(check)"
-session "$(roadmap_vars plugin-system | jq -c '.CAP = "6"')" 7
+session "$(roadmap_vars plugin-system | jq -c '.CAP = "6"')"
 eq "the cap comes from the session's CAP" "ok beta" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 for n in 31 32 33; do pr $n OPEN false; done
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 eq "three parked workers is at the parked bound" "at-cap 0/5 3/3" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)" "$(scoping s1 34)")"
 for n in 31 32 33; do pr $n OPEN false; done; pr 34 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution s1
+session "$(roadmap_vars plugin-system)" send_execution s1
 eq "send_execution dispatches nothing new, so the parked bound doesn't stop it" "ok s1" "$(check)"
 seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 pr 31 OPEN false; pr 32 OPEN true; pr 33 MERGED false
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 eq "a verified draft and a merged pull request aren't parked" "ok beta" "$(check)"
 eq "they count as active" "2 1" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 # A confirmed merge clears the row's Pull request cell and keeps it until
@@ -366,77 +367,48 @@ eq "they count as active" "2 1" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/
 merged() { holding "$1" "{\"pull_request\": \"\", \"verified_head\": \"$SHA_HEAD\"}"; }
 seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(merged m1)")"
 for n in 21 22 23 24; do pr $n OPEN true; done
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 eq "a merged row waiting for teardown holds no slot under the cap" "ok beta" "$(check)"
 eq "it counts as neither active nor parked" "4 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 
-echo "== check mode: the predecessor's handoff (discipline) =="
-BR=coordinate/discipline-ci-health
-HP=docs/disciplines/ci-health.md
+echo "== check mode: a discipline rotation =="
+# A rotation's predecessor's deferrals are rows of its own record from its
+# first state (record-open.sh --carry), judged as any other row; no handoff
+# file is read, and no carry is owed at dispatch.
 PREV='{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":""}'
-dseed() { # dseed <record-json> [handoff-on-main: yes|no]
+dseed() { # dseed <record-json>: issue #12 on the host, and the rotation's record
     db_init
-    db '.branches["acme/widgets"][$br] = $s | .prs += [{repo: "acme/widgets", number: 22, title: "docs(coordinate): ci-health rotation 2026-09-26 to 2026-10-03",
-        body: $b, state: "OPEN", isDraft: true, isCrossRepository: false, baseRefName: "main", headRefName: $br, headRefOid: $s, author: "alice", editor: null}]' \
-        --arg br "$BR" --arg s "$SHA_HEAD" --arg b "$(render "$1" pr)"
-    if [ "${2:-yes}" = yes ]; then
-        record_json discipline ci-health | jq -c --argjson d "$PREV" '. + {deferrals: [$d], rotation: {start: "2026-09-19", end: "2026-09-26", date: "2026-09-26",
-            host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/20"}, reasoning: "Lint is flaky."}' \
-            | bash "$HERE/record-render.sh" --format handoff > "$T/prev.md"
-        db '.files["acme/widgets"][$k] = $t' --arg k "main:$HP" --arg t "$(cat "$T/prev.md")"
-    fi
+    db '.issues += [{repo: "acme/widgets", number: 12, title: "lint", body: "", state: "open", author: "alice", editor: null}]'
+    REC=$1
 }
 dsession() {
     N=$((N + 1))
     S="coordinate-discipline-ci-health-20260926T08$(printf %02d "$N")00Z"
-    found_session "$S" "$(discipline_vars ci-health)" 22
+    found_session "$S" "$(discipline_vars ci-health)"
+    seed_session "$S" "$REC"
     log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
     log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
     log_to "$S" pick dispatch_check
 }
 mine() { record_json discipline ci-health | jq -c --argjson d "[$(IFS=,; echo "$*")]" '.deferrals = $d'; }
-dseed "$(record_json discipline ci-health)"; dsession
-eq "a handoff deferral missing from the record is open" "deferral-open 1" "$(check)"
-grep -q "contents/$HP?ref=main" "$GH_DB.calls" && ok "the handoff is read from the host's default branch" || bad "the handoff is read from the host's default branch" "$(calls)"
-dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-26T08:10Z","disposition":""}')"
-eq "carried into the record without a disposition is still open" "deferral-open 1" "$(check)"
-dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"carried 2026-09-26T08:10Z: infra owns it"}')"
-eq "carried into the record with a disposition passes" "ok beta" "$(check)"
-dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"filed #12"}')"
-db '.issues += [{repo: "acme/widgets", number: 12, title: "lint", body: "", state: "open", author: "alice", editor: null}]'
-eq "filed into the record passes" "ok beta" "$(check)"
-dseed "$(record_json discipline ci-health)" no
-eq "no handoff file on the default branch is no deferral" "ok beta" "$(check)"
-# 1 carry: the handoff's unsettled entry isn't in this record yet. It blocks
-# the first dispatch; a later one never meets it, since the carry is refused
-# after the first dispatch.
-dseed "$(record_json discipline ci-health)" no
-record_json discipline ci-health | jq -c --argjson e "[$(dentry 5 escalated "$ESC")]" '. + {decisions: {next: 9, entries: $e},
-    rotation: {start: "2026-09-19", end: "2026-09-26", date: "2026-09-26", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/20"},
-    reasoning: "Lint is flaky."}' | bash "$HERE/record-render.sh" --format handoff > "$T/prev.md"
-db '.files["acme/widgets"][$k] = $t' --arg k "main:$HP" --arg t "$(cat "$T/prev.md")"
-dsession
-eq "a carry owed: the first dispatch" "decision-owed carry" "$(check)"
-later
-eq "a carry owed: a later dispatch" "ok gamma" "$(check)"
-echo "-- after the first pass --"
-dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"closed: fixed upstream"}')"
-dsession
-OK1=$(bash "$DC" --session "$S" 2>/dev/null)
-eq "the first pass" "ok beta" "${OK1% sealed:*}"
-log_capture "$S" DISPATCH_CHECK "$OK1"
-log_to "$S" dispatch_check dispatch; log_to "$S" dispatch record; log_to "$S" record pick_facts; log_to "$S" pick_facts pick
-log_evidence "$S" pick '{"choice":"dispatch","unit":"gamma"}'
-log_to "$S" pick dispatch_check
-dseed "$(record_json discipline ci-health)"
+dseed "$(mine "$PREV")"; dsession
 reset_calls
-eq "after the run's first ok the handoff isn't compared again" "ok gamma" "$(check)"
-grep -q "contents/$HP" "$GH_DB.calls" && bad "the handoff isn't read after the first pass" "$(calls)" || ok "the handoff isn't read after the first pass"
+eq "a carried deferral left without a disposition is open" "deferral-open 1" "$(check)"
+grep -q 'contents/' "$GH_DB.calls" && bad "  ... and no handoff file is read" "$(calls)" || ok "  ... and no handoff file is read"
+dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"carried 2026-09-26T08:10Z: infra owns it"}')"; dsession
+eq "a carried deferral with a carry since the run start passes" "ok beta" "$(check)"
+dseed "$(mine '{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":"filed #12"}')"; dsession
+eq "one filed passes" "ok beta" "$(check)"
+# The predecessor's unsettled decision: carried when the rotation opened, so
+# nothing is owed at dispatch even with the predecessor still holding it.
+PRED=coordinate-discipline-ci-health-20260919T080000Z
+dseed "$(record_json discipline ci-health)"
+seed_session "$PRED" "$(record_json discipline ci-health | jq -c --argjson e "[$(dentry 5 escalated "$ESC")]" '.decisions = {next: 9, entries: $e}')"
 dsession
-log_capture "$S" DISPATCH_CHECK "ok beta sealed:3:0000000000000000000000000000000000000000000000000000000000000000"
-eq "a DISPATCH_CHECK capture whose seal fails doesn't count as a pass" "deferral-open 1" "$(check)"
+jq -nc --arg p "$PRED" '{start: "2026-09-26", end: "2026-10-03", host_repo: "acme/widgets", predecessor: $p}' | koto context add "$S" record/rotation
+eq "a predecessor's unsettled decision owes no carry at dispatch" "ok beta" "$(check)"
 # The discipline equivalent of a unit's tag: an issue's "#<n>".
-dseed "$(record_json discipline ci-health)" no
+dseed "$(record_json discipline ci-health)"
 dsession
 log_to "$S" dispatch_check pick; log_evidence "$S" pick '{"choice":"dispatch","unit":"#1712"}'; log_to "$S" pick dispatch_check
 reset_calls
@@ -454,7 +426,7 @@ with_pauses() { # with_pauses <record-json> <row>...
 }
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)" | jq -c '.deferrals = [{deferral: "open one", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]')" "$(prow s1 pause all lifted)")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7
+session "$(roadmap_vars plugin-system)"
 OUT=$(bash "$DC" --session "$S" 2>"$T/err")
 eq "a pause on all holds a new dispatch, ahead of an open deferral" "paused s1" "${OUT% sealed:*}"
 tok_shape "paused is in koto's capture alphabet" "$OUT"
@@ -462,38 +434,38 @@ jq -r '.reason' "$KOTO_STORE/context/$S/coord/dispatch_check.json" | grep -q 'he
     && ok "  ... the detail names the pause" || bad "  ... the detail names the pause" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feature 2" lifted)")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a unit's pause holds sending its holding the execution" "paused s2" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+session "$(roadmap_vars plugin-system)" dispatch plugin-api
 eq "  ... and not a new dispatch, whose unit this check can't name" "ok plugin-api" "$(check)"
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feature 2" lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a go-ahead on the unit lets it through" "ok a5" "$(check)"
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s1 pause all lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a go-ahead lets its unit through a pause on all at dispatch too" "ok a5" "$(check)"
-session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+session "$(roadmap_vars plugin-system)" dispatch plugin-api
 eq "  ... and a new dispatch under it is left to dispatch-worker.sh, which knows its unit" "ok plugin-api" "$(check)"
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s4 pause all "time 2000-01-01T00:00Z")")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a pause whose minute has passed holds nothing" "ok a5" "$(check)"
 # A roadmap moved to roadmap/v3: the holding names the unit `Milestone 2`, the
 # pause was written on `Feature 2` before the move.
 ms_holding() { with_holdings "$(scoping a5 25)" | jq -c '.holdings[0].unit = "Milestone 2"'; }
 seed "$(with_pauses "$(ms_holding)" "$(prow s2 pause "Feature 2" lifted)")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a pause on Feature 2 holds sending the execution to the holding under Milestone 2" "paused s2" "$(check)"
 seed "$(with_pauses "$(ms_holding)" "$(prow s2 pause "Feature 2" lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "  ... and a go-ahead on Feature 2 lets it through" "ok a5" "$(check)"
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)" | jq -c '.holdings[0].unit = "Milestone 12"')" "$(prow s2 pause "Feature 2" lifted)")"
 pr 25 OPEN true
-session "$(roadmap_vars plugin-system)" 7 send_execution a5
+session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a pause on Feature 2 doesn't hold a holding under Milestone 12" "ok a5" "$(check)"
 
 done_tests deferral-check

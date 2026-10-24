@@ -14,8 +14,12 @@
 # as the reason and the same answer twice; --sent against the render's seal
 # for each kind, with the route of an escalation to a person; --open-from-
 # report's coverage of the sealed list, its citations, addressed marks,
-# coordinator escalations and withdrawals; --carry before and after the first
-# dispatch; compaction; a line break in an item.
+# coordinator escalations and withdrawals; --carry from the predecessor
+# session record/rotation names, before and after the first dispatch, and
+# refused for a rotation that names none; compaction; a line break in an item;
+# the section kept in the run's session's record/decisions, an entry moving
+# from proposed to coordinator-verdict to settled there, with nothing written
+# on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/record-decision_test.sh
 set -uo pipefail
@@ -41,16 +45,19 @@ ESCALATED='{round: "1", verdict: "escalate", recommendation: "wait", reason: "th
 UNSENT="$ESCALATED + {owed: \"escalation\", asked: \"\"}"
 QUEUED="$ESCALATED + {state: \"coordinator-verdict\", round: \"0\", asked: \"\"}"
 
-# setup <entries-json-array> [next] [reports-to]: record #7 and a fresh session
-# that found it. Sets S.
+# setup <entries-json-array> [next] [reports-to]: a fresh session that found
+# its record, the record in its keys. Sets S.
 setup() {
     rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-feat", body: $b, state: "open", author: "coord", editor: null}]' \
-        --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${2:-10}" '.decisions = {next: $n, entries: $e}')" issue)"
     S="coordinate-roadmap-feat-$RUN"
-    found_session "$S" "$(roadmap_vars feat | jq -c --arg r "${3-}" '.REPORTS_TO = $r')" 7
+    found_session "$S" "$(roadmap_vars feat | jq -c --arg r "${3-}" '.REPORTS_TO = $r')"
+    put_decisions "$1" "${2:-10}"
     LAST=reconcile
+}
+# put_decisions <entries-json-array> <next>: the run's record, holding them.
+put_decisions() {
+    seed_session "$S" "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "$2" '.decisions = {next: $n, entries: $e}')"
 }
 to() { log_to "$S" "$LAST" "$1"; LAST=$1; }   # to <state>: the session moves on
 route() { # route <token> <state>: decision_next routes <token> to <state>
@@ -63,12 +70,12 @@ arrive() { # arrive <state> <wait fields-json>: a wait evidence, then <state>
     log_evidence "$S" wait "$2"
     to "$1"
 }
-body() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB"; }
+body() { session_snapshot "$S"; }
 sec() { bash "$RD" --session "$S" --list; }
 ent() { sec | jq -c --arg n "$1" '.entries[] | select(.decision == $n)'; }
 f() { ent "$1" | jq -r --arg f "$2" '.[$f] // ""'; }
 rd() { OUT=$(bash "$RD" --session "$S" "$@" 2>"$T/err"); RC=$?; }
-# refused <name> <mode args...>: exit 65 and the body byte for byte unchanged
+# refused <name> <mode args...>: exit 65 and the record byte for byte unchanged
 refused() {
     local name=$1 before; shift
     before=$(body)
@@ -293,7 +300,7 @@ eq "--sent: a reply is no longer owed" "" "$(f 1 owed)"
 # The record edited by hand after the render: entry 1 is gone.
 setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", owed: "reply", source: "worker w1 [20260926T080000Z report 4.1]"}')]"
 render_msg decision_reply reply "reply 1" REPLY_MESSAGE
-db '(.issues[] | select(.number == 7)).body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$(E 3 proposed)]" '.decisions = {next: 10, entries: $e}')" issue)"
+put_decisions "[$(E 3 proposed)]" 10
 to decision_reply_send
 refused "--sent: an entry gone from the live record is refused, the section untouched" --sent
 setup "[$(E 1 proposed '{source: "worker w1 [20260926T080000Z report 4.1]", evidence: "2026-09-26T07:40Z worker w1 [20260926T080000Z report 4.1]: addressed to a person"}')]"
@@ -368,24 +375,27 @@ eq "a write compacts a settled entry that owes nothing, keeping its options" "|s
 # --- --carry ----------------------------------------------------------------------------------
 
 echo "== --carry =="
-carry_setup() { # carry_setup <record entries> <handoff decisions>
+PRED="coordinate-discipline-ci-20260919T080000Z"
+carry_setup() { # carry_setup <record entries> <predecessor's decisions> [predecessor]
     rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
     db_init
-    db '.branches["acme/widgets"]["coordinate/discipline-ci"] = $s | .prs += [{repo: "acme/widgets", number: 22, title: "docs(coordinate): ci rotation 2026-09-26 to 2026-10-03",
-        body: $b, state: "OPEN", isDraft: true, isCrossRepository: false, baseRefName: "main", headRefName: "coordinate/discipline-ci", headRefOid: $s, author: "coord", editor: null}]' \
-        --arg s "$SHA_HEAD" --arg b "$(render "$(record_json discipline ci | jq -c --argjson e "$1" '.decisions = {next: 2, entries: $e}')" pr)"
-    record_json discipline ci | jq -c --argjson d "$2" '.decisions = $d | .rotation = {start: "2026-09-19", end: "2026-09-26", date: "2026-09-26", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/21"} | .reasoning = "Carry on."' > "$T/h.json"
-    bash "$HERE/record-render.sh" --format handoff "$T/h.json" > "$T/h.md"
-    db '.files["acme/widgets"]["main:docs/disciplines/ci.md"] = $t' --arg t "$(cat "$T/h.md")"
+    seed_session "$PRED" "$(record_json discipline ci | jq -c --argjson d "$2" '.decisions = $d')"
     S="coordinate-discipline-ci-$RUN"
-    found_session "$S" "$(discipline_vars ci)" 22
+    found_session "$S" "$(discipline_vars ci)"
+    seed_session "$S" "$(record_json discipline ci | jq -c --argjson e "$1" '.decisions = {next: 2, entries: $e}')"
+    jq -nc --arg p "${3-$PRED}" '{start: "2026-09-26", end: "2026-10-03", host_repo: "acme/widgets"} + (if $p == "" then {} else {predecessor: $p} end)' \
+        | koto context add "$S" record/rotation
     LAST=reconcile
     to decision_carry
 }
 carry_setup '[]' "{\"next\": 6, \"entries\": [$(E 5 escalated "$ESCALATED")]}"
 rd --carry; wrote "--carry writes"
-eq "--carry: the handoff's unsettled entries and its Next decision" "5|escalated|6" "$(sec | jq -r '"\([.entries[].decision] | join(","))|\(.entries[0].state)|\(.next)"')"
+eq "--carry: the predecessor's unsettled entries and its Next decision" "5|escalated|6" "$(sec | jq -r '"\([.entries[].decision] | join(","))|\(.entries[0].state)|\(.next)"')"
+eq "  ... into this session's record/decisions" "5" "$(koto context get "$S" record/decisions | jq -r '[.entries[].decision] | join(",")')"
+eq "  ... the predecessor's own section untouched" "5" "$(koto context get "$PRED" record/decisions | jq -r '[.entries[].decision] | join(",")')"
 refused "--carry: again, with every entry already here, is refused" --carry
+carry_setup '[]' "{\"next\": 6, \"entries\": [$(E 5 escalated "$ESCALATED")]}" ""
+refused "--carry: a rotation that names no predecessor is refused" --carry
 carry_setup '[]' "{\"next\": 6, \"entries\": [$(E 5 escalated "$ESCALATED")]}"
 log_to "$S" decision_carry dispatch; log_to "$S" dispatch decision_carry
 refused "--carry: after the run's first dispatch is refused" --carry
@@ -411,16 +421,21 @@ listed '[{"index":1,"kind":"question","text":"x (decision 7)?","source":"worker 
 printf '%s' '{"1":{"question":"the cap"}}' > "$T/cite7.json"
 refused "--open-from-report: an item citing an entry the record lacks is refused" --open-from-report --text-file "$T/cite7.json"
 # A record already past the budget is record-full to a write, not unreadable.
+# Its keys are written straight into the session: no render could hold it.
 setup "[$(E 1 proposed)]"
-db '.issues[0].body = (.issues[0].body + "\n" + ("x" * 70000))'
+PADQ=; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do PADQ="$PADQ the migration and the format ship together"; done
+BIG=$(E 1 proposed); i=2
+while [ "$i" -le 80 ]; do BIG="$BIG, $(E "$i" settled "{outcome: \"wait; reason: r\", decided_by: \"a person\", owed: \"reply\", question: \"Q$i$PADQ?\"}")"; i=$((i + 1)); done
+record_json roadmap feat | jq -c --argjson e "[$BIG]" '.decisions = {next: 90, entries: $e} | .written = "2026-09-26T09:00:00Z"' > "$T/big.json"
+rm -rf "$KOTO_STORE/context/$S/record"; session_keys "$S" "$T/big.json"
 route "take 1" decision_take
 rd --take
-eq "a write to a record past the budget, even past the parser's limit, is record-full" 13 "$RC"
+eq "a write to a record past the budget is record-full" 13 "$RC"
 
 # A second run replaying the first run's very sequence numbers writes its own.
 setup "[]" 1
 listed '[{"index":1,"kind":"question","text":"x?","source":"worker w1","addressed":false,"cite":null}]'
-db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$(E 1 proposed "{source: \"worker w1 [20260925T080000Z report $RSEQ.1]\"}")]" '.decisions = {next: 2, entries: $e}')" issue)"
+put_decisions "[$(E 1 proposed "{source: \"worker w1 [20260925T080000Z report $RSEQ.1]\"}")]" 2
 words '{"1":{"question":"This run'"'"'s question?","options":["a -- b"]}}'
 eq "--open-from-report: another run's stamp with this very sequence doesn't block this run's" "0 2" "$RC $(sec | jq -r '.entries | length')"
 # A queued verdict that no longer passes is cleared when the slot frees.
@@ -437,7 +452,7 @@ done
 # --sent reads the render's kind and round, and holds the entry to them.
 setup "[$(E 1 escalated "$UNSENT")]"
 render_msg escalate escalation "escalate 1" ESCALATE_MESSAGE
-db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$(E 1 escalated "$UNSENT + {round: \"2\"}")]" '.decisions = {next: 10, entries: $e}')" issue)"
+put_decisions "[$(E 1 escalated "$UNSENT + {round: \"2\"}")]" 10
 to escalate_send
 refused "--sent: an entry whose round moved since the render is refused" --sent --route message
 setup "[$(E 1 settled '{outcome: "wait; reason: r", decided_by: "a person", owed: "reply", source: "worker w1 [20260926T080000Z report 4.1]"}')]"
@@ -448,28 +463,34 @@ log_capture "$S" REPLY_MESSAGE "$(bash "$CL" seal --session "$S" --state decisio
 to decision_reply_send
 refused "--sent: a render of another kind than the send state's is refused" --sent
 
-echo "== the session store =="
-# A run whose find sealed `found 7 session`: the section lives in record/decisions,
-# --open writes it there, and --list reads it back through the seam.
+echo "== the section in the session: a Decisions transition =="
+# The section lives in the run's session, record/decisions: --open writes it
+# there, --take and --settle move the entry on, and --list reads it back.
 setup '[]' 1
-rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
-found_session "$S" "$(roadmap_vars feat)" "7 session"
-LAST=reconcile
-jq -r '.issues[0].body' "$GH_DB" | bash "$HERE/record-parse.sh" > "$T/sess.json"
-session_keys "$S" "$T/sess.json"
-BODY=$(jq -r '.issues[0].body' "$GH_DB")
+reset_calls
 to decision_raise
 rd --open --question "Pin the plugin?" --option "pin -- freezes a version" --option "don't pin -- lets a break through"
-wrote "--open writes on the session store"
+wrote "--open writes the section"
 eq "  ... into record/decisions" "1|proposed|2" \
     "$(koto context get "$S" record/decisions | jq -r '"\(.entries[0].decision)|\(.entries[0].state)|\(.next)"')"
-eq "  ... read back through the seam" "Pin the plugin?" "$(f 1 question)"
-eq "  ... and the GitHub body untouched" "$BODY" "$(jq -r '.issues[0].body' "$GH_DB")"
+eq "  ... read back" "Pin the plugin?" "$(f 1 question)"
+route "take 1" decision_take
+rd --take; wrote "--take moves it on"
+eq "  ... proposed to coordinator-verdict, in record/decisions" "coordinator-verdict" \
+    "$(koto context get "$S" record/decisions | jq -r '.entries[0].state')"
+route "verdict 1" decision_verdict
+rd --settle --outcome pin --reason "the release is Friday"
+wrote "--settle settles it"
+eq "  ... coordinator-verdict to settled, in record/decisions" "settled|pin; reason: the release is Friday" \
+    "$(koto context get "$S" record/decisions | jq -r '.entries[0] | "\(.state)|\(.outcome)"')"
+eq "  ... and nothing read or written on GitHub but the host's visibility" "" "$(calls | grep -v -- '--jq .private')"
 
 echo "== usage =="
 setup '[]' 1
 bash "$RD" --session "$S" >/dev/null 2>&1; eq "no mode is a usage error" 64 $?
-bash "$RD" --session "$S" --take --scope roadmap --name feat --repo acme/widgets --ref 7 >/dev/null 2>&1
+bash "$RD" --session "$S" --take --scope roadmap --name feat --repo acme/widgets >/dev/null 2>&1
 eq "a write mode takes no override flags" 64 $?
+bash "$RD" --session "$S" --list --ref 7 >/dev/null 2>&1
+eq "--ref is no option" 64 $?
 
 done_tests record-decision

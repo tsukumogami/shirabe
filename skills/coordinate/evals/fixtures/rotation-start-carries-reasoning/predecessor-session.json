@@ -1,0 +1,35 @@
+{
+  "session": "coordinate-ci-health-20260920T080000Z",
+  "keys": {
+    "record/meta": {
+      "scope": {"kind": "discipline", "name": "ci-health"},
+      "written": "2026-09-26T17:40:00Z"
+    },
+    "record/rotation": {
+      "start": "2026-09-20",
+      "end": "2026-09-26",
+      "host_repo": "tsukumogami/tsuku",
+      "predecessor": null
+    },
+    "record/holdings": [
+      {
+        "unit": "flaky integration job",
+        "entry_point": "/shirabe:deliver",
+        "mode": "--auto",
+        "phase": "executing",
+        "dispatch_status": "dispatched",
+        "return_path": "message",
+        "worker": "flaky-integration",
+        "repo": "tsukumogami/tsuku",
+        "branch": "feat/plugin-sandbox",
+        "verified_head": "",
+        "dispatched": "2026-09-26",
+        "pull_request": "[#418](https://github.com/tsukumogami/tsuku/pull/418)"
+      }
+    ],
+    "record/deferrals": [],
+    "record/side-effects": [],
+    "record/reversals": [],
+    "record/reasoning": "The flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n"
+  }
+}
