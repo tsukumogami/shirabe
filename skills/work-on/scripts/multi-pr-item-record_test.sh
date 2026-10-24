@@ -22,6 +22,9 @@
 #                   its index session are pinned, record=pinned in the item's
 #                   session; a plan-backed child is skipped with no koto
 #                   call, and a run with no record_root pins nothing
+#   retry           the next item's start, as the template's hook runs it,
+#                   retries the plan root's trail/unpinned: only the listed
+#                   session is pinned and the key is removed
 #   not an item     no PLAN_DOC, or a PLAN that isn't multi-pr: skipped, no
 #                   koto call
 #   refusals        a PLAN path outside docs/plans/PLAN-<topic>.md is 65; an
@@ -212,6 +215,21 @@ if [ "$RC" -eq 0 ] && [ "$PINS" = "$ROOT pr.$OWNER.r.71 work-on-item-1 " ] \
     pass "keep: the item's PR is recorded ready, and the plan root, the item's session and its index session are pinned; record=pinned in the item's session"
 else
     fail "keep: exit $RC, pins [$PINS], out [$OUT], stderr [$(cat "$WORK/stderr")]"
+fi
+# The next item's start retries what an earlier item's pins left unpinned:
+# here koto is taken to have refused work-on-item-1's pin (exit 2).
+jq -nc --arg w "$W" '{names: [{session: "work-on-item-1", workspace: $w, code: "2"}], at: "2026-01-01T00:00:00Z"}' \
+    | (cd "$SHARED" && koto context add "$ROOT" trail/unpinned)
+(cd "$W" && koto init work-on-item-2 --template work-on.md >/dev/null)
+MARK=$(log_len)
+RECORD_KOTO_VERSION=0.24.0 run_line "$W" "$(render "$START_LINE" work-on-item-2 docs/plans/PLAN-mp.md issue_2 "" "")"
+RETRY_PINS=$(tail -n +"$((MARK + 1))" "$RECORD_KOTO_STORE/calls.log" | awk -F'\t' '$2 ~ /^session pin / { n = split($2, a, " "); print a[n] }' | tr '\n' ' ')
+if [ "$RC" -eq 0 ] && [ "$RETRY_PINS" = "work-on-item-1 " ] \
+    && ! (cd "$SHARED" && koto context exists "$ROOT" trail/unpinned) \
+    && grep -qx 'pinned=work-on-item-1' "$WORK/stderr"; then
+    pass "the next item's start retries the plan root's unpinned sessions: only the listed one is pinned, and trail/unpinned is removed"
+else
+    fail "start retry: exit $RC, pins [$RETRY_PINS], stderr [$(cat "$WORK/stderr")]"
 fi
 MARK=$(log_len)
 run_line "$W" "$(render "$KEEP_LINE" execute-p.step-1 docs/plans/PLAN-mp.md step-1 impl/x plan_outline)"
