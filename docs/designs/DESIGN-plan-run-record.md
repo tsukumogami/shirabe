@@ -315,17 +315,20 @@ The state is a default action that never blocks the terminal. Any pin koto refus
 or can't confirm (exit 3) is written to the root's `trail/unpinned` key with koto's error
 code. The terminal's `result:` carries `record: unpinned` and the list. The next invocation's
 opener reruns `run-record-pin.sh --retry`, which takes the names from that key and puts each
-through the same local provenance check as a first attempt before pinning it. The pin has two floors in
-`run-record-pin.sh`, because koto ships it in two parts. `RECORD_PIN_FLOOR` is the release
-carrying koto#444 (pin and unpin, the engine reading the pin, prune keeping pinned sessions,
-one removal guard at every removal point, the reporting surfaces and unreadable pins, and the
-start hook recording authority). Below it, or while it's unset, no `koto session pin` call is
-made and the result says `record: unpinned`. `RECORD_PIN_CLOUD_FLOOR` is the release carrying
-the pin's cloud follow-up (the bucket check before every delete, keeping across hosts, and
-pins travelling with import). Under the cloud backend, a run on a koto at or above the first
-floor but below the second pins as usual and its result says `record: pinned-local`: removals
-on its own host keep the sessions, but a removal on another host sharing the bucket isn't yet
-held to the pin.
+through the same local provenance check as a first attempt before pinning it. The pin has one
+floor in `run-record-pin.sh`, `RECORD_PIN_FLOOR`, set to koto 0.24.0, the release carrying
+koto#444 (pin and unpin, the engine reading the pin, prune keeping pinned sessions, one removal
+guard at every removal point, the reporting surfaces and unreadable pins, and the start hook
+recording authority). Below it no `koto session pin` call is made and the result says
+`record: unpinned`. The floor is a version check, not a help probe, because koto 0.24.0 hides
+`session pin` from `koto session --help` until every removal honours a pin; for the same reason
+neither skill's `requires.tsv` declares it, so the load-time preflight never reports it missing.
+koto ships the cloud half of the pin later (koto#460: the bucket check before every delete,
+keeping across hosts, and pins travelling with import). Until that release, koto refuses a pin
+under the cloud backend, so a cloud-backed run on 0.24.0 records each refused pin in
+`trail/unpinned` with koto's code and reports `record: unpinned`, and a later invocation's
+retry pins them once the installed koto accepts. shirabe needs no second floor: koto's own
+answer says whether the pin took.
 
 shirabe never calls `koto session unpin`. A pin comes off by hand, or from an agent session
 whose start was handed koto's `release-pin` authority, as koto's pin defines.
@@ -424,12 +427,11 @@ Cross-validation found one coupling. Decision 4's ownership check reads the inde
 ownership lookup that could see the PR again. Every writer records the index entry in the
 same step that records the PR, before any later lookup, which settles it.
 
-Three things wait on koto. K1, the pin, ships in two parts. koto#444's release lets
-shirabe pin and keeps pinned sessions through every removal on the host that reads the pin;
-until then `RECORD_PIN_FLOOR` is unset and runs report `record: unpinned`. The pin's cloud
-follow-up, a later koto PR, adds the bucket check before every delete, keeping across hosts and
-import; until it ships `RECORD_PIN_CLOUD_FLOOR` is unset and a cloud-backed run reports
-`record: pinned-local`. K2, the read-only workspace option, is koto#455, built outside this
+Three things wait on koto. K1, the pin, ships in two parts. koto#444, released in koto
+0.24.0, lets shirabe pin and keeps pinned sessions through every removal on the local backend.
+The cloud half, koto#460, adds the bucket check before every delete, keeping across hosts and
+import; until its release koto refuses a pin under the cloud backend, so a cloud-backed run
+reports `record: unpinned` with koto's code and retries later. K2, the read-only workspace option, is koto#455, built outside this
 change: until it lands, the index and the multi-pr root are written at the fixed directory as
 always, and a lookup reads them, the root and its step sessions by running koto from their
 directories, which works on the run's own host.
@@ -468,8 +470,10 @@ New files:
 - Tests: `scripts/run-trail_test.sh`, `scripts/run-record-lookup_test.sh`,
   `scripts/run-record-pin_test.sh`, `scripts/record-store_test.sh`, and
   `scripts/check-run-record-rules.sh` with its `_test.sh`. The rules check fails on any
-  `koto session unpin` call, any retention window defined in shirabe, any cleanup instruction
-  whose paragraph doesn't say "pinned", and any diff under `skills/coordinate/`.
+  `koto session unpin` call, any retention window defined in shirabe, and any cleanup
+  instruction whose paragraph doesn't say "pinned". It doesn't police `skills/coordinate/`:
+  another effort changes files there, and keeping this change out of it is a property of this
+  change's diff, checked when it's reviewed, not a rule every later change must pass.
 - `scripts/bash-floor/run-record.list` and `.github/workflows/check-run-record.yml`, which
   runs the suites on Linux and on the macOS bash 3.2 floor.
 
@@ -493,8 +497,9 @@ Modified files, by concern:
   `skills/scope/scripts/scope-open.sh`, `skills/scope/scripts/publish-scoping-pr.sh`,
   `skills/deliver/scripts/deliver-open.sh`, `skills/work-on/scripts/check-pr-output.sh`,
   `skills/work-on/scripts/run-cascade.sh` (its commit message reads the recorded value).
-- **Tool declarations:** `skills/execute/requires.tsv`, `skills/work-on/requires.tsv`
-  (`koto session pin`).
+- **Tool declarations:** none for the pin. koto 0.24.0 hides `session pin` from its help, so a
+  `requires.tsv` record would make the preflight report it missing; `run-record-pin.sh`'s
+  version floor stands in for the declaration.
 - **Documentation:** `skills/plan/references/plan-format.md`, `skills/plan/SKILL.md`,
   `skills/plan/references/quality/plan-doc-structure.md`,
   `skills/roadmap/references/roadmap-format.md`, `skills/roadmap/SKILL.md`,
@@ -608,13 +613,12 @@ Deliverables: `skills/execute/scripts/node-push.sh` and
 ### Phase 4: Pins
 
 `run-record-pin.sh`, the `record_keep` states in the three templates, `trail/unpinned` and
-the opener's retry, `requires.tsv` entries, and `check-run-record-rules.sh`.
+the opener's retry, and `check-run-record-rules.sh`.
 
 Deliverables: `scripts/run-record-pin.sh`, `scripts/run-record-pin_test.sh`,
 `scripts/check-run-record-rules.sh`, `scripts/check-run-record-rules_test.sh`, the three
 templates, `skills/execute/scripts/execute-open.sh`, `skills/work-on/scripts/work-on-open.sh`
-and their tests, `skills/execute/scripts/terminal-retention_test.sh`, `skills/execute/requires.tsv` and
-`skills/work-on/requires.tsv`.
+and their tests, and `skills/execute/scripts/terminal-retention_test.sh`.
 
 ### Phase 5: PR content
 
@@ -647,11 +651,12 @@ Deliverables: the seven lifecycle files listed under Components,
 - **K2 in koto.** The read-only `--workspace` option described in Decision 1 is koto#455,
   built outside this change. It doesn't change the pin's code or design. shirabe detects it by
   probing koto's help, so nothing in shirabe changes when it ships.
-- **K1's two releases.** When koto releases koto#444, `RECORD_PIN_FLOOR` is set to that
-  version, and the local-backend pin checks can also run against a real koto. When it releases
-  the pin's cloud follow-up, `RECORD_PIN_CLOUD_FLOOR` is set to that version.
+- **K1's two releases.** koto#444 is in koto 0.24.0, so `RECORD_PIN_FLOOR` is 0.24.0 and the
+  local-backend pin checks also run against a real koto in a scratch store. The cloud half,
+  koto#460, needs no change in shirabe when it ships: the refused pins it would have taken are
+  retried by the next invocation.
 - **What waits on which.** Built and tested now against the stub, from the pin's PRD as
-  written: everything. Proved against a real koto once koto#444 ships: pinning the record root,
+  written: everything. Proved against a real koto 0.24.0 on a scratch local store: pinning the record root,
   step and index sessions at `record_keep`, refusal and retry, `kept_by_pin` in a same-host
   prune, `koto session cleanup` refusing a pinned session, and the release routes. Proved only
   once the pin's cloud follow-up ships: a prune or cleanup on a second host keeping the
@@ -727,8 +732,8 @@ departure text is not, and it must hold no credentials. Under omit nothing from 
 reaches PR text. Under include the reference names a session and a run id, never a path.
 `result:` text and `trail/unpinned` codes are never copied into PR text.
 
-**Dependencies.** No new packages. The floors (`RECORD_PIN_FLOOR`, `RECORD_PIN_CLOUD_FLOOR`)
-are checked against the installed koto's version and fail closed: `record: unpinned`. The
+**Dependencies.** No new packages. The pin floor (`RECORD_PIN_FLOOR`) is checked against the
+installed koto's version and fails closed: `record: unpinned`. The
 workspace option is detected from koto's help and fails closed to reading from the address's
 own directory. The stub koto is built from koto's specifications, so the floors
 are set only after the end-to-end walkthrough against a real koto passes. The stub is test-only
