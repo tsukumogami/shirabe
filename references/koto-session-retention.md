@@ -149,7 +149,7 @@ When the move can't happen, the replace is refused and nothing changes:
 `replace_held_live` when the old run's subtree still has live work
 (`koto-open.sh` exits 75 and lists that work on a `live=` line), and
 `replace_failed` when the move itself failed (exit 74). A caller reports
-either and stops; the first clears once that work finishes. On koto 0.22.x
+either and stops; `replace_held_live` clears once that work finishes. On koto 0.22.x
 the replace removes the finished session outright and neither line nor
 refusal occurs.
 

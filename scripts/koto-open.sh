@@ -136,7 +136,8 @@
 #   0    opened (new, attached, or replaced)
 #   2    refused: koto's refusal (koto's own exit code passes through when it
 #        is not 2, e.g. 1 for template_not_found or lock_contention), or an
-#        args file inside the work tree
+#        args file inside the work tree; replace_held_live and
+#        replace_failed are the exceptions, 75 and 74 below
 #   64   this script's own usage error; no koto call was made
 #   74/75 follow sysexits.h (EX_IOERR, EX_TEMPFAIL): koto passes 1 and 2
 #        for these, which other refusals share, and no caller uses 74 or 75
@@ -583,10 +584,10 @@ if [ "$NO_ORIGIN" -eq 0 ]; then
                 MESSAGE="$REPLACED"
                 ;;
             replace_failed)
-                render 'The finished session {session} could not be replaced, and nothing was: {error}'
+                render 'The finished session {session} could not be replaced, and no new session was made: {error}'
                 MESSAGE="$REPLACED"
                 if [ -n "$K_STRANDED" ]; then
-                    render '\nThese sessions were left under their new names: {stranded}.'
+                    render '\nkoto could not undo every rename of the move, so these sessions are still under their new names: {stranded}.'
                     MESSAGE="$MESSAGE$REPLACED"
                 fi
                 ;;

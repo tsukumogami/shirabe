@@ -458,7 +458,7 @@ STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"code":"replace_failed","command":"in
 assert_eq "replace_failed: the refusal line alone when nothing was stranded" "refused=replace_failed" "$STDOUT"
 assert_eq "replace_failed exits 74" "74" "$RC"
 assert_eq "replace_failed with no caller wording gets this script's wording, koto's reason included" \
-    "The finished session s1 could not be replaced, and nothing was: could not move finished session 's1' aside: disk full; nothing was replaced" "$STDERR"
+    "The finished session s1 could not be replaced, and no new session was made: could not move finished session 's1' aside: disk full; nothing was replaced" "$STDERR"
 
 A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
 STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"code":"replace_failed","command":"init","error":"koto words","stranded":[{"from":"s1.c","to":"s1_r1.c"}]}' \
@@ -466,7 +466,7 @@ STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"code":"replace_failed","command":"in
 assert_eq "replace_failed with stranded renames prints them as JSON" \
     'refused=replace_failed
 stranded=[{"from":"s1.c","to":"s1_r1.c"}]' "$STDOUT"
-assert_contains "the default wording names the stranded renames" "left under their new names: s1.c -> s1_r1.c." "$STDERR"
+assert_contains "the default wording names the stranded renames" "still under their new names: s1.c -> s1_r1.c." "$STDERR"
 
 printf 'replace_held_live\t{session} is busy below: {live}.\n' >"$T/wording-replace.tsv"
 printf 'replace_failed\t{session} stays put ({stranded}).\n' >>"$T/wording-replace.tsv"
