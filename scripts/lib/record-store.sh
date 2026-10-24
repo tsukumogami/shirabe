@@ -77,6 +77,10 @@
 #                                 the option is absent and <dir> is not a
 #                                 directory here, 68 when koto answers that
 #                                 the session or the workspace is not found
+#   rs_index_latest_run <owner/repo> <n>
+#                                 the run_id of the PR's latest index entry,
+#                                 or nothing; 2 when a form can't be read
+#                                 (owned-pr.sh's ownership read)
 #
 # The value patterns. Every value the record writes, and every value a reader
 # takes back, is held to one of these, defined here and nowhere else, so the
@@ -318,4 +322,52 @@ rs_koto_read() {
     cat -- "$tmp/err" >&2
     rm -rf -- "$tmp"
     return "$rc"
+}
+
+# rs_index_latest_run <owner/repo> <n>: the run_id of the PR's latest index
+# entry, on stdout, or nothing when the PR has none. Latest is the greatest
+# `written_at`, ties broken by the greater run_id, the order
+# run-record-lookup.sh takes entries in. Both forms of the shared address are
+# read (a form koto answers "not found" for, or that isn't a directory here,
+# holds nothing), at most 20 entries each, and an entry whose key or
+# `written_at` fails its pattern is passed over. This is the read
+# skills/execute/scripts/owned-pr.sh decides ownership by, and the index can
+# only take a PR away there, so an entry passed over never makes a PR
+# anyone's. Returns 0; 2 when a form could not be read (the answer would be
+# a guess); 64 when the arguments fail their patterns.
+rs_index_latest_run() {
+    local repo=$1 n=$2 owner index forms form canon seen=" " list keys key rid val at rows="" rc
+    owner=${repo%%/*}
+    index=$(rs_index_name "$repo" "$n") || return 64
+    forms=$(rs_shared_forms "$owner") || return 64
+    while IFS= read -r form; do
+        [ -n "$form" ] || continue
+        if ! rs_has_workspace_option; then
+            [ -d "$form" ] || continue
+            canon=$(cd -- "$form" && pwd -P) || continue
+            case "$seen" in *" $canon "*) continue ;; esac
+            seen="$seen$canon "
+        fi
+        list=$(rs_koto_read "$form" context list "$index" --prefix run/ </dev/null 2>/dev/null)
+        rc=$?
+        case "$rc" in
+            0) ;;
+            68|69) continue ;;
+            *) return 2 ;;
+        esac
+        keys=$(jq -r 'if type == "array" then .[:20][] | select(type == "string") else empty end' <<<"$list" 2>/dev/null) \
+            || return 2
+        while IFS= read -r key; do
+            [ -n "$key" ] || continue
+            rid=${key#run/}
+            [[ $rid =~ $RS_RE_RUN_ID ]] || continue
+            val=$(rs_koto_read "$form" context get "$index" "$key" </dev/null 2>/dev/null) || return 2
+            at=$(jq -r 'if type == "object" and (.written_at | type) == "string" then .written_at else "" end' <<<"$val" 2>/dev/null) || at=""
+            [[ $at =~ $RS_RE_AT ]] || continue
+            rows="$rows$at $rid
+"
+        done <<<"$keys"
+    done <<<"$forms"
+    [ -n "$rows" ] || return 0
+    printf '%s' "$rows" | LC_ALL=C sort -r | awk 'NR == 1 { print $2 }'
 }

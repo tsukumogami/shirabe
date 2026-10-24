@@ -4,7 +4,7 @@
 #
 # owned-pr.sh decides ownership by the run that opened a PR only when its
 # caller passes --run-id. A caller that forgets it silently falls back to the
-# login-and-branch match, which is the defect the marker exists to close, and
+# login-and-branch match, which is the defect the index exists to close, and
 # no behavioural test of the caller would notice. So this reads the call
 # sites themselves:
 #
@@ -20,8 +20,10 @@
 #              verdict.sh hands one to coordination-verdict.sh; deliver-probe.sh
 #              hands one to publish-scoping-pr.sh --verify; scope.md's verify
 #              gates pass --session so the script can read the session's id
-#   rewrites   execute.md's pr_finalization runs `run-id.sh carry` before its
-#              full-body `gh pr edit`, so the finalized body keeps the marker
+#   rewrites   execute.md's pr_finalization reads the run's record reference
+#              (`pr-workflow-content.sh --reference`) and chains it to its
+#              full-body `gh pr edit`, and no template or script calls a
+#              run-id.sh verb that wrote a marker into a body
 #   takeover   --take-over appears in no script or template call except the
 #              exit-6 re-entry instruction and adopt-or-create-pr.sh's
 #              pass-through (check-pr-output.sh names it only to refuse it)
@@ -132,22 +134,22 @@ VS=$(grep -- '--verify --expect-intent "{{RUN_INTENT}}"' skills/scope/koto-templ
     && pass "scope.md: all $VG verify gates pass --session" \
     || fail "scope.md: $VS of $VG verify gates pass --session"
 
-# --- the full-body rewrite keeps the marker ----------------------------------
+# --- the full-body rewrite carries nothing of the run but the reference ------
 
 E=skills/execute/koto-templates/execute.md
-CARRY=$(grep -n 'run-id.sh carry' "$E" | head -1 | cut -d: -f1)
+REFL=$(grep -n 'pr-workflow-content.sh --reference {{SESSION_NAME}})' "$E" | head -1 | cut -d: -f1)
 EDIT=$(grep -n 'gh pr edit "$PR_NUMBER"' "$E" | head -1 | cut -d: -f1)
-if [ -n "$CARRY" ] && [ -n "$EDIT" ] && [ "$CARRY" -lt "$EDIT" ]; then
-    pass "pr_finalization carries the marker before its gh pr edit"
+if [ -n "$REFL" ] && [ -n "$EDIT" ] && [ "$REFL" -lt "$EDIT" ] \
+    && sed -n "${REFL},${EDIT}p" "$E" | grep -q '&& \[ -n "$PR_NUMBER" \]'; then
+    pass "pr_finalization reads the record reference and chains it to its gh pr edit, guarded on an empty lookup"
 else
-    fail "pr_finalization: carry at [$CARRY], gh pr edit at [$EDIT]"
+    fail "pr_finalization: reference at [$REFL], gh pr edit at [$EDIT]"
 fi
-
-CHAIN=$(grep -n 'run-id.sh carry "$LIVE_FILE"' "$E" | head -1)
-if grep -q '&&' <<<"$CHAIN" && grep -q -- '--jq .body > "$LIVE_FILE" \\$' "$E"; then
-    pass "pr_finalization chains the read, the carry, and the edit, so a failed read never edits"
+USES=$(grep -rnE 'run-id\.sh"? +(stamp|restamp|carry|marker)' skills scripts --include='*.sh' --include='*.md' | grep -v '_test\.sh:' || true)
+if [ -z "$USES" ]; then
+    pass "no template or script calls a run-id.sh verb that wrote a marker into a body"
 else
-    fail "pr_finalization's read, carry, and edit are not chained with &&"
+    fail "a marker verb is still called: $USES"
 fi
 
 # --- an empty lookup never reaches gh -----------------------------------------

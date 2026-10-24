@@ -40,9 +40,10 @@
 #     head it shows (the request log)
 #   the node PR's title and body                 the body's first part is each
 #     work item's goal (an outline's Goal, else the table's summary row, else
-#     the title), then one top-level ---, the fixed fields, and the run marker
-#     as the last line; owned-pr.sh --run-id still finds the PR by it, and
-#     another run's lookup refuses it; body and title pass --pr-body (the
+#     the title), then one top-level ---, the fixed fields, and under include
+#     the one Run record line last, never a marker; owned-pr.sh --run-id
+#     finds the PR by its index entry, and another run's lookup refuses it;
+#     under omit the body carries nothing of the run; body and title pass --pr-body (the
 #     stub, and the real validator when one is on PATH); a node changing only
 #     docs/ and root Markdown is docs(<slug>), one changing a skill's
 #     Markdown is feat; a refused body exits 74 with no pr create or edit
@@ -484,6 +485,26 @@ else
     fail "defer-adopt after the record: rc=$RC; $(tail -3 "$CASE/stderr")"
 fi
 
+# Under omit the work items' keys are the record: a new node PR's body
+# carries no Verification section, and an open one is never held for it.
+CT_CONTENT=omit np_case defer-omit
+ct_write_db
+fresh_repo defer-omit
+defer_child 2 "$REASON2"
+push_node
+if [ "$RC" -eq 0 ] && ! db_pr 50 | jq -r '.body' | grep -q -e '## Verification' -e '^Reason:'; then
+    pass "omit: a deferral leaves no Verification section in the new node PR's body"
+else
+    fail "defer-omit: rc=$RC body=[$(db_pr 50 | jq -r '.body')]"
+fi
+(cd "$WT" && git commit -q --allow-empty -m "feat: second item")
+push_node
+if [ "$RC" -eq 0 ]; then
+    pass "omit: an open node PR is not held for a deferral its body doesn't record"
+else
+    fail "defer-omit second push: rc=$RC; $(tail -3 "$CASE/stderr")"
+fi
+
 np_case defer-unreadable
 ct_write_db
 fresh_repo defer-unreadable
@@ -642,74 +663,95 @@ fresh_repo coord-closed
 push_node
 [ "$RC" -eq 73 ] && pass "a recorded coordination PR that is not open exits 73" || fail "coord-closed: rc=$RC"
 
-# --- the run marker -----------------------------------------------------------------------
+# --- the run's index entry, and the record reference ------------------------------------
 
-MINE=0123456789abcdef0123456789abcdef
+MINE=00112233445566778899aabbccddeeff
 OTHER=fedcba9876543210fedcba9876543210
+REFLINE="Run record: execute-t (run $MINE)"
+NO_RUN='shirabe''-run|^(topic|exit|outcome|intent|mode|store|run)=|^## PR Index|^## Merge Order|^Run record:|execute-t|00112233445566778899aabbccddeeff|^record:|unpinned'
 
-np_case marker-fresh
+np_case index-fresh
 ct_write_db
-fresh_repo marker-fresh
+fresh_repo index-fresh
 push_node --run-id "$MINE"
 NBODY=$(db_pr 50 | jq -r '.body')
-if [ "$RC" -eq 0 ] && grep -qxF "<!-- shirabe-run: $MINE -->" <<<"$NBODY" \
-    && grep -q "Work items: 1,2" <<<"$NBODY"; then
-    pass "--run-id: the node PR it opens carries the run's marker line"
+if [ "$RC" -eq 0 ] && [ "$(grep -c '^Run record:' <<<"$NBODY")" -eq 1 ] && grep -qxF "$REFLINE" <<<"$NBODY" \
+    && ! grep -q 'shirabe''-run' <<<"$NBODY" && grep -q "Work items: 1,2" <<<"$NBODY"; then
+    pass "include: the node PR it opens carries one Run record line, and no marker"
 else
-    fail "marker-fresh: rc=$RC body [$NBODY]"
+    fail "index-fresh: rc=$RC body [$NBODY]"
 fi
-PR_LIST_CALLS=$(ct_calls | grep '^pr list')
-if grep -q . <<<"$PR_LIST_CALLS" && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
+if [ -f "$CASE/ctx/pr.acme.repo-a.50/run/$MINE" ]; then
+    pass "the node PR is this run's by its index entry"
+else
+    fail "index-fresh: no index entry for the node PR"
+fi
+if [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
     (cd "$WT" && git commit -q --allow-empty -m "fix: more")
     push_node --run-id "$MINE"
     if [ "$RC" -eq 0 ] && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
-        pass "--run-id: a second push by the same run adopts its own marked PR"
+        pass "--run-id: a second push by the same run adopts the PR its index entry names"
     else
-        fail "marker second push: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
+        fail "index second push: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
     fi
 fi
 
-np_case marker-foreign
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $OTHER -->\""
+CT_CONTENT=omit np_case index-omit
 ct_write_db
-fresh_repo marker-foreign
+fresh_repo index-omit
+push_node --run-id "$MINE"
+NBODY=$(db_pr 50 | jq -r '.body')
+if [ "$RC" -eq 0 ] && grep -q "Work items: 1,2" <<<"$NBODY" && ! grep -Eq "$NO_RUN" <<<"$NBODY"; then
+    pass "omit: the node PR it opens carries nothing of the run"
+else
+    fail "index-omit: rc=$RC body [$NBODY]"
+fi
+
+np_case index-foreign
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/acme" "$CASE/ctx/pr.acme.repo-a.11/run"
+printf '{"workspace":"/w","session":"execute-t","session_id":"sid-9","mode":"coordinated","topic":"t","written_at":"2020-01-01T00:00:00Z"}' \
+    > "$CASE/ctx/pr.acme.repo-a.11/run/$OTHER"
+fresh_repo index-foreign
 push_node --run-id "$MINE"
 if [ "$RC" -eq 73 ] && ! ct_calls | grep -q '^pr create' && ! ct_calls | grep -q '^pr edit'; then
-    pass "--run-id: another run's PR on the node branch is not adopted (73), nothing created or edited"
+    pass "--run-id: a PR another run recorded on the node branch is not adopted (73), nothing created or edited"
 else
-    fail "marker-foreign: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
+    fail "index-foreign: rc=$RC creates=$(ct_calls | grep -c '^pr create')"
 fi
 if [ -z "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; then
-    pass "--run-id: nothing is pushed onto a branch whose PR another run opened"
+    pass "--run-id: nothing is pushed onto a branch whose PR another run recorded"
 else
-    fail "marker-foreign: the node branch was pushed onto another run's PR"
+    fail "index-foreign: the node branch was pushed onto another run's PR"
 fi
 
-np_case marker-kept
+np_case marker-dropped
 ct_write_db
-# The coordination PR carries a run marker after its merge-order block, as a
-# stamped body would; the render must keep that line (run-id.sh carry).
-jq --arg m "<!-- shirabe-run: $MINE -->" '(.prs[] | select(.number == 10) | .body) += "\n" + $m + "\n"' \
+# An older coordination body carries a marker line after its merge-order
+# block; the render keeps nothing of it.
+jq --arg m "<!-- shirabe""-run: $MINE -->" '(.prs[] | select(.number == 10) | .body) += "\n" + $m + "\n"' \
     "$CASE/scenario/gh/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$CASE/scenario/gh/db.json"
-fresh_repo marker-kept
+fresh_repo marker-dropped
 push_node --run-id "$MINE"
-if [ "$RC" -eq 0 ] && db_body | grep -qxF "<!-- shirabe-run: $MINE -->" \
+if [ "$RC" -eq 0 ] && ! db_body | grep -q 'shirabe''-run' \
     && db_body | grep -q "^- $CT_CORE | .*head="; then
-    pass "the coordination PR's render keeps its run marker line"
+    pass "the coordination PR's render drops an older body's marker line"
 else
-    fail "marker-kept: rc=$RC; body [$(db_body)]"
+    fail "marker-dropped: rc=$RC; body [$(db_body)]"
 fi
 
-np_case marker-usage
+np_case runid-usage
 ct_write_db
-fresh_repo marker-usage
+fresh_repo runid-usage
 push_node --run-id NOTANID
 [ "$RC" -eq 64 ] && pass "a malformed --run-id is a usage error" || fail "bad --run-id: rc=$RC"
 
 # --- the node PR's title and body -------------------------------------------------------
 #
 # A new node PR's body is two parts: the work items' goals from the PLAN, one
-# top-level `---`, then the fixed fields and the run marker. It is checked
+# top-level `---`, then the fixed fields (and, under include, the one Run
+# record line). It is checked
 # with `shirabe validate --pr-body` and the title before `gh pr create`.
 
 # separators <file> -- the count of bare `---` lines outside fences.
@@ -742,20 +784,20 @@ case "$(awk '/^---[[:space:]]*$/ { s = 1; next } s' "$CASE/node-body.md")" in
         pass "the fixed fields sit below the separator" ;;
     *) fail "the second part: [$(cat "$CASE/node-body.md")]" ;;
 esac
-if [ "$(grep -v '^[[:space:]]*$' "$CASE/node-body.md" | tail -1)" = "<!-- shirabe-run: $MINE -->" ] \
-    && [ "$(grep -c 'shirabe-run:' "$CASE/node-body.md")" -eq 1 ]; then
-    pass "the run marker line survives as the body's last line"
+if [ "$(grep -v '^[[:space:]]*$' "$CASE/node-body.md" | tail -1)" = "$REFLINE" ] \
+    && ! grep -q 'shirabe''-run' "$CASE/node-body.md"; then
+    pass "include: the Run record line is the body's last line, and there is no marker"
 else
-    fail "the marker line: [$(cat "$CASE/node-body.md")]"
+    fail "the record line: [$(cat "$CASE/node-body.md")]"
 fi
 OWNED=$(bash "$SCRIPT_DIR/owned-pr.sh" --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open --run-id "$MINE" 2>"$CASE/owned.err"); ORC=$?
 if [ "$ORC" -eq 0 ] && [ "$OWNED" = "https://github.com/$CT_REPO/pull/50" ]; then
-    pass "owned-pr.sh --run-id finds the node PR by its rendered body's marker"
+    pass "owned-pr.sh --run-id finds the node PR by its index entry"
 else
     fail "the ownership lookup: rc=$ORC out=[$OWNED] $(cat "$CASE/owned.err")"
 fi
 OWNED=$(bash "$SCRIPT_DIR/owned-pr.sh" --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open --run-id "$OTHER" 2>/dev/null); ORC=$?
-[ "$ORC" -eq 5 ] && pass "another run's lookup refuses the node PR (5): the marker names this run" \
+[ "$ORC" -eq 5 ] && pass "another run's lookup refuses the node PR (5): its index entry names this run" \
     || fail "another run's lookup: rc=$ORC out=[$OWNED]"
 TITLE=$(created_title)
 if [ "$TITLE" = "feat(t): $CT_CORE" ] \

@@ -18,9 +18,9 @@
 #                   [--before-coordination [--rendered-out <file>]]
 #
 # In order:
-#   1. read the run record (rr_record) and the run's identity (`run-id.sh
-#      get`, the body's `run=` line); no run/setup, or a failed read, is
-#      body=stale;
+#   1. read the run's recorded switch, the run record (rr_record) and the
+#      run's identity (`run-id.sh get`, the body's `run=` line under
+#      include); no run/setup, or a failed read, is body=stale;
 #   2. read the coordination PR the record names (run/setup's
 #      coordination_pr) with `gh pr view` and no marker requirement, so a body
 #      /scope republished without the index gets it back; its headRefName must
@@ -46,10 +46,9 @@
 #   6. render (cb_render): a private repository under a public coordination
 #      PR is body=refused:execute:visibility (exit 77; the diagnostic names
 #      the node, never the repository); a body over 60,000 bytes is
-#      body=full; any other refusal body=stale. A run marker line the live
-#      body carries (`<!-- shirabe-run: <id> -->`) is carried to the end of
-#      the render and none is forged (`run-id.sh carry`, the rule for any
-#      full-body rewrite of a PR);
+#      body=full; any other refusal body=stale. Under include the render's
+#      Part 2 carries the one `Run record:` line
+#      (`scripts/pr-workflow-content.sh --reference`);
 #   7. check it with `shirabe validate --coordination-body`; a refusal is
 #      body=stale;
 #   8. a render equal to the live body (a difference of trailing newlines at
@@ -61,6 +60,14 @@
 #  10. post it: `gh pr edit <n> --repo <home> --body-file <file>`. A failed
 #      post is body=stale; the record is unchanged, and the next transition
 #      renders again.
+#
+# The run's recorded switch (scripts/pr-workflow-content.sh --session, read
+# once at the start) decides the shape. Under omit, the default, the body is
+# Part 1 alone (scripts/lib/coordination-body.sh): the live Part 1, or the
+# whole live body when it has no top-level `---`, or the composed sentence
+# when it is empty, and nothing after it. Steps 4 (no repository is indexed)
+# and 7 (there is no declaration to validate) are skipped, and the merge-last
+# gate takes its refs from the record (coord-merge.sh).
 #
 # --before-coordination is for the steps the coordination PR's own gate
 # reads the body for (its evaluation and its merge): a result other than
@@ -183,7 +190,8 @@ hand_out() {
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/coord-render.XXXXXX") || { WORK=""; stale "no temporary directory"; }
 
-# 1. The record and the run's identity.
+# 1. The record, the run's identity, and the run's recorded switch.
+coord_content "$SESSION"
 REC=$(rr_record "$SESSION") || stale "the run record in session $SESSION could not be read"
 [ "$(rr_q "$REC" 'has("run/setup")')" = true ] || stale "session $SESSION holds no run record (run/setup)"
 RUN=$("$BASH" "$COORD_SELF_DIR/run-id.sh" get "$SESSION" </dev/null) || stale "this run's identity could not be read"
@@ -282,7 +290,7 @@ OTHERS=$(printf '%s\n' "$ROWS" | awk -F'\t' -v h="$HOME_LC" 'NF >= 3 && tolower(
 # document schema requires.
 HOME_VIS=public
 VIS='{}'
-if [ -n "$OTHERS" ]; then
+if [ -n "$OTHERS" ] && [ "$COORD_CONTENT" != omit ]; then
     HOME_VIS=$(coord_repo_visibility "$HOME_REPO") || stale "the visibility of the coordination PR's repository could not be read"
     while IFS= read -r r; do
         [ -n "$r" ] || continue
@@ -293,16 +301,36 @@ fi
 
 # 5. The live body and its Part 1, then the document, from files.
 printf '%s' "$CJSON" | jq -j '.body // ""' > "$WORK/live.md" || stale "the live body could not be staged"
+# part1_of <body-file> <out-file>: its Part 1 (0), or none (1). Under omit a
+# body with no top-level `---` is all Part 1, so a person's description is
+# never replaced by the composed sentence; an empty one has none.
+part1_of() {
+    cb_part1 "$1" > "$2" && return 0
+    if [ "$COORD_CONTENT" = omit ] && grep -q '[^[:space:]]' "$1"; then
+        cat -- "$1" > "$2"
+        return 0
+    fi
+    : > "$2"
+    return 1
+}
 HAS_P1=0
-if cb_part1 "$WORK/live.md" > "$WORK/part1.md"; then HAS_P1=1; fi
+if part1_of "$WORK/live.md" "$WORK/part1.md"; then HAS_P1=1; fi
+REF=""
+if [ "$COORD_CONTENT" = include ]; then
+    REF=$("$BASH" "$COORD_SELF_DIR/../../../scripts/pr-workflow-content.sh" --reference "$SESSION" </dev/null) \
+        || stale "the run's record reference could not be read"
+fi
 printf '%s' "$REC" > "$WORK/record.json" || stale "the record could not be staged"
 jq -n --rawfile p1 "$WORK/part1.md" --argjson has "$HAS_P1" --slurpfile rec "$WORK/record.json" \
     --arg topic "$SLUG" --arg run "$RUN" --arg home "$HOME_REPO" --argjson pr "$C_NUM" \
-    --arg hv "$HOME_VIS" --argjson vis "$VIS" --argjson states "$STATES" '
+    --arg hv "$HOME_VIS" --argjson vis "$VIS" --argjson states "$STATES" \
+    --arg content "$COORD_CONTENT" --arg ref "$REF" '
     $rec[0] as $r
     | ($r["run/setup"]) as $s
     | {topic: $topic,
        part1: (if $has == 1 then $p1 else null end),
+       content: $content,
+       reference: $ref,
        run_lines: ($s.run_lines // {}),
        store: $s.store,
        run: $run,
@@ -323,20 +351,12 @@ case $? in
     4) echo "$PROG: the rendered body is over the cap; the coordination PR's body was not posted" >&2; finish full ;;
     *) stale "the record could not be rendered" ;;
 esac
-# A full-body rewrite keeps the run marker the live body carries and forges
-# none (`run-id.sh carry`): a marker line below Part 1 is moved to the end of
-# the render, and the render's size is checked again.
-"$BASH" "$COORD_SELF_DIR/run-id.sh" carry "$WORK/live.md" "$WORK/body.md" </dev/null >&2 \
-    || stale "the live body's run marker could not be carried into the render"
-BYTES=$(wc -c < "$WORK/body.md") || stale "the rendered body could not be measured"
-if [ "$((BYTES + 0))" -gt "$CB_MAX_BYTES" ]; then
-    echo "$PROG: the rendered body is $((BYTES + 0)) bytes with its run marker, over the cap; the coordination PR's body was not posted" >&2
-    finish full
+# 7. The validator, on what would be posted. An omit body is Part 1 alone,
+# with no declaration for it to read.
+if [ "$COORD_CONTENT" != omit ]; then
+    "${SHIRABE_BIN:-shirabe}" validate --coordination-body "$WORK/body.md" </dev/null >&2 \
+        || stale "shirabe validate --coordination-body refused the rendered body"
 fi
-
-# 7. The validator, on what would be posted.
-"${SHIRABE_BIN:-shirabe}" validate --coordination-body "$WORK/body.md" </dev/null >&2 \
-    || stale "shirabe validate --coordination-body refused the rendered body"
 
 # 8. No difference, no post.
 SAME=$(jq -nr --rawfile a "$WORK/live.md" --rawfile b "$WORK/body.md" \
@@ -354,7 +374,7 @@ coord_gh_read CJSON2 pr view "$C_NUM" --repo "$HOME_REPO" --json state,body,head
     || stale "the coordination PR #$C_NUM could not be read again before the post"
 printf '%s' "$CJSON2" | jq -j '.body // ""' > "$WORK/live2.md" || stale "the re-read body could not be staged"
 HAS_P1_2=0
-if cb_part1 "$WORK/live2.md" > "$WORK/part1-2.md"; then HAS_P1_2=1; fi
+if part1_of "$WORK/live2.md" "$WORK/part1-2.md"; then HAS_P1_2=1; fi
 SAME=$(jq -nr --rawfile a "$WORK/part1.md" --rawfile b "$WORK/part1-2.md" 'if $a == $b then "yes" else "no" end') \
     || stale "the re-read Part 1 could not be compared"
 if [ "$HAS_P1_2" -ne "$HAS_P1" ] || [ "$SAME" != yes ]; then

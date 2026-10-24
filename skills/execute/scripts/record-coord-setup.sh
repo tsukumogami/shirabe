@@ -50,10 +50,10 @@
 # removed one is recorded closed and its index entry written again, never
 # removed). Each index entry goes to its PR's owner's shared address. A
 # failed trail or index write exits 70 naming the PR, before the fixed keys
-# are written. On GitHub it makes two writes at most: adopt's
-# marker stamps on a recovering start given --adopt-run, and the coordination
-# PR's body, rendered by coord-render.sh after a follow-up is recorded or
-# removed.
+# are written. On GitHub it makes one write at most: the coordination PR's
+# body, rendered by coord-render.sh after a follow-up is recorded or removed.
+# Nothing of the run is written into a node PR's text; a PR is this run's by
+# its index entry.
 #
 # A session that holds its record (run/setup present) makes no lookup: it
 # compares --store with the sealed store, a --coordination-pr with the
@@ -66,18 +66,21 @@
 #
 # A session with no record finds the coordination PR through the ownership
 # lookup (owned-pr.sh on home_repo and the coordination branch, in any state,
-# carrying the declaration marker), checks a --coordination-pr against it,
+# carrying the declaration marker unless the run's recorded switch is omit,
+# whose bodies carry none), checks a --coordination-pr against it,
 # refuses a PR closed unmerged (an already-merged one is accepted: the loop
 # ends it done:merged), and reads its body with cb_parse
 # (scripts/lib/coordination-body.sh, the codec; no other body read exists).
 # With the PLAN on the branch, each PR node's branch impl/<slug>-<node> gets
-# one owned-PR lookup (no --run-id, so another run's marker is seen below
-# rather than hidden). Then it decides whether a run had started: a carried
+# one owned-PR lookup (no --run-id, so another run's index entry is seen
+# below rather than hidden). Then it decides whether a run had started: a carried
 # run_id (the opener seeds one only from a replaced session or a snapshot), a
 # rendered `run=` line, a PR Index line (a node's or a follow-up's), or an
 # owned PR on a PLAN node's branch. The store of that run is --store, else
 # the body's `store=` line, else github; a --store that differs from the
-# body's line stops store-mismatch.
+# body's line stops store-mismatch. Under the run's recorded switch omit the
+# store is session (the body carries no record to recover from), and a
+# --store github stops store-mismatch.
 #
 #   Nothing started: a new run. It seals run/setup through `run-record.sh
 #   setup` (the store, the coordination PR's number, repos, mode
@@ -97,20 +100,19 @@
 #   stops coordination-index-missing. Each node line must name a PR node of
 #   the PLAN in that node's repository, the one owned PR on its branch (no PR,
 #   several, a PR closed unmerged, another author, branch, base or a fork all
-#   fail), and then carry the run's marker. The run's identity is, in order:
-#   --adopt-run, the carried run_id, the body's run= line, the one id every
-#   node PR's marker names, and, only when the index holds no node line, a
-#   minted one. A node PR whose marker names another run, a malformed one, or
-#   none, and every node PR when there is no identity, stops
-#   recovery-unproven naming each, with its reason and URL. With --adopt-run
-#   those PRs (and only those) are stamped instead: run-id.sh restamp or
-#   stamp, `gh pr edit --body-file`, and a re-read that must show the id. A
-#   stamp that fails stops recovery-unproven naming the PR as not stampable;
-#   stamps already made stay, and a re-run with the same id finds them
-#   already marked and makes no edit. The stamps run only after every check
-#   passed. Each follow-up line is kept or dropped: kept when its node is a
+#   fail), and then have its latest index entry name the run (the PR's index
+#   session, read through record-store.sh's rs_index_latest_run, as
+#   owned-pr.sh reads it). The run's identity is, in order: --adopt-run, the
+#   carried run_id, the body's run= line, the one id every node PR's index
+#   entry names, and, only when the index holds no node line, a minted one. A
+#   node PR whose entry names another run, or that has none, and every node
+#   PR when there is no identity, stops recovery-unproven naming each, with
+#   its reason and URL. With --adopt-run those PRs (and only those) are taken
+#   over instead: the recovery's own index entries, written under the adopted
+#   id once the record is, make them this run's, and nothing on GitHub is
+#   edited. Each follow-up line is kept or dropped: kept when its node is a
 #   recovered node, its repository the node's, its id's number its ref's, and
-#   a live read passes coord_follow_up_check (no marker is asked of it: a
+#   a live read passes coord_follow_up_check (no index entry is asked of it: a
 #   follow-up is a person's PR); dropped otherwise, printing
 #   `follow-up-dropped:<url>` with the reason on stderr. A failed read of one
 #   exits 72 rather than dropping it. Then it writes, in order: the identity
@@ -148,8 +150,8 @@
 # `body=refused:execute:visibility`, any other failure `body=stale`, and the
 # next transition renders again).
 #
-# Every check runs before any write, so a stop changes no key and, adopt's
-# stamps aside, nothing on GitHub.
+# Every check runs before any write, so a stop changes no key and nothing on
+# GitHub.
 #
 # Usage: record-coord-setup.sh --session <koto-session> --plan <path>
 #            [--store <github|session>] [--coordination-pr <url>]
@@ -198,6 +200,8 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 . "$COORD_SELF_DIR/coord-common.sh"
 # shellcheck source=../../../scripts/lib/coordination-body.sh
 . "$COORD_SELF_DIR/../../../scripts/lib/coordination-body.sh" || exit 64
+# shellcheck source=../../../scripts/lib/record-store.sh
+. "$COORD_SELF_DIR/../../../scripts/lib/record-store.sh" || exit 64
 
 RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_STORE='^(github|session)?$'
@@ -381,7 +385,7 @@ case $? in
     *) echo "$PROG: could not read the run record in session $SESSION" >&2; exit 70 ;;
 esac
 
-RUN_LINES='{}'; NODES='[]'; RECOVER_ROWS=""; FU_ROWS=""; DROPPED=""; SOURCE=""; RUN_ID=""; STAMPS=""; LOGIN=""
+RUN_LINES='{}'; NODES='[]'; RECOVER_ROWS=""; FU_ROWS=""; DROPPED=""; SOURCE=""; RUN_ID=""; LOGIN=""
 # VIEW: the run record as it will stand once this invocation's own writes
 # land (the held one, the recovered one, or a new run's), which a
 # --follow-up is checked against before anything is written.
@@ -433,7 +437,10 @@ if [ "$START_KIND" = existing ]; then
 else
     # No record: the ownership lookup, once, over every state. A coordination
     # PR already MERGED is a run the loop ends done:merged; only one CLOSED
-    # unmerged stops, below.
+    # unmerged stops, below. Under the run's recorded switch omit the
+    # coordination PR's body is a plain description, so no declaration is
+    # asked of it (coord_view_pr).
+    coord_content "$SESSION"
     coord_find_pr "$HOME_REPO" "$CB" all
     case $? in
         0) ;;
@@ -450,8 +457,8 @@ else
                         if [ "$C_WHY" = none ] && [ "$(coord_lower "$CPR_REPO")" = "$(coord_lower "$HOME_REPO")" ]; then
                             C_VIEW=""
                             coord_gh_read C_VIEW pr view "$CPR_NUM" --repo "$HOME_REPO" --json state,headRefName,body || exit 72
-                            if printf '%s' "$C_VIEW" | jq -e --arg cb "$CB" --arg m "$COORD_MARKER" \
-                                'type == "object" and .state == "CLOSED" and .headRefName == $cb and ((.body // "") | contains($m))' >/dev/null; then
+                            if printf '%s' "$C_VIEW" | jq -e --arg cb "$CB" --arg m "$COORD_MARKER" --arg content "$COORD_CONTENT" \
+                                'type == "object" and .state == "CLOSED" and .headRefName == $cb and ($content == "omit" or ((.body // "") | contains($m)))' >/dev/null; then
                                 stop coordination-pr-closed "the handed coordination PR $CPR is closed unmerged"
                             fi
                         fi
@@ -488,8 +495,8 @@ else
     N_INDEX_FUS=$(printf '%s' "$PARSED" | jq '[.follow_ups[] | length] | add // 0')
 
     # The PLAN's nodes, and each PR node's branch read through the ownership
-    # lookup, without --run-id: a PR another run marked is kept here and its
-    # marker read below, never hidden.
+    # lookup, without --run-id: a PR another run recorded is kept here and
+    # its index entry read below, never hidden.
     OWNED_ROWS=""
     if [ "$PLAN_PRESENT" -eq 1 ]; then
         read_plan
@@ -497,8 +504,8 @@ else
         while IFS=$'\t' read -r n r; do
             [ -n "$n" ] || continue
             # coord_owned with no identity (its hand-run branch), in the
-            # subshell only: with --run-id a PR another run marked would be
-            # exit 5 here, and recovery has to read that marker to name it.
+            # subshell only: with --run-id a PR another run recorded would be
+            # exit 5 here, and recovery has to read that entry to name it.
             out=$(COORD_RUN_ID=""; coord_owned "$r" "impl/$SLUG-$n" all)
             rc=$?
             case "$rc" in
@@ -534,6 +541,14 @@ else
         stop store-mismatch "the coordination PR's body says this run's store is $BODY_STORE, and this invocation asked for $STORE"
     fi
     [ -n "$STORE" ] || STORE="$BODY_STORE"
+    # Under omit the body carries no record, so a recovery from it is
+    # impossible: the run keeps its record in its session.
+    if [ "$COORD_CONTENT" = omit ]; then
+        if [ -n "$STORE" ] && [ "$STORE" != session ]; then
+            stop store-mismatch "this run's PR content switch is omit, so its coordination PR's body carries no record to recover from; its store is session, and this invocation asked for $STORE"
+        fi
+        STORE=session
+    fi
     [ -n "$STORE" ] || STORE=github
 
     if [ "$STARTED" -eq 0 ]; then
@@ -557,14 +572,14 @@ else
 
         # Pass 1, no GitHub read: each index node is a PR node of the PLAN, in
         # that node's repository.
-        UNPROVEN=""; ONLY_MARKER_REASONS=1
-        # unproven <node> <where> <reason> <marker|other> -- name a node PR
-        # recovery can't prove is this run's. A reason other than its marker
-        # means --adopt-run can't help, so the hint to use it is dropped.
+        UNPROVEN=""; ONLY_INDEX_REASONS=1
+        # unproven <node> <where> <reason> <index|other> -- name a node PR
+        # recovery can't prove is this run's. A reason other than its index
+        # entry means --adopt-run can't help, so the hint to use it is dropped.
         unproven() {
             UNPROVEN="$UNPROVEN
   $1 ($2): $3"
-            [ "$4" = marker ] || ONLY_MARKER_REASONS=0
+            [ "$4" = index ] || ONLY_INDEX_REASONS=0
         }
         ENTRIES=$(printf '%s' "$PARSED" | jq -r '.nodes | to_entries[] | [.key, .value.repo, (.value.pr | tostring)] | @tsv')
         PASS1=""
@@ -594,16 +609,17 @@ else
             PASS2="$PASS2$n	$r	$p	$url
 "
         done <<<"$PASS1"
-        # Pass 3: one live read of each owned node PR: its head, its merge
-        # commit, and its marker. The head's name is oid, and the merge
-        # commit's moid: the structure test bans `head=` text on any line
-        # that isn't a printf output line.
+        # Pass 3: one live read of each owned node PR (its head and its merge
+        # commit), and the run its index entry names last (rs_index_latest_run,
+        # the read owned-pr.sh decides ownership by): its id, or none. The
+        # head's name is oid, and the merge commit's moid: the structure test
+        # bans `head=` text on any line that isn't a printf output line.
         PASS3=""; i=0
         while IFS=$'\t' read -r n r p url; do
             [ -n "$n" ] || continue
             i=$((i + 1))
             N_VIEW=""
-            coord_gh_read N_VIEW pr view "$p" --repo "$r" --json url,state,headRefOid,mergeCommit,body || {
+            coord_gh_read N_VIEW pr view "$p" --repo "$r" --json url,state,headRefOid,mergeCommit || {
                 echo "$PROG: could not read $url" >&2
                 exit 72
             }
@@ -613,26 +629,20 @@ else
             # "-" for none: a tab-separated field read back must never be
             # empty, or read folds it into its neighbour.
             [[ $moid =~ $RE_COORD_SHA ]] || moid=-
-            f="$WORK/node-$i.md"
-            printf '%s' "$N_VIEW" | jq -j '.body // ""' > "$f" || exit 70
-            # Its diagnostic for no marker or a malformed one is the case
-            # below, so it goes to a file, read only when the read failed.
-            mk=$("$BASH" "$COORD_SELF_DIR/run-id.sh" marker "$f" 2>"$WORK/marker.err" </dev/null)
+            mk=$(rs_index_latest_run "$r" "$p")
             case $? in
-                0) ;;
-                67) mk=none ;;
-                65) mk=malformed ;;
-                *) cat "$WORK/marker.err" >&2; echo "$PROG: could not read the run marker of $url" >&2; exit 70 ;;
+                0) [ -n "$mk" ] || mk=none ;;
+                *) echo "$PROG: could not read the index entry of $url" >&2; exit 72 ;;
             esac
-            PASS3="$PASS3$n	$r	$p	$url	$oid	$moid	$mk	$f
+            PASS3="$PASS3$n	$r	$p	$url	$oid	$moid	$mk
 "
         done <<<"$PASS2"
 
         # The run's identity, in order. --adopt-run is a person's recorded
         # act, so it outranks everything. A carried run_id is the session's
-        # own. The run= line is the last render's. Unanimous markers prove
-        # the node PRs agree on one run. A minted id is allowed only when the
-        # index names no node PR, since a fresh id would disown them.
+        # own. The run= line is the last render's. Unanimous index entries
+        # prove the node PRs agree on one run. A minted id is allowed only
+        # when the index names no node PR, since a fresh id would disown them.
         MARKS=$(printf '%s' "$PASS3" | awk -F'\t' 'NF >= 7 { print $7 }' | LC_ALL=C sort -u)
         if [ -n "$ADOPT" ]; then
             SOURCE=adopted; RUN_ID="$ADOPT"
@@ -641,31 +651,28 @@ else
         elif [ -n "$BODY_RUN" ]; then
             SOURCE=run-line; RUN_ID="$BODY_RUN"
         elif [ -z "$UNPROVEN" ] && [ -n "$PASS3" ] && [[ $MARKS =~ $RE_COORD_RUN_ID ]]; then
-            SOURCE=markers; RUN_ID="$MARKS"
+            SOURCE=index; RUN_ID="$MARKS"
         elif [ "$N_INDEX_NODES" -eq 0 ]; then
             SOURCE=minted
         fi
-        while IFS=$'\t' read -r n r p url oid moid mk f; do
+        while IFS=$'\t' read -r n r p url oid moid mk; do
             [ -n "$n" ] || continue
             if [ -z "$SOURCE" ]; then
-                unproven "$n" "$url" "no identity to prove it by (no carried run_id, no run= line, and the node PRs' markers don't name one run); its marker: $mk" marker
+                unproven "$n" "$url" "no identity to prove it by (no carried run_id, no run= line, and the node PRs' index entries don't name one run); its entry names: $mk" index
                 continue
             fi
             [ "$mk" = "$RUN_ID" ] && continue
-            if [ -n "$ADOPT" ]; then
-                STAMPS="$STAMPS$n	$r	$p	$url	$mk	$f
-"
-                continue
-            fi
+            # --adopt-run takes the PR over: the recovery's own index entries,
+            # written below under the adopted id, make it this run's.
+            [ -n "$ADOPT" ] && continue
             case "$mk" in
-                none) unproven "$n" "$url" "no marker" marker ;;
-                malformed) unproven "$n" "$url" "a malformed marker" marker ;;
-                *) unproven "$n" "$url" "another run's marker" marker ;;
+                none) unproven "$n" "$url" "no index entry" index ;;
+                *) unproven "$n" "$url" "another run's index entry" index ;;
             esac
         done <<<"$PASS3"
         if [ -n "$UNPROVEN" ]; then
             hint=""
-            [ "$ONLY_MARKER_REASONS" -eq 1 ] && hint=". Every reason is the marker: if these PRs are this run's, invoke again with --adopt-run <id> to stamp them"
+            [ "$ONLY_INDEX_REASONS" -eq 1 ] && hint=". Every reason is the index: if these PRs are this run's, invoke again with --adopt-run <id> to record them as its own"
             stop recovery-unproven "the coordination PR's index names node PRs this run can't prove are its own:$UNPROVEN
 $hint"
         fi
@@ -673,7 +680,7 @@ $hint"
         RECOVER_ROWS="$PASS3"
 
         # The follow-up lines: each kept or dropped, in order of its checks.
-        # No marker is asked of one: a follow-up is a person's PR, and the
+        # No index entry is asked of one: a follow-up is a person's PR, and the
         # live read decides. A dropped one is reported on stdout with the
         # other output lines (DROPPED), never before a stop.
         C_HOST="${C_URL%/*/*/pull/*}"
@@ -857,35 +864,6 @@ case "$START_KIND" in
         mint_run_id
         ;;
     recovered)
-        # Adopt's stamps, the one GitHub write before the record, after every
-        # check passed and only on PRs that passed the ownership lookup.
-        while IFS=$'\t' read -r n r p url mk f; do
-            [ -n "$n" ] || continue
-            if [ "$mk" = none ]; then
-                "$BASH" "$COORD_SELF_DIR/run-id.sh" stamp "$RUN_ID" "$f" </dev/null >&2
-            else
-                "$BASH" "$COORD_SELF_DIR/run-id.sh" restamp "$RUN_ID" "$f" </dev/null >&2
-            fi
-            ok=$?
-            if [ "$ok" -eq 0 ]; then
-                gh pr edit "$p" --repo "$r" --body-file "$f" </dev/null >&2
-                ok=$?
-            fi
-            if [ "$ok" -eq 0 ]; then
-                S_VIEW=""
-                if coord_gh_read S_VIEW pr view "$p" --repo "$r" --json body; then
-                    printf '%s' "$S_VIEW" | jq -j '.body // ""' > "$f.after" \
-                        && [ "$("$BASH" "$COORD_SELF_DIR/run-id.sh" marker "$f.after" </dev/null)" = "$RUN_ID" ] || ok=1
-                else
-                    ok=1
-                fi
-            fi
-            if [ "$ok" -ne 0 ]; then
-                printf 'stop=recovery-unproven\n'
-                echo "$PROG: stopped (recovery-unproven): $n ($url) is not stampable: its marker could not be set to $RUN_ID. No run record was written; stamps already made on other PRs stay, and a re-run with the same --adopt-run finds them marked and edits them no more." >&2
-                exit 71
-            fi
-        done <<<"$STAMPS"
         # The writes run in this order for two reasons. `run-record.sh
         # adopt` refuses once run/setup exists, so run/adopted has to come
         # before the recover document that seals it. And the identity comes
@@ -900,7 +878,7 @@ case "$START_KIND" in
                 "$BASH" "$COORD_SELF_DIR/run-id.sh" adopt "$SESSION" "$RUN_ID" </dev/null \
                     || { echo "$PROG: could not adopt run id $RUN_ID in session $SESSION" >&2; exit 70; }
                 ;;
-            run-line|markers)
+            run-line|index)
                 "$BASH" "$COORD_SELF_DIR/run-id.sh" seed "$SESSION" "$RUN_ID" </dev/null \
                     || { echo "$PROG: could not record run id $RUN_ID in session $SESSION" >&2; exit 70; }
                 ;;

@@ -201,6 +201,11 @@ ct_case() {
     # for the execute-t session the tests drive; the other scripts under test
     # only read it.
     printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/execute-t/run_id"
+    # The PR content switch execute-open.sh records at the run's open. The
+    # coordinated suites were written for the full coordination body, so a
+    # case reads include unless it sets CT_CONTENT=omit before ct_case (or
+    # rewrites this key) to drive the default, Part 1 alone.
+    printf '%s' "${CT_CONTENT:-include}" > "$CASE/ctx/execute-t/pr_content"
     : > "$CASE/koto-calls.log"
     : > "$CASE/shirabe-calls.log"
     : > "$CASE/order.log"

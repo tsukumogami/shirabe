@@ -14,6 +14,13 @@
 #                                     unchanged: one pr edit in all
 #   /scope's body (no top-level ---)  gets exactly the composed Part 1
 #   a person's Part 1 holding a list  kept byte for byte
+#   include                           one Run record line below the ---; an
+#                                     older body's marker line dropped
+#   omit                              the body is Part 1 alone (a plain body
+#                                     with no --- is all Part 1, an empty one
+#                                     the composed sentence), nothing of the
+#                                     run in it, no --coordination-body check,
+#                                     no visibility refusal
 #   a follow-up recorded              rendered after its node
 #   a state read that fails           renders unknown
 #   a post that fails                 body=stale, the record unchanged; the
@@ -145,26 +152,100 @@ else
     fail "the old Part 2 survived the render"
 fi
 
-# --- a run marker the live body carries -----------------------------------------------
+# --- the run's reference, and no marker ------------------------------------------------
 
+# Under include the render's Part 2 carries exactly one Run record line, and a
+# marker line an older body carried is not kept: ownership is the index's.
+REFLINE='Run record: execute-t (run 00112233445566778899aabbccddeeff)'
+SEP=$(grep -n '^---$' "$CT_WORK/cases/behind/after1.md" | head -1 | cut -d: -f1)
+REFAT=$(grep -nxF "$REFLINE" "$CT_WORK/cases/behind/after1.md" | cut -d: -f1)
+if [ "$(grep -c '^Run record:' "$CT_WORK/cases/behind/after1.md")" = 1 ] && [ -n "$SEP" ] && [ -n "$REFAT" ] \
+    && [ "$REFAT" -gt "$SEP" ]; then
+    pass "include: the body carries exactly one Run record line, below the top-level ---"
+else
+    fail "include: the Run record line: $(cat "$CT_WORK/cases/behind/after1.md")"
+fi
 base_case marker
-MARK='<!-- shirabe-run: 0123456789abcdef0123456789abcdef -->'
+MARK="<!-- shirabe""-run: 0123456789abcdef0123456789abcdef -->"
 printf 'Ships the parser.\n\n---\n\nold index\n\n%s\n' "$MARK" > "$CASE/seed.md"
 ct_write_db "$CASE/seed.md"
 run_render
 live_body > "$CASE/after.md"
 FIRST_MARK="$OUT"
 run_render
-if [ "$FIRST_MARK" = "body=posted" ] && [ "$(tail -1 "$CASE/after.md")" = "$MARK" ] \
-    && [ "$(grep -c 'shirabe-run:' "$CASE/after.md")" = 1 ] && [ "$OUT" = "body=unchanged" ]; then
-    pass "a run marker the live body carries is kept, at the end, and a second render leaves it"
+if [ "$FIRST_MARK" = "body=posted" ] && ! grep -q 'shirabe''-run' "$CASE/after.md" \
+    && [ "$OUT" = "body=unchanged" ]; then
+    pass "a marker line an older body carried is dropped, and a second render leaves the body as it is"
 else
-    fail "the run marker [$FIRST_MARK] [$OUT]: $(tail -3 "$CASE/after.md")"
+    fail "the old marker [$FIRST_MARK] [$OUT]: $(tail -3 "$CASE/after.md")"
 fi
-if grep -q 'shirabe-run:' "$CT_WORK/cases/behind/after1.md"; then
-    fail "a render forged a run marker into a body that carried none"
+
+# --- omit: Part 1 alone ----------------------------------------------------------------
+
+# omit_case <name> -- base_case under the run's recorded switch omit.
+omit_case() { CT_CONTENT=omit base_case "$1"; }
+NO_RUN='shirabe''-run|^(topic|exit|outcome|intent|mode|store|run)=|^## PR Index|^## Merge Order|^- pr-repo-a|^Run record:|execute-t|00112233445566778899aabbccddeeff|This is a \*\*coordination PR\*\*|^record:|unpinned'
+
+omit_case omit-part2
+printf 'Ships the parser.\n\n---\n\n> This is a **coordination PR** for a coordinated effort.\n\nrun=00112233445566778899aabbccddeeff\n\n## PR Index\n\n- old\n' > "$CASE/seed.md"
+ct_write_db "$CASE/seed.md"
+run_render
+live_body > "$CASE/after.md"
+FIRST="$OUT"
+run_render
+if [ "$FIRST" = "body=posted" ] && [ "$(cat "$CASE/after.md")" = "Ships the parser." ] && [ "$OUT" = "body=unchanged" ]; then
+    pass "omit: the body becomes its Part 1 alone, and a second render leaves it"
 else
-    pass "a body that carried no run marker gets none"
+    fail "omit Part 1 alone [$FIRST] [$OUT]: $(cat "$CASE/after.md")"
+fi
+if grep -Eq "$NO_RUN" "$CASE/after.md"; then
+    fail "omit: the body carries something of the run: $(cat "$CASE/after.md")"
+else
+    pass "omit: no marker, run line, index, merge order, declaration, session name or record line"
+fi
+if ! grep -q 'coordination-body' "$CASE/shirabe-calls.log"; then
+    pass "omit: no --coordination-body validation, since there is no declaration to read"
+else
+    fail "omit: the render validated a Part-1-only body: $(cat "$CASE/shirabe-calls.log")"
+fi
+
+omit_case omit-plain
+printf 'Plans the parser and its CLI.\n' > "$CASE/seed.md"
+ct_write_db "$CASE/seed.md"
+run_render
+if [ "$OUT" = "body=unchanged" ] && [ "$(edits)" = 0 ]; then
+    pass "omit: a plain description with no --- is all Part 1, kept as it is with no post"
+else
+    fail "omit plain description [$OUT], $(edits) edits: $(live_body)"
+fi
+
+omit_case omit-empty
+: > "$CASE/seed.md"
+ct_write_db "$CASE/seed.md"
+run_render
+live_body > "$CASE/after.md"
+if [ "$OUT" = "body=posted" ] && grep -q '^Coordination pull request for t\.' "$CASE/after.md" \
+    && ! grep -q '^---' "$CASE/after.md"; then
+    pass "omit: an empty body gets the composed sentence alone"
+else
+    fail "omit empty [$OUT]: $(cat "$CASE/after.md")"
+fi
+
+CT_CONTENT=omit ct_case omit-private
+CT_RECORD_REPOS="acme/repo-a,acme/repo-b" ct_record_setup github 10 \
+    '[{"name":"pr-repo-a-core","kind":"pr","repo":"acme/repo-a","waits_on":[]},{"name":"pr-repo-b-cli","kind":"pr","repo":"acme/repo-b","waits_on":["pr-repo-a-core"]}]'
+ct_record_node "$CT_CORE" "$CT_REPO" 11
+ct_record_node pr-repo-b-cli acme/repo-b 5
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_pr acme/repo-b 5 "impl/t-pr-repo-b-cli"
+CT_VIS_B=private
+printf 'Ships the parser.\n' > "$CASE/seed.md"
+ct_write_db "$CASE/seed.md"
+run_render
+if [ "$RC" = 0 ] && [ "$OUT" = "body=unchanged" ]; then
+    pass "omit: a private node under a public home is no refusal, since nothing is indexed"
+else
+    fail "omit private node [$OUT] exit $RC: $(cat "$CASE/stderr")"
 fi
 
 # --- a follow-up -----------------------------------------------------------------------
