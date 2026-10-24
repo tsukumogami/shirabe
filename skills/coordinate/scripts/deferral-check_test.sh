@@ -21,6 +21,8 @@
 # read (2); the sealed token and its detail; every token in koto's capture
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
 # verdict-owed row, or that the row names as its Who, and ok for another topic.
+# The record read once per check (one assembly, record/meta got and never
+# listed), with decision-next judging that read and not a later one.
 #
 # Usage: bash skills/coordinate/scripts/deferral-check_test.sh
 set -uo pipefail
@@ -209,6 +211,44 @@ row_owed "a held entry" "ok beta" "ok gamma" "$(dentry 7 coordinator-verdict '"v
 row_owed "an escalated entry that owes nothing" "ok beta" "ok gamma" "$(dentry 5 escalated "$ESC")"
 OUT=$(seed "$(with_entries "$(dentry 6 proposed)")"; session "$(roadmap_vars plugin-system)"; bash "$DC" --session "$S" 2>/dev/null)
 tok_shape "decision-owed is in koto's capture alphabet" "$OUT"
+
+echo "== check mode: the record is read once, and decision-next judges that read =="
+# decision-next.sh takes the record the check read (--parsed) rather than
+# reading it again (shirabe#1156). A koto in front of the stand-in serves
+# record/decisions as seeded on its first read and, on any later one, the
+# Decisions section in $T/reread: a callee that read the record again, or
+# ignored what it was handed, would judge the second section instead.
+mkdir -p "$T/bin"
+cat > "$T/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-} \${4:-}" = "context get record/decisions" ]; then
+    if [ -f "$T/reread.served" ]; then
+        printf '%s\n' "\$*" >> "\$KOTO_STORE/calls"
+        cat "$T/reread"
+        exit 0
+    fi
+    : > "$T/reread.served"
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$T/bin/koto"
+# reread_case <record-json> <later-read-json>: seed the first, serve the
+# second's Decisions section on a re-read.
+reread_case() {
+    seed "$1"; session "$(roadmap_vars plugin-system)"
+    seed_session reread-scratch "$2" && cp "$KOTO_STORE/context/reread-scratch/record/decisions" "$T/reread"
+    rm -f "$T/reread.served"
+    : > "$KOTO_STORE/calls"
+}
+reread_case "$(with_entries "$(dentry 6 proposed)")" "$(with_entries)"
+eq "a proposed entry in the record the check read blocks the first dispatch" "decision-owed take" "$(PATH="$T/bin:$PATH" check)"
+eq "  ... from one assembly of the record" 1 "$(grep -c "^context list $S --prefix record/\$" "$KOTO_STORE/calls")"
+eq "  ... record/decisions read once" 1 "$(grep -c "^context get $S record/decisions\$" "$KOTO_STORE/calls")"
+eq "  ... record/meta got before and after the sections, never listed" "2 0" \
+    "$(grep -c "^context get $S record/meta\$" "$KOTO_STORE/calls") $(grep -c "^context list $S --prefix record/meta\$" "$KOTO_STORE/calls")"
+reread_case "$(with_entries)" "$(with_entries "$(dentry 6 proposed)")"
+eq "a record owing nothing when the check read it passes, whatever a later read says" "ok beta" "$(PATH="$T/bin:$PATH" check)"
+rm -f "$T/reread" "$T/reread.served"
 
 echo "== check mode: a topic already held =="
 pr_dup() { db '.prs += [{repo: "acme/widgets", number: 41, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
