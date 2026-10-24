@@ -6,11 +6,13 @@ workflow: .github/workflows/check-coordinate-scripts.yml
 skills/coordinate/legacy-import/legacy-import_test.sh
 skills/coordinate/scripts/state-schema_test.sh
 skills/coordinate/scripts/normalize_test.sh
+skills/coordinate/scripts/state-file_test.sh
 skills/coordinate/scripts/discipline-session_test.sh
 skills/coordinate/scripts/coord-log_test.sh
 skills/coordinate/scripts/coordinate-report_test.sh
 skills/coordinate/scripts/rule-coverage_test.sh
 skills/coordinate/scripts/record-find_test.sh
+skills/coordinate/scripts/find-reads_test.sh
 skills/coordinate/scripts/record-open_test.sh
 skills/coordinate/scripts/record-write_test.sh
 skills/coordinate/scripts/record-holding_test.sh
