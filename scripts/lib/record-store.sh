@@ -123,7 +123,7 @@
 # The callers check every value before it reaches these functions; a
 # function here checks only what it adds (the owner it builds a path from).
 #
-# Requires: bash 3.2+, koto.
+# Requires: bash 3.2+, koto; jq for rs_index_latest_run.
 
 RS_SHARED_ROOT=${SHIRABE_RUN_RECORD_TEST_ROOT:-/tmp/shirabe-run-record}
 RS_RE_OWNER='^[A-Za-z0-9](-?[A-Za-z0-9])*$'
