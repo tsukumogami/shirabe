@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   After a plan's work merges, shirabe deletes the PLAN, and koto may remove the sessions
   that ran it on every host sharing the cloud store. A reviewer, auditor or later agent who
@@ -29,7 +29,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-plan-run-record](docs/briefs/BRIEF-plan-run-record.md); carried in Absorbed Brief.
 
