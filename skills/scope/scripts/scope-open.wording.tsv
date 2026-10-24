@@ -2,8 +2,9 @@
 # scripts/koto-open.sh through scope-open.sh. Format: <code>[:<VAR>]<TAB><text>.
 # A <code>:<VAR> line applies only when koto's refusal names that variable and
 # wins over the plain <code> line. In <text>, \n is a newline, and {session}
-# {var} {value} {constraint} {recorded} {requested} {state} {error} {live} {stranded} are
-# replaced with koto's fields, never evaluated. The wording follows what Phase 0
+# {var} {value} {constraint} {recorded} {requested} {state} {error} {live}
+# {stranded} are replaced with koto's fields, never evaluated. The wording
+# follows what Phase 0
 # printed when it validated these flags in prose; `--intent=bogus`,
 # `--intent=none` and `--intent=unset` print the same text apart from the value.
 invalid_var:TOPIC	Topic slug `{value}` does not match the required pattern `^[a-z0-9-]+$`.\nA slug is taken AS PROVIDED, with no normalization, and may not begin with `-`. Re-invoke `/scope <topic-slug>`.

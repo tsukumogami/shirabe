@@ -113,8 +113,9 @@
 # Rendering. A refusal is rendered from the caller's wording table when it
 # maps the code, from this script's own wording for replace_held_live and
 # replace_failed when the table doesn't, and from koto's own `error` message
-# otherwise, so an unmapped code never prints nothing. The table is a file of `<code><TAB><text>` lines
-# (`#` lines and blank lines ignored; the first line for a code wins). A key
+# otherwise, so an unmapped code never prints nothing. The table is a file of
+# `<code><TAB><text>` lines (`#` lines and blank lines ignored; the first line
+# for a code wins). A key
 # may also be `<code>:<VAR>`, which applies only when koto's refusal names that
 # variable and wins over the plain `<code>` line, so one table can word an
 # invalid topic and an invalid intent differently. In
@@ -136,13 +137,13 @@
 #   2    refused: koto's refusal (koto's own exit code passes through when it
 #        is not 2, e.g. 1 for template_not_found or lock_contention), or an
 #        args file inside the work tree
+#   64   this script's own usage error; no koto call was made
 #   74   refused=replace_failed: koto could not move the held old session
 #        aside, and nothing was replaced; the old session keeps its name
 #        unless a stranded= line says otherwise
 #   75   refused=replace_held_live: the old session is held by its hierarchy
 #        and its subtree still has live work, so it can't move aside;
 #        nothing changed, and the open can be retried once that work is done
-#   64   this script's own usage error; no koto call was made
 #   127  koto or jq is not on PATH; no koto call was made
 #   other  koto's exit code on a failure with no typed code
 #   130/143  interrupted by SIGINT/SIGTERM (koto is stopped, the file removed)
