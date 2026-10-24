@@ -22,9 +22,9 @@
 #      no change;
 #   3. host B imports it with --import and resumes it there (imported=,
 #      resumed=1), and every key but record/host, the import's own, is the same
-#      by name and JSON as before the resume on A, with one more on koto 0.24.0
-#      or later, whose import writes it: koto/imported-from, naming A's session
-#      and its session id (an older koto adds no key);
+#      by name and JSON as before the resume on A, with one more where the
+#      import writes it (koto 0.24.0 and later): koto/imported-from, naming A's
+#      session and its session id (an older koto adds no key);
 #   4. the imported run's find reads the legacy record, its `store session` row
 #      included, as found: it goes on to reconcile_pass and never to
 #      record_conflict.
