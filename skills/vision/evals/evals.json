@@ -151,6 +151,19 @@
         "Plan preserves the user's ability to override the recommendation",
         "Plan does NOT present the disagreement as 'let user decide' with no recommendation attached"
       ]
+    },
+    {
+      "name": "pr-body-omits-workflow-records",
+      "prompt": "/vision credential-manager -- a direct run in a repository whose CLAUDE.md and CLAUDE.local.md declare no `## PR Workflow Content:` header. All three jury reviewers passed, the thesis reviewer flagging success criterion S3 as hard to measure but not blocking, and the user approved at 4.5.",
+      "expected_output": "At step 4.6 the agent asks scripts/pr-workflow-content.sh for the repository's setting, which prints omit, and writes the body for a reader of the repository: the thesis in a sentence or two and a link to docs/visions/VISION-credential-manager.md. The body carries no jury verdicts, no mention of the S3 flag, no session or key names, and no link to a ROADMAP or PLAN.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh rather than parsing the header itself, and finds omit",
+        "PR body links docs/visions/VISION-credential-manager.md",
+        "PR body has no jury verdicts, no PASS or FAIL marker and no reviewer caveat",
+        "PR body names no koto session or context key"
+      ],
+      "id": 11
     }
   ]
 }
