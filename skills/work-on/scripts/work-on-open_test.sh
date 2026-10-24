@@ -47,8 +47,10 @@
 #       koto's value allowlist: a value of every character it allows is
 #       accepted by koto init on a scratch template and passed through by the
 #       script, and each printable ASCII character it refuses, a newline, a
-#       tab and a non-ASCII dash is refused by both (koto's invalid_var
-#       against the allowlist); a character they disagree on is named
+#       tab, a carriage return, DEL, SOH, ESC, a non-ASCII dash, an accented
+#       Latin letter, a CJK character and an emoji is refused by both (koto's
+#       invalid_var against the allowlist); a character they disagree on is
+#       named
 #
 # Usage: work-on-open_test.sh
 # Exit codes: 0 all pass (or koto absent), 1 a failure
@@ -550,11 +552,17 @@ eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
 # scripts/lib/verification-deferral.sh, the one copy work-on-open.sh sources, so
 # the check is against the code as shipped. Every character it allows goes
 # through one koto init in a single value; every printable ASCII character it
-# refuses, and a newline, a tab and a non-ASCII dash, goes through alone. koto
-# and the script must agree on each, and a character they disagree on is named.
+# refuses goes through alone, and so do a newline, a tab, a carriage return,
+# DEL, two more C0 controls (SOH and ESC), and non-ASCII text from several
+# scripts: a dash, an accented Latin letter (U+00E9), a CJK character (U+5B57)
+# and an emoji (U+1F600). Those after the tab are built by code point, so this
+# file holds no raw control bytes or emoji; NUL is left out, since an argument
+# can't carry it. koto and the script must agree on each, and a character they
+# disagree on is named.
 CLASS_SRC="$REPO_ROOT/scripts/lib/verification-deferral.sh"
 CLASS_RE=$(sed -n 's/.*select(test("\(\^\[[^"]*]\$\)").*/\1/p' "$CLASS_SRC")
-CANDIDATES=$(jq -nc --arg em "$EMDASH" '[range(32; 127)] | map([.] | implode) + ["\n", "\t", $em]')
+CANDIDATES=$(jq -nc --arg em "$EMDASH" '[range(32; 127)] | map([.] | implode)
+    + ["\n", "\t", $em] + ([13, 127, 1, 27, 233, 23383, 128512] | map([.] | implode))')
 
 PROBE_TPL="$WORK/allowlist-probe.md"
 cat > "$PROBE_TPL" <<'EOF'
