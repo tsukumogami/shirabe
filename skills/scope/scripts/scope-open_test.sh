@@ -332,6 +332,77 @@ open_scope '["t-fin2"]'
 eq "a live session is attached, never replaced" "opened=attached" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
 has "every call passes --replace-terminal" "--replace-terminal" "$(cat "$T/koto.argv")"
 
+echo "== a finished session its hierarchy holds is moved aside, or the replace is refused =="
+
+# From koto 0.23.0 a finished session another live session names is kept, and
+# --replace-terminal moves it aside or refuses. The floor job's older koto has
+# neither, so the cases run only where koto does.
+if HOME="$KH" KOTO_BIN="$REAL_KOTO" KOTO_FLOOR=0.23.0 bash "$REPO/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
+    cat >"$T/peer.md" <<'PEER'
+---
+name: peer
+version: "1.0"
+description: A session that stays live.
+initial_state: wait
+states:
+  wait:
+    accepts:
+      go:
+        type: enum
+        values: [now]
+        required: true
+    transitions:
+      - target: over
+        when:
+          go: now
+  over:
+    terminal: true
+---
+
+## wait
+
+Wait.
+
+## over
+
+Over.
+PEER
+    k init hold-peer --template "$T/peer.md" >/dev/null 2>&1
+    hold_topic() { # hold_topic <topic> -- a run held by hold-peer, left finished
+        open_scope "[\"$1\",\"--intent=continue\"]"
+        k session link "scope-$1" --dispatched-by hold-peer >/dev/null 2>&1
+        printf 'topic: %s\nintent: stop\n' "$1" | k context add "scope-$1" work/state.md >/dev/null
+        k next "scope-$1" --no-cleanup >/dev/null 2>&1
+    }
+
+    hold_topic t-held
+    open_scope '["t-held"]'
+    eq "a held finished run: the open succeeds" "0" "$RC"
+    eq "a held finished run: opened=replaced" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    has "a held finished run: where it moved is reported" "moved_to=scope-t-held_r1" "$STDOUT"
+    has "a held finished run: why it was kept is reported" "moved_reason=" "$STDOUT"
+    has "a held finished run: the session is named as usual" "session=scope-t-held" "$STDOUT"
+    eq "a held finished run: the moved run keeps its record" "done_refused" \
+        "$(k status scope-t-held_r1 | jq -r '.current_state')"
+    eq "a held finished run: the fresh session starts at intake" "intake|false" \
+        "$(k status scope-t-held | jq -r '"\(.current_state)|\(.is_terminal)"')"
+
+    hold_topic t-busy
+    k init scope-t-busy.k --template "$T/peer.md" --parent scope-t-busy >/dev/null 2>&1
+    open_scope '["t-busy"]'
+    eq "a held run with live work under it: exit 75" "75" "$RC"
+    has "a held run with live work under it: refused=replace_held_live" "refused=replace_held_live" "$STDOUT"
+    has "a held run with live work under it: the live session is listed" 'live=["scope-t-busy.k"]' "$STDOUT"
+    has "a held run with live work under it: outcome=error" "outcome=error" "$STDOUT"
+    has "a held run with live work under it: step=scope:refused" "step=scope:refused" "$STDOUT"
+    has "a held run with live work under it: /scope's wording names the live work" \
+        "work under it is still running: scope-t-busy.k" "$STDERR"
+    eq "a held run with live work under it: the finished run is untouched" "done_refused" \
+        "$(k status scope-t-busy | jq -r '.current_state')"
+else
+    echo "SKIP: this koto predates hierarchy retention (0.23.0) -- the held-run cases did not run"
+fi
+
 echo "== a replaced run's facts reach the new run as work/prior-run.md =="
 
 # A plugin root of our own holds a minimal scope.md whose terminals declare

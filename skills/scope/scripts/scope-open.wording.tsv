@@ -2,7 +2,7 @@
 # scripts/koto-open.sh through scope-open.sh. Format: <code>[:<VAR>]<TAB><text>.
 # A <code>:<VAR> line applies only when koto's refusal names that variable and
 # wins over the plain <code> line. In <text>, \n is a newline, and {session}
-# {var} {value} {constraint} {recorded} {requested} {state} {error} are
+# {var} {value} {constraint} {recorded} {requested} {state} {error} {live} {stranded} are
 # replaced with koto's fields, never evaluated. The wording follows what Phase 0
 # printed when it validated these flags in prose; `--intent=bogus`,
 # `--intent=none` and `--intent=unset` print the same text apart from the value.
@@ -26,3 +26,5 @@ unknown_var	{var} is not a /scope variable.
 var_mismatch	The live session {session} was started with {var}=`{recorded}`, and this invocation passed `{requested}`.\nRe-invoke with the recorded value, or without that flag to resume.
 template_mismatch	A live session named {session} was built from a different template, so this invocation cannot join it.\n/scope does not remove or cancel it; finish or remove that run first.
 origin_mismatch	A session named {session} belongs to another worktree or session store.\n/scope does not remove or cancel it; run /scope from the worktree that started it.
+replace_held_live	The finished run {session} is still held by the sessions around it, and work under it is still running: {live}.\n/scope did not replace it and changed nothing. Let that work finish, or cancel it, then re-invoke `/scope`.
+replace_failed	The finished run {session} could not be moved aside to make room for a fresh one, so nothing was replaced: {error}\nRe-invoke `/scope` to try again.
