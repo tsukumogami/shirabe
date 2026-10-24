@@ -67,6 +67,7 @@
 #   RS_RE_SESSION_ID  koto's id for a session, from its session list
 #   RS_RE_TOPIC       a PLAN topic
 #   RS_RE_AT          a writer's UTC timestamp
+#   RS_RE_SHA         a commit id, SHA-1 or SHA-256
 #
 # "Not found" is koto's answer about an address, not a failure to read it.
 # With the workspace option, the canonical form of the shared address this
@@ -91,6 +92,7 @@ RS_RE_RUN_ID='^[0-9a-f]{32}$'
 RS_RE_SESSION_ID='^[A-Za-z0-9-]{1,64}$'
 RS_RE_TOPIC='^[a-z0-9-]{1,100}$'
 RS_RE_AT='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+RS_RE_SHA='^[0-9a-f]{40}([0-9a-f]{24})?$'
 
 rs_valid_owner() {
     [[ $1 =~ $RS_RE_OWNER ]] && [ "${#1}" -le 39 ]

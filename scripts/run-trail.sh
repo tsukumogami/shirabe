@@ -51,7 +51,9 @@
 #          {step, actor, choice, rationale, alternatives_considered, at}, and
 #          the same choice, rationale and alternatives through
 #          `koto decisions record`, which keeps no actor of its own. NAME is a
-#          session name (the agent's own run), LOGIN a GitHub login.
+#          session name (the agent's own run), LOGIN a GitHub login. The
+#          trail key is written first; a koto copy that then fails is 70, and
+#          a retry records the decision again under the next n.
 #   snapshot --session S
 #          reads only: every `trail/` key of S but `trail/self`, as one JSON
 #          object {key: value} on stdout, each value its exact bytes. A key
@@ -98,7 +100,6 @@ PLUGIN_DIR=$(CDPATH='' cd "$SELF_DIR/.." && pwd) || exit 64
 TEMPLATE="$PLUGIN_DIR/koto-templates/skill-session.md"
 
 RT_RE_PLAN='^docs/plans/PLAN-[a-z0-9-]+\.md$'
-RT_RE_SHA='^[0-9a-f]{40}([0-9a-f]{24})?$'
 RT_TEXT_MAX=16384
 RT_DOC_MAX=65536
 RT_PLAN_MAX=262144
@@ -344,7 +345,7 @@ case "$VERB" in
         tmpdir
         git show "HEAD:$PLAN" > "$TMP/plan.md" </dev/null || refuse "no $PLAN at HEAD; nothing written"
         SHA=$(git rev-parse --verify HEAD </dev/null) || failed "could not read HEAD"
-        [[ $SHA =~ $RT_RE_SHA ]] || failed "HEAD [$SHA] is not a commit id"
+        [[ $SHA =~ $RS_RE_SHA ]] || failed "HEAD [$SHA] is not a commit id"
         SIZE=$(wc -c < "$TMP/plan.md" | tr -d ' ')
         [ "$SIZE" -le "$RT_PLAN_MAX" ] || refuse "$PLAN is over $RT_PLAN_MAX bytes; nothing written"
         has_secret "$TMP/plan.md" && refuse "$PLAN holds a credential shape (a private key, an Authorization: line or a token); nothing written"
@@ -424,12 +425,16 @@ case "$VERB" in
                    else error("alternatives_considered must be at most 20 non-empty strings of \($cap) bytes at most") end)
                else {} end)'
         N=$(next_n trail/decision/) || exit $?
-        koto decisions record "$SESSION" --with-data "$DOC" </dev/null >&2 \
-            || failed "koto decisions record failed in $SESSION"
+        # The trail key first: it is the record that names the actor, which
+        # koto's copy can't. A failure of the koto copy after it is 70, and
+        # running the call again records the decision a second time.
+        KOTO_DOC=$DOC
         DOC=$(jq -c --arg step "$STEP" --arg actor "$ACTOR" --arg at "$(now)" \
             '{step: $step, actor: $actor} + . + {at: $at}' <<<"$DOC") || failed "jq failed"
         printf '%s' "$DOC" | koto context add "$SESSION" "trail/decision/$N.json" \
             || failed "could not write trail/decision/$N.json in $SESSION"
+        koto decisions record "$SESSION" --with-data "$KOTO_DOC" </dev/null >&2 \
+            || failed "koto decisions record failed in $SESSION, after trail/decision/$N.json was written"
         ;;
     snapshot)
         tmpdir

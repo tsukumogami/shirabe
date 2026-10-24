@@ -65,7 +65,6 @@ SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 # shellcheck source=lib/record-store.sh
 . "$SELF_DIR/lib/record-store.sh" || exit 64
 
-RE_SHA='^[0-9a-f]{40}([0-9a-f]{24})?$'
 MAX_ENTRIES=20
 MAX_PRS=200
 MAX_STEPS=200
@@ -307,7 +306,7 @@ plan_ok() {
             and ((.entry | type) == "null" or ((.entry | type) == "string" and (.entry | test("[[:cntrl:]]") | not)))
         then .sha, .recorded_at else empty end' <<<"$1" 2>&1) || return 1
     { IFS= read -r sha; IFS= read -r at; } <<<"$fields"
-    [[ $sha =~ $RE_SHA ]] && [[ $at =~ $RS_RE_AT ]]
+    [[ $sha =~ $RS_RE_SHA ]] && [[ $at =~ $RS_RE_AT ]]
 }
 
 ROOT_WS=""; ROOT_SESS=""; ROOT_RUN=""; UNREACHABLE=0; FAILED=0

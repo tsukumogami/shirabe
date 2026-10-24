@@ -30,7 +30,7 @@
 #     disputed it is the record's actor, `agent:<session>` for --by agent (the
 #     default) and `person` for --by person. run-trail.sh writes it as the
 #     session's next `trail/decision/<n>.json`, against --step (the session
-#     name when it isn't given), and sends the same choice and rationale
+#     name, cut to a step id's 100 characters, when it isn't given), and sends the same choice and rationale
 #     through `koto decisions record`. The script prints
 #     `dispute=session-only`. It stays in the session and reaches no journal
 #     figure.
@@ -161,8 +161,10 @@ case "${BY:-agent}" in
     *) ACTOR="agent:$SESSION" ;;
 esac
 # The document reaches run-trail.sh on stdin only, never as an argument.
+# Without --step the session name stands in, cut to the step id's 100
+# characters.
 printf '%s' "$DATA" | "$BASH_CMD" "$SCRIPT_DIR/run-trail.sh" decision --session "$SESSION" \
-    --step "${STEP:-$SESSION}" --actor "$ACTOR" >&2
+    --step "${STEP:-${SESSION:0:100}}" --actor "$ACTOR" >&2
 RC=$?
 [ "$RC" -eq 0 ] || exit "$RC"
 printf 'dispute=session-only\n'
