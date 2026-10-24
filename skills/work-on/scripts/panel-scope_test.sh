@@ -1662,6 +1662,83 @@ jq -S '.decisions' "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/plan.a
 cmp -s "$WORKDIR/plan.before" "$WORKDIR/plan.after" \
     && pass "--plan writes the same decisions with batch events in the log" || fail "--plan decisions changed: $(diff "$WORKDIR/plan.before" "$WORKDIR/plan.after")"
 
+# --- edited tests: every seat judges each one ----------------------------------
+echo "--- --record: every seat judges each edited test"
+
+# te_fixture <name>: the fixture, with tests/t_test.sh (ten lines) and
+# tests/u_test.sh (three) committed and impl_base moved to that commit, then
+# one commit that removes a line of t_test.sh (an edit), appends one to
+# u_test.sh (an addition) and changes src/a.sh.
+te_fixture() {
+    fixture "$1"
+    (cd "$FX/repo" && mkdir -p tests && seq 1 10 > tests/t_test.sh && seq 1 3 > tests/u_test.sh \
+        && git add -A && git commit -q -m "test: base tests" && git rev-parse HEAD) > "$SHIM_STORE/$SESSION/impl_base" 2>/dev/null
+    (cd "$FX/repo" && sed -i.bak '2d' tests/t_test.sh && rm -f tests/t_test.sh.bak && printf '4\n' >> tests/u_test.sh \
+        && seq 1 60 > src/a.sh && git commit -q -am "fix: correct t") >/dev/null 2>&1
+}
+T_OK='{"path":"tests/t_test.sh","judgment":"corrects"}'
+
+te_fixture te-unjudged
+run --plan scrutiny "$SESSION"
+printf '[{"seat":"completeness","findings":[],"test_edits":[%s]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[],"test_edits":[%s]}]\n' \
+    "$T_OK" "$T_OK" > "$WORKDIR/round.json"
+cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/te-ledger.before"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+ERRTXT=$(cat "$WORKDIR/stderr")
+[ "$RC" -eq 65 ] && pass "a round with a seat that didn't judge the edited test: exit 65" \
+    || fail "unjudged round: exit $RC ($ERRTXT)"
+case "$ERRTXT" in
+    *"rule review/test-edit-judgment"*"seat [justification] did not judge the edited test [tests/t_test.sh]"*)
+        pass "the refusal names the rule, the seat and the test" ;;
+    *) fail "the refusal reads [$ERRTXT]" ;;
+esac
+cmp -s "$WORKDIR/te-ledger.before" "$SHIM_STORE/$SESSION/verdict_ledger.json" \
+    && pass "a refused round leaves the ledger byte-identical" || fail "a refused round changed the ledger"
+case "$ERRTXT" in *u_test.sh*) fail "a test that only gained lines was asked for a judgment" ;;
+    *) pass "a test that only gained lines needs no judgment" ;; esac
+
+printf '[{"seat":"completeness","findings":[],"test_edits":[%s]},{"seat":"justification","findings":[],"test_edits":[{"path":"tests/t_test.sh","judgment":"fine"}]},{"seat":"intent","findings":[],"test_edits":[%s]}]\n' \
+    "$T_OK" "$T_OK" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+[ "$RC" -eq 65 ] && grep -q 'is not corrects or weakens' "$WORKDIR/stderr" \
+    && pass "a judgment other than corrects or weakens: exit 65" || fail "bad judgment: exit $RC ($(cat "$WORKDIR/stderr"))"
+
+printf '[{"seat":"completeness","findings":[],"test_edits":[%s]},{"seat":"justification","findings":[],"test_edits":[%s]},{"seat":"intent","findings":[],"test_edits":[%s]}]\n' \
+    "$T_OK" "$T_OK" "$T_OK" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+[ "$RC" -eq 0 ] && pass "every seat judged the edited test corrects: recorded" || fail "corrects round: exit $RC ($(cat "$WORKDIR/stderr"))"
+L="$SHIM_STORE/$SESSION/verdict_ledger.json"
+[ "$(jq '[.findings[]] | length' "$L")" = 0 ] && pass "corrects judgments raise no finding" \
+    || fail "corrects judgments raised $(jq -c '[.findings[]]' "$L")"
+[ "$(jq -r '.seats["scrutiny/justification"].test_edits[0] | "\(.path) \(.judgment)"' "$L")" = "tests/t_test.sh corrects" ] \
+    && pass "each seat entry keeps its judgments" || fail "seat entry: $(jq -c '.seats["scrutiny/justification"]' "$L")"
+run --verdict scrutiny "$SESSION"
+[ "$RC" -eq 0 ] && pass "a corrects-only round passes the verdict" || fail "corrects round verdict: exit $RC"
+
+te_fixture te-weakens
+run --plan scrutiny "$SESSION"
+printf '[{"seat":"completeness","findings":[],"test_edits":[{"path":"tests/t_test.sh","judgment":"weakens","reason":"drops the check on line 2"}]},{"seat":"justification","findings":[],"test_edits":[%s]},{"seat":"intent","findings":[],"test_edits":[%s]}]\n' \
+    "$T_OK" "$T_OK" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+[ "$RC" -eq 0 ] && pass "a round with a weakens judgment is recorded" || fail "weakens round: exit $RC ($(cat "$WORKDIR/stderr"))"
+L="$SHIM_STORE/$SESSION/verdict_ledger.json"
+GOT=$(jq -r '[.findings[]] | .[0] | "\(.severity)|\(.raiser.name)|\(.rule_id)|\(.location.path)|\(.summary)"' "$L")
+[ "$GOT" = "blocking|completeness|review/test-edit-weakens|tests/t_test.sh|the edit to tests/t_test.sh weakens the test: drops the check on line 2" ] \
+    && pass "a weakens judgment is a blocking finding raised by that seat, under review/test-edit-weakens" \
+    || fail "weakens finding: $GOT"
+[ "$(jq -r '.seats["scrutiny/completeness"].verdict' "$L")" = blocking ] \
+    && pass "the seat that judged weakens is blocking" || fail "completeness verdict: $(jq -r '.seats["scrutiny/completeness"].verdict' "$L")"
+run --verdict scrutiny "$SESSION"
+[ "$RC" -eq 1 ] && pass "a weakens finding holds the panel's verdict" || fail "weakens verdict: exit $RC"
+case "$OUT" in *'"rule_id":"review/test-edit-weakens"'*) pass "the verdict prints it under review/test-edit-weakens" ;;
+    *) fail "the verdict printed [$OUT]" ;; esac
+
+# A change with no edited test records rounds with no test_edits, as before.
+fixture te-none
+run --plan scrutiny "$SESSION"
+record scrutiny '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]'
+[ "$RC" -eq 0 ] && pass "no edited test: a round without test_edits records" || fail "no edited test: exit $RC"
+
 # --- engine cases -------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -1685,6 +1762,11 @@ extract_block() {
 }
 QA_BLOCK=$(extract_block "$QA_PHASE" "koto context remove")
 [ -n "$QA_BLOCK" ] || { fail "could not extract the retry block from phase-4c-qa.md"; }
+
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 
 NEXT_STATE=""
 submit() {
@@ -1720,6 +1802,9 @@ engine_to_qa_retry() {
     # The full review level keeps all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
         || { fail "$s: review-level.sh set full failed"; return 1; }
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    koto next "$s" --no-cleanup >/dev/null 2>&1
     koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'

@@ -94,7 +94,7 @@ The gate runs as follows:
 Outcomes:
 
 - **Passed** — every selected command ran and passed. The workflow advances to
-  finalization.
+  `pass_counting` (see **Fixes Start Red**), then finalization.
 - **Failed** — a command ran and did not pass. The workflow returns to implementation to
   fix the failure; a failing verification never advances toward a clean finalization.
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
@@ -135,8 +135,8 @@ never a silent skip:
   `verification_deferral`. A deferral with no reason ends at `done_blocked`; it
   neither runs the map nor goes on unexplained.
 - **The run still finishes.** From `verification_deferred` the run goes through
-  `finalization` and opens its pull request as any other, and its result carries
-  `pr`.
+  `pass_counting` and `finalization` and opens its pull request as any other, and
+  its result carries `pr`.
 - **The record is the run's, and the body says it plainly.** `verification_deferral`
   in context is the record, and the PR body's Verification section says hosted CI
   verified the change. A repository that opts in to workflow content (see **Pull
@@ -146,6 +146,50 @@ never a silent skip:
   `Reason: <reason>`, and says hosted CI is the build of record
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
+
+### Fixes Start Red
+
+A unit whose purpose is to correct behaviour reported as wrong is a **fix**, and a
+fix starts from a check that fails for the reported reason, recorded before the
+correcting change, and ends with that check passing. `references/red-first.md` has
+the rules; this is the route.
+
+- **`fix_determination`**, after the review level is chosen and before
+  implementation. Its action, `scripts/fix-kind.sh resolve`, records the unit as a
+  fix when its issue carries a label the repository's `## Fix Labels:` lists (`bug`
+  by default) or its plan step has a `**Fixes**:` line (`FIX_REPORT`), and as a
+  change otherwise. The run adds a fix itself with `fix-kind.sh declare --reason`
+  when the report describes existing behaviour as wrong. A fix is never withdrawn.
+  A change goes straight to implementation and owes nothing more.
+- **`reproduce`**, for a fix. The run commits its reproducing test and records the
+  red with `scripts/red-first.sh red`: the check run on the base code with the
+  unit's committed tests applied, failing, with a marker found in a verbatim
+  passage of the report and in the output. A bug no check can reproduce records a
+  before-observation instead. `red_recorded` holds the run here until one exists.
+- **`pass_counting`**, after every passing check (verification's exit 0, or a
+  deferral to hosted CI). A fix needs its green, the red's command re-run at HEAD
+  with `red-first.sh green` and exiting 0, before `fix_green` lets it finalize.
+  `tests_counted` (`scripts/test-change.sh status`) holds a unit whose committed
+  diff edits a test (removes a line, deletes it, renames it with a change) or
+  that rests on observations, until someone other than the run accepts it. In a
+  repository that isn't person-required the run mints an acceptance seat with
+  `test-change.sh seat`, commissions it with the brief the script prints, and the
+  seat accepts or declines under its minted identity; nothing waits for a person.
+  A decline returns the run to implementation, and the third decline of the same
+  tests ends it at `done_blocked`. A unit that only adds tests is counted at once.
+  A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` takes
+  no seat: the run stops at `pass_counting`, `status` prints the exact
+  `test-change.sh accept` command a person runs in a terminal, and the run is
+  resumed once they have. A higher authority can overrule an acceptance with
+  `test-change.sh overrule`, before or after the run finished.
+- **`pr_precheck`** re-runs `status` as `tests_still_counted`, so a commit made
+  after counting that edits a test is held again (`precheck_status: recount`
+  goes back to `pass_counting`).
+- **`ci_pass_counting`**, after CI passes on the open pull request. The same two
+  gates run again, since a commit that fixed CI may have edited a test; a decline
+  returns the run to `ci_monitor`. Who accepted, under what authority, reads back
+  from the session with `test-change.sh record`; nothing is written to the pull
+  request.
 
 ### Finalization and No Silent Deferral
 
@@ -241,6 +285,8 @@ When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the
 - `ARTIFACT_PREFIX`: workflow name for this child
 - `PLAN_DOC`: path to the parent PLAN document
 - `ISSUE_TYPE`: issue type hint (`code`, `docs`, or `task`) from the PLAN outline's `**Type**:` field
+- `FIX_REPORT`: a step's `**Fixes**:` line, when it has one; the step is then a fix
+  and the line is its report (see **Fixes Start Red**)
 
 Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
 
@@ -491,7 +537,7 @@ leg, since one leg answers one session.
 - `scripts/session-role.sh <session-name>` — prints `root` or `child`, from
   koto's `parent_workflow`. The discriminator for any `/work-on` behaviour that
   must differ between a directly-invoked run and one materialized as a child of
-  `/execute`; its one caller today is `ci_monitor`'s `is_root` gate, which
+  `/execute`; its one caller today is `ci_pass_counting`'s `is_root` gate, which
   sends a root to the cascade and a child to `done`. Call it as
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, and
   **treat any answer that is not exactly `root` as `child`** — that is what
@@ -567,6 +613,33 @@ leg, since one leg answers one session.
   ledger's last level before it attaches a live session. The script's header has every subcommand's
   exit codes; `scripts/review-level_test.sh` and `scripts/review-level-routes_test.sh`
   are its harnesses.
+- `scripts/fix-kind.sh resolve|declare|withdraw|agree|kind` — whether the unit is a
+  fix (`references/red-first.md`). koto runs `resolve` as `fix_determination`'s
+  action and `agree` as its `kind_unchanged` gate; the agent runs `declare
+  <session> --reason <why>` to make the unit a fix. It rebinds `UNIT_KIND` and
+  appends to the `fix_kind.jsonl` ledger together, and refuses (exit 1) to make a
+  fix a change. Its rebind passes `REVIEW_LEVEL` and `PLUGIN_ROOT` through, since
+  an attach resets every rebind variable it leaves out. Exit codes are in its
+  header; `scripts/fix-kind_test.sh` is its harness.
+- `scripts/red-first.sh red|observe|green|check-red|check-green` — a fix's red,
+  observations and green, in context as `red_first.json`. The agent runs `red`
+  at `reproduce` and `green` at `pass_counting`; koto runs `check-red` and
+  `check-green` as the `red_recorded` and `fix_green` gates, which report
+  `red-first/no-red` and `red-first/no-green`. `scripts/red-first_test.sh` and
+  `scripts/red-first-routes_test.sh` are its harnesses.
+- `scripts/test-change.sh init|classify|note|seat|accept|decline|overrule|status|covered|record`
+  — the held test change (`references/red-first.md`), the only writer of the
+  `test_change_ledger.jsonl` context key. koto runs `init --entry` in
+  `fix_determination`'s action and `status` as `pass_counting`'s and
+  `ci_pass_counting`'s `tests_counted` gate and `pr_precheck`'s
+  `tests_still_counted` (finding `test-change/held`); the agent runs `note` while
+  implementing and `seat` at a hold, and the seat runs `accept` or `decline`. A
+  person runs `accept` at a terminal, a coordinator or person `overrule`, and
+  anyone `record` to read the ledger back. Every decision is
+  asked of `scripts/lib/acceptance-rule.sh`, the interim rule, which a later
+  shared decision rule replaces in that one file. Exit codes are in its header;
+  `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
+  `scripts/lib/acceptance-rule_test.sh` are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
   maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live
@@ -684,6 +757,14 @@ move inside a run.
 ### Review Panel
 
 Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation`, `light_review` — require parallel spawns, not standard directive execution).
+
+An edited test is reviewed apart from an added one. A change that edits a test (removes
+or changes a line, deletes it, renames it with a change) floors at `full`
+(`tests_edited`); one that only adds tests floors at `standard`. The code packet lists
+added and edited tests in its own `## Test changes` section, with the edited hunks;
+every seat that runs judges each edited test as `corrects` or `weakens` in its
+`test_edits`, `panel-scope.sh --record` refuses a round that skips one, and a `weakens`
+is a blocking finding raised by that seat. None of it reaches the pull request.
 
 ### Resume
 

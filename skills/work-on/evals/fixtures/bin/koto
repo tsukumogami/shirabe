@@ -160,11 +160,11 @@ case "$ARGS" in
     ;;
   *"session list"*)
     # scripts/session-role.sh reads koto's parent_workflow field from here to
-    # tell a root run from a materialized child, for ci_monitor's session_role.
+    # tell a root run from a materialized child, for ci_pass_counting's is_root.
     #
     # The empty listing makes session-role.sh report `child`, which skips the
     # cascade. That is the correct default for a fixture-driven run: no
-    # scenario that reaches ci_monitor asserts a cascade, and skipping is the
+    # scenario that reaches ci_pass_counting asserts a cascade, and skipping is the
     # direction that cannot delete anything.
     #
     # It returns a listing rather than falling through to the no-match error

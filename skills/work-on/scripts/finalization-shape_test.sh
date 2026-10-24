@@ -66,6 +66,10 @@ case "$PLUGIN_ROOT" in
         PLUGIN_ROOT="$WORKDIR/plugin"
         ;;
 esac
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 
 # scrutiny gates on commits since impl_base, the commit analysis records as the
 # run's start. The fixture's `feat: work` commit stands for the run's own
@@ -179,6 +183,9 @@ to_finalization() {
     put "$1" impl_base "$BASE_SHA"
     # The full review level keeps all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    koto next "$1" --no-cleanup >/dev/null 2>&1
     koto next "$1" --no-cleanup >/dev/null 2>&1
     submit "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'

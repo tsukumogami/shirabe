@@ -163,7 +163,22 @@
 #     "findings": [{"severity": "blocking", "summary": "...",
 #                   "path": "src/a.sh", "lines": "12-12", "rule_id": "<optional>"}],
 #     "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed",
-#                  "reason": "...", "path": "<optional new location>"}]}]
+#                  "reason": "...", "path": "<optional new location>"}],
+#     "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects|weakens",
+#                     "reason": "<optional>"}]}]
+#
+# `test_edits` judges the unit's edited tests: the paths
+# scripts/lib/test-classify.sh's test_classify_unit labels `edited` from
+# impl_base (else the merge-base review-packet.sh falls back to) to HEAD, with
+# the session's stored rules copy and, for a fix, the red's record, so they are
+# the tests the packet's `## Test changes` section listed as edited. Every real
+# seat of the panel in the round must judge each one `corrects` or `weakens`;
+# a round where one doesn't is refused whole (65, naming rule
+# review/test-edit-judgment), and so is a judgment with any other value. Each
+# `weakens` is recorded as a blocking finding raised by that seat, under rule
+# review/test-edit-weakens, with the reason in its summary, and closes like any
+# other finding of that seat. The seat entry keeps its judgments as
+# `test_edits`. The re-verifier and decider entries judge no test edit.
 #
 # `run` is required: when the scope's decision for the seat names a run, the
 # entry must name the same one, and no run is recorded twice. A decision that
@@ -388,7 +403,10 @@ ctx_get() {
     fi
 }
 
-REGISTRY="$(cd "$(dirname "$0")/../../.." && pwd)/scripts/rule-registry.sh"
+PLUGIN_ROOT_PS="$(cd "$(dirname "$0")/../../.." && pwd)"
+REGISTRY="$PLUGIN_ROOT_PS/scripts/rule-registry.sh"
+# shellcheck source=../../../scripts/lib/test-classify.sh
+. "$PLUGIN_ROOT_PS/scripts/lib/test-classify.sh" || refuse 64 "cannot load scripts/lib/test-classify.sh"
 
 # The jq every mode that reads or writes findings shares: the shapes --record
 # accepts, a finding's id string, its status, whether it is closed, and the
@@ -653,6 +671,41 @@ store_ledger() {
     put "$LEDGER" "$1"
 }
 
+# edited_tests: the unit's edited test paths on stdout, one per line, as
+# scripts/lib/test-classify.sh's test_classify_unit labels them: from
+# impl_base (else the merge-base with origin's default branch, else with local
+# main, the order review-packet.sh takes, so the round asks for what the packet
+# listed) to HEAD, with the session's stored rules copy (else the shipped
+# rules file) and, for a fix, the red's record. Exits 65 when no base resolves
+# or the classifier fails: a round can't be checked for judgments it can't
+# name.
+edited_tests() {
+    local base="" stored ref
+    stored=$(ctx_get impl_base | tr -d '[:space:]')
+    if [ -n "$stored" ]; then
+        base=$(git rev-parse --verify -q "${stored}^{commit}") || base=""
+    fi
+    if [ -z "$base" ]; then
+        ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
+        if [ -z "$ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
+            ref=origin/main
+        fi
+        [ -z "$ref" ] || base=$(git merge-base HEAD "$ref" 2>>"$WORK/tc.err") || base=""
+    fi
+    if [ -z "$base" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
+        base=$(git merge-base HEAD main 2>>"$WORK/tc.err") || base=""
+    fi
+    [ -n "$base" ] || die 65 "no base to tell the change's edited tests by (no impl_base and no merge-base), so the round's test_edits can't be checked"
+    ctx_get review_level_rules.tsv > "$WORK/tc_rules"
+    [ -s "$WORK/tc_rules" ] || cp "$PLUGIN_ROOT_PS/skills/work-on/references/review-level-rules.tsv" "$WORK/tc_rules" \
+        || die 65 "no rules file to tell test files by"
+    awk -F '\t' '$1 == "class" && $2 == "test" && $3 != "" { f = 1 } END { exit !f }' "$WORK/tc_rules" || return 0
+    ctx_get red_first.json > "$WORK/tc_red"
+    test_classify_unit "$base" "$HEAD" "$WORK/tc_rules" "$WORK/tc_red" > "$WORK/tc_rows" 2>"$WORK/tc.err" \
+        || die 65 "could not classify the change's test files: $(head -n 1 "$WORK/tc.err")"
+    awk -F '\t' '$1 == "edited" { print $2 }' "$WORK/tc_rows"
+}
+
 # ---------------------------------------------------------------- --mark-fixed
 
 # The agent's claim that it fixed findings, by id: one `fixed` record each,
@@ -766,6 +819,31 @@ if [ "$MODE" = "--record" ]; then
         "$REGISTRY" ref "$rid" >/dev/null 2>&1 || die 65 "round file [$ROUND_FILE] names rule [$rid], which is not an active registry entry"
     done
 
+    # Every seat of the panel that ran judges every edited test as corrects or
+    # weakens (rule review/test-edit-judgment). The edited tests are the shared
+    # classifier's, so the round asks for the same tests the packet listed.
+    edited_tests > "$WORK/edited_tests"
+    problems=$(jq -r --rawfile edited "$WORK/edited_tests" --arg seats "$SEATS" '
+        ($edited | split("\n") | map(select(. != ""))) as $E
+        | ($seats | split(" ")) as $real
+        | .[] | select((.seat? | type) == "string" and (.seat as $s | $real | index($s)) != null) | . as $e
+        | if (.test_edits // []) | type != "array" then "seat [\(.seat)]: test_edits is not an array"
+          else
+            ( (.test_edits // [])[]
+              | if type != "object" then "seat [\($e.seat)]: a test_edits entry is not an object"
+                elif (.path | type) != "string" or .path == "" then "seat [\($e.seat)]: a test_edits entry has no path"
+                elif (.judgment != "corrects" and .judgment != "weakens") then
+                    "seat [\($e.seat)]: the judgment of [\(.path)] is not corrects or weakens"
+                elif (.reason // "") != "" and ((.reason | type) != "string" or (.reason | utf8bytelength) > 1000) then
+                    "seat [\($e.seat)]: the reason for [\(.path)] is not a string of at most 1000 bytes"
+                else empty end ),
+            ( $E[] as $p
+              | select([($e.test_edits // [])[] | select(type == "object" and .path == $p)] | length == 0)
+              | "seat [\($e.seat)] did not judge the edited test [\($p)] as corrects or weakens" )
+          end' "$ROUND_FILE" 2>"$WORK/jq.err") \
+        || die 65 "could not read the test_edits in round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused, rule review/test-edit-judgment: $(head -n 5 <<<"$problems" | paste -sd ';' -)"
+
     # A decider entry is accepted only when koto's own log holds the event it
     # names, and each event backs one entry: the log is koto's to write, so a
     # round file alone can't mint a decider verdict.
@@ -854,6 +932,21 @@ if [ "$MODE" = "--record" ]; then
         "$REGISTRY" ref "$rid" >/dev/null || die 65 "koto's log has a decider verdict on [$rid], which is not an active registry entry"
     done
     ROUND_FILE="$WORK/round"
+
+    # A seat that judged an edited test `weakens` raised a blocking finding on
+    # it, under rule review/test-edit-weakens; it is recorded and closed like
+    # any other finding of that seat.
+    jq --rawfile edited "$WORK/edited_tests" --arg seats "$SEATS" '
+        ($edited | split("\n") | map(select(. != ""))) as $E
+        | ($seats | split(" ")) as $real
+        | map(if (.seat? | type) == "string" and (.seat as $s | $real | index($s)) != null then
+                .findings = ((.findings // [])
+                    + [ (.test_edits // [])[] | select(.judgment == "weakens" and (.path as $p | $E | index($p)) != null)
+                        | {severity: "blocking", path: .path, rule_id: "review/test-edit-weakens",
+                           summary: ("the edit to " + .path + " weakens the test"
+                                     + (if (.reason // "") != "" then ": " + (.reason | .[0:800]) else "" end))} ])
+              else . end)' "$ROUND_FILE" > "$WORK/round.judged" || die 65 "could not add the test-edit findings"
+    mv "$WORK/round.judged" "$WORK/round"
 
     # The id of every finding raised this round: a hash of panel, raiser kind
     # and name, path and whitespace-collapsed summary. jq builds the string and
@@ -973,6 +1066,7 @@ if [ "$MODE" = "--record" ]; then
                     | ((.seats[$k].finding_locations // []) | carry($seat)) as $old_locs
                     | .seats[$k] = ((.seats[$k] // {}) + {
                         panel: $panel, seat: $seat, judged_at: $head, rev: .rev, ac_sha: $ac,
+                        test_edits: [($e.test_edits // [])[] | {path, judgment}],
                         cited: ($old_cited + (($e.cited // []) | norm) | unique),
                         finding_locations: ($old_locs
                             + ([($e.findings // [])[] | select(.path) | {path, lines}] | norm) | unique)})

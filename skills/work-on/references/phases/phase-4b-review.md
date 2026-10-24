@@ -12,6 +12,8 @@ Spawn all three simultaneously using the Task tool:
 - **Architect reviewer**: Does the implementation fit the design structure? Are interface contracts and dependency directions correct?
 - **Maintainer reviewer**: Can the next developer understand and modify this code? Are naming, implicit contracts, and context clear? Where a non-obvious decision was made — an approach rejected, a constraint forcing a shape, a load-bearing ordering — does a comment record *why*, and is it still true of the code beside it? A stale why-comment is worse than none.
 
+Every seat also judges each test the packet's `## Test changes` section lists as edited: does the edit correct a test that checked the wrong thing (`corrects`), or does it check less than before, or something easier to pass (`weakens`)? It returns one `test_edits` item per edited test, with its path, judgment and a one-line reason, in the entry `phase-4a-scrutiny.md` shows. `--record` refuses a round in which a seat skipped an edited test, and records each `weakens` as a blocking finding raised by that seat (`../review-panel-orchestration.md`, "Edited tests"). A test the section lists as added needs no judgment.
+
 ## Which Seats Run
 
 On entering `review`, koto runs `scripts/panel-scope.sh --plan review` and writes `review_scope.json`. The decisions mean what they mean in `phase-4a-scrutiny.md`: in a full round every seat is `full` and answers its own unclosed findings by id; any other round keeps every seat and plans at most one run, the re-verifier (seat `reverifier`, decision `recheck`), which answers each due finding by id and, when its decision carries `fix_review`, reviews the fix diff. It gets the `recheck` packet on the commissioning line above and the re-check prompt in `review-seat-commissioning.md`. Spawn only the decisions that aren't `keep`, whatever the Reviewers section above says about spawning all three. When nothing runs and no blocking finding is unclosed, koto writes a carried `review_results.json` and moves on (to `qa_validation`, or to `verification` at `standard`) without stopping here. `phase-4a-scrutiny.md` explains why the scope is the script's to set.
@@ -30,6 +32,7 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
   "summary": "<1-3 paragraphs>",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
   "findings": [{"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
+  "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```

@@ -29,7 +29,11 @@
 # carries no `**Dependencies**:` line, so it waits on the step before it: a
 # fresh step plan then runs in step order, and no outline step's child becomes
 # startable ahead of the step whose work its detail will draw on. A detailed
-# step keeps the edges its own `**Dependencies**:` line declares.
+# step keeps the edges its own `**Dependencies**:` line declares. A step with
+# a `**Fixes**:` line carries it as vars.FIX_REPORT, read from the PLAN here
+# because the envelope doesn't hold it: the step's run is then a fix and the
+# line is its report (skills/work-on/references/red-first.md). A line with a
+# character koto refuses in a variable value is refused (exit 2).
 #
 # Usage:
 #   plan-to-tasks.sh <PLAN.md-path>
@@ -498,6 +502,41 @@ load_outline_envelope() {
     OUTLINE_BIN="$bin"
 }
 
+# step_fixes_line <plan> <N>: the text of step <N>'s `**Fixes**:` line (the
+# colon inside or outside the bold), trimmed; nothing when the step has none.
+# The step's block runs from its `### Step <N>:` heading under `## Steps` to
+# the next `### Step` or `## ` heading, and a line inside a fenced code block
+# is never the declaration.
+step_fixes_line() {
+    awk -v n="$2" '
+        /^(```|~~~)/ { fence = !fence; next }
+        fence { next }
+        /^## / { insteps = ($0 ~ /^## Steps[ \t]*$/); inside = 0; next }
+        insteps && /^### Step [0-9]+:/ {
+            num = $3; sub(/:$/, "", num)
+            inside = (num == n)
+            next
+        }
+        inside && /^\*\*Fixes(\*\*:|:\*\*)/ {
+            line = $0
+            sub(/^\*\*Fixes(\*\*:|:\*\*)[ \t]*/, "", line)
+            sub(/[ \t\r]+$/, "", line)
+            print line
+            exit
+        }
+    ' "$1"
+}
+
+# valid_fix_report <text>: true when every character is one koto accepts in a
+# variable value (^[a-zA-Z0-9._/:@+ \-]*$). A step's Fixes line becomes the
+# child's FIX_REPORT, and koto refuses the whole child at init otherwise.
+valid_fix_report() {
+    case "$1" in
+        *[!a-zA-Z0-9._/:@+\ -]*) return 1 ;;
+    esac
+    return 0
+}
+
 # The optional fourth argument selects the naming: `slug` (the default) names
 # each task from its title, `step` names it `step-<N>` from the step number,
 # which the parser has already bounded to 1..999. A `plan/v2` step plan comes
@@ -796,24 +835,32 @@ process_single_pr() {
         local waits_json
         waits_json=$(array_to_json "${waits_on[@]+"${waits_on[@]}"}")
 
-        # Build the vars object. Always include ISSUE_SOURCE and ARTIFACT_PREFIX.
-        # Include ISSUE_TYPE only when the outline specifies a **Type**: annotation.
-        if [[ -n "$issue_type" ]]; then
-            json_entries+=("$(jq -n \
-                --arg name "$name" \
-                --arg issue_source "$issue_source" \
-                --arg artifact_prefix "$name" \
-                --arg issue_type "$issue_type" \
-                --argjson waits_on "$waits_json" \
-                '{name: $name, vars: {ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix, ISSUE_TYPE: $issue_type}, waits_on: $waits_on}')")
-        else
-            json_entries+=("$(jq -n \
-                --arg name "$name" \
-                --arg issue_source "$issue_source" \
-                --arg artifact_prefix "$name" \
-                --argjson waits_on "$waits_json" \
-                '{name: $name, vars: {ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix}, waits_on: $waits_on}')")
+        # A step's **Fixes**: line declares it a fix and is its report; the
+        # child receives it as FIX_REPORT (work-on.md). Steps only: a plan/v1
+        # outline has no such line.
+        local fix_report=""
+        if [[ "$naming" == "step" ]]; then
+            fix_report=$(step_fixes_line "$file" "${issue_numbers[$i]}")
+            if [[ -n "$fix_report" ]] && ! valid_fix_report "$fix_report"; then
+                die_schema "step ${issue_numbers[$i]}'s **Fixes**: line uses a character koto refuses in a variable value; write it with letters, digits, spaces and . _ / : @ + - only, since it reaches the step's run as FIX_REPORT and a red's passage is checked against it verbatim"
+            fi
         fi
+
+        # Build the vars object. Always include ISSUE_SOURCE and ARTIFACT_PREFIX.
+        # Include ISSUE_TYPE only when the outline specifies a **Type**: annotation,
+        # and FIX_REPORT only when the step has a **Fixes**: line.
+        json_entries+=("$(jq -n \
+            --arg name "$name" \
+            --arg issue_source "$issue_source" \
+            --arg artifact_prefix "$name" \
+            --arg issue_type "$issue_type" \
+            --arg fix_report "$fix_report" \
+            --argjson waits_on "$waits_json" \
+            '{name: $name,
+              vars: ({ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix}
+                     + (if $issue_type != "" then {ISSUE_TYPE: $issue_type} else {} end)
+                     + (if $fix_report != "" then {FIX_REPORT: $fix_report} else {} end)),
+              waits_on: $waits_on}')")
     done
 
     printf '%s\n' "${json_entries[@]}" | jq -s .

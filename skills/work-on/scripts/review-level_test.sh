@@ -107,15 +107,17 @@ case "$1" in
         esac
         ;;
     init)
-        s="$2"; v=""; attach=0
+        s="$2"; v=""; u="-"; attach=0
         for a in "$@"; do
             case "$a" in
                 --attach-live) attach=1 ;;
                 REVIEW_LEVEL=*) v="${a#REVIEW_LEVEL=}" ;;
+                UNIT_KIND=*) u="${a#UNIT_KIND=}" ;;
             esac
         done
         mkdir -p "$SHIM_STORE/$s"
         echo "$v" >> "$SHIM_STORE/$s/.initlog"
+        echo "$u" >> "$SHIM_STORE/$s/.unitlog"
         [ "$attach" -eq 1 ] || { echo "koto shim: init without --attach-live" >&2; exit 2; }
         if [ -n "${SHIM_FAIL_INIT:-}" ]; then
             echo '{"code":"template_mismatch","error":"refused"}'; exit 2
@@ -442,6 +444,22 @@ expect_rc "a set to the ledger's level" 0
 [ "$(ledger)" = "$LB" ] && pass "it appends nothing" || fail "it appended [$(ledger | tail -n 1)]"
 agree "after a set to the ledger's level"
 
+echo "--- script: a level change keeps the fix determination"
+
+# An attach resets every rebind variable it doesn't pass, so a set after
+# fix_determination passes UNIT_KIND as the fix-kind ledger records it, and
+# leaves it out while no kind is recorded.
+fixture keep-kind
+run init "$SESSION" "" ""
+run set "$SESSION" light
+[ "$(tail -n 1 "$(store .unitlog)")" = "-" ] && pass "before a determination, set passes no UNIT_KIND" \
+    || fail "set passed UNIT_KIND [$(tail -n 1 "$(store .unitlog)")] with no determination"
+printf '{"ts":"t","event":"determine","kind":"fix","source":"label:bug"}\n' > "$(store fix_kind.jsonl)"
+run set "$SESSION" standard
+expect_rc "a raise after a fix determination" 0
+[ "$(tail -n 1 "$(store .unitlog)")" = fix ] && pass "a raise after a fix determination passes UNIT_KIND=fix" \
+    || fail "the raise passed UNIT_KIND [$(tail -n 1 "$(store .unitlog)")]"
+
 # ==============================================================================
 echo "--- script: facts on fixture commits"
 
@@ -487,6 +505,69 @@ facts_case rename-edit 'git mv docs/readme.md docs/guide.md && printf "x\n" >> d
     '{"lines":1,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
 facts_case deletion 'git rm -q docs/other.md' \
     '{"lines":10,"files":1,"classes":["docs"],"tests_changed":false,"criteria_changed":false,"floor":"light"}'
+
+echo "--- script: an edited test floors at full, an added one at standard"
+
+# edited_case <name> <change> <expected tests_edited> <expected floor>: one
+# fixture whose base already holds tests/a_test.sh (ten lines), then <change>.
+# The same fixture change every time, so only the shape of the test change
+# differs between the cases.
+edited_case() {
+    fixture "te-$1"
+    commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+    (cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+    run init "$SESSION" "" ""
+    commit "$1" "printf 'y\n' >> scripts/old.sh && $2"
+    run facts "$SESSION" light
+    if [ "$RC" -ne 0 ]; then fail "edited $1: exit $RC ($ERR)"; return; fi
+    local got
+    got=$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')
+    [ "$got" = "$3 $4" ] && pass "$1: tests_edited $3, floor $4" \
+        || fail "$1: got [$got], expected [$3 $4] ($(fact '{classes, rule, rules_fired}'))"
+}
+edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
+edited_case changes-a-line "sed -i.bak 's/^5\$/five/' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
+edited_case deleted 'git rm -q tests/a_test.sh' true full
+edited_case gains-lines 'printf "11\n12\n" >> tests/a_test.sh' false standard
+edited_case new-test-file 'seq 1 5 > tests/b_test.sh' false standard
+edited_case no-test 'true' false standard
+[ "$(fact .rule)" = '"class:executable"' ] && pass "no test change: the executable rule sets the floor" \
+    || fail "no test change: rule is $(fact .rule)"
+edited_case loses-a-line "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak" true full
+[ "$(fact .rule)" = '"tests_edited"' ] && pass "an edited test: the rule is tests_edited" \
+    || fail "an edited test: rule is $(fact .rule)"
+
+# A fix's reproducing test, changed after its red, is edited even when it only
+# gained lines: the same classifier the hold uses reads the red's record.
+fixture te-red
+commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+run init "$SESSION" "" ""
+commit repro 'seq 1 3 > tests/r_test.sh'
+RBLOB=$(cd "$FX/repo" && git rev-parse HEAD:tests/r_test.sh)
+jq -n --arg b "$RBLOB" '{red: {tests: [{path: "tests/r_test.sh", blob: $b}], harness: []}}' > "$(store red_first.json)"
+run facts "$SESSION" light
+[ "$(fact .tests_edited)" = false ] && pass "a reproducing test unchanged since the red is not edited" \
+    || fail "tests_edited is $(fact .tests_edited) before any change after the red"
+commit after-red 'printf "4\n" >> tests/r_test.sh'
+run facts "$SESSION" light
+[ "$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')" = "true full" ] \
+    && pass "a reproducing test that gained a line after the red is edited, floor full" \
+    || fail "after the red: $(fact '{tests_edited, floor}')"
+
+# A rules copy stored before the tests_edited rule existed keeps its own floor:
+# the fact is recorded, but no rule in that copy fires on it.
+fixture te-old-rules
+commit base-test 'mkdir -p tests && seq 1 10 > tests/a_test.sh'
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+run init "$SESSION" "" ""
+grep -v '^rule	full	tests_edited$' "$(store review_level_rules.tsv)" > "$WORKDIR/old-rules.tsv"
+cp "$WORKDIR/old-rules.tsv" "$(store review_level_rules.tsv)"
+commit edit "sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak"
+run facts "$SESSION" light
+[ "$(fact '"\(.tests_edited) \(.floor)"' | tr -d '"')" = "true standard" ] \
+    && pass "an older stored rules copy records tests_edited but floors by its own rules" \
+    || fail "with an older rules copy: $(fact '{tests_edited, floor}')"
 
 fixture facts-criteria-text
 run init "$SESSION" "" ""
@@ -857,12 +938,12 @@ done
     && pass "slice states the order of the levels" || fail "slice is [$OUT]"
 [ "$(printf '%s\n' "$OUT" | tail -n 1)" = "level: light" ] && pass "slice ends with the level line" || fail "slice is [$OUT]"
 GOT=$(printf '%s\n' "$OUT" | sed -n 1p | jq -c 'keys')
-[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed","unclassified"]' ] \
+[ "$GOT" = '["classes","criteria_changed","files","floor","lines","tests_changed","tests_edited","unclassified"]' ] \
     && pass "slice's first line is the fixed projection" || fail "slice keys are $GOT"
 # The definitions the question judges against, from the shipped rules that
 # init stored: what the facts call for at full, standard and light, then the
 # floor.
-WANT_DEFS='the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12
+WANT_DEFS='the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12; or tests_edited
 the facts call for standard when classes has instruction, executable, test or manifest; or unclassified; or criteria_changed; or lines > 40
 the facts call for light otherwise
 floor: the most thorough level the facts call for'
@@ -886,7 +967,7 @@ sed -e 's/^rule	full	lines>400$/rule	full	lines>300/' -e 's/^rule	standard	class
     "$RULES" > "$(store review_level_rules.tsv)"
 run slice "$SESSION" light
 expect_rc "slice with an edited stored copy" 0
-[ "$(printf '%s\n' "$OUT" | sed -n 3p)" = "the facts call for full when classes has ci, security, template, engine or manifest; or lines > 300; or files > 12" ] \
+[ "$(printf '%s\n' "$OUT" | sed -n 3p)" = "the facts call for full when classes has ci, security, template, engine or manifest; or lines > 300; or files > 12; or tests_edited" ] \
     && pass "slice renders the stored copy's rules" || fail "slice line 3 is [$(printf '%s\n' "$OUT" | sed -n 3p)]"
 printf 'rule\tfull\tbogus\n' > "$(store review_level_rules.tsv)"
 run slice "$SESSION" light
@@ -921,7 +1002,7 @@ OUT=$("$SCRIPT" project "$WORKDIR/facts-copy.json" light 2>&1); RC=$?
 
 printf '%s' '{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"criteria_changed":false,"unclassified":false,"floor":"standard"}' > "$WORKDIR/known.json"
 OUT=$("$SCRIPT" project "$WORKDIR/known.json" full 2>&1)
-KNOWN_HEAD='{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"criteria_changed":false,"unclassified":false,"floor":"standard"}
+KNOWN_HEAD='{"lines":12,"files":3,"classes":["docs","executable"],"tests_changed":true,"tests_edited":false,"criteria_changed":false,"unclassified":false,"floor":"standard"}
 levels: light < standard < full'
 WANT="$KNOWN_HEAD
 $WANT_DEFS

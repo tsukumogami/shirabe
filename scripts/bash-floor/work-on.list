@@ -110,6 +110,24 @@ skills/work-on/scripts/extract-context_test.sh
 # builds (or $SHIRABE_BIN); its plan_validation cases skip without
 # koto.
 skills/work-on/scripts/step-detail-check_test.sh
+# The red-first libraries: a CLAUDE.md header read at a commit, and the test
+# files a diff touched, against git fixtures. No engine.
+scripts/lib/claude-md-header_test.sh
+scripts/lib/test-classify_test.sh
+# fix-kind.sh and red-first.sh through a koto stand-in and a gh stand-in, on
+# git fixtures, so every case runs on the floor.
+skills/work-on/scripts/fix-kind_test.sh
+skills/work-on/scripts/red-first_test.sh
+# The red-first states driven through a real koto; skips cleanly without it.
+skills/work-on/scripts/red-first-routes_test.sh
+# The interim acceptance rule, called directly, and test-change.sh (the
+# ledger, the seat, accept and decline, the status gate) through a koto
+# stand-in on git fixtures. No engine.
+scripts/lib/acceptance-rule_test.sh
+skills/work-on/scripts/test-change_test.sh
+# An edited test held at pass_counting through a real koto; skips cleanly
+# without it.
+skills/work-on/scripts/test-change-routes_test.sh
 # session-role.sh is deliberately NOT listed. Every entry here is
 # run with no arguments and a nonzero status is a failure, and the
 # discriminator exits 2 on a missing session name by design. It
