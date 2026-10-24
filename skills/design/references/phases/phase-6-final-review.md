@@ -208,6 +208,20 @@ run step 1 only: commit, with no push and no pull request.
 2. Push and create PR
    - If spawned from an issue: use `Ref #<N>` in PR body (not `Fixes`)
    - Title: `docs(design): design for <topic>`
+   - Body: what the design decides and why, from the frontmatter's `problem`,
+     `decision` and `rationale`, in plain terms; a link to
+     `docs/designs/DESIGN-<topic>.md`; and a link to the upstream document its
+     frontmatter names, if it names one. By default it carries none of the
+     workflow's own records: no review-agent findings or verdicts, no list of
+     the fixes they prompted, no session or key names, and no link to a
+     ROADMAP or PLAN, which is deleted when its work completes. Those stay in
+     the `design-<topic>` session. A repository opts in to them with
+     `## PR Workflow Content: include` in its `CLAUDE.local.md` or
+     `CLAUDE.md`; ask the one reader rather than reading the header yourself,
+     `"${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"`, which prints
+     `include` or `omit` (the default). Under `include`, the body may also
+     summarize the step 6.2 review feedback and link a ROADMAP or PLAN the
+     design relates to.
 
 ### 6.7 Present for Approval
 

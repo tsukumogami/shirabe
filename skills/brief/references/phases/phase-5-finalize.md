@@ -211,11 +211,32 @@ PR exists, create one:
 - **Body:**
   - Short summary (the problem and outcome in 1-2 sentences)
   - Link to the BRIEF at `docs/briefs/BRIEF-<topic>.md`
-  - Jury verdict summary (both reviewers PASS, with any caveats surfaced at Phase
-    5)
-  - Upstream link if applicable
+  - Link to the upstream document the BRIEF's frontmatter names, if it names one
   - Reminder that a downstream PRD author can now reference this BRIEF as a stable
     upstream
+
+The body describes the document in terms a reader of the repository understands:
+what the BRIEF settles, and links to it and to the durable documents above it. By
+default it carries none of the workflow's own records:
+
+- no jury verdict summary, no reviewer verdicts or caveats, and no list of the
+  fixes the jury prompted;
+- no session or key names;
+- no link to a ROADMAP or PLAN, which is deleted when its work completes. A
+  ROADMAP the run was grounded in stays out of the body; the durable document
+  the frontmatter names is the upstream link.
+
+Those records stay in the `brief-<topic>` session. A repository opts in to them
+with `## PR Workflow Content: include` in its `CLAUDE.local.md` or `CLAUDE.md`.
+Ask the one reader rather than reading the header yourself:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"
+```
+
+It prints `include` or `omit` (the default). Under `include`, the body also
+carries the jury verdict summary (both reviewers PASS, with any caveats surfaced
+at Phase 5), and the upstream link may be the ROADMAP the run was grounded in.
 
 Push the branch and create the PR via the standard tooling (e.g., `gh pr create`).
 CI runs `shirabe validate` against the new BRIEF file, exercising FC01-FC04 (the
@@ -249,7 +270,9 @@ PRD; the user routes when ready.
       open and `/scope` closes it)
 - [ ] No staging-folder path references remain in the committed BRIEF or in other
       branch content
-- [ ] PR is created or updated with the BRIEF summary (not under `/scope`)
+- [ ] PR is created or updated with the BRIEF summary (not under `/scope`), with
+      no jury verdicts and no ROADMAP or PLAN link unless
+      `pr-workflow-content.sh` prints `include`
 - [ ] Verdict bodies were fenced in code blocks when surfaced to the user
 
 ## Artifact State

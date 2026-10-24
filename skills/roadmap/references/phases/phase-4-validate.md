@@ -333,6 +333,25 @@ cite the finding that drove it.
 3. Commit: `docs(roadmap): activate ROADMAP for <topic>`
 4. Create PR (or update existing PR if on a shared branch)
 
+   The body describes the ROADMAP in terms a reader of the repository
+   understands: the features it sequences and the order it puts them in, in a
+   sentence or two, and a link to the STRATEGY its frontmatter names, if it
+   names one. The ROADMAP itself is in the diff. By default the body carries
+   none of the workflow's own records: no jury verdicts, reviewer findings or
+   list of the fixes they prompted, no session or key names, and no link to
+   another ROADMAP or a PLAN, which is deleted when its work completes. Those
+   stay in the `roadmap-<topic>` session. A repository opts in to them with
+   `## PR Workflow Content: include` in its `CLAUDE.local.md` or `CLAUDE.md`;
+   ask the one reader rather than reading the header yourself:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"
+   ```
+
+   It prints `include` or `omit` (the default). Under `include`, the body may
+   also summarize the jury's verdicts and link the ROADMAP at
+   `docs/roadmaps/ROADMAP-<topic>.md` and any ROADMAP or PLAN it relates to.
+
 The same re-run applies when `/roadmap activate <path>` is invoked
 standalone (input mode 2) on a roadmap this session did not create: populate
 issuelessly first, then transition. That is what covers roadmaps authored
