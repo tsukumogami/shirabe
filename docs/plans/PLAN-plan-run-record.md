@@ -1,0 +1,118 @@
+---
+schema: plan/v2
+status: Active
+execution_mode: single-pr
+split_mode_source: none
+tracking_level: none
+upstream: docs/designs/DESIGN-plan-run-record.md
+milestone: "A plan's run outlives the plan as its record"
+step_count: 8
+---
+
+# PLAN: A plan's run outlives the plan as its record
+
+## Status
+
+Active
+
+## Scope Summary
+
+A merged PR's repository and number lead, through one index session per PR in the koto
+store, to the session that ran its plan and to every PR the plan produced. The run's
+sessions hold a per-step trail (the PLAN as each step began, each step session, departures
+and decisions with their actor) and are pinned through koto's session pin before each
+qualifying terminal. PRs carry no workflow content unless the repository opted in, and the
+lifecycle documents state one lifecycle and send a reader to the lookup. Everything lands in
+one shirabe PR and touches no file under `skills/coordinate/`.
+
+Two things this plan builds against but doesn't build. koto's session pin (koto#441,
+specified in koto#444) hasn't shipped, so `RECORD_PIN_FLOOR` stays unset and the pin code is
+proved against the stub koto. The workspace option the design calls K2 is a separate
+proposal to koto, pending koto's acceptance, so `RECORD_STORE_FLOOR` stays unset and the
+index and lookup work from the run's own workspace path until it ships. The end-to-end
+walkthrough from a fresh workspace on another host, against a real koto and a real bucket,
+waits on both and is not a step here.
+
+## Decomposition Strategy
+
+Walking skeleton. Step 1 runs one stub-backed single-pr run's home PR through
+`adopt-or-create-pr.sh`, `scripts/run-trail.sh`, `scripts/lib/record-store.sh` and the stub
+koto, then looks the PR up from a different directory with `scripts/run-record-lookup.sh`,
+which confirms the PR in the root's own list. Each later step adds one behaviour a reader or
+a test can see on top of that path: the per-step trail, the right run after a re-run or an
+adoption, the coordinated record, the multi-pr plan root, pins, the PR content rules, and the
+lifecycle statement. Each step carries the tests and documentation its behaviour needs.
+
+## Steps
+
+### Step 1: a single-pr run's home PR leads back to its record root from a fresh directory
+
+**Goal**: Open the first end-to-end path through the run record: `adopt-or-create-pr.sh` writes the home PR and its index entry through `scripts/run-trail.sh` (`pr`, `index` and `self` verbs) and `scripts/lib/record-store.sh` into the stub koto (`scripts/testdata/record-koto/koto`), and `scripts/run-record-lookup.sh` reads it back. The input is one stub-backed single-pr run with one home PR, recorded in workspace A and looked up from a different directory B.
+
+**Acceptance Criteria**:
+
+- [ ] After a single-pr run records its home PR in workspace A, `run-record-lookup.sh <owner/repo> <n>` run from directory B exits 0 and prints JSON naming the record root `execute-<topic>`, its workspace (A), the `run_id`, `complete: true` and a PR list holding exactly that one PR with its state.
+- [ ] When the PR's index entry names a session whose own `trail/pr/*` list doesn't include the PR, the lookup doesn't return that session and exits 3.
+- [ ] The lookup exits 3 for a PR with no index entry, 2 when the stub fails the store read, and 64 for `owner` without a repository, for a PR number of `0` and for a non-numeric one; each prints a message on stderr saying which case it hit.
+- [ ] After a lookup from directory B, the stub's call log contains no write, no import and no migration marker from the lookup.
+- [ ] With a stub `gh` that fails every call, the lookup returns the same JSON and exit code as with a working `gh`.
+- [ ] `scripts/check-bash-floor.sh` passes for the new suites (`record-store_test.sh`, `run-trail_test.sh`, `run-record-lookup_test.sh`) on the bash 3.2 floor, and the `check-run-record` workflow runs them.
+
+**Check**: Run `bash scripts/run-record-lookup_test.sh`. Its skeleton case records a single-pr run's home PR in workspace A through `adopt-or-create-pr.sh` against the stub koto, then runs the lookup from a different directory B. Look for exit 0 and JSON with the record root `execute-<topic>`, workspace A, the run_id and exactly one PR, followed by the suite's pass line. Then run `bash scripts/check-bash-floor.sh` and look for a pass on the new suites.
+
+**Dependencies**: None
+
+**Files**: `scripts/run-trail.sh`, `scripts/lib/record-store.sh`, `scripts/run-record-lookup.sh`, `scripts/testdata/record-koto/koto`, `skills/execute/scripts/adopt-or-create-pr.sh`, `skills/execute/scripts/execute-open.sh`, `.github/workflows/check-run-record.yml`, `scripts/bash-floor/run-record.list`
+
+### Step 2: the record holds the PLAN as each step began, each step session, departures and decisions with their actor
+
+**Goal**: From a single-pr run's record root, `run-record-lookup.sh --steps` and `koto context get` show, for each step (step 1 included), the PLAN text and commit SHA as handed off and the step session's name. In the step sessions they show every departure against its step and every decision with its actor. This is built from `run-trail.sh`'s `plan`, `step`, `departure` and `decision` verbs, the hooks in the lead shape of `skills/execute/koto-templates/execute.md`, `/work-on`'s decision, deviation, deferral and scope-change sites, and the `trail/` carry in `skills/execute/scripts/execute-open.sh`.
+
+**Acceptance Criteria**:
+
+- [ ] `run-trail.sh departure` and `run-trail.sh decision` take their text only as one JSON document on stdin. Text passed as an argument, or a stdin document that isn't valid JSON or lacks the verb's required fields, exits 64 or 65 and writes no key.
+- [ ] `run-trail.sh plan --plan <path>` with a path outside `docs/plans/PLAN-<topic>.md` (for example `../secrets.md` or `docs/plans/sub/PLAN-x.md`) exits 65 and writes nothing. A valid path stores the PLAN's committed text and a `{sha, entry, recorded_at}` record under the step.
+- [ ] A departure or decision value holding a token shape (for example a `ghp_` string) or a private-key header exits 65 and writes nothing, including the copy `decision` would send through `koto decisions record`.
+- [ ] In a three-step stub run where the PLAN is committed between steps 1 and 2, `run-record-lookup.sh --steps` shows three plan snapshots, step 1 included, and steps 1 and 2 carry different SHAs and texts. Each step also shows its step session's name, and a step that got a new step agent lists the earlier name as superseded.
+- [ ] In the step sessions, the four departure kinds (`deviated`, `deferral`, `scope-change`, `entry-rewritten`) each appear against their own step with a non-empty why. A decision from an agent shows actor `agent:<name>`, and a human-approved deferral shows actor `person`.
+- [ ] After a pause's replace, the replacement record root still holds the earlier `trail/` keys, because `execute-open.sh` carries `trail/` alongside the `run/` keys.
+- [ ] `references/skill-session-convention.md` lists the `trail/` area with `scripts/run-trail.sh` as its writer, and the skill-session convention check passes.
+
+**Check**: Run `bash scripts/run-trail_test.sh` and `bash scripts/run-record-lookup_test.sh`, both against the stub koto, and see every case pass. The trail cases to look for are the refusals above (exit 65, key list unchanged), the three-step run with two different SHAs, four departures each against its step, decisions with actors `agent:<name>` and `person`, and the trail still present after the replace. Then run `bash skills/execute/scripts/execute-template-structure_test.sh` and the `execute-open.sh` test and see them pass with the new hooks and carry in place.
+
+**Dependencies**: Step 1
+
+**Files**: `scripts/run-trail.sh`, `scripts/run-trail_test.sh`, `scripts/run-record-lookup.sh`, `scripts/run-record-lookup_test.sh`, `skills/execute/koto-templates/execute.md`, `skills/execute/scripts/execute-open.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`, `scripts/rule-dispute.sh`, `references/skill-session-convention.md`
+
+### Step 3: a re-run or a later adopting run never makes the lookup return the wrong run
+
+After a re-run moves the first root aside as `execute-<topic>_r1`, or a later run adopts the PR, the lookup returns the run whose entry names the PR, lists the others and reports `unique: false`.
+
+### Step 4: every PR of a coordinated run leads to its record root, which lists all of them
+
+Node, follow-up and coordination PRs of a coordinated run each resolve to its execute session, which lists all of them and its step sessions.
+
+### Step 5: a multi-pr plan's item PRs lead to one plan-level record root
+
+Each item PR of a multi-pr plan resolves to one plan-level root that lists every item's PR, including items that ran later.
+
+### Step 6: a run that leaves its PRs ready or merged pins its evidence and reports any pin koto refuses
+
+At each qualifying terminal the run pins its root, step sessions and index sessions through koto's session pin, reports and retries any pin left undone, and the retention reference says what is pinned and how to release it.
+
+### Step 7: PRs carry no workflow content by default and an opted-in repository gets a session reference
+
+Under omit no PR carries the run marker, run lines or a PR index and ownership holds through the index; under include Part 2 carries the session reference, read once per invocation, and the README states the opt-in and its checkout limit.
+
+### Step 8: a stale lifecycle claim fails the rules check and every lifecycle document sends readers to the lookup
+
+The plan, roadmap and pipeline references say a PLAN and a ROADMAP are deleted when their work finishes and name the lookup, and the rules check fails on the old stays-in-docs/plans and historical-record wording.
+
+## Implementation Sequence
+
+The steps run in order. Steps 3, 4 and 5 each need only what steps 1 and 2 built, so they
+could run beside each other; step 6 needs the coordinated and multi-pr records in place, and
+step 7 needs the index (steps 1 and 3) before it removes the marker the ownership lookup
+reads today. The plan's owner details step 3 after step 2's work reaches its terminal, and
+each later step the same way, from the PRD's acceptance criteria and the DESIGN's phase
+deliverables, in a commit that touches only this plan.
