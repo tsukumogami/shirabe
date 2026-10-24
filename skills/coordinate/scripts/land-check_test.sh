@@ -445,7 +445,6 @@ milestone_record() {
             branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
             pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
         deferrals: [], side_effects: [], reversals: [], holds: []}' > "$T/rec.json"
-    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     bt_record_here
 }
 # main_roadmap <file>: the host's default branch, main, with <file> as the

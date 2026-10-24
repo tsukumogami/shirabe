@@ -11,7 +11,8 @@
 # dispatch-failed and an abandoned request; a failed launch whose session did
 # appear confirmed; an unreadable listing leaving dispatching; the deadline; a
 # topic a live session uses; the exact session match; a concurrent run
-# refused by the lock; a mismatched topic; the record refusing a write;
+# refused by the lock; a mismatched topic; the record refusing a write, and a
+# write ending in exit 13 (no verdict now) a plain failed write;
 # --rebrief; a review-level bound in the prompt and the brief, kept out of
 # the holding's mode and given once on a re-brief; --releg replacing a spent leg (and refusing an open one, a
 # promoted one, a holding with a pull request); send_execution rewriting a
@@ -656,13 +657,15 @@ run >/dev/null 2>&1; RC=$?
 eq  "record refuses the write-ahead: exit 8" 8 "$RC"
 eq  "record refuses: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 
-# A full record (exit 13) is reported as one, not as a generic write failure.
+# There's no size budget: exit 13 is no verdict any more, so a write ending
+# with it is a plain failed write, never reported as a full record.
 reset "$INPUT_DELIVER"
 export RECORD_WRITE_MODE=full
 run >/dev/null 2>"$T/full.err"; RC=$?
-eq  "a full record: the dispatch stops, exit 2" 2 "$RC"
-grep -q "record-full" "$T/full.err" && ok "a full record: it says record-full" || bad "a full record: it says record-full" "$(cat "$T/full.err")"
-eq  "a full record: no launch" 0 "$(grep -c "^niwa dispatch" "$ST/calls.log")"
+eq  "an unknown write exit: the dispatch stops, exit 2" 2 "$RC"
+grep -q "writing the holding for plugin-api failed" "$T/full.err" && ok "an unknown write exit: a plain failed write" || bad "an unknown write exit: a plain failed write" "$(cat "$T/full.err")"
+grep -q "record-full" "$T/full.err" && bad "an unknown write exit: no record-full verdict" "$(cat "$T/full.err")" || ok "an unknown write exit: no record-full verdict"
+eq  "an unknown write exit: no launch" 0 "$(grep -c "^niwa dispatch" "$ST/calls.log")"
 
 # The record changing between the writer's read and its write (exit 12) is
 # retried; a record that keeps changing is a failed write, before any launch.

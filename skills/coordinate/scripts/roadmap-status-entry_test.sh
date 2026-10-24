@@ -126,7 +126,12 @@ sv_seed() {
     session_keys "$SV" "$T/sv.json"
 }
 rs() { "${SEN[@]}" bash "$RS" "${W[@]}" "$@"; }
-slive() { "${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh"; }
+# slive: the record as a reader is handed it (rs_record), in normal form.
+slive() {
+    ( RS_SESSION=$SV PROG=reader SCOPE=roadmap NAME=plugin-system
+      . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+      rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" )
+}
 on_branch() { jq -r --arg b "$1" '.files["acme/widgets"][$b + ":" + $p] // empty' --arg p "$ROADMAP" "$GH_DB"; }
 to_main() { db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$1"; }
 branch_of() { jq -r --argjson n "$1" '.prs[] | select(.number == $n) | .headRefName' "$GH_DB"; }
