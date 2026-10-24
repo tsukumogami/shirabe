@@ -1559,9 +1559,12 @@ states:
       - target: surface
         when:
           gates.verify_board_verdict.exit_code: 75  # unlinked
+      # A required check the token can't see (the checks refused, and no
+      # Actions job or status answers it): only a person who can see it can
+      # say whether it passed.
       - target: surface
         when:
-          gates.verify_board_verdict.exit_code: 76  # actions-green
+          gates.verify_board_verdict.exit_code: 76  # check-unreadable
       # Defensive: classify_report's report_pr gate keeps a report with no
       # pull request out of verify, so only a route that skips it reaches
       # this. As at classify_report, a report with nothing to verify is
@@ -3466,15 +3469,19 @@ each run's latest attempt counts; a skipped job that isn't required is listed,
 not failed. Unverified goes to the failure branch; a board still running goes
 back to waiting, and the worker's next message brings you here again.
 
-When the token can't read checks, the board is judged from the Actions jobs
-instead, and `coord/board.json` names the source it read. Red or running is
-still unverified or pending, but green that way is `actions-green`, never
-verified: without the rollup, a check that only an organisation's rules require
-can't be seen, so the run doesn't land it. It goes to surface, where the person
-is asked one thing: whether every check GitHub requires on that pull request
-passed, which they can see and the token can't. Tell them the Actions jobs at
-the head are green and the board couldn't read the required checks; their
-answer, or a token that can read checks, is what lets it land.
+When the token can't read checks, the board is judged from the Actions jobs and
+the commit's statuses instead, and `coord/board.json` names the source it read.
+The verdicts are the same from either source. A required check that no job and
+no status reports, once every run has finished, may be a check run the token
+can't see: the board reads `check-unreadable`, with a `required-unreadable`
+reason naming it in `coord/board.json`, never verified, and so does a ruleset
+rule whose checks only the rollup names. It goes to surface, where the person
+is asked one thing: whether that check passed on the pull request's head,
+which they can see and the token can't. Their answer, or a token that can read
+checks, is what lets it land. A red job still reads unverified first: the
+worker's failure comes before a question for the person. One thing the
+fallback can't see at all is a check run from another app that no rule
+requires; the token that can read checks is what shows it.
 
 A job that completed red with no step at all never ran: GitHub refused to
 start it, as it does for an account billing block or a missing runner, or it
