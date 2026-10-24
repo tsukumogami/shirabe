@@ -64,6 +64,16 @@ cleanup() { case "${T:-}" in */koto-open-test.*) rm -rf "$T" ;; esac; return 0; 
 trap cleanup EXIT
 
 export HOME="$T/home"
+# The engine cases create, replace and move sessions, so they must never reach
+# the caller's own store. HOME alone doesn't redirect koto: KOTO_SESSIONS_BASE
+# names a store outright, a run under a koto session inherits it and
+# KOTO_TICK_SESSION, and the KOTO_SESSION_* settings can point koto at a cloud
+# bucket. All of them are cleared, and the engine cases check below that koto's
+# session directory lies under this suite's tmp before they run.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
 # The argv cases below pin koto-open.sh's call with the legacy-environment knob
 # off unless a case turns it on; a knob exported by the caller would change it.
 # Temporary, #483.
@@ -503,6 +513,16 @@ if ! "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--vars-file'; then
     exit 0
 fi
 ln -s "$REAL_KOTO" "$TOOLS/koto"
+# Before any engine case writes a session: koto must resolve its store under
+# this suite's tmp, or the cases would act on someone's real sessions.
+SESSION_DIR_PROBE=$(cd "$REPO" && PATH="$TOOLS:$SYS_PATH" koto session dir isolation-probe 2>&1) || SESSION_DIR_PROBE=""
+case "$SESSION_DIR_PROBE" in
+    "$T"/*) ;;
+    *)
+        echo "FAIL: koto's session directory is not under this suite's tmp ($T): [$SESSION_DIR_PROBE]; no engine case ran"
+        exit 1
+        ;;
+esac
 echo
 echo "engine-backed cases against $("$REAL_KOTO" version 2>/dev/null | head -1)"
 
