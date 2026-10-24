@@ -144,7 +144,8 @@ macOS, so the shared address is one per operating system family, and a reader tr
 The fixed directory is an interim. It works with koto as it stands, but it ties the address
 to how koto canonicalizes a working directory, which is koto's internal detail rather than a
 contract. The lasting answer is a named, writable workspace for the index, which is koto's to
-offer. If koto adds one, `record-store.sh` switches to it and the directory goes, as one
+offer and is proposed as tsukumogami/koto#456, separate from the read-only option. When it
+lands, `record-store.sh` switches to it and the directory goes, as one
 change: nothing outside that file and its test knows the address. The writer creates the
 directory before each call, since `/tmp` may be cleared between runs.
 
