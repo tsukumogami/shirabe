@@ -15,11 +15,11 @@
 //!
 //! A head names a program in any case: on a case-insensitive filesystem,
 //! macOS's default, the shell's PATH lookup finds `/usr/bin/env` for `ENV`
-//! and gh for `GH`, so the last path component is lowercased before it is
-//! compared with `gh`, `git` and [`WRAPPERS`]. The shell matches a builtin
-//! or keyword by its exact name, so `EVAL` or `TIME` isn't the builtin; the
-//! wrappers among them are lowercased anyway, since reading one as a wrapper
-//! only denies more. `cd`, `pushd` and `popd` are the exception, because
+//! and gh for `GH`, and it folds Unicode case too (`ſudo` finds sudo), so
+//! the last path component is folded ([`fold`]) before it is compared with
+//! `gh`, `git` and [`WRAPPERS`]. The shell matches a builtin or keyword by
+//! its exact name, so `EVAL` or `TIME` isn't the builtin; the wrappers among
+//! them are folded anyway, since reading one as a wrapper only denies more. `cd`, `pushd` and `popd` are the exception, because
 //! there the error runs the other way: `CD sub` runs a `cd` program in a
 //! child process that moves nothing, and reading it as `cd` would check a
 //! later push in the wrong directory. The words after the head keep their
@@ -310,6 +310,19 @@ fn basename(t: &str) -> &str {
     t.rsplit('/').next().unwrap_or(t)
 }
 
+/// A head's name folded the way a case-insensitive filesystem compares it.
+/// macOS folds Unicode case in full, not only ASCII: `ſh` (long s) finds
+/// `/bin/sh`, `ßh` finds `ssh` and the ligature `ﬆat` finds `stat`. Each
+/// character is uppercased and then lowercased, which covers those (and the
+/// Kelvin sign's `k`); it also folds a few the filesystem keeps apart, such
+/// as dotless `ı` to `i`, which only makes the hook check more.
+fn fold(name: &str) -> String {
+    name.chars()
+        .flat_map(char::to_uppercase)
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 /// Skip `gh` options from `ws[from]`: `-R <v>`, `--repo <v>` and
 /// `--repo=<v>` are understood, any other `-` word is the first unlisted
 /// option. Returns the next position, that option, and whether the last word
@@ -413,8 +426,8 @@ fn env_command(ws: &[Word]) -> Option<usize> {
         j += 1;
     }
     ws.get(j)
-        // In any case, as `kind_words` compares a head.
-        .is_some_and(|w| plain(w) && basename(&w.text).eq_ignore_ascii_case("gh"))
+        // Folded, as `kind_words` compares a head, so the two agree on `GH`.
+        .is_some_and(|w| plain(w) && fold(basename(&w.text)) == "gh")
         .then_some(j)
 }
 
@@ -482,12 +495,12 @@ fn kind_words(ws: &[Word]) -> Kind {
         };
     }
     // A head matches in any case (the module docs say why), so `name` is the
-    // lowercased basename. `exact` keeps the spelling as written, for the
+    // folded basename. `exact` keeps the spelling as written, for the
     // builtins below that match only that way. `env_command` makes the same
     // comparison for the `gh` an env runs.
     let exact = basename(&head.text);
-    let lower = exact.to_ascii_lowercase();
-    let name = lower.as_str();
+    let folded = fold(exact);
+    let name = folded.as_str();
     if WRAPPERS.contains(&name) {
         // `env` (on WRAPPERS, which is what brings it here) runs the command
         // after its own options and assignments. When that command is `gh`,
@@ -1293,6 +1306,31 @@ mod tests {
         // unknown command and `git PUSH` doesn't push.
         assert_eq!(cl("gh PR create --title x").items, vec![]);
         assert!(pushes("git PUSH").is_empty());
+    }
+
+    #[test]
+    fn a_head_folds_unicode_case_as_the_filesystem_does() {
+        // macOS finds `/bin/sh` for `ſh` (long s), `ssh` for `ßh` and sudo
+        // for `ſudo`, so each is the wrapper it folds to.
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            "ſh -c 'gh pr create -t x'",
+            "/bin/ſh -c 'gh pr create -t x'",
+            "zſh -c 'gh pr create -t x'",
+            "daſh -c 'gh pr edit 3'",
+            "ſudo gh pr create",
+            "xargſ gh pr create",
+            "ßh host gh pr create",
+            "ſsh host gh pr create",
+            "doc\u{212A}er run x gh pr create",
+            "ENV ſudo gh pr create",
+        ] {
+            assert_eq!(fails(cmd), wrapped, "{cmd}");
+        }
+        assert_eq!(fails("ſudo git push"), vec![(Action::Push, Case::Wrapped)]);
+        assert_eq!(cl("ſudo ls").items, vec![]);
+        assert_eq!(fold("ﬆat"), "stat");
+        assert_eq!(fold("\u{212A}"), "k");
     }
 
     #[test]

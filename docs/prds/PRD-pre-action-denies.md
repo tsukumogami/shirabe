@@ -152,9 +152,9 @@ These terms mean the same thing everywhere below.
   and shell reserved words (`if`, `then`, `elif`, `else`, `do`, `while`,
   `until`, `!`, `{`, `}`), compared by its last path component, so
   `/usr/bin/git` is `git` and `if true; then git push; fi` holds a
-  guarded segment. The comparison ignores case, since a
-  case-insensitive filesystem (macOS's default) runs `GH` as gh and
-  `ENV` as env. The shell finds a builtin by its exact name, so `EVAL`
+  guarded segment. The comparison ignores case, Unicode case included,
+  since a case-insensitive filesystem (macOS's default) runs `GH` as gh,
+  `ENV` as env and `ſudo` (long s) as sudo. The shell finds a builtin by its exact name, so `EVAL`
   isn't the builtin, but reading a wrapper as one only denies more;
   only `cd`, `pushd` and `popd` match as written, since reading `CD`
   as `cd` would check a later push in a directory it never moved to. A

@@ -276,7 +276,8 @@ done
 # filesystem, so a wrapper is still a wrapper and gh is still gh.
 for c in 'ENV gh pr create -t \"feat: x\" -b \"Adds x.\"' \
     'ENV -u GH_TOKEN gh pr create -t \"feat: x\" -b \"Adds x.\"' \
-    'Sudo git push' 'BASH -c \"git push\"' '/USR/BIN/ENV git push'; do
+    'Sudo git push' 'BASH -c \"git push\"' '/USR/BIN/ENV git push' 'ſudo git push' \
+    "ſh -c 'gh pr create -t x'"; do
     run_hook "$c"
     expect_deny "case: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done
