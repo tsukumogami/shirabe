@@ -354,11 +354,12 @@ the shell that ran niwa.
 
 ```
 unit-removed.sh sweep
-  list R/*.json, at most 20 per pass; none -> exit 0, no call made
+  list R/*.json; none -> exit 0, no call made
     for each record:
-      take R/<id>.lock (mkdir, holding pid and at); held by a live pid younger
-        than 120 s -> pass over; a dead pid or an older lock -> take over by
-        rename, re-check, mkdir
+      take R/.<id>.lock (mkdir, holding pid and at); held by a live pid younger
+        than three minutes (the capture's 120 s and a minute for the archive)
+        -> pass over; a dead pid or an older lock -> take over by rename,
+        re-check, mkdir
       shape check fails          -> delete, log `invalid input`
       removed_at > 24 hours ago  -> list it `stale` (log and output), go on
       GH_TOKEN unset or empty    -> archive, compute local figures, keep,
@@ -513,12 +514,16 @@ physical-path checks.
 **Files and processes.** Both scripts run under `umask 077` and refuse a state
 directory, archive root or lock parent that is a symbolic link, isn't the user's,
 or isn't `0700`, so another local user can't plant a record or redirect a write.
-Records and the log are written through `mktemp` in `R`, the log `0600` and
-capped. A lock holds its holder's pid and is taken over only when that pid is
+Records are written through `mktemp` in `R` and renamed into place; the log is
+appended under the sweep's umask, `0600`, and past 1 MiB keeps its last 1,000
+lines. A lock holds its holder's pid and is taken over only when that pid is
 gone or the holder is past its own bound, by renaming it aside rather than
 deleting it. The detached sweep runs by absolute path with a scrubbed
-environment, so nothing of niwa's environment beyond `PATH`, `HOME`, `TMPDIR`
-and the placement switch reaches it, and it handles at most 20 records per pass.
+environment, so nothing of niwa's environment reaches it beyond `PATH`,
+`HOME`, `TMPDIR`, the directories that place the records, the archive and the
+request store, and the token and host `gh` uses. Each record's capture runs
+under its 120-second bound, so a sweep over many records takes longer but
+never blocks the caller that started it.
 
 The sweep reads the same untrusted inputs the pass's capture reads (transcripts,
 koto sessions, the koto request) under the same rules, plus the leg key, a JSON
@@ -557,8 +562,8 @@ coordinator's record issue; `record-append.sh`'s scan stops repository names,
 home paths and token shapes there, but a Unit's free text is not scanned, so a
 coordinator on a public record shouldn't name private work in a Unit. The
 removal archive holds copied transcripts, like the pass's; it lives under the
-user's own archive root, `0700`, and its retention is the user's, since only the
-removal records expire. An entry names the dispatch id and topic wherever it is
+user's own archive root, `0700`, and its retention is the user's; the removal
+records themselves are never dropped for age. An entry names the dispatch id and topic wherever it is
 posted; both are identifiers, not secrets. Credit reads at most 200 candidate
 pull requests inside the capture's 90-second read budget, so a transcript that
 links many pull requests can't stretch a retry past its deadline.
@@ -591,13 +596,15 @@ links many pull requests can't stretch a retry past its deadline.
 
 - The reference documents the on-reap step, its combination with another, and
   pinning the path; without it the pass behaves exactly as today.
-- Every removal's sweep retries every kept record, and records expire after 7
-  days with a log line, so nothing accumulates silently; `unit-removed.sh
-  sweep` can also be run by anyone at any time, with the same effect.
+- Every sweep retries every kept record, and one still pending 24 hours after
+  its removal is listed `stale` in the log and on the output, never dropped,
+  so nothing accumulates silently; `unit-removed.sh sweep` can also be run by
+  anyone at any time, with the same effect.
 - Without perl the step falls back to `nohup`, so the dependency is a
   preference, not a requirement.
-- The lock's takeover age is its holders' own bounds, so a crashed capture
-  blocks the next for at most a minute.
+- Each lock's takeover age is its holders' own bounds, so a crashed capture
+  blocks the next for at most a minute at the post lock, and a crashed sweep
+  holds its record for at most three minutes.
 - The per-head read stops at green and stays inside the capture's existing
   90-second read budget; a read it can't finish is a stated floor, never a
   silent short count.
