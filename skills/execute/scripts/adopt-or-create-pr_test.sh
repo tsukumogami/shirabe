@@ -34,6 +34,11 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/adopt-or-create-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"
 mkdir -p "$BIN"
+# The run record's shared address is a directory of this suite's own
+# (record-store.sh's test-only override), never the real
+# /tmp/shirabe-run-record a run on this host writes to.
+SHIRABE_RUN_RECORD_TEST_ROOT="$(cd "$WORK" && pwd -P)/shared-record"
+export SHIRABE_RUN_RECORD_TEST_ROOT
 S=execute-topic
 URL="https://github.com/o/r/pull/7"
 
@@ -154,7 +159,7 @@ fi
 TRAIL_PR=$(ctx trail/pr/o.r.7)
 INDEX_ENTRY=$(cat "$CASE/ctx/pr.o.r.7/run/$SEEDED" 2>/dev/null)
 REPO_WS=$(cd "$REPO_DIR" && pwd -P)
-SHARED_WS=$(mkdir -p /tmp/shirabe-run-record/o && cd /tmp/shirabe-run-record/o && pwd -P)
+SHARED_WS=$(mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/o" && cd "$SHIRABE_RUN_RECORD_TEST_ROOT/o" && pwd -P)
 if [ "$(jq -r '[.repo, .number, .role, .state] | map(tostring) | join(" ")' <<<"$TRAIL_PR")" = "o/r 7 home open" ]; then
     pass "the adopted home PR is recorded in the root's trail/pr, role home, state open"
 else

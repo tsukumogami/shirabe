@@ -170,6 +170,32 @@ Never add the file on the
 branch you're working on to get past the gate: the gate reads the default
 branch, so the declaration is a change someone reviews and merges first.
 
+## A multi-pr item's PR in the plan's record
+
+A `multi-pr` PLAN runs one item at a time, each item a top-level `/work-on` run
+with its own pull request and no `/execute` session above it. The plan's record
+is one root at the shared address, `plan.<owner>.<repo>.<topic>.<sha12>`, which
+each item opened and recorded itself into at `analysis`. Once the item's pull
+request is open, and before the first `pr_status: created`, record it there
+from the checkout:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/multi-pr-item-record.sh" pr --session <WF> \
+  --plan "<PLAN_DOC>" --step <ARTIFACT_PREFIX> --repo <owner/repo> --number <N> \
+  --shared-branch "<SHARED_BRANCH>" --issue-source "<ISSUE_SOURCE>"
+```
+
+The `pr_creation` directive gives the line with the run's own values filled
+in. It records the item's PR, the PR in the root's list (role `item`) and the
+PR's index entry, in that order, so `scripts/run-record-lookup.sh <owner/repo>
+<N>` leads from the PR to the plan's root, which lists every item's PR. A
+plan-backed child of `/execute` (`SHARED_BRANCH` or `ISSUE_SOURCE` set), a run
+with no `PLAN_DOC` and a PLAN that isn't `multi-pr` print a `skipped=` line and
+write nothing: the plan-backed child's parent records it. Any other nonzero
+exit means the record is incomplete; fix what its message names and run it
+again before submitting. Nothing about the record goes in the pull request
+body.
+
 ## CI Monitoring
 
 If checks fail:

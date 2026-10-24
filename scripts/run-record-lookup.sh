@@ -10,7 +10,12 @@
 # the field is the writer's clock, so it orders entries and proves nothing),
 # and reads the record root each one names at its recorded workspace. A root
 # is returned only when its own `trail/pr/*` list holds this PR, so an index
-# entry naming an unrelated session never leads anywhere. An entry qualifies
+# entry naming an unrelated session never leads anywhere. A multi-pr entry
+# names a plan root, `plan.<owner>.<repo>.<topic>.<sha12>` at the shared
+# address, which lists every item's PR, and that root confirms the PR through
+# its `trail/item/*` records instead: one of them must name this PR. A
+# multi-pr entry naming any other session, or another mode's entry naming a
+# plan root, fails its pattern. An entry qualifies
 # when its root confirms the PR; the first qualifying entry is the answer,
 # and every other qualifying entry's run_id is in `others`.
 #
@@ -46,7 +51,11 @@
 # `text_key` is the root's key holding the PLAN's text as the step began; read
 # either with `koto context get`. A step with a plan snapshot and no step
 # record has `session`, `workspace` and `superseded` null. Without --steps,
-# `steps` is [] and the step records are not read.
+# `steps` is [] and the step records are not read. A multi-pr plan root
+# records items (`item`) rather than steps: each row is one item, its
+# `session` and `workspace` the item's own /work-on session and where it ran,
+# `superseded` [], an added `pr` ({repo, number} or null), and `plan` the
+# PLAN as that item began.
 #
 # Every read goes through record-store.sh's rs_koto_read, which passes koto's
 # read-only --workspace option when the installed koto has it and otherwise
@@ -63,9 +72,9 @@
 #    missing: [...], prs: [{repo, number, role, state}], others: [run_id],
 #    steps: [...]}
 # `prs` is every PR the root lists, this one included: a single-pr run's home
-# PR, or a coordinated run's node, follow-up and coordination PRs, each with
-# the role and the state its writer last recorded (a removed follow-up stays,
-# as closed).
+# PR, a coordinated run's node, follow-up and coordination PRs, or a
+# multi-pr plan's item PRs, items run later included, each with the role and
+# the state its writer last recorded (a removed follow-up stays, as closed).
 # `complete` is true when nothing was missing; `unique` is true when exactly
 # one entry qualifies and no other entry's root was unreadable or
 # unreachable, and `others` lists the other qualifying entries' run_ids. An
@@ -194,9 +203,12 @@ while IFS= read -r FORM; do
         { IFS= read -r AT; IFS= read -r WS; IFS= read -r SESS; IFS= read -r SID; IFS= read -r MODE; IFS= read -r TOPIC; } <<<"$FIELDS"
         if [[ $AT =~ $RS_RE_AT ]] && rs_valid_workspace "$WS" && rs_valid_session "$SESS" \
             && [[ $SID =~ $RS_RE_SESSION_ID ]] && [[ $TOPIC =~ $RS_RE_TOPIC ]]; then
-            case "$MODE" in
-                single-pr|coordinated|multi-pr)
-                    printf '%s\t%s\t%s\t%s\t%s\n' "$AT" "$RID" "$WS" "$SESS" "$SID" >> "$WORK/entries"
+            # A multi-pr entry names a plan root, and only a multi-pr one may.
+            IS_PLAN_ROOT=0
+            rs_plan_root_owner "$SESS" >/dev/null && IS_PLAN_ROOT=1
+            case "$MODE:$IS_PLAN_ROOT" in
+                single-pr:0|coordinated:0|multi-pr:1)
+                    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$AT" "$RID" "$WS" "$SESS" "$SID" "$MODE" >> "$WORK/entries"
                     continue
                     ;;
             esac
@@ -335,13 +347,14 @@ read_root() {
     return "$found"
 }
 
-# read_steps <workspace> <session>: the root's step records and plan
-# snapshots as JSON lines in $WORK/steps; returns 2 on a read failure.
+# read_steps <workspace> <session> <prefix>: the root's step records (prefix
+# trail/step/) or a plan root's item records (trail/item/), with the plan
+# snapshots, as JSON lines in $WORK/steps; returns 2 on a read failure.
 read_steps() {
-    local ws=$1 sess=$2 list keys key id val row
+    local ws=$1 sess=$2 pfx=$3 list keys key id val row
     : > "$WORK/step-ids"
     : > "$WORK/step-keys"
-    list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/step/ </dev/null) || return 2
+    list=$(rs_koto_read "$ws" context list "$sess" --prefix "$pfx" </dev/null) || return 2
     keys=$(json_keys "$list" "$MAX_STEPS") || return 2
     # Each plan snapshot is two keys, the .md text and the .json record.
     list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/plan/ </dev/null) || return 2
@@ -349,7 +362,7 @@ read_steps() {
 $(json_keys "$list" "$((MAX_STEPS * 2))")" || return 2
     while IFS= read -r key; do
         case "$key" in
-            trail/step/*) id=${key#trail/step/} ;;
+            "$pfx"*) id=${key#"$pfx"} ;;
             trail/plan/*.json) id=${key#trail/plan/}; id=${id%.json} ;;
             *) continue ;;
         esac
@@ -363,7 +376,17 @@ $(json_keys "$list" "$((MAX_STEPS * 2))")" || return 2
     while IFS= read -r id; do
         [ -n "$id" ] || continue
         row=$(jq -nc --arg step "$id" '{step: $step, session: null, workspace: null, superseded: null, plan: null}')
-        if grep -qxF "trail/step/$id" "$WORK/step-keys"; then
+        if [ "$pfx" = trail/item/ ]; then
+            row=$(jq -c '. + {pr: null}' <<<"$row")
+            if grep -qxF "trail/item/$id" "$WORK/step-keys"; then
+                val=$(rs_koto_read "$ws" context get "$sess" "trail/item/$id" </dev/null) || return 2
+                if val=$(item_ok "$val"); then
+                    row=$(jq -c --argjson v "$val" '. + $v + {superseded: []}' <<<"$row")
+                else
+                    missing "root $sess: trail/item/$id fails its pattern"
+                fi
+            fi
+        elif grep -qxF "trail/step/$id" "$WORK/step-keys"; then
             val=$(rs_koto_read "$ws" context get "$sess" "trail/step/$id" </dev/null) || return 2
             if step_ok "$val" && val=$(moved_step "$val"); then
                 row=$(jq -c --argjson v "$val" '. + ($v | {session, workspace, superseded})' <<<"$row")
@@ -383,6 +406,53 @@ $(json_keys "$list" "$((MAX_STEPS * 2))")" || return 2
         printf '%s\n' "$row" >> "$WORK/steps"
     done <<<"$(LC_ALL=C sort -u "$WORK/step-ids")"
     return 0
+}
+
+# item_ok <json>: a multi-pr item record ({session, workspace, pr}), its
+# session and workspace in their patterns and its pr null or {repo, number}
+# with the repository in owner/repo form; prints it as {session, workspace,
+# pr} with the repository lowercased, or returns 1.
+item_ok() {
+    local fields s w r n
+    fields=$(jq -r 'if type == "object" and (.session | type) == "string" and (.workspace | type) == "string"
+            and ([.session, .workspace] | all(test("[[:cntrl:]]") | not))
+            and ((.pr | type) == "null" or ((.pr | type) == "object" and (.pr.repo | type) == "string"
+                and (.pr.repo | test("[[:cntrl:]]") | not) and (.pr.number | type) == "number"))
+        then .session, .workspace, (.pr.repo // ""), (.pr.number // "" | tostring) else empty end' <<<"$1" 2>&1) || return 1
+    [ -n "$fields" ] || return 1
+    { IFS= read -r s; IFS= read -r w; IFS= read -r r; IFS= read -r n; } <<<"$fields"
+    rs_valid_session "$s" && rs_valid_workspace "$w" || return 1
+    if [ -z "$r" ]; then
+        jq -nc --arg s "$s" --arg w "$w" '{session: $s, workspace: $w, pr: null}'
+        return
+    fi
+    [[ $r == */* ]] && rs_valid_owner "${r%%/*}" && rs_valid_repo "${r#*/}" && [[ $n =~ $RS_RE_NUMBER ]] || return 1
+    jq -nc --arg s "$s" --arg w "$w" --arg r "$(rs_lower "$r")" --argjson n "$n" \
+        '{session: $s, workspace: $w, pr: {repo: $r, number: $n}}'
+}
+
+# read_items <workspace> <session>: 0 when one of the plan root's
+# trail/item/* records names this PR, 1 when none does, 2 on a read
+# failure, 69 when the workspace can't be reached from here.
+read_items() {
+    local ws=$1 sess=$2 list keys key val rc item found=1
+    list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/item/ </dev/null)
+    rc=$?
+    [ "$rc" -eq 69 ] && return 69
+    [ "$rc" -eq 0 ] || return 2
+    keys=$(json_keys "$list" "$MAX_STEPS") || return 2
+    while IFS= read -r key; do
+        [ -n "$key" ] || continue
+        val=$(rs_koto_read "$ws" context get "$sess" "$key" </dev/null) || return 2
+        if ! item=$(item_ok "$val"); then
+            missing "root $sess: a trail/item entry fails its pattern"
+            continue
+        fi
+        if [ "$(jq -r '.pr.repo // ""' <<<"$item")" = "$REPO" ] && [ "$(jq -r '.pr.number // ""' <<<"$item")" = "$N" ]; then
+            found=0
+        fi
+    done <<<"$keys"
+    return "$found"
 }
 
 # step_ok <json>: a step record, every name and the workspace in its pattern.
@@ -434,21 +504,27 @@ plan_ok() {
 : > "$WORK/session-lists"
 : > "$WORK/qualifying"
 : > "$WORK/unresolved"
-ROOT_WS=""; ROOT_SESS=""; ROOT_RUN=""; ENTRY_SESS=""
+ROOT_WS=""; ROOT_SESS=""; ROOT_RUN=""; ENTRY_SESS=""; ROOT_MODE=""
 UNREACHABLE=0; FAILED=0; NOT_FOUND=0; UNLISTED=0; UNKNOWN=0
-while IFS="$TAB" read -r AT RID WS SESS SID; do
+while IFS="$TAB" read -r AT RID WS SESS SID MODE; do
     [ -n "$RID" ] || continue
     FOUND=$(resolve_root "$WS" "$SESS" "$SID")
     RC=$?
     if [ "$RC" -eq 0 ]; then
         read_root "$WS" "$FOUND"
         RC=$?
+        # A multi-pr plan root confirms the PR through its items, not its
+        # trail/pr list.
+        if [ "$MODE" = multi-pr ] && { [ "$RC" -eq 0 ] || [ "$RC" -eq 1 ]; }; then
+            read_items "$WS" "$FOUND"
+            RC=$?
+        fi
     fi
     case "$RC" in
         0)
             printf '%s\n' "$RID" >> "$WORK/qualifying"
             if [ -z "$ROOT_SESS" ]; then
-                ROOT_WS=$WS; ROOT_SESS=$FOUND; ROOT_RUN=$RID; ENTRY_SESS=$SESS
+                ROOT_WS=$WS; ROOT_SESS=$FOUND; ROOT_RUN=$RID; ENTRY_SESS=$SESS; ROOT_MODE=$MODE
                 cp -- "$WORK/prs" "$WORK/root-prs" || exit 2
             fi
             continue
@@ -480,7 +556,9 @@ if [ -z "$ROOT_SESS" ]; then
 fi
 cat -- "$WORK/unresolved" >> "$WORK/missing" || exit 2
 
-if [ "$STEPS" -eq 1 ] && ! read_steps "$ROOT_WS" "$ROOT_SESS"; then
+STEP_PREFIX=trail/step/
+[ "$ROOT_MODE" = multi-pr ] && STEP_PREFIX=trail/item/
+if [ "$STEPS" -eq 1 ] && ! read_steps "$ROOT_WS" "$ROOT_SESS" "$STEP_PREFIX"; then
     echo "$PROG: could not read the step records of $ROOT_SESS" >&2
     exit 2
 fi

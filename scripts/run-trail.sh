@@ -2,7 +2,8 @@
 # run-trail.sh -- the one writer of a run's record: the `trail/` keys in the
 # run's own sessions and the run's entries in the per-PR index sessions.
 #
-# A plan's run is its own record. The record root (`execute-<topic>`) holds a
+# A plan's run is its own record. The record root (`execute-<topic>`, or a
+# multi-pr plan's root `plan.<owner>.<repo>.<topic>.<sha12>`) holds a
 # `trail/` area naming what the run did, and each PR the run records gets an
 # entry in its index session, `pr.<owner>.<repo>.<n>`, at the shared address
 # scripts/lib/record-store.sh defines, so a reader holding only the PR's
@@ -14,6 +15,29 @@
 #          The run's address as its opener saw it: `pwd -P` of the checkout,
 #          the session's koto `session_id` from `koto session list`, and the
 #          session's `run_id`. /execute's opener writes it on every open.
+#   plan-root --repo owner/repo --plan PATH
+#          a multi-pr plan's record root: prints its name,
+#          plan.<owner>.<repo>.<topic>.<sha12>, once it is open at the shared
+#          address. PATH is docs/plans/PLAN-<topic>.md in the checkout that
+#          holds it (absolute, or relative to this directory), and <sha12> is
+#          the first 12 hex digits of the latest commit that added that path
+#          to the default branch (origin/HEAD's target, else origin/main,
+#          else main), so a later plan reusing the topic gets a new root. The
+#          root is opened from koto-templates/skill-session.md with
+#          --attach-live and never ticked. The opener that finds no `run_id`
+#          writes one (the first 32 hex digits of `git hash-object` of the
+#          name, so every opener derives the same one), and the opener that
+#          finds no `trail/self` writes it, naming the shared address; an
+#          opener finding them leaves them as they are. A PLAN the default
+#          branch never added refuses (65).
+#   item   --session ROOT --step ID --child NAME [--child-workspace DIR]
+#          [--repo owner/repo --number N]
+#          multi-pr plan root: `trail/item/<step>`, {session, workspace, pr}:
+#          the item's own /work-on session, its workspace (the directory this
+#          runs from, or `pwd -P` of --child-workspace), and its PR as
+#          {repo, number}, null until --repo and --number give it (always
+#          together). A call without them keeps the PR the record already
+#          names. ROOT must be a plan root's name.
 #   pr     --session S --repo owner/repo --number N
 #          --role home|node|follow-up|coordination|item
 #          --state open|ready|merged|closed
@@ -28,7 +52,8 @@
 #          coordinated root's `trail/self` in the coordination checkout, and
 #          an entry written from a node's worktree must not record that
 #          worktree as the root's address, so a coordinated root without one
-#          is refused).
+#          is refused). Mode multi-pr takes a plan root as S and T must be
+#          its topic; a plan root takes no other mode.
 #          The index session is opened from koto-templates/skill-session.md
 #          with --attach-live and never ticked.
 #   plan   --session S --step ID --plan docs/plans/PLAN-<topic>.md
@@ -84,7 +109,11 @@
 # through `koto decisions record` included.
 #
 # Run every verb from the session's checkout: its keys are written in the
-# current directory's workspace. Every value is held to a closed pattern
+# current directory's workspace. A plan root is the exception: it lives at
+# the shared address, so a verb given a plan root's name moves to that
+# directory before its first koto call. A workspace the verb records for the
+# caller (item and step without --child-workspace) and a relative --plan are
+# still the directory it was run from. Every value is held to a closed pattern
 # (scripts/lib/record-store.sh) before it reaches a koto command line, and
 # every JSON value is built with jq. The owner and repository are lowercased
 # in names and values. Timestamps are the writer's clock: they order entries
@@ -97,8 +126,11 @@
 #   65  a value the verb refuses (outside its pattern, a stdin document that
 #       is not one JSON object with the verb's fields, a credential shape, an
 #       oversized text, a PLAN path outside docs/plans or not at HEAD, a step
-#       record naming another session without --supersede, or a session
-#       with no run_id or session id to record); nothing written
+#       record naming another session without --supersede, a session
+#       with no run_id or session id to record, a PLAN the default branch
+#       never added, an item for a session that is not a plan root, or a
+#       multi-pr index that isn't a plan root's with its topic); nothing
+#       written
 #   70  a koto, git or jq call failed
 #
 # Requires: bash 3.2+, git, jq, koto.
@@ -123,6 +155,8 @@ RT_SECRET_RE='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY-----|(^|\n)[ \t]*[Aa][Uu][Tt][
 usage() {
     echo "$PROG: $*" >&2
     echo "usage: run-trail.sh self --session S" >&2
+    echo "       run-trail.sh plan-root --repo owner/repo --plan docs/plans/PLAN-<topic>.md" >&2
+    echo "       run-trail.sh item --session ROOT --step ID --child NAME [--child-workspace DIR] [--repo owner/repo --number N]" >&2
     echo "       run-trail.sh pr --session S --repo owner/repo --number N --role home|node|follow-up|coordination|item --state open|ready|merged|closed" >&2
     echo "       run-trail.sh index --repo owner/repo --number N --session S --mode single-pr|coordinated|multi-pr --topic T" >&2
     echo "       run-trail.sh plan --session S --step ID --plan docs/plans/PLAN-<topic>.md" >&2
@@ -146,6 +180,8 @@ SWITCHES=" "
 OPTIONAL=" "
 case "$VERB" in
     self|snapshot|carry) ALLOWED=" --session " ;;
+    plan-root) ALLOWED=" --repo --plan " ;;
+    item) ALLOWED=" --session --step --child "; OPTIONAL=" --child-workspace --repo --number " ;;
     pr) ALLOWED=" --session --repo --number --role --state " ;;
     index) ALLOWED=" --session --repo --number --mode --topic " ;;
     plan) ALLOWED=" --session --step --plan " ;;
@@ -192,19 +228,48 @@ for flag in $ALLOWED; do
     case "$SEEN" in *" $flag "*) ;; *) usage "$VERB needs $flag" ;; esac
 done
 
-rs_valid_session "$SESSION" || refuse "--session [$SESSION] is not a koto session name"
+[ "$VERB" = plan-root ] || rs_valid_session "$SESSION" || refuse "--session [$SESSION] is not a koto session name"
+check_repo() {
+    case "$REPO" in */*/*|/*|*/) refuse "--repo [$REPO] is not owner/repo" ;; */*) ;; *) refuse "--repo [$REPO] is not owner/repo" ;; esac
+    rs_valid_owner "${REPO%%/*}" || refuse "--repo [$REPO]: the owner is not a GitHub owner name"
+    rs_valid_repo "${REPO#*/}" || refuse "--repo [$REPO]: the repository name is not allowed"
+    REPO=$(rs_lower "$REPO")
+}
+check_number() {
+    [[ $NUMBER =~ $RS_RE_NUMBER ]] || refuse "--number [$NUMBER] is not a PR number"
+}
 case "$VERB" in
-    pr|index)
-        case "$REPO" in */*/*|/*|*/) refuse "--repo [$REPO] is not owner/repo" ;; */*) ;; *) refuse "--repo [$REPO] is not owner/repo" ;; esac
-        rs_valid_owner "${REPO%%/*}" || refuse "--repo [$REPO]: the owner is not a GitHub owner name"
-        rs_valid_repo "${REPO#*/}" || refuse "--repo [$REPO]: the repository name is not allowed"
-        [[ $NUMBER =~ $RS_RE_NUMBER ]] || refuse "--number [$NUMBER] is not a PR number"
-        REPO=$(rs_lower "$REPO")
+    pr|index) check_repo; check_number ;;
+    plan-root) check_repo ;;
+    item)
+        GIVEN=0
+        case "$SEEN" in *" --repo "*) GIVEN=$((GIVEN + 1)) ;; esac
+        case "$SEEN" in *" --number "*) GIVEN=$((GIVEN + 1)) ;; esac
+        case "$GIVEN" in
+            2) check_repo; check_number ;;
+            1) usage "item takes --repo and --number together" ;;
+        esac
+        rs_valid_step "$STEP" || refuse "--step [$STEP] is not a step id"
         ;;
     plan|step|departure|decision)
         rs_valid_step "$STEP" || refuse "--step [$STEP] is not a step id"
         ;;
 esac
+
+# The directory the verb was run from: a workspace it records for the caller
+# and a relative --plan are this one, even after a plan root's verb moves to
+# the shared address below.
+CALLER_WS=$(pwd -P) || failed "could not read the working directory"
+
+# A plan root lives at the shared address of the owner its name encodes, so
+# every koto call for it runs from there.
+PLAN_ROOT=0
+if [ "$VERB" != plan-root ] && ROOT_OWNER=$(rs_plan_root_owner "$SESSION"); then
+    PLAN_ROOT=1
+    ROOT_DIR=$(rs_shared_dir "$ROOT_OWNER") || refuse "no shared address for $SESSION"
+    mkdir -p -- "$ROOT_DIR" && cd -- "$ROOT_DIR" || failed "could not enter the shared address $ROOT_DIR"
+fi
+[ "$VERB" = item ] && [ "$PLAN_ROOT" -ne 1 ] && refuse "item records into a plan root; [$SESSION] is not plan.<owner>.<repo>.<topic>.<sha12>"
 
 TMP=""
 trap '[ -n "$TMP" ] && rm -rf -- "$TMP"' EXIT
@@ -269,6 +334,7 @@ trail_key_ok() {
         plan/*.md) rest=${k#plan/}; rs_valid_step "${rest%.md}"; return ;;
         plan/*.json) rest=${k#plan/}; rs_valid_step "${rest%.json}"; return ;;
         step/*) rs_valid_step "${k#step/}"; return ;;
+        item/*) rs_valid_step "${k#item/}"; return ;;
         departure/*|decision/*)
             rest=${k#*/}
             [[ $rest =~ ^[1-9][0-9]{0,5}\.json$ ]]
@@ -331,7 +397,119 @@ read_self() {
     [[ $SELF_RUN =~ $RS_RE_RUN_ID ]] || refuse "$SESSION's trail/self names no valid run id"
 }
 
+# resolve_plan: --plan as GIT_DIR_AT, the checkout the PLAN is read from, and
+# PLAN, its path in that checkout. A relative path is the caller's
+# checkout's; an absolute one names its own checkout, and must be
+# docs/plans/PLAN-<topic>.md under that checkout's top.
+resolve_plan() {
+    local plan_dir top rel
+    GIT_DIR_AT=$CALLER_WS
+    case "$PLAN" in
+        /*)
+            case "$PLAN" in *"
+"*) refuse "--plan holds a newline; nothing written" ;; esac
+            plan_dir=$(CDPATH='' cd -- "$(dirname -- "$PLAN")" 2>/dev/null && pwd -P) \
+                || refuse "--plan [$PLAN]: its directory is not readable; nothing written"
+            top=$(git -C "$plan_dir" rev-parse --show-toplevel </dev/null 2>/dev/null) \
+                || refuse "--plan [$PLAN] is not in a git checkout; nothing written"
+            top=$(CDPATH='' cd -- "$top" && pwd -P) || failed "could not resolve the checkout of $PLAN"
+            rel="$plan_dir/$(basename -- "$PLAN")"
+            case "$rel" in
+                "$top"/*) rel=${rel#"$top"/} ;;
+                *) refuse "--plan [$PLAN] is outside its checkout; nothing written" ;;
+            esac
+            [[ $rel =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md in its checkout; nothing written"
+            GIT_DIR_AT=$top
+            PLAN=$rel
+            ;;
+        *) [[ $PLAN =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md; nothing written" ;;
+    esac
+}
+
+# default_ref: the default branch in GIT_DIR_AT, as a ref git can read:
+# origin/HEAD's target, else origin/main, else main.
+default_ref() {
+    local ref
+    ref=$(git -C "$GIT_DIR_AT" symbolic-ref -q refs/remotes/origin/HEAD </dev/null 2>/dev/null) && [ -n "$ref" ] \
+        && { printf '%s\n' "$ref"; return 0; }
+    for ref in refs/remotes/origin/main refs/heads/main; do
+        git -C "$GIT_DIR_AT" rev-parse -q --verify "$ref^{commit}" </dev/null >/dev/null 2>&1 \
+            && { printf '%s\n' "$ref"; return 0; }
+    done
+    return 1
+}
+
 case "$VERB" in
+    plan-root)
+        resolve_plan
+        TOPIC=${PLAN#docs/plans/PLAN-}
+        TOPIC=${TOPIC%.md}
+        REF=$(default_ref) || refuse "no default branch (origin/HEAD, origin/main or main) in the PLAN's checkout; nothing written"
+        ADDED=$(git -C "$GIT_DIR_AT" log -1 --diff-filter=A --format=%H "$REF" -- "$PLAN" </dev/null) \
+            || failed "could not read the history of $PLAN on $REF"
+        [[ $ADDED =~ $RS_RE_SHA ]] || refuse "$PLAN was never added on the default branch ($REF); a multi-pr plan's root names the commit that added it; nothing written"
+        NAME=$(rs_plan_root_name "$REPO" "$TOPIC" "${ADDED:0:12}") \
+            || refuse "no plan root name for $REPO, topic $TOPIC (too long for a session name); nothing written"
+        DIR=$(rs_shared_dir "${REPO%%/*}") || refuse "no shared address for $REPO"
+        mkdir -p -- "$DIR" && cd -- "$DIR" || failed "could not enter the shared address $DIR"
+        SESSION=$NAME
+        koto init "$NAME" --template "$TEMPLATE" --attach-live </dev/null >/dev/null \
+            || failed "could not open the plan root $NAME"
+        koto context exists "$NAME" run_id </dev/null
+        RC=$?
+        case "$RC" in
+            0) ;;
+            1)
+                RUN_ID=$(printf '%s' "$NAME" | git hash-object --stdin) || failed "could not derive the run_id of $NAME"
+                RUN_ID=${RUN_ID:0:32}
+                [[ $RUN_ID =~ $RS_RE_RUN_ID ]] || failed "the derived run_id of $NAME is not a run identity"
+                printf '%s' "$RUN_ID" | koto context add "$NAME" run_id \
+                    || failed "could not write run_id in $NAME"
+                ;;
+            *) failed "could not check run_id in $NAME (koto exit $RC)" ;;
+        esac
+        koto context exists "$NAME" trail/self </dev/null
+        RC=$?
+        case "$RC" in
+            0) ;;
+            1) write_self ;;
+            *) failed "could not check trail/self in $NAME (koto exit $RC)" ;;
+        esac
+        printf '%s\n' "$NAME"
+        ;;
+    item)
+        rs_valid_session "$CHILD" || refuse "--child [$CHILD] is not a koto session name"
+        if [ -n "$CHILD_WS" ]; then
+            case "$CHILD_WS" in /*) ;; *) refuse "--child-workspace [$CHILD_WS] is not an absolute path" ;; esac
+            WS=$(CDPATH='' cd -- "$CHILD_WS" 2>/dev/null && pwd -P) \
+                || refuse "--child-workspace [$CHILD_WS] is not a directory; nothing written"
+        else
+            WS=$CALLER_WS
+        fi
+        rs_valid_workspace "$WS" || refuse "the item's workspace is not a recordable workspace"
+        KEY="trail/item/$STEP"
+        if [ -n "$REPO" ]; then
+            PR=$(jq -nc --arg r "$REPO" --argjson n "$NUMBER" '{repo: $r, number: $n}') || failed "jq failed"
+        else
+            PR=null
+            koto context exists "$SESSION" "$KEY" </dev/null
+            RC=$?
+            case "$RC" in
+                0)
+                    CUR=$(koto context get "$SESSION" "$KEY" </dev/null) || failed "could not read $KEY in $SESSION"
+                    PR=$(jq -c 'if type == "object" and (.pr | type) == "object"
+                            and (.pr.repo | type) == "string" and (.pr.number | type) == "number"
+                        then {repo: .pr.repo, number: .pr.number} else null end' <<<"$CUR" 2>/dev/null) || PR=null
+                    ;;
+                1) ;;
+                *) failed "could not check $KEY in $SESSION (koto exit $RC)" ;;
+            esac
+        fi
+        DOC=$(jq -nc --arg s "$CHILD" --arg w "$WS" --argjson pr "$PR" \
+            '{session: $s, workspace: $w, pr: $pr}') || failed "jq failed"
+        printf '%s' "$DOC" | koto context add "$SESSION" "$KEY" \
+            || failed "could not write $KEY in $SESSION"
+        ;;
     self)
         write_self
         ;;
@@ -347,6 +525,13 @@ case "$VERB" in
     index)
         case "$MODE" in single-pr|coordinated|multi-pr) ;; *) refuse "--mode [$MODE] is not a plan mode" ;; esac
         [[ $TOPIC =~ $RS_RE_TOPIC ]] || refuse "--topic [$TOPIC] must match ^[a-z0-9-]+\$"
+        if [ "$PLAN_ROOT" -eq 1 ]; then
+            [ "$MODE" = multi-pr ] || refuse "a plan root's PRs are indexed with --mode multi-pr; nothing written"
+            [[ $SESSION =~ $RS_RE_PLAN_ROOT ]] && [ "${BASH_REMATCH[4]}" = "$TOPIC" ] \
+                || refuse "--topic [$TOPIC] is not the topic of $SESSION; nothing written"
+        elif [ "$MODE" = multi-pr ]; then
+            refuse "--mode multi-pr indexes a plan root, plan.<owner>.<repo>.<topic>.<sha12>; [$SESSION] is not one; nothing written"
+        fi
         if [ "$MODE" = coordinated ]; then
             read_self no-write
         else
@@ -364,30 +549,7 @@ case "$VERB" in
             || failed "could not write run/$SELF_RUN in $NAME"
         ;;
     plan)
-        # GIT_DIR_AT: the checkout the PLAN is read from. A relative path is
-        # this checkout's; an absolute one names its own checkout, and must
-        # be docs/plans/PLAN-<topic>.md under that checkout's top.
-        GIT_DIR_AT=.
-        case "$PLAN" in
-            /*)
-                case "$PLAN" in *"
-"*) refuse "--plan holds a newline; nothing written" ;; esac
-                PLAN_DIR=$(CDPATH='' cd -- "$(dirname -- "$PLAN")" 2>/dev/null && pwd -P) \
-                    || refuse "--plan [$PLAN]: its directory is not readable; nothing written"
-                TOP=$(git -C "$PLAN_DIR" rev-parse --show-toplevel </dev/null 2>/dev/null) \
-                    || refuse "--plan [$PLAN] is not in a git checkout; nothing written"
-                TOP=$(CDPATH='' cd -- "$TOP" && pwd -P) || failed "could not resolve the checkout of $PLAN"
-                REL="$PLAN_DIR/$(basename -- "$PLAN")"
-                case "$REL" in
-                    "$TOP"/*) REL=${REL#"$TOP"/} ;;
-                    *) refuse "--plan [$PLAN] is outside its checkout; nothing written" ;;
-                esac
-                [[ $REL =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md in its checkout; nothing written"
-                GIT_DIR_AT=$TOP
-                PLAN=$REL
-                ;;
-            *) [[ $PLAN =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md; nothing written" ;;
-        esac
+        resolve_plan
         tmpdir
         git -C "$GIT_DIR_AT" show "HEAD:$PLAN" > "$TMP/plan.md" </dev/null || refuse "no $PLAN at HEAD; nothing written"
         SHA=$(git -C "$GIT_DIR_AT" rev-parse --verify HEAD </dev/null) || failed "could not read HEAD"
@@ -418,7 +580,7 @@ case "$VERB" in
             WS=$(CDPATH='' cd -- "$CHILD_WS" 2>/dev/null && pwd -P) \
                 || refuse "--child-workspace [$CHILD_WS] is not a directory; nothing written"
         else
-            WS=$(pwd -P) || failed "could not read the working directory"
+            WS=$CALLER_WS
         fi
         rs_valid_workspace "$WS" || refuse "the step session's workspace is not a recordable workspace"
         KEY="trail/step/$STEP"

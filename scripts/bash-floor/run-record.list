@@ -5,3 +5,4 @@ workflow: .github/workflows/check-run-record.yml
 scripts/record-store_test.sh
 scripts/run-trail_test.sh
 scripts/run-record-lookup_test.sh
+skills/work-on/scripts/multi-pr-item-record_test.sh

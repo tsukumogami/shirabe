@@ -41,12 +41,31 @@
 #          into a fresh session byte for byte; a key the session holds is
 #          kept; a snapshot that isn't an object of text, or names a key
 #          outside the layout, refuses (65) and writes nothing
+#   plan-root
+#          a multi-pr plan's root, plan.<owner>.<repo>.<topic>.<sha12>, opened
+#          at the shared address, sha12 from the commit that added the PLAN
+#          on the default branch; the first opener writes run_id and a
+#          trail/self naming the shared address and the root, a later one
+#          (from another checkout) leaves both as they were; a PLAN re-added
+#          after a delete names a new root; a PLAN the default branch never
+#          added, or a path outside docs/plans, refuses (65) and opens nothing
+#   item   trail/item/<step> in a plan root, written at the shared address:
+#          the item's session, its workspace (the directory it ran from, or
+#          --child-workspace) and its PR, null until --repo and --number give
+#          it and kept by a later call without them; a session that isn't a
+#          plan root refuses (65), --repo without --number is 64
+#   index --mode multi-pr
+#          into a plan root, its entry naming the shared address; a plan
+#          root under another mode, multi-pr for another session and a
+#          topic that isn't the root's refuse (65)
 #   usage  an unknown verb or flag, a repeated flag, a missing one: 64, no
 #          koto call
 #   koto   a failed write is 70
 #
-# Before the first case the suite checks that the koto on PATH is the
-# stand-in, and stops when it isn't.
+# The shared address is a directory of this suite's own, through
+# record-store.sh's test-only SHIRABE_RUN_RECORD_TEST_ROOT. Before the first
+# case the suite checks that the koto on PATH is the stand-in, and stops when
+# it isn't.
 #
 # Usage: run-trail_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -65,8 +84,10 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/run-trail-test.XXXXXX") || exit 1
+WORK=$(cd "$WORK" && pwd -P) || exit 1
 OWNER="rttest-$$-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-trap 'rm -rf "$WORK" "/tmp/shirabe-run-record/$OWNER"' EXIT
+trap 'rm -rf "$WORK"' EXIT
+export SHIRABE_RUN_RECORD_TEST_ROOT="$WORK/shared"
 export PATH="$STUB_DIR:$PATH"
 export RECORD_KOTO_STORE="$WORK/store"
 A="$WORK/a"
@@ -175,7 +196,7 @@ done
 
 # --- index ------------------------------------------------------------------------------
 
-DIR="/tmp/shirabe-run-record/$OWNER"
+DIR="$SHIRABE_RUN_RECORD_TEST_ROOT/$OWNER"
 new_store
 run_trail index --repo "$OWNER/R" --number 7 --session "$S" --mode single-pr --topic topic
 CANON=$(cd "$DIR" 2>/dev/null && pwd -P)
@@ -478,6 +499,132 @@ doc '{"trail/step/step-1": {"session": "x"}}'
 refused "carry refuses a value that isn't text" carry --session "$S"
 doc '[]'
 refused "carry refuses a snapshot that isn't an object" carry --session "$S"
+
+# --- plan-root, item, index --mode multi-pr ----------------------------------------------------
+
+# P is a multi-pr PLAN's checkout on its default branch, main; Q is a second
+# clone of it, the checkout a later item runs in.
+P="$WORK/p"
+mkdir -p "$P"
+P=$(cd "$P" && pwd -P)
+(cd "$P" && git init -q . && git checkout -q -b main && git config user.email t@example.com && git config user.name t \
+    && mkdir -p docs/plans && printf -- '---\nexecution_mode: multi-pr\n---\n# PLAN\n' > docs/plans/PLAN-mp.md \
+    && git add docs/plans/PLAN-mp.md && git commit -q -m plan) || { echo "FAIL: could not make the multi-pr fixture" >&2; exit 1; }
+ADDED1=$(git -C "$P" rev-parse HEAD)
+git clone -q "$P" "$WORK/q" || { echo "FAIL: could not clone the multi-pr fixture" >&2; exit 1; }
+Q=$(cd "$WORK/q" && pwd -P)
+ROOT="plan.$OWNER.r.mp.${ADDED1:0:12}"
+DIR_CANON=$(mkdir -p "$DIR" && cd "$DIR" && pwd -P)
+run_in() { # run_in <dir> <args>
+    local d=$1
+    shift
+    OUT=$(cd "$d" && bash "$TRAIL" "$@" </dev/null 2>"$WORK/stderr")
+    RC=$?
+}
+
+new_store
+run_in "$P" plan-root --repo "$OWNER/R" --plan docs/plans/PLAN-mp.md
+SELF=$(get_in "$DIR" "$ROOT" trail/self)
+RUN1=$(get_in "$DIR" "$ROOT" run_id)
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$ROOT" ] \
+    && [ "$(jq -r '.workspace' <<<"$SELF")" = "$DIR_CANON" ] && [ "$(jq -r '.session' <<<"$SELF")" = "$ROOT" ] \
+    && [ "$(jq -r '.run_id' <<<"$SELF")" = "$RUN1" ] && [[ $RUN1 =~ ^[0-9a-f]{32}$ ]]; then
+    pass "plan-root: plan.<owner>.<repo>.<topic>.<sha12> from the commit that added the PLAN, opened at the shared address, its trail/self naming that address and the root"
+else
+    fail "plan-root: exit $RC, out [$OUT] want [$ROOT], self [$SELF], run_id [$RUN1], stderr [$(cat "$WORK/stderr")]"
+fi
+if grep -qF "$(printf '%s\tinit %s --template ' "$DIR_CANON" "$ROOT")" "$RECORD_KOTO_STORE/calls.log" \
+    && grep -q 'skill-session.md --attach-live' "$RECORD_KOTO_STORE/calls.log"; then
+    pass "plan-root: opened from the skill-session template with --attach-live, from the shared address"
+else
+    fail "plan-root calls: [$(cat "$RECORD_KOTO_STORE/calls.log")]"
+fi
+
+# A later item, from another checkout, attaches: the root's run_id and
+# trail/self are the first opener's.
+run_in "$Q" plan-root --repo "$OWNER/r" --plan "$Q/docs/plans/PLAN-mp.md"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$ROOT" ] && [ "$(get_in "$DIR" "$ROOT" trail/self)" = "$SELF" ] \
+    && [ "$(get_in "$DIR" "$ROOT" run_id)" = "$RUN1" ]; then
+    pass "plan-root: a later opener from another checkout attaches and leaves run_id and trail/self as they were"
+else
+    fail "plan-root again: exit $RC, out [$OUT], self [$(get_in "$DIR" "$ROOT" trail/self)] was [$SELF], stderr [$(cat "$WORK/stderr")]"
+fi
+
+# item: the item's session and its checkout, written into the root at the
+# shared address; the PR once given, kept by a call without it.
+: > "$RECORD_KOTO_STORE/calls.log"
+run_in "$P" item --session "$ROOT" --step step-1 --child work-on-one
+ITEM=$(get_in "$DIR" "$ROOT" trail/item/step-1)
+if [ "$RC" -eq 0 ] && [ "$(jq -c . <<<"$ITEM")" = "$(jq -nc --arg w "$P" '{session: "work-on-one", workspace: $w, pr: null}')" ] \
+    && grep -qF "$(printf '%s\tcontext add %s trail/item/step-1' "$DIR_CANON" "$ROOT")" "$RECORD_KOTO_STORE/calls.log"; then
+    pass "item: trail/item/<step> holds the item's session and the checkout it ran from, no PR yet, written at the shared address"
+else
+    fail "item: exit $RC, [$ITEM], calls [$(cat "$RECORD_KOTO_STORE/calls.log")], stderr [$(cat "$WORK/stderr")]"
+fi
+run_in "$P" item --session "$ROOT" --step step-1 --child work-on-one --repo "$OWNER/R" --number 21
+R1=$RC
+run_in "$P" item --session "$ROOT" --step step-1 --child work-on-one
+ITEM=$(get_in "$DIR" "$ROOT" trail/item/step-1)
+if [ "$R1" -eq 0 ] && [ "$RC" -eq 0 ] && [ "$(jq -c .pr <<<"$ITEM")" = "$(jq -nc --arg r "$OWNER/r" '{repo: $r, number: 21}')" ]; then
+    pass "item: --repo and --number record the PR, lowercased, and a later call without them keeps it"
+else
+    fail "item with PR: exits $R1/$RC, [$ITEM]"
+fi
+run_in "$P" item --session "$ROOT" --step step-2 --child work-on-two --child-workspace "$WORK/q/"
+[ "$RC" -eq 0 ] && [ "$(jq -r .workspace <<<"$(get_in "$DIR" "$ROOT" trail/item/step-2)")" = "$Q" ] \
+    && pass "item: --child-workspace records that directory, canonical" \
+    || fail "item --child-workspace: exit $RC, [$(get_in "$DIR" "$ROOT" trail/item/step-2)]"
+
+: > "$RECORD_KOTO_STORE/calls.log"
+run_in "$P" item --session "$S" --step step-1 --child work-on-one
+[ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && pass "item: a session that isn't a plan root refuses (65), nothing written" \
+    || fail "item into $S: exit $RC, writes $(writes)"
+: > "$RECORD_KOTO_STORE/calls.log"
+run_in "$P" item --session "$ROOT" --step step-1 --child work-on-one --repo "$OWNER/r"
+[ "$RC" -eq 64 ] && [ ! -s "$RECORD_KOTO_STORE/calls.log" ] && pass "item: --repo without --number is 64, no koto call" \
+    || fail "item --repo alone: exit $RC"
+
+# index --mode multi-pr: the entry names the plan root at the shared address.
+run_in "$P" index --repo "$OWNER/r" --number 21 --session "$ROOT" --mode multi-pr --topic mp
+ENTRY=$(get_in "$DIR" "pr.$OWNER.r.21" "run/$RUN1")
+if [ "$RC" -eq 0 ] && [ "$(jq -r '[.workspace, .session, .mode, .topic] | join(" ")' <<<"$ENTRY")" = "$DIR_CANON $ROOT multi-pr mp" ]; then
+    pass "index --mode multi-pr: the entry names the plan root and the shared address it lives at"
+else
+    fail "multi-pr index: exit $RC, [$ENTRY], stderr [$(cat "$WORK/stderr")]"
+fi
+for args in "--session $ROOT --mode single-pr --topic mp" "--session $ROOT --mode multi-pr --topic other" \
+            "--session $S --mode multi-pr --topic topic"; do
+    : > "$RECORD_KOTO_STORE/calls.log"
+    # shellcheck disable=SC2086
+    run_in "$P" index --repo "$OWNER/r" --number 22 $args
+    [ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && pass "index refuses [$args] (65), nothing written" \
+        || fail "index [$args]: exit $RC, writes $(writes)"
+done
+
+# A PLAN re-added after a delete is a new plan: a new root.
+(cd "$P" && git rm -q docs/plans/PLAN-mp.md && git commit -q -m done && mkdir -p docs/plans \
+    && printf -- '---\nexecution_mode: multi-pr\n---\n# PLAN again\n' > docs/plans/PLAN-mp.md \
+    && git add docs/plans/PLAN-mp.md && git commit -q -m again) || fail "could not re-add the PLAN"
+ADDED2=$(git -C "$P" rev-parse HEAD)
+run_in "$P" plan-root --repo "$OWNER/r" --plan docs/plans/PLAN-mp.md
+if [ "$RC" -eq 0 ] && [ "$OUT" = "plan.$OWNER.r.mp.${ADDED2:0:12}" ] && [ "$OUT" != "$ROOT" ] \
+    && [ "$(get_in "$DIR" "$OUT" run_id)" != "$RUN1" ]; then
+    pass "plan-root: a PLAN re-added after a delete names a new root with its own run_id"
+else
+    fail "plan-root after re-add: exit $RC, out [$OUT], first [$ROOT]"
+fi
+
+# A PLAN the default branch never added, and a path outside docs/plans.
+(cd "$P" && git checkout -q -b feature && mkdir -p docs/plans && printf 'x\n' > docs/plans/PLAN-unmerged.md \
+    && git add docs/plans/PLAN-unmerged.md && git commit -q -m unmerged) || fail "could not make the unmerged PLAN"
+for plan in docs/plans/PLAN-unmerged.md ../secrets.md docs/plans/sub/PLAN-x.md; do
+    : > "$RECORD_KOTO_STORE/calls.log"
+    run_in "$P" plan-root --repo "$OWNER/r" --plan "$plan"
+    [ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && [ -z "$OUT" ] \
+        && pass "plan-root refuses [$plan] (65), opens nothing" \
+        || fail "plan-root [$plan]: exit $RC, out [$OUT], writes $(writes), stderr [$(cat "$WORK/stderr")]"
+done
+git -C "$P" checkout -q main
 
 # --- usage and koto failures ------------------------------------------------------------------
 

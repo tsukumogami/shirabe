@@ -22,6 +22,14 @@
 # test changes. The directory is created before each write, since /tmp may be
 # cleared between runs.
 #
+# SHIRABE_RUN_RECORD_TEST_ROOT is test-only: when it is set, the shared
+# address's root directory is that path instead of /tmp/shirabe-run-record,
+# so a suite keeps its index and plan-root sessions in a temp directory of its
+# own and never touches the real one, where concurrent suites collided. It
+# must be an absolute path with no `..` component and no control character;
+# any other value makes every function that builds the address refuse (64).
+# Nothing outside a test sets it.
+#
 # Reading another workspace. koto#455 proposes a read-only `--workspace <id>`
 # option that koto's read verbs accept and its write verbs refuse. A read here
 # probes, once per process, whether the installed koto's help for a read verb
@@ -41,6 +49,13 @@
 #   rs_shared_forms <owner>       both canonical forms of it, one per line
 #   rs_index_name <owner/repo> <n>
 #                                 the PR's index session name, on stdout
+#   rs_plan_root_name <owner/repo> <topic> <sha12>
+#                                 a multi-pr plan's record root,
+#                                 plan.<owner>.<repo>.<topic>.<sha12>, on
+#                                 stdout; 64 when a part or the whole fails
+#                                 its pattern
+#   rs_plan_root_owner <name>     the owner a plan root's name encodes, on
+#                                 stdout; 1 when the name is not a plan root's
 #   rs_moved_candidates <name>    the names a root may hold after re-runs,
 #                                 one per line: <name>, then <name>_r1 to
 #                                 <name>_r$RS_MAX_MOVED, each in the session
@@ -76,6 +91,10 @@
 #   RS_RE_TOPIC       a PLAN topic
 #   RS_RE_AT          a writer's UTC timestamp
 #   RS_RE_SHA         a commit id, SHA-1 or SHA-256
+#   RS_RE_PLAN_ROOT   a multi-pr plan root's name: plan.<owner>.<repo>.
+#                     <topic>.<sha12>. The owner has no dot and the topic
+#                     and sha12 none either, so the repository is what lies
+#                     between and the name decodes one way.
 #
 # The moved-aside names. A re-run of the same topic (`koto init
 # --replace-terminal`) moves the finished root aside as `<name>_r<N>`, N the
@@ -99,7 +118,7 @@
 #
 # Requires: bash 3.2+, koto.
 
-RS_SHARED_ROOT=/tmp/shirabe-run-record
+RS_SHARED_ROOT=${SHIRABE_RUN_RECORD_TEST_ROOT:-/tmp/shirabe-run-record}
 RS_RE_OWNER='^[A-Za-z0-9](-?[A-Za-z0-9])*$'
 RS_RE_REPO='^[A-Za-z0-9._-]+$'
 RS_RE_NUMBER='^[1-9][0-9]{0,9}$'
@@ -111,6 +130,7 @@ RS_RE_SESSION_ID='^[A-Za-z0-9-]{1,64}$'
 RS_RE_TOPIC='^[a-z0-9-]{1,100}$'
 RS_RE_AT='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 RS_RE_SHA='^[0-9a-f]{40}([0-9a-f]{24})?$'
+RS_RE_PLAN_ROOT='^plan\.([a-z0-9](-?[a-z0-9])*)\.([a-z0-9._-]+)\.([a-z0-9-]{1,100})\.([0-9a-f]{12})$'
 
 rs_valid_owner() {
     [[ $1 =~ $RS_RE_OWNER ]] && [ "${#1}" -le 39 ]
@@ -146,6 +166,7 @@ rs_lower() {
 
 rs_shared_dir() {
     rs_valid_owner "$1" || return 64
+    rs_valid_workspace "$RS_SHARED_ROOT" || return 64
     printf '%s/%s\n' "$RS_SHARED_ROOT" "$(rs_lower "$1")"
 }
 
@@ -165,6 +186,32 @@ rs_index_name() {
     rs_valid_repo "$repo" || return 64
     [[ $2 =~ $RS_RE_NUMBER ]] || return 64
     printf 'pr.%s.%s.%s\n' "$(rs_lower "$owner")" "$(rs_lower "$repo")" "$2"
+}
+
+rs_plan_root_name() {
+    local owner repo name
+    owner=${1%%/*}
+    repo=${1#*/}
+    rs_valid_owner "$owner" || return 64
+    rs_valid_repo "$repo" || return 64
+    [[ $2 =~ $RS_RE_TOPIC ]] || return 64
+    [[ $3 =~ ^[0-9a-f]{12}$ ]] || return 64
+    name="plan.$(rs_lower "$owner").$(rs_lower "$repo").$2.$3"
+    rs_valid_session "$name" || return 64
+    [[ $name =~ $RS_RE_PLAN_ROOT ]] || return 64
+    printf '%s\n' "$name"
+}
+
+rs_plan_root_owner() {
+    local owner repo
+    rs_valid_session "$1" || return 1
+    [[ $1 =~ $RS_RE_PLAN_ROOT ]] || return 1
+    # Copied out first: the checks below match again and reset BASH_REMATCH.
+    owner=${BASH_REMATCH[1]}
+    repo=${BASH_REMATCH[3]}
+    rs_valid_owner "$owner" || return 1
+    rs_valid_repo "$repo" || return 1
+    printf '%s\n' "$owner"
 }
 
 RS_MAX_MOVED=10

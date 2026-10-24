@@ -23,12 +23,23 @@
 #                move-aside rule: the root and its `.` children take the new
 #                prefix, anything else keeps its name, and a result outside
 #                the pattern is refused
-#   the forms    a write from the /tmp form lands at one of the two forms a
-#                reader tries
+#   the forms    a write from the shared directory lands at one of the two
+#                forms a reader tries
+#   plan roots   plan.<owner>.<repo>.<topic>.<sha12>, lowercased; every part
+#                outside its pattern refused; the owner decoded back from a
+#                plan root's name, and nothing from any other name
+#   the override SHIRABE_RUN_RECORD_TEST_ROOT moves the shared root; unset,
+#                it is /tmp/shirabe-run-record; a relative value, a `..`
+#                component or a control character makes the address refuse
+#   no real dir  every suite that writes through record-store.sh sets the
+#                override (a scan of the suites), and this suite leaves the
+#                real /tmp/shirabe-run-record as it found it (a listing before
+#                and after)
 #
-# The shared address is the real fixed directory, under an owner unique to
-# this run, removed at exit. Before the first case the suite checks that the
-# koto on PATH is the stand-in, and stops when it isn't.
+# The shared address is a directory under this suite's temp directory,
+# through the test-only override; only the default-value cases read the real
+# path, and they write nothing. Before the first case the suite checks that
+# the koto on PATH is the stand-in, and stops when it isn't.
 #
 # Usage: record-store_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -47,8 +58,21 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/record-store-test.XXXXXX") || exit 1
+WORK=$(cd "$WORK" && pwd -P) || exit 1
 OWNER="rstest-$$-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-trap 'rm -rf "$WORK" "/tmp/shirabe-run-record/$OWNER"' EXIT
+trap 'rm -rf "$WORK"' EXIT
+REAL_ROOT=/tmp/shirabe-run-record
+# real_listing: the real shared root's entries, or a line saying it is absent.
+real_listing() {
+    if [ -d "$REAL_ROOT" ]; then
+        ls -A "$REAL_ROOT"
+    else
+        echo "absent"
+    fi
+}
+REAL_BEFORE=$(real_listing)
+SHARED="$WORK/shared"
+export SHIRABE_RUN_RECORD_TEST_ROOT="$SHARED"
 export PATH="$STUB_DIR:$PATH"
 export RECORD_KOTO_STORE="$WORK/store"
 mkdir -p "$WORK/a" "$WORK/b"
@@ -68,6 +92,17 @@ lib() {
     OUT=$(bash -c '. "$1"; shift; eval "$1"' lib "$LIB" "$1" </dev/null 2>"$WORK/stderr")
     RC=$?
 }
+# lib_root <value|-> <shell commands>: lib with the override set to the value
+# as the library is sourced, or unset with `-`. Only for cases that write
+# nothing.
+lib_root() {
+    if [ "$1" = - ]; then
+        OUT=$(bash -c 'unset SHIRABE_RUN_RECORD_TEST_ROOT; . "$1"; shift; eval "$1"' lib "$LIB" "$2" </dev/null 2>"$WORK/stderr")
+    else
+        OUT=$(SHIRABE_RUN_RECORD_TEST_ROOT=$1 bash -c '. "$1"; shift; eval "$1"' lib "$LIB" "$2" </dev/null 2>"$WORK/stderr")
+    fi
+    RC=$?
+}
 calls() { [ -f "$RECORD_KOTO_STORE/calls.log" ] && cat "$RECORD_KOTO_STORE/calls.log"; }
 reset_store() { rm -rf "$RECORD_KOTO_STORE"; mkdir -p "$RECORD_KOTO_STORE"; }
 
@@ -84,16 +119,64 @@ for bad in "-o/r 1" "o-/r 1" "o--x/r 1" "o/.. 1" "o/. 1" "o/r 0" "o/r 01" "o/r a
         || fail "rs_index_name [$bad]: exit $RC, [$OUT]"
 done
 
-lib 'rs_shared_dir Octo'
+lib_root - 'rs_shared_dir Octo'
 [ "$OUT" = "/tmp/shirabe-run-record/octo" ] && pass "the shared directory is /tmp/shirabe-run-record/<owner>, lowercased" \
     || fail "shared dir: [$OUT]"
-lib 'rs_shared_forms Octo'
+lib_root - 'rs_shared_forms Octo'
 [ "$OUT" = "$(printf '/tmp/shirabe-run-record/octo\n/private/tmp/shirabe-run-record/octo')" ] \
     && pass "a reader tries the /tmp form, then the /private/tmp form" \
     || fail "forms: [$OUT]"
 lib 'rs_shared_dir ../x'
 [ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "rs_shared_dir refuses an owner outside the grammar" \
     || fail "shared dir of ../x: exit $RC, [$OUT]"
+
+# --- the override ---------------------------------------------------------------
+
+lib 'rs_shared_dir Octo'
+[ "$RC" -eq 0 ] && [ "$OUT" = "$SHARED/octo" ] \
+    && pass "with SHIRABE_RUN_RECORD_TEST_ROOT set, the shared directory is <root>/<owner>" \
+    || fail "override shared dir: exit $RC, [$OUT]"
+lib 'rs_shared_forms Octo'
+[ "$RC" -eq 0 ] && [ "$(sed -n 1p <<<"$OUT")" = "$SHARED/octo" ] \
+    && pass "with the override, a reader tries the override's directory first" \
+    || fail "override forms: exit $RC, [$OUT]"
+for bad in "rel/root" "/a/../b" "/a/.."; do
+    lib_root "$bad" 'rs_shared_dir octo'
+    [ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "an override of [$bad] makes the shared address refuse (64)" \
+        || fail "override [$bad]: exit $RC, [$OUT]"
+    lib_root "$bad" 'rs_shared_forms octo'
+    [ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "an override of [$bad] makes the forms refuse (64)" \
+        || fail "override forms [$bad]: exit $RC, [$OUT]"
+done
+lib_root "$(printf '/a\nb')" 'rs_shared_dir octo'
+[ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "an override holding a newline makes the shared address refuse (64)" \
+    || fail "newline override: exit $RC, [$OUT]"
+
+# --- plan roots -------------------------------------------------------------------
+
+lib 'rs_plan_root_name Octo-Cat/My.Repo_1 plan-x 0123456789ab'
+[ "$RC" -eq 0 ] && [ "$OUT" = "plan.octo-cat.my.repo_1.plan-x.0123456789ab" ] \
+    && pass "a plan root is plan.<owner>.<repo>.<topic>.<sha12>, lowercased" \
+    || fail "plan root name: exit $RC, [$OUT]"
+for bad in "-o/r t 0123456789ab" "o/.. t 0123456789ab" "o/r T 0123456789ab" "o/r t.x 0123456789ab" \
+           "o/r t 0123456789a" "o/r t 0123456789abc" "o/r t 0123456789AB" "o/r t xyz456789abc"; do
+    lib "rs_plan_root_name $bad"
+    [ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "rs_plan_root_name refuses [$bad]" \
+        || fail "rs_plan_root_name [$bad]: exit $RC, [$OUT]"
+done
+LONG_TOPIC=$(printf 't%.0s' $(seq 1 100))
+LONG_REPO=$(printf 'r%.0s' $(seq 1 90))
+lib "rs_plan_root_name o/$LONG_REPO $LONG_TOPIC 0123456789ab"
+[ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "a plan root name past the session pattern's 200 characters is refused" \
+    || fail "long plan root: exit $RC, [${OUT:0:40}]"
+lib 'rs_plan_root_owner plan.octo-cat.my.repo_1.plan-x.0123456789ab'
+[ "$RC" -eq 0 ] && [ "$OUT" = octo-cat ] && pass "a plan root's name decodes to its owner" \
+    || fail "plan root owner: exit $RC, [$OUT]"
+for bad in execute-plan-x pr.o.r.7 plan.o.r.t plan.o.r.t.0123456789abc plan.o.r.T.0123456789ab "plan..r.t.0123456789ab"; do
+    lib "rs_plan_root_owner '$bad'"
+    [ "$RC" -eq 1 ] && [ -z "$OUT" ] && pass "[$bad] is not a plan root's name (1)" \
+        || fail "rs_plan_root_owner [$bad]: exit $RC, [$OUT]"
+done
 
 for ws in "/a/b" "/a b/c+d@e"; do
     lib "rs_valid_workspace '$ws'"
@@ -109,7 +192,7 @@ lib "rs_valid_workspace \"\$(printf '/a\nb')\""
 # --- writes -----------------------------------------------------------------------
 
 reset_store
-DIR="/tmp/shirabe-run-record/$OWNER"
+DIR="$SHARED/$OWNER"
 lib "rs_koto_write '$DIR' init pr.$OWNER.r.1 --template t --attach-live >/dev/null && printf '{}' | rs_koto_write '$DIR' context add pr.$OWNER.r.1 run/x"
 CANON=$(cd "$DIR" 2>/dev/null && pwd -P)
 if [ "$RC" -eq 0 ] && [ -n "$CANON" ] \
@@ -268,6 +351,38 @@ $WROTE
 "*) pass "a write from the shared directory lands at one of the forms a reader tries ($WROTE)" ;;
     *) fail "write landed at [$WROTE], forms [$OUT]" ;;
 esac
+case "$WROTE" in
+    "$SHARED"/*) pass "with the override set, the write landed under the override's directory" ;;
+    *) fail "the write landed at [$WROTE], outside [$SHARED]" ;;
+esac
+
+# --- no suite writes under the real shared root ------------------------------------
+
+# Every suite that runs a script reaching record-store.sh (the library
+# itself, run-trail.sh, the lookup, or a script that records through them,
+# named by a path built from a variable, as a suite names what it runs) sets
+# the override, or sources the coordinated helpers that do. A suite that
+# only names one in its text, or reads or writes one as a file, is not a
+# writer.
+REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd)
+WRITERS='"\$[A-Za-z_{}]+/[^" ]*(lib/record-store|run-trail|run-record-lookup|multi-pr-item-record|adopt-or-create-pr|record-coord-setup|node-push)\.sh"'
+UNSET=""
+for f in "$REPO_ROOT"/scripts/*_test.sh "$REPO_ROOT"/skills/*/scripts/*_test.sh "$REPO_ROOT"/skills/*/scripts/*-helpers.sh; do
+    [ -f "$f" ] || continue
+    RUNS=$(grep -vE '^[[:space:]]*#|(cat|cp|diff|grep|>)[^|]*'"$WRITERS" "$f")
+    grep -qE "$WRITERS" <<<"$RUNS" || continue
+    grep -q 'SHIRABE_RUN_RECORD_TEST_ROOT' "$f" && continue
+    grep -q 'coord-test-helpers\.sh' "$f" && continue
+    UNSET="$UNSET ${f#"$REPO_ROOT"/}"
+done
+[ -z "$UNSET" ] && pass "every suite that writes through record-store.sh sets SHIRABE_RUN_RECORD_TEST_ROOT" \
+    || fail "suites that reach the run record without the override:$UNSET"
+
+if [ "$(real_listing)" = "$REAL_BEFORE" ]; then
+    pass "the real $REAL_ROOT is as this suite found it"
+else
+    fail "the real $REAL_ROOT changed: before [$REAL_BEFORE], after [$(real_listing)]"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -57,14 +57,30 @@
 #                   named in missing and not used; and the lookup stays in
 #                   its koto call budget, one session list, no write
 #
+#   multi-pr        in both modes: three items of a multi-pr PLAN, each its
+#                   own top-level /work-on run recording itself through
+#                   skills/work-on/scripts/multi-pr-item-record.sh (items 1
+#                   and 2 from one checkout, the PLAN committed between them,
+#                   item 3 later from another clone): each item's PR leads to
+#                   one plan root, plan.<owner>.<repo>.<topic>.<sha12> at the
+#                   shared address, listing exactly the three PRs with role
+#                   item; --steps lists the three items with their sessions,
+#                   workspaces and PLAN snapshots; a plan reusing the topic
+#                   after the first PLAN's delete gets a new root and neither
+#                   lists the other's PRs; a PR the root indexes and lists
+#                   in trail/pr but no trail/item names is exit 3; a
+#                   plan-backed child of /execute, a run given no PLAN and a
+#                   PLAN that isn't multi-pr make no koto call
+#
 # A coordinated run's lookups (four PRs of three roles, steps in node
 # worktrees, a removed follow-up) are in
 # skills/execute/scripts/record-coord-follow-up_test.sh, which drives the
 # coordinated scripts that record them.
 #
-# The shared address is the real fixed directory, under an owner unique to
-# this run, removed at exit. Before the first case the suite checks that the
-# koto on PATH is the stand-in, and stops when it isn't.
+# The shared address is a directory of this suite's own, through
+# record-store.sh's test-only SHIRABE_RUN_RECORD_TEST_ROOT, removed at exit.
+# Before the first case the suite checks that the koto on PATH is the
+# stand-in, and stops when it isn't.
 #
 # Usage: run-record-lookup_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -86,8 +102,11 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/run-record-lookup-test.XXXXXX") || exit 1
+WORK=$(cd "$WORK" && pwd -P) || exit 1
 OWNER="rrtest-$$-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-trap 'rm -rf "$WORK" "/tmp/shirabe-run-record/$OWNER"' EXIT
+trap 'rm -rf "$WORK"' EXIT
+export SHIRABE_RUN_RECORD_TEST_ROOT="$WORK/shared"
+SHARED_DIR="$SHIRABE_RUN_RECORD_TEST_ROOT/$OWNER"
 export RECORD_KOTO_STORE="$WORK/store"
 TOPIC=skel
 S="execute-$TOPIC"
@@ -128,7 +147,7 @@ log_len() { wc -l < "$RECORD_KOTO_STORE/calls.log" | tr -d ' '; }
 # in A as execute-open.sh leaves it, then its home PR adopted and recorded
 # through adopt-or-create-pr.sh. Sets A, B and ADOPT_RC.
 skeleton() {
-    rm -rf "$RECORD_KOTO_STORE" "$WORK/a" "$WORK/b" "/tmp/shirabe-run-record/$OWNER"
+    rm -rf "$RECORD_KOTO_STORE" "$WORK/a" "$WORK/b" "$SHARED_DIR"
     mkdir -p "$RECORD_KOTO_STORE" "$WORK/a" "$WORK/b"
     A=$(cd "$WORK/a" && pwd -P)
     B=$(cd "$WORK/b" && pwd -P)
@@ -191,7 +210,7 @@ else
     fail "option absent, --workspace seen: [$(grep -- '--workspace' "$RECORD_KOTO_STORE/calls.log")]"
 fi
 OUTSIDE=$(grep "${TAB}context " <<<"$LOOKUP_CALLS" | grep -v -- '--help' | cut -f1 \
-    | grep -vxF -e "$A" -e "$(cd "/tmp/shirabe-run-record/$OWNER" && pwd -P)")
+    | grep -vxF -e "$A" -e "$(cd "$SHARED_DIR" && pwd -P)")
 if [ -n "$OUTSIDE" ]; then
     fail "option absent: a read ran outside the addressed directories: [$LOOKUP_CALLS]"
 else
@@ -392,7 +411,7 @@ fi
 # session at that form. The first form holds no pr.<owner>.r.11 and answers
 # "not found".
 
-FORM1="/tmp/shirabe-run-record/$OWNER"
+FORM1="$SHARED_DIR"
 FORM2="/private$FORM1"
 (cd "$A" && bash "$TRAIL" pr --session "$S" --repo "$OWNER/r" --number 11 --role home --state open </dev/null) \
     || fail "could not record PR 11 in the root"
@@ -457,7 +476,7 @@ put_entry() { # put_entry <pr> <run_id> <session> <session_id> <written_at>
     local entry
     entry=$(jq -nc --arg w "$A" --arg s "$3" --arg i "$4" --arg at "$5" \
         '{workspace: $w, session: $s, session_id: $i, mode: "single-pr", topic: "skel", written_at: $at}')
-    (cd "/tmp/shirabe-run-record/$OWNER" && koto init "pr.$OWNER.r.$1" --attach-live --template t >/dev/null \
+    (cd "$SHARED_DIR" && koto init "pr.$OWNER.r.$1" --attach-live --template t >/dev/null \
         && printf '%s' "$entry" | koto context add "pr.$OWNER.r.$1" "run/$2")
 }
 
@@ -611,6 +630,158 @@ rerun_cases() {
 
 rerun_cases absent
 rerun_cases present
+
+# --- a multi-pr plan's item PRs, in both modes ---------------------------------------------------
+#
+# A three-item multi-pr PLAN on origin's main. Each item is its own top-level
+# /work-on run that records itself through multi-pr-item-record.sh, the
+# work-on template's hooks: `start` at the item's start, `pr` once its PR is
+# open. Items 1 and 2 run in checkout W1, the PLAN committed there between
+# them; item 3 runs later from a second clone, W3. Then the PLAN is deleted
+# from main and a new one under the same topic is added, and its first item
+# runs from W4.
+
+ITEMREC="$ROOT/skills/work-on/scripts/multi-pr-item-record.sh"
+
+item_rec() { # item_rec <checkout> <args>: the item hook, from that checkout
+    local d=$1
+    shift
+    (cd "$d" && PATH="$STUB_DIR:$PATH" bash "$ITEMREC" "$@" </dev/null)
+}
+
+multipr_cases() {
+    local mode=$1 ok=1 o w1 w3 w4 root1 root2 rid1 rows want sha1 sha2 n
+    rm -rf "$RECORD_KOTO_STORE" "$WORK/mp" "$WORK/b" "$SHARED_DIR"
+    mkdir -p "$RECORD_KOTO_STORE" "$WORK/mp/o" "$WORK/b"
+    export RECORD_KOTO_WORKSPACE_OPTION=$mode
+    B=$(cd "$WORK/b" && pwd -P)
+    o="$WORK/mp/o"
+    (
+        cd "$o" || exit 1
+        git init -q . && git checkout -q -b main && git config user.email t@example.com && git config user.name t || exit 1
+        mkdir -p docs/plans
+        printf -- '---\nschema: plan/v1\nexecution_mode: multi-pr\n---\n# PLAN\n' > docs/plans/PLAN-mp.md
+        git add docs/plans/PLAN-mp.md && git commit -q -m plan
+    ) || ok=0
+    git clone -q "$o" "$WORK/mp/w1" && git clone -q "$o" "$WORK/mp/w3" || ok=0
+    w1=$(cd "$WORK/mp/w1" && pwd -P)
+    w3=$(cd "$WORK/mp/w3" && pwd -P)
+    git -C "$w1" config user.email t@example.com && git -C "$w1" config user.name t || ok=0
+
+    # Items 1 and 2 from W1, the PLAN committed there between them; item 3
+    # from W3, a later invocation.
+    for n in 1 2 3; do
+        local w=$w1
+        [ "$n" -eq 3 ] && w=$w3
+        if [ "$n" -eq 2 ]; then
+            (cd "$w1" && printf -- '---\nschema: plan/v1\nexecution_mode: multi-pr\n---\n# PLAN, item 2 detailed\n' > docs/plans/PLAN-mp.md \
+                && git commit -q -am "detail item 2") || ok=0
+        fi
+        (cd "$w" && koto init "work-on-item-$n" --template work-on.md >/dev/null) || ok=0
+        item_rec "$w" start --session "work-on-item-$n" --plan docs/plans/PLAN-mp.md --step "issue_$n" \
+            --repo "$OWNER/r" --shared-branch "" --issue-source "" >"$WORK/item.out" || ok=0
+        item_rec "$w" pr --session "work-on-item-$n" --plan docs/plans/PLAN-mp.md --step "issue_$n" \
+            --repo "$OWNER/r" --number "3$n" --shared-branch "" --issue-source "" >>"$WORK/item.out" || ok=0
+    done
+    root1=$(sed -n 's/^plan_root=//p' "$WORK/item.out" | LC_ALL=C sort -u)
+    [ "$ok" -eq 1 ] && [[ $root1 =~ ^plan\.$OWNER\.r\.mp\.[0-9a-f]{12}$ ]] \
+        && pass "option $mode: three items record themselves into one plan root, $root1" \
+        || fail "option $mode: the items' records did not all succeed (roots [$root1]): [$(cat "$WORK/item.out")]"
+    rid1=$( (cd "$SHARED_DIR" && koto context get "$root1" run_id) 2>/dev/null)
+
+    for n in 1 2 3; do
+        lookup "$GH_OK" "$OWNER/r" "3$n"
+        want=$(jq -nc --arg ws "$(cd "$SHARED_DIR" && pwd -P)" --arg s "$root1" --arg r "$rid1" --arg repo "$OWNER/r" \
+            '{record_root: {workspace: $ws, session: $s}, run_id: $r, complete: true, unique: true, missing: [],
+              prs: [31, 32, 33 | {repo: $repo, number: ., role: "item", state: "open"}], others: [], steps: []}')
+        if [ "$RC" -eq 0 ] && [ "$(jq -c . <<<"$OUT")" = "$want" ]; then
+            pass "option $mode: PR 3$n leads to the plan root at the shared address, which lists exactly the three item PRs"
+        else
+            fail "option $mode, PR 3$n: exit $RC, out [$OUT], want [$want], stderr [$ERR]"
+        fi
+    done
+
+    lookup "$GH_OK" "$OWNER/r" 31 --steps
+    rows=$(jq -c '[.steps[] | [.step, .session, .workspace, .pr.number]]' <<<"$OUT" 2>/dev/null)
+    want=$(jq -nc --arg a "$w1" --arg c "$w3" \
+        '[["issue_1", "work-on-item-1", $a, 31], ["issue_2", "work-on-item-2", $a, 32], ["issue_3", "work-on-item-3", $c, 33]]')
+    sha1=$(jq -r '.steps[0].plan.sha' <<<"$OUT" 2>/dev/null)
+    sha2=$(jq -r '.steps[1].plan.sha' <<<"$OUT" 2>/dev/null)
+    if [ "$RC" -eq 0 ] && [ "$rows" = "$want" ] && [[ $sha1 =~ ^[0-9a-f]{40}$ ]] && [[ $sha2 =~ ^[0-9a-f]{40}$ ]] \
+        && [ "$sha1" != "$sha2" ] && [ "$(jq -r '.steps[2].plan.sha' <<<"$OUT")" = "$(git -C "$w3" rev-parse HEAD)" ]; then
+        pass "option $mode: --steps lists the three items, each with its own session, workspace and the PLAN as that item began"
+    else
+        fail "option $mode, --steps: exit $RC, rows [$rows] want [$want], out [$OUT], stderr [$ERR]"
+    fi
+
+    # The topic reused: the first PLAN deleted from main, a new one added.
+    (
+        cd "$o" || exit 1
+        git rm -q docs/plans/PLAN-mp.md && git commit -q -m "plan done" || exit 1
+        mkdir -p docs/plans
+        printf -- '---\nschema: plan/v1\nexecution_mode: multi-pr\n---\n# A new PLAN, same topic\n' > docs/plans/PLAN-mp.md
+        git add docs/plans/PLAN-mp.md && git commit -q -m "new plan"
+    ) || fail "option $mode: could not reuse the topic"
+    git clone -q "$o" "$WORK/mp/w4" || fail "option $mode: could not clone W4"
+    w4=$(cd "$WORK/mp/w4" && pwd -P)
+    (cd "$w4" && koto init work-on-new-1 --template work-on.md >/dev/null)
+    item_rec "$w4" start --session work-on-new-1 --plan docs/plans/PLAN-mp.md --step issue_1 \
+        --repo "$OWNER/r" --shared-branch "" --issue-source "" >"$WORK/item.out"
+    item_rec "$w4" pr --session work-on-new-1 --plan docs/plans/PLAN-mp.md --step issue_1 \
+        --repo "$OWNER/r" --number 41 --shared-branch "" --issue-source "" >>"$WORK/item.out"
+    root2=$(sed -n 's/^plan_root=//p' "$WORK/item.out" | LC_ALL=C sort -u)
+    lookup "$GH_OK" "$OWNER/r" 41
+    if [ "$RC" -eq 0 ] && [ -n "$root2" ] && [ "$root2" != "$root1" ] \
+        && [ "$(jq -r .record_root.session <<<"$OUT")" = "$root2" ] && [ "$(jq -c '[.prs[].number]' <<<"$OUT")" = '[41]' ]; then
+        pass "option $mode: a plan reusing the topic gets a new root ($root2), listing only its own PR"
+    else
+        fail "option $mode, reused topic: exit $RC, root2 [$root2], out [$OUT], stderr [$ERR]"
+    fi
+    lookup "$GH_OK" "$OWNER/r" 32
+    [ "$RC" -eq 0 ] && [ "$(jq -r .record_root.session <<<"$OUT")" = "$root1" ] \
+        && [ "$(jq -c '[.prs[].number]' <<<"$OUT")" = '[31,32,33]' ] \
+        && pass "option $mode: the first plan's PRs still lead to the first root, never listing the new plan's PR" \
+        || fail "option $mode, first plan after reuse: exit $RC, out [$OUT]"
+
+    # A PR the plan root lists in trail/pr and indexes, but no item names.
+    (cd "$w1" && PATH="$STUB_DIR:$PATH" bash "$TRAIL" pr --session "$root1" --repo "$OWNER/r" --number 50 --role item --state open </dev/null \
+        && PATH="$STUB_DIR:$PATH" bash "$TRAIL" index --repo "$OWNER/r" --number 50 --session "$root1" --mode multi-pr --topic mp </dev/null) \
+        || fail "option $mode: could not record PR 50"
+    lookup "$GH_OK" "$OWNER/r" 50
+    [ "$RC" -eq 3 ] && [ -z "$OUT" ] \
+        && pass "option $mode: a PR the plan root's trail/item records don't name is not returned (exit 3)" \
+        || fail "option $mode, PR without an item: exit $RC, out [$OUT], stderr [$ERR]"
+
+    # A plan-backed child of /execute, a run given no PLAN and a PLAN that
+    # isn't multi-pr record nothing: no koto call at all.
+    MARK=$(log_len)
+    item_rec "$w1" start --session execute-x.step-1 --plan docs/plans/PLAN-mp.md --step step-1 \
+        --repo "$OWNER/r" --shared-branch impl/x --issue-source plan_outline >"$WORK/skip.out"
+    n=$?
+    item_rec "$w1" pr --session execute-x.step-1 --plan docs/plans/PLAN-mp.md --step step-1 \
+        --repo "$OWNER/r" --number 60 --shared-branch impl/x --issue-source "" >>"$WORK/skip.out"
+    n="$n $?"
+    if [ "$n" = "0 0" ] && [ "$(LC_ALL=C sort -u "$WORK/skip.out")" = "skipped=plan-backed-child" ] \
+        && [ "$(log_len)" -eq "$MARK" ]; then
+        pass "option $mode: a plan-backed child of /execute writes no item, plan root or index entry (no koto call)"
+    else
+        fail "option $mode, plan-backed child: [$(cat "$WORK/skip.out")], calls [$(calls_since "$MARK")]"
+    fi
+    (cd "$w1" && printf -- '---\nexecution_mode: single-pr\n---\n' > docs/plans/PLAN-single.md)
+    item_rec "$w1" start --session work-on-x --plan "" --step issue_9 --repo "$OWNER/r" \
+        --shared-branch "" --issue-source "" >"$WORK/skip.out"
+    item_rec "$w1" start --session work-on-x --plan docs/plans/PLAN-single.md --step issue_9 --repo "$OWNER/r" \
+        --shared-branch "" --issue-source "" >>"$WORK/skip.out"
+    if [ "$(cat "$WORK/skip.out")" = "$(printf 'skipped=no-plan\nskipped=not-multi-pr')" ] && [ "$(log_len)" -eq "$MARK" ]; then
+        pass "option $mode: a run given no PLAN, or a PLAN that isn't multi-pr, records nothing"
+    else
+        fail "option $mode, no plan / not multi-pr: [$(cat "$WORK/skip.out")], calls [$(calls_since "$MARK")]"
+    fi
+    unset RECORD_KOTO_WORKSPACE_OPTION
+}
+
+multipr_cases absent
+multipr_cases present
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

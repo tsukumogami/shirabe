@@ -108,6 +108,10 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/execute-open-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"
+# The run record's shared address, should any case reach it through
+# run-trail.sh, is this suite's own (record-store.sh's test-only override).
+SHIRABE_RUN_RECORD_TEST_ROOT="$(cd "$WORK" && pwd -P)/shared-record"
+export SHIRABE_RUN_RECORD_TEST_ROOT
 
 # The engine-backed cases run the real koto, so it must write only to this
 # suite's scratch HOME: a caller's koto session context (KOTO_SESSIONS_BASE,

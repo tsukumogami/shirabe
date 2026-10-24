@@ -58,7 +58,11 @@ variables:
     description: Source of issue data for plan-backed mode (github or plan_outline)
     required: false
   PLAN_DOC:
-    description: Path to the PLAN document for plan-backed mode
+    description: >-
+      Path to the PLAN document: for plan-backed mode, and for an item of a
+      multi-pr PLAN, whose analysis and pr_creation hooks record the item
+      and its PR in the plan's record root through
+      scripts/multi-pr-item-record.sh.
     required: false
   SHARED_BRANCH:
     description: >
@@ -3197,6 +3201,18 @@ koto records `impl_base`, the commit this work starts from, as it enters this
 state. You don't submit it, and you don't classify the issue's type here: that
 question is asked once, at `issue_type_routing`, after implementation.
 
+**An item of a multi-pr PLAN records itself.** On the first pass through this
+state, before the plan, run from the checkout:
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/multi-pr-item-record.sh" start --session {{SESSION_NAME}} --plan "{{PLAN_DOC}}" --step {{ARTIFACT_PREFIX}} --repo <owner/repo> --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}"`,
+with `<owner/repo>` the repository this run's pull request opens in. It opens
+the plan's record root, `plan.<owner>.<repo>.<topic>.<sha12>`, and records the
+PLAN as committed now and this run as the item. It decides for itself whether
+the run is an item: a plan-backed child of `/execute` (its parent records it), a
+run with no `PLAN_DOC` and a PLAN that isn't `multi-pr` each print a
+`skipped=` line and write nothing. Any other nonzero exit means nothing was
+recorded: fix what its message names and run it again, and don't go on with an
+item the record doesn't hold.
+
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
 use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
@@ -3901,6 +3917,16 @@ message names into plain text, and close that issue by hand if it should close.
 Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
 records it, and when this run answers a caller's leg it is the `pr` the caller
 reads from the run's result.
+
+An item of a multi-pr PLAN records its pull request in the plan's record once
+the pull request is open, before the first `pr_status: created`:
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/multi-pr-item-record.sh" pr --session {{SESSION_NAME}} --plan "{{PLAN_DOC}}" --step {{ARTIFACT_PREFIX}} --repo <owner/repo> --number <N> --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}"`,
+from the checkout, with the pull request's repository and number. It records
+the item's PR, the PR in the root's list and the PR's index entry, in that
+order, so a reader holding only the PR's number reaches the plan's root. Any
+run that isn't an item prints a `skipped=` line and writes nothing, as at
+`analysis`; any other nonzero exit means the record is incomplete: fix what
+its message names and run it again before submitting.
 
 `pr_status: created` advances only when the `pr_body_conformant` gate passes. It
 runs `check-pr-output.sh --pr-body`, which reads the pull request's title and body

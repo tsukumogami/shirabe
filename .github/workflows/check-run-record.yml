@@ -24,7 +24,12 @@ on:
       - 'skills/execute/scripts/adopt-or-create-pr.sh'
       - 'skills/execute/scripts/owned-pr.sh'
       - 'skills/execute/scripts/run-id.sh'
-      # run-trail.sh opens index sessions from it.
+      # A multi-pr plan's item records itself through it, from the hooks in
+      # the work-on template; the lookup suite drives it too.
+      - 'skills/work-on/scripts/multi-pr-item-record.sh'
+      - 'skills/work-on/scripts/multi-pr-item-record_test.sh'
+      - 'skills/work-on/koto-templates/work-on.md'
+      # run-trail.sh opens index sessions and plan roots from it.
       - 'koto-templates/skill-session.md'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/run-record.list'
@@ -45,6 +50,9 @@ on:
       - 'skills/execute/scripts/adopt-or-create-pr.sh'
       - 'skills/execute/scripts/owned-pr.sh'
       - 'skills/execute/scripts/run-id.sh'
+      - 'skills/work-on/scripts/multi-pr-item-record.sh'
+      - 'skills/work-on/scripts/multi-pr-item-record_test.sh'
+      - 'skills/work-on/koto-templates/work-on.md'
       - 'koto-templates/skill-session.md'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/run-record.list'
@@ -87,6 +95,10 @@ jobs:
       - name: Run the run-record-lookup tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/run-record-lookup_test.sh
+
+      - name: Run the multi-pr item record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/multi-pr-item-record_test.sh
 
       - name: Run run-record suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'

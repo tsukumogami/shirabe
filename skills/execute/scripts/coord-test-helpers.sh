@@ -25,12 +25,11 @@
 # derived from its name), `--help` (naming no --workspace option, so reads
 # run from the addressed directory), and --from-file/--to-file.
 #
-# The index sessions those scripts write sit at the real shared address,
-# /tmp/shirabe-run-record/<owner>, which run-trail.sh creates before each
-# write; under this stub nothing is written inside it. The empty directory is
-# left in place at exit, never removed: suites run side by side share it, and
-# a lookup in one (which reads from that directory) would find no index if
-# another suite's exit removed it between the write and the read.
+# The index sessions those scripts write sit at the shared address, which
+# record-store.sh's test-only SHIRABE_RUN_RECORD_TEST_ROOT points at a
+# directory under CT_WORK, so no suite touches the real
+# /tmp/shirabe-run-record and suites run side by side never share one: each
+# reads only the index directories it wrote, and its exit removes them.
 #
 # Sourcing stops the suite (exit 1) unless the koto on PATH is the stub. A
 # suite that drives the real koto (rm -f "$CT_BIN/koto") calls
@@ -44,6 +43,8 @@ CT_WORK=$(mktemp -d "${TMPDIR:-/tmp}/coord-test.XXXXXX") || exit 1
 trap 'rm -rf "$CT_WORK"' EXIT
 CT_BIN="$CT_WORK/bin"
 mkdir -p "$CT_BIN" "$CT_WORK/home"
+SHIRABE_RUN_RECORD_TEST_ROOT="$(cd "$CT_WORK" && pwd -P)/shared-record"
+export SHIRABE_RUN_RECORD_TEST_ROOT
 export HOME="$CT_WORK/home"
 # --global writes land in this HOME's config, never a file the caller's
 # environment names: some cases write --global settings.
