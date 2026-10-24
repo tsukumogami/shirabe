@@ -22,8 +22,9 @@
 #      no change;
 #   3. host B imports it with --import and resumes it there (imported=,
 #      resumed=1), and every key but record/host, the import's own, is the same
-#      by name and JSON as before the resume on A, with one more: koto's
-#      koto/imported-from, naming A's session and its session id;
+#      by name and JSON as before the resume on A, with one more on koto 0.24.0
+#      or later, whose import writes it: koto/imported-from, naming A's session
+#      and its session id (an older koto adds no key);
 #   4. the imported run's find reads the legacy record, its `store session` row
 #      included, as found: it goes on to reconcile_pass and never to
 #      record_conflict.
@@ -146,11 +147,21 @@ grep -qx "imported=$FIRST" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OU
     || bad "3: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
 S=$FIRST
 IMPORTED=$(snap b)
-EXPECTED=$( { printf '%s\n' "$BEFORE"
-    printf 'koto/imported-from %s\n' "$(jq -cnS --arg s "$FIRST" --arg i "$SRC_ID" '{from_session: $s, from_session_id: $i}')"
-    } | LC_ALL=C sort)
-eq "3: every key but record/host is the same by name and JSON as before the resume, plus koto/imported-from naming A's session" \
-    "" "$(diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$IMPORTED"))"
+# koto 0.24.0 is the first release whose import writes koto/imported-from; the
+# entry-floor job runs this suite on an older koto, whose import adds no key.
+KOTO_VER=$(koto version | head -n 1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*$/\1 \2/p')
+[ -n "$KOTO_VER" ] && ok "3: koto's version is read" || bad "3: koto's version is read" "$(koto version 2>&1 | head -n 1)"
+read -r KOTO_MAJOR KOTO_MINOR <<< "${KOTO_VER:-0 0}"
+if [ "$KOTO_MAJOR" -gt 0 ] || [ "$KOTO_MINOR" -ge 24 ]; then
+    EXPECTED=$( { printf '%s\n' "$BEFORE"
+        printf 'koto/imported-from %s\n' "$(jq -cnS --arg s "$FIRST" --arg i "$SRC_ID" '{from_session: $s, from_session_id: $i}')"
+        } | LC_ALL=C sort)
+    eq "3: every key but record/host is the same by name and JSON as before the resume, plus koto/imported-from naming A's session" \
+        "" "$(diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$IMPORTED"))"
+else
+    eq "3: every key but record/host is the same by name and JSON as before the resume (koto before 0.24.0 adds no key)" \
+        "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$IMPORTED"))"
+fi
 
 echo "== 4. the imported run's find reads the legacy record =="
 tick > /dev/null
