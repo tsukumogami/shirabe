@@ -34,9 +34,10 @@ stay unset and step 6 is proved against the stub koto, built from the pin's PRD 
 Once koto#444 ships, step 6's same-host checks (pinning at `record_keep`, refusal and retry,
 `kept_by_pin` in a same-host prune, cleanup refusing a pinned session) can also run against a
 real koto; its cross-host checks (a second host's prune or cleanup keeping the sessions, a
-failed bucket check keeping them, a pin surviving import) wait on the cloud follow-up. The workspace option the design calls K2 is a separate
-proposal to koto, pending koto's acceptance, so `RECORD_STORE_FLOOR` stays unset and the
-index and lookup work from the run's own workspace path until it ships. The end-to-end
+failed bucket check keeping them, a pin surviving import) wait on the cloud follow-up. The workspace option the design calls K2 is koto#455,
+read-only and built outside this plan: the index is written from a fixed directory, and
+reads pass `--workspace` only once the installed koto accepts it, falling back to running
+from the addressed directories, which works on the run's own host. The end-to-end
 walkthrough from a fresh workspace on another host with no local copy, against a real koto and
 a real bucket, covering the lookup and a removal there, rests on K2 and on the pin's cloud
 follow-up, and is not a step here.
@@ -58,7 +59,7 @@ lifecycle statement. Each step carries the tests and documentation its behaviour
 
 ### Step 1: a single-pr run's home PR leads back to its record root from a fresh directory
 
-**Goal**: Open the first end-to-end path through the run record: `adopt-or-create-pr.sh` writes the home PR and its index entry through `scripts/run-trail.sh` (`pr`, `index` and `self` verbs) and `scripts/lib/record-store.sh` into the stub koto (`scripts/testdata/record-koto/koto`), and `scripts/run-record-lookup.sh` reads it back. The input is one stub-backed single-pr run with one home PR, recorded in workspace A and looked up from a different directory B.
+**Goal**: Open the first end-to-end path through the run record: `adopt-or-create-pr.sh` writes the home PR and its index entry through `scripts/run-trail.sh` (`pr`, `index` and `self` verbs) and `scripts/lib/record-store.sh` into the stub koto (`scripts/testdata/record-koto/koto`), and `scripts/run-record-lookup.sh` reads it back. The input is one stub-backed single-pr run with one home PR, recorded in workspace A and looked up from a different directory B. `record-store.sh` writes the index from the fixed directory `/tmp/shirabe-run-record/<owner>` (created, entered in a subshell, no address option on any write) and reads through koto's read-only `--workspace` option only when the installed koto accepts it on a read verb (probed from koto's help once per process); otherwise it reads from the addressed directory, trying both canonical forms of the fixed directory (`/tmp/...` and `/private/tmp/...`). The stub models both a koto with the option (reads only; writes given it are refused) and one without.
 
 **Acceptance Criteria**:
 
@@ -66,6 +67,7 @@ lifecycle statement. Each step carries the tests and documentation its behaviour
 - [ ] When the PR's index entry names a session whose own `trail/pr/*` list doesn't include the PR, the lookup doesn't return that session and exits 3.
 - [ ] The lookup exits 3 for a PR with no index entry, 2 when the stub fails the store read, and 64 for `owner` without a repository, for a PR number of `0` and for a non-numeric one; each prints a message on stderr saying which case it hit.
 - [ ] After a lookup from directory B, the stub's call log contains no write, no import and no migration marker from the lookup.
+- [ ] No write the run makes through `record-store.sh` carries `--workspace`: the stub, in its option-present mode, refuses any write given it (as koto#455 specifies), and the skeleton case still passes in that mode. In option-absent mode the lookup from B still succeeds by reading from the addressed directories, and the stub's log shows no `--workspace` on any call; in option-present mode the log shows `--workspace` on the lookup's reads.
 - [ ] With a stub `gh` that fails every call, the lookup returns the same JSON and exit code as with a working `gh`.
 - [ ] `scripts/check-bash-floor.sh` passes for the new suites (`record-store_test.sh`, `run-trail_test.sh`, `run-record-lookup_test.sh`) on the bash 3.2 floor, and the `check-run-record` workflow runs them.
 
@@ -73,7 +75,7 @@ lifecycle statement. Each step carries the tests and documentation its behaviour
 
 **Dependencies**: None
 
-**Files**: `scripts/run-trail.sh`, `scripts/lib/record-store.sh`, `scripts/run-record-lookup.sh`, `scripts/testdata/record-koto/koto`, `skills/execute/scripts/adopt-or-create-pr.sh`, `skills/execute/scripts/execute-open.sh`, `.github/workflows/check-run-record.yml`, `scripts/bash-floor/run-record.list`
+**Files**: `scripts/run-trail.sh`, `scripts/lib/record-store.sh`, `scripts/run-record-lookup.sh`, `scripts/testdata/record-koto/koto`, `scripts/record-store_test.sh`, `scripts/run-trail_test.sh`, `scripts/run-record-lookup_test.sh`, `skills/execute/scripts/adopt-or-create-pr.sh` and its test, `skills/execute/scripts/execute-open.sh` and its test, `.github/workflows/check-run-record.yml`, `scripts/bash-floor/run-record.list`. No file under `skills/coordinate/`.
 
 ### Step 2: the record holds the PLAN as each step began, each step session, departures and decisions with their actor
 
