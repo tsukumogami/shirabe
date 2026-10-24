@@ -16,11 +16,15 @@
 //! A head names a program in any case: on a case-insensitive filesystem,
 //! macOS's default, the shell's PATH lookup finds `/usr/bin/env` for `ENV`
 //! and gh for `GH`, so the last path component is lowercased before it is
-//! compared with `gh`, `git` and [`WRAPPERS`]. `cd`, `pushd` and `popd` are
-//! the exception: the shell matches a builtin's name exactly, and `CD sub`
-//! runs a `cd` program in a child process that moves nothing. The words
-//! after the head keep their case, since gh and git read their subcommands
-//! exactly (`gh PR create` is an unknown command).
+//! compared with `gh`, `git` and [`WRAPPERS`]. The shell matches a builtin
+//! or keyword by its exact name, so `EVAL` or `TIME` isn't the builtin; the
+//! wrappers among them are lowercased anyway, since reading one as a wrapper
+//! only denies more. `cd`, `pushd` and `popd` are the exception, because
+//! there the error runs the other way: `CD sub` runs a `cd` program in a
+//! child process that moves nothing, and reading it as `cd` would check a
+//! later push in the wrong directory. The words after the head keep their
+//! case, since gh and git read their subcommands exactly (`gh PR create` is
+//! an unknown command).
 //!
 //! An `env` head is judged by the command it runs when that command is `gh`:
 //! past env's own options and assignment operands, it is classified the way it

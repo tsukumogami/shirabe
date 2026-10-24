@@ -154,8 +154,10 @@ These terms mean the same thing everywhere below.
   `/usr/bin/git` is `git` and `if true; then git push; fi` holds a
   guarded segment. The comparison ignores case, since a
   case-insensitive filesystem (macOS's default) runs `GH` as gh and
-  `ENV` as env; only the builtins `cd`, `pushd` and `popd` match as
-  written, because the shell finds a builtin by its exact name. A
+  `ENV` as env. The shell finds a builtin by its exact name, so `EVAL`
+  isn't the builtin, but reading a wrapper as one only denies more;
+  only `cd`, `pushd` and `popd` match as written, since reading `CD`
+  as `cd` would check a later push in a directory it never moved to. A
   backslash followed by a newline outside quotes joins the two lines,
   as the shell does.
 - **Word**: a piece of a segment between unquoted blanks, after quote
