@@ -413,6 +413,7 @@ fn env_command(ws: &[Word]) -> Option<usize> {
         j += 1;
     }
     ws.get(j)
+        // In any case, as `kind_words` compares a head.
         .is_some_and(|w| plain(w) && basename(&w.text).eq_ignore_ascii_case("gh"))
         .then_some(j)
 }
@@ -480,7 +481,10 @@ fn kind_words(ws: &[Word]) -> Kind {
             named: Named { pr, push },
         };
     }
-    // In any case, as the module docs say; `exact` is kept for the builtins.
+    // A head matches in any case (the module docs say why), so `name` is the
+    // lowercased basename. `exact` keeps the spelling as written, for the
+    // builtins below that match only that way. `env_command` makes the same
+    // comparison for the `gh` an env runs.
     let exact = basename(&head.text);
     let lower = exact.to_ascii_lowercase();
     let name = lower.as_str();
@@ -518,6 +522,10 @@ fn kind_words(ws: &[Word]) -> Kind {
         };
     }
     match name {
+        // Builtins, which the shell finds only as written: `CD sub` runs a
+        // `cd` program in a child that moves nothing, so it falls to `Other`
+        // and the directory stays put. Without the guard a later push would
+        // be checked in a directory the shell never moved to.
         "cd" | "pushd" if exact == name => Kind::Cd(rest.to_vec()),
         "popd" if exact == name => Kind::Popd,
         "gh" => {
