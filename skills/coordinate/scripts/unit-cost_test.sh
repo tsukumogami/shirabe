@@ -648,9 +648,9 @@ echo "== the milestone from the dispatch's leg key =="
 seed_noholding() {
     cat "$GH_DB.calls" >>"$T/allcalls" 2>/dev/null
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$(record_json roadmap x | jq -c '.holdings = []')" issue 2026-10-01T08:00:00Z)"
+    seed_session "$S" "$(record_json roadmap x | jq -c '.holdings = []')" 2026-10-01T08:00:00Z
     db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
+    db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
 }
 LREQ="$T/legreqs"
 rm -rf "$LREQ"; cp -R "$FX/requests" "$LREQ"
@@ -749,8 +749,8 @@ wait "$P1"; wait "$P2"
 POSTED=$((POSTED + 1))
 eq "  ... released, they leave one entry" 1 "$(cost_bodies | jq length)"
 eq "  ... one posts, and the other, listing after it, says the record already holds the entry" \
-    "unit-cost: posted the cost entry|unit-cost: the record already holds this unit's cost entry" \
-    "$({ tail -n 1 "$T/cap1.err"; tail -n 1 "$T/cap2.err"; } | LC_ALL=C sort | paste -sd'|' -)"
+    "unit-cost: posted the cost entry on acme/widgets#21|unit-cost: the record already holds this unit's cost entry" \
+    "$({ tail -n 1 "$T/cap1.err"; tail -n 1 "$T/cap2.err"; } | LC_ALL=C sort | tr '\n' '|' | sed 's/|$//')"
 eq "  ... the lock is released after them" no "$([ -e "$PL" ] && echo yes || echo no)"
 # A lock left by a process that is gone is taken over.
 seed; fresh
@@ -805,13 +805,16 @@ eq "  ... green and failing heads read failed" "read failed|read failed" \
     "$(last_entry | jq -r '"\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
 seed; fresh
 UNIT_COST_BUDGET_SECS=0 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
-eq "with the budget spent, the capture still posts" "0 1" "$? $(cost_bodies | jq length)"
-POSTED=$((POSTED + 1))
+# With no budget left the opt-in's CLAUDE.md can't be read either, so the
+# entry is kept in the session, nothing posted; the archive's copy is read.
+eq "with the budget spent, the capture still writes its entry, kept in the session" \
+    "0 0 unit-cost: kept the cost entry in the session" "$? $(cost_bodies | jq length) $(tail -n 1 "$T/cap.err" | cut -d: -f1-2)"
+SPENT=$(jq -c . "$A/unit-cost.json")
 eq "  ... what it could not take is time limit" "false|time limit|time limit|time limit|time limit|time limit|time limit" \
-    "$(last_entry | jq -r '"\(.complete)|\([.missing[] | select(.figure == "milestone") | .reason][0])|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_merge_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\([.missing[] | select(.figure == "tokens.worker") | .reason][0])"')"
+    "$(q "$SPENT" '"\(.complete)|\([.missing[] | select(.figure == "milestone") | .reason][0])|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_green_min") | .reason][0])|\([.missing[] | select(.figure == "dispatch_to_merge_min") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])|\([.missing[] | select(.figure == "tokens.worker") | .reason][0])"')"
 eq "  ... the figures already computed are kept" "40.5 measured|29.5 measured|3 measured|99.3 measured" \
-    "$(last_entry | jq -r '[.figures.writing_code_min, .figures.review_min, .figures.panel_rounds, .figures.summed_session_span_min] | map("\(.value) \(.state)") | join("|")')"
-eq "  ... and a repository it could not look up is not public" '[{"repo":"not public"}]' "$(last_entry | jq -c .pulls)"
+    "$(q "$SPENT" '[.figures.writing_code_min, .figures.review_min, .figures.panel_rounds, .figures.summed_session_span_min] | map("\(.value) \(.state)") | join("|")')"
+eq "  ... and a repository it could not look up is not public" '[{"repo":"not public"}]' "$(q "$SPENT" '.pulls | tojson')"
 
 echo "== an entry over 50,000 bytes =="
 seed; fresh; prs "acme/widgets#21 $MERGE"

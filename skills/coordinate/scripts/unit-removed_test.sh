@@ -174,8 +174,8 @@ eq "  ... printing one line" "unit-removed: recorded the removal of $DID; the sw
 eq "  ... with the removal record written while the sweep's capture is held" "unit-removal/1|$DID|$SID|$IP|0|null" \
     "$(jq -r '"\(.schema)|\(.dispatch_id)|\(.session_id)|\(.instance_path)|\(.attempts)|\(.last)"' "$R/$DID.json" 2>&1)"
 eq "  ... removed_at a UTC time" ok "$(jq -r '.removed_at | if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") then "ok" else . end' "$R/$DID.json" 2>&1)"
-# Read from the store directly: record-append.sh --list reads GitHub, which
-# the fifo holds.
+# Read from the store directly, not through the capture's own list: the
+# capture is held at its first GitHub read, before it lists or posts anything.
 eq "  ... and nothing posted yet" 0 "$(count "$KOTO_STORE/context/$S/record/entries"/*)"
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
@@ -259,8 +259,8 @@ jq -n -c --arg d "$DID" --arg s "$SID" --arg p "$IP" \
 eq "the sweep keeps the record, no coordinator, and lists it stale" "$DID: no coordinator
 $DID: stale" "$(bash "$UR" sweep)"
 eq "  ... the record is still there and nothing is posted" "1|0" "$(nrecords)|$(costs "$S" | jq length)"
-eq "  ... removals.log holds a line for each, a UTC time first" "$DID no coordinator|$DID stale|ok" \
-    "$(cut -d' ' -f2- "$R/removals.log" | paste -sd'|' -)|$(awk '$1 !~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ { print "bad"; exit } END { print "ok" }' "$R/removals.log" | head -n 1)"
+eq "  ... removals.log holds a line for each, a UTC time first" "$DID no coordinator|$DID stale|0" \
+    "$(cut -d' ' -f2- "$R/removals.log" | tr '\n' '|' | sed 's/|$//')|$(grep -Evc '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z ' "$R/removals.log")"
 # A kept record is retried whatever its outcome: the sweep never branches on
 # last.outcome, so no coordinator here and pending github above stand for the
 # rest (a failed post, a read failure, a timeout), which the stubs can't cause.

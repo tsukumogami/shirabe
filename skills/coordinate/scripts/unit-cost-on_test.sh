@@ -9,7 +9,9 @@
 #
 # Covers: with no reader, and with a reader that answers omit, fails or
 # answers anything else, the entry kept in the session (`--on none`), no
-# comment on any pull request or issue, the output saying so; with a reader
+# comment on any pull request or issue, the output saying so, whichever item
+# the entry is about (the holding's pull request, the sealed verdict's first,
+# the unit's issue); with a reader
 # that answers include, given a directory holding the repository's CLAUDE.md as
 # GitHub serves it: a unit whose holding names its pull request posted there
 # with today's marker line, its URL kept in the session; a holding with no Pull
@@ -96,6 +98,20 @@ for c in "no reader" "omit 0" "include 1" "yes 0"; do
     eq "  ... no comment on any pull request or issue" 0 "$(ncomments)"
     eq "  ... the session holds the entry" 1 "$(costs | jq length)"
     eq "  ... saying so" "$KEPT" "$(tail -n 1 "$T/cap.err")"
+done
+# Every item the capture can post on is held back without the opt-in: the
+# holding's pull request (above), the sealed verdict's first pull request, and
+# the unit's issue.
+for c in "the verdict's pull request" "the unit's issue"; do
+    case "$c" in
+        "the verdict's pull request") seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"
+            fresh; prs "acme/widgets#21 $MERGE" ;;
+        *) seed "$(holding feat-x '{"unit": "#5: fix it", "pull_request": ""}')"
+            fresh; : >"$T/prs" ;;
+    esac
+    UNIT_COST_PR_CONTENT_READER="$T/absent.sh" capture
+    eq "no opt-in, $c: no comment on any pull request or issue, the entry kept in the session" "0 0 1 $KEPT" \
+        "$? $(ncomments) $(costs | jq length) $(tail -n 1 "$T/cap.err")"
 done
 reader include
 seed "$(holding feat-x "$HOLD22")"
