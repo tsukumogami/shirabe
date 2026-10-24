@@ -236,7 +236,7 @@ chmod +x "$T/bin/koto"
 # second's Decisions section on a re-read.
 reread_case() {
     seed "$1"; session "$(roadmap_vars plugin-system)"
-    render "$2" issue | bash "$HERE/record-parse.sh" --container issue | jq -c '.decisions' > "$T/reread"
+    seed_session reread-scratch "$2" && cp "$KOTO_STORE/context/reread-scratch/record/decisions" "$T/reread"
     rm -f "$T/reread.served"
     : > "$KOTO_STORE/calls"
 }
