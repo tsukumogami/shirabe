@@ -1,11 +1,11 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   After a plan's work merges, shirabe deletes the PLAN and koto may remove the sessions
-  that ran it, on every host sharing the session store. Someone who starts from a merged
-  pull request can't get back to how the plan ran: the plan at each step, each step's
-  proof, the departures taken, and who decided what. And the PR text can't carry the way back.
+  that ran it, on every host sharing the session store. A reader starting from a merged
+  PR can't get back to the plan at each step, each step's proof, the departures taken or
+  who decided what, and the PR's text can't carry the way back.
 outcome: |
   A reviewer, auditor or later agent with the tools starts from a merged PR's repository
   and number, reaches the session that ran its plan and every PR the plan produced, and
@@ -16,7 +16,7 @@ motivating_context: |
   and its koto sessions already keep each run's per-hop record past the terminal tick.
   The two halves don't meet: once the PLAN is gone, nothing tells a reader which session
   was the record, and nothing stops a routine prune from taking it. koto's session pin,
-  specified in tsukumogami/koto#444 and not yet landed, gives the retention half a
+  specified in tsukumogami/koto#444 and not landed when this brief was written, gives the retention half a
   mechanism to state its need against.
 ---
 
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -129,8 +129,9 @@ changes.
 
 ### A plan author reads the lifecycle
 
-A new contributor reads the plan format reference to learn where a finished plan goes.
-It says the PLAN and the ROADMAP are deleted when their work finishes, and that a
+A new contributor is asked why a plan that merged last month was split into four steps.
+The PLAN isn't in `docs/plans/` any more, so they open the plan format reference to find
+out where a finished plan went. It says the PLAN and the ROADMAP are deleted when their work finishes, and that a
 multi-pr PLAN is the only one that reaches the default branch, where it stays while its
 PRs land. It sends them to the run's session for the record. The planning skill and the
 completion step say the same thing.
@@ -143,7 +144,8 @@ This validates that the documentation and the behavior agree.
 
 - The lookup from a merged PR's repository and number to the koto session that ran its
   plan, and from that session to each of its PRs, for single-pr, coordinated and
-  multi-pr plans.
+  multi-pr plans. This is the capability; whether shirabe or koto ships it is for the
+  PRD to settle.
 - What the run's sessions hold as the record: the plan at the start of each step, each
   step's proof, each recorded departure against its step, and each decision with its
   actor, plus how a reader gets from the root session to the per-step child sessions.
@@ -170,16 +172,6 @@ This validates that the documentation and the behavior agree.
   the actor koto recorded.
 - A checkout-free source for the PR opt-in. The existing reader works from a checkout. If
   the opt-in turns out to need a source that doesn't, that's a separate proposal.
-
-## Open Questions
-
-- Does the PR-to-session lookup belong to shirabe or to koto? The PRD's Decisions and
-  Trade-offs should settle where it lives. The design settles how it works.
-- Can every removal path be covered by the pin as specified, including subtree removal
-  and a parent sweep that meets a pinned child? The PRD should confirm that against the
-  pin's requirements.
-
-None of these questions block the brief.
 
 ## References
 
