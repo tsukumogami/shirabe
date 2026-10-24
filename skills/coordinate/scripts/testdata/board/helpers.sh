@@ -20,7 +20,7 @@ bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
     mkdir -p "$S" "$T/plugin/scripts/lib" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
-             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-source.sh record-parse.sh record-render.sh record-codec.jq \
+             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-source.sh state-schema.jq \
              panel-evidence.sh merge-order-entry.sh pause-read.sh milestone.sh dispatch-common.sh; do
         cp "$HERE/$f" "$S/$f"
     done
@@ -139,7 +139,6 @@ bt_verified() {
 # its keys (bt_session_record).
 bt_record_body() {
     jq -nc --argjson r "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r, holds: $h}' > "$T/rec.json"
-    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     bt_record_here
 }
 # bt_record_here: the record into $S's keys, when $S is a session the koto
@@ -158,7 +157,6 @@ bt_record_paused() {
             branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
             pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
         deferrals: [], side_effects: [], reversals: [], holds: $h, standing: $s}' > "$T/rec.json"
-    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     bt_record_here
 }
 # bt_session_record <S>: the record bt_record_body or bt_record_paused last
