@@ -87,7 +87,8 @@ if open_run moved; then
     eq "1: the run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-moved.md" --by "the human" \
         && write_as_agent record-state.sh --run cap 2 --by "the human" \
-        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
+        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
+        && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
     eq "1: the stored set is written" 0 $?
     eq "1: the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     eq "1: and holds into wait" wait "$(at --with-data '{"choice":"hold"}')"

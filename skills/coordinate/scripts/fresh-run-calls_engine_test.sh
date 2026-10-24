@@ -138,7 +138,8 @@ eq "1: record-open.sh (agent-run) opens the record in the session" 0 $?
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-ship.md" --by "the human" \
     && write_as_agent record-state.sh --run cap 2 --by "the human" \
-    && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
+    && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
+    && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
 eq "1: record-state.sh (agent-run) writes the stored set" 0 $?
 eq "1: the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 
