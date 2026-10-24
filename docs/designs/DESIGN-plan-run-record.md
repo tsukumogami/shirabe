@@ -301,9 +301,17 @@ The state is a default action that never blocks the terminal. Any pin koto refus
 or can't confirm (exit 3) is written to the root's `trail/unpinned` key with koto's error
 code. The terminal's `result:` carries `record: unpinned` and the list. The next invocation's
 opener reruns `run-record-pin.sh --retry`, which takes the names from that key and puts each
-through the same local provenance check as a first attempt before pinning it. The pin floor is one constant,
-`RECORD_PIN_FLOOR`, in `run-record-pin.sh`. Below it, or while it's unset, no
-`koto session pin` call is made and the result says `record: unpinned`.
+through the same local provenance check as a first attempt before pinning it. The pin has two floors in
+`run-record-pin.sh`, because koto ships it in two parts. `RECORD_PIN_FLOOR` is the release
+carrying koto#444 (pin and unpin, the engine reading the pin, prune keeping pinned sessions,
+one removal guard at every removal point, the reporting surfaces and unreadable pins, and the
+start hook recording authority). Below it, or while it's unset, no `koto session pin` call is
+made and the result says `record: unpinned`. `RECORD_PIN_CLOUD_FLOOR` is the release carrying
+the pin's cloud follow-up (the bucket check before every delete, keeping across hosts, and
+pins travelling with import). Under the cloud backend, a run on a koto at or above the first
+floor but below the second pins as usual and its result says `record: pinned-local`: removals
+on its own host keep the sessions, but a removal on another host sharing the bucket isn't yet
+held to the pin.
 
 shirabe never calls `koto session unpin`. A pin comes off by hand, or from an agent session
 whose start was handed koto's `release-pin` authority, as koto's pin defines.
@@ -356,6 +364,10 @@ Key assumptions:
   reads its parent's key. So an invocation started after the header is turned off records
   `omit` and writes no session reference. A PR body it rewrites loses an earlier Part 2
   reference, and a PR it doesn't touch keeps what it had.
+- **No step posts a record.** No teardown, cleanup, cascade or reporting step posts a run
+  record, a pin result or a cost entry to a public pull request, as a comment or in its text.
+  Under omit that holds for every repository; `result:` text, `trail/unpinned` and any cost
+  figure stay in the session.
 - **Under omit,** a PR body is its plain description and verification. That holds for
   coordinated bodies too. `coord-render.sh` renders Part 1 alone, with no run lines, PR index
   or merge-order block. `node-push.sh` writes the node body without the deferral section,
@@ -398,8 +410,12 @@ Cross-validation found one coupling. Decision 4's ownership check reads the inde
 ownership lookup that could see the PR again. Every writer records the index entry in the
 same step that records the PR, before any later lookup, which settles it.
 
-Two things wait on koto. K1, the pin, waits on koto#444's release: until then
-`RECORD_PIN_FLOOR` is unset and runs report `record: unpinned`. K2, the workspace option, is
+Three things wait on koto. K1, the pin, ships in two parts. koto#444's release lets
+shirabe pin and keeps pinned sessions through every removal on the host that reads the pin;
+until then `RECORD_PIN_FLOOR` is unset and runs report `record: unpinned`. The pin's cloud
+follow-up, a later koto PR, adds the bucket check before every delete, keeping across hosts and
+import; until it ships `RECORD_PIN_CLOUD_FLOOR` is unset and a cloud-backed run reports
+`record: pinned-local`. K2, the workspace option, is
 a separate proposal to koto, pending koto's acceptance: until it lands the index and the
 multi-pr root live at the run's own workspace, so a lookup works from that workspace path
 and a multi-pr plan whose items ran in different workspaces has one root per workspace.
@@ -615,9 +631,18 @@ Deliverables: the seven lifecycle files listed under Components,
 - **K2 in koto.** The `--workspace` option described in Decision 1 is a proposal to koto, a
   separate step in koto and pending koto's acceptance. It must not change the pin's code or
   design. When it ships, `RECORD_STORE_FLOOR` is set to its release.
-- **K1's release.** When koto releases the pin, `RECORD_PIN_FLOOR` is set to that version.
-- **The end-to-end walkthrough** from a fresh workspace on another host, against a real koto
-  and a real bucket, waits on both. It's done after they ship, not as part of this change.
+- **K1's two releases.** When koto releases koto#444, `RECORD_PIN_FLOOR` is set to that
+  version, and the local-backend pin checks can also run against a real koto. When it releases
+  the pin's cloud follow-up, `RECORD_PIN_CLOUD_FLOOR` is set to that version.
+- **What waits on which.** Built and tested now against the stub, from the pin's PRD as
+  written: everything. Proved against a real koto once koto#444 ships: pinning the record root,
+  step and index sessions at `record_keep`, refusal and retry, `kept_by_pin` in a same-host
+  prune, `koto session cleanup` refusing a pinned session, and the release routes. Proved only
+  once the pin's cloud follow-up ships: a prune or cleanup on a second host keeping the
+  sessions, a failed bucket check keeping them, and a pin surviving import.
+- **The end-to-end walkthrough** from a fresh workspace on another host with no local copy,
+  against a real koto and a real bucket, covering the lookup and a removal there, rests on K2
+  and on the pin's cloud follow-up. It's done after they ship, not as part of this change.
 
 ## Security Considerations
 
@@ -686,7 +711,8 @@ departure text is not, and it must hold no credentials. Under omit nothing from 
 reaches PR text. Under include the reference names a session and a run id, never a path.
 `result:` text and `trail/unpinned` codes are never copied into PR text.
 
-**Dependencies.** No new packages. The floors (`RECORD_PIN_FLOOR`, `RECORD_STORE_FLOOR`) are
+**Dependencies.** No new packages. The floors (`RECORD_PIN_FLOOR`, `RECORD_PIN_CLOUD_FLOOR`,
+`RECORD_STORE_FLOOR`) are
 checked against the installed koto's version and fail closed: `record: unpinned`, and the run's
 own workspace as the address. The stub koto is built from koto's specifications, so the floors
 are set only after the end-to-end walkthrough against a real koto passes. The stub is test-only

@@ -25,13 +25,24 @@ qualifying terminal. PRs carry no workflow content unless the repository opted i
 lifecycle documents state one lifecycle and send a reader to the lookup. Everything lands in
 one shirabe PR and touches no file under `skills/coordinate/`.
 
-Two things this plan builds against but doesn't build. koto's session pin (koto#441,
-specified in koto#444) hasn't shipped, so `RECORD_PIN_FLOOR` stays unset and the pin code is
-proved against the stub koto. The workspace option the design calls K2 is a separate
+Three things this plan builds against but doesn't build. koto's session pin (koto#441)
+ships in two parts, neither released yet: koto#444 (pin and unpin, prune keeping pinned
+sessions, the removal guard at every removal point, reporting, unreadable pins, the start hook
+recording authority) and the pin's cloud follow-up, a later koto PR (the bucket check before
+every delete, keeping across hosts, import). `RECORD_PIN_FLOOR` and `RECORD_PIN_CLOUD_FLOOR`
+stay unset and step 6 is proved against the stub koto, built from the pin's PRD as written.
+Once koto#444 ships, step 6's same-host checks (pinning at `record_keep`, refusal and retry,
+`kept_by_pin` in a same-host prune, cleanup refusing a pinned session) can also run against a
+real koto; its cross-host checks (a second host's prune or cleanup keeping the sessions, a
+failed bucket check keeping them, a pin surviving import) wait on the cloud follow-up. The workspace option the design calls K2 is a separate
 proposal to koto, pending koto's acceptance, so `RECORD_STORE_FLOOR` stays unset and the
 index and lookup work from the run's own workspace path until it ships. The end-to-end
-walkthrough from a fresh workspace on another host, against a real koto and a real bucket,
-waits on both and is not a step here.
+walkthrough from a fresh workspace on another host with no local copy, against a real koto and
+a real bucket, covering the lookup and a removal there, rests on K2 and on the pin's cloud
+follow-up, and is not a step here.
+
+No step here, teardown included, posts a run record, pin result or cost entry to a public pull
+request; with the opt-in off, all of it stays in the run's session.
 
 ## Decomposition Strategy
 
