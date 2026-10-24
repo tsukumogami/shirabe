@@ -268,7 +268,7 @@ setup_run() {
     msg x1 900 "$IP-2" >"$PJ/$ENC-2/$JID-cccc-dddd.jsonl"
     msg far 800 "$IP" >"$T/outside/far.jsonl"
     ln -s "$T/outside/far.jsonl" "$PJ/$ENC/linked.jsonl"
-    printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/$JID/state.json"
+    printf '{"state":"done","createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/$JID/state.json"
     jq -nc --arg e "$IP" '{schema_version: 1, workflow: "issue_7", template_name: "work-on", template_source_file: "work-on.md", execution_dir: $e}' \
         >"$T/ksess/issue_7/koto-issue_7.state.jsonl"
     printf '{"seq":1,"timestamp":"2026-10-01T09:00:01.000Z","type":"evidence_submitted","payload":{"state":"entry","fields":{"mode":"issue_backed"}}}\n' \

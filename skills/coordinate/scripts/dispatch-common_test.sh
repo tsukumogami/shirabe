@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # dispatch-common_test.sh -- the dispatch helpers: topic validation, niwa's
 # session-name slug and exact match, the guarded workspace-root lookup, and
-# the entry-point table reader, a repository's visibility read, and the
-# invocation and mode builders with a review-level bound.
+# the entry-point table reader, a repository's visibility read, the
+# invocation and mode builders with a review-level bound, and whether a
+# Claude Code job is finished.
 #
 # The workspace-root cases build real directory layouts: a root, an instance
 # under it, a clone inside the instance carrying its own .niwa/workspace.toml
@@ -357,6 +358,54 @@ dc_unit_matches "acme/widgets#1" "$T/pick-big.json"; eq "unit matches: its host 
 dc_unit_matches "#6001" "$T/pick-big.json"; eq "unit matches: a unit pick didn't list doesn't" 1 $?
 printf 'not json\n' > "$T/pick-bad.json"
 dc_unit_matches "#1" "$T/pick-bad.json"; eq "unit matches: a file that isn't pick_facts' JSON is 2" 2 $?
+
+# --- a finished job (shirabe#1182) -------------------------------------------------
+# Finished means the job's own state file reads done, stopped or failed and
+# the listing shows no live pid. The listing's state is never read: Claude
+# Code 2.1.309 lists every job as working, a stopped one included. A live pid
+# is this shell's; a dead one is a reaped child's.
+CH="$T/claude-home"
+JF=4b3597d2
+mkdir -p "$CH/jobs/$JF"
+jstate() { printf '%s\n' "$1" >"$CH/jobs/$JF/state.json"; }
+sleep 0 &
+DEAD=$!
+wait "$DEAD"
+LIVE=$$
+# The rows are built before any $(...) that passes one: bash 3.2 keeps the
+# backslash of a \" inside a double-quoted command substitution.
+ROW_DEAD=$(jq -nc --argjson p "$DEAD" '{state: "working", pid: $p}')
+ROW_LIVE=$(jq -nc --argjson p "$LIVE" '{state: "done", pid: $p}')
+for s in done stopped failed; do
+    jstate "{\"state\":\"$s\"}"
+    yes "job: state file $s, listed working with no pid" dc_job_finished "$CH" "$JF" '{"state":"working"}'
+    yes "job: state file $s, a null pid" dc_job_finished "$CH" "$JF" '{"state":"working","pid":null}'
+    yes "job: state file $s, a dead pid" dc_job_finished "$CH" "$JF" "$ROW_DEAD"
+    eq  "job: state file $s, a live pid" "job $JF is still running (pid $LIVE)" "$(dc_job_finished "$CH" "$JF" "$ROW_LIVE")"
+done
+jstate '{"state":"done"}'
+yes "job: the listing's state missing" dc_job_finished "$CH" "$JF" '{}'
+yes "job: the listing's state unknown" dc_job_finished "$CH" "$JF" '{"state":"waiting"}'
+eq  "job: a pid that isn't one" "job $JF lists pid [abc], which is not a pid" \
+    "$(dc_job_finished "$CH" "$JF" '{"pid":"abc"}')"
+no  "job: pid 0 isn't one" dc_job_finished "$CH" "$JF" '{"pid":0}'
+no  "job: a negative pid isn't one" dc_job_finished "$CH" "$JF" '{"pid":-1}'
+no  "job: a row that isn't an object" dc_job_finished "$CH" "$JF" '[]'
+no  "job: a row that isn't JSON" dc_job_finished "$CH" "$JF" 'not json'
+no  "job: a job id that isn't one" dc_job_finished "$CH" "../$JF" '{}'
+for row in '{"state":"done"}' '{"state":"working"}' '{"state":"done","pid":null}'; do
+    jstate '{"state":"working"}'
+    eq  "job: state file working, listed $row" "the state file of job $JF reads working" "$(dc_job_finished "$CH" "$JF" "$row")"
+done
+jstate '{"state":"waiting"}'
+eq  "job: state file in an unknown state" "the state file of job $JF reads [waiting], which isn't known to be finished" \
+    "$(dc_job_finished "$CH" "$JF" '{}')"
+jstate '{"createdAt":"2026-10-01T09:00:00.000Z"}'
+no  "job: state file with no state" dc_job_finished "$CH" "$JF" '{}'
+jstate 'not json'
+eq  "job: state file that isn't JSON" "the state file of job $JF is not readable JSON" "$(dc_job_finished "$CH" "$JF" '{}')"
+rm -f "$CH/jobs/$JF/state.json"
+eq  "job: no state file" "job $JF has no state file at $CH/jobs/$JF/state.json" "$(dc_job_finished "$CH" "$JF" '{}')"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
