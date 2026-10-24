@@ -27,8 +27,11 @@
 # record/side-effects holds the roadmap edit row naming that pull request and
 # `(entry N)`. The text is scanned when it is posted, against the
 # destination's visibility read then: a destination whose visibility can't be
-# read counts as public, and a repository the text names whose visibility
-# can't be read counts as private. A scan that refuses leaves the session entry
+# read counts as public, and a repository the text names (a github.com link,
+# owner/repo#n or a JSON "repo" field) whose visibility can't be read counts as
+# private. A bare owner/repo is read too: refused when private, and when
+# unreadable under the destination's, the host's or a named repository's
+# owner; more than 40 bare names are refused unread. A scan that refuses leaves the session entry
 # where it is (exit 65, naming it). A retry with --on posts nothing when
 # record/posted/N names a comment on the item, or when the item holds a
 # comment of the same kind and text, by the login `gh api user` answers
@@ -235,21 +238,48 @@ goal_fit_check() {
     [ -n "$named" ] || { echo "$PROG: refused: the goal-fit entry names no pull request (its first line is \`Goal fit: <owner/repo#n> -- <tag>\`)" >&2; exit 65; }
     [ "$(lc "$named")" = "$(lc "$ON")" ] || { echo "$PROG: refused: the goal-fit entry names $named, not $ON" >&2; exit 65; }
 }
+# The most bare owner/repo names one outward scan reads; text naming more is
+# refused rather than read without bound.
+BARE_CAP=40
 # dest_problem <text-file>: why TEXT can't be posted on the --on item, or
 # nothing. The destination's visibility is read now, at post time; one that
 # can't be read counts as public. On a public destination each repository the
-# text names is read too, and one that can't be read counts as private; the
-# codec decides, as it does for the record's own text columns.
+# text names is read too, in any form. A github.com link, owner/repo#n (the
+# codec's text_named_repos) or a JSON "repo" field's value that can't be read
+# counts as private. Any other whole owner/repo token, outside a URL and not
+# part of a longer path, is a bare name: one GitHub reads as private is
+# refused, and one that can't be read is refused when its owner is the
+# destination's, the host's or a named repository's, since elsewhere a bare
+# a/b is as often prose (and/or) or a schema name (unit-cost/1) as a
+# repository. The codec decides, as it does for the record's own text columns.
 dest_problem() {
-    local p r priv=
+    local p r priv= owners
     p=$(gh api --method GET "repos/$ON_REPO" --jq .private 2> /dev/null < /dev/null) || p=unreadable
     [ "$p" = true ] && return 0
-    jq -R -s -r -L "$HERE" 'include "record-codec"; text_named_repos | .[]' < "$1" > "$WD/named" || lib_die2 "jq failed"
-    while IFS= read -r r; do
+    jq -R -s -r -L "$HERE" 'include "record-codec";
+        def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
+        def named: select(test("^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$") and (split("/")[1] | test("^\\.*$") | not));
+        ((text_named_repos + [scan("\"repo\"\\s*:\\s*\"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\"") | .[0] | clean])
+         | map(select(. != "")) | unique) as $sure
+        | ($sure | map(ascii_downcase)) as $lsure
+        | (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
+           | [scan("(?:^|[^A-Za-z0-9_./-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?=$|[^A-Za-z0-9_/#-])") | .[0] | clean | named]
+           | unique | map(select(ascii_downcase as $b | $lsure | index($b) | not))) as $bare
+        | ($sure[] | "sure \(.)"), ($bare[] | "bare \(.)")' < "$1" > "$WD/named" || lib_die2 "jq failed"
+    if [ "$(grep -c '^bare ' "$WD/named")" -gt "$BARE_CAP" ]; then
+        echo "names more than $BARE_CAP owner/repo names, more than are read before a post"
+        return 0
+    fi
+    owners=" $(lc "${ON_REPO%%/*}") $(lc "${REPO%%/*}") $(sed -n 's|^sure \([^/]*\)/.*|\1|p' "$WD/named" | tr 'A-Z\n' 'a-z ')"
+    while read -r form r; do
         [ "$(lc "$r")" = "$(lc "$ON_REPO")" ] && continue
         [[ $r =~ $RE_REPO ]] || continue
         p=$(gh api --method GET "repos/$r" --jq .private 2> /dev/null < /dev/null) || p=unreadable
-        [ "$p" = false ] || priv="$priv${priv:+,}$r"
+        [ "$p" = false ] && continue
+        if [ "$form" = bare ] && [ "$p" != true ]; then
+            case "$owners " in *" $(lc "${r%%/*}") "*) ;; *) continue ;; esac
+        fi
+        priv="$priv${priv:+,}$r"
     done < "$WD/named"
     jq -R -s -r -L "$HERE" --arg p "$priv" \
         'include "record-codec"; text_problem($p | split(",") | map(select(. != ""))) // empty' < "$1" || lib_die2 "jq failed"

@@ -32,7 +32,11 @@
 #       holding's pull request (the row's Pull request cell, else the sealed
 #       verdict's first), else the Unit's issue (`#n` on the host or
 #       `owner/repo#n`), else `--on none`, which keeps it in the session,
-#       posted nowhere; the last stderr line says which.
+#       posted nowhere; the last stderr line says which. An item whose
+#       repository isn't read as private is posted on only when that
+#       repository opts in (`## PR Workflow Content: include` in its
+#       CLAUDE.md, read through scripts/pr-workflow-content.sh); otherwise the
+#       entry is kept in the session.
 #   unit-cost.sh gh-check <gh arguments...>
 #       Runs nothing: 0 when the capture's GitHub wrapper would make that
 #       call, 1 when it refuses it. The suite's view of the wrapper.
@@ -966,6 +970,34 @@ uc_public() {
     [ "$(head -c 16 "$WD/vis.raw" | tr -d ' \r\n')" = false ]
 }
 
+# uc_private <owner/repo>: 0 when GitHub reads the repository as private. A
+# failed, refused or late read is not private, so its items count as public.
+uc_private() {
+    uc_gh "$WD/vis.raw" api --method GET "repos/$1" --jq .private || return 1
+    [ "$(head -c 16 "$WD/vis.raw" | tr -d ' \r\n')" = true ]
+}
+
+# uc_pr_content <owner/repo>: `include` when the repository opts in to
+# workflow-tool content on its pull requests and issues, else `omit`. The
+# answer is the reader's, scripts/pr-workflow-content.sh
+# (UNIT_COST_PR_CONTENT_READER overrides its path, for tests), run on a
+# directory holding the repository's CLAUDE.md as GitHub serves it from the
+# default branch: the capture has no checkout of the unit's repository. A
+# CLAUDE.md that can't be read leaves the directory empty, which the reader
+# reads as omit. Only the reader's exit 0 with `include` is include; a missing
+# reader, or one that fails or answers anything else, is omit.
+uc_pr_content() {
+    local repo=$1 reader=${UNIT_COST_PR_CONTENT_READER:-$HERE/../../../scripts/pr-workflow-content.sh} d out
+    [ -f "$reader" ] && repo_ok "$repo" || { echo omit; return 0; }
+    d="$WD/pr-content"
+    rm -rf "$d"; mkdir -p "$d" || { echo omit; return 0; }
+    if uc_gh "$WD/claude-md.raw" api --method GET "repos/$repo/contents/CLAUDE.md"; then
+        uc_jq -r '.content // "" | strings' "$WD/claude-md.raw" | base64 --decode >"$d/CLAUDE.md" 2>/dev/null || rm -f "$d/CLAUDE.md"
+    fi
+    out=$(uc_run "$FETCH_SECS" "$WD/pr-content.out" bash "$reader" "$d" && head -n 1 "$WD/pr-content.out") || { echo omit; return 0; }
+    [ "$out" = include ] && echo include || echo omit
+}
+
 # Visibility, for a public host: {host_public, public: {repo: bool}} over the
 # pull requests' repositories and an `owner/repo#n` Unit's. The host is the
 # record's repository; with none known, or its visibility unreadable, the
@@ -1253,8 +1285,11 @@ fi
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2): the
 # holding's pull request (its Pull request cell, else the first of the sealed
 # verdict's), else the Unit's issue (`#n` on the host, or `owner/repo#n`), else
-# nowhere, the entry kept in the session.
-ON=none
+# nowhere, the entry kept in the session. An item in a repository that isn't
+# read as private gets the entry only when the repository opts in
+# (uc_pr_content); otherwise the session keeps it. Both reads come out of the
+# reads' budget.
+ON=none KEPT="the unit has no pull request or issue, so it is posted nowhere"
 RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
 [ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
 [[ $ON =~ $RE_ITEM ]] || ON=$(awk -v re="$RE_ITEM" '$1 ~ re { print $1; exit }' "$PRS_FILE")
@@ -1265,6 +1300,10 @@ if ! [[ $ON =~ $RE_ITEM ]]; then
     if [[ $U =~ ^#[1-9][0-9]*$ ]] && repo_ok "$H"; then ON="$H$U"
     elif [[ $U =~ $RE_ITEM ]]; then ON=$U
     fi
+fi
+if [ "$ON" != none ] && ! uc_private "${ON%#*}" && [ "$(uc_pr_content "${ON%#*}")" != include ]; then
+    KEPT="${ON%#*} is public and doesn't opt in to workflow content, so $ON gets nothing"
+    ON=none
 fi
 
 uc_compute || { say "the entry could not be computed"; exit 1; }
@@ -1307,7 +1346,7 @@ uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSI
 RC=$?
 if [ "$RC" = 0 ]; then
     case "$ON" in
-        none) say "kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere" ;;
+        none) say "kept the cost entry in the session: $KEPT" ;;
         *) say "posted the cost entry on $ON" ;;
     esac
     exit 0

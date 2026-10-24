@@ -17,7 +17,12 @@
 # a public destination refused, kept in the session; a private destination
 # naming it posted; a destination whose visibility can't be read counted as
 # public; a named repository whose visibility can't be read counted as
-# private; a home-directory path refused); `@` posted escaped; a failed post
+# private; a home-directory path refused); a private repository named bare or
+# in a JSON repo field refused, naming it, as is an unreadable JSON repo field
+# and an unreadable bare name under the host's owner, while prose (and/or), a
+# schema name, an unreadable bare name of another owner, a public repository
+# and a path post, more than 40 bare names are refused, and --repost scans the
+# same way; `@` posted escaped; a failed post
 # (14) naming the retry, and the retry: posted once, then nothing; a comment
 # by the coordinator's login (any case) at or after the stamp standing in for
 # the post; one by another login, an older one or one another entry already
@@ -155,6 +160,40 @@ ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>"$T/
 printf 'Asked @alice & @bob.\n' > "$T/at.txt"
 ra --kind cost --on acme/widgets#12 --text-file "$T/at.txt" >/dev/null 2>"$T/err"
 eq "an @ is posted escaped" "Asked &#64;alice &amp; &#64;bob." "$(jq -r '.comments[-1].body' "$GH_DB" | sed -n '4,$p')"
+
+echo "== a repository named bare, or in a JSON repo field =="
+seed
+refused_naming() { # refused_naming <label> <repo> [record-append args...]
+    local label=$1 r=$2
+    shift 2
+    ra "$@" >/dev/null 2>"$T/err"; eq "$label" 65 $?
+    grep -q "names $r, a repository that isn't public" "$T/err" && ok "  ... naming $r" || bad "  ... naming $r" "$(cat "$T/err")"
+}
+entry "Blocked on acme/secret landing."
+refused_naming "a private repository named bare is refused for a public destination" acme/secret \
+    --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+entry "Blocked on acme/secret."
+refused_naming "  ... and ending a sentence" acme/secret --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+printf 'Cost of feat-a (k): 3 sessions.\n\n```json\n{"schema":"unit-cost/1","record":{"scope":"roadmap","name":"x","repo":"acme/secret","ref":"12"}}\n```\n' > "$T/json.txt"
+refused_naming "a private repository in a JSON repo field is refused" acme/secret --kind cost --on acme/widgets#12 --text-file "$T/json.txt"
+printf '{"record": {"repo": "elsewhere/gone", "ref": "3"}}\n' > "$T/json.txt"
+refused_naming "  ... and one whose visibility can't be read, whatever its owner" elsewhere/gone \
+    --kind cost --on acme/widgets#12 --text-file "$T/json.txt"
+entry "Moved to acme/gone."
+refused_naming "a bare name under the host's owner whose visibility can't be read is refused" acme/gone \
+    --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+eq "  ... each kept in the session, posted nowhere" "5 0" "$(nentries) $(ncomments)"
+entry "and/or, CI/CD, schema unit-cost/1, elsewhere/gone and acme/gadgets, in skills/coordinate/scripts/x.sh"
+O=$(ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
+eq "prose, a schema name, an unreadable bare name of another owner, a public repository and a path post" \
+    "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
+seq 1 41 | sed 's|^|other/r|' | tr '\n' ' ' > "$T/entry.txt"
+ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "more than 40 bare names are refused" 65 $?
+grep -q 'more than 40 owner/repo names' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+entry "Blocked on acme/secret landing."
+O=$(ra --kind cost --on none --text-file "$T/entry.txt" 2>"$T/err")
+refused_naming "--repost --on scans the same way" acme/secret --repost "${O##*/}" --on acme/widgets#12
+eq "  ... posting nothing" 1 "$(ncomments)"
 
 echo "== the retry =="
 seed
