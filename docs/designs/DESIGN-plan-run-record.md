@@ -13,8 +13,9 @@ decision: |
   script) and one index session per PR at a shared store address, so a lookup script
   turns `owner/repo#n` into the record root's workspace and name and from there into the
   run's PRs and step sessions. Reaching another workspace's sessions needs one new koto
-  capability, a `--workspace` address on koto's commands, proposed to koto as its own step;
-  until it ships the same code writes and reads at the run's own workspace. A pin step
+  capability, a read-only `--workspace` option (koto#455); writes to the shared address run
+  from a fixed directory, and until the option ships reads run from the addressed
+  directories, which works on the run's own host. A pin step
   before each qualifying terminal pins the record root, step sessions and index sessions
   through koto's session pin. The marker goes, ownership reads the index, an opt-in
   reference goes in Part 2 under `include`, and the switch is recorded at each opener.
@@ -129,37 +130,42 @@ dot and the number is last, so the name decodes uniquely), key `run/<run_id>`, h
 record root's address. The address is the workspace path the root was created in, its
 session name and its koto `session_id`. The owner is held to GitHub's owner grammar
 (`^[A-Za-z0-9](-?[A-Za-z0-9])*$`, lowercased) and the repository to `^[A-Za-z0-9._-]+$`,
-`.` and `..` excluded, before either reaches a name or an address. The index session lives at a shared store address:
-the koto workspace prefix of the identifier `shirabe-run-record/<owner>`, one per repository
-owner. A multi-pr plan's
-record root lives there too.
+`.` and `..` excluded, before either reaches a name or an address. The index session lives at
+a shared store address, one per repository owner: the koto workspace of the fixed directory
+`/tmp/shirabe-run-record/<owner>`. A multi-pr plan's record root lives there too.
 
-Reaching an address other than the cwd's needs one koto capability that doesn't exist,
-named K2 in the PRD. The proposal to koto is one change to koto's address resolution, not to
-any command: a global `--workspace <identifier>` option, resolved once into the backend
-before any command runs, so every command (`init`, `context`, `status`, `decisions`, and the
-pin's commands too) addresses that identifier's prefix instead of the cwd's. The prefix is the
-same function koto applies to a cwd today, the first 16 hex digits of the SHA-256 of the
-string, applied to the identifier as given. koto canonicalizes a cwd before hashing, and
-shirabe records `pwd -P`, which is already canonical, so `--workspace <recorded path>`
-reaches exactly the prefix the run wrote to, on macOS and Linux alike. Reads through the
-option keep no local copy, spool nothing and write nothing into the read session. Concurrent
-`context add`s of distinct keys from two workspaces must both land. K2 lands after the pin
-(koto#441, #444) ships and adds no code to the pin's commands, which inherit the address
-through the shared resolver, so the pin's code and design are unchanged.
+koto addresses a workspace by its canonical working directory (the first 16 hex digits of the
+SHA-256 of the canonicalized cwd). So every write to the shared address is an ordinary koto
+call whose working directory is that fixed directory, which `record-store.sh` creates and
+enters in a subshell. No write passes any address option. The directory's canonical form is
+`/tmp/shirabe-run-record/<owner>` on Linux and `/private/tmp/shirabe-run-record/<owner>` on
+macOS, so the shared address is one per operating system family, and a reader tries both.
+
+Reading an address other than the cwd's from another workspace needs one koto capability,
+named K2 in the PRD, now proposed to koto as koto#455: a global `--workspace <id>` option
+that koto's read verbs (`status`, `context get`, `context list`, the session listing) accept,
+and its write and removal verbs refuse. shirabe doesn't build it. Reads through it keep no
+local copy and write nothing into the read session. Because K2 is read-only, the index can't
+be written by address, which is why the shared address is a working directory rather than an
+identifier.
 
 What a reader with the cloud store's credentials and GitHub reaches, before and after K2:
 
 | From | Before K2 | After K2 |
 |---|---|---|
-| The run's own workspace path | the index, the root, every step session in that workspace, that workspace's multi-pr root | the same |
-| Any other workspace, fresh or not | nothing | the index, the root, every step session in any workspace, the multi-pr plan root |
+| The run's own host | the index (read from the fixed directory), the root and every step session from the run's workspace path | the same, from any directory |
+| Any other workspace, fresh or not, on another host | nothing reliable | the index, the root, every step session in any workspace, the multi-pr plan root |
 | GitHub alone, without store credentials | nothing about the run | nothing about the run |
 
 All shirabe code touches K2 through one file, `scripts/lib/record-store.sh`. It decides
-the address. When the installed koto is below the K2 floor constant (unset until koto
-releases K2), the shared address is the run's own workspace and `--workspace` is never
-passed, so the same index and lookup work from the run's workspace path, on today's koto.
+the address and how to reach it. A read checks once per process whether the installed koto
+accepts `--workspace` on a read verb (it probes koto's own help for the option, never a
+version table). When it does, the read passes `--workspace` with the recorded address. When
+it doesn't, the read falls back to running koto from that address's directory: the fixed
+directory for the index and the multi-pr root, and the root's recorded workspace path for the
+record root and its step sessions. On today's koto that fallback works on the run's own host,
+and `record-store_test.sh` covers both paths against the stub koto, with and without the
+option.
 
 The lookup, `scripts/run-record-lookup.sh <owner/repo> <n>`, reads the index session
 (1 read), takes the entry with the latest `written_at` (ties broken by `run_id`; the field is
@@ -415,10 +421,10 @@ shirabe pin and keeps pinned sessions through every removal on the host that rea
 until then `RECORD_PIN_FLOOR` is unset and runs report `record: unpinned`. The pin's cloud
 follow-up, a later koto PR, adds the bucket check before every delete, keeping across hosts and
 import; until it ships `RECORD_PIN_CLOUD_FLOOR` is unset and a cloud-backed run reports
-`record: pinned-local`. K2, the workspace option, is
-a separate proposal to koto, pending koto's acceptance: until it lands the index and the
-multi-pr root live at the run's own workspace, so a lookup works from that workspace path
-and a multi-pr plan whose items ran in different workspaces has one root per workspace.
+`record: pinned-local`. K2, the read-only workspace option, is koto#455, built outside this
+change: until it lands, the index and the multi-pr root are written at the fixed directory as
+always, and a lookup reads them, the root and its step sessions by running koto from their
+directories, which works on the run's own host.
 
 ## Solution Architecture
 
@@ -434,11 +440,13 @@ arises.
 
 New files:
 
-- `scripts/lib/record-store.sh` (sourced): `rs_address` returns the shared address and
-  whether `--workspace` is passed. `rs_koto <address> <koto args>` runs koto against an
-  address. `rs_index_name <owner/repo> <n>` and `rs_plan_root_name` return names. The K2
-  floor is the constant `RECORD_STORE_FLOOR` here. It's the only file that knows about
-  koto's `--workspace`.
+- `scripts/lib/record-store.sh` (sourced): `rs_shared_dir <owner>` returns the fixed
+  directory for the shared address. `rs_koto_write <dir> <koto args>` runs a koto write from
+  that directory. `rs_koto_read <dir> <koto args>` runs a koto read, passing `--workspace`
+  when `rs_has_workspace_option` finds the installed koto accepts it on a read verb, and
+  otherwise running from the directory (for the shared address, each canonical form in turn).
+  `rs_index_name <owner/repo> <n>` and `rs_plan_root_name` return names. It's the only file
+  that knows about koto's `--workspace`.
 - `scripts/run-trail.sh`: the one writer of `trail/` keys and index entries (verbs in
   Decision 2). Exit 0 written, 64 usage, 65 a value its verb refuses, 70 a koto write failed.
 - `scripts/run-record-lookup.sh <owner/repo> <n> [--steps]`: R1 and R2. JSON on stdout,
@@ -628,9 +636,9 @@ Deliverables: the seven lifecycle files listed under Components,
 
 ### Outside this repository
 
-- **K2 in koto.** The `--workspace` option described in Decision 1 is a proposal to koto, a
-  separate step in koto and pending koto's acceptance. It must not change the pin's code or
-  design. When it ships, `RECORD_STORE_FLOOR` is set to its release.
+- **K2 in koto.** The read-only `--workspace` option described in Decision 1 is koto#455,
+  built outside this change. It doesn't change the pin's code or design. shirabe detects it by
+  probing koto's help, so nothing in shirabe changes when it ships.
 - **K1's two releases.** When koto releases koto#444, `RECORD_PIN_FLOOR` is set to that
   version, and the local-backend pin checks can also run against a real koto. When it releases
   the pin's cloud follow-up, `RECORD_PIN_CLOUD_FLOOR` is set to that version.
@@ -711,10 +719,10 @@ departure text is not, and it must hold no credentials. Under omit nothing from 
 reaches PR text. Under include the reference names a session and a run id, never a path.
 `result:` text and `trail/unpinned` codes are never copied into PR text.
 
-**Dependencies.** No new packages. The floors (`RECORD_PIN_FLOOR`, `RECORD_PIN_CLOUD_FLOOR`,
-`RECORD_STORE_FLOOR`) are
-checked against the installed koto's version and fail closed: `record: unpinned`, and the run's
-own workspace as the address. The stub koto is built from koto's specifications, so the floors
+**Dependencies.** No new packages. The floors (`RECORD_PIN_FLOOR`, `RECORD_PIN_CLOUD_FLOOR`)
+are checked against the installed koto's version and fail closed: `record: unpinned`. The
+workspace option is detected from koto's help and fails closed to reading from the address's
+own directory. The stub koto is built from koto's specifications, so the floors
 are set only after the end-to-end walkthrough against a real koto passes. The stub is test-only
 and never on a production `PATH`. The workspace option is a new cross-prefix address in koto and
 gets koto's own review. It's an addressing option, not an access boundary.
