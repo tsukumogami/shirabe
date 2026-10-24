@@ -5,6 +5,9 @@ on:
     paths:
       - 'docs/designs/current/**'
       - 'skills/*/evals/fixtures/designs/**'
+      - 'scripts/check-no-fixture-design-leak.sh'
+      - 'scripts/check-no-fixture-design-leak_test.sh'
+      - '.github/workflows/check-no-fixture-design-leak.yml'
 
 jobs:
   check-no-fixture-design-leak:
@@ -12,5 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The test harness runs the check against the tree as its first case,
+      # so this one step covers both the scan and its own regression suite.
       - name: Check no eval-fixture DESIGN leaked into docs/designs/current/
-        run: scripts/check-no-fixture-design-leak.sh
+        run: bash scripts/check-no-fixture-design-leak_test.sh
