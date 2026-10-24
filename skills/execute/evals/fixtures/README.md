@@ -23,10 +23,11 @@ To remove the chain, change Feature 2 of `roadmaps/ROADMAP-cascade-test.md` firs
 and with it the DESIGN and the PRD. The BRIEF also needs R23 and the new-shape
 BRIEF's mention dealt with.
 
-`skills/work-on/evals/fixtures/` has its own PLAN, DESIGN and PRD files with the
-same names, a separate chain that
-`docs/designs/current/DESIGN-completion-cascade.md` names. A search for
-`cascade-test-full` finds both.
+`docs/designs/current/DESIGN-completion-cascade.md` lists PLAN, DESIGN and PRD
+files with the same names under `skills/work-on/evals/fixtures/`. That was
+work-on's own copy of the chain, which nothing read and which is gone; the
+design records what its plan delivered. Those paths aren't readers of this
+chain.
 
 The new-shape chain beside it (`*-cascade-test-new-shape.md`) is the one the
 `e2e-execute-cascade-new-shape-plan-carries-roadmap` eval runs.
