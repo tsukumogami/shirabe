@@ -829,4 +829,4 @@ The reader reconcile goes through reads the coordinator's session:
 `state-read.sh` returns the state as JSON, where the record source returned an
 issue or pull request body. A predecessor's handoff is no longer a committed
 file: it is the predecessor session's `record/reasoning`, which a successor's
-`state-open.sh --carry-from` reads.
+`state-open.sh --carry` reads.

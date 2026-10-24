@@ -491,5 +491,5 @@ record. The original text above is left unedited; this section records
 what no longer holds.
 
 R6's take-over and handoff carry read the predecessor's session
-(`state-decision.sh --carry`, `state-open.sh --carry-from`), not a record body
+(`state-decision.sh --carry`, `state-open.sh --carry`), not a record body
 or a handoff file.
