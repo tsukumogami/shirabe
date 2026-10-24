@@ -19,12 +19,14 @@
 //! the last path component is folded ([`fold`]) before it is compared with
 //! `gh`, `git` and [`WRAPPERS`]. The shell matches a builtin or keyword by
 //! its exact name, so `EVAL` or `TIME` isn't the builtin; the wrappers among
-//! them are folded anyway, since reading one as a wrapper only denies more. `cd`, `pushd` and `popd` are the exception, because
-//! there the error runs the other way: `CD sub` runs a `cd` program in a
-//! child process that moves nothing, and reading it as `cd` would check a
-//! later push in the wrong directory. The words after the head keep their
-//! case, since gh and git read their subcommands exactly (`gh PR create` is
-//! an unknown command).
+//! them are folded anyway, since reading one as a wrapper only denies more.
+//! `cd`, `pushd` and `popd` are the exception, because there the error runs
+//! the other way: `CD sub` runs a `cd` program in a child process that moves
+//! nothing, and reading it as `cd` would check a later push in the wrong
+//! directory. The reserved words skipped before a head match only as written
+//! too, as the shell reads them. The words after the head keep their case,
+//! since gh and git read their subcommands exactly (`gh PR create` is an
+//! unknown command).
 //!
 //! An `env` head is judged by the command it runs when that command is `gh`:
 //! past env's own options and assignment operands, it is classified the way it
@@ -312,12 +314,16 @@ fn basename(t: &str) -> &str {
 
 /// A head's name folded the way a case-insensitive filesystem compares it.
 /// macOS folds Unicode case in full, not only ASCII: `ſh` (long s) finds
-/// `/bin/sh`, `ßh` finds `ssh` and the ligature `ﬆat` finds `stat`. Each
-/// character is uppercased and then lowercased, which covers those (and the
-/// Kelvin sign's `k`); it also folds a few the filesystem keeps apart, such
-/// as dotless `ı` to `i`, which only makes the hook check more.
+/// `/bin/sh`, `ßh` and `ẞh` find `ssh` and the ligature `ﬆat` finds `stat`.
+/// std has no case fold, so each character is lowercased, uppercased and
+/// lowercased again: the first step takes capital sharp s (`ẞ`, which has no
+/// uppercase) to `ß`, and the next two take `ß` to `ss`. Checked against full
+/// Unicode case folding over every code point, it agrees wherever either
+/// side is ASCII except dotless `ı`, which it folds to `i` though the
+/// filesystem keeps it apart; that only makes the hook check more.
 fn fold(name: &str) -> String {
     name.chars()
+        .flat_map(char::to_lowercase)
         .flat_map(char::to_uppercase)
         .flat_map(char::to_lowercase)
         .collect()
@@ -1310,8 +1316,9 @@ mod tests {
 
     #[test]
     fn a_head_folds_unicode_case_as_the_filesystem_does() {
-        // macOS finds `/bin/sh` for `ſh` (long s), `ssh` for `ßh` and sudo
-        // for `ſudo`, so each is the wrapper it folds to.
+        // macOS finds `/bin/sh` for `ſh` (long s), `ssh` for `ßh` and `ẞh`
+        // (capital sharp s) and sudo for `ſudo`, so each is the wrapper it
+        // folds to.
         let wrapped = [(Action::Pr(None), Case::Wrapped)];
         for cmd in [
             "ſh -c 'gh pr create -t x'",
@@ -1321,16 +1328,20 @@ mod tests {
             "ſudo gh pr create",
             "xargſ gh pr create",
             "ßh host gh pr create",
+            "/usr/bin/ẞh host gh pr create",
             "ſsh host gh pr create",
             "doc\u{212A}er run x gh pr create",
             "ENV ſudo gh pr create",
         ] {
             assert_eq!(fails(cmd), wrapped, "{cmd}");
         }
-        assert_eq!(fails("ſudo git push"), vec![(Action::Push, Case::Wrapped)]);
+        for cmd in ["ſudo git push", "ẞh host 'git push'"] {
+            assert_eq!(fails(cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
+        }
         assert_eq!(cl("ſudo ls").items, vec![]);
         assert_eq!(fold("ﬆat"), "stat");
         assert_eq!(fold("\u{212A}"), "k");
+        assert_eq!(fold("ẞh"), "ssh");
     }
 
     #[test]

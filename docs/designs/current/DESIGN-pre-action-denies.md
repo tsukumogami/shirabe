@@ -747,9 +747,10 @@ niwa host, in parallel:
   unlisted global option, a wrapped guarded command, or an earlier
   segment that changes what the guarded one checks (Decision 6). Heads
   compare by their last path component, in any case (Unicode case
-  folded, as the filesystem folds it), as a case-insensitive filesystem
-  runs `ENV` as env and `ſudo` as sudo; the builtins `cd`,
-  `pushd` and `popd` match only as written.
+  folded at least as far as the filesystem folds it), as a
+  case-insensitive filesystem runs `ENV` as env and `ſudo` as sudo;
+  the builtins `cd`, `pushd` and `popd`, like the reserved words, match
+  only as written.
 - **`body.rs`.** Reads `--title`/`-t` and `--body`/`-b`/`--body=`,
   `--body-file`/`-F`/`--body-file=`, and a short flag's attached value
   (`-tVALUE`, `-b=VALUE`, `-FPATH`) the way gh's flag parser reads it;

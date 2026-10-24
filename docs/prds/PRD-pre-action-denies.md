@@ -152,14 +152,15 @@ These terms mean the same thing everywhere below.
   and shell reserved words (`if`, `then`, `elif`, `else`, `do`, `while`,
   `until`, `!`, `{`, `}`), compared by its last path component, so
   `/usr/bin/git` is `git` and `if true; then git push; fi` holds a
-  guarded segment. The comparison ignores case, Unicode case included,
-  since a case-insensitive filesystem (macOS's default) runs `GH` as gh,
-  `ENV` as env and `ſudo` (long s) as sudo. The shell finds a builtin by its exact name, so `EVAL`
-  isn't the builtin, but reading a wrapper as one only denies more;
-  only `cd`, `pushd` and `popd` match as written, since reading `CD`
-  as `cd` would check a later push in a directory it never moved to. A
-  backslash followed by a newline outside quotes joins the two lines,
-  as the shell does.
+  guarded segment. The head's comparison ignores case, Unicode case
+  included, since a case-insensitive filesystem (macOS's default) runs
+  `GH` as gh, `ENV` as env and `ſudo` (long s) as sudo. The shell finds
+  a builtin by its exact name, so `EVAL` isn't the builtin, but reading
+  a wrapper as one only denies more; only `cd`, `pushd` and `popd`, and
+  the reserved words before the head, match as written, since reading
+  `CD` as `cd` would check a later push in a directory it never moved
+  to. A backslash followed by a newline outside quotes joins the two
+  lines, as the shell does.
 - **Word**: a piece of a segment between unquoted blanks, after quote
   removal. Single quotes keep their text literally; inside double quotes
   a backslash escapes only `"`, `\`, `$` and backquote; outside quotes a
@@ -220,8 +221,8 @@ These terms mean the same thing everywhere below.
   create ...` is still a wrapped guarded command. Any other command
   leaves the segment to the text test: an unlisted launcher, `git`
   (whose aliases can hide a push from the subcommand reading), and any
-  listed wrapper, a nested `env`
-  included, since a wrapper can join env's words with its own (`env
+  listed wrapper, a nested `env` included, since a wrapper can join
+  env's words with its own (`env
   'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr create'`). So do an
   option the hook doesn't read and a word the shell expands before the
   command.
