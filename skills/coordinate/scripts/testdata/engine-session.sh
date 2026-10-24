@@ -57,7 +57,11 @@ session_record() {
     jq -c 'if has("holdings") then .holdings |= map(del(.pushed_head)) else . end' "$f"
 }
 
+# koto_store_ready: this koto has the session store's features, by the same
+# probe coordinate-open.sh makes (each subcommand's own help), through KOTO_BIN
+# as the scripts call it.
 koto_store_ready() {
-    case "$(koto context list --help 2> /dev/null)" in *--prefix*) ;; *) return 1 ;; esac
-    koto session import --help > /dev/null 2>&1
+    local k=${KOTO_BIN:-koto}
+    case "$("$k" context list --help 2> /dev/null)" in *--prefix*) ;; *) return 1 ;; esac
+    "$k" session import --help > /dev/null 2>&1
 }

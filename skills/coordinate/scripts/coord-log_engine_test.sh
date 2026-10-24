@@ -9,8 +9,7 @@
 # one visit fails `check` after a later entry into the state; an edited hash,
 # another session's seal, and an unsealed token fail; `seal --file` stores the
 # bytes and `check --key` verifies them and refuses an edited value; `capture`
-# and `run-facts` read engine-written captures (run-facts takes a bare `found`
-# token and refuses one that carries a record number); `koto next --to` leaves a
+# and `run-facts` read engine-written captures; `koto next --to` leaves a
 # directed_transition that `directed-since 0` reports; `provenance` passes for
 # the template the session was created from, still passes after that template
 # is rewritten in place, even with text that doesn't compile (the run advancing
@@ -141,11 +140,12 @@ LOG="$(koto session dir "$S")/koto-$S.state.jsonl"
 CAP1=$(bash "$CL" capture --session "$S" --name RECORD_FIND)
 case "$CAP1" in "found 7 sealed:"*) pass "the capture is the sealed token" ;; *) fail "the capture is the sealed token" "$CAP1" ;; esac
 bash "$CL" check --session "$S" --state record_find --sealed "$CAP1" && pass "check accepts the latest visit's seal" || fail "check accepts the latest visit's seal"
-bash "$CL" run-facts --session "$S" >/dev/null 2>&1; eq "run-facts refuses a found token that carries a record number" 1 $?
-SF=coordinate-demo-20260101T000100Z
+# The find seals a bare `found` now the run's session holds the record; a
+# numbered token is the old GitHub record's, which run-facts refuses.
+bash "$CL" run-facts --session "$S" >/dev/null 2>&1; eq "run-facts refuses a numbered find token" 1 $?
+SF=coordinate-facts-20260101T000005Z
 start "$SF" "$TPL" "found" && tick "$SF" >/dev/null
-eq "run-facts reads the run's scope, name and repository, from a bare found token" '{"scope":"roadmap","name":"demo","repo":"acme/widgets"}' "$(bash "$CL" run-facts --session "$SF")"
-tick "$SF" --with-data '{"go":"finish"}' >/dev/null
+eq "run-facts reads the run's scope, name and repository, and no record number" '{"scope":"roadmap","name":"demo","repo":"acme/widgets"}' "$(bash "$CL" run-facts --session "$SF")"
 case "$(bash "$CL" run-start --session "$S")" in 20*T*Z) pass "run-start is the header's created_at" ;; *) fail "run-start is the header's created_at" ;; esac
 
 echo "== seal failures =="

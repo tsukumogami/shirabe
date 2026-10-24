@@ -32,7 +32,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh gives the GitHub DB helpers, the state_json helper and the
+# test-lib.sh gives the GitHub DB helpers, the record renderer and the
 # ok/bad/eq counters. It also puts testdata/ (the koto stand-in included)
 # first on PATH; these suites need the real koto, so PATH is rebuilt with only
 # the gh stand-in in front, and the stand-in koto's variables are dropped.
@@ -133,7 +133,8 @@ seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the 
 
 # stored <record-json>: the record with a complete stored set, so the
 # reconcile's handover gate passes: the run's arguments and cap, this
-# coordinator's address, who it reports to, and for every live holding a next step and its
+# coordinator's address, who it reports to (every run is on the session, so the
+# gate asks every run for it), and for every live holding a next step and its
 # worker told. The handover cases build theirs by hand.
 stored() {
     printf '%s' "$1" | jq -c '

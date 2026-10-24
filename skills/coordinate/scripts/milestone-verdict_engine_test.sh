@@ -85,6 +85,7 @@ run_rows() { # run_rows <active worker>: the Run rows, the worker told the addre
     jq -nc --arg w "$1" '[{key: "arguments", value: "--roadmap", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "cap", value: "2", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
+    {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "told", value: $w, set_by: "lane-coord", set: "2026-10-07T10:00Z"}]'; }
 work_row() { # work_row <unit> <worker>: the active holding's next step
     jq -nc --arg u "$1" --arg w "$2" '[{item: $u, kind: "holding", who: $w, next: "report when finished", wakes: "0", updated: "2026-10-07T10:00Z"}]'; }
@@ -263,12 +264,18 @@ fi
 # ---- 5. the merge directives -----------------------------------------------
 echo "== 5. the merge directives =="
 # merged_facts, held by a failed read of the pull request GitHub merged, so
-# its directive is what the run shows.
+# its directive is what the run shows. The record is the session's, so the
+# read that fails is the pull request's: the merged unit is a holding with a
+# pull request link (#12), added to the record first, and the event names it.
 # render_merged <session> <wd>: the directive and details koto renders there.
 render_merged() {
     S=$1 WD=$2
+    live_record > "$T/rec.json"
+    jq -c --argjson h "$(holding merged-worker '{"unit": "Merged"}')" 'del(.written) | .holdings = ((.holdings // []) + [$h])' "$T/rec.json" > "$T/rec2.json"
+    (cd "$WD" && session_seed "$S" "$(cat "$T/rec2.json")" "$(jq -r .written "$T/rec.json")") \
+        || bad "the merged holding is added to the record" ""
     db '.fail = [{match: "pr view", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
-    tick --with-data '{"event":"merged","unit":"mv1-worker"}' > /dev/null
+    tick --with-data '{"event":"merged","unit":"merged-worker"}' > /dev/null
     (cd "$WD" && koto status "$S" 2>/dev/null) | jq -r '"\(.current_state)\n\(.directive // "")\n\(.details // "")"'
     db '.fail = []'
 }
