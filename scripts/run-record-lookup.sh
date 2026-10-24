@@ -10,8 +10,22 @@
 # the field is the writer's clock, so it orders entries and proves nothing),
 # and reads the record root each one names at its recorded workspace. A root
 # is returned only when its own `trail/pr/*` list holds this PR, so an index
-# entry naming an unrelated session never leads anywhere. The first root that
-# confirms the PR is the answer.
+# entry naming an unrelated session never leads anywhere. An entry qualifies
+# when its root confirms the PR; the first qualifying entry is the answer,
+# and every other qualifying entry's run_id is in `others`.
+#
+# The root an entry names is found by the koto session id the entry
+# recorded, not by its name alone. A re-run of the same topic
+# (`koto init --replace-terminal`) moves the finished root aside as
+# `<name>_r<N>`, with every `<name>.<rest>` and `<name>~<rest>` session
+# renamed under it, and the new run takes `<name>`. So the root is the
+# session in the entry's workspace whose id is the recorded one, named
+# `<name>` or `<name>_r1` to `<name>_r10`; one `koto session list` per
+# workspace answers that. A session under any other name, or no session with
+# that id, is not the entry's root: the run's record was moved past `_r10`
+# or removed, and the entry leads nowhere. When the root was moved, the step
+# sessions and superseded names `--steps` reports are given under the moved
+# name, the way the move renamed them.
 #
 # The two forms of the shared address. A form koto answers "not found" for
 # (record-store.sh's 68: with the workspace option, the form no writer on
@@ -39,21 +53,25 @@
 # nothing from GitHub. Every value it reads back is checked against the same
 # closed patterns the writer used; one that fails is named in `missing` and
 # never used. Reads are bounded: at most 20 index entries per form of the
-# shared address, 200 PR keys and 200 step keys per root.
+# shared address, 200 PR keys and 200 step keys per root, and one session
+# list per workspace.
 #
 # Output, on exit 0, one JSON object built with jq:
 #   {record_root: {workspace, session}, run_id, complete, unique,
 #    missing: [...], prs: [{repo, number, state}], others: [run_id],
 #    steps: [...]}
-# `complete` is true when nothing was missing; `unique` is true when the
-# index holds one entry for the PR. The workspace names a user and an
-# instance: it's internal, not for pasting into PRs or issues.
+# `complete` is true when nothing was missing; `unique` is true when exactly
+# one entry qualifies and no other entry's root was unreadable or
+# unreachable, and `others` lists the other qualifying entries' run_ids. An
+# entry whose root doesn't list the PR is in neither. The workspace names a
+# user and an instance: it's internal, not for pasting into PRs or issues.
 #
 # Exit codes:
 #   0   found; the JSON is on stdout
 #   2   a store read failed, or a record root's workspace can't be reached
 #       from here
-#   3   no index entry for the PR, or no entry's record root lists it
+#   3   no index entry for the PR, or no entry's record root is found (under
+#       its name or a moved-aside one) and lists it
 #   64  malformed input
 # Every exit but 0 says on stderr which case it hit.
 #
@@ -68,6 +86,9 @@ SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 MAX_ENTRIES=20
 MAX_PRS=200
 MAX_STEPS=200
+# The moved-aside names a root is looked for under: <name>_r1 to <name>_r10.
+MAX_MOVED=10
+TAB=$(printf '\t')
 
 usage() {
     echo "$PROG: $*" >&2
@@ -171,7 +192,7 @@ while IFS= read -r FORM; do
             && [[ $SID =~ $RS_RE_SESSION_ID ]] && [[ $TOPIC =~ $RS_RE_TOPIC ]]; then
             case "$MODE" in
                 single-pr|coordinated|multi-pr)
-                    printf '%s\t%s\t%s\t%s\n' "$AT" "$RID" "$WS" "$SESS" >> "$WORK/entries"
+                    printf '%s\t%s\t%s\t%s\t%s\n' "$AT" "$RID" "$WS" "$SESS" "$SID" >> "$WORK/entries"
                     continue
                     ;;
             esac
@@ -195,6 +216,94 @@ if [ "$ENTRY_COUNT" -eq 0 ]; then
 fi
 
 # --- the record root ---------------------------------------------------------------
+
+# session_rows <workspace>: the path of a file holding koto's session list for
+# the workspace, read once per workspace and kept for the next entry naming
+# it; 2 on a failed read, 69 when the workspace can't be reached from here. A
+# workspace koto says it holds nothing in (68) lists no sessions.
+session_rows() {
+    local ws=$1 n=0 f w rows rc
+    while IFS="$TAB" read -r w f; do
+        if [ "$w" = "$ws" ]; then
+            printf '%s\n' "$f"
+            return 0
+        fi
+        n=$((n + 1))
+    done < "$WORK/session-lists"
+    f="$WORK/session-list.$n"
+    rows=$(rs_koto_read "$ws" session list </dev/null)
+    rc=$?
+    case "$rc" in
+        0) ;;
+        68) rows='[]' ;;
+        69) return 69 ;;
+        *) return 2 ;;
+    esac
+    jq -e 'type == "array"' >/dev/null 2>&1 <<<"$rows" || return 2
+    printf '%s\n' "$rows" > "$f" || return 2
+    printf '%s\t%s\n' "$ws" "$f" >> "$WORK/session-lists"
+    printf '%s\n' "$f"
+}
+
+# resolve_root <workspace> <session> <session_id>: prints the name the root
+# holds now, <session> or <session>_r<N>, found by its id; returns 0 found, 3
+# not found, 2 a failed read, 69 an unreachable workspace. Only the rows that
+# bear on the answer are checked against their patterns, so the rest of a
+# large store adds nothing to `missing`: a row holding the recorded id under
+# a name outside the session pattern, and a row under a candidate name whose
+# id is outside the id pattern, are named in `missing` and never used.
+resolve_root() {
+    local ws=$1 sess=$2 sid=$3 f rc rows kind name i cand
+    f=$(session_rows "$ws")
+    rc=$?
+    [ "$rc" -eq 0 ] || return "$rc"
+    # A value that isn't a string, or holds a control character, reads as ""
+    # and so fails its pattern below.
+    rows=$(jq -r --arg sid "$sid" --arg s "$sess" '
+        def clean: if type == "string" and (test("[[:cntrl:]]") | not) then . else "" end;
+        .[] | select(type == "object")
+        | (.id | clean) as $id
+        | (.session_id | clean) as $i
+        | if $i == $sid then "id\t" + $id
+          elif $id == $s or ($id | startswith($s + "_r")) then "name\t" + $i
+          else empty end' "$f") || return 2
+    while IFS="$TAB" read -r kind name; do
+        case "$kind" in
+            id) rs_valid_session "$name" \
+                    || missing "session list: a session holding the id recorded for $sess has a name that fails its pattern" ;;
+            name) [[ $name =~ $RS_RE_SESSION_ID ]] \
+                    || missing "session list: a session named as $sess or a moved-aside name has an id that fails its pattern" ;;
+        esac
+    done <<<"$rows"
+    i=0
+    while [ "$i" -le "$MAX_MOVED" ]; do
+        cand=$sess
+        [ "$i" -gt 0 ] && cand="${sess}_r$i"
+        if rs_valid_session "$cand" && grep -qxF -- "id$TAB$cand" <<<"$rows"; then
+            printf '%s\n' "$cand"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+    return 3
+}
+
+# moved_name <name>: the name a session has after its root moved from
+# $ENTRY_SESS to $ROOT_SESS, by koto's rule: the root itself and every
+# `<root>.<rest>` or `<root>~<rest>` take the new prefix; anything else keeps
+# its name. Returns 1 when the result fails the session pattern, so a built
+# name is never used unchecked.
+moved_name() {
+    local n=$1
+    if [ "$ROOT_SESS" != "$ENTRY_SESS" ]; then
+        case "$n" in
+            "$ENTRY_SESS") n=$ROOT_SESS ;;
+            "$ENTRY_SESS".*|"$ENTRY_SESS"~*) n="$ROOT_SESS${n#"$ENTRY_SESS"}" ;;
+        esac
+    fi
+    rs_valid_session "$n" || return 1
+    printf '%s\n' "$n"
+}
 
 # read_root <workspace> <session>: the root's PRs as JSON lines in
 # $WORK/prs; returns 0 when it lists this PR, 1 when it doesn't, 2 on a read
@@ -263,7 +372,7 @@ $(json_keys "$list" "$((MAX_STEPS * 2))")" || return 2
         row=$(jq -nc --arg step "$id" '{step: $step, session: null, workspace: null, superseded: null, plan: null}')
         if grep -qxF "trail/step/$id" "$WORK/step-keys"; then
             val=$(rs_koto_read "$ws" context get "$sess" "trail/step/$id" </dev/null) || return 2
-            if step_ok "$val"; then
+            if step_ok "$val" && val=$(moved_step "$val"); then
                 row=$(jq -c --argjson v "$val" '. + ($v | {session, workspace, superseded})' <<<"$row")
             else
                 missing "root $sess: trail/step/$id fails its pattern"
@@ -300,6 +409,21 @@ step_ok() {
     return 0
 }
 
+# moved_step <json>: a checked step record with its session and superseded
+# names as they are after the root's move (moved_name); 1 when one of them
+# then fails its pattern.
+moved_step() {
+    local names n out=""
+    names=$(jq -r '.session, .superseded[]' <<<"$1") || return 1
+    while IFS= read -r n; do
+        n=$(moved_name "$n") || return 1
+        out="$out$n
+"
+    done <<<"$names"
+    jq -c --arg names "$out" '($names | split("\n") | map(select(. != ""))) as $n
+        | .session = $n[0] | .superseded = $n[1:]' <<<"$1"
+}
+
 # plan_ok <json>: a plan snapshot record, its sha and time in their patterns.
 plan_ok() {
     local fields sha at
@@ -310,16 +434,38 @@ plan_ok() {
     [[ $sha =~ $RS_RE_SHA ]] && [[ $at =~ $RS_RE_AT ]]
 }
 
-ROOT_WS=""; ROOT_SESS=""; ROOT_RUN=""; UNREACHABLE=0; FAILED=0
-while IFS="$(printf '\t')" read -r AT RID WS SESS; do
+# Every entry is weighed, latest first: the first whose root confirms the PR
+# is the answer, and the rest decide only `unique` and `others`. Once there is
+# an answer, an entry whose root can't be found, read or reached is named in
+# `missing`, since that run may have carried the PR too.
+: > "$WORK/session-lists"
+: > "$WORK/qualifying"
+: > "$WORK/unresolved"
+ROOT_WS=""; ROOT_SESS=""; ROOT_RUN=""; ENTRY_SESS=""
+UNREACHABLE=0; FAILED=0; NOT_FOUND=0; UNLISTED=0; UNKNOWN=0
+while IFS="$TAB" read -r AT RID WS SESS SID; do
     [ -n "$RID" ] || continue
-    read_root "$WS" "$SESS"
-    case $? in
-        0) ROOT_WS=$WS; ROOT_SESS=$SESS; ROOT_RUN=$RID; break ;;
-        1) ;;
-        69) UNREACHABLE=1 ;;
-        *) FAILED=1 ;;
+    FOUND=$(resolve_root "$WS" "$SESS" "$SID")
+    RC=$?
+    if [ "$RC" -eq 0 ]; then
+        read_root "$WS" "$FOUND"
+        RC=$?
+    fi
+    case "$RC" in
+        0)
+            printf '%s\n' "$RID" >> "$WORK/qualifying"
+            if [ -z "$ROOT_SESS" ]; then
+                ROOT_WS=$WS; ROOT_SESS=$FOUND; ROOT_RUN=$RID; ENTRY_SESS=$SESS
+                cp -- "$WORK/prs" "$WORK/root-prs" || exit 2
+            fi
+            continue
+            ;;
+        1) UNLISTED=1; continue ;;
+        3) NOT_FOUND=1; NOTE="was not found under its name or any moved-aside name" ;;
+        69) UNREACHABLE=1; UNKNOWN=1; NOTE="is in a workspace this host can't reach" ;;
+        *) FAILED=1; UNKNOWN=1; NOTE="could not be read" ;;
     esac
+    printf 'index: the record root of run/%s %s\n' "$RID" "$NOTE" >> "$WORK/unresolved"
 done < "$WORK/sorted"
 
 if [ -z "$ROOT_SESS" ]; then
@@ -331,19 +477,27 @@ if [ -z "$ROOT_SESS" ]; then
         echo "$PROG: a record root for $REPO#$N is in a workspace this host can't reach without koto's --workspace option" >&2
         exit 2
     fi
-    echo "$PROG: no record root the index names for $REPO#$N lists the PR" >&2
+    if [ "$NOT_FOUND" -eq 1 ]; then
+        echo "$PROG: the recorded root for $REPO#$N wasn't found under its name or any moved-aside name (_r1 to _r$MAX_MOVED)" >&2
+    fi
+    if [ "$UNLISTED" -eq 1 ]; then
+        echo "$PROG: no record root the index names for $REPO#$N lists the PR" >&2
+    fi
     exit 3
 fi
+cat -- "$WORK/unresolved" >> "$WORK/missing" || exit 2
 
 if [ "$STEPS" -eq 1 ] && ! read_steps "$ROOT_WS" "$ROOT_SESS"; then
     echo "$PROG: could not read the step records of $ROOT_SESS" >&2
     exit 2
 fi
 
-OTHERS=$(printf '%s\n' "$RUN_IDS" | grep -vxF -- "$ROOT_RUN")
+OTHERS=$(LC_ALL=C sort -u "$WORK/qualifying" | grep -vxF -- "$ROOT_RUN")
+UNIQUE=false
+[ -z "$OTHERS" ] && [ "$UNKNOWN" -eq 0 ] && UNIQUE=true
 jq -n --arg ws "$ROOT_WS" --arg sess "$ROOT_SESS" --arg run "$ROOT_RUN" \
-    --argjson unique "$([ "$ENTRY_COUNT" -eq 1 ] && echo true || echo false)" \
-    --rawfile missing "$WORK/missing" --rawfile prs "$WORK/prs" --arg others "$OTHERS" \
+    --argjson unique "$UNIQUE" \
+    --rawfile missing "$WORK/missing" --rawfile prs "$WORK/root-prs" --arg others "$OTHERS" \
     --rawfile steps "$WORK/steps" '
     ($missing | split("\n") | map(select(. != ""))) as $m
     | {record_root: {workspace: $ws, session: $sess},

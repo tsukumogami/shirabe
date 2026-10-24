@@ -414,6 +414,180 @@ unset RECORD_KOTO_FAIL_READS
     && pass "option present, unreadable under every form: exit 2" \
     || fail "present, all unreadable: exit $RC, stderr [$ERR]"
 
+# --- a re-run, and more than one run per PR, in both modes -----------------------------------
+#
+# Run 1 records PRs 7 (its home PR, through adopt-or-create-pr.sh), 9 and 10,
+# and three step sessions, step 3's superseded by a new step agent's. A
+# re-run of the topic then replaces the root: the stand-in moves it and its
+# `.`-children to `_r1` the way koto does, and run 2 takes the name. Run 2
+# records PR 8 and also carries PR 9. Index entries written by hand give the
+# cases their timestamps.
+
+RID2=abcdef0123456789abcdef0123456789
+
+session_id_of() { # session_id_of <name>: its id, from A's session list
+    (cd "$A" && koto session list </dev/null) | jq -r --arg s "$1" '.[] | select(.id == $s) | .session_id'
+}
+
+put_entry() { # put_entry <pr> <run_id> <session> <session_id> <written_at>
+    local entry
+    entry=$(jq -nc --arg w "$A" --arg s "$3" --arg i "$4" --arg at "$5" \
+        '{workspace: $w, session: $s, session_id: $i, mode: "single-pr", topic: "skel", written_at: $at}')
+    (cd "/tmp/shirabe-run-record/$OWNER" && koto init "pr.$OWNER.r.$1" --attach-live --template t >/dev/null \
+        && printf '%s' "$entry" | koto context add "pr.$OWNER.r.$1" "run/$2")
+}
+
+trail_pr() { # trail_pr <session> <pr>
+    (cd "$A" && bash "$TRAIL" pr --session "$1" --repo "$OWNER/r" --number "$2" --role follow-up --state open </dev/null)
+}
+
+rerun_cases() {
+    local mode=$1 ok=1 sid1 sid2 sid10 sid11 want calls budget
+    skeleton "$mode"
+    [ "$ADOPT_RC" -eq 0 ] || ok=0
+    for n in 1 2 3; do
+        (cd "$A" && koto init "$S.step-$n" --template work-on.md >/dev/null) || ok=0
+        trail step --session "$S" --step "step-$n" --child "$S.step-$n" </dev/null || ok=0
+    done
+    (cd "$A" && koto init "$S.step-3_r2" --template work-on.md >/dev/null) || ok=0
+    trail step --session "$S" --step step-3 --child "$S.step-3_r2" --supersede </dev/null || ok=0
+    trail_pr "$S" 9 || ok=0
+    trail_pr "$S" 10 || ok=0
+    sid1=$(session_id_of "$S")
+    put_entry 9 "$RID" "$S" "$sid1" 2026-01-01T00:00:00Z || ok=0
+    put_entry 10 "$RID" "$S" "$sid1" 2026-01-01T00:00:00Z || ok=0
+    # The re-run.
+    (cd "$A" && koto init "$S" --replace-terminal --template execute.md >/dev/null \
+        && printf '%s' "$RID2" | koto context add "$S" run_id) || ok=0
+    trail self --session "$S" </dev/null || ok=0
+    trail_pr "$S" 8 || ok=0
+    (cd "$A" && bash "$TRAIL" index --repo "$OWNER/r" --number 8 --session "$S" --mode single-pr --topic "$TOPIC" </dev/null) || ok=0
+    trail_pr "$S" 9 || ok=0
+    sid2=$(session_id_of "$S")
+    put_entry 9 "$RID2" "$S" "$sid2" 2026-01-02T00:00:00Z || ok=0
+    put_entry 10 "$RID2" "$S" "$sid2" 2026-01-02T00:00:00Z || ok=0
+    if [ "$ok" -eq 1 ] && [ -n "$sid1" ] && [ -n "$sid2" ] && [ "$sid1" != "$sid2" ] \
+        && [ "$(session_id_of "${S}_r1")" = "$sid1" ] && [ "$(session_id_of "${S}_r1.step-3_r2")" != "" ]; then
+        pass "option $mode: the re-run moves run 1's root and step sessions to _r1, keeping run 1's id"
+    else
+        fail "option $mode: the re-run's setup did not complete (ok=$ok)"
+    fi
+
+    lookup "$GH_OK" "$OWNER/r" 7 --steps
+    want=$(jq -nc --arg s "$S" --arg a "$A" --arg r "$RID" '{root: ($s + "_r1"), ws: $a, run: $r, unique: true, others: [],
+        steps: [{session: ($s + "_r1.step-1"), superseded: []}, {session: ($s + "_r1.step-2"), superseded: []},
+                {session: ($s + "_r1.step-3_r2"), superseded: [($s + "_r1.step-3")]}]}')
+    if [ "$RC" -eq 0 ] && [ "$(jq -c '{root: .record_root.session, ws: .record_root.workspace, run: .run_id, unique, others,
+            steps: [.steps[] | {session, superseded}]}' <<<"$OUT")" = "$want" ]; then
+        pass "option $mode: run 1's PR leads to execute-$TOPIC""_r1, run 1's run_id, and each step session under its _r1 name"
+    else
+        fail "option $mode, re-run PR 7: exit $RC, out [$OUT], stderr [$ERR]"
+    fi
+    if [ "$RC" -eq 0 ]; then
+        ok=1
+        for sess in $(jq -r '.steps[] | .session, .superseded[]' <<<"$OUT"); do
+            [ -n "$(session_id_of "$sess")" ] || ok=0
+        done
+        [ "$ok" -eq 1 ] && pass "option $mode: every step session the answer names exists under that name" \
+            || fail "option $mode: a named step session does not exist: [$(jq -c .steps <<<"$OUT")]"
+    fi
+    lookup "$GH_OK" "$OWNER/r" 8
+    if [ "$RC" -eq 0 ] && [ "$(jq -r '.record_root.session' <<<"$OUT")" = "$S" ] && [ "$(jq -r .run_id <<<"$OUT")" = "$RID2" ]; then
+        pass "option $mode: run 2's PR leads to execute-$TOPIC and run 2's run_id"
+    else
+        fail "option $mode, run 2's PR 8: exit $RC, out [$OUT], stderr [$ERR]"
+    fi
+
+    # Both runs list PR 9: the later entry answers, the other is in others.
+    lookup "$GH_OK" "$OWNER/r" 9
+    if [ "$RC" -eq 0 ] && [ "$(jq -c '[.record_root.session, .run_id, .unique, .others]' <<<"$OUT")" \
+            = "$(jq -nc --arg s "$S" --arg r2 "$RID2" --arg r1 "$RID" '[$s, $r2, false, [$r1]]')" ]; then
+        pass "option $mode: two runs list PR 9: the latest written_at answers, unique false, the other run_id in others"
+    else
+        fail "option $mode, two runs: exit $RC, out [$OUT], stderr [$ERR]"
+    fi
+    # Equal written_at: the tie goes by run_id.
+    put_entry 9 "$RID2" "$S" "$sid2" 2026-01-01T00:00:00Z
+    lookup "$GH_OK" "$OWNER/r" 9
+    [ "$RC" -eq 0 ] && [ "$(jq -c '[.run_id, .others]' <<<"$OUT")" = "$(jq -nc --arg a "$RID2" --arg b "$RID" '[$a, [$b]]')" ] \
+        && pass "option $mode: two entries with one written_at: the tie broken by run_id" \
+        || fail "option $mode, tie: exit $RC, out [$OUT]"
+    # Run 2's entry for PR 10 is the latest, but run 2 never listed PR 10.
+    lookup "$GH_OK" "$OWNER/r" 10
+    if [ "$RC" -eq 0 ] && [ "$(jq -c '[.record_root.session, .run_id, .unique, .others, .complete]' <<<"$OUT")" \
+            = "$(jq -nc --arg s "${S}_r1" --arg r1 "$RID" '[$s, $r1, true, [], true]')" ]; then
+        pass "option $mode: a later entry whose root doesn't list the PR is neither returned nor in others"
+    else
+        fail "option $mode, unlisted later entry: exit $RC, out [$OUT], stderr [$ERR]"
+    fi
+
+    # An id held by no session under the name or _r1 to _r10.
+    put_entry 12 "$RID" "$S" no-such-session-id 2026-01-01T00:00:00Z
+    lookup "$GH_OK" "$OWNER/r" 12
+    [ "$RC" -eq 3 ] && [ -z "$OUT" ] && grep -q "wasn't found under its name or any moved-aside name" <<<"$ERR" \
+        && pass "option $mode: a recorded id no session holds under the name or a moved-aside name: exit 3, said on stderr" \
+        || fail "option $mode, id not found: exit $RC, out [$OUT], stderr [$ERR]"
+    # _r10 is the last moved-aside name looked under; _r11 is past it.
+    (cd "$A" && koto init "${S}_r10" --template execute.md >/dev/null && koto init "${S}_r11" --template execute.md >/dev/null)
+    trail_pr "${S}_r10" 15
+    trail_pr "${S}_r11" 14
+    sid10=$(session_id_of "${S}_r10")
+    sid11=$(session_id_of "${S}_r11")
+    put_entry 15 "$RID" "$S" "$sid10" 2026-01-01T00:00:00Z
+    put_entry 14 "$RID" "$S" "$sid11" 2026-01-01T00:00:00Z
+    lookup "$GH_OK" "$OWNER/r" 15
+    [ "$RC" -eq 0 ] && [ "$(jq -r .record_root.session <<<"$OUT")" = "${S}_r10" ] \
+        && pass "option $mode: a root moved to _r10 is found" \
+        || fail "option $mode, _r10: exit $RC, out [$OUT], stderr [$ERR]"
+    lookup "$GH_OK" "$OWNER/r" 14
+    [ "$RC" -eq 3 ] && grep -q "moved-aside name" <<<"$ERR" \
+        && pass "option $mode: a root under _r11 is past the search: exit 3" \
+        || fail "option $mode, _r11: exit $RC, out [$OUT], stderr [$ERR]"
+
+    # Values read back that fail their patterns: named in missing, never used.
+    trail_pr "$S" 17
+    put_entry 17 "$RID2" "$S" "$sid2" 2026-01-02T00:00:00Z
+    put_entry 17 11111111111111111111111111111111 "$S" 'not an id!' 2026-01-03T00:00:00Z
+    put_entry 17 22222222222222222222222222222222 "$S" "$sid2" yesterday
+    put_entry 17 33333333333333333333333333333333 '../x' "$sid2" 2026-01-03T00:00:00Z
+    lookup "$GH_OK" "$OWNER/r" 17
+    if [ "$RC" -eq 0 ] && [ "$(jq -c '[.record_root.session, .run_id, .unique, .others, .complete]' <<<"$OUT")" \
+            = "$(jq -nc --arg s "$S" --arg r "$RID2" '[$s, $r, true, [], false]')" ] \
+        && [ "$(jq '[.missing[] | select(test("^index: run/[0-9a-f]{32} fails its pattern$"))] | length' <<<"$OUT")" = 3 ]; then
+        pass "option $mode: entries whose session_id, written_at or session fails its pattern are named in missing and not used"
+    else
+        fail "option $mode, entry patterns: exit $RC, out [$OUT], stderr [$ERR]"
+    fi
+    export RECORD_KOTO_LIST_EXTRA
+    RECORD_KOTO_LIST_EXTRA=$(jq -nc --arg s "${S}_r2" --arg i "$sid1" \
+        '[{id: $s, session_id: "bad id!", execution_dir: "/x", parent_workflow: null},
+          {id: "bad name!", session_id: $i, execution_dir: "/x", parent_workflow: null}]')
+    lookup "$GH_OK" "$OWNER/r" 7
+    unset RECORD_KOTO_LIST_EXTRA
+    if [ "$RC" -eq 0 ] && [ "$(jq -r .record_root.session <<<"$OUT")" = "${S}_r1" ] \
+        && [ "$(jq '[.missing[] | select(startswith("session list: "))] | length' <<<"$OUT")" = 2 ]; then
+        pass "option $mode: session list rows whose name or id fails its pattern are named in missing and not used"
+    else
+        fail "option $mode, row patterns: exit $RC, out [$OUT], stderr [$ERR]"
+    fi
+
+    # The call count for one PR: run 1 has P=3 PRs (7, 9, 10) and S=3 steps.
+    MARK=$(log_len)
+    lookup "$GH_OK" "$OWNER/r" 7
+    calls=$(calls_since "$MARK")
+    budget=$((2 + 3 + 3 + 1))
+    if [ "$RC" -eq 0 ] && [ "$(wc -l <<<"$calls" | tr -d ' ')" -le "$budget" ] \
+        && [ "$(grep -c "${TAB}session list" <<<"$calls")" -eq 1 ] \
+        && ! grep -qE "${TAB}(status|init|next|cancel|context add|context remove|session import|session cleanup|session prune|decisions) " <<<"$calls"; then
+        pass "option $mode: the lookup made $(wc -l <<<"$calls" | tr -d ' ') koto calls (budget $budget), one session list, no write"
+    else
+        fail "option $mode, call count: exit $RC, calls [$calls]"
+    fi
+}
+
+rerun_cases absent
+rerun_cases present
+
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ] || exit 1

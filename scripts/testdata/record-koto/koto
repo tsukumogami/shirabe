@@ -23,12 +23,21 @@
 #                     answer a read of an unused workspace is expected to
 #                     give; context exists answers 1, as for any absent key.
 #
-# Verbs: init (with --attach-live), context add|get|exists|list|remove,
+# Verbs: init (with --attach-live and --replace-terminal), context
+# add|get|exists|list|remove,
 # status, session list, session import (marks the source migrated),
 # decisions record|list, version, and --help on any of them. Anything else
 # exits 9. `decisions record` takes --with-data as inline JSON or @<file>,
 # refuses (2) an object without string choice and rationale, and keeps each
 # record as given; `decisions list` prints them in koto's shape.
+#
+# The same-name replace. `init <name> --replace-terminal` on a name the
+# workspace holds moves the old session aside the way koto does: it becomes
+# `<name>_r<N>`, N the lowest value from 1 leaving every target name free, and
+# each session named `<name>.<rest>` or `<name>~<rest>` moves to the same
+# suffix under `<name>_r<N>`. Every moved session keeps its session id and its
+# keys; the new `<name>` gets a new id and no keys. The stub has no states, so
+# every session counts as finished.
 #
 # Environment:
 #   RECORD_KOTO_STORE             the store directory (required)
@@ -40,6 +49,9 @@
 #                                 directory, so a suite can place a session
 #                                 at a form of the shared address this host
 #                                 doesn't canonicalize to
+#   RECORD_KOTO_LIST_EXTRA        a JSON array of rows `session list` appends
+#                                 to its own, so a suite can show a reader a
+#                                 row the stub would never write
 #
 # Every call is appended to $RECORD_KOTO_STORE/calls.log as
 # `<canonical cwd><TAB><arguments>`, before anything is decided, so a test can
@@ -149,7 +161,35 @@ case "$VERB" in
         name=${2:-}
         name_ok "$name" || err "invalid session name" 2
         attach=0
-        for a in "$@"; do [ "$a" = --attach-live ] && attach=1; done
+        replace=0
+        for a in "$@"; do
+            [ "$a" = --attach-live ] && attach=1
+            [ "$a" = --replace-terminal ] && replace=1
+        done
+        if [ -d "$WSDIR/$name" ] && [ "$replace" -eq 1 ]; then
+            # The move-aside: the session and every `<name>.`/`<name>~` one.
+            moving=()
+            for d in "$WSDIR"/*/; do
+                d=${d%/}; d=${d##*/}
+                case "$d" in "$name"|"$name".*|"$name"~*) moving+=("$d") ;; esac
+            done
+            n=1
+            while :; do
+                free=1
+                for d in "${moving[@]}"; do
+                    [ -e "$WSDIR/${name}_r$n${d#"$name"}" ] && free=0
+                done
+                [ "$free" -eq 1 ] && break
+                n=$((n + 1))
+            done
+            for d in "${moving[@]}"; do
+                mv -- "$WSDIR/$d" "$WSDIR/${name}_r$n${d#"$name"}"
+            done
+            mkdir -p "$WSDIR/$name/ctx"
+            new_id > "$WSDIR/$name/session_id"
+            printf '{"name":"%s","state":"open","replaced_result":{"moved_to":"%s"}}\n' "$name" "${name}_r$n"
+            exit 0
+        fi
         if [ -d "$WSDIR/$name" ]; then
             [ "$attach" -eq 1 ] || err "workflow '$name' already exists" 1
             printf '{"name":"%s","outcome":"attached","state":"open"}\n' "$name"
@@ -203,7 +243,7 @@ case "$VERB" in
             s=${s%/}; n=${s##*/}
             jq -nc --arg id "$n" --arg sid "$(cat "$s/session_id")" --arg dir "$WS" \
                 '{id: $id, session_id: $sid, execution_dir: $dir, parent_workflow: null}'
-        done | jq -sc .
+        done | jq -sc --argjson extra "${RECORD_KOTO_LIST_EXTRA:-[]}" '. + $extra'
         ;;
     "decisions record")
         need_session "${3:-}"
