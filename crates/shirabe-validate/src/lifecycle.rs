@@ -310,6 +310,11 @@ struct IndexedDoc {
     /// `tracking_level` together -- see `checks::plan_is_outline_shaped`
     /// -- because neither field settles it alone.
     outline_shaped: bool,
+    /// Whether a PLAN is a `plan/v2` step plan. False for every non-PLAN.
+    /// A step plan is always outline-shaped, but unlike an issueless
+    /// `plan/v1` PLAN its `multi-pr` mode lands one step per pull request,
+    /// so posture inference reads this alongside `outline_shaped`.
+    step_plan: bool,
 }
 
 /// Index of every doc under the tree, keyed by canonical path.
@@ -479,6 +484,7 @@ fn index_doc(
 
     let upstreams = extract_upstreams(canon_root, canon_path, &doc);
     let outline_shaped = format == "Plan" && crate::checks::plan_is_outline_shaped(&doc);
+    let step_plan = format == "Plan" && crate::checks::is_plan_v2(&doc);
 
     Ok(IndexedDoc {
         path: canon_path.to_path_buf(),
@@ -487,6 +493,7 @@ fn index_doc(
         execution_mode,
         upstreams,
         outline_shaped,
+        step_plan,
     })
 }
 
@@ -791,11 +798,15 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
             _ => Posture::MultiPrInFlight,
         };
     }
-    // PLAN root. An issueless (outline-shaped) multi-pr PLAN is excluded
-    // deliberately: it has no materialized issues for the multi-pr postures
-    // to track, and like a single-pr PLAN it is authored at `Active` and
-    // lands through the cascade, so it takes the single-pr shape below.
-    if root.execution_mode == "multi-pr" && !root.outline_shaped {
+    // PLAN root. An issueless (outline-shaped) plan/v1 multi-pr PLAN is
+    // excluded deliberately: it has no materialized issues for the multi-pr
+    // postures to track, and like a single-pr PLAN it is authored at
+    // `Active` and lands through the cascade, so it takes the single-pr
+    // shape below. A plan/v2 step plan is outline-shaped too, but its
+    // multi-pr mode lands each step in its own pull request after the
+    // scoping PR merges, so it takes the multi-pr postures like an
+    // issue-carrying PLAN.
+    if root.execution_mode == "multi-pr" && (!root.outline_shaped || root.step_plan) {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,
             // Active or Draft both bucket to in-flight; the
@@ -1501,6 +1512,13 @@ pub fn run_lifecycle_check(
 /// can navigate to the offending box directly.
 fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<ValidationError> {
     if cfg.allow_untracked_acs {
+        return Vec::new();
+    }
+    // A multi-pr chain in flight lands its steps one pull request at a
+    // time, so the criteria of steps not yet built are legitimately
+    // unticked. Only a step plan reaches this posture with outlines; an
+    // issue-carrying PLAN has no checkboxes to find.
+    if chain.posture == Posture::MultiPrInFlight {
         return Vec::new();
     }
     let mut errors: Vec<ValidationError> = Vec::new();
@@ -5077,6 +5095,72 @@ mod tests {
 
     fn codes<'a>(errors: &'a [ValidationError], code: &str) -> Vec<&'a ValidationError> {
         errors.iter().filter(|e| e.code == code).collect()
+    }
+
+    /// A step plan's scoping PR: PRD in progress, DESIGN planned, and a
+    /// `plan/v2` PLAN at `Active` in the given mode whose criteria are not
+    /// yet ticked and whose third step is still an outline.
+    fn v2_scoping_tree(execution_mode: &str) -> PathBuf {
+        let mut fm = format!(
+            "schema: plan/v2\nstatus: Active\nexecution_mode: {}\ntracking_level: none\nmilestone: \"m\"\nstep_count: 3\nupstream: docs/designs/DESIGN-foo.md\n",
+            execution_mode
+        );
+        if execution_mode != "single-pr" {
+            fm.push_str("split_rationale: Hard Constraint. The steps land in two repositories.\n");
+        }
+        build_tree(&[
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("In Progress", ""),
+                &prd_body("In Progress"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            ("docs/plans/PLAN-foo.md", &fm, &v2_plan_body(" ", false)),
+        ])
+    }
+
+    /// A multi-pr step plan is in flight while its scoping PR is ready.
+    ///
+    /// Its steps land one pull request each after the scoping PR merges, so
+    /// at ready posture it is held to the multi-pr in-flight states (PLAN
+    /// `Active`, DESIGN `Planned`, PRD `In Progress`), not the single-pr
+    /// at-merge ones, and the criteria of steps not yet built are not
+    /// findings.
+    #[test]
+    fn multi_pr_step_plan_is_in_flight_at_ready() {
+        let root = v2_scoping_tree("multi-pr");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
+        assert!(
+            codes(&errors, "L01").is_empty(),
+            "a multi-pr step plan must take the multi-pr in-flight posture; got {errors:?}"
+        );
+        assert!(
+            codes(&errors, "L06").is_empty(),
+            "unticked criteria of unbuilt steps are not findings in flight; got {errors:?}"
+        );
+        assert!(
+            errors.is_empty(),
+            "expected a clean ready run; got {errors:?}"
+        );
+
+        // The guard: the same step plan in single-pr mode is still held to
+        // the at-merge states at ready, so the rule has not been disabled.
+        let single = v2_scoping_tree("single-pr");
+        let single_errors = run_lifecycle_check(&single, &Config::default(), ReviewPosture::Ready);
+        assert!(
+            codes(&single_errors, "L01")
+                .iter()
+                .any(|e| e.message.contains("single-pr at-merge")),
+            "a single-pr step plan at ready still owes the at-merge states; got {single_errors:?}"
+        );
+        assert!(
+            !codes(&single_errors, "L06").is_empty(),
+            "a single-pr step plan at ready still owes ticked criteria; got {single_errors:?}"
+        );
     }
 
     #[test]
