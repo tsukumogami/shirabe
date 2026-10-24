@@ -65,6 +65,8 @@ T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */offload-canary-routes.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
+# No session variable from the caller's environment reaches koto.
+for v in $(compgen -v KOTO_SESSION_); do unset "$v"; done
 export KOTO_SESSIONS_BASE="$T/sessions"
 export XDG_CONFIG_HOME="$T/xdg"
 # koto's store follows HOME, so the real koto this suite drives gets one of
