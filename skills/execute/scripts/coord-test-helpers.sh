@@ -27,8 +27,10 @@
 #
 # The index sessions those scripts write sit at the real shared address,
 # /tmp/shirabe-run-record/<owner>, which run-trail.sh creates before each
-# write; under this stub nothing is written inside it, and the empty
-# directories this suite's owners left are removed at exit (CT_SHARED_OWNERS).
+# write; under this stub nothing is written inside it. The empty directory is
+# left in place at exit, never removed: suites run side by side share it, and
+# a lookup in one (which reads from that directory) would find no index if
+# another suite's exit removed it between the write and the read.
 #
 # Sourcing stops the suite (exit 1) unless the koto on PATH is the stub. A
 # suite that drives the real koto (rm -f "$CT_BIN/koto") calls
@@ -39,19 +41,7 @@
 
 CT_FIXTURES="$SCRIPT_DIR/../evals/fixtures"
 CT_WORK=$(mktemp -d "${TMPDIR:-/tmp}/coord-test.XXXXXX") || exit 1
-CT_SHARED_OWNERS="acme acme-plans"
-ct_exit() {
-    local o
-    rm -rf "$CT_WORK"
-    # Only an empty directory goes: one a real run on this host wrote into
-    # is never touched.
-    for o in $CT_SHARED_OWNERS; do
-        rmdir "/tmp/shirabe-run-record/$o" 2>/dev/null
-    done
-    rmdir /tmp/shirabe-run-record 2>/dev/null
-    return 0
-}
-trap ct_exit EXIT
+trap 'rm -rf "$CT_WORK"' EXIT
 CT_BIN="$CT_WORK/bin"
 mkdir -p "$CT_BIN" "$CT_WORK/home"
 export HOME="$CT_WORK/home"
