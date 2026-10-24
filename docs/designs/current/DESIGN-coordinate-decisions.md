@@ -1107,3 +1107,22 @@ tracked in shirabe#539:
   the parser's limit exits 10 rather than `record-full` (shirabe#539).
 - The compare-and-swap reads only the `Written:` line, so a hand edit that leaves it unchanged
   is overwritten by the next write (shirabe#539).
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+Decisions are the session's `record/decisions` key, written by
+`state-decision.sh`. Without an issue body there is no body limit, so the
+`record-full` refusal and the decisions archive are gone (`state-decision.sh`
+has no `--archive`). `--carry` reads the predecessor's session, not a handoff
+file.
+
+The coordinate scripts named above have new names: `record-common.sh` is
+`state-common.sh`, `record-find.sh` is `state-find.sh`, `record-holding.sh` is
+`state-holding.sh`, `record-open.sh` is `state-open.sh`, `record-write.sh` is
+`state-write.sh` and `record-write-core.sh` is `state-write-core.sh`.
+`record-parse.sh` and `reconcile-salvage.jq` are gone. `record-codec.jq` is
+gone; its checks live in `state-schema.jq`, which validates the state as JSON.

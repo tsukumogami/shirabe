@@ -586,3 +586,17 @@ exploit. Its risks come from what a coordinator does with it.
   depends on; the skill adds no workaround.
 - If a draft pull request can't open from an empty commit, the rotation
   opens it with its first real record commit instead.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+Decision 2's layout of the record on GitHub no longer holds, and neither do
+both of its containers, the roadmap scope's issue and the discipline scope's
+rotation pull request. At either scope a coordinator's record is the set of
+`record/` keys in its koto session. The rest of this design stands.
+
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer.

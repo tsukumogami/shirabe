@@ -678,3 +678,21 @@ what the coordinator may do: every new verdict narrows the path to a merge.
   check, so no permitted merge lands the whole body.
 - The merge-in residue is what the hand rule already accepted, and the goal-fit
   read happens on the head being merged.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+Holds are the session's `record/holds` key, written by `state-hold.sh`. A
+rotation's carry moves them into the successor's session with the rest of the
+carried state. There is no record pull request, so there is no Part 1 of one
+to keep them in.
+
+The coordinate scripts named above have new names: `record-confirm.sh` is
+`state-confirm.sh`, `record-holding.sh` is `state-holding.sh` and
+`record-write-core.sh` is `state-write-core.sh`.
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer. `record-codec.jq` is
+gone; its checks live in `state-schema.jq`, which validates the state as JSON.

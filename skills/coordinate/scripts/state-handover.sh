@@ -2,7 +2,7 @@
 # state-handover.sh -- the stored set a replacement coordinator continues
 # from, read from the record alone, and its gaps. A read; the `reconcile`
 # state's handover gate runs it with --check
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3).
+# (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 3).
 #
 # Usage:
 #   state-handover.sh --session S [--check]

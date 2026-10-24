@@ -819,3 +819,23 @@ resets the quiet-worker counts, which errs toward one more status message.
 gates only, no context gate) and fails if a write script appears in any default action or gate;
 an engine test walks every event arm from `wait` against the stand-in and fails on a
 `template_error`; the run report prints the session's event count so a growing log is visible.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The find, open, write and confirm funnel reads and writes the coordinator's
+koto session. `state-find.sh`, `state-open.sh`, `state-write-core.sh` (with
+`state-write.sh` and the section writers) and `state-confirm.sh` take the
+place of the `record-*` scripts named above. There is no issue or pull request
+container, no declaration-line authority, no `Written:` compare (the confirm
+compares the written time in `record/meta`) and no committed handoff file. The
+codec's checks survive as `state-schema.jq`, which validates the state as
+JSON; the markdown renderer and parser are gone.
+
+The coordinate scripts named above have new names: `record-common.sh` is
+`state-common.sh` and `record-holding.sh` is `state-holding.sh`.
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer.

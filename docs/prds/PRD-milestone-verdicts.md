@@ -466,3 +466,12 @@ the state, and the entries carry what a reader needs to follow it.
 **A post-Done failure reopens the milestone rather than filing new work.**
 This is the roadmap format's rule: the gap is fixed in the milestone that
 promised it, judged against the same Evidence.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+The glossary's record body and its entry move: a coordinator decides from its
+session, and a verdict or failure entry is posted on the roadmap pull request.

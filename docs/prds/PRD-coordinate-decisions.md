@@ -483,3 +483,13 @@ and a failing test.
   requirements state what must hold (a successor finds open entries; a check every worker
   report passes); the design weighs a record section against session state, and the brief
   against the worker skills against the coordinator's report intake.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+R6's take-over and handoff carry read the predecessor's session
+(`state-decision.sh --carry`, `state-open.sh --carry`), not a record body
+or a handoff file.

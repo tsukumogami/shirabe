@@ -90,7 +90,7 @@ Standing section: events only a person owns, each with its owner, who relayed
 it and when, written only by `record-state.sh` (tsukumogami/shirabe#643). Its
 design says: "What a pause does to the loop is Feature 9's paused state; this
 design stores it with its who and when, and changes no routing for it"
-(`docs/designs/current/DESIGN-coordinate-record-container.md`, Decision 3). A
+(`docs/designs/archive/DESIGN-coordinate-record-container.md`, Decision 3). A
 Standing row's What is free text, so no script can tell what a pause covers or
 when it ends.
 
@@ -720,3 +720,20 @@ GitHub with the same calls holds make.
 - The Work rows record who was told; an unreachable worker is reported up.
 - The one silent wait until the resume's minute brings the `resume` tick, and
   a person's message is always a wake.
+
+## Amendment — 2026-10-23
+
+`DESIGN-coordinator-record-teardown.md` removes the GitHub coordinator
+record. The original text above is left unedited; this section records
+what no longer holds.
+
+Standing and Work are session keys, `record/standing` and `record/work`,
+written by `state-stored-set.sh`. A person's resume reaches the coordinator by
+message, not as a comment on the record: there is no record issue or pull
+request to comment on.
+
+The coordinate scripts named above have new names: `record-append.sh` is
+`state-entry.sh` and `record-common.sh` is `state-common.sh`.
+`references/record-template.md` is now `references/state-keys.md`, which holds
+each key of the state, its JSON shape and its one writer. `record-codec.jq` is
+gone; its checks live in `state-schema.jq`, which validates the state as JSON.
