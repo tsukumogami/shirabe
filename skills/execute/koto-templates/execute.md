@@ -1371,7 +1371,8 @@ states:
         description: >-
           Absent on every normal path. Submitted only when the confirm read
           keeps failing; it re-evaluates the gate without re-running the read,
-          and a cleared key can only route to ready_awaiting_merge.
+          and a cleared key can only end the run at ready_awaiting_merge,
+          through record_keep.
     transitions:
       - target: record_keep
         when:
@@ -1472,7 +1473,8 @@ states:
       unpinned: "${context.record_unpinned}"
 
   merged:
-    # Reached only from merge_confirm, on a live read of MERGED.
+    # Reached only from record_keep, on the confirm read's live MERGED
+    # (confirmed_merged), which only merge_confirm writes.
     terminal: true
     result:
       outcome: "${context.outcome}"

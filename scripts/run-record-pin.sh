@@ -34,6 +34,9 @@
 # fails a check is not pinned and is reported `skipped=<name>:<why>`. A
 # session whose recorded workspace is not a directory on this host is not
 # pinned either: it is recorded as unpinned with the code `other-workspace`.
+# Its provenance can't be read from here, so that record comes before any
+# check; a retry on a host that has the workspace checks it then, and one on
+# this host records it unpinned again.
 #
 # The reason is `record of plan <topic>: <owner>/<repo>#<n>`: the plan's topic
 # (from the root's name) and the run's own PR (the home PR, else the
@@ -51,8 +54,9 @@
 # backend), can't confirm (exit 3), or fails any other way is recorded with
 # koto's exit code. The run's unpinned names go to the root's
 # `trail/unpinned`, {names: [{session, workspace, code}], at}, and the key is
-# removed once none is left. A pin never holds the run: the template states
-# that run this (`record_keep`) end their command with `|| true`.
+# removed once none is left. A pin never holds the run: each template's
+# `record_keep` state runs this as a default action whose command ends with
+# `|| true`.
 #
 # --retry. The next invocation's opener (skills/execute/scripts/
 # execute-open.sh before it replaces a finished root, and a multi-pr item's

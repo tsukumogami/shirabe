@@ -22,7 +22,9 @@
 #                               pinned sessions are kept (it must say
 #                               "pinned"): an instruction that reads as
 #                               removing everything sends someone to
-#                               unpin first.
+#                               unpin first. The guard is lexical: any
+#                               paragraph holding the word passes, so a
+#                               reviewer still reads what it says.
 #
 # Not policed: skills/coordinate/, which another change edits; test suites
 # (`*_test.sh`) and test data (`testdata/`), which set up throwaway scratch

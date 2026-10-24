@@ -595,7 +595,7 @@ states:
         description: >-
           Absent on every normal path. Submitted only when the confirm read
           keeps failing; it re-evaluates the gate on the cleared key, which can
-          only route to ready_awaiting_merge.
+          only end the run at ready_awaiting_merge, through record_keep.
     transitions:
       - target: record_keep
         when:
@@ -649,7 +649,8 @@ states:
           outcome: ready-awaiting-merge
 
   merged:
-    # Reached only from coord_merge_confirm, on a live read of MERGED.
+    # Reached only from record_keep, on the confirm read's live MERGED
+    # (confirmed_merged), which only coord_merge_confirm writes.
     terminal: true
     result:
       outcome: "${context.outcome}"
