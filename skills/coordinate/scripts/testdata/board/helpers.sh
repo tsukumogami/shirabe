@@ -27,7 +27,7 @@ bt_setup() {
     cp "$HERE/../../../scripts/lib/squash-message.sh" "$T/plugin/scripts/lib/squash-message.sh"
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
-    cp "$TD/board/stand-in-record-holding.sh" "$S/state-holding.sh"
+    cp "$TD/board/stand-in-state-holding.sh" "$S/state-holding.sh"
     # No holdings until a test writes some: an empty list, which every
     # holdings read (bl_review_evidence's included) reads as no row.
     echo '[]' > "$T/state/holdings"

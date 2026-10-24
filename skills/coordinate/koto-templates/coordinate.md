@@ -2337,7 +2337,7 @@ The record stores only what GitHub can't recompute: the holdings (including
 workers with no pull request yet), deferrals, side effects in flight such as a
 merge attempted and never confirmed, and the reasoning behind reversals. Feature
 state is never stored; it is read from the roadmap and the pull requests every
-time. `references/record-template.md` has the shape of each section.
+time. `references/state-keys.md` has the shape of each section.
 
 The record is a set of keys in this run's koto session (`record/meta` and one
 key per section). A run started on a host that never held this scope's session
@@ -2453,7 +2453,7 @@ it happens again, say what it names up to the human and stop. Never write a
 The pass (`scripts/reconcile-pass.sh`, run by the engine, not by you) reads the
 record once per visit to this state and does the reads a full reconcile has
 always meant, at most four at a time.
-Treat every claim in the record as a snapshot dated by its `Written:` time: that is what the pass does. Re-check each against GitHub (pull request state and head sha, whether the branch
+Treat every claim in the record as a snapshot dated by its `written` time: that is what the pass does. Re-check each against GitHub (pull request state and head sha, whether the branch
 exists, CI results, a merge or close in flight) and against the host (whether
 each worker's instance still exists, and what unique material it holds): the
 pass does both. Where the record and GitHub disagree, GitHub wins, and the
@@ -2507,7 +2507,7 @@ verified or inferred, and it doesn't go among the re-checked claims.
 This state's gate re-checks that `reconcile/report.json` is the report the pass
 sealed in this visit; a report written or changed by anyone else holds the
 workflow here. Its handover gate re-reads the record's stored set (Run, Standing,
-Work, `references/record-template.md`) and holds the workflow while the record
+Work, `references/state-keys.md`) and holds the workflow while the record
 lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
 address; a holding merged and waiting for its teardown is exempt. It also
@@ -2836,26 +2836,26 @@ pull request: never a session id, instance path or job id.
 
 Confirming the last change in the record. koto runs `state-confirm.sh` itself; it
 stays here until the record shows what the step before it implies, with a newer
-`Written:` time.
+`written` time.
 
 <!-- details -->
 
 Write the record after every dispatch, every verified report, every merge or
 attempted merge, every new deferral and every reversal, in the same turn as the
 event, and never write a fact GitHub can recompute. Load
-`references/record-template.md`. Parse the live body, change the JSON, render the
-whole body again, and write it with `state-write.sh` or `state-holding.sh`;
+`references/state-keys.md`. Read the state, change the JSON, and write the
+whole next state with `state-write.sh --state-file` or `state-holding.sh`;
 never edit the record's session keys by hand, and never append a comment.
 
 When the record's host repository is public, it never names a private
 repository, path or issue: a holding that would need one is a scope question for
-the human. Quoted material such as a CI log line goes in a cell as it is; the
-renderer keeps it from breaking the table.
+the human. Quoted material such as a CI log line goes in a field as it is;
+the state is JSON, so nothing needs encoding.
 
-A write is a compare-and-swap on the `Written:` line: edit the body you just
-read, keeping its `Written:` line, and `state-write.sh` refuses with exit 12
+A write is a compare-and-swap on the written time: edit the state you just
+read, keeping its `written` time, and `state-write.sh` refuses with exit 12
 (`record-changed`) when the live record was written since, by another
-coordinator or a person. Then re-read it and redo your change on the new body;
+coordinator or a person. Then re-read it and redo your change on the new state;
 when the other change is one you can't reconcile with yours, don't overwrite it:
 report both versions to the human and ask once, as at `record_conflict`.
 `state-holding.sh` does the read and the compare for you.

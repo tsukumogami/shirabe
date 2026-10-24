@@ -298,6 +298,16 @@ grep -qE '^[^#]*VERDICT_WRITER=1' "$HERE/roadmap-status.sh" && pass "roadmap-sta
 printf '\nVERDICT_WRITER=1\n' >> "$T/openers/state-write.sh"
 [ "$(verdict_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that opens the verdict-owed rows" ||
     fail "the check names another script that opens the verdict-owed rows" "$(verdict_writers "$T/openers")"
+# references/state-keys.md's key table names each flag beside the one script
+# the checks above hold it to, so the reference and the scripts agree.
+KEYS_REF="$HERE/../references/state-keys.md"
+for fw in record/decisions:state-decision.sh:DECISIONS_WRITER record/holds:state-hold.sh:HOLDS_WRITER \
+          record/run:state-stored-set.sh:STATE_WRITER record/work:roadmap-status.sh:VERDICT_WRITER; do
+    key=${fw%%:*}; rest=${fw#*:}; script=${rest%%:*}; flag=${rest#*:}
+    grep -E "^\| [^|]*\`$key\`" "$KEYS_REF" | grep -qF "\`$script\` (\`$flag\`)" \
+        && pass "state-keys.md names $script ($flag) as $key's writer" \
+        || fail "state-keys.md names $script ($flag) as $key's writer"
+done
 
 # A discipline rotation's own keys on the session store, record/rotation and
 # record/reasoning (docs/designs/current/DESIGN-coordinator-record-teardown.md,
@@ -353,7 +363,7 @@ printf '%s\n' 'Post it:' '`state-entry.sh --kind goal-fit --text-file f`.' 'Reco
     || fail "the check names an outward-kind call with no --on" "$(outward_without_on "$T/outward/coordinate.md")"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
-for r in loop.md brief-template.md verification-checklist.md record-template.md; do
+for r in loop.md brief-template.md verification-checklist.md state-keys.md; do
     n=$(jq -r --arg r "$r" '[.states[] | select(((.directive // "") + (.details // "")) | contains("references/" + $r))] | length' "$J")
     [ "$n" -gt 0 ] && pass "a state names references/$r" || fail "a state names references/$r"
 done

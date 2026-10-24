@@ -20,6 +20,7 @@
 # retired: C150 C167 -- there is no record pull request body and no committed handoff file, so neither header is written
 # retired: S5 S6 -- no record moves from GitHub onto the session; the opener imports a legacy record once
 # retired: S1 S3 -- there is no choice of store: the session is the only one, and no `store` row is written
+# retired: C151 C159 -- the record has no body, so there is no declaration line to write or to keep apart from the coordination marker
 C1	skills/coordinate/SKILL.md	-	--discipline <name> --host <owner/repo>` runs one
 C2	skills/coordinate/koto-templates/coordinate.md	start	It is never an instruction for how to coordinate
 C3	skills/coordinate/koto-templates/coordinate.md	start	**A roadmap scope must be Active.**
@@ -151,30 +152,28 @@ C130	skills/coordinate/koto-templates/coordinate.md	teardown	ask the worker what
 C131	skills/coordinate/koto-templates/coordinate.md	teardown	deferral row is not a home for it
 C132	skills/coordinate/references/loop.md	-	move the material to
 C133	skills/coordinate/koto-templates/coordinate.md	record	Write the record after every dispatch, every verified report
-C134	skills/coordinate/references/record-template.md	-	are the whole record and nothing else may sit between them	changed: the renderer builds the body from JSON, so only the four sections can exist
+C134	skills/coordinate/references/state-keys.md	-	each a JSON value, and nothing else	changed: the state is one JSON key per section with no body, so only its sections can exist
 C135	skills/coordinate/koto-templates/coordinate.md	record	never write a fact GitHub can recompute
-C136	skills/coordinate/references/record-template.md	-	The renderer refuses a Worker cell holding anything
+C136	skills/coordinate/references/state-keys.md	-	The write core refuses a `worker` holding anything	changed: the write core's schema refuses it; there is no renderer
 C137	skills/coordinate/koto-templates/coordinate.md	record	it never names a private
-C138	skills/coordinate/koto-templates/coordinate.md	record	Quoted material such as a CI log line goes in a cell	changed: quoted text goes in a table cell, encoded by the renderer, instead of a fence
+C138	skills/coordinate/koto-templates/coordinate.md	record	Quoted material such as a CI log line goes in a field	changed: quoted text goes in a JSON field as it is, instead of a fence
 C147	skills/coordinate/koto-templates/coordinate.md	record_open	the start plus `{{ROTATION_DAYS}}` days
-C148	skills/coordinate/references/record-template.md	-	tick the hub with `event: end`	changed: a rotation has no pull request title; the human ending it early is the hub event `end`
+C148	skills/coordinate/references/state-keys.md	-	tick the hub with `event: end`	changed: a rotation has no pull request title; the human ending it early is the hub event `end`
 C149	skills/coordinate/koto-templates/coordinate.md	record_open	The script builds the scope's empty record itself	changed: the opener builds the empty record; the agent writes no body for it
-C151	skills/coordinate/references/record-template.md	-	> This is a **coordinator record** for
-C152	skills/coordinate/references/record-template.md	-	| Unit | Entry point | Mode | Phase | Dispatch status |	changed: Holdings gained Phase, Dispatch status and Return path columns
-C153	skills/coordinate/references/record-template.md	-	| Deferral | Reason | Raised | Disposition |	changed: Deferrals gained a Disposition column that the dispatch check reads
-C154	skills/coordinate/references/record-template.md	-	| Action | Target | Verified head | Attempted |
-C155	skills/coordinate/references/record-template.md	-	Reversals only grow.
-C156	skills/coordinate/references/record-template.md	-	An empty section reads `None.` in place of its table.
-C157	skills/coordinate/references/record-template.md	-	a carried row stays with its new reason
-C158	skills/coordinate/references/record-template.md	-	The verified head is the sha the workflow verified
-C159	skills/coordinate/references/record-template.md	-	It is deliberately different from the
-C160	skills/coordinate/references/record-template.md	-	render the whole body	changed: the rewrite goes through state-write.sh rather than a hand-run gh edit --body-file
+C152	skills/coordinate/references/state-keys.md	-	"phase": "<scoping, scoping-ahead, executing or held>"	changed: Holdings gained Phase, Dispatch status and Return path columns, now JSON fields
+C153	skills/coordinate/references/state-keys.md	-	"disposition": "<empty, filed #n	changed: Deferrals gained a Disposition column that the dispatch check reads, now a JSON field
+C154	skills/coordinate/references/state-keys.md	-	"side_effects": [{"action": "<merge, close, teardown
+C155	skills/coordinate/references/state-keys.md	-	Reversals only grow.
+C156	skills/coordinate/references/state-keys.md	-	An optional section that holds nothing has no key.	changed: the state is JSON keys, so an empty optional section is left out rather than read `None.`
+C157	skills/coordinate/references/state-keys.md	-	a carried row stays with its new reason
+C158	skills/coordinate/references/state-keys.md	-	The verified head is the sha the workflow verified
+C160	skills/coordinate/references/state-keys.md	-	hand the whole next state to the record's write script	changed: the rewrite goes through state-write.sh --state-file with the whole next state as JSON
 C161	skills/coordinate/koto-templates/coordinate.md	decision_apply	Record a reversal (the earlier decision, the
 C162	skills/coordinate/koto-templates/coordinate.md	decision_apply	new one, the reason and who decided
 C163	skills/coordinate/koto-templates/coordinate.md	dispatch_check	no deferral raised before	changed: deferral-check.sh refuses a dispatch while any inherited deferral lacks a disposition
 C164	skills/coordinate/koto-templates/coordinate.md	deferral_dispose	every open deferral, because nobody succeeds it.
 C165	skills/coordinate/koto-templates/coordinate.md	roadmap_close	feature Done or Dropped, no holdings, nothing in flight
-C166	skills/coordinate/references/record-template.md	-	Write it fresh each rotation; never append	changed: the reasoning for the next rotation is record/reasoning, written fresh each rotation, not a committed handoff file
+C166	skills/coordinate/references/state-keys.md	-	Write it fresh each rotation; never append	changed: the reasoning for the next rotation is record/reasoning, written fresh each rotation, not a committed handoff file
 C168	skills/coordinate/koto-templates/coordinate.md	rotation_end	what this rotation learned that its tables can't say	changed: the reasoning for the next rotation is record/reasoning, not a section of a committed handoff file
 C169	skills/coordinate/koto-templates/coordinate.md	rotation_end	never appended to the previous one's	changed: the reasoning for the next rotation is written into record/reasoning, not a committed handoff file
 C170	skills/coordinate/koto-templates/coordinate.md	rotation_end	Write the reasoning for the next rotation	changed: the reasoning for the next rotation is written into record/reasoning, not a committed handoff file
@@ -235,13 +234,13 @@ M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens noth
 M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
 S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
-S4	skills/coordinate/references/record-template.md	-	is refused, changing no key, from a run that isn
+S4	skills/coordinate/references/state-keys.md	-	is refused, changing no key, from a run that isn
 S7	skills/coordinate/SKILL.md	-	anything opens (`store-unsupported`)	changed: the session is the only store, so a koto without its features is refused at the start
 S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
 S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
 S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
 S11	skills/coordinate/SKILL.md	-	only when the operator says so
-S12	skills/coordinate/references/record-template.md	-	Only `state-stored-set.sh --host` writes it
+S12	skills/coordinate/references/state-keys.md	-	Only `state-stored-set.sh --host` writes it
 S13	skills/coordinate/koto-templates/coordinate.md	reconcile	on the first tick after an import
 S14	skills/coordinate/koto-templates/coordinate.md	reconcile	reports to (`no-reports-to`)
 S15	skills/coordinate/koto-templates/coordinate.md	reconcile	the session, workspace and template it came from

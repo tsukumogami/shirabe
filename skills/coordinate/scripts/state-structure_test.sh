@@ -4,7 +4,7 @@
 # GitHub coordinator record's removal deleted
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, "The structure
 # test"). The removal is done, so the allow list is empty and every match
-# fails.
+# fails except a named fixture.
 #
 # The patterns: a file named `record-*.sh` or `record-codec.jq` (key `name`),
 # and a file whose text names `record-(common|source|parse|render).sh`
@@ -12,8 +12,9 @@
 # `collaborators/` (`collaborators`), `docs/disciplines/` (`disciplines`) or
 # one of the five removed `store-*` refusal codes (`store-codes`). The allow
 # list below held each `<key> <path>` pair that matched while the removal ran;
-# a match not on it fails, and so does an entry that no longer matches. The
-# machinery stays, so the cases below show both rules still hold.
+# a match not on it or on the fixtures list fails, and so does an entry that no
+# longer matches. The machinery stays, so the cases below show both rules still
+# hold.
 #
 # This file names every pattern, so it is left out of the scan; its fixtures
 # are built at run time in the suite's scratch directory, so no file in the
@@ -81,11 +82,20 @@ fixture() {
 # The allow list: empty, now the removal is done.
 cat > "$T/allow" <<'EOF'
 EOF
+# The fixtures: a file that names a pattern for good, each with the reason it
+# stays. The legacy importer reads a GitHub record's author's access from the
+# collaborators endpoint, so the gh stand-in answers it.
+cat > "$T/fixtures" <<'EOF'
+collaborators scripts/testdata/gh
+EOF
+# The skill's tree is checked against the fixtures and the allow list together.
+cat "$T/fixtures" "$T/allow" > "$T/skill"
 : > "$T/empty"
 
 echo "== the skill's files =="
-OUT=$(check "$SKILL" "$T/allow"); rc=$?
-eq "the skill's files pass with an empty allow list" "0 " "$rc $OUT"
+eq "the allow list is empty" "0" "$(wc -l < "$T/allow" | tr -d ' ')"
+OUT=$(check "$SKILL" "$T/skill"); rc=$?
+eq "the skill's files pass with the fixtures and an empty allow list" "0 " "$rc $OUT"
 
 echo "== one fixture per pattern =="
 fx() { # fx <label> <path> <text> <key>: the fixture fails alone, under its key
@@ -107,26 +117,26 @@ rm -rf "$T/copy"
 mkdir -p "$T/copy"
 cp -R "$SKILL/scripts" "$SKILL/koto-templates" "$T/copy/"
 printf 'echo extra\n' > "$T/copy/scripts/record-extra.sh"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "a new record-*.sh file fails it" "1 unexpected: name scripts/record-extra.sh" "$rc $OUT"
 rm -f "$T/copy/scripts/record-extra.sh"
 printf 'echo "Coordinator record: ROADMAP-x"\n' > "$T/copy/scripts/notes.sh"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "a new mention in a file not on the list fails it" "1 unexpected: title scripts/notes.sh" "$rc $OUT"
 rm -f "$T/copy/scripts/notes.sh"
 # A file the list allows for one pattern, with its own one-entry list (the
 # skill's own list holds no entry once the removal is done).
 printf 'echo "see docs/disciplines/perf.md"\n' > "$T/copy/scripts/allowed.sh"
-{ cat "$T/allow"; printf 'disciplines scripts/allowed.sh\n'; } > "$T/allow-one"
+{ cat "$T/skill"; printf 'disciplines scripts/allowed.sh\n'; } > "$T/allow-one"
 OUT=$(check "$T/copy" "$T/allow-one"); rc=$?
 eq "a file the list allows for a pattern passes" "0 " "$rc $OUT"
 printf '# refused: store-moved\n' >> "$T/copy/scripts/allowed.sh"
 OUT=$(check "$T/copy" "$T/allow-one"); rc=$?
 eq "an allowed file mentioning a pattern it isn't listed for fails it" "1 unexpected: store-codes scripts/allowed.sh" "$rc $OUT"
 rm -f "$T/copy/scripts/allowed.sh"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "  ... and the copy passes again once it is gone" "0 " "$rc $OUT"
-{ cat "$T/allow"; printf 'name scripts/record-gone.sh\n'; } > "$T/allow-stale"
+{ cat "$T/skill"; printf 'name scripts/record-gone.sh\n'; } > "$T/allow-stale"
 OUT=$(check "$T/copy" "$T/allow-stale"); rc=$?
 eq "an entry that no longer matches fails it" "1 stale: name scripts/record-gone.sh" "$rc $OUT"
 # A symbolic link and a binary file don't slip past: a link counts by its own
@@ -135,18 +145,18 @@ mkdir -p "$T/outside"
 printf 'echo clean\n' > "$T/outside/clean.sh"
 printf 'echo "Coordinator record: ROADMAP-x"\n' > "$T/outside/titled.sh"
 ln -s "$T/outside/clean.sh" "$T/copy/scripts/record-link.sh"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "a symbolic link named record-*.sh fails it" "1 unexpected: name scripts/record-link.sh" "$rc $OUT"
 rm -f "$T/copy/scripts/record-link.sh"
 ln -s "$T/outside/titled.sh" "$T/copy/scripts/notes-link.sh"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "a symbolic link whose target names a pattern fails it" "1 unexpected: title scripts/notes-link.sh" "$rc $OUT"
 rm -f "$T/copy/scripts/notes-link.sh"
 printf 'x\000y\nCoordinator record: ROADMAP-x\n' > "$T/copy/scripts/blob.bin"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "a binary file naming a pattern fails it" "1 unexpected: title scripts/blob.bin" "$rc $OUT"
 rm -f "$T/copy/scripts/blob.bin"
-OUT=$(check "$T/copy" "$T/allow"); rc=$?
+OUT=$(check "$T/copy" "$T/skill"); rc=$?
 eq "  ... and the copy passes again once they are gone" "0 " "$rc $OUT"
 
 done_tests state-structure_test

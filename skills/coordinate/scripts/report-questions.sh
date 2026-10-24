@@ -302,7 +302,7 @@ fi
 
 cut -f3- "$T/all" > "$T/all.txt"
 phrase_lines addressed "$T/all.txt" > "$T/addressed" || lib_die2 "the phrasing list can't be read"
-# An archived entry (record-template.md, the archive) is the worker's own when
+# An archived entry (state-keys.md, a record moved from GitHub) is the worker's own when
 # the row its latest unedited `decisions` entry holds says so, the row
 # state-decision.sh --open-from-report restores. The entries are read only
 # when an item of the Questions part cites an archived identifier.

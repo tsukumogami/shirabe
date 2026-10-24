@@ -111,7 +111,7 @@ eq "  ... and the pull request body to the same state at discipline scope" \
 jq -n -L "$HERE" --slurpfile s "$FX/state.json" 'include "state-schema"; $s[0] | .run |= map(select(.key != "store")) | check_record([]) | empty' > /dev/null 2> "$T/err" \
     && ok "  ... which holds every section and, its store row aside, passes state-schema.jq" || bad "  ... which holds every section and, its store row aside, passes state-schema.jq" "$(cat "$T/err")"
 if jq -n -L "$HERE" --slurpfile s "$FX/state.json" 'include "state-schema"; $s[0] | check_record([]) | empty' > /dev/null 2> "$T/err"; then r=passed; else r=refused; fi
-eq "  ... and with it is refused as store-malformed" "refused 1" "$r $(grep -c 'store-malformed' "$T/err")"
+eq "  ... and with it is refused: the store is the session" "refused 1" "$r $(grep -c 'the store is the session; a store row reads session, never github' "$T/err")"
 
 echo "== the lookup =="
 world 7 roadmap

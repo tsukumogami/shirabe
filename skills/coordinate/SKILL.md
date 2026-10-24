@@ -261,13 +261,14 @@ request, nothing committed. A discipline rotation is its own session, with its
 window and the reasoning it leaves the next rotation in its session
 (`record/rotation`, `record/reasoning`), and the next rotation carries its
 state. The workflow finds it, checks it, and confirms every change you make to
-it; you write it only through the scripts its states name. Its body, rendered
-by `record-render.sh` from the session's keys, starts with the declaration
-line (`> This is a **coordinator record** for ...`) and the `Written:` line,
-then the four sections, then Holds once the record holds a merge, then the
-stored set a replacement continues from (Run, Standing and Work, written only
-by `scripts/state-stored-set.sh`), then Decisions once it holds a decision.
-`references/record-template.md` has the shape.
+it; you write it only through the scripts its states name. Its state is
+JSON, one key per section: `record/meta` with the scope and the written time,
+the four sections, then Holds once the record holds a merge, then the stored
+set a replacement continues from (Run, Standing and Work, written only by
+`scripts/state-stored-set.sh`), then Decisions once it holds a decision.
+`references/state-keys.md` has every key, its shape and its one writer. A
+person reads the state through koto's session view, `koto context get
+<session> <key>` over the coordinator's session; nothing renders it as a page.
 
 The find writes the run's store, `session`, and what it read of koto, to
 `coord/source.json`, which the next start's resume reads, so a successor never
@@ -277,8 +278,7 @@ entries (cost, verdicts, goal fit, failures) are posted on the item each
 concerns (`--on`) or stay in the session. A run whose session doesn't hold
 the record it should stops at the find, and a koto without the session
 record's features is refused at the start (`store-unsupported`); the reason
-names the import that brings the session here. `scripts/state-read.sh
---show` prints the session's state as the record body would read.
+names the import that brings the session here.
 
 The record also keeps the crash set, what a replacement needs after a crash and
 what never goes to GitHub. In the Run section, written with
@@ -296,20 +296,18 @@ closing lines of an imported run name its source, so the next import knows what
 to pass.
 
 Every script reads the record's state through one reader,
-`scripts/state-read.sh`, from the run's session. The only other
-scripts that parse a record body are the finder, the opener and the write core,
-which parse what they are about to adopt or write, and reconcile's reader, which
-salvages a body the seam handed it; a test holds every script to that list.
+`scripts/state-read.sh`, from the run's session. There is no body to parse,
+and a test holds every script to that one reader.
 
-The body is the record's state. Its account, what happened and why, goes in
-entries: each one key in the session, written with
+The section keys are the record's state. Its account, what happened and why,
+goes in entries: each one key in the session, written with
 `scripts/state-entry.sh`, which stamps it from the host clock, and an
 outward one also posted on the item it concerns. Never write an
-entry into the body, a table cell or a local file, and never post one by hand.
+entry into a section, a row or a local file, and never post one by hand.
 
 A coordinator's state lives in two places, both in its koto session: the
 session's journal on this host between checkpoints, and the record's keys. Keep no tools
-directory, no snapshot of the body, no standing answers or progress facts in a
+directory, no snapshot of the state, no standing answers or progress facts in a
 local file: what has to outlive this session goes in the record.
 
 A deferral is the successor's to dispose of before its first dispatch: file it
@@ -427,7 +425,7 @@ edits a milestone roadmap either; it records its roadmap step as `skipped`.
 `schema`, `evidence` (a milestone's clauses, numbered in the roadmap's
 order), `progress-has`, and the three entry checks. The entries' exact
 lines, and the rows and refusals behind them, are in
-`references/record-template.md` under Milestone Verdicts.
+`references/state-keys.md` under Milestone Verdicts.
 
 - **A verdict owed.** When a milestone's work is finished (its last pull
   request merged or, with nothing to merge, its work reported or seen
@@ -926,5 +924,5 @@ before adding it.
 | `references/loop.md` | reconcile, pick, the quiet check, the failure branch, a new decision, a worker's report |
 | `references/brief-template.md` | dispatch, rebrief and re-dispatch |
 | `references/verification-checklist.md` | verify through the merge confirmation |
-| `references/record-template.md` | every record and close-out state, and the verdict and reopen steps |
+| `references/state-keys.md` | every record and close-out state, and the verdict and reopen steps |
 | `references/landing-milestone-roadmap.md`, `references/landing-feature-roadmap.md` | `merge_confirm` and `merged_facts`, the one the run's `ROADMAP_FORM` names |
