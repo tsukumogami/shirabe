@@ -32,7 +32,10 @@
 #       holding's pull request (the row's Pull request cell, else the sealed
 #       verdict's first), else the Unit's issue (`#n` on the host or
 #       `owner/repo#n`), else `--on none`, which keeps it in the session,
-#       posted nowhere; the last stderr line says which.
+#       posted nowhere; the last stderr line says which. record-append.sh
+#       posts on the item only when its repository opts in
+#       (`## PR Workflow Content: include`); otherwise it keeps the entry in
+#       the session, and the last line says so.
 #   unit-cost.sh gh-check <gh arguments...>
 #       Runs nothing: 0 when the capture's GitHub wrapper would make that
 #       call, 1 when it refuses it. The suite's view of the wrapper.
@@ -1303,13 +1306,20 @@ fi
 uc_posted || { say "the entry text could not be written"; exit 1; }
 uc_text >"$WD/text" || { say "the entry text could not be written"; exit 1; }
 set -- --on "$ON"
+# record-append.sh posts on the item only when its repository opts in; it
+# reads the opt-in itself, through the reader UNIT_COST_PR_CONTENT_READER
+# names when a test sets it.
+[ -z "${UNIT_COST_PR_CONTENT_READER:-}" ] || export RECORD_APPEND_PR_CONTENT_READER="$UNIT_COST_PR_CONTENT_READER"
 uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
 RC=$?
 if [ "$RC" = 0 ]; then
-    case "$ON" in
-        none) say "kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere" ;;
-        *) say "posted the cost entry on $ON" ;;
-    esac
+    if [ "$ON" = none ]; then
+        say "kept the cost entry in the session: the unit has no pull request or issue, so it is posted nowhere"
+    elif grep -q '^record/entries/' "$WD/posted"; then
+        say "kept the cost entry in the session: ${ON%#*} doesn't opt in to workflow content, so $ON gets nothing"
+    else
+        say "posted the cost entry on $ON"
+    fi
     exit 0
 fi
 case "$RC" in

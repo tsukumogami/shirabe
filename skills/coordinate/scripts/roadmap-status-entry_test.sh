@@ -31,6 +31,10 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
+# record-append.sh posts on an item only when its repository opts in to
+# workflow content; acme/widgets does here, through the reader's stand-in.
+printf '#!/usr/bin/env bash\necho include\n' > "$T/pr-content-reader"
+export RECORD_APPEND_PR_CONTENT_READER="$T/pr-content-reader"
 RS="$HERE/roadmap-status.sh"
 RA="$HERE/record-append.sh"
 

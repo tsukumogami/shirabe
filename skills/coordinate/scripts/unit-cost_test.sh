@@ -75,6 +75,11 @@ MERGE=5555555555555555555555555555555555555555
 MERGE2=6666666666666666666666666666666666666666
 MERGEY=3434343434343434343434343434343434343434
 export KOTO_REQUESTS="$FX/requests" UNIT_COST_NOW=2026-10-01T12:00:00Z UNIT_COST_FETCH_SECS=5
+# acme/widgets is public, so its pull request gets the entry only while it
+# opts in: the opt-in reader's stand-in says it does. unit-cost-on_test.sh
+# covers a repository that doesn't.
+printf '#!/usr/bin/env bash\necho include\n' >"$T/reader"
+export UNIT_COST_PR_CONTENT_READER="$T/reader"
 S=coordinate-roadmap-x-20261001T080000Z
 REASONS='["no source","read failed","time limit","entry size","invalid input"]'
 POSTED=0
