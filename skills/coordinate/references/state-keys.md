@@ -81,7 +81,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/side-effects` | an array of Side effects rows | `state-write.sh` through `state-holding.sh`; `roadmap-status.sh` adds the roadmap edits' rows |
 | `record/reversals` | an array of Reversals rows | `state-write.sh` through `state-holding.sh` |
 | `record/holds` | an array of Holds rows, a key only once it has one | `state-hold.sh` (`HOLDS_WRITER`) |
-| `record/run`, `record/standing`, `record/work` | the stored set's rows, each a key only once it has one | `state-stored-set.sh` (`STATE_WRITER`); `roadmap-status.sh` writes the `verdict-owed` and `rework` Work rows (`VERDICT_WRITER`) |
+| `record/run`, `record/standing`, `record/work` | the stored set's rows, each a key only once it has one | `state-stored-set.sh` (`STATE_WRITER`); `roadmap-status.sh` (`VERDICT_WRITER`) writes the `verdict-owed` and `rework` Work rows |
 | `record/decisions` | `{next, entries}` (with `archived` and `kept` on a record moved from GitHub), a key from the first decision on | `state-decision.sh` (`DECISIONS_WRITER`) |
 | `record/rotation`, `record/reasoning` | a discipline rotation's window, host and predecessor, and the reasoning it leaves the next rotation | `state-stored-set.sh` (`STATE_WRITER`) |
 | `record/host` | the host facts (see Where State Lives), never sent to GitHub | `state-stored-set.sh --host` |
