@@ -1,8 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-plan-run-record.md
-decision_provenance: inline-resolved
 problem: |
   A merged PR gives a reader a repository and a number, and nothing in shirabe gets from
   that to the koto session that ran the plan. PR text can't carry the pointer by default,
@@ -28,6 +26,8 @@ rationale: |
   step's proof, rather than copying it into a separate record, gives one account. Pinning
   through koto's pin, per session and after the last child tick, meets every removal
   without a shirabe retention rule and without touching the pin's design.
+upstream: docs/prds/PRD-plan-run-record.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: A plan's run outlives the plan as its record
@@ -127,19 +127,34 @@ Each run writes, when it first records a PR (at open or adoption), one key into 
 session for that PR: session `pr.<owner>.<repo>.<n>` (lowercased; owners can't contain a
 dot and the number is last, so the name decodes uniquely), key `run/<run_id>`, holding the
 record root's address. The address is the workspace path the root was created in, its
-session name and its koto `session_id`. The index session lives at a shared store address:
+session name and its koto `session_id`. The owner is held to GitHub's owner grammar
+(`^[A-Za-z0-9](-?[A-Za-z0-9])*$`, lowercased) and the repository to `^[A-Za-z0-9._-]+$`,
+`.` and `..` excluded, before either reaches a name or an address. The index session lives at a shared store address:
 the koto workspace prefix of the identifier `shirabe-run-record/<owner>`, one per repository
 owner. A multi-pr plan's
 record root lives there too.
 
 Reaching an address other than the cwd's needs one koto capability that doesn't exist,
-named K2 in the PRD. The proposal to koto is a `--workspace <identifier>` option on
-`koto init`, `koto context get|add|list|exists`, `koto status`, `koto decisions list` and
-`koto session pin`. It addresses the bucket prefix koto would derive for that identifier
-instead of the cwd's. Reads through it keep no local copy, spool nothing and write nothing
-into the read session. Concurrent `context add`s of distinct keys from two workspaces must
-both land. The pin's own design is untouched: `--workspace` only chooses which session
-`koto session pin` names.
+named K2 in the PRD. The proposal to koto is one change to koto's address resolution, not to
+any command: a global `--workspace <identifier>` option, resolved once into the backend
+before any command runs, so every command (`init`, `context`, `status`, `decisions`, and the
+pin's commands too) addresses that identifier's prefix instead of the cwd's. The prefix is the
+same function koto applies to a cwd today, the first 16 hex digits of the SHA-256 of the
+string, applied to the identifier as given. koto canonicalizes a cwd before hashing, and
+shirabe records `pwd -P`, which is already canonical, so `--workspace <recorded path>`
+reaches exactly the prefix the run wrote to, on macOS and Linux alike. Reads through the
+option keep no local copy, spool nothing and write nothing into the read session. Concurrent
+`context add`s of distinct keys from two workspaces must both land. K2 lands after the pin
+(koto#441, #444) ships and adds no code to the pin's commands, which inherit the address
+through the shared resolver, so the pin's code and design are unchanged.
+
+What a reader with the cloud store's credentials and GitHub reaches, before and after K2:
+
+| From | Before K2 | After K2 |
+|---|---|---|
+| The run's own workspace path | the index, the root, every step session in that workspace, that workspace's multi-pr root | the same |
+| Any other workspace, fresh or not | nothing | the index, the root, every step session in any workspace, the multi-pr plan root |
+| GitHub alone, without store credentials | nothing about the run | nothing about the run |
 
 All shirabe code touches K2 through one file, `scripts/lib/record-store.sh`. It decides
 the address. When the installed koto is below the K2 floor constant (unset until koto
@@ -147,7 +162,8 @@ releases K2), the shared address is the run's own workspace and `--workspace` is
 passed, so the same index and lookup work from the run's workspace path, on today's koto.
 
 The lookup, `scripts/run-record-lookup.sh <owner/repo> <n>`, reads the index session
-(1 read), takes the entry written last, reads the root's PR list and step list (2 reads at
+(1 read), takes the entry with the latest `written_at` (ties broken by `run_id`; the field is
+the writer's clock, so it orders entries but proves nothing), reads the root's PR list and step list (2 reads at
 most), and confirms the PR is in the root's own list. Every value it reads back is checked against
 the same closed patterns the writer used, and one that fails is reported in `missing`. When the root's `session_id`
 doesn't match, it checks `<name>_r1` up to `<name>_r10` for a matching `session_id`
@@ -186,8 +202,13 @@ Key assumptions:
 
 A new session area, `trail/`, is added to `references/skill-session-convention.md`. All
 writes go through `scripts/run-trail.sh`, whose verbs each own fixed keys and validate
-every value (step ids against `^[A-Za-z0-9][A-Za-z0-9._-]*$`, kinds against a closed set,
-text through `jq`, never a shell argument):
+every value (step ids against `^[A-Za-z0-9][A-Za-z0-9._-]*$`, kinds against a closed set).
+Free text never arrives as a shell argument or a file path: `departure` and `decision` read
+one JSON document on stdin, and `plan` reads only the path `--plan` names, which must match
+`^docs/plans/PLAN-[a-z0-9-]+\.md$`, through `git show HEAD:<path>`. Each text field is capped
+at 16 KiB and the PLAN at 256 KiB, and a value holding a private-key header, an
+`Authorization:` line or a common token shape (`ghp_`, `github_pat_`, `AKIA`, `xoxb-`) is
+refused with exit 65 before anything is written:
 
 | Verb | Session | Keys |
 |------|---------|------|
@@ -245,10 +266,15 @@ Key assumptions:
 
 `scripts/run-record-pin.sh --root <session>` pins, one `koto session pin` call each, the
 record root, every step session named in `trail/step/*` (never one in `superseded`), and
-every index session the run wrote. It pins only names that pass the session-name patterns and
-belong to this run (the root, its `.o-*` children or `work-on-<slug>-*` sessions, and the
-`pr.*` and `plan.*` sessions it wrote), at most S + P + 1 per run, and reports any other name
-it's handed. A multi-pr item pins the plan root (a repeat pin is
+every index session the run wrote. It decides what belongs to this run from local facts, not from
+bucket-read names alone. A step session is pinned only when it's the root's own koto child
+(`koto workflows --children <root>`) or its dispatched-by link names the root
+(`koto session hierarchy`), both read on the run's own host. An index or plan session is
+pinned only when it holds a `run/<run_id>` or `trail/item/*` entry for this run. Addresses come
+from the run's own open-time record (`trail/self`, written by the opener with the workspace and
+`session_id`), never from a workspace value read back from the bucket. At most S + P + 1 pins
+are made per run, and any other name it's handed is skipped and reported. shirabe can't reverse
+a pin it sets. A multi-pr item pins the plan root (a repeat pin is
 idempotent), its own session and its index session. The reason is
 `record of plan <topic>: <owner>/<repo>#<n>`, with the topic truncated so the whole stays
 within 500 characters. It never holds plan prose.
@@ -282,7 +308,10 @@ them.
   PR and a person merges later, when nothing of shirabe's is running.
 - **Pin each child at its own terminal.** Rejected: a batch child pinned while its parent can
   still respawn it can lose the pin, as koto's pin design notes.
-- **A shirabe retention window on top of the pin.** Ruled out by the PRD: retention is koto's.
+- **A shirabe retention window on top of the pin.** It would let shirabe keep records on a koto
+  without the pin, but every removal koto applies would need a second, shirabe-side guard, and
+  koto's prune and cleanup on another host never consult one, so it couldn't keep anything
+  there. The PRD rules it out for that reason: retention is koto's.
 
 ### Decision 4: What PRs carry, how ownership works without the marker, and how the switch is read
 
@@ -304,13 +333,20 @@ Key assumptions:
   unmarked PR already does). `--take-over` writes this run's index entry instead of
   restamping. `record-coord-setup.sh` recovery reads run identity from the index and the
   carried `run_id`, never from markers.
+- **How it's turned on.** A repository opts in with the header
+  `## PR Workflow Content: include` in its `CLAUDE.local.md`, which niwa writes into each
+  worktree from the workspace configuration (the repository's content file in the workspace's
+  config repo), or in its own `CLAUDE.md`. With no header, or any value but `include`, the
+  reader prints `omit`: the integration is off by default.
 - **The switch, recorded.** `scripts/pr-workflow-content.sh` gains `--record <session>`,
   which reads the header from the checkout once and stores `include` or `omit` as key
   `pr_content` in that session, and `--session <session>`, which prints the recorded value,
   falling back to the files only when the key is absent. Only exit 0 with `include` counts.
   `execute-open.sh`, `work-on-open.sh`, `scope-open.sh` and `deliver-open.sh` call
   `--record` once per invocation. Every PR writer reads `--session`. A plan-backed child
-  reads its parent's key.
+  reads its parent's key. So an invocation started after the header is turned off records
+  `omit` and writes no session reference. A PR body it rewrites loses an earlier Part 2
+  reference, and a PR it doesn't touch keeps what it had.
 - **Under omit,** a PR body is its plain description and verification. That holds for
   coordinated bodies too. `coord-render.sh` renders Part 1 alone, with no run lines, PR index
   or merge-order block. `node-push.sh` writes the node body without the deferral section,
@@ -425,9 +461,14 @@ Modified files, by concern:
   `references/koto-session-retention.md`, `references/skill-session-convention.md`,
   `references/pr-body-conformance.md`, `references/decision-protocol.md`,
   `skills/execute/SKILL.md`, `README.md`.
-- **Tests of modified scripts:** the `_test.sh` beside each script above, plus
-  `skills/execute/scripts/execute-template-structure_test.sh` and
-  `skills/execute/scripts/terminal-retention_test.sh`.
+- **Tests of modified scripts:** `adopt-or-create-pr_test.sh`, `node-push_test.sh`,
+  `record-coord-setup_test.sh`, `owned-pr_test.sh`, `run-id_test.sh`, `coord-render_test.sh`,
+  `execute-open_test.sh`, `execute-template-structure_test.sh` and `terminal-retention_test.sh`
+  under `skills/execute/scripts/`; `work-on-open_test.sh`, `check-pr-output_test.sh` and
+  `run-cascade_test.sh` under `skills/work-on/scripts/`; `scope-open_test.sh` and
+  `publish-scoping-pr_test.sh` under `skills/scope/scripts/`; `deliver-open_test.sh` under
+  `skills/deliver/scripts/`; and `scripts/pr-workflow-content_test.sh` and
+  `scripts/rule-dispute_test.sh`.
 
 No file under `skills/coordinate/` is on the list. Its `land-merge.sh` uses the shared squash
 builder, which already takes Part 1 only. Its `roadmap-status.sh` opens a status-only ROADMAP
@@ -488,8 +529,11 @@ creates a single-pr run's root and home PR against the stub and looks it up from
 directory.
 
 Deliverables: `scripts/lib/record-store.sh`, `scripts/run-trail.sh`,
-`scripts/run-record-lookup.sh`, `scripts/testdata/record-koto/koto`, their tests,
-`adopt-or-create-pr.sh`.
+`scripts/run-record-lookup.sh`, `scripts/testdata/record-koto/koto`,
+`scripts/record-store_test.sh`, `scripts/run-trail_test.sh`,
+`scripts/run-record-lookup_test.sh`, `skills/execute/scripts/adopt-or-create-pr.sh` and its
+test, `skills/execute/scripts/execute-open.sh` (the `trail/self` record),
+`scripts/bash-floor/run-record.list`, `.github/workflows/check-run-record.yml`.
 
 ### Phase 2: The trail per step
 
@@ -497,16 +541,39 @@ Add `plan`, `step`, `departure` and `decision`, the hooks in `execute.md`'s lead
 `/work-on`'s decision, deviation, deferral and scope-change sites, and the `trail/` carry in
 `execute-open.sh`.
 
+Deliverables: `scripts/run-trail.sh` and its test, `scripts/run-record-lookup.sh` (`--steps`),
+`skills/execute/koto-templates/execute.md`, `skills/execute/scripts/execute-open.sh` and its
+test, `skills/execute/scripts/execute-template-structure_test.sh`,
+`skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`,
+`skills/work-on/references/phases/phase-3-analysis.md`,
+`skills/work-on/references/phases/phase-4-implementation.md`,
+`skills/work-on/references/phases/phase-5-finalization.md`, and `scripts/rule-dispute.sh`,
+whose `by=` actor moves into the decision record, with its test.
+
 ### Phase 3: Coordinated and multi-pr records
 
 Index and trail writes in `node-push.sh` and `record-coord-setup.sh`, coordinated hand-off
 snapshots, the multi-pr plan root and `item` verb, and the lookup's coordinated and multi-pr
 branches.
 
+Deliverables: `skills/execute/scripts/node-push.sh` and
+`skills/execute/scripts/record-coord-setup.sh` with their tests,
+`skills/execute/koto-templates/execute-coordinated.md`,
+`skills/execute/references/step-agent-handoff.md`,
+`skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/koto-templates/work-on.md`
+(the multi-pr item start), and `scripts/run-trail.sh` (`item`) and
+`scripts/run-record-lookup.sh` with their tests.
+
 ### Phase 4: Pins
 
 `run-record-pin.sh`, the `record_keep` states in the three templates, `trail/unpinned` and
 the opener's retry, `requires.tsv` entries, and `check-run-record-rules.sh`.
+
+Deliverables: `scripts/run-record-pin.sh`, `scripts/run-record-pin_test.sh`,
+`scripts/check-run-record-rules.sh`, `scripts/check-run-record-rules_test.sh`, the three
+templates, `skills/execute/scripts/execute-open.sh`, `skills/work-on/scripts/work-on-open.sh`,
+`skills/execute/scripts/terminal-retention_test.sh`, `skills/execute/requires.tsv` and
+`skills/work-on/requires.tsv`.
 
 ### Phase 5: PR content
 
@@ -514,11 +581,25 @@ Marker removal in `run-id.sh` and its callers, index-based ownership in `owned-p
 `record-coord-setup.sh`, the recorded switch, omit-mode coordinated bodies, the Part 2
 reference under include, and the `check-pr-output.sh` rules.
 
+Deliverables: `skills/execute/scripts/run-id.sh`, `skills/execute/scripts/owned-pr.sh`,
+`skills/execute/scripts/adopt-or-create-pr.sh`, `skills/execute/scripts/node-push.sh`,
+`skills/execute/scripts/coord-render.sh`, `scripts/lib/coordination-body.sh`,
+`skills/execute/scripts/record-coord-setup.sh`, `scripts/pr-workflow-content.sh`, the four
+openers (`execute-open.sh`, `work-on-open.sh`, `scope-open.sh`, `deliver-open.sh`),
+`skills/scope/scripts/publish-scoping-pr.sh`, `skills/work-on/scripts/check-pr-output.sh`,
+`skills/work-on/scripts/run-cascade.sh`, `skills/execute/koto-templates/execute.md`
+(`pr_finalization` stops carrying the marker), and the test beside each.
+
 ### Phase 6: Documentation
 
 The lifecycle statement in the seven files, the retention reference, the session convention's
 `trail/` area, `pr-body-conformance.md`, `decision-protocol.md`, the execute skill and the
 README's checkout limit.
+
+Deliverables: the seven lifecycle files listed under Components,
+`references/koto-session-retention.md`, `references/skill-session-convention.md`,
+`references/pr-body-conformance.md`, `references/decision-protocol.md`,
+`skills/execute/SKILL.md`, `README.md`, and the rules check's lifecycle and retention greps.
 
 ### Outside this repository
 
@@ -536,7 +617,11 @@ entries, trail keys and sessions. The design adds no authentication to records. 
 forgery visible and bounded, and a record is as trustworthy as the bucket's write access.
 
 **Writes.** Untrusted text (PLAN entries, issue bodies, summaries, reports) is data.
-`run-trail.sh` takes free text only from files and stores it through `jq`. Step ids, session
+`run-trail.sh` takes free text only as a JSON document on stdin, stores it through `jq`, caps
+its size and refuses token and key shapes, and reads a PLAN only from a path matching
+`docs/plans/PLAN-<topic>.md`, so it can't read an arbitrary file into the store. The secret
+check is a backstop, not a guarantee: private-origin prose an agent writes into a public
+repository's trail stays readable by the bucket's audience, a known residual. Step ids, session
 names, repository names and numbers are checked against closed patterns before they reach a
 koto command line, and each key has a size cap. The pin reason and the opt-in reference are
 fixed templates over the topic (held to `^[a-z0-9-]+$`), the repository, the number, the
@@ -548,20 +633,28 @@ patterns before use. Values reach koto after `--` or as `--flag=value`, a worksp
 as an opaque identifier, and the lookup builds its JSON only through `jq --arg`. A value that
 fails the check is reported in `missing` and never used.
 
+**Lookup output.** The lookup's JSON holds names, ids, numbers, states and the workspace
+path, never free text. The workspace names a user and an instance, so the skill text marks it
+internal, not for pasting into PRs or issues. `--steps` adds step ids, session names and
+commit SHAs only. Reading plan text, departures or rationales is a separate
+`koto context get`, whose output is fenced and labelled untrusted wherever a skill reads it.
+
 **Forged or competing entries.** The lookup returns a root only when the root's own
 `trail/pr/*` lists the PR. That stops a forged index entry naming an unrelated session. It
 doesn't stop someone who can write both an entry and a matching root, so the lookup never picks
 silently: it returns every other run id in `others` and reports `unique: false` when more than
 one record claims the PR. For ownership, a foreign entry makes a PR foreign, never mine, so a
-forged entry can at worst stop a run from adopting a PR, which the run reports.
+forged entry can at worst stop a run from adopting a PR, which the run reports. That
+denial of service is a residual: a forged later `written_at` can make a PR read as foreign.
 
 **Record text is data.** Plan text, departures and decision rationales come from PRs, issues and
 agents. A reader, person or agent, treats them as data and never as instructions.
 
-**Pins.** `run-record-pin.sh` pins only sessions that pass the name patterns and belong to this
-run (the root, its `.o-*` children or `work-on-*` step sessions, and the `pr.*` and `plan.*`
-sessions it wrote), at most S + P + 1 per run. A trail entry naming anything else is skipped
-and reported. shirabe never unpins. A pin comes off by hand or with koto's release authority,
+**Pins.** `run-record-pin.sh` is the one action driven partly by read-back data, so it checks
+provenance locally: a step session must be the root's own child or dispatched by it, an index
+or plan session must hold this run's entry, and every address comes from the opener's
+open-time record. At most S + P + 1 pins per run. A trail entry naming anything else is skipped
+and reported. shirabe can't reverse a pin it sets, and it never unpins. A pin comes off by hand or with koto's release authority,
 as koto defines it, and shirabe claims no stronger guarantee.
 
 **What the store holds.** Index entries name `owner/repo#n` and a workspace path, which names a
@@ -583,8 +676,14 @@ gets koto's own review. It's an addressing option, not an access boundary.
 
 **Dropping the marker.** Removing the hidden marker removes workflow content from public PR
 text. On a koto below the workspace-option floor, two runs in different workspaces that share a
-login, topic and branch are told apart only by login and branch, as `/scope`'s PR is today. Two
-runs in one workspace still see each other's index entries.
+login, topic and branch are told apart only by login and branch, as `/scope`'s PR is today, so
+one could adopt, push to or rewrite the other's PR. Two runs in one workspace still see each
+other's index entries. Unique topic names stay the separation on that path, as they are for
+`/scope` now.
+
+**Stub and floors.** `check-run-record-rules.sh` fails when the stub's path appears outside
+`scripts/testdata/` and the test files. A koto version that doesn't parse, or a pre-release,
+compares below both floors, so the run falls back to unpinned and its own workspace.
 
 ## Consequences
 
@@ -603,6 +702,8 @@ runs in one workspace still see each other's index entries.
   candidate PR.
 - A coordinated run under omit loses body-based recovery.
 - Runs that stop at a ready PR later closed unmerged stay pinned until someone releases them.
+- A run that never reaches a qualifying terminal (abandoned, failed, or paused awaiting merges
+  past `retention.keep`) loses its record to koto's ordinary retention, index sessions included.
 - The change touches many files across `/execute`, `/work-on` and the shared scripts in one PR.
 
 ### Mitigations
