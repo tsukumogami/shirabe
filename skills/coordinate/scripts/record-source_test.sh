@@ -479,6 +479,19 @@ reset_calls; : > "$KOTO_STORE/calls"
 fresh_open
 eq "the next start resumes the run" "0 resumed=1 session=$NEW" "$RC $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... with no importer lookup and no GitHub call" "" "$(calls)"
+# The next rotation, once that one has ended: not a fresh start, since the
+# ended rotation's session is here, so the importer isn't asked, though the
+# rotation pull request is still open on GitHub.
+koto context get "$NEW" record/rotation | jq -c '.start = "2026-01-01" | .end = "2026-01-08"' > "$T/ended.json"
+koto context add "$NEW" record/rotation --from-file "$T/ended.json"
+ENDED=$NEW
+reset_calls; : > "$KOTO_STORE/calls"
+fresh_open
+case "$RC $OUT" in "0 "*"session=coordinate-discipline-ci-health-"*)
+        [ "$NEW" != "$ENDED" ] && ok "a start after the rotation ended opens the next one" \
+            || bad "a start after the rotation ended opens the next one" "$OUT" ;;
+    *) bad "a start after the rotation ended opens the next one" "$RC $OUT $(cat "$T/err")" ;; esac
+eq "  ... with no importer lookup" 0 "$(importer_calls)"
 # Two open rotation pull requests: the start stops, and the run it opened is
 # cancelled so it can't go on without the record's state.
 rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"

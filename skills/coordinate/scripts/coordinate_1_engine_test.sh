@@ -63,8 +63,9 @@ if open_run one; then
     eq "1: a new record's empty stored set holds the handover gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
     write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
         && write_as_agent record-state.sh --run cap 5 --by "the human" \
-        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
-    eq "1: record-state.sh (agent-run) writes the arguments, the cap and the address" 0 $?
+        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
+        && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
+    eq "1: record-state.sh (agent-run) writes the arguments, the cap, the address and who it reports to" 0 $?
     eq "1: the next advance reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     NAMED=$(jq -r 'select(.type == "evidence_submitted") | .payload.fields | tostring | select(test("issues/"))' "$(logf)")
     eq "1: no evidence named a record" "" "$NAMED"

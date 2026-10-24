@@ -77,6 +77,7 @@ RECORD=$(record_json roadmap pause | jq -c --argjson a "$A" --argjson b "$B" '
     | .run = [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-pause.md", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "cap", value: "5", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
+              {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "told", value: "lane-a", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
               {key: "told", value: "lane-b", set_by: "lane-coord", set: "2026-10-07T10:00Z"}]
     | .work = [{item: "Feature 1", kind: "holding", who: "lane-a", next: "scoping, then its execution", updated: "2026-10-07T10:00Z"},
