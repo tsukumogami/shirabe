@@ -2,7 +2,7 @@
 # run-record-lookup.sh -- from a PR's repository and number to the koto
 # session that ran its plan, and from there to every PR the run recorded.
 #
-# Usage: run-record-lookup.sh <owner/repo> <n>
+# Usage: run-record-lookup.sh <owner/repo> <n> [--steps]
 #
 # It reads the PR's index session, `pr.<owner>.<repo>.<n>`, at the shared
 # address scripts/lib/record-store.sh defines (both canonical forms of it),
@@ -13,6 +13,25 @@
 # entry naming an unrelated session never leads anywhere. The first root that
 # confirms the PR is the answer.
 #
+# The two forms of the shared address. A form koto answers "not found" for
+# (record-store.sh's 68: with the workspace option, the form no writer on
+# this host used) or that isn't a directory here (69) holds nothing, and the
+# read goes on to the next form. A form whose read fails any other way is
+# unreadable: the entries the other form holds are still used, and the
+# unreadable form is named in `missing`. When no form gave an entry and one
+# was unreadable, the answer is exit 2, not 3, since that form may hold it.
+#
+# With --steps, `steps` lists what the root recorded per step
+# (scripts/run-trail.sh's `step` and `plan` verbs), in step order:
+#   {step, session, workspace, superseded: [names],
+#    plan: {sha, entry, recorded_at, text_key} | null}
+# `session` is the step session, where that step's departures
+# (`trail/departure/*`) and decisions (`trail/decision/*`) are kept, and
+# `text_key` is the root's key holding the PLAN's text as the step began; read
+# either with `koto context get`. A step with a plan snapshot and no step
+# record has `session`, `workspace` and `superseded` null. Without --steps,
+# `steps` is [] and the step records are not read.
+#
 # Every read goes through record-store.sh's rs_koto_read, which passes koto's
 # read-only --workspace option when the installed koto has it and otherwise
 # runs koto from the addressed directory, which reaches the record on the
@@ -20,12 +39,12 @@
 # nothing from GitHub. Every value it reads back is checked against the same
 # closed patterns the writer used; one that fails is named in `missing` and
 # never used. Reads are bounded: at most 20 index entries per form of the
-# shared address and 200 PR keys per root.
+# shared address, 200 PR keys and 200 step keys per root.
 #
 # Output, on exit 0, one JSON object built with jq:
 #   {record_root: {workspace, session}, run_id, complete, unique,
 #    missing: [...], prs: [{repo, number, state}], others: [run_id],
-#    steps: []}
+#    steps: [...]}
 # `complete` is true when nothing was missing; `unique` is true when the
 # index holds one entry for the PR. The workspace names a user and an
 # instance: it's internal, not for pasting into PRs or issues.
@@ -46,23 +65,32 @@ SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 # shellcheck source=lib/record-store.sh
 . "$SELF_DIR/lib/record-store.sh" || exit 64
 
-RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$'
-RE_RUN_ID='^[0-9a-f]{32}$'
-RE_SESSION_ID='^[A-Za-z0-9-]{1,64}$'
-RE_TOPIC='^[a-z0-9-]{1,100}$'
-RE_AT='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+RE_SHA='^[0-9a-f]{40}([0-9a-f]{24})?$'
 MAX_ENTRIES=20
 MAX_PRS=200
+MAX_STEPS=200
 
 usage() {
     echo "$PROG: $*" >&2
-    echo "usage: run-record-lookup.sh <owner/repo> <n>" >&2
+    echo "usage: run-record-lookup.sh <owner/repo> <n> [--steps]" >&2
     exit 64
 }
 
-[ $# -eq 2 ] || usage "expected <owner/repo> and a PR number"
-REPO=$1
-N=$2
+STEPS=0
+ARGS=()
+for a in "$@"; do
+    case "$a" in
+        --steps)
+            [ "$STEPS" -eq 0 ] || usage "--steps given more than once"
+            STEPS=1
+            ;;
+        --*) usage "unknown flag [$a]" ;;
+        *) ARGS+=("$a") ;;
+    esac
+done
+[ "${#ARGS[@]}" -eq 2 ] || usage "expected <owner/repo> and a PR number"
+REPO=${ARGS[0]}
+N=${ARGS[1]}
 case "$REPO" in
     */*/*) usage "[$REPO] is not owner/repo: more than one /" ;;
     */) usage "[$REPO] names an owner without a repository" ;;
@@ -82,6 +110,7 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/run-record-lookup.XXXXXX") || { echo "$PROG: m
 trap 'rm -rf "$WORK"' EXIT
 : > "$WORK/missing"
 : > "$WORK/entries"
+: > "$WORK/steps"
 
 missing() { printf '%s\n' "$1" >> "$WORK/missing"; }
 
@@ -98,6 +127,7 @@ json_keys() {
 # forms that are one directory here (/tmp on macOS) are read once.
 FORMS=$(rs_shared_forms "$OWNER") || usage "no shared address for $OWNER"
 SEEN_DIRS=" "
+UNREADABLE_FORM=0
 while IFS= read -r FORM; do
     [ -n "$FORM" ] || continue
     if ! rs_has_workspace_option; then
@@ -110,14 +140,19 @@ while IFS= read -r FORM; do
     RC=$?
     case "$RC" in
         0) ;;
-        69) continue ;;
-        *) echo "$PROG: could not read the index session $INDEX (koto exit $RC)" >&2; exit 2 ;;
+        68|69) continue ;;
+        *)
+            echo "$PROG: could not read the index session $INDEX at $FORM (koto exit $RC)" >&2
+            UNREADABLE_FORM=1
+            missing "index: a form of the shared address could not be read"
+            continue
+            ;;
     esac
     KEYS=$(json_keys "$LIST" "$MAX_ENTRIES") || { echo "$PROG: the index session $INDEX listed something that is not JSON" >&2; exit 2; }
     while IFS= read -r KEY; do
         [ -n "$KEY" ] || continue
         RID=${KEY#run/}
-        if ! [[ $RID =~ $RE_RUN_ID ]]; then
+        if ! [[ $RID =~ $RS_RE_RUN_ID ]]; then
             missing "index: a key that is not run/<run_id>"
             continue
         fi
@@ -133,8 +168,8 @@ while IFS= read -r FORM; do
             else ["", "", "", "", "", ""] end | .[]' <<<"$VAL") || FIELDS=""
         AT=""; WS=""; SESS=""; SID=""; MODE=""; TOPIC=""
         { IFS= read -r AT; IFS= read -r WS; IFS= read -r SESS; IFS= read -r SID; IFS= read -r MODE; IFS= read -r TOPIC; } <<<"$FIELDS"
-        if [[ $AT =~ $RE_AT ]] && rs_valid_workspace "$WS" && [[ $SESS =~ $RE_SESSION ]] \
-            && [[ $SID =~ $RE_SESSION_ID ]] && [[ $TOPIC =~ $RE_TOPIC ]]; then
+        if [[ $AT =~ $RS_RE_AT ]] && rs_valid_workspace "$WS" && rs_valid_session "$SESS" \
+            && [[ $SID =~ $RS_RE_SESSION_ID ]] && [[ $TOPIC =~ $RS_RE_TOPIC ]]; then
             case "$MODE" in
                 single-pr|coordinated|multi-pr)
                     printf '%s\t%s\t%s\t%s\n' "$AT" "$RID" "$WS" "$SESS" >> "$WORK/entries"
@@ -152,6 +187,10 @@ RUN_IDS=$(cut -f2 "$WORK/sorted" | LC_ALL=C sort -u)
 ENTRY_COUNT=0
 [ -n "$RUN_IDS" ] && ENTRY_COUNT=$(printf '%s\n' "$RUN_IDS" | wc -l | tr -d ' ')
 if [ "$ENTRY_COUNT" -eq 0 ]; then
+    if [ "$UNREADABLE_FORM" -eq 1 ]; then
+        echo "$PROG: could not read the index for $REPO#$N under every form of the shared address" >&2
+        exit 2
+    fi
     echo "$PROG: no index entry for $REPO#$N" >&2
     exit 3
 fi
@@ -195,6 +234,82 @@ read_root() {
     return "$found"
 }
 
+# read_steps <workspace> <session>: the root's step records and plan
+# snapshots as JSON lines in $WORK/steps; returns 2 on a read failure.
+read_steps() {
+    local ws=$1 sess=$2 list keys key id val row
+    : > "$WORK/step-ids"
+    : > "$WORK/step-keys"
+    list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/step/ </dev/null) || return 2
+    keys=$(json_keys "$list" "$MAX_STEPS") || return 2
+    list=$(rs_koto_read "$ws" context list "$sess" --prefix trail/plan/ </dev/null) || return 2
+    keys="$keys
+$(json_keys "$list" "$((MAX_STEPS * 2))")" || return 2
+    while IFS= read -r key; do
+        case "$key" in
+            trail/step/*) id=${key#trail/step/} ;;
+            trail/plan/*.json) id=${key#trail/plan/}; id=${id%.json} ;;
+            *) continue ;;
+        esac
+        if ! rs_valid_step "$id"; then
+            missing "root $sess: a ${key%/*}/ key is not a step id"
+            continue
+        fi
+        printf '%s\n' "$id" >> "$WORK/step-ids"
+        printf '%s\n' "$key" >> "$WORK/step-keys"
+    done <<<"$keys"
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        row=$(jq -nc --arg step "$id" '{step: $step, session: null, workspace: null, superseded: null, plan: null}')
+        if grep -qxF "trail/step/$id" "$WORK/step-keys"; then
+            val=$(rs_koto_read "$ws" context get "$sess" "trail/step/$id" </dev/null) || return 2
+            if step_ok "$val"; then
+                row=$(jq -c --argjson v "$val" '. + ($v | {session, workspace, superseded})' <<<"$row")
+            else
+                missing "root $sess: trail/step/$id fails its pattern"
+            fi
+        fi
+        if grep -qxF "trail/plan/$id.json" "$WORK/step-keys"; then
+            val=$(rs_koto_read "$ws" context get "$sess" "trail/plan/$id.json" </dev/null) || return 2
+            if plan_ok "$val"; then
+                row=$(jq -c --argjson v "$val" --arg k "trail/plan/$id.md" \
+                    '.plan = ($v | {sha, entry, recorded_at, text_key: $k})' <<<"$row")
+            else
+                missing "root $sess: trail/plan/$id.json fails its pattern"
+            fi
+        fi
+        printf '%s\n' "$row" >> "$WORK/steps"
+    done <<<"$(LC_ALL=C sort -u "$WORK/step-ids")"
+    return 0
+}
+
+# step_ok <json>: a step record, every name and the workspace in its pattern.
+step_ok() {
+    local fields s w n
+    fields=$(jq -r 'if type == "object" and (.session | type) == "string" and (.workspace | type) == "string"
+            and (.superseded | type) == "array" and (.superseded | all(type == "string"))
+            and ([.session, .workspace, .superseded[]] | all(test("[[:cntrl:]]") | not))
+        then .session, .workspace, .superseded[] else empty end' <<<"$1" 2>&1) || return 1
+    [ -n "$fields" ] || return 1
+    { IFS= read -r s; IFS= read -r w; } <<<"$fields"
+    rs_valid_session "$s" && rs_valid_workspace "$w" || return 1
+    while IFS= read -r n; do
+        [ -n "$n" ] || continue
+        rs_valid_session "$n" || return 1
+    done <<<"$(printf '%s\n' "$fields" | tail -n +3)"
+    return 0
+}
+
+# plan_ok <json>: a plan snapshot record, its sha and time in their patterns.
+plan_ok() {
+    local fields sha at
+    fields=$(jq -r 'if type == "object" and (.sha | type) == "string" and (.recorded_at | type) == "string"
+            and ((.entry | type) == "null" or ((.entry | type) == "string" and (.entry | test("[[:cntrl:]]") | not)))
+        then .sha, .recorded_at else empty end' <<<"$1" 2>&1) || return 1
+    { IFS= read -r sha; IFS= read -r at; } <<<"$fields"
+    [[ $sha =~ $RE_SHA ]] && [[ $at =~ $RS_RE_AT ]]
+}
+
 ROOT_WS=""; ROOT_SESS=""; ROOT_RUN=""; UNREACHABLE=0; FAILED=0
 while IFS="$(printf '\t')" read -r AT RID WS SESS; do
     [ -n "$RID" ] || continue
@@ -220,10 +335,16 @@ if [ -z "$ROOT_SESS" ]; then
     exit 3
 fi
 
+if [ "$STEPS" -eq 1 ] && ! read_steps "$ROOT_WS" "$ROOT_SESS"; then
+    echo "$PROG: could not read the step records of $ROOT_SESS" >&2
+    exit 2
+fi
+
 OTHERS=$(printf '%s\n' "$RUN_IDS" | grep -vxF -- "$ROOT_RUN")
 jq -n --arg ws "$ROOT_WS" --arg sess "$ROOT_SESS" --arg run "$ROOT_RUN" \
     --argjson unique "$([ "$ENTRY_COUNT" -eq 1 ] && echo true || echo false)" \
-    --rawfile missing "$WORK/missing" --rawfile prs "$WORK/prs" --arg others "$OTHERS" '
+    --rawfile missing "$WORK/missing" --rawfile prs "$WORK/prs" --arg others "$OTHERS" \
+    --rawfile steps "$WORK/steps" '
     ($missing | split("\n") | map(select(. != ""))) as $m
     | {record_root: {workspace: $ws, session: $sess},
        run_id: $run,
@@ -232,4 +353,5 @@ jq -n --arg ws "$ROOT_WS" --arg sess "$ROOT_SESS" --arg run "$ROOT_RUN" \
        missing: $m,
        prs: ($prs | split("\n") | map(select(. != "") | fromjson) | unique_by([.repo, .number]) | sort_by(.repo, .number)),
        others: ($others | split("\n") | map(select(. != ""))),
-       steps: []}'
+       steps: ($steps | split("\n") | map(select(. != "") | fromjson)
+               | sort_by((.step | capture("(?<n>[0-9]+)$").n // "0" | tonumber), .step))}'

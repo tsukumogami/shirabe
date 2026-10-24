@@ -52,7 +52,12 @@
 #                   panel state's default_action and gate: it reads and writes
 #                   verdict_ledger.json and the <panel>_scope.json and
 #                   <panel>_results.json keys, no flag
-#   decisions record  --with-data carries the decision object
+#   decisions record  --with-data carries the decision object; the agent's
+#                   decisions now go through scripts/run-trail.sh decision,
+#                   which makes this call itself
+#   context list    --prefix: run-trail.sh's decision and departure verbs list
+#                   the session's trail/decision/ or trail/departure/ keys to
+#                   number the next one, on any run that records one
 #   init --attach-live  scripts/review-level.sh set rebinds REVIEW_LEVEL on the
 #                   live session with `koto init <s> --template <t>
 #                   --attach-live --var REVIEW_LEVEL=<level>`, on every run that
@@ -154,6 +159,7 @@ koto	context get	-	always
 koto	context exists	-	always
 koto	context remove	-	always
 koto	decisions record	--with-data	always
+koto	context list	--prefix	always
 koto	overrides list	-	always
 koto	overrides record	--gate,--rationale	always
 koto	decider answer	--gate,--criterion,--answer	always

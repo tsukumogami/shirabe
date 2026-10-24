@@ -2073,8 +2073,10 @@ states:
     # Blocking human-approval gate for a deferred acceptance criterion (Decision E,
     # PRD R4/R5). The agent halts here and surfaces the unmet criterion to the human.
     # The human's decision is the evidence:
-    #   approved -> record the deferral via `koto decisions record`, then proceed to PR
-    #               with the deferral recorded in the audit trail (and PR body).
+    #   approved -> record the deferral through scripts/run-trail.sh (a decision
+    #               with actor person, which also goes through `koto decisions
+    #               record`, and a deferral departure), then proceed to PR with
+    #               the deferral recorded in the audit trail (and PR body).
     #   rejected -> the issue is not done; route to the non-clean done_blocked terminal.
     gates:
       summary_exists:
@@ -2107,7 +2109,7 @@ states:
         type: string
         description: >
           The unmet acceptance criterion and the human's rationale. On approved, this is
-          the deferral recorded via `koto decisions record`; the PR body says in plain
+          the deferral recorded through scripts/run-trail.sh; the PR body says in plain
           terms what is left undone.
     transitions:
       - target: pre_pr_evidence
@@ -3198,7 +3200,13 @@ question is asked once, at `issue_type_routing`, after implementation.
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
 use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
-Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
+Before a `scope_changed_retry`, record the scope change in the run's record:
+write `{"what": "<what changed in scope>", "why": "<what showed it>"}` to a file
+in the run's scratch directory and run
+`"{{PLUGIN_ROOT}}/scripts/run-trail.sh" departure --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --kind scope-change < <file>`.
+Record non-obvious decisions with
+`"{{PLUGIN_ROOT}}/scripts/run-trail.sh" decision --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --actor agent:{{SESSION_NAME}} < <scratch>/decision.json`
+(SKILL.md's Decision Capture), which also records them through `koto decisions record`.
 
 ## offload_canary
 
@@ -3335,7 +3343,12 @@ Retry cap: self-loop with `partial_tests_failing_retry` up to 3 times. After 3,
 use `partial_tests_failing_escalate`. The cap lives here until koto enforces it
 from its attempt counts, with the same number. Submit `blocked` for external
 blockers.
-Record non-obvious judgment calls with `koto decisions record {{SESSION_NAME}}`.
+Before a `scope_expanded_retry`, record the scope change as a `scope-change`
+departure, as `analysis` does before its own retry
+(`references/phases/phase-4-implementation.md`).
+Record non-obvious judgment calls with
+`"{{PLUGIN_ROOT}}/scripts/run-trail.sh" decision --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --actor agent:{{SESSION_NAME}} < <scratch>/decision.json`
+(SKILL.md's Decision Capture).
 
 ## changed_paths_record
 
@@ -3762,9 +3775,14 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
 - If the human **approves** the deferral: record it as their decision. Write
   `{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}` to
   `decision.json` in the run's scratch directory and run
-  `koto decisions record <WF> --with-data @<scratch>/decision.json` (the file
-  form, as SKILL.md's execution loop says; remove the file after),
-  then submit `approval_decision: approved`. The recorded deferral is the audit trail and
+  `"{{PLUGIN_ROOT}}/scripts/run-trail.sh" decision --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --actor person < <scratch>/decision.json`,
+  which records it with the human as its actor and also through
+  `koto decisions record`. Then record the deferral against the step: write
+  `{"what": "<the unmet criterion>", "why": "<the human's rationale>"}` to
+  `departure.json` there and run
+  `"{{PLUGIN_ROOT}}/scripts/run-trail.sh" departure --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --kind deferral < <scratch>/departure.json`.
+  The text goes only on stdin; remove both files after.
+  Then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
   By default the body says in plain terms what the change leaves undone; the
   recorded approval goes in it only when the repository opts in to workflow content.

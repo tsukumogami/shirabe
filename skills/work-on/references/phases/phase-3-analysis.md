@@ -83,7 +83,14 @@ prior context on the issue).
 
 ## Retry Loop
 
-`scope_changed_retry` re-enters this phase to write a *replacement* plan, and the `plan_artifact` gate holds the `plan.md` being replaced. Clear it before submitting:
+`scope_changed_retry` re-enters this phase to write a *replacement* plan. First record the scope change in the run's record, against this run's step: write `{"what": "<what changed in scope>", "why": "<what showed it>"}` to `departure.json` in the run's scratch directory and run
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" departure --session <WF> --step <ARTIFACT_PREFIX> --kind scope-change < <scratch>/departure.json
+rm <scratch>/departure.json
+```
+
+The text goes only on stdin (SKILL.md's Decision Capture). The `plan_artifact` gate holds the `plan.md` being replaced. Clear it before submitting:
 
 ```bash
 OUTCOME_FIELD=plan_outcome

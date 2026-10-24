@@ -13,12 +13,17 @@
 #   the probe    reads koto's help once per process, whatever the read count
 #   reads        option absent: from the addressed directory, no --workspace
 #                anywhere, 69 for a directory that isn't here; option present:
-#                --workspace=<dir> after the verb words, from any directory
+#                --workspace=<dir> after the verb words, from any directory;
+#                a session the addressed workspace doesn't hold is "not
+#                found" (68, nothing printed), and any other failure passes
+#                koto's exit and output through
+#   the patterns the session and step patterns, their bounds included
 #   the forms    a write from the /tmp form lands at one of the two forms a
 #                reader tries
 #
 # The shared address is the real fixed directory, under an owner unique to
-# this run, removed at exit.
+# this run, removed at exit. Before the first case the suite checks that the
+# koto on PATH is the stand-in, and stops when it isn't.
 #
 # Usage: record-store_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -43,6 +48,14 @@ export PATH="$STUB_DIR:$PATH"
 export RECORD_KOTO_STORE="$WORK/store"
 mkdir -p "$WORK/a" "$WORK/b"
 TAB=$(printf '\t')
+
+# The koto on PATH must be the stand-in: these cases write sessions, and a
+# real koto would write them to a real store.
+if [ "$(command -v koto)" != "$STUB_DIR/koto" ] \
+    || [ "$(RECORD_KOTO_STORE="$WORK/stub-probe" koto version </dev/null)" != "koto 0.0.0-record-stub" ]; then
+    echo "FAIL: the koto on PATH is not the stand-in at $STUB_DIR/koto; no case ran" >&2
+    exit 1
+fi
 
 # lib <shell commands>: run them in a fresh bash that sourced the library,
 # so each case starts with the probe unset.
@@ -152,16 +165,63 @@ lib "rs_koto_read '$WORK/nowhere' context get root k"
 
 : > "$RECORD_KOTO_STORE/calls.log"
 export RECORD_KOTO_WORKSPACE_OPTION=present
-lib "cd '$WORK/b' && rs_koto_read '$A' context get root k && rs_koto_read '$A' status root >/dev/null && rs_koto_read '$WORK/nowhere' context list root"
+lib "cd '$WORK/b' && rs_koto_read '$A' context get root k && rs_koto_read '$A' status root >/dev/null"
 B=$(cd "$WORK/b" && pwd -P)
-if [ "$RC" -eq 0 ] && [ "$OUT" = 'v[]' ] \
+if [ "$RC" -eq 0 ] && [ "$OUT" = 'v' ] \
     && grep -qF "$(printf '%s\tcontext get --workspace=%s root k' "$B" "$A")" "$RECORD_KOTO_STORE/calls.log" \
     && grep -qF "$(printf '%s\tstatus --workspace=%s root' "$B" "$A")" "$RECORD_KOTO_STORE/calls.log"; then
     pass "option present: --workspace=<dir> after the verb words, from any directory"
 else
     fail "present-mode read: exit $RC, out [$OUT], calls [$(calls)]"
 fi
+
+# "Not found": a workspace that holds no such session. Each read verb the
+# record uses answers 68 and prints nothing.
+for read in "context list root --prefix run/" "context get root k" "status root"; do
+    lib "rs_koto_read '$WORK/nowhere' $read"
+    if [ "$RC" -eq 68 ] && [ -z "$OUT" ]; then
+        pass "option present: [$read] in a workspace without the session is not found (68), nothing printed"
+    else
+        fail "not found [$read]: exit $RC, out [$OUT], stderr [$(cat "$WORK/stderr")]"
+    fi
+done
+# A read that fails for any other reason is not "not found".
+lib "RECORD_KOTO_FAIL_READS_IN='$A' rs_koto_read '$A' context get root k"
+if [ "$RC" -eq 1 ] && grep -q 'could not be read' "$WORK/stderr"; then
+    pass "option present: an unreadable workspace passes koto's exit (1) and its message through, not 68"
+else
+    fail "unreadable: exit $RC, stderr [$(cat "$WORK/stderr")]"
+fi
+# A key the session doesn't hold is koto's own failure, not "not found".
+lib "rs_koto_read '$A' context get root nokey"
+[ "$RC" -ne 0 ] && [ "$RC" -ne 68 ] && pass "option present: a missing key in a held session is a failed read (exit $RC), not 68" \
+    || fail "missing key: exit $RC"
 unset RECORD_KOTO_WORKSPACE_OPTION
+
+lib "cd '$WORK/b' && rs_koto_read '$A' context get root k > '$WORK/bytes'"
+printf 'v' | cmp -s - "$WORK/bytes" && pass "a read's output passes through byte for byte (no newline added)" \
+    || fail "read bytes: [$(od -c "$WORK/bytes" | head -2)]"
+
+# --- the patterns -------------------------------------------------------------------
+
+S_MAX=$(printf 'a%.0s' $(seq 1 200))
+S_OVER=$(printf 'a%.0s' $(seq 1 201))
+for ok in "execute-topic" "execute-x.step-2" "a" "$S_MAX"; do
+    lib "rs_valid_session '$ok'"
+    [ "$RC" -eq 0 ] && pass "session name [${ok:0:20}] is accepted" || fail "session [${ok:0:20}] refused"
+done
+for bad in "-x" ".x" "a/b" "a b" "$S_OVER" ""; do
+    lib "rs_valid_session '$bad'"
+    [ "$RC" -ne 0 ] && pass "session name [${bad:0:20}] (${#bad} chars) is refused" || fail "session [${bad:0:20}] accepted"
+done
+for ok in "step-1" "issue-12" "task_slug" "step-2.b"; do
+    lib "rs_valid_step '$ok'"
+    [ "$RC" -eq 0 ] && pass "step id [$ok] is accepted" || fail "step [$ok] refused"
+done
+for bad in "../x" "step/2" "-s" "$(printf 'a%.0s' $(seq 1 101))" ""; do
+    lib "rs_valid_step '$bad'"
+    [ "$RC" -ne 0 ] && pass "step id [${bad:0:20}] is refused" || fail "step [${bad:0:20}] accepted"
+done
 
 # --- the forms ------------------------------------------------------------------
 

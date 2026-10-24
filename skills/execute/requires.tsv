@@ -109,7 +109,7 @@
 # The coordinated envelope (execute-coordinated.md) adds one koto verb: the run
 # record's reader (run-record-lib.sh, sourced by coord-common.sh,
 # run-record.sh, and execute-open.sh) lists a session's `run/` keys with
-# `koto context list --prefix run/`, a coordinated-mode record below.
+# `koto context list --prefix run/`, under the always record below.
 # record-coord-setup.sh, record-coordination-verdict.sh, coord-merge.sh, and
 # run-record.sh otherwise read and write context with
 # `koto context get/add/remove/exists`. Its scripts add gh
@@ -130,11 +130,19 @@
 # adopt-or-create-pr.sh call on a single-pr plan, reads the root's koto id
 # with `koto session list`, opens each PR's index session with
 # `koto init --template --attach-live` from the shared address, and writes
-# its keys with `koto context add` after `context exists/get`.
+# its keys with `koto context add` after `context exists/get`. The lead
+# shape's per-step writes (`run-trail.sh plan`, `step` and `departure`, on
+# every plan) add `context add --from-file` for the PLAN's text, `git show`
+# and `git rev-parse` for the PLAN as committed, and `context list --prefix`
+# for the next departure number; execute-open.sh's trail carry, on any
+# finished session it replaces, lists the trail with `context list --prefix`
+# and reads each key whole with `context get --to-file`. So `context list
+# --prefix` is an always record, not only the coordinated reader's.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always
-koto	context get	-	always
+koto	context get	--to-file	always
+koto	context list	--prefix	always
 koto	context remove	-	always
 koto	context exists	-	always
 koto	status	-	always
@@ -149,7 +157,6 @@ git	-	-	always
 jq	-	-	always
 python3	-	-	always
 shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coordinated
-koto	context list	--prefix	mode:coordinated
 # A coordinated run's step agent opens each /work-on child itself with
 # `koto init ... --dispatched-by execute-<plan-slug>`
 # (references/step-agent-handoff.md), so the child records the run that

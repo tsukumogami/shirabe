@@ -34,6 +34,8 @@
 #   rs_valid_owner <owner>        0 when it is a GitHub owner name
 #   rs_valid_repo <repo>          0 when it is a repository name (not . or ..)
 #   rs_valid_workspace <path>     0 when it can be a recorded workspace
+#   rs_valid_session <name>       0 when it is a koto session name
+#   rs_valid_step <id>            0 when it is a step id
 #   rs_lower <value>              the value lowercased, on stdout
 #   rs_shared_dir <owner>         the shared address's directory, on stdout
 #   rs_shared_forms <owner>       both canonical forms of it, one per line
@@ -47,7 +49,31 @@
 #   rs_koto_read <dir> <koto args...>
 #                                 a koto read of <dir>'s workspace; 69 when
 #                                 the option is absent and <dir> is not a
-#                                 directory here
+#                                 directory here, 68 when koto answers that
+#                                 the session or the workspace is not found
+#
+# The value patterns. Every value the record writes, and every value a reader
+# takes back, is held to one of these, defined here and nowhere else, so the
+# writer and the reader can't drift apart:
+#   RS_RE_OWNER       a GitHub owner name (39 characters at most)
+#   RS_RE_REPO        a repository name (not . or .., 100 characters at most)
+#   RS_RE_NUMBER      a PR number
+#   RS_RE_WORKSPACE   a recorded workspace (no `..` component either)
+#   RS_RE_SESSION     a koto session name, 200 characters at most
+#   RS_RE_STEP        a step id: the task name plan-to-tasks.sh gives a step
+#                     (`step-<N>`, `issue-<N>`), or a /work-on run's
+#                     ARTIFACT_PREFIX; 100 characters at most
+#   RS_RE_RUN_ID      a run identity (skills/execute/scripts/run-id.sh)
+#   RS_RE_SESSION_ID  koto's id for a session, from its session list
+#   RS_RE_TOPIC       a PLAN topic
+#   RS_RE_AT          a writer's UTC timestamp
+#
+# "Not found" is koto's answer about an address, not a failure to read it.
+# With the workspace option, the canonical form of the shared address this
+# host's writers never used is a workspace koto holds nothing in, and koto is
+# expected to say so. rs_koto_read returns 68 for a nonzero exit whose output
+# says `not found`, so a reader goes on to the next form; every other nonzero
+# exit is passed through, with koto's output, as a read that failed.
 #
 # The callers check every value before it reaches these functions; a
 # function here checks only what it adds (the owner it builds a path from).
@@ -59,6 +85,12 @@ RS_RE_OWNER='^[A-Za-z0-9](-?[A-Za-z0-9])*$'
 RS_RE_REPO='^[A-Za-z0-9._-]+$'
 RS_RE_NUMBER='^[1-9][0-9]{0,9}$'
 RS_RE_WORKSPACE='^/[^[:cntrl:]]*$'
+RS_RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$'
+RS_RE_STEP='^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'
+RS_RE_RUN_ID='^[0-9a-f]{32}$'
+RS_RE_SESSION_ID='^[A-Za-z0-9-]{1,64}$'
+RS_RE_TOPIC='^[a-z0-9-]{1,100}$'
+RS_RE_AT='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 
 rs_valid_owner() {
     [[ $1 =~ $RS_RE_OWNER ]] && [ "${#1}" -le 39 ]
@@ -78,6 +110,14 @@ rs_valid_workspace() {
     [ "${#1}" -le 4096 ] || return 1
     case "$1/" in */../*) return 1 ;; esac
     return 0
+}
+
+rs_valid_session() {
+    [[ $1 =~ $RS_RE_SESSION ]]
+}
+
+rs_valid_step() {
+    [[ $1 =~ $RS_RE_STEP ]]
 }
 
 rs_lower() {
@@ -140,16 +180,36 @@ rs_has_workspace_option() {
 
 # rs_koto_read <dir> <verb words> <rest>: `context` and `session` take a
 # second verb word, so the option goes after both; every other verb has one.
+# koto's output is held in a private directory until its exit is known: a
+# "not found" answer (68) prints nothing, and every other answer passes
+# through byte for byte, stdout and stderr each to its own stream.
 rs_koto_read() {
-    local dir=$1
+    local dir=$1 tmp rc
     shift
     if rs_has_workspace_option; then
         case "$1" in
-            context|session) koto "$1" "$2" "--workspace=$dir" "${@:3}" ;;
-            *) koto "$1" "--workspace=$dir" "${@:2}" ;;
+            context|session) set -- "$1" "$2" "--workspace=$dir" "${@:3}" ;;
+            *) set -- "$1" "--workspace=$dir" "${@:2}" ;;
         esac
-        return
+    else
+        [ -d "$dir" ] || return 69
     fi
-    [ -d "$dir" ] || return 69
-    (cd -- "$dir" && koto "$@")
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/record-store.XXXXXX") || {
+        echo "record-store: mktemp failed" >&2
+        return 70
+    }
+    if [ "$RS_WORKSPACE_OPTION" = yes ]; then
+        koto "$@" >"$tmp/out" 2>"$tmp/err"
+    else
+        (cd -- "$dir" && koto "$@") >"$tmp/out" 2>"$tmp/err"
+    fi
+    rc=$?
+    if [ "$rc" -ne 0 ] && grep -qi 'not found' "$tmp/out" "$tmp/err"; then
+        rm -rf -- "$tmp"
+        return 68
+    fi
+    cat -- "$tmp/out"
+    cat -- "$tmp/err" >&2
+    rm -rf -- "$tmp"
+    return "$rc"
 }

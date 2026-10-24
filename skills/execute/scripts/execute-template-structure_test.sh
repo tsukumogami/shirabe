@@ -45,6 +45,11 @@
 #     children's summaries through `koto context get <child> summary.md`, one
 #     read per child, saying why the count is small; no skills/execute file
 #     outside evals names current-context.md
+#   spawn_and_await records each step's PLAN snapshot (run-trail.sh plan, from
+#     docs/plans/PLAN-{{PLAN_SLUG}}.md) and step session (run-trail.sh step,
+#     --supersede for a new step agent) before its agent starts, step 1
+#     included; records an entry rewrite as an entry-rewritten departure with
+#     its text on stdin only; and stops the hand-offs when a write fails
 #   settled_branch_record's own prose names SETTLED_BRANCH without braces and
 #     says why (a braced mention there stops the failure-path tick with
 #     capture_unset)
@@ -92,6 +97,23 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/execute-structure-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"
+
+# koto runs here, so it must write only to the scratch HOME: a caller's koto
+# session context is cleared, and koto's session directory must resolve under
+# the scratch directory before anything is compiled.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+GUARD_DIR=$(koto session dir execute-structure-guard </dev/null) || GUARD_DIR=""
+WORK_P=$(cd "$WORK" && pwd -P) && [ -n "$WORK_P" ] || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
+case "$GUARD_DIR" in
+    "$WORK"/*|"$WORK_P"/*) ;;
+    *)
+        echo "FAIL: koto's session directory [$GUARD_DIR] is not under this suite's scratch directory; nothing was checked" >&2
+        exit 1
+        ;;
+esac
 
 compile() { # compile <template> -> prints the compiled JSON path, or nothing
     koto template compile "$1" 2>/dev/null | tail -1
@@ -149,6 +171,9 @@ CHECKS=(
 "pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
 "no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
 "spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
+"spawn_and_await records each step's PLAN snapshot and step session through run-trail.sh before its agent starts, step 1 included|.states.spawn_and_await.directive | (contains(\"/scripts/run-trail.sh\\\" plan --session {{SESSION_NAME}} --step <step> --plan docs/plans/PLAN-{{PLAN_SLUG}}.md\") and contains(\"/scripts/run-trail.sh\\\" step --session {{SESSION_NAME}} --step <step> --child <child>\") and contains(\"with \`--supersede\` added for a new step agent\") and contains(\"Right before each step agent starts (step 1 included\") and contains(\"\`task_name\`\"))"
+"spawn_and_await records an entry rewrite as an entry-rewritten departure, its text on stdin only|.states.spawn_and_await.directive | (contains(\"/scripts/run-trail.sh\\\" departure --session {{SESSION_NAME}} --step <step> --kind entry-rewritten < <file>\") and contains(\"never as an argument\"))"
+"spawn_and_await stops the hand-offs when a record write fails|.states.spawn_and_await.directive | contains(\"A nonzero exit from any of these stops the hand-offs\")"
 "settled_branch_record's prose names SETTLED_BRANCH without braces|.states.settled_branch_record | (((.directive // \"\") + (.details // \"\")) | (contains(\"SETTLED_BRANCH\") and contains(\"without braces here on purpose\") and (contains(\"{{SETTLED_BRANCH}}\") | not)))"
 )
 

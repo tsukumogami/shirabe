@@ -7,8 +7,11 @@
 # written into this suite's scratch directory: one that answers
 # `koto disputes --help` (a koto with `koto disputes record`) and one that
 # refuses it as an unknown subcommand, as koto 0.20.0 does. Both log the
-# arguments of every call after the probe, NUL-separated, so a case can compare
-# the words koto received byte for byte, and both exit with $STUB_RC.
+# arguments of a record call, NUL-separated, so a case can compare the words
+# koto received byte for byte, and both exit with $STUB_RC on it. The second
+# also answers what scripts/run-trail.sh asks on the fallback: `context list`
+# with an empty list, and `context add` by keeping the key and its stdin in
+# $STUB_TRAIL, so a case can read the trail record the fallback wrote.
 #
 # The rule ids come from the repository's registry: the first active
 # script-checked entry and the first retired one, so the cases don't pin ids a
@@ -63,11 +66,16 @@ if [ "${1:-}" = disputes ]; then
     echo "error: unrecognized subcommand 'disputes'" >&2
     exit 2
 fi
+case "${1:-} ${2:-}" in
+    "context list") echo '[]'; exit 0 ;;
+    "context add") { printf '%s\n' "${4:-}"; cat; } >>"$STUB_TRAIL"; exit 0 ;;
+esac
 for a in "$@"; do printf '%s\0' "$a"; done >>"$STUB_LOG"
 echo '{"status":"recorded"}'
 exit "${STUB_RC:-0}"
 EOF
 chmod +x "$T/with/koto" "$T/without/koto"
+TRAIL_LOG="$T/trail"
 
 RC=0
 OUT=""
@@ -77,9 +85,9 @@ ERR=""
 run() {
     local kind=$1 rc=$2
     shift 2
-    rm -f "$LOG"
+    rm -f "$LOG" "$TRAIL_LOG"
     RC=0
-    OUT=$(PATH="$T/$kind:$PATH" STUB_LOG="$LOG" STUB_RC="$rc" "$BASH_BIN" "$DISPUTE" "$@" 2>"$T/stderr") || RC=$?
+    OUT=$(PATH="$T/$kind:$PATH" STUB_LOG="$LOG" STUB_TRAIL="$TRAIL_LOG" STUB_RC="$rc" "$BASH_BIN" "$DISPUTE" "$@" 2>"$T/stderr") || RC=$?
     ERR=$(cat "$T/stderr")
 }
 
@@ -202,7 +210,13 @@ for code in 1 2 5; do
 done
 
 # ---------------------------------------------------------------------------
-# A koto without it: a koto decision.
+# A koto without it: a decision in the run's record, through run-trail.sh,
+# which also sends it through koto decisions record.
+
+# trail_key, trail_record -- the key and the document the fallback's
+# run-trail.sh wrote with context add.
+trail_key() { sed -n 1p "$TRAIL_LOG" 2>/dev/null; }
+trail_record() { sed -n 2p "$TRAIL_LOG" 2>/dev/null; }
 
 run without 0 --session wf.child --gate verdict --rule "$ACTIVE" --reason "quoted path"
 expect_rc 0 "(session-only) a valid dispute exits 0"
@@ -213,23 +227,34 @@ expect_argv "(session-only) koto decisions record <session> --with-data <json>, 
     decisions record wf.child --with-data "$DATA"
 [ "$(jq -r .choice <<<"$DATA")" = "dispute:$ACTIVE" ] && pass "(session-only) choice is dispute:<rule-id>" \
     || fail "(session-only) choice: [$DATA]"
-[ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=current by=agent: quoted path" ] \
-    && pass "(session-only) rationale defaults state to current and by to agent" \
+[ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=current: quoted path" ] \
+    && pass "(session-only) rationale defaults state to current, and names no actor" \
     || fail "(session-only) rationale: [$DATA]"
-[ "$(jq -r 'keys | join(",")' <<<"$DATA")" = "choice,rationale" ] && pass "(session-only) the record holds choice and rationale only" \
+[ "$(jq -r 'keys | join(",")' <<<"$DATA")" = "choice,rationale" ] && pass "(session-only) koto's record holds choice and rationale only" \
     || fail "(session-only) keys: [$DATA]"
+REC=$(trail_record)
+if [ "$(trail_key)" = trail/decision/1.json ] \
+    && [ "$(jq -c '{step, actor, choice, rationale}' <<<"$REC")" = "$(jq -nc --arg c "dispute:$ACTIVE" '{step: "wf.child", actor: "agent:wf.child", choice: $c, rationale: "gate=verdict state=current: quoted path"}')" ]; then
+    pass "(session-only) the run's record holds the decision with actor agent:<session>, against the session when no --step is given"
+else
+    fail "(session-only) trail: [$(trail_key)] [$REC]"
+fi
 
-run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason because --state analysis --by person
+run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason because --state analysis --by person --step step-3
 DATA=$(logged_data)
-[ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=analysis by=person: because" ] \
-    && pass "(session-only) rationale carries the given state and source" \
+[ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=analysis: because" ] \
+    && pass "(session-only) rationale carries the given state" \
     || fail "(session-only) rationale: [$DATA]"
+[ "$(jq -c '{step, actor}' <<<"$(trail_record)")" = '{"step":"step-3","actor":"person"}' ] \
+    && pass "(session-only) --by person is the record's actor person, against the given --step" \
+    || fail "(session-only) person trail: [$(trail_record)]"
 
 run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason "$NASTY"
 expect_rc 0 "(session-only) a reason with quotes, \$(), backticks and JSON exits 0"
 DATA=$(logged_data)
-if [ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=current by=agent: $NASTY" ]; then
-    pass "(session-only) that reason reaches the record verbatim"
+if [ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=current: $NASTY" ] \
+    && [ "$(jq -r .rationale <<<"$(trail_record)")" = "gate=verdict state=current: $NASTY" ]; then
+    pass "(session-only) that reason reaches both records verbatim"
 else
     fail "(session-only) rationale: [$DATA]"
 fi
@@ -239,13 +264,23 @@ if [ ! -e "$T/pwned" ] && [ ! -e "$T/pwned2" ]; then pass "(session-only) nothin
 
 run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason "$ML"
 DATA=$(logged_data)
-[ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=current by=agent: $ML" ] \
+[ "$(jq -r .rationale <<<"$DATA")" = "gate=verdict state=current: $ML" ] \
     && pass "(session-only) a multi-line reason reaches the record verbatim" \
     || fail "(session-only) rationale: [$DATA]"
 
+run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason r --step ""
+expect_rc 2 "an empty --step exits 2"; expect_no_call "empty --step"
+run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason r --step ../x
+expect_rc 65 "(session-only) a --step outside the step pattern is run-trail.sh's refusal (65)"
+expect_no_call "(session-only) --step ../x"
+run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason "token ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+expect_rc 65 "(session-only) a reason holding a token is refused (65)"
+[ ! -e "$LOG" ] && [ ! -e "$TRAIL_LOG" ] && pass "(session-only) a refused reason records nothing, in koto or the trail" \
+    || fail "(session-only) a refused reason was recorded"
+
 for code in 1 2 5; do
     run without "$code" --session wf --gate verdict --rule "$ACTIVE" --reason r
-    expect_rc "$code" "(session-only) koto's exit $code passes through"
+    expect_rc 70 "(session-only) koto decisions record exiting $code is run-trail.sh's 70, passed through"
     [ -z "$OUT" ] && pass "(session-only) nothing on stdout when koto exits $code" \
         || fail "(session-only) stdout when koto failed: [$OUT]"
 done
