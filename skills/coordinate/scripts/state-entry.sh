@@ -3,7 +3,8 @@
 # entries. Agent-run; the one way an entry is written
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 2).
 #
-# The record's tables hold its state and are rewritten whole by the write core;
+# The record's section keys hold its state and are rewritten whole by the write
+# core;
 # its entries, the dated account of what happened, live beside them in the
 # coordinator's koto session (docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 5): each is the key record/entries/<n>, <n> a six-digit sequence one
@@ -77,9 +78,9 @@
 # check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
 # landed pull request judged against its milestone's Evidence, milestone.sh
 # check-goal-fit), milestone-failure (a failure reported against a Done
-# milestone, milestone.sh check-failure), decisions (settled Decisions rows
-# moved out of the body verbatim, state-decision.sh --archive, which reads
-# them back to restore one),
+# milestone, milestone.sh check-failure), decisions (settled Decisions rows a
+# GitHub record archived, which the legacy importer brings with the record and
+# state-decision.sh reads back to restore one; no script archives now),
 # and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
 # (exit 65). On a public host an entry kept in the session may not name a
@@ -162,7 +163,8 @@ if [ -n "$ON" ]; then
     fi
     [ "$MODE" = repost ] || case "$OUTWARD_KINDS" in *" $KIND "*) ;; *) echo "$PROG: --on is for an outward kind:$OUTWARD_KINDS" >&2; exit 64 ;; esac
 fi
-# The largest entry posted, in bytes: the record body's own budget.
+# The largest entry, in bytes, so a posted comment stays under GitHub's
+# 65,536-byte limit.
 ENTRY_BUDGET=60000
 
 . "$HERE/state-common.sh"

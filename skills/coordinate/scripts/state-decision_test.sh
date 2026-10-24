@@ -32,7 +32,7 @@ RUN=20260926T080000Z
 
 # --- fixtures ----------------------------------------------------------------------
 
-E() { # E <n> <state> [jq merge]: one entry as the codec parses it
+E() { # E <n> <state> [jq merge]: one entry as the state holds it
     local merge=${3-}
     [ -n "$merge" ] || merge='{}'
     jq -nc --arg n "$1" --arg s "$2" --arg run "$RUN" '{decision: $n, round: "0", question: "Ship the migration first?",

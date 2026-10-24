@@ -16,7 +16,7 @@
 #
 # It refuses (prints `refused`, sealed) unless the entry owes that kind right
 # now, so a second rendering after the owing cleared is refused too:
-#   escalation  State escalated, Owed escalation, and the codec's
+#   escalation  State escalated, Owed escalation, and state-schema.jq's
 #               escalation_problems for the run's target is empty (the
 #               recommendation one of the options; every option explained,
 #               `<option> -- <explanation>`; reason, context and problem
@@ -27,10 +27,10 @@
 #   redirect    decision_next routed `redirect <n> <seq>`, naming the report by
 #               its log sequence; entry <n> holds this run's `report <seq>.<i>`
 #               stamp; some entry holds that report's addressed mark (the
-#               codec's d_addressed_mark, an Evidence line state-decision.sh
+#               state-schema.jq's d_addressed_mark, an Evidence line state-decision.sh
 #               --open-from-report writes); and no entry has an Evidence line
 #               stamped `redirect <seq>`, which --sent writes. Stamps are read by
-#               position (the codec's d_stamps), never from a line's text.
+#               position (state-schema.jq's d_stamps), never from a line's text.
 #
 # On a render it writes the text to the context key coord/decision_message.txt
 # with coord-log.sh seal --file --key and prints

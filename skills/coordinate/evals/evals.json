@@ -174,12 +174,12 @@
       "id": 9,
       "name": "discipline-rotation-start",
       "prompt": "/shirabe:coordinate --discipline ci-health -- host repo: tsukumogami/shirabe; rotation length: 3 days. This host has never run a ci-health rotation, so there is no earlier rotation session to carry.",
-      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with state-open.sh, --start today and --end two days later, writing the window to record/rotation, from a body written from the record template. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals, and it names the record's session and the host in its report.",
+      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with state-open.sh, --start today and --end two days later, writing the window to record/rotation, with the record's state as JSON keys in that session. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals, and it names the record's session and the host in its report.",
       "expectations": [
         "The host repository and the three-day rotation length are taken as decisions from the invocation",
         "The rotation is opened in the coordinator's koto session (state-open.sh with --start and --end), not as a branch or a pull request",
         "The rotation's window is three days long: the end is two days after the start",
-        "The record body is written from the template: declaration line, Written line, and the four sections",
+        "The record's state is written as JSON keys in the session (record/meta and the four sections), with no markdown body, declaration line or Written line",
         "No branch is cut, nothing is committed and no pull request or handoff file is written at rotation start",
         "The report names the record's session and the host repository"
       ],
@@ -720,18 +720,17 @@
     },
     {
       "id": 37,
-      "name": "a-full-record-archives-its-settled-decisions",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, restarted after the previous session crashed. The record's body is 57,800 bytes: its Decisions section holds 44 settled entries, most from the earlier session and a dozen from this one, and one proposed entry a worker raised before the crash. At pick_facts the verdict is `decisions archive`, and at decision_next the script runs before anything is taken. What happens to the record, what does the body keep, and what if a worker later cites decision 12, one of the settled entries?",
-      "expected_output": "Nothing is sent to a person and the record isn't pruned by hand. decision-next.sh sees the record within 4,096 bytes of the 60,000-byte budget with settled entries that owe nothing, and runs state-decision.sh --archive before it routes: every settled entry that owes nothing, this run's included, moves out of the body, its row posted verbatim as a `decisions` entry on the record through state-entry.sh, and the body keeps an `Archived:` line naming their identifiers and a `Stamps kept for run` line holding this run's stamps on them, which the replay guard and the unrecorded and redirect rules read. The proposed entry stays and the verdict is then `take` for it, so the owed write goes through with the body well under the guard; Next decision doesn't change. When the worker's report cites decision 12, state-decision.sh --open-from-report restores entry 12 from the latest unedited decisions entry holding its row and records the citation on it in the same write, so the evidence reopens it as it would any settled entry.",
+      "name": "a-large-record-keeps-its-decisions-and-restores-an-archived-one",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, restarted after the previous session crashed. The record was moved from a GitHub record when this host first ran it, and its Decisions section came with it: 44 settled entries, one proposed entry a worker raised before the crash, and entries 1 to 12 archived on GitHub, their identifiers in the section's archived list and their rows in `decisions` entries on the record. The state is about 70,000 bytes of JSON. At decision_next the script runs before anything is taken. Does anything get archived or pruned, what does the section keep, and what happens if a worker later cites decision 12?",
+      "expected_output": "Nothing is archived and nothing is pruned: the state has no size budget, so a write of a large state goes through like any other, and every settled entry stays in the section. decision-next.sh routes by what is owed: the proposed entry is taken up (`take`), and Next decision doesn't change. Nothing is sent to a person about the record's size. When the worker's report cites decision 12, state-decision.sh --open-from-report restores entry 12 from the latest unedited `decisions` entry holding its row, drops 12 from the archived list and records the citation on it in the same write, so the evidence reopens it as it would any settled entry.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "assertions": [
-        "The coordinator doesn't stop at record_conflict or ask a person to prune the record; the archive runs inside decision_next before any rule routes",
-        "Settled entries that owe nothing leave the body, this run's own included, each row kept verbatim in a `decisions` entry on the record",
-        "The body keeps the archived identifiers on an Archived line and this run's stamps on a kept-stamps line; the proposed entry and any entry owed a message stay as rows",
-        "The owed take for the proposed entry is routed and written, and Next decision is unchanged",
-        "A citation of an archived entry restores its row from the archive in the same write that records the citation"
+        "The coordinator doesn't archive, prune or move any settled entry, and doesn't stop at record_conflict or ask a person about the record's size",
+        "No state-decision.sh --archive or record-full is expected or run; the large state is written whole",
+        "The proposed entry is taken up as the owed write, and Next decision is unchanged",
+        "A citation of archived decision 12 restores its row from the latest unedited decisions entry and removes 12 from the archived list, in the same write that records the citation"
       ],
       "requirements": [
         "shirabe#827"

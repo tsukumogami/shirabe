@@ -366,7 +366,7 @@ lib_roadmap_features() {
     lib_roadmap_words "$1"
     # LC_ALL=C: length() counts bytes, and the classes are ASCII. The section
     # and word are from lib_roadmap_words' closed set, never the roadmap's text.
-    tsv=$(tr -d '\r' < "$1" | RF_SECTION="$RM_SECTION" RF_WORD="$RM_WORD" LC_ALL=C awk -v prog="${PROG:-record-common}" '
+    tsv=$(tr -d '\r' < "$1" | RF_SECTION="$RM_SECTION" RF_WORD="$RM_WORD" LC_ALL=C awk -v prog="${PROG:-state-common}" '
         BEGIN { sect = "## " ENVIRON["RF_SECTION"]; headre = "^(" ENVIRON["RF_WORD"] " [0-9]+|[A-Za-z]+[0-9]+[a-z]?): " }
         function flush() {
             if (have) {

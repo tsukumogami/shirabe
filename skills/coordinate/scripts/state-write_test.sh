@@ -82,9 +82,13 @@ eq "nothing is written on GitHub" "" "$(gh_writes)"
 eq "filed and closed deferrals stay before any dispatch" "a b c d" "$(deferral_names)"
 rebase
 bash "$WR" "${RM[@]}" --close --state-file "$T/new.json" >/dev/null 2>&1; eq "--close is a usage error" 64 $?
-bash "$WR" "${RM[@]}" --body-file "$T/new.json" >/dev/null 2>&1; eq "--body-file is a usage error" 64 $?
+bash "$WR" "${RM[@]}" --body-file "$T/new.json" >/dev/null 2>&1; eq "--body-file, a retired flag, is a usage error" 64 $?
 rm -rf "$KOTO_STORE/context/$SR"
 bash "$WR" "${RM[@]}" --state-file "$T/new.json" >/dev/null 2>&1; eq "a session holding no record is refused" 10 $?
+# The state is checked before the live record is read, so a malformed state is
+# refused as malformed (65) even where the live read would refuse it (10).
+jq -c '. + {notes: "a field no record has"}' "$T/new.json" > "$T/bad.json"
+bash "$WR" "${RM[@]}" --state-file "$T/bad.json" >/dev/null 2>&1; eq "  ... but a malformed state is refused before the live read" 65 $?
 seed_session "$SR" "$(record_json roadmap other)"
 bash "$WR" "${RM[@]}" --state-file "$T/new.json" >/dev/null 2>&1; eq "a session holding another scope's record is refused" 10 $?
 seed_rm

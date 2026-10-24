@@ -49,7 +49,7 @@
 # nothing else: it writes no table and posts no entry, since host facts never
 # leave the host. A value with a control
 # character or a token-shaped string is refused (65); a workspace path may be
-# a home-directory path, which a table cell never is. It prints the record/host
+# a home-directory path, which a row's field never is. It prints the record/host
 # object.
 #
 # A discipline rotation keeps two keys of its own beside its tables (docs/designs/current/DESIGN-coordinator-record-teardown.md,
@@ -129,10 +129,10 @@
 # session (the override flags) nothing is added
 # (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 4).
 #
-# Each change is written to the body first, through the record's write core
+# Each change is written to the state first, through the record's write core
 # (state-write-core.sh), with the minute and who, and then told as an entry
 # with state-entry.sh, kind run, told, the standing kind, end or work. The
-# body is the state; the entry is its account.
+# section keys are the state; the entry is its account.
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
 # printed; 2 a read failed (the record, or the entries the next Standing id
@@ -325,7 +325,7 @@ wakes_since() {
     [ "$OVERRIDE" = 1 ] && { echo 0; return 0; }
     local cut= w req
     if [ -n "$3" ]; then
-        # Updated is always YYYY-MM-DDTHH:MMZ (the codec's grammar).
+        # Updated is always YYYY-MM-DDTHH:MMZ (state-schema.jq's grammar).
         cut=$(jq -rn --arg u "$3" '$u | strptime("%Y-%m-%dT%H:%MZ") | mktime + 60 | todate') || { echo "$PROG: jq failed" >&2; return 2; }
     fi
     w=$(bash "$HERE/coord-log.sh" wakes --session "$SESSION" ${cut:+--after-time "$cut"}) || { echo "$PROG: cannot read the run's wakes" >&2; return 2; }
@@ -520,9 +520,9 @@ chmod 600 "$WD/final.json" || lib_die2 "cannot make the state file private"
 printf '%s\n' "$ETEXT" > "$WD/entry.txt"
 # The write core takes over $T and the EXIT trap and removes $WD, so the
 # entries' text is kept outside it.
-ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-entry.XXXXXX") || lib_die2 "cannot make a temporary file"
+ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/state-stored-set-entry.XXXXXX") || lib_die2 "cannot make a temporary file"
 cp "$WD/entry.txt" "$ENTRY_FILE"
-LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-leaving.XXXXXX") \
+LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/state-stored-set-leaving.XXXXXX") \
     || { rm -f "$ENTRY_FILE"; lib_die2 "cannot make a temporary file"; }
 cp "$WD/leaving.txt" "$LEAVING_FILE"
 

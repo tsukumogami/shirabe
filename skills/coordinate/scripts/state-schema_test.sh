@@ -114,7 +114,7 @@ same "a section that isn't a list" "$(with '.deferrals = {}')" "deferrals: not a
 
 echo "== cells =="
 same "a control character" "$(with '.deferrals[0].reason = "a\u0007b"')" "reason: a control character"
-same "the parser's placeholder character" "$(with '.deferrals[0].reason = "a\u001fb"')" "control character"
+same "a control character in a text field" "$(with '.deferrals[0].reason = "a\u001fb"')" "control character"
 same "an empty required column" "$(with '.holdings[0].unit = ""')" "unit: empty"
 same "a cell that isn't a string" "$(with '.holdings[0].unit = 3')" "unit: not a string"
 same "a status column, recomputable" "$(with '.holdings[0].status = "open"')" "read from GitHub, never recorded"

@@ -93,6 +93,12 @@ seeding a new run or carrying a predecessor's state, `coordinate-open.sh`
 carrying an earlier run into a new one, and the legacy importer.
 `coordinate-template-structure_engine_test.sh` holds each key to its writer.
 
+The JSON examples here and below are fragments of the state a writer hands
+`state-write.sh`: each key holds only the value under its field name, so
+`record/holdings` holds the array, not the object around it. A key's name
+uses a hyphen where its field uses an underscore (`record/side-effects` holds
+`side_effects`).
+
 The four sections every record has, as JSON rows:
 
 ```json
@@ -204,7 +210,7 @@ replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
 at <address>`, who this coordinator reports up to). A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
-refused as an unknown key). Every
+refused, exit 65: `store` is no Run key it writes). Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
 **Standing** holds the events only a person owns while they still bind: a
@@ -388,7 +394,8 @@ something, write it into the record yourself.
 Anything a check or a successor acts on stays in the state; an entry is
 its account, never its only copy. GitHub limits how fast comments are
 created; one post per outward entry stays far inside it, and a refused post
-(exit 11) is retried once, later, never in a loop.
+(exit 14, the entry written but not posted) is finished once, later, with
+`state-entry.sh --repost <n> --on <item>`, never in a loop.
 
 ## Where State Lives
 

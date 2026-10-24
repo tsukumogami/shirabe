@@ -326,6 +326,34 @@ printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/open
 [ "$(rotation_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that writes a rotation key" ||
     fail "the check names another script that writes a rotation key" "$(rotation_writers "$T/openers")"
 
+# The rest of the record's keys (references/state-keys.md): record/meta, the
+# sections and record/host are written only by the write core, and
+# record/entries/<n> and record/posted/<n> only by state-entry.sh. No other
+# script writes or removes a record/ key itself, and only state-stored-set.sh
+# calls core_write_host.
+record_key_writers() {
+    grep -lE '^[^#]*context (add|remove)[^#]*record/' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
+        | grep -v '/state-write-core\.sh$' | grep -v '/state-entry\.sh$' || true
+    grep -lE '^[^#]*context (add|remove)[^#]*record/(entries|posted)/' "$1"/state-write-core.sh 2>/dev/null || true
+    grep -lE '^[^#]*core_write_host' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
+        | grep -v '/state-stored-set\.sh$' | grep -v '/state-write-core\.sh$' || true
+}
+KOPENERS=$(record_key_writers "$HERE")
+[ -z "$KOPENERS" ] && pass "only the write core and state-entry.sh write the record's keys" \
+    || fail "only the write core and state-entry.sh write the record's keys" "$KOPENERS"
+grep -qE '^[^#]*context add[^#]*record/entries/' "$HERE/state-entry.sh" && grep -qE '^[^#]*context add[^#]*record/posted/' "$HERE/state-entry.sh" \
+    && pass "state-entry.sh writes record/entries and record/posted" || fail "state-entry.sh writes record/entries and record/posted"
+grep -qE '^[^#]*context add[^#]*record/meta' "$HERE/state-write-core.sh" && grep -qE '^[^#]*context add[^#]*record/host' "$HERE/state-write-core.sh" \
+    && pass "the write core writes record/meta and record/host" || fail "the write core writes record/meta and record/host"
+grep -qE '^[^#]*core_write_host' "$HERE/state-stored-set.sh" && pass "state-stored-set.sh writes record/host" || fail "state-stored-set.sh writes record/host"
+rm -rf "$T/keyw" && mkdir -p "$T/keyw" && cp "$HERE/state-write.sh" "$HERE/state-write-core.sh" "$HERE/state-entry.sh" "$HERE/state-stored-set.sh" "$T/keyw/"
+printf '\n"$KOTO" context add "$S" record/meta --from-file f\n' >> "$T/keyw/state-write.sh"
+[ "$(record_key_writers "$T/keyw")" = "$T/keyw/state-write.sh" ] && pass "the check names another script that writes a record key" ||
+    fail "the check names another script that writes a record key" "$(record_key_writers "$T/keyw")"
+printf '\n"$KOTO" context add "$S" "record/entries/$N" --from-file f\n' >> "$T/keyw/state-write-core.sh"
+[ "$(record_key_writers "$T/keyw" | grep -c 'state-write-core')" = 1 ] && pass "the check names the write core writing an entry" ||
+    fail "the check names the write core writing an entry" "$(record_key_writers "$T/keyw")"
+
 # Every call that writes an outward kind names where the entry goes:
 # state-entry.sh refuses one without --on (exit 65). The kinds are its own
 # OUTWARD_KINDS, and each code span in the templates, SKILL.md and the

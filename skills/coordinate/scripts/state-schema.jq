@@ -38,11 +38,9 @@ def sections: [
 def refuse($m): error("refused: " + $m);
 
 def re_time_min: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$";
-def re_time_sec: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$";
 def re_date: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
 def re_repo: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$";
 def re_name: "^[A-Za-z0-9._-]+$";
-def re_pr_url: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$";
 # A dispatch topic, the Worker cell's shape: state-common.sh's RE_TOPIC, the
 # grammar every bash script holds a topic to.
 def re_topic: "^[A-Za-z0-9][A-Za-z0-9._-]*$";
@@ -575,8 +573,9 @@ def check_record($private):
 # nothing: a Holds or stored-set section with no rows, and a Decisions section
 # with no entries whose Next decision is 1. Those are the sections a record
 # with nothing in them never carried, so a state written through here holds no
-# key for them, as one written through the markdown body never did
-# (normalize_test.sh holds the two to the same result for every section shape).
+# key for them, as a state written through the old markdown body never did
+# (normalize_test.sh holds normalize_state to that result for every section
+# shape).
 def normalize_state($private):
   check_record($private)
   | (if (.holds // null) == [] then del(.holds) else . end)

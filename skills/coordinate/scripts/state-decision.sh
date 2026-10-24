@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # state-decision.sh -- the one reader and writer of the record's Decisions
 # section. The decision scripts read the section through --list and --read
-# (closeout-read.sh and reconcile read it through the parser, as they read the
-# rest of the record, and pick-facts.sh and decision-next.sh --parsed through
+# (closeout-read.sh and reconcile read it in the state state-read.sh hands
+# them, as they read the rest of the record, and pick-facts.sh and
+# decision-next.sh --parsed through
 # --list's own projection, state-schema.jq decisions_list, over a read they
 # already hold); the write modes are the only way anything changes it.
 #
@@ -38,7 +39,7 @@
 #       `[<run> report <seq>.<index>]`; a cited question is evidence on the
 #       cited entry; a withdrawal is evidence on the entry opened from its
 #       source. An addressed question also gets the addressed mark (the
-#       codec's d_addressed_mark) as an Evidence line with the same stamp.
+#       state-schema.jq's d_addressed_mark) as an Evidence line with the same stamp.
 #   --take                                         decision_take
 #       The routed proposed entry to coordinator-verdict.
 #   --settle --outcome O --reason R                decision_verdict
@@ -110,7 +111,7 @@
 # releases the queued escalation with the lowest identifier, or clears its
 # verdict when it no longer passes. On every write but --carry (which copies
 # the predecessor's entries as they stand), every settled entry that owes nothing, other
-# than the one this write changed, is compacted (the codec's
+# than the one this write changed, is compacted (state-schema.jq's
 # compact_settled), keeping the Evidence lines stamped by this run for as long
 # as the run lasts. The state
 # is written through state-write-core.sh with the Decisions section opened
@@ -212,7 +213,7 @@ lib_write_guard
 lib_run_stamp
 NOW=$(date -u +%Y-%m-%dT%H:%MZ)
 
-# A single item never holds a line break: the codec's line break also
+# A single item never holds a line break: state-schema.jq's line break also
 # separates Options and Evidence lines, so one could forge an item.
 for v in "$Q" "$TEXT" "$OUTC" "$REASON" "$REC" "$CTX" "$PROB" "$GROUNDS" "$FINAL" "$SRC" ${OPTS[@]+"${OPTS[@]}"}; do
     case "$v" in *$'\n'*|*$'\r'*) refuse "an item holds a line break" ;; esac

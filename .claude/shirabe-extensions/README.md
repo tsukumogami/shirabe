@@ -91,7 +91,7 @@ A script is shared when two or more of the skill's files source it, which the sc
 out on each run, or when `check-skill.tsv` names it on a `shared` row. The rows hold what
 sourcing can't show. For coordinate, that's the template's own scripts (`coord-verdict.sh`,
 `coord-log.sh`, `coordinate-open.sh` and its wording table), which every engine suite drives,
-and the record codec (`record-codec.jq`, `record-parse.sh`, `record-render.sh`).
+and the record's schema (`state-schema.jq`).
 
 `check-skill.tsv`'s `cost` rows give each suite's measured CPU seconds. With or without
 `--changed`, suites launch costliest first, so a long suite doesn't start last and set the

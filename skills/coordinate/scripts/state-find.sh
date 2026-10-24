@@ -132,7 +132,7 @@ fi
 # variables are this run's, its rotation has ended by the window rule (the
 # opener never sends an open one here), no other session of the discipline
 # already names it as its predecessor, and its record reads back (record/meta
-# and every section through the codec's checks). Two at one stamp are
+# and every section through state-schema.jq's checks). Two at one stamp are
 # unreadable too.
 session_find() {
     local self=$SELF stamp slug prefix c cands other p

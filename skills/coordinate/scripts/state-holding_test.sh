@@ -60,7 +60,7 @@ eq "the write goes to the session, nothing to GitHub" "" "$(gh_writes)"
 hw --topic gamma --row-file "$T/beta.json" >/dev/null 2>"$T/err"; eq "a row whose worker isn't the topic is refused" 65 $?
 holding beta '{"status": "open"}' > "$T/status.json"
 hw --topic beta --row-file "$T/status.json" >/dev/null 2>"$T/err"; eq "a status column is refused" 65 $?
-grep -q 'never recorded' "$T/err" && ok "the renderer's reason reaches stderr" || bad "the renderer's reason reaches stderr" "$(cat "$T/err")"
+grep -q 'never recorded' "$T/err" && ok "the schema's reason reaches stderr" || bad "the schema's reason reaches stderr" "$(cat "$T/err")"
 holding beta '{"phase": "planning"}' > "$T/phase.json"
 hw --topic beta --row-file "$T/phase.json" >/dev/null 2>&1; eq "a malformed cell is refused" 65 $?
 holding beta '{"repo": "acme/secret"}' > "$T/secret.json"

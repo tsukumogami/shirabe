@@ -111,7 +111,7 @@ work.
    into it, printed `carried=<old run>`; the old run's log stays readable, and
    a carry cut short (`failed=carry`) is carried again by the next start. A
    carried run reconciles before acting: the record is a snapshot dated by its
-   `Written:` time, so reconciling re-checks every holding in it against
+   `written` time, so reconciling re-checks every holding in it against
    GitHub (pull request state and head, branch, issue, CI) and the host before
    anything acts on it, and GitHub wins where they disagree. The opener cancels
    any earlier live run of the same scope without deleting its log. `ask=host`
@@ -647,12 +647,10 @@ entry the workflow routed. The states and checks, all in the template:
   withdrawal, reply or redirect to send, the escalation to send, a proposed
   entry to take up (`decision_take`), an entry waiting for your verdict
   (`decision_verdict`). `dispatch_check` and `pick_facts` send you back to it
-  while anything that blocks a dispatch is owed; nothing blocks `wait`. On a
-  record within 4,096 bytes of its 60,000-byte budget it first archives every
-  settled entry that owes nothing and holds no parked unit
-  (`state-decision.sh --archive`), so a long run never stalls on a full
-  record; evidence, an answer or a citation naming an archived entry brings it
-  back. `record-full` is left for a record full of what can't move.
+  while anything that blocks a dispatch is owed; nothing blocks `wait`. The
+  state has no size budget, so nothing is archived: every entry stays in the
+  section. A record moved from GitHub may still hold archived entries, and
+  evidence, an answer or a citation naming one brings it back.
 - **The verdict.** At `decision_verdict` you settle it, escalate it or hold it
   with what it waits on. For a question that isn't obviously answerable, run
   `/shirabe:decision` on it first, to reach one recommendation and the real

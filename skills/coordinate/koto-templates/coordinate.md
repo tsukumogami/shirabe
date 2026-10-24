@@ -3153,7 +3153,7 @@ Every decision write returns here, so nothing owed waits on the next pick. When
 nothing is owed, a report whose questions were just recorded goes on to
 classification, and anything else to `pick_facts`. A held entry is skipped: its
 verdict waits on the fact its hold names, which comes back through `wait` as
-evidence. A record too full for the next write goes to `record_conflict`.
+evidence.
 
 When a `state-decision.sh` write in any decision state refuses (exit 65), the
 record changed after this state was routed. Don't retry it by hand and don't

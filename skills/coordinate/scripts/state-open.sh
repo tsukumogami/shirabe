@@ -204,7 +204,7 @@ esac
 # core takes over T and its EXIT trap; it removes this script's own scratch
 # directory as CORE_CLEANUP, so a discipline rotation's window is written from
 # a directory of its own.
-ROT_T=$(mktemp -d "${TMPDIR:-/tmp}/record-open-rot.XXXXXX") || lib_die2 "cannot make a temporary directory"
+ROT_T=$(mktemp -d "${TMPDIR:-/tmp}/state-open-rot.XXXXXX") || lib_die2 "cannot make a temporary directory"
 ( STATE_FILE="$T/seed.json" CORE_CLEANUP=$T
   . "$HERE/state-write-core.sh"
   SESSION_SEED=1

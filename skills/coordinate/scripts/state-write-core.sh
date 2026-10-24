@@ -8,7 +8,8 @@
 #
 # The record lives in the coordinator's koto session (state-read.sh).
 # core_write re-reads it and writes the next state whole, after the checks
-# state-write.sh's header lists; every check from the parse on lives here.
+# state-write.sh's header lists; every check from the state's own on lives
+# here.
 # core_write_host writes the record's record/host, the one key outside its
 # tables and account; only state-stored-set.sh --host calls it.
 # Four of core_write's checks, in brief:
@@ -79,7 +80,7 @@ SESSION_SEED=0
 # structure test holds every script here to that.
 IMPORT_WRITER=0
 # A holding's last pushed head (Decision 9; PRD R17) lives beside its row in
-# record/holdings and never in a body: every Holdings write
+# record/holdings and never in the state a reader is handed: every Holdings write
 # carries each row's value forward by Worker, and only state-write.sh
 # --pushed-head, which state-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
 # with CORE_PUSHED_TOPIC and CORE_PUSHED_HEAD, 40 hex or empty to clear it).
@@ -270,7 +271,7 @@ core_write_session() {
 core_write_host() {
     local s=${RS_SESSION:-$SESSION} d
     [ -n "$s" ] || lib_die2 "record/host needs the run's session"
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-host.XXXXXX") || lib_die2 "mktemp failed"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-host.XXXXXX") || lib_die2 "mktemp failed"
     rs_key "$s" record/meta "$d/meta"
     case $? in
         0) ;;
@@ -284,11 +285,11 @@ core_write_host() {
 
 # core_write_pushed: set one holding's pushed head (CORE_PUSHED_TOPIC,
 # CORE_PUSHED_HEAD: 40 hex, or empty to clear it) by rewriting record/holdings
-# alone, the one key that keeps it. The head has no column in the body, so the
-# body, its written time and every other key stay as they are, and none of the
-# body checks apply: no live re-read, render, parse back or visibility read
+# alone, the one key that keeps it. The head is no field of the state, so the
+# state, its written time and every other key stay as they are, and none of the
+# state's checks apply: no live re-read, validation or visibility read
 # (shirabe#1094, #1095). Only state-write.sh calls it, for --pushed-head with
-# no body. One key replaced whole is never seen half written, so the write
+# no state file. One key replaced whole is never seen half written, so the write
 # needs no pending mark. Exits 65 on a malformed head or a topic no holding
 # has; 10 when the run has no found record or the session holds none; 11 when
 # the write fails; 2 when a read fails. Prints the session holding the record.
@@ -296,7 +297,7 @@ core_write_pushed() {
     local s=${RS_SESSION:-$SESSION} d
     [[ $CORE_PUSHED_HEAD =~ ^([0-9a-f]{40})?$ ]] || { echo "$PROG: refused: a pushed head is 40 hex, or empty to clear it" >&2; exit 65; }
     lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-pushed.XXXXXX") || lib_die2 "mktemp failed"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-pushed.XXXXXX") || lib_die2 "mktemp failed"
     rs_key "$s" record/holdings "$d/holdings"
     case $? in
         0) ;;
@@ -328,7 +329,8 @@ core_write_pushed() {
 # core_write_rotation <key> <json-file>: a discipline rotation's own key,
 # record/rotation (its window, host and predecessor) or record/reasoning (what
 # it leaves the next rotation), written whole. They describe the rotation, not
-# its tables, so they are no section and the record's body never carries them.
+# its rows, so they are no section and the state a reader is handed never
+# carries them.
 # Only state-stored-set.sh writes them, with STATE_WRITER=1 (the structure test
 # holds it there); the caller has checked the value. Exits 65 refused (not the
 # state writer, another key, or not discipline scope); 10 the session holds no
@@ -339,7 +341,7 @@ core_write_rotation() {
     [ "$STATE_WRITER" = 1 ] || { echo "$PROG: refused: $key changes only through state-stored-set.sh" >&2; exit 65; }
     [ "$SCOPE" = discipline ] || { echo "$PROG: refused: $key belongs to a discipline rotation" >&2; exit 65; }
     [ -n "$s" ] || lib_die2 "$key needs the run's session"
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-rotation.XXXXXX") || lib_die2 "mktemp failed"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-rotation.XXXXXX") || lib_die2 "mktemp failed"
     rs_key "$s" record/meta "$d/meta"
     case $? in
         0) ;;
@@ -370,7 +372,7 @@ core_write_rotation() {
 # write failed; 2 a read failed.
 core_carry() {
     local from=$1 to=$2 d k rc secs
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-carry.XXXXXX") || lib_die2 "mktemp failed"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-carry.XXXXXX") || lib_die2 "mktemp failed"
     rs_session_read "$d/rec" "$from" "$SCOPE" "$NAME"; rc=$?
     case $rc in
         0) ;;
@@ -493,7 +495,7 @@ core_import_meta() {
 core_import_open() {
     [ "$IMPORT_WRITER" = 1 ] || { echo "$PROG: refused: only the legacy importer imports a record" >&2; exit 65; }
     [ -n "$1" ] || lib_die2 "the import needs the run's session"
-    T=$(mktemp -d "${TMPDIR:-/tmp}/record-import.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    T=$(mktemp -d "${TMPDIR:-/tmp}/state-import.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
     rs_key "$1" record/meta "$T/meta.now"
     case $? in
@@ -553,7 +555,7 @@ core_write() {
     # and not in any other string of the state. A named repository the host can't read
     # (404) can't be shown public, so it is refused too. This finds the
     # repositories the state names and reads each one's visibility; the checks
-    # below refuse a value naming any on the list (the codec's names_repo, the one
+    # below refuse a value naming any on the list (state-schema.jq's names_repo, the one
     # test of whether a cell names a repository, and scan_strings over every string).
     PRIVATE=
     HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"
@@ -561,7 +563,7 @@ core_write() {
         # A cell that holds only a repository (Side effects Target) is read for
         # any owner/repo token. Decisions text is prose, where "and/or" or
         # "CI/CD" is not a repository, so only its unambiguous forms count
-        # there, as the codec's text_named_repos reads them for a record entry
+        # there, as state-schema.jq's text_named_repos reads them for a record entry
         # too: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
         jq -r -L "$HERE" 'include "state-schema";
             def clean: sub("\\.git$"; "") | sub("\\.+$"; "");

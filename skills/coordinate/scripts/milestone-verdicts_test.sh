@@ -350,7 +350,7 @@ echo "== a failure entry alone changes nothing =="
 BODY0=$(body_now)
 failure "$T/alone.txt" MV2 1 "the public name answered 503 for an hour"
 bash "$RA" "${RM[@]}" --kind milestone-failure --on none --text-file "$T/alone.txt" >/dev/null 2>"$T/err"; eq "a failure entry is written on its own" 0 $?
-eq "  ... the record's body is unchanged" "$BODY0" "$(body_now)"
+eq "  ... the record's state is unchanged" "$BODY0" "$(body_now)"
 eq "  ... MV2 still reads Done on main" "Done" "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV2 | jq -r .status)"
 eq "  ... and the picker reads it done, not sent back" "true|null|null" "$(unit_of MV2 | jq -r '"\(.done)|\(.rework)|\(.landed)"')"
 
@@ -432,7 +432,7 @@ BODY0=$(body_now)
 printf 'Verdict: MV3 -- verified\nChecked by: %s\nChecked on: %s\nSource: %s at %s\nWork checked: none\n\nEvidence:\n1. held -- posted with no roadmap edit\n\nStrategy fit: fits -- it is the plugin bet\nFollow-ups: none\nChanges needed: none\n' \
     "$S" "$TODAY" "$ROADMAP" "$SHA_MAIN" > "$T/valone.txt"
 bash "$RA" "${RM[@]}" --kind milestone-verdict --on none --text-file "$T/valone.txt" >/dev/null 2>"$T/err"; eq "a verdict entry is written on its own" 0 $?
-eq "  ... the record's body is unchanged, MV3's verdict still owed" "$BODY0" "$(body_now)"
+eq "  ... the record's state is unchanged, MV3's verdict still owed" "$BODY0" "$(body_now)"
 eq "  ... MV3 is not Done on main and the picker still passes over it" "Not started true" \
     "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV3 | jq -r .status) $(unit_of MV3 | jq -r .verdict_owed)"
 eq "  ... and close-out is still refused" "verdict-owed" "$(closeout)"

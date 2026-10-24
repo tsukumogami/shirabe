@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # state-confirm.sh -- the check action of states record and verified_confirm:
-# is the change the run's last step implies on GitHub yet?
+# is the change the run's last step implies in the record yet?
 #
 # Every spoke that changes what the record must hold returns through `record`,
-# whose gate holds until this script sees the change in the live body. What it
+# whose gate holds until this script sees the change in the live record. What it
 # expects comes from the session log, never from an argument: the source state
 # is the `from` of the latest entry into `record`, and its last evidence (or,
 # for a check state, its own sealed capture) says what should have changed.
-# Every case also needs the record's Written: time to be later than a point in
-# the log, so an older body that happens to match doesn't count. For a step
+# Every case also needs the record's written time to be later than a point in
+# the log, so an older state that happens to match doesn't count. For a step
 # whose directive writes the record before the evidence that closes it, the
 # point is when the step became due (step_start, and the case pattern that
 # calls it is the list): the latest entry, before the step's evidence, into
@@ -95,8 +95,8 @@
 # repository is the one in that row's full Pull request URL.
 #
 # Verdict tokens: confirmed | waiting (no route: the state stays blocked until
-# the coordinator writes the record and ticks) | conflict (the body is missing
-# or not canonical, or the log gives nothing to confirm) | moved (--verified) |
+# the coordinator writes the record and ticks) | conflict (the record is
+# missing or doesn't read back, or the log gives nothing to confirm) | moved (--verified) |
 # directed (the run has a `koto next --to`).
 #
 # Usage:
@@ -207,7 +207,7 @@ entry() {
 # written at verified_confirm, a decision is recorded before it's even ticked
 # at the hub), so a gate on the evidence's time can only be passed by
 # rewriting the record with no change. Anything written since the step became
-# due belongs to it; a body from before that doesn't count.
+# due belongs to it; a state from before that doesn't count.
 step_start() {
     local st e best= bseq=-1
     for st in wait record_find "$1"; do

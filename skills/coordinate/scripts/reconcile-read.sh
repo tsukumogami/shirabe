@@ -173,15 +173,14 @@ fi
 jq -c --arg repo "$REPO" --argjson reasoning "$REASONING" --argjson import "$IMPORT" '
     def labelled($rows; $src): [$rows[] | {row: ., source: $src}];
     # Every string that leaves this script is free of control characters
-    # other than the newline and tab a cell may hold (the codec writes a
-    # newline as <br>).
+    # other than the newline and tab a text field may hold.
     def clean: if type == "string" then gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "")
                elif type == "object" then map_values(clean)
                elif type == "array" then map(clean) else . end;
     clean
     | ((.written // "") | gsub("^\\s+|\\s+$"; "")) as $wr
     | ($wr | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) as $wok
-    | .unparseable += (if $wok then [] else [{raw: $wr, reason: "the Written: line is not YYYY-MM-DDTHH:MM:SSZ"}] end)
+    | .unparseable += (if $wok then [] else [{raw: $wr, reason: "the written time is not YYYY-MM-DDTHH:MM:SSZ"}] end)
     | {status: "found",
        scope: {kind: .scope.kind, name: .scope.name, repo: $repo},
        record: {written: (if $wok then $wr else null end), source: "record", handoff_date: null,

@@ -88,8 +88,8 @@ bash "$RS" "${W[@]}" --standing pause --on all --until lifted --what "all lanes,
 eq "a pause told directly has no relayer" "s2 []" "$(live | jq -r '.standing[1] | "\(.standing) [\(.relayed_by)]"')"
 eq "  ... and keeps its scope and condition" "all lifted" "$(live | jq -r '.standing[1] | "\(.on) \(.until)"')"
 bash "$RS" "${W[@]}" --standing pause --what x --owner y >/dev/null 2>"$T/err"; eq "a pause with no --on or --until is usage" 64 $?
-bash "$RS" "${W[@]}" --standing pause --on everything --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a scope that is no unit is refused by the codec" 65 $?
-bash "$RS" "${W[@]}" --standing pause --on all --until "tomorrow at ten" --what x --owner y >/dev/null 2>"$T/err"; eq "a condition outside the grammar is refused by the codec" 65 $?
+bash "$RS" "${W[@]}" --standing pause --on everything --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a scope that is no unit is refused by state-schema.jq" 65 $?
+bash "$RS" "${W[@]}" --standing pause --on all --until "tomorrow at ten" --what x --owner y >/dev/null 2>"$T/err"; eq "a condition outside the grammar is refused by state-schema.jq" 65 $?
 bash "$RS" "${W[@]}" --standing pause --on "acme/secret#4" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a scope naming a private repository is refused" 65 $?
 bash "$RS" "${W[@]}" --standing go-ahead --on "Feature 2" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a go-ahead with an --until is usage" 64 $?
 bash "$RS" "${W[@]}" --standing answer --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "an answer with an --on is usage" 64 $?
@@ -259,7 +259,7 @@ echo "== a temporary file that can't be made (the #922 shape, found in #924's sw
 # `rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"` removed .one from the caller's
 # directory.
 mkdir -p "$T/mkt-bin" "$T/mkt-cwd"
-printf '#!/bin/sh\ncase "$*" in *record-state-leaving*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v mktemp)" > "$T/mkt-bin/mktemp"
+printf '#!/bin/sh\ncase "$*" in *state-stored-set-leaving*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v mktemp)" > "$T/mkt-bin/mktemp"
 chmod +x "$T/mkt-bin/mktemp"
 printf 'keep\n' > "$T/mkt-cwd/.one"
 BEFORE=$(live | jq -c '.run')
@@ -292,7 +292,7 @@ entries | jq -e 'any(.[]; .kind == "assignment" and (.text | test("\\(assignment
     && ok "  ... and told as an assignment entry" || bad "  ... and told as an assignment entry" "$(entries | jq -c 'map(.text)')"
 bash "$RS" "${W[@]}" --standing assignment --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment with no --on is usage" 64 $?
 bash "$RS" "${W[@]}" --standing assignment --on "#12" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment with an --until is usage" 64 $?
-bash "$RS" "${W[@]}" --standing assignment --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "a roadmap feature isn't assigned work: refused by the codec" 65 $?
+bash "$RS" "${W[@]}" --standing assignment --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "a roadmap feature isn't assigned work: refused by state-schema.jq" 65 $?
 bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment naming a private repository is refused" 65 $?
 
 echo "== the handover read =="

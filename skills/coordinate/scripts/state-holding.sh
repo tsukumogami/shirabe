@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # state-holding.sh -- add, update or read one Holdings row by its dispatch
 # topic. Agent-run; the dispatch path and reconcile change holding rows only
-# through this script, so a row is never hand-edited into the body.
+# through this script, so a row is never hand-edited into the record.
 #
 # Usage:
 #   state-holding.sh --session S --topic T --row-file F    write the row

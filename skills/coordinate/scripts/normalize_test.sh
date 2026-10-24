@@ -85,7 +85,7 @@ done
 # Every golden file is a case's: none is left over from a case since removed.
 for f in "$G"/*.json; do
     n=$(basename "$f" .json)
-    printf '%s\n' $CASES | grep -qxF "$n" || bad "testdata/normalize/$n.json belongs to a case" "no case is named $n"
+    case " $(echo $CASES) " in *" $n "*) ;; *) bad "testdata/normalize/$n.json belongs to a case" "no case is named $n" ;; esac
 done
 
 done_tests normalize_test

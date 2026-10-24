@@ -53,7 +53,7 @@ eq "  ... finishing record/meta" false "$(key "$SP" record/meta | jq -r .pending
 eq "  ... and removing the key the unfinished seed left" "" "$(key "$SP" record/holds)"
 S2=coordinate-roadmap-plugin-system-20260926T072000Z
 printf '%s' "$(record_json roadmap other)" > "$T/other.json"
-RS_SESSION=$S2 bash "$O" "${RM[@]}" --body-file "$T/other.json" >/dev/null 2>&1; eq "--body-file is a usage error: the opener builds the record" 64 $?
+RS_SESSION=$S2 bash "$O" "${RM[@]}" --body-file "$T/other.json" >/dev/null 2>&1; eq "--body-file, a retired flag, is a usage error: the opener builds the record" 64 $?
 RS_SESSION=$S2 bash "$O" "${RM[@]}" --state-file "$T/other.json" >/dev/null 2>&1; eq "  ... and so is --state-file" 64 $?
 eq "  ... and neither wrote anything" none "$(session_snapshot "$S2")"
 RS_SESSION=$S2 bash "$O" "${RM[@]}" --start 2026-09-26 --end 2026-09-27 >/dev/null 2>&1; eq "dates at roadmap scope are a usage error" 64 $?
@@ -83,7 +83,7 @@ eq "an impossible date is a usage error" 64 $?
 RS_SESSION=$S3 bash "$O" "${DS[@]}" >/dev/null 2>&1
 eq "a rotation without its dates is a usage error" 64 $?
 RS_SESSION=$S3 bash "$O" "${DS[@]}" --start 2026-09-26 --end 2026-10-03 --body-file "$T/x" >/dev/null 2>&1
-eq "--body-file is a usage error at discipline scope too" 64 $?
+eq "--body-file, a retired flag, is a usage error at discipline scope too" 64 $?
 
 echo "== session checks =="
 db_init

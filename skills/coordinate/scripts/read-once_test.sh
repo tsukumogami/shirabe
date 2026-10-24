@@ -173,9 +173,9 @@ EL=$(( $(now) - T0 ))
 eq "the pass's three reads of it, the record and two holdings, make one assembly (they made three)" "0 found 0 0 1" \
     "$RR_RC $(jq -r .status "$T/rr.json") $H3 $H9 $(assemblies "$SB")"
 [ "$EL" -lt 12 ] && ok "  ... all three inside the pass's 12 s (${EL}s)" || bad "  ... all three inside the pass's 12 s" "${EL}s"
-# One assembly at 0.1 s a call takes over a second, so a 1-second deadline
-# always fires.
-RECONCILE_READ_DEADLINE=1 bash "$RR" --session "$SB" > "$T/rt.json" 2>/dev/null; RC=$?
+# An assembly makes at least three koto calls; at 0.5 s a call it takes over
+# a second however fast the host, so a 1-second deadline always fires.
+KOTO_CALL_DELAY=0.5 RECONCILE_READ_DEADLINE=1 bash "$RR" --session "$SB" > "$T/rt.json" 2>/dev/null; RC=$?
 eq "a read past its deadline still names the record read" '5 reading the record timed out' "$RC $(jq -r .reason "$T/rt.json")"
 
 session_snapshot "$SB" | grep -v '^./holdings ' > "$T/snap.before"

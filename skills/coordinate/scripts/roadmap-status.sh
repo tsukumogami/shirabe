@@ -177,13 +177,13 @@
 # a milestone row also removes TAG's verdict-owed
 # and rework Work rows. Confirming a `milestone-reopen` row writes a rework
 # Work row for TAG (Who `failure <comment id>`) whose Next step is
-# `Evidence clause <n> failed: <what was seen>`, cut to the codec's 600
+# `Evidence clause <n> failed: <what was seen>`, cut to state-schema.jq's 600
 # bytes (rework_cap). Confirming a `milestone-verdict` (changes needed)
 # row re-reads its entry, which must still hash to its Progress line's
 # hash8, and writes a rework Work row for TAG (Who `verdict <comment id>`)
 # whose Next step is the rework text: `Evidence clauses not held: <n, n>.`,
 # `The work does not fit the strategy.` when it doesn't, and `Changes
-# needed: <the line>`, one paragraph the codec holds to 600 bytes with no URL
+# needed: <the line>`, one paragraph state-schema.jq holds to 600 bytes with no URL
 # or link. pick-facts.sh reports it, render-brief.sh quotes it into the
 # milestone's next brief, and dispatch-worker.sh removes it once a worker is
 # dispatched. While the default branch doesn't show it: exit 1, nothing
@@ -780,7 +780,7 @@ follow_ups_apply() {
         done < "$WD/fu-plan.tsv"
     fi
 }
-# rework_problem_of <text>: why the codec would refuse TEXT as a rework row's
+# rework_problem_of <text>: why state-schema.jq would refuse TEXT as a rework row's
 # Next step (its closed shape, or text a public record never carries), or
 # nothing.
 rework_problem_of() {
@@ -788,7 +788,7 @@ rework_problem_of() {
 }
 # failure_rework_of <entry>: the rework text a confirmed reopen leaves for the
 # milestone's next brief, `Evidence clause <n> failed: <what was seen>`, cut
-# to the codec's 600 bytes (rework_cap): What was seen may be 600 bytes
+# to state-schema.jq's 600 bytes (rework_cap): What was seen may be 600 bytes
 # itself, and the prefix would put the whole over. render-brief.sh picks its
 # failure wording on that prefix, so the two change together.
 failure_rework_of() {

@@ -103,7 +103,7 @@
 #   dc_rp_from_row <cell> / dc_rp_to_row <return-path>
 #       A return path is `message` or `<request-id>:<leg>` inside these
 #       scripts, and `message` or `leg <request-id>:<leg>` in the record's
-#       Return path cell, the record codec's form. These convert between
+#       Return path cell, state-schema.jq's form. These convert between
 #       the two; every read and write of a single cell goes through them
 #       (wait-target.sh's jq filter over the whole list reads the same form).
 #

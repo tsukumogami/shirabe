@@ -37,8 +37,8 @@
 # another number than the one sealed) or because state-holding.sh refused the
 # write (no found record, provenance, a directed transition); 65 the pull
 # request was refused (the reason on stderr); 11 the write failed and 12 the
-# record changed since the read (run it again for either); 13 the record is
-# full; 2 a read failed (run it again); 64 usage. Every refusal names its
+# record changed since the read (run it again for either); 2 a read failed
+# (run it again); 64 usage. Every refusal names its
 # reason on stderr.
 #
 # GitHub reads: state-holding.sh --list;

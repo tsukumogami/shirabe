@@ -406,7 +406,7 @@ def changes_of($written):
                 else {status: $in.reasoning, key: (if $in.reasoning == "present" then "reconcile/reasoning.md" else null end)} end),
     # the report as a whole says which scope the phase marks are counted in
     not_verified: (
-      [$in.unparseable[]? | {what: "unparseable record row", reason: (.reason // ""), raw: (.raw // "")}]
+      [$in.unparseable[]? | {what: "unreadable record value", reason: (.reason // ""), raw: (.raw // "")}]
       + [$in.holdings[]? | select(.refused != null) | {what: ("holding " + topic), topic: topic, reason: ("refused: " + .refused), raw: null}]
       + [$in.holdings[]? | topic as $t | (.facts // [])[] | select(.status != "ok")
           | {what: ($t + ": " + .kind), topic: $t, reason: (.reason // "read failed"), raw: null}]

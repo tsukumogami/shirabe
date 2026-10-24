@@ -150,7 +150,7 @@ rs_session_state() {
             rs_key "$s" record/meta "$out.m1"
             case $? in
                 0) ;;
-                1) echo "${PROG:-record-source}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
+                1) echo "${PROG:-state-read}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
                 *) cat "$out.m1.err" >> "$out.err"; return 2 ;;
             esac
         fi
@@ -178,7 +178,7 @@ rs_session_state() {
         rs_assemble "$out.m1" "$out.sec" > "$out" 2>> "$out.err" || return 2
         return 0
     done
-    echo "${PROG:-record-source}: record-changed: session $s's record was still being written after three re-reads" >> "$out.err"
+    echo "${PROG:-state-read}: record-changed: session $s's record was still being written after three re-reads" >> "$out.err"
     return 12
 }
 
@@ -192,18 +192,19 @@ rs_session_state() {
 rs_session_read() {
     local out=$1 s=$2 scope=$3 name=$4 rc
     : > "$out.err"
-    [ -n "$s" ] || { echo "${PROG:-record-source}: the session store needs the run's session" >> "$out.err"; return 2; }
+    [ -n "$s" ] || { echo "${PROG:-state-read}: the session store needs the run's session" >> "$out.err"; return 2; }
     rs_session_state "$s" "$out.state"; rc=$?
     cat "$out.state.err" >> "$out.err"
     [ $rc -eq 0 ] || return $rc
     if [ "$(jq -c '.scope' "$out.state")" != "$(jq -nc --arg k "$scope" --arg n "$name" '{kind: $k, name: $n}')" ]; then
-        echo "${PROG:-record-source}: session $s's record/meta is for another scope than $scope:$name" >> "$out.err"
+        echo "${PROG:-state-read}: session $s's record/meta is for another scope than $scope:$name" >> "$out.err"
         return 65
     fi
     # A holding's last pushed head (PRD R17) is kept beside its row: 40 hex or
-    # empty, never rendered. It is read into <out>.pushed, {worker topic: sha}.
+    # empty, never part of the state. It is read into <out>.pushed, {worker
+    # topic: sha}.
     if ! jq -e '[(.holdings // [])[] | (.pushed_head // "")] | all(type == "string" and test("^([0-9a-f]{40})?$"))' "$out.state" > /dev/null 2>> "$out.err"; then
-        echo "${PROG:-record-source}: session $s's record/holdings holds a pushed_head that isn't 40 hex" >> "$out.err"
+        echo "${PROG:-state-read}: session $s's record/holdings holds a pushed_head that isn't 40 hex" >> "$out.err"
         return 65
     fi
     jq '[(.holdings // [])[] | select((.pushed_head // "") != "") | {(.worker): .pushed_head}] | add // {}' "$out.state" > "$out.pushed" || return 2
@@ -211,7 +212,7 @@ rs_session_read() {
             if has("holdings") then .holdings |= map(del(.pushed_head)) else . end | normalize_state([])' \
             "$out.state" > "$out" 2> "$out.check"; then
         grep -q 'refused: ' "$out.check" || { cat "$out.check" >> "$out.err"; return 2; }
-        echo "${PROG:-record-source}: session $s's record doesn't read back: $(sed -n 's/.*refused: //p' "$out.check" | head -1)" >> "$out.err"
+        echo "${PROG:-state-read}: session $s's record doesn't read back: $(sed -n 's/.*refused: //p' "$out.check" | head -1)" >> "$out.err"
         return 65
     fi
 }
