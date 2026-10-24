@@ -30,7 +30,8 @@
 # write; under this stub nothing is written inside it, and the empty
 # directories this suite's owners left are removed at exit (CT_SHARED_OWNERS).
 #
-# A suite that drives the real koto (rm -f "$CT_BIN/koto") calls
+# Sourcing stops the suite (exit 1) unless the koto on PATH is the stub. A
+# suite that drives the real koto (rm -f "$CT_BIN/koto") calls
 # ct_real_koto_guard before its first koto command.
 #
 # Callers set SCRIPT_DIR (this directory) before sourcing, and define nothing
@@ -179,6 +180,15 @@ STUB
 chmod +x "$CT_BIN/shirabe"
 export PATH="$CT_BIN:$PATH"
 unset SHIRABE_BIN
+# The koto on PATH must be the stub until a suite removes it on purpose: the
+# scripts under test write sessions, and a real koto would write them to a
+# real store. Every stub suite stops here, before its first case, when it
+# isn't; a suite that drives the real koto removes the stub after sourcing
+# this file and calls ct_real_koto_guard instead.
+if [ "$(command -v koto)" != "$CT_BIN/koto" ]; then
+    echo "FAIL: the koto on PATH is not the context stub at $CT_BIN/koto; no case ran" >&2
+    exit 1
+fi
 export EVAL_SCENARIO=coord-test
 export MERGE_CONFIRM_WAIT_SECS=0
 
