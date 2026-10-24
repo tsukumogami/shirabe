@@ -50,11 +50,12 @@
 #     capture_unset)
 #   REVIEW_FLOOR and REVIEW_CEILING are optional, carry the level pattern
 #     ^(light|standard|full)?$ and are rebind, as MERGE is
-#   the spawn's jq, taken from spawn_and_await's directive with the two
+#   the spawn's jq, taken from spawn_and_await's directive with the
 #     variables written in as koto renders them, builds tasks that each carry
-#     REVIEW_FLOOR and REVIEW_CEILING when they are set, and exactly the tasks
-#     it built before (SHARED_BRANCH and PLUGIN_ROOT added, nothing else) when
-#     they are empty; one set and one empty adds only the set one
+#     the run's PLAN_DOC, and REVIEW_FLOOR and REVIEW_CEILING when they are
+#     set, and exactly the tasks it built before (SHARED_BRANCH, PLUGIN_ROOT
+#     and PLAN_DOC added, nothing else) when they are empty; one set and one
+#     empty adds only the set one
 #   VERIFICATION (local by default, or hosted-ci) and
 #     VERIFICATION_DEFERRAL_REASON are optional and not rebind, as in
 #     work-on.md; the spawn gives every child task both when VERIFICATION is
@@ -185,9 +186,9 @@ done
 
 # --- the tasks the spawn builds --------------------------------------------------
 #
-# The spawn's jq line is read from the compiled directive, the two bound
-# variables are written in the way koto renders {{VAR}} (empty when unset), and
-# the line is run on a task array of plan-to-tasks.sh's shape.
+# The spawn's jq line is read from the compiled directive, the PLAN path and
+# the bound variables are written in the way koto renders {{VAR}} (empty when
+# unset), and the line is run on a task array of plan-to-tasks.sh's shape.
 
 SPAWN_LINE=$(jq -r '.states.spawn_and_await.directive' "$SHIPPED" | grep '^TASKS_WITH_BRANCH=')
 if [ "$(printf '%s\n' "$SPAWN_LINE" | grep -c .)" -ne 1 ]; then
@@ -201,7 +202,8 @@ FIXTURE_TASKS='[{"name":"a","vars":{"ISSUE_SOURCE":"plan_outline","ARTIFACT_PREF
 # given, as koto renders an unset variable with a default.
 spawn_tasks() {
     local line
-    line=$(printf '%s' "$SPAWN_LINE" | sed -e "s/{{REVIEW_FLOOR}}/$1/g" -e "s/{{REVIEW_CEILING}}/$2/g" \
+    line=$(printf '%s' "$SPAWN_LINE" | sed -e "s|{{PLAN_DOC}}|docs/plans/PLAN-x.md|g" \
+        -e "s/{{REVIEW_FLOOR}}/$1/g" -e "s/{{REVIEW_CEILING}}/$2/g" \
         -e "s/{{VERIFICATION}}/${3:-local}/g" -e "s/{{VERIFICATION_DEFERRAL_REASON}}/${4:-}/g")
     TASKS="$FIXTURE_TASKS" SETTLED_BRANCH=impl/x CLAUDE_PLUGIN_ROOT=/plugin \
         bash -c "$line"' && printf "%s" "$TASKS_WITH_BRANCH"'
@@ -209,11 +211,15 @@ spawn_tasks() {
 spawn_eq() { # spawn_eq <label> <want> <got>
     if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: want [$2], got [$3]"; fi
 }
+# Every child's plan_validation reads its step from PLAN_DOC, and step_detail
+# refuses a child without one (#1160), so every task carries the run's path.
+GOT=$(spawn_tasks "" "" | jq -c '[.[] | .vars.PLAN_DOC]')
+spawn_eq "every child task carries the run's PLAN_DOC" '["docs/plans/PLAN-x.md","docs/plans/PLAN-x.md"]' "$GOT"
 GOT=$(spawn_tasks standard full | jq -c '[.[] | [.vars.REVIEW_FLOOR, .vars.REVIEW_CEILING]]')
 spawn_eq "a bound run: every child task carries REVIEW_FLOOR and REVIEW_CEILING" \
     '[["standard","full"],["standard","full"]]' "$GOT"
 GOT=$(spawn_tasks "" "" | jq -c '.')
-WANT=$(printf '%s' "$FIXTURE_TASKS" | jq -c '[.[] | .vars.SHARED_BRANCH = "impl/x" | .vars.PLUGIN_ROOT = "/plugin"]')
+WANT=$(printf '%s' "$FIXTURE_TASKS" | jq -c '[.[] | .vars.SHARED_BRANCH = "impl/x" | .vars.PLUGIN_ROOT = "/plugin" | .vars.PLAN_DOC = "docs/plans/PLAN-x.md"]')
 spawn_eq "an unbounded run: the tasks are exactly the ones built before the bound existed" "$WANT" "$GOT"
 GOT=$(spawn_tasks light "" | jq -c '[.[] | .vars | [has("REVIEW_FLOOR"), has("REVIEW_CEILING"), .REVIEW_FLOOR]]')
 spawn_eq "a floor without a ceiling: only REVIEW_FLOOR is set" '[[true,false,"light"],[true,false,"light"]]' "$GOT"
