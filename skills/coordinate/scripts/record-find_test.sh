@@ -4,8 +4,8 @@
 #
 # Covers, at roadmap scope: a session holding a canonical record (with and
 # without a Decisions section) is found; one declared for another roadmap is
-# malformed; a state the codec refuses or a key that isn't JSON is a failed
-# read (exit 2); a session holding no record is none, unless another session
+# malformed; a state that breaks a rule of the schema is malformed too, and a
+# key that isn't JSON is a failed read (exit 2); a session holding no record is none, unless another session
 # of the scope on this host holds one, which is malformed (session-absent), a
 # stop rather than a second record. At discipline scope a run holding no record
 # with no earlier rotation is first (discipline-session_test.sh covers the
@@ -42,7 +42,9 @@ eq "a record declared for another roadmap is malformed" malformed "$(find_rm)"
 grep -q "another scope" "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
 seed_session "$S" "$(record_json roadmap plugin-system)"
 printf '[{"unit": "Feature 2"}]' > "$KOTO_STORE/context/$S/record/holdings"
-find_rm > /dev/null; eq "a section the codec refuses is a failed read" 2 $?
+eq "a section that breaks a rule of the state's schema is malformed" malformed "$(find_rm)"
+cat "$T/err" > "$T/err.rule"
+grep -q "doesn't read back" "$T/err.rule" && ok "  ... naming that the record doesn't read back" || bad "  ... naming that the record doesn't read back" "$(cat "$T/err.rule")"
 printf 'not json' > "$KOTO_STORE/context/$S/record/holdings"
 find_rm > /dev/null; eq "a section that isn't JSON is a failed read" 2 $?
 

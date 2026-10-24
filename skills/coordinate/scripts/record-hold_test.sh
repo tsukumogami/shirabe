@@ -73,18 +73,18 @@ eq "the lift is told too" "hold|Hold go-signal lifted by the human." \
 
 echo "== the section has one writer =="
 W=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
-# A whole-body write through record-write.sh that drops a hold, or lifts one.
+# A whole-state write through record-write.sh that drops a hold, or lifts one.
 live > "$T/now.json"
 jq -c 'del(.written) | .holds |= map(select(.hold != "after-346"))' "$T/now.json" > "$T/drop.json"
-bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/drop.json" > "$T/drop.md"
-bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/drop.md" >/dev/null 2>"$T/err"; eq "another writer dropping a hold is refused" 65 $?
+state_json "$(cat "$T/drop.json")" "$(jq -r .written "$T/now.json")" > "$T/drop.state"
+bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/drop.state" >/dev/null 2>"$T/err"; eq "another writer dropping a hold is refused" 65 $?
 grep -q 'only through record-hold.sh' "$T/err" && ok "  ... naming the one writer" || bad "  ... naming the one writer" "$(cat "$T/err")"
 jq -c 'del(.written) | .holds |= map(if .hold == "tagged" then .set_by = "someone else" else . end)' "$T/now.json" > "$T/edit.json"
-bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/edit.json" > "$T/edit.md"
-bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/edit.md" >/dev/null 2>"$T/err"; eq "another writer changing a hold is refused" 65 $?
+state_json "$(cat "$T/edit.json")" "$(jq -r .written "$T/now.json")" > "$T/edit.state"
+bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "another writer changing a hold is refused" 65 $?
 jq -c 'del(.written)' "$T/now.json" > "$T/same.json"
-bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/same.json" > "$T/same.md"
-bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/same.md" >/dev/null 2>"$T/err"; eq "another writer carrying the holds as they are is fine" 0 $?
+state_json "$(cat "$T/same.json")" "$(jq -r .written "$T/now.json")" > "$T/same.state"
+bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/same.state" >/dev/null 2>"$T/err"; eq "another writer carrying the holds as they are is fine" 0 $?
 eq "  ... and every hold is still there" 3 "$(live | jq '.holds | length')"
 
 echo "== a public host and a private repository =="

@@ -17,7 +17,7 @@
 # coordinator escalations and withdrawals; --carry from the predecessor
 # session record/rotation names, before and after the first dispatch, and
 # refused for a rotation that names none; compaction; a line break in an item;
-# the section kept in the run's session's record/decisions, an entry moving
+# a write to a record past 60,000 bytes (there is no size budget); the section kept in the run's session's record/decisions, an entry moving
 # from proposed to coordinator-verdict to settled there, with nothing written
 # on GitHub.
 #
@@ -420,17 +420,18 @@ setup "[]" 1
 listed '[{"index":1,"kind":"question","text":"x (decision 7)?","source":"worker w1","addressed":false,"cite":7}]'
 printf '%s' '{"1":{"question":"the cap"}}' > "$T/cite7.json"
 refused "--open-from-report: an item citing an entry the record lacks is refused" --open-from-report --text-file "$T/cite7.json"
-# A record already past the budget is record-full to a write, not unreadable.
-# Its keys are written straight into the session: no render could hold it.
+# A record of 80 long entries, past the 60,000 bytes the old budget allowed, is
+# written like any other: there is no size budget.
 setup "[$(E 1 proposed)]"
 PADQ=; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do PADQ="$PADQ the migration and the format ship together"; done
 BIG=$(E 1 proposed); i=2
 while [ "$i" -le 80 ]; do BIG="$BIG, $(E "$i" settled "{outcome: \"wait; reason: r\", decided_by: \"a person\", owed: \"reply\", question: \"Q$i$PADQ?\"}")"; i=$((i + 1)); done
-record_json roadmap feat | jq -c --argjson e "[$BIG]" '.decisions = {next: 90, entries: $e} | .written = "2026-09-26T09:00:00Z"' > "$T/big.json"
-rm -rf "$KOTO_STORE/context/$S/record"; session_keys "$S" "$T/big.json"
+seed_session "$S" "$(record_json roadmap feat | jq -c --argjson e "[$BIG]" '.decisions = {next: 90, entries: $e}')"
+[ "$(session_state "$S" | wc -c)" -gt 60000 ] && ok "the fixture record is past 60,000 bytes" || bad "the fixture record is past 60,000 bytes" "$(session_state "$S" | wc -c) bytes"
 route "take 1" decision_take
 rd --take
-eq "a write to a record past the budget is record-full" 13 "$RC"
+wrote "a write to a record past 60,000 bytes is written"
+eq "  ... the entry taken, the other 79 as they were" "coordinator-verdict|80" "$(f 1 state)|$(sec | jq '.entries | length')"
 
 # A second run replaying the first run's very sequence numbers writes its own.
 setup "[]" 1
