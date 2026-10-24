@@ -32,7 +32,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh gives the GitHub DB helpers, the record renderer and the
+# test-lib.sh gives the GitHub DB helpers, the state_json helper and the
 # ok/bad/eq counters. It also puts testdata/ (the koto stand-in included)
 # first on PATH; these suites need the real koto, so PATH is rebuilt with only
 # the gh stand-in in front, and the stand-in koto's variables are dropped.
@@ -133,7 +133,7 @@ seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the 
 
 # stored <record-json>: the record with a complete stored set, so the
 # reconcile's handover gate passes: the run's arguments and cap, this
-# coordinator's address, and for every live holding a next step and its
+# coordinator's address, who it reports to, and for every live holding a next step and its
 # worker told. The handover cases build theirs by hand.
 stored() {
     printf '%s' "$1" | jq -c '
@@ -141,7 +141,8 @@ stored() {
           | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)]) as $live
         | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
-                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"}]
+                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"},
+                                  {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"}]
                  + [$live[] | {key: "told", value: .worker, set_by: "coord-test", set: "2026-09-26T08:00Z"}])
         | .work = ((.work // []) + [$live[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}])
         | if (.work | length) == 0 then del(.work) else . end'

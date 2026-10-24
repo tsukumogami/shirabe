@@ -161,7 +161,7 @@ import_b() { # import_b <args json>: the opener on host B; output in $T/out, std
     printf '%s' "$1" > "$T/args.json"
     host_on b env KOTO_BIN="$T/koto-shim" bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" > "$T/out" 2>"$T/err"
 }
-imported() { grep -c '^session import' "$T/koto-calls"; }
+imported() { grep -c '^session import [^-]' "$T/koto-calls"; } # the probe's `session import --help` is no import
 RM='docs/roadmaps/ROADMAP-plugin-system.md'
 WS_A=$(host_ws a)
 
