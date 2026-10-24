@@ -21,6 +21,24 @@
 #       shows it, the dispatch prompt carries it, and the holding's mode is
 #       the run_mode and entry_args part of it, so the three can't disagree.
 #
+#   dc_opener <brief-input-file>
+#       Prints, tab-separated, how a message-path worker records the
+#       coordinator run that dispatched it, and the exact command, with
+#       `--dispatched-by <dispatcher_session>` filled in from the input:
+#         open   the entry point's own opener with the flag, run in place of
+#                the open its skill shows: coordinate-open.sh for
+#                /coordinate (`"$ARGS_DIR/args.json"` as its step writes
+#                it), `skill-session.sh open <entry> <topic>` for /explore,
+#                /decision and /release (`<topic>` the one the entry point
+#                derives)
+#         link   link-dispatcher.sh `<session>`, run once the entry point has
+#                opened its session (`<session>` that session), for /scope,
+#                /deliver, /execute and /work-on, whose openers take a
+#                dispatcher only through a request leg
+#       The commands start from "${CLAUDE_PLUGIN_ROOT}", as the skills' own
+#       commands do. Returns 1 when dispatcher_session isn't a koto session
+#       name, which render-brief.sh refuses first.
+#
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
 #       flags), the holding's `mode` cell. The review-level flags stay out of
@@ -328,6 +346,21 @@ dc_invocation() {
         *) inv="$inv --koto-leg=$2" ;;
     esac
     printf '%s\n' "$inv"
+}
+
+dc_opener() {
+    local entry d root='${CLAUDE_PLUGIN_ROOT}'
+    entry=$(jq -r '.entry_point // "" | strings' "$1") || return 2
+    d=$(jq -r '.dispatcher_session // "" | strings' "$1") || return 2
+    { [ "${#d}" -le 200 ] && [[ $d =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } || return 1
+    case "$entry" in
+        coordinate)
+            printf 'open\t"%s/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "%s" --dispatched-by %s "$ARGS_DIR/args.json"\n' "$root" "$root" "$d" ;;
+        explore | decision | release)
+            printf 'open\t"%s/scripts/skill-session.sh" open %s <topic> --dispatched-by %s\n' "$root" "$entry" "$d" ;;
+        *)
+            printf 'link\t"%s/skills/coordinate/scripts/link-dispatcher.sh" <session> --dispatched-by %s\n' "$root" "$d" ;;
+    esac
 }
 
 dc_find_session() {

@@ -37,9 +37,14 @@
 #                                 stops. None may contain "approv" or "wait
 #                                 for": a worker never waits on an approval.
 #   acceptance          required  1+ strings
-#   dispatcher_session  required  the coordinator's koto session name, one
-#                                 line: the run the worker's request leg
-#                                 names as its requester, never an address
+#   dispatcher_session  required  the coordinator's koto session name
+#                                 (^[A-Za-z0-9][A-Za-z0-9._-]*$, at most 200
+#                                 characters): the run the worker's request
+#                                 leg names as its requester, or on the
+#                                 message path the run the worker records as
+#                                 its dispatcher; never an address.
+#                                 dispatch-worker.sh writes it in, the run
+#                                 that renders the brief
 #   reports_to          required  the address the worker messages its
 #                                 reports to: the record's Run `coordinator`
 #                                 address, which dispatch-worker.sh writes
@@ -97,7 +102,15 @@
 #   --return-path     the worker's return path, `<request-id>:<leg>` or
 #                     `message` (the default); a leg adds --koto-leg to the
 #                     invocation the brief shows, so the brief and the
-#                     dispatch prompt name the same command
+#                     dispatch prompt name the same command. On `message`
+#                     the worker has no leg to record its dispatcher, so the
+#                     Goal also names the run as `dispatcher_session: <name>`
+#                     and shows the exact command that records it in the
+#                     worker's own session, `--dispatched-by <name>` filled
+#                     in (dispatch-common.sh dc_opener: the entry point's
+#                     opener, or link-dispatcher.sh), and the Reporting
+#                     section names render-result.sh as the worker's report
+#                     step, whose result carries a link that failed
 #   --stdout          print the brief instead of writing it
 #   --units           the units pick_facts listed (coord/pick.json): the unit
 #                     must be a form pick reads as covering one of them
@@ -188,7 +201,10 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
 ( if (.phase | type) == "string" and (.phase | IN("scoping","scoping-ahead","executing") | not)
   then "phase: must be scoping, scoping-ahead or executing" else empty end ),
 ( if (.dispatcher_session | type) == "string" and (oneline(.dispatcher_session) | not)
-  then "dispatcher_session: must be one line" else empty end ),
+  then "dispatcher_session: must be one line"
+  elif (.dispatcher_session | type) == "string" and (.dispatcher_session | test("\\S"))
+       and (((.dispatcher_session | test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and (.dispatcher_session | length) <= 200) | not)
+  then "dispatcher_session: must be a koto session name, letters, digits, dots, dashes and underscores, at most 200 characters" else empty end ),
 ( if (.unit | type) == "string" and (oneline(.unit) | not)
   then "unit: must be one line" else empty end ),
 ( if ((.entry_args | type) == "array") and ((.entry_args | length) >= 1) and all(.entry_args[]; type == "string")
@@ -384,6 +400,15 @@ fi
 # --- render ---------------------------------------------------------------------
 
 INVOCATION=$(dc_invocation "$INPUT" "$RETURN_PATH") || { printf '%s: jq failed building the invocation\n' "$PROG" >&2; exit 2; }
+# A worker on the message path has no leg to record its dispatcher, so its
+# brief carries the command that does (dispatch-common.sh dc_opener).
+OPENER_KIND=""
+OPENER=""
+if [ "$RETURN_PATH" = message ]; then
+    OPENER=$(dc_opener "$INPUT") || { printf '%s: could not build the opener invocation\n' "$PROG" >&2; exit 2; }
+    OPENER_KIND=${OPENER%%	*}
+    OPENER=${OPENER#*	}
+fi
 
 JQ_RENDER='
 def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n")) else $none end;
@@ -398,6 +423,26 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Run `\($invocation)` in \(.repo).",
   "",
+  ( if $opener_kind == "" then empty else
+      "Your dispatcher is the coordinator run that sent you this brief:",
+      "",
+      "dispatcher_session: \(.dispatcher_session)",
+      "",
+      ( if $opener_kind == "open" then
+          "Record it in your own session: open your session with this command, in place of the open your entry point'"'"'s skill shows (the same command with `--dispatched-by` added):"
+        else
+          "Record it in your own session: once your entry point has opened its session, run this, with `<session>` that session'"'"'s name:"
+        end ),
+      "",
+      "`\($opener)`",
+      "",
+      ( "`${CLAUDE_PLUGIN_ROOT}` is the shirabe plugin root your entry point'"'"'s own commands start from"
+        + ( if .entry_point == "coordinate" then ", and `$ARGS_DIR/args.json` the args file its first step writes"
+            elif ($opener | test("<topic>")) then ", and `<topic>` the topic it derives"
+            else "" end )
+        + ". Run it from the directory your session is opened in. If it prints `warning=link-failed`, go on: your session is open, and your result carries the warning (see Reporting)." ),
+      ""
+    end ),
   ( if (.run_mode | test("\\S")) then "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for."
     else "Run mode: none; `/shirabe:\(.entry_point)` takes no execution mode." end ),
   "",
@@ -463,6 +508,10 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn'"'"'t stand in for it, so keep going to the end.",
   "",
+  ( if $opener_kind == "" then empty else
+      "Your report step: when your entry point finishes, run `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh\" --session <your session>`, adding `--pr <url>` for each pull request you opened, from the directory your session is opened in, and put the block it prints in your final report, just before the `=== WORK IN FLIGHT ===` block. That block is your result; it carries what your session recorded that the coordinator needs, such as a link that failed.",
+      ""
+    end ),
   "A run the account'"'"'s usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.",
   "",
   ( if ((.standing_rules // []) | length) > 0 then
@@ -495,7 +544,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   ]
 | join("\n")
 '
-BRIEF=$(jq -r --arg invocation "$INVOCATION" --arg rework "$REWORK" "$JQ_RENDER" "$INPUT") || { printf '%s: jq failed rendering the brief\n' "$PROG" >&2; exit 2; }
+BRIEF=$(jq -r --arg invocation "$INVOCATION" --arg rework "$REWORK" --arg opener_kind "$OPENER_KIND" --arg opener "$OPENER" "$JQ_RENDER" "$INPUT") || { printf '%s: jq failed rendering the brief\n' "$PROG" >&2; exit 2; }
 
 if [ "$TO_STDOUT" = 1 ]; then
     printf '%s\n' "$BRIEF"

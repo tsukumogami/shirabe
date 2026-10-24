@@ -182,7 +182,7 @@ dispatched_by=coord-parent" "$(koto context get "$SL" session/link-warning)"
 eq "  ... no link written" "" "$(links "$SL")"
 eq "  ... and the run is live" false "$(koto status "$SL" | jq -r .is_terminal)"
 BEFORE=$(sessions)
-for bad in ../x -x "$(printf 'a%.0s' $(seq 1 201))"; do
+for bad in ../x -x "$(head -c 201 /dev/zero | tr '\0' a)"; do
     open_by 0 "$bad" "$RMV2" >/dev/null; rc=$?
     if [ $rc -eq 64 ] && [ "$(sessions)" = "$BEFORE" ] && [ ! -s "$T/links" ]; then pass "--dispatched-by ${bad:0:12} is usage, nothing opened"
     else fail "--dispatched-by ${bad:0:12} is usage, nothing opened" "rc=$rc $(cat "$T/err")"; fi
