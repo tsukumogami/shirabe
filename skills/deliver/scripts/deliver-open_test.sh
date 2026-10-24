@@ -196,6 +196,73 @@ eq "exit 0" 0 "$RC"
 eq "replaced by a fresh session at open_request" open_request "$(state_of t-done)"
 if k status deliver-t-done | jq -e '.result == null' >/dev/null; then ok "the fresh session carries no result"; else bad "the fresh session carries no result"; fi
 
+echo "== a same-origin terminal session its hierarchy holds =="
+# From koto 0.23.0 a finished session another live session names is kept, and
+# the probe's --replace-terminal moves it aside or refuses. The floor job's
+# older koto has neither, so the cases run only where koto does.
+if KOTO_BIN="$REAL_KOTO" KOTO_FLOOR=0.23.0 bash "$REPO/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
+    cat >"$T/peer.md" <<'PEER'
+---
+name: peer
+version: "1.0"
+description: A session that stays live.
+initial_state: wait
+states:
+  wait:
+    accepts:
+      go:
+        type: enum
+        values: [now]
+        required: true
+    transitions:
+      - target: over
+        when:
+          go: now
+  over:
+    terminal: true
+---
+
+## wait
+
+Wait.
+
+## over
+
+Over.
+PEER
+    k init hold-peer --template "$T/peer.md" >/dev/null 2>&1
+    k init deliver-t-held --template "$(tpl)" --var TOPIC=t-held --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
+    k session link deliver-t-held --dispatched-by hold-peer >/dev/null 2>&1
+    to_terminal t-held
+    eq "precondition: the held run is terminal" done_error "$(state_of t-held)"
+    open_deliver '["t-held"]'
+    eq "a held finished run: exit 0" 0 "$RC"
+    has "a held finished run: prints opened=new for the fresh session" "opened=new" "$STDOUT"
+    has "a held finished run: the probe's moved_to is printed" "moved_to=deliver-t-held_r1" "$STDOUT"
+    has "a held finished run: the probe's moved_reason is printed" "moved_reason=" "$STDOUT"
+    eq "a held finished run: session= is still the last line" "session=deliver-t-held" "$(printf '%s\n' "$STDOUT" | tail -1)"
+    eq "a held finished run: the fresh session is at open_request" open_request "$(state_of t-held)"
+    eq "a held finished run: the moved run keeps its terminal" done_error \
+        "$(k status deliver-t-held_r1 2>/dev/null | jq -r '.current_state // "none"')"
+
+    k init deliver-t-busy --template "$(tpl)" --var TOPIC=t-busy --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
+    k session link deliver-t-busy --dispatched-by hold-peer >/dev/null 2>&1
+    k init deliver-t-busy.k --template "$T/peer.md" --parent deliver-t-busy >/dev/null 2>&1
+    to_terminal t-busy
+    open_deliver '["t-busy"]'
+    eq "a held run with live work under it: exit 75" 75 "$RC"
+    has "a held run with live work under it: refused=replace_held_live" "refused=replace_held_live" "$STDOUT"
+    has "a held run with live work under it: the live session is listed" 'live=["deliver-t-busy.k"]' "$STDOUT"
+    has "a held run with live work under it: outcome=error" "outcome=error" "$STDOUT"
+    has "a held run with live work under it: step=deliver:refused" "step=deliver:refused" "$STDOUT"
+    has "a held run with live work under it: /deliver's wording" "/deliver did not replace it" "$STDERR"
+    eq "a held run with live work under it: the finished run is untouched" done_error "$(state_of t-busy)"
+    if grep -q "session cleanup" "$T/koto.argv"; then bad "a held run with live work under it: no cleanup was attempted" "$(cat "$T/koto.argv")"; else ok "a held run with live work under it: no cleanup was attempted"; fi
+    args_gone "a held run with live work under it"
+else
+    echo "SKIP: this koto predates hierarchy retention (0.23.0) -- the held-run cases did not run"
+fi
+
 echo "== a same-named session from another worktree =="
 KDIR="$OTHER" k init deliver-t-away --template "$(tpl)" --var TOPIC=t-away --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
 printf 'theirs' | KDIR="$OTHER" k context add deliver-t-away marker >/dev/null

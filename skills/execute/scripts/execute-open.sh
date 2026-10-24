@@ -160,7 +160,18 @@
 # names a local path; the snapshot's path goes to stderr only. koto's refusal
 # wording goes to stderr, from execute-open-wording.tsv.
 #
-# Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
+# A finished session koto keeps for its hierarchy is moved aside rather than
+# replaced: koto-open.sh's moved_to= and moved_reason= lines follow
+# opened=replaced, the old run stays readable under that name, and the
+# snapshot and run identity above are carried as for any replace, so the moved
+# run and the fresh one share a run_id: the fresh run still owns the PR the
+# moved one opened, and the moved one is finished and looks nothing up. When it
+# can't be moved, koto refuses (replace_held_live, with a live= line, or
+# replace_failed) and nothing is replaced; a snapshot taken for it is kept,
+# and the next open takes a fresh one.
+#
+# Exit codes: koto-open.sh's (0 opened, 2 refused, 74 replace_failed, 75
+# replace_held_live, 127 no koto or jq, koto's
 # own code otherwise), 64 for this script's own refusals (usage, multi-pr,
 # flag-needs-setup, session-busy), or 70 for a run record it could not
 # snapshot or carry.
