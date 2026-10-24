@@ -73,6 +73,36 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
    that stays, while the roadmap skill deletes it. Neither tells a reader where the record
    went.
 
+### Terms
+
+- **Run**: everything one plan's execution does, across however many invocations it takes,
+  identified by its `run_id`.
+- **Invocation**: one start or resume of `/execute`, `/work-on`, `/scope` or `/deliver`,
+  entering through that skill's opener script. A `/work-on` child that `/execute` hands a
+  step to is part of its parent's invocation.
+- **Record root**: the one session a reader starts from for a run. For single-pr and
+  coordinated it's the run's `execute-<topic>` session. For multi-pr it's a plan-level
+  session R6 defines.
+- **Step session**: the `/work-on` session that produced a step's result. When a step was
+  attempted more than once, it's the attempt whose result the run kept. Earlier attempts are
+  superseded.
+- **Index entry**: a store-side record, written by the run, that maps one repository and PR
+  number to the record root that opened or adopted it. The **index sessions** are the
+  sessions holding index entries.
+- **The run's PRs**: every PR the run opened or adopted and recorded, whatever its final
+  state. For single-pr that's the home PR. For coordinated it's each node PR, each follow-up
+  PR (a PR a coordinated run opens for a node after the node's first PR, recorded against
+  that node) and the coordination PR. For multi-pr it's each item's PR.
+- **Evidence-holding session**: a record root, a step session or an index session of a run
+  that reached a qualifying terminal (R11). Nothing else is.
+- **Workflow content**: any of a session name or reference, a `run_id`, the hidden run
+  marker, run lines (`topic=`, `exit=`, `outcome=`, `intent=`, `mode=`, `store=`, `run=`),
+  a PR index or merge-order block, a review-panel table, override or deferral notes, a
+  pointer to a PLAN or ROADMAP file, a workspace path, or a koto, shirabe or niwa command.
+- **Part 2**: the part of a PR body after its single `---` separator, in shirabe's two-part
+  PR body convention (`references/pr-body-conformance.md`). The squash commit takes Part 1
+  only.
+
 ## Goals
 
 - A reader with shirabe, koto and access to the cloud session store gives only a PR's
@@ -80,10 +110,10 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
   produced, from any workspace, weeks after the run's host and instance are gone.
 - That session holds the plan as each step began, each step's proof, each recorded
   departure against its step, and each decision with its actor.
-- A session holding a merged plan's evidence survives every removal koto applies on every
-  host, and the removal says why. Finished sessions holding no such evidence go as today.
-- PRs carry no koto, shirabe or niwa content by default. A repository that opts in gets a
-  session reference, and a run started after the option is turned off writes none.
+- Evidence-holding sessions survive every removal koto applies on every host, and the
+  removal says why. The run's other finished sessions go as today.
+- PRs carry no workflow content by default. A repository that opts in gets a session
+  reference, and an invocation started after the option is turned off writes none.
 - shirabe's documentation states one lifecycle for PLAN and ROADMAP and sends a later reader
   to the run's session.
 
@@ -93,17 +123,21 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
   a single-pr plan merged, I want to give the PR's repository and number and get the session
   that ran the plan and its PR list, so that I can read the step that puzzles me: the plan as
   that step began, its proof, the departure recorded against it and who decided it.
-- **Pruning on a second host.** As an operator on a host sharing the cloud store, I want a
-  prune of finished sessions to keep a merged plan's root and step sessions, naming the pin
-  and its reason, and remove the run's sessions that hold no evidence, so that I never have
-  to look anything up first.
+- **Auditing every step.** As an auditor checking a coordinated plan across two
+  repositories, I want to walk from the record root to each step's session and read its
+  proof, so that I can confirm each step was verified without asking anyone who ran it.
+- **Pruning on a second host.** As an operator on a host sharing the cloud store, I run a
+  prune of finished sessions. The merged plan's record root, step sessions and index
+  sessions remain, each listed as kept by its pin. The run's superseded attempts are
+  removed.
 - **A multi-pr plan's PRs lead to one record.** As a reader starting from the second of a
   multi-pr plan's three PRs, I want to reach the plan's record and from it all three PRs,
   including one that merged after mine, so that the plan mode doesn't decide whether a record
   exists.
 - **Turning the session reference on and off.** As a maintainer, I want to turn on a session
-  reference in my repository's PRs through workspace config, and have a run started after I
-  turn it off write none, so that the default stays clean and the switch means what it says.
+  reference in my repository's PRs through workspace config, and have an invocation started
+  after I turn it off write none, so that the default stays clean and the switch means what
+  it says.
 - **Reading the lifecycle.** As a contributor looking for a merged plan that's no longer in
   `docs/plans/`, I want the plan format reference, the planning skill and the completion step
   to say the PLAN was deleted and to name the lookup that finds its run, so that I'm not sent
@@ -116,235 +150,292 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
 
 ### The lookup
 
-- **R1. PR to record.** A shirabe command takes a repository (`owner/repo`) and a PR number.
-  For a PR a plan run opened or adopted, it prints the address of the plan's record root (the
-  session's workspace and name) and exits 0. For any other PR it says there's no record and
-  exits with a distinct code. A read failure exits with a third code. It never reads the PR's
-  title, body, comments or commits.
-- **R2. Record to every PR.** From the record root, the same tool lists every PR that carried
-  the plan out, as repository and number, none missing and none extra. For single-pr that's
-  the home PR. For coordinated it's each node PR, each follow-up PR and the coordination PR.
-  For multi-pr it's each item's PR, including items that ran after the PR the reader started
-  from.
+- **R1. PR to record.** A shirabe command takes a repository (`owner/repo`) and a PR number,
+  and prints its answer as JSON on stdout. Its exit codes are fixed: 0 when an index entry
+  for the PR exists, printing the record root's address (the workspace it was created in and
+  its session name), the `run_id` and whether the record is complete; 3 when no index entry
+  exists for the PR; 2 when a store read failed; 64 for a malformed repository or PR number.
+  It reads nothing from GitHub: not the PR's title, body, comments, commits or branch.
+- **R2. Record to every PR.** From the record root, the same command lists the run's PRs as
+  repository and number, none missing and none extra, each with the state the run last
+  recorded for it (open, ready, merged or closed). For multi-pr this includes items that ran
+  after the PR the reader started from.
 - **R3. Any workspace, after the instance is gone.** R1 and R2 work from a workspace at any
-  path with no local copy of the run's sessions, using only the cloud store and GitHub. Every
-  read leaves the record where it is: no import, no marker, no write into a run session.
-- **R4. The right run.** When a plan's topic ran more than once, R1 returns the run that
-  opened or adopted the given PR, including a run koto moved aside under a new name at a
-  later same-name replace. The tool confirms the hit by the PR appearing in the record, never
-  by the session name alone.
-- **R5. Who owns the lookup.** The lookup is shirabe's: a shirabe script over koto's session
-  and context commands. Where koto offers no way to do a part of it, that part is a stated
-  requirement on koto, delivered as a separate step in koto, and shirabe's side is built and
-  tested against a stub koto that meets it.
+  path with no local copy of the run's sessions, using only the cloud store. Every read
+  leaves the record as it is: no import, no migration marker, and no write of any kind into
+  a run, step or index session.
+- **R4. The right run.** When a topic ran more than once, R1 returns the run whose index
+  entry names the PR. When more than one run recorded the same PR (a later run adopted it),
+  R1 returns the run that recorded it last and lists the others. A record root koto later
+  moved aside under a new name (`<name>_r<N>`) is still found. The command confirms every
+  hit by the PR appearing in the record root's own list of PRs, and a session whose list
+  doesn't name the PR is never returned.
+- **R5. A partial record says so.** When the record root is found but part of the record
+  isn't (a step session was removed, a run started before this feature, or pins were never
+  set), R1 exits 0 with `complete: false` and names each missing part.
+- **R6. Who owns the lookup, and what it needs from koto.** The lookup is shirabe's: a
+  shirabe script over koto's commands. It needs exactly two things from koto, and uses no
+  other koto surface beyond today's session, context and decision commands:
+  - **K1, the session pin**, as koto#444's PRD specifies it.
+  - **K2, workspace-independent reach**: from any workspace on the same bucket, read a
+    named session another workspace created (its context keys and its decisions) without
+    importing, migrating or writing it; and create, write and read an index session at an
+    address every workspace computes the same way.
+
+  K2 doesn't exist in koto today. It's a koto change, delivered as its own step in koto
+  and pending koto's acceptance. shirabe's side is built and tested against a stub koto that
+  implements K1 as the pin's PRD specifies and K2 as stated here, and nothing else.
 
 ### What the record holds
 
-- **R6. A record root for every plan mode.** Every plan run has one record root session.
-  For single-pr and coordinated it's the run's `execute-<topic>` session. A multi-pr plan
-  gets a plan-level record root that each item's run joins. Reading a multi-pr plan's
-  record never depends on a session that only one item's run could reach.
-- **R7. The plan as each step began.** Before each step is handed to its `/work-on` run,
-  step 1 included and in every mode, the record holds the PLAN as committed at that moment
-  (its text, or the commit it came from plus the text) and the step's own entry, keyed by
-  the step's id.
-- **R8. Each step's proof.** For each step, the record names the session that holds its
-  proof, and that session holds it: the step's summary, verification results, review
-  verdicts and, for the step that merged, the merge outcome. A reader gets from the root to
-  each step's session by name, without koto lineage or local links.
-- **R9. Departures against their step.** Every departure the run records is kept against the
-  step it changed, by step id, with what changed and why. That covers an acceptance criterion
-  marked deviated, an approved deferral, a scope change that sent the step back to analysis,
-  and a later step's entry rewritten before it ran.
-- **R10. Decisions with their actor.** Every decision the run records names who made it:
-  the actor shirabe recorded, an agent session or a person at an approval gate. Until a
-  separate decision-authority display exists, "who" is that recorded actor.
+- **R7. A record root for every plan mode.** Every run has exactly one record root. For a
+  multi-pr plan it's a plan-level session at the K2 address, keyed by repository and topic.
+  The first item run to reach it creates it. Each later item run, on any host, adds its own
+  entry and never rewrites another item's. Two item runs reaching it at once leave one root
+  holding both entries.
+- **R8. The plan as each step began.** Before each step is handed to its step session, step 1
+  included and in every mode, the record holds the PLAN's full text as committed at `HEAD`,
+  the commit's SHA and the step's own entry, keyed by the step's id. Uncommitted edits to the
+  PLAN aren't recorded: a step hands off from committed state.
+- **R9. Each step's proof.** For each step, the record root names the step session by name.
+  That session holds the step's summary (`summary.md`), verification results
+  (`verification_results.json`), review verdicts (`review_results.json`) and the PR it
+  belongs to. The record root holds each of the run's PRs' last recorded state. A reader gets
+  from the root to each step session by name, without koto lineage or local links.
+- **R10. Departures against their step.** Every departure the run records is kept against
+  the step it changed, with these fields: step id, kind, what changed, and why (non-empty).
+  The kinds are an acceptance criterion marked deviated, an approved deferral, a scope change
+  that sent the step back to analysis, and a later step's entry rewritten before it ran.
+- **R11. Decisions with their actor.** Every decision the run records carries a non-empty
+  actor. The actor is `agent:<session or anchor name>` for an agent's decision and `person`
+  for a decision taken at a human approval gate, with the person's GitHub login appended
+  when the gate recorded one. Until a separate decision-authority display exists, "who" is
+  that recorded actor.
 
 ### Keeping the record
 
-- **R11. Pinned through koto's session pin.** When a run reaches a terminal that leaves its
-  PR ready or merged (for multi-pr, each item's run at its own such terminal), shirabe pins,
-  through koto's session pin, the record root, each step's final `/work-on` session and every
-  index session the lookup reads. The pin's reason names the plan's topic and the PR, in a
-  fixed template that passes koto's reason rules (at most 500 characters, no control
-  characters) and holds no free text from the plan.
-- **R12. Only evidence is pinned.** shirabe pins nothing else. A superseded attempt at a
-  step, a session a pause replaced, the scoping chain's sessions, and any other finished
-  session from the same run that holds no merged plan's evidence are removed as they are
-  today.
-- **R13. Retention is koto's.** shirabe adds no retention rule of its own and never unpins.
+- **R12. What gets pinned, and when.** A run reaches a qualifying terminal when every one of
+  its PRs is ready for review or merged: for single-pr, `/execute`'s terminal after the home
+  PR is ready or merged; for coordinated, its terminal after every node, follow-up and
+  coordination PR is ready or merged; for multi-pr, each item run's terminal after its own PR
+  is ready or merged. At a qualifying terminal, shirabe pins through K1 the record root, each
+  step session, and each index session the run wrote. A multi-pr item pins the plan-level
+  root (a repeat pin is a no-op), its own step session and its index session, and leaves
+  every earlier item's pins as they are. Pinning happens after the run's last tick that could
+  respawn a child.
+- **R13. The pin's reason.** Each reason comes from one fixed template over the topic, the
+  repository and the PR number. It holds at most 500 characters and no control characters,
+  and it carries no free text from the plan. A topic long enough to push it past 500 is
+  truncated to fit.
+- **R14. Only evidence is pinned.** shirabe pins nothing but evidence-holding sessions. A
+  superseded attempt, a session a pause replaced, the scoping chain's sessions, and every
+  other finished session from the run are removed as they are today.
+- **R15. Retention is koto's.** shirabe adds no retention rule of its own and never unpins.
   A pin comes off only as koto allows: by hand, or from an agent session whose start was
-  handed koto's `release-pin` authority. shirabe's documentation says which sessions it pins
-  and how to release them. Nothing in this feature requires a change to the pin's design.
-- **R14. A failed pin is visible.** A pin koto refuses or can't confirm in the bucket doesn't
-  fail the run's PR, and it isn't silent. The run's result names each session left unpinned
-  and why, and the next invocation on the topic tries the pin again.
-- **R15. Before the pin ships.** shirabe raises its koto floor to the first koto release that
-  honours pins in full, or, until that release exists, pins only when the installed koto is at
-  or above it, and otherwise records that the run's sessions are unpinned. Its tests use a
-  stub koto that behaves as the pin's PRD specifies.
-- **R16. Pinned sessions in shirabe's own recovery.** No shirabe instruction tells an agent
-  to run `koto session cleanup` or `koto cancel --cleanup` on a pinned session. Where one
-  does today, it says what to do with a pinned session instead.
+  handed koto's `release-pin` authority. `references/koto-session-retention.md` lists the
+  kinds of session shirabe pins and both release routes. Nothing in this feature requires a
+  change to the pin's design.
+- **R16. A failed pin is visible.** A pin koto refuses (exit 2) or can't confirm in the
+  bucket (exit 3) doesn't fail the run's PR, and it isn't silent. The run's terminal result
+  carries `record: unpinned` and names each unpinned session with koto's error code. The next
+  invocation on the topic retries those pins.
+- **R17. The pin floor.** The koto version that first honours pins in full is one constant in
+  one shirabe file. shirabe calls `koto session pin` only when the installed koto is at or
+  above it. While koto hasn't released one, the constant is unset and no pin is attempted.
+  Either way, an unattempted pin produces R16's `record: unpinned`. shirabe's overall koto
+  floor doesn't change for this feature.
+- **R18. Pinned sessions in shirabe's own recovery.** Every shirabe instruction outside
+  `skills/coordinate/` that tells an agent to run `koto session cleanup` or
+  `koto cancel --cleanup` says, within the same paragraph, that a pinned session is refused
+  and is left alone, and names the fresh-name route instead.
 
 ### Pull request content
 
-- **R17. Nothing by default.** With no integration opted in, no PR a shirabe run opens or
-  edits carries a session reference, run state, run marker, run lines, PR index or any other
-  entry from koto, shirabe or niwa. That covers the title, description, comments and squash
-  commit message, and every plan mode, coordinated node and coordination PRs included. The
-  hidden `<!-- shirabe-run: <id> -->` line is among what's left out.
-- **R18. Ownership without the marker.** With the marker gone, two runs sharing a login and a
-  branch are still told apart. The run that opened a PR is recognized from the store-side
-  record, not from the PR's text.
-- **R19. The opt-in.** A repository opts in through `scripts/pr-workflow-content.sh`, the
-  existing reader, whose exit-0 `include` is the only value that counts. Under `include`,
-  each PR the run opens gets a session reference in the body's second part. It names the
-  record root and the run, enough for the R1 tool to confirm it. It never goes in the title
-  or the squash message.
-- **R20. Read once per invocation.** Each invocation of a run reads the switch once, at its
-  open, from the checkout it opens in, and records the value in its session. Every PR write
-  in that invocation uses the recorded value. A run started after the option is turned off
-  writes no session reference. A PR written earlier under `include` keeps what it had.
-- **R21. The checkout limit.** The reader works only from a checkout, so a run opened without
-  one reads `omit`. That limit is named in the documentation. A checkout-free source for the
-  switch is not part of this work.
+- **R19. Nothing by default.** Unless the repository opted in (R21), no PR a shirabe run
+  opens or edits carries workflow content: not in its title, body, comments or squash commit
+  message. That holds in every plan mode, for coordinated node PRs and the coordination PR
+  too, and the hidden `<!-- shirabe-run: <id> -->` line is no longer written.
+- **R20. Ownership without the marker.** Two runs sharing a login and a branch are still told
+  apart: a PR belongs to the run whose index entry names it, and the ownership lookup treats
+  a PR whose latest index entry names another run as foreign. Nothing is read from the PR's
+  text for it.
+- **R21. The opt-in.** A repository opts in through `scripts/pr-workflow-content.sh`, the
+  existing reader. Only its `include` printed with exit 0 counts. Any other output or exit
+  status means omit. Under `include`, every PR the run opens, and every PR whose body it
+  rewrites, gets a session reference in Part 2: the record root's session name and the
+  `run_id`, enough for R1 to confirm it. The reference never goes in the title or Part 1, so
+  it never reaches the squash message.
+- **R22. Read once per invocation.** Each invocation reads the switch once, at its opener,
+  from the checkout it opens in, and records the value in its session. Every PR write in
+  that invocation uses the recorded value, even if the header changes mid-invocation. An
+  invocation started after the option is turned off writes no session reference. A PR body
+  written earlier under `include` keeps its reference unless a later `omit` invocation
+  rewrites that body, which then leaves it out.
+- **R23. The checkout limit.** The reader works only from a checkout, so an invocation opened
+  without one records `omit`. That limit is stated in `README.md`'s PR content section. A
+  checkout-free source for the switch isn't part of this work.
 
 ### The lifecycle documentation
 
-- **R22. One lifecycle.** On the default branch, the plan format reference
-  (`skills/plan/references/plan-format.md`), the planning skill (`skills/plan/SKILL.md`) and
-  the completion step (`skills/work-on/scripts/run-cascade.sh` and the reference that
-  documents it) all state the same lifecycle. A PLAN and a ROADMAP are deleted when their
-  work finishes, and a committed one at a terminal state fails CI. Only a multi-pr PLAN
-  reaches the default branch, where it stays while its PRs land. The roadmap format
-  reference says the same for a ROADMAP.
-- **R23. Sent to the session.** Each of those documents sends a reader looking for a finished
-  plan to the run's session through the R1 tool, not to the plan.
-- **R24. The retention reference.** `references/koto-session-retention.md` describes the koto
-  behaviour shirabe now relies on: hierarchy retention, `retention.keep`, the prunes, the
-  same-name replace's move-aside, and the pin.
+- **R24. One lifecycle.** On the default branch, these files state the same lifecycle:
+  `skills/plan/references/plan-format.md`, `skills/plan/SKILL.md`,
+  `skills/plan/references/quality/plan-doc-structure.md`, the header of
+  `skills/work-on/scripts/run-cascade.sh` (the completion step),
+  `skills/roadmap/references/roadmap-format.md`, `skills/roadmap/SKILL.md` and
+  `references/pipeline-model.md`. Each one says three things. A PLAN and a ROADMAP are
+  deleted when their work finishes. A committed PLAN or ROADMAP at `Done` fails CI (the
+  `L01` lifecycle check). Only a multi-pr PLAN reaches the default branch, where it stays at
+  `Active` while its PRs land.
+- **R25. Sent to the session.** Each of those files names the R1 command as the way to a
+  finished plan's run.
+- **R26. The retention reference.** `references/koto-session-retention.md` states the koto
+  behaviour shirabe relies on: a finished session is kept while its hierarchy is alive and
+  then for `retention.keep` (7 days by default), `koto session prune` and
+  `koto workspace prune` remove what's past it, a same-name replace moves a kept
+  predecessor aside as `<name>_r<N>`, and a pinned session survives all of these.
 
 ### Constraints
 
-- **R25. Nothing under `skills/coordinate/` changes.**
-- **R26. Bash 3.2, no new dependencies.** New scripts hold to shirabe's bash floor and need
+- **R27. Nothing under `skills/coordinate/` changes.**
+- **R28. Bash 3.2, no new dependencies.** New scripts hold to shirabe's bash floor and need
   only bash, `jq`, `gh` and koto.
-- **R27. Bounded lookup cost.** R1 and R2 make a bounded number of koto reads: a fixed number
-  per PR in the plan, plus at most one per moved-aside predecessor it checks. Nothing scans
-  the whole store.
-- **R28. Public-safe content.** Pin reasons, index entries and the opt-in reference hold no
-  secrets and no free text from the plan. A workspace path appears only in the store, never in
-  PR text under `omit`.
+- **R29. Bounded lookup cost.** For a run with P PRs and S steps, R1 and R2 together make at
+  most 2 + P + S koto reads, plus 1 per moved-aside predecessor checked, checking at most 10
+  predecessors. Nothing lists the whole store.
+- **R30. Public-safe content.** Pin reasons, index entries and the opt-in reference are
+  built from fixed templates over the topic, repository, PR number, session name and
+  `run_id`, never from plan prose. A workspace path is written only to the store.
+
+### Runs in flight
+
+- **R31. Runs that started before this lands.** A run already in progress when this ships
+  records from its next invocation on. It writes index entries and pins at its qualifying
+  terminal as any run does, and R5 reports the steps it recorded nothing for.
 
 ## Acceptance Criteria
 
+The criteria below run against a stub koto that implements K1 as koto#444's PRD specifies
+and K2 as R6 states, and logs every call it receives. "The stub's log" means that log.
+
 ### Lookup
 
-- [ ] AC1 (R1, R2). For a merged single-pr run, the lookup given its repository and PR
-      number exits 0, prints the record root's workspace and session name, and lists exactly
-      that one PR.
-- [ ] AC2 (R2). For a coordinated run with two node PRs, one follow-up and a coordination
-      PR, the lookup from any one of the four lists exactly those four, none missing and none
-      extra.
-- [ ] AC3 (R2, R6). For a multi-pr plan with three item PRs, the lookup from the second
-      item's PR, run after the third merged, reaches the plan's record root and lists all
-      three.
-- [ ] AC4 (R1). For a PR no plan run opened, the lookup exits with the "no record" code and
-      prints that there's no record. For a store read that fails, it exits with the
-      read-failure code.
-- [ ] AC5 (R3). Run from a new directory on a host that never held the sessions, against a
-      stub koto whose store has the run's sessions only under the source workspace, the
-      lookup returns the same answer as from the source workspace. Afterwards the stub's log
-      shows no import, no write and no marker.
+- [ ] AC1 (R1, R2). For a merged single-pr run, the lookup exits 0 and prints JSON with the
+      record root's workspace and session name, the `run_id`, `complete: true`, and a PR
+      list holding exactly the home PR with state `merged`.
+- [ ] AC2 (R2). For a coordinated run with two node PRs in two repositories, one follow-up
+      PR and the coordination PR, the lookup from each of the four lists exactly those four.
+- [ ] AC3 (R2, R7). For a multi-pr plan with three item PRs, the lookup from the second
+      item's PR, run after the third merged, returns the plan-level root and lists all three.
+- [ ] AC4 (R1). The lookup exits 3 for a PR with no index entry, 2 when the stub fails the
+      store read, and 64 for `owner` without a repository, for a PR number of `0` and for a
+      non-numeric one.
+- [ ] AC5 (R3). Run from a new directory with no local copy, the lookup returns the same JSON
+      as from the source workspace, and the stub's log shows no import, no migration marker
+      and no write call against any session.
 - [ ] AC6 (R4). After a second run of the same topic moved the first aside as
-      `execute-<topic>_r1`, the lookup for the first run's PR returns `execute-<topic>_r1`, and
-      the lookup for the second run's PR returns `execute-<topic>`.
-- [ ] AC7 (R1, R17). With a stub `gh` that fails any read of a PR's title, body, comments or
-      commits, AC1 still passes.
+      `execute-<topic>_r1`, the lookup for the first run's PR returns `execute-<topic>_r1` and
+      for the second run's PR returns `execute-<topic>`.
+- [ ] AC7 (R4). When an index entry names a session whose PR list doesn't include the PR, the
+      lookup doesn't return that session and exits 3.
+- [ ] AC8 (R4). For a PR the second run adopted from the first, the lookup returns the second
+      run and lists the first among the others.
+- [ ] AC9 (R1). With a stub `gh` that fails every call, AC1 still passes.
+- [ ] AC10 (R5, R31). When one step session is gone from the stub's store, the lookup exits 0
+      with `complete: false` and names that step.
 
 ### Record contents
 
-- [ ] AC8 (R7). For a three-step single-pr run and a two-node coordinated run, the record
-      holds, for each step including the first, the PLAN text as committed when the step was
-      handed off and the step's entry, and changing the PLAN between steps shows two
-      different texts for steps 1 and 2.
-- [ ] AC9 (R8). From the record root, a reader names each step's final session, and reading
-      it yields the step's summary and verification results. That holds for single-pr
-      children and coordinated children alike, from a workspace with no local lineage.
-- [ ] AC10 (R9). A run where step 2 marks a criterion deviated and step 3's entry is rewritten
-      before it runs shows two departures, one against step 2 and one against step 3, each
-      with what changed and why.
-- [ ] AC11 (R10). A run with an agent decision and a human-approved deferral shows two
-      decisions, each naming its actor, one an agent session and one a person at the
-      approval gate.
+- [ ] AC11 (R8). For a three-step single-pr run and a two-node coordinated run, the record
+      holds for each step, step 1 included, the PLAN's full text, its commit SHA and the
+      step's entry; a PLAN commit between steps 1 and 2 shows two different SHAs and texts.
+      The same holds for a multi-pr item's step.
+- [ ] AC12 (R9). From the record root, a reader gets each step session's name, and from it
+      reads `summary.md`, `verification_results.json` and `review_results.json`, for
+      single-pr and coordinated children alike, from a workspace with no local lineage.
+- [ ] AC13 (R10). A run where step 2 marks a criterion deviated, step 3 has an approved
+      deferral, step 4 goes back to analysis and step 5's entry is rewritten before it runs
+      holds four departures, one per step, each with step id, kind, what changed and a
+      non-empty why.
+- [ ] AC14 (R11). A run with an agent decision and a human-approved deferral holds two
+      decisions with actors `agent:<name>` and `person`.
 
 ### Keeping the record
 
-- [ ] AC12 (R11). After a single-pr run reaches its ready-PR terminal against a stub koto,
-      the stub records pins on the root, each step's final session and each index session,
-      each with a reason that names the topic and the PR and passes koto's reason rules.
-- [ ] AC13 (R12). In the same run, a step attempt that was superseded and the scoping chain's
-      sessions carry no pin, and a stub prune past retention removes them while keeping
-      every pinned session with `kept_by_pin: true`.
-- [ ] AC14 (R13). No shirabe script or skill instruction calls `koto session unpin`, and
-      no shirabe file defines a retention period or a keep rule of its own (a structure
-      test checks both).
-- [ ] AC15 (R14). When the stub refuses one pin with exit 3, the run still reaches its
-      ready-PR terminal, its result names the unpinned session and the reason, and a second
-      invocation on the topic pins it.
-- [ ] AC16 (R15). With a koto below the pin floor, the run pins nothing, makes no
-      `koto session pin` call, and its result says the sessions are unpinned.
-- [ ] AC17 (R16). A grep of `skills/` and `references/` (outside `skills/coordinate/`) finds
-      no instruction to run `koto session cleanup` or `koto cancel --cleanup` that doesn't
-      also say what to do with a pinned session.
+- [ ] AC15 (R12). At a single-pr run's ready-PR terminal, the stub's log shows one pin call
+      for the record root, one per step session and one per index session, after the run's
+      last child tick.
+- [ ] AC16 (R12). A coordinated run's terminal pins its root, every step session of every
+      node, and one index session per node, follow-up and coordination PR.
+- [ ] AC17 (R12). In a multi-pr plan, the second item's terminal pins its own step and index
+      sessions and the plan-level root, and the first item's pins are unchanged.
+- [ ] AC18 (R13, R30). Every pin reason matches the template, holds no control character and
+      is at most 500 characters. A topic of 600 characters yields a 500-character reason, and
+      a plan title holding a newline and a URL shows up in no reason, index entry or
+      reference.
+- [ ] AC19 (R14). The run's superseded step attempt and the scoping chain's sessions carry no
+      pin, and a stub prune past retention removes them while keeping every pinned session
+      with `kept_by_pin: true`.
+- [ ] AC20 (R15). No shirabe file calls `koto session unpin` or defines a retention period or
+      keep rule (a structure test checks both), and
+      `references/koto-session-retention.md` names the record root, step and index
+      sessions as what shirabe pins and names both release routes.
+- [ ] AC21 (R16). When the stub refuses one pin with exit 3, the run still reaches its
+      ready-PR terminal, its result carries `record: unpinned` naming the session and
+      `pin_not_pushed`, and the next invocation pins it. The same holds for exit 2.
+- [ ] AC22 (R17). With the stub reporting a version below the floor constant, or with the
+      constant unset, the stub's log shows no pin call and the result carries
+      `record: unpinned`; at the floor, AC15 passes.
+- [ ] AC23 (R18). A structure test finds every `koto session cleanup` and
+      `koto cancel --cleanup` instruction under `skills/` (outside `skills/coordinate/`)
+      and `references/`, and fails unless its paragraph contains the word "pinned".
 
 ### Pull request content
 
-- [ ] AC18 (R17). Under `omit`, the title, body and squash message of every PR a single-pr,
-      coordinated and multi-pr run opens contain no `shirabe-run`, no session name, no run
-      line and no PR index, in tests over each writer.
-- [ ] AC19 (R18). Under `omit`, two runs of one topic under one login on one branch: the
-      ownership lookup returns each run's own PR and treats the other run's PR as foreign.
-- [ ] AC20 (R19). Under `include`, a new PR's body carries the session reference in its second
-      part, the title and squash message don't, and the R1 tool confirms the reference names
-      the record root that lists the PR.
-- [ ] AC21 (R20). A run opened under `include` that's resumed after the header changes to
-      `omit` writes no session reference in any PR it opens or edits after the resume, and a
-      PR opened before the change keeps its reference.
-- [ ] AC22 (R21). The PR content documentation names the checkout limit, and a run opened
-      outside a checkout records `omit`.
+- [ ] AC24 (R19). Under omit, tests over each writer show that no title, body, comment or
+      squash message from a single-pr, coordinated or multi-pr run holds `shirabe-run`, a
+      session name, a run line, a PR index, a merge-order block or a workspace path.
+- [ ] AC25 (R20). Under omit, with two runs of one topic under one login on one branch, the
+      ownership lookup returns each run's own PR and treats the other's as foreign.
+- [ ] AC26 (R21). Under `include`, a new PR's Part 2 holds the session reference for a
+      single-pr, a coordinated node and coordination PR and a multi-pr item PR, and no
+      title or Part 1 holds it. A header value of `yes`, and a reader that exits 1, both
+      write no reference.
+- [ ] AC27 (R22). An invocation opened under `include` records `include` in its session.
+      When the header changes to `omit` mid-invocation, its later writes still carry the
+      reference. A resumed invocation opened after the change writes none, and leaves a body
+      it rewrites without one.
+- [ ] AC28 (R23). `README.md`'s PR content section states the checkout limit, and an
+      invocation opened outside a checkout records `omit`.
 
 ### Lifecycle documentation
 
-- [ ] AC23 (R22). The four documents in R22 each state that a PLAN and a ROADMAP are deleted
-      when their work finishes, that a committed one at a terminal state fails CI, and that
-      only a multi-pr PLAN stays on the default branch while its PRs land. None of them says
-      a PLAN stays in `docs/plans/` through every state or that a Done roadmap is kept.
-- [ ] AC24 (R23). Each of those documents names the R1 tool as the way to a finished plan's
-      run.
-- [ ] AC25 (R24). `references/koto-session-retention.md` describes hierarchy retention,
-      `retention.keep`, the prunes, the move-aside and the pin.
+- [ ] AC29 (R24, R25). Each file in R24 contains the word "deleted" in its lifecycle text, the
+      check name `L01`, the phrase "multi-pr", and the R1 command's name. A negative grep finds
+      neither "stays in `docs/plans/` through every state" nor "A completed roadmap is a
+      historical record" anywhere in them.
+- [ ] AC30 (R26). `references/koto-session-retention.md` contains `retention.keep`,
+      `koto session prune`, `koto workspace prune`, `_r<N>` and `koto session pin`.
 
 ### Constraints
 
-- [ ] AC26 (R25). The change's diff touches no file under `skills/coordinate/`.
-- [ ] AC27 (R26). Every new script passes `scripts/check-bash-floor.sh`.
-- [ ] AC28 (R27). For a coordinated run with four PRs, the lookup makes no more than a fixed,
-      documented number of koto reads, counted by the stub.
-- [ ] AC29 (R28). Pin reasons, index entries and the opt-in reference are built from fixed
-      templates over the topic, repository, PR number, session name and run id. A test feeding
-      a plan title with a newline and a URL shows neither in any of them.
+- [ ] AC31 (R27). The change's diff touches no file under `skills/coordinate/`.
+- [ ] AC32 (R28). Every new script passes `scripts/check-bash-floor.sh`.
+- [ ] AC33 (R29). For a coordinated run with four PRs and five steps, the stub counts at most
+      11 reads for R1 and R2. With one moved-aside predecessor it counts at most 12.
+- [ ] AC34 (R6). The stub implements only K1 and K2 plus today's session, context and decision
+      commands, and every test above passes against it.
 
 ## Out of Scope
 
 - **Building or changing koto's session pin.** Its contract is koto's (koto#441, specified in
   koto#444). This feature states its need against it and waits on it to ship.
+- **Building K2 inside shirabe.** Workspace-independent reach is koto's to build, as its own
+  step. shirabe doesn't work around koto's bucket layout.
 - **Runs that finished before this lands.** Their sessions may already be gone, and nothing
   here reconstructs them.
 - **A team whose record isn't the cloud session store.** On the local backend the record lives
-  on one host. How a team without the cloud store keeps the record, and how a reader without
-  the store's credentials reaches it, are named limits, not solved here.
+  on one host. How such a team keeps the record, and how a reader without the store's
+  credentials reaches it, are named limits, not solved here.
 - **The decision-authority display.** "Who" is the recorded actor until that exists.
 - **A checkout-free source for the PR content switch.** That's #1130's subject. This work
   builds on the existing reader and names its limit.
@@ -354,12 +445,15 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
 
 - Pinning at the ready-PR terminal keeps the record of a PR that's later closed unmerged. Those
   sessions stay pinned until someone releases them; `koto session list --pinned` finds them.
-- A pin on a batch child can be lost if koto respawns that child inside a live run, as the pin's
-  design says. shirabe pins children only once their run has ended.
-- The record's reach is bounded by koto: the pin's keep holds per workspace path, and a reader
-  needs the store's credentials.
-- Under `omit`, a coordinated run keeps its record only in the session. Recovering a lost
+- Between the moment a run writes an index entry and its qualifying terminal, its sessions
+  are kept only by koto's ordinary retention. A run abandoned in that window may lose its
+  record after `retention.keep`, and the lookup then reports a partial record or none.
+- The pin's keep holds per workspace path, as koto's pin design states, and a reader needs
+  the store's credentials.
+- Under omit, a coordinated run keeps its record only in the session. Recovering a lost
   coordinated record from the coordination PR's body needs `include`.
+- The end-to-end walkthrough from a fresh workspace waits on koto shipping K1 and K2. Until
+  then shirabe's side is proved against the stub only.
 
 ## Decisions and Trade-offs
 
@@ -369,23 +463,26 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
   (missing when the PLAN was added and deleted on one branch) and a koto-side search (koto has
   no key index, and adding one is koto's design to make). An index keyed by repository and PR
   number is the only candidate that works in all three modes. shirabe owns writing and reading
-  it. The address problem it runs into is stated as a koto requirement (R5) rather than worked
-  around inside shirabe.
+  it. The address problem it runs into is stated as K2, a koto requirement, rather than
+  worked around inside shirabe with a fixed absolute path that differs across operating
+  systems.
 - **Every removal is covered by the pin as specified (the BRIEF's second open question).**
   The pin's PRD keeps a pinned session through the terminal tick, the parent sweep, the
   same-name replace, both prunes and subtree removal, and refuses cleanup and cancel
   `--cleanup`. A pinned child stays readable after its parent goes. The one gap is a batch
-  child koto respawns inside a live run, and shirabe avoids it by pinning only after the run
-  ends. So no path becomes a parallel shirabe rule.
-- **Pin at the ready-PR terminal, not at merge.** `/execute` without `--merge` stops at a
+  child koto respawns inside a live run, and shirabe avoids it by pinning only after the run's
+  last child tick. So no path becomes a parallel shirabe rule.
+- **Pin at the qualifying terminal, not at merge.** `/execute` without `--merge` stops at a
   ready PR and a person merges later, when no shirabe run is present to observe it. Pinning at
-  merge would leave most records unpinned. The cost is the known limitation above.
-- **Read the switch at each invocation's open.** A per-write read flips mid-run when a step runs
-  with no checkout. A read only at the run's first open would let a resumed run keep writing
-  after the switch was turned off. Reading at each open satisfies "a run started after the
-  option is turned off writes none", and resumed runs too.
-- **Drop the hidden run marker under `omit`.** It's shirabe content in the PR by default. Keeping
-  it as a named exception would contradict R17, so ownership moves to the store-side record
-  (R18).
+  merge would leave most records unpinned. The cost is the first known limitation.
+- **Read the switch at each invocation's opener.** A per-write read flips mid-run when a step
+  runs with no checkout. A read only at the run's first open would let a resumed run keep
+  writing after the switch was turned off. Reading at each opener satisfies "a run started
+  after the option is turned off writes none", resumed runs included.
+- **Drop the hidden run marker.** It's workflow content in the PR by default. Keeping it as a
+  named exception would contradict R19, so ownership moves to the index (R20).
 - **The plan's record is the run's own session, not a copy.** Copying evidence into a separate
   record session at the end would duplicate the proof and leave two accounts that can drift.
+- **A multi-pr plan gets a plan-level root at the K2 address.** Its item runs happen on
+  different hosts and instances, so no item's own session can be the root every other item
+  reaches.
