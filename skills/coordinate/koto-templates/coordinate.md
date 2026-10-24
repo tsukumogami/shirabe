@@ -3600,8 +3600,9 @@ clause 1 first:
    repository (`mktemp`) and check the entry:
    `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
    Fix the entry until it passes.
-3. Post it:
-   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`.
+3. Post it on the pull request its first line names, the `<owner/repo#n>`
+   after `Goal fit:`:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --on <owner/repo#n> --text-file <entry file>`.
 4. Submit, with `clauses` set to the entry's Clauses value.
 
 `advances none` is recorded, not a gap: `fit` alone decides where the pull
