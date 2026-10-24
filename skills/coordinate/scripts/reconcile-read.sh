@@ -118,9 +118,15 @@ rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 # The body through the seam (record-source.sh), under this reader's own
 # deadline: rs_record, so a pass that began the step's one read
 # (rs_once_begin) shares it with the settle and the legs classification. This
-# reader keeps its row-by-row salvage of a body the codec refuses.
+# reader keeps its row-by-row salvage of a body the codec refuses: rs_record's
+# own parse is taken when it read the body as canonical (its code in
+# $T/rec.rc), and only a body it refused (3 or 65, its raw body still read) is
+# parsed again below, so a good body is parsed once.
 session_view() {
-    RS_SESSION=$RS rs_record "$T/rec" json || return $?
+    local rc
+    RS_SESSION=$RS rs_record "$T/rec" json; rc=$?
+    case $rc in 0|3|65) [ -s "$T/rec.raw" ] || return 5 ;; *) return $rc ;; esac
+    echo "$rc" > "$T/rec.rc"
     cat "$T/rec.raw"
 }
 rd_deadline "$DEADLINE" session_view > "$T/view.json" 2>/dev/null
@@ -169,7 +175,6 @@ parse() {
     # No codec beside this script is a broken install, not a bad record.
     [ -f "$RD_HERE/record-codec.jq" ] || return 1
     fn=salvage_record
-    [ "$fmt" = handoff ] && fn=salvage_handoff
     jq -R -s -c -f "$(codec_program "$fn")" < "$in" > "$out" 2>/dev/null || return 65
     got=$(jq -r '.scope.kind + ":" + .scope.name' "$out")
     [ "$got" = "$SCOPE:$NAME" ] || return 65
@@ -191,7 +196,11 @@ parse() {
     return 0
 }
 
-parse record "$T/body.md" "$T/record.json"
+if [ "$(cat "$T/rec.rc" 2> /dev/null)" = 0 ]; then
+    jq -c '. + {unparseable: []}' "$T/rec" > "$T/record.json"
+else
+    parse record "$T/body.md" "$T/record.json"
+fi
 case $? in
     0) ;;
     65) refuse 4 unreadable "the body isn't a coordinator record for this scope" ;;

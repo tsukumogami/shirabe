@@ -421,6 +421,9 @@ rs_once_record() {
     if [ ! -f "$r/key" ]; then
         d=$(mktemp -d "$RS_ONCE/fill.XXXXXX") || return 99
         rs_session_read "$d/s" json "$s" "$SCOPE" "$NAME"; rc=$?
+        # A body that isn't canonical (3, 65) is read live, where the caller
+        # still gets its raw body to salvage rows from; nothing failed is kept.
+        case $rc in 3|65) rm -rf "$d"; return 99 ;; esac
         if [ $rc -ne 0 ]; then
             cp "$d/s.err" "$out.err" 2> /dev/null || : > "$out.err"
             rm -rf "$d"
