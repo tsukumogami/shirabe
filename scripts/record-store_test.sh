@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# record-store_test.sh -- scripts/lib/record-store.sh, the one file that knows
+# the run record's shared address and koto's read-only --workspace option.
+#
+# Every case runs against the stand-in koto, scripts/testdata/record-koto/koto,
+# which keys a session by workspace the way koto's cloud backend does and
+# models koto#455's option in both its modes:
+#
+#   names        the index name and the shared directory, lowercased; owners,
+#                repositories and numbers outside their grammar refused
+#   writes       run koto from the directory, creating it first; never pass
+#                --workspace, and refuse a caller that tries
+#   the probe    reads koto's help once per process, whatever the read count
+#   reads        option absent: from the addressed directory, no --workspace
+#                anywhere, 69 for a directory that isn't here; option present:
+#                --workspace=<dir> after the verb words, from any directory
+#   the forms    a write from the /tmp form lands at one of the two forms a
+#                reader tries
+#
+# The shared address is the real fixed directory, under an owner unique to
+# this run, removed at exit.
+#
+# Usage: record-store_test.sh
+# Exit codes: 0 all pass, 1 a failure
+
+set -uo pipefail
+
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+LIB="$SCRIPT_DIR/lib/record-store.sh"
+STUB_DIR="$SCRIPT_DIR/testdata/record-koto"
+
+PASS_COUNT=0
+FAIL_COUNT=0
+pass() { echo "PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
+fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
+
+command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/record-store-test.XXXXXX") || exit 1
+OWNER="rstest-$$-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+trap 'rm -rf "$WORK" "/tmp/shirabe-run-record/$OWNER"' EXIT
+export PATH="$STUB_DIR:$PATH"
+export RECORD_KOTO_STORE="$WORK/store"
+mkdir -p "$WORK/a" "$WORK/b"
+TAB=$(printf '\t')
+
+# lib <shell commands>: run them in a fresh bash that sourced the library,
+# so each case starts with the probe unset.
+lib() {
+    OUT=$(bash -c '. "$1"; shift; eval "$1"' lib "$LIB" "$1" </dev/null 2>"$WORK/stderr")
+    RC=$?
+}
+calls() { [ -f "$RECORD_KOTO_STORE/calls.log" ] && cat "$RECORD_KOTO_STORE/calls.log"; }
+reset_store() { rm -rf "$RECORD_KOTO_STORE"; mkdir -p "$RECORD_KOTO_STORE"; }
+
+# --- names ------------------------------------------------------------------------
+
+lib 'rs_index_name Octo-Cat/My.Repo_1 42'
+[ "$RC" -eq 0 ] && [ "$OUT" = "pr.octo-cat.my.repo_1.42" ] \
+    && pass "the index name is pr.<owner>.<repo>.<n>, lowercased" \
+    || fail "index name: exit $RC, [$OUT]"
+
+for bad in "-o/r 1" "o-/r 1" "o--x/r 1" "o/.. 1" "o/. 1" "o/r 0" "o/r 01" "o/r abc" "o/r/x 1" "o/r%x 1"; do
+    lib "rs_index_name $bad"
+    [ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "rs_index_name refuses [$bad]" \
+        || fail "rs_index_name [$bad]: exit $RC, [$OUT]"
+done
+
+lib 'rs_shared_dir Octo'
+[ "$OUT" = "/tmp/shirabe-run-record/octo" ] && pass "the shared directory is /tmp/shirabe-run-record/<owner>, lowercased" \
+    || fail "shared dir: [$OUT]"
+lib 'rs_shared_forms Octo'
+[ "$OUT" = "$(printf '/tmp/shirabe-run-record/octo\n/private/tmp/shirabe-run-record/octo')" ] \
+    && pass "a reader tries the /tmp form, then the /private/tmp form" \
+    || fail "forms: [$OUT]"
+lib 'rs_shared_dir ../x'
+[ "$RC" -eq 64 ] && [ -z "$OUT" ] && pass "rs_shared_dir refuses an owner outside the grammar" \
+    || fail "shared dir of ../x: exit $RC, [$OUT]"
+
+for ws in "/a/b" "/a b/c+d@e"; do
+    lib "rs_valid_workspace '$ws'"
+    [ "$RC" -eq 0 ] && pass "workspace [$ws] is recordable" || fail "workspace [$ws] refused"
+done
+for ws in "rel/path" "/a/../b" "/a/.." ""; do
+    lib "rs_valid_workspace '$ws'"
+    [ "$RC" -ne 0 ] && pass "workspace [$ws] is refused" || fail "workspace [$ws] accepted"
+done
+lib "rs_valid_workspace \"\$(printf '/a\nb')\""
+[ "$RC" -ne 0 ] && pass "a workspace holding a newline is refused" || fail "newline workspace accepted"
+
+# --- writes -----------------------------------------------------------------------
+
+reset_store
+DIR="/tmp/shirabe-run-record/$OWNER"
+lib "rs_koto_write '$DIR' init pr.$OWNER.r.1 --template t --attach-live >/dev/null && printf '{}' | rs_koto_write '$DIR' context add pr.$OWNER.r.1 run/x"
+CANON=$(cd "$DIR" 2>/dev/null && pwd -P)
+if [ "$RC" -eq 0 ] && [ -n "$CANON" ] \
+    && [ "$(cut -f1 "$RECORD_KOTO_STORE/calls.log" | LC_ALL=C sort -u)" = "$CANON" ]; then
+    pass "a write creates the shared directory and runs koto from it"
+else
+    fail "write: exit $RC, calls [$(calls)]"
+fi
+if ! grep -q -- '--workspace' "$RECORD_KOTO_STORE/calls.log"; then
+    pass "no write passes --workspace"
+else
+    fail "a write passed --workspace: [$(calls)]"
+fi
+
+reset_store
+lib "rs_koto_write '$DIR' context add s k --workspace=/x"
+[ "$RC" -eq 64 ] && [ ! -s "$RECORD_KOTO_STORE/calls.log" ] \
+    && pass "rs_koto_write refuses a --workspace argument before any koto call" \
+    || fail "write with --workspace: exit $RC, calls [$(calls)]"
+
+# The stand-in's contract, which the suites lean on: with the option present
+# a write given it is refused, and with it absent any use is.
+reset_store
+(cd "$WORK/a" && RECORD_KOTO_WORKSPACE_OPTION=present koto init s --template t --workspace=/x >/dev/null 2>"$WORK/stderr")
+RC=$?
+[ "$RC" -eq 2 ] && grep -q 'workspace' "$WORK/stderr" \
+    && pass "the stub, option present: a write given --workspace is refused, naming the option" \
+    || fail "stub present-mode write: exit $RC [$(cat "$WORK/stderr")]"
+(cd "$WORK/a" && koto context list s --workspace=/x >/dev/null 2>"$WORK/stderr")
+RC=$?
+[ "$RC" -eq 2 ] && pass "the stub, option absent: --workspace is an unknown argument" \
+    || fail "stub absent-mode read: exit $RC"
+
+# --- reads ------------------------------------------------------------------------
+
+reset_store
+(cd "$WORK/a" && koto init root --template t >/dev/null && printf 'v' | koto context add root k)
+A=$(cd "$WORK/a" && pwd -P)
+
+: > "$RECORD_KOTO_STORE/calls.log"
+lib "cd '$WORK/b' && rs_koto_read '$A' context get root k && rs_koto_read '$A' context list root"
+if [ "$RC" -eq 0 ] && [ "$OUT" = 'v["k"]' ] \
+    && [ "$(grep -v -- '--help' "$RECORD_KOTO_STORE/calls.log" | grep -c "${TAB}context ")" -eq 2 ] \
+    && [ "$(grep -v -- '--help' "$RECORD_KOTO_STORE/calls.log" | cut -f1 | LC_ALL=C sort -u)" = "$A" ] \
+    && ! grep -q -- '--workspace' "$RECORD_KOTO_STORE/calls.log"; then
+    pass "option absent: a read from elsewhere runs from the addressed directory, no --workspace"
+else
+    fail "absent-mode read: exit $RC, out [$OUT], calls [$(calls)]"
+fi
+if [ "$(grep -c -- '--help' "$RECORD_KOTO_STORE/calls.log")" -eq 1 ]; then
+    pass "the option is probed once per process, from koto's help"
+else
+    fail "probe count: [$(calls)]"
+fi
+
+lib "rs_koto_read '$WORK/nowhere' context get root k"
+[ "$RC" -eq 69 ] && pass "option absent: a directory that isn't here is 69" || fail "missing dir: exit $RC"
+
+: > "$RECORD_KOTO_STORE/calls.log"
+export RECORD_KOTO_WORKSPACE_OPTION=present
+lib "cd '$WORK/b' && rs_koto_read '$A' context get root k && rs_koto_read '$A' status root >/dev/null && rs_koto_read '$WORK/nowhere' context list root"
+B=$(cd "$WORK/b" && pwd -P)
+if [ "$RC" -eq 0 ] && [ "$OUT" = 'v[]' ] \
+    && grep -qF "$(printf '%s\tcontext get --workspace=%s root k' "$B" "$A")" "$RECORD_KOTO_STORE/calls.log" \
+    && grep -qF "$(printf '%s\tstatus --workspace=%s root' "$B" "$A")" "$RECORD_KOTO_STORE/calls.log"; then
+    pass "option present: --workspace=<dir> after the verb words, from any directory"
+else
+    fail "present-mode read: exit $RC, out [$OUT], calls [$(calls)]"
+fi
+unset RECORD_KOTO_WORKSPACE_OPTION
+
+# --- the forms ------------------------------------------------------------------
+
+reset_store
+lib "rs_koto_write \"\$(rs_shared_dir $OWNER)\" init x --template t >/dev/null && printf '{}' | rs_koto_write \"\$(rs_shared_dir $OWNER)\" context add x k"
+WROTE=$(cut -f1 "$RECORD_KOTO_STORE/calls.log" | tail -1)
+lib "rs_shared_forms $OWNER"
+case "
+$OUT
+" in
+    *"
+$WROTE
+"*) pass "a write from the shared directory lands at one of the forms a reader tries ($WROTE)" ;;
+    *) fail "write landed at [$WROTE], forms [$OUT]" ;;
+esac
+
+echo
+echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
+[ "$FAIL_COUNT" -eq 0 ] || exit 1
+exit 0

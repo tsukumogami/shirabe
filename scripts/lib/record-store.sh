@@ -1,0 +1,155 @@
+# record-store.sh -- sourced, never run: where the run record lives in the koto
+# store, and how a koto call reaches it.
+#
+# The run record is a set of ordinary koto sessions: the record root
+# (`execute-<topic>`) in the workspace the run opened it in, and one index
+# session per PR, `pr.<owner>.<repo>.<n>`, at a shared address one per
+# repository owner. This file is the only one that knows what that shared
+# address is and how a read reaches another workspace; scripts/run-trail.sh
+# writes through it and scripts/run-record-lookup.sh reads through it.
+#
+# The shared address. koto files a cloud session under a prefix derived from
+# the canonical working directory it runs in, so the shared address is a
+# fixed directory, /tmp/shirabe-run-record/<owner>, and every write to it is
+# an ordinary koto call run from there, in a subshell. No write passes an
+# address option. The directory canonicalizes to /tmp/... on Linux and to
+# /private/tmp/... on macOS, so there is one shared address per operating
+# system family, and a reader tries both forms. The directory is an interim:
+# it ties the address to how koto canonicalizes a working directory, which is
+# koto's detail rather than its contract. A named, writable workspace for the
+# index is proposed to koto as tsukumogami/koto#456; when it lands this file
+# switches to it and the directory goes, and nothing outside this file and its
+# test changes. The directory is created before each write, since /tmp may be
+# cleared between runs.
+#
+# Reading another workspace. koto#455 proposes a read-only `--workspace <id>`
+# option that koto's read verbs accept and its write verbs refuse. A read here
+# probes, once per process, whether the installed koto's help for a read verb
+# names the option -- never a version table. When it does, the read passes
+# `--workspace=<address>` right after the verb words. When it doesn't, the
+# read runs koto from the address's own directory, which reaches the same
+# prefix on the host that wrote it. Either way a read writes nothing.
+#
+# Functions:
+#   rs_valid_owner <owner>        0 when it is a GitHub owner name
+#   rs_valid_repo <repo>          0 when it is a repository name (not . or ..)
+#   rs_valid_workspace <path>     0 when it can be a recorded workspace
+#   rs_lower <value>              the value lowercased, on stdout
+#   rs_shared_dir <owner>         the shared address's directory, on stdout
+#   rs_shared_forms <owner>       both canonical forms of it, one per line
+#   rs_index_name <owner/repo> <n>
+#                                 the PR's index session name, on stdout
+#   rs_koto_write <dir> <koto args...>
+#                                 a koto write run from <dir>, created first;
+#                                 refuses (64) any --workspace argument
+#   rs_has_workspace_option       0 when the installed koto's reads take
+#                                 --workspace (probed once per process)
+#   rs_koto_read <dir> <koto args...>
+#                                 a koto read of <dir>'s workspace; 69 when
+#                                 the option is absent and <dir> is not a
+#                                 directory here
+#
+# The callers check every value before it reaches these functions; a
+# function here checks only what it adds (the owner it builds a path from).
+#
+# Requires: bash 3.2+, koto.
+
+RS_SHARED_ROOT=/tmp/shirabe-run-record
+RS_RE_OWNER='^[A-Za-z0-9](-?[A-Za-z0-9])*$'
+RS_RE_REPO='^[A-Za-z0-9._-]+$'
+RS_RE_NUMBER='^[1-9][0-9]{0,9}$'
+RS_RE_WORKSPACE='^/[^[:cntrl:]]*$'
+
+rs_valid_owner() {
+    [[ $1 =~ $RS_RE_OWNER ]] && [ "${#1}" -le 39 ]
+}
+
+rs_valid_repo() {
+    [[ $1 =~ $RS_RE_REPO ]] || return 1
+    [ "${#1}" -le 100 ] || return 1
+    case "$1" in .|..) return 1 ;; esac
+    return 0
+}
+
+# A workspace is the canonical directory a session was created in, kept as an
+# opaque identifier: absolute, no control characters, no `..` component.
+rs_valid_workspace() {
+    [[ $1 =~ $RS_RE_WORKSPACE ]] || return 1
+    [ "${#1}" -le 4096 ] || return 1
+    case "$1/" in */../*) return 1 ;; esac
+    return 0
+}
+
+rs_lower() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+rs_shared_dir() {
+    rs_valid_owner "$1" || return 64
+    printf '%s/%s\n' "$RS_SHARED_ROOT" "$(rs_lower "$1")"
+}
+
+# The /tmp form first, then the /private/tmp form a macOS writer's working
+# directory canonicalized to.
+rs_shared_forms() {
+    local d
+    d=$(rs_shared_dir "$1") || return 64
+    printf '%s\n' "$d" "/private$d"
+}
+
+rs_index_name() {
+    local owner repo
+    owner=${1%%/*}
+    repo=${1#*/}
+    rs_valid_owner "$owner" || return 64
+    rs_valid_repo "$repo" || return 64
+    [[ $2 =~ $RS_RE_NUMBER ]] || return 64
+    printf 'pr.%s.%s.%s\n' "$(rs_lower "$owner")" "$(rs_lower "$repo")" "$2"
+}
+
+rs_koto_write() {
+    local dir=$1 a
+    shift
+    for a in "$@"; do
+        case "$a" in
+            --workspace|--workspace=*)
+                echo "record-store: a write never passes --workspace" >&2
+                return 64
+                ;;
+        esac
+    done
+    mkdir -p -- "$dir" || return 70
+    (cd -- "$dir" && koto "$@")
+}
+
+# RS_WORKSPACE_OPTION caches the probe: empty until the first read, then yes
+# or no for the rest of the process. The help text is captured whole before
+# it is matched, so no reader closes the pipe on koto early.
+RS_WORKSPACE_OPTION=""
+rs_has_workspace_option() {
+    local help
+    if [ -z "$RS_WORKSPACE_OPTION" ]; then
+        help=$(koto context get --help </dev/null 2>&1) || help=""
+        case "$help" in
+            *--workspace*) RS_WORKSPACE_OPTION=yes ;;
+            *) RS_WORKSPACE_OPTION=no ;;
+        esac
+    fi
+    [ "$RS_WORKSPACE_OPTION" = yes ]
+}
+
+# rs_koto_read <dir> <verb words> <rest>: `context` and `session` take a
+# second verb word, so the option goes after both; every other verb has one.
+rs_koto_read() {
+    local dir=$1
+    shift
+    if rs_has_workspace_option; then
+        case "$1" in
+            context|session) koto "$1" "$2" "--workspace=$dir" "${@:3}" ;;
+            *) koto "$1" "--workspace=$dir" "${@:2}" ;;
+        esac
+        return
+    fi
+    [ -d "$dir" ] || return 69
+    (cd -- "$dir" && koto "$@")
+}

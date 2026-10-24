@@ -64,6 +64,8 @@
 #       the bound too
 #     a coordinated PLAN: execute-coordinated.md under the same execute-<slug>
 #       name, no run_id minted before setup, the five variables bound empty;
+#       a single-pr open's trail/self (the checkout, the session, koto's
+#       session id, the run_id), rewritten with the new id on a replacement;
 #       --store session then an attach without it: STORE rebound to empty;
 #       a malformed --adopt-run on a coordinated PLAN: koto's invalid_var;
 #       --follow-up <node>=<url> on a coordinated PLAN: accepted by koto's
@@ -680,6 +682,19 @@ if [[ $FIRST_RUN_ID =~ ^[0-9a-f]{32}$ ]]; then
 else
     fail "no run_id after open: [$FIRST_RUN_ID]"
 fi
+# trail/self: the run's address for its record, as koto itself lists the
+# session, written by the open (scripts/run-trail.sh self).
+koto_sid() { k session list | jq -r --arg s "$1" '.[] | select(.id == $s) | .session_id'; }
+FIRST_SID=$(koto_sid execute-paused)
+SELF=$(k context get execute-paused trail/self 2>/dev/null)
+if [ "$(jq -r '.workspace' <<<"$SELF" 2>/dev/null)" = "$(cd "$FIXREPO" && pwd -P)" ] \
+    && [ "$(jq -r '.session' <<<"$SELF" 2>/dev/null)" = execute-paused ] \
+    && [ -n "$FIRST_SID" ] && [ "$(jq -r '.session_id' <<<"$SELF" 2>/dev/null)" = "$FIRST_SID" ] \
+    && [ "$(jq -r '.run_id' <<<"$SELF" 2>/dev/null)" = "$FIRST_RUN_ID" ]; then
+    pass "a single-pr open records trail/self: the checkout, the session, koto's session id and the run_id"
+else
+    fail "trail/self after open: [$SELF], session id [$FIRST_SID]; $ERR"
+fi
 # The first hop leaves write_set_record across repos_recorded, which is
 # overridable: false. From koto 0.14 (koto#257) a directed hop across such a
 # gate is refused unless the gate's current result satisfies the edge, so the
@@ -701,6 +716,15 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
         pass "the replacement carries the finished run's identity, so it still owns that run's PR"
     else
         fail "run_id after replacement: [$(k context get execute-paused run_id 2>/dev/null)], was [$FIRST_RUN_ID]"
+    fi
+    SELF=$(k context get execute-paused trail/self 2>/dev/null)
+    NEW_SID=$(koto_sid execute-paused)
+    if [ -n "$NEW_SID" ] && [ "$NEW_SID" != "$FIRST_SID" ] \
+        && [ "$(jq -r '.session_id' <<<"$SELF" 2>/dev/null)" = "$NEW_SID" ] \
+        && [ "$(jq -r '.run_id' <<<"$SELF" 2>/dev/null)" = "$FIRST_RUN_ID" ]; then
+        pass "the replacement's trail/self names its own new session id and the carried run_id"
+    else
+        fail "trail/self after replacement: [$SELF], session id [$NEW_SID], was [$FIRST_SID]"
     fi
 else
     fail "could not walk execute-paused to paused_for_review"

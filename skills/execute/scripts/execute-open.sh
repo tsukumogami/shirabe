@@ -142,7 +142,8 @@
 # removed. `merge_attempts` and `recovered` are removed, so every invocation
 # starts with no merge attempts and reports a recovery only when its own setup
 # made one. A single-pr open seeds the prior run_id and mints one when
-# the session still has none.
+# the session still has none, then records the session's address for the
+# run record, `trail/self` (scripts/run-trail.sh self).
 #
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
@@ -602,6 +603,13 @@ case "$OUT" in
             fi
             bash "$SELF_DIR/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
                 || echo "$PROG: could not record a run identity in $SESSION; its PR lookups will fail until it has one" >&2
+            # The run's address for its record (scripts/run-trail.sh self):
+            # this checkout, the session's koto id and its run_id, written on
+            # every open, since a replacement is a new session with a new id.
+            # Like the mint, a failure warns rather than refuses; the home
+            # PR's index write then records the address itself.
+            bash "$PLUGIN_DIR/scripts/run-trail.sh" self --session "$SESSION" </dev/null \
+                || echo "$PROG: could not record $SESSION's address in its run record (trail/self)" >&2
         fi
         printf 'session=%s\n' "$SESSION"
         ;;

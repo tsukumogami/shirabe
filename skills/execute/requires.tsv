@@ -125,6 +125,12 @@
 # `--pr-body` and `--pr-title`, and coord-merge.sh and the loop's
 # evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
 # per indexed ref.
+#
+# The plan run's record: scripts/run-trail.sh, which execute-open.sh and
+# adopt-or-create-pr.sh call on a single-pr plan, reads the root's koto id
+# with `koto session list`, opens each PR's index session with
+# `koto init --template --attach-live` from the shared address, and writes
+# its keys with `koto context add` after `context exists/get`.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	context add	--from-file	always
@@ -134,6 +140,7 @@ koto	context exists	-	always
 koto	status	-	always
 koto	workflows	--children,--roots	always
 koto	session cleanup	-	always
+koto	session list	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
