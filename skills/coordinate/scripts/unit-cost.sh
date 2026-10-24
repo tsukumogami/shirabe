@@ -18,16 +18,16 @@
 #       null and the milestone `not recoverable`.
 #   unit-cost.sh capture --session S --archive DIR --topic T --prs-file F
 #       Reads the run's record facts (coord-log.sh run-facts) and the
-#       Holdings row whose Worker is T (record-holding.sh --read), computes
+#       Holdings row whose Worker is T (state-holding.sh --read), computes
 #       the object, writes it to DIR/unit-cost.json through a temporary name
 #       in DIR (a symlink at that name is replaced, never written through),
-#       lists the record's entries (record-append.sh --list) and posts one
+#       lists the record's entries (state-entry.sh --list) and posts one
 #       entry of kind `cost` unless a `cost` entry's JSON already carries the
 #       same key. A list that fails posts anyway: readers keep the latest
 #       entry per key, so a duplicate is harmless and a skipped post loses
 #       the unit. An object over 50,000 bytes is posted without the
 #       per-session `states` maps (`sessions.states`, `entry size`);
-#       unit-cost.json keeps them. It posts it with record-append.sh --on on
+#       unit-cost.json keeps them. It posts it with state-entry.sh --on on
 #       the item it is about: the
 #       holding's pull request (the row's Pull request cell, else the sealed
 #       verdict's first), else the Unit's issue (`#n` on the host or
@@ -204,7 +204,7 @@ reg() { [ -f "$1" ] && [ ! -L "$1" ]; }
 # stderr discarded and its stdin empty. Returns its status, 124 on timeout.
 # dc_tree runs it in a process group of its own, so the deadline's TERM (or
 # this script's own trap) stops the whole group, and a hung gh under
-# record-append.sh dies with it.
+# state-entry.sh dies with it.
 uc_run() {
     local secs=$1 out=$2
     shift 2
@@ -1290,7 +1290,7 @@ fi
 # together stays inside UNIT_COST_BUDGET_SECS (90), and the post's own bound
 # (25) on top keeps the whole capture inside the pass's 120.
 B=$(uc_bound "$LIST_SECS")
-if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/record-append.sh" --session "$SESSION" --list; then
+if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/state-entry.sh" --session "$SESSION" --list; then
     if uc_jq -e --arg k "$KEY" '
         [.[] | select(.kind == "cost") | (.text // "" | if type == "string" then . else "" end)
          | (capture("```json\n(?<j>[^\n]*)\n```") // empty) | .j | (try fromjson catch null)
@@ -1303,7 +1303,7 @@ fi
 uc_posted || { say "the entry text could not be written"; exit 1; }
 uc_text >"$WD/text" || { say "the entry text could not be written"; exit 1; }
 set -- --on "$ON"
-uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
+uc_run "$POST_SECS" "$WD/posted" bash "$HERE/state-entry.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
 RC=$?
 if [ "$RC" = 0 ]; then
     case "$ON" in
@@ -1314,6 +1314,6 @@ if [ "$RC" = 0 ]; then
 fi
 case "$RC" in
     124) say "the post did not finish in time" ;;
-    *) say "the post failed (record-append exit $RC)" ;;
+    *) say "the post failed (state-entry exit $RC)" ;;
 esac
 exit 1

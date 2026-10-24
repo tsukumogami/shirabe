@@ -7,8 +7,8 @@
 # It lives outside scripts/ so its parser, its comment reader and its one
 # permission read stay off the skill's normal path: record-parse.jq here is
 # its own copy of the codec's parse half, and gh_marked, gh_entries and
-# has_write_access below are copies of record-append.sh's comment reader and
-# record-common.sh's lib_has_write_access. Its writes go through the write
+# has_write_access below are copies of state-entry.sh's comment reader and
+# state-common.sh's lib_has_write_access. Its writes go through the write
 # core's core_import and core_import_meta, which only it opens
 # (IMPORT_WRITER).
 #
@@ -64,7 +64,7 @@
 #   writes: gh api --method POST repos/R/issues/N/comments --input <json>
 # koto calls: context list and context get (record/meta), and the write core's.
 #
-# Requires: bash 3.2+, jq, gh, koto, and the write core with record-common.sh
+# Requires: bash 3.2+, jq, gh, koto, and the write core with state-common.sh
 # in ../scripts.
 set -uo pipefail
 
@@ -86,7 +86,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 case "$SCOPE" in roadmap|discipline) ;; *) usage ;; esac
 [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [[ $NAME =~ $RE_NAME ]] && [[ $REPO =~ $RE_REPO ]] || usage
 if [ "$LOOKUP" = 1 ]; then [ -z "$REF" ] || usage; else [[ $REF =~ $RE_NUM ]] || usage; fi
@@ -99,7 +99,7 @@ unreadable() { echo "record-unreadable $REF"; echo "$PROG: refused: #$REF: $1" >
 
 # has_write_access <login>: 0 admin, maintain or write on REPO; 1 less, or not a
 # collaborator (GitHub answers 404); 2 the read failed. A copy of
-# record-common.sh's lib_has_write_access.
+# state-common.sh's lib_has_write_access.
 has_write_access() {
     local perm
     [[ $1 =~ $RE_LOGIN ]] || return 1
@@ -131,7 +131,7 @@ moved() {
 
 # rotation_dates <title>: a rotation pull request's window from its title,
 # `docs(coordinate): <name> rotation <start> to <end>`, into ROT_START and
-# ROT_END. A copy of record-common.sh's lib_rotation_dates.
+# ROT_END. A copy of state-common.sh's lib_rotation_dates.
 rotation_dates() {
     local want="docs(coordinate): $NAME rotation " rest
     local re='^([0-9]{4}-[0-9]{2}-[0-9]{2}) to ([0-9]{4}-[0-9]{2}-[0-9]{2})$'
@@ -148,7 +148,7 @@ rotation_dates() {
 # gh_marked <out>: the record's comments carrying the entry marker, as JSON
 # lines {id, created_at, updated_at, user, body}, every author's, into <out>.all,
 # and those by authors with write access into <out>. Returns 3 when an author's
-# access can't be read. A copy of record-append.sh's reader.
+# access can't be read. A copy of state-entry.sh's reader.
 gh_marked() {
     local login
     gh api --method GET "repos/$REPO/issues/$REF/comments?per_page=100" --paginate \
@@ -169,7 +169,7 @@ gh_marked() {
         | select(.user as $u | $writers | index($u))' "$1.all" > "$1" || lib_die2 "jq failed"
 }
 # gh_entries <marked-jsonl>: the entries those comments carry, oldest first:
-# {stamp, author, kind, text}, the text decoded as record-append.sh wrote it.
+# {stamp, author, kind, text}, the text decoded as state-entry.sh wrote it.
 gh_entries() {
     jq -s -c --arg m "$ENTRY_MARKER_PREFIX" '
         sort_by(.created_at, .id)
@@ -265,7 +265,7 @@ jq -e --arg l "$(printf '%s' "$LOGIN" | tr 'A-Z' 'a-z')" --arg note "$NOTE" \
 
 # 1. The sections and the entries, through the core (in a subshell: it takes
 # over the EXIT trap and exits on a refusal).
-( . "$HERE/record-write-core.sh"
+( . "$HERE/state-write-core.sh"
   IMPORT_WRITER=1
   core_import "$W/state.json" "$W/entries.json" ${ROT_START:+"$W/rotation.json"} )
 rc=$?
@@ -283,7 +283,7 @@ if [ "$POSTED" = 0 ]; then
         || { echo "$PROG: the moved note wasn't posted: $(lib_scrub < "$W/w.err"); the next start imports again" >&2; exit 11; }
 fi
 # 3. record/meta, last.
-( . "$HERE/record-write-core.sh"
+( . "$HERE/state-write-core.sh"
   IMPORT_WRITER=1
   core_import_meta "$W/state.json" ) || exit $?
 echo "imported=$REF entries=$(jq length "$W/entries.json")"

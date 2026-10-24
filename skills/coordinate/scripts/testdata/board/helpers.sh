@@ -4,7 +4,7 @@
 # bt_setup: a localized plugin tree at $T/plugin holding copies of the scripts
 # under test, coord-log.sh and the record codec (and scripts/lib's
 # squash-message.sh, at its own path in the tree), with stand-ins for
-# posture-read.sh and record-holding.sh beside them, and a stand-in
+# posture-read.sh and state-holding.sh beside them, and a stand-in
 # merge-exec.sh at skills/execute/scripts/ (so no test depends on the real
 # ones, and no script needs an override to find them); gh-board as `gh` on
 # PATH; the koto stand-in as KOTO_BIN.
@@ -20,14 +20,14 @@ bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
     mkdir -p "$S" "$T/plugin/scripts/lib" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
-             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-source.sh state-schema.jq \
+             merged-facts.sh coord-log.sh coord-verdict.sh state-common.sh state-read.sh state-schema.jq \
              panel-evidence.sh merge-order-entry.sh pause-read.sh milestone.sh dispatch-common.sh; do
         cp "$HERE/$f" "$S/$f"
     done
     cp "$HERE/../../../scripts/lib/squash-message.sh" "$T/plugin/scripts/lib/squash-message.sh"
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
-    cp "$TD/board/stand-in-record-holding.sh" "$S/record-holding.sh"
+    cp "$TD/board/stand-in-record-holding.sh" "$S/state-holding.sh"
     # No holdings until a test writes some: an empty list, which every
     # holdings read (bl_review_evidence's included) reads as no row.
     echo '[]' > "$T/state/holdings"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# record-hold.sh -- add, lift or list the record's holds on merges. Agent-run;
+# state-hold.sh -- add, lift or list the record's holds on merges. Agent-run;
 # the Holds section changes only through this script
 # (docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 6).
 #
 # Usage:
-#   record-hold.sh --session S --add --row-file F          add a hold
-#   record-hold.sh --session S --lift --hold H --by WHO    lift a `lifted` hold
-#   record-hold.sh --session S --list                      print every hold
+#   state-hold.sh --session S --add --row-file F          add a hold
+#   state-hold.sh --session S --lift --hold H --by WHO    lift a `lifted` hold
+#   state-hold.sh --session S --list                      print every hold
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                            (tests)
 #
@@ -25,13 +25,13 @@
 # a JSON array ([] when there is none).
 #
 # Every write carries the written time of the version read and goes
-# through the record's write core (record-write-core.sh), which re-reads the
+# through the record's write core (state-write-core.sh), which re-reads the
 # target and checks provenance, directed transitions and repository
 # visibility first. This is the one script that sets HOLDS_WRITER=1; every
 # other writer must carry the section as the live record has it.
 #
 # Each add and lift is also told as a `hold` entry in the account
-# (record-append.sh), since the record keeps no history of its own that would
+# (state-entry.sh), since the record keeps no history of its own that would
 # show it.
 #
 # Exit codes: 0 written (prints the session holding the record) or printed; 2
@@ -42,11 +42,11 @@
 # written but its session entry wasn't (the entry to post on stderr); 64 usage;
 # 65 the hold was refused (the reason on stderr).
 #
-# The record is read through record-source.sh; the write happens only in the
-# write core it sources (record-write-core.sh).
+# The record is read through state-read.sh; the write happens only in the
+# write core it sources (state-write-core.sh).
 set -uo pipefail
 
-PROG=record-hold
+PROG=state-hold
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= ROWFILE= MODE= HOLD= BY=
 SKIP_CHECKS=0
@@ -74,14 +74,14 @@ case "$MODE" in
     list) [ -z "$ROWFILE$HOLD$BY" ] || usage ;;
     *) usage ;;
 esac
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX") || lib_die2 "cannot make a temporary directory"
+WD=$(mktemp -d "${TMPDIR:-/tmp}/state-hold.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-# The live record, through the seam (record-source.sh), which reads it with
+# The live record, through the seam (state-read.sh), which reads it with
 # the line endings the write core reads.
 rs_record "$WD/parsed.json"
 case $? in
@@ -130,7 +130,7 @@ chmod 600 "$WD/next.json" || lib_die2 "cannot make the state file private"
 # beyond stamping its blank Lifted cell.
 STATE_FILE="$WD/next.json" CORE_CLEANUP=$WD
 lib_write_guard
-. "$HERE/record-write-core.sh"
+. "$HERE/state-write-core.sh"
 HOLDS_WRITER=1
 core_write
 
@@ -146,7 +146,7 @@ if [ "$OVERRIDE" = 1 ]; then
 else
     ADDR_ARGS=(--session "$SESSION")
 fi
-if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind hold --text-file "$T/hold-entry" > /dev/null; then
-    echo "$PROG: the hold was written, but its entry wasn't; post it with record-append.sh --kind hold: $(cat "$T/hold-entry")" >&2
+if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind hold --text-file "$T/hold-entry" > /dev/null; then
+    echo "$PROG: the hold was written, but its entry wasn't; post it with state-entry.sh --kind hold: $(cat "$T/hold-entry")" >&2
     exit 14
 fi

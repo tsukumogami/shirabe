@@ -4,7 +4,7 @@
 #
 # Roadmap scope only: a discipline rotation ends at rotation_end, by writing
 # its reasoning for the next rotation, and has no close-out to read. It reads
-# the record (record-source.sh) and the roadmap file on the host's default
+# the record (state-read.sh) and the roadmap file on the host's default
 # branch (the session's ROADMAP path, contents API, never a working tree).
 # First that applies:
 #   verdict-owed       a Work row of kind verdict-owed stands: a milestone
@@ -63,7 +63,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage

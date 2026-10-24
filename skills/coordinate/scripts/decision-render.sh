@@ -2,7 +2,7 @@
 # decision-render.sh -- render the message a decision entry owes, from the
 # live entry. The render states' default action (escalate, decision_withdraw,
 # decision_reply, decision_redirect): the coordinator sends exactly the text
-# this writes and marks it sent with record-decision.sh --sent, which checks
+# this writes and marks it sent with state-decision.sh --sent, which checks
 # the text against this render's seal.
 #
 # Usage: decision-render.sh --session S --state ST --kind escalation|withdrawal|reply|redirect
@@ -11,7 +11,7 @@
 # (`escalate <n>`, `withdraw <n>`, `reply <n>` or `redirect <n>`), whose word
 # must be the kind's. Never an argument. The run's escalation target is its
 # REPORTS_TO variable (coord-log.sh vars): `a person` when empty, else
-# `coordinator <topic>`. The entry is read live through record-decision.sh
+# `coordinator <topic>`. The entry is read live through state-decision.sh
 # --read.
 #
 # It refuses (prints `refused`, sealed) unless the entry owes that kind right
@@ -27,7 +27,7 @@
 #   redirect    decision_next routed `redirect <n> <seq>`, naming the report by
 #               its log sequence; entry <n> holds this run's `report <seq>.<i>`
 #               stamp; some entry holds that report's addressed mark (the
-#               codec's d_addressed_mark, an Evidence line record-decision.sh
+#               codec's d_addressed_mark, an Evidence line state-decision.sh
 #               --open-from-report writes); and no entry has an Evidence line
 #               stamped `redirect <seq>`, which --sent writes. Stamps are read by
 #               position (the codec's d_stamps), never from a line's text.
@@ -86,7 +86,7 @@ case "$KIND" in
     *) usage ;;
 esac
 SCOPE= NAME= REPO=
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_run_stamp
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/decision-render.XXXXXX") || lib_die2 "cannot make a temporary directory"
@@ -119,7 +119,7 @@ VARS=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot 
 RT=$(printf '%s' "$VARS" | jq -r '.REPORTS_TO // ""')
 if [ -n "$RT" ]; then TARGET="coordinator $RT"; else TARGET="a person"; fi
 
-bash "$HERE/record-decision.sh" --session "$SESSION" --read "$N" > "$T/entry.json" 2> "$T/read.err"
+bash "$HERE/state-decision.sh" --session "$SESSION" --read "$N" > "$T/entry.json" 2> "$T/read.err"
 case $? in
     0) ;;
     1) refuse "the record has no entry $N" ;;
@@ -129,7 +129,7 @@ esac
 
 # A redirect is owed per report, so its check reads the whole section.
 if [ "$KIND" = redirect ]; then
-    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/read.err" \
+    bash "$HERE/state-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/read.err" \
         || { cat "$T/read.err" >&2; lib_die2 "cannot read the Decisions section"; }
 else
     printf '{"next":1,"entries":[]}\n' > "$T/section.json"

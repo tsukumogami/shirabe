@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-write_test.sh -- record-write.sh replaces the whole record, in the
+# state-write_test.sh -- state-write.sh replaces the whole record, in the
 # coordinator's koto session, from the state file a writer hands it, and
 # refuses a session that doesn't hold this scope's record, a state that breaks
 # a rule, a private repository named from a public host, and a run with failed
@@ -31,13 +31,13 @@
 # state a reader is handed; and with no state file, set or cleared by
 # rewriting record/holdings alone, no other key and no GitHub call touched.
 #
-# Usage: bash skills/coordinate/scripts/record-write_test.sh
+# Usage: bash skills/coordinate/scripts/state-write_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-WR="$HERE/record-write.sh"
+WR="$HERE/state-write.sh"
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
@@ -60,7 +60,7 @@ rebase() { seed_session "$SR" "$OLDJ"; }
 # one compact line; nothing when it can't be read.
 reader_state() {
     ( RS_SESSION=${1:-$RS_SESSION} PROG=reader SCOPE=${RSCOPE:-roadmap} NAME=${RNAME:-plugin-system}
-      . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+      . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
       rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" )
 }
 # cur7 [session]: the record's state without its written time.
@@ -270,7 +270,7 @@ seed_rm
 state_json "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DEC" '.decisions = $d')" > "$T/adddec.json"
 bash "$WR" "${RM[@]}" --state-file "$T/adddec.json" >/dev/null 2>"$T/err"; rc=$?
 eq "a write that adds a Decisions section is refused" 65 "$rc"
-grep -q 'record-decision.sh' "$T/err" && ok "the refusal names the decision writer" || bad "the refusal names the decision writer" "$(cat "$T/err")"
+grep -q 'state-decision.sh' "$T/err" && ok "the refusal names the decision writer" || bad "the refusal names the decision writer" "$(cat "$T/err")"
 eq "and nothing is written" "$OLD" "$(cur7)"
 DECENV=$(DECISIONS_WRITER=1 bash "$WR" "${RM[@]}" --state-file "$T/adddec.json" 2>&1 >/dev/null; echo "rc=$?")
 eq "DECISIONS_WRITER in the environment doesn't open the section" 65 "${DECENV##*rc=}"
@@ -320,25 +320,25 @@ SNAP=$(session_snapshot "$SR")
 reader_state > "$T/cur.json"
 jq -c '.holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" > "$T/hold.json"
 bash "$WR" "${RM[@]}" --state-file "$T/hold.json" >/dev/null 2>"$T/err"; rc=$?
-eq "record-write.sh changing record/holds is refused (not its key)" 65 "$rc"
-grep -q 'Holds section changes only through record-hold.sh' "$T/err" && ok "  ... by the Holds owner check" || bad "  ... by the Holds owner check" "$(cat "$T/err")"
+eq "state-write.sh changing record/holds is refused (not its key)" 65 "$rc"
+grep -q 'Holds section changes only through state-hold.sh' "$T/err" && ok "  ... by the Holds owner check" || bad "  ... by the Holds owner check" "$(cat "$T/err")"
 eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SR")"
-# The hold writer's own flags (HOLDS_WRITER, as record-hold.sh sets them), on a
+# The hold writer's own flags (HOLDS_WRITER, as state-hold.sh sets them), on a
 # state that also changes the Run section: record/run isn't the hold writer's key.
-sed -e 's|^\. "\$HERE/record-write-core.sh"$|. "$HERE/record-write-core.sh"; HOLDS_WRITER=1|' -e "s|^HERE=.*|HERE=$HERE|" "$WR" > "$T/hold-writer.sh"
+sed -e 's|^\. "\$HERE/state-write-core.sh"$|. "$HERE/state-write-core.sh"; HOLDS_WRITER=1|' -e "s|^HERE=.*|HERE=$HERE|" "$WR" > "$T/hold-writer.sh"
 grep -q 'HOLDS_WRITER=1' "$T/hold-writer.sh" && ok "the hold-writer harness opens only the Holds section" || bad "the hold-writer harness opens only the Holds section" ""
 jq -c '.run = [{key: "arguments", value: "docs/roadmaps/ROADMAP-plugin-system.md", set_by: "the human", set: "2026-09-28T11:27Z"}]' "$T/cur.json" > "$T/run.json"
 bash "$T/hold-writer.sh" "${RM[@]}" --state-file "$T/run.json" >/dev/null 2>"$T/err"; rc=$?
 eq "the hold writer changing record/run is refused (R5)" 65 "$rc"
-grep -q 'Run, Standing and Work sections change only through record-state.sh' "$T/err" && ok "  ... by the Run owner check" || bad "  ... by the Run owner check" "$(cat "$T/err")"
+grep -q 'Run, Standing and Work sections change only through state-stored-set.sh' "$T/err" && ok "  ... by the Run owner check" || bad "  ... by the Run owner check" "$(cat "$T/err")"
 eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SR")"
-# Reversals and Side effects have no writer of their own: record-write.sh writes
+# Reversals and Side effects have no writer of their own: state-write.sh writes
 # them with the state, and each lands in its key and reads back through the seam.
 jq -c '.reversals = [{date: "2026-09-26T10:00Z", reversed: "merge on green", now: "hold", reason: "freeze", from: "the human"}]
     | .side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "0123456789abcdef0123456789abcdef01234567",
                         attempted: "2026-09-26T11:02Z", how_to_confirm: "read the pull request"}]' "$T/cur.json" > "$T/revse.json"
 bash "$WR" "${RM[@]}" --state-file "$T/revse.json" >/dev/null 2>"$T/err"; rc=$?
-eq "record-write.sh writes Reversals and Side effects" 0 "$rc"
+eq "state-write.sh writes Reversals and Side effects" 0 "$rc"
 eq "  ... into record/reversals and record/side-effects" "freeze|acme/widgets#12" \
     "$(koto context get "$SR" record/reversals | jq -r '.[0].reason')|$(koto context get "$SR" record/side-effects | jq -r '.[0].target')"
 eq "  ... and read back through the seam" "merge on green|merge" \
@@ -421,4 +421,4 @@ RS_SESSION=$SP bash "$WR" "${RM[@]}" --pushed-head feature-2 "$HEAD1" --close >/
 eq "  ... --close is usage" 64 $?
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
-done_tests record-write
+done_tests state-write

@@ -51,7 +51,7 @@ if [ -n "$SESSION" ]; then
     # An imported run names where its state came from (PRD R14), so the next
     # import, or a person reading the close, can find the source.
     # emit reads PAYLOAD, so the host facts take its place from here on.
-    PAYLOAD=$(bash "$HERE/record-source.sh" --session "$SESSION" --host 2>/dev/null) || PAYLOAD='{}'
+    PAYLOAD=$(bash "$HERE/state-read.sh" --session "$SESSION" --host 2>/dev/null) || PAYLOAD='{}'
     if [ -n "$(printf '%s' "$PAYLOAD" | jq -r '.source_session // empty' 2>/dev/null)" ]; then
         emit source_workspace '^/[^[:cntrl:]]*$'
         emit source_session '^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$'

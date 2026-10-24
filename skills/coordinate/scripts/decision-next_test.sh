@@ -70,7 +70,7 @@ put_record() { seed_session "$S" "$1"; } # put_record <record-json>: the run's r
 # reader_state: the record as a reader is handed it (rs_record's output).
 reader_state() {
     ( RS_SESSION=${1:-$S} PROG=reader SCOPE=discipline NAME=ci
-      . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+      . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
       rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" )
 }
 # report <holding|unknown> [questions|overflow]: a report reaches decision_open
@@ -204,7 +204,7 @@ eq "an answer that names no decision is not owed" "clear" "$(word)"
 build
 to wait; log_evidence "$S" wait '{"event":"evidence"}'; to decision_evidence; to decision_next
 eq "evidence that names no decision is not owed" "clear" "$(word)"
-# Nor any other arrival record-decision.sh refuses: an answer naming no round,
+# Nor any other arrival state-decision.sh refuses: an answer naming no round,
 # a decision the record has no entry for, one that isn't a plain number.
 unwritable() { # unwritable <label> <state> <wait fields-json> <build rule>: entry 1 and an earlier arrival, then this one
     build ${4-}

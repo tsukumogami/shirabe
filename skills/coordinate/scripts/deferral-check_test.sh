@@ -413,7 +413,7 @@ eq "it counts as neither active nor parked" "4 0" "$(jq -r '"\(.active) \(.parke
 
 echo "== check mode: a discipline rotation =="
 # A rotation's predecessor's deferrals are rows of its own record from its
-# first state (record-open.sh --carry), judged as any other row; no handoff
+# first state (state-open.sh --carry), judged as any other row; no handoff
 # file is read, and no carry is owed at dispatch.
 PREV='{"deferral":"flaky lint job","reason":"needs a runner","raised":"2026-09-16T10:00Z","disposition":""}'
 dseed() { # dseed <record-json>: issue #12 on the host, and the rotation's record

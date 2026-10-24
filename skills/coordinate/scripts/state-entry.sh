@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-append.sh -- append an entry to the coordinator record, or list the
+# state-entry.sh -- append an entry to the coordinator record, or list the
 # entries. Agent-run; the one way an entry is written
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 2).
 #
@@ -37,10 +37,10 @@
 # nothing.
 #
 # Usage:
-#   record-append.sh --session S --text-file F [--kind K] [--on <owner/repo#n>|none]
-#   record-append.sh --session S --list
-#   record-append.sh --session S --repost N --on <owner/repo#n>
-#   record-append.sh --scope roadmap|discipline --name N --repo O/R [...]
+#   state-entry.sh --session S --text-file F [--kind K] [--on <owner/repo#n>|none]
+#   state-entry.sh --session S --list
+#   state-entry.sh --session S --repost N --on <owner/repo#n>
+#   state-entry.sh --scope roadmap|discipline --name N --repo O/R [...]
 #                    (tests: RS_SESSION names the session holding the record)
 #
 # The session gives the scope, name and host (coord-log.sh vars), and must
@@ -58,7 +58,7 @@
 # K is entry (the default), or one of the kinds the record's other writers
 # append for what they change (the design's Decisions 3 and 4): run, told,
 # pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
-# hold (a hold added or lifted, record-hold.sh), moved (found in a record an
+# hold (a hold added or lifted, state-hold.sh), moved (found in a record an
 # earlier release moved onto its session; only the legacy importer still posts
 # one, on the GitHub record it imports),
 # milestone-verdict (a checked verdict on a milestone, milestone.sh
@@ -66,7 +66,7 @@
 # landed pull request judged against its milestone's Evidence, milestone.sh
 # check-goal-fit), milestone-failure (a failure reported against a Done
 # milestone, milestone.sh check-failure), decisions (settled Decisions rows
-# moved out of the body verbatim, record-decision.sh --archive, which reads
+# moved out of the body verbatim, state-decision.sh --archive, which reads
 # them back to restore one),
 # and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
@@ -106,7 +106,7 @@
 #   record/holdings and record/side-effects through the seam's rs_key.
 set -uo pipefail
 
-PROG=record-append
+PROG=state-entry
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= TEXTFILE= KIND=entry REPOST= ON=
 MODE=append
@@ -152,11 +152,11 @@ fi
 # The largest entry posted, in bytes: the record body's own budget.
 ENTRY_BUDGET=60000
 
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-append.XXXXXX") || lib_die2 "cannot make a temporary directory"
+WD=$(mktemp -d "${TMPDIR:-/tmp}/state-entry.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 # The session that holds the entries.
@@ -448,6 +448,6 @@ fi
 dest_problem "$WD/text.clean" > "$WD/problem"
 [ ! -s "$WD/problem" ] || { echo "$PROG: refused: the entry was written as record/entries/$WRITTEN and stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
 URL=$(post_comment "$WD/comment.md") \
-    || { echo "$PROG: the entry was written as record/entries/$WRITTEN, but its post failed: $(lib_scrub < "$WD/w.err"); post it later with record-append.sh --repost $((10#$WRITTEN)) --on $ON" >&2; exit 14; }
+    || { echo "$PROG: the entry was written as record/entries/$WRITTEN, but its post failed: $(lib_scrub < "$WD/w.err"); post it later with state-entry.sh --repost $((10#$WRITTEN)) --on $ON" >&2; exit 14; }
 s_record_posted "$WRITTEN" "$URL"
 printf '%s\n' "$URL"

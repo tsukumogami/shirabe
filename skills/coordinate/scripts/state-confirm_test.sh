@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-confirm_test.sh -- record-confirm.sh reads the source step from the
+# state-confirm_test.sh -- state-confirm.sh reads the source step from the
 # session log and confirms the change it implies with a newer Written: time.
 #
 # Covers, with a passing and a failing fixture each: dispatch (the topic's
@@ -28,13 +28,13 @@
 # broken seal is a conflict; the sealed token and its context detail. The
 # record is the run's session's, its Written: time record/meta's.
 #
-# Usage: bash skills/coordinate/scripts/record-confirm_test.sh
+# Usage: bash skills/coordinate/scripts/state-confirm_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-C="$HERE/record-confirm.sh"
+C="$HERE/state-confirm.sh"
 CL="$HERE/coord-log.sh"
 
 EVT=2026-09-26T10:00:00.000Z
@@ -652,5 +652,5 @@ bash "$CL" check --session "$S" --state record --sealed "$OUT" && ok "the seal c
 eq "the detail names the source" dispatch "$(jq -r .source "$KOTO_STORE/context/$S/coord/record_confirm.json")"
 bash "$C" --no-seal >/dev/null 2>&1; eq "no session is a usage error" 64 $?
 
-tokens_ok record-confirm
-done_tests record-confirm
+tokens_ok state-confirm
+done_tests state-confirm

@@ -10,7 +10,7 @@
 # is no write in this file, so a lint over a check script and this file finds
 # only reads.
 #
-# It sources record-common.sh beside it for what every /coordinate script
+# It sources state-common.sh beside it for what every /coordinate script
 # shares: the topic grammar (RE_TOPIC), the pull request link (lib_pr_link),
 # and the token scrub. The session log is read only through coord-log.sh.
 #
@@ -21,10 +21,10 @@
 # BOARD_DEADLINE_SECS may lower it (1..24) for the deadline test; it can never
 # raise it.
 #
-# Requires: bash 3.2+, jq, gh, and coord-log.sh, record-common.sh and
+# Requires: bash 3.2+, jq, gh, and coord-log.sh, state-common.sh and
 # dispatch-common.sh beside the caller.
 
-. "$HERE/record-common.sh" || { echo "${PROG:-board-lib}: cannot source record-common.sh" >&2; exit 2; }
+. "$HERE/state-common.sh" || { echo "${PROG:-board-lib}: cannot source state-common.sh" >&2; exit 2; }
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh" || { echo "${PROG:-board-lib}: cannot source dispatch-common.sh" >&2; exit 2; }
 
@@ -58,7 +58,7 @@ BL_START=$SECONDS
 bl_left() { echo $((BL_DEADLINE - (SECONDS - BL_START))); }
 
 # bl_scrub: gh's error text relayed line by line (bl_gh prefixes each line),
-# redacted by record-common.sh's lib_redact, the same token rule lib_scrub
+# redacted by state-common.sh's lib_redact, the same token rule lib_scrub
 # uses. It keeps more than lib_scrub because it relays the whole error rather
 # than quoting it inside one line: up to 20 lines of 300 characters each.
 bl_scrub() {
@@ -125,14 +125,14 @@ bl_seal() {
 
 # bl_unit_repo <session> <pr>: the repository of the unit whose pull request
 # is #<pr>, from the Holdings row whose Pull request cell links it (read live
-# through record-holding.sh). A token carries only the number, so the record
+# through state-holding.sh). A token carries only the number, so the record
 # says where it lives; no row, or rows naming #<pr> in two repositories, is a
 # failure rather than a guess. Returns 0 printed; 1 no row links #<pr>; 3
 # rows link #<pr> in two or more repositories; 4 the one row's repository
 # isn't owner/repo; 2 the holdings couldn't be read.
 bl_unit_repo() {
     local rows repos n
-    rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
+    rows=$(bash "$HERE/state-holding.sh" --session "$1" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
     repos=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$2" 'include "state-schema";
         [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
@@ -174,7 +174,7 @@ bl_posture_merge() {
 # phrasing and can't tell who holds which step). It must also be on the live
 # record: a Reversals row from `the human`, whose Reversed or Now mentions the
 # posture, dated at or after that evidence (to the minute) -- the test
-# record-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
+# state-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
 # row; 2 read failure.
 bl_human_holds_merge() {
     local s=$1 ev min
@@ -329,7 +329,7 @@ bl_reviewed_fresh() {
 # round for <repo>#<pr>, as panel-evidence.sh's JSON plus `source`. The round
 # is read first from the worker's own run session: for each Holdings row
 # linking the pull request whose return path is a leg (`leg <request>:<leg>`),
-# latest row first (record-holding.sh --list prints rows in the record's
+# latest row first (state-holding.sh --list prints rows in the record's
 # order, oldest first, so the list is reversed), the leg's bound child from
 # `koto request get`, and that
 # session's review_round.json (review-round.sh writes it), judged by
@@ -343,7 +343,7 @@ bl_reviewed_fresh() {
 # than call the round missing.
 bl_review_evidence() {
     local s=$1 repo=$2 pr=$3 body=$4 rows rps rp req leg view child rc ev d
-    rows=$(bash "$HERE/record-holding.sh" --session "$s" --list) || {
+    rows=$(bash "$HERE/state-holding.sh" --session "$s" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
     rps=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "state-schema";
         [.[]? | select(any(.pull_request // "" | pr_link; .number == $n and (.repo | ascii_downcase) == ($r | ascii_downcase)))
@@ -471,7 +471,7 @@ bl_condition_state() {
 }
 
 # bl_holds_eval <parsed-record-file> <repo> <pr>: bl_holds_on's evaluation,
-# over a record already read and parsed (record-parse.sh's JSON). Returns 0
+# over a record already read (rs_record's JSON). Returns 0
 # printed; 2 the file couldn't be read.
 bl_holds_eval() {
     local f=$1 repo=$2 pr=$3 d n i until st

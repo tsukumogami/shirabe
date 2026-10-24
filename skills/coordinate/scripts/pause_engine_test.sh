@@ -10,7 +10,7 @@
 #      units paused and the third free, and sending either lane its execution
 #      is refused at dispatch_check as `paused`, with the pause named, back to
 #      wait;
-#   2. a resume by lane (its row ended through record-state.sh, then a
+#   2. a resume by lane (its row ended through state-stored-set.sh, then a
 #      `resume` tick) releases that lane only: the other is still refused;
 #   3. a pause on all holds every unit and every dispatch; a resume of the
 #      whole ends it and nothing is paused;
@@ -60,7 +60,7 @@ jq -n '{permissions: {defaultMode: "bypassPermissions"}}' > "$WD/.claude/setting
 
 tick() { (cd "$WD" && koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"); }
 at() { tick "$@" | jq -r '.state // empty'; }
-state() { (cd "$WD" && bash "$PS/record-state.sh" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err"); }
+state() { (cd "$WD" && bash "$PS/state-stored-set.sh" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err"); }
 pick_json() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
 check_json() { (cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null); }
 paused_of() { pick_json | jq -r --arg u "$1" '.units[] | select(.unit == $u) | .paused // "free"'; }
@@ -128,7 +128,7 @@ eq "the lane's Work row counts its wakes from the run's log: the checkpoint and 
 eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
 
 echo "== 2. a resume by lane =="
-state --end "$P1" --by "the human"; eq "the first lane's pause is ended through record-state.sh" 0 $?
+state --end "$P1" --by "the human"; eq "the first lane's pause is ended through state-stored-set.sh" 0 $?
 eq "a resume tick brings pick" pick "$(at --with-data '{"event":"resume"}')"
 eq "the first lane is free, the second still paused" "free $P2" "$(paused_of "Feature 1") $(paused_of "Feature 2")"
 eq "the second lane is still refused" wait "$(send lane-b)"
@@ -189,7 +189,7 @@ eq "  ... and goes ahead" dispatch "$(at --with-data '{"move":"redispatch"}')"
 eq "  ... clear, for that unit" "ok lane-b" "$(check_json | jq -r '"\(.verdict) \(.topic)"')"
 
 echo "== the account =="
-ENTRIES=$(cd "$WD" && bash "$PS/record-append.sh" --session "$S" --list)
+ENTRIES=$(cd "$WD" && bash "$PS/state-entry.sh" --session "$S" --list)
 eq "every pause and every end was told as an entry" "pause pause end pause end end end pause end pause end" \
     "$(printf '%s' "$ENTRIES" | jq -r '[.[] | select(.kind == "pause" or .kind == "end") | .kind] | join(" ")')"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# roadmap-features_test.sh -- record-common.sh lib_roadmap_features, the
+# roadmap-features_test.sh -- state-common.sh lib_roadmap_features, the
 # picker's reading of a roadmap, and the blocked set pick-facts.sh builds on it.
 #
 # Covers: each item of the synthetic fixture roadmaps under
@@ -22,7 +22,7 @@
 # `## Milestones` and `### Milestone N:`. Dependency prose reads `milestone N`
 # only on v3, where `Feature 2` and `Milestone 2` both name the item tagged
 # `Milestone 2`; on v1 and v2 a passing `milestone 3` names nothing. The tag
-# key (record-common.sh tag_key and lib_tag_key) makes `Feature 2` and
+# key (state-common.sh tag_key and lib_tag_key) makes `Feature 2` and
 # `Milestone 2` one key and keeps `Feature 1` and `Milestone 14`, `AB1` and
 # `Milestone 1`, `#3` and `Milestone 3`, `Feature 03` and `Milestone 3`, and
 # `feature 2` and `Milestone 2` apart. Then a Dependencies paragraph of
@@ -40,7 +40,7 @@ PF="$HERE/pick-facts.sh"
 
 # features <roadmap.md>: lib_roadmap_features over it, in a subshell so the
 # library's globals stay out of this test.
-features() { (PROG=roadmap-features; . "$HERE/record-common.sh"; lib_roadmap_features "$1"); }
+features() { (PROG=roadmap-features; . "$HERE/state-common.sh"; lib_roadmap_features "$1"); }
 N=0
 # picked <name> <roadmap.md>: pick-facts.sh's facts for a roadmap run whose
 # roadmap on the default branch is that file; the facts land in $T/pick.json.
@@ -117,8 +117,8 @@ printf '%s\n' "$(sed 's/milestone 3\./milestone 4./' "$T/p3.md")" > "$T/p3b.md"
 eq "  ... and a passing milestone 4 on v3 names Milestone 4" "[4]" "$(features "$T/p3b.md" | jq -c '.[1].dependencies')"
 
 echo "== the tag key =="
-key() { (PROG=roadmap-features; . "$HERE/record-common.sh"; printf '%s' "$1" | jq -R -r "$JQ_TAG_KEY"'tag_key'); }
-bkey() { (PROG=roadmap-features; . "$HERE/record-common.sh"; lib_tag_key "$1"); }
+key() { (PROG=roadmap-features; . "$HERE/state-common.sh"; printf '%s' "$1" | jq -R -r "$JQ_TAG_KEY"'tag_key'); }
+bkey() { (PROG=roadmap-features; . "$HERE/state-common.sh"; lib_tag_key "$1"); }
 same() { if [ "$(key "$2")" = "$(key "$3")" ] && [ "$(bkey "$2")" = "$(bkey "$3")" ]; then ok "$1"; else bad "$1" "[$(key "$2")|$(bkey "$2")] [$(key "$3")|$(bkey "$3")]"; fi; }
 apart() { if [ "$(key "$2")" != "$(key "$3")" ] && [ "$(bkey "$2")" != "$(bkey "$3")" ]; then ok "$1"; else bad "$1" "[$(key "$2")] [$(key "$3")]"; fi; }
 same "Feature 2 and Milestone 2 are one key" "Feature 2" "Milestone 2"

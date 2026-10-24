@@ -12,16 +12,16 @@
 #
 # Proves, one line per case:
 #   1. dispatch is unreachable without the run's record: none stops at
-#      record_open, record-open.sh builds the scope's empty record (no body is
+#      record_open, state-open.sh builds the scope's empty record (no body is
 #      handed to it) in the run's session and opens nothing on GitHub, the find then reaches reconcile with the session
 #      recorded as the run's store, and the run reaches pick with no evidence
 #      naming the record, after a new record's empty stored set held the
-#      reconcile handover gate until record-state.sh filled it;
+#      reconcile handover gate until state-stored-set.sh filled it;
 #   2. a restart while the run is live resumes it (resumed=1, the same
 #      session, where it stood) and never enters record_open again or looks
 #      for a record on GitHub; the run's record names its session;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
-#      record-write.sh --state-file disposes it, then dispatch is reached;
+#      state-write.sh --state-file disposes it, then dispatch is reached;
 #   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
 #      Holdings row shows dispatched, so record and wait are unreachable until
 #      then, and record holds until the holding has its Work row;
@@ -47,12 +47,12 @@ seed_roadmap one
 reset_calls
 if open_run one; then
     eq "1: no record stops at record_open" record_open "$(at)"
-    snap_save record-open
+    snap_save state-open
     tick --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
     eq "1: record_open refuses pick's evidence and stays" record_open "$(now_at)"
     eq "1: dispatch is never entered without a record" 0 "$(entered dispatch)"
-    write_as_agent record-open.sh; rc=$?
-    eq "1: record-open.sh (agent-run) opens the record" 0 $rc
+    write_as_agent state-open.sh; rc=$?
+    eq "1: state-open.sh (agent-run) opens the record" 0 $rc
     (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the run's session" || bad "1:   ... in the run's session" "$(cat "$T/w.err")"
     grep -Eq '^(issue (create|edit|close)|pr create)' "$GH_DB.calls" \
         && bad "1:   ... opening nothing on GitHub" "$(grep -E '^(issue|pr) ' "$GH_DB.calls")" || ok "1:   ... opening nothing on GitHub"
@@ -60,11 +60,11 @@ if open_run one; then
     eq "1: the find records the session as the run's store" session \
         "$( (cd "$WD" && koto context get "$S" coord/source.json 2>/dev/null) | jq -r '.source // empty')"
     eq "1: a new record's empty stored set holds the handover gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
-    write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
-        && write_as_agent record-state.sh --run cap 5 --by "the human" \
-        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
-        && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
-    eq "1: record-state.sh (agent-run) writes the arguments, the cap, the address and who it reports to" 0 $?
+    write_as_agent state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
+        && write_as_agent state-stored-set.sh --run cap 5 --by "the human" \
+        && write_as_agent state-stored-set.sh --run coordinator coord-test --by coord-test \
+        && write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"
+    eq "1: state-stored-set.sh (agent-run) writes the arguments, the cap, the address and who it reports to" 0 $?
     eq "1: the next advance reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     NAMED=$(jq -r 'select(.type == "evidence_submitted") | .payload.fields | tostring | select(test("issues/"))' "$(logf)")
     eq "1: no evidence named a record" "" "$NAMED"
@@ -76,7 +76,7 @@ fi
 echo "== 2. a restart resumes the run =="
 seed_roadmap restart
 if open_run restart && [ "$(at)" = record_open ]; then
-    write_as_agent record-open.sh
+    write_as_agent state-open.sh
     eq "2: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" \
         || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
@@ -108,12 +108,12 @@ if to_pick defer "$REC3"; then
         "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
     eq "3: rewritten without a write returns to deferral_dispose" deferral_dispose "$(at --with-data '{"rewritten":"rewritten"}')"
     eq "3: dispatch is unreachable while it is open" 0 "$(entered dispatch)"
-    # Edit the record keeping its written time: record-write.sh compares it
+    # Edit the record keeping its written time: state-write.sh compares it
     # with the live record's before writing.
     live_body | jq -c '.deferrals[0].disposition = "closed: moot"' > "$T/rec.json"
     state_json "$(cat "$T/rec.json")" "$(jq -r .written "$T/rec.json")" > "$T/state.json"
-    write_as_agent record-write.sh --state-file "$T/state.json"; rc=$?
-    eq "3: record-write.sh (agent-run) disposes the deferral" 0 $rc
+    write_as_agent state-write.sh --state-file "$T/state.json"; rc=$?
+    eq "3: state-write.sh (agent-run) disposes the deferral" 0 $rc
     eq "3: once disposed, dispatch_check reaches dispatch" dispatch "$(at --with-data '{"rewritten":"rewritten"}')"
 else
     bad "3: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -129,11 +129,11 @@ if SAVE_RECONCILE=empty-reconcile to_pick hold "$(record_json roadmap hold)" && 
     eq "4: wait is unreachable before the row" 0 "$(entered wait)"
     sleep 1
     dispatched_row feat-1 > "$T/row.json"
-    write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
-    eq "4: record-holding.sh (agent-run) writes the row" 0 $rc
+    write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
+    eq "4: state-holding.sh (agent-run) writes the row" 0 $rc
     eq "4: with the row in the record, dispatch leaves, and record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
-    write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "waiting on its first report"; rc=$?
-    eq "4: record-state.sh (agent-run) writes the holding's next step" 0 $rc
+    write_as_agent state-stored-set.sh --work "Feature 1" --kind holding --who feat-1 --next "waiting on its first report"; rc=$?
+    eq "4: state-stored-set.sh (agent-run) writes the holding's next step" 0 $rc
     eq "4: with the Work row in the record, record confirms and reaches pick" pick "$(at)"
     eq "4: and pick can now hold into wait" wait "$(at --with-data '{"choice":"hold"}')"
 else
@@ -203,7 +203,7 @@ echo "== 8. contradicting evidence doesn't move a check =="
 # Each part starts from a run an earlier case drove and asserted the same
 # way: case 1's at record_open with no record, case 6's at reconcile with an
 # unread posture, and case 4's held at dispatch with no Holdings row.
-if snap_load record-open && [ "$(now_at)" = record_open ]; then
+if snap_load state-open && [ "$(now_at)" = record_open ]; then
     eq "8: 'opened' with no record in the session routes record_find back to record_open" record_open "$(at --with-data '{"opened":"opened"}')"
     eq "8: record_find read none twice" 2 "$(jq -s '[.[] | select(.type == "variable_captured" and .payload.key == "RECORD_FIND" and (.payload.value | startswith("none ")))] | length' "$(logf)")"
 else

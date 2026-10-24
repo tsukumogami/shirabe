@@ -16,7 +16,7 @@
 # reads refused through check_record, a rotation's reasoning scanned; a valid
 # state accepted and given back normalized; the module holding no markdown
 # encoding, renderer or record parser (only the reader of a GitHub record's
-# archived Decisions rows). Through record-write.sh and the core: a next state
+# archived Decisions rows). Through state-write.sh and the core: a next state
 # naming a private repository is refused from its JSON, and a refused schema
 # rule, a stale read and a section owned by another writer flag each leave
 # every key as it was.
@@ -85,12 +85,11 @@ echo "== the module's shape =="
 # The module holds no markdown encoding, renderer or record parser. Its one
 # reader of markdown is the archived Decisions rows a GitHub record's body put
 # in `decisions` entries (d_archive_rows, with parse_drow, dec and dec_d), which
-# record-decision.sh restores an archived entry from.
+# state-decision.sh restores an archived entry from.
 defs() { sed -nE 's/^def ([a-z_]+)(\(([^)]*)\))?:.*/\1(\3)/p' "$1"; }
 SCHEMA_DEFS=$(defs "$HERE/state-schema.jq")
 eq "state-schema.jq holds no encoding, renderer, record parser or handoff" "" \
     "$(printf '%s\n' "$SCHEMA_DEFS" | grep -E '^(enc|enc_d|normalized|split_cells|declaration|pr_prefix|scope_text)\(|^(render_|predecessor_)|^parse_' | grep -v '^parse_drow(')"
-[ -f "$HERE/record-codec.jq" ] && bad "no record-codec.jq is left beside it" "" || ok "no record-codec.jq is left beside it"
 eq "its one error() is refuse()'s, so every refusal starts refused: " \
     'def refuse($m): error("refused: " + $m);' "$(grep -v '^ *#' "$HERE/state-schema.jq" | grep 'error(')"
 
@@ -176,10 +175,10 @@ same "a cap that isn't 1 to 99" "$(RUNS "$(RR cap 100)")" "a cap is a number fro
 same "a coordinator address shaped like a path" "$(RUNS "$(RR coordinator a/b)")" "shape of a path"
 same "a party told twice" "$(RUNS "$(RR told lead), $(RR told lead)")" "a party is told twice"
 same "a key other than told used twice" "$(RUNS "$(RR cap 3), $(RR cap 4)")" "a key other than told, rules and briefs is used twice"
-same "a store row reading github is refused" "$(RUNS "$(RR store github)")" "store-malformed: the store is the session; a store row reads session, never github"
+same "a store row reading github is refused" "$(RUNS "$(RR store github)")" "the store is the session; a store row reads session, never github"
 passes "the legacy store row reading session an existing session holds passes" "$(RUNS "$STORE")"
-same "a store row reading anything else" "$(RUNS "$(RR store gitlab)")" "store-malformed: the store is the session; a store row reads session, never gitlab"
-same "  ... or one used twice" "$(RUNS "$STORE, $(RR store session)")" "store-malformed: the store row is used twice"
+same "a store row reading anything else" "$(RUNS "$(RR store gitlab)")" "the store is the session; a store row reads session, never gitlab"
+same "  ... or one used twice" "$(RUNS "$STORE, $(RR store session)")" "the store row is used twice"
 passes "the crash set passes with no store row" \
     "$(RUNS "$(RR rules "skill-rules sha256:$SHA64"), $(RR briefs "brief sha256:$SHA64"), $(RR friction friction-log), $(RR reports-to "the lead at ws-lead")")"
 passes "  ... and beside the legacy store session row" \
@@ -346,10 +345,10 @@ eq "  ... and a private repository in a reversal" "refused: reversals[0].reason:
 eq "  ... while a column's own check still speaks first" "refused: repo: names acme/secret, a repository that isn't public" \
     "$(check "$(with '.holdings[0].repo = "acme/secret"')" acme/secret)"
 
-echo "== through record-write.sh and the core =="
+echo "== through state-write.sh and the core =="
 # A roadmap record in the session, written through the real write script with
 # the GitHub and koto stand-ins.
-WR="$HERE/record-write.sh"
+WR="$HERE/state-write.sh"
 SW=coordinate-roadmap-plugin-system-20260926T140000Z
 export RS_SESSION=$SW
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
@@ -365,7 +364,7 @@ SNAP=$(session_snapshot "$SW")
 [ "$SNAP" != none ] && ok "the session holds the record's keys" || bad "the session holds the record's keys" ""
 bash "$WR" "${RM[@]}" --state-file "$T/priv.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a state naming a private repository is refused before any key is written" 65 "$rc"
-grep -q 'record-write: refused: repo: names acme/secret, a repository that isn.t public' "$T/err" \
+grep -q 'state-write: refused: repo: names acme/secret, a repository that isn.t public' "$T/err" \
     && ok "  ... with the module's message" || bad "  ... with the module's message" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 state_json "$NEWJ" > "$T/new.json"
@@ -383,12 +382,12 @@ eq "a write built from a stale read is refused as record-changed" 12 "$rc"
 grep -q 'record-changed' "$T/err" && ok "  ... naming record-changed" || bad "  ... naming record-changed" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 # A write that changes a section another writer flag owns: Holds, through
-# record-write.sh, which never opens HOLDS_WRITER.
+# state-write.sh, which never opens HOLDS_WRITER.
 session_state "$SW" | jq -c '.holdings |= map(del(.pushed_head))
     | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' > "$T/hold.json"
 bash "$WR" "${RM[@]}" --state-file "$T/hold.json" > /dev/null 2> "$T/err"; rc=$?
 eq "a write changing a section another writer owns is refused" 65 "$rc"
-grep -q 'Holds section changes only through record-hold.sh' "$T/err" && ok "  ... by the owner check" || bad "  ... by the owner check" "$(cat "$T/err")"
+grep -q 'Holds section changes only through state-hold.sh' "$T/err" && ok "  ... by the owner check" || bad "  ... by the owner check" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 
 done_tests state-schema

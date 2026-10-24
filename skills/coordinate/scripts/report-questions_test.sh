@@ -80,7 +80,7 @@ archive_row() {
     jq -nr -L "$HERE" --argjson e "$1" 'include "state-schema";
         def enc: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\\\\"; "&#92;") | gsub("\\|"; "\\|") | gsub("\n"; "<br>") | gsub("@"; "&#64;");
         "Decisions 3, settled, moved out of the record body as it held them.\n\n\(d_header)\n| " + (decisions_cols | map($e[.[0]] // "" | enc) | join(" | ")) + " |"' > "$T/arch.md"
-    bash "$HERE/record-append.sh" --session "$S" --kind decisions --text-file "$T/arch.md" > /dev/null
+    bash "$HERE/state-entry.sh" --session "$S" --kind decisions --text-file "$T/arch.md" > /dev/null
 }
 ARCHIVED='.decisions = {next: 10, entries: [], archived: [3]}'
 own_archive() { archive_row "$SETTLED3"; }

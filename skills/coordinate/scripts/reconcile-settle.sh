@@ -16,7 +16,7 @@
 #
 # It takes no dispatch lock. A dispatch-worker.sh run confirming the same
 # topic at the same moment writes the same row with the same status, and
-# record-holding.sh refuses whichever write lands on a record changed since
+# state-holding.sh refuses whichever write lands on a record changed since
 # its read (exit 12), which this script reports as not verified for the next
 # pass to read again.
 #
@@ -24,7 +24,7 @@
 #   reconcile-settle.sh --session S --topic T --return-path RP
 #
 # RP is the row's Return path as the pass read it (`message` or
-# `leg <request>:<leg>`). The row is rewritten through record-holding.sh,
+# `leg <request>:<leg>`). The row is rewritten through state-holding.sh,
 # which checks provenance, directed transitions and the target before it
 # writes.
 #
@@ -60,7 +60,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SESSION" ] && [ -n "$TOPIC" ] && [ -n "$RP" ] || usage
 
-HOLDING="$HERE/record-holding.sh"
+HOLDING="$HERE/state-holding.sh"
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-settle.XXXXXX") || { rd_not_verified settle "no temp directory"; exit 0; }
 trap 'rm -rf "$T"' EXIT
 

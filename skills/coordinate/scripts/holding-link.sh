@@ -12,7 +12,7 @@
 #   - the session is at report_link, and report_facts' REPORT capture, sealed
 #     at its latest visit, reads `link <pr> <topic>` (exit 10 otherwise);
 #   - the run's latest report is still that topic's, and the pull request it
-#     names (record-common.sh lib_report_pr: koto's record of the leg, or the
+#     names (state-common.sh lib_report_pr: koto's record of the leg, or the
 #     `pull_request` field of the message's `wait` evidence) is #<pr>;
 #   - the pull request is in the scope's repositories, no other Holdings row
 #     links it, its head is not from a fork, and its head branch agrees with a
@@ -20,9 +20,9 @@
 # The Branch written is the pull request's headRefName as GitHub reports it,
 # never text from the report. The holding's pushed head is written too, the
 # headRefOid GitHub reports (PRD R17); it stays beside the row in the session.
-# The row is written with record-holding.sh, which
+# The row is written with state-holding.sh, which
 # re-reads the record and checks provenance and directed transitions before
-# record-write.sh writes it. A holding that already links the pull request is
+# state-write.sh writes it. A holding that already links the pull request is
 # left as it is (exit 0), so running it again is safe; one that links another
 # is refused.
 #
@@ -34,18 +34,18 @@
 # Exit codes: 0 written, or already linked (prints the record's URL, or
 # `already linked`); 10 refused, either because the session log doesn't show
 # this report's link (not at report_link, no sealed `link`, a later report, or
-# another number than the one sealed) or because record-holding.sh refused the
+# another number than the one sealed) or because state-holding.sh refused the
 # write (no found record, provenance, a directed transition); 65 the pull
 # request was refused (the reason on stderr); 11 the write failed and 12 the
 # record changed since the read (run it again for either); 13 the record is
 # full; 2 a read failed (run it again); 64 usage. Every refusal names its
 # reason on stderr.
 #
-# GitHub reads: record-holding.sh --list;
+# GitHub reads: state-holding.sh --list;
 # gh pr view <n> --repo <repo> --json headRefName,headRefOid,isCrossRepository,url (the link
 # names the repository as that URL spells it).
-# It writes nothing on GitHub; the row goes through record-holding.sh
-# (record-write.sh) into the session.
+# It writes nothing on GitHub; the row goes through state-holding.sh
+# (state-write.sh) into the session.
 set -uo pipefail
 
 PROG=holding-link
@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
 done
 # The pull request and topic live in the session log, so a session is always needed.
 [ -n "$SESSION" ] || usage
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
@@ -69,8 +69,8 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/holding-link.XXXXXX") || lib_die2 "cannot make a 
 trap 'rm -rf "$T"' EXIT
 
 refuse() { echo "$PROG: refused: $*" >&2; exit 65; }
-hold() { # hold <mode args...>: record-holding.sh on this run's session
-    bash "$HERE/record-holding.sh" --session "$SESSION" "$@"
+hold() { # hold <mode args...>: state-holding.sh on this run's session
+    bash "$HERE/state-holding.sh" --session "$SESSION" "$@"
 }
 
 CUR=$(bash "$HERE/coord-log.sh" current --session "$SESSION" 2> /dev/null)
@@ -88,7 +88,7 @@ NUM=$2 TOPIC=$3
 
 # The same derivation report_facts made, from the log, so the capture is
 # checked against what the report said rather than trusted alone.
-hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
+hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "state-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
 all_rows() { cat "$T/all.json"; }
 lib_unit "" 'report|progress' all_rows
 [ "$UNIT" = "$TOPIC" ] || { echo "$PROG: refused: the latest report is ${UNIT:-no worker}'s, not $TOPIC's" >&2; exit 10; }

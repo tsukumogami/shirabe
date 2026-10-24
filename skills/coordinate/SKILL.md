@@ -266,7 +266,7 @@ by `record-render.sh` from the session's keys, starts with the declaration
 line (`> This is a **coordinator record** for ...`) and the `Written:` line,
 then the four sections, then Holds once the record holds a merge, then the
 stored set a replacement continues from (Run, Standing and Work, written only
-by `scripts/record-state.sh`), then Decisions once it holds a decision.
+by `scripts/state-stored-set.sh`), then Decisions once it holds a decision.
 `references/record-template.md` has the shape.
 
 The find writes the run's store, `session`, and what it read of koto, to
@@ -277,33 +277,33 @@ entries (cost, verdicts, goal fit, failures) are posted on the item each
 concerns (`--on`) or stay in the session. A run whose session doesn't hold
 the record it should stops at the find, and a koto without the session
 record's features is refused at the start (`store-unsupported`); the reason
-names the import that brings the session here. `scripts/record-source.sh
+names the import that brings the session here. `scripts/state-read.sh
 --show` prints the session's state as the record body would read.
 
 The record also keeps the crash set, what a replacement needs after a crash and
 what never goes to GitHub. In the Run section, written with
-`record-state.sh --run`: `rules` and `briefs` (`<label> sha256:<64 hex>`, the
+`state-stored-set.sh --run`: `rules` and `briefs` (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with), `friction` (a label) and
 `reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
-up to). Where those files live goes in `record/host` through `record-state.sh
+up to). Where those files live goes in `record/host` through `state-stored-set.sh
 --host`, never in a table, and so do an import's facts (`source_workspace`,
 `source_session`, `template_hash`); host facts never go to GitHub. A holding
 keeps its last pushed head, the pull request head a report or a link last read,
-beside the row (`record-holding.sh --pushed-head`). The handover read prints all
+beside the row (`state-holding.sh --pushed-head`). The handover read prints all
 of it, and a record with no `reports-to` row is a gap (`no-reports-to`) that
 holds the handover gate. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
 
 Every script reads the record's state through one reader,
-`scripts/record-source.sh`, from the run's session. The only other
+`scripts/state-read.sh`, from the run's session. The only other
 scripts that parse a record body are the finder, the opener and the write core,
 which parse what they are about to adopt or write, and reconcile's reader, which
 salvages a body the seam handed it; a test holds every script to that list.
 
 The body is the record's state. Its account, what happened and why, goes in
 entries: each one key in the session, written with
-`scripts/record-append.sh`, which stamps it from the host clock, and an
+`scripts/state-entry.sh`, which stamps it from the host clock, and an
 outward one also posted on the item it concerns. Never write an
 entry into the body, a table cell or a local file, and never post one by hand.
 
@@ -326,7 +326,7 @@ states never ask you to do these steps by hand.
   scoped ahead goes to `/shirabe:scope`, with its execution sent later; an
   issue goes to `/shirabe:work-on`; a release goes to `/shirabe:release`. Work
   a person assigns outside the scope (an issue, or a release) is recorded as
-  a Standing `assignment` row with `scripts/record-state.sh`, and pick lists
+  a Standing `assignment` row with `scripts/state-stored-set.sh`, and pick lists
   it as a unit from then on, at roadmap scope as at discipline scope, so it
   is dispatched and held like any other. The brief tells the worker to report
   to the record's Run `coordinator` address, which `scripts/dispatch-worker.sh`
@@ -442,7 +442,7 @@ lines, and the rows and refusals behind them, are in
   default branch's head (that commit is the entry's Source), check the
   shipped work against each clause, write
   the verdict entry, check it with `milestone.sh check-verdict`, write it
-  into the record with `record-append.sh --kind milestone-verdict --on none`,
+  into the record with `state-entry.sh --kind milestone-verdict --on none`,
   run `roadmap-status.sh --verdict` with the entry number it printed, and
   submit `verdict: recorded`.
   When a clause can't be checked yet (it needs a release or a person's
@@ -581,7 +581,7 @@ dependency the worker claims and the roadmap doesn't list is one
 
 A person pauses a coordinator, or one unit of its work, and the loop holds
 dispatch and merge until the pause ends. A pause is a Standing row in the
-record, written with `scripts/record-state.sh --standing pause --on <all or
+record, written with `scripts/state-stored-set.sh --standing pause --on <all or
 the unit> --until <lifted | time <UTC minute> | merged owner/repo#n | tag
 owner/repo TAG>`, with the person as owner and whoever relayed it: the record
 holds it, so it survives this session and a replacement finds it standing.
@@ -626,7 +626,7 @@ executed nothing.
 
 Every decision the run meets is an entry in the record's Decisions section,
 with a stable number, a state (`proposed`, `coordinator-verdict`, `escalated`,
-`settled`) and its evidence. `scripts/record-decision.sh` is the only thing that
+`settled`) and its evidence. `scripts/state-decision.sh` is the only thing that
 writes one, and each of its modes runs only in the state named below, on the
 entry the workflow routed. The states and checks, all in the template:
 
@@ -646,7 +646,7 @@ entry the workflow routed. The states and checks, all in the template:
   while anything that blocks a dispatch is owed; nothing blocks `wait`. On a
   record within 4,096 bytes of its 60,000-byte budget it first archives every
   settled entry that owes nothing and holds no parked unit
-  (`record-decision.sh --archive`), so a long run never stalls on a full
+  (`state-decision.sh --archive`), so a long run never stalls on a full
   record; evidence, an answer or a citation naming an archived entry brings it
   back. `record-full` is left for a record full of what can't move.
 - **The verdict.** At `decision_verdict` you settle it, escalate it or hold it
@@ -663,7 +663,7 @@ entry the workflow routed. The states and checks, all in the template:
 - **Messages.** A message is rendered by a check (`escalate`,
   `decision_withdraw`, `decision_reply`, `decision_redirect`) and sent from the
   state after it (`escalate_send` and the three `*_send` states), exactly as
-  rendered; `record-decision.sh --sent` marks it only against that render.
+  rendered; `state-decision.sh --sent` marks it only against that render.
 - **Asking a person.** `escalate_send` for a person has two routes, rendered
   from the same question. Ask with AskUserQuestion only when the turn you are in
   was started by a message from that person, not by a worker's report, a
@@ -856,7 +856,7 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   topic: the dispatch script refuses a topic whose session is still live. A
   worker on the message path that went quiet past the second silence, whose
   unit you choose to dispatch again, is marked stranded first
-  (`record-holding.sh --strand <topic>`, refused for a leg-bound worker); the
+  (`state-holding.sh --strand <topic>`, refused for a leg-bound worker); the
   new topic's brief names the old branch and last pushed head, and the
   stranded row is retired once the new worker is dispatched, so a late report
   from the old topic matches no holding.

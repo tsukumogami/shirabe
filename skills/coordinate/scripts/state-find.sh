@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-find.sh -- the check action of state record_find: find this scope's
+# state-find.sh -- the check action of state record_find: find this scope's
 # coordinator record and say whether the run may adopt it.
 #
 # The record lives in the coordinator's own koto session on this host
@@ -25,15 +25,15 @@
 #               | malformed
 #
 # Usage:
-#   record-find.sh --session S
-#   record-find.sh [--session S] --scope roadmap|discipline --name N --repo O/R
+#   state-find.sh --session S
+#   state-find.sh [--session S] --scope roadmap|discipline --name N --repo O/R
 #                  [--today YYYY-MM-DD] [--no-seal]          (tests)
 #
 # The detail goes to context key coord/record_find.json as data:
 #   {verdict, session, reason, rotation:{start,end}, store}
 # and the run's store, always the session, with the reason, to
 # coord/source.json: {source: "session", reason}. The resume candidate
-# (record-source.sh rs_resume_candidate) resumes or carries only a run whose
+# (state-read.sh rs_resume_candidate) resumes or carries only a run whose
 # coord/source.json reads session.
 # The token, sealed to this visit of record_find, is the only stdout line;
 # under --no-seal it is printed bare and no context is written.
@@ -42,7 +42,7 @@
 # action); 64 usage.
 set -uo pipefail
 
-PROG=record-find
+PROG=state-find
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= TODAY=
 NO_SEAL=0
@@ -59,11 +59,11 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u +%Y-%m-%d); fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX") || lib_die2 "cannot make a temporary directory"
+T=$(mktemp -d "${TMPDIR:-/tmp}/state-find.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 VERDICT= ARG= URL= REASON= ROT_START= ROT_END=

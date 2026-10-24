@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-open_test.sh -- record-open.sh opens exactly one record, in the run's
+# state-open_test.sh -- state-open.sh opens exactly one record, in the run's
 # own koto session, building the scope's empty record itself, and refuses when
 # the session already holds one, or when the session fails
 # provenance or has a directed transition.
@@ -13,13 +13,13 @@
 # errors; provenance and directed-transition refusals through a prepared
 # session log (10).
 #
-# Usage: bash skills/coordinate/scripts/record-open_test.sh
+# Usage: bash skills/coordinate/scripts/state-open_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-O="$HERE/record-open.sh"
+O="$HERE/state-open.sh"
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
@@ -62,7 +62,7 @@ RS_SESSION=$S2 bash "$O" "${RM[@]}" --recut >/dev/null 2>&1; eq "--recut is a us
 eq "  ... and neither wrote anything" none "$(session_snapshot "$S2")"
 
 echo "== discipline =="
-# A rotation's window goes to record/rotation through record-state.sh, which
+# A rotation's window goes to record/rotation through state-stored-set.sh, which
 # needs the run's session: the run is opened and its find sealed `first`.
 db_init
 SD=coordinate-discipline-ci-health-20260926T080000Z
@@ -117,4 +117,4 @@ bash "$O" --session "$S5" >/dev/null 2>"$T/err"; eq "a session that isn't its sc
 eq "and writes nothing" none "$(session_snapshot "$S5")"
 eq "no session check or write called GitHub to write" "" "$(gh_writes)"
 
-done_tests record-open
+done_tests state-open

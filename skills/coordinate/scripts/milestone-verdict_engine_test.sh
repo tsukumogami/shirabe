@@ -206,7 +206,7 @@ if open_run milestones "$MV" "$REC" yes; then
         "$S" "$TODAY" "$RM" "$SHA_MAIN" > "$T/verdict.txt"
     bash "$PS/milestone.sh" check-verdict "$T/mv.md" MV1 "$T/verdict.txt" --worker mv1-worker > /dev/null 2>"$T/err"; eq "the entry passes milestone.sh check-verdict" 0 $?
     sleep 1
-    as_agent record-append.sh --kind milestone-verdict --on none --text-file "$T/verdict.txt"; eq "the entry is written into the session" 0 $?
+    as_agent state-entry.sh --kind milestone-verdict --on none --text-file "$T/verdict.txt"; eq "the entry is written into the session" 0 $?
     EN=$(sed -n 's|^record/entries/0*\([0-9][0-9]*\)$|\1|p' "$T/w.out")
     as_agent roadmap-status.sh --verdict MV1 --entry "$EN"; eq "roadmap-status.sh --verdict opens the roadmap edit, posting the entry on it" 0 $?
     PRN=$(jq -r '[.prs[] | select(.title == "docs(roadmap): record MV1, the plugin list, as done on its verdict")][0].number // empty' "$GH_DB")
@@ -228,7 +228,7 @@ if open_run milestones "$MV" "$REC" yes; then
     printf 'Failure: MV1\nReported by: an operator\nSeen on: %s\nClause: 2\nWhat was seen: the removed manifest was listed as installed\n' "$TODAY" > "$T/failure.txt"
     jq -r --arg k "main:$RM" '.files["acme/widgets"][$k]' "$GH_DB" > "$T/main.md"
     bash "$PS/milestone.sh" check-failure "$T/main.md" MV1 "$T/failure.txt" > /dev/null 2>"$T/err"; eq "the failure passes milestone.sh check-failure" 0 $?
-    as_agent record-append.sh --kind milestone-failure --on none --text-file "$T/failure.txt"; eq "the failure is written into the session" 0 $?
+    as_agent state-entry.sh --kind milestone-failure --on none --text-file "$T/failure.txt"; eq "the failure is written into the session" 0 $?
     FN=$(sed -n 's|^record/entries/0*\([0-9][0-9]*\)$|\1|p' "$T/w.out")
     as_agent roadmap-status.sh --reopen MV1 --entry "$FN"; eq "roadmap-status.sh --reopen opens the reopen edit, posting the failure on it" 0 $?
     [ -n "$(jq -r '[.prs[] | select(.title == "docs(roadmap): reopen MV1, the plugin list, on a reported failure")][0].number // empty' "$GH_DB")" ] \

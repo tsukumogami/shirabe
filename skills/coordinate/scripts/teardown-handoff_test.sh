@@ -5,7 +5,7 @@
 # (teardown-verdict.sh) is a stand-in printing a durable verdict, with the
 # koto stand-in (testdata/koto) holding teardown_topic, a coord-log.sh
 # stand-in for the seals and the teardown evidence, and stand-ins for
-# record-holding.sh, niwa, claude and gh. A durable, merged, handed-off
+# state-holding.sh, niwa, claude and gh. A durable, merged, handed-off
 # worker seals a ready verdict naming its instance, job, transcript, pull
 # request, handoff and dispatch id. Each refusal seals `refused` with its
 # reason, prints `handoff-refused`, and runs nothing but the listings: a
@@ -98,8 +98,8 @@ case "$cmd" in
     *) exit 64 ;;
 esac
 EOF
-# record-holding.sh --read: the holding's row.
-cat >"$S/record-holding.sh" <<'EOF'
+# state-holding.sh --read: the holding's row.
+cat >"$S/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 cat "$ST/row.json"
 EOF

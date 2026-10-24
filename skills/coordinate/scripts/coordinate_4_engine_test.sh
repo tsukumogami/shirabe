@@ -14,7 +14,7 @@
 #      dispatch_check, never entering dispatch, with a refusal naming the
 #      field and the value; the same pick with the topic goes on to dispatch.
 #  20. a unit waiting on a person (shirabe#549): pick's await_decision goes to
-#      decision_raise, which holds until record-state.sh parks the unit on the
+#      decision_raise, which holds until state-stored-set.sh parks the unit on the
 #      entry it opened; escalated and sent, the run is back at pick with the
 #      unit awaiting and no slot taken, so under a cap of one another unit is
 #      dispatched beside it; a dispatch of the parked unit submitted paused
@@ -100,27 +100,27 @@ three_features parked
 seed_record parked
 if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ]; then
     # One slot: the human sets the cap to one.
-    write_as_agent record-state.sh --run cap 1 --by "the human"
+    write_as_agent state-stored-set.sh --run cap 1 --by "the human"
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] && [ "$(at --with-data '{"event":"resume"}')" = pick ] \
         && eq "20: the cap is one" 1 "$(pickf | jq -r .cap)" || bad "20: back at pick with the cap at one" "$(cat "$T/tick.err")"
     eq "20: await_decision with no unit stays at pick" pick "$(at --with-data '{"choice":"await_decision","rationale":"the framing is the human'"'"'s"}')"
     eq "20: await_decision on Feature 1 goes to decision_raise" decision_raise \
         "$(at --with-data '{"choice":"await_decision","unit":"Feature 1","rationale":"its framing is the human'"'"'s call"}')"
-    write_as_agent record-decision.sh --open --question "Feature 1: keep its command-line surface, or fold it into the API?" \
+    write_as_agent state-decision.sh --open --question "Feature 1: keep its command-line surface, or fold it into the API?" \
         --option "keep -- two front ends to maintain" --option "fold -- one front end, a breaking change" --source self
     eq "20: the question opens as an entry" 0 $?
     eq "20: raised before the unit is parked comes back to decision_raise" decision_raise "$(at --with-data '{"raised":"raised"}')"
-    write_as_agent record-state.sh --work "Feature 1" --kind decision --who "decision 1" --next "dispatch it with the answer"
-    eq "20: record-state.sh parks Feature 1 on decision 1" 0 $?
+    write_as_agent state-stored-set.sh --work "Feature 1" --kind decision --who "decision 1" --next "dispatch it with the answer"
+    eq "20: state-stored-set.sh parks Feature 1 on decision 1" 0 $?
     eq "20: once parked, the entry is taken up" decision_take "$(at --with-data '{"raised":"raised"}')"
-    write_as_agent record-decision.sh --take
+    write_as_agent state-decision.sh --take
     eq "20: and comes up for a verdict" decision_verdict "$(at --with-data '{"taken":"taken"}')"
-    write_as_agent record-decision.sh --escalate --recommendation keep --reason "the API's users asked for the command line" \
+    write_as_agent state-decision.sh --escalate --recommendation keep --reason "the API's users asked for the command line" \
         --context "Feature 1 can't be scoped until its surface is chosen." --problem "It changes the feature's scope, which is the human's." \
         --grounds scope --option "keep -- two front ends to maintain" --option "fold -- one front end, a breaking change"
     eq "20: escalated to the person" 0 $?
     eq "20: the escalation renders" escalate_send "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')"
-    write_as_agent record-decision.sh --sent --route message
+    write_as_agent state-decision.sh --sent --route message
     eq "20: sent, the loop goes back to pick" pick "$(at --with-data '{"sent":"sent"}')"
     eq "20: pick lists Feature 1 awaiting decision 1, holding no slot" "1 0" "$(pickf | jq -r '"\(.units[0].awaiting) \(.active)"')"
     # The one slot is still free: Feature 2 is dispatched into it.
@@ -128,10 +128,10 @@ if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconcil
     dispatch_as_agent "$(brief feat-2 "Feature 2" deliver feat-2 executing)"
     eq "20: dispatch-worker.sh launches it" 0 "$DW_RC"
     eq "20: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-2"}')"
-    write_as_agent record-state.sh --work "Feature 2" --kind holding --who feat-2 --next "report at its first checkpoint"
+    write_as_agent state-stored-set.sh --work "Feature 2" --kind holding --who feat-2 --next "report at its first checkpoint"
     eq "20: then the loop goes back to pick" pick "$(at)"
     # The parked unit can't be dispatched while its entry is open.
-    write_as_agent record-state.sh --run cap 2 --by "the human"
+    write_as_agent state-stored-set.sh --run cap 2 --by "the human"
     at --with-data '{"choice":"hold"}' >/dev/null
     eq "20: a second slot" pick "$(at --with-data '{"event":"resume"}')"
     eq "20: dispatching the parked unit passes the check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
@@ -140,14 +140,14 @@ if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconcil
     eq "20: submitted paused, back to wait" wait "$(at --with-data '{"dispatched":"paused","topic":"feat-1"}')"
     # The answer lands.
     eq "20: the person's answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
-    write_as_agent record-decision.sh --answer --outcome keep
+    write_as_agent state-decision.sh --answer --outcome keep
     eq "20: recorded, the loop goes back to pick" pick "$(at --with-data '{"answered":"recorded"}')"
     eq "20: pick lists Feature 1 answered, no longer awaiting" 'null 1 keep' "$(pickf | jq -r '.units[0] | "\(.awaiting) \(.answered.decision) \(.answered.outcome | split(";")[0])"')"
     eq "20: now it is dispatched" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
     dispatch_as_agent "$(brief feat-1 "Feature 1" deliver feat-1 executing)"
     eq "20: dispatch-worker.sh launches it" 0 "$DW_RC"
     eq "20: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
-    write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "report at its first checkpoint"
+    write_as_agent state-stored-set.sh --work "Feature 1" --kind holding --who feat-1 --next "report at its first checkpoint"
     eq "20: then back to pick" pick "$(at)"
     eq "20: its holding row took over the decision row" "Feature 2:holding:feat-2 Feature 1:holding:feat-1" "$(work_rows)"
 else
@@ -175,15 +175,15 @@ if LAND_PHASE=scoping land_run scopemerge; then
         bt_merged MERGED; bt_reach behind
         eq "21: the merge is confirmed" record "$(at --with-data '{"merge":"attempted"}')"
         rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
-        (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
-        write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+        (cd "$WD" && bash "$PS/state-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
+        write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"
         eq "21: with the cell cleared, record still holds" record "$(at)"
         case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
             *"a follow-up Work row for Feature 1"*) ok "21: for the follow-up, the unit's execution" ;;
             *) bad "21: for the follow-up, the unit's execution" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
         esac
-        write_as_agent record-state.sh --work "Feature 1" --kind follow-up --who "acme/widgets#12" --next "/shirabe:execute docs/plans/PLAN-feat-1.md"
-        eq "21: record-state.sh writes the follow-up" 0 $?
+        write_as_agent state-stored-set.sh --work "Feature 1" --kind follow-up --who "acme/widgets#12" --next "/shirabe:execute docs/plans/PLAN-feat-1.md"
+        eq "21: state-stored-set.sh writes the follow-up" 0 $?
         eq "21: then the merge confirms and the loop goes on to pick" pick "$(at)"
         eq "21: pick lists the follow-up beside the merged holding" "acme/widgets#12 /shirabe:execute docs/plans/PLAN-feat-1.md" \
             "$(pickf | jq -r '.units[] | select(.unit == "Feature 1") | "\(.follow_up.after) \(.follow_up.next)"')"
@@ -239,8 +239,8 @@ if to_pick nover "$(record_json roadmap nover | jq -c --argjson h "$(land_row "$
     live_body | jq -c --arg h "$MOVED" --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" \
         '.side_effects += [{action: "merge", target: "acme/widgets#12", verified_head: $h, attempted: $d, how_to_confirm: "a person merged it; this run never verified the head"}]' > "$T/se.json"
     state_json "$(cat "$T/se.json")" "$(jq -r .written "$T/se.json")" > "$T/se.next.json"
-    write_as_agent record-write.sh --state-file "$T/se.next.json"
-    eq "24: record-write.sh (agent-run) adds the Side effects row" 0 $?
+    write_as_agent state-write.sh --state-file "$T/se.next.json"
+    eq "24: state-write.sh (agent-run) adds the Side effects row" 0 $?
     eq "24: the row an unconfirmed merge gets confirms it, and the loop goes on to pick" pick "$(at)"
 else
     bad "24: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stand-in record-holding.sh for the localized plugin tree. $BT_STATE/holdings
+# Stand-in state-holding.sh for the localized plugin tree. $BT_STATE/holdings
 # holds the Holdings rows as a JSON array: --list prints it, --topic T --read
 # prints the row whose worker is T (exit 1 when none).
 printf '%s\n' "$*" >> "$BT_STATE/holding.calls"

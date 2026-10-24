@@ -42,11 +42,11 @@ capture still reads its worker row from there.
 
 It writes `unit-cost.json` into the archive (to a temporary name, then
 renamed; it is not in the MANIFEST, and the archive's README says so) and
-posts one `cost` entry through `record-append.sh`. A record that already
+posts one `cost` entry through `state-entry.sh`. A record that already
 holds a `cost` entry with the same capture key gets nothing new.
 
 The entry is written to the session and posted on the item the unit is
-about, with `record-append.sh --on`: the holding's pull request (its Pull request cell,
+about, with `state-entry.sh --on`: the holding's pull request (its Pull request cell,
 else the first pull request of the sealed verdict), else the unit's issue
 (a Unit of `#n: ...` on the host, or `owner/repo#n: ...`), else nowhere. A
 unit with neither keeps its entry in the session and the capture's last
@@ -190,7 +190,7 @@ row can't be read.
 
 ## The entry
 
-The comment, after `record-append.sh`'s marker and stamp, is one summary
+The comment, after `state-entry.sh`'s marker and stamp, is one summary
 line, a blank line and one fenced `json` block holding a compact object:
 
 ````
@@ -319,7 +319,7 @@ done < units.txt \
 ```
 
 A unit with no pull request or issue has its entry only in the session
-(`record-append.sh --list`, kind `cost`) and in its archive's
+(`state-entry.sh --list`, kind `cost`) and in its archive's
 `unit-cost.json`.
 
 A record can hold the same key twice (a capture that couldn't list the

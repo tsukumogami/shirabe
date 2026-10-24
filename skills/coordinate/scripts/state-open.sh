@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-open.sh -- open this scope's coordinator record, exactly once, in the
+# state-open.sh -- open this scope's coordinator record, exactly once, in the
 # run's own koto session. Agent-run, from the directive of state record_open;
 # never a default action.
 #
@@ -16,7 +16,7 @@
 # written on GitHub. It prints record=<session>.
 #
 # Discipline scope, after the find sealed `first`: the empty record of the
-# discipline is seeded the same way, then record-state.sh --rotation writes
+# discipline is seeded the same way, then state-stored-set.sh --rotation writes
 # record/rotation, {start, end, host_repo, predecessor: null}. It prints
 # record=<session>.
 #
@@ -34,9 +34,9 @@
 # again.
 #
 # Usage:
-#   record-open.sh --session S [--start YYYY-MM-DD --end YYYY-MM-DD]
-#   record-open.sh --session S --carry
-#   record-open.sh --scope roadmap|discipline --name N --repo O/R
+#   state-open.sh --session S [--start YYYY-MM-DD --end YYYY-MM-DD]
+#   state-open.sh --session S --carry
+#   state-open.sh --scope roadmap|discipline --name N --repo O/R
 #                  --skip-session-checks [...]                        (tests)
 #
 # --start and --end are required at discipline scope and refused at roadmap
@@ -47,13 +47,13 @@
 # a record already, provenance, or a directed transition); 2 a read failed; 64
 # usage; 65 refused (an end before the start); a failed seed exits with the
 # write core's code (10, 11, 12 or 65), and a failed window write with
-# record-state.sh's. --carry exits 0 carried, 65 refused, 2 a read failed.
+# state-stored-set.sh's. --carry exits 0 carried, 65 refused, 2 a read failed.
 #
 # It makes no GitHub call of its own; the write core reads repository
 # visibility.
 set -uo pipefail
 
-PROG=record-open
+PROG=state-open
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= START= END=
 SKIP_CHECKS=0 CARRY=0 NO_SEAL=0
@@ -75,22 +75,22 @@ done
 if [ "$CARRY" = 1 ]; then
     [ -n "$SESSION" ] && [ -z "$START$END$SCOPE$NAME$REPO" ] || usage
 fi
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 [ "$CARRY" = 0 ] || [ "$SCOPE" = discipline ] || usage
 
 # rotation_write <start> <end> <predecessor-or-empty>: record/rotation for this
-# run's rotation, through record-state.sh (its writer). Exits with its code on a
+# run's rotation, through state-stored-set.sh (its writer). Exits with its code on a
 # refusal.
 rotation_write() {
     jq -n -c --arg s "$1" --arg e "$2" --arg h "$REPO" --arg p "$3" \
         '{start: $s, end: $e, host_repo: $h, predecessor: (if $p == "" then null else $p end)}' > "$T/rotation.json" \
         || lib_die2 "jq failed"
-    bash "$HERE/record-state.sh" --session "$SESSION" --rotation "$T/rotation.json" > /dev/null
+    bash "$HERE/state-stored-set.sh" --session "$SESSION" --rotation "$T/rotation.json" > /dev/null
 }
 
 if [ "$CARRY" = 1 ]; then
-    T=$(mktemp -d "${TMPDIR:-/tmp}/record-open.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    T=$(mktemp -d "${TMPDIR:-/tmp}/state-open.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$T"' EXIT
     TOKEN=$(bash "$HERE/coord-log.sh" capture --session "$SESSION" --name RECORD_FIND --state record_find --any-visit 2>/dev/null) \
         || lib_die2 "the run's find sealed no verdict"
@@ -154,7 +154,7 @@ if [ "$CARRY" = 1 ]; then
     # refusal, a state that breaks a rule among them, becomes this carry's
     # `refused`, sealed below.
     if ! ( STATE_FILE="$T/next.json"
-           . "$HERE/record-write-core.sh"
+           . "$HERE/state-write-core.sh"
            SESSION_SEED=1
            core_write > /dev/null ) 2> "$T/seed.err"; then
         carry_report refused "the carry's write was refused: $(lib_scrub < "$T/seed.err" | head -2 | tr '\n' ' ')" "$T/next.json"
@@ -178,11 +178,11 @@ else
 fi
 lib_write_guard
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-open.XXXXXX") || lib_die2 "cannot make a temporary directory"
+T=$(mktemp -d "${TMPDIR:-/tmp}/state-open.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 # The scope's empty record. It opens with no Decisions section: entries are
-# written, and a predecessor's are carried in, only by record-decision.sh,
+# written, and a predecessor's are carried in, only by state-decision.sh,
 # which checks each one.
 jq -nc --arg k "$SCOPE" --arg n "$NAME" '{scope: {kind: $k, name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}' \
     > "$T/seed.json" || lib_die2 "jq failed"
@@ -206,7 +206,7 @@ esac
 # a directory of its own.
 ROT_T=$(mktemp -d "${TMPDIR:-/tmp}/record-open-rot.XXXXXX") || lib_die2 "cannot make a temporary directory"
 ( STATE_FILE="$T/seed.json" CORE_CLEANUP=$T
-  . "$HERE/record-write-core.sh"
+  . "$HERE/state-write-core.sh"
   SESSION_SEED=1
   core_write > /dev/null ) || { RC=$?; rm -rf "$ROT_T"; exit $RC; }
 T=$ROT_T

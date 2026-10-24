@@ -15,7 +15,7 @@
 # their reports arrive as messages the coordinator submits.
 #
 # A holding a pause in the record holds (pause-read.sh over the record's
-# Standing rows, read through record-state.sh --list) is passed over: its leg
+# Standing rows, read through state-stored-set.sh --list) is passed over: its leg
 # stays unread and untaken, so nothing consumes a result whose follow-on the
 # pause would refuse, and a `leg` tick after the resume offers it
 # (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1). wait_target

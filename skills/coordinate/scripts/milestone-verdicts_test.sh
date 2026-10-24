@@ -10,7 +10,7 @@
 # whose Evidence is host state, against the GitHub and koto stand-ins and a
 # stand-in shirabe. It ticks `landed` for each through roadmap-status.sh
 # --unit and records verdicts through milestone.sh check-verdict,
-# record-append.sh and roadmap-status.sh --verdict, checking the record, the
+# state-entry.sh and roadmap-status.sh --verdict, checking the record, the
 # picker and close-out before and after the stand-in's default branch takes
 # each roadmap edit and --confirm runs:
 #   - the PR-bearing milestone's pull request, judged against MV1's Evidence
@@ -107,7 +107,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RS="$HERE/roadmap-status.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 MS="$HERE/milestone.sh"
 PF="$HERE/pick-facts.sh"
 
@@ -297,7 +297,7 @@ grep -qxF "> Evidence clauses not held: 1. Changes needed: answer on the public 
     && ok "  ... quoting the not-held clause and the Changes needed line" || bad "  ... quoting the not-held clause and the Changes needed line" "$BRIEF"
 # dispatch-worker.sh, once the dispatch is confirmed, removes the row this
 # way (dispatch-worker_test.sh holds it to that).
-bash "$HERE/record-state.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
+bash "$HERE/state-stored-set.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
 eq "  ... and the picker reads none" "null" "$(unit_of MV2 | jq -r '.rework')"
 
 echo "== the host-state milestone: verified with follow-ups =="
@@ -353,7 +353,7 @@ eq "  ... and the picker reads it done, not sent back" "true|null|null" "$(unit_
 echo "== a failure reopens the Done host-state milestone =="
 # MV3 depends on MV2 and a worker holds it.
 holding mv3-cert '{"unit": "MV3", "pull_request": ""}' > "$T/h3.json"
-bash "$HERE/record-holding.sh" "${W[@]}" --topic mv3-cert --row-file "$T/h3.json" >/dev/null 2>"$T/err"; rc=$?
+bash "$HERE/state-holding.sh" "${W[@]}" --topic mv3-cert --row-file "$T/h3.json" >/dev/null 2>"$T/err"; rc=$?
 eq "a worker holds MV3" 0 "$rc"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 # PRD AC 14 and 15: a failure entry against the Done host-state milestone
@@ -410,7 +410,7 @@ echo "== the reopened milestone, verified again =="
 # PRD AC 7 and 8 again, on a reopened milestone: its new verified verdict
 # passes the check and its edit sets it Done, so the dependent MV3 no longer
 # reads blocked.
-bash "$HERE/record-state.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
+bash "$HERE/state-stored-set.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
 retire_holding MV3
 OUT=$(bash "$RS" "${W[@]}" --unit MV2 2>"$T/err"); eq "landed again marks MV2's verdict owed" "0 verdict-owed MV2" "$? $OUT"
 verdict MV2 verified none none none "held -- curled the public name after the certificate change and got a 200"

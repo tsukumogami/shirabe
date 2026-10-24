@@ -18,7 +18,7 @@
 # entry into `verify`. The board is read after the prediction, never before.
 #
 # The repository is the one the record's Holdings row for #N links
-# (record-holding.sh --list); --repo overrides it, for tests.
+# (state-holding.sh --list); --repo overrides it, for tests.
 #
 # Token, sealed to the latest entry into verify_board:
 #   verified <pr> <head>         the board is green at <head>, read from the

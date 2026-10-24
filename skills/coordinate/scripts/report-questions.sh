@@ -12,8 +12,8 @@
 # which says whether the report has a holding (`holding <pr|none> <topic>`,
 # or `progress <pr|none> <topic>` for a checkpoint report) or
 # not (`unknown <topic>`, `refused <topic> <why>`) and names its topic. With a
-# holding, the holding's row (record-holding.sh --read) gives its entry point,
-# and the Decisions section (record-decision.sh --list) the entries a citation
+# holding, the holding's row (state-holding.sh --read) gives its entry point,
+# and the Decisions section (state-decision.sh --list) the entries a citation
 # or a first line refers to.
 #
 # What it extracts, skipping lines inside fenced code (``` or ~~~) and quoted
@@ -50,7 +50,7 @@
 # Each item: {index, kind: question|escalation|withdrawal, text, source,
 # addressed, cite}, plus options and recommended for an escalation, and n and
 # round for a coordinator's escalation or withdrawal. The source has no stamp;
-# record-decision.sh --open-from-report adds it.
+# state-decision.sh --open-from-report adds it.
 #
 # Verdicts (sealed to this visit):
 #   questions <count> keyseal:<seq>:<sha256>   the list is in coord/questions.json,
@@ -85,7 +85,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SESSION" ] || usage
 SCOPE= NAME= REPO=
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 . "$HERE/phrasing-lib.sh"
 MAX_ITEMS=10 MAX_LEN=400
 # The patterns live in variables: bash 3.2 and later read an escaped pattern
@@ -130,9 +130,9 @@ esac
 [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the report names no dispatch topic" >&2; verdict unreadable; }
 EP= SECTION='{"next":1,"entries":[]}'
 if [ "$HOLDING" = 1 ]; then
-    ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$TOPIC" --read) || lib_die2 "cannot read the holding for $TOPIC"
+    ROW=$(bash "$HERE/state-holding.sh" --session "$SESSION" --topic "$TOPIC" --read) || lib_die2 "cannot read the holding for $TOPIC"
     EP=$(printf '%s' "$ROW" | jq -r '.entry_point // ""')
-    SECTION=$(bash "$HERE/record-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
+    SECTION=$(bash "$HERE/state-decision.sh" --session "$SESSION" --list) || lib_die2 "cannot read the Decisions section"
 fi
 # Whether an entry was opened from <source> (a source without its stamp), settled or not.
 opened_from() { printf '%s' "$SECTION" | jq -e --arg p "$1 [" 'any(.entries[]; .source | startswith($p))' >/dev/null; }
@@ -304,7 +304,7 @@ cut -f3- "$T/all" > "$T/all.txt"
 phrase_lines addressed "$T/all.txt" > "$T/addressed" || lib_die2 "the phrasing list can't be read"
 # An archived entry (record-template.md, the archive) is the worker's own when
 # the row its latest unedited `decisions` entry holds says so, the row
-# record-decision.sh --open-from-report restores. The entries are read only
+# state-decision.sh --open-from-report restores. The entries are read only
 # when an item of the Questions part cites an archived identifier.
 OWNED='[]'
 if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | length > 0' > /dev/null; then
@@ -312,7 +312,7 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
         | .[2:] | join("\t") | capture("\\(decision (?<n>[1-9][0-9]*)\\)") | .n | tonumber] | unique' "$T/all") \
         || lib_die2 "cannot read the citations"
     if printf '%s' "$SECTION" | jq -e --argjson c "$CITED" 'any((.archived // [])[]; . as $a | $c | index($a) != null)' > /dev/null; then
-        bash "$HERE/record-append.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
+        bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
             || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
         OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
             ([.[] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch

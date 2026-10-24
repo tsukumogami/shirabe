@@ -33,7 +33,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RF="$HERE/report-facts.sh"
 RR="$HERE/reconcile-read.sh"
-RH="$HERE/record-holding.sh"
+RH="$HERE/state-holding.sh"
 
 zero() { : > "$KOTO_STORE/calls"; }
 # assemblies <session>: the session reads made, one per pair of record/meta gets.

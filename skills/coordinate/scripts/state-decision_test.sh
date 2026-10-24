@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-decision_test.sh -- record-decision.sh's write modes against the gh
+# state-decision_test.sh -- state-decision.sh's write modes against the gh
 # and koto stand-ins, from prepared session logs.
 #
 # Covers, per mode: the write the DESIGN's mode table gives it; every refusal
@@ -21,12 +21,12 @@
 # from proposed to coordinator-verdict to settled there, with nothing written
 # on GitHub.
 #
-# Usage: bash skills/coordinate/scripts/record-decision_test.sh
+# Usage: bash skills/coordinate/scripts/state-decision_test.sh
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-RD="$HERE/record-decision.sh"
+RD="$HERE/state-decision.sh"
 CL="$HERE/coord-log.sh"
 RUN=20260926T080000Z
 
@@ -494,4 +494,4 @@ eq "a write mode takes no override flags" 64 $?
 bash "$RD" --session "$S" --list --ref 7 >/dev/null 2>&1
 eq "--ref is no option" 64 $?
 
-done_tests record-decision
+done_tests state-decision

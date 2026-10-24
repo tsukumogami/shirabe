@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-holding_test.sh -- record-holding.sh, the one way a Holdings row
+# state-holding_test.sh -- state-holding.sh, the one way a Holdings row
 # changes: upsert by topic, read by topic, list in record order.
 #
 # Covers: a new topic appended; the same topic replaced rather than added
@@ -7,19 +7,19 @@
 # order and [] for None.; a row whose worker isn't the topic, a row with a
 # status column and a malformed row refused (65); a session holding another
 # scope's record refused (10); filed and closed deferrals dropped only once the
-# run has dispatched; the write going through record-write.sh into the run's
+# run has dispatched; the write going through state-write.sh into the run's
 # session, with nothing written on GitHub, and its refusals (a directed
 # transition in the run, 10); both scopes; a pushed head kept beside its row;
 # --strand only on a dispatched message-path holding, and --retire only of a
 # stranded one.
 #
-# Usage: bash skills/coordinate/scripts/record-holding_test.sh
+# Usage: bash skills/coordinate/scripts/state-holding_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-H="$HERE/record-holding.sh"
+H="$HERE/state-holding.sh"
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 RM=(--scope roadmap --name plugin-system --repo "$REPO")
@@ -64,7 +64,7 @@ grep -q 'never recorded' "$T/err" && ok "the renderer's reason reaches stderr" |
 holding beta '{"phase": "planning"}' > "$T/phase.json"
 hw --topic beta --row-file "$T/phase.json" >/dev/null 2>&1; eq "a malformed cell is refused" 65 $?
 holding beta '{"repo": "acme/secret"}' > "$T/secret.json"
-hw --topic beta --row-file "$T/secret.json" >/dev/null 2>&1; eq "a private repository from a public host is refused by record-write.sh" 65 $?
+hw --topic beta --row-file "$T/secret.json" >/dev/null 2>&1; eq "a private repository from a public host is refused by state-write.sh" 65 $?
 printf 'not json' > "$T/junk.json"
 hw --topic beta --row-file "$T/junk.json" >/dev/null 2>&1; eq "a row file that isn't JSON is refused" 65 $?
 
@@ -141,4 +141,4 @@ hw --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a stranded
 eq "  ... and only it" "beta gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
 hw --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $?
 
-done_tests record-holding
+done_tests state-holding

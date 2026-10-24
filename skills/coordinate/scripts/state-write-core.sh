@@ -1,27 +1,27 @@
-# record-write-core.sh -- the coordinator record's one write path. Sourced, never
-# run, and only by the agent-run write scripts (record-write.sh, which
-# record-holding.sh calls, the decision writer, the hold writer, the stored-set
+# state-write-core.sh -- the coordinator record's one write path. Sourced, never
+# run, and only by the agent-run write scripts (state-write.sh, which
+# state-holding.sh calls, the decision writer, the hold writer, the stored-set
 # writer, the opener for its seeding writes and coordinate-open.sh for the
 # carry, and the legacy importer in ../legacy-import for its import); no check
-# script sources it, which keeps record-common.sh's promise that everything a
+# script sources it, which keeps state-common.sh's promise that everything a
 # check sources only reads.
 #
-# The record lives in the coordinator's koto session (record-source.sh).
+# The record lives in the coordinator's koto session (state-read.sh).
 # core_write re-reads it and writes the next state whole, after the checks
-# record-write.sh's header lists; every check from the parse on lives here.
+# state-write.sh's header lists; every check from the parse on lives here.
 # core_write_host writes the record's record/host, the one key outside its
-# tables and account; only record-state.sh --host calls it.
+# tables and account; only state-stored-set.sh --host calls it.
 # Four of core_write's checks, in brief:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
 #     value in the environment never counts (exit 65). Only
-#     record-decision.sh sets it; a structure test holds every other script
+#     state-decision.sh sets it; a structure test holds every other script
 #     to that;
 #   - the Holds section likewise, through HOLDS_WRITER=1, which only
-#     record-hold.sh sets; even it may only add a hold or stamp a blank
+#     state-hold.sh sets; even it may only add a hold or stamp a blank
 #     Lifted cell, never drop or change a hold (exit 65);
 #   - the stored set's sections (Run, Standing, Work) likewise, through
-#     STATE_WRITER=1, which only record-state.sh sets (exit 65), except a
+#     STATE_WRITER=1, which only state-stored-set.sh sets (exit 65), except a
 #     milestone's verdict-owed Work row, which changes only through
 #     VERDICT_WRITER=1, which only roadmap-status.sh sets (exit 65), and a
 #     rework Work row, which only VERDICT_WRITER adds or changes and either
@@ -41,7 +41,7 @@
 # above are the one-writer-per-key rule.
 #
 # The caller's contract:
-#   - it has sourced record-common.sh, run lib_facts and lib_write_guard, and
+#   - it has sourced state-common.sh, run lib_facts and lib_write_guard, and
 #     set PROG, HERE, SESSION, SCOPE, NAME, REPO and STATE_FILE, the next state
 #     as JSON carrying the written time of the version it was built from, in a
 #     file of the writer's own private directory (mode 0600), which the writer
@@ -58,7 +58,7 @@
 #   - core_write exits on every refusal and failure (10, 11, 12, 2, 65)
 #     and returns only after a write, having printed the session that holds
 #     the record.
-# record-open.sh refuses a first state carrying a Decisions section, and seeds
+# state-open.sh refuses a first state carrying a Decisions section, and seeds
 # the run's keys through core_write.
 
 # Closed by default at the moment this file is sourced, so a value in the
@@ -69,7 +69,7 @@ STATE_WRITER=0
 VERDICT_WRITER=0
 # SESSION_SEED=1 makes the write the first one into a session holding no
 # record/meta, or only the pending one an unfinished seed left; only
-# record-open.sh sets it, to open a record or carry a predecessor rotation's
+# state-open.sh sets it, to open a record or carry a predecessor rotation's
 # sections into a new one. A structure test holds it to that script.
 SESSION_SEED=0
 # IMPORT_WRITER=1 opens core_import and core_import_meta, the legacy importer's
@@ -80,8 +80,8 @@ SESSION_SEED=0
 IMPORT_WRITER=0
 # A holding's last pushed head (Decision 9; PRD R17) lives beside its row in
 # record/holdings and never in a body: every Holdings write
-# carries each row's value forward by Worker, and only record-write.sh
-# --pushed-head, which record-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
+# carries each row's value forward by Worker, and only state-write.sh
+# --pushed-head, which state-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
 # with CORE_PUSHED_TOPIC and CORE_PUSHED_HEAD, 40 hex or empty to clear it).
 CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
 
@@ -124,7 +124,7 @@ core_live() {
         NEW_D=$(jq -cS '.decisions // null' "$T/parsed.json") && LIVE_D=$(jq -cS '.decisions // null' "$T/live.json") \
             || lib_die2 "cannot compare the Decisions sections"
         if [ "$NEW_D" != "$LIVE_D" ]; then
-            echo "$PROG: refused: the Decisions section changes only through record-decision.sh; carry it as the live record has it" >&2
+            echo "$PROG: refused: the Decisions section changes only through state-decision.sh; carry it as the live record has it" >&2
             exit 65
         fi
     fi
@@ -135,7 +135,7 @@ core_live() {
         || lib_die2 "cannot compare the Holds sections"
     if [ "$HOLDS_WRITER" != 1 ]; then
         if [ "$NEW_H" != "$LIVE_H" ]; then
-            echo "$PROG: refused: the Holds section changes only through record-hold.sh; carry it as the live record has it" >&2
+            echo "$PROG: refused: the Holds section changes only through state-hold.sh; carry it as the live record has it" >&2
             exit 65
         fi
     elif ! jq -n -e --argjson n "$NEW_H" --argjson l "$LIVE_H" '
@@ -159,7 +159,7 @@ core_live() {
             exit 65
         fi
         # A rework row is written only there too, at the confirmation of a
-        # changes-needed verdict or a reopen; record-state.sh may only remove
+        # changes-needed verdict or a reopen; state-stored-set.sh may only remove
         # one.
         if ! jq -e --slurpfile live "$T/live.json" '
                 [(.work // [])[] | select(.kind == "rework")] as $n
@@ -169,18 +169,18 @@ core_live() {
             exit 65
         fi
     fi
-    # The stored set's other rows change only through record-state.sh, and a
+    # The stored set's other rows change only through state-stored-set.sh, and a
     # rework row leaves through it or roadmap-status.sh.
     if [ "$STATE_WRITER" != 1 ]; then
         NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/parsed.json") \
             && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/live.json") \
             || lib_die2 "cannot compare the stored set's sections"
         if [ "$NEW_S" != "$LIVE_S" ]; then
-            echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2
+            echo "$PROG: refused: the Run, Standing and Work sections change only through state-stored-set.sh; carry them as the live record has them" >&2
             exit 65
         fi
         if [ "$VERDICT_WRITER" != 1 ] && [ "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/parsed.json")" != "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/live.json")" ]; then
-            echo "$PROG: refused: a rework Work row leaves only through record-state.sh --done or roadmap-status.sh; carry the rows as the live record has them" >&2
+            echo "$PROG: refused: a rework Work row leaves only through state-stored-set.sh --done or roadmap-status.sh; carry the rows as the live record has them" >&2
             exit 65
         fi
     fi
@@ -262,8 +262,8 @@ core_write_session() {
 }
 
 # core_write_host <json-file>: replace the run's record/host with the object in
-# <json-file>, the host facts record-state.sh --host merged and checked (PRD R14,
-# R17). Only record-state.sh calls it, which a structure test holds; it writes
+# <json-file>, the host facts state-stored-set.sh --host merged and checked (PRD R14,
+# R17). Only state-stored-set.sh calls it, which a structure test holds; it writes
 # no section and no entry, since host facts never leave the host. Exits 10 when
 # the session holds no record (no record/meta), 11 when the write fails, 2 when
 # a read fails.
@@ -287,7 +287,7 @@ core_write_host() {
 # alone, the one key that keeps it. The head has no column in the body, so the
 # body, its written time and every other key stay as they are, and none of the
 # body checks apply: no live re-read, render, parse back or visibility read
-# (shirabe#1094, #1095). Only record-write.sh calls it, for --pushed-head with
+# (shirabe#1094, #1095). Only state-write.sh calls it, for --pushed-head with
 # no body. One key replaced whole is never seen half written, so the write
 # needs no pending mark. Exits 65 on a malformed head or a topic no holding
 # has; 10 when the run has no found record or the session holds none; 11 when
@@ -329,14 +329,14 @@ core_write_pushed() {
 # record/rotation (its window, host and predecessor) or record/reasoning (what
 # it leaves the next rotation), written whole. They describe the rotation, not
 # its tables, so they are no section and the record's body never carries them.
-# Only record-state.sh writes them, with STATE_WRITER=1 (the structure test
+# Only state-stored-set.sh writes them, with STATE_WRITER=1 (the structure test
 # holds it there); the caller has checked the value. Exits 65 refused (not the
 # state writer, another key, or not discipline scope); 10 the session holds no
 # record (no record/meta); 11 the write failed; 2 a read failed.
 core_write_rotation() {
     local key=$1 s=${RS_SESSION:-$SESSION} d
     case "$key" in record/rotation|record/reasoning) ;; *) echo "$PROG: refused: $key is not a rotation key" >&2; exit 65 ;; esac
-    [ "$STATE_WRITER" = 1 ] || { echo "$PROG: refused: $key changes only through record-state.sh" >&2; exit 65; }
+    [ "$STATE_WRITER" = 1 ] || { echo "$PROG: refused: $key changes only through state-stored-set.sh" >&2; exit 65; }
     [ "$SCOPE" = discipline ] || { echo "$PROG: refused: $key belongs to a discipline rotation" >&2; exit 65; }
     [ -n "$s" ] || lib_die2 "$key needs the run's session"
     d=$(mktemp -d "${TMPDIR:-/tmp}/record-rotation.XXXXXX") || lib_die2 "mktemp failed"
@@ -517,7 +517,7 @@ core_write() {
         lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
     fi
 
-    T=$(mktemp -d "${TMPDIR:-/tmp}/record-write.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    T=$(mktemp -d "${TMPDIR:-/tmp}/state-write.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$T" ${CORE_CLEANUP:+"$CORE_CLEANUP"}' EXIT
 
     # The next state, as the writer built it from the version it read (its
@@ -533,7 +533,7 @@ core_write() {
     PRIVATE=
     core_validate "$STATE_FILE" "$T/parsed.json"
 
-    # A pushed head (record-write.sh --pushed-head) is kept beside a holding
+    # A pushed head (state-write.sh --pushed-head) is kept beside a holding
     # the record has.
     if [ "$CORE_PUSHED_SET" = 1 ]; then
         [[ $CORE_PUSHED_HEAD =~ ^([0-9a-f]{40})?$ ]] || { echo "$PROG: refused: a pushed head is 40 hex, or empty to clear it" >&2; exit 65; }
@@ -595,7 +595,7 @@ core_write() {
     [ -z "$PRIVATE" ] || core_validate "$T/parsed.json" "$T/checked.json"
     # The state is always written with this script's own written time: the
     # time the coordinator's state carries is never trusted, because
-    # record-confirm.sh reads it as proof a write came after an event. Once the
+    # state-confirm.sh reads it as proof a write came after an event. Once the
     # run has entered dispatch, deferrals already filed or closed are dropped
     # first.
     cp "$T/parsed.json" "$T/next.json"
@@ -603,7 +603,7 @@ core_write() {
         mv "$T/dropped.json" "$T/next.json"
     fi
     jq --arg w "$(lib_now)" '.written = $w' "$T/next.json" > "$T/next-state.json" || lib_die2 "jq failed"
-    # A step's shared read (record-source.sh rs_once_begin) is the record as it
+    # A step's shared read (state-read.sh rs_once_begin) is the record as it
     # was before this write: forget it, so a read after the write is live. It
     # is forgotten again once the write lands, since a reader running beside
     # this one (the pass's settle and legs) may have read in between.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# record-state_test.sh -- record-state.sh, the one way the stored set's
-# sections (Run, Standing, Work) change, and record-handover.sh, which reads
+# state-stored-set_test.sh -- state-stored-set.sh, the one way the stored set's
+# sections (Run, Standing, Work) change, and state-handover.sh, which reads
 # them and names the gaps.
 #
 # Covers: --list on a record with none of the sections; Run's keys, a cap and
@@ -17,27 +17,27 @@
 # doesn't; each change told as an
 # entry after the write; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
-# one-writer rule (record-write.sh changing a section refused); a failed entry
+# one-writer rule (state-write.sh changing a section refused); a failed entry
 # post after a written state (14); a temporary file that can't be made (2,
 # nothing written, the caller's .one left); an assignment (an issue or a release a
 # person assigned) and its refusals; a verdict-owed row (a milestone's
 # verdict owed) listed and kept by every write, --done leaving it and
 # --done --kind verdict-owed and --work --kind verdict-owed refused; a rework
-# row kept by other writes, --work --kind rework refused, record-write.sh
+# row kept by other writes, --work --kind rework refused, state-write.sh
 # changing or removing it refused, --done --kind rework removing it;
-# record-handover.sh's report and gaps (a holding with no next step among
+# state-handover.sh's report and gaps (a holding with no next step among
 # them); the crash set's rows written in a fresh session with no store row, and
 # --host. Every record is the session's; nothing is written on GitHub.
 #
-# Usage: bash skills/coordinate/scripts/record-state_test.sh
+# Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-RS="$HERE/record-state.sh"
-RH="$HERE/record-handover.sh"
-RA="$HERE/record-append.sh"
+RS="$HERE/state-stored-set.sh"
+RH="$HERE/state-handover.sh"
+RA="$HERE/state-entry.sh"
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
@@ -127,7 +127,7 @@ bash "$RS" "${W[@]}" --done nothing >/dev/null 2>"$T/err"; eq "--done on no row 
 live > "$T/now.json"
 jq -c 'del(.written) | .holdings = [.holdings[] | select(.worker != "worker-f2")]' "$T/now.json" > "$T/gone.json"
 state_json "$(cat "$T/gone.json")" "$(jq -r .written "$T/now.json")" > "$T/gone.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/gone.state" >/dev/null 2>"$T/err"; eq "the holding is torn down" 0 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/gone.state" >/dev/null 2>"$T/err"; eq "the holding is torn down" 0 $?
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>"$T/err"
 eq "  ... and the next write drops its Work row" 0 "$(live | jq '(.work // []) | length')"
 
@@ -172,14 +172,14 @@ eq "--done --kind removes only that kind's row" "follow-up" "$(live | jq -r '[.w
 live > "$T/now.json"
 jq -c 'del(.written) | .holdings[1] |= (.worker = "worker-f3x" | .phase = "executing")' "$T/now.json" > "$T/f3.json"
 state_json "$(cat "$T/f3.json")" "$(jq -r .written "$T/now.json")" > "$T/f3.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/f3.state" >/dev/null 2>"$T/err"; eq "the follow-up's execution is dispatched" 0 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/f3.state" >/dev/null 2>"$T/err"; eq "the follow-up's execution is dispatched" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3x --next "executing the plan" >/dev/null 2>"$T/err"
 eq "  ... and its holding row replaces the follow-up row" "holding worker-f3x" "$(live | jq -r '[.work[] | select(.item == "Feature 3") | "\(.kind) \(.who)"] | join(",")')"
 # A new holding for a parked unit takes over its decision row.
 live > "$T/now.json"
 jq -c --argjson h "$(holding worker-f4 '{"unit": "Feature 4", "pull_request": ""}')" 'del(.written) | .holdings += [$h]' "$T/now.json" > "$T/f4.json"
 state_json "$(cat "$T/f4.json")" "$(jq -r .written "$T/now.json")" > "$T/f4.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/f4.state" >/dev/null 2>"$T/err"; eq "the parked unit is dispatched" 0 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/f4.state" >/dev/null 2>"$T/err"; eq "the parked unit is dispatched" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 4" --kind holding --who worker-f4 --next "report at its first checkpoint" >/dev/null 2>"$T/err"
 eq "  ... and its holding row replaces the decision row" "holding worker-f4" "$(live | jq -r '[.work[] | select(.item == "Feature 4") | "\(.kind) \(.who)"] | join(",")')"
 # A holding whose Unit cell is `<tag>: <title>` takes over the rows its tag names.
@@ -187,7 +187,7 @@ bash "$RS" "${W[@]}" --work "Feature 6" --kind follow-up --who "acme/widgets#60"
 live > "$T/now.json"
 jq -c --argjson h "$(holding worker-f6 '{"unit": "Feature 6: the exporter", "pull_request": ""}')" 'del(.written) | .holdings += [$h]' "$T/now.json" > "$T/f6.json"
 state_json "$(cat "$T/f6.json")" "$(jq -r .written "$T/now.json")" > "$T/f6.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/f6.state" >/dev/null 2>"$T/err"
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/f6.state" >/dev/null 2>"$T/err"
 bash "$RS" "${W[@]}" --work "Feature 6: the exporter" --kind holding --who worker-f6 --next "executing" >/dev/null 2>"$T/err"
 eq "a titled holding row takes over its tag's follow-up row" "Feature 6: the exporter:holding" \
     "$(live | jq -r '[.work[] | select(.item | startswith("Feature 6")) | "\(.item):\(.kind)"] | join(",")')"
@@ -212,7 +212,7 @@ bash "$RS" "${W[@]}" --work "Feature 3" --kind verdict-owed --who worker-f3 --ne
 live > "$T/now.json"
 jq -c 'del(.written) | .work = [.work[] | select(.kind != "verdict-owed")] | if (.work | length) == 0 then del(.work) else . end' "$T/now.json" > "$T/edit.json"
 state_json "$(cat "$T/edit.json")" "$(jq -r .written "$T/now.json")" > "$T/edit.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "record-write.sh removing it is refused" 65 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "state-write.sh removing it is refused" 65 $?
 grep -q 'only through roadmap-status.sh' "$T/err" && ok "  ... naming its one writer" || bad "  ... naming its one writer" "$(cat "$T/err")"
 
 echo "== a rework row: roadmap-status.sh writes it, --done removes it =="
@@ -226,11 +226,11 @@ grep -q 'roadmap-status.sh --confirm' "$T/err" && ok "  ... naming its one write
 live > "$T/now.json"
 jq -c 'del(.written) | .work = [.work[] | if .kind == "rework" then .next = "Changes needed: nothing" else . end]' "$T/now.json" > "$T/edit.json"
 state_json "$(cat "$T/edit.json")" "$(jq -r .written "$T/now.json")" > "$T/edit.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "record-write.sh changing its text is refused" 65 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "state-write.sh changing its text is refused" 65 $?
 grep -q 'written only by roadmap-status.sh --confirm' "$T/err" && ok "  ... naming its one writer" || bad "  ... naming its one writer" "$(cat "$T/err")"
 jq -c 'del(.written) | .work = [.work[] | select(.kind != "rework")]' "$T/now.json" > "$T/edit.json"
 state_json "$(cat "$T/edit.json")" "$(jq -r .written "$T/now.json")" > "$T/edit.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "record-write.sh removing it is refused" 65 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "state-write.sh removing it is refused" 65 $?
 bash "$RS" "${W[@]}" --done "Feature 2" --kind rework >/dev/null 2>"$T/err"; eq "--done --kind rework removes it" 0 $?
 eq "  ... and only it" "Feature 3 local-agent" "$(live | jq -r '[.work[] | "\(.item) \(.kind)"] | join(",")')"
 
@@ -240,8 +240,8 @@ bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 live > "$T/now.json"
 jq -c 'del(.written) | .run[0].value = "5"' "$T/now.json" > "$T/edit.json"
 state_json "$(cat "$T/edit.json")" "$(jq -r .written "$T/now.json")" > "$T/edit.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "another writer changing Run is refused" 65 $?
-grep -q 'only through record-state.sh' "$T/err" && ok "  ... naming the one writer" || bad "  ... naming the one writer" "$(cat "$T/err")"
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "another writer changing Run is refused" 65 $?
+grep -q 'only through state-stored-set.sh' "$T/err" && ok "  ... naming the one writer" || bad "  ... naming the one writer" "$(cat "$T/err")"
 
 echo "== a public host =="
 bash "$RS" "${W[@]}" --standing answer --what "wait for acme/secret#5" --owner "the human" >/dev/null 2>"$T/err"; eq "a private repository in a Standing row is refused" 65 $?
@@ -300,10 +300,10 @@ seed "$TWO"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the read prints" 0 $?
 eq "an old record has every gap" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
     "$(printf '%s' "$H" | jq -r '[.gaps[].gap] | join(" ")')"
-eq "  ... a holding with no next step named with its fix" 'record-state.sh --work "Feature 2" --kind holding --who worker-f2 --next "<what happens next>"' \
+eq "  ... a holding with no next step named with its fix" 'state-stored-set.sh --work "Feature 2" --kind holding --who worker-f2 --next "<what happens next>"' \
     "$(printf '%s' "$H" | jq -r '.gaps[] | select(.gap == "no-next-step Feature 2") | .fix')"
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "--check fails on gaps" 1 $?
-grep -q 'record-state.sh --run cap' "$T/err" && ok "  ... naming the fix" || bad "  ... naming the fix" "$(cat "$T/err")"
+grep -q 'state-stored-set.sh --run cap' "$T/err" && ok "  ... naming the fix" || bad "  ... naming the fix" "$(cat "$T/err")"
 bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
@@ -354,8 +354,8 @@ eq "a reports-to row is written with no store row" 0 $?
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
-"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and the gaps close as record-state.sh writes the keys" \
-    || bad "  ... and the gaps close as record-state.sh writes the keys" "$(cat "$T/err")"
+"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and the gaps close as state-stored-set.sh writes the keys" \
+    || bad "  ... and the gaps close as state-stored-set.sh writes the keys" "$(cat "$T/err")"
 "${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
 eq "a Standing row is written" 0 $?
 eq "  ... into record/standing" "answer|the human" "$(koto context get "$SD" record/standing | jq -r '.[0] | "\(.kind)|\(.owner)"')"
@@ -383,10 +383,10 @@ eq "  ... keeping what was there" "/srv/ws/a coordinate-roadmap-plugin-system-20
     "$(koto context get "$SD" record/host | jq -r '"\(.source_workspace) \(.source_session)"')"
 eq "  ... changing no other key" "$(printf '%s' "$SNAP" | grep -v '^\./host ')" "$(session_snapshot "$SD" | grep -v '^\./host ')"
 eq "  ... and the handover read carries it" "/srv/ws/a" "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.host.source_workspace')"
-eq "  ... and record-source.sh --host prints it" "/srv/ws/a/RULES.md" \
-    "$("${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --host | jq -r '.["rules:skill-rules"]')"
+eq "  ... and state-read.sh --host prints it" "/srv/ws/a/RULES.md" \
+    "$("${SEN[@]}" bash "$HERE/state-read.sh" "${RM[@]}" --host | jq -r '.["rules:skill-rules"]')"
 READ=$( ( RS_SESSION=$SD PROG=reader SCOPE=roadmap NAME=plugin-system
-    . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+    . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
     rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" ) )
 eq "  ... which the record a reader is handed never holds" "read|" "$([ -n "$READ" ] && echo read)|$(printf '%s' "$READ" | grep -F /srv/ws/a)"
 "${SEN[@]}" bash "$RS" "${W[@]}" --host source_workspace relative/path >/dev/null 2>"$T/err"; eq "--host refuses a relative path" 65 $?
@@ -394,11 +394,11 @@ eq "  ... which the record a reader is handed never holds" "read|" "$([ -n "$REA
 "${SEN[@]}" bash "$RS" "${W[@]}" --host friction "/srv/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa" >/dev/null 2>"$T/err"; eq "--host refuses a token-shaped string" 65 $?
 grep -q 'token-shaped' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
 "${SEN[@]}" bash "$RS" "${W[@]}" --host colour blue >/dev/null 2>"$T/err"; eq "--host refuses a key it doesn't know" 64 $?
-"${SEN[@]}" bash "$HERE/record-holding.sh" "${W[@]}" --topic worker-f2 --pushed-head "${SHA:0:40}" >/dev/null 2>"$T/err"
+"${SEN[@]}" bash "$HERE/state-holding.sh" "${W[@]}" --topic worker-f2 --pushed-head "${SHA:0:40}" >/dev/null 2>"$T/err"
 eq "the handover read carries a worker's pushed head" "${SHA:0:40}|null" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.workers[] | .pushed_head | tostring] | join("|")')"
 eq "the crash set's rows sit in a Run section with no store row" "" \
     "$(koto context get "$SD" record/run | jq -r '[.[] | select(.key == "store")] | map(.value) | join(" ")')"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
-done_tests record-state_test
+done_tests state-stored-set_test

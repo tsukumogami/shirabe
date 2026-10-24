@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-source_test.sh -- record-source.sh, the one reader of a coordinator
+# state-read_test.sh -- state-read.sh, the one reader of a coordinator
 # record's state (docs/designs/DESIGN-coordinator-session-record.md, Decision 1),
 # which lives only in the coordinator's koto session
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md).
@@ -13,9 +13,9 @@
 #      request and a pause on the other's unit, against a fixed JSON, both as a
 #      library call and through `--facts`;
 #   3. the store row, as the write core is handed it as JSON: `github`, `bogus`
-#      and a doubled row are store-malformed (65), the legacy `store session`
+#      and a doubled row are refused (65), the legacy `store session`
 #      row an existing session holds is accepted and read back,
-#      and the crash-set rows need no store row; record-state.sh refuses `--run
+#      and the crash-set rows need no store row; state-stored-set.sh refuses `--run
 #      store` as no Run key (65) at either scope; the opener refuses --store as
 #      an unknown option (64), naming it, before any koto call;
 #   4. coord/source.json: the find writes session; the opener's koto feature
@@ -37,14 +37,14 @@
 #      when it finds a record, a refusal that stops and cancels the new run, and
 #      none on a resume.
 #
-# Usage: bash skills/coordinate/scripts/record-source_test.sh
+# Usage: bash skills/coordinate/scripts/state-read_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 PLUGIN_ROOT_REAL=$(cd "$HERE/../../.." && pwd -P)
-RS="$HERE/record-source.sh"
+RS="$HERE/state-read.sh"
 
 # ---- 1. the structure rule ------------------------------------------------------
 
@@ -53,13 +53,11 @@ RS="$HERE/record-source.sh"
 #   Reading: a gh issue/pr view (any spelling of the container) that asks for
 #   the body, or a `record/` key. Allowed: the seam; the entry writer, which
 #   reads its entries.
-#   Parsing: record-parse.sh or lib_parse (a handoff file aside), or
-#   bl_record_parsed. Allowed: the seam and the codec's scripts; the opener of
-#   a new record and the write core, which parse the body they are about to
-#   write; and reconcile's reader, which salvages row by row a body the seam
-#   handed it, with the parser reconcile-deps.sh names.
-READ_ALLOWED='^(record-source|record-append)\.sh$'
-PARSE_ALLOWED='^(record-source|record-common|record-open|record-write-core|reconcile-read|reconcile-deps)\.sh$'
+#   Parsing: lib_parse or bl_record_parsed, the helpers a body was parsed
+#   through. Allowed: the seam. (The body's parser itself is gone, and the
+#   structure test refuses any new mention of it.)
+READ_ALLOWED='^(state-read|state-entry)\.sh$'
+PARSE_ALLOWED='^state-read\.sh$'
 body_readers() {
     local f base
     for f in "$1"/*.sh; do
@@ -70,8 +68,8 @@ body_readers() {
                 | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
         fi
         if ! [[ $base =~ $PARSE_ALLOWED ]]; then
-            grep -nE 'record-parse\.sh|lib_parse |bl_record_parsed' "$f" \
-                | grep -vE '^[0-9]+:[[:space:]]*#' | grep -v -- '--format handoff' | grep -v 'record-parse.sh failed' | sed "s|^|$base:|"
+            grep -nE 'lib_parse |bl_record_parsed' "$f" \
+                | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
         fi
     done
 }
@@ -83,9 +81,8 @@ printf '#!/usr/bin/env bash\nlib_parse "$T/body.md" "$T/p.json"\n' > "$FX/a.sh"
 printf '#!/usr/bin/env bash\ngh issue view 7 --repo o/r --json body > x\n' > "$FX/b.sh"
 printf '#!/usr/bin/env bash\nbl_record_parsed "$S" out\n' > "$FX/c.sh"
 printf '#!/usr/bin/env bash\nkoto context get "$S" record/holdings > x\n' > "$FX/d.sh"
-printf '#!/usr/bin/env bash\nbash "$HERE/record-parse.sh" --format handoff f.md\n' > "$FX/e.sh"
 printf '#!/usr/bin/env bash\ngh "$CONTAINER" view "$REF" --repo "$REPO" --json state,body > x\n' > "$FX/f.sh"
-eq "  ... and the rule refuses each way of reading one, not a handoff file" "a.sh b.sh c.sh d.sh f.sh" \
+eq "  ... and the rule refuses each way of reading one" "a.sh b.sh c.sh d.sh f.sh" \
     "$(body_readers "$FX" | cut -d: -f1 | sort -u | tr '\n' ' ' | sed 's/ $//')"
 
 # SESSION_SEED, the first write into an empty session, is set only by the
@@ -94,44 +91,44 @@ flag_setters() { # flag_setters <dir> <flag> <allowed-regex>: scripts that set f
     local f base
     for f in "$1"/*.sh; do
         base=$(basename "$f")
-        case "$base" in *_test.sh|record-write-core.sh) continue ;; esac
+        case "$base" in *_test.sh|state-write-core.sh) continue ;; esac
         [[ $base =~ $3 ]] && continue
         grep -nE "(^|[^A-Za-z_])$2=1" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
     done
 }
-eq "only record-open.sh sets SESSION_SEED" "" "$(flag_setters "$HERE" SESSION_SEED '^record-open\.sh$')"
+eq "only state-open.sh sets SESSION_SEED" "" "$(flag_setters "$HERE" SESSION_SEED '^state-open\.sh$')"
 eq "no script sets MOVE_WRITER: the move is gone" "" "$(flag_setters "$HERE" MOVE_WRITER '^$')"
-grep -n 'MOVE_WRITER' "$HERE/record-write-core.sh" > /dev/null && bad "  ... and the write core has no such flag" "" || ok "  ... and the write core has no such flag"
-printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\nSESSION_SEED=1\ncore_write\n' > "$FX/g.sh"
+grep -n 'MOVE_WRITER' "$HERE/state-write-core.sh" > /dev/null && bad "  ... and the write core has no such flag" "" || ok "  ... and the write core has no such flag"
+printf '#!/usr/bin/env bash\n. "$HERE/state-write-core.sh"\nSESSION_SEED=1\ncore_write\n' > "$FX/g.sh"
 eq "  ... and the rule refuses a script that sets it" "g.sh" \
-    "$(flag_setters "$FX" SESSION_SEED '^record-open\.sh$' | cut -d: -f1)"
-# record/host (Decision 9; PRD R14, R17) is written only by record-state.sh
+    "$(flag_setters "$FX" SESSION_SEED '^state-open\.sh$' | cut -d: -f1)"
+# record/host (Decision 9; PRD R14, R17) is written only by state-stored-set.sh
 # --host, through core_write_host.
 fn_callers() { # fn_callers <dir> <function> <allowed-regex>: scripts that call it outside the allowed ones
     local f base
     for f in "$1"/*.sh; do
         base=$(basename "$f")
-        case "$base" in *_test.sh|record-write-core.sh) continue ;; esac
+        case "$base" in *_test.sh|state-write-core.sh) continue ;; esac
         [[ $base =~ $3 ]] && continue
         grep -nE "(^|[^A-Za-z_])$2([^A-Za-z_]|$)" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
     done
 }
-eq "only record-state.sh calls core_write_host" "" "$(fn_callers "$HERE" core_write_host '^record-state\.sh$')"
-# A holding's pushed head is set only through record-write.sh --pushed-head.
-eq "only record-write.sh sets CORE_PUSHED_SET" "" "$(flag_setters "$HERE" CORE_PUSHED_SET '^record-write\.sh$')"
-printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\ncore_write_host "$f"\n' > "$FX/h.sh"
-eq "  ... and the rule refuses a script that calls it" "h.sh" "$(fn_callers "$FX" core_write_host '^record-state\.sh$' | cut -d: -f1)"
+eq "only state-stored-set.sh calls core_write_host" "" "$(fn_callers "$HERE" core_write_host '^state-stored-set\.sh$')"
+# A holding's pushed head is set only through state-write.sh --pushed-head.
+eq "only state-write.sh sets CORE_PUSHED_SET" "" "$(flag_setters "$HERE" CORE_PUSHED_SET '^state-write\.sh$')"
+printf '#!/usr/bin/env bash\n. "$HERE/state-write-core.sh"\ncore_write_host "$f"\n' > "$FX/h.sh"
+eq "  ... and the rule refuses a script that calls it" "h.sh" "$(fn_callers "$FX" core_write_host '^state-stored-set\.sh$' | cut -d: -f1)"
 # The legacy importer's write (core_import, core_import_meta, opened by
 # IMPORT_WRITER) belongs to ../legacy-import/import.sh alone: no script here
 # sets the flag or calls either.
 eq "no script here sets IMPORT_WRITER" "" "$(flag_setters "$HERE" IMPORT_WRITER '^$')"
 eq "  ... nor calls core_import or core_import_meta" "" "$(fn_callers "$HERE" 'core_import(_meta)?' '^$')"
-printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\nIMPORT_WRITER=1\ncore_import_meta "$f"\n' > "$FX/i.sh"
+printf '#!/usr/bin/env bash\n. "$HERE/state-write-core.sh"\nIMPORT_WRITER=1\ncore_import_meta "$f"\n' > "$FX/i.sh"
 eq "  ... and the rule refuses a script that does" "i.sh i.sh" \
     "$( { flag_setters "$FX" IMPORT_WRITER '^$'; fn_callers "$FX" 'core_import(_meta)?' '^$'; } | grep '^i\.sh:' | cut -d: -f1 | tr '\n' ' ' | sed 's/ $//')"
 # The store choice is gone from the seam.
 for fn in rs_source rs_view rs_probe rs_moved rs_target_ok; do
-    grep -nE "^$fn\(\)" "$RS" > /dev/null && bad "record-source.sh defines no $fn" "" || ok "record-source.sh defines no $fn"
+    grep -nE "^$fn\(\)" "$RS" > /dev/null && bad "state-read.sh defines no $fn" "" || ok "state-read.sh defines no $fn"
 done
 
 # ---- 2. rs_facts --------------------------------------------------------------------
@@ -149,7 +146,7 @@ REC=$(record_json roadmap plugin-system | jq -c --argjson a "$F1" --argjson b "$
 state_json "$REC" > "$T/rec.json" 2>"$T/err" && ok "the fixture is a valid state" || bad "the fixture is a valid state" "$(cat "$T/err")"
 
 echo "== 2. one holding's facts =="
-facts() { ( PROG=t; . "$HERE/record-common.sh"; rs_facts "$T/rec.json" "$1" ); }
+facts() { ( PROG=t; . "$HERE/state-common.sh"; rs_facts "$T/rec.json" "$1" ); }
 GOT=$(facts worker-f1); eq "rs_facts prints" 0 $?
 EXPECT_F1='{"topic":"worker-f1","unit":"Feature 1","repo":"acme/widgets","pull_request":"[#12](https://github.com/acme/widgets/pull/12)","number":"12","branch":"feat/first","verified_head":"1111111111111111111111111111111111111111","phase":"executing","dispatch_status":"dispatched","return_path":"message","holds":[{"hold":"after-release","on":"acme/widgets#12","until":"lifted","set_by":"the human","set":"2026-09-29T20:30Z","lifted":""}],"pauses":{"rows":[{"standing":"s1","kind":"pause","on":"Feature 2","until":"lifted","what":"hold Feature 2","owner":"alice","relayed_by":"","set":"2026-09-29T17:40Z"},{"standing":"s2","kind":"go-ahead","on":"Feature 1","until":"","what":"one release","owner":"alice","relayed_by":"","set":"2026-09-29T17:41Z"}],"paused":null}}'
 eq "  ... worker-f1: its repository, pull request, head, its one hold, the pause rows, not paused" \
@@ -176,37 +173,37 @@ with_store() { printf '%s' "$REC" | jq -c --arg v "$1" '.run += [{key: "store", 
 # (edited from the version the session holds): RC and $T/err.
 SW3=coordinate-roadmap-plugin-system-20260926T120000Z
 seam_read_run() { ( RS_SESSION=$SW3 PROG=reader SCOPE=roadmap NAME=plugin-system
-    . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+    . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
     rs_record "$T/reader3" > /dev/null 2>&1 && jq -c . "$T/reader3" ); }
 try_state() {
     seed_session "$SW3" "$REC"
     printf '%s' "$1" | jq -c '.written = "2026-09-26T09:00:00Z"' > "$T/try.json"
-    RS_SESSION=$SW3 bash "$HERE/record-write.sh" --scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks --state-file "$T/try.json" >/dev/null 2>"$T/err"
+    RS_SESSION=$SW3 bash "$HERE/state-write.sh" --scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks --state-file "$T/try.json" >/dev/null 2>"$T/err"
     RC=$?
 }
 try_state "$(with_store github)"
 eq "a store row reading github is refused" 65 "$RC"
-grep -q 'store-malformed' "$T/err" && ok "  ... as store-malformed" || bad "  ... as store-malformed" "$(cat "$T/err")"
+grep -q 'the store is the session' "$T/err" && ok "  ... the store being the session" || bad "  ... the store being the session" "$(cat "$T/err")"
 try_state "$(with_store bogus)"
-grep -q 'store-malformed' "$T/err" && ok "a store reading bogus is store-malformed" || bad "a store reading bogus is store-malformed" "$(cat "$T/err")"
+grep -q 'the store is the session' "$T/err" && ok "a store reading bogus is refused, the store being the session" || bad "a store reading bogus is refused, the store being the session" "$(cat "$T/err")"
 state_json "$(with_store session)" > "$T/legacy.json" 2>"$T/err"
 eq "the legacy store session row an existing session holds is accepted" 0 "$?"
 seed_session "$SW3" "$(with_store session)"
 eq "  ... and read back from the session" "store" "$(seam_read_run | jq -r '.run[-1].key')"
 try_state "$(with_store session | jq -c '.run += [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:01Z"}]')"
-grep -q 'store-malformed' "$T/err" && ok "two store rows are store-malformed" || bad "two store rows are store-malformed" "$(cat "$T/err")"
+grep -q 'the store row is used twice' "$T/err" && ok "two store rows are refused" || bad "two store rows are refused" "$(cat "$T/err")"
 try_state "$(printf '%s' "$REC" | jq -c '.run += [{key: "colour", value: "x", set_by: "alice", set: "2026-10-11T10:00Z"}]')"
 eq "any other unknown Run key is still refused" 65 "$RC"
 state_json "$(printf '%s' "$REC" | jq -c '.run += [{key: "friction", value: "fr", set_by: "alice", set: "2026-10-11T10:00Z"},
         {key: "reports-to", value: "the planner", set_by: "alice", set: "2026-10-11T10:00Z"}]')" > /dev/null 2>"$T/err"
 eq "the crash-set rows need no store row" 0 "$?"
-# record-state.sh: the store is no Run key it sets, at either scope.
+# state-stored-set.sh: the store is no Run key it sets, at either scope.
 for sc in roadmap:plugin-system discipline:ci-health; do
-    bash "$HERE/record-state.sh" --scope "${sc%%:*}" --name "${sc#*:}" --repo "$REPO" --skip-session-checks --run store session --by alice >/dev/null 2>"$T/err"
-    eq "record-state.sh --run store session is refused at ${sc%%:*} scope" 65 $?
+    bash "$HERE/state-stored-set.sh" --scope "${sc%%:*}" --name "${sc#*:}" --repo "$REPO" --skip-session-checks --run store session --by alice >/dev/null 2>"$T/err"
+    eq "state-stored-set.sh --run store session is refused at ${sc%%:*} scope" 65 $?
     grep -q 'not a Run key' "$T/err" && ok "  ... as no Run key" || bad "  ... as no Run key" "$(cat "$T/err")"
 done
-bash "$HERE/record-state.sh" --scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks --run store github --by alice >/dev/null 2>"$T/err"
+bash "$HERE/state-stored-set.sh" --scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks --run store github --by alice >/dev/null 2>"$T/err"
 eq "  ... and store github too" 65 $?
 # The opener: --store is an unknown option, usage (64), named, before any koto call.
 open_with() { printf '%s' "$1" > "$T/args.json"; ( cd "$T" && bash "$HERE/coordinate-open.sh" --plugin-root "$PLUGIN_ROOT_REAL" "$T/args.json" ); }
@@ -225,7 +222,7 @@ db_init
 S=coordinate-roadmap-plugin-system-20260926T080000Z
 log_new "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" start_posture record_find 2026-09-26T08:01:00.000Z
-OUT=$(bash "$HERE/record-find.sh" --session "$S" 2>"$T/err"); eq "a session find exits 0" 0 $?
+OUT=$(bash "$HERE/state-find.sh" --session "$S" 2>"$T/err"); eq "a session find exits 0" 0 $?
 SRC=$(cat "$KOTO_STORE/context/$S/coord/source.json" 2>/dev/null)
 eq "coord/source.json reads session" session "$(printf '%s' "$SRC" | jq -r .source)"
 eq "  ... with the find's reason and no probe" "none|null" "$(printf '%s' "$SRC" | jq -r '"\(.reason | split(":")[0])|\(.probe)"')"
@@ -282,15 +279,15 @@ S2=coordinate-roadmap-plugin-system-20260926T090000Z
 found_session "$S2" "$(roadmap_vars plugin-system)"
 seed_session "$S2" "$REC"
 printf 'cost of worker-f1\n\n```json\n{"schema":"unit-cost/1","key":"worker-f1"}\n```\n' > "$T/cost.txt"
-bash "$HERE/record-append.sh" --session "$S2" --kind cost --text-file "$T/cost.txt" > /dev/null 2>"$T/err"
+bash "$HERE/state-entry.sh" --session "$S2" --kind cost --text-file "$T/cost.txt" > /dev/null 2>"$T/err"
 eq "a cost entry with nowhere to go is refused" 65 $?
 grep -q -- '--on owner/repo#n, or --on none' "$T/err" && ok "  ... naming --on" || bad "  ... naming --on" "$(cat "$T/err")"
-OUT=$(bash "$HERE/record-append.sh" --session "$S2" --kind cost --text-file "$T/cost.txt" --on acme/widgets#12 2>"$T/err"); rc=$?
-eq "record-append.sh --session S --kind cost --on <pull request> posts on it" "0 https://github.com/acme/widgets/issues/12#issuecomment-1001" "$rc $OUT"
+OUT=$(bash "$HERE/state-entry.sh" --session "$S2" --kind cost --text-file "$T/cost.txt" --on acme/widgets#12 2>"$T/err"); rc=$?
+eq "state-entry.sh --session S --kind cost --on <pull request> posts on it" "0 https://github.com/acme/widgets/issues/12#issuecomment-1001" "$rc $OUT"
 BODY=$(jq -r '.comments[0].body' "$GH_DB")
 [ "$(head -1 <<<"$BODY")" = '<!-- coordinator-record-entry v1 kind=cost -->' ] \
     && ok "  ... a comment whose first line is the cost marker the join selects on" || bad "  ... a comment whose first line is the cost marker the join selects on" "$BODY"
-L=$(bash "$HERE/record-append.sh" --session "$S2" --list 2>"$T/err"); eq "record-append.sh --session S --list reads" 0 $?
+L=$(bash "$HERE/state-entry.sh" --session "$S2" --list 2>"$T/err"); eq "state-entry.sh --session S --list reads" 0 $?
 eq "  ... the entry, with its kind and text" "cost|$(cat "$T/cost.txt")" "$(printf '%s' "$L" | jq -r '.[0] | "\(.kind)|\(.text)"')"
 eq "  ... in the list's shape" '["author","created","edited","id","kind","stamp","text"]' "$(printf '%s' "$L" | jq -c '.[0] | keys')"
 grep -Eq 'issues/[0-9]+/comments\?|collaborator[s]/' "$GH_DB.calls" && bad "  ... with no comment listing or permission read" "$(calls)" || ok "  ... with no comment listing or permission read"
@@ -303,7 +300,7 @@ echo "== 6. the session read =="
 seam_read() {
     [ $# -ge 2 ] || return 64
     local out=$1 ses=$2
-    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/record-common.sh"; lib_facts
+    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/state-common.sh"; lib_facts
       RS_SESSION=$ses RS_RETRY_PAUSE=0 rs_record "$out"; echo "rc=$?" )
 }
 db_init
@@ -316,13 +313,13 @@ eq "  ... the keys as assembled beside it" "$(jq -cS 'del(.written)' "$T/s")" "$
 eq "  ... asking GitHub for nothing" "" "$(calls)"
 found_session "$SS" "$(roadmap_vars plugin-system)"
 eq "rs_record_api reads the run's record by its session" rc=0 \
-    "$( ( PROG=t; . "$HERE/record-common.sh"; rs_record_api "$T/api" "$SS" 2>/dev/null; echo "rc=$?" ) )"
+    "$( ( PROG=t; . "$HERE/state-common.sh"; rs_record_api "$T/api" "$SS" 2>/dev/null; echo "rc=$?" ) )"
 eq "  ... to the same JSON" "$(jq -cS . "$T/s")" "$(jq -cS . "$T/api")"
 eq "  ... asking GitHub for nothing" "" "$(calls)"
 SN=coordinate-roadmap-plugin-system-20260926T110500Z
 log_new "$SN" "$(roadmap_vars plugin-system)"
 eq "rs_record_api on a run with no found record fails" rc=2 \
-    "$( ( PROG=t; . "$HERE/record-common.sh"; rs_record_api "$T/api2" "$SN" 2>/dev/null; echo "rc=$?" ) )"
+    "$( ( PROG=t; . "$HERE/state-common.sh"; rs_record_api "$T/api2" "$SN" 2>/dev/null; echo "rc=$?" ) )"
 # A write part way through: record/meta marked pending.
 SP=coordinate-roadmap-plugin-system-20260926T110100Z
 session_keys "$SP" "$T/rec.json" true
@@ -357,7 +354,7 @@ echo "== 7. one read per step (rs_once_begin) =="
 # state again. Prints each one's return code.
 once_reads() {
     [ $# -ge 1 ] || return 64
-    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/record-common.sh"; lib_facts
+    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/state-common.sh"; lib_facts
       RS_SESSION=$SW RS_RETRY_PAUSE=0
       rs_once_begin "$1" || exit 2
       rs_record "$1/a"; printf 'a%s ' $?
@@ -512,4 +509,4 @@ OPENED=$(sed -n 's/^init \([^ ]*\) .*/\1/p' "$KOTO_STORE/calls" | tail -1)
 eq "  ... cancelling the run it opened" "$OPENED" "$CANCELLED"
 [ -e "$KOTO_STORE/context/$OPENED/record/meta" ] && bad "  ... with nothing imported" "" || ok "  ... with nothing imported"
 
-done_tests record-source
+done_tests state-read

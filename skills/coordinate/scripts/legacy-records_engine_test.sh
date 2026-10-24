@@ -175,13 +175,13 @@ echo "== 1. the scope whose record moved =="
 if open_run moved; then
     eq "1: no record to import: the run stops at record_open" record_open "$(at)"
     eq "1:   ... with nothing posted on the moved record" 0 "$(posts 50)"
-    write_as_agent record-open.sh
-    eq "1: record-open.sh (agent-run) opens the record in the session" 0 $?
+    write_as_agent state-open.sh
+    eq "1: state-open.sh (agent-run) opens the record in the session" 0 $?
     eq "1: the run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
-    write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-moved.md" --by "the human" \
-        && write_as_agent record-state.sh --run cap 2 --by "the human" \
-        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
-        && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
+    write_as_agent state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-moved.md" --by "the human" \
+        && write_as_agent state-stored-set.sh --run cap 2 --by "the human" \
+        && write_as_agent state-stored-set.sh --run coordinator coord-test --by coord-test \
+        && write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"
     eq "1: the stored set is written" 0 $?
     eq "1: the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     eq "1: and holds into wait" wait "$(at --with-data '{"choice":"hold"}')"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-find_test.sh -- record-find.sh reads the record from the run's own
+# state-find_test.sh -- state-find.sh reads the record from the run's own
 # koto session, and nothing on GitHub.
 #
 # Covers, at roadmap scope: a session holding a canonical record (with and
@@ -13,13 +13,13 @@
 # context detail, coord/source.json reading session (what the resume candidate
 # keys on), record_url naming the session, and facts read from the session.
 #
-# Usage: bash skills/coordinate/scripts/record-find_test.sh
+# Usage: bash skills/coordinate/scripts/state-find_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-F="$HERE/record-find.sh"
+F="$HERE/state-find.sh"
 
 S=coordinate-roadmap-plugin-system-20260926T080000Z
 export RS_SESSION=$S
@@ -95,5 +95,5 @@ bash "$F" --scope roadmap --name plugin-system >/dev/null 2>&1; eq "partial over
 bash "$F" --scope roadmap --name 'a b' --repo "$REPO" --no-seal >/dev/null 2>&1; eq "a bad name is a usage error" 64 $?
 bash "$F" --scope roadmap --name plugin-system --repo "$REPO" --store session --no-seal >/dev/null 2>&1; eq "--store is a usage error" 64 $?
 
-tokens_ok record-find
-done_tests record-find
+tokens_ok state-find
+done_tests state-find

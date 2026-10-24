@@ -36,7 +36,7 @@ mkdir -p "$T/tmp" && export TMPDIR="$T/tmp"
 
 SC="$T/tree/skills/coordinate/scripts"
 mkdir -p "$SC" "$T/tree/skills/execute/scripts" "$T/bin"
-for f in reconcile-pass.sh reconcile-deps.sh record-source.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
+for f in reconcile-pass.sh reconcile-deps.sh state-read.sh reconcile-report.sh reconcile-report-get.sh; do cp "$HERE/$f" "$SC/"; done
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 P="$SC/reconcile-pass.sh"
 G="$SC/reconcile-report-get.sh"

@@ -58,10 +58,10 @@ RD_DEFERRAL_CHECK=$RD_HERE/deferral-check.sh
 RD_GITHUB_REFS=$RD_HERE/github-refs.sh
 # The run's facts (scope, name, host): coord-log.sh.
 RD_COORD_LOG=$RD_HERE/coord-log.sh
-# The one reader of the record (record-source.sh): reconcile-read.sh reads
+# The one reader of the record (state-read.sh): reconcile-read.sh reads
 # the record through its rs_record.
 # shellcheck source=/dev/null
-. "$RD_HERE/record-source.sh"
+. "$RD_HERE/state-read.sh"
 
 rd_valid_repo()   { coord_valid_repo "$1" && [[ $1 != -* ]]; }
 rd_valid_branch() { coord_valid_branch "$1"; }

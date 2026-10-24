@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # decision-archive_test.sh -- the settled decisions a record moved from GitHub
 # still carries archived (shirabe#827): decision-next.sh routing past them and
-# archiving nothing, record-decision.sh restoring one, and the section's
+# archiving nothing, state-decision.sh restoring one, and the section's
 # archived and kept-stamps fields in state-schema.jq, against the gh and koto
 # stand-ins.
 #
@@ -29,9 +29,9 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-RD="$HERE/record-decision.sh"
+RD="$HERE/state-decision.sh"
 DN="$HERE/decision-next.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 CL="$HERE/coord-log.sh"
 RUN=20260926T080000Z
 OLD=20260925T080000Z
@@ -100,7 +100,7 @@ arrive() { to wait; log_evidence "$S" wait "$2"; to "$1"; }
 # reader_state: the record as a reader is handed it (rs_record), in one compact line.
 reader_state() {
     ( RS_SESSION=${1:-$S} PROG=reader SCOPE=roadmap NAME=feat
-      . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+      . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
       rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" )
 }
 sec() { bash "$RD" --session "$S" --list; }

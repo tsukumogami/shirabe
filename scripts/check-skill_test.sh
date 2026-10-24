@@ -866,7 +866,7 @@ run_coord_list() {
 }
 for path in \
     skills/coordinate/scripts/dispatch-common.sh \
-    skills/coordinate/scripts/record-common.sh \
+    skills/coordinate/scripts/state-common.sh \
     skills/coordinate/scripts/coord-log.sh \
     skills/coordinate/scripts/coord-verdict.sh \
     skills/coordinate/scripts/coordinate-open.sh \

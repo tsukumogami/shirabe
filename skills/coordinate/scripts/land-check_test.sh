@@ -149,7 +149,7 @@ bt_record_body "[$HUMAN]"
 # The holds read comes first and goes through; the posture's read of the
 # Reversals row, after it, fails.
 echo 0 > "$KOTO_BOARD_DIR/get-count"; echo 1000 > "$KOTO_BOARD_DIR/get-fail-after"
-( PROG=t; HERE=$PS; . "$PS/record-common.sh"; rs_record_api "$T/one" "$S" > /dev/null 2>&1 )
+( PROG=t; HERE=$PS; . "$PS/state-common.sh"; rs_record_api "$T/one" "$S" > /dev/null 2>&1 )
 cp "$KOTO_BOARD_DIR/get-count" "$KOTO_BOARD_DIR/get-fail-after"; echo 0 > "$KOTO_BOARD_DIR/get-count"
 eq "a failed record read is confirm" "confirm 12 $H" "$(token)"
 rm -f "$KOTO_BOARD_DIR/get-fail-after" "$KOTO_BOARD_DIR/get-count"

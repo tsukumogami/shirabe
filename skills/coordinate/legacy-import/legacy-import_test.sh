@@ -58,7 +58,7 @@ comment() { # comment <n> <id> <user> <body>
         created_at: "2026-10-08T1\($i % 10):00:00Z", updated_at: "2026-10-08T1\($i % 10):00:00Z"}])' \
         --argjson n "$1" --argjson i "$2" --arg u "$3" --arg b "$4"
 }
-entry() { # entry <n> <id> <user> <kind> <encoded text>: a marked comment as record-append.sh posts it
+entry() { # entry <n> <id> <user> <kind> <encoded text>: a marked comment as state-entry.sh posts it
     comment "$1" "$2" "$3" "$(printf '<!-- coordinator-record-entry v1 kind=%s -->\n**2026-10-08T09:0%s:00Z** (host clock) %s\n\n%s\n' "$4" "$(($2 % 10))" "$4" "$5")"
 }
 # world <n> <scope>: a fresh DB holding record <n> with five comments, and an
@@ -236,8 +236,8 @@ found_session "$S" "$(roadmap_vars plugin-system)" "$HS"
 printf '{"source":"session","reason":"found"}' | koto context add "$S" coord/source.json
 imp --ref 7 > /dev/null 2> "$T/err"
 eq "the session is the scope's resume candidate" "resume $S" \
-    "$(bash "$HERE/record-source.sh" --candidate --scope roadmap --name plugin-system --hash "$HS" 2> "$T/err" | jq -r '"\(.action) \(.session)"')"
-OUT=$(bash "$HERE/record-handover.sh" --session "$S" 2> "$T/err"); rc=$?
+    "$(bash "$HERE/state-read.sh" --candidate --scope roadmap --name plugin-system --hash "$HS" 2> "$T/err" | jq -r '"\(.action) \(.session)"')"
+OUT=$(bash "$HERE/state-handover.sh" --session "$S" 2> "$T/err"); rc=$?
 # The sandbox row is still dispatching, which the gate leaves out.
 eq "the handover gate runs on the imported state" "0 lane_owner plugin-registry" \
     "$rc $(printf '%s' "$OUT" | jq -r '"\(.coordinator) \([.workers[].worker] | sort | join(","))"' 2>/dev/null)"
@@ -251,7 +251,7 @@ eq "only the opener, coordinate-open.sh, calls the importer" "coordinate-open.sh
 # What the record's removal deletes or strips from the files it keeps.
 GONE='record-(parse|render|append|find|move|open|write|holding|confirm)\.sh|record-codec|lib_(open_issues|discipline_read|authority|has_write_access|rotation_dates|file_at|parse)([^A-Za-z_]|$)|ISSUE_TITLE|rs_(view|record_api|moved|record|source)([^A-Za-z_]|$)'
 eq "the importer reaches nothing the removal deletes" "" "$(grep -nE "$GONE" "$IMP" | grep -vE '^[0-9]+:[[:space:]]*#')"
-eq "  ... and sources only the write core and its library" "record-common.sh record-write-core.sh record-write-core.sh" \
+eq "  ... and sources only the write core and its library" "state-common.sh state-write-core.sh state-write-core.sh" \
     "$(grep -oE '^[[:space:]]*(\( )?\. "\$HERE/[a-z-]+\.sh"' "$IMP" | sed 's|.*/||; s|"||' | tr '\n' ' ' | sed 's/ $//')"
 eq "its parser is its own copy, with no renderer" "0 0" \
     "$(grep -c 'include "record-codec"' "$IMP") $(grep -cE '^def (render|r_)' "$OWN/record-parse.jq")"

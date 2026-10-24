@@ -3,7 +3,7 @@
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3),
 # through the scripts with the koto and gh stand-ins.
 #
-# Covers: record-state.sh --rotation and --reasoning-file write record/rotation
+# Covers: state-stored-set.sh --rotation and --reasoning-file write record/rotation
 # and record/reasoning under the state writer, an accepted write reads back as
 # the same JSON, and reasoning of 16 KiB plus one byte, a rotation missing
 # start, end or host_repo and a predecessor off the session-name pattern are
@@ -13,7 +13,7 @@
 # name, provenance, discipline, host, a predecessor another rotation names, two
 # at one stamp, and, called directly, a rotation still open), and a
 # predecessor whose record/meta is malformed; a third rotation after a carried
-# second finds the second. record-open.sh opens a first rotation in the
+# second finds the second. state-open.sh opens a first rotation in the
 # session, building the empty record itself from the window it is given (no
 # body), with no GitHub write and no store row; --carry carries a
 # predecessor's hold, Standing row, Work row, deferral, unsettled decision,
@@ -25,7 +25,7 @@
 # from one. The handover gate lists carry-unacknowledged until a go-ahead set
 # after the run's start, and a carried go-ahead doesn't clear it.
 # closeout-read.sh has nothing to read at discipline scope, pick-facts.sh reads
-# the window, and record-append.sh keeps the entries in the session and refuses
+# the window, and state-entry.sh keeps the entries in the session and refuses
 # an outward one with nowhere to go.
 #
 # Usage: bash skills/coordinate/scripts/discipline-session_test.sh
@@ -68,21 +68,21 @@ ended() { touch "$KOTO_STORE/sessions/$1/.terminal"; }
 # yet, and the find's bare token for it.
 run_find() {
     [ -d "$KOTO_STORE/sessions/$1" ] || log_new "$1" "$(discipline_vars "$2")"
-    bash "$HERE/record-find.sh" --session "$1" --no-seal 2> "$T/find.err"
+    bash "$HERE/state-find.sh" --session "$1" --no-seal 2> "$T/find.err"
 }
 key() { koto context get "$1" "$2" 2>/dev/null; }
 
-echo "== record-state.sh: record/rotation and record/reasoning =="
+echo "== state-stored-set.sh: record/rotation and record/reasoning =="
 S=coordinate-discipline-rs-20261001T100000Z
 rotation "$S" rs "$TODAY" "$TOMORROW"
 printf '%s' '{"start":"2026-10-01","end":"2026-10-07","host_repo":"acme/widgets","predecessor":null}' > "$T/rot.json"
-bash "$HERE/record-state.sh" --session "$S" --rotation "$T/rot.json" > "$T/out" 2> "$T/err"
+bash "$HERE/state-stored-set.sh" --session "$S" --rotation "$T/rot.json" > "$T/out" 2> "$T/err"
 eq "a rotation is written" 0 $?
 eq "  ... and reads back as the same JSON" "$(jq -cS . "$T/rot.json")" "$(key "$S" record/rotation | jq -cS .)"
 SNAP=$(session_snapshot "$S")
 refused_rot() { # refused_rot <label> <json>
     printf '%s' "$2" > "$T/rot.json"
-    bash "$HERE/record-state.sh" --session "$S" --rotation "$T/rot.json" > /dev/null 2> "$T/err"
+    bash "$HERE/state-stored-set.sh" --session "$S" --rotation "$T/rot.json" > /dev/null 2> "$T/err"
     eq "$1 is refused" 65 $?
     eq "  ... with no key written" "$SNAP" "$(session_snapshot "$S")"
 }
@@ -93,24 +93,24 @@ refused_rot "a predecessor off the session-name pattern" '{"start":"2026-10-01",
 refused_rot "a predecessor of another discipline" '{"start":"2026-10-01","end":"2026-10-07","host_repo":"acme/widgets","predecessor":"coordinate-discipline-other-20260901T100000Z"}'
 refused_rot "a rotation on another host" '{"start":"2026-10-01","end":"2026-10-07","host_repo":"acme/gadgets","predecessor":null}'
 refused_rot "an end before the start" '{"start":"2026-10-07","end":"2026-10-01","host_repo":"acme/widgets","predecessor":null}'
-bash "$HERE/record-state.sh" --session "$S" --reasoning-check > /dev/null 2>&1; eq "--reasoning-check reads none yet" 1 $?
+bash "$HERE/state-stored-set.sh" --session "$S" --reasoning-check > /dev/null 2>&1; eq "--reasoning-check reads none yet" 1 $?
 head -c 16385 /dev/zero | tr '\0' 'x' > "$T/big.txt"
-bash "$HERE/record-state.sh" --session "$S" --reasoning-file "$T/big.txt" > /dev/null 2> "$T/err"
+bash "$HERE/state-stored-set.sh" --session "$S" --reasoning-file "$T/big.txt" > /dev/null 2> "$T/err"
 eq "reasoning of 16 KiB plus one byte is refused" 65 $?
 grep -q '16384' "$T/err" && ok "  ... naming the limit" || bad "  ... naming the limit" "$(cat "$T/err")"
 eq "  ... with no key written" "$SNAP" "$(session_snapshot "$S")"
 head -c 16384 /dev/zero | tr '\0' 'y' > "$T/max.txt"
-bash "$HERE/record-state.sh" --session "$S" --reasoning-file "$T/max.txt" > /dev/null 2> "$T/err"
+bash "$HERE/state-stored-set.sh" --session "$S" --reasoning-file "$T/max.txt" > /dev/null 2> "$T/err"
 eq "reasoning of exactly 16 KiB is written" 0 $?
 printf 'The flaky job is timing.\n\nNext: watch the cache.\n' > "$T/why.txt"
-bash "$HERE/record-state.sh" --session "$S" --reasoning-file "$T/why.txt" > /dev/null 2> "$T/err"
+bash "$HERE/state-stored-set.sh" --session "$S" --reasoning-file "$T/why.txt" > /dev/null 2> "$T/err"
 eq "  ... and replaced" 0 $?
 eq "  ... reading back as the same JSON" "$(jq -R -s -c . "$T/why.txt")" "$(key "$S" record/reasoning | jq -c .)"
-bash "$HERE/record-state.sh" --session "$S" --reasoning-check > /dev/null 2>&1; eq "--reasoning-check reads it" 0 $?
+bash "$HERE/state-stored-set.sh" --session "$S" --reasoning-check > /dev/null 2>&1; eq "--reasoning-check reads it" 0 $?
 GH=coordinate-discipline-rsgh-20261001T100000Z
 log_new "$GH" "$(discipline_vars rsgh)"; sealed "$GH" first
 printf '%s' '{"start":"2026-10-01","end":"2026-10-07","host_repo":"acme/widgets","predecessor":null}' > "$T/rot.json"
-bash "$HERE/record-state.sh" --session "$GH" --rotation "$T/rot.json" > /dev/null 2> "$T/err"
+bash "$HERE/state-stored-set.sh" --session "$GH" --rotation "$T/rot.json" > /dev/null 2> "$T/err"
 eq "a session holding no record keeps no record/rotation" 10 $?
 # A predecessor that isn't a session (`predecessor <n>`, a rotation that ran on
 # GitHub) is no record of this run; a rotation's own token reads with no
@@ -180,11 +180,11 @@ rotation "$A" chain "$WEEK_AGO" "$WEEK_AGO" "" "first rotation"; ended "$A"
 rotation "$B" chain "$WEEK_AGO" "$YESTERDAY" "$A" "second rotation"; ended "$B"
 eq "the third rotation's predecessor is the second, never the first" "predecessor $B" "$(run_find coordinate-discipline-chain-20261015T100000Z chain)"
 
-echo "== record-open.sh: the first rotation, in the session =="
+echo "== state-open.sh: the first rotation, in the session =="
 S=coordinate-discipline-first-20261005T100000Z
 log_new "$S" "$(discipline_vars first)"; sealed "$S" first
 reset_calls
-OUT=$(bash "$HERE/record-open.sh" --session "$S" --start "$TODAY" --end "$TOMORROW" 2> "$T/err")
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --start "$TODAY" --end "$TOMORROW" 2> "$T/err")
 eq "the first rotation opens" "0 record=$S" "$? $OUT"
 eq "  ... with its window and no predecessor" "$(jq -nc --arg s "$TODAY" --arg e "$TOMORROW" '{start: $s, end: $e, host_repo: "acme/widgets", predecessor: null}')" \
     "$(key "$S" record/rotation | jq -c .)"
@@ -192,7 +192,7 @@ eq "  ... and no store row: the session holds no Run section" "" "$(key "$S" rec
 grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT))' "$GH_DB.calls" && bad "  ... with no GitHub write" "$(calls)" || ok "  ... with no GitHub write"
 eq "  ... and the find then reads it as found" found "$(run_find "$S" first)"
 
-echo "== record-open.sh --carry: a predecessor's state =="
+echo "== state-open.sh --carry: a predecessor's state =="
 P=coordinate-discipline-carry-20261001T100000Z
 DEC_OPEN=$(jq -nc '{decision: "3", round: "0", question: "Pin the cache?", options: "pin\nfloat", state: "proposed",
     source: "worker cache [20261001T100000Z report 4]", verdict: "", recommendation: "", reason: "", context: "", problem: "",
@@ -212,7 +212,7 @@ STATE_JSON=
 S=coordinate-discipline-carry-20261008T100000Z
 log_new "$S" "$(discipline_vars carry)"; sealed "$S" "predecessor $P"
 reset_calls
-OUT=$(bash "$HERE/record-open.sh" --session "$S" --carry 2> "$T/err")
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry 2> "$T/err")
 eq "the carry exits 0" 0 $?
 eq "  ... printing carried=<predecessor>" "carried=$P" "$(printf '%s\n' "$OUT" | tail -1)"
 eq "  ... carrying the deferral" "flaky cache test" "$(key "$S" record/deferrals | jq -r '.[0].deferral')"
@@ -227,7 +227,7 @@ eq "  ... and reports the holds and Standing rows" "after-release|s1:approval:th
     "$(key "$S" coord/predecessor_carry.json | jq -r '"\([.holds[].hold] | join(" "))|\([.standing[] | "\(.standing):\(.kind):\(.owner)"] | join(" "))"')"
 grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT))' "$GH_DB.calls" && bad "  ... with no GitHub write" "$(calls)" || ok "  ... with no GitHub write"
 SNAP=$(session_snapshot "$S")
-OUT=$(bash "$HERE/record-open.sh" --session "$S" --carry 2> "$T/err")
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry 2> "$T/err")
 eq "a carry run again reads as carried" "0 carried=$P" "$? $(printf '%s\n' "$OUT" | tail -1)"
 eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$S")"
 bash "$HERE/reconcile-read.sh" --session "$S" --reasoning-out "$T/reasoning.txt" > "$T/rec.json" 2> "$T/err"
@@ -240,41 +240,31 @@ P=coordinate-discipline-mute-20261001T100000Z
 rotation "$P" mute "$WEEK_AGO" "$YESTERDAY"; ended "$P"
 S=coordinate-discipline-mute-20261008T100000Z
 log_new "$S" "$(discipline_vars mute)"; sealed "$S" "predecessor $P"
-bash "$HERE/record-open.sh" --session "$S" --carry > /dev/null 2> "$T/err"; eq "it is carried" 0 $?
+bash "$HERE/state-open.sh" --session "$S" --carry > /dev/null 2> "$T/err"; eq "it is carried" 0 $?
 bash "$HERE/reconcile-read.sh" --session "$S" > "$T/rec.json" 2> "$T/err"
 eq "  ... and its reasoning is not_recorded" not_recorded "$(jq -r .reasoning "$T/rec.json" 2>/dev/null)"
 
-echo "== no bridge: a committed handoff file is never read =="
-HANDOFF=$(empty_record bridge | jq -c 'del(.written) | .deferrals = [{deferral: "renew the cert", reason: "next rotation", raised: "2026-09-20T10:00Z", disposition: "carried 2026-09-27T10:00Z: waits on the vendor"}]
-    | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"}
-    | .reasoning = "The cert renews through the vendor portal."')
-printf '%s' "$HANDOFF" > "$T/handoff.md"
-db '.files["acme/widgets"]["main:docs/disciplines/bridge.md"] = $t' --rawfile t "$T/handoff.md"
+echo "== no bridge: nothing on GitHub is read for a first rotation =="
 S=coordinate-discipline-bridge-20261005T100000Z
 reset_calls
-eq "with no earlier session the rotation is first, a committed handoff file or not" first "$(run_find "$S" bridge)"
-eq "  ... and the file is never read" "" "$(calls)"
-# A committed handoff file outlives the rotation that wrote it, and a decision
-# it holds unsettled may have settled since: decision-next.sh never carries one.
-STALE=$(empty_record carry | jq -c --argjson o "$(printf '%s' "$DEC_OPEN" | jq -c '.decision = "2"')" 'del(.written)
-    | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/76"}
-    | .reasoning = "The cache pin waits on a person." | .decisions = {next: 3, entries: [$o]}')
-printf '%s' "$STALE" > "$T/stale.md"
-db '.files["acme/widgets"]["main:docs/disciplines/carry.md"] = $t' --rawfile t "$T/stale.md"
+eq "with no earlier session the rotation is first" first "$(run_find "$S" bridge)"
+eq "  ... and nothing on GitHub is read, a committed handoff file among it" "" "$(calls)"
+# decision-next.sh carries nothing from GitHub either: a rotation's decisions
+# come only from its predecessor's session.
 S=coordinate-discipline-carry-20261008T100000Z
 OUT=$(bash "$HERE/decision-next.sh" --session "$S" --owed dispatch 2> "$T/err"); rc=$?
 case "$OUT" in carry*) bad "a committed handoff is no carry" "$rc $OUT $(cat "$T/err")" ;;
     *) eq "a committed handoff is no carry" 0 "$rc" ;; esac
 S=coordinate-discipline-carry-20261008T100000Z
-bash "$HERE/record-decision.sh" --session "$S" --list > /dev/null 2> "$T/err"; eq "  ... and the carried record lists its decisions" 0 $?
+bash "$HERE/state-decision.sh" --session "$S" --list > /dev/null 2> "$T/err"; eq "  ... and the carried record lists its decisions" 0 $?
 
 echo "== the handover gate: carry-unacknowledged =="
 S=coordinate-discipline-carry-20261008T100000Z
-gaps() { bash "$HERE/record-handover.sh" --session "$S" 2> "$T/err" | jq -r '[.gaps[].gap] | join(" ")'; }
+gaps() { bash "$HERE/state-handover.sh" --session "$S" 2> "$T/err" | jq -r '[.gaps[].gap] | join(" ")'; }
 case " $(gaps) " in *" carry-unacknowledged "*) ok "a carried rotation's gate lists carry-unacknowledged" ;;
     *) bad "a carried rotation's gate lists carry-unacknowledged" "$(gaps) $(cat "$T/err")" ;; esac
 eq "  ... though the carry brought a go-ahead" "go-ahead" "$(key "$S" record/standing | jq -r '.[] | select(.standing == "s2") | .kind')"
-bash "$HERE/record-state.sh" --session "$S" --standing go-ahead --what "the carried state is acknowledged" --owner "the human" > /dev/null 2> "$T/err"
+bash "$HERE/state-stored-set.sh" --session "$S" --standing go-ahead --what "the carried state is acknowledged" --owner "the human" > /dev/null 2> "$T/err"
 eq "a person's go-ahead is recorded" 0 $?
 case " $(gaps) " in *" carry-unacknowledged "*) bad "  ... and clears it" "$(gaps)" ;; *) ok "  ... and clears it" ;; esac
 S=coordinate-discipline-own-20261005T100000Z
@@ -285,9 +275,9 @@ S=coordinate-discipline-own-20261005T100000Z
 bash "$HERE/closeout-read.sh" --session "$S" --no-seal > /dev/null 2> "$T/err"
 eq "closeout-read.sh has no close-out to read at discipline scope" 64 $?
 printf 'A new entry.\n' > "$T/entry.txt"
-OUT=$(bash "$HERE/record-append.sh" --session "$S" --kind entry --text-file "$T/entry.txt" 2> "$T/err")
+OUT=$(bash "$HERE/state-entry.sh" --session "$S" --kind entry --text-file "$T/entry.txt" 2> "$T/err")
 eq "an entry is kept in the session" "0 record/entries/000001" "$? $OUT"
-bash "$HERE/record-append.sh" --session "$S" --kind cost --text-file "$T/entry.txt" > /dev/null 2> "$T/err"
+bash "$HERE/state-entry.sh" --session "$S" --kind cost --text-file "$T/entry.txt" > /dev/null 2> "$T/err"
 eq "an outward entry with nowhere to go is refused" 65 $?
 S=coordinate-discipline-over-20261005T100000Z
 rotation "$S" over "$WEEK_AGO" "$YESTERDAY"

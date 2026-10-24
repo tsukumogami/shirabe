@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# record-decision.sh -- the one reader and writer of the record's Decisions
+# state-decision.sh -- the one reader and writer of the record's Decisions
 # section. The decision scripts read the section through --list and --read
 # (closeout-read.sh and reconcile read it through the parser, as they read the
 # rest of the record, and pick-facts.sh and decision-next.sh --parsed through
-# --list's own projection, record-codec.jq decisions_list, over a parse they
+# --list's own projection, state-schema.jq decisions_list, over a read they
 # already hold); the write modes are the only way anything changes it.
 #
 # Usage:
-#   record-decision.sh --session S --list        print the section
-#   record-decision.sh --session S --read N      print entry N
-#   record-decision.sh --session S <write mode>
+#   state-decision.sh --session S --list        print the section
+#   state-decision.sh --session S --read N      print entry N
+#   state-decision.sh --session S <write mode>
 #   ... [--scope roadmap|discipline --name N --repo O/R]   (tests; reads only)
 #
 # The session gives the scope, name and host (coord-log.sh vars), and must
@@ -113,7 +113,7 @@
 # than the one this write changed, is compacted (the codec's
 # compact_settled), keeping the Evidence lines stamped by this run for as long
 # as the run lasts. The state
-# is written through record-write-core.sh with the Decisions section opened
+# is written through state-write-core.sh with the Decisions section opened
 # (DECISIONS_WRITER=1), which re-reads the record, compares its written time
 # and checks provenance and visibility.
 #
@@ -126,10 +126,10 @@
 # or the state refused.
 #
 # The record, and for --carry the predecessor's, is read through
-# record-source.sh; writes happen only in record-write-core.sh.
+# state-read.sh; writes happen only in state-write-core.sh.
 set -uo pipefail
 
-PROG=record-decision
+PROG=state-decision
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= MODE= ENTRY=
 Q= SRC= TEXTF= TEXT= OUTC= REASON= REC= CTX= PROB= GROUNDS= FINAL= ROUTE=
@@ -169,11 +169,11 @@ case "$MODE" in
     '') usage ;;
     *) [ -z "$SCOPE$NAME$REPO" ] || { echo "$PROG: the write modes take no override flags" >&2; exit 64; } ;;
 esac
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-decision.XXXXXX") || lib_die2 "cannot make a temporary directory"
+WD=$(mktemp -d "${TMPDIR:-/tmp}/state-decision.XXXXXX") || lib_die2 "cannot make a temporary directory"
 # The write core takes over the EXIT trap; CORE_CLEANUP has it remove this too.
 CORE_CLEANUP=$WD
 trap 'rm -rf "$WD"' EXIT
@@ -323,7 +323,7 @@ write() {
     jq --slurpfile d "$WD/section.json" '.decisions = $d[0]' "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
     chmod 600 "$WD/next.json" || lib_die2 "cannot make the state file private"
     STATE_FILE="$WD/next.json"
-    . "$HERE/record-write-core.sh"
+    . "$HERE/state-write-core.sh"
     # The one script that may change the section.
     DECISIONS_WRITER=1
     core_write
@@ -336,7 +336,7 @@ is_archived() { SEC | jq -e --argjson n "$1" '(.archived // []) | index($n) != n
 # restore <n>...: the archived entries back into the section this write starts
 # from, each from the latest unedited `decisions` entry holding its row.
 restore() {
-    bash "$HERE/record-append.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/ra.err" \
+    bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/ra.err" \
         || { lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
     jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args "$@")" --slurpfile es "$WD/entries.json" 'include "state-schema";
         ([$es[0][] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch

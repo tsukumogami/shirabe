@@ -119,7 +119,7 @@
 #       a listing, so an absent key and a failed read stay apart: `context
 #       get` fails the same way for both, and `context exists` on koto's
 #       cloud backend retries an absent key's 404 for about a second
-#       (record-source.sh rs_list).
+#       (state-read.sh rs_list).
 #
 #   dc_leg_put <session> <request> <leg> <json>
 #       Writes the leg key whole. Returns 0, or 2 when the value isn't a JSON
@@ -150,7 +150,7 @@
 #       writer's 12 (the record changed under it) is retried up to
 #       three times, then reads as a failed write.
 #
-#   The record's scripts belong to the record feature: record-holding.sh
+#   The record's scripts belong to the record feature: state-holding.sh
 #   ships with it, beside these scripts (it is not holding-recorded.sh, the
 #   dispatch gate). It derives the record's scope, name, repository and reference from
 #   the session's own log, so these pass the session and nothing else. When
@@ -163,7 +163,7 @@
 #       `sealed:<seq>:<sha256>` token, where seq is the state's latest entry
 #       in the session log and the hash covers the session, state, seq and the
 #       verdict's bytes. The helper ships with the record feature, like
-#       record-holding.sh. DC_COORD_LOG overrides its path.
+#       state-holding.sh. DC_COORD_LOG overrides its path.
 #
 #   dc_seal_check <session> <state> <token> <context-key>
 #       Prints the sealed verdict's bytes when the token still matches them and
@@ -226,10 +226,10 @@ DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
 # A koto session name, as a leg's bound child is recorded.
 DC_RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
-DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
-# The stored set's reader, for the pauses (record-state.sh --list); tests use
+DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/state-holding.sh}"
+# The stored set's reader, for the pauses (state-stored-set.sh --list); tests use
 # a stand-in.
-DC_RECORD_STATE="${DC_RECORD_STATE:-$DC_HERE/record-state.sh}"
+DC_RECORD_STATE="${DC_RECORD_STATE:-$DC_HERE/state-stored-set.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
 
 # The dispatch topic's grammar, which a refusal names as the accepted values.
@@ -463,7 +463,7 @@ dc_leg_put() {
 
 dc_record_present() {
     [ -f "$DC_RECORD_HOLDING" ] && return 0
-    printf 'dispatch-common: the record feature'"'"'s record-holding.sh is not installed at %s\n' "$DC_RECORD_HOLDING" >&2
+    printf 'dispatch-common: the record feature'"'"'s state-holding.sh is not installed at %s\n' "$DC_RECORD_HOLDING" >&2
     return 2
 }
 

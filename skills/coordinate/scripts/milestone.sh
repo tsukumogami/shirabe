@@ -110,7 +110,7 @@
 # character, so no path either). What was seen is one paragraph of at most
 # 600 bytes with no URL or markdown link: it is the first report text that
 # reaches a worker's brief, quoted under the rework heading, so it gets the
-# rework row's shape (record-codec.jq rework_problem). The same 16 KiB cap and
+# rework row's shape (state-schema.jq rework_problem). The same 16 KiB cap and
 # plain-lines rule as a verdict entry apply. A refusal names the line on
 # stderr; on success it prints {tag, reported_by, seen_on, clause, clause_text,
 # what_was_seen}.
@@ -150,7 +150,7 @@ words_of() {
 
 # ms_tag_key <tag>: the tag's key, `ms:<N>` for exactly `Feature <N>` or
 # `Milestone <N>` (the digits as written), the tag itself otherwise.
-# record-common.sh's jq tag_key is the same rule.
+# state-common.sh's jq tag_key is the same rule.
 ms_tag_key() {
     local re='^(Feature|Milestone) ([0-9]+)$'
     if [[ $1 =~ $re ]]; then printf 'ms:%s' "${BASH_REMATCH[2]}"; else printf '%s' "$1"; fi

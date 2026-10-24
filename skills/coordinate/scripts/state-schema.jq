@@ -7,13 +7,13 @@
 # string in the state. Each function takes the state, a section or a cell as
 # JSON and refuses with a jq error() whose message starts with "refused: ".
 #
-# record-write-core.sh runs normalize_state over the next state before it
-# writes anything, and record-source.sh over every state it hands a reader, so
+# state-write-core.sh runs normalize_state over the next state before it
+# writes anything, and state-read.sh over every state it hands a reader, so
 # a reader and a writer see one normal form. A script reaches these functions
 # with `jq -L <scripts dir> 'include "state-schema"; ...'`.
 #
 # $private, wherever a function takes it, is the list of repositories the host
-# can't show as public (record-write-core.sh reads each named repository's
+# can't show as public (state-write-core.sh reads each named repository's
 # visibility); a value naming one is refused. A private host passes [].
 
 # The four sections every record has, in order, with their columns.
@@ -43,13 +43,13 @@ def re_date: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
 def re_repo: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$";
 def re_name: "^[A-Za-z0-9._-]+$";
 def re_pr_url: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$";
-# A dispatch topic, the Worker cell's shape: record-common.sh's RE_TOPIC, the
+# A dispatch topic, the Worker cell's shape: state-common.sh's RE_TOPIC, the
 # grammar every bash script holds a topic to.
 def re_topic: "^[A-Za-z0-9][A-Za-z0-9._-]*$";
 
 # pr_link_parts: a Pull request cell `[#a](https://github.com/o/r/pull/b)` as
 # {a, r, b}, or nothing for any other value. The one jq parser of the cell
-# (record-common.sh lib_pr_link is the bash one); a script reaches it with
+# (state-common.sh lib_pr_link is the bash one); a script reaches it with
 # `jq -L <scripts dir> 'include "state-schema"; ...'`.
 def pr_link_parts:
   strings | capture("^\\[#(?<a>[0-9]+)\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?<b>[0-9]+)\\)$");
@@ -93,15 +93,15 @@ def names_repo($r):
   | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "(\\.git)?\\.*($|[^A-Za-z0-9_.-])");
 
 # Free text a person reads on a public host: a Decisions text column, or a
-# record entry (record-append.sh). text_named_repos lists the repositories the
+# record entry (state-entry.sh). text_named_repos lists the repositories the
 # text names unambiguously, a github.com/<owner>/<repo> link or
 # <owner>/<repo>#<n>, since in prose "and/or" or "CI/CD" is not a repository;
-# both callers (record-write-core.sh for the Decisions columns,
-# record-append.sh for an entry) read each one's visibility and pass the ones
+# both callers (state-write-core.sh for the Decisions columns,
+# state-entry.sh for an entry) read each one's visibility and pass the ones
 # that aren't public back as $private. text_problem($private) is null, or what
 # makes the text unfit: a repository on the $private list, a home-directory
 # path or a token-shaped string. check_dcell, the stored set's text cells,
-# scan_strings and record-append.sh use it.
+# scan_strings and state-entry.sh use it.
 def text_named_repos:
   def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
   [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
@@ -201,7 +201,7 @@ def check_holds($h; $private):
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3). Each sits
 # after Holds and before Decisions, in this order, and a state holds it only
 # once it has a row (normalize_state leaves an empty one out). Only
-# record-state.sh changes them.
+# state-stored-set.sh changes them.
 #
 # Run, one row per key from a closed set; `told` repeats, and `rules` and
 # `briefs` once per label:
@@ -243,7 +243,7 @@ def check_holds($h; $private):
 #            clears it) | rework (a milestone a confirmed changes-needed
 #            verdict, or a confirmed reopen on a reported failure, sent back
 #            for more work; roadmap-status.sh --confirm writes it,
-#            record-state.sh --done removes it once a worker is dispatched
+#            state-stored-set.sh --done removes it once a worker is dispatched
 #            for it)
 #   Who      a holding's Worker (a dispatch topic), or who does the work; for
 #            a decision row `decision <n>`, the entry it waits on; for a
@@ -258,7 +258,7 @@ def check_holds($h; $private):
 #            failure's `Evidence clause <n> failed: <what was seen>`, one
 #            paragraph of at most 600 bytes with no URL or markdown link
 #            (rework_problem), since the next brief quotes it
-#   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
+#   Wakes    a holding's wakes counted so far (state-stored-set.sh adds this run's
 #            from the session log at each write); 0 for a local agent, and
 #            read as 0 when blank (docs/designs/current/DESIGN-coordinate-paused-state.md,
 #            Decision 4)
@@ -350,7 +350,7 @@ def check_srow($sec; $private):
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
-       elif .key == "store" then (if .value == "session" then . else refuse("run.value: store-malformed: the store is the session; a store row reads session, never \(.value)") end)
+       elif .key == "store" then (if .value == "session" then . else refuse("run.value: the store is the session; a store row reads session, never \(.value)") end)
        elif .key == "rules" or .key == "briefs" then
          (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
           else refuse("run.value: a \(.key) row is `<label> sha256:<64 hex>`, the label letters, digits, `.`, `_` and `-`") end)
@@ -401,7 +401,7 @@ def check_state($sec; $rows; $private):
         ($r | map(select(.key != "told" and .key != "rules" and .key != "briefs") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
         | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
-        | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: store-malformed: the store row is used twice")
+        | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: the store row is used twice")
           elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
           elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
@@ -587,7 +587,7 @@ def normalize_state($private):
 #
 # escalation_problems($target): what keeps a recorded escalate verdict from
 # being escalated to $target, as a list (empty when it may be). The one
-# validator record-decision.sh and decision-render.sh share.
+# validator state-decision.sh and decision-render.sh share.
 #
 # An escalated entry's Options lines each carry an explanation, written
 # `<option> -- <explanation>` so the column's grammar is unchanged; the
@@ -618,7 +618,7 @@ def d_stamps:
 # The text of the Evidence line that marks an extracted question as addressed
 # to a person, stamped with the report that carried it. A report with one owes
 # its worker a redirect; decision-next.sh routes it, decision-render.sh renders
-# it, and record-decision.sh --open-from-report writes the mark.
+# it, and state-decision.sh --open-from-report writes the mark.
 def d_addressed_mark: "addressed to a person";
 
 # compact_settled: a settled entry that owes nothing keeps its identity, round,
@@ -642,7 +642,7 @@ def compact_settled:
 # A record moved from a GitHub record may keep entries its body archived: an
 # `archived` list of identifiers, and `kept`, the archiving run's stamps on
 # them, {run, stamps: [{decision, kind, seq, addressed}]}. The replay guard
-# (record-decision.sh) and the unrecorded and redirect rules (decision-next.sh)
+# (state-decision.sh) and the unrecorded and redirect rules (decision-next.sh)
 # read a kept stamp as they read a row's. Nothing archives an entry any more.
 #
 # d_section_stamps: every stamp a Decisions section holds, in its rows and kept,
@@ -656,7 +656,7 @@ def d_section_stamps:
 # d_archive_rows: the entries a `decisions` entry's text holds, the rows of a
 # Decisions table a GitHub record's body archived, under the table's header,
 # whatever precedes it. A cell was written escaped (dec_d reads it back), and
-# record-decision.sh restores an archived entry from the latest entry holding
+# state-decision.sh restores an archived entry from the latest entry holding
 # its row.
 def dec:
   gsub("&#9;"; "\t") | gsub("&#32;"; " ") | gsub("<br>"; "\n")
@@ -688,7 +688,7 @@ def rework_cap:
   else (explode | until((implode | utf8bytelength) <= 597; .[:-1]) | implode) + "..." end;
 
 # ---- the listers' projections ------------------------------------------------
-# What record-holding.sh, record-state.sh, record-decision.sh and
+# What state-holding.sh, state-stored-set.sh, state-decision.sh and
 # roadmap-status.sh print for --list, from a record. pick-facts.sh takes all of
 # them from one read rather than running each lister, which would read the
 # record once apiece (shirabe#840).

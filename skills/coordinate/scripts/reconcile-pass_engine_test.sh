@@ -67,7 +67,7 @@ PR="$T/plugin"
 SC="$PR/skills/coordinate/scripts"
 mkdir -p "$SC" "$PR/skills/execute/scripts"
 for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh coord-log.sh coord-verdict.sh \
-         deferral-check.sh record-common.sh record-source.sh dispatch-common.sh github-refs.sh inventory-common.sh; do
+         deferral-check.sh state-common.sh state-read.sh dispatch-common.sh github-refs.sh inventory-common.sh; do
     cp "$HERE/$f" "$SC/"
 done
 cp "$HERE/reconcile-check.sh" "$SC/reconcile-check.real.sh"
@@ -95,14 +95,14 @@ esac
 EOF
 # The handover read the reconcile gate runs: a stand-in whose exit code is
 # $STUB/handover.rc (0 when absent), so the gate's own routing is what's tested
-# here; record-state_test.sh tests the read itself.
-cat > "$SC/record-handover.sh" <<EOF
+# here; state-stored-set_test.sh tests the read itself.
+cat > "$SC/state-handover.sh" <<EOF
 #!/usr/bin/env bash
 rc=\$(cat "$STUB/handover.rc" 2>/dev/null || echo 0)
-[ "\$rc" = 0 ] || echo "record-handover: a gap (the stand-in says so)" >&2
+[ "\$rc" = 0 ] || echo "state-handover: a gap (the stand-in says so)" >&2
 exit "\$rc"
 EOF
-chmod +x "$SC/record-handover.sh"
+chmod +x "$SC/state-handover.sh"
 # Only the stand-ins are made executable here; the copied scripts keep the
 # modes they are committed with, so a script the template can't run fails.
 chmod +x "$SC/reconcile-read.sh" "$SC/reconcile-check.sh"

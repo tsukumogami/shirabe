@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-hold_test.sh -- record-hold.sh, the one way the Holds section
+# state-hold_test.sh -- state-hold.sh, the one way the Holds section
 # changes: add a hold, lift a `lifted` one, list them.
 #
 # Covers: --list on a record with no section ([]), and in record order; a hold
@@ -8,17 +8,17 @@
 # --lift stamping the minute and who, only for a `lifted` hold, and only once;
 # a lift of an unknown hold refused; each add and lift told as a `hold` entry;
 # usage errors; reads writing nothing; nothing written on GitHub. The
-# section's one writer: record-write.sh dropping or changing a hold refused
+# section's one writer: state-write.sh dropping or changing a hold refused
 # (65), carrying it unchanged fine; a hold naming a private repository on a
 # public host refused.
 #
-# Usage: bash skills/coordinate/scripts/record-hold_test.sh
+# Usage: bash skills/coordinate/scripts/state-hold_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-RH="$HERE/record-hold.sh"
+RH="$HERE/state-hold.sh"
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
@@ -73,18 +73,18 @@ eq "the lift is told too" "hold|Hold go-signal lifted by the human." \
 
 echo "== the section has one writer =="
 W=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
-# A whole-state write through record-write.sh that drops a hold, or lifts one.
+# A whole-state write through state-write.sh that drops a hold, or lifts one.
 live > "$T/now.json"
 jq -c 'del(.written) | .holds |= map(select(.hold != "after-346"))' "$T/now.json" > "$T/drop.json"
 state_json "$(cat "$T/drop.json")" "$(jq -r .written "$T/now.json")" > "$T/drop.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/drop.state" >/dev/null 2>"$T/err"; eq "another writer dropping a hold is refused" 65 $?
-grep -q 'only through record-hold.sh' "$T/err" && ok "  ... naming the one writer" || bad "  ... naming the one writer" "$(cat "$T/err")"
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/drop.state" >/dev/null 2>"$T/err"; eq "another writer dropping a hold is refused" 65 $?
+grep -q 'only through state-hold.sh' "$T/err" && ok "  ... naming the one writer" || bad "  ... naming the one writer" "$(cat "$T/err")"
 jq -c 'del(.written) | .holds |= map(if .hold == "tagged" then .set_by = "someone else" else . end)' "$T/now.json" > "$T/edit.json"
 state_json "$(cat "$T/edit.json")" "$(jq -r .written "$T/now.json")" > "$T/edit.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "another writer changing a hold is refused" 65 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/edit.state" >/dev/null 2>"$T/err"; eq "another writer changing a hold is refused" 65 $?
 jq -c 'del(.written)' "$T/now.json" > "$T/same.json"
 state_json "$(cat "$T/same.json")" "$(jq -r .written "$T/now.json")" > "$T/same.state"
-bash "$HERE/record-write.sh" "${W[@]}" --state-file "$T/same.state" >/dev/null 2>"$T/err"; eq "another writer carrying the holds as they are is fine" 0 $?
+bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/same.state" >/dev/null 2>"$T/err"; eq "another writer carrying the holds as they are is fine" 0 $?
 eq "  ... and every hold is still there" 3 "$(live | jq '.holds | length')"
 
 echo "== a public host and a private repository =="
@@ -100,5 +100,5 @@ bash "$RH" "${RM[@]}" --list --add >/dev/null 2>&1; eq "two modes" 64 $?
 
 eq "nothing in this suite was written on GitHub" "" "$(gh_writes)"
 echo
-echo "record-hold: $PASS passed, $FAIL failed"
+echo "state-hold: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

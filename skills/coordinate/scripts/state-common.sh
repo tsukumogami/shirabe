@@ -1,13 +1,13 @@
-# record-common.sh -- shared helpers for /coordinate's record scripts. Sourced,
-# never run: `. "$HERE/record-common.sh"` after the caller sets HERE, PROG and
+# state-common.sh -- shared helpers for /coordinate's record scripts. Sourced,
+# never run: `. "$HERE/state-common.sh"` after the caller sets HERE, PROG and
 # the flag globals below.
 #
 # It holds the pieces every record script repeats: the run's facts (scope,
 # name, host) from the session or from the test-only override flags, the
 # closed patterns, date checks, sealing a check's verdict, and the session
 # checks every write makes first. The record's state lives in the
-# coordinator's koto session, read through record-source.sh; it is written
-# only by record-write-core.sh, which only the agent-run write scripts source,
+# coordinator's koto session, read through state-read.sh; it is written
+# only by state-write-core.sh, which only the agent-run write scripts source,
 # so a lint over a check script's own text and this file finds only reads.
 #
 # Globals the caller sets before calling lib_facts:
@@ -95,7 +95,7 @@ lib_valid_date() {
 }
 
 # ENTRY_MARKER_PREFIX: an outward entry's first line up to its kind, the one
-# definition the entry's poster (record-append.sh) and its readers share.
+# definition the entry's poster (state-entry.sh) and its readers share.
 ENTRY_MARKER_PREFIX='<!-- coordinator-record-entry v1 kind='
 
 # lib_emit <state> <token> <context-key> <detail-file>: finish a check. Under
@@ -508,7 +508,7 @@ lib_pr_held() {
 # lib_row_merged <row-json>: the row's merge was confirmed and it waits for
 # its worker's teardown: a Verified head kept and the Pull request cell
 # blank, which only the cleared cell after a confirmed merge writes
-# (record-confirm.sh; record-holding.sh's header keeps the rule). The one
+# (state-confirm.sh; state-holding.sh's header keeps the rule). The one
 # definition pick, dispatch_check and the quiet check read. Reconcile's report
 # reads the same row more narrowly, as merged only when every pull request on
 # its branch is merged, because it reports what it measured.
@@ -521,7 +521,7 @@ lib_row_merged() {
 # head and its pull request is open and not a draft (gh pr view in the linked
 # repository). A row is merged when it has a Verified head and a blank Pull
 # request cell: a confirmed merge clears the cell and keeps the row until its
-# worker's teardown (record-confirm.sh), and nothing else writes that pair.
+# worker's teardown (state-confirm.sh), and nothing else writes that pair.
 # Every other row is active. Local agents never have a row, so they are never
 # counted. Returns 2 on a failed read.
 lib_parked() {
@@ -547,7 +547,7 @@ lib_parked() {
 
 # lib_bounds [record-json]: CAP and PARKED_BOUND from the session's variables
 # (defaults 5 and 3 without a session, or when a variable is unset). Given the
-# record as JSON (parsed, or record-state.sh --list), a `cap` row in its Run
+# record as JSON (parsed, or state-stored-set.sh --list), a `cap` row in its Run
 # section wins over the variable: a cap a person changed is in the record, and
 # survives a restart that didn't pass it. Every reader of the cap comes here,
 # so they agree on it.
@@ -586,5 +586,5 @@ lib_epoch() {
 }
 
 # The one reader of the record's state, whichever store the run is on
-# (record-source.sh); every script that sources this file gets it.
-[ -n "${RS_LOADED:-}" ] || . "$HERE/record-source.sh"
+# (state-read.sh); every script that sources this file gets it.
+[ -n "${RS_LOADED:-}" ] || . "$HERE/state-read.sh"

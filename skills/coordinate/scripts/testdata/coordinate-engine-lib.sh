@@ -244,7 +244,7 @@ land_run() {
 
 record_verified() { # the agent writes the verified head into the unit's row
     land_row "$H" > "$T/row.json"
-    write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+    write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"
 }
 
 assigned_brief() { # assigned_brief <topic> <unit> <entry point> <positional> <run mode>

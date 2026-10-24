@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# record-state.sh -- change the record's stored set (Run, Standing, Work) and
+# state-stored-set.sh -- change the record's stored set (Run, Standing, Work) and
 # append the entry that tells it, or list the set. Agent-run; the three
 # sections change only through this script
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3).
 #
 # Usage:
-#   record-state.sh --session S --run KEY VALUE --by WHO
-#   record-state.sh --session S --host KEY VALUE [--host KEY VALUE]...
-#   record-state.sh --session S --rotation FILE
-#   record-state.sh --session S --reasoning-file FILE
-#   record-state.sh --session S --reasoning-check
-#   record-state.sh --session S --told WHO --by WHO
-#   record-state.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
-#   record-state.sh --session S --end ID --by WHO
-#   record-state.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
-#   record-state.sh --session S --done ITEM [--kind K]
-#   record-state.sh --session S --list
+#   state-stored-set.sh --session S --run KEY VALUE --by WHO
+#   state-stored-set.sh --session S --host KEY VALUE [--host KEY VALUE]...
+#   state-stored-set.sh --session S --rotation FILE
+#   state-stored-set.sh --session S --reasoning-file FILE
+#   state-stored-set.sh --session S --reasoning-check
+#   state-stored-set.sh --session S --told WHO --by WHO
+#   state-stored-set.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
+#   state-stored-set.sh --session S --end ID --by WHO
+#   state-stored-set.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
+#   state-stored-set.sh --session S --done ITEM [--kind K]
+#   state-stored-set.sh --session S --list
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                                  (tests)
 #
@@ -130,8 +130,8 @@
 # (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 4).
 #
 # Each change is written to the body first, through the record's write core
-# (record-write-core.sh), with the minute and who, and then told as an entry
-# with record-append.sh, kind run, told, the standing kind, end or work. The
+# (state-write-core.sh), with the minute and who, and then told as an entry
+# with state-entry.sh, kind run, told, the standing kind, end or work. The
 # body is the state; the entry is its account.
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
@@ -141,14 +141,14 @@
 # provenance or a directed transition; 11 and 12 (the record changed between
 # this script's read and its write) from the write core; 14
 # the state was written but the entry wasn't posted (post it with
-# record-append.sh; the change it names is on stderr); 64 usage; 65 refused
+# state-entry.sh; the change it names is on stderr); 64 usage; 65 refused
 # (the reason on stderr).
 #
-# The record is read through record-source.sh and written only in the write
-# core it sources, and the entry through record-append.sh.
+# The record is read through state-read.sh and written only in the write
+# core it sources, and the entry through state-entry.sh.
 set -uo pipefail
 
-PROG=record-state
+PROG=state-stored-set
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
@@ -206,7 +206,7 @@ case "$MODE" in
     list) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     *) usage ;;
 esac
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 if [ "$MODE" = host ]; then
     # Each key and value checked, then merged into the current record/host.
@@ -227,14 +227,14 @@ if [ "$MODE" = host ]; then
     done <<EOF
 $HOSTKV
 EOF
-    WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    WD=$(mktemp -d "${TMPDIR:-/tmp}/state-stored-set.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$WD"' EXIT
     rs_host "${RS_SESSION:-$SESSION}" "$WD/host" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.err")"
     printf '%s' "$HOSTKV" | jq -R -s --slurpfile cur "$WD/host" \
         '$cur[0] + (split("\n") | map(select(. != "") | split("\t") | {(.[0]): (.[1:] | join("\t"))}) | add // {})' \
         > "$WD/host.next" || lib_die2 "jq failed"
     lib_write_guard
-    . "$HERE/record-write-core.sh"
+    . "$HERE/state-write-core.sh"
     core_write_host "$WD/host.next"
     jq -c . "$WD/host.next"
     exit 0
@@ -244,7 +244,7 @@ fi
 # written.
 if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-check ]; then
     [ "$SCOPE" = discipline ] || { echo "$PROG: refused: record/rotation and record/reasoning are kept only by a discipline rotation" >&2; exit 65; }
-    WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
+    WD=$(mktemp -d "${TMPDIR:-/tmp}/state-stored-set.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$WD"' EXIT
     RS=${RS_SESSION:-$SESSION}
     if [ "$MODE" = reasoning-check ]; then
@@ -293,7 +293,7 @@ if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-ch
         echo "$PROG: refused: ${KEYNAME#record/}: $(sed -n 's/.*refused: //p' "$WD/scan.err" | head -1 | lib_scrub)" >&2; exit 65
     fi
     lib_write_guard
-    . "$HERE/record-write-core.sh"
+    . "$HERE/state-write-core.sh"
     STATE_WRITER=1
     core_write_rotation "$KEYNAME" "$WD/value.json"
     cat "$WD/value.json"
@@ -301,7 +301,7 @@ if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-ch
 fi
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
+WD=$(mktemp -d "${TMPDIR:-/tmp}/state-stored-set.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 rs_record "$WD/parsed.json"
@@ -333,7 +333,7 @@ wakes_since() {
     case "$2" in "leg "*) ;; *) req= ;; esac
     printf '%s' "$w" | jq -r --arg t "$1" --arg r "$req" '(.[$t] // 0) + (if $r == "" then 0 else (.["leg " + $r] // 0) end)'
 }
-# How record-append.sh addresses this record.
+# How state-entry.sh addresses this record.
 if [ "$OVERRIDE" = 1 ]; then
     ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
 else
@@ -391,7 +391,7 @@ standing)
     SID=$(jq -r '"s\(([(.standing // [])[] | .standing[1:] | tonumber] | max // 0) + 1)"' "$P")
     # The next id never reuses an ended one: the entries name ids, so the
     # highest id ever used is read from the stream too.
-    ENTRIES=$(bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
+    ENTRIES=$(bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
         || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/list.err")"
     USED=$(printf '%s' "$ENTRIES" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
         || lib_die2 "the record's entries are not JSON"
@@ -528,27 +528,27 @@ cp "$WD/leaving.txt" "$LEAVING_FILE"
 
 STATE_FILE="$WD/final.json" CORE_CLEANUP=$WD
 lib_write_guard
-. "$HERE/record-write-core.sh"
+. "$HERE/state-write-core.sh"
 STATE_WRITER=1
 core_write
 
-if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
-    echo "$PROG: the record was written, but its entry wasn't posted; post it with record-append.sh --kind $EKIND: $(cat "$ENTRY_FILE")" >&2
+if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
+    echo "$PROG: the record was written, but its entry wasn't posted; post it with state-entry.sh --kind $EKIND: $(cat "$ENTRY_FILE")" >&2
     while IFS= read -r LINE; do
-        [ -n "$LINE" ] && echo "$PROG: and post with record-append.sh --kind work: $LINE" >&2
+        [ -n "$LINE" ] && echo "$PROG: and post with state-entry.sh --kind work: $LINE" >&2
     done < "$LEAVING_FILE"
     rm -f "$ENTRY_FILE" "$LEAVING_FILE"
     exit 14
 fi
 rm -f "$ENTRY_FILE"
 # Each holding row that left Work, told with its final count. Every line is
-# tried; any that didn't post are named together, for record-append.sh.
+# tried; any that didn't post are named together, for state-entry.sh.
 UNPOSTED=0
 while IFS= read -r LINE; do
     [ -n "$LINE" ] || continue
     printf '%s\n' "$LINE" > "$LEAVING_FILE.one"
-    if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind work --text-file "$LEAVING_FILE.one"; then
-        echo "$PROG: the record was written, but a final count wasn't posted; post it with record-append.sh --kind work: $LINE" >&2
+    if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind work --text-file "$LEAVING_FILE.one"; then
+        echo "$PROG: the record was written, but a final count wasn't posted; post it with state-entry.sh --kind work: $LINE" >&2
         UNPOSTED=1
     fi
 done < "$LEAVING_FILE"

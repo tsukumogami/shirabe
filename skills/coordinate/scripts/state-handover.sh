@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# record-handover.sh -- the stored set a replacement coordinator continues
+# state-handover.sh -- the stored set a replacement coordinator continues
 # from, read from the record alone, and its gaps. A read; the `reconcile`
 # state's handover gate runs it with --check
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3).
 #
 # Usage:
-#   record-handover.sh --session S [--check]
-#   record-handover.sh --scope roadmap|discipline --name N --repo O/R [--check]   (tests)
+#   state-handover.sh --session S [--check]
+#   state-handover.sh --scope roadmap|discipline --name N --repo O/R [--check]   (tests)
 #
 # The session must have a found record (coord-log.sh run-facts); the override
 # flags are for tests, with RS_SESSION naming the session that holds it.
@@ -42,7 +42,7 @@
 # report). A `dispatching` row is left out: its worker may not have started,
 # and the reconcile pass settles it to `dispatched` when the listing finds
 # its worker, before this gate runs, so a launched worker is checked from the
-# next start on. Each fix is the record-state.sh call that closes the gap.
+# next start on. Each fix is the state-stored-set.sh call that closes the gap.
 #
 # With --check nothing is printed on success; the gaps go to stderr.
 #
@@ -50,11 +50,11 @@
 # 2 a read failed; 10 the run has no found record, or the target isn't a
 # canonical record of this scope; 64 usage.
 #
-# koto reads: the record through record-source.sh, and koto request get
+# koto reads: the record through state-read.sh, and koto request get
 # <request> for each live holding on a leg. It reads nothing on GitHub.
 set -uo pipefail
 
-PROG=record-handover
+PROG=state-handover
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO=
 CHECK=0
@@ -70,11 +70,11 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 lib_run_found || { echo "$PROG: the run has no found record" >&2; exit 10; }
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-handover.XXXXXX") || lib_die2 "cannot make a temporary directory"
+WD=$(mktemp -d "${TMPDIR:-/tmp}/state-handover.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 rs_record "$WD/parsed.json"
 case $? in
@@ -164,15 +164,15 @@ jq -c --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushe
        else . end)
     | .gaps = ([
         (if .carry.carried == true and (.carry.acknowledged | not)
-         then {gap: "carry-unacknowledged", fix: "show the person the carried holds and Standing rows (coord/predecessor_carry.json), then record their go-ahead: record-state.sh --standing go-ahead --what \"the carried state is acknowledged\" --owner <who>"}
+         then {gap: "carry-unacknowledged", fix: "show the person the carried holds and Standing rows (coord/predecessor_carry.json), then record their go-ahead: state-stored-set.sh --standing go-ahead --what \"the carried state is acknowledged\" --owner <who>"}
          else empty end),
-        (if .arguments == null then {gap: "no-arguments", fix: "record-state.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
-        (if .cap == null then {gap: "no-cap", fix: "record-state.sh --run cap <n> --by <who set it>"} else empty end),
-        (if .coordinator == null then {gap: "no-coordinator", fix: "record-state.sh --run coordinator <your address> --by <you>"} else empty end),
-        (if .reports_to == null then {gap: "no-reports-to", fix: "record-state.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
-        (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "record-state.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
+        (if .arguments == null then {gap: "no-arguments", fix: "state-stored-set.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
+        (if .cap == null then {gap: "no-cap", fix: "state-stored-set.sh --run cap <n> --by <who set it>"} else empty end),
+        (if .coordinator == null then {gap: "no-coordinator", fix: "state-stored-set.sh --run coordinator <your address> --by <you>"} else empty end),
+        (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
+        (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
-        (if .coordinator != null then (.workers[] | select(.told | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then record-state.sh --told \(.worker) --by <you>"}) else empty end)
+        (if .coordinator != null then (.workers[] | select(.told | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>"}) else empty end)
       ])' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 
 if [ "$CHECK" = 1 ]; then

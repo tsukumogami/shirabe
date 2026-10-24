@@ -3,7 +3,7 @@
 # gone quiet, and is this their first or second silent check? Read-only: it
 # never messages, redispatches or tears anything down.
 #
-# For every Holdings row (record-holding.sh --list) the last activity is the
+# For every Holdings row (state-holding.sh --list) the last activity is the
 # latest of: its pull request's head commit date (gh pr view --json
 # headRefOid, then the commit), the latest `wait` evidence with event
 # `report` naming it as unit, the latest `dispatch` evidence naming it as
@@ -25,7 +25,7 @@
 # Topics are space-separated: koto captures only letters, digits, spaces and
 # `: / _ . - @`, and a dispatch topic never holds a space.
 # A holding a pause in the record holds (pause-read.sh over the Standing rows
-# record-state.sh --list reads) is never silent: its worker was told to stop at
+# state-stored-set.sh --list reads) is never silent: its worker was told to stop at
 # a safe point, so its silence is what the pause asked for, and the sweep that
 # skips it isn't a silent check. The resume doesn't reset its last activity,
 # but a silent check made before the latest `resume` tick no longer counts, so
@@ -45,7 +45,7 @@
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# The record through record-holding.sh --list and record-state.sh --list.
+# The record through state-holding.sh --list and state-stored-set.sh --list.
 # GitHub reads: gh pr view <n> --repo <repo> --json headRefOid;
 # gh api --method GET repos/<repo>/commits/<sha> --jq .commit.committer.date
 set -uo pipefail
@@ -66,7 +66,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || usage
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 [ -n "$NOW" ] || NOW=$(lib_now)
 NOW_S=$(lib_epoch "$NOW") || usage
@@ -75,11 +75,11 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 T=$(mktemp -d "${TMPDIR:-/tmp}/quiet-check.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-bash "$HERE/record-holding.sh" --session "$SESSION" --list > "$T/holdings.json" 2> "$T/h.err" \
-    || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/h.err")"
+bash "$HERE/state-holding.sh" --session "$SESSION" --list > "$T/holdings.json" 2> "$T/h.err" \
+    || lib_die2 "state-holding.sh --list failed: $(lib_scrub < "$T/h.err")"
 # The pauses, for the units the holdings carry.
-bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/s.err" \
-    || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/s.err")"
+bash "$HERE/state-stored-set.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/s.err" \
+    || lib_die2 "state-stored-set.sh --list failed: $(lib_scrub < "$T/s.err")"
 jq -c '[.[].unit]' "$T/holdings.json" > "$T/units.json" || lib_die2 "jq failed"
 bash "$HERE/pause-read.sh" --standing "$T/state.json" --units "$T/units.json" > "$T/pauses.json" 2> "$T/p.err" \
     || lib_die2 "cannot read the record's pauses: $(lib_scrub < "$T/p.err")"

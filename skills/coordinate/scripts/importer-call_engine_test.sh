@@ -127,7 +127,7 @@ has_args 1 "--scope roadmap" "--name calls" "--repo acme/widgets" && ok "1:   ..
 grep -q -- '--ref' "$T/import.calls" && bad "1:   ... and with no record on GitHub, no import" "$(cat "$T/import.calls")" \
     || ok "1:   ... and with no record on GitHub, no import"
 eq "1: the run stops at record_open" record_open "$(at)"
-run record-open.sh > /dev/null 2> "$T/w.err"; eq "1: record-open.sh opens the record in the session" 0 $?
+run state-open.sh > /dev/null 2> "$T/w.err"; eq "1: state-open.sh opens the record in the session" 0 $?
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 echo "== 2. a resume =="

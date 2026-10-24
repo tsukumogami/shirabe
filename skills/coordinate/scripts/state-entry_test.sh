@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-append_test.sh -- record-append.sh, the one way an entry is written to
+# state-entry_test.sh -- state-entry.sh, the one way an entry is written to
 # the coordinator record: a key in the run's session, read back as a list.
 #
 # Covers: two entries written to a roadmap record and read back in order with
@@ -19,15 +19,15 @@
 # number another writer took moving to the next, at most three times
 # (entry-exists); --repost of an entry that stays in the session, and --repost
 # without --on, refused; usage errors. Posting on an item (--on) is
-# record-append-on_test.sh's.
+# state-entry-on_test.sh's.
 #
-# Usage: bash skills/coordinate/scripts/record-append_test.sh
+# Usage: bash skills/coordinate/scripts/state-entry_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 
 SR=coordinate-roadmap-plugin-system-20260926T150000Z
 export RS_SESSION=$SR
@@ -174,4 +174,4 @@ bash "$RA" "${RM[@]}" --kind answer --on none --text-file "$T/entry.txt" >/dev/n
 bash "$RA" "${RM[@]}" --repost 2 --on none >/dev/null 2>&1; eq "--repost --on none" 64 $?
 bash "$RA" "${RM[@]}" --repost two --on acme/widgets#12 >/dev/null 2>&1; eq "--repost of no number" 64 $?
 
-done_tests record-append_test
+done_tests state-entry_test

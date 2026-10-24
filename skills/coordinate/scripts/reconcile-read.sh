@@ -4,7 +4,7 @@
 #
 # The run's record is the one the start states found (coord-log.sh
 # run-facts), held in the run's koto session; it is read live through
-# record-source.sh, the reader every record script uses, which checks it
+# state-read.sh, the reader every record script uses, which checks it
 # against state-schema.jq.
 #
 # Usage:
@@ -30,7 +30,7 @@
 # verbatim to --reasoning-out when present; "not_recorded" when it is empty or
 # the predecessor never wrote one; "absent" for a rotation with no
 # predecessor. Nothing here ever writes reasoning on the predecessor's behalf.
-# A predecessor's rows came across in the carry (record-open.sh --carry), so
+# A predecessor's rows came across in the carry (state-open.sh --carry), so
 # they are the record's own.
 #
 # Refusals print {status, reason} and exit:
@@ -42,7 +42,7 @@
 #   64 usage
 #
 # Reads: coord-log.sh run-facts; the record, its host facts and the
-# predecessor's reasoning through record-source.sh. Nothing on GitHub.
+# predecessor's reasoning through state-read.sh. Nothing on GitHub.
 #
 # Requires: bash 3.2+, jq, koto.
 set -uo pipefail
@@ -110,7 +110,7 @@ case "$SCOPE" in roadmap|discipline) ;; *) refuse 5 failed "the run's scope is u
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 [ -n "$RS" ] || refuse 5 failed "no session holds the record"
 
-# The record through the seam (record-source.sh), under this reader's own
+# The record through the seam (state-read.sh), under this reader's own
 # deadline: rs_record, so a pass that began the step's one read
 # (rs_once_begin) shares it with the settle and the legs classification.
 session_view() {

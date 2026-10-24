@@ -82,7 +82,7 @@
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
 #      confirmed changes-needed verdict or reopen sent back, whose text the brief
-#      quoted) is removed then, with record-state.sh --done --kind rework;
+#      quoted) is removed then, with state-stored-set.sh --done --kind rework;
 #      a failed removal is reported on stderr and the dispatch still
 #      succeeds. On a failure or the deadline, look for the topic's
 #      session in `niwa list --json` before concluding anything: found means
@@ -271,9 +271,9 @@ read_inputs() {
     bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
         die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
     ADDRESS=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // empty' "$WORK/state.json") ||
-        die 2 "the record's Run section is not record-state.sh's JSON"
+        die 2 "the record's Run section is not state-stored-set.sh's JSON"
     if [ -z "$ADDRESS" ]; then
-        printf '%s: refused: the record names no coordinator address for the brief to give the worker; set it with record-state.sh --session %s --run coordinator <address> --by <who>\n' "$PROG" "$SESSION" >&2
+        printf '%s: refused: the record names no coordinator address for the brief to give the worker; set it with state-stored-set.sh --session %s --run coordinator <address> --by <who>\n' "$PROG" "$SESSION" >&2
         exit 1
     fi
     jq --arg a "$ADDRESS" '.reports_to = $a' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
@@ -519,7 +519,7 @@ rebind() {
 # request_view <request>: koto's record of a request on this host, into VIEW.
 # Returns 0 read, 1 this host's store doesn't hold it, 2 a failed read. koto
 # answers a request its store doesn't hold with exit 2 (request_not_found),
-# the code reconcile-check.sh's leg read and record-handover.sh read the
+# the code reconcile-check.sh's leg read and state-handover.sh read the
 # same way.
 request_view() {
     local rc
@@ -861,7 +861,7 @@ retire_stranded() {
     while IFS= read -r old; do
         [ -n "$old" ] || continue
         bash "$DC_RECORD_HOLDING" --session "$SESSION" --topic "$old" --retire >/dev/null 2>"$WORK/retire.err" ||
-            printf '%s: %s is dispatched, but the stranded row %s stands (%s); remove it with record-holding.sh --session %s --topic %s --retire\n' \
+            printf '%s: %s is dispatched, but the stranded row %s stands (%s); remove it with state-holding.sh --session %s --topic %s --retire\n' \
                 "$PROG" "$TOPIC" "$old" "$(head -1 "$WORK/retire.err")" "$SESSION" "$old" >&2
     done <<EOF
 $(jq -r '.[].worker' <<<"$STRANDED")
@@ -878,11 +878,11 @@ clear_rework() {
         | select($x == $u or ($u | startswith($x + ": ")))][0].item // empty' "$WORK/state.json") || item=""
     [ -n "$item" ] || return 0
     bash "$DC_RECORD_STATE" --session "$SESSION" --done "$item" --kind rework >/dev/null 2>"$WORK/rework.err" ||
-        printf '%s: %s is dispatched, but its rework row stands (%s); remove it with record-state.sh --session %s --done "%s" --kind rework\n' \
+        printf '%s: %s is dispatched, but its rework row stands (%s); remove it with state-stored-set.sh --session %s --done "%s" --kind rework\n' \
             "$PROG" "$TOPIC" "$(head -1 "$WORK/rework.err")" "$SESSION" "$item" >&2
 }
 
-# A unit whose earlier worker was stranded (record-holding.sh --strand) goes
+# A unit whose earlier worker was stranded (state-holding.sh --strand) goes
 # out again under this new topic. Its brief names the stranded row's branch
 # and last pushed head, so the new worker continues from what was pushed, and
 # the stranded row is retired once this one is dispatched (PRD R15;

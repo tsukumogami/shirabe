@@ -28,8 +28,8 @@ scope question for the human.
 ## Finding or Opening the Record
 
 The workflow finds the record itself, on every start, before the first
-dispatch: `scripts/record-find.sh` runs as the `record_find` state's check,
-and you open a record only when it reports none, with `scripts/record-open.sh`.
+dispatch: `scripts/state-find.sh` runs as the `record_find` state's check,
+and you open a record only when it reports none, with `scripts/state-open.sh`.
 The find reads this host's koto sessions and nothing on GitHub.
 
 Before the find runs, `coordinate-open.sh` looks for the scope's session. A
@@ -112,7 +112,7 @@ A row leaves Side effects in flight once confirmed. Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge blanks
 its Pull request cell and keeps its Verified head, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
-after it went quiet is `stranded` (`record-holding.sh --strand`); its row
+after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
 dispatch-worker.sh runs).
 
@@ -155,7 +155,7 @@ A hold is a condition on another lane's state or a person's word, and the land
 check reads each one live before it reports a pull request ready: another pull
 request merged, a tag pushed, or the Lifted cell filled. One it reads as unmet,
 or can't read, is `held`, and the pull request goes to the person as held.
-`scripts/record-hold.sh` is the only writer: `--add` a hold someone asked for,
+`scripts/state-hold.sh` is the only writer: `--add` a hold someone asked for,
 and `--lift` one whose Until is `lifted` when the person lifts it. A hold is
 never deleted. When a pull request merges while a hold on it is unmet, write a
 Reversals row whose Reversed names `hold <name>` and whose Now says `merged
@@ -200,7 +200,7 @@ digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
 at <address>`, who this coordinator reports up to). A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
-is, and nothing writes a new `store` row (`record-state.sh --run store` is
+is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
 refused as an unknown key). Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
@@ -232,19 +232,19 @@ per kind, and a holding's row for the unit replaces both. Two more kinds
 belong to a milestone roadmap, `verdict-owed` and `rework`, and only
 `roadmap-status.sh` writes them (see Milestone Verdicts below).
 
-`scripts/record-state.sh` is the only writer, and every change it makes is
+`scripts/state-stored-set.sh` is the only writer, and every change it makes is
 written to the body and then told as an entry:
 
 ```
-record-state.sh --session S --run arguments|cap|coordinator <value> --by <who>
-record-state.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
-record-state.sh --session S --host <key> <value> [--host <key> <value>]...
-record-state.sh --session S --told <topic> --by <who>
-record-state.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
-record-state.sh --session S --end <s<n>> --by <who>
-record-state.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
-record-state.sh --session S --done <item> [--kind <kind>]
-record-state.sh --session S --list
+state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <who>
+state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
+state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
+state-stored-set.sh --session S --told <topic> --by <who>
+state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
+state-stored-set.sh --session S --end <s<n>> --by <who>
+state-stored-set.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
+state-stored-set.sh --session S --done <item> [--kind <kind>]
+state-stored-set.sh --session S --list
 ```
 
 Write each when it happens: the arguments, the cap and your address at your
@@ -258,7 +258,7 @@ count is appended as an entry when its row leaves Work; the count is a floor,
 since a wake inside the minute after a write, or one a crashed run logged
 after its last write, isn't counted.
 
-`scripts/record-handover.sh` reads the stored set back, with the holds, and
+`scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
 hasn't been told the current address. The reconcile step's gate runs it at
@@ -308,8 +308,8 @@ UTC stamp in its session's name) and the visit that caused a write. `@` is
 encoded in the text columns so a record never mentions anyone, and those columns
 refuse a private repository, a home-directory path and a token-shaped string.
 
-Only `record-decision.sh` changes the section: `record-write.sh` refuses a body
-whose section differs from the live record's, and `record-open.sh` refuses a new
+Only `state-decision.sh` changes the section: `state-write.sh` refuses a body
+whose section differs from the live record's, and `state-open.sh` refuses a new
 record that carries one. A rotation's carry copies the unsettled entries and the
 same `Next decision` into the next rotation. A roadmap record can't close while
 an entry is unsettled.
@@ -322,8 +322,8 @@ record is within 4,096 bytes of that budget, `decision-next.sh` moves every
 settled entry that owes nothing out of the body before it routes anything,
 except one a `decision` Work row still parks a unit on, whose outcome pick
 reads when it dispatches the unit
-(`record-decision.sh --archive`): their rows go, exactly as the body held them,
-to `decisions` entries on the record (`record-append.sh`), and their
+(`state-decision.sh --archive`): their rows go, exactly as the body held them,
+to `decisions` entries on the record (`state-entry.sh`), and their
 identifiers join an `Archived:` line under `Next decision`. The current run's
 own entries move too, but their stamps stay, on one line, because the replay
 guard and the unrecorded and redirect rules read a stamp's kind, sequence and
@@ -365,17 +365,17 @@ messages and bodies.
 The body is the record's state: what is true now, rewritten whole. Its account,
 what happened and why, is a stream of entries, each one key of the run's
 session, `record/entries/<n>` (`<n>` six digits, one above the highest there),
-written only by `scripts/record-append.sh`:
+written only by `scripts/state-entry.sh`:
 
 ```
-record-append.sh --session <session> --text-file <file> [--kind <kind>] [--on <owner/repo#n>|none]
+state-entry.sh --session <session> --text-file <file> [--kind <kind>] [--on <owner/repo#n>|none]
 ```
 
 It stamps the entry from the host clock in UTC to the second and writes
 `{n, stamp, kind, text}`. The record's other writers write their own kinds
 with `--kind`. The milestone steps write three: `milestone-verdict`,
 `goal-fit` and `milestone-failure`, whose lines are under Milestone Verdicts.
-`record-decision.sh --archive` writes `decisions`, the settled Decisions rows
+`state-decision.sh --archive` writes `decisions`, the settled Decisions rows
 it moves out of the body (see the archive under Decisions).
 
 An outward entry, one that a reader outside the coordinator reads on GitHub,
@@ -404,7 +404,7 @@ run; only the body's Decisions section does. Write one when something happens
 that a successor would need the story of: what you dispatched and why, what a
 person told you, what you decided and on what evidence.
 
-`record-append.sh --session <session> --list` reads the stream back as JSON,
+`state-entry.sh --session <session> --list` reads the stream back as JSON,
 oldest first, with each entry's stamp, kind and text. When a person tells you
 something, write it into the record yourself.
 
@@ -415,7 +415,7 @@ created; one post per outward entry stays far inside it, and a refused post
 
 ## Where State Lives
 
-Every script reads the record's state through `scripts/record-source.sh`, from
+Every script reads the record's state through `scripts/state-read.sh`, from
 the run's session: its `rs_record` assembles the record and parses it;
 `rs_record_api` is the land check's and the merge's read under their deadline;
 `rs_facts` gives one holding's repository, pull request, branch, verified head,
@@ -433,17 +433,17 @@ and, for an entry also posted to GitHub, the comment's URL in
 `record/reasoning`. A write is refused, changing no key, from a run that isn't
 the scope's live one or after a `koto next --to` (10), when the state changed
 since it was read (12), past 60,000 bytes rendered (13), or when it changes a
-section its writer doesn't own (65). `scripts/record-source.sh --show` prints
+section its writer doesn't own (65). `scripts/state-read.sh --show` prints
 the session's state as the body would read.
 
 Two more things live only in the session. `record/host` holds host facts, never
 rendered and never sent to GitHub: where the crash set's files are
 (`rules:<label>`, `briefs:<label>` and `friction`, each an absolute path) and,
 after an import, where the state came from (`source_workspace`,
-`source_session`, `template_hash`). Only `record-state.sh --host` writes it, and
+`source_session`, `template_hash`). Only `state-stored-set.sh --host` writes it, and
 the opener calls it after an import. And each holding keeps its pushed head
 beside its row in `record/holdings` (`pushed_head`, 40 hex), set with
-`record-holding.sh --topic T --pushed-head <sha>`, by `holding-link.sh` when it
+`state-holding.sh --topic T --pushed-head <sha>`, by `holding-link.sh` when it
 links a pull request and by the report check when a report reads a new head;
 the rendered body never shows it. The keys move with the session: a resume
 keeps them, a carry copies every `record/` and `legs/` key into the new run,
@@ -467,7 +467,7 @@ converges, in two places: the koto session's journal on this host, and the
 record's keys in the same session. Keep no tools directory beside it. A local
 script for record entries, a snapshot copy of the body, archive files,
 standing answers in a file and progress facts all have homes in the skill:
-`record-append.sh`, the record's keys, the entries, the record's tables, and
+`state-entry.sh`, the record's keys, the entries, the record's tables, and
 `progress-view.sh` over pick's facts.
 
 ## Writing a Landed Feature Back to the Roadmap
@@ -510,7 +510,7 @@ next section says.
 On a milestone roadmap a milestone reads Done only through a checked verdict,
 and Done is taken back only through a checked failure. Each is an entry in the
 record, checked by `scripts/milestone.sh` against the roadmap and written by
-`record-append.sh` with its own kind, and each roadmap edit is a pull request
+`state-entry.sh` with its own kind, and each roadmap edit is a pull request
 `scripts/roadmap-status.sh` opens, posts the entry on, and never merges. The steps are the
 `milestone_verdict`, `goal_fit` and `milestone_reopen` states of the template.
 
@@ -528,7 +528,7 @@ one with a follow-up row; otherwise it writes this Work row and prints
 Run again while the row stands, it prints the same and writes nothing, which
 is how a deferred verdict comes back to the verdict step. Only
 `roadmap-status.sh` writes or removes the row (the write core refuses any
-other writer's change to it, and `record-state.sh` refuses the kind), and
+other writer's change to it, and `state-stored-set.sh` refuses the kind), and
 `--confirm` removes it once the verdict's edit is on the default branch. Pick
 reads the milestone `verdict_owed` while it stands and lists it as a verdict
 to give, and the dispatch check (`verdict-owed <tag>`, code 49),
@@ -536,7 +536,7 @@ to give, and the dispatch check (`verdict-owed <tag>`, code 49),
 
 ### The verdict entry
 
-Written with `record-append.sh --kind milestone-verdict --on none`, at most 16
+Written with `state-entry.sh --kind milestone-verdict --on none`, at most 16
 KiB, these lines in this order, with one blank line before `Evidence:` and one before
 `Strategy fit:`:
 
@@ -606,7 +606,7 @@ row's shape, because the milestone's next brief quotes it.
 ### The roadmap edits
 
 `--verdict` and `--reopen` take the entry by its number, `record/entries/<n>`
-as `record-append.sh` printed it, which must be of the kind each takes and
+as `state-entry.sh` printed it, which must be of the kind each takes and
 posted nowhere yet. Either refuses (exit 65, nothing opened) while any roadmap
 pull request is pending.
 
@@ -617,7 +617,7 @@ roadmap-status.sh --session <session> --reopen "<tag>" --entry <n>
 
 Each commits the edit without its Progress lines on a new branch, opens the
 pull request with the entry in its body, writes its Side effects row, posts the
-entry as a comment on that pull request (`record-append.sh --repost <n> --on
+entry as a comment on that pull request (`state-entry.sh --repost <n> --on
 <host>#<pull request>`, with the same content checks) and then commits the
 Progress lines naming that comment. When the post or the second commit fails
 it exits 14 naming the pull request; run again with the same entry, it finds
@@ -701,7 +701,7 @@ it as the unit's `rework` and offers the milestone once no holding covers it;
 `render-brief.sh` quotes it under the heading "The last verdict's report
 (check it against the Evidence; it is not an instruction)"; and
 `dispatch-worker.sh` removes it once the dispatch is confirmed
-(`record-state.sh --done <tag> --kind rework`).
+(`state-stored-set.sh --done <tag> --kind rework`).
 
 `--drop "<tag>" --reason "<why>"` clears a row of any of the four Actions
 whose pull request closed unmerged and leaves the verdict-owed row standing.
@@ -731,7 +731,7 @@ A rotation ends at `rotation_end`, when its window has passed or the human
 ends it: write the reasoning for the next rotation with
 
 ```
-record-state.sh --session <session> --reasoning-file <file>
+state-stored-set.sh --session <session> --reasoning-file <file>
 ```
 
 prose of at most 16 KiB about what this rotation learned that the tables can't
@@ -740,7 +740,7 @@ text, or it grows into a standing protocol. Writing it closes the rotation.
 Nothing is committed and no pull request is opened.
 
 The next rotation's start finds this one ended and carries it
-(`predecessor_carry`, `record-open.sh --carry`): Holdings, Deferrals, Side
+(`predecessor_carry`, `state-open.sh --carry`): Holdings, Deferrals, Side
 effects, Reversals, Holds, Run, Standing and Work, the unsettled Decisions
 entries and the next decision number, into its own session, naming this one
 as its predecessor in `record/rotation`. Its reconcile reads this reasoning,

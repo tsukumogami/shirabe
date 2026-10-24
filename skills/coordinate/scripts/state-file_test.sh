@@ -5,8 +5,8 @@
 #
 # A koto shim first on PATH records, at the write's first section key, every
 # state file under the writer's TMPDIR with the mode it has, then runs the koto
-# stand-in. Covers: an in-process writer (record-hold.sh --add) and the
-# command-line path (record-holding.sh, which hands record-write.sh
+# stand-in. Covers: an in-process writer (state-hold.sh --add) and the
+# command-line path (state-holding.sh, which hands state-write.sh
 # --state-file); each write lands, the file it handed was 0600 in a 0700
 # directory of its own, every state file under TMPDIR then (the write core's
 # own scratch copies included) sat in a 0700 directory, and nothing either
@@ -48,23 +48,23 @@ run_writer() {
     PATH="$T/shim:$PATH" TMPDIR="$T/wtmp" bash "$@"
 }
 
-echo "== an in-process writer: record-hold.sh =="
+echo "== an in-process writer: state-hold.sh =="
 db_init; seed_session "$SR" "$(record_json roadmap plugin-system)"
 jq -nc '{hold: "after-346", on: "acme/widgets#12", until: "merged acme/gadgets#346", set_by: "the workspace coordinator", set: "2026-09-26T09:00Z"}' > "$T/h1.json"
-run_writer "$HERE/record-hold.sh" "${W_RM[@]}" --add --row-file "$T/h1.json" > /dev/null 2> "$T/err"
+run_writer "$HERE/state-hold.sh" "${W_RM[@]}" --add --row-file "$T/h1.json" > /dev/null 2> "$T/err"
 eq "the hold is written" "0 after-346" "$? $(koto context get "$SR" record/holds | jq -r '.[0].hold')"
 eq "the state file it handed was mode 0600, in a mode 0700 directory of its own" "yes yes" \
-    "$(grep -E '^[a-z]+ [a-z]+ record-hold\.[^/]+/next\.json$' "$T/seen" | head -1 | cut -d' ' -f1-2)"
+    "$(grep -E '^[a-z]+ [a-z]+ state-hold\.[^/]+/next\.json$' "$T/seen" | head -1 | cut -d' ' -f1-2)"
 eq "  ... and every state file seen then sat in a mode 0700 directory" "" "$(grep -v "^[a-z]* yes " "$T/seen")"
 eq "nothing the writer made is left under its TMPDIR" "" "$(find "$T/wtmp" -mindepth 1 | sed "s|^$T/wtmp/||")"
 
-echo "== the command-line path: record-holding.sh to record-write.sh --state-file =="
+echo "== the command-line path: state-holding.sh to state-write.sh --state-file =="
 db_init; seed_session "$SR" "$(record_json roadmap plugin-system)"
 holding feature-2 > "$T/row.json"
-run_writer "$HERE/record-holding.sh" "${W_RM[@]}" --topic feature-2 --row-file "$T/row.json" > /dev/null 2> "$T/err"
+run_writer "$HERE/state-holding.sh" "${W_RM[@]}" --topic feature-2 --row-file "$T/row.json" > /dev/null 2> "$T/err"
 eq "the holding is written" "0 feature-2" "$? $(koto context get "$SR" record/holdings | jq -r '.[0].worker')"
-eq "the state file handed to record-write.sh was mode 0600, in a mode 0700 directory of its own" "yes yes" \
-    "$(grep -E '^[a-z]+ [a-z]+ record-holding\.[^/]+/next\.json$' "$T/seen" | head -1 | cut -d' ' -f1-2)"
+eq "the state file handed to state-write.sh was mode 0600, in a mode 0700 directory of its own" "yes yes" \
+    "$(grep -E '^[a-z]+ [a-z]+ state-holding\.[^/]+/next\.json$' "$T/seen" | head -1 | cut -d' ' -f1-2)"
 eq "  ... and every state file seen then sat in a mode 0700 directory" "" "$(grep -v "^[a-z]* yes " "$T/seen")"
 eq "nothing either script made is left under TMPDIR" "" "$(find "$T/wtmp" -mindepth 1 | sed "s|^$T/wtmp/||")"
 

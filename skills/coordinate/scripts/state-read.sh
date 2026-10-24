@@ -1,5 +1,5 @@
-# record-source.sh -- the one reader of a coordinator record's state. A library:
-# `. "$HERE/record-source.sh"` after record-common.sh (it needs the facts
+# state-read.sh -- the one reader of a coordinator record's state. A library:
+# `. "$HERE/state-read.sh"` after state-common.sh (it needs the facts
 # lib_facts sets). Run as a script, it also prints one read (see Usage).
 #
 # Every script that needs the record's state reads it here. The record lives in
@@ -58,7 +58,7 @@
 #       30-second action limit (shirabe#1156). A deadline that grew with the
 #       record would instead let a slow read hide a hung one.
 #   rs_once_drop
-#       Forgets the step's read, so the next read is live. record-write-core.sh
+#       Forgets the step's read, so the next read is live. state-write-core.sh
 #       calls it before it writes and again once the write lands, so nothing in
 #       the step reads the record as it was before the step's own write, not
 #       even a reader running beside the writer; a read still out when the
@@ -66,11 +66,11 @@
 #       no later read looks. Without RS_ONCE it does nothing.
 #
 # Usage (as a script):
-#   record-source.sh --session S --facts <topic>
-#   record-source.sh --session S --host
-#   record-source.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
+#   state-read.sh --session S --facts <topic>
+#   state-read.sh --session S --host
+#   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
-#   record-source.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>
+#   state-read.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>
 #                    (tests: RS_SESSION names the session holding the record)
 #
 # A person reads the state through koto's own view of the session (`koto
@@ -81,7 +81,7 @@
 # failed; 4 the session holds no record/meta; 12 the session record was still
 # being written; 64 usage.
 #
-# Requires: bash 3.2+, jq, koto, and record-common.sh, state-schema.jq,
+# Requires: bash 3.2+, jq, koto, and state-common.sh, state-schema.jq,
 # coord-log.sh and pause-read.sh beside this file.
 
 RS_LOADED=1
@@ -114,7 +114,7 @@ rs_key() {
     "$k" context get "$1" "$2" < /dev/null > "$3" 2>> "$3.err" || return 2
 }
 
-# rs_assemble <meta-file> <section-dir>: the record as record-parse.sh's JSON,
+# rs_assemble <meta-file> <section-dir>: the record as the state's JSON,
 # the scope and written time from meta and one field per section file present.
 rs_assemble() {
     local m=$1 d=$2 pair field
@@ -129,7 +129,7 @@ rs_assemble() {
 }
 
 # rs_session_state <session> <out>: the session's record, assembled from its
-# keys into <out> as record-parse.sh's JSON, with `written` from record/meta.
+# keys into <out> as the state's JSON, with `written` from record/meta.
 # record/meta is read before and after the section keys, and the whole read is
 # taken again, up to three times, while meta is marked pending or the two meta
 # reads differ: a write changes its sections between two meta writes. Returns 0
@@ -224,7 +224,7 @@ rs_session_read() {
 rs_scope_sessions() {
     local d s slug
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$1" --name "$2") || return 2
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
     "${KOTO:-${KOTO_BIN:-koto}}" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
     jq -r --arg p "coordinate-$slug-" '.[] | select(.parent_workflow == null) | .id
         | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
@@ -282,7 +282,7 @@ rs_resume_candidate() {
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$scope" --name "$name") || return 2
     live=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$slug" --all 2>/dev/null)
     case $? in 0|1) ;; *) return 2 ;; esac
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
     rs_key "$s" coord/source.json "$d/src"
     case $? in
         0) src=$(jq -r '.source // ""' "$d/src" 2>/dev/null) ;;
@@ -355,7 +355,7 @@ rs_reasoning() {
 # record/rotation; 2 a read failed.
 rs_rotation_open() {
     local d rc end
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
     rs_rotation "$1" "$d/rot"; rc=$?
     case $rc in 0) ;; 1) rm -rf "$d"; return 3 ;; *) rm -rf "$d"; return 2 ;; esac
     end=$(jq -r '.end' "$d/rot")
@@ -466,7 +466,7 @@ rs_facts() {
     }
     row=$(jq -c --arg t "$topic" '[.holdings[] | select(.worker == $t)][0]' "$f") || return 2
     unit=$(printf '%s' "$row" | jq -r '.unit')
-    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
     jq '{standing: (.standing // [])}' "$f" > "$d/standing" || { rm -rf "$d"; return 2; }
     jq -nc --arg u "$unit" '[$u]' > "$d/units"
     if ! bash "$HERE/pause-read.sh" --standing "$d/standing" --units "$d/units" > "$d/pauses" 2> /dev/null; then
@@ -494,7 +494,7 @@ rs_facts() {
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -uo pipefail
-    PROG=record-source
+    PROG=state-read
     HERE=$(cd "$(dirname "$0")" && pwd)
     SESSION= SCOPE= NAME= REPO= ACTION= TOPIC= HASH= TODAY=
     rs_usage() { sed -n '/^# Usage (as a script):/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -513,7 +513,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
         esac
     done
     [ -n "$ACTION" ] || rs_usage
-    . "$HERE/record-common.sh"
+    . "$HERE/state-common.sh"
     case "$ACTION" in
         candidate)
             # Before any session exists: the scope and name, and the shipped
@@ -525,7 +525,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     lib_facts
     case "$ACTION" in
         host)
-            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX")
             trap 'rm -rf "$RS_T"' EXIT
             rs_host "${RS_SESSION:-$SESSION}" "$RS_T/host" \
                 || { echo "$PROG: record/host couldn't be read: $(lib_scrub < "$RS_T/host.err" | head -3)" >&2; exit 2; }
@@ -534,7 +534,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     esac
     [ "$ACTION" != facts ] || [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }
     lib_run_found || { echo "$PROG: the run has no record yet" >&2; exit 2; }
-    RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
+    RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX")
     trap 'rm -rf "$RS_T"' EXIT
     rs_record "$RS_T/rec"
     case $? in

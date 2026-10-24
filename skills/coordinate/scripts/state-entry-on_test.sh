@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-append-on_test.sh -- record-append.sh --on, a run's
+# state-entry-on_test.sh -- state-entry.sh --on, a run's
 # outward entry posted on the item it concerns
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2).
 #
@@ -26,13 +26,13 @@
 # --list, with a kind that stays in the session, and `--repost --on none`.
 # The record is the session's; no record issue exists to read.
 #
-# Usage: bash skills/coordinate/scripts/record-append-on_test.sh
+# Usage: bash skills/coordinate/scripts/state-entry-on_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 
 RM=(--scope roadmap --name plugin-system --repo "$REPO")
 SE=coordinate-roadmap-plugin-system-20260926T150000Z
@@ -208,4 +208,4 @@ ra --kind entry --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>&1;
 ra --repost 1 --on none >/dev/null 2>&1; eq "--repost --on none is a usage error" 64 $?
 eq "  ... nothing posted" 0 "$(ncomments)"
 
-done_tests record-append-on_test
+done_tests state-entry-on_test

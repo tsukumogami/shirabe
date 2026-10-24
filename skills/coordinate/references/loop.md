@@ -72,7 +72,7 @@ measured, verified by reading, or inferred:
    on this host and the holding names it; any other worker moves to the
    message path, and its `legs/` key, when it has one, reads unwatchable. The
    report says which,
-   under "Changed since then", and `record-handover.sh` holds the run at
+   under "Changed since then", and `state-handover.sh` holds the run at
    `reconcile` (`leg-unclassified`) until each such leg has its end.
 5. **Re-check side effects in flight.** A merge is confirmed when GitHub's
    record shows the pull request merged from the verified head, with its

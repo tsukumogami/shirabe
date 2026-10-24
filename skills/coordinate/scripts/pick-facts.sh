@@ -2,15 +2,15 @@
 # pick-facts.sh -- the check action of state pick_facts: the facts pick
 # decides on, and whether the scope is over.
 #
-# Where this header names a lister (record-holding.sh --list, record-state.sh,
-# record-decision.sh --list, roadmap-status.sh --list), the rows are that
-# lister's --list projection in record-codec.jq, taken from the one read and
+# Where this header names a lister (state-holding.sh --list, state-stored-set.sh,
+# state-decision.sh --list, roadmap-status.sh --list), the rows are that
+# lister's --list projection in state-schema.jq, taken from the one read and
 # parse of the record this script makes; the listers themselves aren't run.
 #
 # Units, in order. Roadmap scope: the items under the items section of the
 # roadmap on the host's default branch (`## Milestones` on a roadmap/v3
 # roadmap, `## Features` otherwise), in the roadmap's order, as
-# record-common.sh lib_roadmap_features reads them: `### Feature N: title`
+# state-common.sh lib_roadmap_features reads them: `### Feature N: title`
 # (`### Milestone N: title` on v3) or `### <PREFIX><N>[a-z]: title`, the
 # `**Status:**` value, and the dependencies
 # its `**Dependencies:**` paragraph names, soft mentions and parenthesised
@@ -30,7 +30,7 @@
 # Each unit carries the holding that covers it, {worker, phase}, or null: a
 # holding covers a roadmap unit when its Unit cell is the feature's heading tag
 # ("Feature 2", "ED1") or "<tag>: <title>", and an issue when it is "#<n>" or
-# "<owner/repo>#<n>". A tag and a unit compare by record-common.sh tag_key,
+# "<owner/repo>#<n>". A tag and a unit compare by state-common.sh tag_key,
 # here and for landed rows and Work rows, so a holding or a row written under
 # `Feature 2` still covers the heading `Milestone 2` of a v3 roadmap, and one
 # naming `Milestone 2` covers a v2 `Feature 2`. dispatch-common.sh
@@ -42,7 +42,7 @@
 # pick-facts_test.sh holds dispatch's forms to this rule.
 #
 # Then, at either scope, the units a person assigned outside it: one per
-# Standing row of kind assignment (record-state.sh), its On the unit's id
+# Standing row of kind assignment (state-stored-set.sh), its On the unit's id
 # (`#<n>` or `<owner/repo>#<n>`, an issue or a pull request, read for its
 # title and state and done once closed or merged; or `release <owner/repo>
 # <tag>`, done when its row ends), each carrying `assigned`, the row's id.
@@ -50,7 +50,7 @@
 # roadmap isn't complete. A holding covers one when its Unit cell is the id,
 # or `<host><id>` for `#<n>`.
 #
-# Holdings come from the record (record-holding.sh --list), each marked
+# Holdings come from the record (state-holding.sh --list), each marked
 # parked (a Verified head, and its pull request open and not a draft), merged
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
 # waiting for its worker's teardown) or active; only active ones count
@@ -66,7 +66,7 @@
 # never chosen, and while `paused_all` is set pick holds
 # (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 #
-# The record's Work rows that keep a unit's later work (record-state.sh):
+# The record's Work rows that keep a unit's later work (state-stored-set.sh):
 # each unit carries `awaiting`, the number of the unsettled decision entry a
 # `decision` row parks it on (pick's await_decision), or null; `answered`,
 # {decision, outcome} once that entry is settled or gone, when the unit is
@@ -108,7 +108,7 @@
 #    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
-# decisions is the record's unsettled entries (record-decision.sh --list),
+# decisions is the record's unsettled entries (state-decision.sh --list),
 # the rows the progress table renders.
 # Their slice goes to context key coord/pick_slice.json, pick's decider input:
 # pick-slice.jq's pick_slice of the facts this visit built, done units
@@ -126,7 +126,7 @@
 # Exit codes: 0 a verdict was printed; 2 a read failed (the roadmap missing
 # from the default branch included); 64 usage.
 #
-# The record is read once, through record-source.sh's rs_record.
+# The record is read once, through state-read.sh's rs_record.
 # GitHub reads: gh api --method GET repos/R --jq .default_branch;
 # gh api --method GET "repos/R/contents/<roadmap>?ref=<default>";
 # gh issue list --repo R --state open --label <name> --json number,title --limit 200;
@@ -153,7 +153,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage
@@ -164,12 +164,12 @@ lib_bounds
 T=$(mktemp -d "${TMPDIR:-/tmp}/pick-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-# The record, read and parsed once, as the listers read it (record-source.sh
+# The record, read and parsed once, as the listers read it (state-read.sh
 # rs_record). The holdings, the Run,
 # Standing and Work rows, the decision entries and the pending roadmap pull
-# requests are the listers' own --list projections (record-codec.jq), taken
-# from this one parse: running record-holding.sh, record-state.sh,
-# record-decision.sh and roadmap-status.sh would read and parse the record once
+# requests are the listers' own --list projections (state-schema.jq), taken
+# from this one parse: running state-holding.sh, state-stored-set.sh,
+# state-decision.sh and roadmap-status.sh would read and parse the record once
 # apiece (shirabe#840).
 rs_record "$T/rec.json"
 case $? in

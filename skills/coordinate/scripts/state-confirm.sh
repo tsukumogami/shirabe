@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-confirm.sh -- the check action of states record and verified_confirm:
+# state-confirm.sh -- the check action of states record and verified_confirm:
 # is the change the run's last step implies on GitHub yet?
 #
 # Every spoke that changes what the record must hold returns through `record`,
@@ -86,7 +86,7 @@
 # no longer <sha> the verdict is `moved`.
 #
 # The unit is always found by its Worker (dispatch topic) from the log, as
-# report-facts.sh finds it (record-common.sh lib_unit): the latest `wait`
+# report-facts.sh finds it (state-common.sh lib_unit): the latest `wait`
 # evidence naming a unit, or on the leg path (wait_leg, then take_report) the
 # Holdings row whose Return path is the leg the engine captured, whichever
 # arrived later; with neither, the latest `dispatch` evidence's `topic`. A
@@ -100,21 +100,21 @@
 # directed (the run has a `koto next --to`).
 #
 # Usage:
-#   record-confirm.sh --session S [--verified]
-#   record-confirm.sh --session S --scope roadmap|discipline --name N --repo O/R
+#   state-confirm.sh --session S [--verified]
+#   state-confirm.sh --session S --scope roadmap|discipline --name N --repo O/R
 #                     [--verified] [--no-seal]                          (tests)
 #
 # The detail goes to context key coord/record_confirm.json as data.
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# The record is read through record-source.sh. GitHub reads: with --verified,
+# The record is read through state-read.sh. GitHub reads: with --verified,
 # gh pr view <pr> --repo <the unit's row's repository> --json headRefOid.
 #
 # The session log is read only through coord-log.sh.
 set -uo pipefail
 
-PROG=record-confirm
+PROG=state-confirm
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO=
 VERIFIED=0 NO_SEAL=0
@@ -133,13 +133,13 @@ while [ $# -gt 0 ]; do
 done
 # The expectation lives in the session log, so a session is always needed.
 [ -n "$SESSION" ] || usage
-# board-lib.sh sources record-common.sh, and adds the holds evaluation.
+# board-lib.sh sources state-common.sh, and adds the holds evaluation.
 . "$HERE/board-lib.sh"
 lib_facts
 STATE_NAME=record
 [ "$VERIFIED" = 1 ] && STATE_NAME=verified_confirm
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-confirm.XXXXXX") || lib_die2 "cannot make a temporary directory"
+T=$(mktemp -d "${TMPDIR:-/tmp}/state-confirm.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 VERDICT= REASON= SOURCE= EVT= WRITTEN= EXPECT=
@@ -348,10 +348,10 @@ dispatch)
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
     # The holding's next step goes into Work with the dispatch
-    # (record-state.sh --work), so the handover gate never stops on a
+    # (state-stored-set.sh --work), so the handover gate never stops on a
     # holding this run made.
     if [ "$OKX" = 1 ]; then
-        EXPECT="$EXPECT, and a Work row for its unit naming $TOPIC (record-state.sh --work <unit> --kind holding --who $TOPIC --next <step>)"
+        EXPECT="$EXPECT, and a Work row for its unit naming $TOPIC (state-stored-set.sh --work <unit> --kind holding --who $TOPIC --next <step>)"
         holds "[.holdings[] | select(.worker == $(jq -n --arg t "$TOPIC" '$t')) | .unit] as \$u | any((.work // [])[]; .kind == \"holding\" and .who == $(jq -n --arg t "$TOPIC" '$t') and (.item as \$i | \$u | index(\$i)))" || OKX=0
     fi
     # A send_execution moves the holding from scoping-ahead to executing; one
@@ -505,7 +505,7 @@ merge_confirm|merged_facts)
         if [ -n "$ROW" ] && [ "$(printf '%s' "$ROW" | jq -r '.phase // ""')" = scoping ]; then
             # The unit as pick lists it: a Unit cell `<tag>: <title>` is its tag.
             FU_UNIT=$(printf '%s' "$ROW" | jq -r '.unit | split(": ")[0]')
-            EXPECT="$EXPECT; a follow-up Work row for $FU_UNIT naming its execution (record-state.sh --work \"$FU_UNIT\" --kind follow-up --who $(printf '%s' "$ROW" | jq -r '.repo')#$PR --next <its execution>)"
+            EXPECT="$EXPECT; a follow-up Work row for $FU_UNIT naming its execution (state-stored-set.sh --work \"$FU_UNIT\" --kind follow-up --who $(printf '%s' "$ROW" | jq -r '.repo')#$PR --next <its execution>)"
             holds "any((.work // [])[]; .kind == \"follow-up\" and (.item == \$u or (\$h + .item) == \$u or .item == (\$h + \$u)))" --arg u "$FU_UNIT" --arg h "$REPO" || OKX=0
         fi
         # A merge made while a hold on it stood is written down: a Reversals

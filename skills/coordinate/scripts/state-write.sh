@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# record-write.sh -- replace the coordinator record's whole state. Agent-run;
-# every record update, record-holding.sh's included, goes through here so all
+# state-write.sh -- replace the coordinator record's whole state. Agent-run;
+# every record update, state-holding.sh's included, goes through here so all
 # of them share the same checks.
 #
 # The record is rewritten, never appended to: the state is written whole into
@@ -21,27 +21,27 @@
 #     private or unreadable (exit 65, naming it): this script reads each named
 #     repository's visibility and refuses a value naming one;
 #   - the Decisions section must be as the live record has it (exit 65): only
-#     record-decision.sh changes it, through the same write core;
+#     state-decision.sh changes it, through the same write core;
 #   - the state is always written with this script's own written time, never
-#     the one in the file, since record-confirm.sh trusts that time;
+#     the one in the file, since state-confirm.sh trusts that time;
 #   - once the run has entered `dispatch`, Deferrals rows disposed as
 #     `filed ...` or `closed: ...` are dropped before the write. Carried rows
 #     stay. Before the first dispatch they stay too, because the deferral check
 #     compares them with a predecessor's until then.
 #
 # Usage:
-#   record-write.sh --session S --state-file F [--end YYYY-MM-DD]
+#   state-write.sh --session S --state-file F [--end YYYY-MM-DD]
 #                   [--pushed-head TOPIC SHA]
-#   record-write.sh --session S --pushed-head TOPIC SHA
-#   record-write.sh [--session S] --scope roadmap|discipline --name N --repo O/R
+#   state-write.sh --session S --pushed-head TOPIC SHA
+#   state-write.sh [--session S] --scope roadmap|discipline --name N --repo O/R
 #                   --skip-session-checks --state-file F [...]   (tests)
 #
 # --end (discipline only) names the rotation's end date, a real date; a
-# rotation's window is its record/rotation key, which record-state.sh writes,
+# rotation's window is its record/rotation key, which state-stored-set.sh writes,
 # so the state written here doesn't carry it.
 # --pushed-head sets the last pushed head kept beside TOPIC's holding, 40 hex,
 # or empty to clear it; every other holding keeps its own. The state has no
-# column for it. record-holding.sh is the one script that passes it.
+# column for it. state-holding.sh is the one script that passes it.
 # With no --state-file it sets the head and nothing else: core_write_pushed
 # rewrites the one session key that keeps it, past this script's session
 # checks but none of the state's, since the state doesn't change.
@@ -54,13 +54,13 @@
 # failed; 64 usage; 65 the state was refused.
 #
 # The write itself (every check from the state's own on) is core_write in
-# record-write-core.sh, which only write scripts source.
+# state-write-core.sh, which only write scripts source.
 #
 # GitHub reads: gh api --method GET repos/<repo> --jq .private (the host, then
 # each named repository). It writes nothing on GitHub.
 set -uo pipefail
 
-PROG=record-write
+PROG=state-write
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= STATE_FILE= END=
 SKIP_CHECKS=0 PUSHED_SET=0 PUSHED_TOPIC= PUSHED_HEAD=
@@ -84,7 +84,7 @@ if [ -z "$STATE_FILE" ]; then
 else
     [ -r "$STATE_FILE" ] || usage
 fi
-. "$HERE/record-common.sh"
+. "$HERE/state-common.sh"
 lib_facts
 if [ -n "$END" ]; then
     [ "$SCOPE" = discipline ] || { echo "$PROG: --end is for a discipline rotation" >&2; exit 64; }
@@ -93,8 +93,8 @@ fi
 lib_write_guard
 
 # Sourcing the core closes the Decisions section (DECISIONS_WRITER=0), and this
-# script never opens it: only record-decision.sh does.
-. "$HERE/record-write-core.sh"
+# script never opens it: only state-decision.sh does.
+. "$HERE/state-write-core.sh"
 if [ "$PUSHED_SET" = 1 ]; then
     CORE_PUSHED_SET=1 CORE_PUSHED_TOPIC=$PUSHED_TOPIC CORE_PUSHED_HEAD=$PUSHED_HEAD
 fi

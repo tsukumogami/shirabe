@@ -6,9 +6,9 @@
 # unchanged, with record and surface as terminal stand-ins. koto, its session
 # store and coord-log.sh are real, and so are the inventory, the verdict, the
 # pass and the confirm check. niwa, claude, gh and the record's
-# record-holding.sh are stand-ins over a stand-in instance (a clone of a local
+# state-holding.sh are stand-ins over a stand-in instance (a clone of a local
 # origin) and a stand-in Claude Code job (a job directory, a transcript and a
-# listing) under a test HOME. record-append.sh is a stand-in too, so the cost
+# listing) under a test HOME. state-entry.sh is a stand-in too, so the cost
 # capture's post can be counted.
 #
 # Proves: a durable, merged, handed-off worker reaches destroy with one sealed
@@ -31,7 +31,7 @@
 # teardown_confirm refuses a `destroyed` no pass backs. The verdict carries
 # niwa's dispatch id (`invalid` outside its shape) and the pass writes it into
 # teardown.json, which the MANIFEST lists; the capture (the real
-# unit-cost.sh, posting through a record-append.sh stand-in) posts one `cost`
+# unit-cost.sh, posting through a state-entry.sh stand-in) posts one `cost`
 # entry.
 #
 # A unit torn down outside the pass (`teardown: removed`, its instance and
@@ -92,9 +92,9 @@ done
 export ST="$T/state"
 mkdir -p "$ST"
 
-# record-append.sh: the cost capture's entry list (empty) and its post, one
+# state-entry.sh: the cost capture's entry list (empty) and its post, one
 # line per entry posted in $ST/cost.log.
-cat >"$S/record-append.sh" <<'EOF'
+cat >"$S/state-entry.sh" <<'EOF'
 #!/usr/bin/env bash
 case " $* " in *" --list "*) echo '[]'; exit 0 ;; esac
 kind=""
@@ -102,7 +102,7 @@ while [ $# -gt 0 ]; do [ "$1" = --kind ] && kind=$2; shift; done
 printf '%s\n' "$kind" >>"$ST/cost.log"
 EOF
 
-cat >"$S/record-holding.sh" <<'EOF'
+cat >"$S/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 MODE=""; TOPIC=""
 while [ $# -gt 0 ]; do
