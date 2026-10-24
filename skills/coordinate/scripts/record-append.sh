@@ -255,16 +255,17 @@ goal_fit_check() {
 # read by scripts/pr-workflow-content.sh (RECORD_APPEND_PR_CONTENT_READER
 # overrides its path, for tests) over the repository's CLAUDE.md as GitHub
 # serves it from the default branch, since the item's repository may have no
-# checkout here. A CLAUDE.md that can't be read, a missing reader, or any
-# answer but `include` is omit.
+# checkout here. A CLAUDE.md that can't be read, a missing reader, a reader
+# that exits non-zero (whatever it printed), or any answer but `include` is
+# omit.
 dest_withheld() {
     local reader=${RECORD_APPEND_PR_CONTENT_READER:-$HERE/../../../scripts/pr-workflow-content.sh} d="$WD/pr-content" out=
     rm -rf "$d" && mkdir -p "$d" || lib_die2 "cannot make a temporary directory"
     if gh api --method GET "repos/$ON_REPO/contents/CLAUDE.md" --jq '.content // ""' > "$WD/claude-md.b64" 2> /dev/null < /dev/null; then
         lib_b64d "$WD/claude-md.b64" "$d/CLAUDE.md" || rm -f "$d/CLAUDE.md"
     fi
-    [ -f "$reader" ] && out=$(bash "$reader" "$d" 2> /dev/null < /dev/null | head -n 1)
-    [ "$out" = include ] && return 1
+    [ -f "$reader" ] && out=$(bash "$reader" "$d" 2> /dev/null < /dev/null) || out=
+    [ "${out%%$'\n'*}" = include ] && return 1
     echo "$ON_REPO doesn't opt in to workflow content (## PR Workflow Content: include)" > "$WD/withheld"
 }
 # The most bare owner/repo names one outward scan reads; text naming more is

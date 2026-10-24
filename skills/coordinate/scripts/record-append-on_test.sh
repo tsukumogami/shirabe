@@ -25,7 +25,8 @@
 # same way; an item whose repository doesn't opt in (a public pull request,
 # for cost and goal-fit, and a private repository's issue) getting no
 # comment, the entry kept in the session and its key printed, and a verdict's
-# --repost on a public roadmap pull request refused, and the entry posting
+# --repost on a public roadmap pull request refused; a reader that prints
+# include and exits 1 read as omit, the same way; and the entry posting
 # once the repository opts in; `@` posted escaped; a failed post
 # (14) naming the retry, and the retry: posted once, then nothing; a comment
 # by the coordinator's login (any case) at or after the stamp standing in for
@@ -42,12 +43,13 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RA="$HERE/record-append.sh"
-# The opt-in reader's stand-in: it answers what $T/opt-in holds, else omit.
-# The cases below post while the item's repository opts in; the gate's own
-# cases opt out.
+# The opt-in reader's stand-in: it answers what $T/opt-in holds, else omit,
+# and exits 1 after answering while $T/reader-fails exists. The cases below
+# post while the item's repository opts in; the gate's own cases opt out.
 cat > "$T/reader" <<EOF
 #!/usr/bin/env bash
 cat "$T/opt-in" 2>/dev/null || echo omit
+[ ! -e "$T/reader-fails" ]
 EOF
 export RECORD_APPEND_PR_CONTENT_READER="$T/reader"
 opt_in() { echo include > "$T/opt-in"; }
@@ -238,6 +240,9 @@ ra --repost "$EN" --on acme/widgets#8 >/dev/null 2>"$T/err"; eq "a verdict's --r
 grep -q "stays in the session; it isn't posted on acme/widgets#8" "$T/err" && ok "  ... the entry staying in the session" || bad "  ... the entry staying in the session" "$(cat "$T/err")"
 eq "  ... posting nothing" 0 "$(ncomments)"
 opt_in
+touch "$T/reader-fails"
+kept "a reader that prints include and exits 1 keeps the entry in the session" --kind cost --on acme/widgets#12 --text-file "$T/entry.txt"
+rm -f "$T/reader-fails"
 O=$(ra --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
 eq "once the repository opts in, the entry posts" "0 https://github.com/acme/widgets/pull/12#issuecomment-1001" "$rc $O"
 
