@@ -273,7 +273,7 @@ expect_rc 2 "an empty --step exits 2"; expect_no_call "empty --step"
 run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason r --step ../x
 expect_rc 65 "(session-only) a --step outside the step pattern is run-trail.sh's refusal (65)"
 expect_no_call "(session-only) --step ../x"
-run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason "token ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+run without 0 --session wf --gate verdict --rule "$ACTIVE" --reason "token gh""p_abcdefghijklmnopqrstuvwxyz0123456789"
 expect_rc 65 "(session-only) a reason holding a token is refused (65)"
 [ ! -e "$LOG" ] && [ ! -e "$TRAIL_LOG" ] && pass "(session-only) a refused reason records nothing, in koto or the trail" \
     || fail "(session-only) a refused reason was recorded"

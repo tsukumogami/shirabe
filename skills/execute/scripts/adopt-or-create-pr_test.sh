@@ -52,7 +52,7 @@ case "$1 ${2:-}" in
     "session list")
         for s in "$store"/ctx/*/; do
             n=${s%/}; n=${n##*/}
-            printf '{"id":"%s","session_id":"11111111-2222-3333-4444-555555555555"}\n' "$n"
+            printf '{"id":"%s","session_id":"sid-0001"}\n' "$n"
         done | jq -sc .
         exit 0 ;;
 esac

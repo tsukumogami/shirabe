@@ -359,14 +359,17 @@ done
 doc '{"choice": "c", "rationale": "r", "alternatives_considered": "one"}'
 refused "decision refuses alternatives that aren't a list of text" decision --session "$S" --step step-1 --actor person
 
-TOKEN="ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+# Secret-shaped fixtures are built from parts so the source itself holds none.
+TOKEN="gh""p_abcdefghijklmnopqrstuvwxyz0123456789"
 doc "$(jq -nc --arg t "$TOKEN" '{what: "a leak", why: ("the token " + $t)}')"
 refused "departure refuses a ghp_ token in its why" departure --session "$S" --step step-1 --kind deviated
-doc "$(jq -nc '{choice: "c", rationale: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc"}')"
+KEY_HEADER="-----BEGIN OPENSSH ""PRIVATE KEY-----"
+doc "$(jq -nc --arg k "$KEY_HEADER" '{choice: "c", rationale: ($k + "\nabc")}')"
 refused "decision refuses a private-key header, koto decisions record included" decision --session "$S" --step step-1 --actor person
 doc "$(jq -nc '{choice: "c", rationale: "r", alternatives_considered: ["curl -H x\nAuthorization: Bearer abc"]}')"
 refused "decision refuses an Authorization: line in an alternative" decision --session "$S" --step step-1 --actor person
-doc "$(jq -nc '{choice: "github_pat_11ABCDEFG0123456789_abcdefghijk", rationale: "r"}')"
+PAT="github""_pat_11ABCDEFG0123456789_abcdefghijk"
+doc "$(jq -nc --arg p "$PAT" '{choice: $p, rationale: "r"}')"
 refused "decision refuses a github_pat_ token" decision --session "$S" --step step-1 --actor person
 for clean in "the ghp_ prefix names a token" "an Authorization: header" "AKIA is a key prefix"; do
     doc "$(jq -nc --arg w "$clean" '{what: $w, why: "prose about tokens, not one"}')"
