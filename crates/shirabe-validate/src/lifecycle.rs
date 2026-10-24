@@ -30,8 +30,9 @@
 //!   does not exist in the index.
 //! - **L05**: defensive parsing fallback — the walker could not
 //!   extract `upstream:` or `status:` from a chain-participating doc.
-//! - **L06**: an outline-AC checkbox on a single-pr PLAN member is
-//!   left unticked (outline-AC completeness).
+//! - **L06**: an outline-AC checkbox on an outline-shaped PLAN member is
+//!   left unticked (outline-AC completeness), outside a multi-pr chain
+//!   still in flight.
 //! - **L07**: a DESIGN's directory disagrees with its status — a
 //!   `Current` design outside `docs/designs/current/`, or a
 //!   non-`Current` design inside it.
@@ -311,9 +312,10 @@ struct IndexedDoc {
     /// -- because neither field settles it alone.
     outline_shaped: bool,
     /// Whether a PLAN is a `plan/v2` step plan. False for every non-PLAN.
-    /// A step plan is always outline-shaped, but unlike an issueless
-    /// `plan/v1` PLAN its `multi-pr` mode lands one step per pull request,
-    /// so posture inference reads this alongside `outline_shaped`.
+    /// A step plan is always outline-shaped, so `outline_shaped` alone
+    /// can't tell it from an issueless `plan/v1` PLAN; unlike that one, its
+    /// `multi-pr` mode lands one step per pull request, which the
+    /// whole-tree run reads this for (`pull_request_posture`).
     step_plan: bool,
 }
 
@@ -798,15 +800,14 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
             _ => Posture::MultiPrInFlight,
         };
     }
-    // PLAN root. An issueless (outline-shaped) plan/v1 multi-pr PLAN is
-    // excluded deliberately: it has no materialized issues for the multi-pr
-    // postures to track, and like a single-pr PLAN it is authored at
-    // `Active` and lands through the cascade, so it takes the single-pr
-    // shape below. A plan/v2 step plan is outline-shaped too, but its
-    // multi-pr mode lands each step in its own pull request after the
-    // scoping PR merges, so it takes the multi-pr postures like an
-    // issue-carrying PLAN.
-    if root.execution_mode == "multi-pr" && (!root.outline_shaped || root.step_plan) {
+    // PLAN root. An issueless (outline-shaped) multi-pr PLAN is excluded
+    // deliberately: it has no materialized issues for the multi-pr postures
+    // to track, and like a single-pr PLAN it is authored at `Active` and
+    // lands through the cascade, so it takes the single-pr shape below.
+    // The whole-tree run gives a multi-pr step plan a multi-pr posture
+    // instead (see `pull_request_posture`); the chain-targeted run the
+    // cascade uses keeps this shape, so the cascade still fires on it.
+    if root.execution_mode == "multi-pr" && !root.outline_shaped {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,
             // Active or Draft both bucket to in-flight; the
@@ -932,6 +933,27 @@ type Imposers = BTreeSet<(Posture, PathBuf)>;
 /// posture behind the entry and so differs from what either chain
 /// alone would have written.
 type ObligationMap = BTreeMap<PathBuf, BTreeMap<PassingState, Imposers>>;
+
+/// The posture the whole-tree run judges a multi-pr step plan's chain at,
+/// or `None` for every other chain root.
+///
+/// The whole-tree run is the pull-request gate. A `plan/v2` step plan in
+/// `multi-pr` mode lands each step in its own pull request after its
+/// scoping PR merges, so that gate holds it to the multi-pr postures, as it
+/// does an issue-carrying PLAN, rather than to the single-pr at-merge row a
+/// ready scoping PR could never reach. `infer_posture_from` keeps the
+/// single-pr shape for it, which the chain-targeted run uses: the
+/// completion cascade runs that mode at ready posture and relies on a
+/// present PLAN failing there to know it has work to do.
+fn pull_request_posture(root: &IndexedDoc) -> Option<Posture> {
+    if root.format != "Plan" || !root.step_plan || root.execution_mode != "multi-pr" {
+        return None;
+    }
+    Some(match root.status.as_str() {
+        "Done" => Posture::MultiPrWorkCompleting,
+        _ => Posture::MultiPrInFlight,
+    })
+}
 
 /// The posture a chain is evaluated at, which is not always the
 /// posture it carries.
@@ -1472,8 +1494,16 @@ pub fn run_lifecycle_check(
 ) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
     let inv = build_inverse_upstream(&idx);
-    let (chains, chain_errors) = discover_chains(&idx);
+    let (mut chains, chain_errors) = discover_chains(&idx);
     errors.extend(chain_errors);
+
+    // This run is the pull-request gate, so a multi-pr step plan's chain is
+    // judged at the multi-pr posture its pull requests move through.
+    for chain in &mut chains {
+        if let Some(p) = idx.get(&chain.root).and_then(pull_request_posture) {
+            chain.posture = p;
+        }
+    }
 
     // Per-document findings — passing state where a chain reaches the
     // document, the orphan rule where none does, and the location rule
@@ -1505,7 +1535,10 @@ pub fn run_lifecycle_check(
 ///
 /// The shape, not the mode, is the gate. Keying this on `single-pr`
 /// would leave an issueless multi-PR plan -- which carries outlines for
-/// exactly the same reason -- with its unticked criteria unchecked.
+/// exactly the same reason -- with its unticked criteria unchecked. The
+/// one exception is a chain at the multi-pr in-flight posture, which the
+/// whole-tree run gives a multi-pr step plan: its later steps are not
+/// built yet, so their unticked criteria are not findings.
 ///
 /// One L06 error per unticked AC. The message names the outline-key,
 /// the verbatim AC text, and the 1-indexed line number so the author
@@ -1516,8 +1549,9 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
     }
     // A multi-pr chain in flight lands its steps one pull request at a
     // time, so the criteria of steps not yet built are legitimately
-    // unticked. Only a step plan reaches this posture with outlines; an
-    // issue-carrying PLAN has no checkboxes to find.
+    // unticked. Only a multi-pr step plan in the whole-tree run reaches
+    // this posture with outlines; an issue-carrying PLAN and a ROADMAP have
+    // no checkboxes to find.
     if chain.posture == Posture::MultiPrInFlight {
         return Vec::new();
     }
@@ -5145,6 +5179,21 @@ mod tests {
         assert!(
             errors.is_empty(),
             "expected a clean ready run; got {errors:?}"
+        );
+
+        // The completion cascade runs the chain-targeted mode at ready and
+        // needs a present PLAN to fail there to know it has work to do, so
+        // that mode still judges the same chain at the single-pr shape.
+        let chain_errors = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Ready,
+        );
+        assert!(
+            codes(&chain_errors, "L01")
+                .iter()
+                .any(|e| e.message.contains("single-pr at-merge")),
+            "the chain-targeted run must still fail a present multi-pr step plan at ready; got {chain_errors:?}"
         );
 
         // The guard: the same step plan in single-pr mode is still held to
