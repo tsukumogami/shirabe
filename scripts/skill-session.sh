@@ -74,8 +74,14 @@
 #               session=<name>
 #               opened=new|attached|replaced
 #               replaced_state=<state>, replaced_result=<json>  (replaced only)
+#               moved_to=<name>, moved_reason=<text>  (replaced, when koto
+#                 kept the finished session for its hierarchy and moved it
+#                 aside to <name> instead of removing it)
 #             koto-open.sh's refused=/failed=/error= lines and exit code pass
-#             through unchanged; this script's own refusals print
+#             through unchanged (a held finished session that can't move
+#             aside is refused=replace_held_live with a live= line, exit 75;
+#             a move that failed is refused=replace_failed, exit 74, and
+#             nothing was replaced); this script's own refusals print
 #             refused=branch_mismatch or refused=no_branch, and a koto below
 #             the floor prints failed=koto_below_floor.
 #             With --dispatched-by <dispatcher>, once the session is open
@@ -236,6 +242,8 @@
 #   69   failed=koto_below_floor: koto is older than shirabe's floor;
 #        import: failed=koto_no_import, the installed koto has no
 #        `session import`
+#   74   open: refused=replace_failed, from koto-open.sh
+#   75   open: refused=replace_held_live, from koto-open.sh
 #   127  koto or jq is not on PATH
 #   130/143  interrupted by SIGINT/SIGTERM
 #
@@ -665,7 +673,7 @@ cmd_open() {
     printf '%s\n' "$first"
     printf '%s\n' "$out" | while IFS= read -r line; do
         case "$line" in
-            replaced_state=*|replaced_result=*) printf '%s\n' "$line" ;;
+            replaced_state=*|replaced_result=*|moved_to=*|moved_reason=*) printf '%s\n' "$line" ;;
         esac
     done
     # A failed link has printed its warning and recorded it; the open stands.

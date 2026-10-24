@@ -706,6 +706,101 @@ else
     fail "could not walk execute-paused to paused_for_review"
 fi
 
+# A retained pause its hierarchy holds. From koto 0.23.0 a finished session a
+# live session names is kept, and --replace-terminal moves it aside instead of
+# removing it, or refuses when work under it is still running. The floor job's
+# older koto has neither, so these cases run only where koto does.
+if KOTO_FLOOR=0.23.0 bash "$REPO_ROOT/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
+    cat > "$WORK/peer.md" <<'PEER'
+---
+name: peer
+version: "1.0"
+description: A session that stays live.
+initial_state: wait
+states:
+  wait:
+    accepts:
+      go:
+        type: enum
+        values: [now]
+        required: true
+    transitions:
+      - target: over
+        when:
+          go: now
+  over:
+    terminal: true
+---
+
+## wait
+
+Wait.
+
+## over
+
+Over.
+PEER
+    k init hold-peer --template "$WORK/peer.md" >/dev/null 2>&1
+    pause_held() { # pause_held <slug> -- execute-<slug> held by hold-peer, walked to paused_for_review
+        run_open "[\"docs/plans/PLAN-$1.md\"]" CLAUDE_PLUGIN_ROOT="$WALK_ROOT"
+        k session link "execute-$1" --dispatched-by hold-peer >/dev/null 2>&1
+        record_write_set "execute-$1"
+        for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
+                 spawn_and_await pr_finalization paused_for_review; do
+            k next "execute-$1" --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+        done
+        [ "$(k status "execute-$1" | jq -r .current_state)" = paused_for_review ]
+    }
+
+    if pause_held held; then
+        HELD_RUN_ID=$(k context get execute-held run_id 2>/dev/null)
+        run_open '["docs/plans/PLAN-held.md"]'
+        if [ "$RC" -eq 0 ] && line 'opened=replaced' && line 'moved_to=execute-held_r1' \
+            && grep -q '^moved_reason=' <<<"$OUT" && line 'session=execute-held'; then
+            pass "a held retained pause: opened=replaced, then moved_to and moved_reason"
+        else
+            fail "held pause: exit $RC, out [$OUT]; $ERR"
+        fi
+        if [ "$(k status execute-held_r1 2>/dev/null | jq -r .current_state)" = paused_for_review ]; then
+            pass "the moved run stays readable under its new name"
+        else
+            fail "no paused execute-held_r1 after the move"
+        fi
+        if [ "$(k context get execute-held run_id 2>/dev/null)" = "$HELD_RUN_ID" ]; then
+            pass "the fresh session still carries the moved run's identity"
+        else
+            fail "run_id after a move: [$(k context get execute-held run_id 2>/dev/null)], was [$HELD_RUN_ID]"
+        fi
+    else
+        fail "could not walk execute-held to paused_for_review"
+    fi
+
+    if pause_held busy; then
+        k init execute-busy.k --template "$WORK/peer.md" --parent execute-busy >/dev/null 2>&1
+        run_open '["docs/plans/PLAN-busy.md"]'
+        if [ "$RC" -eq 75 ] && line 'refused=replace_held_live' && grep -qxF 'live=["execute-busy.k"]' <<<"$OUT" \
+            && line 'outcome=error' && line 'step=execute:refused'; then
+            pass "a held pause with live work under it: replace_held_live, exit 75, the refused exit lines"
+        else
+            fail "held pause with live work: exit $RC, out [$OUT]; $ERR"
+        fi
+        if grep -q 'Nothing was started or replaced' <<<"$ERR"; then
+            pass "replace_held_live is worded in /execute's words"
+        else
+            fail "replace_held_live wording: [$ERR]"
+        fi
+        if [ "$(k status execute-busy | jq -r .current_state)" = paused_for_review ]; then
+            pass "a refused replace leaves the finished run where it was"
+        else
+            fail "execute-busy changed on a refused replace"
+        fi
+    else
+        fail "could not walk execute-busy to paused_for_review"
+    fi
+else
+    echo "SKIP: this koto predates hierarchy retention (0.23.0) -- the held-pause cases did not run"
+fi
+
 # --- the coordinated template ------------------------------------------------------
 #
 # A PLAN whose execution_mode is coordinated enters execute-coordinated.md
