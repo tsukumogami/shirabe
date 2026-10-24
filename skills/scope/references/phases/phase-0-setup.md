@@ -105,10 +105,19 @@ Read the lines it prints:
   `PLUGIN_ROOT_PLACEMENT`) took this invocation's values, listed on
   the `rebound=` line. A bare re-invocation attaches: an omitted
   `--intent` is not compared.
+- `opened=replaced` — an earlier run of the topic had finished, and a
+  fresh session took its name; `replaced_state=` and `replaced_result=`
+  describe the finished run. When koto kept that run for its hierarchy,
+  `moved_to=<name>` and `moved_reason=` follow: it was moved aside to
+  `<name>`, where its record is still readable, rather than removed.
 - `refused=<code>` followed by `outcome=error` and
   `step=scope:refused`, with the refusal text on stderr — print the
   text and those two lines and stop. Nothing was created: no session,
-  no state key. `refused` is never printed after `outcome=`.
+  no state key. `refused` is never printed after `outcome=`. Two
+  refusals concern a finished run its hierarchy holds and can't be
+  moved aside: `replace_held_live` (exit 75, the work still running
+  under it on a `live=` line) and `replace_failed` (exit 74). The
+  finished run is left as it was.
 - `failed=<kind>` or `error=usage`, also followed by `outcome=error`
   and `step=scope:refused` — the same: report and stop.
 

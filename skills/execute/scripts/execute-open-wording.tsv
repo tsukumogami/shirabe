@@ -1,7 +1,8 @@
 # /execute's wording for koto's init refusals, read by scripts/koto-open.sh
 # through execute-open.sh. One `<code><TAB><text>` line per code; `{var}`,
-# `{value}`, `{constraint}`, `{recorded}`, `{requested}`, and `{session}` are
-# koto's fields, substituted and never evaluated. A code with no line here
+# `{value}`, `{constraint}`, `{recorded}`, `{requested}`, `{session}`,
+# `{error}`, `{live}` and `{stranded}` are koto's fields, substituted and never
+# evaluated. A code with no line here
 # prints koto's own message. A `<code>:<VAR>` line words that code for one
 # variable and wins over the code's own line: the coordinated flags on a
 # single-pr PLAN are unknown_var on their variables.
@@ -16,3 +17,5 @@ unknown_var:ADOPT_RUN	/execute: --adopt-run applies only to a coordinated PLAN. 
 var_mismatch	/execute: {session} is already running with {var}={recorded}, not {requested}. Finish or remove that run first; nothing was changed.
 template_mismatch	/execute: {session} is a live run of a different /execute template (a single-pr and a coordinated run share the name). Finish that run first; nothing was changed.
 origin_mismatch	/execute: {session} belongs to another worktree or session store. Continue it there, or remove it with `koto session cleanup {session}`; nothing was changed.
+replace_held_live	/execute: the finished run {session} is still held by the sessions around it, and work under it is still running: {live}. Nothing was started or replaced; let that work finish, or cancel it, then invoke /execute again.
+replace_failed	/execute: the finished run {session} could not be moved aside to make room for a fresh one, so nothing was replaced: {error} Invoke /execute again to retry.

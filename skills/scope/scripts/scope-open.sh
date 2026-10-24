@@ -75,6 +75,14 @@
 # run's result), so a second /scope <topic> after a finished run starts over at
 # intake rather than ticking the finished session.
 #
+# A finished session koto keeps for its hierarchy (a dispatcher or parent still
+# live, a chain/parent link, a session that names it) is moved aside rather
+# than removed: koto-open.sh's moved_to= and moved_reason= lines pass through
+# after opened=replaced, the old run stays readable under that name, and the
+# fresh run still gets the old result below. When it can't be moved, koto
+# refuses the replace and nothing changes: replace_held_live (exit 75, its
+# live subtree on a live= line) or replace_failed (exit 74).
+#
 # After a replace (opened=replaced), the replaced run's result is parsed with
 # jq and its closed-set values (outcome, exit, intent, and step when it is
 # scope:push or scope:pr-create) are written as key work/prior-run.md of the
@@ -96,9 +104,9 @@
 # result payload. The human-readable message goes to stderr, rendered from
 # scope-open.wording.tsv in /scope's refusal wording.
 #
-# Exit codes: koto-open.sh's, passed through (0 opened, 2 refused, 64 usage,
-# 127 koto or jq missing, other koto failures); 64 for this script's own
-# refusals.
+# Exit codes: koto-open.sh's, passed through (0 opened, 2 refused, 74
+# replace_failed, 75 replace_held_live, 64 usage, 127 koto or jq missing,
+# other koto failures); 64 for this script's own refusals.
 #
 # Requires: bash 3.2+, jq. No eval anywhere, and no token is ever expanded by
 # a shell: the tokens reach koto only through the vars file.

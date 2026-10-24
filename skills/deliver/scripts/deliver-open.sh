@@ -16,7 +16,13 @@
 #      `refused=template_mismatch` is a collision: the run stops with koto's
 #      refusal, and that session is left untouched. `opened=new`, `attached`
 #      or `replaced` means the name is this worktree's, and the session is
-#      removed with `koto session cleanup deliver-<topic>`.
+#      removed with `koto session cleanup deliver-<topic>`. A finished run
+#      koto keeps for its hierarchy is not removed: the probe's replace moves
+#      it aside to `deliver-<topic>_r<N>`, where its record stays readable,
+#      and the probe's moved_to= and moved_reason= lines are printed after
+#      the open's. When it can't be moved, the probe is refused
+#      (replace_held_live or replace_failed) and stops the run like any
+#      other refusal.
 #   2. the open: koto-open.sh once more, with no attach flags and the full
 #      args file, so the session is always new. koto checks every argument
 #      here and its refusal is printed.
@@ -91,14 +97,19 @@
 # Output. stdout carries koto-open.sh's machine-readable lines (the probe's
 # only when it stopped the run), then:
 #
+#   moved_to=<name>, moved_reason=<text>
+#                                    when the probe moved this worktree's
+#                                    finished run aside, whether the open
+#                                    then succeeded or not
 #   session=deliver-<topic>          on success
 #   outcome=error                    on every refusal or failure, followed by
 #   step=deliver:refused
 #
 # koto's refusal wording goes to stderr, from deliver-open.wording.tsv.
 #
-# Exit codes: koto-open.sh's (0 opened, 2 refused, 64 usage, 127 koto or jq
-# missing, koto's own code otherwise); 1 when the cleanup of this worktree's
+# Exit codes: koto-open.sh's (0 opened, 2 refused, 74 replace_failed, 75
+# replace_held_live, 64 usage, 127 koto or jq missing, koto's own code
+# otherwise); 1 when the cleanup of this worktree's
 # earlier session failed; 64 for this script's own usage refusals.
 #
 # Requires: bash 3.2+, jq, koto. No eval anywhere, and no token is ever
@@ -320,8 +331,17 @@ fresh_start() {
     fi
 }
 
+# moved_lines <koto-open-output> -- the moved_to= and moved_reason= lines of an
+# accepted probe: koto kept this worktree's finished session for its
+# hierarchy and moved it aside rather than replacing it. Printed after the
+# open's own lines, so the result line stays first.
+MOVED=""
+moved_lines() {
+    MOVED=$(printf '%s\n' "$1" | grep -E '^moved_(to|reason)=')
+}
+
 case "$PROBE" in
-    opened=*) fresh_start ;;
+    opened=*) moved_lines "$PROBE"; fresh_start ;;
     *)
         # A collision (origin_mismatch, template_mismatch) or any other
         # refusal: koto's own wording is already on stderr, and the session,
@@ -335,7 +355,7 @@ case "$PROBE" in
             RECORDED=$OUT
         fi
         case "$RECORDED" in
-            opened=*) fresh_start ;;
+            opened=*) moved_lines "$RECORDED"; fresh_start ;;
             *)
                 [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
                 bash "$REPORT" --refused
@@ -355,8 +375,12 @@ if [ "$RC" -eq 0 ]; then
     # session is born, and only read afterwards (run-id.sh get).
     bash "$PLUGIN_ROOT/skills/execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
         || printf 'deliver-open: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$SESSION" >&2
+    [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
     printf 'session=%s\n' "$SESSION"
 else
+    # The probe already moved the earlier run aside; say where, even though
+    # this open failed.
+    [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
     bash "$REPORT" --refused
 fi
 exit "$RC"
