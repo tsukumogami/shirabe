@@ -12,8 +12,9 @@
 #   2. rs_facts on a fixture record with two holdings, a hold on one's pull
 #      request and a pause on the other's unit, against a fixed JSON, both as a
 #      library call and through `--facts`;
-#   3. the store row: `github`, `bogus` and a doubled row are store-malformed,
-#      the legacy `store session` row an existing session holds is accepted,
+#   3. the store row, as the write core is handed it as JSON: `github`, `bogus`
+#      and a doubled row are store-malformed (65), the legacy `store session`
+#      row an existing session holds is accepted and read back,
 #      and the crash-set rows need no store row; record-state.sh refuses `--run
 #      store` as no Run key (65) at either scope; the opener refuses --store as
 #      an unknown option (64), naming it, before any koto call;
@@ -26,10 +27,11 @@
 #      list's shape;
 #   6. the session read: the same state from rs_record and rs_record_api,
 #      pending (record-changed), absent (session-absent) and another scope's
-#      record, and --show;
+#      record, record/host kept out of the state, --host, and --show an unknown
+#      option (64);
 #   7. one read per step (rs_once_begin): reads under one shared read take one
 #      assembly, a write's drop makes the next read live, and reconcile-read.sh's
-#      read parses the body once;
+#      read takes one assembly;
 #   8. the resume decision;
 #   9. the opener's fresh start: the legacy importer's lookup once, an import
 #      when it finds a record, a refusal that stops and cancels the new run, and
@@ -57,7 +59,7 @@ RS="$HERE/record-source.sh"
 #   write; and reconcile's reader, which salvages row by row a body the seam
 #   handed it, with the parser reconcile-deps.sh names.
 READ_ALLOWED='^(record-source|record-append)\.sh$'
-PARSE_ALLOWED='^(record-source|record-common|record-parse|record-render|record-open|record-write-core|reconcile-read|reconcile-deps)\.sh$'
+PARSE_ALLOWED='^(record-source|record-common|record-open|record-write-core|reconcile-read|reconcile-deps)\.sh$'
 body_readers() {
     local f base
     for f in "$1"/*.sh; do
@@ -144,8 +146,7 @@ REC=$(record_json roadmap plugin-system | jq -c --argjson a "$F1" --argjson b "$
     | .standing = [{standing: "s1", kind: "pause", on: "Feature 2", until: "lifted", what: "hold Feature 2", owner: "alice", relayed_by: "", set: "2026-09-29T17:40Z"},
                    {standing: "s2", kind: "go-ahead", on: "Feature 1", until: "", what: "one release", owner: "alice", relayed_by: "", set: "2026-09-29T17:41Z"},
                    {standing: "s3", kind: "answer", on: "", until: "", what: "panels first", owner: "alice", relayed_by: "", set: "2026-09-29T17:42Z"}]')
-render "$REC" issue > "$T/rec.md"
-bash "$HERE/record-parse.sh" --container issue --expect-scope roadmap:plugin-system "$T/rec.md" > "$T/rec.json" || bad "the fixture parses" ""
+state_json "$REC" > "$T/rec.json" 2>"$T/err" && ok "the fixture is a valid state" || bad "the fixture is a valid state" "$(cat "$T/err")"
 
 echo "== 2. one holding's facts =="
 facts() { ( PROG=t; . "$HERE/record-common.sh"; rs_facts "$T/rec.json" "$1" ); }
@@ -171,22 +172,34 @@ RS_SESSION=$SF bash "$RS" --session "$SF" --probe >/dev/null 2>&1; eq "--probe i
 
 echo "== 3. the store row =="
 with_store() { printf '%s' "$REC" | jq -c --arg v "$1" '.run += [{key: "store", value: $v, set_by: "alice", set: "2026-10-11T10:00Z"}]'; }
-printf '%s' "$(with_store github)" | bash "$HERE/record-render.sh" --container issue >/dev/null 2>"$T/err"
-eq "a store row reading github is refused" 65 $?
+# try_state <json>: the write core handed the state as the writer's next state
+# (edited from the version the session holds): RC and $T/err.
+SW3=coordinate-roadmap-plugin-system-20260926T120000Z
+seam_read_run() { ( RS_SESSION=$SW3 PROG=reader SCOPE=roadmap NAME=plugin-system
+    . "$HERE/record-common.sh"; . "$HERE/record-source.sh"; RS_RETRY_PAUSE=0
+    rs_record "$T/reader3" > /dev/null 2>&1 && jq -c . "$T/reader3" ); }
+try_state() {
+    seed_session "$SW3" "$REC"
+    printf '%s' "$1" | jq -c '.written = "2026-09-26T09:00:00Z"' > "$T/try.json"
+    RS_SESSION=$SW3 bash "$HERE/record-write.sh" --scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks --state-file "$T/try.json" >/dev/null 2>"$T/err"
+    RC=$?
+}
+try_state "$(with_store github)"
+eq "a store row reading github is refused" 65 "$RC"
 grep -q 'store-malformed' "$T/err" && ok "  ... as store-malformed" || bad "  ... as store-malformed" "$(cat "$T/err")"
-printf '%s' "$(with_store bogus)" | bash "$HERE/record-render.sh" --container issue >/dev/null 2>"$T/err"
+try_state "$(with_store bogus)"
 grep -q 'store-malformed' "$T/err" && ok "a store reading bogus is store-malformed" || bad "a store reading bogus is store-malformed" "$(cat "$T/err")"
-printf '%s' "$(with_store session)" | bash "$HERE/record-render.sh" --container issue --written 2026-09-26T09:00:00Z > "$T/sess.md" \
-    && ok "the legacy store session row an existing session holds renders" || bad "the legacy store session row an existing session holds renders" ""
-printf '%s' "$(with_store session)" | jq -c '.run += [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:01Z"}]' \
-    | bash "$HERE/record-render.sh" --container issue >/dev/null 2>"$T/err"
+state_json "$(with_store session)" > "$T/legacy.json" 2>"$T/err"
+eq "the legacy store session row an existing session holds is accepted" 0 "$?"
+seed_session "$SW3" "$(with_store session)"
+eq "  ... and read back from the session" "store" "$(seam_read_run | jq -r '.run[-1].key')"
+try_state "$(with_store session | jq -c '.run += [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:01Z"}]')"
 grep -q 'store-malformed' "$T/err" && ok "two store rows are store-malformed" || bad "two store rows are store-malformed" "$(cat "$T/err")"
-printf '%s' "$REC" | jq -c '.run += [{key: "colour", value: "x", set_by: "alice", set: "2026-10-11T10:00Z"}]' \
-    | bash "$HERE/record-render.sh" --container issue >/dev/null 2>&1; eq "any other unknown Run key is still refused" 65 $?
-printf '%s' "$REC" | jq -c '.run += [{key: "friction", value: "fr", set_by: "alice", set: "2026-10-11T10:00Z"},
-        {key: "reports-to", value: "the planner", set_by: "alice", set: "2026-10-11T10:00Z"}]' \
-    | bash "$HERE/record-render.sh" --container issue >/dev/null 2>"$T/err"
-eq "the crash-set rows need no store row" 0 $?
+try_state "$(printf '%s' "$REC" | jq -c '.run += [{key: "colour", value: "x", set_by: "alice", set: "2026-10-11T10:00Z"}]')"
+eq "any other unknown Run key is still refused" 65 "$RC"
+state_json "$(printf '%s' "$REC" | jq -c '.run += [{key: "friction", value: "fr", set_by: "alice", set: "2026-10-11T10:00Z"},
+        {key: "reports-to", value: "the planner", set_by: "alice", set: "2026-10-11T10:00Z"}]')" > /dev/null 2>"$T/err"
+eq "the crash-set rows need no store row" 0 "$?"
 # record-state.sh: the store is no Run key it sets, at either scope.
 for sc in roadmap:plugin-system discipline:ci-health; do
     bash "$HERE/record-state.sh" --scope "${sc%%:*}" --name "${sc#*:}" --repo "$REPO" --skip-session-checks --run store session --by alice >/dev/null 2>"$T/err"
@@ -291,7 +304,7 @@ seam_read() {
     [ $# -ge 2 ] || return 64
     local out=$1 ses=$2
     ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/record-common.sh"; lib_facts
-      RS_SESSION=$ses RS_RETRY_PAUSE=0 rs_record "$out" body; echo "rc=$?" )
+      RS_SESSION=$ses RS_RETRY_PAUSE=0 rs_record "$out"; echo "rc=$?" )
 }
 db_init
 eq "the read helper with too few arguments prints nothing" "" "$(seam_read 2>&1)"
@@ -299,7 +312,7 @@ SS=coordinate-roadmap-plugin-system-20260926T110000Z
 seed_session "$SS" "$REC"
 eq "rs_record reads the session" rc=0 "$(seam_read "$T/s" "$SS")"
 eq "  ... as the state it holds" "$(jq -cS 'del(.written)' "$T/rec.json")" "$(jq -cS 'del(.written)' "$T/s")"
-eq "  ... and its body" "$(cat "$T/rec.md")" "$(cat "$T/s.md")"
+eq "  ... the keys as assembled beside it" "$(jq -cS 'del(.written)' "$T/s")" "$(jq -cS 'del(.written)' "$T/s.state")"
 eq "  ... asking GitHub for nothing" "" "$(calls)"
 found_session "$SS" "$(roadmap_vars plugin-system)"
 eq "rs_record_api reads the run's record by its session" rc=0 \
@@ -327,51 +340,42 @@ jq '.scope.name = "other"' "$T/rec.json" > "$T/other.json"
 session_keys "$SX" "$T/other.json"
 eq "a session record for another scope is refused" rc=65 "$(seam_read "$T/x" "$SX")"
 
-# --show on a run whose find sealed its record.
+# record/host is read through --host, and is no part of the state a reader is handed.
 SW=coordinate-roadmap-plugin-system-20260926T110400Z
 found_session "$SW" "$(roadmap_vars plugin-system)"
 session_keys "$SW" "$T/rec.json"
 koto context add "$SW" record/host < <(jq -nc '{source_workspace: "/srv/ws/host-only-marker", session: "x"}')
-bash "$RS" --session "$SW" --show > "$T/show.md" 2>"$T/err"; eq "--show prints the record" 0 $?
-eq "  ... a body that parses back to the session's state (R11)" "$(jq -cS . "$T/rec.json")" \
-    "$(bash "$HERE/record-parse.sh" --container issue "$T/show.md" | jq -cS .)"
-grep -q 'host-only-marker' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
+eq "a read of a run whose find sealed its record" rc=0 "$(seam_read "$T/w" "$SW")"
+eq "  ... is the session's state" "$(jq -cS . "$T/rec.json")" "$(jq -cS . "$T/w")"
+grep -q 'host-only-marker' "$T/w" "$T/w.state" && bad "  ... and holds nothing from record/host" "$(cat "$T/w")" || ok "  ... and holds nothing from record/host"
+bash "$RS" --session "$SW" --show >/dev/null 2>"$T/err"; eq "--show is an unknown option" 64 $?
 eq "--host prints record/host" "/srv/ws/host-only-marker" "$(bash "$RS" --session "$SW" --host 2>"$T/err" | jq -r .source_workspace)"
 
 echo "== 7. one read per step (rs_once_begin) =="
 # once_reads <dir>: reads of session $SW's record under one shared read kept in
-# <dir>, in a subshell: the body, the JSON, then a write's drop and the JSON
-# again. Prints each one's return code.
+# <dir>, in a subshell: the state, the state again, then a write's drop and the
+# state again. Prints each one's return code.
 once_reads() {
     [ $# -ge 1 ] || return 64
     ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/record-common.sh"; lib_facts
       RS_SESSION=$SW RS_RETRY_PAUSE=0
       rs_once_begin "$1" || exit 2
-      rs_record "$1/a" body; printf 'a%s ' $?
-      rs_record "$1/b" json; printf 'b%s ' $?
+      rs_record "$1/a"; printf 'a%s ' $?
+      rs_record "$1/b"; printf 'b%s ' $?
       rs_once_drop
-      rs_record "$1/c" json; printf 'c%s' $? )
+      rs_record "$1/c"; printf 'c%s' $? )
 }
 metas() { grep -c "^context get $SW record/meta" "$KOTO_STORE/calls"; }
 : > "$KOTO_STORE/calls"
 eq "reads under one shared read, and one after a write's drop, all answer" "a0 b0 c0" "$(once_reads "$T/once")"
 eq "  ... from two assemblies: the shared one, and the live one after the drop (two record/meta reads each)" 4 "$(metas)"
-eq "  ... the shared reads with the same parse" "$(jq -cS . "$T/once/a")" "$(jq -cS . "$T/once/b")"
-eq "  ... and the body as the session renders it" "$(cat "$T/once/a.md")" "$(cat "$T/once/a.raw")"
-# The read reconcile-read.sh makes parses the body once: one assembly, one
-# render and one parse back, counted in a copy of the scripts whose
-# record-parse.sh logs each run.
-TR="$T/parse-tree/skills/coordinate/scripts"
-mkdir -p "$TR" "$T/parse-tree/skills/execute"
-cp "$HERE"/*.sh "$HERE"/*.jq "$TR/"
-cp -R "$HERE/../../execute/scripts" "$T/parse-tree/skills/execute/"
-mv "$TR/record-parse.sh" "$TR/record-parse.real"
-printf '#!/usr/bin/env bash\necho parse >> "%s"\nexec bash "%s" "$@"\n' "$T/parses" "$TR/record-parse.real" > "$TR/record-parse.sh"
-chmod +x "$TR/record-parse.sh"
-: > "$T/parses"
-bash "$TR/reconcile-read.sh" --session "$SW" > "$T/rr.json" 2> "$T/rr.err"
+eq "  ... the shared reads with the same state" "$(jq -cS . "$T/once/a")" "$(jq -cS . "$T/once/b")"
+eq "  ... and the same keys as assembled" "$(jq -cS . "$T/once/a.state")" "$(jq -cS . "$T/once/b.state")"
+# The read reconcile-read.sh makes takes one assembly: two record/meta reads.
+: > "$KOTO_STORE/calls"
+bash "$HERE/reconcile-read.sh" --session "$SW" > "$T/rr.json" 2> "$T/rr.err"
 eq "reconcile-read.sh reads a session record" "0 found" "$? $(jq -r .status "$T/rr.json" 2>/dev/null)"
-eq "  ... parsing its body once" 1 "$(grep -c parse "$T/parses")"
+eq "  ... in one assembly" 2 "$(metas)"
 
 echo "== 8. the resume decision (PRD R12) =="
 # rs_resume_candidate over this host's runs of one scope, on the koto stand-in:

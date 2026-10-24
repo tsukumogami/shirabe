@@ -14,7 +14,8 @@
 # at one stamp, and, called directly, a rotation still open), and a
 # predecessor whose record/meta is malformed; a third rotation after a carried
 # second finds the second. record-open.sh opens a first rotation in the
-# session with no GitHub write and no store row; --carry carries a
+# session, building the empty record itself from the window it is given (no
+# body), with no GitHub write and no store row; --carry carries a
 # predecessor's hold, Standing row, Work row, deferral, unsettled decision,
 # next decision number and the legacy store session row, and reports the holds
 # and Standing rows; a carry run again reads as carried; reconcile-read.sh
@@ -41,7 +42,7 @@ YESTERDAY=$(day -1)
 WEEK_AGO=$(day -7)
 TOMORROW=$(day 1)
 
-# The empty record of a discipline, as record-parse.sh reads it.
+# The empty record of a discipline, as a reader is handed it.
 empty_record() { record_json discipline "$1" | jq -c '. + {written: "2026-09-26T09:00:00Z"}'; }
 # sealed <session> <token>: the run's find sealed <token> at record_find.
 sealed() {
@@ -182,9 +183,8 @@ eq "the third rotation's predecessor is the second, never the first" "predecesso
 echo "== record-open.sh: the first rotation, in the session =="
 S=coordinate-discipline-first-20261005T100000Z
 log_new "$S" "$(discipline_vars first)"; sealed "$S" first
-render "$(record_json discipline first)" issue > "$T/body.md"
 reset_calls
-OUT=$(bash "$HERE/record-open.sh" --session "$S" --body-file "$T/body.md" --start "$TODAY" --end "$TOMORROW" 2> "$T/err")
+OUT=$(bash "$HERE/record-open.sh" --session "$S" --start "$TODAY" --end "$TOMORROW" 2> "$T/err")
 eq "the first rotation opens" "0 record=$S" "$? $OUT"
 eq "  ... with its window and no predecessor" "$(jq -nc --arg s "$TODAY" --arg e "$TOMORROW" '{start: $s, end: $e, host_repo: "acme/widgets", predecessor: null}')" \
     "$(key "$S" record/rotation | jq -c .)"
@@ -248,7 +248,7 @@ echo "== no bridge: a committed handoff file is never read =="
 HANDOFF=$(empty_record bridge | jq -c 'del(.written) | .deferrals = [{deferral: "renew the cert", reason: "next rotation", raised: "2026-09-20T10:00Z", disposition: "carried 2026-09-27T10:00Z: waits on the vendor"}]
     | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/77"}
     | .reasoning = "The cert renews through the vendor portal."')
-printf '%s' "$HANDOFF" | bash "$HERE/record-render.sh" --format handoff > "$T/handoff.md"
+printf '%s' "$HANDOFF" > "$T/handoff.md"
 db '.files["acme/widgets"]["main:docs/disciplines/bridge.md"] = $t' --rawfile t "$T/handoff.md"
 S=coordinate-discipline-bridge-20261005T100000Z
 reset_calls
@@ -259,7 +259,7 @@ eq "  ... and the file is never read" "" "$(calls)"
 STALE=$(empty_record carry | jq -c --argjson o "$(printf '%s' "$DEC_OPEN" | jq -c '.decision = "2"')" 'del(.written)
     | .rotation = {start: "2026-09-20", end: "2026-09-27", date: "2026-09-27", host_repo: "acme/widgets", record_url: "https://github.com/acme/widgets/pull/76"}
     | .reasoning = "The cache pin waits on a person." | .decisions = {next: 3, entries: [$o]}')
-printf '%s' "$STALE" | bash "$HERE/record-render.sh" --format handoff > "$T/stale.md"
+printf '%s' "$STALE" > "$T/stale.md"
 db '.files["acme/widgets"]["main:docs/disciplines/carry.md"] = $t' --rawfile t "$T/stale.md"
 S=coordinate-discipline-carry-20261008T100000Z
 OUT=$(bash "$HERE/decision-next.sh" --session "$S" --owed dispatch 2> "$T/err"); rc=$?
