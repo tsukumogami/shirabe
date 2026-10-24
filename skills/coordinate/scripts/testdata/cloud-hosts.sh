@@ -9,7 +9,11 @@
 # as koto's own migration tests lay hosts out: the workspace's
 # .koto/config.toml points the session backend at the bucket, and the host's
 # user config ($HOME/.koto/config.toml) holds test-only credentials, the one
-# place koto reads them from besides the environment. Every command runs with
+# place koto reads them from besides the environment. The user config also
+# sets session.cloud.check_window_secs to 0, as koto's own migration tests do:
+# by default a read reuses another koto process's check of the bucket on the
+# same host for a few seconds, so host A's read just after B's import could
+# miss the move and not refuse as session_migrated. Every command runs with
 # the AWS_* variables and CLAUDE_CODE_SESSION_ID removed, so neither a real
 # credential nor this session's identity reaches koto, and with
 # XDG_CONFIG_HOME and KOTO_SESSIONS_BASE removed, so each host reads only its
@@ -67,8 +71,9 @@ host_make() {
     local b="$T/hosts/$1"
     mkdir -p "$b/userhome/.koto" "$b/cache"
     ws_make "$1" work
-    # Test-only credentials the fake server ignores; never a real one.
-    printf '[session.cloud]\naccess_key = "test-access"\nsecret_key = "test-secret"\n' > "$b/userhome/.koto/config.toml"
+    # Test-only credentials the fake server ignores; never a real one. Every
+    # read checks the bucket itself (check_window_secs = 0).
+    printf '[session.cloud]\naccess_key = "test-access"\nsecret_key = "test-secret"\ncheck_window_secs = 0\n' > "$b/userhome/.koto/config.toml"
 }
 
 ws_make() {

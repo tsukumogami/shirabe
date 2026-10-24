@@ -22,7 +22,8 @@
 #      no change;
 #   3. host B imports it with --import and resumes it there (imported=,
 #      resumed=1), and every key but record/host, the import's own, is the same
-#      by name and JSON as before the resume on A;
+#      by name and JSON as before the resume on A, with one more: koto's
+#      koto/imported-from, naming A's session and its session id;
 #   4. the imported run's find reads the legacy record, its `store session` row
 #      included, as found: it goes on to reconcile_pass and never to
 #      record_conflict.
@@ -135,13 +136,21 @@ AFTER=$(snap a)
 eq "2: every key's name and JSON are as before the resume" "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER"))"
 
 echo "== 3. host B imports it =="
+# The source's session id, from A's state-file header, for the record koto's
+# import writes into the copy.
+SRC_ID=$(head -n 1 "$(host_on a koto session dir "$S")/koto-$S.state.jsonl" | jq -r '.session_id // empty')
+[ -n "$SRC_ID" ] && ok "3: A's session id is read" || bad "3: A's session id is read" "empty"
 ON=b
 start "[\"docs/roadmaps/ROADMAP-fixture.md\", \"--import\", \"$FIRST\", \"--from\", \"$WS_A\"]"
 grep -qx "imported=$FIRST" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "3: host B imports the run and resumes it" \
     || bad "3: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
 S=$FIRST
 IMPORTED=$(snap b)
-eq "3: every key but record/host is the same by name and JSON as before the resume" "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$IMPORTED"))"
+EXPECTED=$( { printf '%s\n' "$BEFORE"
+    printf 'koto/imported-from %s\n' "$(jq -cnS --arg s "$FIRST" --arg i "$SRC_ID" '{from_session: $s, from_session_id: $i}')"
+    } | LC_ALL=C sort)
+eq "3: every key but record/host is the same by name and JSON as before the resume, plus koto/imported-from naming A's session" \
+    "" "$(diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$IMPORTED"))"
 
 echo "== 4. the imported run's find reads the legacy record =="
 tick > /dev/null
