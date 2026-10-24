@@ -15,7 +15,8 @@ goals: |
   step's proof, each departure and each decision with its actor, from any workspace on the
   cloud store, after the run's host is gone. koto's session pin keeps those sessions through
   every removal. PRs carry nothing from koto, shirabe or niwa unless the repository opted in.
-upstream: docs/briefs/BRIEF-plan-run-record.md
+absorbed:
+  - docs/briefs/BRIEF-plan-run-record.md
 motivating_context: |
   shirabe's lifecycle already deletes a PLAN at completion and relies on the run's koto
   session as the account of what happened. koto's session pin (koto#441, specified in
@@ -29,6 +30,38 @@ motivating_context: |
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-plan-run-record](docs/briefs/BRIEF-plan-run-record.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief named in Status is folded into this section and its file was removed when this
+PRD absorbed it; this section is the brief's framing, and there is no separate file to look
+for.
+
+The feature was framed from one gap. A plan's run is meant to be the record of how its work
+went, because shirabe deletes the PLAN once the work merges, but nothing connects a merged
+PR to that run, nothing keeps the run's sessions past koto's retention, the PR text can't
+carry a pointer while workflow content is opt-in, and shirabe's own references disagree
+about whether a finished PLAN is deleted. The outcome it asked for belongs to a reviewer,
+auditor or later agent with shirabe, koto and the session store: start from a merged PR's
+repository and number, reach the session that ran the plan and every PR it produced, and
+read the plan at each step, each step's proof, each departure and each decision with its
+actor, weeks later and from a fresh workspace. An operator pruning on any host keeps those
+sessions without looking anything up, a maintainer gets clean PRs unless they opt in, and a
+plan author finds one lifecycle that sends them to the run's session.
+
+Its journeys are the User Stories below: a reviewer following a merged PR back to its run,
+an operator pruning on a second host, a multi-pr plan's PRs leading to one record, a
+maintainer turning the session reference on and off, and a contributor reading the
+lifecycle. Its boundary is the one Requirements and Out of Scope draw. In: the lookup in
+every plan mode, what the sessions hold and how a reader reaches each step, keeping them
+through koto's session pin, reach from a fresh workspace, PRs free of workflow content with
+an opt-in reference, and one lifecycle statement. Out: building or changing the pin, runs
+that finished before this lands, teams without the cloud store, the decision-authority
+display, and a checkout-free source for the PR content switch. It left two questions to
+these requirements, whether the lookup is shirabe's or koto's and whether the pin covers
+every removal path, and Decisions and Trade-offs settles both.
 
 ## Problem Statement
 
