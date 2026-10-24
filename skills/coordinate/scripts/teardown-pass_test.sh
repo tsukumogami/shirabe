@@ -16,9 +16,7 @@
 # read's and the post's deadline, a failing post, and a capture hung past the
 # pass's own capture deadline each leave the exit code, the last line and
 # RESULT as a capturing pass leaves them, add exactly one warning line on
-# stderr, and leave no capture process running. A pass whose pull request is
-# in a public repository that hasn't opted in posts no comment: the capture
-# keeps the entry in the session (`--on none`).
+# stderr, and leave no capture process running.
 #
 # And what the pass archives: the instance's own Claude Code project
 # directory and a worktree's (the worker's main transcript, three subagent
@@ -172,24 +170,11 @@ cat >"$P2/record-append.sh" <<'EOF'
 case " $* " in
     *" --list "*) echo '[]'; exit 0 ;;
 esac
-f="" on=""
-while [ $# -gt 0 ]; do
-    [ "$1" = --text-file ] && f=$2
-    [ "$1" = --on ] && on=$2
-    shift
-done
-echo "$on" >"$ST/on"
-[ "$on" = none ] && { cp "$f" "$ST/kept.txt"; echo record/entries/000001; exit 0; }
+f=""
+while [ $# -gt 0 ]; do [ "$1" = --text-file ] && f=$2; shift; done
 cp "$f" "$ST/posted.txt"
 gh api --method POST repos/acme/widgets/issues/7/comments --input "$f" --jq .html_url
 EOF
-# The opt-in reader's stand-in: acme/widgets, which is public, opts in unless
-# a case says it doesn't.
-cat >"$T/reader" <<'EOF'
-#!/usr/bin/env bash
-[ -f "$ST/opt-out" ] && echo omit || echo include
-EOF
-export UNIT_COST_PR_CONTENT_READER="$T/reader"
 cp "$P2/unit-cost.sh" "$T/unit-cost.real"
 # A gh that hangs: it records its pid and becomes a sleep, so a deadline that
 # stops it leaves nothing behind and a test can ask whether it is gone.
@@ -206,7 +191,6 @@ case "$*" in
     "run list --repo acme/widgets --branch feat/w5 "*)
         echo '[{"databaseId":7,"headSha":"0123456789012345678901234567890123456789","attempt":1,"status":"completed","conclusion":"success","updatedAt":"2026-10-01T11:00:00Z"}]' ;;
     "api --method GET repos/acme/widgets --jq .private") echo false ;;
-    "api --method GET repos/acme/widgets/contents/CLAUDE.md") echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
     "pr view 601 --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
         hang; echo "HTTP 502" >&2; exit 1 ;;
     "pr view 6"[0-9][0-9]" --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
@@ -372,15 +356,6 @@ eq_ "an unreadable linked pull request is left out and the pass is done: credit 
     "$(jq -r '"\([.pulls[] | "\(.repo)#\(.number) \(.via)"] | join("|"))|\([.missing[] | select(.figure == "pulls") | .reason] | join(","))"' "$ARCHD/unit-cost.json" 2>&1)|$RC $RES"
 eq_ "  ... green read from the run on the pull request's head, the pull request named" "121 measured|acme/widgets#600" \
     "$(jq -r '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\(.pulls[0].repo)#\(.pulls[0].number)"' "$ARCHD/unit-cost.json" 2>&1)"
-
-echo "== a pass whose pull request is in a public repository that hasn't opted in =="
-setup_run
-touch "$ST/opt-out"
-run_pass
-[ "$RC" = 0 ] && [ "$LAST" = "$BASE_LAST" ] && [ "$RES" = "done" ] && ok "the pass is done" || bad "the pass is done" "exit $RC: $OUT $ERR"
-[ -z "$ERR" ] && ok "  ... with no warning" || bad "  ... with no warning" "$ERR"
-eq_ "  ... the capture keeps the entry in the session" "none yes" "$(cat "$ST/on" 2>&1) $([ -s "$ST/kept.txt" ] && echo yes)"
-[ -z "$(line_of 'gh api --method POST')" ] && ok "  ... and posts no comment" || bad "  ... and posts no comment" "$(cat "$ST/log")"
 
 echo "== a job niwa destroy already removed =="
 setup_run

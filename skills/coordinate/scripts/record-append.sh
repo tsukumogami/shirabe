@@ -25,14 +25,23 @@
 # with `--on none` and reaches its roadmap pull request only through
 # roadmap-status.sh, whose `--repost N --on` is admitted when
 # record/side-effects holds the roadmap edit row naming that pull request and
-# `(entry N)`. The text is scanned when it is posted, against the
-# destination's visibility read then: a destination whose visibility can't be
-# read counts as public, and a repository the text names (a github.com link,
-# owner/repo#n or a JSON "repo" field) whose visibility can't be read counts as
-# private. A bare owner/repo is read too: refused when private, and when
-# unreadable under the destination's, the host's or a named repository's
-# owner; more than 40 bare names are refused unread. A scan that refuses leaves the session entry
-# where it is (exit 65, naming it). A retry with --on posts nothing when
+# `(entry N)`.
+#
+# An item gets a comment only when its repository, public or private, opts
+# in with `## PR Workflow Content: include` in the CLAUDE.md on its default
+# branch (read through scripts/pr-workflow-content.sh). Otherwise an append keeps the
+# session entry, posts nothing and prints its key, as `--on none` does
+# (exit 0, the reason on stderr), and --repost is refused (exit 65), the
+# entry staying in the session.
+#
+# The text is scanned when it is posted, against the destination's
+# visibility read then: a destination whose visibility can't be read counts
+# as public, and a repository the text names (a github.com link, owner/repo#n
+# or a JSON "repo" field) whose visibility can't be read counts as private. A
+# bare owner/repo is read too: refused when private, and when unreadable
+# under the destination's, the host's or a named repository's owner; more
+# than 40 bare names are refused unread. A scan that refuses leaves the
+# session entry where it is (exit 65, naming it). A retry with --on posts nothing when
 # record/posted/N names a comment on the item, or when the item holds a
 # comment of the same kind and text, by the login `gh api user` answers
 # (compared without case), created at or after the entry's stamp and not kept
@@ -101,6 +110,7 @@
 # GitHub calls:
 #   reads:  gh api --method GET repos/<repo> --jq .private   (the host, then each repository the text names)
 #           gh api --method GET repos/<item repo> --jq .private, and each repository the text names (--on)
+#           gh api --method GET repos/<item repo>/contents/CLAUDE.md --jq .content (--on, the opt-in)
 #           gh api user --jq .login, gh api --method GET repos/<item repo>/issues/<n>/comments (--repost --on)
 #   writes: gh api --method POST repos/<item repo>/issues/<n>/comments --input <json> (--on)
 # koto calls: context list --prefix record/entries/ and record/posted/,
@@ -237,6 +247,25 @@ goal_fit_check() {
     named=$(goal_fit_names "$1")
     [ -n "$named" ] || { echo "$PROG: refused: the goal-fit entry names no pull request (its first line is \`Goal fit: <owner/repo#n> -- <tag>\`)" >&2; exit 65; }
     [ "$(lc "$named")" = "$(lc "$ON")" ] || { echo "$PROG: refused: the goal-fit entry names $named, not $ON" >&2; exit 65; }
+}
+# dest_withheld: writes why an entry stays off the --on item to
+# $WD/withheld, and returns 0, when the item's repository, public or private,
+# doesn't opt in to workflow content on its pull requests and issues; returns
+# 1 when it may be posted. The opt-in is `## PR Workflow Content: include`,
+# read by scripts/pr-workflow-content.sh (RECORD_APPEND_PR_CONTENT_READER
+# overrides its path, for tests) over the repository's CLAUDE.md as GitHub
+# serves it from the default branch, since the item's repository may have no
+# checkout here. A CLAUDE.md that can't be read, a missing reader, or any
+# answer but `include` is omit.
+dest_withheld() {
+    local reader=${RECORD_APPEND_PR_CONTENT_READER:-$HERE/../../../scripts/pr-workflow-content.sh} d="$WD/pr-content" out=
+    rm -rf "$d" && mkdir -p "$d" || lib_die2 "cannot make a temporary directory"
+    if gh api --method GET "repos/$ON_REPO/contents/CLAUDE.md" --jq '.content // ""' > "$WD/claude-md.b64" 2> /dev/null < /dev/null; then
+        lib_b64d "$WD/claude-md.b64" "$d/CLAUDE.md" || rm -f "$d/CLAUDE.md"
+    fi
+    [ -f "$reader" ] && out=$(bash "$reader" "$d" 2> /dev/null < /dev/null | head -n 1)
+    [ "$out" = include ] && return 1
+    echo "$ON_REPO doesn't opt in to workflow content (## PR Workflow Content: include)" > "$WD/withheld"
 }
 # The most bare owner/repo names one outward scan reads; text naming more is
 # refused rather than read without bound.
@@ -384,6 +413,9 @@ if [ "$MODE" = repost ]; then
         printf '%s\n' "$HIT"
         exit 0
     fi
+    if dest_withheld; then
+        echo "$PROG: refused: entry $N stays in the session; it isn't posted on $ON: $(cat "$WD/withheld")" >&2; exit 65
+    fi
     dest_problem "$WD/text" > "$WD/problem"
     [ ! -s "$WD/problem" ] || { echo "$PROG: refused: entry $N stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
     comment_md "$ESTAMP" "$EKIND" "$WD/text" > "$WD/comment.md"
@@ -472,6 +504,11 @@ for try in 1 2 3 4; do
 done
 [ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
 if [ -z "$ON" ] || [ "$ON" = none ]; then
+    printf 'record/entries/%s\n' "$WRITTEN"
+    exit 0
+fi
+if dest_withheld; then
+    echo "$PROG: kept the entry in the session as record/entries/$WRITTEN, posted nowhere: $(cat "$WD/withheld")" >&2
     printf 'record/entries/%s\n' "$WRITTEN"
     exit 0
 fi

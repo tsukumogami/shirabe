@@ -11,11 +11,10 @@
 # is an issue (`#n: ...`) posted on that issue of the host; a unit with
 # neither kept in the session, posted nowhere, the output saying so, and a
 # second capture of it finding the session's entry and adding none; nothing
-# ever posted on an issue the unit isn't. Those post while acme/widgets, which
-# is public, opts in; until it does, its pull request and its issue get no
-# comment and the session keeps the entry, the last line saying why, and a
-# repository whose visibility can't be read counts as public. A private
-# repository's pull request gets the entry without opting in.
+# ever posted on an issue the unit isn't. Those post while acme/widgets opts
+# in; until it does, its pull request and its issue get no comment and the
+# session keeps the entry, the last line saying why, and a private
+# repository's pull request that doesn't opt in gets none either.
 #
 # Usage: bash skills/coordinate/scripts/unit-cost-on_test.sh
 set -uo pipefail
@@ -36,8 +35,8 @@ MERGE=5555555555555555555555555555555555555555
 export KOTO_REQUESTS="$FX/requests" UNIT_COST_NOW=2026-10-01T12:00:00Z UNIT_COST_FETCH_SECS=60 UNIT_COST_BUDGET_SECS=300
 S=coordinate-roadmap-x-20261001T080000Z
 # The opt-in reader's stand-in: it answers what $T/opt-in holds, else omit.
-# acme/widgets, the example's repository, is public, so its items get the
-# entry only while it opts in.
+# An item gets the entry only while its repository opts in; unit-cost.sh
+# hands this override to record-append.sh, which reads the opt-in.
 cat >"$T/reader" <<EOF
 #!/usr/bin/env bash
 cat "$T/opt-in" 2>/dev/null || echo omit
@@ -77,27 +76,22 @@ seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "
 fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a capture exits 0" 0 $?
 eq "  ... posting no comment anywhere" 0 "$(ncomments)"
-eq "  ... and says why" "unit-cost: kept the cost entry in the session: acme/widgets is public and doesn't opt in to workflow content, so acme/widgets#22 gets nothing" \
+eq "  ... and says why" "unit-cost: kept the cost entry in the session: acme/widgets doesn't opt in to workflow content, so acme/widgets#22 gets nothing" \
     "$(tail -n 1 "$T/cap.err")"
 eq "  ... the session holds the entry" "$(jq -r .key "$A/unit-cost.json")" "$(costs | jq -r '.[0].text | split("\n") | .[3] | fromjson | .key')"
 eq "  ... and no posted URL" "" "$(koto context get "$S" "record/posted/$(printf '%06d' "$(costs | jq -r '.[0].n')")" 2>/dev/null)"
 seed "$(holding feat-x '{"unit": "#5: fix it", "pull_request": ""}')"
 fresh; : >"$T/prs"
 capture; eq "a unit that is a public issue" "0 0" "$? $(ncomments)"
-seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"
-db '.fail = [{match: "repos/acme/widgets --jq .private", rc: 1, stderr: "gh: HTTP 502"}]'
-fresh; prs "acme/widgets#21 $MERGE"
-capture; eq "a repository whose visibility can't be read counts as public" "0 0" "$? $(ncomments)"
-db '.fail = []'
 
 echo "== a private repository's pull request, without opting in =="
 seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "[#30](https://github.com/acme/secret/pull/30)"}')"
 db '.prs += [{repo: "acme/secret", number: 30, title: "x", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
     baseRefName: "main", headRefName: "feat/30", headRefOid: "2222222222222222222222222222222222222222", author: "alice", editor: null}]'
 fresh; prs "acme/widgets#21 $MERGE"
-capture; eq "a capture posts" 0 $?
-eq "  ... on the private pull request" "1 unit-cost: posted the cost entry on acme/secret#30" \
-    "$(jq '[.comments // [] | .[] | select(.repo == "acme/secret" and .number == 30)] | length' "$GH_DB") $(tail -n 1 "$T/cap.err")"
+capture; eq "a capture exits 0" 0 $?
+eq "  ... posting nothing on it either" "0 unit-cost: kept the cost entry in the session: acme/secret doesn't opt in to workflow content, so acme/secret#30 gets nothing" \
+    "$(ncomments) $(tail -n 1 "$T/cap.err")"
 
 opt_in
 echo "== the holding's pull request =="
