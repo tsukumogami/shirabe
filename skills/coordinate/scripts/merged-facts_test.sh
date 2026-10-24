@@ -28,7 +28,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 MF="$PS/merged-facts.sh"
 CL="$PS/coord-log.sh"
-PERMIT="readable merge:permit close:permit teardown:permit"
+PERMIT="readable merge:permit close:permit teardown:permit release:permit"
 N=0
 at_facts() { # [none|unverified]: #12 verified for plugin-registry (or with no verify
     # capture in this run, or read unverified), #13 verified later for sandbox; now at merged_facts

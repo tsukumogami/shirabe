@@ -29,7 +29,7 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 BT_PRVIEW_BODY=$(bt_body)
 LM="$PS/land-merge.sh"
-PERMIT="readable merge:permit close:permit teardown:permit"
+PERMIT="readable merge:permit close:permit teardown:permit release:permit"
 CALLS="$BT_STATE/merge-exec.calls"
 N=0
 
@@ -71,13 +71,13 @@ at_land; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 1 > "$GH_BOARD_DIR/prview-12.
 never "a body that can't be read: no merge" 10
 
 echo "== never merges =="
-at_land; printf '%s\n' "readable merge:deny close:permit teardown:permit" > "$BT_STATE/posture"
+at_land; printf '%s\n' "readable merge:deny close:permit teardown:permit release:permit" > "$BT_STATE/posture"
 never "the posture re-read denies" 10
-at_land; printf '%s\n' "readable merge:confirm close:permit teardown:permit" > "$BT_STATE/posture"
+at_land; printf '%s\n' "readable merge:confirm close:permit teardown:permit release:permit" > "$BT_STATE/posture"
 never "the posture re-read asks for a person's confirmation" 10
 at_land; echo 2 > "$BT_STATE/posture.rc"
 never "the posture re-read fails" 10
-at_land "readable merge:deny close:permit teardown:permit"
+at_land "readable merge:deny close:permit teardown:permit release:permit"
 never "the start's posture denied, whatever the re-read says" 10
 at_land; bt_enter "$S" land
 never "land's capture is stale (land entered again since)" 10

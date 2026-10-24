@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # posture-read.sh -- the check action of state start_posture: what does the
-# workspace let the coordinator do on its own at the three finishing steps
-# (merge, close, teardown)?
+# workspace let the coordinator do on its own at the finishing steps (merge,
+# close, teardown, release)?
 #
 # It reads the posture from where the workspace declares it, never from a
 # cloned repository: the niwa instance root (the first directory at or above
@@ -18,6 +18,7 @@
 #   merge     gh pr merge, merge-exec.sh, land-merge.sh
 #   close     gh's issue close and pull request close commands
 #   teardown  niwa destroy, claude rm, teardown-pass.sh
+#   release   gh release create
 #
 # Only the commands the skill runs stand for a step. The skill never runs
 # `niwa reap` or another untargeted removal, so a rule or hook about those
@@ -43,10 +44,36 @@
 # worktree builds and git; any other niwa call is a PATH command like the
 # rest. With no root found, every step is `unread`.
 #
-# Verdict token: `readable merge:<v> close:<v> teardown:<v>` when no step is
-# unread, else `unread merge:<v> close:<v> teardown:<v>`, with each <v> one of
-# permit, deny, confirm, unread. The separator is `:` because koto refuses to
-# capture a value holding `=`.
+# The coordinator's own grant. When niwa is found (on PATH, else an
+# executable $NIWA_BIN), CLAUDE_CODE_SESSION_ID is set and an instance root
+# was found, the reader asks niwa once, bounded at NIWA_LOOKUP_SECONDS (3):
+#   niwa authority check --json --session <id> -C <instance root>
+#        --point merge-pr --point close-issue --point cut-release
+# The answer counts only when it exits 0 with schema niwa.authority.check/v1
+# and every state, authority, level, decider and author_exclusion inside
+# niwa's vocabularies; anything else is a failed lookup. Then:
+#   bound            merge, close and release skip the hook reading: each is
+#                    the stricter of its permission reading (rules, else an
+#                    unparseable file's unread, else defaultMode) and the
+#                    grant's answer, by the table the workspace gate uses:
+#                      held, decider session, author exclusion off  permit
+#                      not held                     deny (release: confirm)
+#                      held, decider dispatcher                       deny
+#                      held, decider person or author exclusion on    deny
+#                        for merge, confirm for close and release
+#                    teardown reads as below.
+#   record-unusable  merge is deny; every other step reads as below.
+#   anything else    (not-dispatched, a failed lookup, no lookup) every step
+#                    reads as below, as it did before the grant existed.
+# The grant never lifts a deny or an ask rule: Claude Code's own permissions
+# still apply to a command the gate allows.
+#
+# Verdict token: `readable merge:<v> close:<v> teardown:<v> release:<v>` when
+# none of merge, close and teardown is unread, else `unread ...` with the same
+# steps, with each <v> one of permit, deny, confirm, unread. The leading word
+# doesn't follow release: an unread release alone leaves the token as it read
+# before the step existed, and stays reserved for a person. The separator is
+# `:` because koto refuses to capture a value holding `=`.
 #
 # Usage:
 #   posture-read.sh --session S
@@ -54,8 +81,10 @@
 #                   [--no-seal]                                          (tests)
 #
 # The detail goes to context key coord/posture.json as data (roots, files
-# read, default mode, each step's verdict and the rules or hooks behind it).
-# It never carries a settings file's env block.
+# read, default mode, each step's verdict, the rules, hooks or grant behind it
+# and its source, `grant` for a step the grant decided and `workspace`
+# otherwise, and the lookup's answer under `grant_check`). It never carries a
+# settings file's env block.
 #
 # Exit codes: 0 a verdict was printed; 2 the seal or context write failed; 64 usage.
 set -uo pipefail
@@ -76,6 +105,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 . "$HERE/state-common.sh"
+# shellcheck source=dispatch-common.sh
+. "$HERE/dispatch-common.sh"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/posture-read.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
@@ -100,7 +131,7 @@ for r in "$IROOT" "$WROOT"; do
     [ -z "$r" ] || [ -d "$r" ] || { echo "$PROG: $r is not a directory" >&2; exit 64; }
 done
 
-STEPS="merge close teardown"
+STEPS="merge close teardown release"
 # The merge command is spelled in two parts below so that this file, which only
 # names it as a pattern, isn't counted as a second place that runs it
 # (skills/execute/scripts/merge-exec_test.sh allows exactly one).
@@ -109,11 +140,14 @@ MERGE_CMD="gh pr"' merge'
 # nothing, so a search for the scripts that close an issue or a pull request
 # doesn't find it.
 CLOSE_ISSUE="gh issue"' close' CLOSE_PR="gh pr"' close'
+# And the release command, which this file names and never runs.
+RELEASE_CMD="gh release"' create'
 step_patterns() {
     case "$1" in
         merge) printf '%s\n' "$MERGE_CMD" 'merge-exec.sh' 'land-merge.sh' ;;
         close) printf '%s\n' "$CLOSE_ISSUE" "$CLOSE_PR" ;;
         teardown) printf '%s\n' 'niwa destroy' 'claude rm' 'teardown-pass.sh' ;;
+        release) printf '%s\n' "$RELEASE_CMD" ;;
     esac
 }
 # Commands a rule is tried against, one per way the step can be typed.
@@ -125,6 +159,7 @@ step_commands() {
         close) printf '%s\n' "$CLOSE_ISSUE 7 --repo o/r" "$CLOSE_PR 7 --repo o/r" ;;
         teardown) printf '%s\n' 'niwa destroy x' 'niwa destroy --force x' 'claude rm x' \
             'bash /p/skills/coordinate/scripts/teardown-pass.sh run --session s --keyseal k' '/p/skills/coordinate/scripts/teardown-pass.sh run --session s --keyseal k' ;;
+        release) printf '%s\n' "$RELEASE_CMD v1.2.3 --repo o/r --notes-file n.md" ;;
     esac
 }
 
@@ -379,13 +414,84 @@ done < "$T/hooks"
 sed -e 's/\\ / /g' -e 's/\\s[+*]\{0,1\}/ /g' -e 's/\[\[:space:\]\][+*]\{0,1\}/ /g' -e 's/\[ \][+*]/ /g' -e 's/  */ /g' \
     "$T/hooktext" > "$T/hooktext.plain"
 
+# The grant lookup (see the header). GRANT_STATE is the answer's state, or
+# empty when there was no usable answer; $T/grant holds "step<TAB>verdict<TAB>why"
+# for the steps a bound answer decides.
+GRANT_STATE=
+CHECK_JSON='{"lookup": "skipped", "why": "no niwa on PATH or in NIWA_BIN"}'
+: > "$T/grant"
+find_niwa() {
+    local p
+    p=$(command -v niwa 2> /dev/null) && [ -n "$p" ] && { printf '%s\n' "$p"; return 0; }
+    [ -n "${NIWA_BIN:-}" ] && [ -f "$NIWA_BIN" ] && [ -x "$NIWA_BIN" ] && { printf '%s\n' "$NIWA_BIN"; return 0; }
+    return 1
+}
+NIWA=$(find_niwa)
+IROOT_P=$(canon_root "$IROOT")
+if [ -z "$NIWA" ]; then
+    :
+elif [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    CHECK_JSON='{"lookup": "skipped", "why": "CLAUDE_CODE_SESSION_ID is not set"}'
+elif [ -z "$IROOT_P" ]; then
+    CHECK_JSON='{"lookup": "skipped", "why": "no niwa instance root found"}'
+elif ! dc_with_deadline "${NIWA_LOOKUP_SECONDS:-3}" dc_tree "$NIWA" authority check --json \
+        --session "$CLAUDE_CODE_SESSION_ID" -C "$IROOT_P" --point merge-pr --point close-issue --point cut-release \
+        < /dev/null > "$T/check.json" 2> /dev/null; then
+    CHECK_JSON='{"lookup": "failed", "why": "niwa authority check exited non-zero or ran past its bound"}'
+elif ! jq -e '
+        def in_set($s): . as $v | any($s[]; . == $v);
+        type == "object"
+        and .schema == "niwa.authority.check/v1"
+        and (.state | in_set(["bound", "record-unusable", "not-dispatched"]))
+        and (if .state != "bound" then true else
+            (.grant | type == "array")
+            and all(.grant[]; type == "object" and (.authority | in_set(["merge-pr", "close-issue", "cut-release"])))
+            and (.level | in_set(["autonomous", "supervised", "strict"]))
+            and (.points | type == "array")
+            and all(.points[]; type == "object"
+                and (.decider | in_set(["session", "dispatcher", "person"]))
+                and (.author_exclusion | in_set(["on", "off"])))
+            and (.points as $pts | all("merge-pr", "close-issue", "cut-release"; . as $p | any($pts[]; .point == $p)))
+        end)' "$T/check.json" > /dev/null 2>&1; then
+    CHECK_JSON='{"lookup": "failed", "why": "niwa authority check printed no document this reader knows"}'
+else
+    GRANT_STATE=$(jq -r .state "$T/check.json")
+    CHECK_JSON=$(jq -c '{lookup: "answered", state, reason, binding, dispatch_id, parent, level,
+        grant: [.grant[]?.authority]} | with_entries(select(.value != null))' "$T/check.json")
+    if [ "$GRANT_STATE" = bound ]; then
+        jq -r '. as $d
+            | ([.grant[].authority] | if length == 0 then "none" else join(",") end) as $holds
+            | (["merge", "merge-pr"], ["close", "close-issue"], ["release", "cut-release"]) as [$s, $a]
+            | first(.points[] | select(.point == $a)) as $p
+            | (if (any($d.grant[]; .authority == $a) | not) then
+                  [(if $s == "release" then "confirm" else "deny" end), "the grant holds \($holds); needs \($a)"]
+               elif $p.decider == "dispatcher" then
+                  ["deny", "level \($d.level): \($a) is settled by dispatcher"]
+               elif $p.decider == "person" then
+                  [(if $s == "merge" then "deny" else "confirm" end), "level \($d.level): \($a) is settled by person"]
+               elif $p.author_exclusion == "on" then
+                  [(if $s == "merge" then "deny" else "confirm" end), "\($a) carries author exclusion"]
+               else
+                  ["permit", "the grant holds \($a) at level \($d.level)"]
+               end) as [$v, $why]
+            | "\($s)\t\($v)\t\($why)"' "$T/check.json" > "$T/grant"
+    fi
+fi
+
+rank() { case "$1" in permit) echo 0 ;; unread) echo 1 ;; confirm) echo 2 ;; deny) echo 3 ;; *) echo 9 ;; esac; }
+
 TOKEN_WORD=readable
 TOKEN=
 STEPS_JSON='{}'
 for step in $STEPS; do
-    v= why=
+    v= why= src=workspace gv= gwhy=
+    IFS='	' read -r _ gv gwhy <<GRANT
+$(grep "^$step	" "$T/grant")
+GRANT
     if [ "$ALL_UNREAD" = 1 ] && [ -z "$IROOT$WROOT" ]; then
         v=unread; why="no niwa instance or workspace root found"
+    elif [ "$GRANT_STATE" = record-unusable ] && [ "$step" = merge ]; then
+        v=deny; why="niwa authority check: the session's dispatch record is unusable"; src=grant
     else
         for kind in deny ask allow; do
             while IFS='	' read -r k rule; do
@@ -401,6 +507,9 @@ for step in $STEPS; do
         if [ "$v" != deny ]; then
             if [ "$ALL_UNREAD" = 1 ]; then
                 v=unread; why="a settings file is unparseable"
+            elif [ -n "$gv" ]; then
+                # The grant stands where the hook's text would be read.
+                :
             elif [ "$HOOK_UNREAD" = 1 ]; then
                 v=unread; why="a PreToolUse hook script can't be read: $(head -1 "$T/unreadable")"
             else
@@ -418,13 +527,21 @@ PATS
             if [ "$MODE" = bypassPermissions ]; then v=permit; why="defaultMode bypassPermissions"
             else v=confirm; why="no rule; defaultMode ${MODE:-default}"; fi
         fi
+        if [ -n "$gv" ]; then
+            # The stricter of the permission reading and the grant's answer;
+            # on a tie the grant's reason is the one recorded.
+            src=grant
+            [ "$(rank "$gv")" -ge "$(rank "$v")" ] && { v=$gv; why=$gwhy; }
+        fi
     fi
-    [ "$v" = unread ] && TOKEN_WORD=unread
+    [ "$v" = unread ] && [ "$step" != release ] && TOKEN_WORD=unread
     TOKEN="$TOKEN $step:$v"
-    STEPS_JSON=$(printf '%s' "$STEPS_JSON" | jq -c --arg s "$step" --arg v "$v" --arg w "$why" '.[$s] = {verdict: $v, why: $w}')
+    STEPS_JSON=$(printf '%s' "$STEPS_JSON" | jq -c --arg s "$step" --arg v "$v" --arg w "$why" --arg src "$src" \
+        '.[$s] = {verdict: $v, why: $w, source: $src}')
 done
 TOKEN="$TOKEN_WORD$TOKEN"
 
 jq -n --arg t "$TOKEN" --arg i "$IROOT" --arg w "$WROOT" --arg m "$MODE" --argjson f "$FILES_JSON" --argjson s "$STEPS_JSON" \
-    '{token: $t, instance_root: $i, workspace_root: $w, default_mode: $m, files: $f, steps: $s}' > "$T/detail.json"
+    --argjson g "$CHECK_JSON" \
+    '{token: $t, instance_root: $i, workspace_root: $w, default_mode: $m, files: $f, steps: $s, grant_check: $g}' > "$T/detail.json"
 lib_emit start_posture "$TOKEN" coord/posture.json "$T/detail.json"
