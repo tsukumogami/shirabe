@@ -310,7 +310,7 @@ rs_resume_candidate() {
 # JSON object into <out>: where its state came from on an import
 # (source_workspace, source_session, template_hash) and where its crash set's
 # files live (rules:<label>, briefs:<label>, friction). They describe this
-# host, so they never leave it and --show never prints them. {} when the
+# host, so they never leave it and never join the state. {} when the
 # session holds none. Returns 0; 2 a read failed or the key isn't an object.
 rs_host() {
     rs_key "$1" record/host "$2"
