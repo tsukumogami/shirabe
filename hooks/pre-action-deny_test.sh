@@ -272,8 +272,22 @@ for c in "env -u GH_TOKEN $BAD_CREATE" \
     expect_deny "env-wrapped: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
 done
 
+# A head in another case is the same program on a case-insensitive
+# filesystem, so a wrapper is still a wrapper and gh is still gh.
+for c in 'ENV gh pr create -t \"feat: x\" -b \"Adds x.\"' \
+    'ENV -u GH_TOKEN gh pr create -t \"feat: x\" -b \"Adds x.\"' \
+    'Sudo git push' 'BASH -c \"git push\"' '/USR/BIN/ENV git push'; do
+    run_hook "$c"
+    expect_deny "case: $c is wrapped" "wrapped" "ask the user" '!SHIRABE_PRE_ACTION_HOOK'
+done
+run_hook "GH pr create --title \\\"feat: x\\\" --body $BAD"
+expect_deny "case: GH pr create with a bad body" "pr-body/one-separator"
+run_hook 'ENV -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new path\"'
+expect_none "case: ENV -u GH_TOKEN gh pr merge gives no decision"
+
 for c in '/usr/bin/git push' 'git status && git push' 'if true; then git push; fi' \
-    'git push --force origin +topic' 'git -c k=v push' 'cd sub && git push' 'git -C sub push'; do
+    'git push --force origin +topic' 'git -c k=v push' 'cd sub && git push' 'git -C sub push' \
+    'GIT push' 'Git -C sub push'; do
     run_hook "$c"
     expect_deny "table: $c with the trailer commit" "commit/no-ai-trailer" "$TRAILER_HASH"
 done

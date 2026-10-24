@@ -13,6 +13,15 @@
 //! it can't follow. The body-file check against earlier segments needs the
 //! body reader's path, so it is [`Classified::earlier_names_file`].
 //!
+//! A head names a program in any case: on a case-insensitive filesystem,
+//! macOS's default, the shell's PATH lookup finds `/usr/bin/env` for `ENV`
+//! and gh for `GH`, so the last path component is lowercased before it is
+//! compared with `gh`, `git` and [`WRAPPERS`]. `cd`, `pushd` and `popd` are
+//! the exception: the shell matches a builtin's name exactly, and `CD sub`
+//! runs a `cd` program in a child process that moves nothing. The words
+//! after the head keep their case, since gh and git read their subcommands
+//! exactly (`gh PR create` is an unknown command).
+//!
 //! An `env` head is judged by the command it runs when that command is `gh`:
 //! past env's own options and assignment operands, it is classified the way it
 //! would be unwrapped, so `env -u GH_TOKEN gh pr merge --body "a new path"` is a
@@ -34,7 +43,8 @@ use std::path::{Component, Path, PathBuf};
 use super::reason::{Action, Case, FailClosed, PrAction};
 use super::tokenize::{HereDoc, Segment, Tokenized, Word};
 
-/// Heads that run another command (PRD Definitions, wrapped guarded command).
+/// Heads that run another command (PRD Definitions, wrapped guarded command),
+/// in lowercase: a head matches one in any case.
 const WRAPPERS: &[&str] = &[
     "env", "command", "builtin", "exec", "eval", "bash", "sh", "zsh", "dash", "xargs", "sudo",
     "time", "nohup", "timeout", "nice", "ssh", "docker", "podman", "mise", "nix", "python",
@@ -353,8 +363,8 @@ fn candidates(j: usize, ambiguous: bool) -> Vec<usize> {
 /// command at all; or a command other than `gh`.
 ///
 /// That last one covers a lot. An unlisted launcher (`stdbuf`, `arch`,
-/// `ksh -c`) or another spelling of `gh` (`GH` on a case-insensitive
-/// filesystem) would read as an unguarded program. `git` reads a subcommand by
+/// `ksh -c`) would read as an unguarded program; `gh` itself matches in any
+/// case, as a head does, so `GH` is read as gh. `git` reads a subcommand by
 /// its name, so `git -c 'alias.p=!git push' p` names no push. And a listed
 /// wrapper, `env` included, can join env's words with its own: with
 /// `env 'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr create'` env's words
@@ -399,7 +409,7 @@ fn env_command(ws: &[Word]) -> Option<usize> {
         j += 1;
     }
     ws.get(j)
-        .is_some_and(|w| plain(w) && basename(&w.text) == "gh")
+        .is_some_and(|w| plain(w) && basename(&w.text).eq_ignore_ascii_case("gh"))
         .then_some(j)
 }
 
@@ -466,7 +476,10 @@ fn kind_words(ws: &[Word]) -> Kind {
             named: Named { pr, push },
         };
     }
-    let name = basename(&head.text);
+    // In any case, as the module docs say; `exact` is kept for the builtins.
+    let exact = basename(&head.text);
+    let lower = exact.to_ascii_lowercase();
+    let name = lower.as_str();
     if WRAPPERS.contains(&name) {
         // `env` (on WRAPPERS, which is what brings it here) runs the command
         // after its own options and assignments. When that command is `gh`,
@@ -501,8 +514,8 @@ fn kind_words(ws: &[Word]) -> Kind {
         };
     }
     match name {
-        "cd" | "pushd" => Kind::Cd(rest.to_vec()),
-        "popd" => Kind::Popd,
+        "cd" | "pushd" if exact == name => Kind::Cd(rest.to_vec()),
+        "popd" if exact == name => Kind::Popd,
         "gh" => {
             // gh takes `-R`/`--repo` before `pr` or between `pr` and the
             // action word, so both runs of options are skipped.
@@ -1107,7 +1120,6 @@ mod tests {
             "env stdbuf -oL gh pr create",
             "env arch -arm64 gh pr create",
             "env ksh -c 'gh pr create --title x'",
-            "env GH pr create",
             "env gh/ pr create",
             // An option after an assignment is the command; `-u` takes `--`
             // as its name, as GNU env does.
@@ -1156,7 +1168,6 @@ mod tests {
             // Only gh is read past env; any other program's quoted arguments,
             // a nested env's included, go to the text test.
             "env -u GH_TOKEN koto next w --with-data '{\"note\": \"gh pr edit\"}'",
-            "env Gh pr merge 1 --body new",
             "env env -u GH_TOKEN gh pr merge 1 --body new",
             // env's own words are text-tested, so an assignment whose value
             // names a guarded action is denied, whatever gh then runs.
@@ -1167,6 +1178,121 @@ mod tests {
         // `-u` with no name falls back, and the text test finds nothing
         // guarded in `env -u`.
         assert_eq!(cl("env -u").items, vec![]);
+    }
+
+    #[test]
+    fn a_wrapper_head_matches_in_any_case() {
+        // On a case-insensitive filesystem `ENV` runs env and `Sudo` runs
+        // sudo, so each is read as its lowercase spelling (#1074).
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            "ENV gh pr create -t \"feat: x\" -b \"Adds x.\"",
+            "Env gh pr create -t x",
+            "ENV -u GH_TOKEN gh pr create --title x --body y",
+            "eNV --unset=GH_TOKEN -- gh pr new -t x",
+            "ENV GH_TOKEN= gh pr edit 12 --body x",
+            "/USR/BIN/ENV gh pr create",
+            "ENV SUDO gh pr create",
+            "SUDO gh pr create",
+            "Sudo -u x gh pr edit 3 --body y",
+            "BASH -c 'gh pr create --title x'",
+            "Bash -c \"gh pr edit 3\"",
+            "XARGS gh pr create",
+            "EVAL 'gh pr create'",
+        ] {
+            assert_eq!(fails(cmd), wrapped, "{cmd}");
+            assert!(ghs(cmd).is_empty(), "{cmd}");
+        }
+        let capitalized = |w: &str| w[..1].to_ascii_uppercase() + &w[1..];
+        for w in WRAPPERS {
+            for head in [w.to_ascii_uppercase(), capitalized(w)] {
+                let cmd = format!("{head} git push");
+                assert_eq!(fails(&cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
+                assert!(pushes(&cmd).is_empty(), "{cmd}");
+                let cmd = format!("{head} gh pr create --title x");
+                assert_eq!(fails(&cmd), wrapped, "{cmd}");
+                // A wrapper naming nothing guarded is still just a command,
+                // and still rules out a later push.
+                assert_eq!(cl(&format!("{head} ls")).items, vec![], "{head}");
+                assert!(same_command(&format!("{head} ls && git push")), "{head}");
+            }
+        }
+        // `ENV` reads the gh command it runs as `env` does.
+        for cmd in [
+            "ENV -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new edit path.\"",
+            "Env GH_TOKEN= gh pr merge 1 --squash --body \"creates a new thing\"",
+            "ENV -u GH_TOKEN gh issue create --title \"hook refuses gh pr create\" --body x",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_guarded_head_matches_in_any_case() {
+        // `GH` runs gh and `GIT` runs git on a case-insensitive filesystem,
+        // so each is checked as gh or git, not left unguarded.
+        for (cmd, action) in [
+            ("GH pr create --title x", PrAction::Create),
+            ("Gh -R o/r pr new -t x", PrAction::Create),
+            ("/OPT/BIN/GH pr edit 3 --body y", PrAction::Edit),
+            ("GH_TOKEN=t GH pr --repo o/r edit 3", PrAction::Edit),
+        ] {
+            let g = ghs(cmd);
+            assert_eq!(g.len(), 1, "{cmd}");
+            assert_eq!(g[0].action, action, "{cmd}");
+            assert_eq!(fails(cmd), vec![], "{cmd}");
+        }
+        assert_eq!(
+            fails("GH --hostname h pr create -t x"),
+            vec![(
+                Action::Pr(Some(PrAction::Create)),
+                Case::UnknownOption("--hostname".into())
+            )]
+        );
+        assert_eq!(pushes("GIT push").len(), 1);
+        assert_eq!(
+            pushes("Git -C sub push")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+        assert_eq!(
+            fails("GIT_DIR=/x GIT push"),
+            vec![(Action::Push, Case::UnknownOption("GIT_DIR=".into()))]
+        );
+        for cmd in [
+            "GIT commit -m x && git push",
+            "Git checkout other && git push",
+            "GH pr checkout 3 && git push",
+        ] {
+            assert!(same_command(cmd), "{cmd}: {:?}", fails(cmd));
+        }
+        assert_eq!(pushes("GIT status && git push").len(), 1);
+        // Behind env, `GH` is gh: a create stays wrapped, a merge is none.
+        assert_eq!(
+            fails("env GH pr create"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        for cmd in [
+            "env Gh pr merge 1 --body new",
+            "ENV -u GH_TOKEN GH pr merge 1 --body new",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+        // gh and git read their subcommands exactly: `gh PR create` is an
+        // unknown command and `git PUSH` doesn't push.
+        assert_eq!(cl("gh PR create --title x").items, vec![]);
+        assert!(pushes("git PUSH").is_empty());
+    }
+
+    #[test]
+    fn a_builtin_head_matches_only_exactly() {
+        // `CD` isn't the builtin: it runs a `cd` program in a child, so the
+        // directory stays where it was.
+        for cmd in ["CD sub && git push", "Pushd /abs && git push"] {
+            assert_eq!(pushes(cmd)[0].dir, PathBuf::from(CWD), "{cmd}");
+            assert_eq!(fails(cmd), vec![], "{cmd}");
+        }
+        assert_eq!(pushes("POPD && git push")[0].dir, PathBuf::from(CWD));
+        assert_eq!(fails("POPD && git push"), vec![]);
     }
 
     #[test]
