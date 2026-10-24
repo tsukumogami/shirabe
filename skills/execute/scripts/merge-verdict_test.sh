@@ -257,6 +257,8 @@ expect "row 5 fail, merge true" "error:execute:ci"
 expect "row 5 fail, merge false" "error:execute:ci" --repo o/r --pr 7 --merge false --expected-head "$HEAD"
 new_case r5c; fixture checks '[{"name":"build","bucket":"pass"},{"name":"lint","bucket":"cancel"}]'
 expect "row 5 cancel" "error:execute:ci"
+new_case r5u; fixture checks '[{"name":"build","bucket":"pass"},{"name":"codecov","bucket":"unreadable"}]'
+expect "row 5 a required check pr-checks.sh couldn't see (unreadable)" "error:execute:ci"
 
 new_case r6-pass-skip; fixture checks '[{"name":"build","bucket":"pass"},{"name":"docs","bucket":"skipping"}]'
 expect "row 6 pass and skipping count as succeeded" "mergeable:squash:$HEAD"

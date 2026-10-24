@@ -22,10 +22,13 @@
 #
 # Token, sealed to the latest entry into verify_board:
 #   verified <pr> <head>         the board is green at <head>, read from the
-#                                checks, and the worker's review round, if
-#                                it has one, parses (the round recorded in
-#                                its session, else the body's Review panel
-#                                table: board-lib.sh's bl_review_evidence)
+#                                checks, or from the Actions jobs and the
+#                                commit's statuses where the token can't
+#                                read checks, and the worker's review round,
+#                                if it has one, parses (the round recorded
+#                                in its session, else the body's Review
+#                                panel table: board-lib.sh's
+#                                bl_review_evidence)
 #   unevidenced <pr> none        the board is green but the review round is
 #                                malformed (panel-evidence.sh):
 #                                a panel claim with seats that can't be told
@@ -36,10 +39,6 @@
 #                                the board's own, `verified`). A body that
 #                                can't be read is board-unreadable, reason
 #                                `evidence-read`
-#   actions-green <pr> none      the board is green judged from the Actions
-#                                jobs, because the token can't read checks;
-#                                the required set may be short, so it is for
-#                                a person, never for landing
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
 #   not-run <pr> none            a job at the head never ran (it completed
@@ -49,6 +48,11 @@
 #                                verdict on the
 #                                code, and not the worker's to fix; the
 #                                reasons in coord/board.json say why
+#   check-unreadable <pr> none   the board read, but a required check is one
+#                                the token can't see (reason
+#                                required-unreadable, and no other error): it
+#                                may be another app's check run, so it is for
+#                                a person who can see it, never for landing
 #   board-unreadable <pr> none   the board or the record couldn't be read, or
 #                                the read ran out of time: no verdict on the
 #                                code
@@ -165,9 +169,18 @@ if [ -z "$TOKEN" ]; then
     case "$V" in
         verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
                   TOKEN="verified $PR $H" ;;
-        unverified|pending|actions-green|not-run) TOKEN="$V $PR none" ;;
+        unverified|pending|not-run) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
-        error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
+        # A board whose only error is a required check the token can't see
+        # read fine otherwise: nothing to retry, so it is a person's to settle.
+        error:board-read)
+            if jq -e '[.reasons[] | select(.code | IN("read-failed", "required-set-unreadable", "deadline", "required-unreadable"))]
+                      | length > 0 and all(.code == "required-unreadable")' "$T" >/dev/null 2>&1; then
+                TOKEN="check-unreadable $PR none"
+            else
+                TOKEN="board-unreadable $PR none"
+            fi ;;
+        error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
     esac
 fi

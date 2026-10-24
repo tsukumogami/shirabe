@@ -816,6 +816,12 @@ states:
       # lookup was a 2 that matches no edge. A MERGED PR's merge state reads
       # UNKNOWN, which owned_merge_state_clean passes.
       #
+      # The checks are read through work-on's pr-checks.sh, which is
+      # `gh pr checks` unchanged wherever the token can read checks, and
+      # reads the Actions jobs and the commit's statuses where GitHub refuses
+      # the check read (#1132), listing a required check neither answers as
+      # `unreadable`, which the filter counts as not green.
+      #
       # owned_ci_passing keeps the filter above and falls back, only when it
       # says not green, to work-on's ci-cancel-after-merge.sh, the one copy of
       # the rule work-on.md's ci_passing uses: since #950, closing a PR cancels
@@ -846,7 +852,7 @@ states:
       # matches no edge, so the run holds and the next tick reads again.
       owned_ci_passing:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" {} --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
       owned_merge_state_clean:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
@@ -1775,7 +1781,7 @@ Empty output or a non-zero exit means no single owned PR this run can use, or a 
 
 The lookup follows the PR past its merge: once it is MERGED, the gates read it rather than finding nothing, and a MERGED PR never stops here. koto routes it on `owned_pr_merged` with nothing submitted, even with a failed, cancelled or still-running check, since there is no fix to push to a merged PR. If you do see this state and `gh pr view "$PR" --json state` says MERGED, the gate's read failed: submit `ci_outcome: pending`, never `failing_fixed` or `failing_unresolvable`, and `merge_readiness`'s verdict reads the PR as merged. If the merge-state read failed too, no edge takes it and the run holds here; tick again with nothing submitted. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels also passes `owned_ci_passing`, and koto records the cancelled checks as `ci_cancelled_after_merge.txt`. The `merged` state says how to report a merged PR's checks.
 
-If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
+If the gate fails because a check failed, read which failed with `{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh "$PR"`, which is `gh pr checks` wherever the token can read checks and reads the Actions jobs and the commit's statuses where GitHub refuses it (a check it lists as `unreadable` is a required one neither answers: a person who can see it settles it, so submit `failing_unresolvable` naming it), and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
 ```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}
@@ -1941,7 +1947,7 @@ koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit
 
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds, the PR merged while `ci_monitor` watched it and its CI passed with cancelled macOS floor checks: read it with `koto context get` and name those checks in your final report.
 
-A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `gh pr checks <pr> --repo <repo>`, taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
+A PR someone else merged while `ci_monitor` watched it reaches here whatever its checks said, so `outcome=merged` doesn't mean its CI was green. Read the checks once with `{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh <pr> --repo <repo>` (`gh pr checks` where the token can read checks, the Actions jobs and statuses where it can't), taking the PR and repository from the result, and name any check outside the `pass` and `skipping` buckets (failed, cancelled, or still running when the PR merged) in your final report.
 
 ## ready_awaiting_merge
 

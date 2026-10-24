@@ -197,6 +197,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-none-declared_test.sh
 
+      # Runs the check reader every CI gate reads through, alone and through
+      # ci_passing and execute.md's owned_ci_passing extracted from the
+      # templates, against a stubbed gh that answers the check read or
+      # refuses it as a fine-grained token sees it. No engine needed; the
+      # macOS leg runs it on the floor through the work-on suite.
+      - name: Run check reader fallback tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/pr-checks_test.sh
+
       # Runs pr_creation's closing-keyword gate expression, extracted from the
       # template, against constructed bodies with gh stubbed. No engine needed;
       # the macOS leg runs it on the floor through the work-on suite.
