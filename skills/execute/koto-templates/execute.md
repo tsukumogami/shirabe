@@ -1641,19 +1641,19 @@ forced-stop operator summary. A decision with a reasonable default is NOT a bloc
 take the default, record it in the decision log, continue. In interactive mode the
 existing approval behavior is unchanged.
 
-**Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit `tasks`:
+**Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch and the PLAN's path into each task's vars, then submit `tasks`:
 
 ```bash
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" --arg f "{{REVIEW_FLOOR}}" --arg c "{{REVIEW_CEILING}}" --arg v "{{VERIFICATION}}" --arg r "{{VERIFICATION_DEFERRAL_REASON}}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p | if $f != "" then .vars.REVIEW_FLOOR = $f else . end | if $c != "" then .vars.REVIEW_CEILING = $c else . end | if $v == "hosted-ci" then .vars.VERIFICATION = $v | .vars.VERIFICATION_DEFERRAL_REASON = $r else . end]')
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" --arg d "{{PLAN_DOC}}" --arg f "{{REVIEW_FLOOR}}" --arg c "{{REVIEW_CEILING}}" --arg v "{{VERIFICATION}}" --arg r "{{VERIFICATION_DEFERRAL_REASON}}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p | .vars.PLAN_DOC = $d | if $f != "" then .vars.REVIEW_FLOOR = $f else . end | if $c != "" then .vars.REVIEW_CEILING = $c else . end | if $v == "hosted-ci" then .vars.VERIFICATION = $v | .vars.VERIFICATION_DEFERRAL_REASON = $r else . end]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
-koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. When this run was given a review-level bound (`--review-floor`, `--review-ceiling`), every child also receives it as `REVIEW_FLOOR` and `REVIEW_CEILING`; an empty one is left off the task, so a run without the flags builds exactly the tasks it did before. When this run defers verification to hosted CI (`--verification=hosted-ci`), every child also receives `VERIFICATION=hosted-ci` and this run's `VERIFICATION_DEFERRAL_REASON`, and goes to `verification_deferred` instead of running the verification map, as a standalone `/work-on` run with the same flags does; a run with `VERIFICATION=local` (the default) adds neither, so its tasks are the ones it built before. Don't add either variable to a task by hand: the deferral is the run's, and `pr_finalization` checks the shared PR records it.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. Every child also receives this run's `PLAN_DOC`, the same path this run reads the PLAN from: a child runs in this checkout, and its `plan_validation` reads its step from that path (`step_detail` refuses a child that has none). When this run was given a review-level bound (`--review-floor`, `--review-ceiling`), every child also receives it as `REVIEW_FLOOR` and `REVIEW_CEILING`; an empty one is left off the task, so a run without the flags builds exactly the tasks it did before. When this run defers verification to hosted CI (`--verification=hosted-ci`), every child also receives `VERIFICATION=hosted-ci` and this run's `VERIFICATION_DEFERRAL_REASON`, and goes to `verification_deferred` instead of running the verification map, as a standalone `/work-on` run with the same flags does; a run with `VERIFICATION=local` (the default) adds neither, so its tasks are the ones it built before. Don't add either variable to a task by hand: the deferral is the run's, and `pr_finalization` checks the shared PR records it.
 
 **The lead shape.** Each child goes to one step agent: a subagent the owning session (the one ticking `{{SESSION_NAME}}`) starts in the foreground, in this checkout, from the hand-off template in `${CLAUDE_PLUGIN_ROOT}/skills/execute/references/step-agent-handoff.md`. The step agent drives the child from where it stands to its terminal under `/work-on`'s plan-backed child mode, panels included. The owning session never runs `koto next` on a child. The loop:
 
