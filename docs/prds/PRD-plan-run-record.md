@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   After a plan's work merges, shirabe deletes the PLAN, and koto may remove the sessions
   that ran it on every host sharing the cloud store. A reviewer, auditor or later agent who
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -86,15 +86,16 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
 - **Step session**: the `/work-on` session that produced a step's result. When a step was
   attempted more than once, it's the attempt whose result the run kept. Earlier attempts are
   superseded.
-- **Index entry**: a store-side record, written by the run, that maps one repository and PR
-  number to the record root that opened or adopted it. The **index sessions** are the
+- **Index entry**: a store-side record that maps one repository and PR number to the record
+  root of a run that opened or adopted it. The run writes it when it first records the PR, at
+  open or adoption, before its terminal, and stamps it with the time it was written. The **index sessions** are the
   sessions holding index entries.
 - **The run's PRs**: every PR the run opened or adopted and recorded, whatever its final
   state. For single-pr that's the home PR. For coordinated it's each node PR, each follow-up
   PR (a PR a coordinated run opens for a node after the node's first PR, recorded against
   that node) and the coordination PR. For multi-pr it's each item's PR.
 - **Evidence-holding session**: a record root, a step session or an index session of a run
-  that reached a qualifying terminal (R11). Nothing else is.
+  that reached a qualifying terminal (R12). Nothing else is.
 - **Workflow content**: any of a session name or reference, a `run_id`, the hidden run
   marker, run lines (`topic=`, `exit=`, `outcome=`, `intent=`, `mode=`, `store=`, `run=`),
   a PR index or merge-order block, a review-panel table, override or deferral notes, a
@@ -158,21 +159,24 @@ follow-up. Today they can't get from the PR to the run, for five reasons.
   It reads nothing from GitHub: not the PR's title, body, comments, commits or branch.
 - **R2. Record to every PR.** From the record root, the same command lists the run's PRs as
   repository and number, none missing and none extra, each with the state the run last
-  recorded for it (open, ready, merged or closed). For multi-pr this includes items that ran
-  after the PR the reader started from.
+  recorded for it (open, ready, merged or closed). The run records a PR's state when it
+  observes it, so a PR a person merges after the run's terminal still reads `ready`. For
+  multi-pr this includes items that ran after the PR the reader started from.
 - **R3. Any workspace, after the instance is gone.** R1 and R2 work from a workspace at any
   path with no local copy of the run's sessions, using only the cloud store. Every read
   leaves the record as it is: no import, no migration marker, and no write of any kind into
   a run, step or index session.
 - **R4. The right run.** When a topic ran more than once, R1 returns the run whose index
   entry names the PR. When more than one run recorded the same PR (a later run adopted it),
-  R1 returns the run that recorded it last and lists the others. A record root koto later
+  R1 returns the run whose index entry for it was written last and lists the others. A record root koto later
   moved aside under a new name (`<name>_r<N>`) is still found. The command confirms every
   hit by the PR appearing in the record root's own list of PRs, and a session whose list
   doesn't name the PR is never returned.
 - **R5. A partial record says so.** When the record root is found but part of the record
   isn't (a step session was removed, a run started before this feature, or pins were never
-  set), R1 exits 0 with `complete: false` and names each missing part.
+  set), R1 exits 0 with `complete: false` and a `missing` list naming each missing part.
+  When an index entry exists but its record root itself is gone, R1 exits 0 with
+  `complete: false` and `missing` naming the record root, and lists no PRs.
 - **R6. Who owns the lookup, and what it needs from koto.** The lookup is shirabe's: a
   shirabe script over koto's commands. It needs exactly two things from koto, and uses no
   other koto surface beyond today's session, context and decision commands:
@@ -321,11 +325,14 @@ and K2 as R6 states, and logs every call it receives. "The stub's log" means tha
 
 - [ ] AC1 (R1, R2). For a merged single-pr run, the lookup exits 0 and prints JSON with the
       record root's workspace and session name, the `run_id`, `complete: true`, and a PR
-      list holding exactly the home PR with state `merged`.
+      list holding exactly the home PR, with state `merged` for a run that merged it and
+      `ready` for one that stopped at a ready PR.
 - [ ] AC2 (R2). For a coordinated run with two node PRs in two repositories, one follow-up
       PR and the coordination PR, the lookup from each of the four lists exactly those four.
 - [ ] AC3 (R2, R7). For a multi-pr plan with three item PRs, the lookup from the second
       item's PR, run after the third merged, returns the plan-level root and lists all three.
+- [ ] AC3a (R7). Two item runs of one multi-pr plan reaching the plan-level root at the
+      same moment against the stub leave one root holding both items' entries.
 - [ ] AC4 (R1). The lookup exits 3 for a PR with no index entry, 2 when the stub fails the
       store read, and 64 for `owner` without a repository, for a PR number of `0` and for a
       non-numeric one.
@@ -341,7 +348,8 @@ and K2 as R6 states, and logs every call it receives. "The stub's log" means tha
       run and lists the first among the others.
 - [ ] AC9 (R1). With a stub `gh` that fails every call, AC1 still passes.
 - [ ] AC10 (R5, R31). When one step session is gone from the stub's store, the lookup exits 0
-      with `complete: false` and names that step.
+      with `complete: false` and a `missing` list naming that step. When the record root is
+      gone, it exits 0 with `complete: false`, `missing` naming the root and no PRs.
 
 ### Record contents
 
