@@ -316,7 +316,7 @@ ac_removal_for_path() {
 # seconds. Returns 0 holding the lock, 1 when it is still held at
 # the end of the wait (AC_WHY says so).
 ac_lock() {
-    local d=$1 max=$2 wait=$3 own pid at now waited=0 side blank=0
+    local d=$1 max=$2 wait=$3 own sown pid at now waited=0 side blank=0
     while :; do
         if mkdir -- "$d" 2>/dev/null; then
             printf '%s %s\n' "$$" "$(date +%s)" >"$d/owner" || { rm -rf -- "$d"; AC_WHY="cannot write $d/owner"; return 1; }
@@ -334,7 +334,10 @@ ac_lock() {
         if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null || [ $((now - at)) -gt "$max" ]; then
             side="$d.stale.$$"
             if mv -- "$d" "$side" 2>/dev/null; then
-                if [ "$(cat -- "$side/owner" 2>&1)" = "$own" ]; then
+                # Read the way $own was, so an owner file that is missing
+                # both times compares equal and the lock is taken over.
+                sown=$(cat -- "$side/owner" 2>&1) || sown=""
+                if [ "$sown" = "$own" ]; then
                     rm -rf -- "$side"
                 else
                     mv -- "$side" "$d" 2>/dev/null || rm -rf -- "$side"
