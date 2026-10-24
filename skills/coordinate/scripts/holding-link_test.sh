@@ -13,7 +13,9 @@
 # worker's or naming another number (10), a holding already linking another
 # pull request, one another holding links, a fork head that appeared since
 # report_facts read it, a Branch cell that disagrees (65); a failed pull
-# request read (2).
+# request read (2); no session, and the override flags, a usage error (64);
+# the head GitHub reports kept as the holding's pushed head. The record is the
+# run's session's, record/holdings; nothing is written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/holding-link_test.sh
 set -uo pipefail
@@ -23,8 +25,6 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 HL="$HERE/holding-link.sh"
 RF="$HERE/report-facts.sh"
-W_RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks)
-TITLE="Coordinator record: ROADMAP-plugin-system"
 h() { # h <worker> <branch> <pull_request cell> [return path]
     holding "$1" "$(jq -nc --arg b "$2" --arg p "$3" --arg r "${4:-message}" '{branch: $b, pull_request: $p, return_path: $r}')"
 }
@@ -33,18 +33,23 @@ pr() { # pr <n> <headRefName> [cross]
         baseRefName: "main", headRefName: $b, headRefOid: $h, author: "alice", editor: null, mergeStateStatus: "CLEAN"}]' \
         --argjson n "$1" --arg b "$2" --arg x "${3:-false}" --arg h "$SHA_HEAD"
 }
-seed() { # seed <holdings-json>
+# seed <holdings-json>: the pull requests, and the record holding them, written
+# into the current run's session (S) and each one session() opens after.
+seed() {
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$1" '.holdings = $h')" issue)"
     pr 12 feat/alpha; pr 20 feat/zeta-work; pr 21 feat/kappa-work
+    REC=$(record_json roadmap plugin-system | jq -c --argjson h "$1" '.holdings = $h')
+    [ -z "${S:-}" ] || seed_session "$S" "$REC"
 }
-row() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh" | jq -c --arg t "$1" '.holdings[] | select(.worker == $t) | {branch, pull_request}'; }
+row() { session_state "$S" | jq -c --arg t "$1" '.holdings[] | select(.worker == $t) | {branch, pull_request}'; }
+gh_writes() { grep -E 'issue (create|edit|close)|pr (create|edit)|comment|--method (POST|PUT|PATCH|DELETE)' "$GH_DB.calls"; }
 N=0
-session() { # a fresh run at wait
+session() { # a fresh run at wait, holding the seeded record; the run before it ended
+    [ -z "${S:-}" ] || log_end "$S"
     N=$((N + 1))
     S="coordinate-roadmap-plugin-system-20260926T0800$(printf '%02d' "$N")Z"
-    found_session "$S" "$(roadmap_vars plugin-system)" 7
+    found_session "$S" "$(roadmap_vars plugin-system)"
+    seed_session "$S" "$REC"
     log_to "$S" reconcile wait
 }
 facts() { # facts: report_facts reads the arrival and seals its verdict; the run moves to report_link
@@ -53,7 +58,7 @@ facts() { # facts: report_facts reads the arrival and seals its verdict; the run
     log_capture "$S" REPORT "$CAP"
     log_to "$S" report_facts report_link
 }
-link() { OUT=$(bash "$HL" --session "$S" "${W_RM[@]}" 2>"$T/err"); RC=$?; }
+link() { OUT=$(bash "$HL" --session "$S" 2>"$T/err"); RC=$?; }
 message() { # message <unit> <pull_request> [event]: a message report, read by report_facts
     session
     log_evidence "$S" wait "$(jq -nc --arg u "$1" --arg p "$2" --arg e "${3:-report}" '{event: $e, unit: $u, report: "PR is up", pull_request: $p}')"
@@ -69,7 +74,10 @@ message zeta "https://github.com/acme/widgets/pull/20"
 eq "report_facts sealed link" "link 20 zeta" "${CAP% sealed:*}"
 reset_calls
 link
-eq "the pull request is written" "0 https://github.com/acme/widgets/issues/7" "$RC $OUT"
+eq "the pull request is written" "0 $S" "$RC $OUT"
+eq "  ... into the session's record/holdings" "[#20](https://github.com/acme/widgets/pull/20)" \
+    "$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "zeta") | .pull_request')"
+eq "  ... with nothing written on GitHub" "" "$(gh_writes)"
 eq "Branch is the pull request's headRefName, Pull request its link" \
     '{"branch":"feat/zeta-work","pull_request":"[#20](https://github.com/acme/widgets/pull/20)"}' "$(row zeta)"
 grep -q 'pr view 20 --repo acme/widgets' "$GH_DB.calls" && ok "the head branch is read from GitHub" || bad "the head branch is read from GitHub" "$(calls)"
@@ -77,7 +85,9 @@ eq "the other holdings are unchanged" '{"branch":"feat/alpha","pull_request":"[#
 reset_calls
 link
 eq "run again once linked: nothing to do" "0 already linked" "$RC $OUT"
-grep -q 'issue edit' "$GH_DB.calls" && bad "and nothing is written" "$(calls)" || ok "and nothing is written"
+SNAP=$(session_snapshot "$S")
+link
+eq "and nothing is written" "$SNAP" "$(session_snapshot "$S")"
 log_to "$S" report_link report_facts
 AGAIN=$(bash "$RF" --session "$S" 2>/dev/null)
 eq "report_facts now reads the holding's own pull request" "holding 20 zeta" "${AGAIN% sealed:*}"
@@ -173,34 +183,32 @@ link; eq "a pull request outside the scope's repositories: refused" 65 "$RC"
 eq "and nothing was written" '{"branch":"","pull_request":""}' "$(row zeta)"
 seed "$HOLD"
 message zeta "acme/widgets#20"
-db '.fail = [{match: "issue edit", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
+export KOTO_FAIL_ADD=record/holdings
 link; eq "a write that fails is record-holding.sh's 11, to run again" 11 "$RC"
-db '.fail = []'
+unset KOTO_FAIL_ADD
 seed "$HOLD"
 message zeta "acme/widgets#20"
 db '.fail = [{match: "pr view 20", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 link; eq "a failed pull request read exits 2" 2 "$RC"
 db '.fail = []'
-bash "$HL" "${W_RM[@]}" >/dev/null 2>&1; eq "no session is a usage error" 64 $?
+bash "$HL" >/dev/null 2>&1; eq "no session is a usage error" 64 $?
+bash "$HL" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" >/dev/null 2>&1; eq "the override flags are a usage error" 64 $?
+bash "$HL" --session "$S" --ref 7 >/dev/null 2>&1; eq "--ref is a usage error" 64 $?
 
-echo "== the session store: the pushed head (PRD R17) =="
+echo "== the pushed head (PRD R17) =="
 seed "$HOLD"
-jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh" \
-    | jq -c '.run = [{key: "store", value: "session", set_by: "alice", set: "2026-09-26T08:00Z"}]' > "$T/ss.json"
-BODY=$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")
-N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T0800$(printf '%02d' "$N")Z"
-found_session "$S" "$(roadmap_vars plugin-system)" "7 session"; log_to "$S" reconcile wait
-session_keys "$S" "$T/ss.json"
-log_evidence "$S" wait "$(jq -nc '{event: "report", unit: "zeta", report: "PR is up", pull_request: "https://github.com/acme/widgets/pull/20"}')"
-facts
-OUT=$(env RS_SOURCE=session RS_SESSION="$S" bash "$HL" --session "$S" "${W_RM[@]}" 2>"$T/err"); RC=$?
-eq "a link on the session store is written" 0 "$RC"
+reset_calls
+message zeta "https://github.com/acme/widgets/pull/20"
+link
+eq "a link is written" 0 "$RC"
 eq "  ... into the session's holding, with the head GitHub reports" "feat/zeta-work $SHA_HEAD" \
     "$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "zeta") | "\(.branch) \(.pushed_head)"')"
-eq "  ... and the GitHub body unchanged" "$BODY" "$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")"
+eq "  ... and nothing written on GitHub" "" "$(gh_writes)"
 # A later report on the linked pull request: report-facts.sh keeps the head it
 # reads when it moved. Its write goes through record-holding.sh, so a refused
-# write (here: this test's earlier runs are still live) changes no verdict.
+# write (here: another run of the scope is live) changes no verdict.
+OTHER=coordinate-roadmap-plugin-system-20260926T090000Z
+found_session "$OTHER" "$(roadmap_vars plugin-system)"
 NEWH=3333333333333333333333333333333333333333
 db '(.prs[] | select(.number == 20)).headRefOid = $h' --arg h "$NEWH"
 log_to "$S" report_link wait
@@ -214,6 +222,6 @@ for d in "$KOTO_STORE"/sessions/*/; do o=$(basename "$d"); [ "$o" = "$S" ] || lo
 CAP=$(bash "$RF" --session "$S" 2>"$T/rf.err")
 eq "  ... and with this run the live one, the head it read is kept" "holding 20 zeta|$NEWH" \
     "${CAP% sealed:*}|$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "zeta") | .pushed_head')"
-eq "  ... the GitHub body still unchanged" "$BODY" "$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")"
+eq "  ... and still nothing written on GitHub" "" "$(gh_writes)"
 
 done_tests holding-link

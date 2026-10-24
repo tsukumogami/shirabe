@@ -2,103 +2,65 @@
 # `. "$HERE/record-source.sh"` after record-common.sh (it needs lib_parse and the
 # facts lib_facts sets). Run as a script, it also prints one read (see Usage).
 #
-# Every script that needs the record's state reads it here, whichever store the
-# run is on (docs/designs/DESIGN-coordinator-session-record.md, Decision 1). A
-# record's store is `github` (the issue or pull request body) or `session` (one
-# key per section in the coordinator's own koto session: a roadmap record, or a
-# discipline rotation, which then has no pull request and no record number,
-# its window and reasoning in record/rotation and record/reasoning).
-#
-# On the GitHub store each read keeps its caller's own call shape, because what
-# a caller reads beside the body (the container's state, its title, its head
-# branch) is GitHub's and stays its own. On the session store the record is
-# assembled from record/meta and one key per section (record/holdings,
+# Every script that needs the record's state reads it here. The record lives in
+# the coordinator's own koto session, one key per section (record/holdings,
 # record/deferrals, record/side-effects, record/reversals, record/decisions,
 # record/holds, record/run, record/standing, record/work; a section the record
-# doesn't hold has no key), rendered at record/meta's written time and parsed
-# back, so a caller gets the same files, and the same JSON, as from a GitHub
-# record holding the same state. record/meta is read before and after the
-# sections, and the read is taken again, up to three times, while a write is
-# part way through (meta marked pending, or the two meta reads differing).
+# doesn't hold has no key), with record/meta naming its scope and written time;
+# a discipline rotation also keeps its window and reasoning in record/rotation
+# and record/reasoning. The record is assembled from those keys, rendered at
+# record/meta's written time and parsed back, so every caller gets the same
+# JSON, and the same body, from one state. record/meta is read before and after
+# the sections, and the read is taken again, up to three times, while a write
+# is part way through (meta marked pending, or the two meta reads differing).
+# The session read is the run's (SESSION), or RS_SESSION when a caller names
+# another, as the tests do with the override flags.
 #
-#   rs_record <out> <mode> <gh view args...>
-#       GitHub: runs `gh issue view <REF> --repo <REPO> <args>` at roadmap scope
-#       and `gh pr view <REF> --repo <REPO> <args>` at discipline scope, exactly
-#       as given, with stdin from /dev/null. <mode> says what the args print:
-#       `body` (the body text, e.g. `--json body --jq .body`) or `json` (a JSON
-#       object with .body, e.g. `--json state,body`). Session: <out>.raw is what
-#       the same `gh issue view` would print, the body for `body` and {state:
-#       "OPEN", body, url} for `json`. Writes <out> (the parsed record,
-#       record-parse.sh's JSON), <out>.raw, <out>.md (the body) and <out>.err
-#       (the read's stderr, or the parser's refusal).
+#   rs_record <out> <body|json>
+#       The run's record. <out>.raw is the body for `body`, and {state: "OPEN",
+#       body, url} for `json`, url the session's name. Writes <out> (the parsed
+#       record, record-parse.sh's JSON), <out>.raw, <out>.md (the body) and
+#       <out>.err (the read's stderr, or the parser's refusal).
 #       Returns 0 parsed; 2 the read failed; 3 or 65 the body isn't a canonical
 #       record of this scope (record-parse.sh's codes); 4 the session holds no
 #       record/meta (session-absent, the reason in <out>.err); 5 the parser or
 #       the renderer itself failed; 12 the session record was still being
 #       written after three re-reads (record-changed).
 #   rs_record_api <out> [<session>]
-#       GitHub: the same record through `gh api --method GET
-#       repos/<repo>/issues/<ref>`, read with board-lib.sh's bl_gh (its retry and
-#       deadline) when the caller sourced board-lib.sh; session: the session
-#       read. The repository, number and scope come from the run's facts
-#       (coord-log.sh run-facts) of <session>, $SESSION when not given. Writes
-#       <out>, <out>.md and, on GitHub, the raw response <out>.rec (with bl_gh's
-#       <out>.rec.err and <out>.rec.fail, or gh's <out>.rec.err), all beside
-#       <out>, for the caller's own scratch directory to clean up.
+#       The record of <session> ($SESSION when not given), its scope, name and
+#       host from that run's facts (coord-log.sh run-facts), for the land check
+#       and the merge, which name the session they read. Writes <out> and
+#       <out>.md beside it, for the caller's own scratch directory to clean up.
 #       Returns 0 parsed; 2 the read or the parse failed.
-#   rs_view <container> <ref> <repo> <gh view args...>
-#       Prints the container's fields as `gh <issue|pr> view <ref> --repo <repo>
-#       <args>` prints them, the body among them, for the one reader that keeps
-#       its own deadline and its row-by-row salvage of a body the codec refuses
-#       (reconcile-read.sh, under rd_deadline). On the session store it prints
-#       {state: "OPEN", body, url}. Returns gh's status, or the session read's.
 #   rs_facts <parsed-record> <topic>
 #       Prints one holding's facts, from a record rs_record or rs_record_api
 #       parsed: {topic, unit, repo, pull_request, number, branch, verified_head,
 #       phase, dispatch_status, return_path, holds, pauses}. holds are the Holds
 #       rows on the holding's pull request; pauses the Standing pause and
-#       go-ahead rows pause-read.sh reads. On the session store it adds
-#       pushed_head when the holding keeps one. Returns 0 printed; 1 no holding
-#       has that topic; 2 the record couldn't be read.
-#   rs_source
-#       Prints the run's store, `github` or `session`, as coord-log.sh run-store
-#       reads it from the run's sealed RECORD_FIND token: `session` for
-#       `found <n> session` or `move <n>`, `github` otherwise. It caches the
-#       answer in RS_SOURCE_READ, for the session named in RS_SOURCE_FOR, and
-#       the reads above use it. Under the test override flags it is `github`
-#       unless RS_SOURCE names another.
-#   rs_probe
-#       Prints what this koto offers the session store, by feature:
-#       {"context_list_prefix": bool, "session_import": bool}.
+#       go-ahead rows pause-read.sh reads. It adds pushed_head when the holding
+#       keeps one. Returns 0 printed; 1 no holding has that topic; 2 the record
+#       couldn't be read.
 #   rs_once_begin <dir>
 #       One record read per step (shirabe#1094, #1095). Creates <dir> and
-#       exports RS_ONCE=<dir>. From then on rs_record and rs_view, in this
-#       process and in every script it runs (they inherit RS_ONCE), answer
-#       from one read of the run's record: the first of them reads it, on the
-#       run's store, into <dir>, and the rest take their files from there.
-#       On GitHub that read is one `gh issue|pr view` of the fields every
-#       reader asks for (state, body, url, title; on a pull request also
-#       headRefName, isCrossRepository, headRefOid); on the session store it
-#       is one assembly of the record's keys and one render. The parse is
-#       made once, by the first rs_record, and kept. A read that asks for
-#       anything else (another field, another --jq), a read of another
-#       record, and a read that names its store (RS_READ_STORE: the write
-#       core's compare read, the move's GitHub read) are made live, as
-#       without RS_ONCE. A read that fails is never kept. Returns 2 when <dir>
-#       can't be made.
+#       exports RS_ONCE=<dir>. From then on rs_record, in this process and in
+#       every script it runs (they inherit RS_ONCE), answers from one read of
+#       the run's record: the first rs_record assembles the record's keys,
+#       renders the body and parses it back into <dir>, and the rest take their
+#       files from there. A read of another record (another session, scope or
+#       name) is made live, as without RS_ONCE, and a read that fails is never
+#       kept. Returns 2 when <dir> can't be made.
 #
 #       What this bounds is the number of reads a step makes, not the cost of
-#       one. A session-store assembly is still one koto call per key and one
-#       listing (koto has no multi-key get), and the reconcile deadlines
-#       stay 8 and 12 seconds rather than growing with the record. On a local
-#       koto the assembly's calls are not the slow part: at the budget they
-#       take about a second at 0.1 s each, while rendering the body and
-#       parsing it took most of the read, and a pass rendered and parsed it up
-#       to three times (reconcile-read.sh's read, then the settle's and the
-#       legs classification's) and parsed the first read back a second time
-#       for nobody. On koto's cloud backend each call is a bucket round trip
-#       of 0.3 to 1 s, so there the calls are the cost, and a step that reads
-#       the record more than once can pass a 30-second action limit
+#       one. An assembly is still one koto call per key and one listing (koto
+#       has no multi-key get), and the reconcile deadlines stay 8 and 12
+#       seconds rather than growing with the record. On a local koto the
+#       assembly's calls are not the slow part: at the budget they take about
+#       a second at 0.1 s each, while rendering the body and parsing it took
+#       most of the read, and a pass rendered and parsed it up to three times
+#       (reconcile-read.sh's read, then the settle's and the legs
+#       classification's). On koto's cloud backend each call is a bucket round
+#       trip of 0.3 to 1 s, so there the calls are the cost, and a step that
+#       reads the record more than once can pass a 30-second action limit
 #       (shirabe#1156). A deadline that grew with the record would instead let
 #       a slow read hide a hung one.
 #   rs_once_drop
@@ -110,25 +72,23 @@
 #       no later read looks. Without RS_ONCE it does nothing.
 #
 # Usage (as a script):
-#   record-source.sh --session S --source
-#   record-source.sh --session S --probe
 #   record-source.sh --session S --facts <topic>
 #   record-source.sh --session S --show
 #   record-source.sh --session S --host
 #   record-source.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
-#   record-source.sh --scope roadmap|discipline --name N --repo O/R --ref N --facts <topic>   (tests)
+#   record-source.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>
+#                    (tests: RS_SESSION names the session holding the record)
 #
-# --show prints the record as its body would read, from either store, so a
-# reviewer on the coordinator's host reads a session-store record without
-# knowing key names (PRD R11). record/host is never part of it; --host prints
-# it, the object rs_host reads, and `{}` for a record on GitHub.
+# --show prints the record as its body would read, so a reviewer on the
+# coordinator's host reads the state without knowing key names (PRD R11).
+# record/host is never part of it; --host prints it, the object rs_host reads.
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
 # failed; 4 the session holds no record/meta; 12 the session record was still
 # being written; 64 usage.
 #
-# Requires: bash 3.2+, jq, gh, koto, and record-common.sh, record-parse.sh,
+# Requires: bash 3.2+, jq, koto, and record-common.sh, record-parse.sh,
 # record-render.sh, coord-log.sh and pause-read.sh beside this file.
 
 RS_LOADED=1
@@ -229,36 +189,16 @@ rs_session_state() {
     return 12
 }
 
-# rs_source: the run's store.
-rs_source() {
-    if [ "${OVERRIDE:-0}" = 1 ] || [ -z "${SESSION:-}" ]; then
-        case "${RS_SOURCE:-github}" in session) RS_SOURCE_READ=session ;; *) RS_SOURCE_READ=github ;; esac
-        printf '%s\n' "$RS_SOURCE_READ"
-        return 0
-    fi
-    if [ -z "${RS_SOURCE_READ:-}" ] || [ "${RS_SOURCE_FOR:-}" != "$SESSION" ]; then
-        local s
-        s=$(bash "$HERE/coord-log.sh" run-store --session "$SESSION" 2>/dev/null)
-        case "$s" in session) RS_SOURCE_READ=session ;; *) RS_SOURCE_READ=github ;; esac
-        RS_SOURCE_FOR=$SESSION
-    fi
-    printf '%s\n' "$RS_SOURCE_READ"
-}
-
-# rs_session_read <out> <body|json|view> <session> <scope> <name> <repo> <ref>:
-# the files rs_record writes, from the session store: <out> the record as
-# record-parse.sh parses it, <out>.md the body rendered at record/meta's written
-# time, exactly as a GitHub record holding the same state reads, and <out>.raw
-# what `gh issue view` would print for <mode> (body: the body; json: {state:
-# "OPEN", body, url}, the url the GitHub record's). Parsing the rendered body
-# back is what makes a session read and a GitHub read of the same state give the
-# same JSON (PRD R19). `view` is json without that parse, for a reader that
-# takes the body and parses it itself (rs_view): the parse of a record at the
-# budget takes as long as its render, and nobody read it. Returns
-# rs_session_state's codes; 65 record/meta names another scope; 3 or 65 the
-# body doesn't parse back canonical; 5 the renderer or the parser failed.
+# rs_session_read <out> <body|json> <session> <scope> <name>: the files
+# rs_record writes: <out> the record as record-parse.sh parses it, <out>.md the
+# body rendered at record/meta's written time, and <out>.raw the body (body) or
+# {state: "OPEN", body, url} with the session as its url (json). Parsing the
+# rendered body back is what gives every reader the same JSON for one state
+# (PRD R19). Returns rs_session_state's codes; 65 record/meta names another
+# scope; 3 or 65 the body doesn't parse back canonical; 5 the renderer or the
+# parser failed.
 rs_session_read() {
-    local out=$1 mode=$2 s=$3 scope=$4 name=$5 repo=$6 ref=$7 rc w
+    local out=$1 mode=$2 s=$3 scope=$4 name=$5 rc w
     : > "$out.err"
     [ -n "$s" ] || { echo "${PROG:-record-source}: the session store needs the run's session" >> "$out.err"; return 2; }
     rs_session_state "$s" "$out.state"; rc=$?
@@ -268,9 +208,8 @@ rs_session_read() {
         echo "${PROG:-record-source}: session $s's record/meta is for another scope than $scope:$name" >> "$out.err"
         return 65
     fi
-    # A holding's last pushed head (PRD R17) is kept beside its row on the
-    # session store only: 40 hex or empty, never rendered, so a GitHub body
-    # never carries it. It is read into <out>.pushed, {worker topic: sha}.
+    # A holding's last pushed head (PRD R17) is kept beside its row: 40 hex or
+    # empty, never rendered. It is read into <out>.pushed, {worker topic: sha}.
     if ! jq -e '[(.holdings // [])[] | (.pushed_head // "")] | all(type == "string" and test("^([0-9a-f]{40})?$"))' "$out.state" > /dev/null 2>> "$out.err"; then
         echo "${PROG:-record-source}: session $s's record/holdings holds a pushed_head that isn't 40 hex" >> "$out.err"
         return 65
@@ -282,37 +221,14 @@ rs_session_read() {
     if [ "$mode" = body ]; then
         cp "$out.md" "$out.raw"
     else
-        # A session rotation has no pull request: its record is the session.
-        local u="https://github.com/$repo/issues/$ref"
-        [ -n "$ref" ] || u=$s
-        jq -n --rawfile b "$out.md" --arg u "$u" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
+        jq -n --rawfile b "$out.md" --arg u "$s" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
     fi
-    [ "$mode" = view ] && return 0
     bash "$HERE/record-parse.sh" --container issue --expect-scope "$scope:$name" "$out.md" > "$out" 2> "$out.err"
     rc=$?
     case $rc in
         0|3|65) return $rc ;;
         *) return 5 ;;
     esac
-}
-
-# rs_probe: the koto features the session store needs, read by feature. The
-# help text is captured whole before it is matched: piped into `grep -q` under
-# pipefail, koto could take SIGPIPE when grep stops at its match, and the
-# probe would read a feature it has as missing (shirabe#855).
-rs_probe() {
-    local prefix=false import=false help
-    help=$("$KOTO" context list --help < /dev/null 2>/dev/null) || help=
-    case "$help" in *--prefix*) prefix=true ;; esac
-    "$KOTO" session import --help < /dev/null > /dev/null 2>&1 && import=true
-    jq -nc --argjson p "$prefix" --argjson i "$import" '{context_list_prefix: $p, session_import: $i}'
-}
-
-# rs_probe_missing: the session-store features this koto lacks, comma-separated,
-# empty when it has both (PRD R2).
-rs_probe_missing() {
-    rs_probe | jq -r '[if .context_list_prefix then empty else "context list --prefix" end,
-        if .session_import then empty else "session import" end] | join(", ")'
 }
 
 # rs_scope_sessions <scope> <name>: this host's coordinator sessions of the
@@ -344,12 +260,13 @@ rs_scope_sessions() {
 #           shipped template's hash, it passes provenance, its find recorded the
 #           session store (coord/source.json), and it has no directed
 #           transition: the start keeps it, opening and cancelling nothing
-#   carry   it holds a session-store record but fails one of the run checks
+#   carry   it holds a record but fails one of the run checks
 #           (finished, cancelled, another template hash, provenance, a directed
 #           transition, another live run): the start opens a new run and copies
 #           its record/ and legs/ keys into it through the write core
-#   none    no session here holds a record, or the newest's store isn't
-#           session: the start opens a new run as on GitHub
+#   none    no session here holds a record, or the newest's find never
+#           recorded the session (no coord/source.json reading session): the
+#           start opens a new run
 # At discipline scope the window rule comes first
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3): the
 # newest rotation is resumed or carried only while it is open (rs_rotation_open,
@@ -404,13 +321,12 @@ rs_resume_candidate() {
         '{session: $s, action: (if $r == "" then "resume" else "carry" end), live: $l, reason: (if $r == "" then "the live run" else $r end)}'
 }
 
-# rs_host <session> <out>: the host facts a session-store record keeps in
-# record/host, as a JSON object into <out>: where its state came from on an
-# import (source_workspace, source_session, template_hash) and where its crash
-# set's files live (rules:<label>, briefs:<label>, friction). They describe
-# this host, so they never go to GitHub and --show never prints them. {} when
-# the session holds none. Returns 0; 2 a read failed or the key isn't an
-# object.
+# rs_host <session> <out>: the host facts a record keeps in record/host, as a
+# JSON object into <out>: where its state came from on an import
+# (source_workspace, source_session, template_hash) and where its crash set's
+# files live (rules:<label>, briefs:<label>, friction). They describe this
+# host, so they never leave it and --show never prints them. {} when the
+# session holds none. Returns 0; 2 a read failed or the key isn't an object.
 rs_host() {
     rs_key "$1" record/host "$2"
     case $? in
@@ -420,8 +336,8 @@ rs_host() {
     esac
 }
 
-# rs_rotation <session> <out>: a discipline rotation's window on the session
-# store, record/rotation, {start, end, host_repo, predecessor}, into <out>.
+# rs_rotation <session> <out>: a discipline rotation's window,
+# record/rotation, {start, end, host_repo, predecessor}, into <out>.
 # Returns 0 read; 1 the session holds none; 2 a read failed or it isn't an
 # object with the three dates and host as strings.
 rs_rotation() {
@@ -469,20 +385,10 @@ rs_rotation_open() {
     return 0
 }
 
-# rs_moved <parsed-record>: 0 when the record is in the moved shape (PRD R8):
-# every section empty and a Run section holding only the `store session` row.
-rs_moved() {
-    jq -e '([.holdings, .deferrals, .side_effects, .reversals, .holds, .standing, .work] | all(. == null or . == []))
-        and (has("decisions") | not)
-        and ([(.run // [])[] | "\(.key)=\(.value)"] == ["store=session"])' "$1" > /dev/null
-}
-
 # ---- one read per step (rs_once_begin, rs_once_drop) -------------------------
 # The step's read lives in $RS_ONCE/read.<n>, where n ($RS_ONCE/gen, 0 when
-# absent) counts the step's writes: key (which record it is), raw.json (the
-# container's fields, as gh would print them for the superset), md (the body,
-# CR dropped), pushed (the session store's pushed heads, else {}), and once the
-# first rs_record has parsed it, parsed, parsed.err and parsed.rc.
+# absent) counts the step's writes: key (which record it is) and the files
+# rs_session_read writes for a json read (s, s.err, s.md, s.raw, s.pushed).
 #
 # A write moves n on before it removes the old read. A deadline stops a read's
 # process but not always its children, so a read the step gave up on can land
@@ -513,241 +419,64 @@ rs_once_drop() {
     return 0
 }
 
-# rs_once_store: the store the step's read goes to, rs_record's choice (the
-# run's store; a session-store read with no session fails there as it would live).
-rs_once_store() {
-    rs_source > /dev/null
-    printf '%s\n' "$RS_SOURCE_READ"
-}
-
-# rs_once_fields: the superset the step's GitHub read asks for.
-rs_once_fields() {
-    if [ "$CONTAINER" = issue ]; then echo state,body,url,title
-    else echo state,body,url,title,headRefName,isCrossRepository,headRefOid; fi
-}
-
-# rs_once_fill <err-file>: the step's read, made now unless it is already there,
-# in RS_ONCE_R. Returns 0 read (or already read); otherwise the read's own
-# code, with its reason in <err-file>, and nothing kept; 99 when the step wrote
-# while it read, and the caller reads live.
-rs_once_fill() {
-    local err=$1 key store d rc g
-    store=$(rs_once_store)
-    key="$store $CONTAINER $REPO $REF $SCOPE $NAME ${RS_SESSION:-${SESSION:-}}"
-    g=$(rs_once_gen)
-    RS_ONCE_R=$RS_ONCE/read.$g
-    if [ -f "$RS_ONCE_R/key" ]; then
-        [ "$(cat "$RS_ONCE_R/key")" = "$key" ] && return 0
-        return 99
-    fi
-    d=$(mktemp -d "$RS_ONCE/fill.XXXXXX") || return 2
-    if [ "$store" = session ]; then
-        rs_session_read "$d/s" view "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$REPO" "$REF"; rc=$?
-        cat "$d/s.err" >> "$err"
-        [ $rc -eq 0 ] || { rm -rf "$d"; return $rc; }
-        mv "$d/s.raw" "$d/raw.json" && mv "$d/s.md" "$d/md" && mv "$d/s.pushed" "$d/pushed" || { rm -rf "$d"; return 5; }
-    else
-        if [ "$CONTAINER" = issue ]; then
-            gh issue view "$REF" --repo "$REPO" --json "$(rs_once_fields)" > "$d/raw.json" 2>> "$err" < /dev/null
-        else
-            gh pr view "$REF" --repo "$REPO" --json "$(rs_once_fields)" > "$d/raw.json" 2>> "$err" < /dev/null
-        fi
-        rc=$?
-        [ $rc -eq 0 ] || { rm -rf "$d"; return 2; }
-        jq -r '.body // ""' "$d/raw.json" 2>> "$err" | tr -d '\r' > "$d/md" || { rm -rf "$d"; return 2; }
-        echo '{}' > "$d/pushed"
-    fi
-    printf '%s\n' "$key" > "$d/key"
-    # Two readers of one step may fill at once: the first to arrive is kept,
-    # and a later one finds it there (its own copy lands inside, unread).
-    [ -d "$RS_ONCE_R" ] || mv "$d" "$RS_ONCE_R" 2> /dev/null
-    rm -rf "$d"
-    [ "$(rs_once_gen)" = "$g" ] || return 99
-    [ -f "$RS_ONCE_R/key" ] && [ "$(cat "$RS_ONCE_R/key")" = "$key" ] || return 99
-}
-
-# rs_once_args <gh view args...>: FIELDS and JQ from the reader's own args, or
-# 1 when they ask for something the step's read can't answer: a flag other than
-# --json and --jq, or a field outside the superset.
-rs_once_args() {
-    FIELDS= JQ=
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --json) [ $# -ge 2 ] || return 1; FIELDS=$2; shift 2 ;;
-            --jq) [ $# -ge 2 ] || return 1; JQ=$2; shift 2 ;;
-            *) return 1 ;;
-        esac
-    done
-    [ -n "$FIELDS" ] || return 1
-    jq -e -n --arg f "$FIELDS" --arg s "$(rs_once_fields)" '($s | split(",")) as $s | $f | split(",") | all(. as $x | $s | index($x) != null)' > /dev/null
-}
-
-# rs_once_record <out> <body|json> <gh view args...>: rs_record from the step's
-# read. Returns rs_record's codes, or 99 when the read can't answer it, and the
-# caller reads live.
+# rs_once_record <out> <body|json>: rs_record from the step's read, made now
+# unless it is already there. Returns rs_record's codes, or 99 when the step
+# wrote while it read, or the read held is another record's, and the caller
+# reads live.
 rs_once_record() {
-    local out=$1 mode=$2 rc r FIELDS JQ
-    shift 2
-    rs_once_args "$@" || return 99
-    # body mode prints the body alone (the readers' --jq is .body, or .body // ""); json mode prints the fields.
-    if [ "$mode" = body ]; then
-        case "$JQ" in .body|'.body // ""') ;; *) return 99 ;; esac
-    else
-        [ -z "$JQ" ] || return 99
-    fi
-    : > "$out.err"
-    rs_once_fill "$out.err"; rc=$?
-    [ $rc -eq 0 ] || return $rc
-    r=$RS_ONCE_R
-    if [ ! -f "$r/parsed.rc" ]; then
-        local p
-        p=$(mktemp "$r/parse.XXXXXX") || return 99
-        if [ "$(cut -d' ' -f1 "$r/key")" = session ]; then
-            bash "$HERE/record-parse.sh" --container issue --expect-scope "$SCOPE:$NAME" "$r/md" > "$p" 2> "$p.err"
-        else
-            lib_parse "$r/md" "$p"
+    local out=$1 mode=$2 s=${RS_SESSION:-${SESSION:-}} key g r d rc
+    key="$SCOPE $NAME $s"
+    g=$(rs_once_gen)
+    r=$RS_ONCE/read.$g
+    if [ ! -f "$r/key" ]; then
+        d=$(mktemp -d "$RS_ONCE/fill.XXXXXX") || return 99
+        rs_session_read "$d/s" json "$s" "$SCOPE" "$NAME"; rc=$?
+        # A body that isn't canonical (3, 65) is read live, where the caller
+        # still gets its raw body to salvage rows from; nothing failed is kept.
+        case $rc in 3|65) rm -rf "$d"; return 99 ;; esac
+        if [ $rc -ne 0 ]; then
+            cp "$d/s.err" "$out.err" 2> /dev/null || : > "$out.err"
+            rm -rf "$d"
+            return $rc
         fi
-        rc=$?
-        case $rc in 0|3|65) ;; *) rc=5 ;; esac
-        mv "$p" "$r/parsed" && mv "$p.err" "$r/parsed.err" && echo "$rc" > "$p.rc" && mv "$p.rc" "$r/parsed.rc" || return 99
+        printf '%s\n' "$key" > "$d/key"
+        # Two readers of one step may fill at once: the first to arrive is
+        # kept, and a later one finds it there (its own copy lands inside, unread).
+        [ -d "$r" ] || mv "$d" "$r" 2> /dev/null
+        rm -rf "$d"
+        [ "$(rs_once_gen)" = "$g" ] || return 99
     fi
-    cp "$r/parsed" "$out" && cp "$r/parsed.err" "$out.err" && cp "$r/md" "$out.md" || return 99
-    [ "$(cut -d' ' -f1 "$r/key")" = session ] && { cp "$r/pushed" "$out.pushed" || return 99; }
-    if [ "$mode" = body ]; then
-        jq -r '.body // ""' "$r/raw.json" > "$out.raw" || return 99
-    else
-        jq -c --arg f "$FIELDS" '($f | split(",")) as $k | with_entries(select(.key as $x | $k | index($x) != null))' "$r/raw.json" > "$out.raw" || return 99
-    fi
-    return "$(cat "$r/parsed.rc")"
+    [ -f "$r/key" ] && [ "$(cat "$r/key")" = "$key" ] || return 99
+    cp "$r/s" "$out" && cp "$r/s.err" "$out.err" && cp "$r/s.md" "$out.md" && cp "$r/s.pushed" "$out.pushed" || return 99
+    if [ "$mode" = body ]; then cp "$r/s.md" "$out.raw" || return 99
+    else cp "$r/s.raw" "$out.raw" || return 99; fi
 }
 
-# rs_once_view <gh view args...>: rs_view's output from the step's read, when
-# rs_view would read the same store (the session store only for a session's
-# issue). Returns 0 printed; 1 the read can't answer it, and rs_view reads
-# live. A failed read is never printed from here: rs_view reads live and fails
-# with its own message.
-rs_once_view() {
-    local store err FIELDS JQ
-    store=github
-    [ -n "${SESSION:-}" ] && [ "$CONTAINER" = issue ] && [ "$(rs_source)" = session ] && store=session
-    [ "$store" = "$(rs_once_store)" ] || return 1
-    rs_once_args "$@" && [ -z "$JQ" ] || return 1
-    err=$(mktemp "$RS_ONCE/view-err.XXXXXX") || return 1
-    rs_once_fill "$err" || { rm -f "$err"; return 1; }
-    rm -f "$err"
-    jq -c --arg f "$FIELDS" '($f | split(",")) as $k | with_entries(select(.key as $x | $k | index($x) != null))' "$RS_ONCE_R/raw.json"
-}
-
-# rs_record <out> <body|json> <gh view args...>
+# rs_record <out> <body|json>
 rs_record() {
     local out=$1 mode=$2 rc
-    shift 2
     case "$mode" in body|json) ;; *) echo "$PROG: rs_record: mode is body or json" >&2; return 2 ;; esac
-    rs_source > /dev/null
-    # The step's one read (rs_once_begin), unless this read names its store.
-    if [ -n "${RS_ONCE:-}" ] && [ -z "${RS_READ_STORE:-}" ]; then
-        rs_once_record "$out" "$mode" "$@"; rc=$?
+    # The step's one read (rs_once_begin).
+    if [ -n "${RS_ONCE:-}" ]; then
+        rs_once_record "$out" "$mode"; rc=$?
         [ $rc -eq 99 ] || return $rc
     fi
-    # RS_READ_STORE names the store to read when it isn't the run's: the write
-    # core sets it to the store it is writing, so the move reads the GitHub body
-    # it rewrites while the run itself is on the session store.
-    if [ "${RS_READ_STORE:-$RS_SOURCE_READ}" = session ]; then
-        rs_session_read "$out" "$mode" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$REPO" "$REF"
-        return $?
-    fi
-    if [ "$CONTAINER" = issue ]; then
-        gh issue view "$REF" --repo "$REPO" "$@" > "$out.raw" 2> "$out.err" < /dev/null
-    else
-        gh pr view "$REF" --repo "$REPO" "$@" > "$out.raw" 2> "$out.err" < /dev/null
-    fi
-    rc=$?
-    [ $rc -eq 0 ] || return 2
-    # Line endings as the write core reads them, so a body GitHub serves with
-    # CRLF parses the same in every reader.
-    if [ "$mode" = body ]; then
-        tr -d '\r' < "$out.raw" > "$out.md"
-    else
-        jq -r '.body // ""' "$out.raw" 2>> "$out.err" | tr -d '\r' > "$out.md" || return 2
-    fi
-    # lib_parse writes its refusal to <out>.err, in place of gh's stderr, which
-    # is where a caller that parsed the body itself read it before.
-    lib_parse "$out.md" "$out"
-    rc=$?
-    case $rc in
-        0|3|65) return $rc ;;
-        *) return 5 ;;
-    esac
+    rs_session_read "$out" "$mode" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME"
 }
 
-# rs_view <container> <ref> <repo> <gh view args...>
-rs_view() {
-    local c=$1 r=$2 repo=$3 d rc
-    shift 3
-    case "$c" in issue|pr) ;; *) echo "${PROG:-record-source}: rs_view: the container is issue or pr" >&2; return 64 ;; esac
-    # The step's one read (rs_once_begin), when this is the run's record on the
-    # store rs_view itself would read and the fields are the read's.
-    if [ -n "${RS_ONCE:-}" ] && [ "$c" = "${CONTAINER:-}" ] && [ "$r" = "${REF:-}" ] && [ "$repo" = "${REPO:-}" ] \
-        && rs_once_view "$@"; then
-        return 0
-    fi
-    # A roadmap record on the session store is read as its issue; a discipline
-    # rotation on the session store has no pull request and is read the same way.
-    if [ -n "${SESSION:-}" ] && { [ "$c" = issue ] || [ "${SCOPE:-}" = discipline ]; } && [ "$(rs_source)" = session ]; then
-        d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
-        # No parse back: this reader takes the body and parses it itself.
-        rs_session_read "$d/rec" view "$SESSION" "$SCOPE" "$NAME" "$repo" "$r"; rc=$?
-        [ $rc -eq 0 ] && cat "$d/rec.raw"
-        [ $rc -eq 0 ] || cat "$d/rec.err" >&2
-        rm -rf "$d"
-        return $rc
-    fi
-    gh "$c" view "$r" --repo "$repo" "$@" < /dev/null
-}
-
-# rs_target_ok <repo> <ref>: the repository and record number rs_record_api will
-# read, held to exactly the checks board-lib.sh's bl_repo_ok and bl_pr_ok made on
-# this read before the seam, so land-check.sh and land-merge.sh take the same
-# inputs they did: owner/name with no `.` or `..` segment, a number of one to nine
-# digits with no leading zero. record-source_test.sh compares the two.
-rs_target_ok() {
-    [[ $1 =~ $RE_REPO ]] && [[ $2 =~ $RE_NUM ]] && [ ${#2} -le 9 ] || return 1
-    case "/$1/" in */./*|*/../*) return 1 ;; esac
-    return 0
-}
-
-# rs_record_api <out>: the run's record through the issues API, under
-# board-lib.sh's bl_gh when it is loaded.
+# rs_record_api <out> [<session>]: the record of a run named by its session.
 rs_record_api() {
-    local out=$1 facts rrepo ref scope name c rc
+    local out=$1 facts rrepo scope name rc
     local SESSION=${2:-${SESSION:-}}
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION") || return 2
     rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
-    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
     scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
-    rs_source > /dev/null
-    # A discipline rotation on the session store has no record number.
-    if [ -z "$ref" ] && [ "$scope" = discipline ] && [ "$RS_SOURCE_READ" = session ]; then
-        [[ $rrepo =~ $RE_REPO ]] || return 2
-    else
-        rs_target_ok "$rrepo" "$ref" || return 2
-    fi
-    if [ "$RS_SOURCE_READ" = session ]; then
-        rs_session_read "$out" json "$SESSION" "$scope" "$name" "$rrepo" "$ref"; rc=$?
-        cat "$out.err" >&2
-        [ $rc -eq 0 ] || return 2
-        return 0
-    fi
-    if declare -F bl_gh > /dev/null; then
-        bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2
-    else
-        gh api --method GET "repos/$rrepo/issues/$ref" > "$out.rec" 2> "$out.rec.err" < /dev/null || return 2
-    fi
-    jq -r '.body // ""' "$out.rec" > "$out.md" || return 2
-    bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" "$out.md" > "$out" \
-        || { echo "$PROG: the record couldn't be parsed" >&2; return 2; }
+    case "$scope" in roadmap|discipline) ;; *) return 2 ;; esac
+    [[ $rrepo =~ $RE_REPO ]] || return 2
+    rs_session_read "$out" json "$SESSION" "$scope" "$name"; rc=$?
+    cat "$out.err" >&2
+    [ $rc -eq 0 ] || return 2
 }
 
 # rs_facts <parsed-record> <topic>
@@ -765,9 +494,8 @@ rs_facts() {
     if ! bash "$HERE/pause-read.sh" --standing "$d/standing" --units "$d/units" > "$d/pauses" 2> /dev/null; then
         rm -rf "$d"; return 2
     fi
-    # The holding's pushed head, kept beside the row on the session store only
-    # (rs_session_read's <parsed>.pushed): present only when one is kept, so the
-    # same state reads the same on either store (PRD R19).
+    # The holding's pushed head, kept beside the row (rs_session_read's
+    # <parsed>.pushed): present only when one is kept.
     if [ -s "$f.pushed" ]; then cp "$f.pushed" "$d/pushed"; else echo '{}' > "$d/pushed"; fi
     jq -c --argjson row "$row" --slurpfile p "$d/pauses" --slurpfile h "$d/pushed" '
         ($row.pull_request | capture("^\\[#(?<n>[0-9]+)\\]\\(https://github\\.com/(?<r>[^/]+/[^/]+)/pull/[0-9]+\\)$") // {n: "", r: ""}) as $pr
@@ -790,7 +518,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -uo pipefail
     PROG=record-source
     HERE=$(cd "$(dirname "$0")" && pwd)
-    SESSION= SCOPE= NAME= REPO= REF= ACTION= TOPIC= HASH= TODAY=
+    SESSION= SCOPE= NAME= REPO= ACTION= TOPIC= HASH= TODAY=
     rs_usage() { sed -n '/^# Usage (as a script):/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -798,9 +526,6 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --scope) [ $# -ge 2 ] || rs_usage; SCOPE=$2; shift 2 ;;
             --name) [ $# -ge 2 ] || rs_usage; NAME=$2; shift 2 ;;
             --repo) [ $# -ge 2 ] || rs_usage; REPO=$2; shift 2 ;;
-            --ref) [ $# -ge 2 ] || rs_usage; REF=$2; shift 2 ;;
-            --source) ACTION=source; shift ;;
-            --probe) ACTION=probe; shift ;;
             --show) ACTION=show; shift ;;
             --host) ACTION=host; shift ;;
             --candidate) ACTION=candidate; shift ;;
@@ -813,7 +538,6 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     [ -n "$ACTION" ] || rs_usage
     . "$HERE/record-common.sh"
     case "$ACTION" in
-        probe) rs_probe; exit 0 ;;
         candidate)
             # Before any session exists: the scope and name, and the shipped
             # template's hash, come from the opener.
@@ -823,9 +547,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     esac
     lib_facts
     case "$ACTION" in
-        source) rs_source; exit 0 ;;
         host)
-            [ "$(rs_source)" = session ] || { echo '{}'; exit 0; }
             RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
             trap 'rm -rf "$RS_T"' EXIT
             rs_host "${RS_SESSION:-$SESSION}" "$RS_T/host" \
@@ -834,10 +556,10 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             exit 0 ;;
     esac
     [ "$ACTION" != facts ] || [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }
-    lib_run_ref || { echo "$PROG: the run has no record yet" >&2; exit 2; }
+    lib_run_found || { echo "$PROG: the run has no record yet" >&2; exit 2; }
     RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
     trap 'rm -rf "$RS_T"' EXIT
-    rs_record "$RS_T/rec" body --json body --jq .body
+    rs_record "$RS_T/rec" body
     case $? in
         0) ;;
         4) lib_scrub < "$RS_T/rec.err" >&2; exit 4 ;;

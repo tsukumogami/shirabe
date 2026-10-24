@@ -18,14 +18,15 @@
 #      milestone verdict_owed with its holding and after the holding is
 #      retired, and the next `landed` reaches the verdict step again and
 #      writes no second row;
-#   3. a checked verdict, posted and opened with roadmap-status.sh
-#      --verdict, then `recorded`, is confirmed by the record step and the
+#   3. a checked verdict, written as a session entry and opened with
+#      roadmap-status.sh --verdict --entry (which posts it on the roadmap pull
+#      request), then `recorded`, is confirmed by the record step and the
 #      run reaches pick, where both milestones read verdict_owed; nothing was
 #      merged;
 #   3a. once main takes that edit and --confirm runs, a `failure` tick for
 #      the Done milestone reaches milestone_reopen, `failed` goes back to
-#      wait, and a checked, posted failure entry with roadmap-status.sh
-#      --reopen, then `opened`, is confirmed by the record step and reaches
+#      wait, and a checked failure entry, opened with roadmap-status.sh
+#      --reopen --entry, then `opened`, is confirmed by the record step and reaches
 #      pick, which passes over the milestone while its reopen is pending;
 #   4. on the feature run `landed` still opens the Done pull request;
 #   5. the rendered merged_facts directive on the milestone run names the
@@ -50,6 +51,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -66,31 +68,32 @@ at() { tick "$@" | jq -r '.state // empty'; }
 as_agent() { local s=$1; shift; (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err"); }
 pick_json() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
 writes() { grep -cE 'POST repos/[^ ]*/git/refs|PUT repos|pr create' "$GH_DB.calls"; }
-live_record() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$PS/record-parse.sh"; }
+live_record() { (cd "$WD" && session_record "$S"); }
 owed_rows() { live_record | jq --arg t "$1" '[(.work // [])[] | select(.kind == "verdict-owed" and .item == $t)] | length'; }
 # retire_holding <unit>: the unit's holding and its Work row leave the record,
-# as a teardown leaves them, the record written in place on the stand-in.
+# as a teardown leaves them, the record written in place in the run's keys at
+# its own written time.
 retire_holding() {
     live_record > "$T/rec.json"
-    jq --arg u "$1" 'del(.written) | .holdings |= map(select(.unit != $u))
+    jq -c --arg u "$1" 'del(.written) | .holdings |= map(select(.unit != $u))
         | .work = [(.work // [])[] | select((.kind == "holding" and .item == $u) | not)]' "$T/rec.json" > "$T/rec2.json"
-    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rec.json")" "$T/rec2.json" > "$T/rec.md" \
-        || { bad "the holding of $1 is retired" "$(cat "$T/rec.md")"; return; }
-    db '(.issues[] | select(.number == 7)).body = $b' --rawfile b "$T/rec.md"
+    (cd "$WD" && session_seed "$S" "$(cat "$T/rec2.json")" "$(jq -r .written "$T/rec.json")") \
+        || bad "the holding of $1 is retired" ""
 }
 merges() { grep -cE 'pr merge|pulls/[0-9]+/merge' "$GH_DB.calls"; }
 run_rows() { # run_rows <active worker>: the Run rows, the worker told the address
     jq -nc --arg w "$1" '[{key: "arguments", value: "--roadmap", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "cap", value: "2", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
+    {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "told", value: $w, set_by: "lane-coord", set: "2026-10-07T10:00Z"}]'; }
 work_row() { # work_row <unit> <worker>: the active holding's next step
     jq -nc --arg u "$1" --arg w "$2" '[{item: $u, kind: "holding", who: $w, next: "report when finished", wakes: "0", updated: "2026-10-07T10:00Z"}]'; }
 
 # open_run <name> <roadmap-text> <record-json> <local: yes|no>: a fresh GitHub
-# stand-in with the record (issue #7) and the roadmap on main, a working tree
-# that holds the roadmap only when asked, and a run opened there and held at
-# wait. Sets WD, S and RM.
+# stand-in with the roadmap on main, a working tree that holds the roadmap
+# only when asked, and a run opened there, the record seeded into its session
+# before its first find, and held at wait. Sets WD, S and RM.
 open_run() {
     RM="docs/roadmaps/ROADMAP-$1.md"
     WD="$T/work-$1"
@@ -101,11 +104,10 @@ open_run() {
     if [ "$4" = yes ]; then mkdir -p "$WD/docs/roadmaps"; printf '%s\n' "$2" > "$WD/$RM"; fi
     db_init
     db '.files["acme/widgets"]["main:" + $p] = $t' --arg p "$RM" --arg t "$2"
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $n, body: $b, state: "open", author: "coord", editor: null}]' \
-        --arg n "Coordinator record: ROADMAP-$1" --arg b "$(render "$3" issue 2026-10-07T10:00:00Z)"
     printf '["%s"]' "$RM" > "$T/args.json"
     S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
     [ -n "$S" ] || { bad "the $1 run opens" "$(cat "$T/open.err")"; return 1; }
+    (cd "$WD" && session_seed "$S" "$3" 2026-10-07T10:00:00Z) || { bad "the $1 record is seeded into the run" ""; return 1; }
     local a b c
     a=$(at); b=$(tick --with-data '{"reconciled":"reported"}'); c=$(at --with-data '{"choice":"hold"}')
     [ "$a $(printf '%s' "$b" | jq -r '.state // empty') $c" = "reconcile pick wait" ] \
@@ -114,6 +116,7 @@ open_run() {
 # landing_file <directive-and-details>: the landing guidance file a rendered
 # directive names, resolved in the plugin.
 landing_file() { local m; m=$(grep -oE 'references/landing-[a-z]+-roadmap\.md' <<<"$1"); printf '%s\n' "${m%%$'\n'*}"; }
+koto_store_ready || { echo "koto lacks the session store's features; the verdict step needs a newer koto"; done_tests milestone-verdict-engine; exit $?; }
 
 # ---- the milestone run ------------------------------------------------------
 cat > "$T/mv.md" <<'EOF'
@@ -203,9 +206,9 @@ if open_run milestones "$MV" "$REC" yes; then
         "$S" "$TODAY" "$RM" "$SHA_MAIN" > "$T/verdict.txt"
     bash "$PS/milestone.sh" check-verdict "$T/mv.md" MV1 "$T/verdict.txt" --worker mv1-worker > /dev/null 2>"$T/err"; eq "the entry passes milestone.sh check-verdict" 0 $?
     sleep 1
-    as_agent record-append.sh --kind milestone-verdict --text-file "$T/verdict.txt"; eq "the entry is posted" 0 $?
-    URL=$(cat "$T/w.out")
-    as_agent roadmap-status.sh --verdict MV1 --entry-file "$T/verdict.txt" --entry-url "$URL"; eq "roadmap-status.sh --verdict opens the roadmap edit" 0 $?
+    as_agent record-append.sh --kind milestone-verdict --on none --text-file "$T/verdict.txt"; eq "the entry is written into the session" 0 $?
+    EN=$(sed -n 's|^record/entries/0*\([0-9][0-9]*\)$|\1|p' "$T/w.out")
+    as_agent roadmap-status.sh --verdict MV1 --entry "$EN"; eq "roadmap-status.sh --verdict opens the roadmap edit, posting the entry on it" 0 $?
     PRN=$(jq -r '[.prs[] | select(.title == "docs(roadmap): record MV1, the plugin list, as done on its verdict")][0].number // empty' "$GH_DB")
     [ -n "$PRN" ] && ok "  ... titled for the milestone" || bad "  ... titled for the milestone" "$(jq -c '.prs' "$GH_DB")"
     eq "recorded: the record confirms the row and the run reaches pick" pick "$(at --with-data '{"verdict":"recorded","unit":"MV1"}')"
@@ -225,9 +228,9 @@ if open_run milestones "$MV" "$REC" yes; then
     printf 'Failure: MV1\nReported by: an operator\nSeen on: %s\nClause: 2\nWhat was seen: the removed manifest was listed as installed\n' "$TODAY" > "$T/failure.txt"
     jq -r --arg k "main:$RM" '.files["acme/widgets"][$k]' "$GH_DB" > "$T/main.md"
     bash "$PS/milestone.sh" check-failure "$T/main.md" MV1 "$T/failure.txt" > /dev/null 2>"$T/err"; eq "the failure passes milestone.sh check-failure" 0 $?
-    as_agent record-append.sh --kind milestone-failure --text-file "$T/failure.txt"; eq "the failure is posted" 0 $?
-    FURL=$(cat "$T/w.out")
-    as_agent roadmap-status.sh --reopen MV1 --entry-file "$T/failure.txt" --entry-url "$FURL"; eq "roadmap-status.sh --reopen opens the reopen edit" 0 $?
+    as_agent record-append.sh --kind milestone-failure --on none --text-file "$T/failure.txt"; eq "the failure is written into the session" 0 $?
+    FN=$(sed -n 's|^record/entries/0*\([0-9][0-9]*\)$|\1|p' "$T/w.out")
+    as_agent roadmap-status.sh --reopen MV1 --entry "$FN"; eq "roadmap-status.sh --reopen opens the reopen edit, posting the failure on it" 0 $?
     [ -n "$(jq -r '[.prs[] | select(.title == "docs(roadmap): reopen MV1, the plugin list, on a reported failure")][0].number // empty' "$GH_DB")" ] \
         && ok "  ... titled for the reopen" || bad "  ... titled for the reopen" "$(jq -c '.prs' "$GH_DB")"
     eq "opened: the record confirms the row and the run reaches pick" pick "$(at --with-data '{"status":"opened","unit":"MV1"}')"
@@ -260,12 +263,19 @@ fi
 
 # ---- 5. the merge directives -----------------------------------------------
 echo "== 5. the merge directives =="
-# merged_facts, held by a failed read so its directive is what the run shows.
+# merged_facts, held by a failed read of the pull request GitHub merged, so
+# its directive is what the run shows. The record is the session's, so the
+# read that fails is the pull request's: the merged unit is a holding with a
+# pull request link (#12), added to the record first, and the event names it.
 # render_merged <session> <wd>: the directive and details koto renders there.
 render_merged() {
     S=$1 WD=$2
-    db '.fail = [{match: "issue view", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
-    tick --with-data '{"event":"merged","unit":"mv1-worker"}' > /dev/null
+    live_record > "$T/rec.json"
+    jq -c --argjson h "$(holding merged-worker '{"unit": "Merged"}')" 'del(.written) | .holdings = ((.holdings // []) + [$h])' "$T/rec.json" > "$T/rec2.json"
+    (cd "$WD" && session_seed "$S" "$(cat "$T/rec2.json")" "$(jq -r .written "$T/rec.json")") \
+        || bad "the merged holding is added to the record" ""
+    db '.fail = [{match: "pr view", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
+    tick --with-data '{"event":"merged","unit":"merged-worker"}' > /dev/null
     (cd "$WD" && koto status "$S" 2>/dev/null) | jq -r '"\(.current_state)\n\(.directive // "")\n\(.details // "")"'
     db '.fail = []'
 }

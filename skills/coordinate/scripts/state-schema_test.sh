@@ -10,15 +10,18 @@
 # worker, each column grammar, a malformed pull request link, a malformed hold
 # or an illegal hold change, an unknown Run key, stored-set rows breaking their
 # rules, an illegal Decisions state, transition or stamp, a private repository
-# name, a home-directory path and a token-shaped string); a `store` Run row
-# reading github or session accepted and any other value refused; a valid
-# state accepted and given back normalized; record-codec.jq carrying the
-# module byte for byte and defining none of its names elsewhere. Through
-# record-write.sh and the core: a next state naming a private repository is
-# refused from its JSON before any render, on GitHub, beside the codec alone
-# and on the session store, and on the session store a refused schema rule, a
-# stale read and a section owned by another writer flag each leave every key
-# as it was.
+# name, a home-directory path and a token-shaped string); the legacy `store
+# session` Run row accepted, a `store github` row and any other value
+# refused, and the crash-set rows allowed with no store row; the scan over
+# every string in the state (scan_strings): each string path of a full state
+# found, a field added at any depth found, a string no column check reads
+# refused through check_record, a rotation's reasoning scanned; a valid state
+# accepted and given back normalized; record-codec.jq carrying the module byte
+# for byte and defining none of its names elsewhere. Through record-write.sh
+# and the core: a next state naming a private repository is refused from its
+# JSON before any render, beside the codec alone too, and a refused schema
+# rule, a stale read and a section owned by another writer flag each leave
+# every key as it was.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
@@ -93,7 +96,7 @@ full_record() {
       side_effects: [{action: "merge", target: "#12", verified_head: $sha, attempted: "2026-09-26T11:02Z", how_to_confirm: "compare blobs on main"}],
       reversals: [{date: "2026-09-26T09:15Z", reversed: "merge on green", now: "hold for release", reason: "release freeze", from: "the human"}]}'
 }
-with() { full_record | jq -c "$1"; }
+with() { full_record | jq -c "$@"; }
 
 echo "== the module's shape =="
 # record-codec.jq carries everything below state-schema.jq's header byte for
@@ -197,16 +200,17 @@ same "a cap that isn't 1 to 99" "$(RUNS "$(RR cap 100)")" "a cap is a number fro
 same "a coordinator address shaped like a path" "$(RUNS "$(RR coordinator a/b)")" "shape of a path"
 same "a party told twice" "$(RUNS "$(RR told lead), $(RR told lead)")" "a party is told twice"
 same "a key other than told used twice" "$(RUNS "$(RR cap 3), $(RR cap 4)")" "a key other than told, rules and briefs is used twice"
-passes "a store row reading github passes" "$(RUNS "$(RR store github)")"
-passes "a store row reading session passes" "$(RUNS "$STORE")"
-same "a store row reading anything else" "$(RUNS "$(RR store gitlab)")" "store-malformed: a store is github or session"
-same "  ... or one used twice" "$(RUNS "$STORE, $(RR store github)")" "store-malformed: the store row is used twice"
-passes "the crash set passes beside the store session row" \
-    "$(RUNS "$STORE, $(RR rules "skill-rules sha256:$SHA64"), $(RR briefs "brief sha256:$SHA64"), $(RR friction friction-log), $(RR reports-to "the lead at ws-lead")")"
+same "a store row reading github is refused" "$(RUNS "$(RR store github)")" "store-malformed: the store is the session; a store row reads session, never github"
+passes "the legacy store row reading session an existing session holds passes" "$(RUNS "$STORE")"
+same "a store row reading anything else" "$(RUNS "$(RR store gitlab)")" "store-malformed: the store is the session; a store row reads session, never gitlab"
+same "  ... or one used twice" "$(RUNS "$STORE, $(RR store session)")" "store-malformed: the store row is used twice"
+passes "the crash set passes with no store row" \
+    "$(RUNS "$(RR rules "skill-rules sha256:$SHA64"), $(RR briefs "brief sha256:$SHA64"), $(RR friction friction-log), $(RR reports-to "the lead at ws-lead")")"
+passes "  ... and beside the legacy store session row" \
+    "$(RUNS "$STORE, $(RR rules "skill-rules sha256:$SHA64"), $(RR friction friction-log)")"
 for k in rules briefs friction reports-to; do
     v="a sha256:$SHA64"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
-    same "a $k row without the store session row" "$(RUNS "$(RR "$k" "$v")")" "$k is kept only by a record on the session store"
-    same "  ... or beside a store github row" "$(RUNS "$(RR store github), $(RR "$k" "$v")")" "$k is kept only by a record on the session store"
+    passes "a $k row alone passes" "$(RUNS "$(RR "$k" "$v")")"
 done
 same "two friction rows" "$(RUNS "$STORE, $(RR friction a), $(RR friction b)")" "used twice"
 same "a reports-to address shaped like a path" "$(RUNS "$STORE, $(RR reports-to "the lead at /tmp/x")")" "shape of a path"
@@ -311,27 +315,84 @@ same "  ... or in a stored-set cell" "$(STS "$(ST approval "" "" | jq -c --arg w
 same "a token-shaped string in a Decisions cell" "$(dec "$(entry 1 proposed "{question: \"use $FX_TOKEN\"}")")" "a token-shaped string"
 same "  ... or in a stored-set cell" "$(RUNS "$(RR arguments "sk-abcdefghijklmnopqrstuvwxyz0123")")" "run.value: a token-shaped string"
 
+echo "== the scan walks every string =="
+# scan <json> [private-repos]: scan_strings over the value; the refusal from
+# "refused: " on, or "ok".
+scan() {
+    printf '%s' "$1" > "$T/sc.json"
+    if jq -n -L "$HERE" --slurpfile s "$T/sc.json" --arg private "${2-}" 'include "state-schema";
+            $s[0] | scan_strings($private | split(",") | map(select(. != ""))) | empty' 2> "$T/sc.err" < /dev/null; then
+        echo ok
+    else
+        sed -n 's/.*\(refused: \)/\1/p' "$T/sc.err" | sed -n 1p
+    fi
+}
+# Every string of a state holding every section, each replaced in turn by a
+# token-shaped string, is refused, naming its path: the scan reads the value,
+# not a list of columns.
+FULL=$(with '.holds = [{hold: "h1", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]
+    | .run = [{key: "cap", value: "3", set_by: "the human", set: "2026-09-28T11:27Z"}]
+    | .standing = [{standing: "s1", kind: "answer", on: "", until: "", what: "panels first", owner: "alice", relayed_by: "", set: "2026-09-29T17:42Z"}]
+    | .work = [{item: "audit", kind: "local-agent", who: "me", next: "finish", wakes: "0", updated: "2026-09-29T17:42Z"}]
+    | .decisions = {next: 2, entries: [{decision: "1", round: "0", question: "which?", options: "a\nb", state: "proposed", source: "self [20260927T233505Z raise 41]", updated: "2026-09-27T23:40Z"}]}
+    | .written = "2026-09-26T09:00:00Z"')
+eq "a full state passes the scan" ok "$(scan "$FULL")"
+printf '%s' "$FULL" | jq -c '[paths(strings)]' > "$T/paths.json"
+NP=$(jq length "$T/paths.json")
+MISSED=
+i=0
+while [ "$i" -lt "$NP" ]; do
+    P=$(jq -c --argjson i "$i" '.[$i]' "$T/paths.json")
+    NAME=$(printf '%s' "$P" | jq -r 'map(if type == "number" then "[\(.)]" else ".\(.)" end) | join("") | ltrimstr(".")')
+    GOT=$(scan "$(printf '%s' "$FULL" | jq -c --argjson p "$P" --arg t "$FX_TOKEN" 'setpath($p; "use " + $t)')")
+    [ "$GOT" = "refused: $NAME: a token-shaped string" ] || MISSED="$MISSED $NAME[$GOT]"
+    i=$((i + 1))
+done
+[ "$NP" -ge 50 ] && [ -z "$MISSED" ] && ok "every string of a full state is scanned, naming its path ($NP paths)" \
+    || bad "every string of a full state is scanned, naming its path ($NP paths)" "$MISSED"
+# A field no check knows yet, at any depth, is scanned without being named:
+# a scan over a list of columns would miss it.
+eq "a new top-level field's string is scanned" "refused: notes: a home-directory path" "$(scan "$(with --arg h "$FX_HOME_A" '.notes = $h')")"
+eq "  ... and one nested in a new object and list" "refused: holdings[0].extra.more[1]: a token-shaped string" \
+    "$(scan "$(with --arg t "$FX_TOKEN" '.holdings[0].extra = {more: ["fine", $t]}')")"
+eq "  ... and a private repository in it" "refused: holdings[0].extra.note: names acme/secret, a repository that isn't public" \
+    "$(scan "$(with '.holdings[0].extra = {note: "after acme/secret#3"}')" acme/secret)"
+eq "a string value itself is scanned (record/reasoning)" "refused: value: a home-directory path" "$(scan "$(jq -nc --arg h "$FX_HOME_B" '"see " + $h')")"
+eq "  ... and a rotation's fields (record/rotation)" "refused: predecessor: a token-shaped string" \
+    "$(scan "$(jq -nc --arg t "$FX_TOKEN" '{start: "2026-10-01", end: "2026-10-07", host_repo: "acme/widgets", predecessor: $t}')")"
+# check_record runs it last, over strings no column check reads.
+eq "check_record refuses a token in a How to confirm, which no column check reads" "refused: side_effects[0].how_to_confirm: a token-shaped string" \
+    "$(check "$(with --arg t "$FX_TOKEN" '.side_effects[0].how_to_confirm = "use " + $t')")"
+eq "  ... a home path in a deferral's reason" "refused: deferrals[0].reason: a home-directory path" \
+    "$(check "$(with --arg h "$FX_HOME_A" '.deferrals[0].reason = "see " + $h')")"
+eq "  ... and a private repository in a reversal" "refused: reversals[0].reason: names acme/secret, a repository that isn't public" \
+    "$(check "$(with '.reversals[0].reason = "waits on acme/secret#3"')" acme/secret)"
+eq "  ... while a column's own check still speaks first" "refused: repo: names acme/secret, a repository that isn't public" \
+    "$(check "$(with '.holdings[0].repo = "acme/secret"')" acme/secret)"
+
 echo "== through record-write.sh and the core =="
-# A roadmap record, once on GitHub and once on the session store, written
-# through the real write script with the GitHub and koto stand-ins.
+# A roadmap record in the session, written through the real write script with
+# the GitHub and koto stand-ins.
 WR="$HERE/record-write.sh"
-RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks)
+SW=coordinate-roadmap-plugin-system-20260926T140000Z
+export RS_SESSION=$SW
+RM=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
 OLD=$(render "$(record_json roadmap plugin-system)" issue)
 NEWJ=$(record_json roadmap plugin-system | jq -c --argjson h "$(holding feature-2)" '.holdings = [$h]')
-seed_rm() { db_init; db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-plugin-system", body: $b, state: "open", author: "alice", editor: null}]' --arg b "$OLD"; }
-body7() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB"; }
+seed_rm() { db_init; seed_session "$SW" "$(record_json roadmap plugin-system)"; }
+body7() { bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --show 2>/dev/null; }
 # A body that names a private repository renders (the renderer is handed no
 # private list), so only the core's own check of the state can refuse it.
 render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/secret"')" issue > "$T/priv.md"
 
 seed_rm
 bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
-eq "on GitHub, a state naming a private repository is refused" 65 "$rc"
+eq "a state naming a private repository is refused" 65 "$rc"
 grep -q 'record-write: refused: repo: names acme/secret, a repository that isn.t public' "$T/err" \
     && ok "  ... with the module's message" || bad "  ... with the module's message" "$(cat "$T/err")"
 grep -q 'record-render' "$T/err" && bad "  ... from the state's JSON, before any render" "$(cat "$T/err")" \
     || ok "  ... from the state's JSON, before any render"
-eq "  ... and the body is untouched" "$OLD" "$(body7)"
+eq "  ... and the record is untouched" "$OLD" "$(body7)"
 # A tree holding the codec without the module, as some suites build one: the
 # core checks the state with the codec's copy and refuses the same way.
 mkdir -p "$T/codec-only"
@@ -340,42 +401,38 @@ seed_rm
 bash "$T/codec-only/record-write.sh" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
 eq "beside the codec alone, the state is refused the same way" \
     "65 record-write: refused: repo: names acme/secret, a repository that isn't public" "$rc $(sed -n 1p "$T/err")"
-eq "  ... and the body is untouched" "$OLD" "$(body7)"
+eq "  ... and the record is untouched" "$OLD" "$(body7)"
 
-SW=coordinate-roadmap-plugin-system-20260926T140000Z
-SEN=(env RS_SOURCE=session RS_SESSION="$SW")
-printf '%s\n' "$OLD" > "$T/old.md"
-bash "$HERE/record-parse.sh" --container issue "$T/old.md" > "$T/old.json"
-seed_rm; session_keys "$SW" "$T/old.json"
+seed_rm
 SNAP=$(session_snapshot "$SW")
-[ "$SNAP" != none ] && ok "the session store holds the record's keys" || bad "the session store holds the record's keys" ""
-"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
-eq "on the session store, a state naming a private repository is refused" 65 "$rc"
+[ "$SNAP" != none ] && ok "the session holds the record's keys" || bad "the session holds the record's keys" ""
+bash "$WR" "${RM[@]}" --body-file "$T/priv.md" > /dev/null 2> "$T/err"; rc=$?
+eq "a state naming a private repository is refused before any key is written" 65 "$rc"
 grep -q 'record-write: refused: repo: names acme/secret' "$T/err" && ! grep -q 'record-render' "$T/err" \
     && ok "  ... from its JSON, with the module's message" || bad "  ... from its JSON, with the module's message" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 # While writers hand the core a body, the codec's parse catches the rest first.
 render "$NEWJ" issue > "$T/new.md"
 sed 's/| feature-2 |/| session_feature-2 |/' "$T/new.md" > "$T/worker.md"
-"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/worker.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --body-file "$T/worker.md" > /dev/null 2> "$T/err"; rc=$?
 eq "a worker shaped like a session id is refused" 65 "$rc"
 grep -q 'refused: worker: the shape of a session id' "$T/err" && ok "  ... with its refused: message" || bad "  ... with its refused: message" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 # A write the core accepts, then one built from the read before it.
-"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
 eq "a valid state is written to the session" 0 "$rc"
 SNAP=$(session_snapshot "$SW")
-"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" > /dev/null 2> "$T/err"; rc=$?
 eq "a write built from a stale read is refused as record-changed" 12 "$rc"
 grep -q 'record-changed' "$T/err" && ok "  ... naming record-changed" || bad "  ... naming record-changed" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"
 # A write that changes a section another writer flag owns: Holds, through
 # record-write.sh, which never opens HOLDS_WRITER.
-"${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show > "$T/cur.md" 2> "$T/err"
+body7 > "$T/cur.md"
 bash "$HERE/record-parse.sh" --container issue "$T/cur.md" > "$T/cur.json"
 jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
     | bash "$HERE/record-render.sh" --container issue --written "$(jq -r .written "$T/cur.json")" > "$T/hold.md"
-"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/hold.md" > /dev/null 2> "$T/err"; rc=$?
+bash "$WR" "${RM[@]}" --body-file "$T/hold.md" > /dev/null 2> "$T/err"; rc=$?
 eq "a write changing a section another writer owns is refused" 65 "$rc"
 grep -q 'Holds section changes only through record-hold.sh' "$T/err" && ok "  ... by the owner check" || bad "  ... by the owner check" "$(cat "$T/err")"
 eq "  ... and no key changed" "$SNAP" "$(session_snapshot "$SW")"

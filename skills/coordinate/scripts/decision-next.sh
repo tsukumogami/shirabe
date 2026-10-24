@@ -16,16 +16,14 @@
 # Without --parsed the record is read here.
 #
 # It reads the Decisions section (record-decision.sh --list, or its projection
-# over the --parsed record), the session log
-# (coord-log.sh), and at discipline scope on GitHub before the first dispatch
-# the previous rotation's handoff. The rules, in routing order; the first that
-# holds is the verdict:
+# over the --parsed record) and the session log (coord-log.sh). The rules, in
+# routing order; the first that holds is the verdict:
 #
-#   1 carry             before the run's first dispatch, at discipline scope on
-#                       GitHub: the handoff (docs/disciplines/<name>.md on the
-#                       default branch) has an unsettled entry this record
-#                       lacks, or a higher Next decision (a rotation on the
-#                       session store carried its predecessor when it opened)
+#   1 carry             never printed now: a discipline rotation carries its
+#                       predecessor's unsettled entries and Next decision when
+#                       it opens (record-open.sh --carry), so nothing is left
+#                       to carry by the time this runs; the rule keeps its
+#                       place in the order
 #   2 unrecorded-open   the latest report_questions visit sealed a list, the run
 #                       went on to decision_open and not to wait since, and no
 #                       Source or Evidence line carries this run's
@@ -64,8 +62,8 @@
 #     clear             nothing owed
 #   record-full         something is owed that needs a write, and the record is
 #                       within 4,096 bytes of the write core's 60,000-byte
-#                       budget: a stop for the human, never a write GitHub or
-#                       the core would refuse
+#                       budget: a stop for the human, never a write the core
+#                       would refuse
 #
 # Before any rule, a record within that margin whose Decisions section holds a
 # settled entry that owes nothing (the codec's d_archivable) has those entries
@@ -106,7 +104,7 @@ done
 [ -n "$SESSION" ] || usage
 [ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ] && [ -r "$PARSED.md" ]; } || usage
 case "$OWED" in ''|dispatch|pick) ;; *) usage ;; esac
-SCOPE= NAME= REPO= REF=
+SCOPE= NAME= REPO=
 . "$HERE/record-common.sh"
 lib_facts
 lib_run_stamp
@@ -129,9 +127,8 @@ live_size() {
         cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
         LIVE=$PARSED
     else
-        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && lib_ref_ok "$REF" \
-            || lib_die2 "cannot read the record's number"
-        rs_record "$T/live" body --json body --jq .body
+        lib_run_found || lib_die2 "the run has no found record"
+        rs_record "$T/live" body
         case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
         LIVE=$T/live
     fi
@@ -230,24 +227,9 @@ else
     echo '{"work":[]}' > "$T/state.json"
 fi
 
-# Rule 1: the carry. A rotation on the session store carried its predecessor
-# when it opened (record-open.sh --carry, the bridge's file included); a
-# committed handoff outlives the rotation that carried it, and its unsettled
-# entries may have settled since, so it is read only for a rotation on GitHub.
+# Rule 1: the carry. A rotation carried its predecessor's unsettled entries
+# when it opened (record-open.sh --carry), so there is nothing left to carry.
 CARRY=false
-if [ "$SCOPE" = discipline ] && [ "$DISPATCHED" = false ] && ! lib_session_rotation; then
-    lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-    lib_file_at "docs/disciplines/$NAME.md" "$DEFAULT_BRANCH" "$T/handoff.md"
-    case $? in
-        0) if bash "$HERE/record-parse.sh" --format handoff "$T/handoff.md" > "$T/handoff.json" 2> /dev/null; then
-               jq -e --slurpfile s "$T/section.json" '(.decisions // {next: 1, entries: []}) as $h | $s[0] as $r
-                   | any($h.entries[]; .state != "settled" and (.decision as $d | all($r.entries[]; .decision != $d)))
-                     or $h.next > $r.next' "$T/handoff.json" > /dev/null && CARRY=true
-           fi ;;
-        1) ;;
-        *) lib_die2 "cannot read the handoff" ;;
-    esac
-fi
 
 # Rules 2 to 9, over the section and the log facts.
 NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$QCAP" --arg rcap "$RCAP" \

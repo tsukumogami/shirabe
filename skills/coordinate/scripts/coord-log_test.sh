@@ -6,13 +6,15 @@
 #
 # Covers: seal and check (latest visit, --any-visit, an edited hash, another
 # state's or session's seal, an unsealed token), seal --file and check --key,
-# capture with and without --for and --state, directed-since, run-facts,
+# capture with and without --for and --state, directed-since, run-facts (the
+# found tokens it accepts, no record number, and no run-store subcommand),
 # run-start, vars, entered, entry, evidence (--where, --has), captures, unit
 # (the message and leg paths), count, slug, live-session --all, the refusal of
 # a header whose schema_version isn't 1, provenance by template hash and
 # plugin root (and, after the plugin is rewritten in place, by the template
 # path koto compiled the run from and the compiled copy it runs), and
-# coord-verdict.sh's exit codes for a valid, a stale and an unknown token.
+# coord-verdict.sh's exit codes for a valid, a stale and an unknown token,
+# and its refusal of the retired handoff file's `predecessor handoff:<sha>`.
 #
 # Usage: bash skills/coordinate/scripts/coord-log_test.sh
 set -uo pipefail
@@ -25,33 +27,48 @@ CV="$HERE/coord-verdict.sh"
 run_suite() { # run_suite <label>: every case, under the current PATH
     local S=coordinate-demo-20260926T080000Z L=$1
     rm -rf "$KOTO_STORE/sessions/$S" "$KOTO_STORE/context/$S"
-    found_session "$S" "$(roadmap_vars demo)" 7
+    found_session "$S" "$(roadmap_vars demo)"
+    # A per-unit capture beside the find's, sealed at the same visit, for the
+    # --for reads below.
+    log_capture "$S" PER_UNIT "$(bash "$CL" seal --session "$S" --state record_find --token "pick 7")"
     CAP1=$(bash "$CL" capture --session "$S" --name RECORD_FIND)
     bash "$CL" check --session "$S" --state record_find --sealed "$CAP1" && ok "$L: check accepts the latest visit" || bad "$L: check accepts the latest visit"
-    eq "$L: run-facts" '{"scope":"roadmap","name":"demo","repo":"acme/widgets","ref":"7"}' "$(bash "$CL" run-facts --session "$S")"
+    eq "$L: run-facts names the scope, name and host, and no record number" '{"scope":"roadmap","name":"demo","repo":"acme/widgets"}' "$(bash "$CL" run-facts --session "$S")"
+    bash "$CL" run-store --session "$S" > /dev/null 2>&1; eq "$L: run-store is no subcommand" 64 $?
     eq "$L: run-start" 2026-09-26T08:00:00.000Z "$(bash "$CL" run-start --session "$S")"
     eq "$L: vars" roadmap "$(bash "$CL" vars --session "$S" | jq -r .SCOPE)"
     bash "$CL" entered --session "$S" --state record_find; eq "$L: entered finds a visited state" 0 $?
     bash "$CL" entered --session "$S" --state dispatch; eq "$L: entered reports an unvisited state" 1 $?
     eq "$L: current is the latest transition's target and its sequence" "reconcile 5" "$(bash "$CL" current --session "$S")"
     bash "$CV" --session "$S" --state record_find --capture "$CAP1"; eq "$L: coord-verdict maps found to 10" 10 $?
-    bash "$CV" --session "$S" --state record_find --capture "found 8 ${CAP1#found 7 }" 2>/dev/null; eq "$L: an edited token is refused" 1 $?
-    bash "$CV" --session "$S" --state record_find --capture "found 7" 2>/dev/null; eq "$L: an unsealed token is refused" 1 $?
+    bash "$CV" --session "$S" --state record_find --capture "found 8 ${CAP1#found }" 2>/dev/null; eq "$L: an edited token is refused" 1 $?
+    bash "$CV" --session "$S" --state record_find --capture "found" 2>/dev/null; eq "$L: an unsealed token is refused" 1 $?
     bash "$CV" --session "$S" --state reconcile --capture "$CAP1" 2>/dev/null; eq "$L: another state's seal is refused" 1 $?
     B=$(bash "$CL" seal --session "$S" --state record_find --token "bogus 1")
     bash "$CV" --session "$S" --state record_find --capture "$B"; eq "$L: an unknown verdict exits 3" 3 $?
     # A second visit supersedes the first seal.
     log_to "$S" reconcile record_find
-    log_capture "$S" RECORD_FIND "$(bash "$CL" seal --session "$S" --state record_find --token "found 9")"
+    log_capture "$S" PER_UNIT "$(bash "$CL" seal --session "$S" --state record_find --token "pick 9")"
+    log_capture "$S" RECORD_FIND "$(bash "$CL" seal --session "$S" --state record_find --token found)"
     bash "$CV" --session "$S" --state record_find --capture "$CAP1" 2>/dev/null; eq "$L: a superseded seal is refused" 1 $?
     bash "$CL" check --session "$S" --state record_find --sealed "$CAP1" --any-visit && ok "$L: --any-visit accepts an earlier real visit" || bad "$L: --any-visit accepts an earlier real visit"
-    bash "$CL" capture --session "$S" --name RECORD_FIND --for 7 --state record_find >/dev/null 2>&1; eq "$L: capture --state refuses a superseded value" 1 $?
-    bash "$CL" capture --session "$S" --name RECORD_FIND --for 7 --state record_find --any-visit >/dev/null && ok "$L: capture --any-visit accepts a per-unit value" || bad "$L: capture --any-visit accepts a per-unit value"
-    eq "$L: capture reads the latest" "found 9" "$(bash "$CL" capture --session "$S" --name RECORD_FIND | cut -d' ' -f1-2)"
+    bash "$CL" capture --session "$S" --name PER_UNIT --for 7 --state record_find >/dev/null 2>&1; eq "$L: capture --state refuses a superseded value" 1 $?
+    bash "$CL" capture --session "$S" --name PER_UNIT --for 7 --state record_find --any-visit >/dev/null && ok "$L: capture --any-visit accepts a per-unit value" || bad "$L: capture --any-visit accepts a per-unit value"
+    eq "$L: capture reads the latest" "pick 9" "$(bash "$CL" capture --session "$S" --name PER_UNIT | cut -d' ' -f1-2)"
+    eq "$L: run-facts still reads the latest find" roadmap "$(bash "$CL" run-facts --session "$S" | jq -r .scope)"
+    # The find's other tokens: none and malformed are no found record; a
+    # number after found is no token this find seals.
+    for tok in none malformed "found 7" "found 7 session" "move 7"; do
+        log_to "$S" reconcile record_find
+        log_capture "$S" RECORD_FIND "$(bash "$CL" seal --session "$S" --state record_find --token "$tok")"
+        bash "$CL" run-facts --session "$S" > /dev/null 2>&1; eq "$L: run-facts after \`$tok\` has no found record" 1 $?
+    done
+    log_to "$S" reconcile record_find
+    log_capture "$S" RECORD_FIND "$(bash "$CL" seal --session "$S" --state record_find --token found)"
     bash "$CL" capture --session "$S" --name NOPE; eq "$L: an absent capture exits 1" 1 $?
     # Another session's seal.
     S2=coordinate-other-20260926T080000Z
-    rm -rf "$KOTO_STORE/sessions/$S2"; found_session "$S2" "$(roadmap_vars other)" 7
+    rm -rf "$KOTO_STORE/sessions/$S2"; found_session "$S2" "$(roadmap_vars other)"
     bash "$CL" check --session "$S" --state record_find --sealed "$(bash "$CL" capture --session "$S2" --name RECORD_FIND)" --any-visit 2>/dev/null; eq "$L: another session's seal is refused" 1 $?
     # seal --file and check --key.
     printf '{"verdict":"durable"}' > "$T/v.json"
@@ -70,13 +87,13 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     bash "$CL" provenance --session "$S"; eq "$L: provenance passes for the matching template hash" 0 $?
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S" 2>/dev/null; eq "$L: provenance fails for another template" 1 $?
     S3=coordinate-alien-20260926T080000Z
-    rm -rf "$KOTO_STORE/sessions/$S3"; found_session "$S3" "$(roadmap_vars alien | jq -c '.PLUGIN_ROOT = "/elsewhere"')" 7
+    rm -rf "$KOTO_STORE/sessions/$S3"; found_session "$S3" "$(roadmap_vars alien | jq -c '.PLUGIN_ROOT = "/elsewhere"')"
     bash "$CL" provenance --session "$S3" 2>/dev/null; eq "$L: provenance fails for another plugin root" 1 $?
     # The plugin rewritten in place since the run opened: the shipped template
     # now compiles to another hash, but koto opened the run from the shipped
     # template's path and still holds the compiled copy it runs it from.
     local SHIPPED="$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" S5=coordinate-swap-20260926T080000Z
-    rm -rf "$KOTO_STORE/sessions/$S5"; found_session "$S5" "$(roadmap_vars swap)" 7
+    rm -rf "$KOTO_STORE/sessions/$S5"; found_session "$S5" "$(roadmap_vars swap)"
     H5=$(opened_from "$S5" "$SHIPPED" '{"compiled":"as opened"}')
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5"; eq "$L: provenance passes after the plugin is rewritten in place" 0 $?
     rm -f "$KOTO_STORE/cache/$H5.json"
@@ -93,7 +110,7 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S5"; eq "$L: provenance passes for a source directory reached through a symlink" 0 $?
     # A foreign session: opened from a real copy of the template at another path.
     local S6=coordinate-foreign-20260926T080000Z
-    rm -rf "$KOTO_STORE/sessions/$S6"; found_session "$S6" "$(roadmap_vars foreign)" 7
+    rm -rf "$KOTO_STORE/sessions/$S6"; found_session "$S6" "$(roadmap_vars foreign)"
     mkdir -p "$T/elsewhere"; cp "$SHIPPED" "$T/elsewhere/coordinate.md"
     opened_from "$S6" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S6" 2>/dev/null; eq "$L: provenance fails for a session opened from another template path" 1 $?
@@ -250,9 +267,42 @@ if command -v shasum >/dev/null 2>&1; then
 else
     echo "note: shasum not present; the macOS hashing path was not exercised here"
 fi
+echo "== a discipline rotation's find tokens =="
+DS=coordinate-discipline-ci-20260926T080000Z
+DP=coordinate-discipline-ci-20260919T080000Z
+HANDOFF="handoff:$SHA_MAIN"
+log_new "$DS" "$(discipline_vars ci)"
+log_to "$DS" start_posture record_find
+# disc_tok <token>: a new visit to record_find sealing <token>; prints the sealed capture.
+disc_tok() {
+    log_to "$DS" record_open record_find
+    local v
+    v=$(bash "$CL" seal --session "$DS" --state record_find --token "$1")
+    log_capture "$DS" RECORD_FIND "$v"
+    printf '%s\n' "$v"
+}
+for tok in first found "predecessor $DP"; do
+    disc_tok "$tok" > /dev/null
+    eq "run-facts after \`$tok\` at discipline scope" '{"scope":"discipline","name":"ci","repo":"acme/widgets"}' "$(bash "$CL" run-facts --session "$DS")"
+done
+V=$(disc_tok "predecessor $DP")
+bash "$CV" --session "$DS" --state record_find --capture "$V"; eq "coord-verdict routes predecessor <session> as predecessor-session" 206 $?
+V=$(disc_tok first)
+bash "$CV" --session "$DS" --state record_find --capture "$V"; eq "  ... and first" 205 $?
+V=$(disc_tok "predecessor $HANDOFF")
+bash "$CV" --session "$DS" --state record_find --capture "$V" 2> "$T/err"; eq "the handoff file bridge's predecessor handoff:<sha> is refused as no verdict" 3 $?
+grep -q 'unknown verdict word' "$T/err" && ok "  ... naming it unknown" || bad "  ... naming it unknown" "$(cat "$T/err")"
+bash "$CL" run-facts --session "$DS" > /dev/null 2>&1; eq "  ... and run-facts reads it as no found record" 1 $?
+V=$(disc_tok "predecessor 22")
+bash "$CV" --session "$DS" --state record_find --capture "$V" 2> /dev/null; eq "a GitHub rotation's predecessor <n> is no verdict either" 3 $?
+bash "$CL" run-facts --session "$DS" > /dev/null 2>&1; eq "  ... nor a found record" 1 $?
+for w in unauthorized move rendered unparseable handoff-missing title-stale land handed-over closed-unmerged session-rotation; do
+    V=$(disc_tok "$w 1")
+    bash "$CV" --session "$DS" --state record_find --capture "$V" 2> /dev/null; eq "coord-verdict knows no $w" 3 $?
+done
 echo "== wakes =="
 WS=coordinate-roadmap-wakes-20260926T080000Z
-found_session "$WS" "$(roadmap_vars wakes)" 7
+found_session "$WS" "$(roadmap_vars wakes)"
 log_to "$WS" reconcile wait 2026-09-26T08:02:00.000Z
 log_evidence "$WS" wait '{"event":"progress","unit":"alpha","report":"checkpoint"}' 2026-09-26T08:10:00.000Z
 log_evidence "$WS" wait '{"event":"report","unit":"alpha","report":"ready"}' 2026-09-26T08:20:00.000Z

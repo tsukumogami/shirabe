@@ -3,14 +3,14 @@
 # changes: add a hold, lift a `lifted` one, list them.
 #
 # Covers: --list on a record with no section ([]), and in record order; a hold
-# added appends the section, and the body round-trips through the codec; a
-# second hold of the same name, a lifted new hold and a malformed Until
-# refused (65); --lift stamping the minute and who, only for a `lifted` hold,
-# and only once; a lift of an unknown hold refused; usage errors; reads
-# writing nothing; the write as a whole-body edit. The section's one writer:
-# record-write.sh dropping or changing a hold refused (65), carrying it
-# unchanged fine; a hold naming a private repository on a public host
-# refused.
+# added appends the section, in the run's session's record/holds; a second
+# hold of the same name, a lifted new hold and a malformed Until refused (65);
+# --lift stamping the minute and who, only for a `lifted` hold, and only once;
+# a lift of an unknown hold refused; each add and lift told as a `hold` entry;
+# usage errors; reads writing nothing; nothing written on GitHub. The
+# section's one writer: record-write.sh dropping or changing a hold refused
+# (65), carrying it unchanged fine; a hold naming a private repository on a
+# public host refused.
 #
 # Usage: bash skills/coordinate/scripts/record-hold_test.sh
 set -uo pipefail
@@ -20,15 +20,13 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RH="$HERE/record-hold.sh"
 
-TITLE="Coordinator record: ROADMAP-plugin-system"
-RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7)
+SR=coordinate-roadmap-plugin-system-20260926T070000Z
+export RS_SESSION=$SR
+RM=(--scope roadmap --name plugin-system --repo "$REPO")
 W_RM=("${RM[@]}" --skip-session-checks)
-seed() { # seed <record-json>
-    db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$1" issue 2026-09-26T08:00:00Z)"
-}
-live() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh"; }
+seed() { db_init; seed_session "$SR" "$1"; } # seed <record-json>
+live() { session_state "$SR"; }
+gh_writes() { grep -E 'issue (create|edit|close)|pr (create|edit)|comment|--method (POST|PUT|PATCH|DELETE)' "$GH_DB.calls"; }
 hold() { # hold <name> <on> <until>
     jq -nc --arg h "$1" --arg o "$2" --arg u "$3" \
         '{hold: $h, on: $o, until: $u, set_by: "the workspace coordinator", set: "2026-09-26T09:00Z"}'
@@ -37,15 +35,18 @@ hold() { # hold <name> <on> <until>
 echo "== list =="
 seed "$(record_json roadmap plugin-system)"
 eq "--list with no Holds section is []" "[]" "$(bash "$RH" "${RM[@]}" --list 2>&1)"
-grep -qE 'edit|create|close' "$GH_DB.calls" && bad "a read writes nothing" "$(calls)" || ok "a read writes nothing"
+eq "a read writes nothing, and reads nothing on GitHub" "" "$(calls)"
 
 echo "== add =="
 hold after-346 acme/widgets#12 "merged acme/gadgets#346" > "$T/h1.json"
 OUT=$(bash "$RH" "${W_RM[@]}" --add --row-file "$T/h1.json" 2>"$T/err"); rc=$?
-eq "a hold is added" "0 https://github.com/acme/widgets/issues/7" "$rc $OUT"
+eq "a hold is added" "0 $SR" "$rc $OUT"
 eq "the section holds it, unlifted" "after-346 acme/widgets#12 merged acme/gadgets#346 []" \
     "$(live | jq -r '.holds[0] | "\(.hold) \(.on) \(.until) [\(.lifted)]"')"
-grep -q '^issue edit 7' "$GH_DB.calls" && ! grep -q comment "$GH_DB.calls" && ok "the write is a whole-body edit, no comment" || bad "the write is a whole-body edit, no comment" "$(calls)"
+eq "  ... in record/holds" after-346 "$(koto context get "$SR" record/holds | jq -r '.[0].hold')"
+eq "  ... told as a hold entry" "hold|Hold after-346 added on acme/widgets#12, until merged acme/gadgets#346, set by the workspace coordinator." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+eq "  ... with nothing written on GitHub" "" "$(gh_writes)"
 hold go-signal acme/widgets#13 lifted > "$T/h2.json"
 bash "$RH" "${W_RM[@]}" --add --row-file "$T/h2.json" >/dev/null 2>"$T/err"; eq "a second hold is added" 0 $?
 eq "--list keeps record order" "after-346 go-signal" "$(bash "$RH" "${RM[@]}" --list | jq -r 'map(.hold) | join(" ")')"
@@ -67,9 +68,11 @@ bash "$RH" "${W_RM[@]}" --lift --hold go-signal --by "the human" >/dev/null 2>"$
 bash "$RH" "${W_RM[@]}" --lift --hold after-346 --by "the human" >/dev/null 2>"$T/err"; eq "a merged condition isn't lifted by hand" 65 $?
 bash "$RH" "${W_RM[@]}" --lift --hold nosuch --by "the human" >/dev/null 2>"$T/err"; eq "an unknown hold is refused" 65 $?
 eq "no hold is ever removed" 3 "$(live | jq '.holds | length')"
+eq "the lift is told too" "hold|Hold go-signal lifted by the human." \
+    "$(koto context get "$SR" record/entries/000004 | jq -r '"\(.kind)|\(.text)"')"
 
 echo "== the section has one writer =="
-W=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks)
+W=(--scope roadmap --name plugin-system --repo "$REPO" --skip-session-checks)
 # A whole-body write through record-write.sh that drops a hold, or lifts one.
 live > "$T/now.json"
 jq -c 'del(.written) | .holds |= map(select(.hold != "after-346"))' "$T/now.json" > "$T/drop.json"
@@ -95,26 +98,7 @@ bash "$RH" "${RM[@]}" --lift --hold go-signal >/dev/null 2>&1; eq "--lift withou
 bash "$RH" "${RM[@]}" --add >/dev/null 2>&1; eq "--add without a row file" 64 $?
 bash "$RH" "${RM[@]}" --list --add >/dev/null 2>&1; eq "two modes" 64 $?
 
-echo "== the session store =="
-# A roadmap record on the session store: the hold lands in record/holds, and
-# each add and lift is told as a `hold` entry.
-SH=coordinate-roadmap-plugin-system-20260926T160000Z
-SEN=(env RS_SOURCE=session RS_SESSION="$SH")
-seed "$(record_json roadmap plugin-system)"
-render "$(record_json roadmap plugin-system)" issue 2026-09-26T08:00:00Z > "$T/s.md"
-bash "$HERE/record-parse.sh" --container issue "$T/s.md" > "$T/s.json"
-session_keys "$SH" "$T/s.json"
-hold by-hand acme/widgets#12 lifted > "$T/h3.json"
-OUT=$("${SEN[@]}" bash "$RH" "${W_RM[@]}" --add --row-file "$T/h3.json" 2>"$T/err"); rc=$?
-eq "a hold is added on the session store" "0 https://github.com/acme/widgets/issues/7" "$rc $OUT"
-eq "  ... into record/holds" by-hand "$(koto context get "$SH" record/holds | jq -r '.[0].hold')"
-eq "  ... and told as a hold entry" "hold|Hold by-hand added on acme/widgets#12, until lifted, set by the workspace coordinator." \
-    "$(koto context get "$SH" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
-"${SEN[@]}" bash "$RH" "${W_RM[@]}" --lift --hold by-hand --by alice > /dev/null 2>"$T/err"; rc=$?
-eq "  ... lifted" 0 "$rc"
-eq "  ... and the lift told too" "hold|Hold by-hand lifted by alice." "$(koto context get "$SH" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
-grep -q '^issue edit' "$GH_DB.calls" && bad "  ... with no GitHub body written" "$(calls)" || ok "  ... with no GitHub body written"
-
+eq "nothing in this suite was written on GitHub" "" "$(gh_writes)"
 echo
 echo "record-hold: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -102,14 +102,13 @@
 # Usage:
 #   record-confirm.sh --session S [--verified]
 #   record-confirm.sh --session S --scope roadmap|discipline --name N --repo O/R
-#                     --ref N [--verified] [--no-seal]                  (tests)
+#                     [--verified] [--no-seal]                          (tests)
 #
 # The detail goes to context key coord/record_confirm.json as data.
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# GitHub reads: gh issue view N --repo R --json state,body |
-# gh pr view N --repo R --json state,body; with --verified,
+# The record is read through record-source.sh. GitHub reads: with --verified,
 # gh pr view <pr> --repo <the unit's row's repository> --json headRefOid.
 #
 # The session log is read only through coord-log.sh.
@@ -117,7 +116,7 @@ set -uo pipefail
 
 PROG=record-confirm
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF=
+SESSION= SCOPE= NAME= REPO=
 VERIFIED=0 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -127,7 +126,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --verified) VERIFIED=1; shift ;;
         --no-seal) NO_SEAL=1; shift ;;
         *) usage ;;
@@ -149,7 +147,7 @@ finish() {
     # event_time is the point Written: was compared with: the step's start for
     # the steps step_start covers, else the event's own time.
     jq -n --arg v "$VERDICT" --arg r "$REASON" --arg s "$SOURCE" --arg e "$EVT" --arg w "$WRITTEN" --arg x "$EXPECT" \
-        --arg ref "$REF" '{verdict: $v, reason: $r, source: $s, event_time: $e, written: $w, expectation: $x, ref: $ref}' > "$T/detail.json"
+        '{verdict: $v, reason: $r, source: $s, event_time: $e, written: $w, expectation: $x}' > "$T/detail.json"
     lib_emit "$STATE_NAME" "$VERDICT" coord/record_confirm.json "$T/detail.json"
 }
 
@@ -160,13 +158,13 @@ case $? in
     *) lib_die2 "cannot read the session log" ;;
 esac
 lib_log_readable || lib_die2 "cannot read the session log"
-if ! lib_run_ref; then VERDICT=conflict; REASON="the run has no found record"; finish; fi
+if ! lib_run_found; then VERDICT=conflict; REASON="the run has no found record"; finish; fi
 
-# The live body.
-rs_record "$T/rec.json" body --json state,body --jq '.body // ""'
+# The live record.
+rs_record "$T/rec.json" body
 case $? in
     0) ;;
-    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
+    2) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err" | head -1)" ;;
     4|12) lib_die2 "$(lib_scrub < "$T/rec.json.err")" ;;
     *) VERDICT=conflict; REASON="the record body is missing or not canonical"; finish ;;
 esac

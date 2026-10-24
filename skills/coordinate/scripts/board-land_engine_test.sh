@@ -92,11 +92,11 @@ states:
       - target: record_find
         when:
           gates.verdict.exit_code: 26
-  # The run's record, #7, as the real template's start finds it: the land
-  # check reads its holds there.
+  # The run's record, in its session, as the real template's start finds it:
+  # the land check reads its holds and pauses there.
   record_find:
     default_action:
-      command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found 7"'
+      command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found"'
       capture_stdout_as: RECORD_FIND
       fallback: tick again
     gates:
@@ -355,6 +355,8 @@ start() { # start <session> <board case> [posture] [body-file]
     rm -f "$BT_STATE/merge-exec.calls"
     # $KOTO_LEGACY_ENV_ARG: #483.
     (cd "$T/work" && koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
+    # The record just built, in the run's own keys: the session is its store.
+    (cd "$T/work" && KOTO_BIN=koto bt_session_record "$S" > /dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
     eq "$S: start_posture routes to verify" verify "$(state "$(cd "$T/work" && koto next "$S" --no-cleanup 2>/dev/null)")"
 }
 tick() { (cd "$T/work" && koto next "$@" --no-cleanup 2>/dev/null); }
@@ -440,6 +442,7 @@ start coordinate-demo-20260926T150024Z complete-board
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "unpaused, a fit pull request reaches land_merge" land_merge "$(state "$(tick "$S" --with-data "$FITS")")"
 bt_record_paused "[$(bt_pause s4 pause all lifted)]"
+(cd "$T/work" && KOTO_BIN=koto bt_session_record "$S" > /dev/null) || bad "the pause is written into the run's keys"
 (cd "$T/work" && bash "$PS/land-merge.sh" --session "$S" --repo acme/widgets >/dev/null 2>"$T/err"); eq "a pause written since makes land-merge.sh exit 12" 12 $?
 [ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and merge-exec is never called" || bad "  ... and merge-exec is never called"
 eq "merge: paused goes to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"outcome":"paused"}')")"

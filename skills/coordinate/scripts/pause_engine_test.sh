@@ -18,9 +18,10 @@
 #      before its minute and released at the first pick after it, brought by
 #      a `resume` tick, with no session timer (the host clock stood in for by
 #      BL_NOW, which reaches koto's actions);
-#   5. a restarted coordinator, a new run opened on the record alone, finds a
-#      pause standing at its first pick and refuses the dispatch; once that
-#      pause ends, the dispatch goes ahead.
+#   5. a restarted coordinator, a new run its start carried the ended run's
+#      record into, finds a pause standing at its first pick and refuses the
+#      dispatch; once that pause ends, the dispatch goes ahead.
+# The record is in the run's session, seeded there before its first find.
 # The land step's refusal is board-land_engine_test.sh's, against the same
 # record rows.
 #
@@ -40,6 +41,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -75,19 +77,23 @@ RECORD=$(record_json roadmap pause | jq -c --argjson a "$A" --argjson b "$B" '
     | .run = [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-pause.md", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "cap", value: "5", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
+              {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "told", value: "lane-a", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
               {key: "told", value: "lane-b", set_by: "lane-coord", set: "2026-10-07T10:00Z"}]
     | .work = [{item: "Feature 1", kind: "holding", who: "lane-a", next: "scoping, then its execution", updated: "2026-10-07T10:00Z"},
                {item: "Feature 2", kind: "holding", who: "lane-b", next: "scoping, then its execution", updated: "2026-10-07T10:00Z"}]')
-db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-pause", body: $b, state: "open", author: "coord", editor: null}]' \
-    --arg b "$(render "$RECORD" issue 2026-10-07T10:00:00Z)"
-
+# open_run: a start from coordinate-open.sh; sets S, and OPEN_OUT to the
+# opener's output.
 open_run() {
     printf '["%s"]' "$RM" > "$T/args.json"
-    S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+    OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ] || { bad "the run opens" "$(cat "$T/open.err")"; done_tests pause-engine; exit 1; }
 }
+koto_store_ready || { echo "koto lacks the session store's features; the paused state needs a newer koto"; done_tests pause-engine; exit $?; }
 open_run
+# The running loop's record, in its session before the first find.
+(cd "$WD" && session_seed "$S" "$RECORD" 2026-10-07T10:00:00Z) || { bad "the record is seeded into the run" ""; done_tests pause-engine; exit 1; }
 eq "the run reaches reconcile" reconcile "$(at)"
 eq "and pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
@@ -160,9 +166,13 @@ eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
 echo "== 5. a restart finds the pause standing =="
 state --standing pause --on all --until lifted --what "all lanes, over the weekly limit" --owner "the human" --relayed-by "the process owner"
 PR5=$(sid pause all)
+# The coordinator's run ends (a live one would be resumed where it stands),
+# and the next start carries its record into a new run.
 OLD=$S
+(cd "$WD" && koto cancel "$S" > /dev/null 2>&1)
+sleep 1
 open_run
-[ "$S" != "$OLD" ] && ok "a new run opens on the same record" || bad "a new run opens on the same record"
+[ "$S" != "$OLD" ] && grep -qx "carried=$OLD" <<< "$OPEN_OUT" && ok "a new run opens, carrying the record" || bad "a new run opens, carrying the record" "$OPEN_OUT $(cat "$T/open.err")"
 eq "it reaches reconcile" reconcile "$(at)"
 eq "and pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "its first pick finds the pause standing, from the record alone" "$PR5 $PR5" "$(pick_json | jq -r '.paused_all') $(paused_of "Feature 1")"

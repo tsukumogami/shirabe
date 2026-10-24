@@ -47,7 +47,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 # ---- 16. a unit that isn't a topic is refused where it is read ----------------
 echo "== 16. a unit's tag in place of its topic goes back to be submitted again =="
-if to_pick untopic "$(record_json roadmap untopic | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 960; then
+if to_pick untopic "$(record_json roadmap untopic | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')"; then
     snap_save unit-pick
     # pick's unit is a dispatch topic, never the unit's tag (shirabe#492).
     eq "16: dispatch with unit \"Feature 1\" comes back to pick" pick "$(at --with-data '{"choice":"dispatch","unit":"Feature 1"}')"
@@ -97,7 +97,7 @@ esac
 EOF
 chmod +x "$T/niwa-bin/niwa"
 three_features parked
-seed_record parked 200
+seed_record parked
 if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ]; then
     # One slot: the human sets the cap to one.
     write_as_agent record-state.sh --run cap 1 --by "the human"
@@ -149,7 +149,7 @@ if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconcil
     eq "20: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
     write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "report at its first checkpoint"
     eq "20: then back to pick" pick "$(at)"
-    eq "20: its holding row took over the decision row" "Feature 2:holding:feat-2 Feature 1:holding:feat-1" "$(work_rows 200)"
+    eq "20: its holding row took over the decision row" "Feature 2:holding:feat-2 Feature 1:holding:feat-1" "$(work_rows)"
 else
     bad "20: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -157,19 +157,19 @@ fi
 # ---- 21. a feature whose deliverable is its scoping ---------------------------
 echo "== 21. a scope dispatches the scoping alone, and its merge records the execution as a follow-up =="
 three_features scoped
-seed_record scoped 210
+seed_record scoped
 if open_run scoped && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ]; then
     eq "21: scope goes through the dispatch check like a dispatch" dispatch "$(at --with-data '{"choice":"scope","unit":"feat-3"}')"
     dispatch_as_agent "$(brief feat-3 "Feature 3" scope feat-3 scoping)"
     eq "21: dispatch-worker.sh launches the scoping" 0 "$DW_RC"
-    live_body 210 | jq -e '.holdings[] | select(.worker == "feat-3") | .phase == "scoping" and .entry_point == "scope"' >/dev/null \
-        && ok "21: the holding is the scoping alone, at Phase scoping" || bad "21: the holding is the scoping alone, at Phase scoping" "$(live_body 210 | jq -c .holdings)"
+    live_body | jq -e '.holdings[] | select(.worker == "feat-3") | .phase == "scoping" and .entry_point == "scope"' >/dev/null \
+        && ok "21: the holding is the scoping alone, at Phase scoping" || bad "21: the holding is the scoping alone, at Phase scoping" "$(live_body | jq -c .holdings)"
     grep -q "the execution is a later unit" "$T/work/.niwa/dispatch-briefs/feat-3.md" 2>/dev/null \
         && ok "21: its brief says the documents are the deliverable" || bad "21: its brief says the documents are the deliverable" "$(ls "$T/work/.niwa/dispatch-briefs" 2>&1)"
 else
     bad "21: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
-if LAND_PHASE=scoping land_run scopemerge 211; then
+if LAND_PHASE=scoping land_run scopemerge; then
     LAND_PHASE=scoping record_verified
     if [ "$(at)" = goal_fit ] && [ "$(at --with-data '{"fit":"fits","rationale":"the scoping documents land"}')" = land_merge ]; then
         bt_merged MERGED; bt_reach behind
@@ -206,7 +206,7 @@ echo "== 23. on a milestone roadmap, a pull request judged advances none still l
 # goal-fit entry is milestone-verdicts_test.sh's), moves no clause, and fits.
 ROADMAP_TEXT=$(printf -- '---\nschema: roadmap/v2\nstatus: Active\n---\n\n# ROADMAP: mvland\n\n## Features\n\n### MV1: the plugin list\n\n**Outcome:** A maintainer lists the plugins they installed.\n\n**Evidence:**\n- A reviewer runs `widgets list` and sees the three sample plugins.\n- The same reviewer removes one manifest and sees it named as skipped.\n\n**Left open:** None\n\n**Dependencies:** None\n**Status:** In progress\n')
 LAND_UNIT=MV1
-if land_run mvland 113; then
+if land_run mvland; then
     record_verified
     eq "23: land reads the round and permits, to goal_fit" goal_fit "$(at)"
     eq "23: coord/land.json carries MV1's numbered Evidence" "MV1 2" \
@@ -223,7 +223,7 @@ rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 echo "== 24. a merged event for a pull request this run never verified leaves merged_facts =="
 # The holding's head was verified by an earlier run (it is in the record), so
 # this run has no verify capture for #12 (shirabe#560).
-if to_pick nover "$(record_json roadmap nover | jq -c --argjson h "$(land_row "$H")" '.holdings = [$h]')" 240 \
+if to_pick nover "$(record_json roadmap nover | jq -c --argjson h "$(land_row "$H")" '.holdings = [$h]')" \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
     snap_save nover-wait
     bt_merged MERGED "$MOVED"
@@ -236,7 +236,7 @@ if to_pick nover "$(record_json roadmap nover | jq -c --argjson h "$(land_row "$
     # The row any unconfirmed merge gets: Target the pull request, at the head
     # the verdict names.
     sleep 1
-    live_body 240 | jq -c --arg h "$MOVED" --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" \
+    live_body | jq -c --arg h "$MOVED" --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" \
         '.side_effects += [{action: "merge", target: "acme/widgets#12", verified_head: $h, attempted: $d, how_to_confirm: "a person merged it; this run never verified the head"}]' > "$T/se.json"
     jq 'del(.written)' "$T/se.json" > "$T/se.next.json"
     bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/se.json")" "$T/se.next.json" > "$T/se.md"

@@ -7,16 +7,19 @@
 # case that reuses an earlier case's fixtures stays in that case's part. Cases
 # 7 and 8 start from runs cases 1, 4 and 6 drove and saved (snap_save), and
 # case 9's later events from the run its first event drove to wait, rather
-# than driving the same prefix again.
+# than driving the same prefix again. Every record is in the run's koto
+# session; none is on GitHub.
 #
 # Proves, one line per case:
-#   1. dispatch is unreachable without exactly one record (none stops at
-#      record_open, two at record_conflict, a record that vanishes routes
-#      dispatch_check back to record_find), and once the stand-in holds the
-#      record the run reaches pick with no evidence naming it, after a new
-#      record's empty stored set held the reconcile handover gate until
-#      record-state.sh filled it;
-#   2. a restart with a record present takes the found arm, never record_open;
+#   1. dispatch is unreachable without the run's record: none stops at
+#      record_open, record-open.sh writes the record into the run's session and
+#      opens nothing on GitHub, the find then reaches reconcile with the session
+#      recorded as the run's store, and the run reaches pick with no evidence
+#      naming the record, after a new record's empty stored set held the
+#      reconcile handover gate until record-state.sh filled it;
+#   2. a restart while the run is live resumes it (resumed=1, the same
+#      session, where it stood) and never enters record_open again or looks
+#      for a record on GitHub; the run's record names its session;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
 #      record-write.sh disposes it, then dispatch is reached;
 #   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
@@ -38,9 +41,10 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
 
-# ---- 1. exactly one record ---------------------------------------------------
-echo "== 1. dispatch needs exactly one record =="
+# ---- 1. no record, then the one record_open writes ----------------------------
+echo "== 1. dispatch needs the run's record =="
 seed_roadmap one
+reset_calls
 if open_run one; then
     eq "1: no record stops at record_open" record_open "$(at)"
     snap_save record-open
@@ -50,62 +54,49 @@ if open_run one; then
     render "$(record_json roadmap one)" issue > "$T/open.md"
     write_as_agent record-open.sh --body-file "$T/open.md"; rc=$?
     eq "1: record-open.sh (agent-run) opens the record" 0 $rc
-    N1=$(record_number one)
-    eq "1: after record_open the run finds the one record and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the run's session" || bad "1:   ... in the run's session" "$(cat "$T/w.err")"
+    grep -Eq '^(issue (create|edit|close)|pr create)' "$GH_DB.calls" \
+        && bad "1:   ... opening nothing on GitHub" "$(grep -E '^(issue|pr) ' "$GH_DB.calls")" || ok "1:   ... opening nothing on GitHub"
+    eq "1: after record_open the run finds the record and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    eq "1: the find records the session as the run's store" session \
+        "$( (cd "$WD" && koto context get "$S" coord/source.json 2>/dev/null) | jq -r '.source // empty')"
     eq "1: a new record's empty stored set holds the handover gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
     write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
         && write_as_agent record-state.sh --run cap 5 --by "the human" \
-        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
-    eq "1: record-state.sh (agent-run) writes the arguments, the cap and the address" 0 $?
+        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
+        && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
+    eq "1: record-state.sh (agent-run) writes the arguments, the cap, the address and who it reports to" 0 $?
     eq "1: the next advance reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
-    NAMED=$(jq -r --arg n "$N1" 'select(.type == "evidence_submitted") | .payload.fields | tostring
-        | select(test("(^|[^0-9])" + $n + "([^0-9]|$)") or test("issues/"))' "$(logf)")
-    eq "1: no evidence named the record" "" "$NAMED"
-    # The record goes away between pick and dispatch_check.
-    db '(.issues[] | select(.number == ($n | tonumber))).state = "closed"' --arg n "$N1"
-    eq "1: a record closed under the run routes dispatch_check back to record_open" record_open \
-        "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
-    from_to dispatch_check record_find && ok "1: the route was dispatch_check -> record_find" || bad "1: the route was dispatch_check -> record_find"
-    eq "1: still no dispatch" 0 "$(entered dispatch)"
+    NAMED=$(jq -r 'select(.type == "evidence_submitted") | .payload.fields | tostring | select(test("issues/"))' "$(logf)")
+    eq "1: no evidence named a record" "" "$NAMED"
 else
     bad "1: open a run" "$(cat "$T/open.err")"
 fi
-seed_roadmap two
-seed_record two 20
-seed_record two 21
-if open_run two; then
-    eq "1: two records stop at record_conflict" record_conflict "$(at)"
-    eq "1: recheck with both still open stays at record_conflict" record_conflict "$(at --with-data '{"resolution":"recheck"}')"
-    eq "1: dispatch is never entered with two records" 0 "$(entered dispatch)"
-else
-    bad "1: open a run with two records" "$(cat "$T/open.err")"
-fi
 
-# ---- 2. restart with a record present ----------------------------------------
-echo "== 2. a restart takes the found arm =="
+# ---- 2. a restart while the run is live -----------------------------------------
+echo "== 2. a restart resumes the run =="
 seed_roadmap restart
 if open_run restart && [ "$(at)" = record_open ]; then
     render "$(record_json roadmap restart)" issue > "$T/open.md"
     write_as_agent record-open.sh --body-file "$T/open.md"
-    at --with-data '{"opened":"opened"}' >/dev/null
+    eq "2: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" \
+        || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
+    # The terminal results' record field names the run's session, its record.
+    eq "2: the found record, the run's session, is in context for the terminal results" "$S" "$(cd "$WD" && koto context get "$S" record_url 2>&1)"
     FIRST=$S
     sleep 1
     reset_calls
     if open_run restart; then
-        [ "$S" != "$FIRST" ] && ok "2: the restart is a new session" || bad "2: the restart is a new session" "$S"
-        eq "2: the restart reaches reconcile" reconcile "$(at)"
-        eq "2: the restart never enters record_open" 0 "$(entered record_open)"
-        from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
-        grep -q '^issue create' "$GH_DB.calls" && bad "2: nothing opens a second record" "$(grep '^issue create' "$GH_DB.calls")" \
-            || ok "2: nothing opens a second record"
-        eq "2: one record still" 1 "$(record_number restart | wc -w | tr -d ' ')"
-        N7=$(record_number restart)
-        case "$(cd "$T/work" && koto context get "$S" record_url 2>&1)" in
-            https://github.com/*/issues/"$N7") ok "2: the found record's URL is in context for the terminal results" ;;
-            *) bad "2: the found record's URL is in context for the terminal results" "$(cd "$T/work" && koto context get "$S" record_url 2>&1)" ;;
-        esac
+        eq "2: the restart resumes the first run" "$FIRST" "$S"
+        grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "2:   ... printing resumed=1" || bad "2:   ... printing resumed=1" "$OPEN_OUT"
+        eq "2:   ... where it stood" reconcile "$(now_at)"
+        eq "2: the restart never enters record_open again" 1 "$(entered record_open)"
+        eq "2: and never looks for a record on GitHub" 0 "$(grep -c 'issues?state=open' "$GH_DB.calls")"
+        grep -Eq '^(issue|pr) (create|edit|close)' "$GH_DB.calls" && bad "2: nothing is opened on GitHub" "$(grep -E '^(issue|pr) ' "$GH_DB.calls")" \
+            || ok "2: nothing is opened on GitHub"
     else
-        bad "2: reopen the run" "$(cat "$T/open.err")"
+        bad "2: restart the run" "$(cat "$T/open.err")"
     fi
 else
     bad "2: first run reaches record_open" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -114,14 +105,14 @@ fi
 # ---- 3. an undisposed deferral ----------------------------------------------
 echo "== 3. an undisposed deferral holds dispatch =="
 REC3=$(record_json roadmap defer | jq -c '.deferrals = [{deferral: "retry flaky job", reason: "out of scope", raised: "2020-01-01T00:00Z", disposition: ""}]')
-if to_pick defer "$REC3" 30; then
+if to_pick defer "$REC3"; then
     eq "3: an undisposed deferral routes dispatch_check to deferral_dispose" deferral_dispose \
         "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
     eq "3: rewritten without a write returns to deferral_dispose" deferral_dispose "$(at --with-data '{"rewritten":"rewritten"}')"
     eq "3: dispatch is unreachable while it is open" 0 "$(entered dispatch)"
-    # Edit the live body keeping its Written: line: record-write.sh compares it
+    # Edit the record keeping its written time: record-write.sh compares it
     # with the live record's before writing.
-    live_body 30 | jq -c '.deferrals[0].disposition = "closed: moot"' > "$T/rec.json"
+    live_body | jq -c '.deferrals[0].disposition = "closed: moot"' > "$T/rec.json"
     jq 'del(.written)' "$T/rec.json" | bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rec.json")" > "$T/body.md"
     write_as_agent record-write.sh --body-file "$T/body.md"; rc=$?
     eq "3: record-write.sh (agent-run) disposes the deferral" 0 $rc
@@ -132,7 +123,7 @@ fi
 
 # ---- 4. the record step holds until the Holdings row shows -------------------
 echo "== 4. dispatch reaches wait only through a recorded holding =="
-if SAVE_RECONCILE=empty-reconcile to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ]; then
+if SAVE_RECONCILE=empty-reconcile to_pick hold "$(record_json roadmap hold)" && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ]; then
     eq "4: dispatched without a row holds at dispatch" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
     snap_save dispatch-held
     eq "4: another tick still holds" dispatch "$(at)"
@@ -142,10 +133,10 @@ if SAVE_RECONCILE=empty-reconcile to_pick hold "$(record_json roadmap hold)" 40 
     dispatched_row feat-1 > "$T/row.json"
     write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
     eq "4: record-holding.sh (agent-run) writes the row" 0 $rc
-    eq "4: with the row on GitHub, dispatch leaves, and record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    eq "4: with the row in the record, dispatch leaves, and record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
     write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "waiting on its first report"; rc=$?
     eq "4: record-state.sh (agent-run) writes the holding's next step" 0 $rc
-    eq "4: with the Work row on GitHub, record confirms and reaches pick" pick "$(at)"
+    eq "4: with the Work row in the record, record confirms and reaches pick" pick "$(at)"
     eq "4: and pick can now hold into wait" wait "$(at --with-data '{"choice":"hold"}')"
 else
     bad "4: reach dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -164,7 +155,7 @@ fi
 # ---- 6. an unread posture ----------------------------------------------------
 echo "== 6. an unread posture =="
 seed_roadmap unread
-seed_record unread 60
+seed_record unread
 if open_run unread "$T/bare"; then
     eq "6: the found record still reaches reconcile" reconcile "$(at)"
     snap_save bare-reconcile
@@ -215,7 +206,7 @@ echo "== 8. contradicting evidence doesn't move a check =="
 # way: case 1's at record_open with no record, case 6's at reconcile with an
 # unread posture, and case 4's held at dispatch with no Holdings row.
 if snap_load record-open && [ "$(now_at)" = record_open ]; then
-    eq "8: 'opened' with no record on GitHub routes record_find back to record_open" record_open "$(at --with-data '{"opened":"opened"}')"
+    eq "8: 'opened' with no record in the session routes record_find back to record_open" record_open "$(at --with-data '{"opened":"opened"}')"
     eq "8: record_find read none twice" 2 "$(jq -s '[.[] | select(.type == "variable_captured" and .payload.key == "RECORD_FIND" and (.payload.value | startswith("none ")))] | length' "$(logf)")"
 else
     bad "8: reach record_open" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -230,7 +221,7 @@ fi
 if snap_load dispatch-held && [ "$(now_at)" = dispatch ]; then
     R=$(tick --with-data '{"dispatched":"sent","topic":"feat-1","confirmed":"yes"}')
     [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: dispatch refuses evidence claiming it is confirmed" || bad "8: dispatch refuses evidence claiming it is confirmed" "$R"
-    eq "8: and stays at dispatch, the row not on GitHub" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    eq "8: and stays at dispatch, the row not in the record" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
 else
     bad "8: reach a blocked dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -280,7 +271,6 @@ if [ -n "$J" ] && [ -r "$J" ]; then
     for ev in $KEEP $COVERED; do
         case "$ALL1" in *" $ev "*) ;; *) bad "9: listed event $ev is one wait accepts" "remove it from KEEP or COVERED" ;; esac
     done
-    # Record 901 is clear of every other case's record.
     WAIT9=
     for ev in $EVENTS; do
         # The expected spoke: the arm for this value, and for a `vars.` guard
@@ -289,7 +279,7 @@ if [ -n "$J" ] && [ -r "$J" ]; then
             | select((.when["vars.DISCIPLINE"] // null) == null or .when["vars.DISCIPLINE"].is_set == false) | .target][0] // ""' "$J")
         if [ -n "$WAIT9" ]; then
             snap_load wait9 || continue
-        elif to_pick spoke "$(record_json roadmap spoke | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" 901 \
+        elif to_pick spoke "$(record_json roadmap spoke | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" \
             && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
             snap_save wait9 && WAIT9=1
         else
