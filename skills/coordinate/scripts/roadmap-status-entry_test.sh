@@ -11,7 +11,8 @@
 # to confirm names the entry, and pushing a second commit whose Progress line
 # names that comment and the entry's hash, nothing posted on any issue;
 # --confirm clearing it once main
-# reads Done. A changes-needed verdict's milestone-verdict row confirmed from
+# reads Done, close-out (closeout-read.sh) reading the verdict owed before and
+# not after. A changes-needed verdict's milestone-verdict row confirmed from
 # record/posted/<n>: 1 before main carries the line, refused for a comment by
 # another login and for one whose text no longer hashes to the line, then its
 # rework row. A failed post (14, naming the pull request, its row written),
@@ -20,7 +21,17 @@
 # post that landed before its record/posted key was kept, found by the
 # retry rather than posted twice; and a third run changing nothing. --reopen
 # --entry the same way, its reopen line naming the pull request's comment,
-# its held dependent printed, and --confirm writing its rework row.
+# its held dependent printed, and --confirm writing its rework row. Those
+# cases run with the host opted in to workflow content (its CLAUDE.md says
+# `## PR Workflow Content: include`). The default, a host that doesn't: no
+# comment posted and no posted key kept, the pull request body carrying the
+# entry, one commit whose Progress line names the entry's hash alone, a
+# second run changing nothing, and --confirm reading the session entry: a
+# verified verdict cleared (close-out reading it owed before and not after),
+# a changes-needed one refused while its entry no longer hashes to the line
+# and then its rework row (Who the entry's number), and --reopen's line and
+# rework row the same way; an opted-in edit whose post failed, run again
+# after the opt-in went, finishing with the hash-only line and nothing posted.
 # Refusals with nothing opened: --entry with no session holding the record,
 # with --entry-file, an entry of another kind, no such entry, and an entry
 # already posted elsewhere. The record is the session's alone.
@@ -124,7 +135,14 @@ sv_seed() {
     record_json roadmap plugin-system | jq -c --argjson h "${2:-$(holding plugin-list '{"unit": "MV1: the plugin list", "pull_request": ""}')}" \
         '.holdings = [$h] | .written = "2026-09-26T08:00:00Z"' > "$T/sv.json"
     session_keys "$SV" "$T/sv.json"
+    # The host opts in to workflow content, so its entries are posted; optout
+    # takes that away for the default's cases.
+    db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
 }
+optout() { db 'del(.files["acme/widgets"]["main:CLAUDE.md"])'; }
+# closeout: where the roadmap's close-out stands (closeout-read.sh), its
+# reason line kept in $T/cerr.
+closeout() { "${SEN[@]}" bash "$HERE/closeout-read.sh" "${RM[@]}" --roadmap "$ROADMAP" --no-seal 2>"$T/cerr"; }
 rs() { "${SEN[@]}" bash "$RS" "${W[@]}" "$@"; }
 slive() { "${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh"; }
 on_branch() { jq -r --arg b "$1" '.files["acme/widgets"][$b + ":" + $p] // empty' --arg p "$ROADMAP" "$GH_DB"; }
@@ -182,9 +200,11 @@ reset_calls
 OUT=$(rs --verdict MV1 --entry "$N1" 2>"$T/err"); rc=$?
 eq "run again it changes nothing" "0 https://github.com/acme/widgets/pull/8 1 0 0" "$rc $OUT $(jq '.prs | length' "$GH_DB") $(puts) $(grep -c 'comments --input' "$GH_DB.calls")"
 rs --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm while main doesn't read Done is 1" 1 $?
+eq "close-out reads MV1's verdict as owed while its edit is pending" "verdict-owed" "$(closeout)"
 to_main "$(on_branch "$PRB")"
 rs --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm once main reads Done" 0 $?
 eq "  ... clears the row" 0 "$(slive | jq '.side_effects | length')"
+eq "  ... and close-out no longer reads a verdict owed, only MV2 still open" "features-open" "$(closeout)"
 
 echo "== --verdict --entry: changes needed, confirmed from the posted comment =="
 sv_seed "$MV" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
@@ -270,6 +290,88 @@ rs --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main reads it"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... writes the rework row" "failure ${URLF##*-}|Evidence clause 2 failed: the removed manifest was listed as installed by @carol" \
     "$(slive | jq -r '[.work[] | select(.kind == "rework" and .item == "MV1")][0] | "\(.who)|\(.next)"')"
+
+echo "== the default: a host that doesn't opt in keeps the verdict in the session =="
+sv_seed
+optout
+rs --unit MV1 >/dev/null 2>&1
+N7=$(write_entry milestone-verdict "$T/v1.txt")
+reset_calls
+OUT=$(rs --verdict MV1 --entry "$N7" 2>"$T/err"); rc=$?
+eq "--verdict --entry opens the roadmap pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... posting no comment anywhere, keeping no posted key" "0 none" "$(ncomments) $(posted "$N7" || echo none)"
+grep -q 'comments --input' "$GH_DB.calls" && bad "  ... with no comment POST at all" "$(calls)" || ok "  ... with no comment POST at all"
+grep -q "stays in the session and is posted on no pull request" "$T/err" && ok "  ... saying why the entry stays in the session" || bad "  ... saying why the entry stays in the session" "$(cat "$T/err")"
+jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB" | grep -qxF '> Verdict: MV1 -- verified' && ok "  ... its body carries the entry" || bad "  ... its body carries the entry" "$(jq -r '.prs[0].body' "$GH_DB")"
+jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB" | grep -q 'posted as a comment' && bad "  ... and says no comment is posted" "" || ok "  ... and says no comment is posted"
+eq "  ... one commit, its Progress line naming the entry's hash alone" "1 1" \
+    "$(puts) $(on_branch "$(branch_of 8)" | grep -cxF -- "- $TODAY: MV1 -- verified, checked by coordinate-plugins ($(sha8 "$T/v1.txt"))")"
+eq "  ... a milestone-done row naming the entry" "milestone-done|the roadmap on main reads MV1 Done (entry $N7)" \
+    "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.how_to_confirm)"')"
+reset_calls
+OUT=$(rs --verdict MV1 --entry "$N7" 2>"$T/err"); rc=$?
+eq "run again it changes nothing" "0 https://github.com/acme/widgets/pull/8 1 0 0" "$rc $OUT $(jq '.prs | length' "$GH_DB") $(puts) $(ncomments)"
+eq "close-out reads MV1's verdict as owed while its edit is pending" "verdict-owed" "$(closeout)"
+to_main "$(on_branch "$(branch_of 8)")"
+rs --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main reads Done" 0 "$rc"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... clears the row" 0 "$(slive | jq '.side_effects | length')"
+eq "  ... and close-out no longer reads a verdict owed, only MV2 still open" "features-open" "$(closeout)"
+
+echo "== the default: changes needed, confirmed from the session entry =="
+sv_seed "$MV" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
+optout
+rs --unit MV2 >/dev/null 2>&1
+N8=$(write_entry milestone-verdict "$T/v2.txt")
+OUT=$(rs --verdict MV2 --entry "$N8" 2>"$T/err"); rc=$?
+eq "a changes-needed verdict opens its pull request, posting nothing" "0 https://github.com/acme/widgets/pull/8 0" "$rc $OUT $(ncomments)"
+eq "  ... a milestone-verdict row naming the entry" "milestone-verdict|the roadmap on main carries its entry's hash in Progress (entry $N8)" \
+    "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.how_to_confirm)"')"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm before main carries the line is 1" 1 $?
+to_main "$(on_branch "$(branch_of 8)")"
+K8="record/entries/$(printf '%06d' "$N8")"
+koto context get "$SV" "$K8" > "$T/n8.orig"
+jq -c '.text |= sub("public name"; "private name")' "$T/n8.orig" | koto context add "$SV" "$K8"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm doesn't take a session entry that no longer hashes to its line" 1 $?
+grep -q 'changed since' "$T/err" && ok "  ... naming that as a reason" || bad "  ... naming that as a reason" "$(cat "$T/err")"
+eq "  ... writing no rework row" 0 "$(slive | jq '[(.work // [])[] | select(.kind == "rework")] | length')"
+koto context add "$SV" "$K8" < "$T/n8.orig"
+rs --confirm MV2 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm accepts the session entry" 0 "$rc"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... and writes the rework row, its Who the entry's number" "verdict $N8|Evidence clauses not held: 1. Changes needed: answer on the public name" \
+    "$(slive | jq -r '[.work[] | select(.kind == "rework" and .item == "MV2")][0] | "\(.who)|\(.next)"')"
+
+echo "== the default: --reopen --entry =="
+sv_seed "$MVD" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
+optout
+NF2=$(write_entry milestone-failure "$T/f.txt")
+OUT=$(rs --reopen MV1 --entry "$NF2" 2>"$T/err"); rc=$?
+eq "--reopen --entry opens the reopen pull request, posting nothing" "0 https://github.com/acme/widgets/pull/8 0 none" "$rc $(head -n 1 <<<"$OUT") $(ncomments) $(posted "$NF2" || echo none)"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+diff "$T/mvd.md" <(on_branch "$(branch_of 8)") > "$T/d"
+eq "  ... MV1 In progress, and a reopen line naming the entry's hash, in one commit" \
+    "$(printf '%s\n' '23c23' '< **Status:** Done' '---' '> **Status:** In progress' '52a53' "> - $TODAY: MV1 -- reopened: clause 2 failed, reported by an operator ($(sha8 "$T/f.txt"))") 1" "$(cat "$T/d") $(puts)"
+to_main "$(on_branch "$(branch_of 8)")"
+rs --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main reads it" 0 "$rc"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... writes the rework row, its Who the entry's number" "failure $NF2|Evidence clause 2 failed: the removed manifest was listed as installed by @carol" \
+    "$(slive | jq -r '[.work[] | select(.kind == "rework" and .item == "MV1")][0] | "\(.who)|\(.next)"')"
+
+echo "== an opted-in edit whose post failed, finished after the opt-in went =="
+sv_seed
+rs --unit MV1 >/dev/null 2>&1
+N9=$(write_entry milestone-verdict "$T/v1.txt")
+db '.fail = [{match: "POST repos/acme/widgets/issues/8/comments", rc: 1, stderr: "gh: HTTP 502"}]'
+rs --verdict MV1 --entry "$N9" >/dev/null 2>"$T/err"; eq "a failed post exits 14" 14 $?
+db '.fail = []'
+optout
+OUT=$(rs --verdict MV1 --entry "$N9" 2>"$T/err"); rc=$?
+eq "run again with the opt-in gone it finishes without posting" "0 https://github.com/acme/widgets/pull/8 0 1 2" "$rc $OUT $(ncomments) $(jq '.prs | length' "$GH_DB") $(puts)"
+on_branch "$(branch_of 8)" | grep -qxF -- "- $TODAY: MV1 -- verified, checked by coordinate-plugins ($(sha8 "$T/v1.txt"))" \
+    && ok "  ... its Progress line naming the entry's hash" || bad "  ... its Progress line naming the entry's hash" "$(on_branch "$(branch_of 8)")"
+to_main "$(on_branch "$(branch_of 8)")"
+rs --confirm MV1 >/dev/null 2>"$T/err"; eq "  ... and --confirm clears it" "0 0" "$? $(slive | jq '.side_effects | length')"
 
 echo "== refusals, nothing opened =="
 sv_seed

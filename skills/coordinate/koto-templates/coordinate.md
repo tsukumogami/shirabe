@@ -1670,7 +1670,7 @@ states:
       clauses:
         type: string
         required: false
-        description: On a milestone roadmap, the Clauses value of the goal-fit entry you posted, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
+        description: On a milestone roadmap, the Clauses value of the goal-fit entry you recorded, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
     gates:
       goal_fit_land:
         type: command
@@ -3600,8 +3600,13 @@ clause 1 first:
    repository (`mktemp`) and check the entry:
    `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
    Fix the entry until it passes.
-3. Post it:
-   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`.
+3. Record it:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --on <owner/repo#n> --text-file <entry file>`,
+   `--on` naming the pull request the entry's first line names. It is posted
+   on that pull request only when its repository opts in to workflow content
+   (`## PR Workflow Content: include` in its CLAUDE.md), and otherwise stays
+   in the record: the script prints `record/entries/<n>` instead of a URL,
+   and that is the entry recorded.
 4. Submit, with `clauses` set to the entry's Clauses value.
 
 `advances none` is recorded, not a gap: `fit` alone decides where the pull
@@ -4088,8 +4093,11 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
    Source and opens one pull request, with the entry in its body: a verified
    verdict sets the Status to Done, removes the Needs line and adds the work
    checked to Delivered; changes needed leaves Status and Delivered as they
-   are. It then posts the entry as a comment on that pull request and adds a
-   Progress line naming the verdict, you and that comment. When it exits 14
+   are. When the host opts in to workflow content (`## PR Workflow Content:
+   include` in its CLAUDE.md) it then posts the entry as a comment on that
+   pull request and adds a Progress line naming the verdict, you and that
+   comment; otherwise, the default, it posts nothing and the Progress line
+   names the entry by its hash, in the same commit. When it exits 14
    (the post or the Progress commit failed), run it again with the same
    entry: it finds its pull request and finishes, opening no second one.
    Never merge it; it goes to whoever merges roadmap changes, in the
@@ -4169,9 +4177,11 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
    `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry <n>`.
    It reads the entry from the record, checks it against the roadmap on the
    default branch and opens one pull request, with the entry in its body,
-   that sets the Status to In progress; it then posts the entry as a comment
-   on that pull request and adds a Progress line naming the failed clause,
-   the reporter and that comment. Delivered, Outcome and Evidence stay. When
+   that sets the Status to In progress, and adds a Progress line naming the
+   failed clause and the reporter. As with a verdict, the entry is posted as
+   a comment on that pull request, and the line names that comment, only
+   when the host opts in to workflow content; otherwise the line names the
+   entry by its hash. Delivered, Outcome and Evidence stay. When
    it exits 14, run it again with the same entry: it finishes the same pull
    request. Never merge it; it goes to whoever merges roadmap
    changes, in the merge-order table, and a person reviews the report there.

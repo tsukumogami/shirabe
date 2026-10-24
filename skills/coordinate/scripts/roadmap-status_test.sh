@@ -279,9 +279,14 @@ status: Active
 - 2026-10-01: MV1 and MV2 started
 EOF
 MV=$(cat "$T/mv.md")
+# The host opts in to workflow content, so verdict and failure entries are
+# posted on their roadmap pull requests; roadmap-status-entry_test.sh covers
+# the default, where they stay in the session.
+optin_host() { db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'; }
 mv_seed() { # mv_seed [record-json]
     db_init
     issue7
+    optin_host
     db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$MV"
     seed_session "$SR" "${1:-$(record_json roadmap plugin-system | jq -c --argjson h "$(holding plugin-list '{"unit": "MV1: the plugin list", "pull_request": ""}')" '.holdings = [$h]')}"
 }
@@ -716,6 +721,7 @@ MV3=$(cat "$T/mv3.md")
 mv3_seed() { # mv3_seed [roadmap-file]: holdings `Feature 1: the plugin list` and `Feature 2: the host serves`
     db_init
     issue7
+    optin_host
     db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(cat "${1:-$T/mv3.md}")"
     seed_session "$SR" "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding plugin-list '{"unit": "Feature 1: the plugin list", "pull_request": ""}')" \
         --argjson c "$(holding mv2-host '{"unit": "Feature 2: the host serves", "pull_request": ""}')" '.holdings = [$a, $c]')"

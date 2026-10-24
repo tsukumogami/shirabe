@@ -444,7 +444,14 @@ lines, and the rows and refusals behind them, are in
   the verdict entry, check it with `milestone.sh check-verdict`, write it
   into the record with `record-append.sh --kind milestone-verdict --on none`,
   run `roadmap-status.sh --verdict` with the entry number it printed, and
-  submit `verdict: recorded`.
+  submit `verdict: recorded`. A goal-fit, verdict or failure entry is posted
+  as a comment only on a repository that opts in to workflow content
+  (`## PR Workflow Content: include` in its CLAUDE.md); otherwise it stays in
+  the record, and the roadmap edit's Progress line names it by its hash. The
+  switch is read from the CLAUDE.md committed on the repository's default
+  branch, since the run has no checkout of it, so an opt-in that only a
+  workspace's CLAUDE.local.md carries isn't seen and those entries stay in
+  the record.
   When a clause can't be checked yet (it needs a release or a person's
   walkthrough), or another roadmap edit is pending, submit
   `verdict: deferred`. The row stays, so pick names the milestone at every

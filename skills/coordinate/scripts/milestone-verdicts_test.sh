@@ -165,8 +165,12 @@ EOF
 main_roadmap() { jq -r --arg k "main:$ROADMAP" '.files["acme/widgets"][$k]' "$GH_DB"; }
 on_branch() { jq -r --arg k "$1:$ROADMAP" '.files["acme/widgets"][$k] // empty' "$GH_DB"; }
 db_init
-# MV1's pull request, which its goal-fit entry is posted on.
+# MV1's pull request, which its goal-fit entry is posted on. The host opts in
+# to workflow content, so the entries are posted as comments
+# (roadmap-status-entry_test.sh covers the default, where they stay in the
+# session).
 db '.files["acme/widgets"][$k] = $r
+    | .files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"
     | .prs += [{repo: "acme/widgets", number: 12, title: "the plugin list", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
                 baseRefName: "main", headRefName: "feat/list", headRefOid: $h, author: "alice", editor: null}]' \
     --arg k "main:$ROADMAP" --arg r "$(cat "$T/roadmap.md")" --arg h "$SHA_HEAD"

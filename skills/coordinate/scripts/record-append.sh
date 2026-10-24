@@ -36,6 +36,14 @@
 # as another entry's post; when that login can't be read it exits 2 and posts
 # nothing.
 #
+# Every outward kind but cost (whose placement unit-cost.sh decides) is posted
+# only when the --on item's repository opts in to workflow content on its pull
+# requests and issues (`## PR Workflow Content: include`, read by
+# repo-pr-content.sh); otherwise the entry stays in the session, its key
+# printed, and a --repost of it is refused (65). That covers a verdict or
+# failure entry too, which roadmap-status.sh posts through --repost after
+# writing it here with --on none.
+#
 # Usage:
 #   record-append.sh --session S --text-file F [--kind K] [--on <owner/repo#n>|none]
 #   record-append.sh --session S --list
@@ -99,6 +107,7 @@
 #   reads:  gh api --method GET repos/<repo> --jq .private   (the host, then each repository the text names)
 #           gh api --method GET repos/<item repo> --jq .private, and each repository the text names (--on)
 #           gh api user --jq .login, gh api --method GET repos/<item repo>/issues/<n>/comments (--repost --on)
+#           the item repository's CLAUDE.md, through repo-pr-content.sh (--on)
 #   writes: gh api --method POST repos/<item repo>/issues/<n>/comments --input <json> (--on)
 # koto calls: context list --prefix record/entries/ and record/posted/,
 #   context list --prefix for each key the seam's rs_key reads, context get,
@@ -129,6 +138,9 @@ done
 ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold moved cost milestone-verdict milestone-failure goal-fit decisions "
 # The kinds a reader outside the coordinator reads from GitHub.
 OUTWARD_KINDS=" cost milestone-verdict goal-fit milestone-failure "
+# opt_in_kind <kind>: 0 for an outward kind posted only where the repository
+# opts in: every one but cost, whose placement unit-cost.sh decides.
+opt_in_kind() { case "$OUTWARD_KINDS" in *" $1 "*) [ "$1" != cost ] ;; *) return 1 ;; esac; }
 case "$MODE" in
     append)
         [ -r "$TEXTFILE" ] || usage
@@ -207,6 +219,14 @@ lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 on_url_ok() {
     [[ $(lc "$1") =~ ^https://github\.com/([a-z0-9_.-]+/[a-z0-9_.-]+)/(issues|pull)/([1-9][0-9]*)#issuecomment-[0-9]+$ ]] \
         && [ "${BASH_REMATCH[1]}" = "$(lc "$ON_REPO")" ] && [ "${BASH_REMATCH[3]}" = "$ON_NUM" ]
+}
+# kept_unless_opted_in <kind> <repo>: 0 when a KIND entry bound for REPO's
+# item stays in the session instead, because REPO doesn't opt in to workflow
+# content on its items; the reason goes to stderr.
+kept_unless_opted_in() {
+    opt_in_kind "$1" || return 1
+    [ "$(bash "$HERE/repo-pr-content.sh" "$2" 2> "$WD/pc.err")" = include ] && return 1
+    echo "$PROG: $2 doesn't opt in to workflow content on its pull requests and issues (## PR Workflow Content: include), so the $1 entry stays in the session" >&2
 }
 # on_admitted: refuses (65) an --on item outside the run's repositories: the
 # host, or a holding's Repo or pull request repository.
@@ -322,6 +342,7 @@ if [ "$MODE" = repost ]; then
         cat "$WD/posted.now"
         exit 0
     fi
+    kept_unless_opted_in "$EKIND" "$ON_REPO" && { echo "$PROG: refused: entry $N is not posted" >&2; exit 65; }
     ESTAMP=$(jq -r '.stamp' "$WD/entry.json")
     # A post that landed before a crash: the same kind and text, by this run's
     # login, created at or after the entry's stamp, and not already kept as
@@ -441,7 +462,7 @@ for try in 1 2 3 4; do
     break
 done
 [ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
-if [ -z "$ON" ] || [ "$ON" = none ]; then
+if [ -z "$ON" ] || [ "$ON" = none ] || kept_unless_opted_in "$KIND" "$ON_REPO"; then
     printf 'record/entries/%s\n' "$WRITTEN"
     exit 0
 fi

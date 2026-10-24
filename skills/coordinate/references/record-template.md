@@ -511,8 +511,20 @@ On a milestone roadmap a milestone reads Done only through a checked verdict,
 and Done is taken back only through a checked failure. Each is an entry in the
 record, checked by `scripts/milestone.sh` against the roadmap and written by
 `record-append.sh` with its own kind, and each roadmap edit is a pull request
-`scripts/roadmap-status.sh` opens, posts the entry on, and never merges. The steps are the
+`scripts/roadmap-status.sh` opens and never merges. The steps are the
 `milestone_verdict`, `goal_fit` and `milestone_reopen` states of the template.
+
+These entries are written to the coordinator's session, and a goal-fit,
+verdict or failure entry is posted as a comment (on the pull
+request it concerns, or on the roadmap edit's pull request) only when that
+repository opts in to workflow content: `## PR Workflow Content: include` in
+its CLAUDE.md on the default branch, read by `scripts/repo-pr-content.sh`.
+Otherwise, the default, nothing is posted, and a roadmap edit's Progress line
+names its entry by the entry's hash alone, `(<hash8>)` where a comment's URL
+would go. `roadmap-status.sh --confirm` reads the entry back from wherever it
+is: the comment `record/posted/<n>` names, or the session's
+`record/entries/<n>`, and a rework row's Who is then `verdict <n>` or
+`failure <n>`, the entry's number.
 
 ### The verdict owed
 
