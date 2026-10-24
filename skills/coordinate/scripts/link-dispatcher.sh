@@ -62,7 +62,8 @@ dl_valid_dispatcher "$DISPATCHER" \
     || usage "--dispatched-by must name a koto session: ^[A-Za-z0-9][A-Za-z0-9._-]*\$, at most 200 bytes, got [$DISPATCHER]"
 [ "$DISPATCHER" != "$SESSION" ] || usage "--dispatched-by names $SESSION itself; a session is not its own dispatcher"
 command -v "$KOTO" >/dev/null 2>&1 || { printf 'failed=koto_missing\n'; exit 127; }
-"$KOTO" status "$SESSION" </dev/null >/dev/null 2>&1 \
+# koto's own diagnostic, when the session isn't here, goes to stderr as it is.
+"$KOTO" status "$SESSION" </dev/null >/dev/null \
     || { printf '%s: no session %s here; run this from the directory your session was opened in\n' "$PROG" "$SESSION" >&2; exit 2; }
 
 # A failed link has printed its warning and recorded it; the session stands.

@@ -65,12 +65,13 @@ done
 [[ $SESSION =~ $RE_NAME ]] || usage "--session must name a koto session, got [$SESSION]"
 command -v "$KOTO" >/dev/null 2>&1 || { printf 'failed=koto_missing\n'; exit 127; }
 
-"$KOTO" status "$SESSION" </dev/null >/dev/null 2>&1 \
+# koto's own diagnostics go to stderr as they are, beside this script's.
+"$KOTO" status "$SESSION" </dev/null >/dev/null \
     || { printf '%s: no session %s here; run this from the directory your session was opened in\n' "$PROG" "$SESSION" >&2; exit 2; }
 WARNINGS=""
-"$KOTO" context exists "$SESSION" "$KEY" </dev/null >/dev/null 2>&1
+"$KOTO" context exists "$SESSION" "$KEY" </dev/null >/dev/null
 case $? in
-    0) VALUE=$("$KOTO" context get "$SESSION" "$KEY" </dev/null 2>/dev/null) \
+    0) VALUE=$("$KOTO" context get "$SESSION" "$KEY" </dev/null) \
            || { printf '%s: could not read %s from %s\n' "$PROG" "$KEY" "$SESSION" >&2; exit 2; }
        WARNINGS=$(printf '%s\n' "$VALUE" | sed -n 's/^dispatched_by=\(.*\)$/warning=link-failed dispatched_by=\1/p') ;;
     1) ;;

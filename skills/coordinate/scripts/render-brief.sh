@@ -440,7 +440,9 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
         + ( if .entry_point == "coordinate" then ", and `$ARGS_DIR/args.json` the args file its first step writes"
             elif ($opener | test("<topic>")) then ", and `<topic>` the topic it derives"
             else "" end )
-        + ". Run it from the directory your session is opened in. If it prints `warning=link-failed`, go on: your session is open, and your result carries the warning (see Reporting)." ),
+        + ". Run it from the directory your session is opened in."
+        + ( if $opener_kind == "open" then " If your session is already open (this brief re-briefs you), run it anyway: it attaches to that session and records the link." else "" end )
+        + " If it prints `warning=link-failed`, go on: your session is open, and your result carries the warning (see Reporting)." ),
       ""
     end ),
   ( if (.run_mode | test("\\S")) then "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for."

@@ -213,7 +213,9 @@ for ep in explore decision release; do
     has "dispatcher: /$ep opens with skill-session.sh open --dispatched-by" "$(section "$E" Goal)" \
         "\`\"\${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh\" open $ep <topic> --dispatched-by $D\`"
     has "dispatcher: /$ep's command replaces its skill's open" "$(section "$E" Goal)" "in place of the open your entry point's skill shows"
+    has "dispatcher: /$ep, re-briefed with its session open, runs it anyway" "$(section "$E" Goal)" "If your session is already open (this brief re-briefs you), run it anyway"
 done
+lacks "dispatcher: the link command needs no already-open note" "$G" "this brief re-briefs you"
 E=$(bash "$S" --input "$(variant ep-coordinate '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = ""')" --stdout)
 has "dispatcher: /coordinate opens with coordinate-open.sh --dispatched-by" "$(section "$E" Goal)" \
     "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D \"\$ARGS_DIR/args.json\"\`"

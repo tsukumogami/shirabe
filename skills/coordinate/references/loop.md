@@ -124,6 +124,13 @@ worker's claim contradicts the roadmap, which lists features N and M as
 independent", whichever side turns out right. Agreeing that the roadmap says
 they're independent and then calling the claim consistent misses it.
 
+A message-path worker's result block (`render-result.sh`) carries a
+`warning=link-failed dispatched_by=<run>` line when its session couldn't
+record your run as its dispatcher. The worker is then outside your run's
+hierarchy, so koto may reclaim its session on its own schedule once it
+finishes: read what you need from it before that, and say so in your next
+report. Learn of it from the block alone; never read the worker's keys.
+
 ## Resolving a Claim GitHub Contradicts
 
 When a row says one thing and the read says another, act on the read,
