@@ -77,6 +77,20 @@ trap 'case "$WORK" in */work-on-open-test.*) rm -rf "$WORK" ;; esac' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 export GIT_CEILING_DIRECTORIES="$WORK"
+# The real koto must write only to this suite's scratch HOME: a caller's koto
+# session context is cleared, and before any case runs koto's session
+# directory must resolve under the scratch directory. When it doesn't,
+# nothing runs.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+if command -v koto >/dev/null 2>&1; then
+    case "$(koto session dir work-on-open-guard </dev/null 2>/dev/null)" in
+        "$WORK"/*) ;;
+        *) echo "FAIL: koto's session directory is not under this suite's scratch directory; no case ran" >&2; exit 1 ;;
+    esac
+fi
 
 FIXREPO="$WORK/repo"
 mkdir -p "$FIXREPO"

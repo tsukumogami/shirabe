@@ -102,6 +102,18 @@ chmod +x "$WRAP"
 export DELIVER_TEST_LOG="$T" DELIVER_TEST_REAL_KOTO="$REAL_KOTO" DELIVER_TEST_TEMPLATE="$LOCAL_TEMPLATE"
 export HOME="$T/home"
 mkdir -p "$HOME"
+# The real koto must write only to this suite's scratch HOME: a caller's koto
+# session context is cleared, and before any case runs koto's session
+# directory must resolve under the scratch directory. When it doesn't,
+# nothing runs.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+case "$("$REAL_KOTO" session dir deliver-open-guard </dev/null 2>/dev/null)" in
+    "$T"/*) ;;
+    *) echo "FAIL: koto's session directory is not under this suite's scratch directory; no case ran" >&2; exit 1 ;;
+esac
 
 mkrepo() { # mkrepo <dir> [CLAUDE.md text]
     mkdir -p "$1"

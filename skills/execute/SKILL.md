@@ -149,8 +149,9 @@ Two more flags, on both paths:
   the flag is absent), so none persists from an earlier invocation:
   - `--store github|session` — where the run's record lives, sealed in the run
     record at the run's first setup (`github` without the flag, `session`
-    when the run's recorded PR content switch is `omit`, whose coordination
-    body carries no record to recover from); a later
+    for a new run when the recorded PR content switch is `omit`, whose
+    coordination body carries no record to recover from; a run that started
+    earlier keeps the store its body names); a later
     invocation with the other value stops `store-mismatch` and changes nothing,
     and one without the flag reads the sealed value.
   - `--coordination-pr <url>` — the coordination PR, verified at setup through
@@ -439,7 +440,10 @@ before every terminal, and posts it only when it differs from the live body, so 
 posts nothing. Under the run's recorded switch `omit`, the default, the body is
 its Part 1 alone: the live Part 1, or the whole live body when it has no
 top-level `---`, or one composed sentence when it is empty, and nothing else;
-the merge-last gate then takes its refs from the record. Under `include` the
+the merge-last gate then takes its refs from the record. The hosted CI
+merge-last backstop finds a coordination PR by its declaration line, so it
+does not run for an `omit` body: `coord-merge.sh`'s own gate is the one that
+holds the coordination merge then. Under `include` the
 body keeps the live Part 1 (everything above its first
 top-level `---`) byte for byte, or composes one sentence when there is none
 (`/scope`'s body is replaced whole), then carries the declaration marker, the
