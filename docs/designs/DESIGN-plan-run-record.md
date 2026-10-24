@@ -208,7 +208,8 @@ one JSON document on stdin, and `plan` reads only the path `--plan` names, which
 `^docs/plans/PLAN-[a-z0-9-]+\.md$`, through `git show HEAD:<path>`. Each text field is capped
 at 16 KiB and the PLAN at 256 KiB, and a value holding a private-key header, an
 `Authorization:` line or a common token shape (`ghp_`, `github_pat_`, `AKIA`, `xoxb-`) is
-refused with exit 65 before anything is written:
+refused with exit 65 before anything is written, the copy `decision` sends through
+`koto decisions record` included:
 
 | Verb | Session | Keys |
 |------|---------|------|
@@ -219,6 +220,10 @@ refused with exit 65 before anything is written:
 | `decision` | the session where it happened | `trail/decision/<n>.json`: `{step, actor, choice, rationale, at}`, plus the same choice and rationale through `koto decisions record` |
 | `item` | multi-pr plan root | `trail/item/<step>`: `{session, workspace, pr}` |
 | `index` | the PR's index session | `run/<run_id>`: `{workspace, session, session_id, mode, topic, written_at}` |
+| `self` | record root, called once by the opener | `trail/self`: `{workspace, session, session_id, run_id}` |
+
+`trail/unpinned` has one writer too: `run-record-pin.sh`, which writes it after a pin attempt
+and removes it once every session it names is pinned.
 
 Departure kinds are `deviated`, `deferral`, `scope-change` and `entry-rewritten`. The actor
 is `agent:<anchor or session name>` or `person`, with `person:<login>` when the gate
@@ -273,7 +278,9 @@ bucket-read names alone. A step session is pinned only when it's the root's own 
 pinned only when it holds a `run/<run_id>` or `trail/item/*` entry for this run. Addresses come
 from the run's own open-time record (`trail/self`, written by the opener with the workspace and
 `session_id`), never from a workspace value read back from the bucket. At most S + P + 1 pins
-are made per run, and any other name it's handed is skipped and reported. shirabe can't reverse
+are made per run, and any other name it's handed is skipped and reported. Before K2, a step
+session created in a workspace other than the root's can't be reached to pin, and it's reported
+in `trail/unpinned` with the reason `other-workspace`, never skipped silently. shirabe can't reverse
 a pin it sets. A multi-pr item pins the plan root (a repeat pin is
 idempotent), its own session and its index session. The reason is
 `record of plan <topic>: <owner>/<repo>#<n>`, with the topic truncated so the whole stays
@@ -293,7 +300,8 @@ through:
 The state is a default action that never blocks the terminal. Any pin koto refuses (exit 2)
 or can't confirm (exit 3) is written to the root's `trail/unpinned` key with koto's error
 code. The terminal's `result:` carries `record: unpinned` and the list. The next invocation's
-opener retries every session that key names. The pin floor is one constant,
+opener reruns `run-record-pin.sh --retry`, which takes the names from that key and puts each
+through the same local provenance check as a first attempt before pinning it. The pin floor is one constant,
 `RECORD_PIN_FLOOR`, in `run-record-pin.sh`. Below it, or while it's unset, no
 `koto session pin` call is made and the result says `record: unpinned`.
 
@@ -327,10 +335,11 @@ Key assumptions:
 
 - **No marker.** `run-id.sh` keeps `mint`, `get`, `seed` and `adopt`, and loses `stamp`,
   `restamp`, `carry` and `marker`. No writer stamps a body.
-- **Ownership.** `owned-pr.sh --run-id` classifies each candidate PR by its index entry
-  through `record-store.sh`: an entry for this run is mine, the latest entry naming another
-  run is foreign, and no entry falls back to today's login-and-branch match (as `/scope`'s
-  unmarked PR already does). `--take-over` writes this run's index entry instead of
+- **Ownership.** `owned-pr.sh --run-id` keeps its five checks (same repository, the
+  authenticated author, the expected base, the head branch, the state) as required for every
+  survivor, and the index can only take a PR away: a candidate whose latest index entry names
+  another run is foreign, and every other candidate that passed the five checks survives,
+  whether its entry names this run or it has none. A planted entry can't make a PR this run's. `--take-over` writes this run's index entry instead of
   restamping. `record-coord-setup.sh` recovery reads run identity from the index and the
   carried `run_id`, never from markers.
 - **How it's turned on.** A repository opts in with the header
@@ -480,8 +489,8 @@ PR outside any plan run and writes no record. Neither changes.
 run-trail.sh pr        --session S --repo owner/repo --number N --role home|node|follow-up|coordination|item --state open|ready|merged|closed
 run-trail.sh plan      --session S --step ID --plan docs/plans/PLAN-<topic>.md
 run-trail.sh step      --session S --step ID --child NAME [--supersede]
-run-trail.sh departure --session S --step ID --kind deviated|deferral|scope-change|entry-rewritten --what-file F --why-file F
-run-trail.sh decision  --session S --step ID --actor agent:NAME|person[:LOGIN] --data-file F
+run-trail.sh departure --session S --step ID --kind deviated|deferral|scope-change|entry-rewritten   < {"what": ..., "why": ...}
+run-trail.sh decision  --session S --step ID --actor agent:NAME|person[:LOGIN]   < {"choice": ..., "rationale": ..., "alternatives_considered": [...]}
 run-trail.sh item      --plan-root NAME --step ID --child NAME --repo owner/repo --number N
 run-trail.sh index     --repo owner/repo --number N --session S --mode single-pr|coordinated|multi-pr --topic T
 
@@ -532,7 +541,7 @@ Deliverables: `scripts/lib/record-store.sh`, `scripts/run-trail.sh`,
 `scripts/run-record-lookup.sh`, `scripts/testdata/record-koto/koto`,
 `scripts/record-store_test.sh`, `scripts/run-trail_test.sh`,
 `scripts/run-record-lookup_test.sh`, `skills/execute/scripts/adopt-or-create-pr.sh` and its
-test, `skills/execute/scripts/execute-open.sh` (the `trail/self` record),
+test, `skills/execute/scripts/execute-open.sh` (the `trail/self` record) and its test,
 `scripts/bash-floor/run-record.list`, `.github/workflows/check-run-record.yml`.
 
 ### Phase 2: The trail per step
@@ -571,8 +580,8 @@ the opener's retry, `requires.tsv` entries, and `check-run-record-rules.sh`.
 
 Deliverables: `scripts/run-record-pin.sh`, `scripts/run-record-pin_test.sh`,
 `scripts/check-run-record-rules.sh`, `scripts/check-run-record-rules_test.sh`, the three
-templates, `skills/execute/scripts/execute-open.sh`, `skills/work-on/scripts/work-on-open.sh`,
-`skills/execute/scripts/terminal-retention_test.sh`, `skills/execute/requires.tsv` and
+templates, `skills/execute/scripts/execute-open.sh`, `skills/work-on/scripts/work-on-open.sh`
+and their tests, `skills/execute/scripts/terminal-retention_test.sh`, `skills/execute/requires.tsv` and
 `skills/work-on/requires.tsv`.
 
 ### Phase 5: PR content
@@ -633,11 +642,21 @@ patterns before use. Values reach koto after `--` or as `--flag=value`, a worksp
 as an opaque identifier, and the lookup builds its JSON only through `jq --arg`. A value that
 fails the check is reported in `missing` and never used.
 
+**Shared index sessions.** A pinned `pr.<owner>.<repo>.<n>` session keeps every entry in it,
+another run's or a forged one included, and shirabe can't remove them.
+`references/koto-session-retention.md` documents the purge path: who holds koto's `release-pin`
+authority in a workspace, and the by-hand `koto session unpin` that lets the next prune take a
+session, so content that slipped past the secret check has a known way out.
+
 **Lookup output.** The lookup's JSON holds names, ids, numbers, states and the workspace
 path, never free text. The workspace names a user and an instance, so the skill text marks it
 internal, not for pasting into PRs or issues. `--steps` adds step ids, session names and
 commit SHAs only. Reading plan text, departures or rationales is a separate
-`koto context get`, whose output is fenced and labelled untrusted wherever a skill reads it.
+`koto context get`, whose output is fenced and labelled untrusted wherever a skill reads it:
+`skills/work-on/references/phases/phase-3-analysis.md` (a child reading earlier steps),
+`skills/execute/koto-templates/execute.md`'s lead shape (detailing the next step) and the lookup
+section of `skills/execute/SKILL.md`. `check-run-record-rules.sh` greps those three for the
+fence label.
 
 **Forged or competing entries.** The lookup returns a root only when the root's own
 `trail/pr/*` lists the PR. That stops a forged index entry naming an unrelated session. It
