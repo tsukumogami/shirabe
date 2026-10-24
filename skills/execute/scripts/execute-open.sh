@@ -163,7 +163,9 @@
 # A finished session koto keeps for its hierarchy is moved aside rather than
 # replaced: koto-open.sh's moved_to= and moved_reason= lines follow
 # opened=replaced, the old run stays readable under that name, and the
-# snapshot and run identity above are carried as for any replace. When it
+# snapshot and run identity above are carried as for any replace, so the moved
+# run and the fresh one share a run_id: the fresh run still owns the PR the
+# moved one opened, and the moved one is finished and looks nothing up. When it
 # can't be moved, koto refuses (replace_held_live, with a live= line, or
 # replace_failed) and nothing is replaced; a snapshot taken for it is kept,
 # and the next open takes a fresh one.

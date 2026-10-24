@@ -98,8 +98,9 @@
 # only when it stopped the run), then:
 #
 #   moved_to=<name>, moved_reason=<text>
-#                                    on success, when the probe moved this
-#                                    worktree's finished run aside
+#                                    when the probe moved this worktree's
+#                                    finished run aside, whether the open
+#                                    then succeeded or not
 #   session=deliver-<topic>          on success
 #   outcome=error                    on every refusal or failure, followed by
 #   step=deliver:refused
@@ -377,6 +378,9 @@ if [ "$RC" -eq 0 ]; then
     [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
     printf 'session=%s\n' "$SESSION"
 else
+    # The probe already moved the earlier run aside; say where, even though
+    # this open failed.
+    [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
     bash "$REPORT" --refused
 fi
 exit "$RC"

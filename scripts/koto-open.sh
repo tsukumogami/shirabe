@@ -138,6 +138,9 @@
 #        is not 2, e.g. 1 for template_not_found or lock_contention), or an
 #        args file inside the work tree
 #   64   this script's own usage error; no koto call was made
+#   74/75 follow sysexits.h (EX_IOERR, EX_TEMPFAIL): koto passes 1 and 2
+#        for these, which other refusals share, and no caller uses 74 or 75
+#        for anything else
 #   74   refused=replace_failed: koto could not move the held old session
 #        aside, and nothing was replaced; the old session keeps its name
 #        unless a stranded= line says otherwise
