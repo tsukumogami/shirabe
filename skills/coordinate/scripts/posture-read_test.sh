@@ -443,6 +443,18 @@ eq "a missing authority's reason names what the grant holds and lacks" "the gran
     "$(jq -r .steps.release.why "$D")"
 eq "the detail keeps the lookup's state, grant and parent" "bound merge-pr,close-issue ws+coordinator-1a2b3c4d" \
     "$(jq -r '.grant_check | "\(.state) \(.grant | join(",")) \(.parent.instance)"' "$D")"
+# A rule stricter than the grant's answer decides the step, so the step stays
+# the workspace's, with the rule as its reason.
+ws_settings "$(perm deny 'Bash(gh pr merge:*)')"
+S=coordinate-plugin-system-20260926T081000Z
+log_new "$S" "$(roadmap_vars plugin-system)"
+log_to "$S" start start_posture
+OUT=$(CLAUDE_CODE_SESSION_ID=$SID PATH="$STUB:$PATH" bash "$PRD" --session "$S" --instance-root "$IN" --workspace-root "$WS" 2>"$T/err")
+seen "$OUT" > /dev/null
+D="$KOTO_STORE/context/$S/coord/posture.json"
+eq "a deny rule that beats the grant keeps the merge step the workspace's" "deny workspace deny Bash(gh pr merge:*)" \
+    "$(jq -r '.steps.merge | "\(.verdict) \(.source) \(.why)"' "$D")"
+eq "the steps the grant still decides keep source=grant" "grant grant" "$(jq -r '"\(.steps.close.source) \(.steps.release.source)"' "$D")"
 
 tokens_ok posture-read
 done_tests posture-read

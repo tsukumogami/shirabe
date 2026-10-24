@@ -51,7 +51,8 @@
 #        --point merge-pr --point close-issue --point cut-release
 # The answer counts only when it exits 0 with schema niwa.authority.check/v1
 # and every state, authority, level, decider and author_exclusion inside
-# niwa's vocabularies; anything else is a failed lookup. Then:
+# niwa's vocabularies; anything else is a failed lookup, the gate's own rule,
+# so this reading never trusts an answer the gate would have refused. Then:
 #   bound            merge, close and release skip the hook reading: each is
 #                    the stricter of its permission reading (rules, else an
 #                    unparseable file's unread, else defaultMode) and the
@@ -508,7 +509,10 @@ GRANT
             if [ "$ALL_UNREAD" = 1 ]; then
                 v=unread; why="a settings file is unparseable"
             elif [ -n "$gv" ]; then
-                # The grant stands where the hook's text would be read.
+                # The grant stands where the hook's text would be read, an
+                # unreadable hook's included: the workspace gate decides a
+                # bound session's merge, close and release by the same answer,
+                # so the hook's text no longer says what it decides.
                 :
             elif [ "$HOOK_UNREAD" = 1 ]; then
                 v=unread; why="a PreToolUse hook script can't be read: $(head -1 "$T/unreadable")"
@@ -527,11 +531,11 @@ PATS
             if [ "$MODE" = bypassPermissions ]; then v=permit; why="defaultMode bypassPermissions"
             else v=confirm; why="no rule; defaultMode ${MODE:-default}"; fi
         fi
-        if [ -n "$gv" ]; then
-            # The stricter of the permission reading and the grant's answer;
-            # on a tie the grant's reason is the one recorded.
-            src=grant
-            [ "$(rank "$gv")" -ge "$(rank "$v")" ] && { v=$gv; why=$gwhy; }
+        # The stricter of the permission reading and the grant's answer. The
+        # grant is the step's source when its answer stands (a tie included);
+        # a stricter rule or defaultMode keeps the step the workspace's.
+        if [ -n "$gv" ] && [ "$(rank "$gv")" -ge "$(rank "$v")" ]; then
+            v=$gv; why=$gwhy; src=grant
         fi
     fi
     [ "$v" = unread ] && [ "$step" != release ] && TOKEN_WORD=unread
