@@ -141,6 +141,13 @@ enters in a subshell. No write passes any address option. The directory's canoni
 `/tmp/shirabe-run-record/<owner>` on Linux and `/private/tmp/shirabe-run-record/<owner>` on
 macOS, so the shared address is one per operating system family, and a reader tries both.
 
+The fixed directory is an interim. It works with koto as it stands, but it ties the address
+to how koto canonicalizes a working directory, which is koto's internal detail rather than a
+contract. The lasting answer is a named, writable workspace for the index, which is koto's to
+offer. If koto adds one, `record-store.sh` switches to it and the directory goes, as one
+change: nothing outside that file and its test knows the address. The writer creates the
+directory before each call, since `/tmp` may be cleared between runs.
+
 Reading an address other than the cwd's from another workspace needs one koto capability,
 named K2 in the PRD, now proposed to koto as koto#455: a global `--workspace <id>` option
 that koto's read verbs (`status`, `context get`, `context list`, the session listing) accept,
