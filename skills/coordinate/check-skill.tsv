@@ -98,6 +98,7 @@ cost	session-fixture_engine_test.sh	5
 cost	session-start_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
+cost	find-reads_test.sh	4
 cost	state-structure_test.sh	4
 cost	teardown-handoff_test.sh	4
 cost	coord-log_engine_test.sh	3

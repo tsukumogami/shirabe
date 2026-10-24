@@ -69,7 +69,8 @@ RECORD=$(record_json roadmap writeback | jq -c --argjson a "$F1" '
     .holdings = [$a]
     | .run = [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-writeback.md", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "cap", value: "2", set_by: "the human", set: "2026-10-07T10:00Z"},
-              {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"}]')
+              {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
+              {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"}]')
 koto_store_ready || { echo "koto lacks the session store's features; the write-back needs a newer koto"; done_tests writeback-engine; exit $?; }
 printf '["%s"]' "$RM" > "$T/args.json"
 S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')

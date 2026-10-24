@@ -12,6 +12,7 @@ skills/coordinate/scripts/coord-log_test.sh
 skills/coordinate/scripts/coordinate-report_test.sh
 skills/coordinate/scripts/rule-coverage_test.sh
 skills/coordinate/scripts/record-find_test.sh
+skills/coordinate/scripts/find-reads_test.sh
 skills/coordinate/scripts/record-open_test.sh
 skills/coordinate/scripts/record-write_test.sh
 skills/coordinate/scripts/record-holding_test.sh

@@ -133,7 +133,8 @@ seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the 
 
 # stored <record-json>: the record with a complete stored set, so the
 # reconcile's handover gate passes: the run's arguments and cap, this
-# coordinator's address, and for every live holding a next step and its
+# coordinator's address, who it reports to (every run is on the session, so the
+# gate asks every run for it), and for every live holding a next step and its
 # worker told. The handover cases build theirs by hand.
 stored() {
     printf '%s' "$1" | jq -c '
@@ -141,7 +142,8 @@ stored() {
           | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)]) as $live
         | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
-                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"}]
+                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"},
+                                  {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"}]
                  + [$live[] | {key: "told", value: .worker, set_by: "coord-test", set: "2026-09-26T08:00Z"}])
         | .work = ((.work // []) + [$live[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}])
         | if (.work | length) == 0 then del(.work) else . end'

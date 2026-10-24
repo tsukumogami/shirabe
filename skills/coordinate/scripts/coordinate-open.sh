@@ -28,7 +28,9 @@
 # scope, and then calls the legacy importer (../legacy-import/import.sh) once:
 # `--lookup` for an open coordinator record still on GitHub, and, when it
 # answers `record <n>`, the import of that record into the new run, printing
-# `record-imported=<n>`. The import's refusal (`record-unreadable`, a body it
+# `record-imported=<n>`. A discipline's next rotation is not a fresh start: the
+# ended rotation's session is here, and the new run's find carries it. What
+# the lookup says on stderr (a candidate it skipped) is passed on. The import's refusal (`record-unreadable`, a body it
 # can't read, or `several`, more than one open record) stops the start for the
 # person: the new run is cancelled and the output is `refused=<code>` (exit
 # 2). An import that fails part way cancels the new run too (`failed=import`,
@@ -51,8 +53,9 @@
 # (`refused=session-source`) and no directed transition
 # (`refused=session-directed`). A plain start then carries it, except after
 # session-source: a run whose find never ran is no resume candidate, so the
-# start opens a new run as with no session here and cancels the imported one. record/host takes the source's workspace,
-# session and template hash, and the output is `imported=<session>`,
+# start opens a new run as with no session here and cancels the imported one.
+# record/host takes the source's workspace, session and template hash, and the
+# output is `imported=<session>`,
 # `resumed=1`, `session=<it>`, then `state=<the run's state>` and, when the run
 # waits at the hub, `tick=moved`: the first tick, which sends it through a full
 # reconcile on this host. A run at reconcile reconciles again by itself; one
@@ -309,12 +312,16 @@ fi
 # ended (by date, or by closing) opens the next rotation as a new run, whose find
 # carries the predecessor.
 CARRY_FROM=
+# FRESH: no session here holds the scope's record (the candidate names none).
+# Only a fresh start asks the legacy importer.
+FRESH=0
 if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
     [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was opened" >&2; exit 1; }
     CAND=$(bash "$HERE/record-source.sh" --candidate --scope "$SCOPE" --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
         || { echo "failed=resume_candidate"; echo "coordinate-open: could not read this host's runs of $SLUG; nothing was opened" >&2; exit 1; }
+    [ "$(printf '%s' "$CAND" | jq -r '.session // empty')" = "" ] && FRESH=1
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
@@ -360,8 +367,9 @@ if [ -n "$CARRY_FROM" ]; then
     . "$HERE/record-write-core.sh"
     ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
     echo "carried=$CARRY_FROM"
-else
-    # A fresh start: no session here holds the scope's record. The legacy
+elif [ "$FRESH" = 1 ]; then
+    # A fresh start: no session here holds the scope's record (a discipline's
+    # next rotation, whose ended rotation's session is here, isn't one). The legacy
     # importer (docs/designs/current/DESIGN-coordinator-record-teardown.md, "The
     # legacy importer") looks once for a coordinator record still open on
     # GitHub and, finding one, imports its state into this run before the run's
@@ -380,9 +388,10 @@ else
     }
     LOOK=$(bash "$IMP" --lookup --session "$SESSION" --scope "$SCOPE" --name "$NAME" --repo "$HOST" 2> "$IMP_ERR")
     RC=$?
-    # A lookup that answers may still have skipped a candidate whose author has
-    # no write access, which it names on stderr; that reaches the operator.
-    if [ "$RC" = 0 ] && [ -s "$IMP_ERR" ]; then head -c 1000 "$IMP_ERR" >&2; fi
+    # A lookup may have skipped a candidate whose author has no write access,
+    # which it names on stderr; that reaches the operator whatever the lookup
+    # answered (a failure's own message below quotes it too).
+    if [ -s "$IMP_ERR" ]; then head -c 1000 "$IMP_ERR" >&2; fi
     case "$RC:$LOOK" in
         "0:none"|"0:resume") ;;
         "0:record "*)
