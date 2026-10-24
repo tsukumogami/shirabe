@@ -18,7 +18,9 @@
 # recorded, not by its name alone. A re-run of the same topic
 # (`koto init --replace-terminal`) moves the finished root aside as
 # `<name>_r<N>`, with every `<name>.<rest>` and `<name>~<rest>` session
-# renamed under it, and the new run takes `<name>`. So the root is the
+# renamed under it, and the new run takes `<name>` (koto's rule, written
+# down once in record-store.sh's rs_moved_candidates and rs_moved_name). So
+# the root is the
 # session in the entry's workspace whose id is the recorded one, named
 # `<name>` or `<name>_r1` to `<name>_r10`; one `koto session list` per
 # workspace answers that. A session under any other name, or no session with
@@ -58,8 +60,12 @@
 #
 # Output, on exit 0, one JSON object built with jq:
 #   {record_root: {workspace, session}, run_id, complete, unique,
-#    missing: [...], prs: [{repo, number, state}], others: [run_id],
+#    missing: [...], prs: [{repo, number, role, state}], others: [run_id],
 #    steps: [...]}
+# `prs` is every PR the root lists, this one included: a single-pr run's home
+# PR, or a coordinated run's node, follow-up and coordination PRs, each with
+# the role and the state its writer last recorded (a removed follow-up stays,
+# as closed).
 # `complete` is true when nothing was missing; `unique` is true when exactly
 # one entry qualifies and no other entry's root was unreadable or
 # unreachable, and `others` lists the other qualifying entries' run_ids. An
@@ -86,8 +92,6 @@ SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 MAX_ENTRIES=20
 MAX_PRS=200
 MAX_STEPS=200
-# The moved-aside names a root is looked for under: <name>_r1 to <name>_r10.
-MAX_MOVED=10
 TAB=$(printf '\t')
 
 usage() {
@@ -253,7 +257,7 @@ session_rows() {
 # a name outside the session pattern, and a row under a candidate name whose
 # id is outside the id pattern, are named in `missing` and never used.
 resolve_root() {
-    local ws=$1 sess=$2 sid=$3 f rc rows kind name i cand
+    local ws=$1 sess=$2 sid=$3 f rc rows kind name cand
     f=$(session_rows "$ws")
     rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
@@ -275,34 +279,22 @@ resolve_root() {
                     || missing "session list: a session named as $sess or a moved-aside name has an id that fails its pattern" ;;
         esac
     done <<<"$rows"
-    i=0
-    while [ "$i" -le "$MAX_MOVED" ]; do
-        cand=$sess
-        [ "$i" -gt 0 ] && cand="${sess}_r$i"
-        if rs_valid_session "$cand" && grep -qxF -- "id$TAB$cand" <<<"$rows"; then
+    while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
+        if grep -qxF -- "id$TAB$cand" <<<"$rows"; then
             printf '%s\n' "$cand"
             return 0
         fi
-        i=$((i + 1))
-    done
+    done <<<"$(rs_moved_candidates "$sess")"
     return 3
 }
 
 # moved_name <name>: the name a session has after its root moved from
-# $ENTRY_SESS to $ROOT_SESS, by koto's rule: the root itself and every
-# `<root>.<rest>` or `<root>~<rest>` take the new prefix; anything else keeps
-# its name. Returns 1 when the result fails the session pattern, so a built
+# $ENTRY_SESS to $ROOT_SESS, by koto's rule (record-store.sh's
+# rs_moved_name); 1 when the result fails the session pattern, so a built
 # name is never used unchecked.
 moved_name() {
-    local n=$1
-    if [ "$ROOT_SESS" != "$ENTRY_SESS" ]; then
-        case "$n" in
-            "$ENTRY_SESS") n=$ROOT_SESS ;;
-            "$ENTRY_SESS".*|"$ENTRY_SESS"~*) n="$ROOT_SESS${n#"$ENTRY_SESS"}" ;;
-        esac
-    fi
-    rs_valid_session "$n" || return 1
-    printf '%s\n' "$n"
+    rs_moved_name "$ENTRY_SESS" "$ROOT_SESS" "$1"
 }
 
 # read_root <workspace> <session>: the root's PRs as JSON lines in
@@ -322,8 +314,9 @@ read_root() {
         row=$(jq -c 'select(type == "object")
             | select((.repo | type) == "string" and (.number | type) == "number" and (.state | type) == "string")
             | select(.state == "open" or .state == "ready" or .state == "merged" or .state == "closed")
+            | select(.role == "home" or .role == "node" or .role == "follow-up" or .role == "coordination" or .role == "item")
             | select(.number >= 1 and .number == (.number | floor))
-            | {repo, number, state}' <<<"$val" 2>&1) || row=""
+            | {repo, number, role, state}' <<<"$val" 2>&1) || row=""
         case "$row" in
             '{'*)
                 local r
@@ -478,7 +471,7 @@ if [ -z "$ROOT_SESS" ]; then
         exit 2
     fi
     if [ "$NOT_FOUND" -eq 1 ]; then
-        echo "$PROG: the recorded root for $REPO#$N wasn't found under its name or any moved-aside name (_r1 to _r$MAX_MOVED)" >&2
+        echo "$PROG: the recorded root for $REPO#$N wasn't found under its name or any moved-aside name (_r1 to _r$RS_MAX_MOVED)" >&2
     fi
     if [ "$UNLISTED" -eq 1 ]; then
         echo "$PROG: no record root the index names for $REPO#$N lists the PR" >&2

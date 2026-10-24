@@ -18,6 +18,11 @@
 #                found" (68, nothing printed), and any other failure passes
 #                koto's exit and output through
 #   the patterns the session and step patterns, their bounds included
+#   moved names a root's candidates (<name>, then _r1 to _r10, each within
+#                the session pattern), and a name renamed by koto's
+#                move-aside rule: the root and its `.` children take the new
+#                prefix, anything else keeps its name, and a result outside
+#                the pattern is refused
 #   the forms    a write from the /tmp form lands at one of the two forms a
 #                reader tries
 #
@@ -222,6 +227,32 @@ for bad in "../x" "step/2" "-s" "$(printf 'a%.0s' $(seq 1 101))" ""; do
     lib "rs_valid_step '$bad'"
     [ "$RC" -ne 0 ] && pass "step id [${bad:0:20}] is refused" || fail "step [${bad:0:20}] accepted"
 done
+
+# --- the moved-aside names --------------------------------------------------------
+
+lib 'rs_moved_candidates execute-x | tr "\n" " "'
+[ "$RC" -eq 0 ] && [ "$OUT" = "execute-x execute-x_r1 execute-x_r2 execute-x_r3 execute-x_r4 execute-x_r5 execute-x_r6 execute-x_r7 execute-x_r8 execute-x_r9 execute-x_r10 " ] \
+    && pass "a root is looked for under its name, then _r1 to _r10, in that order" \
+    || fail "candidates: exit $RC, [$OUT]"
+LONG=$(printf 'a%.0s' $(seq 1 197))
+lib "rs_moved_candidates $LONG | tr '\n' ' '"
+[ "$RC" -eq 0 ] && [ "$OUT" = "$LONG ${LONG}_r1 ${LONG}_r2 ${LONG}_r3 ${LONG}_r4 ${LONG}_r5 ${LONG}_r6 ${LONG}_r7 ${LONG}_r8 ${LONG}_r9 " ] \
+    && pass "a candidate past the session pattern's 200 characters is left out" \
+    || fail "long candidates: exit $RC, [$OUT]"
+for c in "execute-x execute-x_r2 execute-x execute-x_r2" \
+         "execute-x execute-x_r2 execute-x.step-1 execute-x_r2.step-1" \
+         "execute-x execute-x_r2 execute-xy execute-xy" \
+         "execute-x execute-x_r2 work-on-x-core-1 work-on-x-core-1" \
+         "execute-x execute-x execute-x.step-1 execute-x.step-1"; do
+    set -- $c
+    lib "rs_moved_name $1 $2 $3"
+    [ "$RC" -eq 0 ] && [ "$OUT" = "$4" ] \
+        && pass "moved from $1 to $2, [$3] is [$4]" \
+        || fail "rs_moved_name $1 $2 $3: exit $RC, [$OUT], want [$4]"
+done
+lib "rs_moved_name a ${LONG}xyz a.b"
+[ "$RC" -eq 1 ] && [ -z "$OUT" ] && pass "a moved name past the session pattern is refused (1), never printed" \
+    || fail "long moved name: exit $RC, [$OUT]"
 
 # --- the forms ------------------------------------------------------------------
 

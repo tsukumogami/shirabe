@@ -16,14 +16,41 @@
 #
 # koto is a stub whose context store is a directory, so reads, clears, and
 # writes are observable without an engine; `workflows --roots` lists the
-# sessions the store holds a directory for.
+# sessions the store holds a directory for. It has no workspaces: a session
+# is one directory whatever the caller's working directory, which is how the
+# coordinated scripts reach the run's session from a node's worktree. For the
+# run's trail (scripts/run-trail.sh) and its lookup
+# (scripts/run-record-lookup.sh) it also serves `init` (a session directory,
+# --attach-live attaching), `session list` (each session with a fixed id
+# derived from its name), `--help` (naming no --workspace option, so reads
+# run from the addressed directory), and --from-file/--to-file.
+#
+# The index sessions those scripts write sit at the real shared address,
+# /tmp/shirabe-run-record/<owner>, which run-trail.sh creates before each
+# write; under this stub nothing is written inside it, and the empty
+# directories this suite's owners left are removed at exit (CT_SHARED_OWNERS).
+#
+# A suite that drives the real koto (rm -f "$CT_BIN/koto") calls
+# ct_real_koto_guard before its first koto command.
 #
 # Callers set SCRIPT_DIR (this directory) before sourcing, and define nothing
 # these names use.
 
 CT_FIXTURES="$SCRIPT_DIR/../evals/fixtures"
 CT_WORK=$(mktemp -d "${TMPDIR:-/tmp}/coord-test.XXXXXX") || exit 1
-trap 'rm -rf "$CT_WORK"' EXIT
+CT_SHARED_OWNERS="acme acme-plans"
+ct_exit() {
+    local o
+    rm -rf "$CT_WORK"
+    # Only an empty directory goes: one a real run on this host wrote into
+    # is never touched.
+    for o in $CT_SHARED_OWNERS; do
+        rmdir "/tmp/shirabe-run-record/$o" 2>/dev/null
+    done
+    rmdir /tmp/shirabe-run-record 2>/dev/null
+    return 0
+}
+trap ct_exit EXIT
 CT_BIN="$CT_WORK/bin"
 mkdir -p "$CT_BIN" "$CT_WORK/home"
 export HOME="$CT_WORK/home"
@@ -57,6 +84,11 @@ cat > "$CT_BIN/koto" <<'STUB'
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto-calls.log"
 printf 'koto %s\n' "$*" >> "$store/order.log"
+for a in "$@"; do
+    case "$a" in
+        --help) printf 'Usage: koto %s [OPTIONS]\n  -h, --help\n' "$1 ${2:-}"; exit 0 ;;
+    esac
+done
 # workflows --roots: every session the store holds a context directory for.
 if [ "$1 ${2:-}" = "workflows --roots" ]; then
     [ -n "${KOTO_FAIL_WORKFLOWS:-}" ] && exit 3
@@ -64,7 +96,22 @@ if [ "$1 ${2:-}" = "workflows --roots" ]; then
         | jq -R '{name: .}' | jq -sc .
     exit 0
 fi
-[ "$1" = context ] || { echo "koto stub: only context and workflows --roots are served" >&2; exit 9; }
+# session list: every session directory, each with an id fixed by its name.
+if [ "$1 ${2:-}" = "session list" ]; then
+    (cd "$store/ctx" && find . -mindepth 1 -maxdepth 1 -type d | sed 's#^\./##' | LC_ALL=C sort) \
+        | while IFS= read -r n; do
+            printf '%s\t%s\n' "$n" "$(printf '%s' "$n" | cksum | tr -c '0-9\n' '-')"
+        done | jq -R 'split("\t") | {id: .[0], session_id: ("sid-" + .[1])}' | jq -sc .
+    exit 0
+fi
+# init <name> ...: a session directory; --attach-live attaches to one there.
+if [ "$1" = init ]; then
+    [ -n "${KOTO_FAIL_INIT:-}" ] && [ "${KOTO_FAIL_INIT}" = "$2" ] && exit 3
+    mkdir -p "$store/ctx/$2"
+    printf '{"name":"%s","state":"open"}\n' "$2"
+    exit 0
+fi
+[ "$1" = context ] || { echo "koto stub: only context, init, session list and workflows --roots are served" >&2; exit 9; }
 if [ "$2" = list ]; then
     # list [--prefix <p>] <session>, the flag on either side.
     shift 2
@@ -86,8 +133,10 @@ fi
 d="$store/ctx/$3"
 mkdir -p "$d"
 case "$2" in
-    add) [ "${KOTO_FAIL_ADD:-}" = "$4" ] && exit 3; mkdir -p "$(dirname "$d/$4")"; cat > "$d/$4" ;;
-    get) [ "${KOTO_FAIL_GET:-}" = "$4" ] && exit 3; [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
+    add) [ "${KOTO_FAIL_ADD:-}" = "$4" ] && exit 3; mkdir -p "$(dirname "$d/$4")"
+         if [ "${5:-}" = --from-file ]; then cat -- "$6" > "$d/$4"; else cat > "$d/$4"; fi ;;
+    get) [ "${KOTO_FAIL_GET:-}" = "$4" ] && exit 3; [ -f "$d/$4" ] || exit 3
+         if [ "${5:-}" = --to-file ]; then cat "$d/$4" > "$6"; else cat "$d/$4"; fi ;;
     remove) rm -f "$d/$4" ;;
     exists) [ "${KOTO_FAIL_EXISTS:-}" = "$4" ] && exit 2; [ -f "$d/$4" ] ;;
     *) exit 9 ;;
@@ -157,7 +206,7 @@ ct_case() {
     export EVAL_SCENARIO_DIR="$CASE/scenario"
     export GH_CALL_LOG="$CASE/gh.log"
     export KOTO_STORE="$CASE"
-    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST KOTO_FAIL_WORKFLOWS
+    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST KOTO_FAIL_WORKFLOWS KOTO_FAIL_INIT
     unset CT_RECORD_REPOS GH_SHIM_FAIL CT_GH_HOOK
     CT_PRS='[]'
     CT_INDEX=""
@@ -205,7 +254,30 @@ ct_record_setup() {
         repos=$(printf '%s' "$nodes" | jq -c '[.[] | select(.kind == "pr") | .repo] | unique')
     fi
     ct_record setup "$(jq -cn --arg s "$store" --argjson c "$cpr" --argjson r "$repos" --argjson n "$nodes" \
-        '{"run/setup": {store: $s, coordination_pr: $c, repos: $r, mode: "coordinated", nodes: $n, run_lines: {}}}')"
+        '{"run/setup": {store: $s, coordination_pr: $c, repos: $r, mode: "coordinated", nodes: $n, run_lines: {}}}')" \
+        || return 1
+    ct_seed_self
+}
+
+# ct_seed_self -- the root's trail/self, as record-coord-setup.sh writes it
+# once it sealed the record (scripts/run-trail.sh self): this directory as
+# the workspace, the session, its id and its run_id (the case's run_id, or
+# the helpers' default when the session holds none yet). node-push.sh's index
+# entries read it. Under the stub it is written straight into the store, so
+# the case's koto call log holds only the calls the script under test makes;
+# under the real koto, through run-trail.sh itself.
+ct_seed_self() {
+    local rid sid
+    if [ ! -x "$CT_BIN/koto" ]; then
+        bash "$SCRIPT_DIR/../../../scripts/run-trail.sh" self --session "$CT_RECORD_SESSION" </dev/null >/dev/null 2>&1
+        return 0
+    fi
+    rid=$(cat "$CASE/ctx/$CT_RECORD_SESSION/run_id" 2>/dev/null) || rid=""
+    [ -n "$rid" ] || rid=00112233445566778899aabbccddeeff
+    sid="sid-$(printf '%s' "$CT_RECORD_SESSION" | cksum | tr -c '0-9\n' '-')"
+    mkdir -p "$CASE/ctx/$CT_RECORD_SESSION/trail"
+    jq -cn --arg w "$(pwd -P)" --arg s "$CT_RECORD_SESSION" --arg i "$sid" --arg r "$rid" \
+        '{workspace: $w, session: $s, session_id: $i, run_id: $r}' > "$CASE/ctx/$CT_RECORD_SESSION/trail/self"
 }
 
 # ct_record_node <node> <repo> <pr> [head] -- a node's recorded PR and pushed
@@ -444,3 +516,27 @@ ct_repo() {
 }
 
 ct_calls() { [ -f "$GH_CALL_LOG" ] && cat "$GH_CALL_LOG"; return 0; }
+
+# ct_real_koto_guard -- for a suite that drives the real koto: clear the
+# caller's koto session context (every KOTO_SESSION_* variable,
+# KOTO_SESSIONS_BASE, KOTO_TICK_SESSION), so koto's store follows this
+# suite's scratch HOME, and stop the suite before any case runs unless
+# `koto session dir` resolves under the scratch directory. Call it before the
+# first koto command.
+ct_real_koto_guard() {
+    local v dir work_p
+    unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+    for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+        unset "$v"
+    done
+    dir=$(koto session dir coord-test-guard </dev/null 2>/dev/null) || dir=""
+    work_p=$(cd "$CT_WORK" && pwd -P) && [ -n "$work_p" ] \
+        || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
+    case "$dir" in
+        "$CT_WORK"/*|"$work_p"/*) ;;
+        *)
+            echo "FAIL: koto's session directory [$dir] is not under this suite's scratch directory; no case ran" >&2
+            exit 1
+            ;;
+    esac
+}

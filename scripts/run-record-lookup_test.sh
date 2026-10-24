@@ -10,12 +10,15 @@
 # different directory B. Then:
 #
 #   the answer      exit 0, JSON naming execute-<topic>, workspace A, the
-#                   run_id, complete: true and exactly the one PR with its state
+#                   run_id, complete: true and exactly the one PR with its
+#                   role (home) and state; the repository matched without
+#                   regard to case
 #   unconfirmed     an index entry naming a root whose trail/pr doesn't hold
 #                   the PR: not returned, exit 3
 #   exit codes      3 no index entry, 2 a failed store read, 64 for an owner
-#                   without a repository, PR number 0 and a non-numeric one,
-#                   each with its message on stderr
+#                   without a repository (with or without the slash), PR
+#                   number 0 and a non-numeric one, each with its message on
+#                   stderr and no koto call
 #   read-only       the lookup's calls are reads only: no write, no import,
 #                   no migration marker
 #   both modes      option absent: the lookup reads from the addressed
@@ -30,13 +33,34 @@
 #                   superseded; following each step's session from the
 #                   answer, the four departure kinds each against its own
 #                   step with a non-empty why, an agent's decision with actor
-#                   agent:<name> and an approved deferral with actor person
+#                   agent:<name> and an approved deferral with actor person;
+#                   without --steps, steps is []; --steps given twice, or
+#                   with an unknown flag, is exit 64
 #   the forms       option present: a PR indexed only under the second form
 #                   is found after the first answers "not found"; one form
 #                   unreadable and the other holding the entry still answers,
 #                   naming the unreadable form in missing; every form
 #                   unreadable, or one unreadable and the other not found,
-#                   is exit 2
+#                   is exit 2; not found under every form is exit 3
+#   re-runs         in both modes: a re-run moves run 1's root and step
+#                   sessions to _r1 keeping run 1's id; run 1's PR leads to
+#                   execute-<topic>_r1, run 1's run_id and each step session
+#                   under its _r1 name, each of which exists; run 2's PR leads
+#                   to execute-<topic>; two runs listing one PR answer with
+#                   the latest written_at, unique false and the other run_id
+#                   in others; a written_at tie is broken by run_id; a later
+#                   entry whose root doesn't list the PR is neither returned
+#                   nor in others; a recorded id no session holds under the
+#                   name or a moved-aside name is exit 3; a root moved to
+#                   _r10 is found and one under _r11 is not (exit 3);
+#                   entries and session-list rows failing their patterns are
+#                   named in missing and not used; and the lookup stays in
+#                   its koto call budget, one session list, no write
+#
+# A coordinated run's lookups (four PRs of three roles, steps in node
+# worktrees, a removed follow-up) are in
+# skills/execute/scripts/record-coord-follow-up_test.sh, which drives the
+# coordinated scripts that record them.
 #
 # The shared address is the real fixed directory, under an owner unique to
 # this run, removed at exit. Before the first case the suite checks that the
@@ -132,7 +156,7 @@ expect_answer() { # expect_answer <label>
     local want
     want=$(jq -nc --arg ws "$A" --arg s "$S" --arg r "$RID" --arg repo "$OWNER/r" \
         '{record_root: {workspace: $ws, session: $s}, run_id: $r, complete: true, unique: true,
-          missing: [], prs: [{repo: $repo, number: 7, state: "open"}], others: [], steps: []}')
+          missing: [], prs: [{repo: $repo, number: 7, role: "home", state: "open"}], others: [], steps: []}')
     if [ "$RC" -eq 0 ] && [ "$(jq -c . <<<"$OUT")" = "$want" ]; then
         pass "$1"
     else

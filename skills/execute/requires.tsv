@@ -127,8 +127,9 @@
 # per indexed ref.
 #
 # The plan run's record: scripts/run-trail.sh, which execute-open.sh and
-# adopt-or-create-pr.sh call on a single-pr plan, reads the root's koto id
-# with `koto session list`, opens each PR's index session with
+# adopt-or-create-pr.sh call on a single-pr plan, and record-coord-setup.sh,
+# node-push.sh and the dispatch step on a coordinated one, reads the root's
+# koto id with `koto session list`, opens each PR's index session with
 # `koto init --template --attach-live` from the shared address, and writes
 # its keys with `koto context add` after `context exists/get`. The lead
 # shape's per-step writes (`run-trail.sh plan`, `step` and `departure`, on

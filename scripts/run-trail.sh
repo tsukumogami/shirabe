@@ -23,7 +23,12 @@
 #          --mode single-pr|coordinated|multi-pr --topic T
 #          the PR's index session at the shared address: `run/<run_id>`,
 #          {workspace, session, session_id, mode, topic, written_at}, taken
-#          from the root's `trail/self` (written first when it is absent).
+#          from the root's `trail/self` (written first when it is absent,
+#          except for mode coordinated: record-coord-setup.sh writes a
+#          coordinated root's `trail/self` in the coordination checkout, and
+#          an entry written from a node's worktree must not record that
+#          worktree as the root's address, so a coordinated root without one
+#          is refused).
 #          The index session is opened from koto-templates/skill-session.md
 #          with --attach-live and never ticked.
 #   plan   --session S --step ID --plan docs/plans/PLAN-<topic>.md
@@ -32,11 +37,18 @@
 #          {sha, entry, recorded_at}: HEAD's commit, the step's heading line
 #          in that text (`### Step <N>:` for a `step-<N>` id; null when the
 #          id names no such heading) and the time. The path must match
-#          ^docs/plans/PLAN-[a-z0-9-]+\.md$ and nothing else is read.
+#          ^docs/plans/PLAN-[a-z0-9-]+\.md$ relative to this checkout, or be
+#          an absolute path that is that same path under the top of the git
+#          checkout holding it (a coordinated run's `plan_abs`, read at that
+#          checkout's HEAD); nothing else is read.
 #   step   --session S --step ID --child NAME [--supersede]
+#          [--child-workspace DIR]
 #          record root: `trail/step/<step>`, {session, workspace, superseded}:
-#          the step session's name, this checkout, and the names a new step
-#          agent's session replaced. A record naming another session is
+#          the step session's name, its workspace, and the names a new step
+#          agent's session replaced. The workspace is this checkout, or `pwd
+#          -P` of --child-workspace when the step session lives elsewhere, as
+#          a coordinated work item's does, in its node's worktree. A record
+#          naming another session is
 #          refused unless --supersede is given, which moves that name to
 #          `superseded`; naming the same session again changes nothing.
 #   departure --session S --step ID
@@ -114,7 +126,7 @@ usage() {
     echo "       run-trail.sh pr --session S --repo owner/repo --number N --role home|node|follow-up|coordination|item --state open|ready|merged|closed" >&2
     echo "       run-trail.sh index --repo owner/repo --number N --session S --mode single-pr|coordinated|multi-pr --topic T" >&2
     echo "       run-trail.sh plan --session S --step ID --plan docs/plans/PLAN-<topic>.md" >&2
-    echo "       run-trail.sh step --session S --step ID --child NAME [--supersede]" >&2
+    echo "       run-trail.sh step --session S --step ID --child NAME [--supersede] [--child-workspace DIR]" >&2
     echo "       run-trail.sh departure --session S --step ID --kind deviated|deferral|scope-change|entry-rewritten < {\"what\": ..., \"why\": ...}" >&2
     echo "       run-trail.sh decision --session S --step ID --actor agent:NAME|person[:LOGIN] < {\"choice\": ..., \"rationale\": ...}" >&2
     echo "       run-trail.sh snapshot --session S" >&2
@@ -128,22 +140,23 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 [ $# -ge 1 ] || usage "no verb"
 VERB=$1
 shift
-# ALLOWED: the flags the verb needs, each with a value. SWITCHES: the flags it
-# may take without one.
+# ALLOWED: the flags the verb needs, each with a value. OPTIONAL: the flags it
+# may take, each with a value. SWITCHES: the flags it may take without one.
 SWITCHES=" "
+OPTIONAL=" "
 case "$VERB" in
     self|snapshot|carry) ALLOWED=" --session " ;;
     pr) ALLOWED=" --session --repo --number --role --state " ;;
     index) ALLOWED=" --session --repo --number --mode --topic " ;;
     plan) ALLOWED=" --session --step --plan " ;;
-    step) ALLOWED=" --session --step --child "; SWITCHES=" --supersede " ;;
+    step) ALLOWED=" --session --step --child "; SWITCHES=" --supersede "; OPTIONAL=" --child-workspace " ;;
     departure) ALLOWED=" --session --step --kind " ;;
     decision) ALLOWED=" --session --step --actor " ;;
     *) usage "unknown verb [$VERB]" ;;
 esac
 
 SESSION=""; REPO=""; NUMBER=""; ROLE=""; STATE=""; MODE=""; TOPIC=""
-STEP=""; PLAN=""; CHILD=""; KIND=""; ACTOR=""; SUPERSEDE=0
+STEP=""; PLAN=""; CHILD=""; KIND=""; ACTOR=""; SUPERSEDE=0; CHILD_WS=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$SEEN" in *" $1 "*) usage "$1 given more than once" ;; esac
@@ -155,7 +168,7 @@ while [ $# -gt 0 ]; do
             continue
             ;;
     esac
-    case "$ALLOWED" in *" $1 "*) ;; *) usage "$VERB takes no argument [$1]" ;; esac
+    case "$ALLOWED$OPTIONAL" in *" $1 "*) ;; *) usage "$VERB takes no argument [$1]" ;; esac
     [ $# -ge 2 ] || usage "$1 needs a value"
     SEEN="$SEEN$1 "
     case "$1" in
@@ -171,6 +184,7 @@ while [ $# -gt 0 ]; do
         --child) CHILD=$2 ;;
         --kind) KIND=$2 ;;
         --actor) ACTOR=$2 ;;
+        --child-workspace) CHILD_WS=$2 ;;
     esac
     shift 2
 done
@@ -285,8 +299,9 @@ write_self() {
         || failed "could not write trail/self in $SESSION"
 }
 
-# read_self: the root's `trail/self`, written first when it is absent, with
-# every field checked again. Sets SELF_WS, SELF_SID and SELF_RUN.
+# read_self [no-write]: the root's `trail/self`, written first when it is
+# absent (refused instead with no-write), with every field checked again.
+# Sets SELF_WS, SELF_SID and SELF_RUN.
 read_self() {
     local rc fields
     koto context exists "$SESSION" trail/self </dev/null
@@ -294,7 +309,11 @@ read_self() {
     case "$rc" in
         0) SELF_DOC=$(koto context get "$SESSION" trail/self </dev/null) \
                || failed "could not read trail/self in $SESSION" ;;
-        1) write_self ;;
+        1)
+            [ "${1:-}" = no-write ] \
+                && refuse "$SESSION has no trail/self; record-coord-setup.sh writes a coordinated root's in its coordination checkout; nothing written"
+            write_self
+            ;;
         *) failed "could not check trail/self in $SESSION (koto exit $rc)" ;;
     esac
     # One field per line: a field holding a control character (a newline
@@ -328,7 +347,11 @@ case "$VERB" in
     index)
         case "$MODE" in single-pr|coordinated|multi-pr) ;; *) refuse "--mode [$MODE] is not a plan mode" ;; esac
         [[ $TOPIC =~ $RS_RE_TOPIC ]] || refuse "--topic [$TOPIC] must match ^[a-z0-9-]+\$"
-        read_self
+        if [ "$MODE" = coordinated ]; then
+            read_self no-write
+        else
+            read_self
+        fi
         NAME=$(rs_index_name "$REPO" "$NUMBER") || refuse "no index name for $REPO#$NUMBER"
         DIR=$(rs_shared_dir "${REPO%%/*}") || refuse "no shared address for $REPO"
         ENTRY=$(jq -nc --arg w "$SELF_WS" --arg s "$SESSION" --arg i "$SELF_SID" --arg m "$MODE" \
@@ -341,10 +364,33 @@ case "$VERB" in
             || failed "could not write run/$SELF_RUN in $NAME"
         ;;
     plan)
-        [[ $PLAN =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md; nothing written"
+        # GIT_DIR_AT: the checkout the PLAN is read from. A relative path is
+        # this checkout's; an absolute one names its own checkout, and must
+        # be docs/plans/PLAN-<topic>.md under that checkout's top.
+        GIT_DIR_AT=.
+        case "$PLAN" in
+            /*)
+                case "$PLAN" in *"
+"*) refuse "--plan holds a newline; nothing written" ;; esac
+                PLAN_DIR=$(CDPATH='' cd -- "$(dirname -- "$PLAN")" 2>/dev/null && pwd -P) \
+                    || refuse "--plan [$PLAN]: its directory is not readable; nothing written"
+                TOP=$(git -C "$PLAN_DIR" rev-parse --show-toplevel </dev/null 2>/dev/null) \
+                    || refuse "--plan [$PLAN] is not in a git checkout; nothing written"
+                TOP=$(CDPATH='' cd -- "$TOP" && pwd -P) || failed "could not resolve the checkout of $PLAN"
+                REL="$PLAN_DIR/$(basename -- "$PLAN")"
+                case "$REL" in
+                    "$TOP"/*) REL=${REL#"$TOP"/} ;;
+                    *) refuse "--plan [$PLAN] is outside its checkout; nothing written" ;;
+                esac
+                [[ $REL =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md in its checkout; nothing written"
+                GIT_DIR_AT=$TOP
+                PLAN=$REL
+                ;;
+            *) [[ $PLAN =~ $RT_RE_PLAN ]] || refuse "--plan [$PLAN] is not docs/plans/PLAN-<topic>.md; nothing written" ;;
+        esac
         tmpdir
-        git show "HEAD:$PLAN" > "$TMP/plan.md" </dev/null || refuse "no $PLAN at HEAD; nothing written"
-        SHA=$(git rev-parse --verify HEAD </dev/null) || failed "could not read HEAD"
+        git -C "$GIT_DIR_AT" show "HEAD:$PLAN" > "$TMP/plan.md" </dev/null || refuse "no $PLAN at HEAD; nothing written"
+        SHA=$(git -C "$GIT_DIR_AT" rev-parse --verify HEAD </dev/null) || failed "could not read HEAD"
         [[ $SHA =~ $RS_RE_SHA ]] || failed "HEAD [$SHA] is not a commit id"
         SIZE=$(wc -c < "$TMP/plan.md" | tr -d ' ')
         [ "$SIZE" -le "$RT_PLAN_MAX" ] || refuse "$PLAN is over $RT_PLAN_MAX bytes; nothing written"
@@ -367,8 +413,14 @@ case "$VERB" in
         ;;
     step)
         rs_valid_session "$CHILD" || refuse "--child [$CHILD] is not a koto session name"
-        WS=$(pwd -P) || failed "could not read the working directory"
-        rs_valid_workspace "$WS" || refuse "the working directory is not a recordable workspace"
+        if [ -n "$CHILD_WS" ]; then
+            case "$CHILD_WS" in /*) ;; *) refuse "--child-workspace [$CHILD_WS] is not an absolute path" ;; esac
+            WS=$(CDPATH='' cd -- "$CHILD_WS" 2>/dev/null && pwd -P) \
+                || refuse "--child-workspace [$CHILD_WS] is not a directory; nothing written"
+        else
+            WS=$(pwd -P) || failed "could not read the working directory"
+        fi
+        rs_valid_workspace "$WS" || refuse "the step session's workspace is not a recordable workspace"
         KEY="trail/step/$STEP"
         SUPERSEDED='[]'
         koto context exists "$SESSION" "$KEY" </dev/null

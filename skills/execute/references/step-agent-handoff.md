@@ -80,7 +80,10 @@ itself, and the owning session reads it with `koto status`. Start the agent in
 the foreground, in the node's worktree, with no worktree isolation: the child
 commits to the node branch that worktree is on. The owning session keeps every
 push, `gh` write and run-record write (`repo-visibility.sh`, `node-cut.sh`,
-`node-push.sh`).
+`node-push.sh`), and records each work item in the run's record before its
+step agent starts: the PLAN at `plan_abs` and the step session, with the
+node's worktree as its workspace, through `scripts/run-trail.sh` (the
+`dispatch:<node>` directive gives the calls). The step agent writes neither.
 
 | Name | Filled with |
 |------|-------------|

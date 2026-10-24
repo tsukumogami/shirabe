@@ -12,16 +12,22 @@
 #          nothing
 #   index  run/<run_id> in pr.<owner>.<repo>.<n>, opened and written from
 #          the shared address, naming the root's workspace, session, session
-#          id, mode and topic; trail/self written first when it's absent;
-#          a second write attaches and rewrites; with the option present no
-#          write carries --workspace
+#          id, mode and topic; trail/self written first when it's absent,
+#          except in mode coordinated, which refuses (65) with nothing
+#          written until the root has one; a second write attaches and
+#          rewrites; with the option present no write carries --workspace
 #   plan   the PLAN's text as committed at HEAD and {sha, entry, recorded_at};
-#          a path outside docs/plans/PLAN-<topic>.md (../secrets.md, a
-#          subdirectory, an absolute path), a PLAN not at HEAD and a PLAN
-#          holding a token refuse (65) with the key list unchanged
+#          an absolute path to docs/plans/PLAN-<topic>.md in another
+#          checkout read at that checkout's HEAD; a path outside
+#          docs/plans/PLAN-<topic>.md (../secrets.md, a subdirectory, a
+#          case change, an absolute one outside that layout, outside any git
+#          checkout or under a missing directory), a PLAN not at HEAD and a
+#          PLAN holding a token refuse (65) with the key list unchanged
 #   step   the step session and this checkout; the same name again changes
 #          nothing; another name refuses (65) without --supersede and moves
-#          the earlier one to superseded with it
+#          the earlier one to superseded with it; --child-workspace records
+#          that directory (canonical) instead, a relative or missing one
+#          refuses (65), and it is 64 given twice or to another verb
 #   departure, decision
 #          text only as one JSON document on stdin: an argument is 64, a
 #          document that isn't JSON, lacks a field, holds an empty or
@@ -213,6 +219,20 @@ run_trail index --repo "$OWNER/r" --number 8 --session "$S" --mode single-pr --t
     && pass "index: a trail/self naming another session refuses (65), no entry" \
     || fail "index with a foreign trail/self: exit $RC"
 
+# A coordinated root's trail/self is record-coord-setup.sh's, written in the
+# coordination checkout: an index entry for a node PR, written from the
+# node's worktree, never writes one in its place.
+new_store
+run_trail index --repo "$OWNER/r" --number 12 --session "$S" --mode coordinated --topic topic
+[ "$RC" -eq 65 ] && [ "$(writes)" -eq 0 ] && [ -z "$(root_get trail/self)" ] \
+    && pass "index --mode coordinated: a root with no trail/self refuses (65), writes none, no entry" \
+    || fail "coordinated index without trail/self: exit $RC, writes $(writes)"
+run_trail self --session "$S"
+run_trail index --repo "$OWNER/r" --number 12 --session "$S" --mode coordinated --topic topic
+[ "$RC" -eq 0 ] && [ "$(jq -r .mode <<<"$(get_in "$DIR" "pr.$OWNER.r.12" "run/$RID")")" = coordinated ] \
+    && pass "index --mode coordinated: with the root's trail/self, the entry is written" \
+    || fail "coordinated index: exit $RC, stderr [$(cat "$WORK/stderr")]"
+
 for args in "--mode serial --topic topic" "--mode single-pr --topic Topic" "--mode single-pr --topic a/b"; do
     new_store
     # shellcheck disable=SC2086
@@ -253,9 +273,32 @@ run_trail plan --session "$S" --step issue-4 --plan docs/plans/PLAN-topic.md
     && pass "plan: a step id with no heading in the PLAN records entry null" \
     || fail "plan issue-4: exit $RC, [$(root_get trail/plan/issue-4.json)]"
 
+# A coordinated run's plan_abs: the PLAN by absolute path in another
+# checkout C (the coordination checkout), read at C's HEAD, from A.
+C="$WORK/c"
+mkdir -p "$C"
+C=$(cd "$C" && pwd -P)
+(cd "$C" && git init -q . && git config user.email t@example.com && git config user.name t \
+    && mkdir -p docs/plans && printf '# PLAN\n\nthe coordination checkout copy\n' > docs/plans/PLAN-topic.md \
+    && git add docs/plans/PLAN-topic.md && git commit -q -m plan) || { echo "FAIL: could not make the second fixture repository" >&2; exit 1; }
+run_trail plan --session "$S" --step work-on-topic-core-1 --plan "$C/docs/plans/PLAN-topic.md"
+(cd "$A" && koto context get "$S" trail/plan/work-on-topic-core-1.md --to-file "$WORK/abs-text.md")
+(cd "$C" && git show HEAD:docs/plans/PLAN-topic.md) > "$WORK/abs-want.md"
+SNAP=$(root_get trail/plan/work-on-topic-core-1.json)
+if [ "$RC" -eq 0 ] && cmp -s "$WORK/abs-text.md" "$WORK/abs-want.md" \
+    && [ "$(jq -r .sha <<<"$SNAP")" = "$(cd "$C" && git rev-parse HEAD)" ] && [ "$(jq -r .entry <<<"$SNAP")" = null ]; then
+    pass "plan: an absolute PLAN path is read at its own checkout's HEAD, text and sha, written to this root"
+else
+    fail "plan absolute: exit $RC, [$SNAP], stderr [$(cat "$WORK/stderr")]"
+fi
+mkdir -p "$WORK/plain/docs/plans" "$C/docs/plans/sub"
+printf 'x\n' > "$WORK/plain/docs/plans/PLAN-topic.md"
+
 doc '{}'
-for p in ../secrets.md docs/plans/sub/PLAN-x.md docs/plans/PLAN-Topic.md "$A/docs/plans/PLAN-topic.md" \
-         docs/plans/PLAN-topic.md.bak docs/plans/../plans/PLAN-topic.md; do
+for p in ../secrets.md docs/plans/sub/PLAN-x.md docs/plans/PLAN-Topic.md \
+         docs/plans/PLAN-topic.md.bak docs/plans/../plans/PLAN-topic.md \
+         "$C/docs/plans/sub/PLAN-x.md" "$C/docs/plans/PLAN-Topic.md" "$C/docs/PLAN-topic.md" \
+         "$WORK/plain/docs/plans/PLAN-topic.md" "$WORK/missing/docs/plans/PLAN-topic.md" "$C/docs/plans/PLAN-other.md"; do
     refused "plan refuses --plan [$p]" plan --session "$S" --step step-2 --plan "$p"
 done
 refused "plan refuses a PLAN not committed at HEAD" plan --session "$S" --step step-2 --plan docs/plans/PLAN-other.md
@@ -285,6 +328,21 @@ run_trail step --session "$S" --step step-1 --child "$S.step-1_r3" --supersede
     && pass "step: a new step agent's session, with --supersede, lists each earlier name as superseded" \
     || fail "step supersede: exit $RC, [$(root_get trail/step/step-1)]"
 refused "step refuses a child outside the session pattern" step --session "$S" --step step-2 --child "-x"
+
+# A coordinated work item's session lives in its node's worktree.
+mkdir -p "$WORK/node-wt"
+WT=$(cd "$WORK/node-wt" && pwd -P)
+run_trail step --session "$S" --step work-on-topic-core-1 --child work-on-topic-core-1 --child-workspace "$WORK/node-wt/."
+[ "$RC" -eq 0 ] && [ "$(root_get trail/step/work-on-topic-core-1)" \
+    = "$(jq -nc --arg w "$WT" '{session: "work-on-topic-core-1", workspace: $w, superseded: []}')" ] \
+    && pass "step --child-workspace: the step session's workspace is that directory, canonical, written in this root" \
+    || fail "step --child-workspace: exit $RC, [$(root_get trail/step/work-on-topic-core-1)], stderr [$(cat "$WORK/stderr")]"
+refused "step refuses a relative --child-workspace" step --session "$S" --step step-3 --child x --child-workspace node-wt
+refused "step refuses a --child-workspace that is not a directory" step --session "$S" --step step-3 --child x --child-workspace "$WORK/nope"
+WANT=64 refused "step refuses --child-workspace given twice" step --session "$S" --step step-3 --child x \
+    --child-workspace "$WT" --child-workspace "$WT"
+WANT=64 refused "plan refuses --child-workspace" plan --session "$S" --step step-3 --plan docs/plans/PLAN-topic.md \
+    --child-workspace "$WT"
 
 # --- departure and decision ---------------------------------------------------------------------
 

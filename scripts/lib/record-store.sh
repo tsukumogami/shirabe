@@ -41,6 +41,14 @@
 #   rs_shared_forms <owner>       both canonical forms of it, one per line
 #   rs_index_name <owner/repo> <n>
 #                                 the PR's index session name, on stdout
+#   rs_moved_candidates <name>    the names a root may hold after re-runs,
+#                                 one per line: <name>, then <name>_r1 to
+#                                 <name>_r$RS_MAX_MOVED, each in the session
+#                                 pattern
+#   rs_moved_name <from> <to> <name>
+#                                 the name <name> has once the root <from>
+#                                 moved to <to>, on stdout; 1 when it fails
+#                                 the session pattern
 #   rs_koto_write <dir> <koto args...>
 #                                 a koto write run from <dir>, created first;
 #                                 refuses (64) any --workspace argument
@@ -68,6 +76,15 @@
 #   RS_RE_TOPIC       a PLAN topic
 #   RS_RE_AT          a writer's UTC timestamp
 #   RS_RE_SHA         a commit id, SHA-1 or SHA-256
+#
+# The moved-aside names. A re-run of the same topic (`koto init
+# --replace-terminal`) moves the finished root aside as `<name>_r<N>`, N the
+# lowest free value from 1, and every session named `<name>.<rest>` or
+# `<name>~<rest>` moves with it as `<name>_r<N>.<rest>` (or `~<rest>`); the new
+# run takes `<name>`. A reader looks for a root under `<name>` and
+# `<name>_r1` to `<name>_r10` (RS_MAX_MOVED), and renames a name it recorded
+# under the old root by the same rule. This rule is koto's, written down once
+# here so no reader keeps its own copy.
 #
 # "Not found" is koto's answer about an address, not a failure to read it.
 # With the workspace option, the canonical form of the shared address this
@@ -148,6 +165,30 @@ rs_index_name() {
     rs_valid_repo "$repo" || return 64
     [[ $2 =~ $RS_RE_NUMBER ]] || return 64
     printf 'pr.%s.%s.%s\n' "$(rs_lower "$owner")" "$(rs_lower "$repo")" "$2"
+}
+
+RS_MAX_MOVED=10
+
+rs_moved_candidates() {
+    local i=1
+    rs_valid_session "$1" && printf '%s\n' "$1"
+    while [ "$i" -le "$RS_MAX_MOVED" ]; do
+        rs_valid_session "${1}_r$i" && printf '%s\n' "${1}_r$i"
+        i=$((i + 1))
+    done
+    return 0
+}
+
+rs_moved_name() {
+    local from=$1 to=$2 n=$3
+    if [ "$from" != "$to" ]; then
+        case "$n" in
+            "$from") n=$to ;;
+            "$from".*|"$from"~*) n="$to${n#"$from"}" ;;
+        esac
+    fi
+    rs_valid_session "$n" || return 1
+    printf '%s\n' "$n"
 }
 
 rs_koto_write() {

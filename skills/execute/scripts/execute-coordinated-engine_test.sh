@@ -89,7 +89,14 @@
 # written after setup: one written before it would be a carried id, which
 # makes the start a recovery. Follow-up PRs are held back the same way. The
 # recovery cases (open_recovering) leave their node PRs in the model before
-# setup: there they mean a started run.
+# setup: there they mean a started run. Setup and node-push.sh also write the
+# run's trail and its per-PR index sessions (scripts/run-trail.sh) through the
+# real koto.
+#
+# The real koto runs under the helpers' scratch HOME with every
+# KOTO_SESSION_* variable, KOTO_SESSIONS_BASE and KOTO_TICK_SESSION cleared,
+# and the suite stops before its first koto command unless `koto session dir`
+# resolves under the scratch directory (ct_real_koto_guard).
 #
 # In a checkout whose path koto's --var allowlist refuses (a `+` in a
 # directory name), the cases run a copy of the template with this checkout's
@@ -122,16 +129,18 @@ if ! command -v koto >/dev/null 2>&1; then
 fi
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
+# shellcheck source=coord-test-helpers.sh
+. "$SCRIPT_DIR/coord-test-helpers.sh"
+# The real engine, not the helpers' context stub, kept in the helpers'
+# scratch HOME: the guard stops the suite before any koto command otherwise.
+rm -f "$CT_BIN/koto"
+ct_real_koto_guard
+
 # koto's recorded command environment hides this harness's stand-in variables
 # from the commands koto runs; the knob keeps the old environment where the
 # koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
-
-# shellcheck source=coord-test-helpers.sh
-. "$SCRIPT_DIR/coord-test-helpers.sh"
-# The real engine, not the helpers' context stub.
-rm -f "$CT_BIN/koto"
 
 KOTO_ALLOW='^[a-zA-Z0-9._/:@ -]*$'
 TPL="$TEMPLATE"
