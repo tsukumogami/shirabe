@@ -3,60 +3,52 @@
 # entries. Agent-run; the one way an entry is written
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 2).
 #
-# The record's body holds its state and is rewritten whole by the write core;
-# its entries, the dated account of what happened, are comments on the same
-# container (the issue at roadmap scope, the rotation's pull request at
-# discipline scope on GitHub). An entry is never edited by this script and
-# never grows, so the record needs no archive.
+# The record's tables hold its state and are rewritten whole by the write core;
+# its entries, the dated account of what happened, live beside them in the
+# coordinator's koto session (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 5): each is the key record/entries/<n>, <n> a six-digit sequence one
+# above the highest key there, holding {n, stamp, kind, text}. A number another
+# writer took moves to the next, at most three times (entry-exists, exit 65,
+# after that). An entry is never edited by this script and never grows.
 #
-# On the session store (a roadmap record, or a discipline rotation with no
-# pull request; docs/designs/DESIGN-coordinator-session-record.md, Decision 5)
-# each entry is instead the key record/entries/<n> in the coordinator's
-# session, <n> a six-digit sequence one above the highest key there, holding
-# {n, stamp, kind, text}. A number another writer took moves to
-# the next, at most three times (entry-exists, exit 65, after that). The outward
-# kinds (cost, milestone-verdict, goal-fit, milestone-failure), which readers
-# outside the coordinator read from GitHub, are then also posted as the comment
-# below, and the comment's URL kept in record/posted/<n>.
-#
-# --on puts an outward entry on the item it concerns instead
-# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2),
-# on the session store only; without it a run posts as above. <owner/repo#n>
-# is a pull request or an issue in the host repository or a holding's (its
-# Repo, or its pull request's repository), compared without case; `none`
-# writes the session entry and posts it nowhere. A cost entry takes either; a
-# goal-fit entry takes the pull request its first line names (`Goal fit:
-# <owner/repo#n> -- `) and nothing else; a milestone-verdict or
-# milestone-failure entry is written with `--on none` and reaches its roadmap
-# pull request only through roadmap-status.sh, whose `--repost N --on` is
-# admitted when record/side-effects holds the roadmap edit row naming that
-# pull request and `(entry N)`. With --on the record issue isn't read, and the
-# text is scanned when it is posted, against the destination's visibility read
-# then: a destination whose visibility can't be read counts as public, and a
-# repository the text names whose visibility can't be read counts as private.
-# A scan that refuses leaves the session entry where it is (exit 65, naming
-# it). A retry with --on posts nothing when record/posted/N names a comment on
-# the item, or when the item holds a comment of the same kind and text, by the
-# login `gh api user` answers (compared without case), created at or after the
-# entry's stamp and not kept as another entry's post; when that login can't be
-# read it exits 2 and posts nothing.
+# The outward kinds (cost, milestone-verdict, goal-fit, milestone-failure),
+# which readers outside the coordinator read from GitHub, are also posted as
+# the comment below on the item they concern
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2), and
+# the comment's URL kept in record/posted/<n>. --on <owner/repo#n> names the
+# item, a pull request or an issue in the host repository or a holding's (its
+# Repo, or its pull request's repository), compared without case; `--on none`
+# writes the session entry and posts it nowhere, and an outward kind takes one
+# or the other (exit 65 without). A cost entry takes either; a goal-fit entry
+# takes the pull request its first line names (`Goal fit: <owner/repo#n> -- `)
+# and nothing else; a milestone-verdict or milestone-failure entry is written
+# with `--on none` and reaches its roadmap pull request only through
+# roadmap-status.sh, whose `--repost N --on` is admitted when
+# record/side-effects holds the roadmap edit row naming that pull request and
+# `(entry N)`. The text is scanned when it is posted, against the
+# destination's visibility read then: a destination whose visibility can't be
+# read counts as public, and a repository the text names whose visibility
+# can't be read counts as private. A scan that refuses leaves the session entry
+# where it is (exit 65, naming it). A retry with --on posts nothing when
+# record/posted/N names a comment on the item, or when the item holds a
+# comment of the same kind and text, by the login `gh api user` answers
+# (compared without case), created at or after the entry's stamp and not kept
+# as another entry's post; when that login can't be read it exits 2 and posts
+# nothing.
 #
 # Usage:
 #   record-append.sh --session S --text-file F [--kind K] [--on <owner/repo#n>|none]
-#   record-append.sh --scope roadmap|discipline --name N --repo O/R --ref N
-#                    --text-file F [--kind K] [--on <owner/repo#n>|none]
-#   record-append.sh (--session S | --scope ... --ref N) --list
-#   record-append.sh (--session S | --scope ... --ref N) --repost N [--on <owner/repo#n>]
+#   record-append.sh --session S --list
+#   record-append.sh --session S --repost N --on <owner/repo#n>
+#   record-append.sh --scope roadmap|discipline --name N --repo O/R [...]
+#                    (tests: RS_SESSION names the session holding the record)
 #
-# The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts). The addressed form names them instead, for a writer
-# that isn't a run: a migration, or an entry written after a run ended. It
-# needs no session check, because an entry changes nothing a check reads.
+# The session gives the scope, name and host (coord-log.sh vars), and must
+# have a found record (coord-log.sh run-facts). An entry needs no other session
+# check, because an entry changes nothing a check reads.
 #
-# Before posting, a fresh read must show the target open and carrying the
-# scope's declaration line (exit 10). --list needs only the declaration line,
-# so a closed record's entries stay readable after its run ended. The entry is stamped from the host clock
-# in UTC to the second and posted as one comment:
+# The entry is stamped from the host clock in UTC to the second; an outward
+# entry is posted as one comment:
 #
 #   <!-- coordinator-record-entry v1 kind=<kind> -->
 #   **<YYYY-MM-DDTHH:MM:SSZ>** (host clock) <kind>
@@ -66,8 +58,9 @@
 # K is entry (the default), or one of the kinds the record's other writers
 # append for what they change (the design's Decisions 3 and 4): run, told,
 # pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
-# hold (a hold added or lifted on the session store, record-hold.sh), moved
-# (the record moved onto the session store, posted on GitHub by record-move.sh),
+# hold (a hold added or lifted, record-hold.sh), moved (found in a record an
+# earlier release moved onto its session; only the legacy importer still posts
+# one, on the GitHub record it imports),
 # milestone-verdict (a checked verdict on a milestone, milestone.sh
 # check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
 # landed pull request judged against its milestone's Evidence, milestone.sh
@@ -77,59 +70,45 @@
 # them back to restore one),
 # and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
-# (exit 65). On a public host the text may not name a private or unreadable
-# repository (as owner/repo#n or a github.com link), a home-directory path or
-# a token-shaped string (exit 65), the checks the Decisions section's text
-# columns get. `@` is written as `&#64;`, so an entry never mentions anyone,
-# and `&` as `&amp;`, so the reader gives the text back exactly.
+# (exit 65). On a public host an entry kept in the session may not name a
+# private or unreadable repository (as owner/repo#n or a github.com link), a
+# home-directory path or a token-shaped string (exit 65), the checks the
+# Decisions section's text columns get. In a comment `@` is written as
+# `&#64;`, so an entry never mentions anyone, and `&` as `&amp;`, so the
+# reader gives the text back exactly.
 #
-# --list prints the entries as a JSON array, oldest first: {id, created,
-# stamp, author, kind, text, edited}. Only comments carrying the marker whose
-# author has write access to the host count, since anyone can comment on a
-# public repository (a login GitHub doesn't know as a collaborator is left
-# out; a failed access read lists nothing, exit 2); `edited` is true when
-# GitHub says the comment changed after it was posted. The text comes back as written, `@` decoded.
-# On the session store the list is the record/entries/ keys in sequence order,
-# in the same shape: id the sequence number, created the stamp, author the
-# address the record's `coordinator` Run row names (empty when it names none),
-# edited always false.
+# --list prints the entries as a JSON array, the record/entries/ keys in
+# sequence order: {id, created, stamp, author, kind, text, edited}, id the
+# sequence number, created the stamp, author the address the record's
+# `coordinator` Run row names (empty when it names none), edited always false.
 #
-# On the session store an append prints the entry's key, record/entries/<n>, or,
-# for an outward kind, the comment's URL. A post that fails keeps the session
-# entry and exits 14; --repost N posts that entry's comment once, later, and
-# posts nothing when record/posted/N exists or when the record's entries,
-# through the author filter above, already hold one of the same kind and text
-# created at or after the entry's stamp (a post that landed before a crash).
-# An identical comment created before the stamp, or by an author without write
-# access, never stands in for the entry. A posted URL must be a comment on this
-# record (exit 65 otherwise).
+# An append prints the entry's key, record/entries/<n>, or, for an outward
+# kind posted on an item, the comment's URL. A post that fails keeps the
+# session entry and exits 14; --repost N --on posts that entry's comment once,
+# later, and posts nothing when record/posted/N exists or the item already
+# holds it (above). A posted URL must be a comment on the --on item (exit 65
+# otherwise).
 #
 # Exit codes: 0 posted (prints the comment's URL), written or listed; 2 a read
-# failed; 10 refused (not an open record of this scope, or no found record); 11
-# a write failed (the post on GitHub; on the session store, the entry's key, or
-# record/posted/<n> after its comment was posted); 14 the session entry was
-# written but its post failed (`--repost <n>` finishes it); 64 usage; 65 the
-# entry was refused (the reason on stderr).
+# failed; 10 refused (no found record, or no session); 11 a write failed (the
+# entry's key, or record/posted/<n> after its comment was posted); 14 the
+# session entry was written but its post failed (`--repost <n> --on` finishes
+# it); 64 usage; 65 the entry was refused (the reason on stderr).
 #
 # GitHub calls:
-#   reads:  gh issue view N --repo R --json state,body,url
-#           gh pr view N --repo R --json state,body,url
-#           gh api --method GET repos/<repo> --jq .private   (the host, then each repository the text names)
-#           gh api --method GET repos/R/issues/N/comments?per_page=100 --paginate
-#           gh api --method GET repos/R/collaborators/<login>/permission --jq .permission
+#   reads:  gh api --method GET repos/<repo> --jq .private   (the host, then each repository the text names)
 #           gh api --method GET repos/<item repo> --jq .private, and each repository the text names (--on)
 #           gh api user --jq .login, gh api --method GET repos/<item repo>/issues/<n>/comments (--repost --on)
-#   writes: gh api --method POST repos/R/issues/N/comments --input <json>
-#           (with --on, repos/<item repo>/issues/<n>/comments)
-# koto calls (session store): context list --prefix record/entries/ and
-#   record/posted/, context list --prefix for each key the seam's rs_key reads,
-#   context get, context add (record/entries/<n>, record/posted/<n>); with
-#   --on, record/holdings and record/side-effects through the seam's rs_key.
+#   writes: gh api --method POST repos/<item repo>/issues/<n>/comments --input <json> (--on)
+# koto calls: context list --prefix record/entries/ and record/posted/,
+#   context list --prefix for each key the seam's rs_key reads, context get,
+#   context add (record/entries/<n>, record/posted/<n>); with --on,
+#   record/holdings and record/side-effects through the seam's rs_key.
 set -uo pipefail
 
 PROG=record-append
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TEXTFILE= KIND=entry REPOST= ON=
+SESSION= SCOPE= NAME= REPO= TEXTFILE= KIND=entry REPOST= ON=
 MODE=append
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -139,7 +118,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --text-file) [ $# -ge 2 ] || usage; TEXTFILE=$2; shift 2 ;;
         --kind) [ $# -ge 2 ] || usage; KIND=$2; shift 2 ;;
         --list) MODE=list; shift ;;
@@ -176,73 +154,27 @@ ENTRY_BUDGET=60000
 
 . "$HERE/record-common.sh"
 lib_facts
-lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
+lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-append.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-# The store this record's entries are on, and the session that holds them.
-STORE=$(rs_source)
+# The session that holds the entries.
 ES=${RS_SESSION:-$SESSION}
-if [ "$STORE" = session ]; then
-    [ "$SCOPE" = roadmap ] || lib_session_rotation || { echo "$PROG: refused: the session store is for a roadmap record or a discipline rotation with no record number" >&2; exit 65; }
-    [ -n "$ES" ] || { echo "$PROG: refused: the session store needs the run's session" >&2; exit 10; }
-fi
-# A discipline rotation on the session store has no record to post on: its
-# outward entries go on an item (--on owner/repo#n) or stay in the session
-# (--on none).
-if [ -z "$REF" ] && [ -z "$ON" ] && [ "$MODE" != list ]; then
+[ -n "$ES" ] || { echo "$PROG: refused: the entries need the run's session" >&2; exit 10; }
+# The record has no comment stream: an outward entry goes on an item (--on
+# owner/repo#n) or stays in the session (--on none).
+if [ -z "$ON" ] && [ "$MODE" != list ]; then
     if [ "$MODE" = repost ]; then
-        echo "$PROG: refused: a session rotation has no record to post on: --repost takes --on owner/repo#n" >&2; exit 65
+        echo "$PROG: refused: --repost posts on an item: --on owner/repo#n" >&2; exit 65
     fi
     case "$OUTWARD_KINDS" in
-        *" $KIND "*) echo "$PROG: refused: a session rotation has no record to post a $KIND entry on: --on owner/repo#n, or --on none" >&2; exit 65 ;;
+        *" $KIND "*) echo "$PROG: refused: a $KIND entry is posted on the item it concerns: --on owner/repo#n, or --on none" >&2; exit 65 ;;
     esac
 fi
-[ "$MODE" != repost ] || [ "$STORE" = session ] || { echo "$PROG: --repost is for a record on the session store" >&2; exit 64; }
-[ -z "$ON" ] || [ "$STORE" = session ] || { echo "$PROG: --on is for a record on the session store; a GitHub record's entries are posted on it" >&2; exit 64; }
 
-# Where a comment goes: the record, or the item --on names.
-PREPO=$REPO PNUM=$REF
-[ -z "$ON_REPO" ] || PREPO=$ON_REPO PNUM=$ON_NUM
-
-# The target, re-read now: open, and this scope's record. An entry bound for
-# an item (--on) doesn't go on the record, so the record isn't read for it.
-STATE=OPEN
-if [ -z "$ON" ] && [ -n "$REF" ]; then
-    if [ "$SCOPE" = roadmap ]; then
-        gh issue view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/r.err")"
-    else
-        gh pr view "$REF" --repo "$REPO" --json state,body,url > "$WD/target.json" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$WD/r.err")"
-    fi
-    jq -r '.body // ""' "$WD/target.json" | tr -d '\r' > "$WD/live.md" || lib_die2 "the target read is not JSON"
-    STATE=$(jq -r '.state' "$WD/target.json")
-    grep -xF -- "$DECL" "$WD/live.md" > /dev/null || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
-fi
-
-# gh_marked <out>: the record's entry comments, as JSON lines {id, html_url,
-# created_at, updated_at, user, body}, from authors with write access only.
-gh_marked() {
-    gh api --method GET "repos/$REPO/issues/$REF/comments?per_page=100" --paginate \
-        --jq '.[] | {id, html_url, created_at, updated_at, user: (.user.login // ""), body: (.body // "")}' \
-        > "$WD/comments.jsonl" 2> "$WD/c.err" < /dev/null || lib_die2 "cannot read #$REF's comments: $(lib_scrub < "$WD/c.err")"
-    jq -c --arg m "$ENTRY_MARKER_PREFIX" 'select(.body | gsub("\r"; "") | startswith($m))' "$WD/comments.jsonl" > "$WD/marked.jsonl" \
-        || lib_die2 "the comments read is not JSON"
-    # Write access per author, read once each; a failed read lists nothing.
-    : > "$WD/writers"
-    for login in $(jq -r '.user' "$WD/marked.jsonl" | sort -u); do
-        lib_has_write_access "$login"
-        case $? in
-            0) printf '%s\n' "$login" >> "$WD/writers" ;;
-            1) ;;
-            *) lib_die2 "cannot read $login's access to $REPO" ;;
-        esac
-    done
-    jq -c --rawfile w "$WD/writers" '
-        ($w | split("\n") | map(select(. != ""))) as $writers
-        | select(.user as $u | $writers | index($u))' "$WD/marked.jsonl" > "$1" || lib_die2 "jq failed"
-}
-# gh_entries <marked-jsonl>: the entries those comments carry, in the list's shape.
+# gh_entries <marked-jsonl>: the entries the item's marked comments carry, in
+# the list's shape.
 gh_entries() {
     jq -s -c --arg m "$ENTRY_MARKER_PREFIX" '
         map((.body | gsub("\r"; "")) as $b
@@ -261,12 +193,11 @@ comment_md() {
     # `&` first, so the reader's decoding gives back exactly what was written.
     sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' "$3"
 }
-# post_comment <comment-file>: posts it on the record, or on the --on item;
-# prints the comment's URL. Returns 1 when the post failed, the reason in
-# $WD/w.err.
+# post_comment <comment-file>: posts it on the --on item; prints the comment's
+# URL. Returns 1 when the post failed, the reason in $WD/w.err.
 post_comment() {
     jq -n --rawfile b "$1" '{body: $b}' > "$WD/post.json" || lib_die2 "jq failed"
-    gh api --method POST "repos/$PREPO/issues/$PNUM/comments" --input "$WD/post.json" --jq .html_url 2> "$WD/w.err" < /dev/null
+    gh api --method POST "repos/$ON_REPO/issues/$ON_NUM/comments" --input "$WD/post.json" --jq .html_url 2> "$WD/w.err" < /dev/null
 }
 # lc <text>: lower case, for the comparisons GitHub makes without case
 # (repository names, logins).
@@ -347,42 +278,30 @@ s_entries() {
     jq -r '.[] | select(test("^record/entries/[0-9]{6}$"))' "$WD/keys.json" | LC_ALL=C sort > "$1" || lib_die2 "the key list is not JSON"
 }
 # s_record_posted <n> <url>: keeps an outward entry's comment URL, which must be
-# a comment on this record, or with --on on its item.
+# a comment on its --on item.
 s_record_posted() {
-    if [ -n "$ON_REPO" ]; then
-        on_url_ok "$2" || { echo "$PROG: refused: $2 is not a comment on $ON" >&2; exit 65; }
-    else
-        [[ $2 =~ ^https://github\.com/${REPO}/issues/${REF}#issuecomment-[0-9]+$ ]] \
-            || { echo "$PROG: refused: $2 is not a comment on #$REF in $REPO" >&2; exit 65; }
-    fi
+    on_url_ok "$2" || { echo "$PROG: refused: $2 is not a comment on $ON" >&2; exit 65; }
     printf '%s\n' "$2" > "$WD/posted"
     "$KOTO" context add "$ES" "record/posted/$1" --from-file "$WD/posted" < /dev/null > /dev/null 2> "$WD/k.err" \
         || { echo "$PROG: the comment was posted ($2) but record/posted/$1 wasn't written: $(lib_scrub < "$WD/k.err")" >&2; exit 11; }
 }
 
 if [ "$MODE" = list ]; then
-    if [ "$STORE" = session ]; then
-        s_entries "$WD/keys"
-        : > "$WD/entries.jsonl"
-        while IFS= read -r k; do
-            "$KOTO" context get "$ES" "$k" < /dev/null >> "$WD/entries.jsonl" 2> "$WD/k.err" || lib_die2 "cannot read $k: $(lib_scrub < "$WD/k.err")"
-            printf '\n' >> "$WD/entries.jsonl"
-        done < "$WD/keys"
-        if rs_key "$ES" record/run "$WD/run.json"; then
-            AUTHOR=$(jq -r '[.[] | select(.key == "coordinator") | .value][0] // ""' "$WD/run.json") || lib_die2 "record/run is not JSON"
-        else
-            AUTHOR=
-        fi
-        jq -s -c --arg a "$AUTHOR" 'map({id: .n, created: .stamp, stamp, author: $a, kind, text, edited: false})' "$WD/entries.jsonl" \
-            || lib_die2 "an entry key is not JSON"
-        exit 0
+    s_entries "$WD/keys"
+    : > "$WD/entries.jsonl"
+    while IFS= read -r k; do
+        "$KOTO" context get "$ES" "$k" < /dev/null >> "$WD/entries.jsonl" 2> "$WD/k.err" || lib_die2 "cannot read $k: $(lib_scrub < "$WD/k.err")"
+        printf '\n' >> "$WD/entries.jsonl"
+    done < "$WD/keys"
+    if rs_key "$ES" record/run "$WD/run.json"; then
+        AUTHOR=$(jq -r '[.[] | select(.key == "coordinator") | .value][0] // ""' "$WD/run.json") || lib_die2 "record/run is not JSON"
+    else
+        AUTHOR=
     fi
-    gh_marked "$WD/writers.jsonl"
-    gh_entries "$WD/writers.jsonl"
+    jq -s -c --arg a "$AUTHOR" 'map({id: .n, created: .stamp, stamp, author: $a, kind, text, edited: false})' "$WD/entries.jsonl" \
+        || lib_die2 "an entry key is not JSON"
     exit 0
 fi
-
-[ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
 
 if [ "$MODE" = repost ]; then
     N=$(printf '%06d' "$((10#$REPOST))")
@@ -391,39 +310,32 @@ if [ "$MODE" = repost ]; then
     EKIND=$(jq -r '.kind' "$WD/entry.json") || lib_die2 "record/entries/$N is not JSON"
     case "$OUTWARD_KINDS" in *" $EKIND "*) ;; *) echo "$PROG: refused: entry $N is a $EKIND entry, which stays in the session" >&2; exit 65 ;; esac
     jq -r '.text' "$WD/entry.json" > "$WD/text"
-    if [ -n "$ON" ]; then
-        on_admitted
-        case "$EKIND" in
-            goal-fit) goal_fit_check "$WD/text" ;;
-            milestone-*) roadmap_row_check "$((10#$N))" "$EKIND" ;;
-        esac
-    fi
+    on_admitted
+    case "$EKIND" in
+        goal-fit) goal_fit_check "$WD/text" ;;
+        milestone-*) roadmap_row_check "$((10#$N))" "$EKIND" ;;
+    esac
     if rs_key "$ES" "record/posted/$N" "$WD/posted.now"; then
-        if [ -n "$ON" ] && ! on_url_ok "$(head -1 "$WD/posted.now")"; then
+        if ! on_url_ok "$(head -1 "$WD/posted.now")"; then
             echo "$PROG: refused: entry $N is already posted at $(head -1 "$WD/posted.now"), not on $ON" >&2; exit 65
         fi
         cat "$WD/posted.now"
         exit 0
     fi
     ESTAMP=$(jq -r '.stamp' "$WD/entry.json")
-    # A post that landed before a crash: the same kind and text, by a writer,
-    # created at or after the entry's stamp, and not already kept as another
-    # entry's post (two identical entries, a verdict repeated after a reopen,
-    # each have their own comment). On the record a writer is an author with
-    # write access; on an --on item, anyone may comment, so it is the login
-    # this run posts as, and only that login.
-    if [ -n "$ON" ]; then
-        LOGIN=$(gh api user --jq .login 2> "$WD/u.err" < /dev/null) && [[ $LOGIN =~ $RE_LOGIN ]] \
-            || { echo "$PROG: cannot read the login this run posts as, so whether entry $N already landed on $ON can't be told; nothing posted: $(lib_scrub < "$WD/u.err")" >&2; exit 2; }
-        gh api --method GET "repos/$ON_REPO/issues/$ON_NUM/comments?per_page=100" --paginate \
-            --jq '.[] | {id, html_url, created_at, updated_at, user: (.user.login // ""), body: (.body // "")}' \
-            > "$WD/comments.jsonl" 2> "$WD/c.err" < /dev/null || lib_die2 "cannot read $ON's comments: $(lib_scrub < "$WD/c.err")"
-        jq -c --arg m "$ENTRY_MARKER_PREFIX" --arg l "$(lc "$LOGIN")" \
-            'select((.body | gsub("\r"; "") | startswith($m)) and ((.user | ascii_downcase) == $l))' \
-            "$WD/comments.jsonl" > "$WD/writers.jsonl" || lib_die2 "the comments read is not JSON"
-    else
-        gh_marked "$WD/writers.jsonl"
-    fi
+    # A post that landed before a crash: the same kind and text, by this run's
+    # login, created at or after the entry's stamp, and not already kept as
+    # another entry's post (two identical entries, a verdict repeated after a
+    # reopen, each have their own comment). Anyone may comment on the item, so
+    # only the login this run posts as counts.
+    LOGIN=$(gh api user --jq .login 2> "$WD/u.err" < /dev/null) && [[ $LOGIN =~ $RE_LOGIN ]] \
+        || { echo "$PROG: cannot read the login this run posts as, so whether entry $N already landed on $ON can't be told; nothing posted: $(lib_scrub < "$WD/u.err")" >&2; exit 2; }
+    gh api --method GET "repos/$ON_REPO/issues/$ON_NUM/comments?per_page=100" --paginate \
+        --jq '.[] | {id, html_url, created_at, updated_at, user: (.user.login // ""), body: (.body // "")}' \
+        > "$WD/comments.jsonl" 2> "$WD/c.err" < /dev/null || lib_die2 "cannot read $ON's comments: $(lib_scrub < "$WD/c.err")"
+    jq -c --arg m "$ENTRY_MARKER_PREFIX" --arg l "$(lc "$LOGIN")" \
+        'select((.body | gsub("\r"; "") | startswith($m)) and ((.user | ascii_downcase) == $l))' \
+        "$WD/comments.jsonl" > "$WD/writers.jsonl" || lib_die2 "the comments read is not JSON"
     gh_entries "$WD/writers.jsonl" > "$WD/gh-entries.json"
     "$KOTO" context list --prefix record/posted/ "$ES" < /dev/null > "$WD/posted-keys.json" 2> "$WD/k.err" \
         || lib_die2 "cannot list $ES's posted entries: $(lib_scrub < "$WD/k.err")"
@@ -442,10 +354,8 @@ if [ "$MODE" = repost ]; then
         printf '%s\n' "$HIT"
         exit 0
     fi
-    if [ -n "$ON" ]; then
-        dest_problem "$WD/text" > "$WD/problem"
-        [ ! -s "$WD/problem" ] || { echo "$PROG: refused: entry $N stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
-    fi
+    dest_problem "$WD/text" > "$WD/problem"
+    [ ! -s "$WD/problem" ] || { echo "$PROG: refused: entry $N stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
     comment_md "$ESTAMP" "$EKIND" "$WD/text" > "$WD/comment.md"
     URL=$(post_comment "$WD/comment.md") || { echo "$PROG: the post failed: $(lib_scrub < "$WD/w.err")" >&2; exit 14; }
     s_record_posted "$N" "$URL"
@@ -511,46 +421,33 @@ elif [ -n "$ON" ]; then
     on_admitted
 fi
 
-if [ "$STORE" = session ]; then
-    # The next sequence number, one above the highest key; a key another writer
-    # took in between moves this entry to the next, at most three times.
-    s_entries "$WD/keys"
-    LAST=$(tail -1 "$WD/keys" | sed 's|^record/entries/||')
-    NEXT=$(( ${LAST:+10#$LAST} + 1 ))
-    WRITTEN=
-    for try in 1 2 3 4; do
-        N=$(printf '%06d' "$NEXT")
-        if rs_key "$ES" "record/entries/$N" "$WD/taken"; then
-            [ "$try" -lt 4 ] || break
-            NEXT=$((NEXT + 1))
-            continue
-        fi
-        jq -n -c --argjson n "$NEXT" --arg s "$STAMP" --arg k "$KIND" --arg t "$TEXT" '{n: $n, stamp: $s, kind: $k, text: $t}' > "$WD/entry.json"
-        "$KOTO" context add "$ES" "record/entries/$N" --from-file "$WD/entry.json" < /dev/null > /dev/null 2> "$WD/k.err" \
-            || { echo "$PROG: the entry write failed: $(lib_scrub < "$WD/k.err")" >&2; exit 11; }
-        WRITTEN=$N
-        break
-    done
-    [ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
-    if [ "$ON" = none ]; then
-        printf 'record/entries/%s\n' "$WRITTEN"
-        exit 0
+# The next sequence number, one above the highest key; a key another writer
+# took in between moves this entry to the next, at most three times.
+s_entries "$WD/keys"
+LAST=$(tail -1 "$WD/keys" | sed 's|^record/entries/||')
+NEXT=$(( ${LAST:+10#$LAST} + 1 ))
+WRITTEN=
+for try in 1 2 3 4; do
+    N=$(printf '%06d' "$NEXT")
+    if rs_key "$ES" "record/entries/$N" "$WD/taken"; then
+        [ "$try" -lt 4 ] || break
+        NEXT=$((NEXT + 1))
+        continue
     fi
-    if [ -n "$ON" ]; then
-        dest_problem "$WD/text.clean" > "$WD/problem"
-        [ ! -s "$WD/problem" ] || { echo "$PROG: refused: the entry was written as record/entries/$WRITTEN and stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
-    fi
-    case "$OUTWARD_KINDS" in
-        *" $KIND "*)
-            URL=$(post_comment "$WD/comment.md") \
-                || { echo "$PROG: the entry was written as record/entries/$WRITTEN, but its post failed: $(lib_scrub < "$WD/w.err"); post it later with record-append.sh --repost $((10#$WRITTEN))${ON:+ --on $ON}" >&2; exit 14; }
-            s_record_posted "$WRITTEN" "$URL"
-            printf '%s\n' "$URL"
-            ;;
-        *) printf 'record/entries/%s\n' "$WRITTEN" ;;
-    esac
+    jq -n -c --argjson n "$NEXT" --arg s "$STAMP" --arg k "$KIND" --arg t "$TEXT" '{n: $n, stamp: $s, kind: $k, text: $t}' > "$WD/entry.json"
+    "$KOTO" context add "$ES" "record/entries/$N" --from-file "$WD/entry.json" < /dev/null > /dev/null 2> "$WD/k.err" \
+        || { echo "$PROG: the entry write failed: $(lib_scrub < "$WD/k.err")" >&2; exit 11; }
+    WRITTEN=$N
+    break
+done
+[ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
+if [ -z "$ON" ] || [ "$ON" = none ]; then
+    printf 'record/entries/%s\n' "$WRITTEN"
     exit 0
 fi
-
-URL=$(post_comment "$WD/comment.md") || { echo "$PROG: the post failed: $(lib_scrub < "$WD/w.err")" >&2; exit 11; }
+dest_problem "$WD/text.clean" > "$WD/problem"
+[ ! -s "$WD/problem" ] || { echo "$PROG: refused: the entry was written as record/entries/$WRITTEN and stays in the session; it can't be posted on $ON: it $(cat "$WD/problem")" >&2; exit 65; }
+URL=$(post_comment "$WD/comment.md") \
+    || { echo "$PROG: the entry was written as record/entries/$WRITTEN, but its post failed: $(lib_scrub < "$WD/w.err"); post it later with record-append.sh --repost $((10#$WRITTEN)) --on $ON" >&2; exit 14; }
+s_record_posted "$WRITTEN" "$URL"
 printf '%s\n' "$URL"

@@ -23,12 +23,17 @@
 # section empty and a Run section holding only the `store session` row); at
 # discipline scope an open same-repository pull request from
 # coordinate/discipline-<name> into the default branch. A candidate whose author
-# has no write access to O/R isn't a record. `none` when there is no record;
-# `several <n> <n>...` (exit 65) when there is more than one.
+# has no write access to O/R isn't a record: anyone can open an issue with the
+# record's title on a public repository. Each one skipped is named on stderr,
+# since a record opened by a token without that access (an app's or a bot's)
+# would otherwise read as no record at all. `none` when there is no record;
+# `several <n> <n>...` (exit 65) when there is more than one, which needs a
+# person to say which is the scope's.
 #
 # The import reads record <n>'s body and parses it with its own copy; a body
-# that doesn't parse as this scope's record, or a rotation title without its
-# dates, prints `record-unreadable <n>` (exit 65). Any `store` Run row is
+# that doesn't parse as this scope's record, a parsed state the write core's
+# state-schema.jq check refuses, or a rotation title without its dates, prints
+# `record-unreadable <n>` (exit 65). Any `store` Run row is
 # dropped. It reads the record's marked comments and keeps those whose author
 # has write access; an author whose access can't be read is
 # `record-unreadable <n>` too. Nothing is written before every read is done.
@@ -205,7 +210,12 @@ if [ "$LOOKUP" = 1 ]; then
     while IFS= read -r c; do
         n=$(printf '%s' "$c" | jq -r .number)
         has_write_access "$(printf '%s' "$c" | jq -r .author)"
-        case $? in 0) ;; 1) continue ;; *) lib_die2 "cannot read the access of #$n's author to $REPO" ;; esac
+        case $? in
+            0) ;;
+            1) echo "$PROG: #$n skipped: its author has no write access to $REPO, so it isn't taken as this scope's record" >&2
+               continue ;;
+            *) lib_die2 "cannot read the access of #$n's author to $REPO" ;;
+        esac
         if [ "$SCOPE" = roadmap ]; then
             printf '%s' "$c" | jq -r .body > "$W/cand.md"
             parse "$W/cand.md" "$W/cand.json" && moved "$W/cand.json" && continue
@@ -257,7 +267,12 @@ jq -e --arg l "$(printf '%s' "$LOGIN" | tr 'A-Z' 'a-z')" --arg note "$NOTE" \
 # over the EXIT trap and exits on a refusal).
 ( . "$HERE/record-write-core.sh"
   IMPORT_WRITER=1
-  core_import "$W/state.json" "$W/entries.json" ${ROT_START:+"$W/rotation.json"} ) || exit $?
+  core_import "$W/state.json" "$W/entries.json" ${ROT_START:+"$W/rotation.json"} )
+rc=$?
+# The core refuses (65) a parsed state that fails state-schema.jq, or an entry
+# it won't take: the record can't be read as a state, as a body that doesn't
+# parse can't, and nothing was written.
+case $rc in 0) ;; 65) echo "record-unreadable $REF"; exit 65 ;; *) exit $rc ;; esac
 # 2. The note.
 if [ "$POSTED" = 0 ]; then
     { printf '%s%s -->\n' "$ENTRY_MARKER_PREFIX" moved

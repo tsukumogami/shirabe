@@ -16,46 +16,43 @@
 #   record-state.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
 #   record-state.sh --session S --done ITEM [--kind K]
 #   record-state.sh --session S --list
-#   ... [--scope roadmap|discipline --name N --repo O/R --ref N
+#   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                                  (tests)
 #
-# The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts; a discipline rotation on the session store has none); the
-# override flags exist for tests only.
+# The session gives the scope, name and host (coord-log.sh vars), and must
+# have a found record (coord-log.sh run-facts); the override flags exist for
+# tests only, with RS_SESSION naming the session that holds the record.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
 # number), coordinator (the address messages to this coordinator reach: a
 # session name a worker can message, `_` allowed, or a dispatch topic; never
-# an id or a path) or store (the record's store, `github` or `session`,
-# written with --by naming the person who decided it; roadmap scope only;
-# `session` moves the record onto the session store at the next start, and a
-# record on the session store, or already moving there, is refused any further
-# store change, `store-moved`). A new
+# an id or a path). `store` is no Run key here (65): the record's store is
+# always the coordinator's session, and the legacy `store session` row a session
+# opened before that holds is kept as written. A new
 # coordinator clears every `told` row, since nobody has been told the new
 # address yet. --told records that WHO (a worker's dispatch topic, or another
 # party's session name) was sent the current address; it needs a coordinator
 # row.
 #
-# A record on the session store also keeps the crash set
+# The record also keeps the crash set
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 9; PRD R17),
 # what a replacement needs after a crash: --run rules and --run briefs, each
 # `<label> sha256:<64 hex>`, the digest of a file this coordinator ran with
 # (a second row with the same label replaces the first; other labels are
 # kept); --run friction, a label; and --run reports-to, `<role>` or `<role>
-# at <address>`, who this coordinator reports up to. Each is refused on a
-# record on GitHub (65). Where those files live goes in record/host, through
+# at <address>`, who this coordinator reports up to. Where those files live
+# goes in record/host, through
 # --host, never in the record's tables: KEY is rules:<label>, briefs:<label>
 # or friction with an absolute path, or one of the import's facts,
 # source_workspace (an absolute path), source_session (a coordinator session
 # name) or template_hash (64 hex). --host merges into record/host and changes
-# nothing else: it needs the session store, writes no table and posts no
-# entry, since host facts never go to GitHub. A value with a control
+# nothing else: it writes no table and posts no entry, since host facts never
+# leave the host. A value with a control
 # character or a token-shaped string is refused (65); a workspace path may be
 # a home-directory path, which a table cell never is. It prints the record/host
 # object.
 #
-# A discipline rotation on the session store keeps two keys of its own beside
-# its tables (docs/designs/current/DESIGN-coordinator-record-teardown.md,
+# A discipline rotation keeps two keys of its own beside its tables (docs/designs/current/DESIGN-coordinator-record-teardown.md,
 # Decision 3), and only this script writes them, with STATE_WRITER open:
 # --rotation FILE writes record/rotation, the JSON object in FILE,
 # {start, end, host_repo, predecessor}: start and end real dates, end not
@@ -63,11 +60,12 @@
 # or the predecessor's session, coordinate-<slug>-<YYYYMMDDTHHMMSSZ> with this
 # discipline's slug. --reasoning-file FILE writes record/reasoning, FILE's text
 # as a JSON string: what this rotation leaves the next one, at most 16 KiB
-# (16384 bytes) with no control character but a newline or a tab and no
-# token-shaped string. Writing it closes the rotation (the window rule reads a
-# rotation holding it as ended). A value that breaks a rule, or a run that isn't
-# a discipline rotation on the session store, is refused (65) before any key is
-# written. Each prints the key's JSON as written. --reasoning-check exits 0
+# (16384 bytes) with no control character but a newline or a tab, and no
+# token-shaped string or home-directory path (state-schema.jq's scan_strings,
+# which also walks every string of a rotation). Writing it closes the rotation
+# (the window rule reads a rotation holding it as ended). A value that breaks a
+# rule, or a run that isn't a discipline rotation, is refused (65) before any
+# key is written. Each prints the key's JSON as written. --reasoning-check exits 0
 # when the rotation holds record/reasoning and 1 when it doesn't (the
 # rotation_end state's gate).
 #
@@ -147,14 +145,13 @@
 # record-append.sh; the change it names is on stderr); 64 usage; 65 refused
 # (the reason on stderr).
 #
-# GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
-# --json body; the body write happens only in the write core it sources, and
-# the entry through record-append.sh.
+# The record is read through record-source.sh and written only in the write
+# core it sources, and the entry through record-append.sh.
 set -uo pipefail
 
 PROG=record-state
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= MODE=
+SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
@@ -168,7 +165,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --run) [ $# -ge 3 ] || usage; setmode run; KEY=$2; VALUE=$3; shift 3 ;;
         --host) [ $# -ge 3 ] || usage; [ "$MODE" = host ] || setmode host
                 case "$2$3" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --host key or value holds a tab or a newline" >&2; exit 65 ;; esac
@@ -196,9 +192,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$MODE" in
-    run) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
-         case "$KEY" in arguments|cap|coordinator|store|rules|briefs|friction|reports-to) ;;
-             *) echo "$PROG: --run takes arguments, cap, coordinator, store, rules, briefs, friction or reports-to" >&2; exit 64 ;; esac ;;
+    run) [ "$KEY" != store ] || { echo "$PROG: refused: run.key: store is not a Run key this script sets; the record's store is always the coordinator's session" >&2; exit 65; }
+         [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
+         case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to) ;;
+             *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction or reports-to" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -212,25 +209,6 @@ case "$MODE" in
 esac
 . "$HERE/record-common.sh"
 lib_facts
-# The record's store (docs/designs/DESIGN-coordinator-session-record.md,
-# Decisions 2 and 11): only a roadmap record's store is its owner's to set, and
-# its value is github or session. `session` is the owner's decision to move the
-# record; the next start moves it. A record on the session store, or one whose
-# row already reads session, never moves back to GitHub (PRD R3). A discipline
-# rotation's store is never set here: one on GitHub has no store row, and one on
-# the session store gets its `store session` row when it opens (record-open.sh).
-if [ "$MODE" = run ] && [ "$KEY" = store ]; then
-    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: store-discipline: a discipline rotation's store isn't set by hand; the find decides it, and a session rotation's row is written when it opens" >&2; exit 65; }
-    case "$VALUE" in
-        github|session) ;;
-        *) echo "$PROG: refused: store-malformed: a store is github or session" >&2; exit 65 ;;
-    esac
-    [ "$(rs_source)" = github ] || { echo "$PROG: refused: store-moved: the record is on the session store and doesn't move back" >&2; exit 65; }
-fi
-# The crash set and the host facts belong to a record on the session store.
-if [ "$MODE" = host ] || { [ "$MODE" = run ] && case "$KEY" in rules|briefs|friction|reports-to) true ;; *) false ;; esac; }; then
-    [ "$(rs_source)" = session ] || { echo "$PROG: refused: $([ "$MODE" = host ] && echo "host facts are" || echo "the $KEY row is") kept only by a record on the session store" >&2; exit 65; }
-fi
 if [ "$MODE" = host ]; then
     # Each key and value checked, then merged into the current record/host.
     TOKEN_RE='(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})'
@@ -262,11 +240,11 @@ EOF
     jq -c . "$WD/host.next"
     exit 0
 fi
-# A discipline rotation's own keys on the session store: its window and its
+# A discipline rotation's own keys: its window and its
 # reasoning for the next rotation. Every rule is checked before any key is
 # written.
 if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-check ]; then
-    lib_session_rotation || { echo "$PROG: refused: record/rotation and record/reasoning are kept only by a discipline rotation on the session store" >&2; exit 65; }
+    [ "$SCOPE" = discipline ] || { echo "$PROG: refused: record/rotation and record/reasoning are kept only by a discipline rotation" >&2; exit 65; }
     WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
     trap 'rm -rf "$WD"' EXIT
     RS=${RS_SESSION:-$SESSION}
@@ -310,6 +288,11 @@ if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-ch
         jq -R -s -c . "$RFILE" > "$WD/value.json" || lib_die2 "jq failed"
         KEYNAME=record/reasoning
     fi
+    # Every string the key holds, through the state's own scan.
+    if ! jq -L "$HERE" 'include "state-schema"; scan_strings([]) | empty' "$WD/value.json" 2> "$WD/scan.err"; then
+        grep -q 'refused: ' "$WD/scan.err" || lib_die2 "state-schema.jq failed: $(lib_scrub < "$WD/scan.err")"
+        echo "$PROG: refused: ${KEYNAME#record/}: $(sed -n 's/.*refused: //p' "$WD/scan.err" | head -1 | lib_scrub)" >&2; exit 65
+    fi
     lib_write_guard
     . "$HERE/record-write-core.sh"
     STATE_WRITER=1
@@ -317,37 +300,21 @@ if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-ch
     cat "$WD/value.json"
     exit 0
 fi
-if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-else
-    [ -z "$REF" ] || usage
-    FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
-    case $? in
-        0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
-        1) echo "$PROG: refused: the run has no found record" >&2; exit 10 ;;
-        *) lib_die2 "cannot read the run's facts" ;;
-    esac
-fi
-lib_ref_ok || usage
+lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-rs_record "$WD/parsed.json" body --json body --jq .body
+rs_record "$WD/parsed.json" body
 case $? in
     0) ;;
-    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
-    3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    2) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
+    3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
 cp "$WD/parsed.json.md" "$WD/live.md"
-if [ "$MODE" = run ] && [ "$KEY" = store ] && [ "$VALUE" = github ] \
-    && jq -e 'any((.run // [])[]; .key == "store" and .value == "session")' "$WD/parsed.json" > /dev/null; then
-    echo "$PROG: refused: store-moved: #$REF's store already reads session and is moving; it doesn't move back to GitHub" >&2
-    exit 65
-fi
 
 if [ "$MODE" = list ]; then
     jq -c -L "$HERE" 'include "record-codec"; state_list' "$WD/parsed.json"
@@ -371,7 +338,7 @@ wakes_since() {
 }
 # How record-append.sh addresses this record.
 if [ "$OVERRIDE" = 1 ]; then
-    ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF")
+    ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
 else
     ADDR_ARGS=(--session "$SESSION")
 fi
@@ -551,7 +518,7 @@ jq '([.holdings[] | "\(.unit)\u0000\(.worker)"]) as $h
     | if ((.run // []) | length) == 0 then del(.run) else . end
     | if ((.standing // []) | length) == 0 then del(.standing) else . end
     | del(.written)' "$WD/next.json" > "$WD/final.json" || lib_die2 "jq failed"
-bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$P")" "$WD/final.json" > "$WD/body.md" 2> "$WD/render.err" \
+bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$P")" "$WD/final.json" > "$WD/body.md" 2> "$WD/render.err" \
     || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
 printf '%s\n' "$ETEXT" > "$WD/entry.txt"
 # The write core takes over $T and the EXIT trap and removes $WD, so the
@@ -562,7 +529,7 @@ LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-leaving.XXXXXX") \
     || { rm -f "$ENTRY_FILE"; lib_die2 "cannot make a temporary file"; }
 cp "$WD/leaving.txt" "$LEAVING_FILE"
 
-BODY="$WD/body.md" END= CLOSE=0 CORE_CLEANUP=$WD
+BODY="$WD/body.md" CORE_CLEANUP=$WD
 lib_write_guard
 . "$HERE/record-write-core.sh"
 STATE_WRITER=1

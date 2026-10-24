@@ -39,11 +39,9 @@ measured, verified by reading, or inferred:
 1. **The record.** It reads the record body live, parses it with the record
    feature's parser, and treats every row as a claim as of its `Written:`
    time. A row it can't parse is listed under "Not verified" with its raw
-   line, and every other row is still re-checked. At discipline scope on GitHub
-   it adds the previous handoff at `docs/disciplines/<name>.md` on the default
-   branch, rows labelled with the handoff's date; a rotation on the session
-   store reads its predecessor's reasoning from that rotation's session instead
-   (or, once, from the committed file the bridge carried).
+   line, and every other row is still re-checked. At discipline scope it
+   reads the predecessor's reasoning from that rotation's session
+   (`record/reasoning`).
 2. **Each holding against GitHub.** For a holding with a pull request, it runs
    `gh pr view <n> --repo <owner/repo> --json state,isDraft,headRefOid,mergeStateStatus,baseRefName`
    and reads the branch with `git ls-remote`. It reads CI at the verified head

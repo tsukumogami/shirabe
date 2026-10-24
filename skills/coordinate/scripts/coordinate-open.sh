@@ -2,50 +2,60 @@
 # coordinate-open.sh -- /coordinate's entry: the invocation's tokens to the
 # session's variables, and a fresh per-run session.
 #
-# For a record on GitHub every invocation is a new run. A restart after a crash
-# gets its own session, its own start time (the session header's created_at),
-# and a full start, find and reconcile; continuity lives on GitHub, where the
-# new run's find adopts the record the previous run opened. So this script
-# cancels (never cleans up) any live coordinate session for the same scope,
-# keeping its log readable, and opens `coordinate-<scope-slug>-<UTC stamp>`.
-#
-# A record on the session store lives in a run's session on this host
-# (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12), so
-# a start first asks record-source.sh --candidate about this host's runs of the
-# scope that hold a record, against the shipped template's hash. At discipline
-# scope the candidate is only a rotation still open by the window rule (today
-# on or before its end date, no reasoning written); after it ends the start
-# opens a new run, which carries the rotation as its predecessor. The newest,
-# live, the scope's only live run, compiled from that hash, passing provenance,
-# sealed to the session store and with no directed transition, is resumed: no
-# session opens and none is cancelled, the run keeps its stamp, and the output
-# is `resumed=1` then `session=<it>` (settings given with the invocation aren't
-# applied to it). One that fails any of those is
-# carried: a new run opens and the live runs are cancelled as above, and then
-# every record/ and legs/ key of the old run is copied into the new one through
-# the write core (core_carry), printing `carried=<old>`. The old run's log
-# stays readable. A carry cut short exits 1 (`failed=carry`) with the new run
+# The record lives in a run's koto session on this host
+# (docs/designs/current/DESIGN-coordinator-record-teardown.md; PRD R12). The
+# session store needs koto's `context list --prefix` and `session import`; a
+# koto without either is refused before anything else (`refused=store-unsupported`,
+# exit 2), naming what it lacks. A start then asks record-source.sh --candidate
+# about this host's runs of the scope that hold a record, against the shipped
+# template's hash. At discipline scope the candidate is only a rotation still
+# open by the window rule (today on or before its end date, no reasoning
+# written); after it ends the start opens a new run, which carries the rotation
+# as its predecessor. The newest, live, the scope's only live run, compiled
+# from that hash, passing provenance, whose find recorded the session
+# (coord/source.json) and with no directed transition, is resumed: no session
+# opens and none is cancelled, the run keeps its stamp, and the output is
+# `resumed=1` then `session=<it>` (settings given with the invocation aren't
+# applied to it). One that fails any of those is carried: a new run opens,
+# any other live run of the scope is cancelled (never cleaned up, so its log
+# stays readable), and then every record/ and legs/ key of the old run is
+# copied into the new one through the write core (core_carry), printing
+# `carried=<old>`. A carry cut short exits 1 (`failed=carry`) with the new run
 # holding no record, and the next start carries again.
+#
+# A fresh start (no session here holds the scope's record) opens
+# `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
+# scope, and then calls the legacy importer (../legacy-import/import.sh) once:
+# `--lookup` for an open coordinator record still on GitHub, and, when it
+# answers `record <n>`, the import of that record into the new run, printing
+# `record-imported=<n>`. A discipline's next rotation is not a fresh start: the
+# ended rotation's session is here, and the new run's find carries it. What
+# the lookup says on stderr (a candidate it skipped) is passed on. The import's refusal (`record-unreadable`, a body it
+# can't read, or `several`, more than one open record) stops the start for the
+# person: the new run is cancelled and the output is `refused=<code>` (exit
+# 2). An import that fails part way cancels the new run too (`failed=import`,
+# exit 1), and the next start imports again. A resume, a carry and an
+# `--import` never call it.
 #
 # An import (PRD R14) moves a run another host started here: `--import
 # <session> --from <workspace path>` with the roadmap path, or a discipline's
 # --discipline and --host, and no other setting. Before koto runs, the opener
 # refuses, in this order: a name that isn't a
-# run of this scope (`refused=session-name`), another live run of the scope
+# run of this scope (`refused=session-name`) and another live run of the scope
 # here (`refused=session-live`; the import's own target may be live, after
 # koto's import_unmarked, since the same import run again only marks the
-# source) and a koto without `session import` (`refused=store-unsupported`).
-# koto's `session import` then brings the
+# source). koto's `session import` then brings the
 # run from the bucket, taking the template from the bucket only under
 # `--trust-template`, and marks the source migrated; its refusals print
 # `refused=<koto code>`. The imported run must pass what a resume needs, or it
 # stays here refused: the shipped template's hash (`refused=template-mismatch`),
-# provenance (`refused=session-provenance`), the session store
+# provenance (`refused=session-provenance`), a find that recorded the session
 # (`refused=session-source`) and no directed transition
 # (`refused=session-directed`). A plain start then carries it, except after
-# session-source: a run not on the session store is no resume candidate, so the
-# start opens a new run as with no session here and cancels the imported one. record/host takes the source's workspace,
-# session and template hash, and the output is `imported=<session>`,
+# session-source: a run whose find never ran is no resume candidate, so the
+# start opens a new run as with no session here and cancels the imported one.
+# record/host takes the source's workspace, session and template hash, and the
+# output is `imported=<session>`,
 # `resumed=1`, `session=<it>`, then `state=<the run's state>` and, when the run
 # waits at the hub, `tick=moved`: the first tick, which sends it through a full
 # reconcile on this host. A run at reconcile reconciles again by itself; one
@@ -64,14 +74,6 @@
 #                                reports to; without it the run reports to a
 #                                person. Fixed for the run: every escalation goes
 #                                there (REPORTS_TO)
-#   --store github|session       where a new scope's record keeps its state
-#                                (STORE); a found record's own store row decides
-#                                for an existing one, and this flag is then
-#                                reported ignored. Without it a new roadmap
-#                                record is on the session store (STORE=session);
-#                                only `--store github` opens one on GitHub, and
-#                                any other value is usage. At discipline scope a
-#                                new rotation runs on its session whatever it says
 #   --import <session>, --from <workspace path>, [--trust-template]
 #                                import that run from the bucket (with the
 #                                roadmap path, or a discipline's --discipline
@@ -91,11 +93,15 @@
 # `ask=host`: ask the human once, with a recommendation, and re-invoke with
 # --host. It never defaults to the repository it runs in there.
 #
-# Exit codes: 0 opened or resumed; 10 the human must name the host first; 1
-# the shipped template didn't compile (`failed=template_compile`), this host's
-# runs couldn't be read (`failed=resume_candidate`), a cancel failed, or a carry
-# failed after the new run opened (`failed=carry`); koto-open.sh's own codes
-# otherwise (2 refused, 64 usage, 127 koto or jq missing). An import exits 0
+# Exit codes: 0 opened or resumed; 10 the human must name the host first; 2
+# this koto lacks the session store's features (`refused=store-unsupported`),
+# or the legacy importer refused the start (`refused=record-unreadable` or
+# `refused=several`); 1 the shipped template didn't compile
+# (`failed=template_compile`), this host's runs couldn't be read
+# (`failed=resume_candidate`), a cancel failed, a carry failed after the new
+# run opened (`failed=carry`), or the legacy import failed (`failed=import`);
+# koto-open.sh's own codes otherwise (2 refused, 64 usage, 127 koto or jq
+# missing). An import exits 0
 # imported; 2 refused, by this script or by koto; 1 koto couldn't read or push
 # the run or mark its source (koto's own exit 1), the shipped template didn't
 # compile (`failed=template_compile`), this host's runs couldn't be listed
@@ -135,12 +141,11 @@ if (type != "array") or (map(type == "string") | all | not) then error("not a JS
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true | .import[$s[$i] | ltrimstr("--")] += [$s[$i + 1]] end
     elif $s[$i] == "--trust-template" then .import.trust += [true]
-    elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days", "--reports-to", "--store")) then
+    elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days", "--reports-to")) then
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true
         | .pairs += [[({"--discipline": "DISCIPLINE", "--host": "HOST_REPO", "--cap": "CAP",
-                        "--parked-bound": "PARKED_BOUND", "--rotation-days": "ROTATION_DAYS", "--reports-to": "REPORTS_TO",
-                        "--store": "STORE"})[$s[$i]], $s[$i + 1]]]
+                        "--parked-bound": "PARKED_BOUND", "--rotation-days": "ROTATION_DAYS", "--reports-to": "REPORTS_TO"})[$s[$i]], $s[$i + 1]]]
       end
     elif ($s[$i] | startswith("--")) then .bad = "unknown option \($s[$i])"
     else .positional += [$s[$i]] end)
@@ -152,7 +157,7 @@ BAD=$(printf '%s' "$MAPPED" | jq -r '.bad // empty')
 
 # An import (PRD R14): --import <session> --from <workspace path>, and
 # --trust-template only when the operator passes it. It resumes an existing run,
-# so it takes no setting, and it is for a roadmap's session-store record only.
+# so it takes no setting.
 IMPORT= FROM= TRUST=
 if [ "$(printf '%s' "$MAPPED" | jq '.import | length')" -gt 0 ]; then
     [ "$(printf '%s' "$MAPPED" | jq '[.import.import // [], .import.from // [], .import.trust // []] | map(length) | max')" -le 1 ] \
@@ -167,18 +172,6 @@ if [ "$(printf '%s' "$MAPPED" | jq '.import | length')" -gt 0 ]; then
     [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] != "DISCIPLINE" and .[0] != "HOST_REPO")] | length')" -eq 0 ] \
         || usage "--import resumes the imported run with its own settings; give none with it but a discipline's --discipline and --host"
 fi
-
-# The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2;
-# docs/designs/current/DESIGN-coordinator-record-teardown.md, step 4). It is
-# github or session; anything else is refused here, naming it. At roadmap scope
-# a new scope opens on the session store unless `--store github` is given (the
-# roadmap branch below adds STORE=session when no --store is), and a record the
-# find adopts decides by its own store row. At discipline scope it decides
-# nothing: a new rotation opens on the session store and one still on GitHub
-# stays there (record-find.sh reports the flag ignored).
-BAD_STORE=$(printf '%s' "$MAPPED" | jq -c '[.pairs[] | select(.[0] == "STORE") | .[1] | select(. != "github" and . != "session")]')
-[ "$BAD_STORE" = '[]' ] || usage "--store takes github or session, not $(printf '%s' "$BAD_STORE" | jq -c '.[0]')"
-STORE_GIVEN=$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "STORE")] | length')
 
 NPOS=$(printf '%s' "$MAPPED" | jq '.positional | length')
 DISC=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')
@@ -209,11 +202,6 @@ else
     FORM=feature
     if [ -r "$ROADMAP" ] && bash "$HERE/milestone.sh" is-milestone "$ROADMAP" >/dev/null 2>&1; then FORM=milestone; fi
     EXTRA=$(jq -nc --arg r "$ROADMAP" --arg h "$HOST" --arg f "$FORM" '[["ROADMAP", $r], ["HOST_REPO", $h], ["ROADMAP_FORM", $f]]')
-    # A new roadmap scope starts on the session store unless --store says
-    # otherwise; an import takes the imported run's own settings.
-    if [ "$STORE_GIVEN" -eq 0 ] && [ -z "$IMPORT" ]; then
-        EXTRA=$(printf '%s' "$EXTRA" | jq -c '. + [["STORE", "session"]]')
-    fi
 fi
 
 # The scope slug, derived where every write script's live-session check
@@ -225,6 +213,17 @@ TEMPLATE="$PLUGIN_ROOT/skills/coordinate/koto-templates/coordinate.md"
 refuse_import() { # refuse_import <code> <why>
     echo "refused=$1"; echo "coordinate-open: $2" >&2; exit 2
 }
+
+# The session store's koto features, read by feature before anything else
+# (PRD R2): `context list --prefix` and `session import`. The help text is
+# captured whole before it is matched: piped into `grep -q` under pipefail,
+# koto could take SIGPIPE when grep stops at its match, and the probe would
+# read a feature it has as missing (shirabe#855).
+MISSING=
+HELP=$("$KOTO" context list --help < /dev/null 2>/dev/null) || HELP=
+case "$HELP" in *--prefix*) ;; *) MISSING="context list --prefix" ;; esac
+"$KOTO" session import --help < /dev/null > /dev/null 2>&1 || MISSING="$MISSING${MISSING:+, }session import"
+[ -z "$MISSING" ] || refuse_import store-unsupported "this koto lacks $MISSING, which the coordinator's session store needs; install a koto that has it"
 # The import: the session another host ran, from the bucket, then resumed here
 # (PRD R14). The name and a live run of the scope are refused before koto runs;
 # koto's own refusals are printed with its code and leave no session; then the
@@ -242,8 +241,6 @@ if [ -n "$IMPORT" ]; then
         1) ;;
         *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;;
     esac
-    [ "$(bash "$HERE/record-source.sh" --probe | jq -r '.session_import // false')" = true ] \
-        || refuse_import store-unsupported "this koto has no \`session import\`; install a koto that has it"
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
     [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was imported" >&2; exit 1; }
@@ -274,8 +271,8 @@ if [ -n "$IMPORT" ]; then
         "$IMPORT was compiled from another template than the one shipped here; it stays on this host, and a plain start carries its record into a new run"
     bash "$HERE/coord-log.sh" provenance --session "$IMPORT" >/dev/null 2>&1 || refuse_import session-provenance \
         "$IMPORT wasn't opened from this host's plugin (its plugin root differs); it stays on this host, and a plain start carries its record into a new run"
-    [ "$(bash "$HERE/coord-log.sh" run-store --session "$IMPORT" 2>/dev/null)" = session ] \
-        || refuse_import session-source "$IMPORT's find didn't record the session store; it holds no session-store record to continue"
+    [ "$("$KOTO" context get "$IMPORT" coord/source.json < /dev/null 2>/dev/null | jq -r '.source // empty' 2>/dev/null)" = session ] \
+        || refuse_import session-source "$IMPORT's find didn't record the session; it holds no record to continue"
     # A run moved with `koto next --to` refuses every write, so it isn't one to
     # continue either (the resume candidate's own last check).
     bash "$HERE/coord-log.sh" directed-since --session "$IMPORT" --from 0 > /dev/null 2>&1
@@ -303,24 +300,28 @@ if [ -n "$IMPORT" ]; then
     exit 0
 fi
 
-# A record on the session store lives in a run's session on this host, so a
-# start first looks here for the scope's run that holds it
+# The record lives in a run's session on this host, so a start first looks
+# here for the scope's run that holds it
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12).
 # record-source.sh --candidate decides, against the shipped template's hash:
 # resume keeps that run (no new session, no cancel, and the run keeps its
 # stamp); carry opens a new run below and copies its record/ and legs/ keys in;
-# none opens a new run as on GitHub. At discipline scope the window rule decides
+# none opens a new run, a fresh start. At discipline scope the window rule decides
 # first (rs_resume_candidate): a start inside the newest rotation's window is a
 # restart of that rotation, resumed or carried as above, and a start after it
 # ended (by date, or by closing) opens the next rotation as a new run, whose find
 # carries the predecessor.
 CARRY_FROM=
+# FRESH: no session here holds the scope's record (the candidate names none).
+# Only a fresh start asks the legacy importer.
+FRESH=0
 if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
     [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was opened" >&2; exit 1; }
     CAND=$(bash "$HERE/record-source.sh" --candidate --scope "$SCOPE" --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
         || { echo "failed=resume_candidate"; echo "coordinate-open: could not read this host's runs of $SLUG; nothing was opened" >&2; exit 1; }
+    [ "$(printf '%s' "$CAND" | jq -r '.session // empty')" = "" ] && FRESH=1
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
@@ -366,6 +367,50 @@ if [ -n "$CARRY_FROM" ]; then
     . "$HERE/record-write-core.sh"
     ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
     echo "carried=$CARRY_FROM"
+elif [ "$FRESH" = 1 ]; then
+    # A fresh start: no session here holds the scope's record (a discipline's
+    # next rotation, whose ended rotation's session is here, isn't one). The legacy
+    # importer (docs/designs/current/DESIGN-coordinator-record-teardown.md, "The
+    # legacy importer") looks once for a coordinator record still open on
+    # GitHub and, finding one, imports its state into this run before the run's
+    # find reads it. Its refusal stops the start, and so does a failure part
+    # way: the new run is cancelled, so it can't go on without the record's
+    # state, and the next start imports again.
+    IMP="$HERE/../legacy-import/import.sh"
+    IMP_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-import.XXXXXX") \
+        || { echo "failed=import"; echo "coordinate-open: could not make a scratch file" >&2; exit 1; }
+    trap 'rm -f "$IMP_ERR"' EXIT
+    stop_fresh() { # stop_fresh <refused|failed> <code> <why>
+        "$KOTO" cancel "$SESSION" </dev/null >/dev/null 2>&1 || echo "coordinate-open: $SESSION couldn't be cancelled; cancel it before starting again" >&2
+        echo "$1=$2"; echo "coordinate-open: $3" >&2
+        [ "$1" = refused ] && exit 2
+        exit 1
+    }
+    LOOK=$(bash "$IMP" --lookup --session "$SESSION" --scope "$SCOPE" --name "$NAME" --repo "$HOST" 2> "$IMP_ERR")
+    RC=$?
+    # A lookup may have skipped a candidate whose author has no write access,
+    # which it names on stderr; that reaches the operator whatever the lookup
+    # answered (a failure's own message below quotes it too).
+    if [ -s "$IMP_ERR" ]; then head -c 1000 "$IMP_ERR" >&2; fi
+    case "$RC:$LOOK" in
+        "0:none"|"0:resume") ;;
+        "0:record "*)
+            REF=${LOOK#record }
+            [[ $REF =~ ^[1-9][0-9]*$ ]] || stop_fresh failed import "the legacy importer's lookup named no record number: $LOOK"
+            IMPORTED=$(bash "$IMP" --session "$SESSION" --scope "$SCOPE" --name "$NAME" --repo "$HOST" --ref "$REF" 2> "$IMP_ERR")
+            RC=$?
+            # Any refusal (65) is the record's: a body that doesn't parse, or
+            # one whose state the write core's checks refuse.
+            case "$RC:$IMPORTED" in
+                "0:imported=$REF "*) echo "record-imported=$REF" ;;
+                65:*) stop_fresh refused record-unreadable \
+                    "the coordinator record $HOST#$REF on GitHub can't be read into this run: $(head -c 400 "$IMP_ERR"); fix or close it, then start again" ;;
+                *) stop_fresh failed import "the import of the coordinator record $HOST#$REF stopped part way (exit $RC): $(head -c 400 "$IMP_ERR"); start again to import it" ;;
+            esac ;;
+        "65:several "*) stop_fresh refused several \
+            "$HOST holds more than one open coordinator record for this scope (${LOOK#several }); close all but one, then start again" ;;
+        *) stop_fresh failed import "the legacy importer's lookup failed (exit $RC): $(head -c 400 "$IMP_ERR"); start again" ;;
+    esac
 fi
 printf 'session=%s\n' "$SESSION"
 exit 0

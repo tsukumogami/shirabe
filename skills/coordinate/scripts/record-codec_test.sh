@@ -470,18 +470,19 @@ mv_roundtrip "a verdict-owed row whose Item is Milestone 3 round-trips" "$(MVREC
 refuse "  ... milestone 3 is refused as a heading tag" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "milestone 3"')]" '[]')" "a verdict-owed row's Item is a milestone's heading tag"
 
 echo "== the crash set (PRD R17) =="
-# rules, briefs, friction and reports-to: a session-store record's Run rows,
-# kept only beside the `store session` row.
+# rules, briefs, friction and reports-to: Run rows of any record, with or
+# without the legacy `store session` row an existing session holds.
 SHA=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 RR() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "alice", set: "2026-10-13T10:00Z"}'; }
 CRASH() { jq -nc --argjson r "[$1]" '{scope: {kind: "roadmap", name: "plugin-system"}, holdings: [], deferrals: [], side_effects: [], reversals: [], run: $r}'; }
 STORE=$(RR store session)
-roundtrip "the crash set round-trips beside the store session row" "$(CRASH "$STORE, $(RR rules "skill-rules sha256:$SHA"), $(RR rules "lane-rules sha256:$SHA"), $(RR briefs "brief sha256:$SHA"), $(RR friction friction-log), $(RR reports-to "the lane's dispatcher at ws-lead")")"
-roundtrip "reports-to may be a role alone" "$(CRASH "$STORE, $(RR reports-to "the human")")"
+roundtrip "the crash set round-trips with no store row" "$(CRASH "$(RR rules "skill-rules sha256:$SHA"), $(RR rules "lane-rules sha256:$SHA"), $(RR briefs "brief sha256:$SHA"), $(RR friction friction-log), $(RR reports-to "the lane's dispatcher at ws-lead")")"
+roundtrip "  ... and beside the legacy store session row" "$(CRASH "$STORE, $(RR rules "skill-rules sha256:$SHA"), $(RR friction friction-log)")"
+roundtrip "reports-to may be a role alone" "$(CRASH "$(RR reports-to "the human")")"
 for k in rules briefs friction reports-to; do
     v="a sha256:$SHA"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
-    refuse "$k without the store session row is refused" "$(CRASH "$(RR "$k" "$v")")" "$k is kept only by a record on the session store"
-    refuse "$k beside a store github row is refused" "$(CRASH "$(RR store github), $(RR "$k" "$v")")" "$k is kept only by a record on the session store"
+    roundtrip "a $k row alone round-trips" "$(CRASH "$(RR "$k" "$v")")"
+    refuse "$k beside a store github row is refused, for the store row" "$(CRASH "$(RR store github), $(RR "$k" "$v")")" "a store row reads session"
 done
 refuse "a rules digest that isn't sha256 hex is refused" "$(CRASH "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
 refuse "a rules label used twice is refused" "$(CRASH "$STORE, $(RR rules "a sha256:$SHA"), $(RR rules "a sha256:$SHA")")" "label is used twice"

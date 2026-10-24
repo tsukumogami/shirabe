@@ -6,12 +6,17 @@
 # inventory, naming the file that now carries it, the coordinate.md state it
 # sits in (or -), and a short verbatim phrase from it. For each row it checks
 # the phrase occurs in that file and, when a state is named, inside that
-# `## <state>` section of the template body. It also checks that the rows and
-# the `# lost:` line together name every ID from C1 to C190 exactly once, that
-# the decision flow's rules, D1 onward, and the milestone verdict rules, M1
-# onward, each have exactly one row, and
-# that each of the four reference files is named in at least one state
-# section of coordinate.md.
+# `## <state>` section of the template body. It also checks that the rows, the
+# `# lost:` line and the `# retired:` lines together name every ID from C1 to
+# C190 exactly once, that the decision flow's rules, D1 onward, the milestone
+# verdict rules, M1 onward, and the store rules, S1 onward, are each named
+# exactly once by a row or a `# retired:` line, and that each of the four
+# reference files is named in at least one state section of coordinate.md.
+#
+# A retired rule is one whose behaviour was removed on purpose (the GitHub
+# coordinator record's, docs/designs/current/DESIGN-coordinator-record-teardown.md):
+# it has no carrier and needs none, so it counts toward completeness and never
+# fails. A `# retired:` line is `# retired: <ID> [<ID> ...] -- <why>`.
 #
 # Usage: bash skills/coordinate/scripts/rule-coverage_test.sh
 # Exit codes: 0 every check passed; 1 a check failed.
@@ -75,7 +80,24 @@ while IFS=$'\t' read -r id file state phrase note; do
     fi
 done < "$TSV"
 
-# Completeness: rows plus the lost list name C1..C$TOTAL, each once.
+# The retired rules: every ID on a `# retired:` line, up to its ` -- <why>`.
+: > "$T/retired"
+while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+        *' -- '?*) ;;
+        *) bad "retired line gives its reason" "$line"; continue ;;
+    esac
+    printf '%s\n' "${line%% -- *}" | tr ' ' '\n' | grep . >> "$T/retired"
+done <<EOF
+$(sed -n 's/^# retired://p' "$TSV")
+EOF
+while IFS= read -r id; do
+    case "$id" in C[0-9]*|D[0-9]*|M[0-9]*|S[0-9]*) ;; *) bad "retired $id" "malformed ID" ;; esac
+done < "$T/retired"
+cat "$T/retired" >> "$T/ids"
+
+# Completeness: rows, the retired lines and the lost list name C1..C$TOTAL, each once.
 sed -n 's/^# lost://p' "$TSV" | tr ' ' '\n' | grep . > "$T/lost"
 LOST=$(wc -l < "$T/lost" | tr -d ' ')
 grep -v '^[DMS]' "$T/ids" | cat - "$T/lost" | sort > "$T/named"
@@ -90,7 +112,7 @@ extra=$(grep -vxF -f "$T/want.s" "$T/named" | tr '\n' ' ')
 [ -z "$missing" ] && ok "every rule C1..C$TOTAL is named" || bad "every rule C1..C$TOTAL is named" "missing: $missing"
 [ -z "$extra" ] && ok "no rule outside C1..C$TOTAL" || bad "no rule outside C1..C$TOTAL" "extra: $extra"
 
-# The decision flow's own rules, D1..D$DTOTAL, each named once by a row.
+# The decision flow's own rules, D1..D$DTOTAL, each named once by a row or a retired line.
 grep '^D' "$T/ids" | sort > "$T/dnamed"
 i=1
 : > "$T/dwant"
@@ -99,7 +121,7 @@ sort "$T/dwant" > "$T/dwant.s"
 [ "$(cat "$T/dnamed")" = "$(cat "$T/dwant.s")" ] && ok "every decision rule D1..D$DTOTAL is named once" \
     || bad "every decision rule D1..D$DTOTAL is named once" "named: $(tr '\n' ' ' < "$T/dnamed")"
 
-# The milestone verdict rules, M1..M$MTOTAL, each named once by a row.
+# The milestone verdict rules, M1..M$MTOTAL, each named once by a row or a retired line.
 grep '^M' "$T/ids" | sort > "$T/mnamed"
 i=1
 : > "$T/mwant"
@@ -108,7 +130,7 @@ sort "$T/mwant" > "$T/mwant.s"
 [ "$(cat "$T/mnamed")" = "$(cat "$T/mwant.s")" ] && ok "every milestone verdict rule M1..M$MTOTAL is named once" \
     || bad "every milestone verdict rule M1..M$MTOTAL is named once" "named: $(tr '\n' ' ' < "$T/mnamed")"
 
-# The store rules, S1..S$STOTAL, each named once by a row.
+# The store rules, S1..S$STOTAL, each named once by a row or a retired line.
 grep '^S' "$T/ids" | sort > "$T/snamed"
 i=1
 : > "$T/swant"

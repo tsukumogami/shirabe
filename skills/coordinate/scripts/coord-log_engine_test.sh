@@ -140,7 +140,12 @@ LOG="$(koto session dir "$S")/koto-$S.state.jsonl"
 CAP1=$(bash "$CL" capture --session "$S" --name RECORD_FIND)
 case "$CAP1" in "found 7 sealed:"*) pass "the capture is the sealed token" ;; *) fail "the capture is the sealed token" "$CAP1" ;; esac
 bash "$CL" check --session "$S" --state record_find --sealed "$CAP1" && pass "check accepts the latest visit's seal" || fail "check accepts the latest visit's seal"
-eq "run-facts reads the scope and the found record" '{"scope":"roadmap","name":"demo","repo":"acme/widgets","ref":"7"}' "$(bash "$CL" run-facts --session "$S")"
+# The find seals a bare `found` now the run's session holds the record; a
+# numbered token is the old GitHub record's, which run-facts refuses.
+bash "$CL" run-facts --session "$S" >/dev/null 2>&1; eq "run-facts refuses a numbered find token" 1 $?
+SF=coordinate-facts-20260101T000005Z
+start "$SF" "$TPL" "found" && tick "$SF" >/dev/null
+eq "run-facts reads the run's scope, name and repository, and no record number" '{"scope":"roadmap","name":"demo","repo":"acme/widgets"}' "$(bash "$CL" run-facts --session "$SF")"
 case "$(bash "$CL" run-start --session "$S")" in 20*T*Z) pass "run-start is the header's created_at" ;; *) fail "run-start is the header's created_at" ;; esac
 
 echo "== seal failures =="

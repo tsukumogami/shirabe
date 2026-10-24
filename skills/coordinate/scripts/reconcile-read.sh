@@ -1,35 +1,36 @@
 #!/usr/bin/env bash
 # reconcile-read.sh -- read the coordinator's record, and at discipline scope
-# the previous rotation's handoff, as the claims reconcile re-checks.
+# the previous rotation's reasoning, as the claims reconcile re-checks.
 #
 # Reconcile never parses a record body itself. The run's record is the one
-# the start states found (coord-log.sh run-facts); its body is read live and
-# parsed by the record feature's record-parse.sh, the same codec every record
-# script uses. Which candidate is the record, and whether its author and last
-# editor may write to the host, were settled by record_find before reconcile
-# runs; this script inherits that and never looks at another candidate.
+# the start states found (coord-log.sh run-facts), held in the run's koto
+# session; it is read live through record-source.sh and parsed by the record
+# feature's record-parse.sh, the same codec every record script uses.
 #
 # Usage:
 #   reconcile-read.sh --session S [--reasoning-out FILE]
-#   reconcile-read.sh --scope roadmap|discipline --name N --repo O/R --ref N
+#   reconcile-read.sh --scope roadmap|discipline --name N --repo O/R
 #                     [--reasoning-out FILE]                         (tests)
+#
+# The override flags are for tests, which name the session holding the record
+# in RS_SESSION.
 #
 # Output, exit 0: one JSON object --
 #   {status: "found", scope: {kind, name, repo}, record: {written, source:
-#    "record" | "record and handoff", handoff_date, import: null |
+#    "record", handoff_date: null, import: null |
 #    {source_workspace, source_session, template_hash}}, holdings: [{row,
 #    source}], deferrals: [{row, source}], side_effects: [{row, source}],
 #    decisions: [{decision, question, recommendation, reason, target}] (the
 #    escalated entries), unparseable: [{raw, reason}],
 #    reasoning: null | "present" | "not_recorded" | "absent"}
-# Rows keep the record's own keys. At discipline scope the handoff's rows
-# follow the record's own with source "handoff", except rows the record
-# already carries (the same worker; the same deferral raised at the same
-# time; the same side effect attempted at the same time). The handoff's
-# reasoning, when present, is written verbatim to --reasoning-out; a
-# predecessor copy, an empty or missing section, or the record feature's
-# fixed not-recorded sentence is "not_recorded", and nothing here ever
-# writes reasoning on the predecessor's behalf.
+# Rows keep the record's own keys, each with source "record". At discipline
+# scope the predecessor's reasoning is read from the predecessor's session
+# (this rotation's record/rotation names it): its record/reasoning, written
+# verbatim to --reasoning-out when present; "not_recorded" when it is empty or
+# the predecessor never wrote one; "absent" for a rotation with no
+# predecessor. Nothing here ever writes reasoning on the predecessor's behalf.
+# A predecessor's rows came across in the carry (record-open.sh --carry), so
+# they are the record's own.
 #
 # A body the record feature's parser doesn't take as canonical, or refuses
 # for one row, is read row by row (reconcile-salvage.jq, over that feature's
@@ -40,20 +41,15 @@
 #
 # Refusals print {status, reason} and exit:
 #   3  none        the run has no found record
-#   4  unreadable  the body isn't a record of this scope, the record is no
-#                  longer open, or the handoff isn't a handoff for this
-#                  discipline on this host
+#   4  unreadable  the body isn't a record of this scope
 #   5  failed      a read failed or ran past its deadline (the reason says
 #                  which)
 #   64 usage
-# Two candidates and an undeclared candidate never reach this script:
-# record_find refuses them before the run reaches reconcile.
 #
-# Reads: coord-log.sh run-facts; gh issue view / gh pr view --json
-# state,body; gh api repos/R (default branch) and the handoff file raw from
-# the contents API.
+# Reads: coord-log.sh run-facts; the record, its host facts and the
+# predecessor's reasoning through record-source.sh. Nothing on GitHub.
 #
-# Requires: bash 3.2+, jq, gh.
+# Requires: bash 3.2+, jq, koto.
 set -uo pipefail
 
 PROG=reconcile-read
@@ -69,7 +65,7 @@ usage() {
     exit 64
 }
 
-SESSION="" SCOPE="" NAME="" REPO="" REF="" REASONING_OUT=""
+SESSION="" SCOPE="" NAME="" REPO="" REASONING_OUT=""
 while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
     case "$1" in
@@ -77,7 +73,6 @@ while [ $# -gt 0 ]; do
         --scope) SCOPE=$2 ;;
         --name) NAME=$2 ;;
         --repo) REPO=$2 ;;
-        --ref) REF=$2 ;;
         --reasoning-out) REASONING_OUT=$2 ;;
         *) usage ;;
     esac
@@ -96,10 +91,11 @@ trap 'rm -rf "$T"' EXIT
 # read. If it can't be opened, every read returns 125 and reads as failed.
 rd_idle "$T"
 
-# The run's facts: from the session, or all four override flags in tests.
-if [ -n "$SCOPE$NAME$REPO$REF" ]; then
-    [ -n "$SCOPE" ] && [ -n "$NAME" ] && [ -n "$REPO" ] && [ -n "$REF" ] || usage
+# The run's facts: from the session, or all three override flags in tests.
+if [ -n "$SCOPE$NAME$REPO" ]; then
+    [ -n "$SCOPE" ] && [ -n "$NAME" ] && [ -n "$REPO" ] || usage
     [ -z "$SESSION" ] || usage
+    RS=${RS_SESSION:-}
 else
     [ -n "$SESSION" ] || usage
     FACTS=$(rd_deadline "$DEADLINE" "$RD_COORD_LOG" run-facts --session "$SESSION" 2>/dev/null)
@@ -112,35 +108,35 @@ else
     SCOPE=$(printf '%s' "$FACTS" | jq -r '.scope // empty' 2>/dev/null)
     NAME=$(printf '%s' "$FACTS" | jq -r '.name // empty' 2>/dev/null)
     REPO=$(printf '%s' "$FACTS" | jq -r '.repo // empty' 2>/dev/null)
-    REF=$(printf '%s' "$FACTS" | jq -r '.ref // empty' 2>/dev/null)
+    RS=$SESSION
 fi
-case "$SCOPE" in roadmap) CONTAINER=issue ;; discipline) CONTAINER=pr ;; *) refuse 5 failed "the run's scope is unreadable" ;; esac
+case "$SCOPE" in roadmap|discipline) ;; *) refuse 5 failed "the run's scope is unreadable" ;; esac
 [[ $NAME =~ ^[A-Za-z0-9._-]+$ ]] || refuse 5 failed "the run's scope name is unreadable"
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
-# A discipline rotation on the session store has no record number: its record
-# is the run's session.
-SESSION_ROTATION=0
-if [ -z "$REF" ] && [ "$SCOPE" = discipline ] && [ -n "$SESSION" ] && [ "$(rs_source)" = session ]; then
-    SESSION_ROTATION=1
-    # Its body is the one the session store renders: no pull request prefix.
-    CONTAINER=issue
-else
-    rd_valid_number "$REF" || refuse 5 failed "the run's record number is unreadable"
-fi
+[ -n "$RS" ] || refuse 5 failed "no session holds the record"
 
-# The body, live, through the seam (record-source.sh's rs_view), under this
-# reader's own deadline; this reader keeps its row-by-row salvage of a body the
-# codec refuses, which only a GitHub body a person can edit by hand ever needs.
-# A record that is no longer open isn't this run's record.
-rd_deadline "$DEADLINE" rs_view "$CONTAINER" "$REF" "$REPO" --json state,body > "$T/view.json" 2>/dev/null
+# The body through the seam (record-source.sh), under this reader's own
+# deadline: rs_record, so a pass that began the step's one read
+# (rs_once_begin) shares it with the settle and the legs classification. This
+# reader keeps its row-by-row salvage of a body the codec refuses: rs_record's
+# own parse is taken when it read the body as canonical (its code in
+# $T/rec.rc), and only a body it refused (3 or 65, its raw body still read) is
+# parsed again below, so a good body is parsed once.
+session_view() {
+    local rc
+    RS_SESSION=$RS rs_record "$T/rec" json; rc=$?
+    case $rc in 0|3|65) [ -s "$T/rec.raw" ] || return 5 ;; *) return $rc ;; esac
+    echo "$rc" > "$T/rec.rc"
+    cat "$T/rec.raw"
+}
+rd_deadline "$DEADLINE" session_view > "$T/view.json" 2>/dev/null
 case $? in
     0) ;;
     124) refuse 5 failed "reading the record timed out" ;;
     *) refuse 5 failed "the record could not be read" ;;
 esac
-jq -e '(.state | type) == "string" and (.body | type) == "string"' "$T/view.json" >/dev/null 2>&1 \
+jq -e '(.body | type) == "string"' "$T/view.json" >/dev/null 2>&1 \
     || refuse 5 failed "the record's response is unreadable"
-[ "$(jq -r .state "$T/view.json")" = OPEN ] || refuse 4 unreadable "the record is no longer open"
 jq -j .body "$T/view.json" > "$T/body.md"
 
 # codec_program EXPR -- a jq program file: the record feature's codec, the
@@ -162,7 +158,7 @@ codec_program() {
 # structure); 1 the parser itself failed.
 parse() {
     local fmt=$1 in=$2 out=$3 rc fn line body got
-    "$RD_RECORD_PARSE" --format "$fmt" --container "$CONTAINER" --expect-scope "$SCOPE:$NAME" "$in" > "$out" 2> "$out.err"
+    "$RD_RECORD_PARSE" --format "$fmt" --container issue --expect-scope "$SCOPE:$NAME" "$in" > "$out" 2> "$out.err"
     rc=$?
     if [ "$rc" -eq 0 ]; then
         jq -c '. + {unparseable: []}' "$out" > "$out.t" && mv "$out.t" "$out" || return 1
@@ -179,7 +175,6 @@ parse() {
     # No codec beside this script is a broken install, not a bad record.
     [ -f "$RD_HERE/record-codec.jq" ] || return 1
     fn=salvage_record
-    [ "$fmt" = handoff ] && fn=salvage_handoff
     jq -R -s -c -f "$(codec_program "$fn")" < "$in" > "$out" 2>/dev/null || return 65
     got=$(jq -r '.scope.kind + ":" + .scope.name' "$out")
     [ "$got" = "$SCOPE:$NAME" ] || return 65
@@ -201,7 +196,11 @@ parse() {
     return 0
 }
 
-parse record "$T/body.md" "$T/record.json"
+if [ "$(cat "$T/rec.rc" 2> /dev/null)" = 0 ]; then
+    jq -c '. + {unparseable: []}' "$T/rec" > "$T/record.json"
+else
+    parse record "$T/body.md" "$T/record.json"
+fi
 case $? in
     0) ;;
     65) refuse 4 unreadable "the body isn't a coordinator record for this scope" ;;
@@ -209,147 +208,72 @@ case $? in
 esac
 
 # Where an imported record's state came from (PRD R14): record/host's import
-# facts, on the session store only. A run that was never imported has none.
+# facts. A run that was never imported has none.
 IMPORT=null
-if [ -n "$SESSION" ] && [ "$(rs_source)" = session ]; then
+if [ -n "$SESSION" ]; then
     rs_host "$SESSION" "$T/host" || refuse 5 failed "the record's host facts could not be read"
     IMPORT=$(jq -c 'if (.source_session // "") == "" then null
         else {source_workspace: (.source_workspace // ""), source_session, template_hash: (.template_hash // "")} end' "$T/host") \
         || refuse 5 failed "the record's host facts are unreadable"
 fi
 
-# The handoff, at discipline scope: the file the previous rotation
-# committed, on the host's default branch.
-HANDOFF=null
+# The predecessor's reasoning, at discipline scope: the previous rotation's
+# session, which this rotation's record/rotation names, holds it in
+# record/reasoning; present, or not_recorded when it never closed. With no
+# predecessor the reasoning is absent.
 REASONING=null
 # A reasoning file from an earlier read is not left to be taken as this one.
 [ -n "$REASONING_OUT" ] && [ -f "$REASONING_OUT" ] && rm -f "$REASONING_OUT"
-# A rotation on the session store reads its predecessor's reasoning from the
-# predecessor's session (record/rotation names it): its record/reasoning,
-# present, or not_recorded when it never closed. Its rows came across in the
-# carry, so the predecessor adds none here. Only the one-time bridge from a
-# rotation that ran on GitHub (this run's carry report,
-# coord/predecessor_carry.json, names `handoff:<sha>`) reads the committed file,
-# below; with neither the reasoning is absent.
-READ_FILE=1
-if [ "$SESSION_ROTATION" = 1 ]; then
-    READ_FILE=0
-    rs_key "$SESSION" coord/predecessor_carry.json "$T/carry-report"
+if [ "$SCOPE" = discipline ]; then
+    REASONING='"absent"'
+    rs_rotation "$RS" "$T/rotation"
     case $? in
-        0) case "$(jq -r '.predecessor // ""' "$T/carry-report")" in handoff:*) READ_FILE=1 ;; esac ;;
-        1) ;;
-        *) refuse 5 failed "this run's carry report could not be read" ;;
+        0) PRED=$(jq -r '.predecessor // ""' "$T/rotation") ;;
+        1) PRED= ;;
+        *) refuse 5 failed "the rotation's window (record/rotation) could not be read" ;;
     esac
-    if [ "$READ_FILE" = 0 ]; then
-        REASONING='"absent"'
-        rs_rotation "$SESSION" "$T/rotation"
+    if [ -n "$PRED" ]; then
+        rs_reasoning "$PRED" "$T/reasoning"
         case $? in
-            0) PRED=$(jq -r '.predecessor // ""' "$T/rotation") ;;
-            1) PRED= ;;
-            *) refuse 5 failed "the rotation's window (record/rotation) could not be read" ;;
+            0) if jq -e 'gsub("^\\s+|\\s+$"; "") == ""' "$T/reasoning" > /dev/null; then
+                   REASONING='"not_recorded"'
+               else
+                   REASONING='"present"'
+                   if [ -n "$REASONING_OUT" ]; then
+                       jq -j . "$T/reasoning" > "$REASONING_OUT" || refuse 5 failed "the reasoning could not be written"
+                   fi
+               fi ;;
+            1) REASONING='"not_recorded"' ;;
+            *) refuse 5 failed "the predecessor's reasoning (record/reasoning) could not be read" ;;
         esac
-        if [ -n "$PRED" ]; then
-            rs_reasoning "$PRED" "$T/reasoning"
-            case $? in
-                0) if jq -e 'gsub("^\\s+|\\s+$"; "") == ""' "$T/reasoning" > /dev/null; then
-                       REASONING='"not_recorded"'
-                   else
-                       REASONING='"present"'
-                       if [ -n "$REASONING_OUT" ]; then
-                           jq -j . "$T/reasoning" > "$REASONING_OUT" || refuse 5 failed "the reasoning could not be written"
-                       fi
-                   fi ;;
-                1) REASONING='"not_recorded"' ;;
-                *) refuse 5 failed "the predecessor's reasoning (record/reasoning) could not be read" ;;
-            esac
-        fi
-    fi
-fi
-if [ "$SCOPE" = discipline ] && [ "$READ_FILE" = 1 ]; then
-    DEF=$(rd_deadline "$DEADLINE" gh api "repos/$REPO" --jq .default_branch 2>/dev/null)
-    case $? in
-        0) ;;
-        124) refuse 5 failed "reading the host's default branch timed out" ;;
-        *) refuse 5 failed "the host's default branch could not be read" ;;
-    esac
-    rd_valid_branch "$DEF" || refuse 5 failed "the host's default branch is unreadable"
-    out=$(rd_deadline "$DEADLINE" gh api -H "Accept: application/vnd.github.raw" \
-            "repos/$REPO/contents/docs/disciplines/$NAME.md?ref=$DEF" 2> "$T/h.err" > "$T/handoff.md"; echo $?)
-    if [ "$out" = 0 ]; then
-        parse handoff "$T/handoff.md" "$T/handoff.json"
-        case $? in
-            0) ;;
-            65) refuse 4 unreadable "the handoff file isn't a handoff for this discipline" ;;
-            *) refuse 5 failed "the handoff could not be parsed" ;;
-        esac
-        [ "$(jq -r '.rotation.host_repo | ascii_downcase' "$T/handoff.json")" = "$(printf '%s' "$REPO" | tr 'A-Z' 'a-z')" ] \
-            || refuse 4 unreadable "the handoff names another host repository"
-        HANDOFF=$(cat "$T/handoff.json")
-        # The predecessor's reasoning, verbatim, or its absence. A predecessor
-        # copy, an empty or missing section, and the record feature's fixed
-        # not-recorded sentence all read as not recorded.
-        SENTENCE=$(jq -n -r -f "$(codec_program predecessor_sentence)" 2>/dev/null) \
-            || refuse 5 failed "the record feature's codec could not be read"
-        if jq -e --arg s "$SENTENCE" 'has("predecessor_copy") or ((.reasoning // "") | test("^\\s*$"))
-                or ((.reasoning // "") | gsub("^\\s+|\\s+$"; "") == $s)' "$T/handoff.json" >/dev/null 2>&1; then
-            REASONING='"not_recorded"'
-        else
-            REASONING='"present"'
-            if [ -n "$REASONING_OUT" ]; then
-                jq -j .reasoning "$T/handoff.json" > "$REASONING_OUT" || refuse 5 failed "the reasoning could not be written"
-            fi
-        fi
-    elif grep -q 'HTTP 404' "$T/h.err"; then
-        REASONING='"absent"'
-    elif [ "$out" = 124 ]; then
-        refuse 5 failed "reading the handoff timed out"
-    else
-        refuse 5 failed "the handoff could not be read"
     fi
 fi
 
-# The handoff's rows follow the record's own, each labelled with its source.
-# A handoff row the record already carries (the same worker, the same
-# deferral raised at the same time, the same side effect attempted at the
-# same time) is the record's, and is not listed twice.
-jq -c --arg repo "$REPO" --argjson handoff "$HANDOFF" --argjson reasoning "$REASONING" --argjson import "$IMPORT" '
+# The record's rows, each labelled with its source.
+jq -c --arg repo "$REPO" --argjson reasoning "$REASONING" --argjson import "$IMPORT" '
     def labelled($rows; $src): [$rows[] | {row: ., source: $src}];
-    def add_new($mine; $theirs; key):
-        ([$mine[] | key]) as $seen
-        | labelled($mine; "record") + labelled([$theirs[] | select((key) as $k | ($seen | index([$k])) == null)]; "handoff");
     # Every string that leaves this script is free of control characters
     # other than the newline and tab a cell may hold (the codec writes a
-    # newline as <br>); a hand-edited body can carry any byte.
+    # newline as <br>).
     def clean: if type == "string" then gsub("[\u0000-\u0008\u000b-\u001f\u007f]"; "")
                elif type == "object" then map_values(clean)
                elif type == "array" then map(clean) else . end;
-    # The heading date is judged as written, before any stripping.
-    (($handoff // {}).rotation.date // null) as $rawdate
-    | ($handoff // {} | clean) as $h
-    | clean
-    | (if $rawdate == null then null
-       elif ($rawdate | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $rawdate
-       else ($rawdate | gsub("[\u0000-\u001f\u007f]"; "") | if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . + " (edited)" else . end) end) as $d
+    clean
     | ((.written // "") | gsub("^\\s+|\\s+$"; "")) as $wr
     | ($wr | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) as $wok
     | .unparseable += (if $wok then [] else [{raw: $wr, reason: "the Written: line is not YYYY-MM-DDTHH:MM:SSZ"}] end)
     | {status: "found",
        scope: {kind: .scope.kind, name: .scope.name, repo: $repo},
-       record: {written: (if $wok then $wr else null end),
-                source: (if $handoff == null then "record" else "record and handoff" end),
-                handoff_date: (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then $d else null end),
+       record: {written: (if $wok then $wr else null end), source: "record", handoff_date: null,
                 import: ($import | clean)},
-       holdings: add_new(.holdings; ($h.holdings // []); [.worker, .unit]),
-       deferrals: add_new(.deferrals; ($h.deferrals // []); [.deferral, .raised]),
-       side_effects: add_new(.side_effects; ($h.side_effects // []); [.action, .target, .attempted]),
+       holdings: labelled(.holdings; "record"),
+       deferrals: labelled(.deferrals; "record"),
+       side_effects: labelled(.side_effects; "record"),
        # The escalated entries, the only decisions that wait on anyone outside
-       # this run; a handoff entry the record does not carry yet counts too.
-       decisions: ([(.decisions.entries // [])[], ($h.decisions.entries // [])[]]
+       # this run.
+       decisions: ([(.decisions.entries // [])[]]
                    | unique_by(.decision) | map(select(.state == "escalated")
                    | {decision, question, recommendation: (.recommendation // ""), reason: (.reason // ""), target: (.target // "")})),
-       unparseable: (.unparseable
-                     + [($h.unparseable // [])[] | .reason = "handoff: " + .reason]
-                     + (if $d != null and ($d | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not)
-                        then [{raw: $d, reason: "handoff: its heading date is not YYYY-MM-DD"}] else [] end)),
+       unparseable: .unparseable,
        reasoning: $reasoning}' "$T/record.json" \
     || refuse 5 failed "the record could not be assembled"

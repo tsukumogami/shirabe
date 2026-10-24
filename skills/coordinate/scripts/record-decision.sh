@@ -10,19 +10,20 @@
 #   record-decision.sh --session S --list        print the section
 #   record-decision.sh --session S --read N      print entry N
 #   record-decision.sh --session S <write mode>
-#   ... [--scope roadmap|discipline --name N --repo O/R --ref N]   (tests; reads only)
+#   ... [--scope roadmap|discipline --name N --repo O/R]   (tests; reads only)
 #
-# The session gives the scope, name, host and record number (coord-log.sh
-# vars and run-facts; a discipline rotation on the session store has none); the
-# override flags exist for tests of the read modes.
+# The session gives the scope, name and host (coord-log.sh vars), and must
+# have a found record (coord-log.sh run-facts); the override flags exist for
+# tests of the read modes, with RS_SESSION naming the session that holds it.
 #
 # The write modes, each bound to the state the session is in (coord-log.sh
 # current) and, where it has one, to the entry the workflow routed:
 #
 #   --carry                                        decision_carry
-#       Copies the previous rotation's handoff (docs/disciplines/<name>.md on
-#       the default branch) into this record: its unsettled entries and its
-#       Next decision. Refused after the run's first dispatch, and when every
+#       Copies the previous rotation's Decisions (the session this rotation's
+#       record/rotation names as its predecessor) into this record: its
+#       unsettled entries and its Next decision. Refused after the run's first
+#       dispatch, for a rotation that names no predecessor, and when every
 #       entry is already here.
 #   --open --question Q --option O [--option O]... [--source self|dispatcher]
 #                                                  decision_raise
@@ -117,33 +118,33 @@
 # a bracket, which could forge the stamp after it. A write that frees the one escalated slot
 # releases the queued escalation with the lowest identifier, or clears its
 # verdict when it no longer passes. On every write but --carry (which copies
-# the handoff as it stands), every settled entry that owes nothing, other
+# the predecessor's entries as they stand), every settled entry that owes nothing, other
 # than the one this write changed, is compacted (the codec's
 # compact_settled), keeping the Evidence lines stamped by this run for as long
 # as the run lasts. The body
 # is written through record-write-core.sh with the Decisions section opened
-# (DECISIONS_WRITER=1), which re-reads the record, compares its Written: line
+# (DECISIONS_WRITER=1), which re-reads the record, compares its written time
 # and checks provenance, visibility and the size budget.
 #
-# Exit codes: 0 printed, or written (prints the record's URL); 1 no entry N
-# (--read only); 2 a read failed; 10 refused (not a canonical open record of
-# this scope, provenance, a directed transition); 11 the write failed; 12 the
+# Exit codes: 0 printed, or written (prints the session holding the record);
+# 1 no entry N (--read only); 2 a read failed; 10 refused (no found record, not
+# a canonical record of this scope, provenance, a directed transition); 11 the
+# write failed; 12 the
 # record changed since it was read (run it again); 13 record-full: the body
 # is over the size budget; 64 usage; 65 refused: a transition the table
 # doesn't list, a missing verdict part, a mode run outside its state, a stamp
 # already written, or the body refused.
 #
-# GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
-# --json body; gh api repos/R (the default branch) and its contents (the
-# handoff, for --carry). Writes happen only in record-write-core.sh.
+# The record, and for --carry the predecessor's, is read through
+# record-source.sh; writes happen only in record-write-core.sh.
 set -uo pipefail
 
 PROG=record-decision
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= MODE= ENTRY=
+SESSION= SCOPE= NAME= REPO= MODE= ENTRY=
 Q= SRC= TEXTF= TEXT= OUTC= REASON= REC= CTX= PROB= GROUNDS= FINAL= ROUTE=
 OPTS=()
-SKIP_CHECKS=0 BODY= END= CLOSE=0
+SKIP_CHECKS=0 BODY=
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 mode() { [ -z "$MODE" ] || usage; MODE=$1; }
@@ -153,7 +154,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --list) mode list; shift ;;
         --read) [ $# -ge 2 ] || usage; mode read; ENTRY=$2; shift 2 ;;
         --carry|--open|--open-from-report|--take|--settle|--escalate|--hold|--evidence|--answer|--sent|--archive) mode "${1#--}"; shift ;;
@@ -177,22 +177,11 @@ case "$MODE" in
     list) ;;
     read) [[ $ENTRY =~ ^[1-9][0-9]*$ ]] || usage ;;
     '') usage ;;
-    *) [ -z "$SCOPE$NAME$REPO$REF" ] || { echo "$PROG: the write modes take no override flags" >&2; exit 64; } ;;
+    *) [ -z "$SCOPE$NAME$REPO" ] || { echo "$PROG: the write modes take no override flags" >&2; exit 64; } ;;
 esac
 . "$HERE/record-common.sh"
 lib_facts
-if [ "$OVERRIDE" = 1 ]; then
-    [ -n "$REF" ] || lib_session_rotation || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
-else
-    [ -z "$REF" ] || usage
-    FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION")
-    case $? in
-        0) REF=$(printf '%s' "$FACTS" | jq -r '.ref') ;;
-        1) echo "$PROG: refused: the run has no found record" >&2; exit 10 ;;
-        *) lib_die2 "cannot read the run's facts" ;;
-    esac
-fi
-lib_ref_ok || usage
+lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-decision.XXXXXX") || lib_die2 "cannot make a temporary directory"
 # The write core takes over the EXIT trap; CORE_CLEANUP has it remove this too.
@@ -202,11 +191,11 @@ trap 'rm -rf "$WD"' EXIT
 # read_live: the live body, parsed canonically into $WD/parsed.json.
 read_live() {
     local rc
-    rs_record "$WD/parsed.json" body --json body --jq .body
+    rs_record "$WD/parsed.json" body
     rc=$?
     case $rc in
         2) lib_scrub < "$WD/parsed.json.err" >&2; echo >&2
-           [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
+           lib_die2 "cannot read the record" ;;
         4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
         12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     esac
@@ -220,7 +209,7 @@ read_live() {
     esac
     case $rc in
         0) ;;
-        3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+        3|65) echo "$PROG: refused: $(lib_record_name) is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
         *) lib_die2 "record-parse.sh failed" ;;
     esac
 }
@@ -354,7 +343,7 @@ change() {
 # write: the section into the record, through the write core.
 write() {
     jq --slurpfile d "$WD/section.json" '.decisions = $d[0] | del(.written)' "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
-    bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.written' "$WD/parsed.json")" "$WD/next.json" \
+    bash "$HERE/record-render.sh" --container issue --written "$(jq -r '.written' "$WD/parsed.json")" "$WD/next.json" \
         > "$WD/body.md" 2> "$WD/render.err" || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
     BODY="$WD/body.md"
     . "$HERE/record-write-core.sh"
@@ -390,18 +379,23 @@ restore() {
 
 case "$MODE" in
 carry)
-    [ "$SCOPE" = discipline ] || refuse "only a discipline rotation carries a handoff"
+    [ "$SCOPE" = discipline ] || refuse "only a discipline rotation carries its predecessor's decisions"
     lib_dispatched && refuse "the run has dispatched; a carry comes before the first dispatch"
-    lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-    lib_file_at "docs/disciplines/$NAME.md" "$DEFAULT_BRANCH" "$WD/handoff.md"
-    case $? in 0) ;; 1) refuse "no handoff at docs/disciplines/$NAME.md" ;; *) lib_die2 "cannot read the handoff" ;; esac
-    bash "$HERE/record-parse.sh" --format handoff "$WD/handoff.md" > "$WD/handoff.json" 2> "$WD/handoff.err" \
-        || { lib_scrub < "$WD/handoff.err" >&2; echo >&2; refuse "the handoff isn't canonical"; }
+    rs_rotation "${RS_SESSION:-$SESSION}" "$WD/rotation.json"
+    case $? in 0) ;; 1) refuse "this rotation holds no record/rotation, so it names no predecessor" ;; *) lib_die2 "cannot read record/rotation" ;; esac
+    PRED=$(jq -r '.predecessor // ""' "$WD/rotation.json")
+    [ -n "$PRED" ] || refuse "this rotation names no predecessor"
+    rs_session_state "$PRED" "$WD/pred.json"
+    case $? in
+        0) ;;
+        4|12) refuse "$PRED holds no readable record: $(lib_scrub < "$WD/pred.json.err" | head -1)" ;;
+        *) lib_die2 "cannot read $PRED's record: $(lib_scrub < "$WD/pred.json.err" | head -1)" ;;
+    esac
     change '. as $s | ($h[0].decisions // {next: 1, entries: []}) as $hd
       | ([$hd.entries[] | select(.state != "settled") | select(.decision as $d | all($s.entries[]; .decision != $d))]) as $add
-      | if ($add | length) == 0 and $hd.next <= $s.next then error("every entry of the handoff is already here") else . end
+      | if ($add | length) == 0 and $hd.next <= $s.next then error("every entry of the predecessor is already here") else . end
       | .entries += $add | .entries |= sort_by(.decision | tonumber) | .next = ([.next, $hd.next] | max)' \
-        --slurpfile h "$WD/handoff.json"
+        --slurpfile h "$WD/pred.json"
     write ;;
 open)
     [ -n "$Q" ] && [ ${#OPTS[@]} -gt 0 ] || refuse "an entry needs a question and its options"

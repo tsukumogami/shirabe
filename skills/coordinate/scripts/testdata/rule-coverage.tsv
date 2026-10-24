@@ -11,7 +11,15 @@
 # A fifth column marks a rule the koto design changed on purpose.
 # A `# lost:` line names rules with no carrier yet; the test reports them and
 # counts them toward completeness, and each gets a row once its text lands.
+# A `# retired:` line names rules whose behaviour was removed on purpose, with
+# the reason after ` -- `; they need no carrier and count toward completeness.
 # Checked by skills/coordinate/scripts/rule-coverage_test.sh.
+# retired: C139 C140 C141 C142 C143 C144 -- the find no longer searches GitHub for a record issue or a rotation pull request, so the title, the declaration line, several candidates and a predecessor left open are gone
+# retired: C145 C146 C171 -- a rotation opens no branch and no pull request, so there is no branch to cut or re-cut and no title to correct
+# retired: C172 C173 -- no successor renders a handoff for a predecessor; it carries the predecessor's session
+# retired: C150 C167 -- there is no record pull request body and no committed handoff file, so neither header is written
+# retired: S5 S6 -- no record moves from GitHub onto the session; the opener imports a legacy record once
+# retired: S1 S3 -- there is no choice of store: the session is the only one, and no `store` row is written
 C1	skills/coordinate/SKILL.md	-	--discipline <name> --host <owner/repo>` runs one
 C2	skills/coordinate/koto-templates/coordinate.md	start	It is never an instruction for how to coordinate
 C3	skills/coordinate/koto-templates/coordinate.md	start	**A roadmap scope must be Active.**
@@ -39,14 +47,14 @@ C24	skills/coordinate/koto-templates/coordinate.md	pick	An active worker is one 
 C25	skills/coordinate/koto-templates/coordinate.md	surface	A parked worker is one with a verified, ready pull request
 C26	skills/coordinate/koto-templates/coordinate.md	quiet_check	A worker is quiet when neither a message nor a push
 C27	skills/coordinate/koto-templates/coordinate.md	quiet_check	One silent check earns a status message	changed: stalled is no longer a named state; quiet-check.sh counts silent checks from the session log
-C28	skills/coordinate/koto-templates/coordinate.md	-	returns through `record`, whose check confirms the change on	changed: the seven prose steps became a koto state graph with wait as a hub
+C28	skills/coordinate/koto-templates/coordinate.md	-	whose check confirms the change in the	changed: the seven prose steps became a koto state graph with wait as a hub
 C29	skills/coordinate/koto-templates/coordinate.md	decision_apply	A new decision takes effect at the start of the next turn
 C30	skills/coordinate/koto-templates/coordinate.md	reconcile	reconcile runs at every start and restart
 C31	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Treat every claim in the record as a snapshot	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C32	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Re-check each against GitHub (pull request state	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C33	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	record and GitHub disagree, GitHub wins	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C34	skills/coordinate/koto-templates/coordinate.md	reconcile	Report three things: what changed since the record
-C35	skills/coordinate/koto-templates/coordinate.md	record_find	Finding this scope's record on GitHub.	changed: finding and opening the record are their own states (record_find, record_open) that run before reconcile
+C35	skills/coordinate/koto-templates/coordinate.md	record_find	Finding this scope's record in this host's coordinator	changed: finding and opening the record are their own states (record_find, record_open) that run before reconcile
 C36	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	hand the reads to a local agent when there are more	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C37	skills/coordinate/references/loop.md	-	## A Full Reconcile, in Order
 C38	skills/coordinate/references/loop.md	-	For a roadmap, read its Features section from the
@@ -148,18 +156,9 @@ C135	skills/coordinate/koto-templates/coordinate.md	record	never write a fact Gi
 C136	skills/coordinate/references/record-template.md	-	The renderer refuses a Worker cell holding anything
 C137	skills/coordinate/koto-templates/coordinate.md	record	it never names a private
 C138	skills/coordinate/koto-templates/coordinate.md	record	Quoted material such as a CI log line goes in a cell	changed: quoted text goes in a table cell, encoded by the renderer, instead of a fence
-C139	skills/coordinate/koto-templates/coordinate.md	record_find	`Coordinator record: ROADMAP-<name>` in the roadmap's
-C140	skills/coordinate/koto-templates/coordinate.md	record_find	a draft pull request from `coordinate/discipline-<name>`
-C141	skills/coordinate/scripts/record-find.sh	-	matched on the exact title	changed: the hand-run gh issue list and jq match became record-find.sh
-C142	skills/coordinate/koto-templates/coordinate.md	record_find	a title match without the declaration line, several matches	changed: record-find.sh routes the three outcomes to found, record_open or record_conflict
-C143	skills/coordinate/koto-templates/coordinate.md	record_find	the previous rotation's record still open past its end date	changed: record-find.sh reads the rotation's dates and routes to the predecessor close-out states
-C144	skills/coordinate/koto-templates/coordinate.md	record_conflict	isn't a record is a scope question
-C145	skills/coordinate/scripts/record-open.sh	-	refused unless --recut, which deletes the remote ref	changed: deleting and re-cutting a stale branch is record-open.sh --recut, which no discipline find routes to now
-C146	skills/coordinate/scripts/record-open.sh	-	default branch's head with one empty commit	changed: cutting the branch, the empty commit and the draft pull request are record-open.sh
 C147	skills/coordinate/koto-templates/coordinate.md	record_open	the start plus `{{ROTATION_DAYS}}` days
-C148	skills/coordinate/references/record-template.md	-	edit the end date to match in the same update
+C148	skills/coordinate/references/record-template.md	-	tick the hub with `event: end`	changed: a rotation has no pull request title; the human ending it early is the hub event `end`
 C149	skills/coordinate/koto-templates/coordinate.md	record_open	--body-file <body.md>
-C150	skills/coordinate/references/record-template.md	-	starts with the fixed Part 1 line and a single `---`	changed: the renderer writes Part 1 itself (--container pr) instead of the author following pr-body-conformance.md
 C151	skills/coordinate/references/record-template.md	-	> This is a **coordinator record** for
 C152	skills/coordinate/references/record-template.md	-	| Unit | Entry point | Mode | Phase | Dispatch status |	changed: Holdings gained Phase, Dispatch status and Return path columns
 C153	skills/coordinate/references/record-template.md	-	| Deferral | Reason | Raised | Disposition |	changed: Deferrals gained a Disposition column that the dispatch check reads
@@ -175,15 +174,11 @@ C162	skills/coordinate/koto-templates/coordinate.md	decision_apply	new one, the 
 C163	skills/coordinate/koto-templates/coordinate.md	dispatch_check	no deferral raised before	changed: deferral-check.sh refuses a dispatch while any inherited deferral lacks a disposition
 C164	skills/coordinate/koto-templates/coordinate.md	deferral_dispose	every open deferral, because nobody succeeds it.
 C165	skills/coordinate/koto-templates/coordinate.md	roadmap_close	feature Done or Dropped, no holdings, nothing in flight
-C166	skills/coordinate/references/record-template.md	-	discipline, overwritten each rotation.
-C167	skills/coordinate/references/record-template.md	-	Rotation from <start> to <end>. Host repository:
-C168	skills/coordinate/references/record-template.md	-	## Reasoning for the next rotation
-C169	skills/coordinate/koto-templates/coordinate.md	rotation_close	replacing the previous rotation's text, never appending
-C170	skills/coordinate/koto-templates/coordinate.md	rotation_close	At rotation end, write `docs/disciplines/<name>.md` fresh
-C171	skills/coordinate/koto-templates/coordinate.md	rotation_close	correct the title's end date if the rotation ended on
-C172	skills/coordinate/koto-templates/coordinate.md	predecessor_handoff	previous rotation at <its Written time>; not re-checked.
-C173	skills/coordinate/koto-templates/coordinate.md	predecessor_handoff	the outgoing rotation's reasoning was not recorded
-C174	skills/coordinate/koto-templates/coordinate.md	predecessor_handoff	Its open deferrals carry into your own record
+C166	skills/coordinate/references/record-template.md	-	Write it fresh each rotation; never append	changed: the reasoning for the next rotation is record/reasoning, written fresh each rotation, not a committed handoff file
+C168	skills/coordinate/koto-templates/coordinate.md	rotation_end	what this rotation learned that its tables can't say	changed: the reasoning for the next rotation is record/reasoning, not a section of a committed handoff file
+C169	skills/coordinate/koto-templates/coordinate.md	rotation_end	never appended to the previous one's	changed: the reasoning for the next rotation is written into record/reasoning, not a committed handoff file
+C170	skills/coordinate/koto-templates/coordinate.md	rotation_end	Write the reasoning for the next rotation	changed: the reasoning for the next rotation is written into record/reasoning, not a committed handoff file
+C174	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	The carry copies the predecessor's Holdings, Deferrals	changed: the carry copies the predecessor session's open deferrals; no handoff is rendered for it
 C175	skills/coordinate/SKILL.md	-	**It implements nothing.**
 C176	skills/coordinate/SKILL.md	-	**It doesn't spend its context on legwork.**
 C177	skills/coordinate/SKILL.md	-	**It doesn't go silent upward.**
@@ -193,7 +188,7 @@ C180	skills/coordinate/references/loop.md	-	rather than setting it yourself
 C181	skills/coordinate/SKILL.md	-	A rule whose justification
 C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
 C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
-C184	skills/coordinate/koto-templates/coordinate.md	record_open	Report the record's number or URL up with every report
+C184	skills/coordinate/koto-templates/coordinate.md	record_open	up as the record with every report	changed: the record is the session, so its name is what is reported up
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
 C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
 C187	skills/coordinate/SKILL.md	-	Both features this version named as later work have landed	changed: the dispatch path and mechanised reconcile both shipped
@@ -220,7 +215,7 @@ D14	skills/coordinate/koto-templates/coordinate.md	decision_next	Don't retry it 
 D15	skills/coordinate/SKILL.md	-	nothing blocks `wait`
 D16	skills/coordinate/scripts/progress-view.sh	-	a decision is raised as an entry
 M1	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	A milestone reads Done only on a verdict from you
-M2	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	An entry posted on the record changes nothing by itself
+M2	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	The entry changes nothing by itself
 M3	skills/coordinate/koto-templates/coordinate.md	classify_report	is classified `done` and goes to `roadmap_status`
 M4	skills/coordinate/koto-templates/coordinate.md	roadmap_status	On a milestone roadmap the script opens no
 M5	skills/coordinate/koto-templates/coordinate.md	pick	**Never a verdict-owed unit.**
@@ -239,13 +234,9 @@ M17	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reads blocke
 M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens nothing by itself
 M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
-S1	skills/coordinate/SKILL.md	-	only its owner moves it, by writing that row
 S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
-S3	skills/coordinate/references/record-template.md	-	a record without one is on GitHub, a
-S4	skills/coordinate/references/record-template.md	-	a write is refused, changing no key, from a run that isn
-S5	skills/coordinate/koto-templates/coordinate.md	record_move	the find acts
-S6	skills/coordinate/koto-templates/coordinate.md	record_move	a write to the GitHub body
-S7	skills/coordinate/SKILL.md	-	(`store-conflict`), and a koto without the session store
+S4	skills/coordinate/references/record-template.md	-	is refused, changing no key, from a run that isn
+S7	skills/coordinate/SKILL.md	-	anything opens (`store-unsupported`)	changed: the session is the only store, so a koto without its features is refused at the start
 S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
 S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
 S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
@@ -258,7 +249,7 @@ S16	skills/coordinate/SKILL.md	-	Every worker's leg is a key of the coordinator'
 S17	skills/coordinate/koto-templates/coordinate.md	reconcile	until each leg has an end (`leg-unclassified <worker>`)
 S18	skills/coordinate/koto-templates/coordinate.md	failure	--topic <its topic> --strand
 S19	skills/coordinate/koto-templates/coordinate.md	take_report	so it stands as a message report from `worker <topic>`
-S20	skills/coordinate/koto-templates/coordinate.md	record_find	the find reads this host's sessions
+S20	skills/coordinate/koto-templates/coordinate.md	record_find	the find also reads this host's sessions
 S21	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	the handover gate lists `carry-unacknowledged`
 S22	skills/coordinate/koto-templates/coordinate.md	rotation_end	Writing it closes the rotation
 S23	skills/coordinate/koto-templates/coordinate.md	record_open	the same command with `--start` and `--end` opens

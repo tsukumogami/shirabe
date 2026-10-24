@@ -52,6 +52,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 printf '#!/bin/sh\nGH_DB=${GH_DB:-%s} exec "%s" "$@"\n' "$GH_DB" "$HERE/testdata/gh" > "$T/bin/gh"
 # The workspace manager lists no worker on either host: the pass's host read
@@ -144,19 +145,20 @@ pr_add() { # pr_add <number> <branch>
 for n in 21 22 23 24 25 26; do pr_add "$n" "feat/w$n"; done
 
 echo "== host A: the run and its legs =="
-printf '["docs/roadmaps/ROADMAP-legs.md", "--store", "session"]' > "$T/args.json"
-S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
-[ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests legs-move-engine; exit 1; }
-ok "host A's run opens"
-PROBE=$(run record-source.sh --probe)
-if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
-    echo "koto lacks the session store's features ($PROBE); the move needs a newer koto"
+# A koto without the session store's features refuses every start, so there
+# is no run to move.
+if ! koto_store_ready; then
+    echo "koto lacks the session store's features; the move needs a newer koto"
     done_tests legs-move-engine
     exit $?
 fi
+printf '["docs/roadmaps/ROADMAP-legs.md"]' > "$T/args.json"
+S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+[ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests legs-move-engine; exit 1; }
+ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
 render "$(record_json roadmap legs)" issue > "$T/open.md"
-run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "the record opens on the session store" 0 $?
+run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 # leg <topic>: a request on A's store with one deliver leg pinning TOPIC, as

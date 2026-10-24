@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# record-append-on_test.sh -- record-append.sh --on, a session-store run's
+# record-append-on_test.sh -- record-append.sh --on, a run's
 # outward entry posted on the item it concerns
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2).
 #
@@ -23,8 +23,8 @@
 # the post; one by another login, an older one or one another entry already
 # claimed not standing in; a failed `gh api user` (2) posting nothing; an
 # entry posted elsewhere refused; and usage: a malformed --on, --on with
-# --list, with a kind that stays in the session, on the GitHub store, and
-# `--repost --on none`.
+# --list, with a kind that stays in the session, and `--repost --on none`.
+# The record is the session's; no record issue exists to read.
 #
 # Usage: bash skills/coordinate/scripts/record-append-on_test.sh
 set -uo pipefail
@@ -34,10 +34,9 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 RA="$HERE/record-append.sh"
 
-TITLE="Coordinator record: ROADMAP-plugin-system"
-RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7)
+RM=(--scope roadmap --name plugin-system --repo "$REPO")
 SE=coordinate-roadmap-plugin-system-20260926T150000Z
-SEN=(env RS_SOURCE=session RS_SESSION="$SE")
+SEN=(env RS_SESSION="$SE")
 pr() { # pr <repo> <n>: an open pull request
     db '.prs += [{repo: $r, number: $n, title: "x", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
         baseRefName: "main", headRefName: "feat/\($n)", headRefOid: "2222222222222222222222222222222222222222", author: "alice", editor: null}]' \
@@ -46,11 +45,10 @@ pr() { # pr <repo> <n>: an open pull request
 issue() { db '.issues += [{repo: $r, number: $n, title: "x", body: "", state: "open", author: "alice", editor: null}]' --arg r "$1" --argjson n "$2"; }
 seed() {
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]
-        | .repos["acme/tools"] = {private: false, default_branch: "main"} | .repos["other/place"] = {private: false, default_branch: "main"}' \
-        --arg t "$TITLE" --arg b "$(render "$(record_json roadmap plugin-system)" issue 2026-09-26T08:00:00Z)"
+    db '.repos["acme/tools"] = {private: false, default_branch: "main"} | .repos["other/place"] = {private: false, default_branch: "main"}'
     pr acme/widgets 12; pr acme/widgets 8; issue acme/widgets 5; issue acme/gadgets 4; pr acme/tools 9; issue acme/secret 3; issue other/place 1
     rm -rf "$KOTO_STORE/context/$SE"
+    seed_session "$SE" "$(record_json roadmap plugin-system)"
     # Two holdings: one in acme/gadgets, one whose pull request is in acme/tools.
     jq -nc --argjson a "$(holding feat-a '{"repo": "acme/gadgets"}')" \
         --argjson b "$(holding feat-b '{"pull_request": "[#9](https://github.com/acme/tools/pull/9)"}')" '[$a, $b]' \
@@ -77,7 +75,7 @@ eq "  ... and the text" "Cost of feat-a: 3 sessions." "$(printf '%s\n' "$B" | se
 eq "  ... on pull request 12" "12" "$(jq -r '.comments[0].number' "$GH_DB")"
 eq "  ... its URL kept" "https://github.com/acme/widgets/pull/12#issuecomment-1001" "$(posted 000001)"
 eq "  ... and the session entry written" "cost" "$(koto context get "$SE" record/entries/000001 | jq -r .kind)"
-grep -q 'issue view 7' "$GH_DB.calls" && bad "  ... the record issue never read" "$(calls)" || ok "  ... the record issue never read"
+grep -qE 'issue view|pr view' "$GH_DB.calls" && bad "  ... no record issue or pull request read" "$(calls)" || ok "  ... no record issue or pull request read"
 entry "Cost of an issue unit."
 O=$(ra --kind cost --on acme/widgets#5 --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
 eq "a cost entry is posted on an issue" "0 https://github.com/acme/widgets/issues/5#issuecomment-1002" "$rc $O"
@@ -208,7 +206,6 @@ ra --kind cost --on 'acme/wid gets#3' --text-file "$T/entry.txt" >/dev/null 2>&1
 ra --list --on acme/widgets#12 >/dev/null 2>&1; eq "--on with --list is a usage error" 64 $?
 ra --kind entry --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>&1; eq "--on with a kind that stays in the session is a usage error" 64 $?
 ra --repost 1 --on none >/dev/null 2>&1; eq "--repost --on none is a usage error" 64 $?
-bash "$RA" "${RM[@]}" --kind cost --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "--on on the GitHub store is a usage error" 64 $?
 eq "  ... nothing posted" 0 "$(ncomments)"
 
 done_tests record-append-on_test

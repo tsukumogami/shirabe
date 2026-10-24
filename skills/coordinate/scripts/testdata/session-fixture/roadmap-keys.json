@@ -1,0 +1,187 @@
+{
+  "coord/source.json": {
+    "probe": {
+      "context_list_prefix": true,
+      "session_import": true
+    },
+    "reason": "no record found: the run's store setting",
+    "source": "session"
+  },
+  "legs/req_7f3a91/deliver": {
+    "inputs": {
+      "TOPIC": "feat-1"
+    },
+    "leg": "deliver",
+    "request": "req_7f3a91",
+    "result": {
+      "final_state": "done",
+      "payload": {
+        "outcome": "ready",
+        "pr": "https://github.com/acme/widgets/pull/12"
+      },
+      "source": "promoted",
+      "status": "ok"
+    },
+    "state": "taken",
+    "templates": [
+      "deliver.md"
+    ],
+    "topic": "feat-1"
+  },
+  "record/decisions": {
+    "entries": [
+      {
+        "asked": "",
+        "context": "",
+        "decided_by": "",
+        "decision": "1",
+        "evidence": "",
+        "grounds": "",
+        "options": "ship -- the loader is ready\nwait -- the registry needs it",
+        "outcome": "",
+        "owed": "",
+        "problem": "",
+        "question": "Ship the loader before the registry?",
+        "reason": "",
+        "recommendation": "",
+        "round": "0",
+        "source": "self [20261018T140000Z raise 1]",
+        "state": "proposed",
+        "target": "",
+        "updated": "2026-10-18T14:05Z",
+        "verdict": ""
+      }
+    ],
+    "next": 2
+  },
+  "record/deferrals": [
+    {
+      "deferral": "retry the flaky upload job",
+      "disposition": "",
+      "raised": "2026-10-18T14:02Z",
+      "reason": "out of scope for Feature 1"
+    }
+  ],
+  "record/entries/000001": {
+    "kind": "run",
+    "n": 1,
+    "stamp": "2026-10-18T13:58:30Z",
+    "text": "Run store set to session by the invocation (--store session)."
+  },
+  "record/entries/000002": {
+    "kind": "run",
+    "n": 2,
+    "stamp": "2026-10-18T13:59:10Z",
+    "text": "Run coordinator set to fixture-coord by fixture-coord."
+  },
+  "record/entries/000003": {
+    "kind": "hold",
+    "n": 3,
+    "stamp": "2026-10-18T15:00:05Z",
+    "text": "Hold after-release on acme/widgets#12 until lifted, set by the human."
+  },
+  "record/holdings": [
+    {
+      "branch": "feat/loader",
+      "dispatch_status": "dispatched",
+      "dispatched": "2026-10-18",
+      "entry_point": "/shirabe:deliver",
+      "mode": "--auto",
+      "phase": "executing",
+      "pull_request": "[#12](https://github.com/acme/widgets/pull/12)",
+      "pushed_head": "0123456789abcdef0123456789abcdef01234567",
+      "repo": "acme/widgets",
+      "return_path": "message",
+      "unit": "Feature 1",
+      "verified_head": "",
+      "worker": "feat-1"
+    }
+  ],
+  "record/holds": [
+    {
+      "hold": "after-release",
+      "lifted": "",
+      "on": "acme/widgets#12",
+      "set": "2026-10-18T15:00Z",
+      "set_by": "the human",
+      "until": "lifted"
+    }
+  ],
+  "record/meta": {
+    "pending": false,
+    "scope": {
+      "kind": "roadmap",
+      "name": "fixture"
+    },
+    "store": "session",
+    "written": "2026-10-19T09:15:42Z"
+  },
+  "record/reversals": [],
+  "record/run": [
+    {
+      "key": "store",
+      "set": "2026-10-18T13:58Z",
+      "set_by": "the invocation (--store session)",
+      "value": "session"
+    },
+    {
+      "key": "arguments",
+      "set": "2026-10-18T13:58Z",
+      "set_by": "the human",
+      "value": "docs/roadmaps/ROADMAP-fixture.md"
+    },
+    {
+      "key": "cap",
+      "set": "2026-10-18T13:58Z",
+      "set_by": "the human",
+      "value": "2"
+    },
+    {
+      "key": "coordinator",
+      "set": "2026-10-18T13:59Z",
+      "set_by": "fixture-coord",
+      "value": "fixture-coord"
+    },
+    {
+      "key": "told",
+      "set": "2026-10-18T14:10Z",
+      "set_by": "fixture-coord",
+      "value": "feat-1"
+    },
+    {
+      "key": "rules",
+      "set": "2026-10-18T13:59Z",
+      "set_by": "fixture-coord",
+      "value": "coordinate sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "key": "reports-to",
+      "set": "2026-10-18T13:58Z",
+      "set_by": "the human",
+      "value": "the human"
+    }
+  ],
+  "record/side-effects": [],
+  "record/standing": [
+    {
+      "kind": "answer",
+      "on": "",
+      "owner": "the human",
+      "relayed_by": "",
+      "set": "2026-10-18T14:20Z",
+      "standing": "s1",
+      "until": "",
+      "what": "panels at the head are the cost to cut"
+    }
+  ],
+  "record/work": [
+    {
+      "item": "Feature 1",
+      "kind": "holding",
+      "next": "waiting on the panel at the head",
+      "updated": "2026-10-18T14:10Z",
+      "wakes": "0",
+      "who": "feat-1"
+    }
+  ]
+}

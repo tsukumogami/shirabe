@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# find-reads_test.sh -- the reads record-find.sh makes at discipline scope when
-# the rotation is on the session store (shirabe#1141), counted through the gh
-# and koto stand-ins.
+# find-reads_test.sh -- the reads record-find.sh makes at discipline scope
+# (shirabe#1141), counted through the gh and koto stand-ins.
 #
-# Covers: the bridge (no earlier session rotation, a committed handoff file),
-# a discipline's first rotation, a predecessor session and this run's own
-# rotation each make a fixed set of gh reads; the bridge and the first
-# rotation read the repository once, and they alone read the default branch's
-# head and the handoff file, each once; the bridge lists the sessions once and
-# makes the same koto reads each time it runs.
+# Covers: a discipline's first rotation, a predecessor session and this run's
+# own rotation each make no GitHub read, the record being the session's alone;
+# a first rotation lists the sessions once and makes the same koto reads each
+# time it runs.
 #
 # Usage: bash skills/coordinate/scripts/find-reads_test.sh
 set -uo pipefail
@@ -54,44 +51,30 @@ gh_reads() { calls | grep -c .; }
 gh_count() { calls | grep -c -- "$1"; }
 koto_reads() { grep -c . "$KOTO_STORE/calls"; }
 
-echo "== the bridge: the committed handoff file =="
-# The find only checks that the file is there; the carry, a later step, reads it.
-db '.files["acme/widgets"]["main:docs/disciplines/bridge.md"] = "a handoff\n"'
-eq "the find seals the handoff" "predecessor handoff:$SHA_MAIN" "$(find_token coordinate-discipline-bridge-20261005T100000Z bridge)"
-eq "  ... in five gh reads" 5 "$(gh_reads)"
-eq "  ... reading the repository once" 1 "$(calls | grep -c '^api --method GET repos/acme/widgets --jq')"
-eq "  ... the default branch's head once" 1 "$(gh_count 'git/ref/heads/main')"
-eq "  ... and the handoff file once" 1 "$(gh_count 'contents/docs/disciplines/bridge.md')"
-BRIDGE_KOTO=$(koto_reads)
-
 echo "== a discipline's first rotation =="
 eq "the find seals first" first "$(find_token coordinate-discipline-fresh-20261005T100000Z fresh)"
-eq "  ... in five gh reads" 5 "$(gh_reads)"
-eq "  ... reading the repository once" 1 "$(calls | grep -c '^api --method GET repos/acme/widgets --jq')"
-eq "  ... the default branch's head once" 1 "$(gh_count 'git/ref/heads/main')"
-eq "  ... and looking for the handoff file once" 1 "$(gh_count 'contents/docs/disciplines/fresh.md')"
+eq "  ... with no GitHub read" 0 "$(gh_reads)"
+FIRST_KOTO=$(koto_reads)
 
 echo "== a predecessor session =="
 P=coordinate-discipline-relay-20261001T100000Z
 rotation "$P" relay "$WEEK_AGO" "$YESTERDAY"
 touch "$KOTO_STORE/sessions/$P/.terminal"
 eq "the find seals the predecessor" "predecessor $P" "$(find_token coordinate-discipline-relay-20261008T100000Z relay)"
-eq "  ... in three gh reads" 3 "$(gh_reads)"
-eq "  ... with no read of the default branch's head" 0 "$(gh_count 'git/ref/heads')"
-eq "  ... nor of a handoff file" 0 "$(gh_count 'contents/')"
+eq "  ... with no GitHub read" 0 "$(gh_reads)"
 
 echo "== this run's own rotation =="
 S=coordinate-discipline-own-20261005T100000Z
 rotation "$S" own "$TODAY" "$TOMORROW"
 eq "the find seals found" found "$(find_token "$S" own)"
-eq "  ... in three gh reads" 3 "$(gh_reads)"
+eq "  ... with no GitHub read" 0 "$(gh_reads)"
 
 echo "== the koto reads =="
-# The bridge lists the run's sessions once and reads no earlier rotation; its
-# koto reads are the probe's, the session listing and the find's own record.
-# Run it again, and count the second run's calls.
-find_token coordinate-discipline-bridge-20261005T100000Z bridge > /dev/null
-eq "the bridge lists the sessions once" 1 "$(grep -c '^session list' "$KOTO_STORE/calls")"
-eq "  ... and makes the same koto reads each time ($BRIDGE_KOTO)" "$BRIDGE_KOTO" "$(koto_reads)"
+# A first rotation lists the run's sessions once and reads no earlier rotation;
+# its koto reads are the session listing and the find's own record. Run it
+# again, and count the second run's calls.
+find_token coordinate-discipline-fresh-20261005T100000Z fresh > /dev/null
+eq "a first rotation lists the sessions once" 1 "$(grep -c '^session list' "$KOTO_STORE/calls")"
+eq "  ... and makes the same koto reads each time ($FIRST_KOTO)" "$FIRST_KOTO" "$(koto_reads)"
 
 done_tests find-reads_test

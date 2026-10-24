@@ -19,10 +19,12 @@
 # as well as its own; --owed writing nothing; a record under
 # the guard left alone; a record full of what can't move still record-full;
 # --archive's refusals; evidence, an answer and a
-# citation on an archived entry restoring it in the same write, and an edited
-# archive entry never restoring one, and a restored entry's kept stamps going
-# back to its row; the Archived and kept-stamps lines' grammar in the codec;
-# the archive on the session store.
+# citation on an archived entry restoring it in the same write, and an archive
+# entry gone from the session never restoring one, and a restored entry's
+# kept stamps going back to its row; the Archived and kept-stamps lines'
+# grammar in the codec. The record is the run's session's: its body is the
+# render record-source.sh --show prints, the archive a session entry and the
+# section's Archived line in record/decisions, nothing written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/decision-archive_test.sh
 set -uo pipefail
@@ -66,16 +68,14 @@ E() { # E <n> <state> [jq merge]: a short entry
 settled_run() { local i out=""; for i in $(span "$1" "$2"); do out="$out${out:+, }$(SETTLED "$i")"; done; printf '%s' "$out"; }
 FULL=$(settled_run 1 46)
 
-# setup <entries-json-array> [next] [session-run] [jq edit]: record #7 holding
-# them, with the edit applied to the record, and a fresh session that found it.
-# Sets S.
+# setup <entries-json-array> [next] [session-run] [jq edit]: a fresh session
+# that found its record, the record holding them with the edit applied. Sets S.
 setup() {
     rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-feat", body: $b, state: "open", author: "coord", editor: null}]' \
-        --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${2:-60}" '.decisions = {next: $n, entries: $e}' | jq -c "${4:-.}")" issue)"
     S="coordinate-roadmap-feat-${3:-$RUN}"
-    found_session "$S" "$(roadmap_vars feat)" 7
+    found_session "$S" "$(roadmap_vars feat)"
+    seed_session "$S" "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${2:-60}" '.decisions = {next: $n, entries: $e}' | jq -c "${4:-.}")"
     LAST=reconcile
 }
 to() { log_to "$S" "$LAST" "$1"; LAST=$1; }
@@ -85,7 +85,7 @@ route() { # route <token> <state>: decision_next routes <token> to <state>
     to "$2"
 }
 arrive() { to wait; log_evidence "$S" wait "$2"; to "$1"; }
-body() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB"; }
+body() { RS_SESSION="$S" bash "$HERE/record-source.sh" --scope roadmap --name feat --repo acme/widgets --show; }
 size() { body | wc -c | tr -d ' '; }
 sec() { bash "$RD" --session "$S" --list; }
 ent() { sec | jq -c --arg n "$1" '.entries[] | select(.decision == $n)'; }
@@ -93,7 +93,8 @@ f() { ent "$1" | jq -r --arg f "$2" '.[$f] // ""'; }
 ids() { sec | jq -r '[.entries[].decision] | join(" ")'; }
 archived() { sec | jq -r '(.archived // []) | map(tostring) | join(" ")'; }
 kept() { body | grep '^Stamps kept for run ' ; }
-comments() { jq -r '[(.comments // [])[]] | length' "$GH_DB"; }
+# comments: the archive entries the session holds.
+comments() { bash "$RA" --session "$S" --list | jq '[.[] | select(.kind == "decisions")] | length'; }
 rd() { OUT=$(bash "$RD" --session "$S" "$@" 2>"$T/err"); RC=$?; }
 dn() { OUT=$(bash "$DN" --session "$S" "$@" 2>"$T/err"); RC=$?; }
 word() { dn; printf '%s' "${OUT%% sealed:*}"; }
@@ -185,14 +186,17 @@ OWN="${FULL//$OLD/$RUN}"
 OWN=$(printf '[%s]' "$OWN" | jq -c --arg run "$RUN" --arg w "$W" --arg r "$RSQ" 'map(
     if .decision == "45" then .evidence += "\n2026-09-26T09:10Z dispatcher [\($run) wait \($w)]: the format slipped"
     elif .decision == "46" then .source = "self [\($run) raise \($r)]" else . end)')
-db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$OWN" '.decisions = {next: 60, entries: $e}')" issue)"
+seed_session "$S" "$(record_json roadmap feat | jq -c --argjson e "$OWN" '.decisions = {next: 60, entries: $e}')"
 to decision_next
 eq "a full record of this run's own settled entries: nothing owed after the archive" "clear" "$(word)"
 [ "$(size)" -le "$GUARD" ] && ok "  ... under the guard ($(size) bytes)" || bad "  ... under the guard" "$(size) bytes"
 eq "  ... every entry left the body" "" "$(ids)"
 case "$(kept)" in *"45 wait $W"*"46 raise $RSQ"*) ok "  ... the stamps the rules read are kept" ;; *) bad "  ... the stamps the rules read are kept" "$(kept)" ;; esac
 NOKEPT=$(body | bash "$HERE/record-parse.sh" | jq -c 'del(.decisions.kept)')
-db '.issues[0].body = $b' --arg b "$(render "$(printf '%s' "$NOKEPT" | jq -c 'del(.written)')" issue "$(printf '%s' "$NOKEPT" | jq -r .written)")"
+rm -rf "$T/entries.keep"; cp -R "$KOTO_STORE/context/$S/record/entries" "$T/entries.keep"
+seed_session "$S" "$(printf '%s' "$NOKEPT" | jq -c 'del(.written)')" "$(printf '%s' "$NOKEPT" | jq -r .written)"
+# seed_session clears record/; the archive entries go back as they were.
+cp -R "$T/entries.keep" "$KOTO_STORE/context/$S/record/entries"
 eq "  ... and without the kept line the evidence would be owed again: the rules read it" "unrecorded-evidence" "$(word)"
 # A record full of what can't move is still record-full.
 REPLY=; for i in $(span 1 46); do REPLY="$REPLY${REPLY:+, }$(SETTLED "$i" '{owed: "reply"}')"; done
@@ -268,14 +272,14 @@ rd --open-from-report --text-file "$T/w.json"
 wrote "--open-from-report citing an archived entry writes"
 eq "  ... the cited entry is back with the citation as evidence" "coordinator-verdict|the format waits on the upgrade" \
     "$(f 12 state)|$(f 12 evidence | tail -1 | sed 's/.*\]: //')"
-# An archive entry edited after it was posted never restores an entry.
+# An archive entry gone from the session never restores an entry.
 setup "[$FULL, $(E 50 proposed)]"
 to decision_next; word > /dev/null
-db '.comments |= map(.updated_at = "2027-01-01T00:00:00Z")'
+rm -rf "$KOTO_STORE/context/$S/record/entries"
 arrive decision_evidence '{"event":"evidence","decision":"7"}'
 B=$(body)
 rd --evidence --source dispatcher --text "late"
-eq "an edited archive entry restores nothing: refused, the body untouched" "65|yes" "$RC|$([ "$(body)" = "$B" ] && echo yes)"
+eq "an archive entry gone from the session restores nothing: refused, the body untouched" "65|yes" "$RC|$([ "$(body)" = "$B" ] && echo yes)"
 
 echo "== the Archived line in the codec =="
 rt() { printf '%s' "$1" | bash "$HERE/record-render.sh" --container issue --written 2026-09-26T09:00:00Z 2>"$T/err"; }
@@ -309,19 +313,15 @@ sed 's/^Stamps kept for run 20260926T080000Z: 2 raise 4/Stamps kept for run 2026
 bash "$HERE/record-parse.sh" "$T/bad3.md" > /dev/null 2>&1
 [ $? -ne 0 ] && ok "a kept stamp missing its sequence is refused" || bad "a kept stamp missing its sequence is refused" ""
 
-echo "== the session store =="
+echo "== the archive in the session =="
 setup "[$FULL, $(E 50 proposed)]"
-rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
-found_session "$S" "$(roadmap_vars feat)" "7 session"
-LAST=reconcile
-body | bash "$HERE/record-parse.sh" > "$T/sess.json"
-session_keys "$S" "$T/sess.json"
-B=$(body)
+reset_calls
 to decision_next
-eq "on the session store the owed take is routed" "take 50" "$(word)"
-eq "  ... the archive is a session entry, the GitHub body and comments untouched" "decisions|$B|0" \
-    "$(koto context list "$S" --prefix record/entries/ | jq -r '.[0]' | xargs -I{} koto context get "$S" {} | jq -r .kind)|$(body)|$(comments)"
+eq "the owed take is routed" "take 50" "$(word)"
+eq "  ... the archive is a session entry" "decisions" \
+    "$(koto context list "$S" --prefix record/entries/ | jq -r '.[0]' | xargs -I{} koto context get "$S" {} | jq -r .kind)"
 eq "  ... the section's Archived line in record/decisions" "46" "$(koto context get "$S" record/decisions | jq '.archived | length')"
-eq "  ... and the rows read back verbatim" "$(jq -cS 'select((.decision | tonumber) <= 46)' "$T/before.jsonl")" "$(archive_rows | jq -cS .)"
+eq "  ... the rows read back verbatim" "$(jq -cS 'select((.decision | tonumber) <= 46)' "$T/before.jsonl")" "$(archive_rows | jq -cS .)"
+eq "  ... and nothing written on GitHub" "" "$(grep -E 'comments|issue (edit|create)|--method (POST|PATCH|PUT)' "$GH_DB.calls")"
 
 done_tests decision-archive
