@@ -12,9 +12,10 @@
 # neither kept in the session, posted nowhere, the output saying so, and a
 # second capture of it finding the session's entry and adding none; nothing
 # ever posted on an issue the unit isn't. Those post while acme/widgets opts
-# in; until it does, its pull request and its issue get no comment and the
-# session keeps the entry, the last line saying why, and a private
-# repository's pull request that doesn't opt in gets none either.
+# in; until it does, the holding's pull request, the sealed verdict's and its
+# issue get no comment and the session keeps the entry, the last line saying
+# why, and a private repository's pull request that doesn't opt in gets none
+# either.
 #
 # Usage: bash skills/coordinate/scripts/unit-cost-on_test.sh
 set -uo pipefail
@@ -83,6 +84,13 @@ eq "  ... and no posted URL" "" "$(koto context get "$S" "record/posted/$(printf
 seed "$(holding feat-x '{"unit": "#5: fix it", "pull_request": ""}')"
 fresh; : >"$T/prs"
 capture; eq "a unit that is a public issue" "0 0" "$? $(ncomments)"
+# The sealed verdict's pull request, the fallback when the holding names none,
+# is held back the same way.
+seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"
+fresh; prs "acme/widgets#21 $MERGE"
+capture; eq "the sealed verdict's pull request, without opting in, gets no comment and the session keeps the entry" \
+    "0 0 1 unit-cost: kept the cost entry in the session: acme/widgets doesn't opt in to workflow content, so acme/widgets#21 gets nothing" \
+    "$? $(ncomments) $(costs | jq length) $(tail -n 1 "$T/cap.err")"
 
 echo "== a private repository's pull request, without opting in =="
 seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": "[#30](https://github.com/acme/secret/pull/30)"}')"
@@ -92,6 +100,34 @@ fresh; prs "acme/widgets#21 $MERGE"
 capture; eq "a capture exits 0" 0 $?
 eq "  ... posting nothing on it either" "0 unit-cost: kept the cost entry in the session: acme/secret doesn't opt in to workflow content, so acme/secret#30 gets nothing" \
     "$(ncomments) $(tail -n 1 "$T/cap.err")"
+
+echo "== a missing reader, an answer that isn't include, an unreadable CLAUDE.md: each is omit =="
+# record-append.sh reads the opt-in; the capture hands it the reader path its
+# suite sets. Each of these leaves the holding's pull request without a
+# comment and the entry in the session.
+HOLD22='{"unit": "Feature 4: Example feature", "pull_request": "[#22](https://github.com/acme/widgets/pull/22)"}'
+WITHHELD="unit-cost: kept the cost entry in the session: acme/widgets doesn't opt in to workflow content, so acme/widgets#22 gets nothing"
+printf '#!/usr/bin/env bash\necho yes\n' >"$T/reader-yes"
+REAL="$HERE/../../../scripts/pr-workflow-content.sh"
+for c in "a missing reader" "an answer that isn't include" "an unreadable CLAUDE.md, read by the real reader"; do
+    seed "$(holding feat-x "$HOLD22")"
+    fresh; prs "acme/widgets#21 $MERGE"
+    case "$c" in
+        "a missing reader") UNIT_COST_PR_CONTENT_READER="$T/absent.sh" capture ;;
+        "an answer that isn't include") UNIT_COST_PR_CONTENT_READER="$T/reader-yes" capture ;;
+        *) UNIT_COST_PR_CONTENT_READER="$REAL" capture ;;
+    esac
+    eq "$c: no comment, the session keeps the entry, saying why" "0 0 1 $WITHHELD" \
+        "$? $(ncomments) $(costs | jq length) $(tail -n 1 "$T/cap.err")"
+done
+# The same capture with the real reader over a CLAUDE.md that opts in posts, so
+# the case above turns on the CLAUDE.md read, not on the reader.
+seed "$(holding feat-x "$HOLD22")"
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
+fresh; prs "acme/widgets#21 $MERGE"
+UNIT_COST_PR_CONTENT_READER="$REAL" capture
+eq "the real reader over a CLAUDE.md that opts in: the entry posts on the holding's pull request" \
+    "0 1 unit-cost: posted the cost entry on acme/widgets#22" "$? $(cost_on 22 | jq length) $(tail -n 1 "$T/cap.err")"
 
 opt_in
 echo "== the holding's pull request =="

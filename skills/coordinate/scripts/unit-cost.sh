@@ -21,28 +21,34 @@
 #       Holdings row whose Worker is T (record-holding.sh --read), computes
 #       the object, writes it to DIR/unit-cost.json through a temporary name
 #       in DIR (a symlink at that name is replaced, never written through),
-#       lists the record's entries (record-append.sh --list) and posts one
-#       entry of kind `cost` unless a `cost` entry's JSON already carries the
-#       same key. A list that fails posts anyway: readers keep the latest
-#       entry per key, so a duplicate is harmless and a skipped post loses
-#       the unit. An object over 50,000 bytes is posted without the
-#       per-session `states` maps (`sessions.states`, `entry size`);
-#       unit-cost.json keeps them. It posts it with record-append.sh --on on
-#       the item it is about: the
-#       holding's pull request (the row's Pull request cell, else the sealed
-#       verdict's first), else the Unit's issue (`#n` on the host or
-#       `owner/repo#n`), else `--on none`, which keeps it in the session,
-#       posted nowhere; the last stderr line says which. record-append.sh
-#       posts on the item only when its repository opts in
-#       (`## PR Workflow Content: include`); otherwise it keeps the entry in
-#       the session, and the last line says so.
+#       then, under the host's post lock (.post-lock in archive-common.sh's
+#       removals directory, which the sweep's captures take too), lists the
+#       record's entries (record-append.sh --list) and posts one entry of
+#       kind `cost` unless a `cost` entry's JSON already carries the same key
+#       or the same non-null "niwa.dispatch.id". A lock a live capture holds
+#       is waited for inside the list and post bounds; one still held then,
+#       or a removals directory that can't be used, leaves the list check
+#       alone, saying so. A list that fails, or that the spent read budget
+#       leaves no time for, posts anyway, saying so: readers keep the latest
+#       entry per key and dispatch id, so a duplicate is harmless and a
+#       skipped post loses the unit. An object over 50,000 bytes is posted
+#       without the per-session `states` maps (`sessions.states`, `entry
+#       size`); unit-cost.json keeps them. It posts it with record-append.sh
+#       --on on the item it is about: the holding's pull request (the row's
+#       Pull request cell, else the sealed verdict's first), else the Unit's
+#       issue (`#n` on the host or `owner/repo#n`), else `--on none`, which
+#       keeps it in the session, posted nowhere. record-append.sh posts on the
+#       item only when its repository opts in (`## PR Workflow Content:
+#       include`); otherwise it keeps the entry in the session. The last
+#       stderr line says which.
 #   unit-cost.sh gh-check <gh arguments...>
 #       Runs nothing: 0 when the capture's GitHub wrapper would make that
 #       call, 1 when it refuses it. The suite's view of the wrapper.
 #
 # The object holds, in this order: schema, key, captured_at, topic, record,
-# unit, milestone, plan_shape, pulls, dispatch, "niwa.dispatch.id", figures,
-# sessions, tokens, complete and missing. A figure is {value, raw, state, source}; state is
+# unit, milestone, plan_shape, pulls, opened, dispatch, "niwa.dispatch.id",
+# figures, sessions, tokens, complete and missing. A figure is {value, raw,
+# state, source}; state is
 # `measured`, `bound`, `not recoverable` or `not applicable`, and every figure
 # not taken is listed in `missing` with a reason from a closed list: `no
 # source`, `read failed`, `time limit`, `entry size`, `invalid input`.
@@ -60,7 +66,10 @@
 # Milestone: the Unit cell cut at its first `: `. An issue reference (`#n`,
 # `owner/repo#n`) or a discipline record gives `none`; a roadmap record gives
 # {roadmap: ROADMAP-<name>, tag}. A Unit outside the safety pattern is null,
-# its milestone `not recoverable` (`invalid input`).
+# its milestone `not recoverable` (`invalid input`). With no Holdings row for
+# the topic, a capture takes the Unit the dispatch wrote on its leg key in the
+# requesting coordinator's session (dispatch-worker.sh, which writes it only
+# when its tag has this same pattern), found through the unit's koto request.
 #
 # The archive's transcripts: claude-projects/<project directory>/, every
 # Claude Code project directory of the instance (teardown-pass.sh). A main
@@ -96,21 +105,36 @@
 # most 200 candidates are read, one `gh pr view` each out of the read
 # budget, and `pulls` holds at most 100. The first reason a pull request was
 # left out is one `pulls` entry in `missing`: `no source` (dispatch not
-# recoverable), `read failed`, `time limit` or `entry size`. Credit never
-# changes a figure: green, merge and failing heads read the holding's only.
+# recoverable), `read failed`, `time limit` or `entry size`. `opened` holds
+# the pull requests still open at capture, drafts included: each candidate
+# meeting every condition but the merge (`via: session`), and the holding's
+# Pull request cell when it reads open (`via: holding`, one read, and then no
+# candidate), by number, at most 100, under the same public-host rule, and
+# `missing` naming `opened` with the reason a read failed or `entry size`. An
+# open pull request is never moved to `pulls`: a reader joins its later merge
+# on its number. One closed without merging is in neither. With a holding,
+# credit never changes a figure: green, merge and failing heads read the
+# holding's only. With a pull request file that names none (a capture after a
+# removal, unit-removed.sh), the holding's owner is the record repository's,
+# and green, merge and failing heads read the credited pull requests instead.
 #
 # niwa's dispatch id: teardown.json's niwa.dispatch_id, written by the pass,
-# as the top-level "niwa.dispatch.id"; else null, `missing` naming it with
-# the file's reason (`no source`, `invalid input`), `no source` without the
-# file.
+# as the top-level "niwa.dispatch.id"; when it holds none, the dispatch id of
+# the removal record (archive-common.sh ac_removal_for_path) whose
+# instance_path is teardown.json's; else null, `missing` naming it with the
+# file's reason (`no source`, `invalid input`), `no source` without the file.
 #
 # Time: per session, a state lasts from the transitioned or rewound event that
 # entered it to the next one, up to the first entry into done (else the last
 # event). `states` and `span_s` are those seconds to the millisecond, so a
 # session's states sum to its span; the figures take the unrounded seconds.
 # Unit sessions are the work-on ones. GitHub, per pull request: its heads in
-# commit order, every workflow run on its head branch for those heads, and
-# every earlier attempt of each. Green is the first head whose runs' final
+# commit order, each head's own workflow runs through every page of 100 it
+# holds (stopping after the first green head), and every earlier attempt of
+# each. A head whose runs can't all be read ends the reads: failing heads is
+# then `bound` over the heads read, its reason (`time limit`, `read failed`,
+# `invalid input`, or `entry size` past 50 pages) in `missing`, and green is
+# not recoverable when its head wasn't reached. Green is the first head whose runs' final
 # attempts all concluded success or skipped, at the latest of their finish
 # times; a head whose final attempts have not all concluded, none failing,
 # makes green `bound` at the latest finish so far, and the figures computed
@@ -140,13 +164,15 @@
 # budget; once it is spent, what is not yet taken is `time limit` and the
 # capture goes straight to writing and posting what it has.
 #
-# Exit codes: 0 printed (compute), posted, kept in the session (a unit with
-# no pull request or issue) or already posted (capture), or
+# Exit codes: 0 printed (compute), posted, kept in the session (every unit
+# whose repository doesn't opt in, and one with no pull request or issue)
+# or already posted (capture), or
 # admitted (gh-check); 1 not posted, or refused (gh-check); 64 usage; 65 the
 # archive's name is not a capture key for the topic.
 #
 # Environment: GH names gh (tests); KOTO_REQUESTS (default
-# $HOME/.koto/requests); UNIT_COST_FETCH_SECS (each GitHub read's bound,
+# $HOME/.koto/requests); XDG_STATE_HOME, which places the removals directory
+# (archive-common.sh); UNIT_COST_FETCH_SECS (each GitHub read's bound,
 # default 8, the pass's own); UNIT_COST_BUDGET_SECS (the reads' budget,
 # default 90); UNIT_COST_LIST_SECS (the entry list's bound, default 15);
 # UNIT_COST_POST_SECS (the post's bound, default 25); UNIT_COST_NOW (a fixed
@@ -162,6 +188,9 @@ PROG=unit-cost
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh"
+# The removals directory, for the dispatch id a removal recorded.
+# shellcheck source=archive-common.sh
+. "$HERE/archive-common.sh"
 
 GH="${GH:-gh}"
 KOTO_REQUESTS="${KOTO_REQUESTS:-$HOME/.koto/requests}"
@@ -335,7 +364,9 @@ KEY=${ARCH##*/}
     || { say "the archive's name is not a capture key for the topic"; exit 65; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/unit-cost.XXXXXX") || exit 1
-trap 'rm -rf "$WD"' EXIT
+# UC_LOCK is the post lock once this capture holds it; leaving releases it.
+UC_LOCK=""
+trap 'rm -rf "$WD"; [ -z "$UC_LOCK" ] || ac_unlock "$UC_LOCK"' EXIT
 WD=$(cd "$WD" && pwd -P) || exit 1
 cp "$PRS_FILE" "$WD/prs" 2>/dev/null || { say "the pull request file can't be read"; exit 64; }
 [ -z "$UNIT_JSON" ] || cp "$UNIT_JSON" "$WD/unit.json" 2>/dev/null || { say "the unit file can't be read"; exit 64; }
@@ -730,11 +761,18 @@ uc_tokens() {
 
 # uc_runs <repo> <n> <branch>: the pull request's heads and the runs on them,
 # as {heads: [sha...], runs: [{run_id, head_sha, attempt, concluded,
-# conclusion, finished_at}]} in $WD/gh.json, every attempt of every run on a
-# head its own row. On a failed or refused read UC_WHY holds the reason and it
-# returns 1.
+# conclusion, finished_at}], partial: <reason>|null} in $WD/gh.json, every
+# attempt of every run on a head its own row. Each head is read on its own,
+# oldest first (the order GitHub lists a pull request's commits in), through
+# as many pages of 100 runs as it holds, and the reads stop after the first
+# green head, since no later head counts. A head whose pages can't all be read
+# (the budget ran out, a read failed or was cut at its bound, or a page was
+# outside its shape) ends the reads: `heads` then holds only the heads read
+# whole and `partial` the reason, so failing heads is a floor over them. On a
+# failed commit list or attempt read UC_WHY holds the reason and it returns 1.
+# The branch is not read: a head's runs are its own, whatever branch ran them.
 uc_runs() {
-    local repo=$1 n=$2 br=$3 rc id att k
+    local repo=$1 n=$2 rc id att k h page got partial="" status
     UC_WHY=""
     uc_gh "$WD/commits.raw" api --method GET "repos/$repo/pulls/$n/commits" --paginate
     rc=$?
@@ -742,23 +780,45 @@ uc_runs() {
     uc_jq -s -c --arg re "$RE_SHA" '[.[] | if type == "array" then .[] else error("x") end
             | .sha | if type == "string" and test($re) then . else error("x") end]' "$WD/commits.raw" >"$WD/heads.json" \
         || { UC_WHY="invalid input"; return 1; }
-    uc_gh "$WD/runs.raw" run list --repo "$repo" --branch "$br" --limit 300 \
-        --json databaseId,headSha,attempt,status,conclusion,updatedAt
-    rc=$?
-    [ "$rc" = 0 ] || { UC_WHY=$(read_reason "$rc"); return 1; }
-    uc_jq -c --slurpfile h "$WD/heads.json" --arg sha "$RE_SHA" --arg ts "$RE_EVTS" '
-        def word: type == "string" and test("^[a-z_]{0,32}$");
-        if type != "array" then error("x") else . end
-        | map(if type == "object" and (.databaseId | type) == "number" and .databaseId >= 1 and .databaseId == (.databaseId | floor)
-                 and (.headSha | type) == "string" and (.headSha | test($sha))
-                 and (.attempt | type) == "number" and .attempt >= 1 and .attempt <= 999 and .attempt == (.attempt | floor)
-                 and (.status | word) and ((.conclusion == null) or (.conclusion | word))
-                 and (.updatedAt | type) == "string" and (.updatedAt | test($ts))
-              then {run_id: .databaseId, head_sha: .headSha, attempt, concluded: (.status == "completed" and (.conclusion // "") != ""),
-                    conclusion: (.conclusion // ""), finished_at: .updatedAt}
-              else error("x") end)
-        | map(select(.head_sha as $s | $h[0] | index([$s]) != null))' "$WD/runs.raw" >"$WD/runs.json" \
-        || { UC_WHY="invalid input"; return 1; }
+    echo '[]' >"$WD/runs.json"
+    echo '[]' >"$WD/heads.read"
+    for h in $(jq -r '.[]' "$WD/heads.json"); do
+        page=1
+        : >"$WD/head.rows"
+        while :; do
+            uc_gh "$WD/page.raw" api --method GET "repos/$repo/actions/runs?head_sha=$h&per_page=100&page=$page"
+            rc=$?
+            [ "$rc" = 0 ] || { partial=$(read_reason "$rc"); break 2; }
+            uc_jq -c --arg h "$h" --arg ts "$RE_EVTS" '
+                def word: type == "string" and test("^[a-z_]{0,32}$");
+                if type != "object" or (.workflow_runs | type) != "array" then error("x") else .workflow_runs end
+                | map(if type == "object" and (.id | type) == "number" and .id >= 1 and .id == (.id | floor)
+                         and .head_sha == $h
+                         and (.run_attempt | type) == "number" and .run_attempt >= 1 and .run_attempt <= 999 and .run_attempt == (.run_attempt | floor)
+                         and (.status | word) and ((.conclusion == null) or (.conclusion | word))
+                         and (.updated_at | type) == "string" and (.updated_at | test($ts))
+                      then {run_id: .id, head_sha: .head_sha, attempt: .run_attempt,
+                            concluded: (.status == "completed" and (.conclusion // "") != ""),
+                            conclusion: (.conclusion // ""), finished_at: .updated_at}
+                      else error("x") end)' "$WD/page.raw" >"$WD/page.rows" \
+                || { partial="invalid input"; break 2; }
+            jq -c '.[]' "$WD/page.rows" >>"$WD/head.rows"
+            got=$(jq length "$WD/page.rows")
+            [ "$got" -lt 100 ] && break
+            page=$((page + 1))
+            # A head with more than 50 pages of runs is past anything a pull
+            # request produces; it is read no further and the count is a floor.
+            [ "$page" -le 50 ] || { partial="entry size"; break 2; }
+        done
+        jq -s -c --slurpfile r "$WD/runs.json" '$r[0] + .' "$WD/head.rows" >"$WD/runs.new" && mv "$WD/runs.new" "$WD/runs.json"
+        jq -c --arg h "$h" '. + [$h]' "$WD/heads.read" >"$WD/heads.new" && mv "$WD/heads.new" "$WD/heads.read"
+        # Green: every run read on this head, at its listed attempt, concluded
+        # success or skipped. Its earlier attempts can't change that.
+        status=$(jq -s -r 'if length == 0 then "none"
+            elif all(.[]; .concluded and (.conclusion == "success" or .conclusion == "skipped")) then "green"
+            else "other" end' "$WD/head.rows")
+        [ "$status" = green ] && break
+    done
     cp "$WD/runs.json" "$WD/runrows.json"
     while read -r id att; do
         [ -n "$id" ] || continue
@@ -782,7 +842,8 @@ uc_runs() {
     done <<EOF
 $(jq -r '.[] | select(.attempt > 1) | "\(.run_id) \(.attempt)"' "$WD/runs.json")
 EOF
-    jq -n -c --slurpfile h "$WD/heads.json" --slurpfile r "$WD/runrows.json" '{heads: $h[0], runs: $r[0]}' >"$WD/gh.json"
+    jq -n -c --slurpfile h "$WD/heads.read" --slurpfile r "$WD/runrows.json" --arg p "$partial" \
+        '{heads: $h[0], runs: $r[0], partial: (if $p == "" then null else $p end)}' >"$WD/gh.json"
 }
 
 # Pull requests: each verdict line's merge time, and its heads and runs for
@@ -824,11 +885,36 @@ uc_pulls() {
             --slurpfile g "$WD/gh.json" \
             '{repo: $r, number: $n, merge_commit: $s, merged_at: (if $at == "" then null else $at end),
               merged_reason: (if $why == "" then null else $why end),
-              heads: $g[0].heads, runs: $g[0].runs, gh_reason: (if $ghwhy == "" then null else $ghwhy end)}' >>"$WD/pulls.jsonl"
+              heads: $g[0].heads, runs: $g[0].runs, partial: ($g[0].partial // null), gh_reason: (if $ghwhy == "" then null else $ghwhy end)}' >>"$WD/pulls.jsonl"
     done <"$WD/prs"
     # One line per figure and reason, however many pull requests share it.
     jq -s -c 'unique' "$WD/pull-reasons.jsonl" >"$WD/pull-reasons.json"
     jq -s -c '.' "$WD/pulls.jsonl" >"$WD/pulls.json"
+}
+
+# The holding's own pull request, when its Pull request cell names one that
+# reads open at capture: `opened` lists it `via: "holding"`, and credit leaves
+# it out of its candidates. Only a capture reads the row, and a cell naming a
+# pull request the verdict already holds needs no read. OPENED_WHY holds the
+# reason a read failed.
+uc_opened_holding() {
+    local ref repo n rc
+    OPENED_WHY=""
+    echo '[]' >"$WD/opened-holding.json"
+    [ "${ROW_OK:-0}" = 1 ] || return 0
+    ref=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json") || ref=""
+    repo=${ref%#*} n=${ref##*#}
+    [ "$repo" != "$ref" ] && repo_ok "$repo" && [[ $n =~ $RE_NUM ]] || return 0
+    jq -e --arg k "$repo#$n" '($k | ascii_downcase) as $k | any(.[]; "\(.repo | ascii_downcase)#\(.number)" == $k)' \
+        "$WD/pulls.json" >/dev/null && return 0
+    uc_gh "$WD/oh.raw" pr view "$n" --repo "$repo" --json state
+    rc=$?
+    if [ "$rc" != 0 ]; then
+        OPENED_WHY=$(read_reason "$rc")
+        return 0
+    fi
+    uc_jq -c --arg r "$repo" --argjson n "$n" 'if type == "object" and .state == "OPEN" then [{repo: $r, number: $n}] else [] end' \
+        "$WD/oh.raw" >"$WD/opened-holding.json" || { echo '[]' >"$WD/opened-holding.json"; OPENED_WHY="invalid input"; }
 }
 
 # Credit, by the header's rule. The candidates are the scan's pr-link
@@ -837,11 +923,14 @@ uc_pulls() {
 # (case-insensitive), earliest link first; at most 200 are read. Each read
 # is one `gh pr view` out of the budget, its answer read only through jq for
 # the four conditions; a pull request that fails one is simply not credited.
-# CREDIT_WHY holds the first reason one was left out.
+# One that meets every condition but the merge and reads open (a draft reads
+# open) goes to opened.jsonl instead. CREDIT_WHY holds the first reason one
+# was left out, of either list, since both come from the same reads.
 uc_credit() {
     local total cand r n rc disp why
     CREDIT_WHY=""
     : >"$WD/credit.jsonl"
+    : >"$WD/opened.jsonl"
     echo '[]' >"$WD/credit.json"
     [ "$LAYOUT" = projects ] || return 0
     why=$(jq -r '.reason // ""' "$WD/scan.json")
@@ -849,10 +938,12 @@ uc_credit() {
         CREDIT_WHY=$why
         return 0
     fi
-    jq -c --slurpfile p "$WD/pulls.json" '
+    jq -c --slurpfile p "$WD/pulls.json" --slurpfile a "$WD/attribution.json" --slurpfile oh "$WD/opened-holding.json" '
         def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
-        ([$p[0][] | .repo | ascii_downcase | split("/")[0]] | unique) as $owners
-        | [$p[0][] | "\(.repo | ascii_downcase)#\(.number)"] as $held
+        ([$p[0][] | .repo | ascii_downcase | split("/")[0]] | unique) as $held_owners
+        | (if ($held_owners | length) > 0 then $held_owners
+           else [$a[0].record.repo // empty | ascii_downcase | split("/")[0]] end) as $owners
+        | [($p[0] + $oh[0])[] | "\(.repo | ascii_downcase)#\(.number)"] as $held
         | [.links[] | select((.r | ascii_downcase | split("/")[0]) as $o | $owners | index([$o]) != null)
            | select("\(.r | ascii_downcase)#\(.n)" as $k | $held | index([$k]) == null)]
         | group_by([(.r | ascii_downcase), (.n | tonumber)])
@@ -896,20 +987,66 @@ uc_credit() {
             | (.mergeCommit | if type == "object" then .oid else null end | if str($sha) then . else null end) as $oid
             | (.headRefName | if type == "string" then . else null end) as $head
             | (.baseRefName | if type == "string" then . else null end) as $base
-            | if $hown == $own and .state == "MERGED" and $merged != null and $oid != null
-                 and $created != null and $created >= ($d | ts)
+            | if $hown == $own and $created != null and $created >= ($d | ts)
                  and (($head != null and $head != $base and ($s[0].branches | index([$head]) != null))
                       or any($c.ts[]; (ts - $created) | abs <= 120))
-              then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged}
+              then (if .state == "MERGED" and $merged != null and $oid != null
+                    then {repo: $c.r, number: ($c.n | tonumber), merge_commit: $oid, merged_at: $merged, head: $head}
+                    elif .state == "OPEN" then {repo: $c.r, number: ($c.n | tonumber), open: true}
+                    else empty end)
               else empty end' "$WD/cr.raw" >"$WD/cr.out" || { [ -n "$CREDIT_WHY" ] || CREDIT_WHY="read failed"; continue; }
-        cat "$WD/cr.out" >>"$WD/credit.jsonl"
+        jq -c 'select(.open != true)' "$WD/cr.out" >>"$WD/credit.jsonl"
+        jq -c 'select(.open == true) | del(.open)' "$WD/cr.out" >>"$WD/opened.jsonl"
     done <"$WD/cands"
     jq -s -c 'def key: if length > 20 then .[0:19] + "." + ((.[20:-1] + "000000000")[0:9]) else .[0:19] + ".000000000" end;
         sort_by([(.merged_at | key), .number])' "$WD/credit.jsonl" >"$WD/credit.json"
 }
 
+# opened.json: the holding's open pull request and credit's open ones, by
+# number. Its reason in `missing` is the holding read's, else credit's.
+uc_opened() {
+    jq -s -c --slurpfile h "$WD/opened-holding.json" '
+        ($h[0] | map(. + {via: "holding"})) + map(. + {via: "session"})
+        | sort_by([.number, (.repo | ascii_downcase)])' "$WD/opened.jsonl" >"$WD/opened.json"
+    [ -n "$OPENED_WHY" ] || OPENED_WHY=$CREDIT_WHY
+}
+
+# The pull requests green, merge and failing heads read: the holding's, or,
+# when the sealed verdict names none (a capture after a removal), the merged
+# ones credit found, each read for its heads and runs as uc_pulls reads the
+# holding's, with the merge time credit read. figpulls.json has pulls.json's
+# shape.
+uc_figure_pulls() {
+    local repo n sha at br ghwhy
+    if [ "$VERDICT_BAD" = true ] || [ "$(jq length "$WD/pulls.json")" != 0 ]; then
+        cp "$WD/pulls.json" "$WD/figpulls.json"
+        return 0
+    fi
+    : >"$WD/figpulls.jsonl"
+    jq -r '.[] | [.repo, (.number | tostring), .merge_commit, .merged_at, (.head // "")] | @tsv' "$WD/credit.json" >"$WD/credited.tsv"
+    while IFS='	' read -r repo n sha at br; do
+        [ -n "$repo" ] || continue
+        echo '{"heads":[],"runs":[]}' >"$WD/gh.json"
+        ghwhy=""
+        # Matched again here, where the commands are built.
+        if ! repo_ok "$repo" || ! [[ $n =~ $RE_NUM ]] || ! branch_ok "$br"; then
+            ghwhy="invalid input"
+        elif ! uc_runs "$repo" "$n" "$br"; then
+            ghwhy=$UC_WHY
+        fi
+        jq -n -c --arg r "$repo" --argjson n "$n" --arg s "$sha" --arg at "$at" --arg ghwhy "$ghwhy" \
+            --slurpfile g "$WD/gh.json" \
+            '{repo: $r, number: $n, merge_commit: $s, merged_at: $at, merged_reason: null,
+              heads: $g[0].heads, runs: $g[0].runs, partial: ($g[0].partial // null), gh_reason: (if $ghwhy == "" then null else $ghwhy end)}' >>"$WD/figpulls.jsonl"
+    done <"$WD/credited.tsv"
+    jq -s -c '.' "$WD/figpulls.jsonl" >"$WD/figpulls.json"
+}
+
 # niwa's dispatch id, from teardown.json: {v, r}, r the reason v is null.
+# When teardown.json holds none, the removal record whose instance_path is
+# teardown.json's (archive-common.sh) gives it.
 uc_niwa() {
+    local ip
     if ! reg "$ARCH/teardown.json"; then
         echo '{"v":null,"r":"no source"}' >"$WD/niwa.json"
         return 0
@@ -923,6 +1060,12 @@ uc_niwa() {
             else {v: null, r: "invalid input"} end
         end' "$ARCH/teardown.json" >"$WD/niwa.json" \
         || echo '{"v":null,"r":"invalid input"}' >"$WD/niwa.json"
+    [ "$(jq -r '.v // ""' "$WD/niwa.json")" = "" ] || return 0
+    ip=$(uc_jq -r '.instance.path // "" | if type == "string" then . else "" end' "$ARCH/teardown.json") || ip=""
+    case "$ip" in /*) ;; *) return 0 ;; esac
+    if ac_removal_for_path "$ip" && [[ $AC_REMOVAL_ID =~ $RE_DID ]]; then
+        jq -n -c --arg v "$AC_REMOVAL_ID" '{v: $v, r: null}' >"$WD/niwa.json"
+    fi
 }
 
 # The record, the Unit and the milestone, from the unit file. An issue
@@ -992,7 +1135,7 @@ uc_visibility() {
         jq -r '.[].repo' "$WD/pulls.json" >"$WD/vis.want"
         jq -r '.unit // "" | select(test("^[^#]+/[^#]+#[0-9]+$")) | sub("#[0-9]+$"; "")' "$WD/attribution.json" >>"$WD/vis.want"
     else
-        jq -r '.[].repo' "$WD/credit.json" >"$WD/vis.want"
+        jq -r '.[].repo' "$WD/credit.json" "$WD/opened.json" >"$WD/vis.want"
     fi
     if [ "$HOST_PUBLIC" = true ]; then
         while IFS= read -r r; do
@@ -1070,15 +1213,19 @@ uc_compute() {
     uc_niwa
     uc_pulls
     uc_visibility holding
+    uc_opened_holding
     uc_credit
+    uc_opened
     uc_visibility credited
+    uc_figure_pulls
     jq -n -c --arg key "$KEY" --arg now "$now" --arg topic "$TOPIC" --argjson vbad "$VERDICT_BAD" \
         --arg cwhy "$CREDIT_WHY" --slurpfile credit "$WD/credit.json" --slurpfile niwa "$WD/niwa.json" \
+        --arg owhy "$OPENED_WHY" --slurpfile opened "$WD/opened.json" \
         --slurpfile att "$WD/attribution.json" --slurpfile shape "$WD/shape.json" \
-        --slurpfile pulls "$WD/pulls.json" --slurpfile preasons "$WD/pull-reasons.json" \
+        --slurpfile pulls "$WD/pulls.json" --slurpfile fpulls "$WD/figpulls.json" --slurpfile preasons "$WD/pull-reasons.json" \
         --slurpfile disp "$WD/dispatch.json" --slurpfile sess "$WD/sessions.json" --slurpfile vis "$WD/vis.json" \
         --slurpfile worker "$WD/worker.json" --slurpfile nested "$WD/nested.json" "$UC_FIGURES"'
-        $att[0] as $a | $shape[0] as $p | $disp[0] as $d | $sess[0] as $S | $pulls[0] as $P | $vis[0] as $V
+        $att[0] as $a | $shape[0] as $p | $disp[0] as $d | $sess[0] as $S | $pulls[0] as $P | $fpulls[0] as $F | $vis[0] as $V
 
         # Unit sessions and their state time; $tr is why they give no
         # figures: "na" with none at all, a reason when one is unreadable.
@@ -1096,17 +1243,23 @@ uc_compute() {
         | def kfig($v; $raw): if $tr == "na" then naf("koto-state") elif $tr != null then nrf("koto-state"; $tr)
                               else fig($v; $raw; "measured"; "koto-state") end;
 
-        # Dispatch, merge and green.
+        # Dispatch, merge and green, over the pull requests the figures read
+        # ($F: the holding pull requests, or the credited ones when the
+        # sealed verdict names none).
         (if $d.state == "measured" then ($d.value | ts) else null end) as $dsec
-        | (if $vbad then {r: "invalid input"} elif ($P | length) == 0 then {r: "no source"}
-           elif any($P[]; .merged_at == null) then {r: ([$P[] | select(.merged_at == null) | .merged_reason][0] // "read failed")}
-           else {v: ($P | map(.merged_at | ts) | max)} end) as $merge
-        | (if $vbad then {r: "invalid input"} elif ($P | length) == 0 then {r: "no source"}
-           elif any($P[]; .gh_reason != null) then {r: ([$P[] | .gh_reason // empty][0])}
-           elif any($P[]; (.heads | length) == 0) then {r: "no source"}
-           else ($P | map(prf(.heads; .runs))) as $pf
-             | {fh: ($pf | map(.failing_heads) | add), bound: any($pf[]; .bound)}
-               + (if all($pf[]; .green != null) then {v: ($pf | map(.green) | max)} else {gr: "no source"} end) end) as $gh
+        | (if $vbad then {r: "invalid input"} elif ($F | length) == 0 then {r: "no source"}
+           elif any($F[]; .merged_at == null) then {r: ([$F[] | select(.merged_at == null) | .merged_reason][0] // "read failed")}
+           else {v: ($F | map(.merged_at | ts) | max)} end) as $merge
+        | (if $vbad then {r: "invalid input"} elif ($F | length) == 0 then {r: "no source"}
+           elif any($F[]; .gh_reason != null) then {r: ([$F[] | .gh_reason // empty][0])}
+           elif any($F[]; (.heads | length) == 0 and .partial == null) then {r: "no source"}
+           else ($F | map(prf(.heads; .runs))) as $pf
+             # A pull request whose heads could not all be read (partial)
+             # makes failing heads a floor naming the first such reason, and
+             # leaves green unread when its green head was not reached.
+             | ([$F[] | .partial // empty][0]) as $fhr
+             | {fh: ($pf | map(.failing_heads) | add), bound: any($pf[]; .bound), fhr: $fhr}
+               + (if all($pf[]; .green != null) then {v: ($pf | map(.green) | max)} else {gr: ($fhr // "no source")} end) end) as $gh
 
         | (if $d.state != "measured" then nrf("derived"; $d.reason)
            elif $gh.r then nrf("derived"; $gh.r) elif $gh.gr then nrf("derived"; $gh.gr)
@@ -1133,6 +1286,7 @@ uc_compute() {
              else ($U | map((.ledger.rows // []) | group_by(.panel) | map((map(.round) | unique | length) - 1) | add // 0) | add) as $r
                | fig($r; $r; "measured"; "verdict-ledger") end),
           failing_heads: (if $gh.r then nrf("github-runs"; $gh.r)
+                          elif $gh.fhr then fig($gh.fh; $gh.fh; "bound"; "github-runs") + {reason: $gh.fhr}
                           else fig($gh.fh; $gh.fh; (if $gh.bound then "bound" else "measured" end); "github-runs") end),
           sessions_without_done: (if $t then kfig($t.nodone; $t.nodone) else kfig(null; null) end),
           summed_session_span_min: (if $t then kfig($t.summed / 60 | v1; $t.summed) else kfig(null; null) end),
@@ -1165,6 +1319,8 @@ uc_compute() {
          + [$credit[0][] | if shown(.repo) then {repo, number, merge_commit, merged_at, via: "session"} else {repo: "not public"} end]) as $all
         | ($all | .[0:100]) as $pulls_out
         | (if $cwhy != "" then $cwhy elif ($all | length) > 100 then "entry size" else null end) as $creditwhy
+        | [$opened[0][] | if shown(.repo) then {repo, number, via} else {repo: "not public"} end] as $oall
+        | (if $owhy != "" then $owhy elif ($oall | length) > 100 then "entry size" else null end) as $openedwhy
         | ($a.unit | if type == "string" and test("^[^#]+/[^#]+#[0-9]+$") and (shown(sub("#[0-9]+$"; "")) | not)
                      then "not public" else . end) as $unit
 
@@ -1175,16 +1331,18 @@ uc_compute() {
              $preasons[0][],
              (if $creditwhy != null and ([$preasons[0][] | select(.figure == "pulls")] | length) == 0
               then {figure: "pulls", reason: $creditwhy} else empty end),
+             (if $openedwhy != null then {figure: "opened", reason: $openedwhy} else empty end),
              (if $d.reason != null then {figure: "dispatch", reason: $d.reason} else empty end),
              (if $niwa[0].r != null then {figure: "niwa.dispatch.id", reason: $niwa[0].r} else empty end),
              ($figures | to_entries[] | select(.value.state == "not recoverable") | {figure: .key, reason: .value.reason}),
+             ($figures | to_entries[] | select(.value.state == "bound" and .value.reason != null) | {figure: .key, reason: .value.reason}),
              ($sessions[] | .figures[] | select(.state == "not recoverable") | {figure: "sessions", reason}),
              (if $worker[0].reason != null then {figure: "tokens.worker", reason: $worker[0].reason} else empty end),
              (if $nested[0].reason != null then {figure: "tokens.nested", reason: $nested[0].reason} else empty end)
            ] | reduce .[] as $m ([]; if index([$m]) == null then . + [$m] else . end)) as $missing
         | {schema: "unit-cost/1", key: $key, captured_at: $now, topic: $topic,
            record: $a.record, unit: $unit, milestone: ($a.milestone | del(.reason)),
-           plan_shape: ($p | del(.reason)), pulls: $pulls_out, dispatch: ($d | del(.reason)),
+           plan_shape: ($p | del(.reason)), pulls: $pulls_out, opened: ($oall | .[0:100]), dispatch: ($d | del(.reason)),
            "niwa.dispatch.id": $niwa[0].v,
            figures: ($figures | map_values(del(.reason))),
            sessions: ($sessions | map(.figures |= map_values(del(.reason)))),
@@ -1243,7 +1401,20 @@ elif uc_run "$B" "$WD/facts.json" bash "$DC_COORD_LOG" run-facts --session "$SES
             0) ROW_OK=1
                 uc_jq -c --slurpfile r "$WD/row.json" '. + {unit: ($r[0].unit // null)}' "$WD/facts.json" >"$WD/unit.json" \
                 || jq -c '. + {unit: null, unit_reason: "invalid input"}' "$WD/facts.json" >"$WD/unit.json" ;;
-            1) jq -c '. + {unit: null, unit_reason: "no source"}' "$WD/facts.json" >"$WD/unit.json" ;;
+            1) jq -c '. + {unit: null, unit_reason: "no source"}' "$WD/facts.json" >"$WD/unit.json"
+                # No row names the topic (the unit was retired, or removed
+                # before its pass): the Unit the dispatch recorded on its leg
+                # key, in the requesting coordinator's session, found through
+                # the unit's own koto request. The row's Unit pattern and cut
+                # apply to it the same way, in uc_attribution.
+                B=$(uc_bound "$FETCH_SECS")
+                if [ "$B" -gt 0 ] && ac_dispatch_request "$ARCH"/koto/*/ \
+                    && uc_run "$B" "$WD/leg.json" "${KOTO:-koto}" context get "$AC_BY" "legs/$AC_REQ/$AC_LEG"; then
+                    uc_jq -c --slurpfile l "$WD/leg.json" --arg q "$AC_REQ" \
+                        'if ($l[0] | type) == "object" and $l[0].request == $q and ($l[0].unit | type) == "string"
+                         then . + {unit: $l[0].unit} | del(.unit_reason) else . end' "$WD/unit.json" >"$WD/unit.new" \
+                        && mv "$WD/unit.new" "$WD/unit.json"
+                fi ;;
             *) jq -c '. + {unit: null, unit_reason: "read failed"}' "$WD/facts.json" >"$WD/unit.json" ;;
         esac
     fi
@@ -1256,7 +1427,9 @@ fi
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2): the
 # holding's pull request (its Pull request cell, else the first of the sealed
 # verdict's), else the Unit's issue (`#n` on the host, or `owner/repo#n`), else
-# nowhere, the entry kept in the session.
+# nowhere, the entry kept in the session. record-append.sh posts on the item
+# only when its repository opts in, and otherwise keeps the entry in the
+# session.
 ON=none
 RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
 [ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
@@ -1288,16 +1461,35 @@ else
     say "the archive copy could not be written"
 fi
 
-# One entry per key: a `cost` entry already carrying it ends the capture.
-# The list is a read, so its bound comes out of the budget too: every read
-# together stays inside UNIT_COST_BUDGET_SECS (90), and the post's own bound
-# (25) on top keeps the whole capture inside the pass's 120.
+# One entry per unit: a `cost` entry already carrying this capture's key, or
+# its dispatch id when it has one, ends the capture. The list and the post run
+# under one lock in the removals directory, the one the sweep's captures take
+# too, so two captures of one unit that overlap leave one entry; a lock held
+# by a live capture is waited for inside the list and post bounds, and a
+# removals directory that can't be used leaves only the list check. The list
+# is a read, so its bound comes out of the budget too: every read together
+# stays inside UNIT_COST_BUDGET_SECS (90), and the post's own bound (25) on top
+# keeps the whole capture inside the pass's 120.
+if ac_removals_dir --create; then
+    if ac_lock "$AC_R/.post-lock" 60 $((LIST_SECS + POST_SECS)); then
+        UC_LOCK="$AC_R/.post-lock"
+    else
+        say "the post lock is held ($AC_WHY); listing and posting without it"
+    fi
+else
+    say "no post lock ($AC_WHY); listing and posting without it"
+fi
+DID=$(uc_jq -r '."niwa.dispatch.id" // "" | strings' "$WD/entry.json") || DID=""
 B=$(uc_bound "$LIST_SECS")
+# The reads spent the budget: no time is left to list, and a skipped post
+# loses the unit, so it posts without the check, saying so.
+[ "$B" -gt 0 ] || say "the read budget is spent; posting without the duplicate check"
 if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/record-append.sh" --session "$SESSION" --list; then
-    if uc_jq -e --arg k "$KEY" '
+    if uc_jq -e --arg k "$KEY" --arg d "$DID" '
         [.[] | select(.kind == "cost") | (.text // "" | if type == "string" then . else "" end)
          | (capture("```json\n(?<j>[^\n]*)\n```") // empty) | .j | (try fromjson catch null)
-         | select(type == "object") | .key] | index([$k]) != null' "$WD/entries.json" >/dev/null; then
+         | select(type == "object")]
+        | any(.key == $k or ($d != "" and ."niwa.dispatch.id" == $d))' "$WD/entries.json" >/dev/null; then
         say "the record already holds this unit's cost entry"
         exit 0
     fi

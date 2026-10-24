@@ -70,8 +70,17 @@ trap 'case "$T" in */teardown-pass-engine.*) rm -rf "$T" ;; esac' EXIT
 # side by side share no path.
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T" KOTO_SESSIONS_BASE="$T/koto-home"
 unset XDG_DATA_HOME TEARDOWN_ARCHIVE_DIR TEARDOWN_CLAUDE_HOME TEARDOWN_KOTO_SESSIONS
+# No sweep of removal records as a run ends: the engine's passes are the subject.
+export TEARDOWN_SWEEP=""
 mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 cd "$T" || exit 1
+# The real koto runs here, so its session store must be this suite's own:
+# before any koto command, the directory it resolves for a session has to be
+# under the scratch directory, or nothing runs.
+case "$(koto session dir teardown-pass-engine-probe 2>&1)" in
+    "$T"/*) ;;
+    *) echo "FAIL: koto's session directory is not under $T; no engine case ran"; exit 1 ;;
+esac
 git config --file "$HOME/.gitconfig" user.email t@example.invalid
 git config --file "$HOME/.gitconfig" user.name t
 
@@ -87,7 +96,7 @@ has()  { case "$2" in *"$3"*) pass "$1" ;; *) fail "$1" "missing [$3] in [$2]" ;
 PR="$T/plugin"
 S="$PR/skills/coordinate/scripts"
 mkdir -p "$S" "$PR/skills/coordinate/koto-templates"
-for f in dispatch-common.sh teardown-inventory.sh inventory-common.sh github-refs.sh teardown-verdict.sh coord-log.sh \
+for f in dispatch-common.sh archive-common.sh teardown-inventory.sh inventory-common.sh github-refs.sh teardown-verdict.sh coord-log.sh \
     coord-verdict.sh teardown-handoff.sh teardown-pass.sh unit-cost.sh; do
     cp "$HERE/$f" "$S/$f"
 done

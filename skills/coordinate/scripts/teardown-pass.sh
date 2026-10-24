@@ -51,6 +51,11 @@
 #            failure is incomplete;
 #         7. confirm `niwa list --json` no longer shows the instance and
 #            `claude agents --json --all` no longer shows the job.
+#       However it ends, the pass then starts `unit-removed.sh start`, which
+#       runs a sweep of the host's removal records detached and returns at
+#       once, so a removal a token-less sweep left pending is finished with
+#       the pass's own token; the pass never waits for it, and its exit code,
+#       last line and RESULT are the same either way.
 #       RESULT in the archive says `done`, or why the pass stopped once the
 #       archive exists. A rerun on the same UTC day reuses the day's archive
 #       directory; one on a later day makes a second, and `confirm` then
@@ -134,13 +139,18 @@
 # ${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
 # (each GitHub read's bound, default 8), TEARDOWN_CAPTURE_SECS (the cost
 # capture's bound, default 120), TEARDOWN_CONFIRM_SECS (confirm's archive
-# read's bound, default 15). bash 3.2.
+# read's bound, default 15), TEARDOWN_SWEEP (the script run with `start` as a
+# run ends, default unit-removed.sh beside this one; empty starts none).
+# bash 3.2.
 set -uo pipefail
 
 PROG=teardown-pass
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh"
+# The collection it shares with the capture after a removal.
+# shellcheck source=archive-common.sh
+. "$HERE/archive-common.sh"
 
 KOTO="${KOTO:-koto}"
 GH="${GH:-gh}"
@@ -154,6 +164,7 @@ CAPTURE_SECS="${TEARDOWN_CAPTURE_SECS:-120}"
 # confirm's archive read gets half of koto's 30-second action bound; the
 # listings, the RESULT read and the MANIFEST digest before it get the rest.
 CONFIRM_SECS="${TEARDOWN_CONFIRM_SECS:-15}"
+SWEEP="${TEARDOWN_SWEEP-$HERE/unit-removed.sh}"
 
 usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
@@ -174,9 +185,16 @@ case "$MODE" in run) [ -n "$WANT_KS" ] || usage ;; confirm) [ -z "$WANT_KS" ] ||
 umask 077
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass.XXXXXX") || exit 2
-trap 'rm -rf "$T"' EXIT
+# A run, however it ends, starts the host's sweep of removal records; start
+# returns at once, its output nowhere, so it changes nothing the pass reports.
+pass_end() {
+    rm -rf "$T"
+    [ "$MODE" = run ] && [ -n "$SWEEP" ] && [ -f "$SWEEP" ] || return 0
+    bash "$SWEEP" start </dev/null >/dev/null 2>&1 || :
+}
+trap pass_end EXIT
 
-sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
+sha256() { ac_sha256; }
 say() { printf '%s: %s\n' "$PROG" "$*"; }
 STEP=read
 ARCH=""
@@ -393,19 +411,7 @@ mkdir -p "$ARCH" && chmod 700 "$ARCH" || { ARCH=""; refused "cannot create the a
 say "preserving into $ARCH"
 : >"$T/copies"
 # copy_file <src> <rel>: one file into the archive, listed for the check.
-copy_file() {
-    mkdir -p "$ARCH/$(dirname "$2")" && cp -p "$1" "$ARCH/$2" || refused "cannot copy $1"
-    printf '%s\t%s\n' "$2" "$1" >>"$T/copies"
-}
-# copy_tree <src dir> <rel dir>: every regular file under it.
-copy_tree() {
-    local f
-    (cd "$1" && find . -type f) >"$T/tree" 2>/dev/null || refused "cannot list $1"
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        copy_file "$1/${f#./}" "$2/${f#./}"
-    done <"$T/tree"
-}
+copy_file() { ac_copy_file "$ARCH" "$T" "$1" "$2" || refused "$AC_WHY"; }
 # build_trees <dir>: the build trees under it (the header's rule) into
 # $T/bt, one `<marker>\t<path>` per line, the path relative to <dir> with no
 # leading `./`, outermost only, in byte order. Returns 1 when <dir> can't be
@@ -467,71 +473,10 @@ copy_job_tmp() {
     done <"$T/bt"
 }
 [ -f "$TR" ] || refused "the transcript $TR is missing"
-# The project directories of the instance (the header's rule). Names start
-# with `-`, so every command gets one only inside an absolute path.
-PROJ="$CLAUDE_HOME/projects"
-ENC=$(printf '%s' "$IPATH" | sed 's/[^A-Za-z0-9]/-/g')
-: >"$T/taken"
-: >"$T/skipped"
-: >"$T/links"
+# The project directories of the instance (the header's rule).
 : >"$T/trees.skipped"
-PPROJ=""
-[ -d "$PROJ" ] && { PPROJ=$(cd -P -- "$PROJ" 2>"$T/cd.err" && pwd -P) || refused "cannot enter $PROJ"; }
-# cwd_inside <physical dir>: 0 when at least one line of a .jsonl file in it
-# carries a cwd at or under the instance path and none carries one outside
-# it; 1 when not; 2 when the directory can't be read.
-cwd_inside() {
-    local f c inside=1
-    (cd -P -- "$1" && find . -type f -name '*.jsonl') >"$T/jl" 2>"$T/find.err" || return 2
-    : >"$T/cwds"
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        jq -R -r 'fromjson? | objects | .cwd | strings' "$1/${f#./}" >>"$T/cwds" 2>"$T/jq.err" || return 2
-    done <"$T/jl"
-    while IFS= read -r c; do
-        case "$c" in
-            "$IPATH" | "$IPATH"/*) inside=0 ;;
-            *) return 1 ;;
-        esac
-    done <"$T/cwds"
-    return "$inside"
-}
-# copy_project <physical dir> <name>: every regular file in it, no link
-# followed; the links it holds are listed for the README.
-copy_project() {
-    local f
-    (cd -P -- "$1" && [ "$(pwd -P)" = "$1" ] && find . -type f) >"$T/tree" 2>"$T/find.err" || refused "cannot list the project directory $2"
-    (cd -P -- "$1" && find . -type l) >"$T/tree.links" 2>"$T/find.err" || refused "cannot list the project directory $2"
-    while IFS= read -r f; do
-        [ -n "$f" ] && printf 'claude-projects/%s/%s\n' "$2" "${f#./}" >>"$T/links"
-    done <"$T/tree.links"
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        copy_file "$1/${f#./}" "claude-projects/$2/${f#./}"
-    done <"$T/tree"
-}
-if [ -n "$PPROJ" ]; then
-    for d in "$PPROJ/$ENC" "$PPROJ/$ENC"-*; do
-        name=${d##*/}
-        if [ -L "$d" ]; then
-            printf '%s\tsymbolic link\n' "$name" >>"$T/skipped"
-            continue
-        fi
-        [ -d "$d" ] || continue
-        phys=$(cd -P -- "$d" 2>"$T/cd.err" && pwd -P) || refused "cannot enter the project directory $name"
-        [ "$phys" = "$PPROJ/$name" ] || refused "the project directory $name is not where its name says"
-        if [ "$name" != "$ENC" ]; then
-            cwd_inside "$phys"
-            case $? in
-                0) ;;
-                1) printf '%s\tcwd outside the instance\n' "$name" >>"$T/skipped"; continue ;;
-                *) refused "cannot read the project directory $name" ;;
-            esac
-        fi
-        copy_project "$phys" "$name"
-        printf '%s\n' "$name" >>"$T/taken"
-    done
-fi
+ac_projects "$ARCH" "$T" "$CLAUDE_HOME" "$IPATH" || refused "$AC_WHY"
+PPROJ=$AC_PPROJ
 # The worker's own transcript is in one of them, or its row couldn't be read.
 TRD=$(cd -P -- "$(dirname "$TR")" 2>"$T/cd.err" && pwd -P) || TRD=""
 [ -n "$TRD" ] && [ -n "$PPROJ" ] && [ "$TRD" = "$PPROJ/${TRD##*/}" ] && grep -qxF -- "${TRD##*/}" "$T/taken" \
@@ -548,20 +493,9 @@ else
     # instance path alone.
     J="$IPATH" JTMP="$IPATH"
 fi
-NK=0
-for d in "$KOTO_SESSIONS"/*/; do
-    [ -d "$d" ] || continue
-    for f in "$d"koto-*.state.jsonl; do
-        [ -f "$f" ] || continue
-        ed=$(head -1 "$f" | jq -r '.execution_dir // ""') || ed=""
-        case "$ed/" in
-            "$IPATH"/* | "$JTMP"/* | "$J/tmp"/*)
-                copy_tree "${d%/}" "koto/$(basename "$d")"
-                NK=$((NK + 1))
-                break ;;
-        esac
-    done
-done
+ac_koto_find "$T" "$KOTO_SESSIONS" "$IPATH" "$JTMP" "$J/tmp"
+ac_koto_copy "$ARCH" "$T" || refused "$AC_WHY"
+NK=$AC_NK
 say "copied $(wc -l <"$T/copies" | tr -d ' ') files, $NK koto sessions"
 # SKIPPED, in the MANIFEST like teardown.json, only when a tree was left out.
 if [ -s "$T/trees.skipped" ]; then
@@ -583,17 +517,7 @@ jq -n -c --arg topic "$TOPIC" --arg name "$INAME" --arg path "$IPATH" --arg job 
             elif $d == "invalid" then {dispatch_id: null, reason: "invalid input"}
             else {dispatch_id: $d, reason: null} end)}' >"$T/teardown.json" || refused "cannot write teardown.json"
 copy_file "$T/teardown.json" teardown.json
-: >"$ARCH/MANIFEST.new"
-while IFS='	' read -r rel src; do
-    h=$(sha256 <"$ARCH/$rel") || refused "cannot hash $rel"
-    [ "$(sha256 <"$src")" = "$h" ] || refused "$rel doesn't match its source"
-    printf '%s %s %s\n' "$h" "$(wc -c <"$ARCH/$rel" | tr -d ' ')" "$rel" >>"$ARCH/MANIFEST.new"
-done <"$T/copies"
-mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
-# Its digest, recorded once every copy matched: confirm reads it in place of
-# hashing the archive again.
-h=$(sha256 <"$ARCH/MANIFEST") && printf '%s  MANIFEST\n' "$h" >"$ARCH/MANIFEST.sha256" \
-    || refused "cannot record the MANIFEST's digest"
+ac_manifest "$ARCH" "$T" || refused "$AC_WHY"
 {
     printf '# Teardown of %s\n\n' "$TOPIC"
     if [ "$REMOVED" = 1 ]; then
@@ -607,28 +531,8 @@ h=$(sha256 <"$ARCH/MANIFEST") && printf '%s  MANIFEST\n' "$h" >"$ARCH/MANIFEST.s
     fi
     printf '%s\n' "$PRS" | sed 's/^/- Merged pull request: /'
     printf -- '- Handoff: %s\n\n' "$HANDOFF"
-    # shellcheck disable=SC2016 # the backticks are Markdown
-    printf '`claude-projects/` holds the Claude Code project directories of the instance, each copied whole without following a symbolic link:\n\n'
-    sed 's/^/- Project directory taken: /' "$T/taken"
-    awk -F'\t' '{ printf "- Project directory skipped (%s): %s\n", $2, $1 }' "$T/skipped"
-    sed 's/^/- Symbolic link skipped: /' "$T/links"
-    printf '\n'
-    if [ -s "$T/trees.skipped" ]; then
-        # shellcheck disable=SC2016 # the backticks are Markdown
-        printf '`job/tmp/` is copied without the build trees a worker left in it:\n\n'
-        awk '{ p = substr($0, length($1) + length($2) + 3); printf "- Build tree skipped (%s, %s bytes): %s\n", $2, $1, p }' "$T/trees.skipped"
-        printf '\n'
-    fi
-    printf 'MANIFEST lists every copied file as `<sha256> <bytes> <path>`; each was checked against its source.\n'
-    # shellcheck disable=SC2016 # the backticks are Markdown
-    printf '`MANIFEST.sha256` holds the MANIFEST'"'"'s own sha256, recorded once every copy matched; the confirm check reads it.\n'
-    # shellcheck disable=SC2016 # the backticks are Markdown
-    printf '`teardown.json`, in the MANIFEST, records what the pass acted on: the topic, the instance, the job and session, whether the unit was removed outside the pass, and niwa'"'"'s dispatch id.\n'
-    # shellcheck disable=SC2016 # the backticks are Markdown
-    [ -s "$T/trees.skipped" ] && printf '`SKIPPED`, in the MANIFEST, lists each build tree left out of `job/tmp/` as `<bytes> <marker> <path>`: a directory holding cargo'"'"'s CACHEDIR.TAG, .rustc_info.json or .cargo-lock, a cargo home'"'"'s .package-cache, or a node_modules directory. None of their files is in the archive.\n'
-    # shellcheck disable=SC2016 # the backticks are Markdown
-    printf '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.\n'
-} >"$ARCH/README.md"
+} >"$T/readme.head"
+ac_readme "$ARCH" "$T" "$T/readme.head" "$T/trees.skipped"
 
 # The cost capture: a child with none of the pass's streams (stdin empty,
 # output to a file), under its own deadline, its status only ever a warning.
