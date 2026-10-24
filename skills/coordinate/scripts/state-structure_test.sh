@@ -82,14 +82,11 @@ fixture() {
 
 # The allow list: the matches at this change's base commit.
 cat > "$T/allow" <<'EOF'
-codec scripts/decision-archive_test.sh
 codec scripts/milestone.sh
 codec scripts/pick-facts.sh
 codec scripts/record-decision.sh
-codec scripts/report-questions_test.sh
 codec scripts/roadmap-status.sh
 codec scripts/state-schema_test.sh
-codec scripts/testdata/board/helpers.sh
 collaborators scripts/testdata/gh
 disciplines scripts/discipline-session_test.sh
 libs scripts/board-lib.sh
@@ -98,15 +95,11 @@ libs scripts/closeout-read.sh
 libs scripts/coordinate-open.sh
 libs scripts/coordinate-report.sh
 libs scripts/coordinate-template-structure_engine_test.sh
-libs scripts/coordinate_1_engine_test.sh
-libs scripts/coordinate_3_engine_test.sh
-libs scripts/coordinate_4_engine_test.sh
 libs scripts/decision-archive_test.sh
 libs scripts/decision-next.sh
 libs scripts/decision-next_test.sh
 libs scripts/decision-render.sh
 libs scripts/deferral-check.sh
-libs scripts/discipline-session_test.sh
 libs scripts/dispatch-common.sh
 libs scripts/holding-link.sh
 libs scripts/land-check_test.sh
@@ -128,7 +121,6 @@ libs scripts/record-decision.sh
 libs scripts/record-find.sh
 libs scripts/record-handover.sh
 libs scripts/record-hold.sh
-libs scripts/record-hold_test.sh
 libs scripts/record-holding.sh
 libs scripts/record-open.sh
 libs scripts/record-source.sh
@@ -140,11 +132,9 @@ libs scripts/record-write.sh
 libs scripts/record-write_test.sh
 libs scripts/report-facts.sh
 libs scripts/report-questions.sh
-libs scripts/report-questions_test.sh
 libs scripts/roadmap-features_test.sh
 libs scripts/roadmap-status-entry_test.sh
 libs scripts/roadmap-status.sh
-libs scripts/session-store_engine_test.sh
 libs scripts/start-check.sh
 libs scripts/state-schema.jq
 libs scripts/testdata/board/helpers.sh
