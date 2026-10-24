@@ -1,5 +1,24 @@
 # work-on eval fixtures
 
+## The scenario folders
+
+The shims in `bin/` answer from `scenarios/$EVAL_SCENARIO`, resolved against
+this directory, and nothing else lists or globs `scenarios/`. A folder here is
+read only when a scenario in `../evals.json` names it. Each of the 16 folders
+left is named by exactly one of work-on's scenarios.
+
+Three plan-run folders were removed because nothing read them:
+
+| Removed | Why nothing read it |
+|---|---|
+| `scenarios/e2e-plan-escalate/` | No work-on scenario names it. Execute's evals and `skills/execute/scripts/eval-koto-shim_test.sh` do, and both read execute's own copy in `skills/execute/evals/fixtures/scenarios/`. |
+| `scenarios/e2e-plan-happy/` | The same: only execute names it, and reads its own copy. Work-on's copy had gone stale and still named the old `work-on-plan` session. |
+| `scenarios/e2e-resume-plan/` | The same: only execute's evals name it, and they read execute's copy. |
+
+`scripts/run-evals.sh` puts only the running skill's `fixtures/bin` on PATH,
+and each skill's shims resolve scenarios against their own directory, so an
+execute eval never reaches a folder here.
+
 ## The cascade roadmaps
 
 No work-on eval runs the completion cascade. Execute's evals do, against the
