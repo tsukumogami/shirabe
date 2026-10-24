@@ -555,9 +555,9 @@ eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
 # refuses goes through alone, and so do a newline, a tab, a carriage return,
 # DEL, two more C0 controls (SOH and ESC), and non-ASCII text from several
 # scripts: a dash, an accented Latin letter (U+00E9), a CJK character (U+5B57)
-# and an emoji (U+1F600). Those after the tab are built by code point, so this
-# file holds no raw control bytes or emoji; NUL is left out, since an argument
-# can't carry it. koto and the script must agree on each, and a character they
+# and an emoji (U+1F600). The carriage return and everything after it are
+# built by code point, so this file holds no raw control bytes or emoji; NUL is
+# left out, since an argument can't carry it. koto and the script must agree on each, and a character they
 # disagree on is named.
 CLASS_SRC="$REPO_ROOT/scripts/lib/verification-deferral.sh"
 CLASS_RE=$(sed -n 's/.*select(test("\(\^\[[^"]*]\$\)").*/\1/p' "$CLASS_SRC")
@@ -622,19 +622,21 @@ koto_verdict() {
     fi
 }
 # script_verdict <value> -- SV is passes (the value reaches koto unchanged as
-# VERIFICATION_DEFERRAL_REASON), refuses (exit 64, error=usage, no koto call),
+# VERIFICATION_DEFERRAL_REASON), refuses (exit 64, error=usage, no koto call,
+# and the reason check's own message, so another usage refusal doesn't count),
 # or what the script did otherwise.
 script_verdict() {
     local out rc
     rm -f "$WORK/vars.json"
     tokens "$(jq -nc --arg r "$1" '["7", "--verification=hosted-ci", "--verification-reason=" + $r, "--koto-leg=r1:work-on"]')"
     out=$(cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" PATH="$PAIRS_BIN:$PATH" \
-        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>/dev/null)
+        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>"$WORK/open.err")
     rc=$?
     if [ -f "$WORK/vars.json" ] \
         && jq -e --arg v "$1" 'any(.[]; . == ["VERIFICATION_DEFERRAL_REASON", $v])' "$WORK/vars.json" >/dev/null 2>&1; then
         SV=passes
-    elif [ "$rc" -eq 64 ] && [ "$out" = "error=usage" ] && [ ! -f "$WORK/vars.json" ]; then
+    elif [ "$rc" -eq 64 ] && [ "$out" = "error=usage" ] && [ ! -f "$WORK/vars.json" ] \
+        && grep -qF -- "--verification-reason has characters koto does not accept" "$WORK/open.err"; then
         SV=refuses
     else
         SV="exits $rc with [$out]"
