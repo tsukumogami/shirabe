@@ -492,7 +492,9 @@ One pull request, built in this order so each step leaves the suites green:
    `teardown-pass_test.sh` and `teardown-pass_engine_test.sh` unchanged.
 2. Failing heads per head (#1093), with the stub's paged runs and the new
    cases.
-3. Placement through `uc_pr_content`; `unit-cost-on_test.sh` cases.
+3. Placement through `uc_pr_content`; `unit-cost-on_test.sh` cases. (As
+   built, the check ended in `record-append.sh`, which #1186 added; see
+   Decision 6's as-built note. `unit-cost-on_test.sh` keeps its cases.)
 4. `opened`, the empty-verdict rule, dedupe by dispatch id and the post lock.
 5. `unit` in the leg key; the capture's leg-key and removal-record fallbacks.
 6. `unit-removed.sh` and its suite.
@@ -557,13 +559,14 @@ reads from these stores stays data under its existing shape rules.
 an issue the unit touched, which removes today's exposure of coordinator
 bookkeeping on those items. With it on, entries go back on those
 maintainer-owned threads as today, and the reference says so where it documents
-the switch. On a GitHub record, the entry still goes on the
-coordinator's record issue; `record-append.sh`'s scan stops repository names,
-home paths and token shapes there, but a Unit's free text is not scanned, so a
-coordinator on a public record shouldn't name private work in a Unit. The
-removal archive holds copied transcripts, like the pass's; it lives under the
-user's own archive root, `0700`, and its retention is the user's; the removal
-records themselves are never dropped for age. An entry names the dispatch id and topic wherever it is
+the switch. The coordinator's record lives in its session, so an entry with
+the switch off is written nowhere outside the host; with it on,
+`record-append.sh`'s scan stops repository names, home paths and token shapes
+on the item, but a Unit's free text is not scanned, so a repository that opts
+in shouldn't have private work named in a Unit. The removal archive holds
+copied transcripts, like the pass's; it lives under the user's own archive
+root, `0700`, and its retention is the user's; the removal records themselves
+are never dropped for age. An entry names the dispatch id and topic wherever it is
 posted; both are identifiers, not secrets. Credit reads at most 200 candidate
 pull requests inside the capture's 90-second read budget, so a transcript that
 links many pull requests can't stretch a retry past its deadline.
