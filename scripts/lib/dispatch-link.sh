@@ -5,9 +5,10 @@
 # Sourced by scripts/skill-session.sh (`adopt`, and `open --dispatched-by`),
 # skills/work-on/scripts/work-on-open.sh (`--dispatched-by`) and /coordinate's
 # coordinate-open.sh and link-dispatcher.sh, so the openers that link a session
-# to its dispatcher retry, warn and record the same way. koto keeps a session while anything in its hierarchy is alive
-# (`koto session hierarchy <name>` shows why), and a dispatched-by link is what
-# joins a dispatched session to the session that dispatched it.
+# to its dispatcher retry, warn and record the same way. koto keeps a session
+# while anything in its hierarchy is alive (`koto session hierarchy <name>`
+# shows why), and a dispatched-by link is what joins a dispatched session to
+# the session that dispatched it.
 #
 # dl_valid_dispatcher <name>
 #   exit 0 when <name> can be a dispatcher: koto's session-name rule

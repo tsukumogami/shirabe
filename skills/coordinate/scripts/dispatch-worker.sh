@@ -283,9 +283,10 @@ read_inputs() {
         exit 1
     fi
     # The dispatcher a brief names is this run, the one rendering it: a
-    # message-path worker records it as its dispatcher, so after a re-brief
-    # (or in a carried run) it names the run that rendered the new brief,
-    # whatever an older input said.
+    # message-path worker records it as its dispatcher, so after a re-brief,
+    # or once a carried or imported run has taken over, it names the run that
+    # rendered the new brief, whatever an older input said. A new leg's
+    # --requested-by is read from the same field, so it names this run too.
     jq --arg a "$ADDRESS" --arg s "$SESSION" '.reports_to = $a | .dispatcher_session = $s' "$INPUT" >"$WORK/in.json" \
         && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }

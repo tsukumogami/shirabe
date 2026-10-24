@@ -707,7 +707,7 @@ has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-ap
 # rendered it as its dispatcher, not the input's value, with the command
 # that records it.
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-has "rebrief: dispatcher_session is the run that rendered it" "$B" "dispatcher_session: coord"
+eq  "rebrief: dispatcher_session is the run that rendered it" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
 lacks "rebrief: not the input's dispatcher_session" "$B" "coord-alpha"
 has "rebrief: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
 has "rebrief: render-result.sh is the report step" "$B" "render-result.sh"
@@ -880,7 +880,7 @@ log_pick send_execution plugin-api; : >"$ST/calls.log"
 run >/dev/null 2>"$ST/err"; eq "send_execution to the message path: exit 0" 0 "$?"
 eq  "send_execution to the message path: the holding reports by message" message "$(row return_path)"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
-has "send_execution to the message path: dispatcher_session is the run" "$B" "dispatcher_session: coord"
+eq  "send_execution to the message path: dispatcher_session is the run" 1 "$(grep -cx 'dispatcher_session: coord' <<<"$B")"
 has "send_execution to the message path: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
 printf '%s' "$INPUT_EXEC" >"$ST/ctx/brief_input.json"; log_pick dispatch plugin-api; : >"$ST/calls.log"

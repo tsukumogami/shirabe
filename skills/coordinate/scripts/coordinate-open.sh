@@ -96,8 +96,10 @@
 # --dispatched-by <name> names the coordinator run that dispatched this one, a
 # message-path worker whose brief carries this invocation with the name filled
 # in (render-brief.sh). It is any koto session name (^[A-Za-z0-9][A-Za-z0-9._-]*$,
-# at most 200 bytes) other than the run's own, checked before any koto call.
-# Once the run is open, carried, resumed or imported, the opener runs
+# at most 200 bytes), its form checked before any koto call, and never the
+# run's own name, checked once that name is known and before the run is opened,
+# resumed or imported. Once the run is open, carried, resumed or imported, the
+# opener runs
 # `koto session link <run> --dispatched-by <name>`, which writes the link into
 # the run's own session, so koto keeps the run while its dispatcher's
 # hierarchy is alive. A failed link is run once more; a second failure prints
@@ -109,8 +111,12 @@
 #
 # A carried run (a recycled coordinator: a new run holding an earlier run's
 # record) is linked the same way to the run it carried, with
-# `--dispatched-by <the earlier run>` written in the new run's session, before
-# any --dispatched-by link, and with the same retry and warning.
+# `--dispatched-by <the earlier run>` written in the new run's session, with
+# the same retry and warning. That link is written as soon as the carry lands,
+# so its warning (`warning=link-failed dispatched_by=<the earlier run>`)
+# prints right after carried=, before session= and any --dispatched-by link.
+# The order matters only for reading the output; the session/link-warning key
+# keeps one line per dispatcher either way (dispatch-link.sh).
 #
 # Exit codes: 0 opened or resumed; 10 the human must name the host first; 2
 # this koto lacks the session store's features (`refused=store-unsupported`),
