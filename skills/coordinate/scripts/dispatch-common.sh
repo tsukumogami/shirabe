@@ -719,7 +719,7 @@ dc_job_finished() {
         printf 'job %s has no state file at %s\n' "$job" "$f"
         return 1
     fi
-    st=$(jq -r '.state // "" | strings' "$f" 2>/dev/null) || {
+    st=$(jq -r '.state // "" | strings' "$f") || {
         printf 'the state file of job %s is not readable JSON\n' "$job"
         return 1
     }
