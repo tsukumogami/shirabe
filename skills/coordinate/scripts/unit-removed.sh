@@ -96,6 +96,7 @@
 #       <outcome>`, and the same in R/removals.log, `<UTC time> <dispatch id>
 #       <outcome>`. A record kept more than 24 hours after its removed_at is
 #       followed by one more line in each, `stale`, so a person sees it.
+#       Past 1 MiB the log keeps its last 1,000 lines.
 #       Before it exits the sweep reads R again and handles any record
 #       written since it started. Exit 0.
 #
@@ -239,8 +240,16 @@ export GH_CONFIG_DIR="$T/gh-config"
 
 # logline <dispatch id> <outcome>: one line on stdout and in removals.log.
 logline() {
+    local n
     printf '%s: %s\n' "$1" "$2"
     printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$LOG" || say "cannot write $LOG"
+    # A record kept for weeks adds a line at every sweep, and one runs at every
+    # wake, so past 1 MiB the log keeps its last 1,000 lines.
+    n=$(wc -c <"$LOG" 2>&1) || n=0
+    n=${n//[!0-9]/}
+    if [ "${n:-0}" -gt 1048576 ]; then
+        tail -n 1000 "$LOG" >"$LOG.trim" && mv -f "$LOG.trim" "$LOG" || say "cannot trim $LOG"
+    fi
 }
 
 # outcome <record file> <dispatch id> <outcome> [delete]: the record's line,

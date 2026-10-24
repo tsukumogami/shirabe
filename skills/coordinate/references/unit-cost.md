@@ -399,7 +399,9 @@ detached and never inside a koto action or gate: the end of every teardown
 pass (`teardown-pass.sh run` starts `unit-removed.sh start`), and the
 coordinator's wait guidance, which runs `scripts/unit-removed.sh start` at
 each wake. `start` launches the sweep the way `record` does and returns at
-once.
+once. Both pass `GH_TOKEN` on from the shell that runs them, so a coordinator
+whose `gh` works only through a stored login, with no `GH_TOKEN` in its
+shell, leaves every removal `pending github`; export the token there.
 
 **Retry.** A record whose capture wrote no entry is kept, its `attempts`
 counted and `last` set to `{at, outcome}`, and every later sweep tries it
@@ -423,7 +425,8 @@ recorded`, `post failed` (the post failed or didn't finish), `read failed`
 (the record couldn't be read, the archive couldn't be made, or the entry
 couldn't be computed), `timed out` (the capture was stopped at 120
 seconds), `pending github`, `no coordinator`, `several coordinators` or
-`invalid input`; a kept record past 24 hours adds a line `stale`.
+`invalid input`; a kept record past 24 hours adds a line `stale`. Past
+1 MiB the log keeps its last 1,000 lines.
 
 **The on-reap line.** A workspace adds the step to its niwa configuration.
 This runs the newest released shirabe in the plugin cache, by numeric

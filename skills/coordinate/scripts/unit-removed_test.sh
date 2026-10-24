@@ -380,6 +380,15 @@ mkdir -p "$R" && chmod 700 "$R"
 OUT=$(bash "$UR" sweep)
 eq "exit 0, no output, no gh or koto call, no log" "0||0" "$?|$OUT|$(count "$T/gh.env" "$T/koto.env" "$R/removals.log")"
 
+echo "== removals.log past 1 MiB keeps its last 1,000 lines =="
+rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+awk 'BEGIN { s = sprintf("%600s", ""); gsub(/ /, "x", s); for (i = 0; i < 2000; i++) print "2026-01-01T00:00:00Z old " s }' >"$R/removals.log"
+newrec dsp-long.1 0d0d0d0d-3333 "$WS/inst-long"
+OUT=$(bash "$UR" sweep)
+eq "a sweep that logs past 1 MiB trims the log to its last 1,000 lines, its own line last" "1000|dsp-long.1 no coordinator" \
+    "$(wc -l <"$R/removals.log" | tr -d ' ')|$(tail -n 1 "$R/removals.log" | cut -d' ' -f2-)"
+
 echo "== start: the sweep in the background =="
 seed
 rm -rf "$R"
