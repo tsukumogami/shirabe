@@ -24,7 +24,12 @@
 # stranded row retired after, and the stranded topic itself refused;
 # --releg-imported re-attaching an imported worker, finishing after a crash at
 # each step with one binding, and refusing each case the design names with
-# nothing left half-done; and every exit code of holding-recorded.sh.
+# nothing left half-done; and every exit code of holding-recorded.sh. Each
+# path that moves a worker to the message path (a re-brief, a leg-bound one
+# included; a re-brief after a leg was found unwatchable, from the importing
+# run; an execution sent to an entry point with no leg) renders a brief whose
+# dispatcher_session is the run that rendered it, with the link command
+# --dispatched-by filled in; an execution sent on a leg carries none.
 #
 # Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -698,6 +703,14 @@ rm -f "$ST/ctx/coord/pick.json"
 OUT=$(run --rebrief 2>/dev/null); RC=$?
 eq  "rebrief: exit 0, with no coord/pick.json to read" 0 "$RC"
 has "rebrief: prints the brief" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
+# The worker is on the message path, so the brief names the run that
+# rendered it as its dispatcher, not the input's value, with the command
+# that records it.
+B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
+has "rebrief: dispatcher_session is the run that rendered it" "$B" "dispatcher_session: coord"
+lacks "rebrief: not the input's dispatcher_session" "$B" "coord-alpha"
+has "rebrief: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
+has "rebrief: render-result.sh is the report step" "$B" "render-result.sh"
 eq  "rebrief: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
 has "rebrief: new goal" "$B" "tolerates a missing manifest"
@@ -720,6 +733,21 @@ eq  "rebrief, leg-bound: exit 0" 0 "$RC"
 eq  "rebrief, leg-bound: the holding moves to the message path" message "$(row return_path)"
 has "rebrief, leg-bound: the spent request is abandoned" "$(calls)" "koto request abandon-request req_1"
 lacks "rebrief, leg-bound: the brief no longer names the leg" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--koto-leg"
+has "rebrief, leg-bound: moved to the message path, it carries the link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" \
+    'link-dispatcher.sh" <session> --dispatched-by coord`'
+
+# A leg reconcile found unwatchable after an import (reconcile-legs.sh): the
+# holding reports by message from then on, and the importing run re-briefs
+# the worker, whose brief names that run as its dispatcher.
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
+jq -c '.return_path = "message"' "$ST/rows/plugin-api.json" >"$ST/r" && mv "$ST/r" "$ST/rows/plugin-api.json"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+(cd "$W/inst" && bash "$S" --session coordinate-roadmap-plugin-system-20261024T090000Z --rebrief) >/dev/null 2>&1
+eq  "unwatchable: the importing run re-briefs the worker" 0 "$?"
+B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
+has "unwatchable: dispatcher_session is the importing run" "$B" "dispatcher_session: coordinate-roadmap-plugin-system-20261024T090000Z"
+has "unwatchable: the link command names it" "$B" '--dispatched-by coordinate-roadmap-plugin-system-20261024T090000Z`'
 
 # --- a review-level bound ---------------------------------------------------------------------------------
 #
@@ -843,6 +871,17 @@ eq  "send_execution: the unit is kept" "Feature 2: the plugin API" "$(row unit)"
 has "send_execution: the leg pins the plan slug" "$(calls)" '"inputs":{"PLAN_SLUG":"plugin-api"}'
 eq  "send_execution: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 has "send_execution: the brief is the execution's" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "/shirabe:execute docs/plans/PLAN-plugin-api.md"
+lacks "send_execution: on a leg, the brief carries no link command" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "--dispatched-by"
+# An execution whose entry point takes no leg here (/work-on given a PLAN)
+# goes to the message path, and its brief carries the link command.
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
+printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .phase = "executing"' >"$ST/ctx/brief_input.json"
+log_pick send_execution plugin-api; : >"$ST/calls.log"
+run >/dev/null 2>"$ST/err"; eq "send_execution to the message path: exit 0" 0 "$?"
+eq  "send_execution to the message path: the holding reports by message" message "$(row return_path)"
+B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
+has "send_execution to the message path: dispatcher_session is the run" "$B" "dispatcher_session: coord"
+has "send_execution to the message path: the link command, --dispatched-by filled in" "$B" 'link-dispatcher.sh" <session> --dispatched-by coord`'
 reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.phase = "scoping-ahead"')"; run >/dev/null 2>&1
 printf '%s' "$INPUT_EXEC" >"$ST/ctx/brief_input.json"; log_pick dispatch plugin-api; : >"$ST/calls.log"
 eq  "a pick that isn't send_execution: already-dispatched, nothing changed" already-dispatched "$(run 2>/dev/null)"
