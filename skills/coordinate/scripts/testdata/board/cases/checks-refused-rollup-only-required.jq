@@ -1,9 +1,10 @@
-# A check only the rollup's isRequired names (an organisation's required
-# workflow, say, that protection and the branch rules don't list) whose job
-# never ran. With the rollup refused it is invisible, not missing, so the board
-# must not verify: it is actions-green, which nothing lands on.
-# expect: actions-green
-# check: .source == "actions" and ([.required[].name] | index("org-policy") == null)
+# A check an organisation's ruleset requires (the branch rules list it) whose
+# only report is a check run from another app: with the rollup refused no job
+# and no status answers it, so it is unreadable, never a pass.
+# expect: error:board-read required-unreadable
+# check: .source == "actions" and any(.required[]; .name == "org-policy" and .result == "UNREADABLE")
 include "lib";
-ctx(. + [check("org-policy"; "COMPLETED"; "FAILURE"; true)])
+ctx(. + [check("org-policy"; "COMPLETED"; "FAILURE"; true) | .checkSuite.app.databaseId = 999])
+| .rules = [{type: "required_status_checks", ruleset_source_type: "Organization",
+             parameters: {required_status_checks: [{context: "org-policy", integration_id: 999}]}}]
 | refuse_rollup

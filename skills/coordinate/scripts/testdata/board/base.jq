@@ -1,9 +1,11 @@
 # base.jq -- the passing board every case starts from: two runs at the head,
 # each with one job that ran on a named runner with succeeded steps, the
 # required check `validate` reported and green, a clean merge state, and the
-# remote ref still at the head.
+# remote ref still at the head. The commit has no statuses; they are read
+# only when the checks can't be.
 include "lib";
 {
+  statuses: {total_count: 0, statuses: []},
   snapshot: snapshot("CLEAN"; [check("Unit Tests"; "COMPLETED"; "SUCCESS"; false),
                               check("validate"; "COMPLETED"; "SUCCESS"; true)]),
   runs: runs([run(101; "completed"; "success"; 1), run(102; "completed"; "success"; 1)]),
