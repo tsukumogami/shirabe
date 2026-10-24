@@ -26,7 +26,9 @@
 # teardown_topic cleared, when the pull request isn't merged (the seal's other
 # refusals are teardown-handoff_test.sh's). The pass refuses a key seal that
 # isn't the verdict's, a pull request no longer merged, unique material
-# since the inventory, and a job whose state since the verdict went missing, became unknown, or that left the listing; it
+# since the inventory, and a job that since the verdict took a live pid, whose state file
+# reads working, or that left the listing (the listing's state alone, which Claude Code
+# 2.1.309 reports as working for every job, changes nothing); it
 # reports incomplete when the removal fails after the destroy; and
 # teardown_confirm refuses a `destroyed` no pass backs. The verdict carries
 # niwa's dispatch id (`invalid` outside its shape) and the pass writes it into
@@ -272,8 +274,9 @@ SLUG=$(printf '%s' "$INST" | sed 's/[^A-Za-z0-9]/-/g')
 TR="$HOME/.claude/projects/$SLUG/$SID.jsonl"
 URL="https://github.com/acme/widgets/pull/600#issuecomment-1001"
 KS="$HOME/.koto/sessions"
-# fixture [state]: a fresh instance, job, transcript, koto sessions and
-# listings for the worker w5, stopped unless a state is given.
+# fixture: a fresh instance, job, transcript, koto sessions and listings for
+# the worker w5, stopped the way Claude Code 2.1.309 shows it: its state file
+# reads done, and the listing has no pid for it and reports it as working.
 fixture() {
     rm -rf "$T/instances" "$HOME/.claude" "$HOME/.local/share/teardown-archive" "$ST"/*.json "$ST"/*.log "$ST/rm-fails" "$KS/wk-"*
     mkdir -p "$INST" "$HOME/.claude/jobs/$JOB/tmp" "$(dirname "$TR")/$SID/subagents" "$KS"
@@ -289,7 +292,7 @@ fixture() {
         printf '{"schema_version":1,"workflow":"%s","execution_dir":"%s"}\n{"seq":1}\n' "$n" "$d" >"$KS/$n/koto-$n.state.jsonl"
     done
     printf '[{"name":"tsuku+w5","path":"%s","session_name":"w5-1a2b3c4d","dispatch_id":"dsp-01:7f3a.b"}]\n' "$INST" >"$ST/niwa.json"
-    printf '[{"id":"%s","cwd":"%s","sessionId":"%s","name":"w5-1a2b3c4d","state":"%s"}]\n' "$JOB" "$INST" "$SID" "${1:-done}" >"$ST/agents.json"
+    printf '[{"id":"%s","cwd":"%s","sessionId":"%s","name":"w5-1a2b3c4d","state":"working"}]\n' "$JOB" "$INST" "$SID" >"$ST/agents.json"
     printf '[{"worker":"w5","unit":"#591","repo":"acme/widgets","branch":"feat/w5"}]\n' >"$ST/rows.json"
     printf '[{"number":600,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"acme"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
     printf '{"state":"MERGED","mergeCommit":{"oid":"%s"}}\n' "$MERGE" >"$ST/pr-600.json"
@@ -422,18 +425,19 @@ fixture
 start
 stopped
 KSEAL=$(handover | sed -n 's/^keyseal //p')
-jq -c '[.[] | del(.state)]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
-eq  "a job whose state went missing since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
-nothing_removed "a job whose state went missing since the verdict"
+jq -c --argjson p "$$" '[.[] | .pid = $p]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+eq  "a job that took a live pid since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
+has "and says so" "$(tail -1 "$T/pass.out")" "job $JOB is no longer finished: job $JOB is still running (pid $$)"
+nothing_removed "a job that took a live pid since the verdict"
 
 fixture
 start
 stopped
 KSEAL=$(handover | sed -n 's/^keyseal //p')
-jq -c '[.[] | .state = "waiting"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
-eq  "a job in an unknown state since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
-has "and says so" "$(tail -1 "$T/pass.out")" "no longer the finished job"
-nothing_removed "a job in an unknown state since the verdict"
+printf '{"id":"%s","state":"working"}\n' "$JOB" >"$HOME/.claude/jobs/$JOB/state.json"
+eq  "a job whose state file reads working since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
+has "and says so" "$(tail -1 "$T/pass.out")" "the state file of job $JOB reads working"
+nothing_removed "a job whose state file reads working since the verdict"
 
 fixture
 start
@@ -441,7 +445,7 @@ stopped
 KSEAL=$(handover | sed -n 's/^keyseal //p')
 printf '[]\n' >"$ST/agents.json"
 eq  "a job gone from the listing since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
-has "and says so" "$(tail -1 "$T/pass.out")" "no longer the finished job"
+has "and says so" "$(tail -1 "$T/pass.out")" "no longer the job of"
 nothing_removed "a job gone from the listing since the verdict"
 
 fixture

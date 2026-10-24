@@ -15,8 +15,10 @@
 #            the key seal;
 #         2. re-read every fact: each pull request still merged at its merge
 #            commit, the handoff comment still there, the job still listed
-#            with the same cwd and session in a finished state (done,
-#            stopped or failed), niwa still
+#            with the same cwd and session and still finished as
+#            dc_job_finished reads it (its own state.json reads done,
+#            stopped or failed, and the listing shows no live pid; the
+#            listing's state isn't read), niwa still
 #            listing the instance by that name and path;
 #         3. re-inventory the instance (teardown-inventory.sh, unsealed);
 #            anything but durable refuses;
@@ -352,8 +354,12 @@ if [ "$REMOVED" = 1 ]; then
 else
     AG=$(agents) || refused "claude agents could not be read"
     printf '%s' "$AG" | jq -e --arg j "$JOB" --arg p "$IPATH" --arg s "$SID" \
-        '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and (.[0].state | IN("done", "stopped", "failed"))' >/dev/null \
-        || refused "job $JOB is no longer the finished job of $IPATH with session $SID"
+        '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s' >/dev/null \
+        || refused "job $JOB is no longer the job of $IPATH with session $SID"
+    # Finished by the same reading as the verdict's: the listing's state is
+    # activity on current Claude Code, so it isn't read.
+    WHY=$(dc_job_finished "$CLAUDE_HOME" "$JOB" "$(printf '%s' "$AG" | jq -c --arg j "$JOB" '[.[] | select(.id == $j)][0]')") \
+        || refused "job $JOB is no longer finished: $WHY"
     NL=$(niwa_list) || refused "niwa list could not be read"
     printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" '[.[] | select(.name == $n or .path == $p)] | length == 1 and .[0].name == $n and .[0].path == $p' >/dev/null \
         || refused "niwa no longer lists $INAME at $IPATH"
