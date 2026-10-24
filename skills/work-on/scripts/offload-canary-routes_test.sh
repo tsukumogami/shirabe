@@ -67,7 +67,16 @@ trap cleanup EXIT
 
 export KOTO_SESSIONS_BASE="$T/sessions"
 export XDG_CONFIG_HOME="$T/xdg"
-mkdir -p "$KOTO_SESSIONS_BASE" "$XDG_CONFIG_HOME/shirabe"
+# koto's store follows HOME, so the real koto this suite drives gets one of
+# its own, and the suite stops before any session is made unless koto's
+# session directory resolves inside this scratch directory.
+export HOME="$T/home"
+mkdir -p "$KOTO_SESSIONS_BASE" "$XDG_CONFIG_HOME/shirabe" "$HOME"
+SESSION_DIR_PROBE=$(koto session dir offload-canary-probe 2>/dev/null) || SESSION_DIR_PROBE=""
+case "$SESSION_DIR_PROBE" in
+    "$T"/*) ;;
+    *) echo "FAIL: koto session dir [$SESSION_DIR_PROBE] is not under the scratch directory $T; no case ran" >&2; exit 1 ;;
+esac
 echo on > "$XDG_CONFIG_HOME/shirabe/offload-canary"
 JOURNAL="$KOTO_SESSIONS_BASE/_run_journal.jsonl"
 
@@ -227,7 +236,9 @@ FIX="$T/fixture.md"
     echo "description: the shipped canary states before the shipped pr_creation directive"
     echo "initial_state: offload_canary"
     echo "variables:"
-    for v in PLUGIN_ROOT ARTIFACT_PREFIX SHARED_BRANCH BRANCH ISSUE_NUMBER; do
+    # Every variable the shipped pr_creation body names, the multi-pr item
+    # hook's PLAN_DOC and ISSUE_SOURCE included.
+    for v in PLUGIN_ROOT ARTIFACT_PREFIX SHARED_BRANCH BRANCH ISSUE_NUMBER PLAN_DOC ISSUE_SOURCE; do
         echo "  $v:"
         echo "    description: fixture"
         echo "    required: false"
@@ -295,8 +306,12 @@ directive "$T/root-missing"; MISSING=$D
 grep -qF 'ROOT/references/pr-body-conformance.md' <<<"$OFF" \
     && pass "a canary-off run's pr_creation directive names the real conformance text" \
     || fail "the off directive does not name the real conformance text: $OFF"
+# The multi-pr item hook's line names the run's own session, prefix and
+# SHARED_BRANCH, which differ from run to run by design; every other line
+# must match byte for byte.
+without_hook() { grep -vF 'multi-pr-item-record.sh' <<<"$1"; }
 same=1
-for d in "$PDIR" "$SHARED" "$FAILED" "$MISSING"; do [ "$d" = "$OFF" ] || same=0; done
+for d in "$PDIR" "$SHARED" "$FAILED" "$MISSING"; do [ "$(without_hook "$d")" = "$(without_hook "$OFF")" ] || same=0; done
 [ $same -eq 1 ] && pass "preloaded, shared, failed and missing-script runs render pr_creation byte for byte as a canary-off run" \
     || fail "a pr_creation directive differs from the canary-off one"
 
