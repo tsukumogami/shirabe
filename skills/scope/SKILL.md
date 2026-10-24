@@ -270,7 +270,8 @@ koto checks every argument there, and in the same call opens a new session,
 attaches to this worktree's live one, or -- when an earlier run of the topic
 already reached a terminal -- replaces that finished session with a fresh one
 (`--replace-terminal`), which starts again at `intake` and `resume_route`. A
-live session is never replaced. A refusal prints its text followed by
+live session is never replaced, and a finished one its hierarchy still holds
+is moved aside rather than removed (`moved_to=` names where). A refusal prints its text followed by
 `outcome=error` and `step=scope:refused`; print them and stop. There is no
 session to tick until that has run, so this is the one procedure you need
 before the workflow can tell you anything. The session is named

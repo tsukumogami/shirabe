@@ -64,6 +64,16 @@ cleanup() { case "${T:-}" in */koto-open-test.*) rm -rf "$T" ;; esac; return 0; 
 trap cleanup EXIT
 
 export HOME="$T/home"
+# The engine cases create, replace and move sessions, so they must never reach
+# the caller's own store. HOME alone doesn't redirect koto: KOTO_SESSIONS_BASE
+# names a store outright, a run under a koto session inherits it and
+# KOTO_TICK_SESSION, and the KOTO_SESSION_* settings can point koto at a cloud
+# bucket. All of them are cleared, and the engine cases check below that koto's
+# session directory lies under this suite's tmp before they run.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
 # The argv cases below pin koto-open.sh's call with the legacy-environment knob
 # off unless a case turns it on; a knob exported by the caller would change it.
 # Temporary, #483.
@@ -418,6 +428,73 @@ STUB_MODE=canned STUB_RC=3 STUB_RESPONSE='{"command":"init","error":"corrupt sta
 assert_eq "an untyped koto failure prints failed=koto_error" "failed=koto_error" "$STDOUT"
 assert_eq "an untyped koto failure passes koto's exit code through" "3" "$RC"
 
+# --- a held predecessor: moved aside, or a refused replace --------------------------
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=0 STUB_RESPONSE='{"name":"s1","state":"work","outcome":"replaced","replaced_state":"done","replaced_result":{"status":"success"}}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal
+case "$STDOUT" in
+    *moved_*) fail "a plain replace printed a moved line: [$STDOUT]" ;;
+    *) pass "a replace that removed the old session prints no moved line" ;;
+esac
+assert_eq "a plain replace says nothing on stderr" "" "$STDERR"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=0 STUB_RESPONSE='{"name":"s1","state":"work","outcome":"replaced","replaced_state":"done","replaced_result":{"status":"success"},"moved_to":"s1_r2","moved_reason":"kept: alive in its\nhierarchy: p (koto_session)","moved":[{"from":"s1","to":"s1_r2"}]}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal
+assert_eq "a moved predecessor still opens: exit 0" "0" "$RC"
+assert_eq "a moved predecessor: the replaced lines, then moved_to and moved_reason" \
+    'opened=replaced
+replaced_state=done
+replaced_result={"status":"success"}
+moved_to=s1_r2
+moved_reason=kept: alive in its hierarchy: p (koto_session)' "$STDOUT"
+assert_contains "the stderr note names where the old session went" "it is now s1_r2" "$STDERR"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"replace_held_live","command":"init","error":"koto words","live":["s1.a","s1.b"]}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal
+assert_eq "replace_held_live: the refusal line, then the live sessions" \
+    'refused=replace_held_live
+live=["s1.a","s1.b"]' "$STDOUT"
+assert_eq "replace_held_live exits 75" "75" "$RC"
+assert_contains "replace_held_live with no caller wording gets this script's wording" \
+    "its subtree has live work that cannot move: s1.a, s1.b." "$STDERR"
+assert_contains "replace_held_live's wording says nothing changed" "Nothing was changed." "$STDERR"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"code":"replace_failed","command":"init","error":"could not move finished session '"'"'s1'"'"' aside: disk full; nothing was replaced"}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal
+assert_eq "replace_failed: the refusal line alone when nothing was stranded" "refused=replace_failed" "$STDOUT"
+assert_eq "replace_failed exits 74" "74" "$RC"
+assert_eq "replace_failed with no caller wording gets this script's wording, koto's reason included" \
+    "The finished session s1 could not be replaced, and no new session was made: could not move finished session 's1' aside: disk full; nothing was replaced" "$STDERR"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"code":"replace_failed","command":"init","error":"koto words","stranded":[{"from":"s1.c","to":"s1_r1.c"}]}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal
+assert_eq "replace_failed with stranded renames prints them as JSON" \
+    'refused=replace_failed
+stranded=[{"from":"s1.c","to":"s1_r1.c"}]' "$STDOUT"
+assert_contains "the default wording names the stranded renames" "still under their new names: s1.c -> s1_r1.c." "$STDERR"
+
+printf 'replace_held_live\t{session} is busy below: {live}.\n' >"$T/wording-replace.tsv"
+printf 'replace_failed\t{session} stays put ({stranded}).\n' >>"$T/wording-replace.tsv"
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"replace_held_live","command":"init","error":"koto words","live":["s1.a"]}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal --wording "$T/wording-replace.tsv"
+assert_eq "a caller's replace_held_live line wins, with {live} filled in" "s1 is busy below: s1.a." "$STDERR"
+assert_eq "a caller's wording leaves the exit code at 75" "75" "$RC"
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=1 STUB_RESPONSE='{"code":"replace_failed","command":"init","error":"koto words","stranded":[{"from":"a","to":"b"},{"from":"c","to":"d"}]}' \
+    run_stub s1 "$T/t.md" "$A" --attach-live --replace-terminal --wording "$T/wording-replace.tsv"
+assert_eq "a caller's replace_failed line wins, with {stranded} filled in" "s1 stays put (a -> b, c -> d)." "$STDERR"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"var_mismatch","command":"init","error":"koto words","var":"TOPIC","live":["x"]}' \
+    run_stub s1 "$T/t.md" "$A" --wording "$T/wording-replace.tsv"
+assert_eq "another refusal prints no live line and keeps koto's exit code" "refused=var_mismatch|2" "$STDOUT|$RC"
+
 # --- engine-backed ------------------------------------------------------------------
 
 REAL_KOTO=$(command -v koto 2>/dev/null) || REAL_KOTO=""
@@ -436,6 +513,16 @@ if ! "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--vars-file'; then
     exit 0
 fi
 ln -s "$REAL_KOTO" "$TOOLS/koto"
+# Before any engine case writes a session: koto must resolve its store under
+# this suite's tmp, or the cases would act on someone's real sessions.
+SESSION_DIR_PROBE=$(cd "$REPO" && PATH="$TOOLS:$SYS_PATH" koto session dir isolation-probe 2>&1) || SESSION_DIR_PROBE=""
+case "$SESSION_DIR_PROBE" in
+    "$T"/*) ;;
+    *)
+        echo "FAIL: koto's session directory is not under this suite's tmp ($T): [$SESSION_DIR_PROBE]; no engine case ran"
+        exit 1
+        ;;
+esac
 echo
 echo "engine-backed cases against $("$REAL_KOTO" version 2>/dev/null | head -1)"
 
@@ -606,6 +693,53 @@ A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
 run_real e1 "$TPL" "$A" --wording "$T/wording.tsv"
 assert_eq "an existing session with no entry flag: refused=already_exists" "refused=already_exists" "$STDOUT"
 assert_eq "it prints the caller's wording for that condition" "A session named e1 already exists." "$STDERR"
+
+# --- a predecessor its hierarchy holds --------------------------------------------
+#
+# From koto 0.23.0 a finished session that a live session still names is kept
+# at its terminal tick, and --replace-terminal moves it aside instead of
+# removing it, or refuses when its subtree has live work. The floor job runs an
+# older koto, so these cases run only where koto has the behaviour.
+if PATH="$TOOLS:$SYS_PATH" KOTO_FLOOR=0.23.0 "$BASH_BIN" "$SCRIPT_DIR/assert-koto-floor.sh" >/dev/null 2>&1; then
+    kt() { (cd "$REPO" && PATH="$TOOLS:$SYS_PATH" koto "$@"); }
+    A=$(new_args "$OUTSIDE" '[["TOPIC","h0"]]')
+    run_real h0 "$TPL" "$A"
+    A=$(new_args "$OUTSIDE" '[["TOPIC","h1"]]')
+    run_real h1 "$TPL" "$A"
+    kt session link h1 --dispatched-by h0 >/dev/null 2>&1
+    kt next h1 --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+    A=$(new_args "$OUTSIDE" '[["TOPIC","h1"]]')
+    run_real h1 "$TPL" "$A" --attach-live --replace-terminal
+    assert_eq "a held finished session: opened=replaced" "opened=replaced" "$(first_line)"
+    assert_contains "it reports where the old session moved" "moved_to=h1_r1" "$STDOUT"
+    assert_contains "it reports why koto kept it" "moved_reason=" "$STDOUT"
+    assert_eq "the replace of a held session exits 0" "0" "$RC"
+    if [ "$(kt status h1_r1 2>/dev/null | jq -r '.current_state')" = "done" ]; then
+        pass "the old run stays readable under its new name"
+    else
+        fail "no finished h1_r1 after the move"
+    fi
+
+    A=$(new_args "$OUTSIDE" '[["TOPIC","h2"]]')
+    run_real h2 "$TPL" "$A"
+    kt session link h2 --dispatched-by h0 >/dev/null 2>&1
+    kt init h2.k --template "$TPL" --var TOPIC=h2 --parent h2 >/dev/null 2>&1
+    kt next h2 --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
+    A=$(new_args "$OUTSIDE" '[["TOPIC","h2"]]')
+    run_real h2 "$TPL" "$A" --attach-live --replace-terminal --wording "$T/wording.tsv"
+    assert_eq "a held session with a live child: refused=replace_held_live, then live=" \
+        'refused=replace_held_live
+live=["h2.k"]' "$STDOUT"
+    assert_eq "replace_held_live from koto exits 75" "75" "$RC"
+    assert_contains "it is worded even when the caller's table has no line for it" "Nothing was changed." "$STDERR"
+    if [ "$(kt status h2 2>/dev/null | jq -r '.current_state')" = "done" ]; then
+        pass "a refused replace leaves the finished session where it was"
+    else
+        fail "h2 changed on a refused replace"
+    fi
+else
+    echo "SKIP: this koto predates hierarchy retention (0.23.0) -- the held-predecessor cases did not run"
+fi
 
 # --- the request leg ------------------------------------------------------------
 
