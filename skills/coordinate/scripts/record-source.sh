@@ -88,16 +88,19 @@
 #       can't be made.
 #
 #       What this bounds is the number of reads a step makes, not the cost of
-#       one. A session-store assembly is still one koto call per key and a
-#       listing or two (koto has no multi-key get), and the reconcile deadlines
-#       stay 8 and 12 seconds rather than growing with the record. Reading
-#       once is enough because the assembly's calls were never the slow part:
-#       at the budget they take about a second at a real koto's 0.1 s each,
-#       while rendering the body and parsing it took most of the read, and a
-#       pass rendered and parsed it up to three times (reconcile-read.sh's
-#       read, then the settle's and the legs classification's) and parsed the
-#       first read back a second time for nobody. A deadline that grew with
-#       the record would instead let a slow read hide a hung one.
+#       one. A session-store assembly is still one koto call per key and one
+#       listing (koto has no multi-key get), and the reconcile deadlines
+#       stay 8 and 12 seconds rather than growing with the record. On a local
+#       koto the assembly's calls are not the slow part: at the budget they
+#       take about a second at 0.1 s each, while rendering the body and
+#       parsing it took most of the read, and a pass rendered and parsed it up
+#       to three times (reconcile-read.sh's read, then the settle's and the
+#       legs classification's) and parsed the first read back a second time
+#       for nobody. On koto's cloud backend each call is a bucket round trip
+#       of 0.3 to 1 s, so there the calls are the cost, and a step that reads
+#       the record more than once can pass a 30-second action limit
+#       (shirabe#1156). A deadline that grew with the record would instead let
+#       a slow read hide a hung one.
 #   rs_once_drop
 #       Forgets the step's read, so the next read is live. record-write-core.sh
 #       calls it before it writes and again once the write lands, so nothing in
@@ -187,7 +190,9 @@ rs_session_state() {
         [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
         # record/meta is got directly; only a get that fails lists the key, to
         # tell a session with no record (absent) from a failed read. A record
-        # that is there costs one koto call here, not two.
+        # that is there costs one koto call here, not two. A first get that
+        # failed and a fallback that then reads the key is a read, and the
+        # first get's error is dropped with it.
         if ! "$k" context get "$s" record/meta < /dev/null > "$out.m1" 2> "$out.m1.err"; then
             rs_key "$s" record/meta "$out.m1"
             case $? in
