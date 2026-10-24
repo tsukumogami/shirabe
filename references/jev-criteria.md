@@ -151,14 +151,15 @@ the criterion judges.
 
 **Slice.** `review-level.sh slice` prints one JSON line of typed facts (changed
 lines and files as non-negative integers, at most 16 path-class names, whether
-tests or the acceptance criteria changed, whether any path fell in no class,
-and the facts floor), a line giving the order of the levels, the level
+tests or the acceptance criteria changed, whether a test was edited rather
+than only added to (`tests_edited`), whether any path fell in no class, and
+the facts floor), a line giving the order of the levels, the level
 definitions, and the chosen level. The definitions are rendered from the
 stored rules copy, one line per level that raises the floor, then the default
 and what the floor is:
 
 ```
-the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12
+the facts call for full when classes has ci, security, template or engine; or lines > 400; or files > 12; or tests_edited
 the facts call for standard when classes has instruction, executable, test or manifest; or unclassified; or criteria_changed; or lines > 40
 the facts call for light otherwise
 floor: the most thorough level the facts call for
@@ -217,7 +218,9 @@ fields, not a decider-check gate, so this runner is the one that applies.
 
 **Figures.** 268 `/work-on` sessions' recorded facts, each projected at the
 longest level name with the session's stored rules copy, largest 576, p90
-563, none over the 2,048-byte budget (the gate's `max_bytes`).
+563, none over the 2,048-byte budget (the gate's `max_bytes`). Measured before
+`tests_edited` joined the slice; the field and its clause in the `full`
+definition add under 40 bytes, so the largest stays well under the budget.
 
 **State.** `untrusted`: it runs today, in veto mode for a user whose decider is
 in `auto`, and no live window has been recorded. Its rule's text isn't

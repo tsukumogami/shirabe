@@ -543,7 +543,8 @@ DEFERRED_BLOCK=$(extract states verification_deferred)
 [ -n "$DEFERRED_BLOCK" ] || { echo "verification_deferred not found in $WORK_ON_TEMPLATE" >&2; exit 2; }
 
 # The child fixture: start goes to the shipped verification_deferred, whose
-# edges lead to finalization (here a terminal) or done_blocked.
+# edges lead to pass_counting (here a terminal, as finalization is for a
+# local run) or done_blocked.
 {
     printf '%s\n' '---' 'name: shared-deferral-child' 'version: "1.0"' \
         'description: A plan-backed child that defers verification.' 'initial_state: start' 'variables:' \
@@ -554,9 +555,9 @@ DEFERRED_BLOCK=$(extract states verification_deferred)
         '        when:' '          vars.VERIFICATION: hosted-ci' '      - target: finalization' \
         '        when:' '          vars.VERIFICATION: local'
     printf '%s\n' "$DEFERRED_BLOCK"
-    printf '%s\n' '  finalization:' '    terminal: true' '  done_blocked:' '    terminal: true' \
+    printf '%s\n' '  finalization:' '    terminal: true' '  pass_counting:' '    terminal: true' '  done_blocked:' '    terminal: true' \
         '    failure: true' '    accepts:' '      failure_reason:' '        type: string' '---' '' '## start' '' 'Start.' '' '## verification_deferred' '' 'Stub.' \
-        '' '## finalization' '' 'Stub.' '' '## done_blocked' '' 'Stub.'
+        '' '## finalization' '' 'Stub.' '' '## pass_counting' '' 'Stub.' '' '## done_blocked' '' 'Stub.'
 } > "$WORKDIR/child.md"
 printf '%s\n' '---' 'name: shared-deferral-parent' 'version: "1.0"' \
     'description: The execute session the children belong to.' 'initial_state: wait' 'states:' \

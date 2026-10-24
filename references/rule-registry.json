@@ -1374,6 +1374,134 @@
       "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice. Shares its text and baseline key with pr-body/banned-word, the same words checked on pull request titles and bodies. Quoted text (a blockquote, or double quotes that pair on one line) is exempt in both, because a verbatim quotation is not the author's to reword."
     },
     {
+      "id": "red-first/no-green",
+      "status": "active",
+      "summary": "A fix has no green at its head",
+      "text": {
+        "path": "skills/work-on/references/red-first.md",
+        "first": "| `red-first/no-green` | A fix has no green"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/red-first.sh",
+        "mode": "check-green"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/red-first_test.sh",
+        "skills/work-on/scripts/red-first-routes_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pass_counting"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-22",
+      "gates": [
+        "work-on:pass_counting:fix_green"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "red-first/no-red",
+      "status": "active",
+      "summary": "A fix has neither a red nor a before-observation",
+      "text": {
+        "path": "skills/work-on/references/red-first.md",
+        "first": "| `red-first/no-red` | A fix has neither"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/red-first.sh",
+        "mode": "check-red"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/red-first_test.sh",
+        "skills/work-on/scripts/red-first-routes_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:reproduce"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-22",
+      "gates": [
+        "work-on:reproduce:red_recorded"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "review/test-edit-judgment",
+      "status": "active",
+      "summary": "A seat of the panel did not judge an edited test as corrects or weakens",
+      "text": {
+        "path": "skills/work-on/references/review-panel-orchestration.md",
+        "first": "Every seat judges every edited test in the packet as `corrects` or `weakens`.",
+        "last": "A seat's entry in the round file carries one `test_edits` item per edited test:"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "prose",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. Enforced by skills/work-on/scripts/panel-scope.sh --record, which refuses the round (exit 65) naming this rule; it holds no koto gate of its own, so it is registered as prose."
+    },
+    {
+      "id": "review/test-edit-weakens",
+      "status": "active",
+      "summary": "A review seat judged that an edited test weakens what it checks",
+      "text": {
+        "path": "skills/work-on/references/review-panel-orchestration.md",
+        "first": "`corrects` means the edit fixes a test that checked the wrong thing; `weakens` means it",
+        "last": "reason in its summary. That finding blocks the panel like any other until the seat"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "prose",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. skills/work-on/scripts/panel-scope.sh --record raises a weakens judgment as a blocking finding citing this rule; the panel's verdict gate prints it under this rule at panel/open-finding's stage, so the gate stays panel/open-finding's and this entry is registered as prose."
+    },
+    {
       "id": "rs-001",
       "status": "active",
       "summary": "The body or an added line carries an attribution or session trailer",
@@ -2335,6 +2463,44 @@
         },
         "false_passes": []
       }
+    },
+    {
+      "id": "test-change/held",
+      "status": "active",
+      "summary": "A pass came with an edited test or an observation that has no live acceptance",
+      "text": {
+        "path": "skills/work-on/references/red-first.md",
+        "first": "| `test-change/held` | A pass came with"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/test-change.sh",
+        "mode": "status"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/test-change_test.sh",
+        "skills/work-on/scripts/test-change-routes_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pass_counting",
+        "work-on:pr_precheck",
+        "work-on:ci_pass_counting"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-23",
+      "gates": [
+        "work-on:pass_counting:tests_counted",
+        "work-on:pr_precheck:tests_still_counted",
+        "work-on:ci_pass_counting:tests_counted"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key."
     },
     {
       "id": "verification/bad-map",

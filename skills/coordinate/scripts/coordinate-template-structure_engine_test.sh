@@ -25,6 +25,8 @@
 # variable, no move, predecessor close-out or rotation close-out state, a
 # rotation's end (pick_facts's rotation-over and the hub's `end`) goes straight
 # to rotation_end, and a roadmap's close ends the run with nothing to close.
+# Every record-append.sh call the templates, SKILL.md or the references give
+# with an outward kind passes --on, which record-append.sh requires.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -313,6 +315,42 @@ grep -qE '^[^#]*core_write_rotation' "$HERE/record-state.sh" && pass "record-sta
 printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/openers/record-write.sh"
 [ "$(rotation_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that writes a rotation key" ||
     fail "the check names another script that writes a rotation key" "$(rotation_writers "$T/openers")"
+
+# Every call that writes an outward kind names where the entry goes:
+# record-append.sh refuses one without --on (exit 65). The kinds are its own
+# OUTWARD_KINDS, and each code span in the templates, SKILL.md and the
+# references that passes --kind <outward kind> must pass --on too.
+OUTWARD=$(sed -n 's/^OUTWARD_KINDS=" *\(.*[^ ]\) *"$/\1/p' "$HERE/record-append.sh")
+# outward_without_on <file>...: file:line and span of each such call with no
+# --on. awk, not perl: run-tests.sh's PATH holds only the declared tools and
+# the POSIX utilities. With RS a backtick, each record is the text between two
+# backticks, so a call inside a fenced block is judged by the whole block.
+outward_without_on() {
+    awk -v kinds="$OUTWARD" 'BEGIN { RS = "`"; gsub(/ +/, "|", kinds); kre = "--kind[ \t\n]+(" kinds ")[^A-Za-z0-9_-]" }
+        FNR == 1 { line = 1 }
+        {
+            s = $0 " "
+            if (s !~ /--on[^A-Za-z0-9_-]/) {
+                off = 0; rest = s
+                while (match(rest, kre)) {
+                    pre = substr(s, 1, off + RSTART - 1); nl = gsub(/\n/, "", pre)
+                    span = $0; gsub(/[ \t\n]+/, " ", span)
+                    printf "%s:%d: %s\n", FILENAME, line + nl, span
+                    off += RSTART + RLENGTH - 1; rest = substr(s, off + 1)
+                }
+            }
+            t = $0; line += gsub(/\n/, "", t)
+        }' "$@"
+}
+case " $OUTWARD " in *" goal-fit "*) pass "record-append.sh's outward kinds are read" ;; *) fail "record-append.sh's outward kinds are read" "$OUTWARD" ;; esac
+NOON=$(outward_without_on "$HERE"/../koto-templates/*.md "$HERE/../SKILL.md" "$HERE"/../references/*.md)
+[ -z "$NOON" ] && pass "every outward-kind record-append.sh call passes --on" || fail "every outward-kind record-append.sh call passes --on" "$NOON"
+mkdir -p "$T/outward"
+printf '%s\n' 'Post it:' '`record-append.sh --kind goal-fit --text-file f`.' 'Record it: `record-append.sh --kind milestone-verdict --on none --text-file f`.' \
+    'Count it: `record-append.sh --kind work --text-file f`.' > "$T/outward/coordinate.md"
+[ "$(outward_without_on "$T/outward/coordinate.md")" = "$T/outward/coordinate.md:2: record-append.sh --kind goal-fit --text-file f" ] \
+    && pass "the check names an outward-kind call with no --on" \
+    || fail "the check names an outward-kind call with no --on" "$(outward_without_on "$T/outward/coordinate.md")"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
 for r in loop.md brief-template.md verification-checklist.md record-template.md; do

@@ -4,8 +4,11 @@
 # The cascade finalizes a chain once per plan. A child materialized by /execute
 # lands its own pull request and must stop at done: a child that cascaded would
 # delete the PLAN its siblings are still working from. That is the branch this
-# file drives, against the SHIPPED ci_monitor block rather than a hand-written
-# copy of it, so an edit to the template's routing reaches these cases.
+# file drives, against the SHIPPED ci_monitor and ci_pass_counting blocks
+# rather than hand-written copies, so an edit to the template's routing
+# reaches these cases. Green CI goes from ci_monitor to ci_pass_counting, which
+# counts the pass (its counting gates stubbed to pass here) and then routes on
+# is_root.
 #
 # WHAT THIS FILE DOES NOT DO, stated so nobody reads more into a green run than
 # is there. It does not construct a real coordinated child and walk it from entry
@@ -113,6 +116,11 @@ extract_state() {
 
 CI_MONITOR=$(extract_state ci_monitor)
 [[ -n "$CI_MONITOR" ]] || { echo "ci_monitor not found in $TEMPLATE"; exit 2; }
+# Green CI goes on to ci_pass_counting, which counts the pass and holds the
+# root-or-child split; the fixture carries it shipped too, with its counting
+# gates passing, so a green tick chains through it to where the role sends it.
+CI_PASS_COUNTING=$(extract_state ci_pass_counting)
+[[ -n "$CI_PASS_COUNTING" ]] || { echo "ci_pass_counting not found in $TEMPLATE"; exit 2; }
 
 # build_fixture <dir> <ci_monitor block>
 # `start` stands in for pr_creation: it routes into ci_monitor with no evidence
@@ -131,6 +139,7 @@ stub_gates() {
             if (gate == "ci_passing") { print "        command: \"exit " ci "\""; next }
             if (gate == "merge_state_clean") { print "        command: \"exit " merge "\""; next }
             if (gate == "is_root") { print "        command: \"exit " root "\""; next }
+            if (gate == "fix_green" || gate == "tests_counted") { print "        command: \"exit 0\""; next }
         }
         { print }
     '
@@ -156,6 +165,7 @@ states:
     transitions:
       - target: ci_monitor
 $(stub_gates "$block" "${3:-0}" "${4:-0}" "${5:-0}")
+$(stub_gates "$CI_PASS_COUNTING" "${3:-0}" "${4:-0}" "${5:-0}")
   cascade_entry:
     terminal: true
   done:
@@ -173,6 +183,9 @@ Stand-in for pr_creation.
 
 ## ci_monitor
 Green CI routes on the gates; submit ci_outcome only while CI fails.
+
+## ci_pass_counting
+Counts the pass, then routes on is_root.
 
 ## cascade_entry
 Stub terminal standing in for the cascade path.
@@ -493,7 +506,7 @@ ROLE_PARENT
             || fail "the parent classified as '$got', expected root"
         # The shipped is_root gate's own command, rendered as koto would: it
         # passes for the root and fails for the child.
-        IS_ROOT_CMD=$(printf '%s\n' "$CI_MONITOR" | awk '
+        IS_ROOT_CMD=$(printf '%s\n' "$CI_PASS_COUNTING" | awk '
             /^      is_root:$/ { f = 1; next }
             f && /^        command:/ { sub(/^        command: /, ""); print substr($0, 2, length($0) - 2); exit }')
         PLUGIN_ROOT_DIR=$(cd "$SKILL_DIR/../.." && pwd)
@@ -505,7 +518,7 @@ ROLE_PARENT
             [[ "$rc" == "${pair#*:}" ]] && pass "the shipped is_root command exits $rc for ${pair%%:*}" \
                 || fail "the shipped is_root command exited $rc for ${pair%%:*}, expected ${pair#*:}"
         done
-        # A role nobody decided is exit 2, which no ci_monitor edge names, so
+        # A role nobody decided is exit 2, which no ci_pass_counting edge names, so
         # the state holds: an unreachable PLUGIN_ROOT, and a script that fails.
         cmd=${IS_ROOT_CMD//\{\{PLUGIN_ROOT\}\}/$RD/no-such-plugin}
         cmd=${cmd//\{\{SESSION_NAME\}\}/role_root}
@@ -527,10 +540,10 @@ ROLE_PARENT
         [[ "$err" == *"session-role: broken"* ]] && pass "the is_root gate keeps session-role.sh's stderr" \
             || fail "the is_root gate discarded session-role.sh's stderr: [$err]"
         # And the template: no edge names is_root's exit 2.
-        if grep -q 'gates\.is_root\.exit_code: 2' <<<"$CI_MONITOR"; then
-            fail "a ci_monitor edge routes is_root exit 2; an undecided role must hold"
+        if grep -q 'gates\.is_root\.exit_code: 2' <<<"$CI_PASS_COUNTING"; then
+            fail "a ci_pass_counting edge routes is_root exit 2; an undecided role must hold"
         else
-            pass "no ci_monitor edge routes is_root exit 2, so an undecided role holds"
+            pass "no ci_pass_counting edge routes is_root exit 2, so an undecided role holds"
         fi
     fi
     got=$(role_of no-such-session-anywhere)

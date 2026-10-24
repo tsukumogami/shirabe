@@ -21,6 +21,13 @@
 #                                              exceed N
 #                           files><N>          changed files exceed N
 #                           tests_changed      a path in the `test` class changed
+#                           tests_edited       a `test` path was edited, not
+#                                              only added to: its diff removes
+#                                              a line, it was deleted, renamed
+#                                              with a change or is binary, or
+#                                              (for a fix) a reproducing test
+#                                              changed after the red
+#                                              (scripts/lib/test-classify.sh)
 #                           criteria_changed   the acceptance criteria changed
 #                           unclassified       a changed path is in no class
 #
@@ -59,6 +66,12 @@ class	template	skills/execute/references/step-agent-handoff.md
 # that open sessions on them. review-level_test.sh fails when a template's
 # gate or default_action command names a script no `engine` line covers.
 class	engine	**/*-open.sh
+# Libraries the red-first gates read through: a change to which header a
+# fix label comes from, to what counts as an edited test, or to who may
+# accept one, changes what those gates decide.
+class	engine	scripts/lib/acceptance-rule.sh
+class	engine	scripts/lib/claude-md-header.sh
+class	engine	scripts/lib/test-classify.sh
 class	engine	scripts/plan-mode.sh
 class	engine	scripts/skill-session.sh
 class	engine	skills/coordinate/scripts/board-record.sh
@@ -123,16 +136,19 @@ class	engine	skills/work-on/scripts/ci-cancel-after-merge.sh
 class	engine	skills/work-on/scripts/ci-none-declared.sh
 class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
+class	engine	skills/work-on/scripts/fix-kind.sh
 class	engine	skills/work-on/scripts/has-commits.sh
 class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
 class	engine	skills/work-on/scripts/pr-checks.sh
 class	engine	skills/work-on/scripts/record-changed-paths.sh
+class	engine	skills/work-on/scripts/red-first.sh
 class	engine	skills/work-on/scripts/review-level.sh
 class	engine	skills/work-on/scripts/run-verification.sh
 class	engine	skills/work-on/scripts/session-role.sh
 class	engine	skills/work-on/scripts/step-detail-check.sh
+class	engine	skills/work-on/scripts/test-change.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md
@@ -181,6 +197,10 @@ rule	full	class:template
 rule	full	class:engine
 rule	full	lines>400
 rule	full	files>12
+# An edited test needs the QA seat beside the other two panels; a test that
+# only gained lines, or a new test file, still floors at `standard` through
+# class:test below.
+rule	full	tests_edited
 
 rule	standard	class:instruction
 rule	standard	class:executable

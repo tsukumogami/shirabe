@@ -11,6 +11,9 @@ Spawn the tester agent using the Task tool. The tester:
 2. Reads any project test plan
 3. Exercises the implementation against the acceptance criteria
 4. Reports pass/fail per AC with evidence
+5. Judges each test the packet's `## Test changes` section lists as edited: `corrects` when the edit fixes a test that checked the wrong thing, `weakens` when it checks less than before or something easier to pass, running the test against the change where that settles it
+
+The tester returns one `test_edits` item per edited test, with its path, judgment and a one-line reason, in the entry `phase-4a-scrutiny.md` shows. `--record` refuses a round in which it skipped an edited test, and records a `weakens` as a blocking finding the tester raised (`../review-panel-orchestration.md`, "Edited tests"). A test the section lists as added needs no judgment.
 
 ## Whether the Tester Runs
 
@@ -33,6 +36,7 @@ The tester writes full results to a `mktemp`-produced file outside the repositor
   "scenarios_failed": 0,
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
   "findings": [{"severity": "blocking", "summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
+  "test_edits": [{"path": "tests/a_test.sh", "judgment": "corrects", "reason": "<one line>"}],
   "detail_file": "<the tester's mktemp path>"
 }
 ```

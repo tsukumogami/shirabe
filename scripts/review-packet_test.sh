@@ -12,7 +12,10 @@
 # No real koto or gh is needed. A stub koto answers `context exists` and
 # `context get` from a directory of files named after their keys, and a stub gh
 # prints a canned issue body, so every case runs on a bare runner. The cases
-# pin the packet's sections, the base order (impl_base, then the merge-base),
+# pin the packet's sections (the code packet's `## Test changes` lists added
+# and edited tests apart, with the edited hunks, from the stored rules copy and
+# a fix's red record, and says none without a test file), the base order
+# (impl_base, then the merge-base),
 # the caps and their trailers, that a failure leaves no packet behind, that a
 # plan-outline child's session never reaches `gh issue view`, and that
 # --issue reads its issue from the repository --issue-repo names and refuses
@@ -395,6 +398,102 @@ fi
 
 run "$STORE" code --session s --criteria "$ROOT/nope"
 [ "$CODE" -eq 64 ] && pass "code: missing criteria file: exit 64" || fail "code: missing criteria: exit $CODE"
+
+# --- the test changes section ---
+
+# A change touching no test file: the section is there, between the changed
+# paths and the diff, and says none.
+run "$STORE" code --session s
+if [ "$CODE" -eq 0 ]; then
+    awk '/^## Changed paths$/ { c = NR } /^## Test changes$/ { t = NR } /^## Diff$/ { d = NR }
+         END { exit !(c && t && d && c < t && t < d) }' "$OUT" \
+        && pass "code: ## Test changes sits between the changed paths and the diff" \
+        || fail "code: the test changes section is missing or out of place"
+    [ "$(awk '/^## Test changes$/ { getline; getline; print; exit }' "$OUT")" = none ] \
+        && pass "code: a change with no test file prints none" || fail "code: no-test change: section is not none"
+    rm -f "$OUT"
+else
+    fail "code: no-test run exit $CODE, stderr: $ERR"
+fi
+
+# A change that edits one test, adds another and only appends to a third,
+# from the same base.
+TREPO="$ROOT/trepo"
+mkdir -p "$TREPO"
+(
+    cd "$TREPO" || exit 1
+    git init -q -b main
+    git config user.email t@example.com
+    git config user.name t
+    git config commit.gpgsign false
+    mkdir -p tests src
+    seq 1 10 > tests/a_test.sh
+    seq 1 4 > tests/old_test.sh
+    echo one > src/x.sh
+    git add -A && git commit -q -m base
+    git checkout -q -b feature
+    sed -i.bak '3d' tests/a_test.sh && rm -f tests/a_test.sh.bak
+    printf '5\n6\n' >> tests/old_test.sh
+    seq 1 3 > tests/b_test.sh
+    echo two >> src/x.sh
+    git add -A && git commit -q -m change
+) || { echo "FAIL: could not build the test-change fixture" >&2; exit 1; }
+TSTORE="$ROOT/tstore"
+mkdir -p "$TSTORE"
+git -C "$TREPO" rev-parse main > "$TSTORE/impl_base"
+SAVED_REPO="$REPO"
+REPO="$TREPO"
+run "$TSTORE" code --session s
+REPO="$SAVED_REPO"
+if [ "$CODE" -eq 0 ]; then
+    awk '/^## Test changes$/ { on = 1; next } on && /^## Diff$/ { exit } on' "$OUT" > "$ROOT/tsec"
+    grep -q '^- tests/b_test.sh$' "$ROOT/tsec" && grep -q '^- tests/old_test.sh$' "$ROOT/tsec" \
+        && pass "code: a new test and one that only gained lines are listed as added" \
+        || fail "code: added tests not listed: $(cat "$ROOT/tsec")"
+    [ "$(awk '/^Edited/ { on = 1 } on && /^- / { print; exit }' "$ROOT/tsec")" = "- tests/a_test.sh" ] \
+        && pass "code: the test that lost a line is listed as edited" \
+        || fail "code: edited list wrong: $(cat "$ROOT/tsec")"
+    awk '/^Added/ { on = 1; next } /^Edited/ { on = 0 } on' "$ROOT/tsec" | grep -q 'a_test.sh' \
+        && fail "code: the edited test is also listed as added" || pass "code: the edited test is not listed as added"
+    grep -q '^### Edited: tests/a_test.sh$' "$ROOT/tsec" && grep -q '^-3$' "$ROOT/tsec" \
+        && pass "code: the edited test's hunk is in the section" || fail "code: edited hunk missing: $(cat "$ROOT/tsec")"
+    grep -q '^### Edited: tests/old_test.sh$' "$ROOT/tsec" \
+        && fail "code: an added-to test got an edited hunk" || pass "code: an added-to test gets no hunk of its own"
+    grep -q 'src/x.sh' "$ROOT/tsec" && fail "code: a non-test file is in the test section" \
+        || pass "code: non-test files stay out of the test section"
+    rm -f "$OUT"
+else
+    fail "code: test-change run exit $CODE, stderr: $ERR"
+fi
+
+# The session's stored rules copy decides the test class: one with no test
+# class lists nothing.
+printf 'class\tdocs\t*.md\n' > "$TSTORE/review_level_rules.tsv"
+REPO="$TREPO"
+run "$TSTORE" code --session s
+REPO="$SAVED_REPO"
+if [ "$CODE" -eq 0 ] && [ "$(awk '/^## Test changes$/ { getline; getline; print; exit }' "$OUT")" = none ]; then
+    pass "code: the stored rules copy, not the shipped file, decides what a test is"
+else
+    fail "code: stored rules copy: exit $CODE"
+fi
+[ "$CODE" -eq 0 ] && rm -f "$OUT"
+rm -f "$TSTORE/review_level_rules.tsv"
+
+# A fix's reproducing test changed after its red is edited, though it only
+# gained lines.
+RB=$(git -C "$TREPO" rev-parse main:tests/old_test.sh)
+printf '{"red":{"tests":[{"path":"tests/old_test.sh","blob":"%s"}],"harness":[]}}\n' "$RB" > "$TSTORE/red_first.json"
+REPO="$TREPO"
+run "$TSTORE" code --session s
+REPO="$SAVED_REPO"
+if [ "$CODE" -eq 0 ] && grep -q '^### Edited: tests/old_test.sh$' "$OUT"; then
+    pass "code: a reproducing test changed after the red is edited"
+else
+    fail "code: red record: exit $CODE, stderr: $ERR"
+fi
+[ "$CODE" -eq 0 ] && rm -f "$OUT"
+rm -f "$TSTORE/red_first.json"
 
 # Outside a repository.
 OUT=$( cd "$ROOT/tmp" && KOTO_STORE="$STORE" PATH="$STUBS:$PATH" TMPDIR="$ROOT/tmp" \

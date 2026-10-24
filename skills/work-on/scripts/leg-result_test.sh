@@ -16,11 +16,12 @@
 #      created edge, both success terminals declare the map, and done_blocked
 #      declares none, so a failure's payload stays koto's own.
 #   2. Engine: a fixture built from the SHIPPED state blocks (pr_creation,
-#      ci_monitor, cascade_entry and the three terminals, extracted from the
+#      ci_monitor, ci_pass_counting, cascade_entry and the three terminals,
+#      extracted from the
 #      template at run time) is opened on a `work-on` leg and driven to each
 #      terminal, and koto's record of the leg is read:
 #        - created + pr_url, CI green, no anchor: done, payload.pr the URL;
-#        - the same as a child (ci_monitor straight to done): the URL;
+#        - the same as a child (ci_pass_counting straight to done): the URL;
 #        - created with no pr_url: pr "", read as naming none;
 #        - done_already_complete with pr_url in context: the URL;
 #        - done_already_complete with none: pr "" listed under `missing`,
@@ -122,13 +123,15 @@ mkdir -p "$REPO"
     && git commit -q --allow-empty -m "chore: init" && git checkout -q -b feature/x) >/dev/null 2>&1 \
     || { echo "could not create the fixture repository" >&2; exit 2; }
 
-# The fake plugin root. check-pr-output.sh passes; find-anchor-plan.sh finds
-# no PLAN (exit 1); session-role.sh prints the word in $RC_DIR/role (default
-# root).
+# The fake plugin root. check-pr-output.sh passes, and so do red-first.sh and
+# test-change.sh (ci_pass_counting's gates); find-anchor-plan.sh finds no PLAN
+# (exit 1); session-role.sh prints the word in $RC_DIR/role (default root).
 FAKE_ROOT="$WORKDIR/plugin"
 RC_DIR="$WORKDIR/rc"
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE_ROOT/skills/work-on/scripts/check-pr-output.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE_ROOT/skills/work-on/scripts/red-first.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE_ROOT/skills/work-on/scripts/test-change.sh"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKE_ROOT/skills/work-on/scripts/find-anchor-plan.sh"
 cat > "$FAKE_ROOT/skills/work-on/scripts/session-role.sh" <<EOF
 #!/usr/bin/env bash
@@ -150,13 +153,13 @@ stub_block() {
 # build <dir> <gate=exit>...: a fixture named work-on.md, since koto admits a
 # session to a leg by its template's file name. `start` routes to the shipped
 # pr_creation (go: pr) or straight to the shipped done_already_complete (go:
-# already); the shipped ci_monitor, cascade_entry, done, done_already_complete
+# already); the shipped ci_monitor, ci_pass_counting, cascade_entry, done, done_already_complete
 # and done_blocked follow, and any other target is a stub terminal.
 build() {
     local dir="$1"; shift
     local s blocks="" t stubs=""
-    local shipped="pr_creation ci_monitor cascade_entry done done_already_complete done_blocked"
-    for s in pr_creation ci_monitor cascade_entry; do
+    local shipped="pr_creation ci_monitor ci_pass_counting cascade_entry done done_already_complete done_blocked"
+    for s in pr_creation ci_monitor ci_pass_counting cascade_entry; do
         blocks="$blocks$(stub_block "$(extract_state "$s")" "$@")
 "
     done
@@ -246,7 +249,7 @@ if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
     fi
 fi
 
-# 2. A child of /execute: ci_monitor goes straight to done.
+# 2. A child of /execute: ci_pass_counting goes straight to done.
 printf 'child\n' > "$RC_DIR/role"
 if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
     tick --with-data '{"go":"pr"}'

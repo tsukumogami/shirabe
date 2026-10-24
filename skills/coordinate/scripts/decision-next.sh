@@ -9,8 +9,8 @@
 #
 # --parsed, with --owed only, names the record this session's caller read in
 # the same tick: rs_record's output FILE, readable (otherwise usage, 64).
-# pick-facts.sh passes its own,
-# so the record is read once in the tick (shirabe#840). Nothing checks that FILE
+# pick-facts.sh and deferral-check.sh pass their own, so the record is read
+# once in the tick (shirabe#840, shirabe#1156). Nothing checks that FILE
 # is this session's record; only a caller that just read it may pass it.
 # Without --parsed the record is read here.
 #

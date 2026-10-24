@@ -102,6 +102,10 @@ case "$PLUGIN_ROOT" in
         PLUGIN_ROOT="$WORKDIR/plugin"
         ;;
 esac
+# fix_determination reads the issue's labels with gh; the stand-in serves an
+# unlabelled issue, so these runs are changes.
+. "$PLUGIN_ROOT/scripts/lib/gh-issue-testlib.sh"
+gh_issue_stand_in "$WORKDIR/gh-bin"
 
 # --- extract the shipped blocks ----------------------------------------------
 
@@ -238,6 +242,9 @@ to_implementation() {
     # The review level, chosen before implementation: full keeps all three
     # panels on the code route this harness walks.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
+    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
+    # from the next tick, to implementation.
+    koto next "$1" >/dev/null 2>&1
     koto next "$1" >/dev/null 2>&1
 }
 
@@ -777,8 +784,11 @@ check_edge_traversal edge-issues FINAL_BLOCK  "finalization issues_found"  to_fi
 
 # Verification's failed edge, driven for real: a branch whose change touches
 # fail.txt selects the map's `false` command, the verdict exits 1, and koto
-# routes back to implementation, clearing the keys as it enters.
-git checkout -q -b impl/verify-fails
+# routes back to implementation, clearing the keys as it enters. The branch is
+# cut from main, so the base to_implementation records (the commit before the
+# change) is the merge-base, which test-change.sh init accepts as where the
+# unit started.
+git checkout -q -b impl/verify-fails main
 echo fail > fail.txt
 git add fail.txt
 git commit -q -m "feat: a change verification fails"

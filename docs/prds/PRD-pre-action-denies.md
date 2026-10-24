@@ -152,8 +152,15 @@ These terms mean the same thing everywhere below.
   and shell reserved words (`if`, `then`, `elif`, `else`, `do`, `while`,
   `until`, `!`, `{`, `}`), compared by its last path component, so
   `/usr/bin/git` is `git` and `if true; then git push; fi` holds a
-  guarded segment. A backslash followed by a newline outside quotes
-  joins the two lines, as the shell does.
+  guarded segment. The head's comparison ignores case, Unicode case
+  included, since a case-insensitive filesystem (macOS's default) runs
+  `GH` as gh, `ENV` as env and `ſudo` (long s) as sudo. The shell finds
+  a builtin by its exact name, so `EVAL` isn't the builtin, but reading
+  a wrapper as one only denies more; only `cd`, `pushd` and `popd`, and
+  the reserved words before the head, match as written, since reading
+  `CD` as `cd` would check a later push in a directory it never moved
+  to. A backslash followed by a newline outside quotes joins the two
+  lines, as the shell does.
 - **Word**: a piece of a segment between unquoted blanks, after quote
   removal. Single quotes keep their text literally; inside double quotes
   a backslash escapes only `"`, `\`, `$` and backquote; outside quotes a
@@ -212,10 +219,10 @@ These terms mean the same thing everywhere below.
   either finds a guarded action. So `env -u GH_TOKEN gh pr merge --body
   "..."` is a merge whatever its body says, and `env -u GH_TOKEN gh pr
   create ...` is still a wrapped guarded command. Any other command
-  leaves the segment to the text test: an unlisted launcher, `GH` on a
-  case-insensitive filesystem, `git` (whose aliases can hide a push from
-  the subcommand reading), and any listed wrapper, a nested `env`
-  included, since a wrapper can join env's words with its own (`env
+  leaves the segment to the text test: an unlisted launcher, `git`
+  (whose aliases can hide a push from the subcommand reading), and any
+  listed wrapper, a nested `env` included, since a wrapper can join
+  env's words with its own (`env
   'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr create'`). So do an
   option the hook doesn't read and a word the shell expands before the
   command.
@@ -716,9 +723,8 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
   own assignment words get the text test even before `gh`, so
   `env NOTE='gh pr create' gh pr merge 1` is denied too.
 - A guarded command behind a launcher that isn't on the wrapper list
-  (`stdbuf`, `arch`, `ksh -c`), or spelled another way on a
-  case-insensitive filesystem (`GH pr create`), gets no decision when no
-  `env` precedes it (#1021).
+  (`stdbuf`, `arch`, `ksh -c`) gets no decision when no `env` precedes
+  it (#1021).
 - A guarded action run inside a script file isn't seen (R2) and runs
   unchecked. So does a pull request opened through `gh api` or an MCP
   tool, and a wrapped command whose text hides the guarded action (a

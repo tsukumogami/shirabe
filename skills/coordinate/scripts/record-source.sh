@@ -50,10 +50,13 @@
 #       kept. Returns 2 when <dir> can't be made.
 #
 #       What this bounds is the number of reads a step makes, not the cost of
-#       one. An assembly is still one koto call per key and a listing or two
-#       (koto has no multi-key get), and the reconcile deadlines stay 8 and 12
-#       seconds rather than growing with the record. A deadline that grew with
-#       the record would let a slow read hide a hung one.
+#       one. An assembly is still one koto call per key and one listing (koto
+#       has no multi-key get), and the reconcile deadlines stay 8 and 12
+#       seconds rather than growing with the record. On koto's cloud backend
+#       each call is a bucket round trip of 0.3 to 1 s, so there the calls are
+#       the cost, and a step that reads the record more than once can pass a
+#       30-second action limit (shirabe#1156). A deadline that grew with the
+#       record would instead let a slow read hide a hung one.
 #   rs_once_drop
 #       Forgets the step's read, so the next read is live. record-write-core.sh
 #       calls it before it writes and again once the write lands, so nothing in
@@ -138,12 +141,19 @@ rs_session_state() {
     : > "$out.err"
     for try in 0 1 2 3; do
         [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
-        rs_key "$s" record/meta "$out.m1"
-        case $? in
-            0) ;;
-            1) echo "${PROG:-record-source}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
-            *) return 2 ;;
-        esac
+        # record/meta is got directly; only a get that fails lists the key, to
+        # tell a session with no record (absent) from a failed read. A record
+        # that is there costs one koto call here, not two. A first get that
+        # failed and a fallback that then reads the key is a read, and the
+        # first get's error is dropped with it.
+        if ! "$k" context get "$s" record/meta < /dev/null > "$out.m1" 2> "$out.m1.err"; then
+            rs_key "$s" record/meta "$out.m1"
+            case $? in
+                0) ;;
+                1) echo "${PROG:-record-source}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
+                *) cat "$out.m1.err" >> "$out.err"; return 2 ;;
+            esac
+        fi
         jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
         [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
         # One listing names the sections present; only those are read.

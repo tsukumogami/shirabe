@@ -109,6 +109,20 @@ open(p, "w").write(s[:i] + s[i + len(needle):])
 PY
 expect "child task build missing PLUGIN_ROOT is caught" 1 "$T" "injects .vars.PLUGIN_ROOT into 0 of them"
 
+# Case 5 — the spawn tick stops passing the PLAN's path, the #1160 defect: every
+# plan/v2 child's step_detail gate then refuses with no plan path given.
+T=$(new_tree) || exit 1
+python3 - "$T/$EXECUTE_TEMPLATE" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = " | .vars.PLAN_DOC = $d"
+i = s.find(needle)
+assert i != -1, "injection text not found; the test's mutation is stale"
+open(p, "w").write(s[:i] + s[i + len(needle):])
+PY
+expect "child task build missing PLAN_DOC is caught" 1 "$T" "injects .vars.PLAN_DOC into 0 of them"
+
 # Case 6 — a SECOND tick is added later and forgets the injection entirely. This
 # is the drift the counting exists for: the existing site is still correct.
 T=$(new_tree) || exit 1

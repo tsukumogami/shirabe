@@ -659,6 +659,48 @@ fn example_rows_for_pull_request_commands() {
 }
 
 #[test]
+fn a_head_in_another_case_is_judged_as_the_lowercase_one() {
+    // On a case-insensitive filesystem `ENV` runs env and `GH` runs gh
+    // (#1074's repro is the first row).
+    for (upper, lower) in [
+        (
+            "ENV gh pr create -t \"feat: x\" -b \"Adds x.\"",
+            "env gh pr create -t \"feat: x\" -b \"Adds x.\"",
+        ),
+        (
+            "ENV -u GH_TOKEN gh pr create -t \"feat: x\" -b \"Adds x.\"",
+            "env -u GH_TOKEN gh pr create -t \"feat: x\" -b \"Adds x.\"",
+        ),
+        ("Sudo gh pr edit 12 --body x", "sudo gh pr edit 12 --body x"),
+        (
+            "BASH -c 'gh pr create --title x'",
+            "bash -c 'gh pr create --title x'",
+        ),
+        (
+            format!("GH pr create --title 'feat: x' --body '{BAD}'").as_str(),
+            create("feat: x", BAD).as_str(),
+        ),
+        (
+            "GH pr edit 12 --title \"bad title\"",
+            "gh pr edit 12 --title \"bad title\"",
+        ),
+    ] {
+        let want = evaluate(&hook(lower)).unwrap_or_else(|| panic!("{lower} should deny"));
+        assert_eq!(evaluate(&hook(upper)), Some(want), "{upper}");
+    }
+    assert_fail_closed(
+        &evaluate(&hook("ENV gh pr create -t \"feat: x\" -b \"Adds x.\"")).unwrap(),
+        "wrapped",
+    );
+    for cmd in [
+        "ENV -u GH_TOKEN gh pr merge 1 --squash --body \"Adds a new edit path.\"",
+        format!("GH pr create --title 'feat: x' --body '{GOOD}'").as_str(),
+    ] {
+        assert_eq!(evaluate(&hook(cmd)), None, "{cmd}");
+    }
+}
+
+#[test]
 fn here_document_bodies_are_checked() {
     for q in ["'EOF'", "\"EOF\"", "EOF"] {
         let good = format!(

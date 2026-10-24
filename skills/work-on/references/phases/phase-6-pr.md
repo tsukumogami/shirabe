@@ -178,6 +178,15 @@ If checks fail:
 3. Push the fix
 4. Re-check
 
+Fix a failing test by fixing the code it tests. A test edit holds the unit until
+someone other than you accepts it: an edited test (a line removed or changed, the
+file deleted or renamed with a change) is held at `ci_pass_counting` once CI
+passes, and the run goes no further until an acceptance seat, or a person where
+the repository requires one, accepts the edit. When the test itself is wrong,
+edit it and record why with `test-change.sh note`, as
+`phase-4-implementation.md` describes; never edit or skip a test only to turn a
+check green.
+
 A check you cannot fix, or one still red when `ci_monitor`'s retry cap is
 spent, ends the run as `failing_unresolvable`; the state's directive carries
 the cap. An unattended run never asks the user instead.
@@ -196,8 +205,10 @@ the cap. An unattended run never asks the user instead.
 ## Evidence (ci_monitor)
 
 None on the green path: once every check passes and the pull request is not
-DIRTY, koto routes the run itself, a root to the cascade and a child to `done`
-(the `is_root` gate). That includes a pull request GitHub reports MERGED whose
+DIRTY, koto routes the run itself: `ci_pass_counting` counts the pass (a test
+edited while fixing CI is held there until accepted, as at `pass_counting`),
+then sends a root to the cascade and a child to `done` (the `is_root` gate).
+That includes a pull request GitHub reports MERGED whose
 only non-green checks are cancelled runs of the repo's macOS floor workflows:
 the gate passes it, and `ci_cancelled_after_merge.txt` in context names the
 cancelled checks for the final report. A failed or pending check, and a cancel

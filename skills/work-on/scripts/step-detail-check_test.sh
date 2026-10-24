@@ -19,7 +19,11 @@
 # on an outline step (the gate fails with the refusal line, proceed is
 # refused, exit reaches validation_exit), then the same child, rewound after
 # the plan's owner commits the step's detail, passes the gate and proceeds;
-# and a plan/v1 task, which the gate passes without reading the plan.
+# a plan/v1 task, which the gate passes without reading the plan; and a child
+# initialized with exactly the vars /execute's spawn line (read from the
+# compiled execute.md) puts on a plan-to-tasks.sh task, which carries PLAN_DOC
+# and passes the gate, while the same task without PLAN_DOC holds with "no
+# plan path given".
 #
 # The shirabe binary is $SHIRABE_BIN when set, otherwise a release build of
 # this checkout (`cargo build --release -p shirabe`), as plan-to-tasks_test.sh
@@ -386,6 +390,86 @@ else
         setup_plan_backed | analysis) pass "a plan/v1 task proceeds past plan_validation" ;;
         *) fail "plan/v1 task reached [$STATE]" ;;
     esac
+
+    echo "--- a child built from /execute's spawn"
+
+    # The cases above hand the child its PLAN_DOC. /execute's children get only
+    # the vars its spawn tick puts on each task (#1160), so build the tasks the
+    # way the run does: plan-to-tasks.sh over the step plan, then the
+    # TASKS_WITH_BRANCH line from execute.md's compiled directive, rendered as
+    # koto renders it for a run on docs/plans/PLAN-steps.md with no bound and
+    # no deferral. A child initialized with exactly one task's vars then meets
+    # the step_detail gate with nothing else to go on.
+    EXEC_JSON=$(koto template compile "$REPO_ROOT/skills/execute/koto-templates/execute.md" 2>/dev/null | tail -1)
+    SPAWN_LINE=""
+    if [ -n "$EXEC_JSON" ] && [ -f "$EXEC_JSON" ]; then
+        SPAWN_LINE=$(jq -r '.states.spawn_and_await.directive' "$EXEC_JSON" | grep '^TASKS_WITH_BRANCH=')
+    fi
+    SPAWNED=""
+    if [ -n "$SPAWN_LINE" ]; then
+        LINE=$(printf '%s' "$SPAWN_LINE" | sed -e 's|{{PLAN_DOC}}|docs/plans/PLAN-steps.md|g' \
+            -e 's/{{REVIEW_FLOOR}}//g' -e 's/{{REVIEW_CEILING}}//g' \
+            -e 's/{{VERIFICATION}}/local/g' -e 's/{{VERIFICATION_DEFERRAL_REASON}}//g')
+        TASKS_JSON=$(cd "$ER" && "$REPO_ROOT/skills/plan/scripts/plan-to-tasks.sh" docs/plans/PLAN-steps.md 2>/dev/null)
+        SPAWNED=$(cd "$ER" && TASKS="$TASKS_JSON" SETTLED_BRANCH=main CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+            bash -c "$LINE"' && printf "%s" "$TASKS_WITH_BRANCH"' 2>/dev/null)
+    fi
+    STEP1=$(printf '%s' "$SPAWNED" | jq -c '.[]? | select(.name == "step-1")' 2>/dev/null)
+
+    # from_task <session> <task>: a child with the task's vars and no others,
+    # as koto materializes one, from init to plan_validation. The template's
+    # required variables are named on the init line, from the task like the
+    # rest, so scripts/check-init-site-vars.sh can see this site passes them.
+    from_task() {
+        local kv prefix root
+        local -a vars=()
+        prefix=$(printf '%s' "$2" | jq -r '.vars.ARTIFACT_PREFIX // empty')
+        root=$(printf '%s' "$2" | jq -r '.vars.PLUGIN_ROOT // empty')
+        while IFS= read -r kv; do
+            vars+=(--var "$kv")
+        done < <(printf '%s' "$2" | jq -r '.vars | del(.ARTIFACT_PREFIX, .PLUGIN_ROOT) | to_entries[] | "\(.key)=\(.value)"')
+        (cd "$ER" && PATH="$ENGINE_PATH" koto init "$1" --template "$TEMPLATE" \
+            --var ARTIFACT_PREFIX="$prefix" --var PLUGIN_ROOT="$root" "${vars[@]}" >/dev/null 2>&1)
+        tick "$1"
+        [ "$STATE" = entry ] && tick "$1" '{"mode":"plan_backed","issue_source":"plan_outline"}'
+        printf 'the outline item\n' | (cd "$ER" && koto context add "$1" context.md) >/dev/null 2>&1
+        tick "$1" '{"status":"completed","issue_source":"plan_outline"}'
+    }
+
+    if [ -z "$STEP1" ]; then
+        fail "the spawn built no step-1 task (spawn line [$SPAWN_LINE], tasks [$SPAWNED])"
+    else
+        if [ "$(printf '%s' "$STEP1" | jq -r '.vars.PLAN_DOC // empty')" = docs/plans/PLAN-steps.md ]; then
+            pass "the spawned step-1 task carries the run's PLAN_DOC"
+        else
+            fail "the spawned step-1 task's vars: $(printf '%s' "$STEP1" | jq -c '.vars')"
+        fi
+        from_task s-spawned "$STEP1"
+        MSG=$(gate_message)
+        if [ "$STATE" = plan_validation ] && [ -z "$MSG" ]; then
+            pass "a child built from a spawned task passes step_detail on its detailed step"
+        else
+            fail "spawned child: state [$STATE], gate message [$MSG]"
+        fi
+        tick s-spawned '{"verdict":"proceed"}'
+        case "$STATE" in
+            setup_plan_backed | analysis) pass "the spawned child's verdict proceed moves on to [$STATE]" ;;
+            *) fail "the spawned child's proceed reached [$STATE]" ;;
+        esac
+
+        # The same task without PLAN_DOC is the child the issue reported: the
+        # gate refuses, so proceed can't move it.
+        from_task s-noplan "$(printf '%s' "$STEP1" | jq -c 'del(.vars.PLAN_DOC)')"
+        if [ "$STATE" = plan_validation ] \
+            && printf '%s' "$RESP" | jq -e '[.blocking_conditions[]? | select(.name == "step_detail") | tostring | contains("no plan path given")] | any' >/dev/null 2>&1; then
+            pass "the same task without PLAN_DOC holds at step_detail with no plan path given"
+        else
+            fail "task without PLAN_DOC: state [$STATE], response [$RESP]"
+        fi
+        tick s-noplan '{"verdict":"proceed"}'
+        [ "$STATE" = plan_validation ] && pass "proceed is refused for the task without PLAN_DOC" \
+            || fail "proceed without PLAN_DOC reached [$STATE]"
+    fi
 fi
 
 echo ""
