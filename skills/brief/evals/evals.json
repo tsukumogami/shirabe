@@ -207,6 +207,32 @@
         "Plan asks no routing question and presents no next-step suggestions table; control returns to /scope"
       ],
       "id": 13
+    },
+    {
+      "name": "pr-body-omits-workflow-records",
+      "prompt": "/brief offline-sync -- a direct run (no /scope dispatch key) in a repository whose CLAUDE.md and CLAUDE.local.md declare no `## PR Workflow Content:` header. Both jury reviewers returned PASS, the content-quality reviewer flagged Journey 2 as borderline but not blocking, and the user approved at 5.2. The run was grounded in docs/roadmaps/ROADMAP-sync.md, and the BRIEF's frontmatter names docs/strategies/STRATEGY-sync.md as its upstream.",
+      "expected_output": "At 5.5 the agent asks scripts/pr-workflow-content.sh for the repository's setting, which prints omit, and writes the body for a reader of the repository: what the BRIEF settles (the problem and outcome in a sentence or two), a link to docs/briefs/BRIEF-offline-sync.md, a link to docs/strategies/STRATEGY-sync.md, the upstream its frontmatter names, and the note that a downstream PRD can now use the BRIEF as its upstream. The body carries no jury verdict summary, no PASS marker, no mention of the Journey 2 flag, no session or key names, and no link to the ROADMAP.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh rather than parsing the header itself, and finds omit",
+        "PR body links docs/briefs/BRIEF-offline-sync.md and docs/strategies/STRATEGY-sync.md",
+        "PR body has no jury verdict summary, no PASS or FAIL marker and no reviewer caveat",
+        "PR body does NOT link or name docs/roadmaps/ROADMAP-sync.md",
+        "PR body names no koto session or context key"
+      ],
+      "id": 14
+    },
+    {
+      "name": "pr-body-includes-workflow-records-on-opt-in",
+      "prompt": "/brief offline-sync -- a direct run in a repository whose CLAUDE.md declares `## PR Workflow Content: include`. Both jury reviewers returned PASS, the content-quality reviewer flagged Journey 2 as borderline but not blocking, and the user approved at 5.2. The BRIEF's frontmatter names docs/strategies/STRATEGY-sync.md as its upstream.",
+      "expected_output": "At 5.5 scripts/pr-workflow-content.sh prints include, so the body is the fuller one the skill has always written: the problem and outcome, a link to docs/briefs/BRIEF-offline-sync.md, the jury verdict summary (both reviewers PASS, with the Journey 2 caveat surfaced at Phase 5), the upstream link, and the note that a downstream PRD can now use the BRIEF as its upstream.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the repository's setting with scripts/pr-workflow-content.sh and finds include",
+        "PR body carries the jury verdict summary: both reviewers PASS, with the Journey 2 caveat",
+        "PR body links docs/briefs/BRIEF-offline-sync.md and docs/strategies/STRATEGY-sync.md"
+      ],
+      "id": 15
     }
   ]
 }

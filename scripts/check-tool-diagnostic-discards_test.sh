@@ -542,7 +542,7 @@ add_file 'main.sh' '#!/usr/bin/env bash' '. "${HERE}/lib.sh"' '"$K2" version 2>/
 enum_open; enum_close
 assert_accepts "a sourced lib's local binding does not reach the caller"
 
-# Two levels, the way board-record.sh reaches record-common.sh through
+# Two levels, the way board-record.sh reaches state-common.sh through
 # board-lib.sh, with the source paths spelled the other supported ways.
 new_fixture sourced-chain
 add_requires koto

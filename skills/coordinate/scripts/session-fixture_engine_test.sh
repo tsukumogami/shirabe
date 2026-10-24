@@ -11,8 +11,8 @@
 # per section, the Run section holding the legacy `store session` row beside
 # the stored set and two crash-set rows, a holding's pushed head, three entries
 # (record/entries/<n>), a finished leg's key (legs/<request>/<leg>) and
-# coord/source.json reading `session`. The sections were rendered and parsed by
-# the codec, so each row has the columns a writer leaves.
+# coord/source.json reading `session`. The sections are in state-schema.jq's
+# normal form, so each row has the columns a writer leaves.
 #
 # Proves, one line per case:
 #   1. the fixture's keys, written into a run of its scope that a fresh start
@@ -22,7 +22,9 @@
 #      no change;
 #   3. host B imports it with --import and resumes it there (imported=,
 #      resumed=1), and every key but record/host, the import's own, is the same
-#      by name and JSON as before the resume on A;
+#      by name and JSON as before the resume on A, with one more where the
+#      import writes it (koto 0.24.0 and later): koto/imported-from, naming A's
+#      session and its session id (an older koto adds no key);
 #   4. the imported run's find reads the legacy record, its `store session` row
 #      included, as found: it goes on to reconcile_pass and never to
 #      record_conflict.
@@ -135,13 +137,31 @@ AFTER=$(snap a)
 eq "2: every key's name and JSON are as before the resume" "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER"))"
 
 echo "== 3. host B imports it =="
+# The source's session id, from A's state-file header, for the record koto's
+# import writes into the copy.
+SRC_ID=$(head -n 1 "$(host_on a koto session dir "$S")/koto-$S.state.jsonl" | jq -r '.session_id // empty')
+[ -n "$SRC_ID" ] && ok "3: A's session id is read" || bad "3: A's session id is read" "empty"
 ON=b
 start "[\"docs/roadmaps/ROADMAP-fixture.md\", \"--import\", \"$FIRST\", \"--from\", \"$WS_A\"]"
 grep -qx "imported=$FIRST" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "3: host B imports the run and resumes it" \
     || bad "3: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
 S=$FIRST
 IMPORTED=$(snap b)
-eq "3: every key but record/host is the same by name and JSON as before the resume" "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$IMPORTED"))"
+# koto 0.24.0 is the first release whose import writes koto/imported-from; the
+# entry-floor job runs this suite on an older koto, whose import adds no key.
+KOTO_VER=$(koto version | head -n 1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*$/\1 \2/p')
+[ -n "$KOTO_VER" ] && ok "3: koto's version is read" || bad "3: koto's version is read" "$(koto version 2>&1 | head -n 1)"
+read -r KOTO_MAJOR KOTO_MINOR <<< "${KOTO_VER:-0 0}"
+if [ "$KOTO_MAJOR" -gt 0 ] || [ "$KOTO_MINOR" -ge 24 ]; then
+    EXPECTED=$( { printf '%s\n' "$BEFORE"
+        printf 'koto/imported-from %s\n' "$(jq -cnS --arg s "$FIRST" --arg i "$SRC_ID" '{from_session: $s, from_session_id: $i}')"
+        } | LC_ALL=C sort)
+    eq "3: every key but record/host is the same by name and JSON as before the resume, plus koto/imported-from naming A's session" \
+        "" "$(diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$IMPORTED"))"
+else
+    eq "3: every key but record/host is the same by name and JSON as before the resume (koto before 0.24.0 adds no key)" \
+        "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$IMPORTED"))"
+fi
 
 echo "== 4. the imported run's find reads the legacy record =="
 tick > /dev/null

@@ -962,6 +962,35 @@ assert_contains "the replaced state is reported" "replaced_state=done" "$STDOUT"
 if khas brief-t1 work/context.md; then fail "the replaced session kept an old key"; else pass "a replaced session's old keys are gone"; fi
 assert_eq "the replacement records its branch" "main" "$(kget brief-t1 session/branch)"
 
+# --- open: a finished session its hierarchy holds (koto 0.23.0 and later) ---
+
+if PATH="$TOOLS:$SYS_PATH" KOTO_BIN="$REAL_KOTO" KOTO_FLOOR=0.23.0 "$BASH_BIN" "$SCRIPT_DIR/assert-koto-floor.sh" >/dev/null 2>&1; then
+    k init hold-peer --template "$TEMPLATE" >/dev/null 2>&1
+    run open brief h1
+    kadd brief-h1 work/context.md "first run"
+    k session link brief-h1 --dispatched-by hold-peer >/dev/null 2>&1
+    run close brief-h1 done
+    run open brief h1
+    assert_eq "open on a held finished session exits 0" "0" "$RC"
+    assert_eq "a held finished session: opened=replaced" "opened=replaced" "$(line 2)"
+    assert_contains "open passes moved_to through" "moved_to=brief-h1_r1" "$STDOUT"
+    assert_contains "open passes moved_reason through" "moved_reason=" "$STDOUT"
+    assert_eq "the moved run keeps its record under its new name" "first run" "$(kget brief-h1_r1 work/context.md)"
+    assert_eq "the fresh session records its branch" "main" "$(kget brief-h1 session/branch)"
+
+    run open brief h2
+    k session link brief-h2 --dispatched-by hold-peer >/dev/null 2>&1
+    k init brief-h2.k --template "$TEMPLATE" --parent brief-h2 >/dev/null 2>&1
+    run close brief-h2 done
+    run open brief h2
+    assert_eq "a held session with live work below it: koto-open's exit 75 passes through" "75" "$RC"
+    assert_contains "it prints refused=replace_held_live" "refused=replace_held_live" "$STDOUT"
+    assert_contains "it prints the live sessions" 'live=["brief-h2.k"]' "$STDOUT"
+    assert_eq "the refused open leaves the finished session as it was" "done" "$(k status brief-h2 | jq -r '.current_state')"
+else
+    echo "SKIP: this koto predates hierarchy retention (0.23.0) -- the held-predecessor open cases did not run"
+fi
+
 # --- open: refusals ---
 
 mkdir -p "$T/other-tpl"

@@ -11,10 +11,14 @@
 #   instance <name> <path>         from `niwa list --json`, matched by the
 #                                  inventory's instance path
 #   job <id> <session id>          from `claude agents --json --all`: the one
-#                                  job whose cwd is the instance path, in a
-#                                  state known to be finished (done, stopped,
-#                                  failed); any other state, a missing one
-#                                  included, refuses
+#                                  job whose cwd is the instance path,
+#                                  finished as dc_job_finished reads it: its
+#                                  own jobs/<id>/state.json reads done,
+#                                  stopped or failed, and the listing shows
+#                                  no live pid for it. The listing's state
+#                                  is activity and isn't read; a live pid, a
+#                                  state file reading working or any other
+#                                  state, or no state file, refuses
 #   transcript <path>              <claude home>/projects/*/<session id>.jsonl
 #   pr <owner/repo>#<n> <sha>      each pull request GitHub lists as merged
 #                                  from the holding's branch, with its merge
@@ -228,22 +232,17 @@ stopped_mode() {
     esac
     JOB=$(printf '%s' "$JOBS" | jq -r '.[0].id // ""')
     SID=$(printf '%s' "$JOBS" | jq -r '.[0].sessionId // ""')
-    JSTATE=$(printf '%s' "$JOBS" | jq -r '.[0].state // ""')
     JNAME=$(printf '%s' "$JOBS" | jq -r '.[0].name // ""')
     grep -Eq '^[0-9a-f]{6,64}$' <<<"$JOB" || refuse "the job id [$JOB] is not a job id"
     grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' <<<"$SID" || refuse "the job's session id is not a session id"
-    # Only a state known to be finished passes: a job whose state is missing,
-    # renamed or new to this script is treated as possibly running, because
-    # `claude rm` on a running job is the one thing this must never set up.
-    # Claude Code 2.1.293 was seen to list a running job as `working` and a
-    # finished or stopped one as `done`; `stopped` and `failed` are its other
-    # finished names. A wrong name here only refuses, leaving the teardown to a
-    # person.
-    case "$JSTATE" in
-        done | stopped | failed) ;;
-        working) refuse "job $JOB is still working; stop it before the inventory" ;;
-        *) refuse "job $JOB is in state [$JSTATE], which isn't known to be finished" ;;
-    esac
+    # Only a job known to be finished passes, because `claude rm` on a running
+    # job is the one thing this must never set up. The listing's state can't
+    # say so: Claude Code 2.1.293 listed a stopped job as `done`, but 2.1.309
+    # lists every job as `working`. The job's own state file and the
+    # listing's pid still can, and a disagreement in the running direction (a
+    # live pid, a state file reading working) refuses. A wrong answer here
+    # only refuses, leaving the teardown to a person.
+    WHY=$(dc_job_finished "$CLAUDE_HOME" "$JOB" "$(printf '%s' "$JOBS" | jq -c '.[0]')") || refuse "$WHY"
     if [ -n "$NSESS" ] && [ -n "$JNAME" ] && [ "$NSESS" != "$JNAME" ]; then
         refuse "niwa maps the instance to session $NSESS, but job $JOB is $JNAME"
     fi

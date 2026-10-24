@@ -23,7 +23,7 @@
 #
 # The holding is re-read first and changed only while it is still the row the
 # pass read: dispatched, on the same leg. Until every leg-bound holding is one
-# of the three, record-handover.sh --check lists it as leg-unclassified.
+# of the three, state-handover.sh --check lists it as leg-unclassified.
 #
 # Usage:
 #   reconcile-legs.sh --session S --topic T --return-path RP
@@ -64,7 +64,7 @@ dc_valid_topic "$TOPIC" || usage
 case "$RP" in "leg "*) ;; *) usage ;; esac
 
 KOTO=${KOTO:-koto}
-HOLDING="$HERE/record-holding.sh"
+HOLDING="$HERE/state-holding.sh"
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-legs.XXXXXX") || { rd_not_verified legs "no temp directory"; exit 0; }
 trap 'rm -rf "$T"' EXIT
 

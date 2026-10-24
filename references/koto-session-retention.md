@@ -15,7 +15,10 @@ koto; an argument copied into each drifts, and shirabe#360 demonstrated the
 drift before the copies were consolidated.
 
 It describes koto 0.14.0 and later. shirabe's koto minimum is 0.22.0
-(`scripts/assert-koto-floor.sh`).
+(`scripts/assert-koto-floor.sh`). Two parts of it arrived in koto 0.23.0, the
+hierarchy case at the terminal tick and the move aside under
+`--replace-terminal`, and a host still on koto 0.22.x has neither; each is
+marked where it appears.
 
 ## What koto does
 
@@ -25,14 +28,25 @@ run accumulated goes with it at once —
 for `/work-on` that is `plan.md`, `summary.md` and the panels' verdicts among
 others.
 
-A session is kept when either holds:
+A session is kept when any of these holds:
 
 - the terminal is declared `failure: true` (`done_blocked`, for example), with
-  or without `--no-cleanup`; or
+  or without `--no-cleanup`;
+- a hierarchy still holds the session, with or without `--no-cleanup`: it has a
+  live dispatcher or parent, a `chain/parent` link, or another session names
+  it (koto 0.23.0 and later; on 0.22.x this case doesn't exist, and such a
+  session is kept only by one of the other two); or
 - the tick that reached the terminal carried `--no-cleanup`.
 
 The `koto next` response to that tick says which, in its `retention` object:
-`retained`, and a `reason` of `failure_terminal` or `no_cleanup`.
+`retained`, and a `reason` of `failure_terminal`, `hierarchy` or `no_cleanup`.
+A parent kept for its hierarchy lists its finished children under
+`kept_children`.
+
+The rule below doesn't change with the hierarchy case. Whether a hierarchy
+holds a session at its terminal tick depends on what else is live at that
+moment, which a skill can't know in advance, so it can't stand in for
+`--no-cleanup`.
 
 Keeping a session is separate from reporting its result. Every arrival at a
 terminal records the result and delivers it to the session's parent and to any
@@ -44,10 +58,20 @@ A kept session stays readable with koto's own commands: `koto status <name>`
 reports its state (`current_state`, `is_terminal`), and `koto context get <name>
 <key>` reads any context key, including the `failure_reason` a blocked edge
 writes. For a kept child, the parent's `retry_failed` and `koto rewind` still
-act on it. Kept children are removed along with their parent, and `koto
-workspace prune --root <name>` (which reclaims that session and its children)
-and `koto session cleanup <name>` reclaim any kept session that holds no pin. A
-pinned session is kept through both (see "What shirabe pins" below).
+act on it.
+
+A kept session stays until something removes it, and every removal follows
+the same retention rule. `koto session prune` and `koto workspace prune
+--root <name>` keep any session whose hierarchy still has a live member,
+listing it with the members that hold it, and remove a released hierarchy
+only once its retention period has passed since the release.
+`koto session cleanup <name>` removes the one session it
+names; when that session still holds live hierarchy members, the removal goes
+ahead and koto warns, naming the members it leaves without a link. `koto
+session hierarchy <name>` shows what holds a session and when it will be
+released, and writes nothing. A session that holds a pin is kept through every
+one of these removals, and `koto session cleanup` refuses it (see "What shirabe
+pins" below).
 
 ## The rule
 
@@ -117,6 +141,19 @@ and refuses otherwise. The skill therefore needs no separate probe to tell a
 live session from a finished one, and no read-then-`koto session cleanup`
 sequence that a crash between the two steps could leave half done. shirabe's
 koto-backed skills pass these flags through the shared `scripts/koto-open.sh`.
+
+From koto 0.23.0, a finished session its hierarchy still holds isn't removed
+by the replace. koto renames it and its subtree to `<name>_r<N>`, where its
+record stays readable, gives the fresh session the name, and moves the old
+one back if the new init fails. `koto-open.sh` reports this as
+`opened=replaced` followed by `moved_to=<name>_r<N>` and `moved_reason=`.
+When the move can't happen, the replace is refused and nothing changes:
+`replace_held_live` when the old run's subtree still has live work
+(`koto-open.sh` exits 75 and lists that work on a `live=` line), and
+`replace_failed` when the move itself failed (exit 74). A caller reports
+either and stops; `replace_held_live` clears once that work finishes. On koto 0.22.x
+the replace removes the finished session outright and neither line nor
+refusal occurs.
 
 Don't discover a finished session by ticking it. A tick on a terminal session
 answers `action: "done"`, which an execution loop reports as the run's outcome,
@@ -212,3 +249,9 @@ off child sessions and decided per `/work-on` run with
 lost its context. koto 0.14.0 (tsukumogami/koto#259) separated retention from
 result delivery and began keeping failure terminals, and shirabe#439 dropped the
 child exception when it moved the koto minimum to that release.
+
+koto 0.22.0 (tsukumogami/koto#423) made `koto session prune`, `koto workspace
+prune` and explicit removal follow one retention rule. koto 0.23.0
+(tsukumogami/koto#427) applied it at the terminal tick, adding the `hierarchy`
+reason, and to `--replace-terminal`, which moves a held predecessor aside
+instead of removing it.

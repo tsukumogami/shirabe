@@ -13,7 +13,7 @@
 # one report_facts routed on, to send a report with no questions on to
 # classification only when it had a holding. Also: the design's decision
 # states and edges exist; no cycle is made of check states only; the state set is the design's; no write script
-# (record-open, record-write, record-holding, land-merge, merge-exec)
+# (state-open, state-write, state-holding, land-merge, merge-exec)
 # appears in any default action or gate; no directive names
 # merge-exec.sh; no check script calls `gh api` without --method GET (GraphQL
 # queries aside) or sends a GraphQL mutation; nothing says the human merges;
@@ -25,6 +25,8 @@
 # variable, no move, predecessor close-out or rotation close-out state, a
 # rotation's end (pick_facts's rotation-over and the hub's `end`) goes straight
 # to rotation_end, and a roadmap's close ends the run with nothing to close.
+# Every state-entry.sh call the templates, SKILL.md or the references give
+# with an outward kind passes --on, which state-entry.sh requires.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -119,7 +121,7 @@ EDGES='decision_next>decision_carry decision_next>decision_open decision_next>de
 decision_next>decision_evidence decision_next>decision_raise decision_next>decision_withdraw
 decision_next>decision_reply decision_next>decision_redirect decision_next>escalate
 decision_next>decision_take decision_next>decision_verdict decision_next>classify_report
-decision_next>pick_facts decision_next>record_conflict decision_carry>decision_next
+decision_next>pick_facts decision_carry>decision_next
 decision_take>decision_next decision_verdict>decision_next escalate>escalate_send
 escalate>record_conflict decision_withdraw>decision_withdraw_send decision_withdraw>record_conflict
 decision_reply>decision_reply_send decision_reply>record_conflict decision_redirect>decision_redirect_send
@@ -182,7 +184,7 @@ jq -e '.states.surface_check.accepts == null and (.states.wait.directive | conta
     && pass "wait's directive says to report an accepted need, since surface_check is passed through" \
     || fail "wait's directive says to report an accepted need, since surface_check is passed through"
 # The arms that reach decision_answer and decision_evidence need the fields
-# record-decision.sh reads: koto has no conditional required, so the arm does.
+# state-decision.sh reads: koto has no conditional required, so the arm does.
 jq -e '
   any(.states.wait.transitions[]; .target == "decision_answer" and .when.event == "answer"
       and .when["evidence.decision"] == "present" and .when["evidence.round"] == "present")
@@ -234,7 +236,7 @@ jq '(.states.roadmap_close.transitions[] | select(.target == "roadmap_blocked"))
 NONOVR=$(jq -r '.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key)"' "$J")
 [ -z "$NONOVR" ] && pass "every gate in the template is overridable: false" || fail "every gate in the template is overridable: false" "$NONOVR"
 
-WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-hold\\.sh|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|land-merge|merge-exec")) | $s' "$J")
+WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("state-open|state-write|state-write-core|state-holding|state-hold\\.sh|state-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|land-merge|merge-exec")) | $s' "$J")
 [ -z "$WRITES" ] && pass "no write script runs as an action or a gate" || fail "no write script runs as an action or a gate" "$WRITES"
 
 MEXEC=$(jq -r '.states | to_entries[] | select(((.value.directive // "") + (.value.details // "")) | test("merge-exec")) | .key' "$J")
@@ -248,42 +250,42 @@ for c in $CHECKS; do
     bad=$(grep -n 'gh api' "$f" | grep -v -- '--method GET' | grep -v 'gh api graphql' | grep -v '^[0-9]*:[[:space:]]*#' || true)
     [ -z "$bad" ] && pass "$c: every gh api call is a GET or a GraphQL query" || fail "$c: every gh api call is a GET or a GraphQL query" "$bad"
     grep -qi 'mutation' "$f" && fail "$c: sends no GraphQL mutation" || pass "$c: sends no GraphQL mutation"
-    grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*record-write-core' "$f" && fail "$c: sources no write core" || pass "$c: sources no write core"
+    grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*state-write-core' "$f" && fail "$c: sources no write core" || pass "$c: sources no write core"
 done
-grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*record-write-core' "$HERE/record-common.sh" && fail "record-common.sh sources no write core" || pass "record-common.sh sources no write core"
+grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^#]*state-write-core' "$HERE/state-common.sh" && fail "state-common.sh sources no write core" || pass "state-common.sh sources no write core"
 
-# decisions_writers <dir>: every script there, other than record-decision.sh
+# decisions_writers <dir>: every script there, other than state-decision.sh
 # and the tests, that opens the Decisions section (sets DECISIONS_WRITER=1).
 decisions_writers() {
-    grep -lE '^[^#]*DECISIONS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-decision\.sh$' || true
+    grep -lE '^[^#]*DECISIONS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/state-decision\.sh$' || true
 }
 OPENERS=$(decisions_writers "$HERE")
-[ -z "$OPENERS" ] && pass "only record-decision.sh opens the Decisions section" || fail "only record-decision.sh opens the Decisions section" "$OPENERS"
-grep -qE '^[^#]*DECISIONS_WRITER=1' "$HERE/record-decision.sh" && pass "record-decision.sh opens it" || fail "record-decision.sh opens it"
+[ -z "$OPENERS" ] && pass "only state-decision.sh opens the Decisions section" || fail "only state-decision.sh opens the Decisions section" "$OPENERS"
+grep -qE '^[^#]*DECISIONS_WRITER=1' "$HERE/state-decision.sh" && pass "state-decision.sh opens it" || fail "state-decision.sh opens it"
 mkdir -p "$T/openers"
-cp "$HERE/record-decision.sh" "$HERE/record-write.sh" "$T/openers/"
-printf '\nDECISIONS_WRITER="1"\n' >> "$T/openers/record-write.sh"
-[ "$(decisions_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens it" ||
+cp "$HERE/state-decision.sh" "$HERE/state-write.sh" "$T/openers/"
+printf '\nDECISIONS_WRITER="1"\n' >> "$T/openers/state-write.sh"
+[ "$(decisions_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that opens it" ||
     fail "the check names another script that opens it" "$(decisions_writers "$T/openers")"
-# The Holds section the same way: only record-hold.sh sets HOLDS_WRITER=1.
+# The Holds section the same way: only state-hold.sh sets HOLDS_WRITER=1.
 holds_writers() {
-    grep -lE '^[^#]*HOLDS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-hold\.sh$' || true
+    grep -lE '^[^#]*HOLDS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/state-hold\.sh$' || true
 }
 HOPENERS=$(holds_writers "$HERE")
-[ -z "$HOPENERS" ] && pass "only record-hold.sh opens the Holds section" || fail "only record-hold.sh opens the Holds section" "$HOPENERS"
-grep -qE '^[^#]*HOLDS_WRITER=1' "$HERE/record-hold.sh" && pass "record-hold.sh opens it" || fail "record-hold.sh opens it"
-printf '\nHOLDS_WRITER=1\n' >> "$T/openers/record-write.sh"
-[ "$(holds_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the Holds section" ||
+[ -z "$HOPENERS" ] && pass "only state-hold.sh opens the Holds section" || fail "only state-hold.sh opens the Holds section" "$HOPENERS"
+grep -qE '^[^#]*HOLDS_WRITER=1' "$HERE/state-hold.sh" && pass "state-hold.sh opens it" || fail "state-hold.sh opens it"
+printf '\nHOLDS_WRITER=1\n' >> "$T/openers/state-write.sh"
+[ "$(holds_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that opens the Holds section" ||
     fail "the check names another script that opens the Holds section" "$(holds_writers "$T/openers")"
-# The stored set's sections the same way: only record-state.sh sets STATE_WRITER=1.
+# The stored set's sections the same way: only state-stored-set.sh sets STATE_WRITER=1.
 state_writers() {
-    grep -lE '^[^#]*STATE_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-state\.sh$' || true
+    grep -lE '^[^#]*STATE_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/state-stored-set\.sh$' || true
 }
 SOPENERS=$(state_writers "$HERE")
-[ -z "$SOPENERS" ] && pass "only record-state.sh opens the Run, Standing and Work sections" || fail "only record-state.sh opens the Run, Standing and Work sections" "$SOPENERS"
-grep -qE '^[^#]*STATE_WRITER=1' "$HERE/record-state.sh" && pass "record-state.sh opens them" || fail "record-state.sh opens them"
-printf '\nSTATE_WRITER=1\n' >> "$T/openers/record-write.sh"
-[ "$(state_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the stored set" ||
+[ -z "$SOPENERS" ] && pass "only state-stored-set.sh opens the Run, Standing and Work sections" || fail "only state-stored-set.sh opens the Run, Standing and Work sections" "$SOPENERS"
+grep -qE '^[^#]*STATE_WRITER=1' "$HERE/state-stored-set.sh" && pass "state-stored-set.sh opens them" || fail "state-stored-set.sh opens them"
+printf '\nSTATE_WRITER=1\n' >> "$T/openers/state-write.sh"
+[ "$(state_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that opens the stored set" ||
     fail "the check names another script that opens the stored set" "$(state_writers "$T/openers")"
 # A milestone's verdict-owed Work row the same way: only roadmap-status.sh
 # sets VERDICT_WRITER=1 (docs/designs/DESIGN-milestone-verdicts.md).
@@ -293,29 +295,103 @@ verdict_writers() {
 VOPENERS=$(verdict_writers "$HERE")
 [ -z "$VOPENERS" ] && pass "only roadmap-status.sh opens the verdict-owed rows" || fail "only roadmap-status.sh opens the verdict-owed rows" "$VOPENERS"
 grep -qE '^[^#]*VERDICT_WRITER=1' "$HERE/roadmap-status.sh" && pass "roadmap-status.sh opens them" || fail "roadmap-status.sh opens them"
-printf '\nVERDICT_WRITER=1\n' >> "$T/openers/record-write.sh"
-[ "$(verdict_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the verdict-owed rows" ||
+printf '\nVERDICT_WRITER=1\n' >> "$T/openers/state-write.sh"
+[ "$(verdict_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that opens the verdict-owed rows" ||
     fail "the check names another script that opens the verdict-owed rows" "$(verdict_writers "$T/openers")"
+# references/state-keys.md's key table names each flag beside the one script
+# the checks above hold it to, so the reference and the scripts agree.
+KEYS_REF="$HERE/../references/state-keys.md"
+for fw in record/decisions:state-decision.sh:DECISIONS_WRITER record/holds:state-hold.sh:HOLDS_WRITER \
+          record/run:state-stored-set.sh:STATE_WRITER record/work:roadmap-status.sh:VERDICT_WRITER; do
+    key=${fw%%:*}; rest=${fw#*:}; script=${rest%%:*}; flag=${rest#*:}
+    grep -E "^\| [^|]*\`$key\`" "$KEYS_REF" | grep -qF "\`$script\` (\`$flag\`)" \
+        && pass "state-keys.md names $script ($flag) as $key's writer" \
+        || fail "state-keys.md names $script ($flag) as $key's writer"
+done
 
 # A discipline rotation's own keys on the session store, record/rotation and
 # record/reasoning (docs/designs/current/DESIGN-coordinator-record-teardown.md,
-# Decision 3): only record-state.sh writes them, through core_write_rotation,
+# Decision 3): only state-stored-set.sh writes them, through core_write_rotation,
 # and no other script names either key in a koto context write.
 rotation_writers() {
     grep -lE '^[^#]*core_write_rotation' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
-        | grep -v '/record-state\.sh$' | grep -v '/record-write-core\.sh$' || true
+        | grep -v '/state-stored-set\.sh$' | grep -v '/state-write-core\.sh$' || true
     grep -lE '^[^#]*context add[^#]*record/(rotation|reasoning)' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' || true
 }
 ROPENERS=$(rotation_writers "$HERE")
-[ -z "$ROPENERS" ] && pass "only record-state.sh writes record/rotation and record/reasoning" \
-    || fail "only record-state.sh writes record/rotation and record/reasoning" "$ROPENERS"
-grep -qE '^[^#]*core_write_rotation' "$HERE/record-state.sh" && pass "record-state.sh writes them" || fail "record-state.sh writes them"
-printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/openers/record-write.sh"
-[ "$(rotation_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that writes a rotation key" ||
+[ -z "$ROPENERS" ] && pass "only state-stored-set.sh writes record/rotation and record/reasoning" \
+    || fail "only state-stored-set.sh writes record/rotation and record/reasoning" "$ROPENERS"
+grep -qE '^[^#]*core_write_rotation' "$HERE/state-stored-set.sh" && pass "state-stored-set.sh writes them" || fail "state-stored-set.sh writes them"
+printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/openers/state-write.sh"
+[ "$(rotation_writers "$T/openers")" = "$T/openers/state-write.sh" ] && pass "the check names another script that writes a rotation key" ||
     fail "the check names another script that writes a rotation key" "$(rotation_writers "$T/openers")"
 
+# The rest of the record's keys (references/state-keys.md): record/meta, the
+# sections and record/host are written only by the write core, and
+# record/entries/<n> and record/posted/<n> only by state-entry.sh. No other
+# script writes or removes a record/ key itself, and only state-stored-set.sh
+# calls core_write_host.
+record_key_writers() {
+    grep -lE '^[^#]*context (add|remove)[^#]*record/' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
+        | grep -v '/state-write-core\.sh$' | grep -v '/state-entry\.sh$' || true
+    grep -lE '^[^#]*context (add|remove)[^#]*record/(entries|posted)/' "$1"/state-write-core.sh 2>/dev/null || true
+    grep -lE '^[^#]*core_write_host' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
+        | grep -v '/state-stored-set\.sh$' | grep -v '/state-write-core\.sh$' || true
+}
+KOPENERS=$(record_key_writers "$HERE")
+[ -z "$KOPENERS" ] && pass "only the write core and state-entry.sh write the record's keys" \
+    || fail "only the write core and state-entry.sh write the record's keys" "$KOPENERS"
+grep -qE '^[^#]*context add[^#]*record/entries/' "$HERE/state-entry.sh" && grep -qE '^[^#]*context add[^#]*record/posted/' "$HERE/state-entry.sh" \
+    && pass "state-entry.sh writes record/entries and record/posted" || fail "state-entry.sh writes record/entries and record/posted"
+grep -qE '^[^#]*context add[^#]*record/meta' "$HERE/state-write-core.sh" && grep -qE '^[^#]*context add[^#]*record/host' "$HERE/state-write-core.sh" \
+    && pass "the write core writes record/meta and record/host" || fail "the write core writes record/meta and record/host"
+grep -qE '^[^#]*core_write_host' "$HERE/state-stored-set.sh" && pass "state-stored-set.sh writes record/host" || fail "state-stored-set.sh writes record/host"
+rm -rf "$T/keyw" && mkdir -p "$T/keyw" && cp "$HERE/state-write.sh" "$HERE/state-write-core.sh" "$HERE/state-entry.sh" "$HERE/state-stored-set.sh" "$T/keyw/"
+printf '\n"$KOTO" context add "$S" record/meta --from-file f\n' >> "$T/keyw/state-write.sh"
+[ "$(record_key_writers "$T/keyw")" = "$T/keyw/state-write.sh" ] && pass "the check names another script that writes a record key" ||
+    fail "the check names another script that writes a record key" "$(record_key_writers "$T/keyw")"
+printf '\n"$KOTO" context add "$S" "record/entries/$N" --from-file f\n' >> "$T/keyw/state-write-core.sh"
+[ "$(record_key_writers "$T/keyw" | grep -c 'state-write-core')" = 1 ] && pass "the check names the write core writing an entry" ||
+    fail "the check names the write core writing an entry" "$(record_key_writers "$T/keyw")"
+
+# Every call that writes an outward kind names where the entry goes:
+# state-entry.sh refuses one without --on (exit 65). The kinds are its own
+# OUTWARD_KINDS, and each code span in the templates, SKILL.md and the
+# references that passes --kind <outward kind> must pass --on too.
+OUTWARD=$(sed -n 's/^OUTWARD_KINDS=" *\(.*[^ ]\) *"$/\1/p' "$HERE/state-entry.sh")
+# outward_without_on <file>...: file:line and span of each such call with no
+# --on. awk, not perl: run-tests.sh's PATH holds only the declared tools and
+# the POSIX utilities. With RS a backtick, each record is the text between two
+# backticks, so a call inside a fenced block is judged by the whole block.
+outward_without_on() {
+    awk -v kinds="$OUTWARD" 'BEGIN { RS = "`"; gsub(/ +/, "|", kinds); kre = "--kind[ \t\n]+(" kinds ")[^A-Za-z0-9_-]" }
+        FNR == 1 { line = 1 }
+        {
+            s = $0 " "
+            if (s !~ /--on[^A-Za-z0-9_-]/) {
+                off = 0; rest = s
+                while (match(rest, kre)) {
+                    pre = substr(s, 1, off + RSTART - 1); nl = gsub(/\n/, "", pre)
+                    span = $0; gsub(/[ \t\n]+/, " ", span)
+                    printf "%s:%d: %s\n", FILENAME, line + nl, span
+                    off += RSTART + RLENGTH - 1; rest = substr(s, off + 1)
+                }
+            }
+            t = $0; line += gsub(/\n/, "", t)
+        }' "$@"
+}
+case " $OUTWARD " in *" goal-fit "*) pass "state-entry.sh's outward kinds are read" ;; *) fail "state-entry.sh's outward kinds are read" "$OUTWARD" ;; esac
+NOON=$(outward_without_on "$HERE"/../koto-templates/*.md "$HERE/../SKILL.md" "$HERE"/../references/*.md)
+[ -z "$NOON" ] && pass "every outward-kind state-entry.sh call passes --on" || fail "every outward-kind state-entry.sh call passes --on" "$NOON"
+mkdir -p "$T/outward"
+printf '%s\n' 'Post it:' '`state-entry.sh --kind goal-fit --text-file f`.' 'Record it: `state-entry.sh --kind milestone-verdict --on none --text-file f`.' \
+    'Count it: `state-entry.sh --kind work --text-file f`.' > "$T/outward/coordinate.md"
+[ "$(outward_without_on "$T/outward/coordinate.md")" = "$T/outward/coordinate.md:2: state-entry.sh --kind goal-fit --text-file f" ] \
+    && pass "the check names an outward-kind call with no --on" \
+    || fail "the check names an outward-kind call with no --on" "$(outward_without_on "$T/outward/coordinate.md")"
+
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
-for r in loop.md brief-template.md verification-checklist.md record-template.md; do
+for r in loop.md brief-template.md verification-checklist.md state-keys.md; do
     n=$(jq -r --arg r "$r" '[.states[] | select(((.directive // "") + (.details // "")) | contains("references/" + $r))] | length' "$J")
     [ "$n" -gt 0 ] && pass "a state names references/$r" || fail "a state names references/$r"
 done

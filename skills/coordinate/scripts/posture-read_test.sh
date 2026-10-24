@@ -69,10 +69,10 @@ fresh; in_settings "$(perm ask 'Bash(gh issue close *)' bypassPermissions)"
 eq "an ask rule on gh issue close confirms close" "readable merge:permit close:confirm teardown:permit" "$(read_roots)"
 fresh; in_settings "$(perm ask 'Bash(gh pr close *)' bypassPermissions)"
 eq "an ask rule on gh pr close confirms close" "readable merge:permit close:confirm teardown:permit" "$(read_roots)"
-# The record has no issue or pull request to close: record-write.sh closes
+# The record has no issue or pull request to close: state-write.sh closes
 # nothing, so a rule on it no longer governs the close step.
-fresh; in_settings "$(perm ask 'Bash(*record-write.sh*--close*)' bypassPermissions)"
-eq "an ask rule on record-write.sh --close governs nothing" "readable merge:permit close:permit teardown:permit" "$(read_roots)"
+fresh; in_settings "$(perm ask 'Bash(*state-write.sh*--close*)' bypassPermissions)"
+eq "an ask rule on state-write.sh --close governs nothing" "readable merge:permit close:permit teardown:permit" "$(read_roots)"
 fresh; in_settings "$(perm allow 'Bash(niwa destroy:*)')"
 eq "an allow rule on niwa destroy permits teardown" "readable merge:confirm close:confirm teardown:permit" "$(read_roots)"
 fresh; in_settings "$(perm deny 'Bash(niwa destroy --force:*)' bypassPermissions)"

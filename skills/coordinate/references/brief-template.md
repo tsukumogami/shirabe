@@ -218,7 +218,7 @@ skill on the worker's telemetry. niwa accepts them from 0.28.0; with an older
 niwa, leave both off, since it refuses flags it doesn't know.
 
 Record the holding under the dispatch topic you passed, with
-`record-holding.sh`, before any other action. `scripts/dispatch-worker.sh`
+`state-holding.sh`, before any other action. `scripts/dispatch-worker.sh`
 does all of this: it renders the brief to that path, opens the request leg
 when the entry point takes one, writes the holding, runs the dispatch, and
 confirms the holding on the record.

@@ -73,11 +73,11 @@ sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 
-# The plugin tree: the pass and its library, with a stand-in reader that
+# The plugin tree: the pass and its libraries, with a stand-in reader that
 # prints whatever verdict the case put in $T/verdict.
 S="$T/plugin/skills/coordinate/scripts"
 mkdir -p "$S" "$T/bin" "$T/ws/.niwa"
-cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$S/"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$S/"
 cat >"$S/teardown-handoff.sh" <<'EOF'
 #!/usr/bin/env bash
 cat "$VERDICT_FILE"
@@ -143,7 +143,7 @@ refused "removed yes with a job id that isn't one" "job id is not a job id"
 # ---------------------------------------------------------------------------
 # Whole passes, and the cost capture inside them.
 #
-# A second plugin tree with the real pass, dispatch-common.sh and
+# A second plugin tree with the real pass, its libraries and
 # unit-cost.sh; stand-ins for the verdict reader, the inventory and the record
 # scripts the capture calls (run facts, the Holdings row, the entry list and
 # the post, which goes through the stand-in gh). niwa, claude and gh log every
@@ -153,7 +153,7 @@ mkdir -p "$ST"
 P2="$T/plugin2/skills/coordinate/scripts"
 B2="$T/bin2"
 mkdir -p "$P2" "$B2"
-cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/unit-cost.sh" "$P2/"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$HERE/unit-cost.sh" "$P2/"
 cp "$S/teardown-handoff.sh" "$P2/"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$P2/teardown-inventory.sh"
 cat >"$P2/coord-log.sh" <<'EOF'
@@ -161,11 +161,11 @@ cat >"$P2/coord-log.sh" <<'EOF'
 [ "$1" = run-facts ] || exit 64
 echo '{"scope":"roadmap","name":"x","repo":"acme/widgets","ref":"7"}'
 EOF
-cat >"$P2/record-holding.sh" <<'EOF'
+cat >"$P2/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 echo '{"unit":"Feature 4: The example","worker":"w5"}'
 EOF
-cat >"$P2/record-append.sh" <<'EOF'
+cat >"$P2/state-entry.sh" <<'EOF'
 #!/usr/bin/env bash
 case " $* " in
     *" --list "*) echo '[]'; exit 0 ;;
@@ -188,8 +188,8 @@ case "$*" in
     "api repos/acme/widgets/issues/comments/1") echo '{"body":"handed off"}' ;;
     "pr view 600 --repo acme/widgets --json mergedAt,headRefName") hang; echo '{"mergedAt":"2026-10-01T11:30:00Z","headRefName":"feat/w5"}' ;;
     "api --method GET repos/acme/widgets/pulls/600/commits --paginate") echo '[{"sha":"0123456789012345678901234567890123456789"}]' ;;
-    "run list --repo acme/widgets --branch feat/w5 "*)
-        echo '[{"databaseId":7,"headSha":"0123456789012345678901234567890123456789","attempt":1,"status":"completed","conclusion":"success","updatedAt":"2026-10-01T11:00:00Z"}]' ;;
+    "api --method GET repos/acme/widgets/actions/runs?head_sha=0123456789012345678901234567890123456789&per_page=100&page=1")
+        echo '{"total_count":1,"workflow_runs":[{"id":7,"head_sha":"0123456789012345678901234567890123456789","run_attempt":1,"status":"completed","conclusion":"success","updated_at":"2026-10-01T11:00:00Z"}]}' ;;
     "api --method GET repos/acme/widgets --jq .private") echo false ;;
     "pr view 601 --repo acme/widgets --json state,createdAt,mergedAt,mergeCommit,headRefName,baseRefName,headRepositoryOwner")
         hang; echo "HTTP 502" >&2; exit 1 ;;
@@ -246,6 +246,9 @@ TR="$PJ/$ENC/$SID.jsonl"
 COPY=$JID-aaaa-bbbb
 export TEARDOWN_CLAUDE_HOME="$HOME/.claude" TEARDOWN_KOTO_SESSIONS="$T/ksess" TEARDOWN_ARCHIVE_DIR="$T/archive" \
     KOTO_REQUESTS="$T/requests" UNIT_COST_FETCH_SECS=1 UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=2
+# The sweep a run starts as it ends: a stand-in that logs its arguments.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n' "$T/sweep.calls" >"$T/sweep-stub"
+export TEARDOWN_SWEEP="$T/sweep-stub"
 # msg <id> <output tokens> <cwd>: one assistant line.
 msg() { printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-01T09:00:30.000Z","message":{"id":"%s","usage":{"input_tokens":1,"output_tokens":%s}}}\n' "$3" "$1" "$2"; }
 # setup_run: a fresh instance, job, transcripts, worker session and request,
@@ -268,7 +271,7 @@ setup_run() {
     msg x1 900 "$IP-2" >"$PJ/$ENC-2/$JID-cccc-dddd.jsonl"
     msg far 800 "$IP" >"$T/outside/far.jsonl"
     ln -s "$T/outside/far.jsonl" "$PJ/$ENC/linked.jsonl"
-    printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/$JID/state.json"
+    printf '{"state":"done","createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/$JID/state.json"
     jq -nc --arg e "$IP" '{schema_version: 1, workflow: "issue_7", template_name: "work-on", template_source_file: "work-on.md", execution_dir: $e}' \
         >"$T/ksess/issue_7/koto-issue_7.state.jsonl"
     printf '{"seq":1,"timestamp":"2026-10-01T09:00:01.000Z","type":"evidence_submitted","payload":{"state":"entry","fields":{"mode":"issue_backed"}}}\n' \
@@ -323,6 +326,8 @@ run_pass
 BASE_LAST="teardown-pass: done $ARCHD"
 [ "$RC" = 0 ] && [ "$LAST" = "$BASE_LAST" ] && [ "$RES" = "done" ] && ok "the pass is done" || bad "the pass is done" "exit $RC: $OUT $ERR"
 [ -z "$ERR" ] && ok "a capture that posts prints no warning" || bad "a capture that posts prints no warning" "$ERR"
+[ "$(cat "$T/sweep.calls" 2>/dev/null)" = start ] && ok "the run starts the host's sweep once, as it ends" \
+    || bad "the run starts the host's sweep once, as it ends" "$(cat "$T/sweep.calls" 2>&1)"
 POST=$(line_of 'gh api --method POST repos/acme/widgets/issues/7/comments')
 DESTROY=$(line_of 'niwa destroy --force tsuku+w5')
 [ -n "$POST" ] && [ -n "$DESTROY" ] && [ "$POST" -lt "$DESTROY" ] && ok "the comment POST comes before niwa destroy" \
@@ -489,7 +494,7 @@ P3="$T/plugin3/skills/coordinate/scripts"
 B3="$T/bin3"
 C3="$T/c3"
 mkdir -p "$P3" "$B3" "$C3"
-cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$S/teardown-handoff.sh" "$P3/"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$S/teardown-handoff.sh" "$P3/"
 cat >"$P3/coord-log.sh" <<'EOF'
 #!/usr/bin/env bash
 while [ $# -gt 0 ]; do [ "$1" = --token ] && echo "$2"; shift; done

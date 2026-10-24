@@ -373,8 +373,9 @@ source.
   from keys are untrusted text, and agents reading them keep the
   fixed-preamble discipline the reviewer prompts use. Values from keys reach
   commands only through `jq --arg` or as compared strings.
-- **Retention.** koto's prunes keep a finished session until its retention
-  lets it go (`koto session hierarchy` says when); whether a session survives
+- **Retention.** koto's prunes keep a finished session while any member of
+  its hierarchy is live, and after that until its retention period has passed
+  (`koto session hierarchy` says when); whether a session survives
   its own terminal tick is covered in `koto-session-retention.md`. Nothing secret belongs in a
   key; with koto's cloud backend configured, keys sync to the configured
   bucket, which needs the same access control as the

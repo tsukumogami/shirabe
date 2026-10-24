@@ -74,12 +74,13 @@ eq "a citation of another worker's entry is dropped" "null null" "$(list | jq -r
 # An archived entry (shirabe#827): the section names it on its Archived line,
 # and its row is in a `decisions` entry in the run's session.
 SETTLED3=$(printf '%s' "$ENTRY" | jq -c '. + {state: "settled", verdict: "settle", outcome: "400", decided_by: "the coordinator"}')
-# archive_row <entry-json>: write the entry's row, as the body renders it, as a decisions entry.
+# archive_row <entry-json>: write the entry's row, as a GitHub record's body
+# held it (an escaped table row under the table's header), as a decisions entry.
 archive_row() {
-    render "$(record_json roadmap feat | jq -c --argjson e "[$1]" '.decisions = {next: 10, entries: $e}')" issue \
-        | bash "$HERE/record-parse.sh" | jq -r -L "$HERE" 'include "record-codec";
-            "Decisions 3, settled, moved out of the record body as it held them.\n\n\(d_header)\n\(.decisions.entries[0] | render_drow)"' > "$T/arch.md"
-    bash "$HERE/record-append.sh" --session "$S" --kind decisions --text-file "$T/arch.md" > /dev/null
+    jq -nr -L "$HERE" --argjson e "$1" 'include "state-schema";
+        def enc: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;") | gsub("\\\\"; "&#92;") | gsub("\\|"; "\\|") | gsub("\n"; "<br>") | gsub("@"; "&#64;");
+        "Decisions 3, settled, moved out of the record body as it held them.\n\n\(d_header)\n| " + (decisions_cols | map($e[.[0]] // "" | enc) | join(" | ")) + " |"' > "$T/arch.md"
+    bash "$HERE/state-entry.sh" --session "$S" --kind decisions --text-file "$T/arch.md" > /dev/null
 }
 ARCHIVED='.decisions = {next: 10, entries: [], archived: [3]}'
 own_archive() { archive_row "$SETTLED3"; }

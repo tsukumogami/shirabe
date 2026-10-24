@@ -8,10 +8,10 @@
 #
 # Proves, one line per case:
 #   1. a fresh start of a new roadmap scope, given no store, opens a session
-#      that stops at record_open; record-open.sh writes the record into the
+#      that stops at record_open; state-open.sh writes the record into the
 #      session's keys and opens nothing on GitHub; the next find reaches
 #      reconcile and writes coord/source.json reading `session`;
-#   2. on that fresh session, record-state.sh writes each crash-set Run row
+#   2. on that fresh session, state-stored-set.sh writes each crash-set Run row
 #      (rules, briefs, friction, reports-to), each accepted with no `store`
 #      row in the record, and record/run then holds all four and still no
 #      `store` row;
@@ -53,9 +53,8 @@ open_run fresh || { bad "1: the fresh start opens a session" "$(cat "$T/open.err
 ok "1: the fresh start opens a session"
 grep -qx 'resumed=1' <<< "$OPEN_OUT" && bad "1:   ... resuming nothing" "$OPEN_OUT" || ok "1:   ... resuming nothing"
 eq "1: with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap fresh)" issue > "$T/open.md"
-write_as_agent record-open.sh --body-file "$T/open.md"
-eq "1: record-open.sh (agent-run) opens the record" 0 $?
+write_as_agent state-open.sh
+eq "1: state-open.sh (agent-run) opens the record" 0 $?
 (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the session's record/meta" || bad "1:   ... in the session's record/meta" "$(cat "$T/w.err")"
 grep -Eq '^(issue|pr) create|^api --method POST' "$GH_DB.calls" \
     && bad "1:   ... opening nothing on GitHub" "$(grep -E '^(issue|pr) create|^api --method POST' "$GH_DB.calls")" || ok "1:   ... opening nothing on GitHub"
@@ -68,13 +67,13 @@ echo "== 2. each crash-set Run row, with no store row =="
 RULES=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 BRIEFS=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 eq "2: the fresh record holds no store row" 0 "$(store_rows)"
-write_as_agent record-state.sh --run rules "coordinate sha256:$RULES" --by coord-test
+write_as_agent state-stored-set.sh --run rules "coordinate sha256:$RULES" --by coord-test
 eq "2: rules is accepted" 0 $?
-write_as_agent record-state.sh --run briefs "lane sha256:$BRIEFS" --by coord-test
+write_as_agent state-stored-set.sh --run briefs "lane sha256:$BRIEFS" --by coord-test
 eq "2: briefs is accepted" 0 $?
-write_as_agent record-state.sh --run friction lane-friction --by coord-test
+write_as_agent state-stored-set.sh --run friction lane-friction --by coord-test
 eq "2: friction is accepted" 0 $?
-write_as_agent record-state.sh --run reports-to "the human" --by "the human"
+write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"
 eq "2: reports-to is accepted" 0 $?
 eq "2: record/run holds the four rows" "briefs=lane sha256:$BRIEFS|friction=lane-friction|reports-to=the human|rules=coordinate sha256:$RULES" \
     "$( (cd "$WD" && koto context get "$S" record/run) | jq -r '[.[] | select(.key | IN("rules", "briefs", "friction", "reports-to")) | "\(.key)=\(.value)"] | sort | join("|")')"

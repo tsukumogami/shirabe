@@ -7,7 +7,7 @@
 # terminal the run lands in. work-on.md's `pr_creation` writes the submitted
 # `pr_url` into context on its created edge, and `done` and
 # `done_already_complete` declare `pr: "${context.pr_url}"`. A coordinator
-# reads that `pr` with record-common.sh's lib_report_pr, so a worker that
+# reads that `pr` with state-common.sh's lib_report_pr, so a worker that
 # opened a pull request never has to be asked for it again.
 #
 # This file checks two things:
@@ -233,11 +233,11 @@ leg() { (cd "$REPO" && koto request get "$REQ" 2>/dev/null) | jq -c "(.request /
 # report_pr: what coordinate's lib_report_pr reads from koto's record of the
 # leg, the reader the payload exists for.
 report_pr() {
-    # HERE, PROG and UNIT_LEG are record-common.sh's inputs.
+    # HERE, PROG and UNIT_LEG are state-common.sh's inputs.
     # shellcheck disable=SC1091,SC2034
     (
         HERE="$COORD_SCRIPTS" PROG=leg-result_test
-        . "$COORD_SCRIPTS/record-common.sh"
+        . "$COORD_SCRIPTS/state-common.sh"
         UNIT_LEG="leg $REQ:work-on"
         cd "$REPO" && lib_report_pr && printf '%s' "$REPORT_PR"
     )
@@ -259,7 +259,7 @@ if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
     eq "root: the payload lists nothing missing" null "$(leg .result.payload.missing)"
     eq "root: record_keep passed on the way, and the payload says it pinned nothing (not a multi-pr item)" \
         '"skipped"' "$(leg .result.payload.record)"
-    if [ -f "$COORD_SCRIPTS/record-common.sh" ]; then
+    if [ -f "$COORD_SCRIPTS/state-common.sh" ]; then
         eq "root: lib_report_pr reads the pull request" "$URL" "$(report_pr)"
     fi
 fi
@@ -283,7 +283,7 @@ if open_leg closing_keyword=0 ci_passing=0 merge_state_clean=0; then
     eq "no pr_url: created with CI green still ends at done" "done" "$(state)"
     eq "no pr_url: the leg's status is success" '"success"' "$(leg .result.status)"
     eq "no pr_url: pr is empty" '""' "$(leg .result.payload.pr)"
-    if [ -f "$COORD_SCRIPTS/record-common.sh" ]; then
+    if [ -f "$COORD_SCRIPTS/state-common.sh" ]; then
         eq "no pr_url: lib_report_pr reads no pull request" "" "$(report_pr)"
     fi
 fi
@@ -306,7 +306,7 @@ if open_leg; then
     eq "already, none: the leg's status is success" '"success"' "$(leg .result.status)"
     eq "already, none: pr is empty" '""' "$(leg .result.payload.pr)"
     eq "already, none: koto lists pr as missing" '["pr"]' "$(leg .result.payload.missing)"
-    if [ -f "$COORD_SCRIPTS/record-common.sh" ]; then
+    if [ -f "$COORD_SCRIPTS/state-common.sh" ]; then
         eq "already, none: lib_report_pr reads no pull request" "" "$(report_pr)"
     fi
 fi

@@ -361,7 +361,7 @@ fi
 # reported failure, left on the unit (pick's `rework`), quoted into the
 # acceptance criteria as a report, never as instructions: the coordinator's
 # text, or the reporter's (`Evidence clause <n> failed: ...`, which picks the
-# failure wording below), held by the record's codec to one paragraph with
+# failure wording below), held by state-schema.jq to one paragraph with
 # no URL or link.
 REWORK=""
 if [ -n "$UNITS" ]; then

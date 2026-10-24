@@ -92,10 +92,10 @@ class	engine	skills/coordinate/scripts/predecessor-handoff.sh
 class	engine	skills/coordinate/scripts/quiet-check.sh
 class	engine	skills/coordinate/scripts/reconcile-pass.sh
 class	engine	skills/coordinate/scripts/reconcile-report-get.sh
-class	engine	skills/coordinate/scripts/record-confirm.sh
-class	engine	skills/coordinate/scripts/record-find.sh
-class	engine	skills/coordinate/scripts/record-handover.sh
-class	engine	skills/coordinate/scripts/record-state.sh
+class	engine	skills/coordinate/scripts/state-confirm.sh
+class	engine	skills/coordinate/scripts/state-find.sh
+class	engine	skills/coordinate/scripts/state-handover.sh
+class	engine	skills/coordinate/scripts/state-stored-set.sh
 class	engine	skills/coordinate/scripts/report-facts.sh
 class	engine	skills/coordinate/scripts/report-pr.sh
 class	engine	skills/coordinate/scripts/report-questions.sh

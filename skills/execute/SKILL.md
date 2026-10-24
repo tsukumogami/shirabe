@@ -268,6 +268,14 @@ The script prints koto-open's result line and nothing else you need to parse:
   (a retained `done_blocked` or `paused_for_review`) replaced by a fresh one,
   with its old result on the `replaced_result=` line, which you may print. Each
   is followed by `session=execute-<plan-slug>`; drive that session (Step 3).
+  When koto kept the finished session for its hierarchy, `moved_to=<name>` and
+  `moved_reason=` follow `opened=replaced`: the old run was moved aside to
+  `<name>` rather than removed, and its record is still readable there.
+- `refused=replace_held_live` (exit 75, with a `live=` line) or
+  `refused=replace_failed` (exit 74) — the finished session is held by its
+  hierarchy and couldn't be moved aside, because work under it is still
+  running or the move failed. Nothing was replaced. Report stderr's message and
+  stop; invoking `/execute` again once that work is done retries.
 - `refused=<code>` — koto refused the invocation: a bad or repeated argument, a
   live `execute-<plan-slug>` session built from another template
   (`execute-coordinated.md`), or one belonging to another worktree or session

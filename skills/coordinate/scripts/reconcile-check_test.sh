@@ -33,7 +33,7 @@ mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$
 cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$HERE"/inventory-common.sh "$HERE"/github-refs.sh "$T/tree/skills/coordinate/scripts/"
 # The record feature's merge check and what it sources, which the merge
 # subcommand calls rather than copies.
-cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$HERE"/dispatch-common.sh "$HERE"/record-source.sh "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/board-lib.sh "$HERE"/state-common.sh "$HERE"/dispatch-common.sh "$HERE"/state-read.sh "$T/tree/skills/coordinate/scripts/"
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 S="$T/tree/skills/coordinate/scripts/reconcile-check.sh"
 

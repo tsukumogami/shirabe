@@ -11,6 +11,11 @@
 #   a fresh session replacing a finished one opened=replaced
 #   a refusal with a typed koto error        refused=<code>
 #
+# A finished session koto keeps for its hierarchy isn't removed by the replace:
+# koto moves it aside under a new name, and opened=replaced is followed by
+# moved_to= and moved_reason=. When it can't move it, the replace is refused
+# (replace_held_live, replace_failed), each with its own exit code.
+#
 # koto makes every decision (template, origin record, fixed variables, the
 # request leg). This script builds the call, keeps user tokens out of any
 # shell, removes the args file, and renders koto's refusal in the caller's
@@ -71,34 +76,56 @@
 #   replaced_result=<compact JSON>   replaced: the old session's workflow
 #                                    result (`null` when it recorded none);
 #                                    this is what the caller may print
+#   moved_to=<name>                  replaced, when koto kept the old session
+#                                    instead of removing it (koto 0.23.0 and
+#                                    later): the name it now has,
+#                                    `<session>_r<N>`, where its record stays
+#                                    readable. Its subtree moved with it
+#   moved_reason=<text>              with moved_to: why koto kept it, in
+#                                    koto's words (its hierarchy, or a pin),
+#                                    on one line
 #   leg=<compact JSON object>        under --koto-leg, on success
 #
 #   refused=<code>                   koto's typed error code (invalid_var,
 #                                    duplicate_var, unknown_var, var_mismatch,
 #                                    template_mismatch, origin_mismatch,
 #                                    session_live, session_terminal,
+#                                    replace_held_live, replace_failed,
 #                                    invalid_vars_file, leg_* and the rest),
 #                                    `already_exists` for koto's untyped
 #                                    "already exists" refusal, or this
 #                                    script's own args_file_in_work_tree
+#   live=<compact JSON array>        after refused=replace_held_live: the
+#                                    sessions in the old run's subtree still
+#                                    running, which kept it from moving aside
+#   stranded=<compact JSON array>    after refused=replace_failed, when koto
+#                                    reports any: the {"from","to"} renames
+#                                    its move-back could not undo
 #   failed=<kind>                    koto_missing, jq_missing, koto_crashed
 #                                    (no parseable output), koto_error (a
 #                                    non-zero exit with no typed code)
 #   error=usage                      this script's own usage error
 #
 # The human-readable message goes to stderr: on a refusal, the rendered
-# wording; on failure or usage error, a diagnostic.
+# wording; on failure or usage error, a diagnostic; on a replace that moved the
+# old session aside, a note naming where it went.
 #
 # Rendering. A refusal is rendered from the caller's wording table when it
-# maps the code, and from koto's own `error` message otherwise, so an unmapped
-# code never prints nothing. The table is a file of `<code><TAB><text>` lines
-# (`#` lines and blank lines ignored; the first line for a code wins). A key
+# maps the code, from this script's own wording for replace_held_live and
+# replace_failed when the table doesn't, and from koto's own `error` message
+# otherwise, so an unmapped code never prints nothing. The table is a file of
+# `<code><TAB><text>` lines (`#` lines and blank lines ignored; the first line
+# for a code wins). A key
 # may also be `<code>:<VAR>`, which applies only when koto's refusal names that
 # variable and wins over the plain `<code>` line, so one table can word an
 # invalid topic and an invalid intent differently. In
 # <text>, `\n` is a newline, `\t` a tab, `\\` a backslash, and these
 # placeholders are replaced with koto's fields, never evaluated:
 #   {session} {var} {value} {constraint} {recorded} {requested} {state} {error}
+#   {live} {stranded}
+# {live} is replace_held_live's running sessions, comma-separated, and
+# {stranded} is replace_failed's stranded renames as `from -> to`,
+# comma-separated; both are empty for any other refusal.
 # One exception is fixed: an origin_mismatch against a session with NO origin
 # record (created by a koto older than the entry flags) always prints koto's
 # own message, which tells the user to finish the session with the koto that
@@ -109,8 +136,18 @@
 #   0    opened (new, attached, or replaced)
 #   2    refused: koto's refusal (koto's own exit code passes through when it
 #        is not 2, e.g. 1 for template_not_found or lock_contention), or an
-#        args file inside the work tree
+#        args file inside the work tree; replace_held_live and
+#        replace_failed are the exceptions, 75 and 74 below
 #   64   this script's own usage error; no koto call was made
+#   74/75 follow sysexits.h (EX_IOERR, EX_TEMPFAIL): koto passes 1 and 2
+#        for these, which other refusals share, and no caller uses 74 or 75
+#        for anything else
+#   74   refused=replace_failed: koto could not move the held old session
+#        aside, and nothing was replaced; the old session keeps its name
+#        unless a stranded= line says otherwise
+#   75   refused=replace_held_live: the old session is held by its hierarchy
+#        and its subtree still has live work, so it can't move aside;
+#        nothing changed, and the open can be retried once that work is done
 #   127  koto or jq is not on PATH; no koto call was made
 #   other  koto's exit code on a failure with no typed code
 #   130/143  interrupted by SIGINT/SIGTERM (koto is stopped, the file removed)
@@ -415,6 +452,16 @@ if [ "$RC" -eq 0 ]; then
     if [ "$FIELD" = "replaced" ]; then
         printf 'replaced_state=%s\n' "$(jq -r '.replaced_state // ""' <"$OUT" | tr -d '\n')"
         printf 'replaced_result=%s\n' "$(jq -c '.replaced_result' <"$OUT")"
+        # koto kept the old session (its hierarchy or a pin holds it) and
+        # moved it aside instead of removing it.
+        MOVED_TO=$(jq -j '.moved_to // "" | if type == "string" then . else "" end' <"$OUT" | tr -d '\n')
+        if [ -n "$MOVED_TO" ]; then
+            MOVED_REASON=$(jq -j '.moved_reason // "" | if type == "string" then . else tojson end' <"$OUT" | tr '\n' ' ')
+            printf 'moved_to=%s\n' "$MOVED_TO"
+            printf 'moved_reason=%s\n' "$MOVED_REASON"
+            printf '%s: the finished %s was kept, not removed (%s); it is now %s, where its record stays readable\n' \
+                "$PROG" "$SESSION" "$MOVED_REASON" "$MOVED_TO" >&2
+        fi
     fi
     if jq -e 'has("leg")' <"$OUT" >/dev/null 2>&1; then
         printf 'leg=%s\n' "$(jq -c '.leg' <"$OUT")"
@@ -432,6 +479,10 @@ jq_field constraint; K_CONSTRAINT="$FIELD"
 jq_field recorded;   K_RECORDED="$FIELD"
 jq_field requested;  K_REQUESTED="$FIELD"
 jq_field state;      K_STATE="$FIELD"
+# The two list fields a replace refusal carries, joined for {live} and
+# {stranded}; anything that isn't a list of the expected shape reads as empty.
+K_LIVE=$(jq -j '.live // [] | if type == "array" then map(select(type == "string")) | join(", ") else "" end' <"$OUT" 2>/dev/null)
+K_STRANDED=$(jq -j '.stranded // [] | if type == "array" then map(select(type == "object") | "\(.from) -> \(.to)") | join(", ") else "" end' <"$OUT" 2>/dev/null)
 
 if [ -z "$CODE" ]; then
     case "$K_ERROR" in
@@ -479,6 +530,8 @@ render() {
                         requested) out="$out$K_REQUESTED"; s="$rest"; continue ;;
                         state) out="$out$K_STATE"; s="$rest"; continue ;;
                         error) out="$out$K_ERROR"; s="$rest"; continue ;;
+                        live) out="$out$K_LIVE"; s="$rest"; continue ;;
+                        stranded) out="$out$K_STRANDED"; s="$rest"; continue ;;
                     esac
                     ;;
             esac
@@ -521,9 +574,42 @@ if [ "$NO_ORIGIN" -eq 0 ]; then
     if { [ -n "$K_VAR" ] && lookup_wording "$CODE:$K_VAR"; } || lookup_wording "$CODE"; then
         render "$REPLACED"
         MESSAGE="$REPLACED"
+    else
+        # The two replace refusals get this script's wording when the caller
+        # has none: koto's own message is right, but doesn't say that nothing
+        # of the caller's changed or what to do next.
+        case "$CODE" in
+            replace_held_live)
+                render 'The finished session {session} is still held by its hierarchy, so koto would move it aside rather than remove it, but its subtree has live work that cannot move: {live}.\nNothing was changed. Let that work finish, or cancel it, then run this again.'
+                MESSAGE="$REPLACED"
+                ;;
+            replace_failed)
+                render 'The finished session {session} could not be replaced, and no new session was made: {error}'
+                MESSAGE="$REPLACED"
+                if [ -n "$K_STRANDED" ]; then
+                    render '\nkoto could not undo every rename of the move, so these sessions are still under their new names: {stranded}.'
+                    MESSAGE="$MESSAGE$REPLACED"
+                fi
+                ;;
+        esac
     fi
 fi
 
 printf 'refused=%s\n' "$CODE"
+# The two replace refusals: their list fields as lines, and an exit code of
+# their own, so a caller can tell them from every other refusal without
+# parsing stderr.
+case "$CODE" in
+    replace_held_live)
+        printf 'live=%s\n' "$(jq -c '.live // [] | if type == "array" then . else [] end' <"$OUT")"
+        RC=75
+        ;;
+    replace_failed)
+        if jq -e '(.stranded | type) == "array" and (.stranded | length) > 0' <"$OUT" >/dev/null 2>&1; then
+            printf 'stranded=%s\n' "$(jq -c '.stranded' <"$OUT")"
+        fi
+        RC=74
+        ;;
+esac
 printf '%s\n' "$MESSAGE" >&2
 exit "$RC"

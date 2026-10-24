@@ -3,19 +3,20 @@ workflow: .github/workflows/check-coordinate-scripts.yml
 # stand-ins and need only jq and git, so every case runs on 3.2.
 # Its engine suites (*_engine_test.sh) need real koto and run on
 # ubuntu only.
-skills/coordinate/scripts/record-codec_test.sh
 skills/coordinate/legacy-import/legacy-import_test.sh
 skills/coordinate/scripts/state-schema_test.sh
+skills/coordinate/scripts/normalize_test.sh
+skills/coordinate/scripts/state-file_test.sh
 skills/coordinate/scripts/discipline-session_test.sh
 skills/coordinate/scripts/coord-log_test.sh
 skills/coordinate/scripts/coordinate-report_test.sh
 skills/coordinate/scripts/rule-coverage_test.sh
-skills/coordinate/scripts/record-find_test.sh
+skills/coordinate/scripts/state-find_test.sh
 skills/coordinate/scripts/find-reads_test.sh
-skills/coordinate/scripts/record-open_test.sh
-skills/coordinate/scripts/record-write_test.sh
-skills/coordinate/scripts/record-holding_test.sh
-skills/coordinate/scripts/record-confirm_test.sh
+skills/coordinate/scripts/state-open_test.sh
+skills/coordinate/scripts/state-write_test.sh
+skills/coordinate/scripts/state-holding_test.sh
+skills/coordinate/scripts/state-confirm_test.sh
 skills/coordinate/scripts/start-check_test.sh
 skills/coordinate/scripts/posture-read_test.sh
 # The board, land and merge scripts: a localized plugin tree with
@@ -58,7 +59,7 @@ skills/coordinate/scripts/unit-cost_test.sh
 skills/coordinate/scripts/decision-phrasings_test.sh
 skills/coordinate/scripts/decision-render_test.sh
 skills/coordinate/scripts/report-questions_test.sh
-skills/coordinate/scripts/record-decision_test.sh
+skills/coordinate/scripts/state-decision_test.sh
 skills/coordinate/scripts/decision-next_test.sh
 skills/coordinate/scripts/need-check_test.sh
 skills/coordinate/scripts/skill-states_test.sh
@@ -69,6 +70,6 @@ skills/coordinate/scripts/skill-states_test.sh
 # shirabe, so every case runs on 3.2.
 skills/coordinate/scripts/milestone_test.sh
 skills/coordinate/scripts/roadmap-status_test.sh
-skills/coordinate/scripts/record-state_test.sh
-skills/coordinate/scripts/record-append_test.sh
+skills/coordinate/scripts/state-stored-set_test.sh
+skills/coordinate/scripts/state-entry_test.sh
 skills/coordinate/scripts/milestone-verdicts_test.sh

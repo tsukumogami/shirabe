@@ -281,6 +281,24 @@ instead and cite the finding that drove it.
 3. Commit: `docs(vision): accept VISION for <topic>`
 4. Create PR (or update existing PR if on a shared branch)
 
+   The body describes the VISION in terms a reader of the repository
+   understands: its thesis in a sentence or two, a link to
+   `docs/visions/VISION-<topic>.md`, and a link to the parent VISION its
+   frontmatter names, if it names one. By default it carries none of the
+   workflow's own records: no jury verdicts, reviewer findings or list of the
+   fixes they prompted, no session or key names, and no link to a ROADMAP or
+   PLAN, which is deleted when its work completes. Those stay in the
+   `vision-<topic>` session. A repository opts in to them with
+   `## PR Workflow Content: include` in its `CLAUDE.local.md` or `CLAUDE.md`;
+   ask the one reader rather than reading the header yourself:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh"
+   ```
+
+   It prints `include` or `omit` (the default). Under `include`, the body may
+   also summarize the jury's verdicts.
+
 Then present routing options:
 
 "The VISION is accepted. Based on the project's needs, here are the recommended

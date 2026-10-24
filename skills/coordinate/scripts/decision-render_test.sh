@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # decision-render_test.sh -- decision-render.sh against the gh and koto
 # stand-ins: the four kinds' text, the escalation's shape and digest, every
-# refusal, the seal on the stored text, and record-decision.sh's read modes
+# refusal, the seal on the stored text, and state-decision.sh's read modes
 # the renderer reads through, over the record in the run's session.
 #
 # Usage: bash skills/coordinate/scripts/decision-render_test.sh
@@ -180,22 +180,22 @@ case_run "[$(without '.context = "Ask @alice before the release."')]" "escalate 
 case "$(msg)" in *"@alice"*) bad "a mention is encoded in the message" "$(msg)" ;; *"&#64;alice"*) ok "a mention is encoded in the message" ;;
     *) bad "a mention is encoded in the message" "$(msg)" ;; esac
 
-# --- record-decision.sh's read modes ---------------------------------------------------
+# --- state-decision.sh's read modes ---------------------------------------------------
 
 case_run "[$ESC, $SETTLED_W]" "escalate 3" escalate escalation
 eq "read: --list prints the section" '10 3,4' \
-    "$(bash "$HERE/record-decision.sh" --session "$S" --list | jq -r '"\(.next) \([.entries[].decision] | join(","))"')"
-eq "read: --read prints one entry" escalated "$(bash "$HERE/record-decision.sh" --session "$S" --read 3 | jq -r .state)"
-bash "$HERE/record-decision.sh" --session "$S" --read 8 >/dev/null 2>&1
+    "$(bash "$HERE/state-decision.sh" --session "$S" --list | jq -r '"\(.next) \([.entries[].decision] | join(","))"')"
+eq "read: --read prints one entry" escalated "$(bash "$HERE/state-decision.sh" --session "$S" --read 3 | jq -r .state)"
+bash "$HERE/state-decision.sh" --session "$S" --read 8 >/dev/null 2>&1
 eq "read: --read of an entry the record doesn't hold exits 1" 1 "$?"
 printf '"not a record"' | koto context add "$S" record/holdings
-bash "$HERE/record-decision.sh" --session "$S" --list >/dev/null 2>&1
+bash "$HERE/state-decision.sh" --session "$S" --list >/dev/null 2>&1
 eq "read: a record that isn't canonical is refused with 10" 10 "$?"
-KOTO_NO_LIST_PREFIX=1 bash "$HERE/record-decision.sh" --session "$S" --list >/dev/null 2>&1
+KOTO_NO_LIST_PREFIX=1 bash "$HERE/state-decision.sh" --session "$S" --list >/dev/null 2>&1
 eq "read: a failed read exits 2" 2 "$?"
 seed_session "$S" "$(record_json roadmap feat)"
-eq "read: a record with no section lists none" '{"next":1,"entries":[]}' "$(bash "$HERE/record-decision.sh" --session "$S" --list)"
-bash "$HERE/record-decision.sh" --session "$S" --read x >/dev/null 2>&1
+eq "read: a record with no section lists none" '{"next":1,"entries":[]}' "$(bash "$HERE/state-decision.sh" --session "$S" --list)"
+bash "$HERE/state-decision.sh" --session "$S" --read x >/dev/null 2>&1
 eq "read: an entry that isn't a number is usage" 64 "$?"
 
 tokens_ok decision-render

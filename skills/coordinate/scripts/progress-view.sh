@@ -125,7 +125,7 @@ while IFS= read -r k; do
     not_a_decision "--next for $k" "$(jq -r --arg k "$k" '.[$k]' <<< "$NEXT")"
 done < <(jq -r 'keys[]' <<< "$NEXT")
 OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjson next "$NEXT" '
-    include "record-codec";
+    include "state-schema";
     def cell: tostring | gsub("\n"; " ") | gsub("\\|"; "\\|");
     def hashy: [scan("(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")]
         | any(.[]; test("[0-9]") and test("[a-f]"));
