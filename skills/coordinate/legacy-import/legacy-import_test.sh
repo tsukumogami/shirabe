@@ -16,7 +16,7 @@
 # can't be read are record-unreadable with nothing written. A discipline
 # rotation's pull request, its window from the title. After the import the
 # session reads back as a resume, and the handover gate and the reconcile read
-# run on it. Nothing in scripts/ or koto-templates/ calls the importer, and it
+# run on it. Only the opener, coordinate-open.sh, calls the importer, and it
 # reaches none of the code the record's removal deletes.
 #
 # The fixture bodies under testdata/ were rendered once by the codec this
@@ -106,8 +106,12 @@ eq "the fixture body parses to the fixture state" "$(jq -cS . "$FX/state.json")"
 eq "  ... and the pull request body to the same state at discipline scope" \
     "$(jq -cS '.scope = {kind: "discipline", name: "ci-health"}' "$FX/state.json")" \
     "$(jq -R -s -L "$OWN" 'include "record-parse"; parse_record | del(.written)' < "$FX/discipline.md" | jq -cS .)"
-jq -n -L "$HERE" --slurpfile s "$FX/state.json" 'include "state-schema"; $s[0] | check_record([]) | empty' > /dev/null 2> "$T/err" \
-    && ok "  ... which holds every section and passes state-schema.jq" || bad "  ... which holds every section and passes state-schema.jq" "$(cat "$T/err")"
+# Its Run section's `store github` row, which the import drops, is the one
+# row the session's schema refuses.
+jq -n -L "$HERE" --slurpfile s "$FX/state.json" 'include "state-schema"; $s[0] | .run |= map(select(.key != "store")) | check_record([]) | empty' > /dev/null 2> "$T/err" \
+    && ok "  ... which holds every section and, its store row aside, passes state-schema.jq" || bad "  ... which holds every section and, its store row aside, passes state-schema.jq" "$(cat "$T/err")"
+if jq -n -L "$HERE" --slurpfile s "$FX/state.json" 'include "state-schema"; $s[0] | check_record([]) | empty' > /dev/null 2> "$T/err"; then r=passed; else r=refused; fi
+eq "  ... and with it is refused as store-malformed" "refused 1" "$r $(grep -c 'store-malformed' "$T/err")"
 
 echo "== the lookup =="
 world 7 roadmap
@@ -117,6 +121,8 @@ add_issue 8 alice "$FX/moved.md"
 eq "a moved-shape body beside it is no record" "record 7" "$(imp --lookup 2> "$T/err")"
 add_issue 9 bob "$FX/roadmap.md"
 eq "nor is one opened by an author without write access" "record 7" "$(imp --lookup 2> "$T/err")"
+grep -q '#9 skipped: its author has no write access' "$T/err" \
+    && ok "  ... which the lookup names on stderr" || bad "  ... which the lookup names on stderr" "$(cat "$T/err")"
 add_issue 10 carol "$FX/roadmap.md" "Coordinator record: ROADMAP-plugin-system-v2"
 eq "nor one with a longer title" "record 7" "$(imp --lookup 2> "$T/err")"
 add_issue 11 carol "$FX/roadmap.md"
@@ -186,6 +192,10 @@ unreadable() { # unreadable <label>
 }
 world 7 roadmap; db '.issues[0].body = "> This is a **coordinator record** for ROADMAP-plugin-system.\n\nnot a record"'
 unreadable "a body that doesn't parse"
+world 7 roadmap
+sed 's/^| go | acme\/widgets#14 |/| go | acme\/widgets |/' "$FX/roadmap.md" > "$T/schema.md"
+db '.issues[0].body = $b' --rawfile b "$T/schema.md"
+unreadable "a body that parses to a state the schema check refuses"
 world 7 roadmap; db '.issues[0].body = $b' --rawfile b "$FX/discipline.md"
 unreadable "another scope's body"
 world 7 roadmap; db '.fail = [{match: "collaborators/carol/permission", rc: 1, stderr: "HTTP 502: Bad Gateway"}]'
@@ -219,10 +229,10 @@ OUT=$(SESS=$SD SCOPE_=discipline NAME_=ci-health imp --ref 76 2> "$T/err"); rc=$
 eq "a rotation title without its dates is record-unreadable" "65 record-unreadable 76 none" "$rc $OUT $(session_snapshot "$SD")"
 
 echo "== after the import =="
-# The opener (#984 adds its call) opens the run's session and seals its find to
-# the session store before the import; here the suite does both.
+# The opener opens the run's session and seals its find before the import;
+# here the suite does both.
 world 7 roadmap
-found_session "$S" "$(roadmap_vars plugin-system)" "7 session" "$HS"
+found_session "$S" "$(roadmap_vars plugin-system)" "$HS"
 printf '{"source":"session","reason":"found"}' | koto context add "$S" coord/source.json
 imp --ref 7 > /dev/null 2> "$T/err"
 eq "the session is the scope's resume candidate" "resume $S" \
@@ -235,9 +245,9 @@ OUT=$(bash "$HERE/reconcile-read.sh" --session "$S" 2> "$T/err"); rc=$?
 eq "  ... and so does the reconcile read" "0 found 2" "$rc $(printf '%s' "$OUT" | jq -r '"\(.status) \(.holdings | length)"' 2>/dev/null)"
 
 echo "== where it stands =="
-eq "nothing in scripts/ or koto-templates/ calls the importer" "" \
-    "$(grep -rn 'legacy-import' "$HERE" "$HERE/../koto-templates" 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
-        | grep -v '/scripts/legacy-import_test\.sh:')"
+eq "only the opener, coordinate-open.sh, calls the importer" "coordinate-open.sh" \
+    "$(grep -rn 'legacy-import/import\.sh' "$HERE" "$HERE/../koto-templates" 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
+        | grep -v '_test\.sh:' | sed 's/:.*//; s|.*/||' | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ $//')"
 # What the record's removal deletes or strips from the files it keeps.
 GONE='record-(parse|render|append|find|move|open|write|holding|confirm)\.sh|record-codec|lib_(open_issues|discipline_read|authority|has_write_access|rotation_dates|file_at|parse)([^A-Za-z_]|$)|ISSUE_TITLE|rs_(view|record_api|moved|record|source)([^A-Za-z_]|$)'
 eq "the importer reaches nothing the removal deletes" "" "$(grep -nE "$GONE" "$IMP" | grep -vE '^[0-9]+:[[:space:]]*#')"

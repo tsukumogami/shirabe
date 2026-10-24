@@ -1,15 +1,17 @@
 # record-parse.jq -- the legacy importer's parser for a coordinator record body
-# on GitHub: the parse half of skills/coordinate/scripts/record-codec.jq, copied
-# at 098a3c9, the definitions parse_record reaches, in the codec's order and
-# unchanged. It holds no renderer and no checks: the importer checks the parsed
-# state through the write core (state-schema.jq) before it writes a key.
+# on GitHub: every definition skills/coordinate/scripts/record-codec.jq's
+# parse_record reaches, copied unchanged and in the codec's order from the codec
+# as of 098a3c9, the last commit that changed it. It holds no renderer. Its only
+# checks are the ones parsing needs (the table grammars and check_scope on the
+# declaration line); the importer checks the parsed state through the write
+# core (state-schema.jq) before it writes a key.
 #
-# A copy rather than an include, so the importer reads the old body format
-# after #984 removes the codec's markdown half; #984 refreshes it if the codec
-# changed after this copy. Every refusal is a jq error() whose message starts
-# with "refused: ".
+# A copy rather than an include, so the importer still reads the old body
+# format once the codec's markdown half is removed; whoever changes the codec's
+# parse half before then refreshes this copy. Every refusal is a jq error()
+# whose message starts with "refused: ".
 
-# ---- state-schema.jq, verbatim -------------------------------------------
+# ---- from the codec's copy of state-schema.jq's section tables ------------
 # The four sections every record has, in order, with their columns.
 def sections: [
   {key: "holdings", title: "Holdings", cols: [

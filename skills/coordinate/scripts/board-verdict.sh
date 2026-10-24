@@ -36,21 +36,25 @@
 # When the token can't read checks (GitHub refuses the snapshot's rollup, or
 # the commit's check runs, with a 403 or "Resource not accessible"), the
 # snapshot is read again without the rollup and the check contexts are the
-# Actions jobs from reads 2 and 3: each job is a check run named for it, from
-# the GitHub Actions app. `source` says which was read (`checks` or
-# `actions`), and a `checks-refused` note says what was refused. Only a
-# refusal falls back; any other failed read is still an error. With the jobs
-# as checks, a required check that only another app or a commit status
-# reports reads missing: never a pass. The required set is then protection
-# and the branch rules alone, both still read and still an error when
-# unreadable, but it can be short: the rollup's isRequired also carries rule
-# sources those two reads don't list (an organisation's required workflows),
-# and a check only it names is invisible, not missing. So a board judged from
-# the Actions jobs never prints verified: when it would, it prints
-# actions-green, which a caller must not land on. A red or running board is
-# still unverified or pending. A required check with no app pin is matched by
-# name, as GitHub matches it, so an Actions job of the same name answers for
-# it.
+# Actions jobs from reads 2 and 3, each a check run named for its job from
+# the GitHub Actions app, and the commit's statuses (repos/R/commits/H/
+# status). `source` says which was read (`checks` or `actions`), and a
+# `checks-refused` note says what was refused. Only a refusal falls back; any
+# other failed read is still an error. The board is judged the same way from
+# either source, verified included. The required set is then protection and
+# the branch rules alone, both still read and still an error when unreadable;
+# the branch rules carry every ruleset that applies, the organisation's too.
+# What the token can't see is never a pass: a required check no job and no
+# status answers, once every run has finished, is required-unreadable (it may
+# exist only as a check run from another app), and so is a ruleset's
+# `workflows` or `code_scanning` rule, whose checks the rules don't name.
+# Either is an error, so the board reads error:board-read, never verified. A
+# required check with no app pin is matched by name, as GitHub matches it, so
+# an Actions job or a status of the same name answers for it. A private
+# repository on a plan without rulesets answers the rules read with a 403
+# saying so ("Upgrade to GitHub Pro ..."); read from the Actions jobs, no
+# ruleset applies to it, so its rules are none. With the checks readable that
+# 403 is still required-set-unreadable, as it always was.
 # With --sha, there is no pull request: the head is the sha, the required set
 # comes from <base>'s protection and rules, and the rollup is the commit's
 # check runs and statuses (repos/R/commits/S/check-runs and .../status); no
@@ -67,15 +71,14 @@
 #    "checks-refused" | "statuses-refused", detail}]}
 # pr_state is the pull request's state (OPEN, MERGED, CLOSED) when the
 # snapshot was read, else null.
-# verdict: verified | actions-green | pending | not-run | unverified |
-# error:board-read | error:pr-state | error:deadline (and head |
-# error:head-moved with --head-only). Precedence: any read failure or the
-# deadline is an error; else any definite failure is unverified; else
-# anything still running is pending; else a job that never ran is not-run,
-# so a person is asked only once nothing else is running; else verified,
-# which is printed only with no reasons, a 40-hex head and the checks
-# source. The same board judged from the Actions jobs is
-# actions-green, never verified.
+# verdict: verified | pending | not-run | unverified | error:board-read |
+# error:pr-state | error:deadline (and head | error:head-moved with
+# --head-only). Precedence: any read failure or the deadline is an error;
+# else any definite failure is unverified; else anything still running is
+# pending; else a required check the token can't see (required-unreadable) is
+# an error too; else a job that never ran is not-run, so a person is asked
+# only once nothing else is running; else verified, which is printed only
+# with no reasons and a 40-hex head.
 # A job never ran when it completed failure, cancelled or timed_out with no
 # step at all: GitHub refused to start it (an account billing block, no
 # runner), so it is no verdict on the code and isn't the worker's to fix
@@ -114,7 +117,8 @@
 # run-pending, job-pending, required-pending,
 # merge-state-unknown, head-moved (pending); required-missing (pending while
 # a run is pending, else unverified); required-conclusion (unverified,
-# skipped included); read-failed, required-set-unreadable, deadline (error).
+# skipped included); read-failed, required-set-unreadable, deadline (error);
+# required-unreadable (error, after unverified and pending).
 # `notes` never changes the verdict: a change under .github/workflows/ or
 # .github/actions/ is named there, because holding such a pull request would
 # be a permission rule of the skill's own.
@@ -168,15 +172,15 @@ SOURCE=checks
 : > "$TMPD/notes.jsonl"
 checks_refused() {
     SOURCE=actions
-    jq -nc --arg d "$1" --arg r "$REPO" '{code: "checks-refused", detail: "\($d) in \($r) was refused; the checks are the Actions jobs at the head"}' >> "$TMPD/notes.jsonl"
+    jq -nc --arg d "$1" --arg r "$REPO" '{code: "checks-refused", detail: "\($d) in \($r) was refused; the checks are the Actions jobs and the commit statuses at the head"}' >> "$TMPD/notes.jsonl"
 }
 # actions_contexts [status contexts]: the check contexts as the Actions jobs
 # read at the head (a job's check run carries the job's name and is GitHub
 # Actions'), plus the status contexts in the given file, into
 # $TMPD/snap.json. A run still going had no jobs read, so a required check it
-# would report reads missing: pending while it runs, unverified once every run
+# would report reads missing: pending while it runs, unreadable once every run
 # is done. A pin to another app (a GitHub Enterprise Server's Actions app has
-# its own id) reads missing too: never a pass.
+# its own id) reads the same way: never a pass.
 # The GitHub Actions app's id on github.com: every check run a workflow job
 # reports comes from it.
 ACTIONS_APP=15368
@@ -214,7 +218,8 @@ def cls: {"board-empty":"u", "run-startup-failure":"u", "run-conclusion":"u",
   "job-not-run":"n", "required-not-run":"n",
   "run-pending":"p", "job-pending":"p", "required-pending":"p",
   "merge-state-unknown":"p", "head-moved":"p",
-  "read-failed":"e", "required-set-unreadable":"e", "deadline":"e"};
+  "read-failed":"e", "required-set-unreadable":"e", "deadline":"e",
+  "required-unreadable":"r"};
 def red: ((.conclusion // "") | IN("success", "skipped")) | not;
 slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
 | slurp1($req) as $req | slurp1($ref) as $ref | slurp1($files) as $files
@@ -278,7 +283,13 @@ slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
                         and (.result | IN("FAILURE", "CANCELLED", "TIMED_OUT"))
                         and (.name as $n | $nr_names | index($n)) != null) ] as $nrc
     | ($red - $nrc) as $bad
-    | if ($c | length) == 0 then
+    | if ($c | length) == 0 and ($running | not) and $source == "actions" and ($empty | length) == 0 then
+        # Read from the Actions jobs and the statuses, a check nothing
+        # answers may still be a check run this token can't see. A board
+        # with nothing at the head is already unverified (board-empty).
+        {name: $q.name, source: $q.source, result: "UNREADABLE",
+         reason: {code: "required-unreadable", name: $q.name, detail: "no Actions job and no commit status reports it, and the token can't read check runs"}}
+      elif ($c | length) == 0 then
         {name: $q.name, source: $q.source, result: "MISSING",
          reason: {code: "required-missing", name: $q.name, detail: (if $running then "not reported yet" else "not reported and every run finished" end), cls: (if $running then "p" else "u" end)}}
       elif ($bad | length) > 0 then
@@ -292,24 +303,30 @@ slurp1($snap) as $s | slurp1($runs) as $runs0 | slurp1($jobs) as $jobs0
          reason: {code: "required-pending", name: $q.name, detail: ([$pend[].result] | unique | join(","))}}
       else {name: $q.name, source: $q.source, result: "SUCCESS", reason: null} end ] as $reqj
 | [ $reqj[] | .reason | select(. != null) ] as $rr
+# a ruleset rule whose checks only the rollup names, unseen from the Actions jobs
+| (if $source == "actions" and $req != null then
+     [ (slurp1($unseen) // [])[] | {code: "required-unreadable", name: "ruleset rule \(.)",
+        detail: "the branch rules require checks through a \(.) rule, which only the check rollup names, and the token can't read checks"} ]
+   else [] end) as $ru
 # merge state and the ref
 | ($s.merge_state // null) as $ms
 | (if $ms == "DIRTY" then [{code: "merge-state-dirty", detail: "DIRTY"}]
    elif $ms == "UNKNOWN" then [{code: "merge-state-unknown", detail: "UNKNOWN after a re-read"}]
    else [] end) as $msr
 | (if $ref != null and $H != null and $ref != $H then [{code: "head-moved", detail: "the remote ref is \($ref)"}] else [] end) as $hm
-| ($early + $rp + $rsf + $rc + $jp + $jc + $jnr + $jns + $jnot + $empty + $rr + $msr + $hm) as $all
+| ($early + $rp + $rsf + $rc + $jp + $jc + $jnr + $jns + $jnot + $empty + $rr + $ru + $msr + $hm) as $all
 | [ $all[] | . + {cls: (.cls // cls[.code] // "e")} ] as $allc
 | (if $stopped == "pr-state" then "error:pr-state"
    elif any($allc[]; .code == "deadline") then "error:deadline"
    elif any($allc[]; .cls == "e") then "error:board-read"
    elif any($allc[]; .cls == "u") then "unverified"
    elif any($allc[]; .cls == "p") then "pending"
+   # A check the token can't see is a read the board couldn't make, but it
+   # comes after the worker's red and a board still running: those are
+   # verdicts on the code, and a person is asked only once nothing else is.
+   elif any($allc[]; .cls == "r") then "error:board-read"
    elif any($allc[]; .cls == "n") then "not-run"
-   elif ($H | type) == "string" and ($H | test("^[0-9a-f]{40}$")) then
-     # Green from the Actions jobs alone isn't verified: the required set
-     # read without the rollup may be short (below, in the header).
-     (if $source == "actions" then "actions-green" else "verified" end)
+   elif ($H | type) == "string" and ($H | test("^[0-9a-f]{40}$")) then "verified"
    else "error:board-read" end) as $verdict
 | [ ($files // [])[] | select(test("^\\.github/(workflows|actions)/")) ] as $wf
 | {verdict: $verdict,
@@ -328,15 +345,18 @@ JQ
 JUDGE="$NOT_RUN_DEF
 $JUDGE"
 
+PLAN_NO_RULES=0
 emit() {
     local f
-    for f in snap runs jobs req ref files ann sup; do [ -f "$TMPD/$f.json" ] || : > "$TMPD/$f.json"; done
+    [ "$PLAN_NO_RULES" = 1 ] && [ "$SOURCE" = checks ] && reason required-set-unreadable "branch rules of $BASEB"
+    for f in snap runs jobs req ref files ann sup unseen; do [ -f "$TMPD/$f.json" ] || : > "$TMPD/$f.json"; done
     jq -nc --arg mode "$MODE" --arg sha "$SHA" --arg stopped "$STOPPED" --arg source "$SOURCE" \
         --argjson actions_app "$ACTIONS_APP" --slurpfile ann "$TMPD/ann.json" \
         --slurpfile cnotes "$TMPD/notes.jsonl" \
         --slurpfile snap "$TMPD/snap.json" --slurpfile runs "$TMPD/runs.json" \
         --slurpfile jobs "$TMPD/jobs.json" --slurpfile req "$TMPD/req.json" \
         --slurpfile ref "$TMPD/ref.json" --slurpfile files "$TMPD/files.json" --slurpfile sup "$TMPD/sup.json" \
+        --slurpfile unseen "$TMPD/unseen.json" \
         --slurpfile reads "$TMPD/reasons.jsonl" "$JUDGE" || { echo "$PROG: internal: the judgement failed" >&2; exit 1; }
     exit 0
 }
@@ -560,7 +580,26 @@ for id in $NOTRUN; do
     jq -c --arg id "$id" --arg m "$msg" '. + {($id): $m}' "$TMPD/ann.json" > "$TMPD/ann.tmp" && mv "$TMPD/ann.tmp" "$TMPD/ann.json"
 done
 if [ "$MODE" = pr ] && [ "$SOURCE" = actions ]; then
-    actions_contexts || { reason read-failed "the Actions jobs as checks"; emit; }
+    # The commit's statuses stand beside the jobs: a status-API check is no
+    # job, and a token that can't read check runs can still read these. A
+    # refusal adds none, so a required status reads unreadable, never a pass.
+    # work-on's pr-checks.sh makes the same fallback for the CI gates, which
+    # count every check rather than the required set, so there a refused
+    # statuses read fails the whole read instead; keep the two in step.
+    echo '[]' > "$TMPD/st.ctx"
+    if bl_gh "$TMPD/st.raw" api --method GET "repos/$REPO/commits/$H/status?per_page=100" --paginate; then
+        jq -sc '(.[0].total_count) as $t | [ .[].statuses[]? ] as $s
+            | if ($t | type) != "number" or ($s | length) != $t then error("statuses short")
+              elif any($s[]; (.context | type) != "string") then error("a status without a context")
+              else [ $s[] | {kind: "status", name: .context, done: ((.state // "pending") != "pending"),
+                             result: ((.state // "pending") | ascii_upcase), required: false, app: null} ] end' \
+            "$TMPD/st.raw" > "$TMPD/st.ctx" 2>/dev/null || { reason read-failed "the commit's statuses"; emit; }
+    elif [ "$(cat "$TMPD/st.raw.fail")" = refused ]; then
+        jq -nc --arg r "$REPO" '{code: "statuses-refused", detail: "the commit statuses in \($r) were refused; a required status reads unreadable"}' >> "$TMPD/notes.jsonl"
+    else
+        read_failed "$TMPD/st.raw" "statuses"; emit
+    fi
+    actions_contexts "$TMPD/st.ctx" || { reason read-failed "the Actions jobs as checks"; emit; }
 fi
 
 # ---- 4. the required set -----------------------------------------------------
@@ -583,9 +622,15 @@ if ! jq -ce '
     reason required-set-unreadable "branch protection of $BASEB"; emit
 fi
 if ! bl_gh "$TMPD/rules.raw" api --method GET "repos/$REPO/rules/branches/$BASEB" --paginate; then
-    if [ "$(cat "$TMPD/rules.raw.fail")" = deadline ]; then reason deadline "rules"
-    else reason required-set-unreadable "branch rules of $BASEB"; fi
-    emit
+    if [ "$(cat "$TMPD/rules.raw.fail")" = deadline ]; then reason deadline "rules"; emit
+    elif grep -q 'Upgrade to GitHub Pro or make this repository public to enable this feature' "$TMPD/rules.raw.err" 2>/dev/null; then
+        # No ruleset can apply to this repository: its rules are none. Only
+        # the Actions-jobs reading takes that answer (emit checks the source
+        # once it is final); with the checks readable it stays the unreadable
+        # required set it always was.
+        PLAN_NO_RULES=1
+        echo '[]' > "$TMPD/rules.raw"
+    else reason required-set-unreadable "branch rules of $BASEB"; emit; fi
 fi
 if ! jq -sce '
     if length == 0 then [] else . end
@@ -596,6 +641,12 @@ if ! jq -sce '
     "$TMPD/rules.raw" > "$TMPD/req.rules" 2>/dev/null; then
     reason required-set-unreadable "branch rules of $BASEB"; emit
 fi
+# The rules that require checks without naming them: the checks of a
+# `workflows` or `code_scanning` rule show only in the rollup, so a board read
+# from the Actions jobs can't tell whether they passed.
+jq -sc 'if length == 0 then [] else add // [] end
+    | [ .[] | select(type == "object") | .type | select(. == "workflows" or . == "code_scanning") ] | unique' \
+    "$TMPD/rules.raw" > "$TMPD/unseen.json" 2>/dev/null || { reason required-set-unreadable "branch rules of $BASEB"; emit; }
 jq -sc 'add' "$TMPD/req.classic" "$TMPD/req.rules" > "$TMPD/req.json"
 
 if [ "$MODE" = sha ]; then

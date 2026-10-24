@@ -210,7 +210,15 @@ the push, submit `ci_outcome: failing_unresolvable` saying no checks were
 reported on the head. A repository that declares no hosted CI (see **A
 repository with no hosted CI** above) passes instead, once the body records
 it, and `ci_none_declared.txt` in context names it for the final report. A
-DIRTY pull request ends at `done_blocked` whatever its CI reads. While
+DIRTY pull request ends at `done_blocked` whatever its CI reads.
+
+The gate reads the checks through `scripts/pr-checks.sh`, and so do you: it
+takes `gh pr checks`'s arguments and is `gh pr checks` wherever the token can
+read checks. Where GitHub refuses the check read, it lists the Actions jobs
+and the commit's statuses instead, and a required check neither answers comes
+back `unreadable`: it may be a check run the token can't see, so it never
+passes. With every other check green, submit `ci_outcome: failing_unresolvable`
+naming it. Never strip or swap the token to read checks. While
 `ci_passing` fails on a pull request that isn't DIRTY:
 
 - `ci_outcome: failing_fixed`

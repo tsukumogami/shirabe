@@ -97,9 +97,8 @@
 #                    is done before a close is attempted. Needs the session
 #   scope-complete   roadmap: the roadmap lists features and every one is
 #                    done (its Status opens Done, Shipped or Dropped)
-#   rotation-over    discipline: today UTC is after the rotation's end date (the
-#                    record title's on GitHub, record/rotation's on the session
-#                    store), or a session rotation's reasoning is written
+#   rotation-over    discipline: today UTC is after the rotation's end date
+#                    (record/rotation's), or the rotation's reasoning is written
 #   pick             anything else
 # The facts go to context key coord/pick.json as data (what the agent reads at
 # pick):
@@ -123,15 +122,13 @@
 # Usage:
 #   pick-facts.sh --session S
 #   pick-facts.sh [--session S] --scope roadmap|discipline --name N --repo O/R
-#                 --ref N [--roadmap PATH] [--today YYYY-MM-DD] [--no-seal]   (tests)
+#                 [--roadmap PATH] [--today YYYY-MM-DD] [--no-seal]   (tests)
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed (the roadmap missing
 # from the default branch included); 64 usage.
 #
-# GitHub reads: the record once, gh issue|pr view <ref> --repo R --json body,title
-# (record-source.sh rs_record; a session store reads none, and then a
-# discipline's title is gh pr view <ref> --repo R --json title);
-# gh api --method GET repos/R --jq .default_branch;
+# The record is read once, through record-source.sh's rs_record.
+# GitHub reads: gh api --method GET repos/R --jq .default_branch;
 # gh api --method GET "repos/R/contents/<roadmap>?ref=<default>";
 # gh issue list --repo R --state open --label <name> --json number,title --limit 200;
 # one gh api graphql (query pickAssigned) for every assigned issue's number,
@@ -141,7 +138,7 @@ set -uo pipefail
 
 PROG=pick-facts
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TODAY= ARG_ROADMAP=
+SESSION= SCOPE= NAME= REPO= TODAY= ARG_ROADMAP=
 NO_SEAL=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -151,7 +148,6 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --name) [ $# -ge 2 ] || usage; NAME=$2; shift 2 ;;
         --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
-        --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --roadmap) [ $# -ge 2 ] || usage; ARG_ROADMAP=$2; shift 2 ;;
         --today) [ $# -ge 2 ] || usage; TODAY=$2; shift 2 ;;
         --no-seal) NO_SEAL=1; shift ;;
@@ -163,25 +159,24 @@ ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage
 if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u +%Y-%m-%d); fi
-lib_run_ref || lib_die2 "the run has no found record"
+lib_run_found || lib_die2 "the run has no found record"
 lib_bounds
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/pick-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 # The record, read and parsed once, as the listers read it (record-source.sh
-# rs_record), with its title from the same read. The holdings, the Run,
+# rs_record). The holdings, the Run,
 # Standing and Work rows, the decision entries and the pending roadmap pull
 # requests are the listers' own --list projections (record-codec.jq), taken
 # from this one parse: running record-holding.sh, record-state.sh,
 # record-decision.sh and roadmap-status.sh would read and parse the record once
 # apiece (shirabe#840).
-rs_record "$T/rec.json" json --json body,title
+rs_record "$T/rec.json" json
 case $? in
     0) ;;
-    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/rec.json.err")"
-       lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/rec.json.err")" ;;
-    *) lib_die2 "#$REF is not a record pick can read: $(lib_scrub < "$T/rec.json.err")" ;;
+    2) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err")" ;;
+    *) lib_die2 "$(lib_record_name) holds no record pick can read: $(lib_scrub < "$T/rec.json.err")" ;;
 esac
 jq -c -L "$HERE" --arg s "$SCOPE" 'include "record-codec";
     holdings_list, state_list, decisions_list, (if $s == "roadmap" then pending_list else [] end)' "$T/rec.json" > "$T/lists" \
@@ -230,29 +225,15 @@ if [ "$SCOPE" = roadmap ]; then
         VERDICT=scope-complete
     fi
 else
-    if lib_session_rotation; then
-        # A rotation on the session store keeps its window in record/rotation and
-        # is over by the window rule: past its end date, or closed early (its
-        # record/reasoning written).
-        rs_rotation_open "${RS_SESSION:-$SESSION}" "$TODAY"
-        case $? in
-            0) ;;
-            1) VERDICT=rotation-over ;;
-            3) lib_die2 "the rotation's session holds no record/rotation" ;;
-            *) lib_die2 "cannot read the rotation's window (record/rotation)" ;;
-        esac
-    else
-        # The title came with the record, except from a session store, which keeps
-        # none: then it's read from the pull request.
-        TITLE=$(jq -r '.title // empty' "$T/rec.json.raw") || lib_die2 "jq failed"
-        if [ -z "$TITLE" ]; then
-            gh pr view "$REF" --repo "$REPO" --json title > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
-                || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
-            TITLE=$(jq -r '.title // ""' "$T/pr.json") || lib_die2 "jq failed"
-        fi
-        lib_rotation_dates "$TITLE" || lib_die2 "the record's title is not a rotation title"
-        [ "$ROT_END" \< "$TODAY" ] && VERDICT=rotation-over
-    fi
+    # A rotation keeps its window in record/rotation and is over by the window
+    # rule: past its end date, or closed early (its record/reasoning written).
+    rs_rotation_open "${RS_SESSION:-$SESSION}" "$TODAY"
+    case $? in
+        0) ;;
+        1) VERDICT=rotation-over ;;
+        3) lib_die2 "the rotation's session holds no record/rotation" ;;
+        *) lib_die2 "cannot read the rotation's window (record/rotation)" ;;
+    esac
     gh issue list --repo "$REPO" --state open --label "$NAME" --json number,title --limit 200 > "$T/issues.json" 2> "$T/issues.err" < /dev/null \
         || lib_die2 "cannot list $REPO's $NAME issues: $(lib_scrub < "$T/issues.err")"
     jq -c --slurpfile h "$T/counted.json" --arg r "$REPO" 'sort_by(.number) | map(. as $i

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# unit-cost-on_test.sh -- unit-cost.sh capture on a session-store run, which
-# keeps the cost entry in the coordinator's session unless the item it is
-# about opts in to workflow-tool content (the reader shirabe#1124 adds, a stub
-# here), and then posts it on that item
+# unit-cost-on_test.sh -- unit-cost.sh capture, which keeps the cost entry
+# in the coordinator's session unless the item it is about opts in to
+# workflow-tool content (the reader shirabe#1124 adds, a stub here), and then
+# posts it on that item
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2),
 # over the example archive, the gh and koto stand-ins and the real record
-# scripts. unit-cost_test.sh covers the entry itself on a GitHub-store run.
+# scripts. unit-cost_test.sh covers the entry itself.
 #
 # Covers: with no reader, and with a reader that answers omit, fails or
 # answers anything else, the entry kept in the session (`--on none`), no
@@ -17,7 +17,8 @@
 # is an issue (`#n: ...`) posted on that issue of the host; a CLAUDE.md that
 # can't be read kept in the session; a unit with neither kept in the session,
 # posted nowhere, the output saying so, and a second capture of it finding the
-# session's entry and adding none; nothing ever posted on the record issue.
+# session's entry and adding none; nothing ever posted on an issue the unit
+# isn't.
 #
 # Usage: bash skills/coordinate/scripts/unit-cost-on_test.sh
 set -uo pipefail
@@ -55,19 +56,18 @@ reader() { # reader <answer> [rc]
 }
 export UNIT_COST_PR_CONTENT_READER="$READER"
 
-# seed <holding-json>: the record (ROADMAP-x on acme/widgets) on the session
-# store, its run's find sealed `found 7 session`, holding feat-x as given;
-# GitHub's side of the example's fixtures, issue 5, and the repository's
-# CLAUDE.md on its default branch.
+# seed <holding-json>: the record (ROADMAP-x on acme/widgets) in its run's
+# session, whose find sealed `found`, holding feat-x as given; GitHub's side of
+# the example's fixtures, issue 5, an ordinary issue 7 no entry is ever posted
+# on, and the repository's CLAUDE.md on its default branch.
 seed() {
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-x", body: $b, state: "open", author: "alice", editor: null},
-                    {repo: "acme/widgets", number: 5, title: "fix it", body: "", state: "open", author: "alice", editor: null}]' \
-        --arg b "$(render "$(record_json roadmap x)" issue 2026-10-01T08:00:00Z)"
+    db '.issues += [{repo: "acme/widgets", number: 7, title: "the plugin tracker", body: "", state: "open", author: "alice", editor: null},
+                    {repo: "acme/widgets", number: 5, title: "fix it", body: "", state: "open", author: "alice", editor: null}]'
     db '.prs += $g[0].prs | .pr_commits = $g[0].pr_commits | .runs = $g[0].runs' --slurpfile g "$FX/github.json"
     db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
     rm -rf "$KOTO_STORE/context/$S" "$KOTO_STORE/sessions/$S"
-    found_session "$S" "$(roadmap_vars x)" "7 session"
+    found_session "$S" "$(roadmap_vars x)"
     record_json roadmap x | jq -c --argjson h "$1" '.holdings = [$h] | .written = "2026-10-01T08:00:00Z"' > "$T/rec.json"
     session_keys "$S" "$T/rec.json"
 }
@@ -108,7 +108,7 @@ echo "== the holding's pull request, the repository opting in =="
 reader include
 seed "$(holding feat-x "$HOLD22")"
 fresh; prs "acme/widgets#21 $MERGE"
-capture; eq "a capture on the session store posts" 0 $?
+capture; eq "a capture posts" 0 $?
 eq "  ... the reader handed the repository's CLAUDE.md" "## PR Workflow Content: include" "$(tail -n 1 "$T/reader.saw")"
 eq "  ... on the holding's pull request" 1 "$(cost_on 22 | jq length)"
 eq "  ... saying so" "unit-cost: posted the cost entry on acme/widgets#22" "$(tail -n 1 "$T/cap.err")"
@@ -117,7 +117,7 @@ eq "  ... with today's marker and stamp lines" "<!-- coordinator-record-entry v1
 eq "  ... and the entry the archive keeps" "$(jq -r .key "$A/unit-cost.json")" "$(cost_on 22 | jq -r '.[0] | split("\n") | .[6] | fromjson | .key')"
 eq "  ... its URL kept in the session" "https://github.com/acme/widgets/pull/22#issuecomment-1001" \
     "$(koto context get "$S" "record/posted/$(printf '%06d' "$(costs | jq -r '.[0].n')")")"
-eq "  ... and nothing on the record issue" "[]" "$(cost_on 7)"
+eq "  ... and nothing on any other issue" "[]" "$(cost_on 7)"
 
 echo "== the sealed verdict's pull request, the repository opting in =="
 seed "$(holding feat-x '{"unit": "Feature 4: Example feature", "pull_request": ""}')"

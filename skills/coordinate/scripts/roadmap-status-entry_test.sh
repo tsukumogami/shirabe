@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # roadmap-status-entry_test.sh -- roadmap-status.sh --verdict and --reopen
-# with --entry N, a session-store run's milestone entry posted on the roadmap
+# with --entry N, a run's milestone entry posted on the roadmap
 # pull request it opens
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 2).
 #
@@ -9,8 +9,8 @@
 # (marker, kind and text as record-append.sh posts them, an `@` escaped),
 # keeping its URL in record/posted/<n>, writing a milestone-done row whose How
 # to confirm names the entry, and pushing a second commit whose Progress line
-# names that comment and the entry's hash, nothing posted on the record
-# issue; --confirm clearing it once main
+# names that comment and the entry's hash, nothing posted on any issue;
+# --confirm clearing it once main
 # reads Done. A changes-needed verdict's milestone-verdict row confirmed from
 # record/posted/<n>: 1 before main carries the line, refused for a comment by
 # another login and for one whose text no longer hashes to the line, then its
@@ -21,9 +21,9 @@
 # retry rather than posted twice; and a third run changing nothing. --reopen
 # --entry the same way, its reopen line naming the pull request's comment,
 # its held dependent printed, and --confirm writing its rework row.
-# Refusals with nothing opened: --entry on the GitHub store, with
-# --entry-file, an entry of another kind, no such entry, and an entry already
-# posted elsewhere.
+# Refusals with nothing opened: --entry with no session holding the record,
+# with --entry-file, an entry of another kind, no such entry, and an entry
+# already posted elsewhere. The record is the session's alone.
 #
 # Usage: bash skills/coordinate/scripts/roadmap-status-entry_test.sh
 set -uo pipefail
@@ -105,20 +105,21 @@ MV=$(cat "$T/mv.md")
 printf '%s\n' "$MV" | awk '!d && /^\*\*Status:\*\* In progress$/ { print "**Status:** Done"; d = 1; next } { print }' > "$T/mvd.md"
 MVD=$(cat "$T/mvd.md")
 ROADMAP=docs/roadmaps/ROADMAP-plugin-system.md
-RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7)
+# An ordinary issue, no record: the pull requests a test opens number from 8.
+issue7() { db '.issues += [{repo: "acme/widgets", number: 7, title: "the plugin tracker", body: "", state: "open", author: "alice", editor: null}]'; }
+RM=(--scope roadmap --name plugin-system --repo "$REPO")
 W=("${RM[@]}" --skip-session-checks)
 SV=coordinate-roadmap-plugin-system-20260926T170000Z
-SEN=(env RS_SOURCE=session RS_SESSION="$SV")
+SEN=(env RS_SESSION="$SV")
 TODAY=$(date -u +%Y-%m-%d)
 SRC="Source: $ROADMAP at $SHA_MAIN"
 
-# sv_seed [main-text] [holding-json]: the record on the session store, MV1
+# sv_seed [main-text] [holding-json]: the record in the session, MV1
 # held by plugin-list (or the holding given), and main reading MAIN-TEXT.
 sv_seed() {
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-plugin-system", body: $b, state: "open", author: "alice", editor: null}]
-        | .files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' \
-        --arg b "$(render "$(record_json roadmap plugin-system)" issue 2026-09-26T08:00:00Z)" --arg r "${1:-$MV}"
+    issue7
+    db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "${1:-$MV}"
     rm -rf "$KOTO_STORE/context/$SV"
     record_json roadmap plugin-system | jq -c --argjson h "${2:-$(holding plugin-list '{"unit": "MV1: the plugin list", "pull_request": ""}')}" \
         '.holdings = [$h] | .written = "2026-09-26T08:00:00Z"' > "$T/sv.json"
@@ -176,7 +177,7 @@ eq "  ... setting Done, dropping Needs, adding to Delivered, and a Progress line
     "$(printf '%s\n' '21d20' '< **Needs:** `needs-design` -- the list layout' '23,24c22,23' '< **Status:** In progress' '< **Delivered:** acme/widgets#3' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#3, acme/widgets#12' '52a52' "> - $TODAY: MV1 -- verified, checked by coordinate-plugins ($URL1, $H1)")" "$(cat "$T/d")"
 eq "  ... a milestone-done row naming the entry" "milestone-done|MV1 [#8](https://github.com/acme/widgets/pull/8)|the roadmap on main reads MV1 Done (entry $N1)" \
     "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.target)|\(.how_to_confirm)"')"
-grep -q 'issues/7/comments' "$GH_DB.calls" && bad "  ... nothing posted on the record issue" "$(calls)" || ok "  ... nothing posted on the record issue"
+grep -E 'issues/[0-9]+/comments' "$GH_DB.calls" | grep -qv 'issues/8/comments' && bad "  ... nothing posted on any other issue" "$(calls)" || ok "  ... nothing posted on any other issue"
 reset_calls
 OUT=$(rs --verdict MV1 --entry "$N1" 2>"$T/err"); rc=$?
 eq "run again it changes nothing" "0 https://github.com/acme/widgets/pull/8 1 0 0" "$rc $OUT $(jq '.prs | length' "$GH_DB") $(puts) $(grep -c 'comments --input' "$GH_DB.calls")"
@@ -275,7 +276,7 @@ sv_seed
 rs --unit MV1 >/dev/null 2>&1
 N6=$(write_entry milestone-verdict "$T/v1.txt")
 reset_calls
-bash "$RS" "${W[@]}" --verdict MV1 --entry "$N6" >/dev/null 2>"$T/err"; eq "--entry on the GitHub store is a usage error" 64 $?
+env -u RS_SESSION bash "$RS" "${W[@]}" --verdict MV1 --entry "$N6" >/dev/null 2>"$T/err"; eq "--entry with no session holding the record is a usage error" 64 $?
 rs --verdict MV1 --entry "$N6" --entry-file "$T/v1.txt" >/dev/null 2>&1; eq "--entry with --entry-file is a usage error" 64 $?
 rs --verdict MV1 --entry 0 >/dev/null 2>&1; eq "--entry 0 is a usage error" 64 $?
 fentry "$T/f9.txt" MV1 1 "nothing"

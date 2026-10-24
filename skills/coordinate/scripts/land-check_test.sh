@@ -21,8 +21,8 @@
 # posture's narrowing both ways (a start deny isn't widened by a permit now,
 # a start permit is narrowed by a deny now); an unread posture that becomes
 # permit only when posture_ask's latest evidence reads merge: permitted and a
-# Reversals row from the human about the posture, dated at or after it, is on
-# GitHub (Reversals prose alone never widens it); a missing,
+# Reversals row from the human about the posture, dated at or after it, is in
+# the record (Reversals prose alone never widens it); a missing,
 # unverified or wrongly sealed verify capture (exit 2); a failed posture
 # re-read; the repository found from the record's Holdings row. The
 # milestone's Evidence for goal fit: on a roadmap/v2 or roadmap/v3 roadmap
@@ -32,7 +32,8 @@
 # numbered clauses (under permit and deny alike); a v1 roadmap and a pull
 # request no holding names add nothing; a failed roadmap or default-branch
 # read and a unit with no milestone leave the token as it was and say why in
-# milestone_error.
+# milestone_error. The record, its Reversals, holds and pauses, is read from
+# the run's session, never from GitHub.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-check_test.sh
@@ -106,13 +107,13 @@ answer() { # answer <merge> [timestamp]: posture_ask's evidence
 row() { printf '%s' "$HUMAN" | jq -c "$1"; }
 scenario "$UNREAD" "$UNREAD"; answer permitted
 bt_record_body "[$HUMAN]"
-eq "a permitted answer with the human's row on GitHub makes an unread merge permit" "permit 12 $H" "$(token)"
-grep -q 'issues/7' "$GH_BOARD_DIR/calls" && ok "the row is read from the live record" || bad "the row is read from the live record" "$(cat "$GH_BOARD_DIR/calls")"
+eq "a permitted answer with the human's row in the record makes an unread merge permit" "permit 12 $H" "$(token)"
+grep -q 'issues/' "$GH_BOARD_DIR/calls" && bad "the row is read from the session, never GitHub" "$(cat "$GH_BOARD_DIR/calls")" || ok "the row is read from the session, never GitHub"
 scenario "$UNREAD" "$UNREAD"; answer permitted
 bt_record_body "[$(row '.date = "2026-09-26T12:20Z"')]"
 eq "a row dated in the answer's minute counts" "permit 12 $H" "$(token)"
 scenario "$UNREAD" "$UNREAD"; answer permitted
-eq "a permitted answer without the row on GitHub is confirm" "confirm 12 $H" "$(token)"
+eq "a permitted answer without the row in the record is confirm" "confirm 12 $H" "$(token)"
 scenario "$UNREAD" "$UNREAD"; answer permitted
 bt_record_body "[$(row '.date = "2026-09-26T12:19Z"')]"
 eq "a row dated before the answer doesn't count" "confirm 12 $H" "$(token)"
@@ -145,8 +146,13 @@ bt_record_body "[$HUMAN]"
 eq "the answer counts only when the start read was unread" "confirm 12 $H" "$(token)"
 scenario "$UNREAD" "$UNREAD"; answer permitted
 bt_record_body "[$HUMAN]"
-for k in 2 3; do echo 1 > "$GH_BOARD_DIR/issue-7.rc.$k"; done   # the posture's read and its retry; the first read is the holds read
+# The holds read comes first and goes through; the posture's read of the
+# Reversals row, after it, fails.
+echo 0 > "$KOTO_BOARD_DIR/get-count"; echo 1000 > "$KOTO_BOARD_DIR/get-fail-after"
+( PROG=t; HERE=$PS; . "$PS/record-common.sh"; rs_record_api "$T/one" "$S" > /dev/null 2>&1 )
+cp "$KOTO_BOARD_DIR/get-count" "$KOTO_BOARD_DIR/get-fail-after"; echo 0 > "$KOTO_BOARD_DIR/get-count"
 eq "a failed record read is confirm" "confirm 12 $H" "$(token)"
+rm -f "$KOTO_BOARD_DIR/get-fail-after" "$KOTO_BOARD_DIR/get-count"
 
 echo "== the verify capture =="
 N=$((N + 1)); S="coordinate-demo-20260926T10010${N}Z"
@@ -369,8 +375,8 @@ bt_record_body '[]' "[$(hold other acme/widgets#13 lifted), $(hold elsewhere acm
 eq "holds on another pull request, or the same number elsewhere, don't apply" "permit 12 $H" "$(token)"
 scenario "$PERMIT" "$PERMIT"
 bt_record_body '[]'
-echo 1 > "$GH_BOARD_DIR/issue-7.rc"
-bash "$LC" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a record that can't be read for its holds: exit 2" 2 $?
+rm -f "$KOTO_BOARD_DIR/sessions/$S/ctx/record__meta"
+bash "$LC" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a session that holds no record can't be read for its holds: exit 2" 2 $?
 
 echo "== reads and repository =="
 scenario "$PERMIT" "$PERMIT"
@@ -387,26 +393,19 @@ bash "$LC" --session "$S" --no-seal >/dev/null 2>&1; eq "two holdings linking #1
 bash "$LC" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$LC" >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 
-echo "== the session store =="
-# A record on the session store (docs/designs/DESIGN-coordinator-session-record.md,
-# PRD R18, R20): the hold and the pause are read from the run's session keys,
-# with the GitHub body in the moved shape.
-export BT_FIND_TOKEN="found 7 session"
+echo "== the record is the session's =="
+# The hold and the pause are read from the run's session keys; GitHub serves
+# no record.
 scenario "$PERMIT" "$PERMIT"
 bt_record_paused "[$(bt_pause s1 pause "Feature 2" lifted)]" "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
-bt_session_record "$S"
 prstate 346 OPEN
-eq "a pause on the session store holds the merge" "paused 12 $H" "$(token)"
+: > "$GH_BOARD_DIR/calls"
+eq "a pause in the session holds the merge" "paused 12 $H" "$(token)"
+grep -q 'issues/' "$GH_BOARD_DIR/calls" && bad "  ... with no record read on GitHub" "$(cat "$GH_BOARD_DIR/calls")" || ok "  ... with no record read on GitHub"
 scenario "$PERMIT" "$PERMIT"
 bt_record_paused '[]' "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
-bt_session_record "$S"
 prstate 346 OPEN
-eq "a hold on the session store holds it too" "held 12 $H" "$(token)"
-scenario "$PERMIT" "$PERMIT"
-bt_record_paused '[]'
-bt_session_record "$S"
-eq "  ... and with neither, it is permit" "permit 12 $H" "$(token)"
-unset BT_FIND_TOKEN
+eq "a hold in the session holds it too" "held 12 $H" "$(token)"
 
 echo "== pauses =="
 paused_record() { bt_record_paused "$@"; }
@@ -438,7 +437,7 @@ eq "a pause whose minute has passed: permit" "permit 12 $H" "$(token)"
 
 
 echo "== the milestone's Evidence for goal fit =="
-# milestone_record <unit>: record #7 with pull request #12's holding on <unit>.
+# milestone_record <unit>: the run's record with pull request #12's holding on <unit>.
 milestone_record() {
     jq -nc --arg u "$1" '{scope: {kind: "roadmap", name: "demo"},
         holdings: [{unit: $u, entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
@@ -447,7 +446,7 @@ milestone_record() {
             pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
         deferrals: [], side_effects: [], reversals: [], holds: []}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
-    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+    bt_record_here
 }
 # main_roadmap <file>: the host's default branch, main, with <file> as the
 # run's roadmap on it.

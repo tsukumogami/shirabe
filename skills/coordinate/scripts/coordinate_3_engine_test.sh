@@ -23,8 +23,9 @@
 #      report_link, where holding-link.sh writes the pull request and its
 #      headRefName, and on to verify_board reading that pull request with no
 #      hand write, including a /work-on leg whose done result map reads the
-#      pull request from context, which never reaches rebrief; a restart's
-#      reconcile then reports it open; `done` for a
+#      pull request from context, which never reaches rebrief; once that run
+#      is cancelled, the next start carries its record into a new run whose
+#      reconcile reports the pull request open; `done` for a
 #      report naming none goes back to wait, never to verify, and the next
 #      report naming one gets through; blocked and needs_fix still route with
 #      no pull request, and a leg-bound worker whose result names none takes
@@ -45,15 +46,19 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 echo "== 16. a report's pull request reaches an empty holding; done with none doesn't stick =="
 LINKED='{"branch":"feat/w-head","pull_request":"[#12](https://github.com/acme/widgets/pull/12)"}'
 # The message-path runs below start from this one, saved at wait.
-if empty_run linkmsg 125; then
+if empty_run linkmsg; then
     snap_save empty-wait
     eq "16 message: a report naming its pull request goes to report_link" report_link \
         "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is ready","pull_request":"https://github.com/acme/widgets/pull/12"}')"
-    link_through message 125
+    link_through message
     # A restart reads the pull request off the holding: reconcile reports its
-    # state, not "no pull request".
+    # state, not "no pull request". A live run would be resumed where it
+    # stands, so this one is cancelled first: the next start carries its
+    # record into a new run, whose find and reconcile read it again.
+    OLD=$S
+    (cd "$WD" && koto cancel "$S" > /dev/null 2>&1)
     sleep 1
-    if open_run linkmsg && [ "$(at)" = reconcile ]; then
+    if open_run linkmsg && [ "$S" != "$OLD" ] && grep -qx "carried=$OLD" <<< "$OPEN_OUT" && [ "$(at)" = reconcile ]; then
         koto context get "$S" reconcile/report.md > "$T/rec.md" 2>/dev/null
         grep -q '| `feat-1` | \[#12\](https://github.com/acme/widgets/pull/12) | executing; open (measured)' "$T/rec.md" && ok "16 message: a restart's reconcile reports the pull request open" \
             || bad "16 message: a restart's reconcile reports the pull request open" "$(cat "$T/rec.md")"
@@ -98,12 +103,12 @@ Done.
 EOF
 LREQ=$(cd "$T/work" && koto request create --role deliver --template deliver.md --inputs '{}' \
     --requested-by coord --coordinator-of-record coordinate-linkleg | jq -r .request_id)
-if [ -n "$LREQ" ] && empty_run linkleg 126 "leg $LREQ:deliver"; then
+if [ -n "$LREQ" ] && empty_run linkleg "leg $LREQ:deliver"; then
     (cd "$T" && koto init deliver-feat-1 --template "$T/tpl/deliver.md" --koto-leg "$LREQ:deliver" > /dev/null 2> "$T/child.err" \
         && koto next deliver-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
         || bad "16 leg: the stand-in worker promotes its result" "$(cat "$T/child.err")"
     eq "16 leg: a leg result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
-    link_through leg 126
+    link_through leg
 else
     bad "16 leg: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -144,12 +149,12 @@ Done.
 EOF
 WREQ=$(cd "$T/work" && koto request create --role work-on --template work-on.md --inputs '{}' \
     --requested-by coord --coordinator-of-record coordinate-linkworkon | jq -r .request_id)
-if [ -n "$WREQ" ] && empty_run linkworkon 132 "leg $WREQ:work-on"; then
+if [ -n "$WREQ" ] && empty_run linkworkon "leg $WREQ:work-on"; then
     (cd "$T" && koto init work-on-feat-1 --template "$T/tpl/work-on.md" --koto-leg "$WREQ:work-on" > /dev/null 2> "$T/child.err" \
         && koto next work-on-feat-1 --no-cleanup --with-data '{"pr_status":"created","pr_url":"https://github.com/acme/widgets/pull/12"}' > /dev/null 2>&1) \
         || bad "16 work-on leg: the stand-in worker promotes its result" "$(cat "$T/child.err")"
     eq "16 work-on leg: a done result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
-    link_through "work-on leg" 132
+    link_through "work-on leg"
     eq "16 work-on leg: rebrief is never entered" 0 "$(entered rebrief)"
 else
     bad "16 work-on leg: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -165,7 +170,7 @@ if snap_load empty-wait; then
     eq "16 none: verify_board is never entered" 0 "$(entered verify_board)"
     eq "16 none: the worker's next report, naming it, reaches report_link" report_link \
         "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is up","pull_request":"acme/widgets#12"}')"
-    link_through none 125
+    link_through none
 else
     bad "16 none: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -175,7 +180,7 @@ fi
 sed -e 's/^name: deliver$/name: deliver-nopr/' -e '/^      pr: /d' "$T/tpl/deliver.md" > "$T/tpl/deliver-nopr.md"
 NREQ=$(cd "$T/work" && koto request create --role deliver --template deliver-nopr.md --inputs '{}' \
     --requested-by coord --coordinator-of-record coordinate-linklegnone | jq -r .request_id)
-if [ -n "$NREQ" ] && empty_run linklegnone 131 "leg $NREQ:deliver"; then
+if [ -n "$NREQ" ] && empty_run linklegnone "leg $NREQ:deliver"; then
     (cd "$T" && koto init deliver-nopr-feat-1 --template "$T/tpl/deliver-nopr.md" --koto-leg "$NREQ:deliver" > /dev/null 2> "$T/child.err" \
         && koto next deliver-nopr-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
         || bad "16 leg, no pr: the stand-in worker promotes its result" "$(cat "$T/child.err")"
@@ -211,7 +216,7 @@ echo "== 12. a restart takes over every entry before its first dispatch =="
 E12=$(jq -nc --argjson a "$(dent 1 proposed)" --argjson b "$(dent 2 coordinator-verdict)" \
     --argjson c "$(dent 3 escalated "$SENT")" --argjson d "$(dent 4 coordinator-verdict '{"verdict": "hold", "reason": "waits on the benchmark"}')" \
     --argjson e "$(dent 5 escalated "$UNSENT")" '[$a, $b, $c, $d, $e]')
-to_reconciled takeover "$(with_decisions takeover "$E12")" 120
+to_reconciled takeover "$(with_decisions takeover "$E12")"
 if [ "$REACHED" = escalate_send ]; then
     ok "12: the unsent escalation is rendered first, before any dispatch"
     eq "12: the render names entry 5" "message escalation 5 1" "$(bash "$PS/coord-log.sh" capture --session "$S" --name ESCALATE_MESSAGE | cut -d' ' -f1-4)"
@@ -228,25 +233,25 @@ if [ "$REACHED" = escalate_send ]; then
     eq "12: the escalation was rendered once" 1 "$(entered escalate)"
     eq "12: nothing was dispatched first" 0 "$(entered dispatch_check)"
     eq "12: the sent escalation and the held entry are left alone" "escalated 2026-09-26T07:30Z|coordinator-verdict hold" \
-        "$(entry_of 120 3 | jq -r '"\(.state) \(.asked)"')|$(entry_of 120 4 | jq -r '"\(.state) \(.verdict)"')"
+        "$(entry_of 3 | jq -r '"\(.state) \(.asked)"')|$(entry_of 4 | jq -r '"\(.state) \(.verdict)"')"
 else
     bad "12: reach escalate_send" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo "== 13. an answer that reverses a supplied decision is a reversal =="
 E13=$(jq -nc --argjson a "$(dent 1 escalated "$SENT")" '[$a | .source = "dispatcher [20260925T080000Z raise 1]"]')
-to_reconciled reversal "$(with_decisions reversal "$E13")" 130
+to_reconciled reversal "$(with_decisions reversal "$E13")"
 if [ "$REACHED" = pick ] \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
     eq "13: the answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
     write_as_agent record-decision.sh --answer --outcome ship
     eq "13: --answer (agent-run) settles the entry" "settled|ship; reason: the loader is ready|a person" \
-        "$(entry_of 130 1 | jq -r '"\(.state)|\(.outcome)|\(.decided_by)"')"
+        "$(entry_of 1 | jq -r '"\(.state)|\(.outcome)|\(.decided_by)"')"
     eq "13: a reversal goes to decision_apply" decision_apply "$(at --with-data '{"answered":"reversal"}')"
     # The evidence comes first: record waits until the record is written after it.
     eq "13: the reversal holds at record until the record is written" record "$(at --with-data '{"change":"reversal"}')"
     sleep 1
-    live_body 130 | jq -c '.reversals += [{date: $d, reversed: "wait for the registry", now: "ship the loader first", reason: "the answer to decision 1", from: "a person"}]' \
+    live_body | jq -c '.reversals += [{date: $d, reversed: "wait for the registry", now: "ship the loader first", reason: "the answer to decision 1", from: "a person"}]' \
         --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" > "$T/rev.json"
     # Edited from the live body, so it carries the live written time.
     jq 'del(.written)' "$T/rev.json" > "$T/rev.next.json"
@@ -258,14 +263,14 @@ if [ "$REACHED" = pick ] \
     eq "13: record confirms the Reversals row, and the reply to the dispatcher is rendered" decision_reply_send "$(at)"
     write_as_agent record-decision.sh --sent
     eq "13: with the reply sent the run goes on" pick "$(at --with-data '{"sent":"sent"}')"
-    eq "13: the Reversals row is on the record" 1 "$(live_body 130 | jq '.reversals | length')"
+    eq "13: the Reversals row is on the record" 1 "$(live_body | jq '.reversals | length')"
 else
     bad "13: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo "== 14. a close with an escalation still out reports it and waits =="
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-closing.md"] = $t' --arg t "$(roadmap_text Active | sed 's/\*\*Status:\*\* Planned/**Status:** Done/')"
-seed_record closing 140 "$(with_decisions closing "$(jq -nc --argjson a "$(dent 1 escalated "$SENT")" '[$a]')")"
+seed_record closing "$(with_decisions closing "$(jq -nc --argjson a "$(dent 1 escalated "$SENT")" '[$a]')")"
 if open_run closing && [ "$(at)" = reconcile ]; then
     eq "14: every feature done and an escalation sent reaches roadmap_blocked" roadmap_blocked "$(at --with-data '{"reconciled":"reported"}')"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name ROADMAP_CLOSE)" in
@@ -278,12 +283,11 @@ fi
 
 echo "== 15. escalate_send's two routes to a person =="
 for route in tool message; do
-    n=$([ "$route" = tool ] && echo 150 || echo 151)
-    to_reconciled "route-$route" "$(with_decisions "route-$route" "$(jq -nc --argjson a "$(dent 1 escalated "$UNSENT")" '[$a]')")" "$n"
+    to_reconciled "route-$route" "$(with_decisions "route-$route" "$(jq -nc --argjson a "$(dent 1 escalated "$UNSENT")" '[$a]')")"
     if [ "$REACHED" = escalate_send ]; then
         write_as_agent record-decision.sh --sent --route "$route"
-        case "$(entry_of "$n" 1 | jq -r .evidence)" in
-            *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(cat "$T/w.err") $(entry_of "$n" 1)" ;;
+        case "$(entry_of 1 | jq -r .evidence)" in
+            *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(cat "$T/w.err") $(entry_of 1)" ;;
         esac
         if [ "$route" = tool ]; then
             eq "15 tool: the answer comes back from escalate_send" decision_answer "$(at --with-data '{"sent":"answered","decision":"1","round":"1"}')"
@@ -294,7 +298,7 @@ for route in tool message; do
             eq "15 message: the answer comes back from wait" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
         fi
         write_as_agent record-decision.sh --answer --outcome wait
-        eq "15 $route: --answer settles the entry" "settled a person" "$(entry_of "$n" 1 | jq -r '"\(.state) \(.decided_by)"')"
+        eq "15 $route: --answer settles the entry" "settled a person" "$(entry_of 1 | jq -r '"\(.state) \(.decided_by)"')"
         eq "15 $route: recorded goes back through decision_next to pick" pick "$(at --with-data '{"answered":"recorded"}')"
         if [ "$route" = message ]; then
             # A later answer naming nothing isn't carried by the earlier visit's fields.

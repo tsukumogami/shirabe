@@ -133,27 +133,20 @@ costs() {
         | (capture("```json\n(?<j>[^\n]*)\n```") // empty) | .j | fromjson]'
 }
 
-# coordinator <session>: a live run on the session store for ROADMAP-x, its
-# record holding nothing (the unit is already off Holdings).
+# coordinator <session>: a live run for ROADMAP-x, its record in its session,
+# holding nothing (the unit is already off Holdings).
 coordinator() {
     rm -rf "$KOTO_STORE/context/$1" "$KOTO_STORE/sessions/$1"
-    found_session "$1" "$(roadmap_vars x)" "7 session"
+    found_session "$1" "$(roadmap_vars x)"
     record_json roadmap x | jq -c '.written = "2026-10-01T08:00:00Z"' >"$T/rec.json"
     session_keys "$1" "$T/rec.json"
 }
-# seed: GitHub's side (the record issue, no pull request), the coordinator $S
-# holding the leg key its dispatch wrote, and the unit's surviving state: its
-# transcripts under the Claude home, its koto sessions with their execution
-# directory in the instance, and its koto request, requested by $S.
-#
-# The record issue is the same GitHub-record fixture unit-cost_test.sh seeds,
-# and this file is on state-structure_test.sh's allow list for its title. When
-# the GitHub record is removed, this fixture goes with unit-cost_test.sh's and
-# the suite runs against the session store alone.
+# seed: GitHub's side (no pull request), the coordinator $S holding the leg key
+# its dispatch wrote, and the unit's surviving state: its transcripts under the
+# Claude home, its koto sessions with their execution directory in the
+# instance, and its koto request, requested by $S.
 seed() {
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-x", body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg b "$(render "$(record_json roadmap x)" issue 2026-10-01T08:00:00Z)"
     rm -rf "$KOTO_STORE/sessions"/coordinate-* "$KOTO_STORE/context"/coordinate-*
     coordinator "$S"
     printf '%s' '{"request":"r_dispatch_x","leg":"deliver","topic":"feat-x","state":"taken"}' | koto context add "$S" legs/r_dispatch_x/deliver

@@ -1,12 +1,20 @@
 # coordinate-engine-lib.sh -- the shared setup of the coordinate engine suites
-# (coordinate_1_engine_test.sh to coordinate_4_engine_test.sh): the harness, the
-# gh and date stand-ins, the working directories, and every helper the cases use.
+# (coordinate_1_engine_test.sh to coordinate_4_engine_test.sh, and the suites
+# that drive a whole run the same way): the harness, the gh and date
+# stand-ins, the working directories, and every helper the cases use.
 #
 # Sourced at a suite's top level, after `set -uo pipefail` and after it sets HERE
 # to its own directory (skills/coordinate/scripts). Exits 0 with SKIP when koto,
 # jq or git is missing, as each suite did on its own; that exit ends the suite
 # only because the source is not inside a function or subshell. Not shipped
 # behaviour.
+#
+# The record lives in the run's koto session, its only store. A case that
+# needs a run to find a record seeds it with seed_record, and open_run writes
+# it into the new session's keys before the run's first find
+# (testdata/engine-session.sh); nothing seeds a coordinator record on GitHub.
+# On a koto without the session store's features a start is refused, so the
+# lib checks that refusal once and ends the suite there.
 #
 # Each suite gets its own $T (the scratch tree, removed on exit), with HOME, the
 # gh DB and the koto store under it, so the suites can run side by side. It
@@ -31,6 +39,8 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+# session_seed, session_record and koto_store_ready.
+. "$HERE/testdata/engine-session.sh"
 # The board fixtures (bt_board, H, MOVED) for the land case.
 . "$HERE/testdata/board/helpers.sh"
 mkdir -p "$T/bin"
@@ -123,7 +133,8 @@ seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the 
 
 # stored <record-json>: the record with a complete stored set, so the
 # reconcile's handover gate passes: the run's arguments and cap, this
-# coordinator's address, and for every live holding a next step and its
+# coordinator's address, who it reports to (every run is on the session, so the
+# gate asks every run for it), and for every live holding a next step and its
 # worker told. The handover cases build theirs by hand.
 stored() {
     printf '%s' "$1" | jq -c '
@@ -131,33 +142,40 @@ stored() {
           | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)]) as $live
         | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
-                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"}]
+                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"},
+                                  {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"}]
                  + [$live[] | {key: "told", value: .worker, set_by: "coord-test", set: "2026-09-26T08:00Z"}])
         | .work = ((.work // []) + [$live[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}])
         | if (.work | length) == 0 then del(.work) else . end'
 }
 
-seed_record() { # seed_record <name> <number> [record-json]: an open record issue, its stored set complete
-    local j=${3-}
+# seed_record <name> [record-json]: the scope's record, its stored set
+# complete unless RAW_RECORD=1, for the next open_run of <name> to write into
+# its new session before the run's first find, as a session-store
+# coordinator's keys hold it.
+seed_record() {
+    local j=${2-}
     [ -n "$j" ] || j=$(record_json roadmap "$1")
     [ "${RAW_RECORD-}" = 1 ] || j=$(stored "$j")
-    db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
-        state: "open", author: "coord", editor: null}]' --arg n "$1" --argjson k "$2" --arg b "$(render "$j" issue)"
+    printf '%s' "$j" > "$T/seed-$1.json"
 }
 
-record_number() { # record_number <name>: the open record issues' numbers
-    jq -r --arg t "Coordinator record: ROADMAP-$1" '[.issues[] | select(.title == $t and .state == "open") | .number] | map(tostring) | join(" ")' "$GH_DB"
-}
-
-# open_run <name> [workdir]: a fresh session from coordinate-open.sh; sets S
-# and WD. Sessions are named to the second, so two opens of one scope wait.
-# These cases drive the GitHub record, so the run opens with --store github (a
-# new roadmap scope's default is the session store).
+# open_run <name> [workdir]: a start from coordinate-open.sh, with no store to
+# choose; sets S, WD and OPEN_OUT (the opener's output). A fresh start opens a
+# new session (named to the second, so two opens of one scope wait), into
+# which the record seed_record left for <name>, if any, is written; a start
+# while the scope's run is live and resumable resumes that run.
 open_run() {
     WD=${2:-$T/work}
-    printf '["docs/roadmaps/ROADMAP-%s.md", "--store", "github"]' "$1" > "$T/args.json"
-    S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
-    [ -n "$S" ]
+    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+    OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
+    [ -n "$S" ] || return 1
+    if [ -f "$T/seed-$1.json" ]; then
+        (cd "$WD" && session_seed "$S" "$(cat "$T/seed-$1.json")") \
+            || { echo "the record seeded for $1 wasn't written into $S" >> "$T/open.err"; return 1; }
+        rm -f "$T/seed-$1.json"
+    fi
 }
 
 tick() { # tick [koto next args...]: one advance of $S from $WD; stdout is koto's JSON
@@ -180,17 +198,16 @@ write_as_agent() { # write_as_agent <script> <args...>: a write script, run from
     (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err")
 }
 
-live_body() { # live_body <n>: the stand-in's record body, parsed
-    jq -r --argjson n "$1" '.issues[] | select(.number == $n) | .body' "$GH_DB" > "$T/live.md"
-    bash "$PS/record-parse.sh" --container issue "$T/live.md"
+live_body() { # live_body: the run's record as its session holds it, its written time included
+    (cd "$WD" && session_record "$S")
 }
 
-# to_pick <name> <record-json> [number]: seed the roadmap and one record,
-# open a run and drive it to pick. Returns non-zero if it doesn't get there.
-# With SAVE_RECONCILE set, the run is saved under that label at reconcile.
+# to_pick <name> <record-json>: seed the roadmap and the run's record, open a
+# run and drive it to pick. Returns non-zero if it doesn't get there. With
+# SAVE_RECONCILE set, the run is saved under that label at reconcile.
 to_pick() {
     seed_roadmap "$1"
-    seed_record "$1" "${3:-7}" "$2"
+    seed_record "$1" "$2"
     open_run "$1" || return 1
     [ "$(at)" = reconcile ] || return 1
     [ -z "${SAVE_RECONCILE-}" ] || snap_save "$SAVE_RECONCILE"
@@ -204,7 +221,7 @@ unit_row() { holding "$1" "$(jq -nc --arg u "${2:-Feature 1}" '{unit: $u, pull_r
 # confirmed launched.
 dispatched_row() { holding "$1" "$(jq -nc '{unit: "Feature 1", pull_request: "", branch: "", dispatch_status: "dispatched", return_path: "message"}')"; }
 
-# land_run <name> <number>: a run whose holding links acme/widgets#12, driven
+# land_run <name>: a run whose holding links acme/widgets#12, driven
 # wait -> report -> classify_report (done) -> verify, then on through
 # verify_board (the complete-board fixture) to verified_confirm.
 land_row() { # land_row [verified-head]; LAND_PHASE sets the Phase (executing), LAND_UNIT the unit (Feature 1)
@@ -218,7 +235,7 @@ land_run() {
         isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice",
         mergeStateStatus: "CLEAN"}]' --arg h "$H" --arg b "$(bt_body)"
     bt_board complete-board
-    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" "$2" || return 1
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || return 1
     [ "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR #12 is ready; CI is green."}')" = classify_report ] || return 1
     [ "$(at --with-data '{"classification":"done"}')" = verify ] || return 1
@@ -245,8 +262,8 @@ dispatch22() { # dispatch22 <brief-json>: dispatch-worker.sh at dispatch, as the
     rm -f "$T/work/.niwa/workspace.toml"
 }
 
-send_exec_to_dispatch() { # send_exec_to_dispatch <name> <number>: a run at dispatch on send_execution
-    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$SCOPING_ROW" '.holdings = [$h]')" "$2" || return 1
+send_exec_to_dispatch() { # send_exec_to_dispatch <name>: a run at dispatch on send_execution
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$SCOPING_ROW" '.holdings = [$h]')" || return 1
     [ "$(at --with-data '{"choice":"send_execution","unit":"feat-1"}')" = dispatch ]
 }
 
@@ -256,26 +273,26 @@ empty_row() {
     holding feat-1 "$(jq -nc --arg r "${1:-message}" '{unit: "Feature 1", branch: "", verified_head: "", pull_request: "", return_path: $r}')"
 }
 
-# empty_run <name> <number> [return path]: a run at wait whose one holding has
-# no pull request yet; acme/widgets#12 is open on feat/w-head, board complete.
+# empty_run <name> [return path]: a run at wait whose one holding has no pull
+# request yet; acme/widgets#12 is open on feat/w-head, board complete.
 empty_run() {
     db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
         isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
         mergeStateStatus: "CLEAN"}]' --arg h "$H"
     bt_board complete-board
-    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(empty_row "${3-}")" '.holdings = [$h]')" "$2" || return 1
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(empty_row "${2-}")" '.holdings = [$h]')" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ]
 }
 
-linked_row() { live_body "$1" | jq -c '.holdings[] | select(.worker == "feat-1") | {branch, pull_request}'; }
+linked_row() { live_body | jq -c '.holdings[] | select(.worker == "feat-1") | {branch, pull_request}'; }
 
-# link_through <label> <number>: at report_link, the agent runs holding-link.sh
+# link_through <label>: at report_link, the agent runs holding-link.sh
 # and submits written; the run reads the holding again and reaches
 # classify_report, then verify_board reads #12's board.
 link_through() {
     write_as_agent holding-link.sh
     eq "16 $1: holding-link.sh (agent-run) writes the pull request" 0 $?
-    eq "16 $1: Branch is the headRefName GitHub reports, Pull request the link" "$LINKED" "$(linked_row "$2")"
+    eq "16 $1: Branch is the headRefName GitHub reports, Pull request the link" "$LINKED" "$(linked_row)"
     eq "16 $1: written reads the holding again and reaches classify_report" classify_report "$(at --with-data '{"linked":"written"}')"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
         "holding 12 feat-1 "*) ok "16 $1: report_facts now reads the holding's own pull request" ;;
@@ -302,18 +319,18 @@ with_decisions() { # with_decisions <name> <entries-json>
     record_json roadmap "$1" | jq -c --argjson e "$2" '.decisions = {next: 20, entries: $e}'
 }
 
-# to_reconciled <name> <record-json> <number>: open a run and tick past
-# reconcile; sets S and REACHED, the state it lands on. Never called in $(...),
-# which would keep S from the caller.
+# to_reconciled <name> <record-json>: open a run and tick past reconcile; sets
+# S and REACHED, the state it lands on. Never called in $(...), which would
+# keep S from the caller.
 to_reconciled() {
     REACHED=
-    seed_roadmap "$1"; seed_record "$1" "$3" "$2"
+    seed_roadmap "$1"; seed_record "$1" "$2"
     open_run "$1" || return 1
     [ "$(at)" = reconcile ] || return 1
     REACHED=$(at --with-data '{"reconciled":"reported"}')
 }
 
-entry_of() { live_body "$1" | jq -c --arg d "$2" '.decisions.entries[] | select(.decision == $d)'; }
+entry_of() { live_body | jq -c --arg d "$1" '.decisions.entries[] | select(.decision == $d)'; } # entry_of <decision>
 
 brief() { # brief <topic> <unit> <entry point> <arg> <phase>: a brief input
     jq -nc --arg t "$1" --arg u "$2" --arg e "$3" --arg a "$4" --arg p "$5" '{topic: $t, repo: "acme/widgets", unit: $u, entry_point: $e,
@@ -356,7 +373,7 @@ pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
 # koto binary (its size and time, not its bytes), and a load under a different
 # one fails as a check of its own rather than loading.
 snap_build() {
-    { cat "$TPL" "$PS"/*.sh "$PS"/*.jq "$REPO_ROOT"/scripts/lib/*.sh "$HERE/testdata/gh" "$HERE/testdata/gh-board"
+    { cat "$TPL" "$PS"/*.sh "$PS"/*.jq "$PR"/skills/coordinate/legacy-import/*.sh "$REPO_ROOT"/scripts/lib/*.sh "$HERE/testdata/gh" "$HERE/testdata/gh-board"
       ls -lL "$(command -v koto)"; } | $SHA256
 }
 
@@ -380,4 +397,23 @@ snap_load() { # snap_load <label>: sets S and WD; a failed load is a FAIL
     S=$s WD=$w
 }
 
-work_rows() { live_body "$1" | jq -r '[(.work // [])[] | "\(.item):\(.kind):\(.who)"] | join(" ")'; }
+work_rows() { live_body | jq -r '[(.work // [])[] | "\(.item):\(.kind):\(.who)"] | join(" ")'; }
+
+# ---- a koto without the session store's features --------------------------------
+# The session is the only store, and a start on a koto without `context list
+# --prefix` and `session import` is refused before it opens anything. Every
+# case needs a run, so on such a koto the suite proves that refusal and ends.
+if ! koto_store_ready; then
+    seed_roadmap nostore
+    if open_run nostore; then
+        bad "a koto without the session store's features refuses the start" "it opened $S"
+    else
+        case "$OPEN_OUT $(cat "$T/open.err")" in
+            *store-unsupported*) ok "a koto without the session store's features refuses the start as store-unsupported" ;;
+            *) bad "a koto without the session store's features refuses the start as store-unsupported" "$OPEN_OUT $(cat "$T/open.err")" ;;
+        esac
+    fi
+    echo "koto lacks the session store's features; the cases need a newer koto"
+    echo; echo "${0##*/}: $PASS passed, $FAIL failed"
+    [ "$FAIL" -eq 0 ]; exit $?
+fi

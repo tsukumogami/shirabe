@@ -13,7 +13,7 @@
 #       Prints the unit's `unit-cost/1` object, compact, on stdout. DIR is the
 #       teardown archive (its name is the capture key, `<UTC date>-<T>-<job
 #       id>`); F holds the sealed verdict's `owner/repo#n <merge sha>` lines;
-#       J holds the record's facts, {scope, name, repo, ref, unit}, or
+#       J holds the record's facts, {scope, name, repo, unit}, or
 #       {unit_reason} when they couldn't be read. Without J the record is
 #       null and the milestone `not recoverable`.
 #   unit-cost.sh capture --session S --archive DIR --topic T --prs-file F
@@ -33,9 +33,8 @@
 #       entry per key and dispatch id, so a duplicate is harmless and a
 #       skipped post loses the unit. An object over 50,000 bytes is posted
 #       without the per-session `states` maps (`sessions.states`, `entry
-#       size`); unit-cost.json keeps them. A run on the GitHub store posts it
-#       on its record issue. A run on the session store (coord-log.sh
-#       run-store) keeps it in the coordinator's session (`--on none`),
+#       size`); unit-cost.json keeps them. It keeps the entry in the
+#       coordinator's session (`--on none`),
 #       unless the repository of the item it is about opts in
 #       (scripts/pr-workflow-content.sh answers include, uc_pr_content
 #       below); then it posts with record-append.sh --on on that item: the
@@ -165,9 +164,9 @@
 # budget; once it is spent, what is not yet taken is `time limit` and the
 # capture goes straight to writing and posting what it has.
 #
-# Exit codes: 0 printed (compute), posted, kept in the session (every
-# session-store unit whose repository doesn't opt in, and one with no pull
-# request or issue) or already posted (capture), or
+# Exit codes: 0 printed (compute), posted, kept in the session (every unit
+# whose repository doesn't opt in, and one with no pull request or issue)
+# or already posted (capture), or
 # admitted (gh-check); 1 not posted, or refused (gh-check); 64 usage; 65 the
 # archive's name is not a capture key for the topic.
 #
@@ -1083,10 +1082,9 @@ uc_attribution() {
         | (if ($j.scope == "roadmap" or $j.scope == "discipline")
               and ($j.name | isstr and test("^[A-Za-z0-9._-]{1,100}$"))
               and ($j.repo | isstr and test($re_repo) and (contains("..") | not))
-              and (($j.ref | tostring | test("^[1-9][0-9]{0,9}$"))
-                   # a discipline rotation on the session store has no number
-                   or ($j.scope == "discipline" and $j.ref == ""))
-           then {scope: $j.scope, name: $j.name, repo: $j.repo, ref: ($j.ref | tostring)}
+           # ref stays in the object shape, empty: the record is the session
+           # of the run and has no issue or pull request number.
+           then {scope: $j.scope, name: $j.name, repo: $j.repo, ref: ""}
            else null end) as $rec
         | (if $rec == null and ($j | has("scope")) then "invalid input" else $why end) as $recwhy
         | ($j.unit | if isstr then (split(": ") | .[0]) else null end) as $tag
@@ -1446,33 +1444,28 @@ uc_pr_content() {
     [ "$out" = include ] && echo include || echo omit
 }
 
-# Where the entry goes. A GitHub-store run posts it on its record, as it
-# always has. A session-store run keeps it in the coordinator's session
-# (`--on none`): the unit's own pull requests and issues carry nothing about
-# the tools unless the item's repository opts in (uc_pr_content). Then it
-# posts on the item it is about, as DESIGN-coordinator-record-teardown.md's
-# Decision 2 set out: the holding's pull request (its Pull request cell, else
-# the first of the sealed verdict's), else the Unit's issue (`#n` on the host,
-# or `owner/repo#n`), else nowhere. The store is read locally, so it takes
-# nothing from the reads' budget; the opt-in's read of CLAUDE.md does.
-ON=""
-uc_run "$FETCH_SECS" "$WD/store" bash "$DC_COORD_LOG" run-store --session "$SESSION"
-if [ "$(head -n 1 "$WD/store" 2>/dev/null)" = session ]; then
+# Where the entry goes. It stays in the coordinator's session (`--on none`):
+# the unit's own pull requests and issues carry nothing about the tools unless
+# the item's repository opts in (uc_pr_content). Then it posts on the item it
+# is about (docs/designs/current/DESIGN-coordinator-record-teardown.md,
+# Decision 2): the holding's pull request (its Pull request cell, else the
+# first of the sealed verdict's), else the Unit's issue (`#n` on the host, or
+# `owner/repo#n`), else nowhere. The opt-in's read of CLAUDE.md comes out of
+# the reads' budget.
+ON=none
+RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
+[ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
+[[ $ON =~ $RE_ITEM ]] || ON=$(awk -v re="$RE_ITEM" '$1 ~ re { print $1; exit }' "$PRS_FILE")
+if ! [[ $ON =~ $RE_ITEM ]]; then
     ON=none
-    RE_ITEM='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
-    [ "$ROW_OK" = 1 ] && ON=$(uc_jq -r -L "$HERE" 'include "record-codec"; .pull_request // "" | pr_link | "\(.repo)#\(.number)"' "$WD/row.json")
-    [[ $ON =~ $RE_ITEM ]] || ON=$(awk -v re="$RE_ITEM" '$1 ~ re { print $1; exit }' "$PRS_FILE")
-    if ! [[ $ON =~ $RE_ITEM ]]; then
-        ON=none
-        U=$(uc_jq -r '.unit // "" | if type == "string" then split(": ")[0] else "" end' "$WD/unit.json")
-        H=$(uc_jq -r '.repo // ""' "$WD/unit.json")
-        if [[ $U =~ ^#[1-9][0-9]*$ ]] && repo_ok "$H"; then ON="$H$U"
-        elif [[ $U =~ $RE_ITEM ]]; then ON=$U
-        fi
+    U=$(uc_jq -r '.unit // "" | if type == "string" then split(": ")[0] else "" end' "$WD/unit.json")
+    H=$(uc_jq -r '.repo // ""' "$WD/unit.json")
+    if [[ $U =~ ^#[1-9][0-9]*$ ]] && repo_ok "$H"; then ON="$H$U"
+    elif [[ $U =~ $RE_ITEM ]]; then ON=$U
     fi
-    if [ "$ON" != none ] && [ "$(uc_pr_content "${ON%#*}")" != include ]; then
-        ON=none
-    fi
+fi
+if [ "$ON" != none ] && [ "$(uc_pr_content "${ON%#*}")" != include ]; then
+    ON=none
 fi
 
 uc_compute || { say "the entry could not be computed"; exit 1; }
@@ -1529,12 +1522,11 @@ fi
 
 uc_posted || { say "the entry text could not be written"; exit 1; }
 uc_text >"$WD/text" || { say "the entry text could not be written"; exit 1; }
-if [ -n "$ON" ]; then set -- --on "$ON"; else set --; fi
+set -- --on "$ON"
 uc_run "$POST_SECS" "$WD/posted" bash "$HERE/record-append.sh" --session "$SESSION" --kind cost --text-file "$WD/text" "$@"
 RC=$?
 if [ "$RC" = 0 ]; then
     case "$ON" in
-        "") say "posted the cost entry" ;;
         none) say "kept the cost entry in the session: it is posted on no pull request or issue unless the repository opts in" ;;
         *) say "posted the cost entry on $ON" ;;
     esac

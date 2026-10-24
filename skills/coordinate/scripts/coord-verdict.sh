@@ -16,10 +16,8 @@
 # and 4 have no arm, so the state stays gate-blocked; stderr says which.
 #
 # The table is pinned by coord-verdict-table_test.sh against every template
-# arm. Two codes have no arm here on purpose: `handed-over` (124) is in the
-# table so the word has a code, but closeout-read.sh doesn't print it today;
-# `reconciled` (140) is routed by the reconcile feature's reconcile_pass state
-# (shirabe#406).
+# arm. One code has no arm here on purpose: `reconciled` (140) is routed by the
+# reconcile feature's reconcile_pass state (shirabe#406).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -39,23 +37,20 @@ rc=$?
 [ $rc -eq 0 ] || exit $(( rc == 2 ? 2 : 1 ))
 
 WORD=${CAPTURE%% *}
-# record_find's `predecessor` names a rotation still on GitHub by its pull
-# request number (`predecessor <n>`, the GitHub close-out) or a rotation on the
-# session store (`predecessor <session>` or `predecessor handoff:<sha>`, the
-# carry); the second shape routes as its own word.
+# record_find's `predecessor` names the earlier rotation's session
+# (`predecessor coordinate-<slug>-<stamp>`), which predecessor_carry carries;
+# it routes as its own word. Any other predecessor (a pull request number, or
+# the retired handoff file's `handoff:<sha>`) is no verdict.
 if [ "$WORD" = predecessor ]; then
     REST=${CAPTURE#predecessor }; REST=${REST%% *}
-    case "$REST" in ''|*[!0-9]*) WORD=predecessor-session ;; esac
+    if [[ $REST =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]]; then WORD=predecessor-session; else WORD="predecessor $REST"; fi
 fi
 case "$WORD" in
     # record_find
     found) exit 10 ;; none) exit 11 ;; stale-branch) exit 12 ;; unopened) exit 13 ;;
-    foreign) exit 14 ;; ambiguous) exit 15 ;; malformed) exit 16 ;; unauthorized) exit 17 ;;
-    predecessor) exit 18 ;; move) exit 19 ;;
-    # record_find (a discipline rotation on the session store, with unreadable 172)
+    foreign) exit 14 ;; ambiguous) exit 15 ;; malformed) exit 16 ;;
+    # record_find (a discipline rotation, with unreadable 172)
     first) exit 205 ;; predecessor-session) exit 206 ;;
-    # rotation_close (a rotation on the session store)
-    session-rotation) exit 208 ;;
     # start, start_posture
     active) exit 20 ;; discipline) exit 21 ;; not-active) exit 22 ;;
     readable) exit 25 ;; unread) exit 26 ;;
@@ -76,7 +71,7 @@ case "$WORD" in
     holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;; link) exit 63 ;; progress) exit 64 ;;
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
-    board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
+    board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; check-unreadable) exit 76 ;;
     no-pr) exit 77 ;; not-run) exit 78 ;; unevidenced) exit 79 ;;
     # land
     permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; unready) exit 83 ;; dirty) exit 84 ;; held) exit 85 ;;
@@ -84,11 +79,6 @@ case "$WORD" in
     merged) exit 90 ;; unconfirmed) exit 91 ;; not-merged) exit 92 ;;
     # quiet_check
     quiet-none) exit 100 ;; first-silence) exit 101 ;; second-silence) exit 102 ;;
-    # predecessor_handoff
-    rendered) exit 110 ;; unparseable) exit 111 ;;
-    # rotation_close, predecessor_close
-    handoff-missing) exit 120 ;; title-stale) exit 121 ;; land) exit 122 ;;
-    handed-over) exit 124 ;; closed-unmerged) exit 125 ;;
     # roadmap_close
     ready) exit 130 ;; features-open) exit 131 ;; holdings) exit 132 ;;
     side-effects) exit 133 ;; deferrals) exit 134 ;; closed) exit 135 ;; decisions) exit 136 ;;

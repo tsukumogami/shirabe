@@ -23,9 +23,10 @@
 # had been at the hub, doesn't accept an answer from before this ask.
 # teardown, which writes after its evidence, still compares with the
 # evidence's time. Also: an older
-# Written: time waits even when the rows match; a missing or non-canonical
-# body is a conflict; a directed transition is `directed`; a capture with a
-# broken seal is a conflict; the sealed token and its context detail.
+# Written: time waits even when the rows match; a record that isn't canonical
+# is a conflict, and a session whose record is gone a failed read; a directed transition is `directed`; a capture with a
+# broken seal is a conflict; the sealed token and its context detail. The
+# record is the run's session's, its Written: time record/meta's.
 #
 # Usage: bash skills/coordinate/scripts/record-confirm_test.sh
 set -uo pipefail
@@ -36,28 +37,30 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 C="$HERE/record-confirm.sh"
 CL="$HERE/coord-log.sh"
 
-TITLE="Coordinator record: ROADMAP-plugin-system"
 EVT=2026-09-26T10:00:00.000Z
 AFTER=2026-09-26T10:05:00Z
 BEFORE=2026-09-26T09:55:00Z
 N=0
 
-# body <record-json> [written]: make issue #7's body this record.
+# body <record-json> [written]: make this the run's record, written at that
+# time, in the current session (S) and each one session() opens after.
 body() {
+    BODY_REC=$1 BODY_W=${2:-$AFTER}
+    [ -z "${S:-}" ] || seed_session "$S" "$BODY_REC" "$BODY_W"
     db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]
-        | .prs += [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
+    db '.prs += [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
                     baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null},
                    {repo: "acme/gadgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
                     baseRefName: "main", headRefName: "feat/y", headRefOid: $o, author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$1" issue "${2:-$AFTER}")" --arg h "$SHA_HEAD" --arg o "$SHA_OTHER"
+        --arg h "$SHA_HEAD" --arg o "$SHA_OTHER"
 }
 rec() { record_json roadmap plugin-system; }
-# session: a fresh run with a found record #7; prints its name.
+# session: a fresh run with a found record, the last one body() made.
 session() {
     N=$((N + 1))
     S=coordinate-plugin-system-20260926T0800$(printf '%02d' "$N")Z
-    found_session "$S" "$(roadmap_vars plugin-system)" 7
+    found_session "$S" "$(roadmap_vars plugin-system)"
+    [ -z "${BODY_REC:-}" ] || seed_session "$S" "$BODY_REC" "$BODY_W"
 }
 confirm() { local o rc; o=$(bash "$C" --session "$S" --no-seal "$@" 2>"$T/err"); rc=$?; [ -z "$o" ] || seen "$o"; return $rc; }
 sealed_capture() { # sealed_capture <state> <KEY> <token> [timestamp]
@@ -622,12 +625,12 @@ session
 checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
-body "$(rec)"; db '.issues[0].body = "gone"'
-eq "a body that isn't a record is a conflict" conflict "$(confirm)"
-db '.issues[0].body = ""'
-eq "an empty body is a conflict" conflict "$(confirm)"
-body "$(rec)"; db '.fail = [{match: "issue view", rc: 1}]'
-confirm >/dev/null; eq "a failed body read exits 2" 2 $?
+body "$(rec)"; printf '"gone"' | koto context add "$S" record/holdings
+eq "a record that isn't canonical is a conflict" conflict "$(confirm)"
+rm -rf "$KOTO_STORE/context/$S/record"
+confirm >/dev/null; eq "a session whose record is gone is a failed read (2), not a conflict" 2 $?
+body "$(rec)"
+KOTO_NO_LIST_PREFIX=1 bash "$C" --session "$S" --no-seal >/dev/null 2>&1; eq "a failed record read exits 2" 2 $?
 log_ev "$S" directed_transition '{"from":"record","to":"pick_facts"}'
 body "$(rec)"
 eq "a directed transition in the run is directed" directed "$(confirm)"

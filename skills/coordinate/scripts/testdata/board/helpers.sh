@@ -116,13 +116,14 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
 
 # bt_run <S> <start-posture-token>: a run that started, read its posture,
-# found record #7, and reached verify with a prediction.
+# found its record (its own session holds it: a sealed bare `found`), and
+# reached verify with a prediction.
 bt_run() {
     bt_session "$1"
     bt_enter "$1" start_posture
     bt_sealed "$1" start_posture POSTURE "$2"
     bt_enter "$1" record_find
-    bt_sealed "$1" record_find RECORD_FIND "${BT_FIND_TOKEN:-found 7}"
+    bt_sealed "$1" record_find RECORD_FIND "${BT_FIND_TOKEN:-found}"
     bt_enter "$1" verify
     bt_evidence "$1" verify '{"prediction":"every job green"}'
 }
@@ -132,12 +133,20 @@ bt_verified() {
     bt_sealed "$1" verify_board VERIFIED "verified $2 $3"
     bt_enter "$1" verified_confirm
 }
-# bt_record_body <reversals-json> [holds-json]: record #7 on the stand-in,
-# rendered by the real codec, with the given Reversals rows and holds.
+# bt_record_body <reversals-json> [holds-json]: the run's record, with the
+# given Reversals rows and holds, as $T/rec.json (the real codec renders it to
+# check it), and, when the session $S names is open on the koto stand-in, in
+# its keys (bt_session_record).
 bt_record_body() {
     jq -nc --argjson r "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r, holds: $h}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
-    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+    bt_record_here
+}
+# bt_record_here: the record into $S's keys, when $S is a session the koto
+# stand-in holds a log for; otherwise the suite seeds it later.
+bt_record_here() {
+    [ -n "${S-}" ] && [ -f "$(bt_logf "$S")" ] || return 0
+    bt_session_record "$S"
 }
 # bt_record_paused <standing-rows-json> [holds-json]: the record, with pull
 # request #12's holding on Feature 2 and the given Standing rows; bt_pause
@@ -150,14 +159,16 @@ bt_record_paused() {
             pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
         deferrals: [], side_effects: [], reversals: [], holds: $h, standing: $s}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
-    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+    bt_record_here
 }
 # bt_session_record <S>: the record bt_record_body or bt_record_paused last
-# built ($T/rec.json), as the session store holds it in S's keys (record/meta and
-# one key per section), and issue #7's body emptied, so a reader that finds the
-# record's holds or pauses read them from the session.
+# built ($T/rec.json), as the session holds it in S's keys (record/meta and one
+# key per section), so a reader finds the record's holds or pauses there.
 bt_session_record() {
     local f pair field key
+    # A record seeded before in the stand-in's store goes first, so no section
+    # it held and this one doesn't is left behind.
+    rm -f "${KOTO_BOARD_DIR:-/nonexistent}/sessions/$1/ctx/record__"*
     jq -c '{scope, store: "session", written: "2026-09-26T11:00:00Z", pending: false}' "$T/rec.json" > "$T/meta.json"
     "$KOTO_BIN" context add "$1" record/meta --from-file "$T/meta.json" || return 1
     for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
@@ -166,10 +177,6 @@ bt_session_record() {
         jq -c --arg f "$field" '.[$f]' "$T/rec.json" > "$T/sec.json"
         "$KOTO_BIN" context add "$1" "record/$key" --from-file "$T/sec.json" || return 1
     done
-    jq -nc '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: [],
-        run: [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]}' > "$T/moved.json"
-    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/moved.json" > "$T/moved.md" || return 1
-    jq -Rsc '{number: 7, body: .}' "$T/moved.md" > "$GH_BOARD_DIR/issue-7.out"
 }
 bt_pause() {
     jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \

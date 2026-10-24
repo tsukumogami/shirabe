@@ -9,10 +9,13 @@
 # values (a path outside docs/roadmaps/, an uppercase discipline, a rotation
 # length of 0, a cap of 0, -1 or abc, a parked bound of abc, a host that isn't
 # owner/repo, a --reports-to topic that isn't a topic) are refused with no new
-# session and the live run left alone; --reports-to sets REPORTS_TO, empty
-# without it; ROADMAP_FORM is feature for a roadmap not in the working tree
-# and milestone for a roadmap/v2 or roadmap/v3 one there; a
-# second valid invocation cancels the first run without deleting its log.
+# session and the live run left alone, and so is --store, whatever its value,
+# as usage naming it (the session is the only store); --reports-to sets
+# REPORTS_TO, empty without it; ROADMAP_FORM is feature for a roadmap not in
+# the working tree and milestone for a roadmap/v2 or roadmap/v3 one there; a
+# second valid invocation cancels the first run without deleting its log. On a
+# koto without the session store's features the only case is the start's
+# refusal, store-unsupported, opening no session.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
 # over testdata/fake-s3.py): a plain session imported on host B arrives with
 # every key, and host A's copy then refuses as session_migrated. The opener's
@@ -20,8 +23,8 @@
 # and a name that isn't a run of the scope refused session-name, neither of
 # them calling `session import`; a discipline one reaches the import, which
 # finds no such run; a
-# run A opened on GitHub (no session-store find) is imported, then refused
-# session-source, and one A opened from a copy of the plugin at another path
+# run A opened whose find never ran (no session-store find) is imported, then
+# refused session-source, and one A opened from a copy of the plugin at another path
 # is imported, then refused session-provenance, naming the carry; a child
 # source is refused with koto's import_source_is_child and leaves no session; a
 # run from a template B lacks is refused import_template_unavailable, leaving
@@ -45,10 +48,33 @@ fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "want [$2], got [$3]"; fi; }
 ln -s "$REPO_ROOT" "$T/plugin"
 OPEN="$T/plugin/skills/coordinate/scripts/coordinate-open.sh"
+# gh is the testdata/gh stand-in over a DB with no issue and no pull request:
+# a fresh start's one lookup for a record still on GitHub (the legacy
+# importer's) finds none, and nothing reaches the real gh.
+export GH_DB="$T/gh.json"
+jq -n '{login: "coord", repos: {"acme/widgets": {private: false, default_branch: "main"}}, issues: [], prs: [],
+    branches: {}, commits: {}, permissions: {}, files: {}, fail: []}' > "$GH_DB"
+: > "$GH_DB.calls"
+mkdir -p "$T/bin" && ln -s "$HERE/testdata/gh" "$T/bin/gh"
+export PATH="$T/bin:$PATH"
+# koto_store_ready, the session store's koto features.
+. "$HERE/testdata/engine-session.sh"
 mkdir "$T/repo" && cd "$T/repo" && git init -q && git remote add origin https://github.com/acme/widgets.git
 open_() { printf '%s' "$1" > "$T/args.json"; bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" 2>"$T/err"; }
 sessions() { koto session list 2>/dev/null | jq -r '.[].id' | sort | tr '\n' ' '; }
 var() { local d; d=$(koto session dir "$1"); jq -r --arg k "$2" 'select(.type == "workflow_initialized") | .payload.variables[$k]' "$d/koto-$1.state.jsonl"; }
+
+# The session is the record's only store: on a koto without its features
+# (`context list --prefix`, `session import`) every start is refused before a
+# session opens, so that refusal is all this suite can prove there.
+if ! koto_store_ready; then
+    open_ '["docs/roadmaps/ROADMAP-plugin-system.md"]' > "$T/out"; rc=$?
+    if [ $rc -ne 0 ] && grep -q store-unsupported "$T/out" "$T/err"; then pass "a koto without the session store's features refuses the start as store-unsupported"
+    else fail "a koto without the session store's features refuses the start as store-unsupported" "rc=$rc $(cat "$T/out" "$T/err")"; fi
+    eq "  ... opening no session" "" "$(sessions)"
+    echo "koto lacks the session store's features; the other cases need a newer koto"
+    echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit $?
+fi
 
 OUT=$(open_ '["docs/roadmaps/ROADMAP-plugin-system.md","--cap","4","--reports-to","ws-lead","--","feature 3 waits","--cap","9"]'); eq "a roadmap invocation opens" 0 $?
 S1=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
@@ -69,6 +95,13 @@ for bad in '["docs/other/ROADMAP-x.md"]' '["--discipline","CI","--host","acme/wi
            '["docs/roadmaps/ROADMAP-plugin-system.md","--reports-to","ws lead"]'; do
     open_ "$bad" >/dev/null; rc=$?
     if [ $rc -ne 0 ] && [ "$(sessions)" = "$BEFORE" ]; then pass "refused, nothing opened: $bad"; else fail "refused, nothing opened: $bad" "rc=$rc"; fi
+done
+# The session is the only store: --store is no longer a setting, whatever its
+# value.
+for st in session github; do
+    open_ "[\"docs/roadmaps/ROADMAP-plugin-system.md\",\"--store\",\"$st\"]" >/dev/null; rc=$?
+    if [ $rc -eq 64 ] && grep -q -- '--store' "$T/err" && [ "$(sessions)" = "$BEFORE" ]; then pass "--store $st is usage naming --store, nothing opened"
+    else fail "--store $st is usage naming --store, nothing opened" "rc=$rc $(cat "$T/err")"; fi
 done
 eq "a refused invocation leaves the live run alone" false "$(koto status "$S1" | jq -r .is_terminal)"
 sleep 1
@@ -94,13 +127,7 @@ eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S4" ROADMAP_FORM)"
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
 # HOME, cache and workspace (testdata/cloud-hosts.sh). Everything from here
-# needs koto's `session import`, which an older koto (CI's entry floor) lacks,
-# so the cases stop here when the probe the opener reads says it's missing.
-PROBE=$(bash "$HERE/record-source.sh" --probe)
-if [ "$(jq -r '.session_import // false' <<< "$PROBE")" != true ]; then
-    echo "koto lacks session import ($PROBE); the two-host and --import cases need a newer koto"
-    echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit $?
-fi
+# needs koto's `session import`, which the start above already required.
 echo "== two hosts =="
 . "$HERE/testdata/cloud-hosts.sh"
 trap 's3_stop; case "$T" in */coordinate-open-engine.*) rm -rf "$T" ;; esac' EXIT
@@ -134,7 +161,8 @@ import_b() { # import_b <args json>: the opener on host B; output in $T/out, std
     printf '%s' "$1" > "$T/args.json"
     host_on b env KOTO_BIN="$T/koto-shim" bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" > "$T/out" 2>"$T/err"
 }
-imported() { grep -c '^session import' "$T/koto-calls"; }
+# The opener's feature probe runs `session import --help`, which imports nothing.
+imported() { grep '^session import' "$T/koto-calls" | grep -vc -- ' --help$'; }
 RM='docs/roadmaps/ROADMAP-plugin-system.md'
 WS_A=$(host_ws a)
 
@@ -159,11 +187,12 @@ open_a() { # open_a <plugin root>: the opener on host A with the roadmap alone; 
     printf '["%s"]' "$RM" > "$T/args-a.json"
     OPENED=$(host_on a bash "$1/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$1" "$T/args-a.json" 2>"$T/open-a.err" | sed -n 's/^session=//p')
 }
-# A run whose find never recorded the session store (a plain GitHub start).
+# A run whose find never ran, so it never recorded the session store
+# (coord/source.json): no record, and no run a start would resume.
 open_a "$T/plugin"
 [ -n "$OPENED" ] && pass "host A opens a plain run of the scope" || fail "host A opens a plain run of the scope" "$(cat "$T/open-a.err")"
 import_b "[\"$RM\",\"--import\",\"$OPENED\",\"--from\",\"$WS_A\"]"
-eq "a run that isn't on the session store is imported, then refused" "2 refused=session-source" "$? $(grep '^refused=' "$T/out")"
+eq "a run whose find never recorded the session store is imported, then refused" "2 refused=session-source" "$? $(grep '^refused=' "$T/out")"
 host_on b koto cancel "$OPENED" >/dev/null 2>&1
 sleep 1
 # A run opened from the plugin at another path: the same template, so the same

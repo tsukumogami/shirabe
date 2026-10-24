@@ -4,11 +4,11 @@
 # them and names the gaps.
 #
 # Covers: --list on a record with none of the sections; Run's keys, a cap and
-# arguments, a new coordinator clearing every told row; --told needing a
-# coordinator and refusing a second time; a Standing row with owner and
-# relayer, its id, --end removing it, an id never reused, and an unreadable
-# entry stream refusing a new id; a person's
-# event relayed from an unmarked comment; Work rows for a holding (which also
+# arguments, a new coordinator clearing every told row; --run store refused
+# as no Run key (65); --told needing a coordinator and refusing a second time;
+# a Standing row with owner and relayer, its id, --end removing it, an id never
+# reused, and an unreadable entry stream refusing a new id; a person's event
+# relayed, owner and relayer named; Work rows for a holding (which also
 # records its worker as told on its first row only, not on a later update
 # after an address change) and for a local agent, upserted, --done, and a
 # holding's row dropped once its holding is gone; a decision row parking a
@@ -24,8 +24,10 @@
 # verdict owed) listed and kept by every write, --done leaving it and
 # --done --kind verdict-owed and --work --kind verdict-owed refused; a rework
 # row kept by other writes, --work --kind rework refused, record-write.sh
-# changing or removing it refused, --done --kind rework removing it; and
-# record-handover.sh's report and gaps, on either store.
+# changing or removing it refused, --done --kind rework removing it;
+# record-handover.sh's report and gaps (a holding with no next step among
+# them); the crash set's rows written in a fresh session with no store row, and
+# --host. Every record is the session's; nothing is written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/record-state_test.sh
 set -uo pipefail
@@ -37,23 +39,21 @@ RS="$HERE/record-state.sh"
 RH="$HERE/record-handover.sh"
 RA="$HERE/record-append.sh"
 
-TITLE="Coordinator record: ROADMAP-plugin-system"
-RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7)
+SR=coordinate-roadmap-plugin-system-20260926T070000Z
+export RS_SESSION=$SR
+RM=(--scope roadmap --name plugin-system --repo "$REPO")
 W=("${RM[@]}" --skip-session-checks)
-seed() { # seed <record-json>
-    db_init
-    db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
-        --arg t "$TITLE" --arg b "$(render "$1" issue 2026-09-26T08:00:00Z)"
-}
-live() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh"; }
+seed() { db_init; seed_session "$SR" "$1"; } # seed <record-json>
+live() { session_state "$SR"; }
 entries() { bash "$RA" "${RM[@]}" --list; }
+gh_writes() { grep -E 'issue (create|edit|close)|pr (create|edit)|comment|--method (POST|PUT|PATCH|DELETE)' "$GH_DB.calls"; }
 TWO=$(record_json roadmap plugin-system | jq -c --argjson a "$(holding worker-f2)" \
     --argjson b "$(holding worker-f3 '{"unit": "Feature 3", "pull_request": ""}')" '.holdings = [$a, $b]')
 
 echo "== list =="
 seed "$TWO"
 eq "--list with none of the sections" '{"run":[],"standing":[],"work":[]}' "$(bash "$RS" "${RM[@]}" --list 2>&1)"
-grep -qE 'edit|comments' "$GH_DB.calls" && bad "a read writes nothing" "$(calls)" || ok "a read writes nothing"
+eq "a read writes nothing, and reads nothing on GitHub" "" "$(calls)"
 
 echo "== Run =="
 bash "$RS" "${W[@]}" --run arguments "--roadmap docs/roadmaps/ROADMAP-plugin-system.md --cap 2" --by "the human" >/dev/null 2>"$T/err"
@@ -65,6 +65,12 @@ eq "  ... one cap row, the new one" "1 the human, via the process owner" "${cap_
 eq "  ... and only one" 1 "$(live | jq '[.run[] | select(.key == "cap")] | length')"
 bash "$RS" "${W[@]}" --run cap two --by x >/dev/null 2>"$T/err"; eq "a cap that isn't a number is refused" 65 $?
 bash "$RS" "${W[@]}" --run told worker-f2 --by x >/dev/null 2>"$T/err"; eq "--run doesn't take told" 64 $?
+SNAP=$(session_snapshot "$SR")
+bash "$RS" "${W[@]}" --run store session --by "the human" >/dev/null 2>"$T/err"; eq "--run store session is refused as no Run key" 65 $?
+grep -q 'store is not a Run key' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --run store github --by "the human" >/dev/null 2>"$T/err"; eq "  ... and store github" 65 $?
+bash "$RS" "${W[@]}" --run store session >/dev/null 2>"$T/err"; eq "  ... even without --by" 65 $?
+eq "  ... writing nothing" "$SNAP" "$(session_snapshot "$SR")"
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v1 >/dev/null 2>"$T/err"; eq "--told without a coordinator address is refused" 65 $?
 bash "$RS" "${W[@]}" --run coordinator lane-v1 --by lane-v1 >/dev/null 2>"$T/err"; eq "a coordinator address is set" 0 $?
 bash "$RS" "${W[@]}" --run coordinator session_0123abcd --by lane-v1 >/dev/null 2>"$T/err"; eq "a session-shaped address is refused" 65 $?
@@ -93,15 +99,12 @@ eq "  ... the row is gone" "s1" "$(live | jq -r '[.standing[].standing] | join("
 bash "$RS" "${W[@]}" --standing go-ahead --what "release v0.25.0" --owner "the human" --relayed-by "the process owner" >/dev/null 2>"$T/err"
 eq "an ended id is never reused" "s1 s3" "$(live | jq -r '[.standing[].standing] | join(" ")')"
 bash "$RS" "${W[@]}" --end s9 --by x >/dev/null 2>"$T/err"; eq "ending an unknown row is refused" 65 $?
-db '.fail = [{match: "comments?per_page", rc: 1, stderr: "gh: boom"}]'
-bash "$RS" "${W[@]}" --standing approval --what x --owner y >/dev/null 2>"$T/err"; eq "an unreadable entry stream refuses a new Standing id (2) rather than risk reusing one" 2 $?
+# The entries are read to choose the next id; a koto that can't list them by
+# prefix refuses (2) rather than risk reusing one.
+KOTO_NO_LIST_PREFIX=1 bash "$RS" "${W[@]}" --standing approval --what x --owner y >/dev/null 2>"$T/err"; eq "an unreadable entry stream refuses a new Standing id (2) rather than risk reusing one" 2 $?
 eq "  ... and writes nothing" "s1 s3" "$(live | jq -r '[.standing[].standing] | join(" ")')"
-db '.fail = []'
 
-echo "== the relay duty: a person's unmarked comment =="
-db '.comments = ((.comments // []) + [{repo: "acme/widgets", number: 7, id: 3001, body: "Hold the koto release until the other lane lands.",
-    user: "alice", created_at: "2026-10-07T20:00:00Z", updated_at: "2026-10-07T20:00:00Z"}])'
-entries | jq -e 'all(.[]; .id != 3001)' >/dev/null && ok "the reader drops a person's unmarked comment" || bad "the reader drops a person's unmarked comment" "$(entries)"
+echo "== the relay duty: a person's event, relayed =="
 bash "$RS" "${W[@]}" --standing answer --what "hold the koto release until the other lane lands" --owner alice --relayed-by lane-v2 >/dev/null 2>"$T/err"
 eq "the coordinator relays it, the person as owner and itself as relayer" "answer alice lane-v2" \
     "$(live | jq -r '.standing[-1] | "\(.kind) \(.owner) \(.relayed_by)"')"
@@ -245,11 +248,10 @@ bash "$RS" "${W[@]}" --standing answer --what "wait for acme/secret#5" --owner "
 bash "$RS" "${W[@]}" --standing answer --what "wait for acme/gadgets#5" --owner "the human" >/dev/null 2>"$T/err"; eq "a public one is fine" 0 $?
 
 echo "== the entry fails after the body =="
-db '.fail = [{match: "comments --input", rc: 1, stderr: "gh: You have exceeded a secondary rate limit (HTTP 403)"}]'
-bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"; eq "a failed entry post is 14" 14 $?
-eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key == "cap") | .value')"
+NEXT_ENTRY=$(printf 'record/entries/%06d' $(( $(entries | jq length) + 1 )))
+KOTO_FAIL_ADD=$NEXT_ENTRY bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"; eq "a failed entry write is 14" 14 $?
+eq "  ... after the record was written" 3 "$(live | jq -r '.run[] | select(.key == "cap") | .value')"
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
-db '.fail = []'
 
 echo "== a temporary file that can't be made (the #922 shape, found in #924's sweep) =="
 # The leaving lines' file is the last one made before the write. Unchecked,
@@ -296,12 +298,15 @@ bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner
 echo "== the handover read =="
 seed "$TWO"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the read prints" 0 $?
-eq "an old record has every gap" "no-arguments no-cap no-coordinator no-next-step Feature 2 no-next-step Feature 3" \
+eq "an old record has every gap" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
     "$(printf '%s' "$H" | jq -r '[.gaps[].gap] | join(" ")')"
+eq "  ... a holding with no next step named with its fix" 'record-state.sh --work "Feature 2" --kind holding --who worker-f2 --next "<what happens next>"' \
+    "$(printf '%s' "$H" | jq -r '.gaps[] | select(.gap == "no-next-step Feature 2") | .fix')"
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "--check fails on gaps" 1 $?
 grep -q 'record-state.sh --run cap' "$T/err" && ok "  ... naming the fix" || bad "  ... naming the fix" "$(cat "$T/err")"
 bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 eq "a new address leaves every live worker untold" "no-next-step Feature 3 not-told worker-f2 not-told worker-f3" \
@@ -316,7 +321,7 @@ bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
 # A merged holding (a Verified head, its Pull request cleared) is exempt.
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
-eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-next-step Feature 2" \
+eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 # PRD R15: a live holding whose leg names a request this host's store doesn't
 # hold (the run was imported here) holds the gate until its leg has an end.
@@ -333,31 +338,26 @@ rm -f "$KOTO_STORE/requests/req_1.gone" "$KOTO_STORE/requests/req_2.json"
 bash "$RH" "${RM[@]}" >/dev/null 2>&1; eq "a leg whose request can't be read fails the read" 2 $?
 rm -rf "$KOTO_STORE/requests"
 
-# On the session store the stored set is read from the run's record/ keys, and
-# the GitHub body, in the moved shape, plays no part (PRD R18).
+# A fresh session, as the opener seeds one now: no Run section and no store
+# row. Its stored set is read from the run's record/ keys.
 SD=coordinate-roadmap-plugin-system-20260926T170000Z
-SEN=(env RS_SOURCE=session RS_SESSION="$SD")
-seed "$(record_json roadmap plugin-system)"
-# A session-store record's Run section always holds its store row, as the
-# opener and the move seed it.
-render "$(printf '%s' "$TWO" | jq -c '.run = [{key: "store", value: "session", set_by: "alice", set: "2026-09-26T08:00Z"}]')" issue 2026-09-26T08:00:00Z \
-    | bash "$HERE/record-parse.sh" --container issue > "$T/sd.json"
-session_keys "$SD" "$T/sd.json"
-eq "the session store's handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
+SEN=(env RS_SESSION="$SD")
+db_init; seed_session "$SD" "$TWO"
+eq "the session holds no store row" "" "$(koto context get "$SD" record/run 2>/dev/null)"
+eq "the handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 "${SEN[@]}" bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run reports-to "the lane's dispatcher at ws-lead" --by "the human" >/dev/null 2>"$T/err"
-eq "a reports-to row is written on the session store" 0 $?
+eq "a reports-to row is written with no store row" 0 $?
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
-"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and closes them as record-state.sh writes the keys" \
-    || bad "  ... and closes them as record-state.sh writes the keys" "$(cat "$T/err")"
-bash "$RH" "${RM[@]}" | jq -e '.gaps | length > 0' >/dev/null && ok "  ... which the GitHub body never saw" || bad "  ... which the GitHub body never saw" ""
+"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and the gaps close as record-state.sh writes the keys" \
+    || bad "  ... and the gaps close as record-state.sh writes the keys" "$(cat "$T/err")"
 "${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
-eq "a Standing row is written on the session store" 0 $?
+eq "a Standing row is written" 0 $?
 eq "  ... into record/standing" "answer|the human" "$(koto context get "$SD" record/standing | jq -r '.[0] | "\(.kind)|\(.owner)"')"
 eq "  ... and read back through the seam" "panels at the head" "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.standing[0].what')"
 
@@ -394,14 +394,8 @@ grep -q 'token-shaped' "$T/err" && ok "  ... naming it" || bad "  ... naming it"
 "${SEN[@]}" bash "$HERE/record-holding.sh" "${W[@]}" --topic worker-f2 --pushed-head "${SHA:0:40}" >/dev/null 2>"$T/err"
 eq "the handover read carries a worker's pushed head" "${SHA:0:40}|null" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.workers[] | .pushed_head | tostring] | join("|")')"
-# On GitHub each is refused, and the body is unchanged.
-seed "$TWO"; BODY=$(jq -r '.issues[0].body' "$GH_DB")
-for k in rules briefs friction reports-to; do
-    v="a sha256:$SHA"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
-    bash "$RS" "${W[@]}" --run "$k" "$v" --by coord >/dev/null 2>"$T/err"; eq "--run $k on a GitHub record is refused" 65 $?
-done
-bash "$RS" "${W[@]}" --host source_workspace /srv/ws/a >/dev/null 2>"$T/err"; eq "--host on a GitHub record is refused" 65 $?
-eq "  ... and the GitHub body is unchanged" "$BODY" "$(jq -r '.issues[0].body' "$GH_DB")"
-eq "a GitHub record's handover read has no no-reports-to gap" "" "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap | select(. == "no-reports-to")] | join(" ")')"
+eq "the crash set's rows sit in a Run section with no store row" "" \
+    "$(koto context get "$SD" record/run | jq -r '[.[] | select(.key == "store")] | map(.value) | join(" ")')"
+eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
 done_tests record-state_test

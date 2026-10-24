@@ -57,10 +57,9 @@ its list and post bounds, one whose holder is gone or older than 60 seconds
 takes it over, and a removals directory that can't be used leaves the
 capture posting with only the list check, saying so in one line.
 
-Where the entry goes depends on the run's store. A run on a GitHub record
-posts it on the record issue. A run on the session store keeps it in the
-coordinator's session (`record-append.sh --on none`): the unit's own pull
-requests and issues carry nothing about the tools. A repository opts in to
+The entry is kept in the coordinator's session (`record-append.sh --on
+none`): the unit's own pull requests and issues carry nothing about the
+tools. A repository opts in to
 today's placement with the header `## PR Workflow Content: include` in its
 `CLAUDE.local.md` or `CLAUDE.md` (#1114), read only through
 `scripts/pr-workflow-content.sh`; the capture fetches the repository's
@@ -78,7 +77,6 @@ public pull request; it stays in the session, and in the archive.
 
 The capture's last line on stderr says where the entry went:
 
-- `unit-cost: posted the cost entry` (a GitHub record's issue);
 - `unit-cost: kept the cost entry in the session: it is posted on no pull
   request or issue unless the repository opts in`;
 - `unit-cost: posted the cost entry on <owner/repo#n>`;
@@ -271,7 +269,7 @@ Cost of <topic> (<capture key>): <n> sessions, <worker output> output tokens, di
 | `key` | the archive directory's name, `<UTC date>-<topic>-<job id>` |
 | `captured_at` | UTC, to the second |
 | `topic` | the dispatch topic |
-| `record` | `{scope, name, repo, ref}` from the run facts, or `null` |
+| `record` | `{scope, name, repo}` from the run facts, with `ref` kept in the shape and always `""`, or `null` |
 | `unit` | the Unit's tag, `"not public"`, or `null` |
 | `milestone` | `{value, state, source: "record"}` |
 | `plan_shape` | `{value, state, source: "koto-state"}` |
@@ -419,7 +417,7 @@ since it started.
 
 **`removals.log`.** Beside the records, one line per record a sweep
 handles, `<UTC time> <dispatch id> <outcome>`, the same line it prints. The
-outcome is `captured` (the first three last lines above), `already
+outcome is `captured` (the first two last lines above), `already
 recorded`, `post failed` (the post failed or didn't finish), `read failed`
 (the record couldn't be read, the archive couldn't be made, or the entry
 couldn't be computed), `timed out` (the capture was stopped at 120
@@ -471,9 +469,9 @@ computed what the archive holds, not that the archive holds what happened.
 
 ## Reading entries
 
-The entries are ordinary comments carrying the `kind=cost` marker. A run on
-a GitHub record posts them all on its record; with `gh` and `jq`, for a
-record `owner/repo#n`:
+The entries are ordinary comments carrying the `kind=cost` marker. A run from
+before the GitHub record was removed posted them all on its record issue; with
+`gh` and `jq`, for such a record `owner/repo#n`:
 
 ```bash
 gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
@@ -485,7 +483,7 @@ gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
               output_tokens: .tokens.worker.output, complete}'
 ```
 
-A run on the session store keeps every entry in the coordinator's session,
+A run now keeps every entry in the coordinator's session,
 where `record-append.sh --session <session> --list` returns them as entries
 of kind `cost`, each one's text the same summary line and fenced block:
 

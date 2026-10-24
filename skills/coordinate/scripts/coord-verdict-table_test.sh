@@ -5,7 +5,7 @@
 # Proves: every check-state arm's code is in the table, and the word in the
 # arm's comment is the table's word for that code; no word is in the table
 # twice; every code in the table has
-# an arm, except the two the table documents as having none here; and, for each
+# an arm, except the one the table documents as having none here; and, for each
 # group of states the table lists together, every state has an arm for every
 # word of its group, except the pairs listed below. That last check is what
 # catches a state whose script emits a verdict the template never routes, which
@@ -27,15 +27,13 @@ trap 'rm -rf "$T"' EXIT
 # comment line but are two states with two word sets. record: moved is
 # --verified only (verified_confirm). merge_confirm follows a merge the
 # coordinator attempted, which is merged or unconfirmed, never not-merged.
-# closeout-read.sh checks the title's date for the run's own rotation only.
 EXCEPT='start	readable
 start	unread
 start_posture	active
 start_posture	discipline
 start_posture	not-active
 record	moved
-merge_confirm	not-merged
-predecessor_close	title-stale'
+merge_confirm	not-merged'
 
 # The table: word<TAB>code<TAB>group (the comment line above it, its state list).
 table() {
@@ -73,7 +71,7 @@ while IFS='	' read -r st c w; do
     elif [ "$w" != "$tw" ]; then echo "arm $st exit $c says [$w] but the table's word is $tw" >> "$T/bad"; fi
 done < "$T/arms"
 while IFS='	' read -r w c g; do
-    case "$w" in handed-over|reconciled) continue ;; esac
+    case "$w" in reconciled) continue ;; esac
     cut -f2 "$T/arms" | grep -qx "$c" || echo "code $c ($w) has no arm in any state" >> "$T/bad"
     [ -n "$g" ] || continue
     for st in $(printf '%s' "$g" | tr ',' ' '); do

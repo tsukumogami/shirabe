@@ -282,14 +282,14 @@ pass happened to remove, with no way to tell which pull requests are missing.
   the session store and on a GitHub record to the coordinator's own record
   issue, and no script this feature adds or changes runs any other `gh` write.
 - **R14. Last lines and log.** A capture's last stderr line is one of:
-  `unit-cost: posted the cost entry` (the GitHub record), `unit-cost: kept the
-  cost entry in the session`, `unit-cost: posted the cost entry on
+  `unit-cost: kept the cost entry in the session`, `unit-cost: posted the cost
+  entry on
   <owner/repo#n>`, `unit-cost: the record already holds this unit's cost entry`,
   `unit-cost: the post failed (record-append exit <n>)`, `unit-cost: the post did
   not finish in time`, `unit-cost: the entry could not be computed`. The sweep
   appends to `removals.log` beside the removal records one line per record it
   handles, `<UTC time> <dispatch id> <outcome>`, the outcome one of `captured`
-  (the first three last lines), `already recorded`, `post failed` (the next
+  (the first two last lines), `already recorded`, `post failed` (the next
   two), `read failed` (the record couldn't be read or the entry not computed),
   `timed out` (the capture was stopped at 120 seconds), `no coordinator`,
   `several coordinators`, `pending github` (R12a), `invalid input` (a removal

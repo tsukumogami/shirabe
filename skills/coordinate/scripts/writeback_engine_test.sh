@@ -34,6 +34,7 @@ ORIG_PATH=$PATH
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
+. "$HERE/testdata/engine-session.sh"
 mkdir -p "$T/bin"
 ln -sf "$HERE/testdata/gh" "$T/bin/gh"
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -68,13 +69,14 @@ RECORD=$(record_json roadmap writeback | jq -c --argjson a "$F1" '
     .holdings = [$a]
     | .run = [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-writeback.md", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "cap", value: "2", set_by: "the human", set: "2026-10-07T10:00Z"},
-              {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"}]')
-db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-writeback", body: $b, state: "open", author: "coord", editor: null}]' \
-    --arg b "$(render "$RECORD" issue 2026-10-07T10:00:00Z)"
-
+              {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
+              {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"}]')
+koto_store_ready || { echo "koto lacks the session store's features; the write-back needs a newer koto"; done_tests writeback-engine; exit $?; }
 printf '["%s"]' "$RM" > "$T/args.json"
 S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
 [ -n "$S" ] || { bad "the run opens" "$(cat "$T/open.err")"; done_tests writeback-engine; exit 1; }
+# The run's record, in its session before the first find.
+(cd "$WD" && session_seed "$S" "$RECORD" 2026-10-07T10:00:00Z) || { bad "the record is seeded into the run" ""; done_tests writeback-engine; exit 1; }
 eq "the run reaches reconcile" reconcile "$(at)"
 eq "and pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
