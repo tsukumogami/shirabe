@@ -76,7 +76,7 @@ case "$WORD" in
     holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;; link) exit 63 ;; progress) exit 64 ;;
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
-    board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
+    board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; check-unreadable) exit 76 ;;
     no-pr) exit 77 ;; not-run) exit 78 ;; unevidenced) exit 79 ;;
     # land
     permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; unready) exit 83 ;; dirty) exit 84 ;; held) exit 85 ;;

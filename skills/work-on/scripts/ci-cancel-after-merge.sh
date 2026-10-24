@@ -126,7 +126,10 @@ REPO_URL="https://$HOST/$REPO"
 # the repository the run recorded.
 [ "$OWNED" = 1 ] || SELECTOR="$NUMBER"
 
-CHECKS=$(gh pr checks "$SELECTOR" --json bucket,name,workflow,link \
+# pr-checks.sh is `gh pr checks` wherever the token can read checks, and the
+# Actions jobs and statuses where GitHub refuses the read (#1132); a job's link
+# is its run's, so the run-id parse below holds either way.
+CHECKS=$("$HERE/pr-checks.sh" "$SELECTOR" --json bucket,name,workflow,link \
     --jq '.[] | select(.bucket != "pass" and .bucket != "skipping") | [.bucket, .name, .workflow, .link] | map(. // "" | tostring) | join("\u001f")') \
     || no "could not read the checks of #$NUMBER"
 [ -n "$CHECKS" ] || no

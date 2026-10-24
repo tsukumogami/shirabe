@@ -164,8 +164,10 @@ fi
 
 # Zero checks. gh answers an empty rollup with an error, not with `[]`; an
 # empty list is read the same way in case a gh release starts printing one.
-# Both modes read the pull request by its URL from here on.
-if gh pr checks "$SELECTOR" --json bucket </dev/null >"$TMP/checks" 2>"$TMP/err"; then
+# Both modes read the pull request by its URL from here on. pr-checks.sh is
+# `gh pr checks` wherever the token can read checks, and answers the same way
+# from the Actions runs and statuses where GitHub refuses the read (#1132).
+if "$HERE/pr-checks.sh" "$SELECTOR" --json bucket </dev/null >"$TMP/checks" 2>"$TMP/err"; then
     COUNT=$(jq -R -s -r '(try fromjson catch null)
         | if type == "array" then length else "unreadable" end' "$TMP/checks") || COUNT=unreadable
     case "$COUNT" in

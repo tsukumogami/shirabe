@@ -141,6 +141,7 @@ class	engine	skills/work-on/scripts/has-commits.sh
 class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
+class	engine	skills/work-on/scripts/pr-checks.sh
 class	engine	skills/work-on/scripts/record-changed-paths.sh
 class	engine	skills/work-on/scripts/red-first.sh
 class	engine	skills/work-on/scripts/review-level.sh

@@ -118,6 +118,7 @@ disciplines scripts/decision-next_test.sh
 disciplines scripts/deferral-check.sh
 disciplines scripts/deferral-check_test.sh
 disciplines scripts/discipline-session_test.sh
+disciplines scripts/find-reads_test.sh
 disciplines scripts/pick-facts_test.sh
 disciplines scripts/reconcile-read.sh
 disciplines scripts/reconcile-read_test.sh

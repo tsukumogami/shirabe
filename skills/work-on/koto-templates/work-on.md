@@ -2514,6 +2514,13 @@ states:
       # repo without that script, an open PR, a failed or pending check, and
       # a cancel outside those workflows all still fail.
       #
+      # The checks are read through pr-checks.sh, which is `gh pr checks`
+      # unchanged wherever the token can read checks. Where GitHub refuses the
+      # check read (a fine-grained token on some repositories, #1132), it
+      # builds the same list from the Actions jobs at the head and the
+      # commit's statuses, and lists a required check neither answers with the
+      # bucket `unreadable`, which this filter counts as not green.
+      #
       # A repository with genuinely no hosted CI is the one way zero checks
       # passes, and it is stated, never inferred from an empty list:
       # ci-none-declared.sh, the last fallback, passes a PR with no checks
@@ -2532,7 +2539,7 @@ states:
       #   command across templates
       ci_passing:
         type: command
-        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
+        command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one, so its CI gate says nothing about the change: it
       # can read green on checks from an earlier head, or red on zero checks
@@ -3977,6 +3984,17 @@ reason verbatim), and
 The gate's stderr says what the body is missing. Never add or edit that file to
 get past this gate; a pull request can't declare itself, since the gate reads
 the default branch.
+
+Read the checks yourself the way the gate does, with
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh"` in place of
+`gh pr checks` (the same arguments). Where the token can read checks it is
+`gh pr checks`. Where GitHub refuses the check read, it says so on stderr and
+lists the Actions jobs at the head and the commit's statuses instead; a
+required check it lists as `unreadable` is one neither answers, which may be a
+check run the token can't see. That never passes the gate: if every other
+check is green, submit `ci_outcome: failing_unresolvable` naming the
+unreadable check, since a person who can see it, or a token that can read
+checks, is what settles it. Never strip or swap the token to read checks.
 
 While checks are still running the state holds on `ci_passing`; tick again once
 they finish. If the gate fails, fix what you can, push, and submit

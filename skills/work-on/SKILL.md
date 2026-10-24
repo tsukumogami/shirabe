@@ -566,6 +566,17 @@ leg, since one leg answers one session.
   records `ci_none_declared.txt` in context; otherwise 1. The default branch is
   read through the GitHub API, so a pull request can't declare itself.
   `scripts/ci-none-declared_test.sh` is its harness, and drives both gates.
+- `scripts/pr-checks.sh [<pr>] [--repo R] [--json F] [--jq Q]` — the one read
+  of a pull request's checks, in place of `gh pr checks` with the same
+  arguments: `ci_passing`, `/execute`'s `owned_ci_passing`, both fallbacks
+  below and `/execute`'s merge-verdict.sh read through it. Wherever the token
+  can read checks it runs `gh pr checks` and passes its output, stderr and exit
+  status through unchanged. Where GitHub refuses the check read (a
+  fine-grained token on some repositories, #1132) it builds the same list from
+  the Actions jobs at the head and the commit's statuses, and lists each
+  required check neither answers, or that only another app's check run could,
+  in the bucket `unreadable`, which no gate counts as green. It never touches
+  the token. `scripts/pr-checks_test.sh` is its harness.
 - `scripts/pr-url.sh` — sourced, never run: `pr_url_parse` splits a pull
   request URL into its host, owner and repository, or refuses it. Both CI
   fallbacks above take the repository from the pull request's URL through it
