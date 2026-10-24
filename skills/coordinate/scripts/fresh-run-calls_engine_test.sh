@@ -19,7 +19,7 @@
 # Proves, in one run:
 #   1. a fresh start of the new scope stops at record_open, having made one
 #      open-issue listing (the importer's lookup, which finds no record);
-#      record-open.sh writes the record into the session, and with its stored
+#      state-open.sh writes the record into the session, and with its stored
 #      set written the run reaches pick;
 #   2. pick dispatches Feature 1 through dispatch-worker.sh, onto a /deliver
 #      leg, and record confirms the holding once its Work row is written;
@@ -115,7 +115,7 @@ Done.
 EOF
 
 listings() { grep -c 'issues?state=open' "$GH_DB.calls"; }
-row() { (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read 2>/dev/null); }
+row() { (cd "$WD" && bash "$PS/state-holding.sh" --session "$S" --topic feat-1 --read 2>/dev/null); }
 
 seed_roadmap ship
 # The worker's pull request, its Review panel at the head, on feat/x; the
@@ -132,15 +132,14 @@ open_run ship || { bad "1: the run opens" "$(cat "$T/open.err")"; done_tests fre
 ok "1: the run opens"
 eq "1: with no record anywhere it stops at record_open" record_open "$(at)"
 eq "1: the start made one open-issue listing, the importer's lookup" 1 "$(listings)"
-render "$(record_json roadmap ship)" issue > "$T/open.md"
-write_as_agent record-open.sh --body-file "$T/open.md"
-eq "1: record-open.sh (agent-run) opens the record in the session" 0 $?
+write_as_agent state-open.sh
+eq "1: state-open.sh (agent-run) opens the record in the session" 0 $?
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
-write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-ship.md" --by "the human" \
-    && write_as_agent record-state.sh --run cap 2 --by "the human" \
-    && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
-    && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
-eq "1: record-state.sh (agent-run) writes the stored set" 0 $?
+write_as_agent state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-ship.md" --by "the human" \
+    && write_as_agent state-stored-set.sh --run cap 2 --by "the human" \
+    && write_as_agent state-stored-set.sh --run coordinator coord-test --by coord-test \
+    && write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"
+eq "1: state-stored-set.sh (agent-run) writes the stored set" 0 $?
 eq "1: the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 
 # ---- 2. the dispatch ----------------------------------------------------------------
@@ -152,7 +151,7 @@ RP=$(row | jq -r '.return_path // ""')
 REQ=${RP#leg }; REQ=${REQ%%:*}
 case "$RP" in "leg "*":deliver") ok "2: the holding reports on a /deliver leg" ;; *) bad "2: the holding reports on a /deliver leg" "$RP $(cat "$T/dw.err")" ;; esac
 eq "2: record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
-write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "report at its first checkpoint"
+write_as_agent state-stored-set.sh --work "Feature 1" --kind holding --who feat-1 --next "report at its first checkpoint"
 eq "2: with the Work row written, record confirms and the run is back at pick" pick "$(at)"
 eq "2: pick holds into wait" wait "$(at --with-data '{"choice":"hold"}')"
 
@@ -172,8 +171,8 @@ eq "3: verify_board reads #12's board, to verified_confirm" verified_confirm "$(
 # ---- 4. the land and the merge -------------------------------------------------------
 echo "== 4. land, merge and the cleared cell =="
 row | jq -c --arg h "$H" '.verified_head = $h' > "$T/row.json"
-write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
-eq "4: record-holding.sh (agent-run) records the verified head" 0 $?
+write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"
+eq "4: state-holding.sh (agent-run) records the verified head" 0 $?
 eq "4: land reads the round and permits, to goal_fit" goal_fit "$(at)"
 eq "4: a fit pull request reaches land_merge" land_merge "$(at --with-data '{"fit":"fits","rationale":"delivers Feature 1"}')"
 # The merge landed the verified head: MERGED from it, and its merge commit on
@@ -182,8 +181,8 @@ bt_merged MERGED; bt_reach behind
 eq "4: a confirmed merge goes on to record" record "$(at --with-data '{"merge":"attempted"}')"
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 row | jq -c '.pull_request = ""' > "$T/row.json"
-write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
-eq "4: record-holding.sh (agent-run) clears the Pull request cell" 0 $?
+write_as_agent state-holding.sh --topic feat-1 --row-file "$T/row.json"
+eq "4: state-holding.sh (agent-run) clears the Pull request cell" 0 $?
 eq "4: record confirms and the run is back at pick" pick "$(at)"
 
 # ---- 5. the record calls ------------------------------------------------------------

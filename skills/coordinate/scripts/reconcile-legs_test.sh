@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # reconcile-legs_test.sh -- reconcile-legs.sh, the reconcile pass's write that
 # gives a leg an end on a host whose request store doesn't hold it (PRD R15),
-# through the real record-holding.sh and record-write.sh against the gh and
+# through the real state-holding.sh and state-write.sh against the gh and
 # koto stand-ins. dispatch-worker.sh --releg-imported is a stand-in here
 # (dispatch-worker_test.sh covers it); the scripts run from a copy of the
 # skills tree so it can stand beside them.

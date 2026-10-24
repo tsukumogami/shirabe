@@ -37,7 +37,7 @@ export KOTO_REQUESTS="$FX/requests" UNIT_COST_NOW=2026-10-01T12:00:00Z UNIT_COST
 S=coordinate-roadmap-x-20261001T080000Z
 # The opt-in reader's stand-in: it answers what $T/opt-in holds, else omit.
 # An item gets the entry only while its repository opts in; unit-cost.sh
-# hands this override to record-append.sh, which reads the opt-in.
+# hands this override to state-entry.sh, which reads the opt-in.
 cat >"$T/reader" <<EOF
 #!/usr/bin/env bash
 cat "$T/opt-in" 2>/dev/null || echo omit
@@ -102,7 +102,7 @@ eq "  ... posting nothing on it either" "0 unit-cost: kept the cost entry in the
     "$(ncomments) $(tail -n 1 "$T/cap.err")"
 
 echo "== a missing reader, an answer that isn't include, an unreadable CLAUDE.md: each is omit =="
-# record-append.sh reads the opt-in; the capture hands it the reader path its
+# state-entry.sh reads the opt-in; the capture hands it the reader path its
 # suite sets. Each of these leaves the holding's pull request without a
 # comment and the entry in the session.
 HOLD22='{"unit": "Feature 4: Example feature", "pull_request": "[#22](https://github.com/acme/widgets/pull/22)"}'

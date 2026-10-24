@@ -6,16 +6,13 @@
 # shared <file under scripts/>: a change to it runs every suite. A file
 # sourced by two or more of the skill's files is shared without a row; these
 # are the ones that check can't see: the template's own scripts, which every
-# engine suite drives; the record codec, which jq includes and nearly every
-# script reads or writes through, and the state schema the codec and the write
-# core include; and run-tests.sh, which CI runs every suite through.
+# engine suite drives; the state schema, which jq includes and nearly every
+# script reads or writes through; and run-tests.sh, which CI runs every suite
+# through.
 shared	coord-verdict.sh
 shared	coord-log.sh
 shared	coordinate-open.sh
 shared	coordinate-open.wording.tsv
-shared	record-codec.jq
-shared	record-parse.sh
-shared	record-render.sh
 shared	run-tests.sh
 shared	state-schema.jq
 
@@ -32,23 +29,23 @@ cost	decision-next_test.sh	196
 cost	deferral-check_test.sh	195
 cost	pick-facts_test.sh	193
 cost	decision-archive_test.sh	191
-cost	record-decision_test.sh	186
+cost	state-decision_test.sh	186
 cost	decisions-replay_engine_test.sh	176
 cost	unit-cost_test.sh	164
 cost	teardown-inventory_test.sh	154
 cost	land-check_test.sh	141
-cost	record-confirm_test.sh	139
+cost	state-confirm_test.sh	139
 cost	roadmap-status_test.sh	135
 cost	pause_engine_test.sh	118
 cost	reconcile-check_test.sh	113
-cost	record-state_test.sh	112
+cost	state-stored-set_test.sh	112
 cost	milestone-verdicts_test.sh	106
 cost	report-questions_test.sh	100
 cost	milestone-verdict_engine_test.sh	71
 cost	roadmap-status-entry_test.sh	71
 cost	report-facts_test.sh	63
 cost	reconcile-pass_test.sh	59
-cost	record-write_test.sh	57
+cost	state-write_test.sh	57
 cost	dispatch-worker_test.sh	56
 cost	teardown-pass_engine_test.sh	55
 cost	discipline-session_engine_test.sh	55
@@ -62,30 +59,29 @@ cost	discipline-session_test.sh	40
 cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
-cost	record-source_test.sh	30
+cost	state-read_test.sh	30
 cost	board-record_test.sh	29
 cost	handover_engine_test.sh	29
-cost	record-codec_test.sh	25
 cost	writeback_engine_test.sh	25
 cost	state-schema_test.sh	24
 cost	legacy-import_test.sh	23
 cost	read-once_test.sh	20
 cost	render-brief_test.sh	19
-cost	record-holding_test.sh	17
-cost	record-find_test.sh	16
+cost	state-holding_test.sh	17
+cost	state-find_test.sh	16
 cost	dispatch-path_engine_test.sh	15
 cost	merged-facts_test.sh	15
-cost	record-hold_test.sh	15
+cost	state-hold_test.sh	15
 cost	reconcile-read_test.sh	14
-cost	record-append_test.sh	14
+cost	state-entry_test.sh	14
 cost	unit-cost-on_test.sh	14
 cost	coord-log_test.sh	13
 cost	roadmap-features_test.sh	13
 cost	unit-removed_test.sh	12
 cost	posture-read_test.sh	11
-cost	record-append-on_test.sh	11
+cost	state-entry-on_test.sh	11
 cost	merge-confirm_test.sh	10
-cost	record-open_test.sh	10
+cost	state-open_test.sh	10
 cost	skill-hygiene_test.sh	10
 cost	teardown-pass_test.sh	10
 cost	reconcile-settle_test.sh	7
@@ -108,6 +104,8 @@ cost	state-structure_test.sh	4
 cost	teardown-handoff_test.sh	4
 cost	coord-log_engine_test.sh	3
 cost	coord-verdict-table_test.sh	3
+cost	normalize_test.sh	3
+cost	state-file_test.sh	3
 cost	rule-coverage_test.sh	3
 cost	coordinate-template-structure_engine_test.sh	2
 cost	report-pr_test.sh	2

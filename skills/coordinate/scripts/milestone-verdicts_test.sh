@@ -10,7 +10,7 @@
 # whose Evidence is host state, against the GitHub and koto stand-ins and a
 # stand-in shirabe. It ticks `landed` for each through roadmap-status.sh
 # --unit and records verdicts through milestone.sh check-verdict,
-# record-append.sh and roadmap-status.sh --verdict, checking the record, the
+# state-entry.sh and roadmap-status.sh --verdict, checking the record, the
 # picker and close-out before and after the stand-in's default branch takes
 # each roadmap edit and --confirm runs:
 #   - the PR-bearing milestone's pull request, judged against MV1's Evidence
@@ -106,12 +106,12 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-# record-append.sh posts on an item only when its repository opts in to
+# state-entry.sh posts on an item only when its repository opts in to
 # workflow content; acme/widgets does here, through the reader's stand-in.
 printf '#!/usr/bin/env bash\necho include\n' > "$T/pr-content-reader"
-export RECORD_APPEND_PR_CONTENT_READER="$T/pr-content-reader"
+export STATE_ENTRY_PR_CONTENT_READER="$T/pr-content-reader"
 RS="$HERE/roadmap-status.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 MS="$HERE/milestone.sh"
 PF="$HERE/pick-facts.sh"
 
@@ -301,7 +301,7 @@ grep -qxF "> Evidence clauses not held: 1. Changes needed: answer on the public 
     && ok "  ... quoting the not-held clause and the Changes needed line" || bad "  ... quoting the not-held clause and the Changes needed line" "$BRIEF"
 # dispatch-worker.sh, once the dispatch is confirmed, removes the row this
 # way (dispatch-worker_test.sh holds it to that).
-bash "$HERE/record-state.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
+bash "$HERE/state-stored-set.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
 eq "  ... and the picker reads none" "null" "$(unit_of MV2 | jq -r '.rework')"
 
 echo "== the host-state milestone: verified with follow-ups =="
@@ -350,14 +350,14 @@ echo "== a failure entry alone changes nothing =="
 BODY0=$(body_now)
 failure "$T/alone.txt" MV2 1 "the public name answered 503 for an hour"
 bash "$RA" "${RM[@]}" --kind milestone-failure --on none --text-file "$T/alone.txt" >/dev/null 2>"$T/err"; eq "a failure entry is written on its own" 0 $?
-eq "  ... the record's body is unchanged" "$BODY0" "$(body_now)"
+eq "  ... the record's state is unchanged" "$BODY0" "$(body_now)"
 eq "  ... MV2 still reads Done on main" "Done" "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV2 | jq -r .status)"
 eq "  ... and the picker reads it done, not sent back" "true|null|null" "$(unit_of MV2 | jq -r '"\(.done)|\(.rework)|\(.landed)"')"
 
 echo "== a failure reopens the Done host-state milestone =="
 # MV3 depends on MV2 and a worker holds it.
 holding mv3-cert '{"unit": "MV3", "pull_request": ""}' > "$T/h3.json"
-bash "$HERE/record-holding.sh" "${W[@]}" --topic mv3-cert --row-file "$T/h3.json" >/dev/null 2>"$T/err"; rc=$?
+bash "$HERE/state-holding.sh" "${W[@]}" --topic mv3-cert --row-file "$T/h3.json" >/dev/null 2>"$T/err"; rc=$?
 eq "a worker holds MV3" 0 "$rc"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 # PRD AC 14 and 15: a failure entry against the Done host-state milestone
@@ -414,7 +414,7 @@ echo "== the reopened milestone, verified again =="
 # PRD AC 7 and 8 again, on a reopened milestone: its new verified verdict
 # passes the check and its edit sets it Done, so the dependent MV3 no longer
 # reads blocked.
-bash "$HERE/record-state.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
+bash "$HERE/state-stored-set.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
 retire_holding MV3
 OUT=$(bash "$RS" "${W[@]}" --unit MV2 2>"$T/err"); eq "landed again marks MV2's verdict owed" "0 verdict-owed MV2" "$? $OUT"
 verdict MV2 verified none none none "held -- curled the public name after the certificate change and got a 200"
@@ -432,7 +432,7 @@ BODY0=$(body_now)
 printf 'Verdict: MV3 -- verified\nChecked by: %s\nChecked on: %s\nSource: %s at %s\nWork checked: none\n\nEvidence:\n1. held -- posted with no roadmap edit\n\nStrategy fit: fits -- it is the plugin bet\nFollow-ups: none\nChanges needed: none\n' \
     "$S" "$TODAY" "$ROADMAP" "$SHA_MAIN" > "$T/valone.txt"
 bash "$RA" "${RM[@]}" --kind milestone-verdict --on none --text-file "$T/valone.txt" >/dev/null 2>"$T/err"; eq "a verdict entry is written on its own" 0 $?
-eq "  ... the record's body is unchanged, MV3's verdict still owed" "$BODY0" "$(body_now)"
+eq "  ... the record's state is unchanged, MV3's verdict still owed" "$BODY0" "$(body_now)"
 eq "  ... MV3 is not Done on main and the picker still passes over it" "Not started true" \
     "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV3 | jq -r .status) $(unit_of MV3 | jq -r .verdict_owed)"
 eq "  ... and close-out is still refused" "verdict-owed" "$(closeout)"

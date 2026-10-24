@@ -11,7 +11,8 @@
 # dispatch-failed and an abandoned request; a failed launch whose session did
 # appear confirmed; an unreadable listing leaving dispatching; the deadline; a
 # topic a live session uses; the exact session match; a concurrent run
-# refused by the lock; a mismatched topic; the record refusing a write;
+# refused by the lock; a mismatched topic; the record refusing a write, and a
+# write ending in exit 13 (no verdict now) a plain failed write;
 # --rebrief; a review-level bound in the prompt and the brief, kept out of
 # the holding's mode and given once on a re-brief; --releg replacing a spent leg (and refusing an open one, a
 # promoted one, a holding with a pull request); send_execution rewriting a
@@ -157,7 +158,7 @@ case "$1" in
 esac
 EOF
 
-cat >"$T/record-holding.sh" <<'EOF'
+cat >"$T/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 READ=0; LIST=0; RETIRE=0; TOPIC=""; ROWF=""; SESSION=""
 while [ $# -gt 0 ]; do
@@ -205,25 +206,25 @@ cp "$ROWF" "$ST/rows/$TOPIC.json"
 # The real writer prints the record's URL on a successful write.
 echo "https://github.com/acme/widgets/issues/1"
 EOF
-chmod +x "$BIN/koto" "$BIN/niwa" "$T/record-holding.sh"
+chmod +x "$BIN/koto" "$BIN/niwa" "$T/state-holding.sh"
 export PATH="$BIN:$PATH"
-export DC_RECORD_HOLDING="$T/record-holding.sh"
-# record-state.sh: the Run section names the coordinator's address,
+export DC_RECORD_HOLDING="$T/state-holding.sh"
+# state-stored-set.sh: the Run section names the coordinator's address,
 # lane-coord, unless RECORD_ADDRESS sets another or is empty; the Work rows
 # are RECORD_WORK's (a JSON array), none by default. Every call but --list is
-# logged as `record-state <args>`; RECORD_DONE_MODE=fail fails a --done.
-cat >"$T/record-state.sh" <<'EOF'
+# logged as `state-stored-set <args>`; RECORD_DONE_MODE=fail fails a --done.
+cat >"$T/state-stored-set.sh" <<'EOF'
 #!/usr/bin/env bash
 [ "${RECORD_STATE_MODE:-}" = fail ] && exit 2
 if [ "${1-}" != --list ]; then
-    printf 'record-state %s\n' "$*" >>"$ST/calls.log"
-    [ "${RECORD_DONE_MODE:-}" = fail ] && { echo "record-state: the record changed" >&2; exit 12; }
+    printf 'state-stored-set %s\n' "$*" >>"$ST/calls.log"
+    [ "${RECORD_DONE_MODE:-}" = fail ] && { echo "state-stored-set: the record changed" >&2; exit 12; }
     exit 0
 fi
 jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" --argjson w "${RECORD_WORK:-[]}" '{run: (if $a == "" then [] else [{key: "coordinator", value: $a, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end), standing: [], work: $w}'
 EOF
-chmod +x "$T/record-state.sh"
-export DC_RECORD_STATE="$T/record-state.sh"
+chmod +x "$T/state-stored-set.sh"
+export DC_RECORD_STATE="$T/state-stored-set.sh"
 
 # --- the workspace -------------------------------------------------------------------
 
@@ -300,7 +301,7 @@ has "prompt: repository" "$P" "in acme/widgets"
 has "prompt: stop checkpoint" "$P" "stop at: The PR is ready with CI green."
 has "prompt: brief path" "$P" "$W/.niwa/dispatch-briefs/plugin-api.md"
 [ -f "$W/.niwa/dispatch-briefs/plugin-api.md" ] && ok "brief: written" || bad "brief: written" ""
-lacks "fresh: no rework row, no removal" "$(calls)" "record-state --session"
+lacks "fresh: no rework row, no removal" "$(calls)" "state-stored-set --session"
 
 # --- a milestone a changes-needed verdict sent back -----------------------------------------
 # Its rework row is quoted into the brief and removed once the dispatch is
@@ -312,21 +313,21 @@ export RECORD_WORK="$REWORK_ROWS"
 OUT=$(run 2>"$T/rw.err"); RC=$?
 eq  "rework: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
 has "rework: the brief quotes the verdict's report" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "> Evidence clauses not held: 2. Changes needed: name the skipped plugin"
-has "rework: the unit's rework row is removed" "$(calls)" "record-state --session coord --done Feature 2 --kind rework"
+has "rework: the unit's rework row is removed" "$(calls)" "state-stored-set --session coord --done Feature 2 --kind rework"
 lacks "rework: and no other unit's" "$(calls)" "--done Feature 1"
-RM_AT=$(grep -n 'record-state --session coord --done' "$ST/calls.log" | head -1 | cut -d: -f1)
+RM_AT=$(grep -n 'state-stored-set --session coord --done' "$ST/calls.log" | head -1 | cut -d: -f1)
 LAST_WRITE=$(grep -n 'record write plugin-api dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
 if [ -n "$RM_AT" ] && [ -n "$LAST_WRITE" ] && [ "$RM_AT" -gt "$LAST_WRITE" ]; then ok "rework: removed after the holding reads dispatched"; else bad "rework: removed after the holding reads dispatched" "$(calls)"; fi
 reset "$INPUT_DELIVER"
 export RECORD_WORK="$REWORK_ROWS" RECORD_DONE_MODE=fail
 OUT=$(run 2>"$T/rw.err"); RC=$?
 eq  "rework: a failed removal still dispatches" "0 session=$NIWA_NAME" "$RC $OUT"
-has "rework: and says how to remove the row" "$(cat "$T/rw.err")" 'remove it with record-state.sh --session coord --done "Feature 2" --kind rework'
+has "rework: and says how to remove the row" "$(cat "$T/rw.err")" 'remove it with state-stored-set.sh --session coord --done "Feature 2" --kind rework'
 reset "$INPUT_DELIVER"
 export RECORD_WORK="$REWORK_ROWS"
 NIWA_MODE=fail; export NIWA_MODE
 run >/dev/null 2>&1
-lacks "rework: a failed launch removes nothing" "$(calls)" "record-state --session"
+lacks "rework: a failed launch removes nothing" "$(calls)" "state-stored-set --session"
 # The fresh dispatch again, which the re-run below starts from.
 reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
@@ -547,7 +548,7 @@ lacks "address: nor the koto session name" "$(cat "$W/.niwa/dispatch-briefs/plug
 reset "$INPUT_DELIVER"; export RECORD_ADDRESS=""
 ERR=$(run 2>&1 >/dev/null); RC=$?
 eq  "address: a record naming no address refuses, exit 1" 1 "$RC"
-has "address: naming the fix" "$ERR" "record-state.sh --session coord --run coordinator <address>"
+has "address: naming the fix" "$ERR" "state-stored-set.sh --session coord --run coordinator <address>"
 nothing_written "address, none"
 reset "$INPUT_DELIVER"; export RECORD_STATE_MODE=fail
 run >/dev/null 2>&1; eq "address: a Run section that can't be read exits 2" 2 "$?"
@@ -656,13 +657,15 @@ run >/dev/null 2>&1; RC=$?
 eq  "record refuses the write-ahead: exit 8" 8 "$RC"
 eq  "record refuses: no launch" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 
-# A full record (exit 13) is reported as one, not as a generic write failure.
+# There's no size budget: exit 13 is no verdict any more, so a write ending
+# with it is a plain failed write, never reported as a full record.
 reset "$INPUT_DELIVER"
 export RECORD_WRITE_MODE=full
 run >/dev/null 2>"$T/full.err"; RC=$?
-eq  "a full record: the dispatch stops, exit 2" 2 "$RC"
-grep -q "record-full" "$T/full.err" && ok "a full record: it says record-full" || bad "a full record: it says record-full" "$(cat "$T/full.err")"
-eq  "a full record: no launch" 0 "$(grep -c "^niwa dispatch" "$ST/calls.log")"
+eq  "an unknown write exit: the dispatch stops, exit 2" 2 "$RC"
+grep -q "writing the holding for plugin-api failed" "$T/full.err" && ok "an unknown write exit: a plain failed write" || bad "an unknown write exit: a plain failed write" "$(cat "$T/full.err")"
+grep -q "record-full" "$T/full.err" && bad "an unknown write exit: no record-full verdict" "$(cat "$T/full.err")" || ok "an unknown write exit: no record-full verdict"
+eq  "an unknown write exit: no launch" 0 "$(grep -c "^niwa dispatch" "$ST/calls.log")"
 
 # The record changing between the writer's read and its write (exit 12) is
 # retried; a record that keeps changing is a failed write, before any launch.
@@ -875,7 +878,7 @@ eq  "pid-less lock, over a minute old: taken over" 0 "$RC"
 reset "$INPUT_DELIVER"
 ERR=$(cd "$W/inst" && DC_RECORD_HOLDING="$T/absent.sh" bash "$S" --session coord 2>&1 >/dev/null); RC=$?
 eq  "no record script: exit 2" 2 "$RC"
-has "no record script: says so" "$ERR" "record-holding.sh is not installed"
+has "no record script: says so" "$ERR" "state-holding.sh is not installed"
 eq  "no record script: nothing launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 
 # --- the leg keys (PRD R13) ---------------------------------------------------------------------------------

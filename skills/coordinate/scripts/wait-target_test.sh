@@ -62,7 +62,7 @@ case "$1 $2" in
     *) exit 64 ;;
 esac
 EOF
-cat >"$T/record-holding.sh" <<'EOF'
+cat >"$T/state-holding.sh" <<'EOF'
 #!/usr/bin/env bash
 MODE=""; TOPIC=""
 while [ $# -gt 0 ]; do
@@ -81,13 +81,13 @@ case "$MODE" in
 esac
 EOF
 # The stored set's reader: the Standing rows the test wrote, or none.
-cat >"$T/record-state.sh" <<'EOF'
+cat >"$T/state-stored-set.sh" <<'EOF'
 #!/usr/bin/env bash
 if [ -f "$ST/state.json" ]; then cat "$ST/state.json"; else echo '{"run":[],"standing":[],"work":[]}'; fi
 EOF
-chmod +x "$BIN/koto" "$T/record-holding.sh" "$T/record-state.sh"
+chmod +x "$BIN/koto" "$T/state-holding.sh" "$T/state-stored-set.sh"
 export PATH="$BIN:$PATH"
-export DC_RECORD_HOLDING="$T/record-holding.sh" DC_RECORD_STATE="$T/record-state.sh"
+export DC_RECORD_HOLDING="$T/state-holding.sh" DC_RECORD_STATE="$T/state-stored-set.sh"
 
 reset() {
     rm -rf "$ST"

@@ -343,7 +343,7 @@ back to `decision_next`, so no answer changes a route.
 
 **Sources.** `coord/decision.json`, which `decision-next.sh` writes as
 `decision_next`'s `default_action` when its rule 8 finds an entry awaiting a
-verdict. It is the record's Decisions section as `record-decision.sh --list`
+verdict. It is the record's Decisions section as `state-decision.sh --list`
 reads it, filtered to that one entry. The agent writes the entry's question
 and options when it opens it, and a worker's report or the agent's own raise
 supplies its text; nothing selects what goes in.
@@ -366,7 +366,7 @@ outside the coordinator's scope, and none of those facts reaches the input:
   `arguments`;
 - what a person already decided or reserved: the record's Standing rows
   (`answer`, `approval`, `assignment`, `pause`), read by
-  `record-state.sh --list`;
+  `state-stored-set.sh --list`;
 - the steps reserved for a person and the four grounds themselves: the
   `decision_verdict` directive in `coordinate.md`, which only the agent reads;
 - who the run reports to: `REPORTS_TO` and the Run section's `reports-to`;

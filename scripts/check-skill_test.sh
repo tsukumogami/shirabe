@@ -866,11 +866,11 @@ run_coord_list() {
 }
 for path in \
     skills/coordinate/scripts/dispatch-common.sh \
-    skills/coordinate/scripts/record-common.sh \
+    skills/coordinate/scripts/state-common.sh \
     skills/coordinate/scripts/coord-log.sh \
     skills/coordinate/scripts/coord-verdict.sh \
     skills/coordinate/scripts/coordinate-open.sh \
-    skills/coordinate/scripts/record-codec.jq \
+    skills/coordinate/scripts/state-schema.jq \
     skills/coordinate/scripts/testdata/test-lib.sh \
     skills/coordinate/scripts/testdata/coordinate-engine-lib.sh \
     skills/coordinate/koto-templates/coordinate.md \

@@ -7,20 +7,20 @@
 #
 # Proves, one line per case:
 #   1. a start names no store (the run has no STORE variable): with no record
-#      it stops at record_open, record-open.sh writes the record into the
+#      it stops at record_open, state-open.sh builds the empty record into the
 #      run's record/ keys and opens nothing on GitHub, the next find reaches
 #      reconcile, and coord/source.json reads session;
-#   2. writes through record-write.sh and record-state.sh land in the keys and
+#   2. writes through state-write.sh and state-stored-set.sh land in the keys and
 #      not on GitHub, the crash set's reports-to row among them with no store
 #      row, and the run passes reconcile on them;
 #   2b. a second start on the same host resumes the run (PRD R12): it prints
 #      the first run's name with resumed=1, opens and cancels nothing, and the
 #      run goes on where it stood;
 #   3. each refusal the write guarantees name leaves every record/ key
-#      byte-identical: a non-owner's change (65), a body edited from an older
-#      written time (12), a state rendering past 60,000 bytes (13), a run moved
-#      with `koto next --to` (10), and a write from a run that is no longer the
-#      scope's live one (10); that run, which can't be resumed, is carried: the
+#      byte-identical: a non-owner's change (65), a state edited from an older
+#      written time (12), a run moved with `koto next --to` (10), and a write
+#      from a run that is no longer the scope's live one (10); there is no size
+#      budget, so a state over 60,000 bytes is written (0); that run, which can't be resumed, is carried: the
 #      next start opens a new run holding every record/ key of the old one;
 #   4. a changed template carries the live run's record/ and legs/ keys into a
 #      new run and keeps the old log readable;
@@ -46,7 +46,7 @@ done
 koto_legacy_env_enable
 ORIG_PATH=$PATH
 
-# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# test-lib.sh: the GitHub DB helpers, state_json and the counters. It
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
@@ -99,10 +99,10 @@ keys() {
 # gh_writes: the write calls the gh stand-in recorded.
 gh_writes() { grep -E '^(issue|pr) (create|edit|close|ready|comment)|^api (--method|-X) (POST|PATCH|PUT|DELETE)' "$GH_DB.calls"; }
 # current: the state as the session holds it, in $T/cur.json, and its written
-# time in CURW, for a body edited from it.
+# time in CURW, for a state edited from it.
 current() { (cd "$WD" && session_record "$S") > "$T/cur.json"; CURW=$(jq -r .written "$T/cur.json"); }
-edited() { # edited <jq program> <out>: the current state changed by the program, rendered at CURW
-    jq -c "del(.written) | $1" "$T/cur.json" | bash "$PS/record-render.sh" --container issue --written "$CURW" > "$2"
+edited() { # edited <jq program> <out>: the current state changed by the program, in normal form at CURW
+    state_json "$(jq -c "$1" "$T/cur.json")" "$CURW" > "$2"
 }
 
 db_init
@@ -132,9 +132,8 @@ open_run || { bad "the session opens" "$(cat "$T/open.err")"; done_tests session
 ok "the session opens"
 eq "  ... with no STORE variable" "" "$(cd "$WD" && bash "$PS/coord-log.sh" vars --session "$S" | jq -r '.STORE // ""')"
 eq "with no record it stops at record_open" record_open "$(at)"
-render "$(record_json roadmap store)" issue > "$T/open.md"
 reset_calls
-write record-open.sh --body-file "$T/open.md"; eq "record-open.sh opens the record" 0 $?
+write state-open.sh; eq "state-open.sh opens the record" 0 $?
 (cd "$WD" && koto context exists "$S" record/meta) && ok "  ... in the run's record/meta" || bad "  ... in the run's record/meta" "$(cat "$T/w.err")"
 eq "  ... opening nothing on GitHub" "" "$(gh_writes)"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
@@ -144,13 +143,13 @@ echo "== 2. writes land in the keys =="
 current
 edited '.deferrals = [{deferral: "a", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' "$T/w1.md"
 reset_calls
-write record-write.sh --body-file "$T/w1.md"; eq "record-write.sh writes the record" 0 $?
+write state-write.sh --state-file "$T/w1.md"; eq "state-write.sh writes the record" 0 $?
 eq "  ... into record/deferrals" a "$(cd "$WD" && koto context get "$S" record/deferrals | jq -r '.[0].deferral')"
-write record-state.sh --run arguments "docs/roadmaps/ROADMAP-store.md" --by "the human" \
-    && write record-state.sh --run cap 2 --by "the human" \
-    && write record-state.sh --run coordinator coord-test --by coord-test \
-    && write record-state.sh --run reports-to "the human" --by "the human"
-eq "record-state.sh writes the stored set, reports-to included" 0 $?
+write state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-store.md" --by "the human" \
+    && write state-stored-set.sh --run cap 2 --by "the human" \
+    && write state-stored-set.sh --run coordinator coord-test --by coord-test \
+    && write state-stored-set.sh --run reports-to "the human" --by "the human"
+eq "state-stored-set.sh writes the stored set, reports-to included" 0 $?
 eq "  ... with no store row" "" "$(cd "$WD" && koto context get "$S" record/run | jq -r '[.[] | select(.key == "store")] | length | select(. > 0)')"
 eq "  ... neither touching GitHub" "" "$(gh_writes)"
 eq "the run passes reconcile on the keys" pick "$(at --with-data '{"reconciled":"reported"}')"
@@ -170,18 +169,22 @@ current
 SNAP=$(keys "$S")
 [ -n "$SNAP" ] && ok "the snapshot reads the keys" || bad "the snapshot reads the keys" ""
 edited '.run |= map(if .key == "cap" then .value = "3" else . end)' "$T/nonowner.md"
-grep -q '^| cap | 3 |' "$T/nonowner.md" && ok "the non-owner's body changes the cap" || bad "the non-owner's body changes the cap" "$(grep -n cap "$T/nonowner.md")"
-write record-write.sh --body-file "$T/nonowner.md"; eq "a non-owner changing record/run is refused" 65 $?
+[ "$(jq -r '.run[] | select(.key == "cap") | .value' "$T/nonowner.md")" = 3 ] && ok "the non-owner's state changes the cap" || bad "the non-owner's state changes the cap" "$(jq -c .run "$T/nonowner.md")"
+write state-write.sh --state-file "$T/nonowner.md"; eq "a non-owner changing record/run is refused" 65 $?
 eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
-write record-write.sh --body-file "$T/w1.md"; eq "a body edited from an older written time is refused" 12 $?
+write state-write.sh --state-file "$T/w1.md"; eq "a state edited from an older written time is refused" 12 $?
 eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
-jq -c --arg r "$(head -c 61000 /dev/zero | tr '\0' 'x')" 'del(.written) | .deferrals[0].reason = $r' "$T/cur.json" \
-    | bash "$PS/record-render.sh" --container issue --written "$CURW" > "$T/big.md"
-write record-write.sh --body-file "$T/big.md"; eq "a state rendering past 60,000 bytes is refused" 13 $?
-eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
+# No size budget: a state past 60,000 bytes is written, so this case moves the
+# keys on and takes a fresh snapshot for the refusals after it.
+state_json "$(jq -c --arg r "$(head -c 61000 /dev/zero | tr '\0' 'x')" '.deferrals[0].reason = $r' "$T/cur.json")" "$CURW" > "$T/big.md"
+[ "$(wc -c < "$T/big.md")" -gt 60000 ] && ok "the big state is past 60,000 bytes" || bad "the big state is past 60,000 bytes" "$(wc -c < "$T/big.md")"
+write state-write.sh --state-file "$T/big.md"; eq "a state over 60,000 bytes is written" 0 $?
+eq "  ... into record/deferrals" 61000 "$(cd "$WD" && koto context get "$S" record/deferrals | jq -r '.[0].reason | length')"
+current
+SNAP=$(keys "$S")
 edited '.deferrals += [{deferral: "b", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' "$T/w2.md"
 eq "koto next --to moves the run" ask_up "$(at --to ask_up)"
-write record-write.sh --body-file "$T/w2.md"; eq "a write after koto next --to is refused" 10 $?
+write state-write.sh --state-file "$T/w2.md"; eq "a write after koto next --to is refused" 10 $?
 grep -q 'directed transition' "$T/w.err" && ok "  ... as a directed transition" || bad "  ... as a directed transition" "$(cat "$T/w.err")"
 eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
 # The run with a directed transition can't be resumed (every write from it is
@@ -196,7 +199,7 @@ eq "  ... and its find reaching reconcile on the session store" reconcile "$(at)
 NEW=$S
 SNAP=$(keys "$OLD")
 S=$OLD
-write record-write.sh --body-file "$T/w2.md"; eq "a write from the run that is no longer live is refused" 10 $?
+write state-write.sh --state-file "$T/w2.md"; eq "a write from the run that is no longer live is refused" 10 $?
 grep -q 'is not the live' "$T/w.err" && ok "  ... as not the live run" || bad "  ... as not the live run" "$(cat "$T/w.err")"
 eq "  ... and changes no key" "$SNAP" "$(keys "$OLD")"
 S=$NEW

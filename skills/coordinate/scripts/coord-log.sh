@@ -84,7 +84,7 @@
 #       Prints "<state> <seq>": the state the session is in now, the target of
 #       the log's latest transition (transitioned, directed or rewound), and
 #       that entry's sequence. Exit 0; 1 no transition; 2 read failure.
-#       record-decision.sh binds each write mode to its state with it.
+#       state-decision.sh binds each write mode to its state with it.
 #   coord-log.sh entry --session S --state ST [--before SEQ] [--with-time]
 #       Prints "<seq> <from>" for the latest entry into ST (transitioned,
 #       directed or rewound), before SEQ when given; --with-time adds the

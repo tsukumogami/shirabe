@@ -47,7 +47,7 @@ capture still reads its worker row from there.
 
 It writes `unit-cost.json` into the archive (to a temporary name, then
 renamed; it is not in the MANIFEST, and the archive's README says so) and
-posts one `cost` entry through `record-append.sh`. A record that already
+posts one `cost` entry through `state-entry.sh`. A record that already
 holds a `cost` entry with the same capture key, or with the same non-null
 `"niwa.dispatch.id"`, gets nothing new, so the pass and a removal's sweep
 never leave two entries for one unit. The list and the post run under one
@@ -57,19 +57,19 @@ its list and post bounds, one whose holder is gone or older than 60 seconds
 takes it over, and a removals directory that can't be used leaves the
 capture posting with only the list check, saying so in one line.
 
-The entry is kept in the coordinator's session (`record-append.sh --on
+The entry is kept in the coordinator's session (`state-entry.sh --on
 none`): the unit's own pull requests and issues carry nothing about the
 tools. A repository opts in to
 today's placement with the header `## PR Workflow Content: include` in its
 `CLAUDE.local.md` or `CLAUDE.md` (#1114), read only through
-`scripts/pr-workflow-content.sh`. `record-append.sh` makes that check itself
+`scripts/pr-workflow-content.sh`. `state-entry.sh` makes that check itself
 for every entry it posts with `--on`, this one included: it fetches the
 repository's `CLAUDE.md` from GitHub into a directory of its own and hands
 that to the reader, since it has no checkout, so an opt-in only in an uncommitted
 `CLAUDE.local.md` reads as omit here. Only the reader's `include` restores
 placement; a missing reader, a failed read or any other answer keeps the
 entry in the session. With `include`, the entry is posted with
-`record-append.sh --on` on the holding's pull request (its Pull request
+`state-entry.sh --on` on the holding's pull request (its Pull request
 cell, else the first pull request of the sealed verdict), else the unit's
 issue (a Unit of `#n: ...` on the host, or `owner/repo#n: ...`), else
 nowhere. The text is checked against the destination's visibility when it
@@ -82,7 +82,7 @@ The capture's last line on stderr says where the entry went:
   request or issue unless the repository opts in`;
 - `unit-cost: posted the cost entry on <owner/repo#n>`;
 - `unit-cost: the record already holds this unit's cost entry`;
-- `unit-cost: the post failed (record-append exit <n>)`;
+- `unit-cost: the post failed (state-entry exit <n>)`;
 - `unit-cost: the post did not finish in time`;
 - `unit-cost: the entry could not be computed`.
 
@@ -253,7 +253,7 @@ recoverable.
 
 ## The entry
 
-The comment, after `record-append.sh`'s marker and stamp, is one summary
+The comment, after `state-entry.sh`'s marker and stamp, is one summary
 line, a blank line and one fenced `json` block holding a compact object:
 
 ````
@@ -488,11 +488,11 @@ gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate \
 ```
 
 A run now keeps every entry in the coordinator's session,
-where `record-append.sh --session <session> --list` returns them as entries
+where `state-entry.sh --session <session> --list` returns them as entries
 of kind `cost`, each one's text the same summary line and fenced block:
 
 ```bash
-"${CLAUDE_SKILL_DIR}/scripts/record-append.sh" --session <session> --list \
+"${CLAUDE_SKILL_DIR}/scripts/state-entry.sh" --session <session> --list \
   | jq -r '.[] | select(.kind == "cost") | .text' \
   | sed -n '/^```json$/,/^```$/p' | grep -v '^```' \
   | jq -c 'select(.schema == "unit-cost/1")

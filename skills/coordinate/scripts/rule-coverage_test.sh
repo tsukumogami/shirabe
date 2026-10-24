@@ -141,7 +141,7 @@ sort "$T/swant" > "$T/swant.s"
 
 # Each reference file is named in at least one state section of the template.
 awk '/^## / { on = 1 } on' "$T/body" > "$T/sections"
-for ref in loop.md brief-template.md verification-checklist.md record-template.md; do
+for ref in loop.md brief-template.md verification-checklist.md state-keys.md; do
     if grep -qF -e "references/$ref" "$T/sections"; then
         ok "coordinate.md names references/$ref"
     else

@@ -220,15 +220,15 @@ to_reconciled takeover "$(with_decisions takeover "$E12")"
 if [ "$REACHED" = escalate_send ]; then
     ok "12: the unsent escalation is rendered first, before any dispatch"
     eq "12: the render names entry 5" "message escalation 5 1" "$(bash "$PS/coord-log.sh" capture --session "$S" --name ESCALATE_MESSAGE | cut -d' ' -f1-4)"
-    write_as_agent record-decision.sh --sent --route message
+    write_as_agent state-decision.sh --sent --route message
     eq "12: --sent (agent-run) marks it" 0 $?
     eq "12: then the proposed entry is taken up" decision_take "$(at --with-data '{"sent":"sent"}')"
-    write_as_agent record-decision.sh --take
+    write_as_agent state-decision.sh --take
     eq "12: then the unjudged one is routed for a verdict" decision_verdict "$(at --with-data '{"taken":"taken"}')"
     eq "12: its entry is in coord/decision.json" 1 "$(koto context get "$S" coord/decision.json | jq -r .decision)"
-    write_as_agent record-decision.sh --settle --outcome ship --reason "the loader is ready"
+    write_as_agent state-decision.sh --settle --outcome ship --reason "the loader is ready"
     eq "12: then entry 2" decision_verdict "$(at --with-data '{"verdict":"settle","rationale":"ready"}')"
-    write_as_agent record-decision.sh --settle --outcome wait --reason "the registry needs it"
+    write_as_agent state-decision.sh --settle --outcome wait --reason "the registry needs it"
     eq "12: with nothing owed the run reaches pick" pick "$(at --with-data '{"verdict":"settle","rationale":"needed"}')"
     eq "12: the escalation was rendered once" 1 "$(entered escalate)"
     eq "12: nothing was dispatched first" 0 "$(entered dispatch_check)"
@@ -244,7 +244,7 @@ to_reconciled reversal "$(with_decisions reversal "$E13")"
 if [ "$REACHED" = pick ] \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
     eq "13: the answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
-    write_as_agent record-decision.sh --answer --outcome ship
+    write_as_agent state-decision.sh --answer --outcome ship
     eq "13: --answer (agent-run) settles the entry" "settled|ship; reason: the loader is ready|a person" \
         "$(entry_of 1 | jq -r '"\(.state)|\(.outcome)|\(.decided_by)"')"
     eq "13: a reversal goes to decision_apply" decision_apply "$(at --with-data '{"answered":"reversal"}')"
@@ -254,14 +254,13 @@ if [ "$REACHED" = pick ] \
     live_body | jq -c '.reversals += [{date: $d, reversed: "wait for the registry", now: "ship the loader first", reason: "the answer to decision 1", from: "a person"}]' \
         --arg d "$(date -u +%Y-%m-%dT%H:%MZ)" > "$T/rev.json"
     # Edited from the live body, so it carries the live written time.
-    jq 'del(.written)' "$T/rev.json" > "$T/rev.next.json"
-    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rev.json")" "$T/rev.next.json" > "$T/rev.md"
-    write_as_agent record-write.sh --body-file "$T/rev.md"
-    eq "13: record-write.sh (agent-run) adds the Reversals row" 0 $?
+    state_json "$(cat "$T/rev.json")" "$(jq -r .written "$T/rev.json")" > "$T/rev.next.json"
+    write_as_agent state-write.sh --state-file "$T/rev.next.json"
+    eq "13: state-write.sh (agent-run) adds the Reversals row" 0 $?
     # The entry came from the dispatcher, so its settle owes it a reply, which
     # the loop renders before it goes on.
     eq "13: record confirms the Reversals row, and the reply to the dispatcher is rendered" decision_reply_send "$(at)"
-    write_as_agent record-decision.sh --sent
+    write_as_agent state-decision.sh --sent
     eq "13: with the reply sent the run goes on" pick "$(at --with-data '{"sent":"sent"}')"
     eq "13: the Reversals row is on the record" 1 "$(live_body | jq '.reversals | length')"
 else
@@ -285,7 +284,7 @@ echo "== 15. escalate_send's two routes to a person =="
 for route in tool message; do
     to_reconciled "route-$route" "$(with_decisions "route-$route" "$(jq -nc --argjson a "$(dent 1 escalated "$UNSENT")" '[$a]')")"
     if [ "$REACHED" = escalate_send ]; then
-        write_as_agent record-decision.sh --sent --route "$route"
+        write_as_agent state-decision.sh --sent --route "$route"
         case "$(entry_of 1 | jq -r .evidence)" in
             *"asked by $route"*) ok "15 $route: the route is recorded on the entry" ;; *) bad "15 $route: the route is recorded on the entry" "$(cat "$T/w.err") $(entry_of 1)" ;;
         esac
@@ -297,7 +296,7 @@ for route in tool message; do
             eq "15 message: an answer naming no round doesn't leave wait" wait "$(at --with-data '{"event":"answer","decision":"1"}')"
             eq "15 message: the answer comes back from wait" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
         fi
-        write_as_agent record-decision.sh --answer --outcome wait
+        write_as_agent state-decision.sh --answer --outcome wait
         eq "15 $route: --answer settles the entry" "settled a person" "$(entry_of 1 | jq -r '"\(.state) \(.decided_by)"')"
         eq "15 $route: recorded goes back through decision_next to pick" pick "$(at --with-data '{"answered":"recorded"}')"
         if [ "$route" = message ]; then

@@ -63,7 +63,7 @@
 # clause <n> failed: ...`, a 600-byte report cut to 600 bytes); --drop clears
 # it and the failure written again reopens.
 #
-# Every verdict and failure is a session entry (record-append.sh --on none),
+# Every verdict and failure is a session entry (state-entry.sh --on none),
 # given as --entry N and posted on the pull request its edit opens, whose
 # comment the Progress line cites; roadmap-status-entry_test.sh covers that
 # post's failures and retries. The record is the run's session's; nothing is
@@ -75,12 +75,12 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-# record-append.sh posts on an item only when its repository opts in to
+# state-entry.sh posts on an item only when its repository opts in to
 # workflow content; acme/widgets does here, through the reader's stand-in.
 printf '#!/usr/bin/env bash\necho include\n' > "$T/pr-content-reader"
-export RECORD_APPEND_PR_CONTENT_READER="$T/pr-content-reader"
+export STATE_ENTRY_PR_CONTENT_READER="$T/pr-content-reader"
 RS="$HERE/roadmap-status.sh"
-RA="$HERE/record-append.sh"
+RA="$HERE/state-entry.sh"
 
 # A stand-in shirabe: `roadmap populate <file>` is logged and leaves the file
 # as it is, so the test sees exactly the three lines the script changes.

@@ -1,0 +1,37 @@
+{
+  "decisions": {
+    "entries": [
+      {
+        "asked": "",
+        "context": "Option d was approved.",
+        "decided_by": "",
+        "decision": "8",
+        "evidence": "",
+        "grounds": "scope",
+        "options": "keep option d and ship -- d stands\nswitch to option c -- versions pin",
+        "outcome": "",
+        "owed": "escalation",
+        "problem": "Dropping it changes the scope.",
+        "question": "Ship with the mixed check result?",
+        "reason": "the flip did not happen",
+        "recommendation": "keep option d and ship",
+        "round": "1",
+        "source": "worker ci-pin [20260927T233505Z report 40.1]",
+        "state": "escalated",
+        "target": "a person",
+        "updated": "2026-09-27T23:40Z",
+        "verdict": "escalate"
+      }
+    ],
+    "next": 9
+  },
+  "deferrals": [],
+  "holdings": [],
+  "reversals": [],
+  "scope": {
+    "kind": "roadmap",
+    "name": "plugin-system"
+  },
+  "side_effects": [],
+  "written": "2026-10-01T09:00:00Z"
+}

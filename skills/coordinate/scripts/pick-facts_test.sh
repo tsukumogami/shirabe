@@ -195,7 +195,7 @@ eq "every assigned issue comes from one GraphQL read, none from gh issue view (s
 grep -q -- "-f o0=acme -f r0=widgets -F n0=591 -f o1=acme -f r1=widgets -F n1=592" "$GH_DB.calls" \
     && ok "each assigned issue is read in its own repository" || bad "each assigned issue is read in its own repository" "$(calls)"
 eq "the record is read from the session, never from GitHub" 0 "$(grep -cE '^(issue|pr) view 7 ' "$GH_DB.calls")"
-eq "the holdings are record-holding.sh --list's" "$(bash "$HERE/record-holding.sh" --list --session "$S" | jq -c '[.[].worker]')" \
+eq "the holdings are state-holding.sh --list's" "$(bash "$HERE/state-holding.sh" --list --session "$S" | jq -c '[.[].worker]')" \
     "$(facts | jq -c '[.holdings[].worker]')"
 # refused <label> <db change>: the assigned issues' read fails or comes back
 # short, and pick-facts fails the read (exit 2) rather than drop the unit or

@@ -35,7 +35,7 @@ koto	context get	-	always
 # GitHub and git. Every check script reads GitHub with `gh api --method GET`,
 # `gh pr view/list` and GraphQL queries; the coordinator's record lives in its
 # koto session, so no script writes one on GitHub. The agent-run scripts make
-# the only GitHub writes: record-append.sh's outward entries, roadmap-status.sh's
+# the only GitHub writes: state-entry.sh's outward entries, roadmap-status.sh's
 # roadmap pull request, land-merge.sh's merge through /execute's merge-exec.sh,
 # and the legacy importer's one note on a record it imports
 # (skills/coordinate/legacy-import/). git reads the origin remote for the host at roadmap scope.
@@ -56,9 +56,8 @@ shirabe	roadmap populate	-	always
 koto	context list	--prefix	always
 koto	context remove	-	always
 pkill	-	-	always
-# The record's codec (record-render.sh, record-parse.sh), its checks
-# (state-schema.jq) and every script that reads or writes the record are jq
-# programs over its JSON.
+# The record's checks (state-schema.jq) and every script that reads or writes
+# the record are jq programs over its JSON.
 jq	-	-	always
 #
 # The dispatch path's scripts launch workers with the workspace manager's
@@ -88,7 +87,7 @@ koto	request attach	--session	always
 # to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).
 #not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named only to forbid it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
-#not-a-call-site	skills/coordinate/references/record-template.md	koto	--to	named only as a write the session store refuses after it
+#not-a-call-site	skills/coordinate/references/state-keys.md	koto	--to	named only as a write the session store refuses after it
 # The session store (docs/designs/current/DESIGN-coordinator-record-teardown.md):
 # the coordinator's record is always its koto session. coordinate-open.sh
 # probes at every start, by feature from each subcommand's own `--help`,

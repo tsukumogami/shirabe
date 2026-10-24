@@ -15,7 +15,7 @@
 # submit the event again, with the reason and the accepted topics on stderr
 # and in context key coord/merged_facts.json.
 #
-# The unit's topic only locates the holding: record-holding.sh --read finds
+# The unit's topic only locates the holding: state-holding.sh --read finds
 # its row on GitHub, whose Pull request cell gives the number and the
 # repository. The head comes from the unit's own verify capture in this run
 # (VERIFIED naming #<pr>, sealed at verify_board at any visit, reading
@@ -68,8 +68,8 @@ bl_session_ok "$SESSION" || usage
 # listed, so the tick is retried rather than refused on a guess.
 refuse_unit() {
     local known
-    known=$(bash "$HERE/record-holding.sh" --session "$SESSION" --list 2>/dev/null \
-        | jq -c -L "$HERE" 'include "record-codec"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
+    known=$(bash "$HERE/state-holding.sh" --session "$SESSION" --list 2>/dev/null \
+        | jq -c -L "$HERE" 'include "state-schema"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
         echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
     # lib_emit exits through this trap. no_verified_head sets the only other
@@ -94,7 +94,7 @@ else
         UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
         bl_topic_ok "$UNIT" || refuse_unit "is not a topic"
     fi
-    ROW=$(bash "$HERE/record-holding.sh" --session "$SESSION" --topic "$UNIT" --read)
+    ROW=$(bash "$HERE/state-holding.sh" --session "$SESSION" --topic "$UNIT" --read)
     case $? in
         0) ;;
         1) refuse_unit "names no holding in the record" ;;

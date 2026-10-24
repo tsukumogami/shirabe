@@ -9,8 +9,9 @@
 # overflow or a detour through wait giving clear; only this run's stamps
 # counting; an identical answer's line counting it recorded; the verdict's
 # entry in coord/decision.json; clear-report only for a report with a
-# holding; record-full on a record too close to the budget; --owed dispatch
-# and pick by the DESIGN's blocking table. The record is the run's session's;
+# holding; a record of any size routing its owed write (no size budget);
+# --owed dispatch and pick by the DESIGN's blocking table, --owed over the
+# caller's --parsed record (rs_record's output) alone. The record is the run's session's;
 # carry is never routed (a rotation carries its predecessor's decisions when
 # it opens).
 #
@@ -66,7 +67,12 @@ build() {
 }
 to() { log_to "$S" "$LAST" "$1"; LAST=$1; }
 put_record() { seed_session "$S" "$1"; } # put_record <record-json>: the run's record
-show() { RS_SESSION="$S" bash "$HERE/record-source.sh" --scope discipline --name ci --repo acme/widgets --show; }
+# reader_state: the record as a reader is handed it (rs_record's output).
+reader_state() {
+    ( RS_SESSION=${1:-$S} PROG=reader SCOPE=discipline NAME=ci
+      . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; RS_RETRY_PAUSE=0
+      rs_record "$T/reader" > /dev/null 2>&1 && jq -cS . "$T/reader" )
+}
 # report <holding|unknown> [questions|overflow]: a report reaches decision_open
 report() {
     to report_facts
@@ -198,7 +204,7 @@ eq "an answer that names no decision is not owed" "clear" "$(word)"
 build
 to wait; log_evidence "$S" wait '{"event":"evidence"}'; to decision_evidence; to decision_next
 eq "evidence that names no decision is not owed" "clear" "$(word)"
-# Nor any other arrival record-decision.sh refuses: an answer naming no round,
+# Nor any other arrival state-decision.sh refuses: an answer naming no round,
 # a decision the record has no entry for, one that isn't a plain number.
 unwritable() { # unwritable <label> <state> <wait fields-json> <build rule>: entry 1 and an earlier arrival, then this one
     build ${4-}
@@ -210,12 +216,12 @@ unwritable "an answer naming a decision with no entry" decision_answer '{"event"
 unwritable "an answer naming a decision that isn't a number" decision_answer '{"event":"answer","decision":"#1","round":"1"}' unrecorded-answer
 unwritable "evidence naming a decision with no entry" decision_evidence '{"event":"evidence","decision":"9"}' unrecorded-evidence
 
-echo "== record-full =="
+echo "== no size budget =="
 build take
 BIG=$(head -c 57000 /dev/zero | tr '\0' 'x')
 put_record "$(record_json discipline ci | jq -c --argjson e "[$(E 6 proposed)]" --arg r "$BIG" \
     '.decisions = {next: 20, entries: $e} | .deferrals = [{deferral: "a long one", reason: $r, raised: "2026-09-26T07:00Z", disposition: ""}]')"
-eq "an owed write on a record near the budget is record-full" "record-full" "$(word)"
+eq "an owed write on a record of 57,000 bytes of deferral is routed, not record-full" "take" "$(word)"
 build take
 eq "the same owed write on a small record is routed" "take" "$(word)"
 
@@ -241,8 +247,8 @@ eq "--owed seals nothing and writes nothing" "" "$(owed pick >/dev/null; koto co
 # --parsed: the record as the caller read and parsed it (pick-facts.sh's own
 # read), taken in place of reading it again (shirabe#840).
 build take
-show > "$T/rec.json.md"
-bash "$HERE/record-parse.sh" --container issue --expect-scope discipline:ci "$T/rec.json.md" > "$T/rec.json"
+reader_state > /dev/null
+cp "$T/reader" "$T/rec.json"
 eq "--owed with --parsed reads the same rule" "take" "$(bash "$DN" --session "$S" --owed pick --parsed "$T/rec.json" 2>"$T/err")"
 rm -rf "$KOTO_STORE/context/$S/record"
 eq "  ... and doesn't read the record again: it answers with the session's record gone" "take" "$(bash "$DN" --session "$S" --owed pick --parsed "$T/rec.json" 2>"$T/err")"

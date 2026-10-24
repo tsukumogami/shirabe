@@ -54,9 +54,103 @@ ROT_SHA=5555555555555555555555555555555555555555
 # ---- the records already on GitHub ---------------------------------------------------
 seed_roadmap moved
 seed_roadmap unmoved
-MOVED_BODY=$(render "$(record_json roadmap moved | jq -c '.run = [{key: "store", value: "session", set_by: "the invocation (--store session)", set: "2026-10-01T10:00Z"}]')" issue)
-UNMOVED_BODY=$(render "$(stored "$(record_json roadmap unmoved | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')")" issue)
-ROT_BODY=$(render "$(record_json discipline legacyops)" pr)
+# The three records as a release that kept them on GitHub left them: markdown
+# bodies, held here as fixed text (the renderer that wrote them is gone; the
+# importer reads them whatever wrote them).
+MOVED_BODY=$(cat <<'BODY'
+> This is a **coordinator record** for ROADMAP-moved.
+
+Written: 2026-09-26T09:00:00Z
+
+## Holdings
+
+None.
+
+## Deferrals
+
+None.
+
+## Side effects in flight
+
+None.
+
+## Reversals
+
+None.
+
+## Run
+
+| Key | Value | Set by | Set |
+|---|---|---|---|
+| store | session | the invocation (--store session) | 2026-10-01T10:00Z |
+BODY
+)
+UNMOVED_BODY=$(cat <<'BODY'
+> This is a **coordinator record** for ROADMAP-unmoved.
+
+Written: 2026-09-26T09:00:00Z
+
+## Holdings
+
+| Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Feature 1 | /shirabe:deliver | --auto | executing | dispatched | message | feat-1 | acme/widgets |  |  | 2026-09-26 |  |
+
+## Deferrals
+
+None.
+
+## Side effects in flight
+
+None.
+
+## Reversals
+
+None.
+
+## Run
+
+| Key | Value | Set by | Set |
+|---|---|---|---|
+| arguments | --roadmap docs/roadmaps/ROADMAP-test.md | the human | 2026-09-26T08:00Z |
+| cap | 5 | the human | 2026-09-26T08:00Z |
+| coordinator | coord-test | coord-test | 2026-09-26T08:00Z |
+| reports-to | the human | the human | 2026-09-26T08:00Z |
+| told | feat-1 | coord-test | 2026-09-26T08:00Z |
+
+## Work
+
+| Item | Kind | Who | Next step | Wakes | Updated |
+|---|---|---|---|---|---|
+| Feature 1 | holding | feat-1 | waiting on the worker | 0 | 2026-09-26T08:00Z |
+BODY
+)
+ROT_BODY=$(cat <<'BODY'
+Coordinator record for the legacyops discipline, kept on coordinate/discipline-legacyops.
+
+---
+
+> This is a **coordinator record** for the legacyops discipline.
+
+Written: 2026-09-26T09:00:00Z
+
+## Holdings
+
+None.
+
+## Deferrals
+
+None.
+
+## Side effects in flight
+
+None.
+
+## Reversals
+
+None.
+BODY
+)
 db '.issues += [{repo: "acme/widgets", number: 50, title: ($p + "moved"), body: $m, state: "open", author: "coord", editor: null},
                 {repo: "acme/widgets", number: 60, title: ($p + "unmoved"), body: $u, state: "open", author: "coord", editor: null}]
     | .comments = [{repo: "acme/widgets", number: 50, id: 9001, body: "The state moved to a session on the old release.", user: "alice",
@@ -81,14 +175,13 @@ echo "== 1. the scope whose record moved =="
 if open_run moved; then
     eq "1: no record to import: the run stops at record_open" record_open "$(at)"
     eq "1:   ... with nothing posted on the moved record" 0 "$(posts 50)"
-    render "$(record_json roadmap moved)" issue > "$T/open.md"
-    write_as_agent record-open.sh --body-file "$T/open.md"
-    eq "1: record-open.sh (agent-run) opens the record in the session" 0 $?
+    write_as_agent state-open.sh
+    eq "1: state-open.sh (agent-run) opens the record in the session" 0 $?
     eq "1: the run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
-    write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-moved.md" --by "the human" \
-        && write_as_agent record-state.sh --run cap 2 --by "the human" \
-        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test \
-        && write_as_agent record-state.sh --run reports-to "the human" --by "the human"
+    write_as_agent state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-moved.md" --by "the human" \
+        && write_as_agent state-stored-set.sh --run cap 2 --by "the human" \
+        && write_as_agent state-stored-set.sh --run coordinator coord-test --by coord-test \
+        && write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"
     eq "1: the stored set is written" 0 $?
     eq "1: the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     eq "1: and holds into wait" wait "$(at --with-data '{"choice":"hold"}')"
