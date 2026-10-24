@@ -102,7 +102,22 @@ lifecycle statement. Each step carries the tests and documentation its behaviour
 
 ### Step 3: a re-run or a later adopting run never makes the lookup return the wrong run
 
-After a re-run moves the first root aside as `execute-<topic>_r1`, or a later run adopts the PR, the lookup returns the run whose entry names the PR, lists the others and reports `unique: false`.
+**Goal**: `scripts/run-record-lookup.sh` returns the run that carried a PR when the PR's record root has since been replaced, or when more than one run has recorded the PR. Two cases. A re-run of the same topic: `koto init --replace-terminal` moves the finished root aside as `<name>_r<N>` (koto's own naming, `N` from 1 to 10), and every koto child named `<name>.<rest>` moves with it as `<name>_r<N>.<rest>`, so the index entry's session name now holds the new run and the old run's step-session names, as recorded in `trail/step/*`, are stale. A later run that records the same PR (an adoption or a takeover) writes its own `run/<run_id>` entry into the PR's index session beside the first. Steps 1 and 2 left the lookup with no `session_id` check and no predecessor search, so this step adds them, reading every session's id from `koto session list` through `record-store.sh`'s read path and using the value patterns already in `scripts/lib/record-store.sh`.
+
+**Acceptance Criteria**:
+
+- [ ] In a stub run where run 1 records PR 7 under `execute-<topic>` and a re-run replaces that root (the stub moves the root and its `.`-children to `_r1` the way koto does), `run-record-lookup.sh <owner/repo> 7 --steps` exits 0 and names the record root `execute-<topic>_r1`, run 1's `run_id`, and each of run 1's step sessions under its `_r1` name. A lookup for run 2's PR names `execute-<topic>`.
+- [ ] When the index entry's `session_id` matches neither the named session nor any of `<name>_r1` to `<name>_r10`, the lookup returns no root and exits 3, with a message on stderr saying the recorded root wasn't found under its name or any moved-aside name.
+- [ ] When two runs have index entries for one PR and both roots list the PR in `trail/pr/*`, the lookup returns the entry with the latest `written_at` (ties broken by `run_id`), prints `unique: false`, and lists the other `run_id` in `others`. An entry whose root doesn't list the PR is never returned and doesn't appear in `others`. With one qualifying entry, `unique` is `true` and `others` is empty.
+- [ ] A `session_id`, `written_at` or session name read back that fails its pattern in `record-store.sh` is reported in `missing` and never used to choose a root or build a name.
+- [ ] The lookup's koto calls for one PR, as the stub's call log counts them, stay within 2 + P + S + 1, where P is the run's PR count and S its step count (one `session list` call covers the predecessor search), and none of them is a write.
+- [ ] `run-record-lookup_test.sh` keeps its check that the `koto` on its `PATH` is the stub before the first case, and every new case runs with the workspace option absent and present.
+
+**Check**: Run `bash scripts/run-record-lookup_test.sh` against the stub koto and see every case pass: the re-run case naming `execute-<topic>_r1` with step sessions renamed, the not-found case exiting 3, the two-run case printing `unique: false` with the other `run_id` in `others`, and the call-count case. Then run `bash scripts/check-bash-floor.sh --backend system run-record` and see it pass on bash 3.2.
+
+**Dependencies**: Step 2
+
+**Files**: `scripts/run-record-lookup.sh`, `scripts/run-record-lookup_test.sh`, `scripts/testdata/record-koto/koto`, `scripts/lib/record-store.sh` and `scripts/record-store_test.sh` if a pattern or read helper is added. No file under `skills/coordinate/`.
 
 ### Step 4: every PR of a coordinated run leads to its record root, which lists all of them
 
