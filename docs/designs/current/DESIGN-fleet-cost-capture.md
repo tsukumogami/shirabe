@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   The coordinate skill writes a dispatched unit's `unit-cost/1` entry only in
   its teardown pass. A unit removed by hand or by a reap never gets one, an
@@ -36,7 +36,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 Six decision questions were resolved inline under `/scope`. The reasoning that
 survived the decision reports is carried in Considered Options below. This
