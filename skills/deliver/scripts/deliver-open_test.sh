@@ -165,6 +165,10 @@ if [[ "$(k context get deliver-t-new run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; 
 else
     bad "the opened session carries a run identity" "[$(k context get deliver-t-new run_id 2>&1)]"
 fi
+case "$(k context get deliver-t-new pr_content 2>/dev/null)" in
+    include|omit) ok "the open records the PR content switch it read (pr_content)" ;;
+    *) bad "the open records pr_content" "[$(k context get deliver-t-new pr_content 2>&1)]" ;;
+esac
 eq "a fresh session at open_request" open_request "$(state_of t-new)"
 eq "MODE interactive with no flag and no header" '["interactive"]' "$(var MODE)"
 eq "MERGE true without --no-merge" '["true"]' "$(var MERGE)"

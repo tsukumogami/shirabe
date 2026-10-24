@@ -95,7 +95,7 @@ store_sum() {
         printf '%s\n' "$f"; cat "$f"; printf '\n'
     done) | cksum
 }
-written() { ls "$CASE/ctx/$S" 2>/dev/null | grep -vx run_id; }
+written() { ls "$CASE/ctx/$S" 2>/dev/null | grep -vx -e run_id -e pr_content; }
 # live_edit <jq> -- change the model the shim already copied (the PRs as the
 # run left them).
 live_edit() {
@@ -119,7 +119,7 @@ held_case() {
     ct_record_setup github 10 "$(ct_nodes_of "$REPO/docs/plans/PLAN-t.md")"
     ct_record_node "$CT_CORE" "$CT_REPO" 11
     printf '%s' "$RID" > "$CASE/ctx/$S/run_id"
-    ct_pr "$CT_REPO" 11 "$BR_CORE" "body=$(ct_marked_body "$RID")"
+    ct_pr "$CT_REPO" 11 "$BR_CORE" "index=\"$RID\""
 }
 run_setup() { # run_setup [flags...]
     OUT=$(cd "$REPO" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md "$@" 2>"$CASE/stderr")
@@ -312,7 +312,7 @@ recovery_case() {
             printf "- %s/follow-up-26 | acme/repo-a:docs/plans/PLAN-t.md#26 | open | head=%s\n", cli, h
             printf "- %s/follow-up-28 | acme/repo-a:docs/plans/PLAN-t.md#27 | open | head=%s\n", c, h
         }' "$CASE/body.md" > "$CASE/body.fu.md"
-    ct_pr "$CT_REPO" 11 "$BR_CORE" "body=$(ct_marked_body "$RID")"
+    ct_pr "$CT_REPO" 11 "$BR_CORE" "index=\"$RID\""
     ct_follow_up_pr "$CT_REPO" 21
     ct_follow_up_pr "$CT_REPO" 22 'state="MERGED"' "merge_sha=\"$MERGE_SHA\""
     ct_follow_up_pr "$CT_REPO" 23 'author="someone-else"'

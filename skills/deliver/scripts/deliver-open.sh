@@ -375,6 +375,10 @@ if [ "$RC" -eq 0 ]; then
     # session is born, and only read afterwards (run-id.sh get).
     bash "$PLUGIN_ROOT/skills/execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
         || printf 'deliver-open: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$SESSION" >&2
+    # The PR content switch, read once for this invocation and recorded as
+    # pr_content (pr-workflow-content.sh --record).
+    bash "$HERE/../../../scripts/pr-workflow-content.sh" --record "$SESSION" </dev/null >/dev/null \
+        || printf 'deliver-open: could not record the PR content switch in %s\n' "$SESSION" >&2
     [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
     printf 'session=%s\n' "$SESSION"
 else

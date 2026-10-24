@@ -249,7 +249,10 @@ case "${1:-} ${2:-}" in
         printf '%s\n' "$n" > "$LINK_KEYS/count"
         [ "$n" -gt "${LINK_FAILS:-0}" ] || { printf '{"error":"stub"}\n'; exit 1; }
         printf '{"written":true}\n'; exit 0 ;;
-    "context add") cat > "$LINK_KEYS/added"; exit 0 ;;
+    # The opener's record of the PR content switch is its own write, apart
+    # from the link warning this stub keeps.
+    "context add") [ "${4:-}" = pr_content ] && { cat >/dev/null; exit 0; }
+                   cat > "$LINK_KEYS/added"; exit 0 ;;
     "context remove") exit 0 ;;
 esac
 exit 1
@@ -292,7 +295,7 @@ session=issue_7
 warning=link-failed dispatched_by=execute-plan-x" "$OUT"
 eq "--dispatched-by, a link that fails twice: tried twice and no more" 2 "$(printf '%s\n' "$LINKS" | grep -c .)"
 eq "--dispatched-by, a link that fails twice: recorded in the run's own session" \
-    "context add issue_7 session/link-warning" "$(grep '^context add ' "$WORK/stub.log")"
+    "context add issue_7 session/link-warning" "$(grep '^context add ' "$WORK/stub.log" | grep -v ' pr_content$')"
 eq "--dispatched-by, a link that fails twice: the record's value" "warning=link-failed
 dispatched_by=execute-plan-x" "$(cat "$LINK_KEYS/added")"
 
@@ -301,7 +304,8 @@ eq "no --dispatched-by: the open exits 0" 0 "$RC"
 eq "no --dispatched-by: the same lines as before" "opened=new
 session=issue_7" "$OUT"
 eq "no --dispatched-by: no link call" "" "$LINKS"
-eq "no --dispatched-by: no key written or removed" "" "$(grep -E '^context (add|remove) ' "$WORK/stub.log")"
+eq "no --dispatched-by: no key but pr_content written or removed" "" "$(grep -E '^context (add|remove) ' "$WORK/stub.log" | grep -v ' pr_content$')"
+eq "the open records pr_content once" "context add issue_7 pr_content" "$(grep '^context add .* pr_content$' "$WORK/stub.log")"
 
 # A refused open links nothing.
 cat > "$WORK/refuse-bin-koto" <<'STUB'
@@ -376,6 +380,10 @@ run_open issue_7 "[\"7\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=7 --va
 eq "issue-backed under --koto-leg: exit 0" 0 "$RC"
 case "$OUT" in *opened=new*session=issue_7*) pass "prints opened=new and session=issue_7" ;; *) fail "open output: [$OUT] [$ERR]" ;; esac
 eq "the leg is bound to issue_7" '"issue_7"' "$(leg "$REQ" .bound_child)"
+case "$(k context get issue_7 pr_content 2>/dev/null)" in
+    include|omit) pass "the open records the PR content switch it read (pr_content)" ;;
+    *) fail "pr_content: [$(k context get issue_7 pr_content 2>&1)]" ;;
+esac
 eq "the tokens file is removed" "" "$(ls "$(dirname "$TOKENS")" 2>/dev/null)"
 tick issue_7 --with-data '{"mode":"issue_backed","issue_number":"7"}'
 tick issue_7 --with-data '{"status":"blocked","detail":"issue unreachable"}'

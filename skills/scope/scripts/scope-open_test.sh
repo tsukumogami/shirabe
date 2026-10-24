@@ -264,6 +264,10 @@ if [[ "$(k context get scope-t-empty run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; 
 else
     bad "the opened session carries a run identity" "[$(k context get scope-t-empty run_id 2>&1)]"
 fi
+case "$(k context get scope-t-empty pr_content 2>/dev/null)" in
+    include|omit) ok "the open records the PR content switch it read (pr_content)" ;;
+    *) bad "the open records pr_content" "[$(k context get scope-t-empty pr_content 2>&1)]" ;;
+esac
 eq "--intent= alone: no INTENT_FLAG pair" "[]" "$(vars '[.[] | select(.[0] == "INTENT_FLAG")]')"
 if [ -e "$ARGS" ] || [ -e "$ARGS_DIR" ]; then bad "--intent= alone: the args file is removed after success"; else ok "--intent= alone: the args file is removed after success"; fi
 NEXT=$(k next scope-t-empty --no-cleanup 2>/dev/null)

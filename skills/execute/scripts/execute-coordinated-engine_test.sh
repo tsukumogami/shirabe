@@ -848,7 +848,7 @@ if ct_calls | grep -q '^pr edit '; then fail "session-absent: a body was edited"
 # run continues with the live head, and the result says it recovered.
 ct_case recovered
 fixture rec
-ct_pr "$CT_REPO" 11 "impl/rec-$CT_CORE" "body=$(ct_marked_body "$REC_ID")"
+ct_pr "$CT_REPO" 11 "impl/rec-$CT_CORE" "index=\"$REC_ID\""
 ct_rendered_body "$CASE/body.md" "$REC_ID" github "$CT_CORE=11"
 ct_write_db "$CASE/body.md"
 open_recovering rec false

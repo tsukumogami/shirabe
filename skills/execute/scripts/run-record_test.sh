@@ -188,7 +188,7 @@ rec setup "{\"run/setup\":$(printf '%s' "$SETUP_V" | jq -c '.nodes[1].repo = "ac
 expect "a PR node whose repository is not in repos" 66 "refused=repo-outside key=run/setup field=nodes"
 rec setup "{\"run/setup\":$(printf '%s' "$SETUP_V" | jq -c 'del(.mode)')}"
 expect "a run/setup without mode" 66 "refused=incomplete key=run/setup field=mode"
-[ -z "$(ls "$CASE/ctx/$S" | grep -vx run_id)" ] && pass "no refused setup wrote a key" || fail "a refused setup wrote"
+[ -z "$(ls "$CASE/ctx/$S" | grep -vx -e run_id -e pr_content)" ] && pass "no refused setup wrote a key" || fail "a refused setup wrote"
 rec setup "{\"run/setup\":$SETUP_V}"
 expect "a valid setup" 0 "written=run/setup"
 [ "$(val run/setup)" = "$(printf '%s' "$SETUP_V" | jq -cS .)" ] && pass "run/setup is stored as canonical JSON" || fail "run/setup stored as [$(val run/setup)]"

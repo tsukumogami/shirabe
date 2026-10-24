@@ -404,6 +404,25 @@ else
     fail "home unread: rc=$RC_UNREAD merges=$(merges) shirabe=[$(cat "$CASE/shirabe-calls.log")]"
 fi
 
+# Under the run's recorded switch omit the body is Part 1 alone and indexes
+# nothing: the gate's refs come from the run record's node PRs.
+CT_CONTENT=omit coord_case coord-omit
+printf 'Plans the parser and its CLI.\n' > "$CASE/plain.md"
+ct_write_db "$CASE/plain.md"
+run_merge coordination
+GATE=$(grep -- '--merge-gate' "$CASE/shirabe-calls.log")
+BODY_NOW=$(jq -j '.prs[] | select(.number == 10) | .body' "$GH_CALL_LOG.d/db.json")
+case "$OUT:$GATE" in
+    *merged:*"--mode=ready"*"--pr acme/repo-a:docs/plans/PLAN-t.md#11"*"--pr acme/repo-a:docs/plans/PLAN-t.md#12"*)
+        if [ "$BODY_NOW" = "Plans the parser and its CLI." ]; then
+            pass "omit: the coordination PR merges with its gate over the record's node PRs, its body Part 1 alone"
+        else
+            fail "omit: the coordination body changed: [$BODY_NOW]"
+        fi
+        ;;
+    *) fail "omit coordination merge: out=[$OUT] gate=[$GATE]"; tail -3 "$CASE/stderr" ;;
+esac
+
 # --- follow-ups ----------------------------------------------------------------------------
 
 FU21="$CT_CORE/follow-up-21"

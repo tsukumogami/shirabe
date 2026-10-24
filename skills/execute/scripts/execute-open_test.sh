@@ -558,6 +558,27 @@ else
     fail "vars: PLUGIN_ROOT [$(session_var execute-fresh PLUGIN_ROOT)], PLAN_SLUG [$(session_var execute-fresh PLAN_SLUG)]"
 fi
 
+# The PR content switch, recorded at every open from the checkout's files: a
+# fresh run with no header records omit; one under an include header records
+# include; reopened after the header turned to omit, it records omit.
+if [ "$(k context get execute-fresh pr_content 2>/dev/null)" = omit ]; then
+    pass "a fresh run in a repository with no header records pr_content omit"
+else
+    fail "fresh pr_content: [$(k context get execute-fresh pr_content 2>&1)]"
+fi
+printf '## PR Workflow Content: include\n' > "$FIXREPO/CLAUDE.local.md"
+run_open '["docs/plans/PLAN-content.md"]'
+FIRST_CONTENT=$(k context get execute-content pr_content 2>/dev/null)
+printf '## PR Workflow Content: omit\n' > "$FIXREPO/CLAUDE.local.md"
+run_open '["docs/plans/PLAN-content.md"]'
+SECOND_CONTENT=$(k context get execute-content pr_content 2>/dev/null)
+rm -f "$FIXREPO/CLAUDE.local.md"
+if [ "$FIRST_CONTENT" = include ] && [ "$RC" -eq 0 ] && [ "$SECOND_CONTENT" = omit ]; then
+    pass "opened under include it records include; reopened after the header turned to omit, it records omit"
+else
+    fail "pr_content across opens: [$FIRST_CONTENT] then [$SECOND_CONTENT], exit $RC; $ERR"
+fi
+
 run_open '["docs/plans/PLAN-merging.md","--merge","--auto"]'
 if [ "$RC" -eq 0 ] && [ "$(session_var execute-merging MERGE)" = true ] \
     && [ "$(session_var execute-merging PAUSE_BEFORE_FINALIZE)" = false ]; then

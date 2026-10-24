@@ -162,6 +162,12 @@
 # <session> --retry`, its lines on stderr; a retry that fails only warns, and
 # a session with nothing unpinned makes no pin call.
 #
+# The PR content switch. Every open records it, `pr-workflow-content.sh
+# --record <session>`: the `## PR Workflow Content:` header as this
+# checkout's files hold it now, stored as `pr_content`, so an invocation
+# started after the header changed writes by the new value, and a run's
+# writers never read the files mid-run.
+#
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
 # the run carries; a coordinated session has one once its setup ran. When
@@ -690,6 +696,12 @@ case "$OUT" in
             bash "$PLUGIN_DIR/scripts/run-trail.sh" self --session "$SESSION" </dev/null \
                 || echo "$PROG: could not record $SESSION's address in its run record (trail/self)" >&2
         fi
+        # The PR content switch, read once for this invocation from this
+        # checkout's files and recorded as pr_content, which every PR writer
+        # and gate of the run reads back (pr-workflow-content.sh --session).
+        # A failed write warns: the readers then fall back to the files.
+        bash "$PLUGIN_DIR/scripts/pr-workflow-content.sh" --record "$SESSION" </dev/null >/dev/null \
+            || echo "$PROG: could not record $SESSION's PR content switch (pr_content)" >&2
         # The trail a replaced session held (or an earlier carry left
         # pending), carried in on either template.
         if [ "$NAMED" -eq 1 ] && [ -f "$TRAIL_SNAP" ]; then

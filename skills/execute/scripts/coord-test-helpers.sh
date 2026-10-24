@@ -341,9 +341,27 @@ ct_pr() {
         headRefOid: $sha, mergeStateStatus: "CLEAN", reviewDecision: "",
         checks: [{name: "build", bucket: "pass"}], files: ["src/x.go"], merge: "ok"}')
     for kv in "$@"; do
+        if [ "${kv%%=*}" = index ]; then
+            ct_index_entry "$repo" "$n" "$(jq -r . <<<"${kv#*=}")"
+            continue
+        fi
         obj=$(printf '%s' "$obj" | jq -c --arg k "${kv%%=*}" --argjson v "${kv#*=}" '.[$k] = $v')
     done
     CT_PRS=$(printf '%s' "$CT_PRS" | jq -c --argjson o "$obj" '. + [$o]')
+}
+
+# ct_index_entry <repo> <number> <run_id> -- an entry naming <run_id> in the
+# PR's index session at its owner's shared address, laid out as
+# scripts/run-trail.sh index writes one and dated before any entry a script
+# under test writes, so a later entry is the latest. ct_pr's `index="<id>"`
+# key plants one: the run a PR belongs to is its index entry, never its text.
+ct_index_entry() {
+    local owner name
+    owner=$(printf '%s' "${1%%/*}" | tr '[:upper:]' '[:lower:]')
+    name=$(printf '%s' "${1#*/}" | tr '[:upper:]' '[:lower:]')
+    mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/$owner" "$CASE/ctx/pr.$owner.$name.$2/run"
+    jq -nc '{workspace: "/w", session: "execute-t", session_id: "sid-9", mode: "coordinated",
+        topic: "t", written_at: "2020-01-01T00:00:00Z"}' > "$CASE/ctx/pr.$owner.$name.$2/run/$3"
 }
 
 # ct_follow_up_pr <repo> <number> [key=json ...] -- add a follow-up PR to the
@@ -353,12 +371,6 @@ ct_follow_up_pr() {
     local repo="$1" n="$2"
     shift 2
     ct_pr "$repo" "$n" "fix/$n" "title=\"fix(t): follow-up $n\"" "$@"
-}
-
-# ct_marked_body <id> -- ct_pr's default node PR body carrying <id>'s run
-# marker (run-id.sh's line), as the JSON string ct_pr's body= takes.
-ct_marked_body() {
-    jq -cn --arg id "$1" '"Implements the node.\n\n---\n\nCoordinated node.\n\n<!-- shirabe-run: \($id) -->\n"'
 }
 
 # ct_rendered_body <file> <run> <store> [<node>=<pr> ...] -- the coordination
