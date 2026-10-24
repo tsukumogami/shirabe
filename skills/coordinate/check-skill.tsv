@@ -103,6 +103,7 @@ cost	teardown-handoff_test.sh	4
 cost	coord-log_engine_test.sh	3
 cost	coord-verdict-table_test.sh	3
 cost	normalize_test.sh	3
+cost	state-file_test.sh	3
 cost	rule-coverage_test.sh	3
 cost	coordinate-template-structure_engine_test.sh	2
 cost	report-pr_test.sh	2
