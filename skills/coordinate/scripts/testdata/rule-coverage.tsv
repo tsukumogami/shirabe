@@ -158,7 +158,7 @@ C137	skills/coordinate/koto-templates/coordinate.md	record	it never names a priv
 C138	skills/coordinate/koto-templates/coordinate.md	record	Quoted material such as a CI log line goes in a cell	changed: quoted text goes in a table cell, encoded by the renderer, instead of a fence
 C147	skills/coordinate/koto-templates/coordinate.md	record_open	the start plus `{{ROTATION_DAYS}}` days
 C148	skills/coordinate/references/record-template.md	-	tick the hub with `event: end`	changed: a rotation has no pull request title; the human ending it early is the hub event `end`
-C149	skills/coordinate/koto-templates/coordinate.md	record_open	--body-file <body.md>
+C149	skills/coordinate/koto-templates/coordinate.md	record_open	The script builds the scope's empty record itself	changed: the opener builds the empty record; the agent writes no body for it
 C151	skills/coordinate/references/record-template.md	-	> This is a **coordinator record** for
 C152	skills/coordinate/references/record-template.md	-	| Unit | Entry point | Mode | Phase | Dispatch status |	changed: Holdings gained Phase, Dispatch status and Return path columns
 C153	skills/coordinate/references/record-template.md	-	| Deferral | Reason | Raised | Disposition |	changed: Deferrals gained a Disposition column that the dispatch check reads
