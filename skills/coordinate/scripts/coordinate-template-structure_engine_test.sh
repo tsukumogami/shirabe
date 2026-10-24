@@ -321,16 +321,26 @@ printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/open
 # OUTWARD_KINDS, and each code span in the templates, SKILL.md and the
 # references that passes --kind <outward kind> must pass --on too.
 OUTWARD=$(sed -n 's/^OUTWARD_KINDS=" *\(.*[^ ]\) *"$/\1/p' "$HERE/record-append.sh")
-# outward_without_on <file>...: file:line and span of each such call with no --on.
+# outward_without_on <file>...: file:line and span of each such call with no
+# --on. awk, not perl: run-tests.sh's PATH holds only the declared tools and
+# the POSIX utilities. With RS a backtick, each record is the text between two
+# backticks, so a call inside a fenced block is judged by the whole block.
 outward_without_on() {
-    perl -0777 -ne 'BEGIN { $k = join "|", map { quotemeta } split " ", shift @ARGV }
-        while (/--kind\s+(?:$k)(?![\w-])/g) {
-            my $p = pos; my $s = rindex($_, "`", $p); my $e = index($_, "`", $p); $e = length($_) if $e < 0;
-            my $span = substr($_, $s + 1, $e - $s - 1);
-            next if $span =~ /--on(?![\w-])/;
-            $span =~ s/\s+/ /g;
-            printf "%s:%d: %s\n", $ARGV, 1 + (substr($_, 0, $p) =~ tr/\n//), $span;
-        }' "$OUTWARD" "$@"
+    awk -v kinds="$OUTWARD" 'BEGIN { RS = "`"; gsub(/ +/, "|", kinds); kre = "--kind[ \t\n]+(" kinds ")[^A-Za-z0-9_-]" }
+        FNR == 1 { line = 1 }
+        {
+            s = $0 " "
+            if (s !~ /--on[^A-Za-z0-9_-]/) {
+                off = 0; rest = s
+                while (match(rest, kre)) {
+                    pre = substr(s, 1, off + RSTART - 1); nl = gsub(/\n/, "", pre)
+                    span = $0; gsub(/[ \t\n]+/, " ", span)
+                    printf "%s:%d: %s\n", FILENAME, line + nl, span
+                    off += RSTART + RLENGTH - 1; rest = substr(s, off + 1)
+                }
+            }
+            t = $0; line += gsub(/\n/, "", t)
+        }' "$@"
 }
 case " $OUTWARD " in *" goal-fit "*) pass "record-append.sh's outward kinds are read" ;; *) fail "record-append.sh's outward kinds are read" "$OUTWARD" ;; esac
 NOON=$(outward_without_on "$HERE"/../koto-templates/*.md "$HERE/../SKILL.md" "$HERE"/../references/*.md)
