@@ -14,7 +14,8 @@ goals: |
   version: at most one session drives the run at any moment, nothing the run
   held is lost, workers and legs reach the successor without hand edits, and
   every tool that reads the run's history follows the recorded relation.
-upstream: docs/briefs/BRIEF-coordinate-successor-continues.md
+absorbed:
+  - docs/briefs/BRIEF-coordinate-successor-continues.md
 ---
 
 # PRD: A coordinator's successor continues its run
@@ -22,6 +23,43 @@ upstream: docs/briefs/BRIEF-coordinate-successor-continues.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-coordinate-successor-continues](docs/briefs/BRIEF-coordinate-successor-continues.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a coordinate run outlives the sessions that drive
+it, and the handover between them doesn't continue the run. The brief framed
+the gap as a successor that copies part of the record into a second run and
+cancels the first, loses what else the run held, guesses its lineage from
+names, is refused across plugin paths and harmless template changes
+(tsukumogami/shirabe#806, tsukumogami/shirabe#1144), needs a hand rebind and
+hand-written coordinator rows, wakes idle workers only to tell them an address
+(tsukumogami/shirabe#1245), can't hear legs its predecessor opened, and has
+nothing stopping two sessions driving one run. It named koto's continues
+relation (tsukumogami/koto#479) as the record the takeover should be built
+on. This document's Problem Statement states all of that in full.
+
+The outcome it asked for is an operator or coordinator who hands a run to a
+fresh session with one command and sees the run carry on: one driver, nothing
+lost, workers and legs reaching the successor, idle workers learning the
+address on their next start, and lineage tools following the recorded
+succession. That is this document's Goals. Its five journeys (a recycle while
+the predecessor still runs, a worker finishing after the handover, an idle
+worker pending at handover, a takeover after an import, and the cost sweep and
+deferral check tracing a run's history) are the User Stories, with the
+operator recovering a crashed run and the post-takeover first tick added.
+
+Its boundary held the feature to the coordinate skill's takeover and the
+request-store change it needs, and pushed out the relation itself and its
+retention, koto's prune name rule, niwa's reap and destroy, other skills'
+succession, the retirement of interim workarounds, and the teardown job
+lookup (tsukumogami/shirabe#1243). Those are this document's Out of Scope.
+It drew on the current resume-or-carry rule
+(`docs/designs/current/DESIGN-coordinator-session-record.md`), the leg watch
+(`docs/designs/current/DESIGN-coordinate-paused-state.md`) and the cost
+sweep (`docs/designs/current/DESIGN-fleet-cost-capture.md`), which this
+feature changes.
 
 ## Problem Statement
 
