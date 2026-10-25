@@ -332,18 +332,30 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 
 ## Lifecycle
 
+A PLAN is a working artifact: Draft -> Active -> Done -> DELETED. The
+cascade deletes it when its work finishes. Of the PLANs, only a
+`multi-pr` PLAN reaches the default branch: it stays there while its
+item PRs land, and the PR that completes it deletes it. A `single-pr`
+or `coordinated` PLAN is deleted on its branch before its PR merges.
+
+The PLAN is not where a later reader looks for what the work followed.
+The plan as each step began, each step's proof, the departures and the
+decisions are kept in the run's koto session. Find it from any of the
+run's merged PRs with `scripts/run-record-lookup.sh <owner/repo> <n>`.
+
 ### States
 
 | State | Meaning |
 |-------|---------|
 | Draft | Under decomposition, inside a /plan run. Never committed: a committed Draft PLAN fails L01. |
 | Active | Work being implemented. Every committed PLAN is at Active until the cascade, whatever its `tracking_level` or `execution_mode`. |
-| Done | All issues complete; lifecycle cascade has completed. Terminal state. |
+| Done | All issues complete. A marker that lasts only inside the cascade, which deletes the file in the same commit. |
+| DELETED | The cascade removed the file. A `multi-pr` PLAN reaches this in the PR that completes it; the others before their PR merges. |
 
 ### Transitions
 
-All transitions are executed by `shirabe transition`. The PLAN
-stays in `docs/plans/` through every state.
+`shirabe transition` executes Draft -> Active and Active -> Done. Done
+-> DELETED belongs to the cascade alone.
 
 The Draft -> Active gate keys on the resolved `tracking_level`, not on
 `execution_mode`: an activation that creates GitHub issues waits for
@@ -365,6 +377,11 @@ one that creates none auto-fires as authoring completes.
 - **Active -> Done** -- the work is complete (all materialized issues
   closed, or the implementing PR shipped); the lifecycle cascade
   fires.
+- **Done -> DELETED** -- the cascade removes the PLAN in the same
+  commit that moves its upstream documents to their final states. A
+  `single-pr` or `coordinated` PLAN goes before its PR merges, so it
+  never reaches the default branch; a `multi-pr` PLAN goes in the PR
+  that completes its last item.
 
 ### Lifecycle cascade
 

@@ -9,6 +9,15 @@
 # roadmap node finalize-chain hands off, and translates finalize-chain's typed
 # report into the cascade's preserved external contract.
 #
+# This is the completion step for a PLAN and a ROADMAP, which are working
+# artifacts: it deletes each when its work finishes (Draft -> Active -> Done
+# -> DELETED). Only a multi-pr PLAN reaches the default branch, where it stays
+# while its item PRs land; the PR that completes it runs this and deletes it.
+# The deleted plan is not the record of the work. For what the work followed
+# (the plan as each step began, each step's proof, the departures and the
+# decisions), a later reader goes to the run's koto session, found from any of
+# its merged PRs with scripts/run-record-lookup.sh <owner/repo> <n>.
+#
 # Usage: run-cascade.sh [--push] [--session <koto-session>] <plan-doc-path>
 #
 # Options:

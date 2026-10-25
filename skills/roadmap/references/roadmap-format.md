@@ -638,10 +638,21 @@ two-feature floor. A roadmap with zero features is malformed.
 
 ## Lifecycle
 
+A ROADMAP is a working artifact, like the PLANs beneath it: the
+cascade deletes it when its work finishes, once every feature is Done
+and every issue it references is closed. Of those PLANs, only a
+`multi-pr` PLAN reaches the default branch, where it stays while its
+item PRs land and is deleted by the PR that completes it. Neither
+document is kept as the record of the work. For what a finished plan's
+work followed (the plan as each step began, each step's proof, the
+departures and the decisions), a later reader goes to the run's koto
+session, found from any of its merged PRs with
+`scripts/run-record-lookup.sh <owner/repo> <n>`.
+
 ### States
 
 ```
-Draft --> Active --> Done
+Draft --> Active --> Done --> DELETED
 ```
 
 | Status | Meaning | Transition Trigger |
@@ -649,6 +660,7 @@ Draft --> Active --> Done
 | Draft | Under development, feature list may change | Created by /roadmap |
 | Active | Feature list locked, execution in progress | Human approval |
 | Done | All features delivered or explicitly dropped | All features complete |
+| DELETED | The cascade removed the file | All features Done and every referenced issue closed |
 
 ### Transition Rules
 
@@ -656,8 +668,10 @@ Draft --> Active --> Done
   justified. Human must explicitly approve.
 - **Active -> Done**: Every feature has reached a terminal state
   (delivered or explicitly dropped with rationale documented).
-- **Done -> any**: Forbidden. A completed roadmap is a historical
-  record. Create a new roadmap for follow-on work.
+- **Done -> DELETED**: The work-on cascade's roadmap deletion step,
+  and nothing else. No human-invoked transition reaches it.
+- **Done -> any other state**: Forbidden. A completed roadmap is not
+  reopened. Create a new roadmap for follow-on work.
 - **Active -> Draft**: Forbidden. If the feature list needs
   significant revision, create a new roadmap version.
 
@@ -673,8 +687,8 @@ may change while it is Active](#what-may-change-while-it-is-active).
 ## File Location
 
 Roadmaps live at `docs/roadmaps/ROADMAP-<name>.md` (kebab-case). No
-directory movement based on status -- all roadmaps stay in
-`docs/roadmaps/` regardless of lifecycle state.
+directory movement based on status: a roadmap stays at that path from
+Draft to Done, and the cascade deletes it from there.
 
 ## Validation Rules
 

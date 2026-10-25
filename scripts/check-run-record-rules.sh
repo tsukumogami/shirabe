@@ -26,6 +26,25 @@
 #                               paragraph holding the word passes, so a
 #                               reviewer still reads what it says.
 #
+# A fourth rule keeps the lifecycle documents saying one thing: a PLAN and a
+# ROADMAP are deleted when their work finishes, and a later reader goes to the
+# run's koto session through scripts/run-record-lookup.sh, not to the plan.
+#
+#   run-record/lifecycle        in any of the seven documents LIFECYCLE_DOCS
+#                               lists, a stale claim: a PLAN that stays in
+#                               docs/plans/ through every state; Done as a
+#                               PLAN's or ROADMAP's terminal state (a table
+#                               row for Done calling it terminal, a Plan or
+#                               Roadmap row whose last cell is Done, or
+#                               prose saying Done is terminal); or a
+#                               historical or audit record. Also a document
+#                               that doesn't name
+#                               scripts/run-record-lookup.sh, or that is
+#                               missing. Prose is matched a paragraph at a
+#                               time, case-folded, so a claim wrapped over
+#                               two lines is still found; in a shell script
+#                               only the leading comment block is read.
+#
 # Not policed: skills/coordinate/, which another change edits; test suites
 # (`*_test.sh`) and test data (`testdata/`), which set up throwaway scratch
 # stores; and this script and its own test, which name the patterns.
@@ -116,8 +135,73 @@ while IFS= read -r f; do
         END { flush() }' "$f" 2>/dev/null)"
 done <<<"$LIST"
 
+# The lifecycle documents: each states the PLAN and ROADMAP lifecycle and sends
+# a later reader to the lookup.
+LIFECYCLE_DOCS='skills/plan/references/plan-format.md
+skills/plan/SKILL.md
+skills/plan/references/quality/plan-doc-structure.md
+skills/roadmap/references/roadmap-format.md
+skills/roadmap/SKILL.md
+references/pipeline-model.md
+skills/work-on/scripts/run-cascade.sh'
+LOOKUP_NAME='scripts/run-record-lookup.sh'
+
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ ! -f "$f" ]; then
+        report run-record/lifecycle "$f" 0 "lifecycle document missing"
+        continue
+    fi
+    sh=0
+    case "$f" in *.sh) sh=1 ;; esac
+    # A stale claim, by paragraph (prose) or by line (table rows).
+    while IFS=$'\t' read -r n text; do
+        [ -n "$n" ] && report run-record/lifecycle "$f" "$n" "$text"
+    done <<<"$(awk -v sh="$sh" '
+        function stale(p) {
+            if (p ~ /(stays?|remains?|lives?|kept)[^.]* through every (lifecycle )?(state|status)/) return 1
+            if (p ~ /(historical|audit)[ -](record|artifact|archive)/) return 1
+            if (p ~ /done[*` ]* (is|as|remains) (the |a |its )?((plan|roadmap)(.s)? )?terminal/) return 1
+            return 0
+        }
+        function flush() {
+            if (para != "" && stale(para))
+                printf "%d\t%s\n", start, substr(first, 1, 160)
+            para = ""
+        }
+        {
+            line = $0
+            if (sh) {
+                if (NR == 1 && line ~ /^#!/) next
+                if (line !~ /^#/) { flush(); exit }
+                sub(/^# ?/, "", line)
+            }
+            low = tolower(line)
+            # Table rows: Done called terminal, or a Plan/Roadmap whose
+            # last cell is Done.
+            if (low ~ /^[ \t]*\|[ \t*]*done[ \t*]*\|.*terminal/ ||
+                low ~ /^[ \t]*\|[ \t*]*(plan|roadmap)[ \t*]*\|.*\|[ \t*]*done[ \t*]*\|[ \t]*$/) {
+                printf "%d\t%s\n", NR, substr(line, 1, 160)
+            }
+            if (low ~ /^[ \t]*$/) { flush(); next }
+            if (para == "") { start = NR; first = line }
+            para = para " " low
+            gsub(/[ \t]+/, " ", para)
+        }
+        END { flush() }' "$f" 2>/dev/null)"
+    # The lookup named (in a shell script, in its header).
+    named=$(awk -v sh="$sh" '
+        sh && NR == 1 && /^#!/ { next }
+        sh && !/^#/ { exit }
+        { print }' "$f" 2>/dev/null)
+    case "$named" in
+        *"$LOOKUP_NAME"*) ;;
+        *) report run-record/lifecycle "$f" 1 "does not name $LOOKUP_NAME, where a later reader finds what the work followed" ;;
+    esac
+done <<<"$LIFECYCLE_DOCS"
+
 if [ "$FOUND" -gt 0 ]; then
-    echo "$PROG: $FOUND finding(s); see references/koto-session-retention.md, \"What shirabe pins\"" >&2
+    echo "$PROG: $FOUND finding(s); see references/koto-session-retention.md, \"What shirabe pins\", and the Lifecycle section of skills/plan/references/plan-format.md" >&2
     exit 1
 fi
 echo "$PROG: clean" >&2

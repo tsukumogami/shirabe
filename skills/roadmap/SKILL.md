@@ -396,8 +396,17 @@ no `shirabe transition <path> DELETED` form exists.
 
 Done roadmaps retain all content: features, sequencing rationale, progress,
 and any Implementation Issues table or Mermaid dependency graph added by
-/plan. Nothing is stripped. Done roadmaps are historical artifacts that
-remain on disk until the cascade deletes them.
+/plan. Nothing is stripped. A Done roadmap stays on disk only until the
+cascade deletes it, so it is not the record of the work it sequenced.
+
+The PLANs beneath a roadmap are working artifacts too, deleted when their
+work finishes. Only a `multi-pr` PLAN reaches the default branch, where it
+stays while its item PRs land and is deleted by the PR that completes it.
+For what a finished plan's work followed (the plan as each step began, each
+step's proof, the departures and the decisions), a later reader goes to the
+run's koto session, found from any of its merged PRs with
+`scripts/run-record-lookup.sh <owner/repo> <n>`, not to the plan or the
+roadmap.
 
 The four-state machinery here mirrors the working-artifact lifecycle template
 established in `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`,

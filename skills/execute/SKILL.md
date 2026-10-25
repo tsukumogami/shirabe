@@ -631,6 +631,42 @@ home is a **GitHub issue on the relevant skill repo** (filed with
 is the right target — a **committed note under `docs/`**. Prefer the issue; fall
 back to `docs/` only when there is no appropriate upstream issue target.
 
+## The Run's Record
+
+The PLAN doesn't outlive its work: the cascade deletes it, and only a
+`multi-pr` PLAN ever reaches the default branch (see the Lifecycle section of
+`skills/plan/references/plan-format.md`). What the work followed is kept in
+the run's koto sessions instead, and a later reader starts from a merged PR.
+
+- **The trail.** The record root (`execute-<topic>`) keeps a `trail/` area,
+  written only by `scripts/run-trail.sh`: the run itself (`trail/self`), every
+  PR it opened with its role and state (`trail/pr/*`), the PLAN text and commit
+  as each step began, and each step's session (`trail/step/*`). Each step
+  session holds that step's proof (its `summary.md`), its departures and its
+  decisions with who made them. A `multi-pr` plan's items share one plan-level
+  root, `plan.<owner>.<repo>.<topic>.<sha12>`, which lists them under
+  `trail/item/*`.
+- **The index.** Every PR a run records gets an index session,
+  `pr.<owner>.<repo>.<n>`, at a fixed shared address on the host. Its entry
+  names the run and its record root, and the root confirms the PR in its own
+  list before the index entry counts.
+- **The pins.** Before a terminal that leaves the PRs ready or merged, the
+  `record_keep` state pins the root, its step sessions and their index
+  sessions, so koto's retention rule doesn't remove them.
+  `references/koto-session-retention.md` ("What shirabe pins") has which
+  sessions, the reason each pin carries, and how a pin that didn't land is
+  retried.
+- **The lookup.** `scripts/run-record-lookup.sh <owner/repo> <n>` goes from
+  any of the run's PRs to its record root, the run's other PRs and, with
+  `--steps`, each step's session and PLAN snapshot. It only reads.
+
+Two limits wait on koto. Reading a record from a host other than the one the
+run used needs koto's read-only workspace option; until koto ships it, the
+lookup reads from the directories the record names, which works on the run's
+own host. Keeping a record across hosts needs the cloud release of koto's
+session pin; under the cloud backend a pin is refused until then, and the run
+records the refusal in `trail/unpinned` and retries it at its next start.
+
 ## Resume
 
 **On a re-entry, single-pr or coordinated, there is no separate session check.**

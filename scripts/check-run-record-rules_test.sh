@@ -11,6 +11,16 @@
 # skills/coordinate/. It also passes on the repository as it stands, and
 # refuses an unknown flag or a missing root (64).
 #
+# The lifecycle rule (run-record/lifecycle), on a tree whose seven lifecycle
+# documents are planted clean: it fails, naming the document, on a PLAN that
+# stays in docs/plans/ through every state (wrapped over two lines, and in
+# run-cascade.sh's header), a Done table row calling it terminal, a Plan or
+# Roadmap row whose last cell is Done, prose saying Done is terminal, a
+# historical record and an audit record, a document not naming the lookup,
+# a shell header that names it only below the header, and a missing
+# document; it passes on a stale-looking comment below run-cascade.sh's
+# header, which is code, not the header.
+#
 # The planted patterns are built from parts, so this file itself never holds
 # one whole.
 #
@@ -37,12 +47,38 @@ CLEANUP="$K cleanup"
 SETRET="koto config set --user retention"".keep 30d"
 OLDER="--older""-than 7d"
 
-# tree <name>: a fresh planted tree with one clean skill.
+LOOKUP="scripts/run-record""-lookup.sh"
+LIFECYCLE_MD="skills/plan/references/plan-format.md
+skills/plan/SKILL.md
+skills/plan/references/quality/plan-doc-structure.md
+skills/roadmap/references/roadmap-format.md
+skills/roadmap/SKILL.md
+references/pipeline-model.md"
+CASCADE="skills/work-on/scripts/run-cascade.sh"
+
+# tree <name>: a fresh planted tree with one clean skill and the seven
+# lifecycle documents, each clean.
 tree() {
     T="$WORK/$1"
     mkdir -p "$T/skills/demo/scripts" "$T/scripts" "$T/skills/coordinate"
     printf '# Demo\n\nNothing to see.\n' > "$T/skills/demo/SKILL.md"
     printf '#!/usr/bin/env bash\necho ok\n' > "$T/skills/demo/scripts/run.sh"
+    local d
+    while IFS= read -r d; do
+        mkdir -p "$T/$(dirname "$d")"
+        printf '# Doc\n\nDeleted when its work finishes. A later reader runs\n`%s <owner/repo> <n>`.\n' "$LOOKUP" > "$T/$d"
+    done <<<"$LIFECYCLE_MD"
+    mkdir -p "$T/$(dirname "$CASCADE")"
+    printf '#!/usr/bin/env bash\n# The completion step. See %s.\n\nset -e\n' "$LOOKUP" > "$T/$CASCADE"
+}
+# plant <doc> <text>: add a paragraph to a planted lifecycle document.
+plant() { printf '\n%s\n' "$2" >> "$T/$1"; }
+names() { # names <label> <doc>: the lifecycle finding names the document
+    if grep -q "^run-record/lifecycle: $2:" <<<"$OUT"; then
+        pass "$1: the finding names $2"
+    else
+        fail "$1: no finding naming $2 in [$OUT]"
+    fi
 }
 check() { # check <tree dir>
     OUT=$(bash "$CHECK" --root "$1" 2>"$WORK/stderr")
@@ -116,6 +152,77 @@ printf '%s\n' "$UNPIN" > "$T/scripts/testdata/stub"
 printf '# Coordinate\n\nRun `%s --apply --all`.\n\n%s x\n' "$PRUNE" "$UNPIN" > "$T/skills/coordinate/SKILL.md"
 check "$T"
 passes "a test suite, test data and skills/coordinate/ are not policed"
+
+# The lifecycle rule. The stale phrases are built from parts.
+EVERY="through every"" state"
+TERM="Terminal"" state"
+
+tree stays-wrapped
+plant skills/plan/references/plan-format.md "$(printf 'The PLAN\nstays in `docs/plans/` %s.' "$EVERY")"
+check "$T"
+fails_on "a PLAN that stays through every state, wrapped over two lines" run-record/lifecycle
+names "stays through every state" skills/plan/references/plan-format.md
+
+tree done-row
+plant skills/plan/references/plan-format.md "| Done | All issues complete. $TERM. |"
+check "$T"
+fails_on "a Done table row calling it terminal" run-record/lifecycle
+
+tree plan-row
+plant references/pipeline-model.md "| Plan | Draft -> Active -> Done | Done |"
+check "$T"
+fails_on "a Plan row whose last cell is Done" run-record/lifecycle
+names "a Plan row ending in Done" references/pipeline-model.md
+
+tree roadmap-row
+plant skills/roadmap/references/roadmap-format.md "| Roadmap | Draft -> Active -> Done | Done |"
+check "$T"
+fails_on "a Roadmap row whose last cell is Done" run-record/lifecycle
+
+tree done-prose
+plant skills/roadmap/SKILL.md "Once every feature lands, Done is the ROADMAP's $(printf '%s' "$TERM" | tr 'T' 't')."
+check "$T"
+fails_on "prose saying Done is the ROADMAP's terminal state" run-record/lifecycle
+names "Done as terminal in prose" skills/roadmap/SKILL.md
+
+tree historical
+plant skills/roadmap/references/roadmap-format.md "$(printf 'A completed roadmap is a historical\nrecord.')"
+check "$T"
+fails_on "a roadmap kept as a historical record" run-record/lifecycle
+
+tree audit
+plant skills/plan/SKILL.md "The finished PLAN is kept as an audit"" record."
+check "$T"
+fails_on "a PLAN kept as an audit record" run-record/lifecycle
+names "an audit record" skills/plan/SKILL.md
+
+tree no-lookup
+printf '# Doc\n\nDeleted when its work finishes.\n' > "$T/skills/plan/references/quality/plan-doc-structure.md"
+check "$T"
+fails_on "a lifecycle document that doesn't name the lookup" run-record/lifecycle
+names "no lookup" skills/plan/references/quality/plan-doc-structure.md
+
+tree cascade-header
+printf '#!/usr/bin/env bash\n# See %s.\n# The PLAN stays in docs/plans/ %s.\nset -e\n' "$LOOKUP" "$EVERY" > "$T/$CASCADE"
+check "$T"
+fails_on "a stale claim in run-cascade.sh's header" run-record/lifecycle
+names "the cascade header" "$CASCADE"
+
+tree cascade-body
+printf '#!/usr/bin/env bash\n# See %s.\nset -e\n# The PLAN stays in docs/plans/ %s.\n' "$LOOKUP" "$EVERY" > "$T/$CASCADE"
+check "$T"
+passes "a stale-looking comment below run-cascade.sh's header"
+
+tree cascade-lookup-below
+printf '#!/usr/bin/env bash\n# The completion step.\nset -e\n# See %s.\n' "$LOOKUP" > "$T/$CASCADE"
+check "$T"
+fails_on "run-cascade.sh naming the lookup only below its header" run-record/lifecycle
+
+tree missing-doc
+rm -f "$T/references/pipeline-model.md"
+check "$T"
+fails_on "a missing lifecycle document" run-record/lifecycle
+names "a missing document" references/pipeline-model.md
 
 check "$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd)"
 passes "the repository as it stands"
