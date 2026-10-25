@@ -195,6 +195,22 @@ bt_leg_round() {
     rm -f "$KOTO_BOARD_DIR/sessions/$3/ctx/review_round.json"
     [ $# -lt 4 ] || printf '%s\n' "$4" > "$KOTO_BOARD_DIR/sessions/$3/ctx/review_round.json"
 }
+# bt_result [round-json] [session]: a message-path worker's final report,
+# ending with the result block render-result.sh prints for <session>
+# (issue_12), which carries a review_round line when a round is given.
+bt_result() {
+    printf 'Ready: review passed, CI green.\n\n=== RESULT ===\nsession=%s\npr=https://github.com/acme/widgets/pull/12\n' "${2:-issue_12}"
+    [ -z "${1-}" ] || printf 'review_round=%s\n' "$1"
+    printf '=== END RESULT ===\n\n=== WORK IN FLIGHT ===\n- acme/widgets#12\n'
+}
+# bt_reported_round <S> <topic> [round-json]: a Holdings row for <topic>
+# linking acme/widgets#12 that returns by message (no leg, so no session the
+# land step can reach), and in <S>'s log the `wait` report evidence the
+# coordinator submitted for it, the worker's result block included.
+bt_reported_round() {
+    jq -nc --arg t "$2" '[{worker: $t, pull_request: "[#12](https://github.com/acme/widgets/pull/12)", repo: "acme/widgets", return_path: "message"}]' > "$BT_STATE/holdings"
+    bt_evidence "$1" wait "$(jq -nc --arg t "$2" --arg r "$(bt_result "${3-}")" '{event: "report", unit: $t, report: $r}')"
+}
 # bt_round [reviewed-head] [verdict-of-third-seat]: a three-seat review round.
 bt_round() {
     jq -nc --arg h "${1:-$H}" --arg v "${2:-pass}" '{reviewed_head: $h, seats: [

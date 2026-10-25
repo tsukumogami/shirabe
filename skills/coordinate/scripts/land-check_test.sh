@@ -278,6 +278,14 @@ eq "holdings that can't be read: exit 2" 2 $?
 rm -f "$BT_STATE/holding.rc"
 echo '[]' > "$BT_STATE/holdings"
 
+echo "== the round a message-path worker's report carried =="
+scenario "$PERMIT" "$PERMIT"
+printf '%s\n' "$NOPANEL" > "$T/body"; bt_prview CLEAN "$T/body"
+bt_reported_round "$S" worker-f12 "$(bt_round)"
+eq "A coordinated worker that reports by message, whose run session can't be read from the coordinator's machine, lands with no \`## Review panel\` table in its body." \
+    "permit 12 $H" "$(token)"
+echo '[]' > "$BT_STATE/holdings"
+
 echo "== the reviewed head =="
 OLD=2222222222222222222222222222222222222222
 MAINC=3333333333333333333333333333333333333333
