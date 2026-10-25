@@ -2830,7 +2830,8 @@ reports it under "Changed since then".
 (the `holding_recorded` gate reads it). Its exit codes: 1 no holding (run the
 script), 4 still dispatching (run the script again to settle it), 3
 dispatch-failed (submit `failed`; the unit is dispatched again under a new
-topic), 2 the record couldn't be read. The script's own exit codes are in its
+topic, but after the script's exit 11 never with a wider grant), 2 the record
+couldn't be read. The script's own exit codes are in its
 header; 5 means a live session already uses the topic, 8 the record refused the
 write.
 

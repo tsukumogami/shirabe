@@ -76,13 +76,13 @@ checkp() {
     log_to "$S" surface surface_check
     OUT=$(bash "$HERE/need-check.sh" --session "$S" 2>"$T/err"); RC=$?
 }
-BOUND='{"grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr"],"parent":{"dispatch_id":"x","instance":"ws+coordinator-1a2b3c4d"}}}'
+BOUND='{"grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr"],"parent":{"dispatch_id":"x","instance":"ws+lead-coord"}}}'
 checkp "$BOUND" "reserved-step close acme/widgets#34"
 eq "bound, lacking close: accepted" "0 accepted reserved-step" "$RC $(w)"
-eq "bound, lacking close: the need names the dispatcher's instance" "close acme/widgets#34, for dispatcher ws+coordinator-1a2b3c4d" "$(cell)"
+eq "bound, lacking close: the need names the dispatcher's instance" "close acme/widgets#34, for dispatcher ws+lead-coord" "$(cell)"
 case "$(cell)" in *"reserved for a person"*) bad "bound: never reserved for a person" "$(cell)" ;; *) ok "bound: never reserved for a person" ;; esac
 checkp "$BOUND" "reserved-step release #40"
-eq "bound: a release goes to the dispatcher too" "release #40, for dispatcher ws+coordinator-1a2b3c4d" "$(cell)"
+eq "bound: a release goes to the dispatcher too" "release #40, for dispatcher ws+lead-coord" "$(cell)"
 checkp "$BOUND" "reserved-step teardown #40"
 eq "bound: a teardown stays a person's" "teardown #40, reserved for a person" "$(cell)"
 checkp "$(jq -c '.grant_check.parent = {"dispatch_id": "x"}' <<<"$BOUND")" "reserved-step merge #12"

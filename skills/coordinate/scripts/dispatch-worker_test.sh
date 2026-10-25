@@ -151,7 +151,7 @@ case "$1" in
             fail) exit 1 ;;
             # niwa's never-wider refusal, before any instance exists.
             refuse-wider)
-                echo "niwa: error: authority close-issue (requested by --grant) is wider than the dispatcher's grant: the dispatcher holds merge-pr (dispatch 3c803591-4c01-486f-a927-f96ec399d6a7)" >&2
+                echo "niwa: error: authority close-issue (requested by --grant) is wider than the dispatcher's grant: the dispatcher holds merge-pr (dispatch d1)" >&2
                 exit 1
                 ;;
             fail-but-launched)
@@ -438,7 +438,7 @@ done
 INPUT_SUCCESSOR=$(jq -c '.entry_point = "coordinate" | .entry_args = ["plugin-api"] | .run_mode = "" | .grant = "own"' <<<"$INPUT_DELIVER")
 reset "$INPUT_SUCCESSOR"
 export NIWA_HELP=grant
-printf '%s' '{"token":"readable merge:permit close:permit teardown:confirm release:confirm","grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr","close-issue"],"parent":{"instance":"ws+root-1a2b3c4d"}}}' >"$ST/ctx/coord/posture.json"
+printf '%s' '{"token":"readable merge:permit close:permit teardown:confirm release:confirm","grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr","close-issue"],"parent":{"instance":"ws+root-coord"}}}' >"$ST/ctx/coord/posture.json"
 run >/dev/null 2>&1; RC=$?
 eq  "successor: exit 0" 0 "$RC"
 LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
