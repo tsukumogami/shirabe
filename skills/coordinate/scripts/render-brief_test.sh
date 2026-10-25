@@ -195,6 +195,27 @@ golden "review level: absent, the base brief is unchanged" "$GOLD/base.txt" --in
 golden "review level: absent, the min brief is unchanged"  "$GOLD/min.txt"  --input "$MIN"
 golden "review level: absent, the leg brief is unchanged"  "$GOLD/leg.txt"  --input "$BASE" --return-path req_1:deliver
 
+# --- the worker's grant -------------------------------------------------------------
+#
+# Absent, the brief is the golden one; present, the Goal gains one line after
+# the authority sentence, naming exactly the grant or saying it holds none.
+NAMED_REST="A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way."
+G1=$(bash "$S" --input "$(variant grant-merge '.grant = ["merge-pr"]')" --stdout)
+has "grant: names merge-pr and nothing else" "$G1" "Named authority: you hold merge-pr and nothing else. $NAMED_REST"
+eq  "grant: the line follows the authority sentence" "You are working for the owner on acme/widgets to build feature 2." \
+    "$(printf '%s\n' "$G1" | awk '/^Named authority:/ { print p2; exit } { p2 = p1; p1 = $0 }')"
+eq  "grant: nothing else changes" "$(cat "$GOLD/base.txt")" "$(printf '%s\n' "$G1" | awk '/^Named authority:/ { skip = 2 } skip > 0 { skip--; next } { print }')"
+G2=$(bash "$S" --input "$(variant grant-two '.grant = ["merge-pr", "close-issue"]')" --stdout)
+has "grant: two authorities, both named" "$G2" "Named authority: you hold merge-pr, close-issue and nothing else."
+G0=$(bash "$S" --input "$(variant grant-none '.grant = []')" --stdout)
+has "grant: none says it holds none" "$G0" "Named authority: you hold no named authority. A merge, close or release isn't yours to take"
+lacks "grant: none names no authority" "$(printf '%s\n' "$G0" | grep '^Named authority:')" "merge-pr"
+for g in '["merge"]' '"merge-pr"' '["merge-pr","merge-pr"]' '"own"' '[1]'; do
+    bash "$S" --input "$(variant grant-bad ".grant = $g")" --stdout >/dev/null 2>"$T/err"
+    eq  "grant: $g is refused" "1" "$?"
+    has "grant: $g's refusal names the field" "$(cat "$T/err")" "grant: must be an array of distinct authorities"
+done
+
 # --- the dispatcher, on the message path ---------------------------------------------
 #
 # A worker with no request leg records the coordinator run that dispatched it

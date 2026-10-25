@@ -708,6 +708,13 @@ the workspace's rules; it carries no permission rule of its own. Never ask the
 human for a step the workspace already permits. Read a settings file for the keys
 you need and never print one whole: its env block can hold credentials.
 
+Where niwa dispatched the coordinator and `niwa authority check` reports its
+session bound to that dispatch, the merge, close and release posture comes from
+the coordinator's own grant, not from the hooks' text: each step reads as the
+workspace's gate would decide it for that grant, never wider than the
+permission lists allow. Anywhere else (no niwa, a failed lookup, a session niwa
+didn't dispatch) the posture is read from the settings as above.
+
 **It doesn't tear down what it hasn't inventoried**, and it acts only on the
 sessions and instances it listed, never across the whole workspace. It never
 runs `niwa reap` or any removal that takes no target, and it never asks

@@ -20,7 +20,18 @@
 #   dispatch_topic     the topic pick chose; written fresh on the edge into
 #                      dispatch_check and passed through to dispatch
 #   brief_input.json   the brief input (see render-brief.sh); its topic must
-#                      equal dispatch_topic, or report_topic under --rebrief
+#                      equal dispatch_topic, or report_topic under --rebrief.
+#                      Its optional `grant` is what the worker is dispatched
+#                      holding: the authorities for the landing steps the
+#                      brief hands it (merge-pr, close-issue, cut-release),
+#                      none when it hands it none, or `own` for a successor
+#                      (entry point coordinate), which takes this
+#                      coordinator's own grant (below). Anything else exits
+#                      1 with nothing written
+#   coord/posture.json the coordinator's own `niwa authority check` answer,
+#                      as posture-read.sh stored it under grant_check: `own`
+#                      is its grant when its state is bound, and none
+#                      otherwise, or when the key can't be read
 #   the record's Run   its `coordinator` address (DC_RECORD_STATE --list),
 #                      written into the input as reports_to, the address
 #                      every brief tells its worker to report to; none
@@ -83,7 +94,18 @@
 #   6. Launch: `niwa dispatch "<prompt>" --name <topic> --detach` from the
 #      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300),
 #      plus `--brief <brief> --skill shirabe:<entry point>` when the installed
-#      niwa lists both flags in `niwa dispatch --help`.
+#      niwa lists both flags in `niwa dispatch --help`. When it lists
+#      `--grant`, the worker's grant goes on as one `--grant <authority>` per
+#      authority, and none at all for a worker granted nothing; when it
+#      doesn't, no grant goes on and the brief says the worker holds no named
+#      authority (the grant is settled before the brief renders, so the brief
+#      names exactly what the launch asks for). When it lists `--parent-from`
+#      and this script runs inside a niwa instance (the first directory at or
+#      above the current one holding .niwa/instance.json), `--parent-from
+#      <that instance root>` goes on too, so the worker's record names this
+#      coordinator's dispatch as its parent. niwa refuses a grant wider than
+#      its dispatcher's; that refusal is the one this script reports as such
+#      (exit 11), and nothing retries it with another grant.
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
@@ -204,6 +226,11 @@
 #   10 a new dispatch of a unit a pause holds, a decision parks or whose
 #      milestone verdict is owed, as pick
 #      marked it; nothing written (submit `dispatched: paused`)
+#   11 niwa refused the launch because the grant asked for is wider than the
+#      dispatcher's (every line of its refusal contains `is wider than the
+#      dispatcher's grant:`, which is printed); the row says
+#      dispatch-failed and the request is abandoned. Report the refusal:
+#      don't dispatch the unit again asking for more
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
@@ -291,11 +318,101 @@ read_inputs() {
         && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }
 
+# resolve_grant: what the worker is dispatched holding, settled before any
+# brief renders. The coordinator's own grant is the answer posture-read.sh
+# stored, never a second lookup. The input's `grant` is replaced by the grant
+# the launch asks for, so the brief's authority line names exactly that: none
+# when niwa can't take --grant. So a worker asking for a grant has the help
+# read here, before its brief renders; any other dispatch reads it only at the
+# launch (launch_flags), as before, and a run that launches nothing (a refusal,
+# a re-brief, a re-leg, a sent execution) makes no niwa call for it. A
+# re-brief, a re-leg and a sent execution resolve the grant the same way, from
+# the input, the stored posture and the help as they read now. niwa never
+# changes a running session's grant, so keep the input's `grant` as it was at
+# the dispatch: the line is then what the worker holds unless niwa or the
+# posture changed since. --releg-imported renders no brief, so it skips this.
+HELP=""
+PROBED=0
+GRANT='[]'
+GRANT_ARGS=()
+PARENT_ARGS=()
+# probe_help: read `niwa dispatch --help` into HELP, once per run.
+probe_help() {
+    [ "$PROBED" = 1 ] && return 0
+    HELP=$(dc_with_deadline 30 "$NIWA" dispatch --help 2>/dev/null) || HELP=""
+    PROBED=1
+}
+resolve_grant() {
+    local req
+    req=$(jq -c '.grant // []' "$INPUT") || die 2 "jq failed"
+    if [ "$req" = '"own"' ]; then
+        if [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" != coordinate ]; then
+            printf '%s: refused: grant: own is only for a successor coordinator (entry point coordinate)\n' "$PROG" >&2
+            exit 1
+        fi
+        # A missing or unreadable key leaves koto's or jq's own message on
+        # stderr, then the line below.
+        req=$(ctx coord/posture.json | jq -c '((.grant_check | objects) // {}) as $g
+            | if $g.state == "bound" then [($g.grant // [])[] | select(IN("merge-pr", "close-issue", "cut-release"))] | unique
+              else [] end') || req=""
+        if [ -z "$req" ]; then
+            printf '%s: coord/posture.json can'\''t be read, so the successor is dispatched holding no named authority\n' "$PROG" >&2
+            req='[]'
+        fi
+    fi
+    if ! jq -e 'type == "array" and all(.[]; IN("merge-pr", "close-issue", "cut-release")) and length == (unique | length)' <<<"$req" >/dev/null; then
+        printf '%s: refused: grant: a list of distinct authorities from merge-pr, close-issue and cut-release, or own\n' "$PROG" >&2
+        exit 1
+    fi
+    if [ "$req" != '[]' ]; then
+        probe_help
+        case "$HELP" in
+            *--grant*) ;;
+            *)
+                printf '%s: this niwa dispatch takes no --grant, so the worker is dispatched holding no named authority\n' "$PROG" >&2
+                req='[]'
+                ;;
+        esac
+    fi
+    GRANT=$req
+    jq --argjson g "$req" '.grant = $g' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+}
+
+# launch_flags: the flags that carry the grant and the parent, from the help:
+# one `--grant <authority>` per authority, and `--parent-from` with the first
+# directory at or above this one holding .niwa/instance.json.
+launch_flags() {
+    local a d
+    probe_help
+    case "$HELP" in
+        *--grant*)
+            while IFS= read -r a; do
+                [ -n "$a" ] && GRANT_ARGS+=(--grant "$a")
+            done <<EOF
+$(jq -r '.[]' <<<"$GRANT")
+EOF
+            ;;
+    esac
+    case "$HELP" in
+        *--parent-from*)
+            d=$(pwd -P)
+            while [ "$d" != / ]; do
+                if [ -f "$d/.niwa/instance.json" ]; then
+                    PARENT_ARGS=(--parent-from "$d")
+                    break
+                fi
+                d=$(dirname "$d")
+            done
+            ;;
+    esac
+}
+
 if [ -n "$IMPORTED" ]; then
     TOPIC=$IMPORTED
     dc_valid_topic "$TOPIC" || die 2 "--releg-imported names no valid topic: $TOPIC"
 else
     read_inputs
+    resolve_grant
 fi
 
 ROOT=$(dc_workspace_root) || die 2 "no workspace root found from $(pwd)"
@@ -1036,9 +1153,10 @@ fi
 # the dispatch, so they're added only when `niwa dispatch --help` lists both,
 # and the launch is otherwise exactly what it was. The skill is the entry
 # point's own name (the skill column of entry-points.tsv), which niwa requires
-# as <plugin>:<name> in lowercase letters, digits and dashes.
+# as <plugin>:<name> in lowercase letters, digits and dashes. The help is read
+# once per run (probe_help), with the grant's flags.
+launch_flags
 LINEAGE=()
-HELP=$(dc_with_deadline 30 "$NIWA" dispatch --help 2>/dev/null) || HELP=""
 case "$HELP" in
     *--brief*)
         case "$HELP" in
@@ -1054,9 +1172,13 @@ esac
 # (dc_tree): niwa may start the worker's hand-off in that group, and a TERM
 # to it could stop the worker being launched. The git commands niwa runs can
 # outlive it until niwa stops them on TERM itself (tsukumogami/niwa#391).
+# niwa's stderr is kept to tell its never-wider refusal from any other
+# failure, and passed on whole.
 LOG="$WORK/niwa.out"
-(cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach ${LINEAGE[@]+"${LINEAGE[@]}"}) >"$LOG"
+(cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach \
+    ${LINEAGE[@]+"${LINEAGE[@]}"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
 RC=$?
+cat "$WORK/niwa.err" >&2
 if [ "$RC" -eq 0 ]; then
     NAME=$(sed -n 's/^[[:space:]]*session name: //p' "$LOG" | head -1)
     if dc_session_matches "$TOPIC" "$NAME"; then
@@ -1080,6 +1202,9 @@ case "$?" in
                 mark_leg "$RETURN_PATH" spent
                 ;;
         esac
+        if [ "$RC" -ne 0 ] && grep -q "is wider than the dispatcher's grant:" "$WORK/niwa.err"; then
+            die 11 "niwa refused $TOPIC's grant as wider than this coordinator's own; report the refusal and don't dispatch it again asking for more"
+        fi
         die 4 "niwa dispatch failed for $TOPIC (exit $RC)"
         ;;
     *)

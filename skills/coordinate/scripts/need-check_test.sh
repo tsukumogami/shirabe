@@ -64,5 +64,39 @@ OUT=$(bash "$HERE/need-check.sh" --session "$S" 2>/dev/null)
 eq "the latest surface evidence is the one read" "refused" "$(w | cut -d' ' -f1)"
 bash "$HERE/need-check.sh" >/dev/null 2>&1; eq "no session is usage" 64 "$?"
 
+# Who a reserved step goes to follows the coordinator's own grant answer, as
+# posture-read.sh stored it. checkp <posture.json or -> <need>: check with it.
+checkp() {
+    N=$((N + 1))
+    S="coordinate-roadmap-feat-n$N-20260926T080000Z"
+    log_new "$S" "$(roadmap_vars feat)"
+    [ "$1" = - ] || printf '%s' "$1" | koto context add "$S" coord/posture.json
+    log_to "$S" start surface
+    log_evidence "$S" surface "$(jq -nc --arg n "$2" '{surfaced: "blocker", need: $n}')"
+    log_to "$S" surface surface_check
+    OUT=$(bash "$HERE/need-check.sh" --session "$S" 2>"$T/err"); RC=$?
+}
+BOUND='{"grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr"],"parent":{"dispatch_id":"x","instance":"ws+lead-coord"}}}'
+checkp "$BOUND" "reserved-step close acme/widgets#34"
+eq "bound, lacking close: accepted" "0 accepted reserved-step" "$RC $(w)"
+eq "bound, lacking close: the need names the dispatcher's instance" "close acme/widgets#34, for dispatcher ws+lead-coord" "$(cell)"
+case "$(cell)" in *"reserved for a person"*) bad "bound: never reserved for a person" "$(cell)" ;; *) ok "bound: never reserved for a person" ;; esac
+checkp "$BOUND" "reserved-step release #40"
+eq "bound: a release goes to the dispatcher too" "release #40, for dispatcher ws+lead-coord" "$(cell)"
+checkp "$BOUND" "reserved-step teardown #40"
+eq "bound: a teardown stays a person's" "teardown #40, reserved for a person" "$(cell)"
+checkp "$(jq -c '.grant_check.parent = {"dispatch_id": "x"}' <<<"$BOUND")" "reserved-step merge #12"
+eq "bound, the dispatcher's instance unknown: still the dispatcher's" "merge #12, for the dispatcher" "$(cell)"
+checkp "$(jq -c '.grant_check.parent.instance = "../etc; rm"' <<<"$BOUND")" "reserved-step merge #12"
+eq "bound, an instance name that isn't one: the dispatcher, unnamed" "merge #12, for the dispatcher" "$(cell)"
+checkp '{"grant_check":{"lookup":"answered","state":"not-dispatched","reason":"no-mapping","grant":[]}}' "reserved-step close acme/widgets#34"
+eq "root coordinator: a person's, as before" "close acme/widgets#34, reserved for a person" "$(cell)"
+checkp '{"grant_check":{"lookup":"skipped","why":"no niwa on PATH or in NIWA_BIN"}}' "reserved-step close #34"
+eq "no lookup: a person's, as before" "close #34, reserved for a person" "$(cell)"
+checkp - "reserved-step close #34"
+eq "no posture key: a person's, as before" "close #34, reserved for a person" "$(cell)"
+checkp 'not json' "reserved-step close #34"
+eq "an unreadable posture key: a person's, as before" "0 close #34, reserved for a person" "$RC $(cell)"
+
 tokens_ok need-check
 done_tests need-check
