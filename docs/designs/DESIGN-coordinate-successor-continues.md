@@ -287,10 +287,16 @@ path is never compared.
 A CI check in shirabe computes a structural fingerprint of the compiled
 template (state names, transitions and their conditions, evidence schemas,
 variables, gate commands and the exit-code-to-route mapping) and fails a pull
-request whose fingerprint changed while `COMPAT` didn't. A change that keeps
-the fingerprint but changes meaning, such as a gate script whose exit 1 now
-means something else, is caught by the template's header comment asking the
-author to bump `COMPAT`, and by review; that residue is a stated limitation.
+request whose fingerprint changed while `COMPAT` didn't. The check runs the
+base branch's copy of its script. For the meaning-only case
+(tsukumogami/shirabe#1139: a gate script whose exit 1 now means something
+else), it also hashes the scripts the template's gates invoke and fails a pull
+request that changes one of them unless the same pull request either bumps
+`COMPAT` or updates `COMPAT_REVIEWED`, a header field holding that hash, which
+records that the author judged the change meaning-preserving. Gate scripts
+change often, so requiring a bump for every edit would refuse most handovers;
+requiring a recorded judgement forces the question without that cost. A
+meaning change in a file no gate invokes is the residue review covers.
 Directive and details text are outside the fingerprint, so a text-only
 change continues without a bump.
 
@@ -547,9 +553,11 @@ Reporting section and `render-result.sh`.
 ### Key Interfaces
 
 - `koto session supersede <PRED> --by <SUCC> [--carry <prefix>]...
-  [--from <workspace>]` → exit 0 with `superseded=`, `carried=`, `forward=`;
-  exit 2 `superseded_by=<other>` or `no_relation`; exit 3 bucket failure,
-  nothing written before the fence.
+  [--from <workspace>] [--expect-seq <n>]` → exit 0 with `superseded=`,
+  `carried=`, `forward=`; exit 2 with `superseded_by=<other>`, `no_relation`,
+  `stale_seq`, `cycle` or `self`; exit 3 bucket failure, nothing written
+  before the fence. The event records the actor; the carry ends with the
+  `koto/superseded-carry-complete` marker.
 - Refusal on any write to a superseded session: exit code and error kind
   `session_superseded`, message naming the newest member.
 - `resolve-coordinator.sh <dispatcher_session>` → prints `coordinator=<claude
@@ -615,7 +623,72 @@ C's coordinator row. The cost sweep for that worker's removal resolves
 
 ## Security Considerations
 
-To be completed in the security phase.
+The takeover runs inside koto's existing trust boundary. Whoever can write a
+session's log (a process of the same user on the local backend, a holder of
+the bucket credential on the cloud backend) can already cancel or alter any
+session in it. The supersede verb doesn't widen that boundary, but it makes an
+irreversible action one command long, so the design treats mistakes and
+confused agents as the main threat and attributes every fence.
+
+**Who may fence.** `koto session supersede` checks that the successor holds a
+continues relation naming the predecessor. The successor creates that
+relation itself and the relation grants no authority, so the check proves
+intent, not permission: any session that can name another can fence it, and
+a wrong fence stops the right coordinator and redirects its workers and legs.
+Three things reduce the chance of a wrong fence. The opener passes the log
+sequence number its preflight observed (`--expect-seq`), and koto refuses a
+fence decided on stale facts. The opener re-checks the scope and run identity
+from `record/meta` before fencing. And the `session_superseded` event records
+the actor (Claude session, host, user, time), which the predecessor's refusal
+echoes. A fenced session can't be revived; recovery is another takeover of
+the newest member. That is why the carry is all-or-nothing: the verb writes a
+`koto/superseded-carry-complete` marker into the successor after the batch,
+and a takeover or tick of a successor without the marker re-copies from the
+fenced predecessor rather than running on a partial record.
+
+**Cloud backend.** The fence is a write into the predecessor's prefix with the
+successor host's credential, so that host can write both prefixes. The
+conditional push is the only cross-prefix write; if the bucket refuses it the
+verb exits 3 with nothing written and the opener reports
+`predecessor-unstoppable`. The verb refuses on a backend that can't do a
+conditional write rather than falling back to an unconditional one. Carrying a
+run into another prefix copies its full record there, so the destination must
+be at least as private as the source; retention releases the whole lineage
+together.
+
+**Chains.** Every walker that follows `session_superseded` (ring forwarding,
+the stale-wake lookup, `resolve-coordinator.sh`, the cost sweep, the refusal
+message) checks that each hop's session id matches the event's
+`by_session_id`, keeps a visited set and stops after 64 hops. koto refuses a
+supersede whose successor is the predecessor, is already in the predecessor's
+forward chain, or has the predecessor in its own relation ancestry, so a cycle
+built with `koto session link --continues` can't make a ring loop. On a broken
+chain a ring reaches the principal and the last good member, and the worker's
+resolver exits 1, which the brief treats as "report to the address in this
+brief". A worker also checks that the resolved member's `record/meta` names
+the same run before trusting its coordinator row.
+
+**Inputs.** Session names, worker names, the event's `by` field and carried
+keys are data. Session and worker names must match koto's name pattern before
+use; printed `key=value` values carry no control characters; the skill builds
+the arm-watch command from the validated `session=` field rather than running
+a printed string; `--from` and `--continues-from` come only from the
+invoker, never from a carried key; carried key names are validated as
+`koto context add` validates them.
+
+**Template compatibility.** A matching `COMPAT` lets a successor at another
+plugin path, checkout or version drive a run. The plugin's scripts already
+run with the user's privileges, so this adds no privilege, but it removes the
+old path-equality guard, so the opener records hash, compat and shirabe
+version on both sides, prints `template_drift=` when they differ, and refuses
+a predecessor with no recorded compat. The CI fingerprint check runs the base
+branch's copy of the script against both templates on `pull_request`, without
+secrets, so a pull request can't change the judge that evaluates it.
+
+**Output.** Result lines and refusals print session names and reason codes,
+not workspace paths or bucket keys. Session names can embed private slugs, so
+takeover output stays out of public pull requests, commits and comments, and
+test fixtures use synthetic names.
 
 ## Consequences
 
