@@ -26,6 +26,13 @@ In Progress
 
 Absorbed [BRIEF-coordinate-successor-continues](docs/briefs/BRIEF-coordinate-successor-continues.md); carried in Absorbed Brief.
 
+Amended after acceptance, during design review: R24's koto floor now names
+the fence that stops a predecessor as well as the relation, because the
+design builds R4 and R5 on a koto change and an open on a koto without it
+can't meet them. R18's "the open" is read by the design as the opener plus
+the watch-arming step it hands the agent, since only the agent can start a
+watch whose wake reaches it; the criterion is checked after that step.
+
 ## Absorbed Brief
 
 The feature exists because a coordinate run outlives the sessions that drive
@@ -329,9 +336,10 @@ These words have one meaning everywhere in this document.
   `template-incompatible` or `koto-too-old`. A completed takeover appends
   exactly one record entry naming predecessor and successor, however many
   times the open was re-run to complete it; a refusal appends none.
-- **R24.** The takeover needs a koto release with the continues relation.
+- **R24.** The takeover needs a koto release with the continues relation and
+  with the fence that stops a predecessor (R4, R5).
   With an older koto the open refuses (`koto-too-old`) and names the version
-  it needs; it never falls back to carry-and-cancel. With the relation but
+  it needs; it never falls back to carry-and-cancel. With those but
   without koto's request-store change behind R17, the open still takes over
   and prints `leg_wake=unsupported`; R17's criterion then fails, and the
   feature isn't accepted until it passes.
@@ -469,12 +477,12 @@ Import, output, versions and authority
       compatibility, Coordinator address and workers, Legs and watches, and
       Lineage pass in that workspace, with the imported copy as the
       predecessor. (R21)
-- [ ] With a koto that has the continues relation but not the request-store
-      change, the open prints `outcome=continued` and
+- [ ] With a koto that has the continues relation and the fence but not the
+      request-store change, the open prints `outcome=continued` and
       `leg_wake=unsupported`. (R24)
 - [ ] Every outcome prints the `key=value` lines R23 lists; a takeover adds
       one record entry naming both sessions; a refusal adds none. (R23)
-- [ ] With a koto older than the continues relation, the open prints
+- [ ] With a koto older than the continues relation or the fence, the open prints
       `outcome=refused` and names the koto version it needs; no session is
       cancelled or carried. (R24)
 - [ ] The coordinate grant reader reports the same merge, close and release

@@ -1,8 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-coordinate-successor-continues.md
-decision_provenance: inline-resolved
 problem: |
   A /coordinate successor can't continue the run it takes over. The opener
   finds the run by name prefix, opens a second run, copies record/ and legs/
@@ -11,11 +9,11 @@ problem: |
   name and cancel event, and imports fail on plugin path or template bytes.
   koto now records a continues relation, but nothing builds a takeover on it.
 decision: |
-  The successor opens its own session with --continues naming the run's
-  newest member, then runs a new koto verb, koto session supersede, that in
-  one serialized step fences the predecessor (an event in its own log, first
-  writer wins), copies the run's named key families into the successor from
-  the fenced snapshot, and rings the predecessor's wake file once. koto's
+  The successor is opened by koto init --continues --supersede, which first
+  fences the run's newest member (an event in its own log, first writer
+  wins, nothing written if it can't), then creates the successor with its
+  relation, copies the run's named key families from the fenced snapshot,
+  and rings the predecessor's wake file once. koto's
   request store forwards a ring along supersede records, so legs reach the
   newest member. Template continuation is decided by a compat number the
   template declares and CI keeps honest. Workers resolve the newest member
@@ -29,6 +27,8 @@ rationale: |
   only rule that catches a gate whose meaning changed without its shape
   changing. Workers resolving their coordinator at report time is the only
   way a stopped worker learns an address without anyone resuming it.
+upstream: docs/prds/PRD-coordinate-successor-continues.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: A coordinator's successor continues its run
@@ -147,6 +147,8 @@ into its brief file once; nothing re-reads it on resume.
 
 ### Decision 1: How the takeover fences the predecessor, claims the run once and carries what it holds
 
+Resolved inline.
+
 This is the core of the feature. The takeover has to do four things in an
 order that never leaves two drivers and never leaves the run claimed by
 nobody after a crash: open the successor with the relation, stop the
@@ -156,55 +158,84 @@ stopped rather than waited for, and that the stop must catch an in-flight
 tick. This decision settles where the stop lives, how the claim is made
 exclusive, and whether the run's holdings are copied or read through.
 
-The decision was resolved inline, without a separate decision run, on the
-dispatching coordinator's direction for this run's spend; it is the one
-critical-tier question in the design.
+This is the design's one critical-tier question, which a direct run would
+hand to `/decision`. It was resolved inline here, weighing the alternatives
+below against the drivers above, and is the first thing a reviewer of the
+plan should challenge.
 
-#### Chosen: a koto supersede verb that fences, copies and rings in one serialized step
+#### Chosen: `koto init --supersede`, which fences first and creates the successor only after the fence holds
 
-koto gains `koto session supersede <PRED> --by <SUCC> [--carry <prefix>]...
-[--from <workspace>]`. `<SUCC>` must already hold a continues relation naming
-`<PRED>` (koto refuses `no_relation` otherwise). Under `<PRED>`'s existing write
-serialization (the log's exclusive `flock` on the local backend; on the cloud
-backend, a pull of `<PRED>`'s state and a push conditional on that copy, as
-every cloud write has done since tsukumogami/koto#480), the verb:
+koto's `init` gains `--supersede`, used with `--continues`: `koto init <SUCC>
+--continues <PRED> --supersede [--carry <prefix>]... [--continues-from
+<workspace>] [--expect-state <state>]`. The successor's session id is minted
+before anything is written, and the command runs these steps in order:
 
-1. Reads `<PRED>`'s log. If it already carries a `session_superseded` event
-   naming `<SUCC>`, the verb skips to step 3 (a re-run). If it names another
-   session, it exits 2 with `superseded_by=<other>` and writes nothing. If
-   `<PRED>` is finished or cancelled, it supersedes anyway: a crashed or
-   cancelled predecessor still needs the fence so its forwarding works.
-2. Appends `session_superseded {by: <SUCC>, by_session_id, at}` to `<PRED>`'s
-   log. This is the claim: the append is serialized, so of two successors the
+1. **Check.** Read `<PRED>`'s log. If it already carries a
+   `session_superseded` event naming `<SUCC>` (same name and session id), go
+   to step 3: this is a re-run. If the event names another session, exit 2
+   with `superseded_by=<other>` and write nothing. If `<PRED>`'s current
+   workflow state isn't `--expect-state`, exit 2 `stale_state` and write
+   nothing; the opener's preflight decided compatibility against that state.
+   Refuse `self` and `cycle` (a successor already in `<PRED>`'s forward chain
+   or holding `<PRED>` in its own relation ancestry).
+2. **Fence.** Append `session_superseded {by, by_session_id, actor: {claude
+   session, host, user}, at}` to `<PRED>`'s log under its existing write
+   serialization: the per-append exclusive `flock` on the local backend, and
+   on the cloud backend a pull of `<PRED>`'s state and a push conditional on
+   that copy, as every cloud write has done since tsukumogami/koto#480. The
+   lock is held for one append, never for a tick, so the fence waits
+   milliseconds, not the length of a predecessor's tick. If the lock can't be
+   taken within 10 seconds, or the conditional push is refused or fails, exit
+   3 `fence_unavailable` with nothing written anywhere. Of two successors, the
    first append wins and the second reads it at step 1.
-3. Copies every context key under each `--carry` prefix from `<PRED>`'s
-   fenced state into `<SUCC>` in one read of `<PRED>` and one write batch to
-   `<SUCC>` (one pull and one push on the cloud backend). Keys `<SUCC>`
-   already holds with the same value are skipped, so a re-run is a no-op.
-4. Rings `<PRED>`'s wake file once (see Decision 3) and prints
+3. **Create.** Create `<SUCC>` with its header and its continues relation
+   (the existing `--continues` path), unless it already exists from an
+   earlier run of this same command.
+4. **Carry.** Copy every context key under each `--carry` prefix from
+   `<PRED>`'s fenced state into `<SUCC>`: one read of `<PRED>` and one write
+   batch to `<SUCC>` (one pull and one push on the cloud backend), skipping
+   keys `<SUCC>` already holds with the same value. Then write
+   `koto/superseded-carry-complete` in `<SUCC>`. A re-run that finds the
+   marker skips this step.
+5. **Ring.** Ring `<PRED>`'s wake file once (Decision 3) and print
    `superseded=<PRED>`, `carried=<n>`, `forward=<SUCC>`.
 
-From then on koto refuses every attempt to drive `<PRED>`: `koto next`, every
-context write and every log append check for a `session_superseded` event and
-exit with `session_superseded`, naming the newest member reached by following
-supersede events forward (`<SUCC>`, or the session that superseded it). A tick
-that was in flight when the fence landed reaches that check at its final
-append and is refused; a context write by a coordinate script inside that
-tick is refused the same way. Reads of `<PRED>` keep working. On the cloud
-backend `<SUCC>` usually lives under another workspace's prefix; the fence is
-a cross-prefix write of the same kind import's marker and the continues
-pointer already make, and the verb exits 3 with nothing written when the
-bucket refuses it. That exit is what the opener reports as
-`predecessor-unstoppable`.
+Because nothing is created before the fence, every refusal writes nothing: a
+rival that loses at step 1, a stale preflight, and an unavailable fence
+(`fence_unavailable`, which the opener reports as `predecessor-unstoppable`)
+all leave the store exactly as they found it, and the predecessor still
+drives. On the local backend a test forces `fence_unavailable` by holding
+`<PRED>`'s log lock past the 10-second wait.
 
-`coordinate-open.sh` drives it. After its preflight (Decision 2's
-compatibility check, the koto floor, scope resolution) it opens the successor
-with `koto init <SUCC> --continues <PRED> [--continues-from <ws>]`, runs
-`koto session supersede <PRED> --by <SUCC>` with the carry prefixes `record/`,
-`legs/`, `taken_legs` and `leg_children`, and only then writes the
-successor's own record changes (the coordinator row, the takeover entry, the
-told reset). The carried set is the closed list R7 asks the design to
-publish:
+From the fence on, koto refuses every attempt to drive `<PRED>`: `koto next`,
+every context write and every log append check for a `session_superseded`
+event and exit with `session_superseded`, naming the newest member reached by
+following supersede events forward and echoing the fence's actor. Because the
+lock is per append, a predecessor tick that started before the fence runs its
+gates and actions and is refused at its final append; a context write a
+coordinate script makes inside that tick is refused the same way. On the cloud
+backend the tick's conditional push conflicts with the fence, koto pulls,
+sees the event and refuses. An action's side effect outside koto (a worker
+dispatched through niwa whose record write was then refused) leaves no record
+row; the successor's first reconcile finds it through its existing host check
+as an instance with no holding and reports it, which is how it already
+treats an unrecorded instance. Reads of `<PRED>` keep working. On the cloud
+backend `<SUCC>` usually lives under another workspace's prefix, so the fence
+is a cross-prefix write of the same kind import's marker and the continues
+pointer already make.
+
+`coordinate-open.sh` drives it. Its preflight resolves the predecessor, checks
+koto's version and the compatibility rule (Decision 2) against the
+predecessor's current state, and then runs `koto init <SUCC> --continues
+<PRED> --supersede --expect-state <state>` with the carry prefixes `record/`,
+`legs/`, `taken_legs` and `leg_children`. On exit 2 `stale_state` it re-runs
+the preflight once and retries; a second `stale_state` refuses
+`predecessor-unstoppable`. After the fence it writes the successor's own
+record changes: `record/meta.driver` (the successor's Claude session id), the
+coordinator row, the told reset, pending rows, and one takeover entry whose id
+is the successor's session name, written only if no entry with that id exists.
+`record/meta.takeover_done` is written last. The carried set is the closed
+list R7 asks the design to publish:
 
 | Group | Key families | Why |
 |---|---|---|
@@ -212,18 +243,35 @@ publish:
 | Rebuilt by the successor | `coord/*`, `reconcile/*`, `wait_target`, `report_topic`, `brief_input.json`, sealed checks in the log | written fresh on every visit to their state; seals hash the session name |
 | Neither | `session/link-warning`, `koto/links/*` | the successor's own; lineage is the relation |
 
-The takeover's steps, which R6's criterion iterates, are: (a) preflight,
-writing nothing; (b) `koto init --continues`; (c) supersede; (d) the
-successor's record writes; (e) printing the arm-watch step. A crash after (b)
-leaves a successor session with the relation and an unfenced predecessor
-still driving: one driver, and a re-run attaches to the successor and goes
-on. A crash after (c) leaves the predecessor fenced and the successor holding
-the run's keys but not yet ticked: no driver until the re-run, which skips
-(b) and (c) and finishes (d). A rival successor that loses at (c) cancels its
-own just-opened session with `koto cancel --cleanup` and prints
-`reason=taken-over`; that session held no run keys and was never ticked.
+**Re-runs and the takeover's steps.** R6's criterion iterates these steps:
+(a) preflight, writing nothing; (b) `koto init --supersede` steps 1 to 5;
+(c) the successor's record writes, ending with `record/meta.takeover_done`;
+(d) printing the result. A re-run recognises itself when the scope's newest
+member is a session whose `record/meta.driver`, or whose fence actor, is the
+caller's own Claude session (`CLAUDE_CODE_SESSION_ID`); with no Claude session
+id to compare, a re-run can't recognise itself and refuses `taken-over`,
+which is the safe side. Crashes resolve as follows:
+
+| Interrupted | State left | Drivers | Re-run |
+|---|---|---|---|
+| in (a) | nothing written | predecessor | a fresh takeover |
+| in (b) before the fence | nothing written | predecessor | a fresh takeover |
+| in (b) after the fence, before create or carry | `<PRED>` fenced; `<SUCC>` absent or without the carry marker | none | `koto init --supersede` resumes at step 3 or 4; prints `outcome=continued` |
+| in (c) | `<SUCC>` carried; some record writes missing | none | finishes (c); the takeover entry is written once; `outcome=continued` |
+| in (d), or any re-run after `takeover_done` | complete | `<SUCC>` | attaches; `outcome=resumed`, no new entry |
+
+The only no-driver window is between the fence and the end of (c), all inside
+one command, or until that command is re-run after a crash. The opener prints
+`session=<SUCC>`; the skill builds the arm-watch command from that validated
+field and runs it before the first tick (Decision 3).
 
 #### Alternatives Considered
+
+**A separate `koto session supersede` verb run after `koto init
+--continues`.** Keeps `init` unchanged. Rejected because the successor and its
+relation then exist before the fence is known to hold, so a rival that loses,
+or a fence the bucket refuses, leaves a session behind, and the PRD requires
+every refusal to write nothing.
 
 **Cancel the predecessor, with a `--continued-by` note on the cancel event.**
 koto's cancel already refuses `koto next`, and a cancel is serialized like
@@ -261,6 +309,8 @@ a loaded host, all of it inside the no-driver window once the fence comes
 first, and an unfenced copy races the predecessor's writes.
 
 ### Decision 2: The rule that decides a successor's template can keep driving the run
+
+Resolved inline.
 
 Today `coord-log.sh provenance` requires the session's `PLUGIN_ROOT` to equal
 this plugin's path and its `template_hash` (SHA-256 of the compiled JSON) to
@@ -323,6 +373,8 @@ meaning-only case to people.
 
 ### Decision 3: How legs the predecessor opened reach the successor, and how watches move
 
+Resolved inline.
+
 A leg's request names its requester once, and koto rings only the names in
 the header. The successor must hear every leg any earlier member opened,
 within 10 seconds of its result (R17), and the predecessor's watcher must
@@ -341,16 +393,18 @@ looks up a requester's log by name follows the same chain. Nothing in the
 request's header changes, so `koto request list --requested-by` still shows
 the member that opened it.
 
-Supersede rings the predecessor's own wake file once (Decision 1, step 4).
+Supersede rings the predecessor's own wake file once (Decision 1, step 5).
 The predecessor's armed `koto request watch` exits with a wake; when the
 predecessor's agent ticks in response, koto refuses with
 `session_superseded`, and the coordinate template's directive for that
 refusal tells the agent to stop and not re-arm. The successor's watch is armed
 by the agent, because a harness watch has to be started by the agent that
-wants its notification: `coordinate-open.sh` prints the exact `koto request
-watch --session <SUCC>` command as `arm_watch=` and the skill runs it in the
-same turn, before the first tick. R18 is read accordingly: "the open" is the
-opener plus the arm step it prints. A predecessor watcher on another host is
+wants its notification: `coordinate-open.sh` prints `session=<SUCC>`, and the
+skill builds `koto request watch --session <SUCC>` from that validated field
+and arms it in the same turn, before the first tick. This narrows R18's
+wording: "the open" is the opener plus that arm step, because no script can
+start a watch whose wake reaches the agent. R18's criterion is checked after
+the arm step. A predecessor watcher on another host is
 outside the ring's reach; the opener reports `watcher=unobserved` when the
 predecessor's last event came from another host, `watcher=absent` when no
 watch for the predecessor runs here, and `watcher=stopped` when one did and
@@ -376,6 +430,8 @@ grows with every recycle, and the predecessor's watcher still has nothing that
 ends it.
 
 ### Decision 4: The coordinator address, pending workers and reaching the newest member
+
+Resolved inline.
 
 The record's Run `coordinator` row is the address workers report to, and
 `state-stored-set.sh --run coordinator` already clears every `told` row. The
@@ -432,7 +488,7 @@ needs pending to be visible so it can turn told.
 
 ## Decision Outcome
 
-**Chosen: 1 (supersede verb) + 2 (declared compat) + 3 (rings follow supersede) + 4 (workers resolve; pending row)**
+**Chosen: 1 (`koto init --supersede`) + 2 (declared compat) + 3 (rings follow supersede) + 4 (workers resolve; pending row)**
 
 ### Summary
 
@@ -440,47 +496,52 @@ A takeover is one command, `coordinate-open.sh`, which now continues runs
 instead of carrying them. Its preflight resolves the predecessor (the newest
 member of the scope's one unfinished run, or a named session it checks is
 that member), checks koto's version, and compares the predecessor's recorded
-compat number with its own template's. Then it opens the successor with
-`koto init --continues`, and calls `koto session supersede`, which in one
-serialized step fences the predecessor, copies the run's carried key
-families into the successor from the fenced state, and rings the
-predecessor's wake file. The successor writes its own coordinator row, resets
-the told set, records pending workers, appends one takeover entry, and the
-opener prints its `key=value` result with an `arm_watch=` line the skill runs
-before the first tick. A rival that loses the fence cancels its own empty
-session and refuses `taken-over`; a re-run by the winner finishes whatever
-step was interrupted.
+compat number with its own template's against the predecessor's current
+state. Then it runs `koto init <SUCC> --continues <PRED> --supersede`, which
+fences the predecessor before anything else is written, creates the
+successor with its relation, copies the run's carried key families from the
+fenced state, and rings the predecessor's wake file. The successor writes its
+own driver id, coordinator row, told reset, pending rows and one takeover
+entry, marks the takeover done, and the opener prints its `key=value` result,
+including `session=`, from which the skill builds and arms the successor's
+watch before the first tick. A rival that loses the fence, or a fence that
+can't be taken, writes nothing; a re-run by the winner finishes whatever step
+was interrupted and an attach after completion prints `resumed`.
 
-koto changes in two places beyond the relation it already ships. The
-supersede verb adds the fence, the carry and the ring, local and cloud, and
-every write path refuses a superseded session by naming the newest member.
-The request store's ring follows supersede events to the newest member, so a
-leg opened by any earlier member wakes the session driving the run. Both are
-filed as koto issues by the plan.
+koto changes in three pieces beyond the relation it already ships: the
+supersede fence, refusal and carry on the local backend; the same on the
+cloud backend, which needs koto's bucket walk for the relation; and ring
+forwarding in the request store. The plan files each as a koto issue. The
+opener's koto floor is the release with the local supersede piece; on a koto
+without ring forwarding it still takes over and prints `leg_wake=unsupported`,
+deciding by version, since the release that ships forwarding is known.
 
 The lineage readers move to the relation. `coord-log.sh chain-start` walks
 `koto/links/continues/*` back from the newest member, and at a member with no
 relation follows its recycled-coordinator `dispatched-by` link; a member
-with neither is the chain start. The cost sweep resolves a removed worker's
-`requested_by` forward along supersede events to the newest member instead
-of falling back to the slug's live run. `coordinate-open.sh --import` becomes
-koto import followed by the same takeover, with the imported copy as the
-predecessor, which also retires the provenance-by-path refusal of
-tsukumogami/shirabe#806.
+with neither is the chain start. This needs only the relation. The cost sweep
+resolves a removed worker's `requested_by` forward along supersede events to
+the newest member instead of falling back to the slug's live run.
+`coordinate-open.sh --import` becomes koto import followed by the same
+takeover, with the imported copy as the predecessor; koto's import already
+leaves the source refusing writes as `session_migrated`, so the source can't
+drive the run either, and the provenance-by-path refusal of
+tsukumogami/shirabe#806 goes away.
 
 ### Rationale
 
-The fence and the carry belong together. Fencing first and copying from the
-fenced state is the only order that gives a consistent snapshot, and doing
-both inside one koto verb is what keeps the no-driver window to one
-command at constant cost. The fence being an event in the predecessor's own
-log is what lets koto refuse every kind of write, including an in-flight
-tick, without adding a check anywhere koto doesn't already serialize, and it
-is also the forward pointer that Decisions 3 and 4 and the cost sweep follow.
-That shared pointer is why the ring, the worker's address and the sweep need
-no takeover-time rewriting. The cost is a second koto dependency beyond the
-relation, and a fence that is final: a superseded session can't be revived,
-which is the intended property.
+The fence and the carry belong together, and the fence comes first. Fencing
+before creating anything is what makes every refusal write nothing; copying
+from the fenced state is the only order that gives a consistent snapshot; and
+doing both inside one koto command keeps the no-driver window to that command
+at constant cost. The fence being an event in the predecessor's own log is
+what lets koto refuse every kind of write, including an in-flight tick's last
+append, without a check anywhere koto doesn't already serialize, and it is the
+forward pointer Decisions 3 and 4 and the cost sweep follow. That shared
+pointer is why the ring, the worker's address and the sweep need no
+takeover-time rewriting. The cost is koto work beyond the relation, and a
+fence that is final: a superseded session can't be revived, which is the
+intended property.
 
 ## Solution Architecture
 
@@ -489,40 +550,54 @@ which is the intended property.
 ```
 successor agent
   coordinate-open.sh --scope ... [--predecessor P] [--import ...]
-    preflight: koto floor, scope -> P (newest unfinished member), compat(P) == compat(own)
-    koto init S --continues P [--continues-from ws]           (relation, F12)
-    koto session supersede P --by S --carry record/ --carry legs/ --carry taken_legs --carry leg_children
-      P log += session_superseded{by:S}   (flock / conditional push: first wins)
-      S ctx  <= P ctx[carried prefixes]   (one read, one write batch)
-      ring wakes/P                        (P's watch exits)
-    S record: coordinator row = S's Claude session, told reset, pending rows, takeover entry
-    print outcome=continued ... arm_watch=koto request watch --session S ...
-  agent runs arm_watch, then first tick
+    (a) preflight: koto floor; scope -> P (newest unfinished member);
+        P's current state s; compat(P) == compat(own) and s exists in own template
+    (b) koto init S --continues P --supersede --expect-state s
+          --carry record/ --carry legs/ --carry taken_legs --carry leg_children
+          1 check   P's log: fenced? by whom? state still s?
+          2 fence   P log += session_superseded{by:S, id, actor}  (per-append flock /
+                    conditional push: first wins; nothing written on failure)
+          3 create  S with header and continues relation
+          4 carry   S ctx <= P ctx[carried prefixes]; koto/superseded-carry-complete
+          5 ring    wakes/P once (P's watch exits)
+    (c) S record: meta.driver, coordinator row, told reset, pending rows,
+        takeover entry (id = S, written once), meta.takeover_done
+    (d) print outcome=continued predecessor= session=S predecessor_stopped=
+        watcher= leg_wake= template_drift=
+  agent builds `koto request watch --session S` from session=, arms it, ticks
 ```
 
 ### Components
 
-**koto `session supersede` (new, koto).** Verb, event type
-`session_superseded`, the refusal `session_superseded` naming the newest
-member in every write path (`koto next`, context writes, decisions,
-overrides, appends), and the carry. Local: under the log's `flock`. Cloud:
-pull, append, conditional push to the predecessor's prefix, then one push
-for the successor; exit 3 with nothing written if either fails before the
-fence lands, and an idempotent re-run if it fails after.
+**koto `init --supersede` (new, koto).** The fence, the `session_superseded`
+event with its actor, the refusal `session_superseded` naming the newest member
+in every write path (`koto next`, context writes, decisions, overrides,
+appends), the carry with its completion marker, the ring, `--expect-state`,
+and the `self`, `cycle` and `stale_state` refusals. Local first; the cloud path
+(conditional push to the predecessor's prefix) once koto's bucket walk for the
+relation is in. koto validates every session name it reads from an event
+before using it in a path.
 
 **koto request store forwarding (koto).** `ring_principals`, the wake pass
-and the stale-wake recovery follow `session_superseded` forward and ring the
-newest member too.
+and the stale-wake recovery follow `session_superseded` forward, with each
+hop's session id checked and a visited set, and ring the newest member too.
 
-**`coordinate-open.sh` (shirabe).** Replaces the carry-and-cancel path with
-the takeover above; keeps plain open (`outcome=opened`) and resume of the
-session this Claude session already drives (`outcome=resumed`). Result
-contract (R23): `outcome=continued|opened|resumed|refused`; `continued` adds
-`predecessor=`, `predecessor_stopped=yes|no` (yes when the predecessor was
-live by the PRD's definition at preflight), `watcher=stopped|absent|unobserved`,
-`leg_wake=supported|unsupported` and `arm_watch=`; `refused` adds `reason=`
-from `ambiguous-scope`, `not-newest-member`, `taken-over`,
-`predecessor-unstoppable`, `template-incompatible`, `koto-too-old`.
+**`coordinate-open.sh` (shirabe).** Replaces the carry-and-cancel path with the
+takeover above; keeps plain open (`outcome=opened`) and attach to a completed
+takeover (`outcome=resumed`). Result contract (R23):
+`outcome=continued|opened|resumed|refused`; `continued` adds `predecessor=`,
+`session=`, `predecessor_stopped=yes|no` (yes when the predecessor was live by
+the PRD's definition at preflight), `watcher=stopped|absent|unobserved`,
+`leg_wake=supported|unsupported` and, when the two sides differ,
+`template_drift=`; `refused` adds `reason=` from `ambiguous-scope`,
+`not-newest-member`, `taken-over`, `predecessor-unstoppable`,
+`template-incompatible`, `koto-too-old`. It also reads the carry marker: a
+re-run that finds a successor without it re-runs `koto init --supersede`
+before step (c).
+
+**Template refusal directive (shirabe).** The coordinate template gains a
+directive for `session_superseded`: stop, report the newest member to whoever
+launched the session, and don't re-arm the watch.
 
 **Liveness probe (shirabe, `dispatch-common.sh`).** The PRD's definition:
 not finished or cancelled in koto, and either a running Claude job on this
@@ -530,18 +605,19 @@ host (`dc_job_finished` false) or, when the job can't be seen from here, a
 koto event in the last 10 minutes. Used for `predecessor_stopped` and the
 pending classification.
 
-**Compat check (shirabe).** `COMPAT` in the template header; `record/meta`
-gains `template_compat`, `template_hash` and `shirabe_version` at open; a CI
-script, `check-template-compat.sh`, compares the fingerprint against the base
-branch.
+**Compat check (shirabe).** `COMPAT` and `COMPAT_REVIEWED` in the template
+header; `record/meta` gains `template_compat`, `template_hash`,
+`shirabe_version` and `driver` at open; a CI script,
+`check-template-compat.sh`, judged by the base branch's copy, compares the
+fingerprint and the gate-script hash (scripts gates invoke and the libraries
+they source) against the base branch.
 
 **Lineage readers (shirabe).** `coord-log.sh chain-start` and
-`unit-removed.sh`'s coordinator lookup, as above. The record-writing scripts
-that refuse a superseded predecessor are every script that calls
-`lib_write_guard` (`state-stored-set.sh`, `state-write-core.sh` and its
-callers, `state-handover.sh --record`, `dispatch-worker.sh`'s record writes);
-they get koto's `session_superseded` refusal and print the newest member it
-names.
+`unit-removed.sh`'s coordinator lookup, as above. Every script that writes the
+record through `lib_write_guard` (`state-stored-set.sh`, `state-write-core.sh`
+and its callers, `state-handover.sh --record`, `dispatch-worker.sh`'s record
+writes) gets koto's `session_superseded` refusal and prints the newest member
+it names; this list is the one R5's criterion iterates.
 
 **Worker side (shirabe).** `resolve-coordinator.sh`, the brief template's
 Reporting section and `render-result.sh`.
@@ -552,20 +628,21 @@ Reporting section and `render-result.sh`.
 
 ### Key Interfaces
 
-- `koto session supersede <PRED> --by <SUCC> [--carry <prefix>]...
-  [--from <workspace>] [--expect-seq <n>]` → exit 0 with `superseded=`,
-  `carried=`, `forward=`; exit 2 with `superseded_by=<other>`, `no_relation`,
-  `stale_seq`, `cycle` or `self`; exit 3 bucket failure, nothing written
-  before the fence. The event records the actor; the carry ends with the
-  `koto/superseded-carry-complete` marker.
-- Refusal on any write to a superseded session: exit code and error kind
-  `session_superseded`, message naming the newest member.
+- `koto init <SUCC> --continues <PRED> --supersede [--carry <prefix>]...
+  [--continues-from <workspace>] [--expect-state <state>]` → exit 0 with
+  `superseded=`, `carried=`, `forward=`; exit 2 with `superseded_by=<other>`,
+  `stale_state`, `cycle` or `self`; exit 3 `fence_unavailable` (lock not taken
+  in 10 seconds, or the conditional push refused or failed). Every non-zero
+  exit before step 2 completes writes nothing.
+- Refusal on any write to a superseded session: error kind
+  `session_superseded`, naming the newest member and the fence's actor.
 - `resolve-coordinator.sh <dispatcher_session>` → prints `coordinator=<claude
   session name>` and `member=<koto session>`; exit 1 when the chain can't be
-  read.
+  read or the member's `record/meta` names another run.
 - `state-stored-set.sh --pending <worker>`; Run row `pending <worker>`.
-- Template header `COMPAT: <int>`; `record/meta` fields `template_compat`,
-  `template_hash`, `shirabe_version`.
+- Template header `COMPAT: <int>`, `COMPAT_REVIEWED: <hash>`; `record/meta`
+  fields `template_compat`, `template_hash`, `shirabe_version`, `driver`,
+  `takeover_done`.
 
 ### Data Flow
 
@@ -581,14 +658,17 @@ C's coordinator row. The cost sweep for that worker's removal resolves
 
 - A takeover of a predecessor that is itself finished or cancelled (a crash)
   supersedes it anyway; `predecessor_stopped=no`.
-- Cloud fence from a successor without write access to the predecessor's
-  prefix exits 3: `predecessor-unstoppable`, nothing written, the
-  predecessor still drives.
+- A fence that can't be taken (bucket refusal, lock held) exits 3:
+  `predecessor-unstoppable`, nothing written, the predecessor still drives.
 - A predecessor's agent that keeps trying after the fence gets
-  `session_superseded` on every call; the template's refusal directive says
-  to stop, report the newest member to whoever launched it, and not re-arm.
-- Requests don't cross hosts; a successor on another host after an
-  import reads legs through reconcile (`koto request get`) but isn't woken.
+  `session_superseded` on every call and follows the refusal directive.
+- An action's side effect outside koto whose record write was refused shows
+  up in the successor's first reconcile as an instance with no holding.
+- Requests don't cross hosts; a successor on another host after an import
+  reads legs through reconcile (`koto request get`) but isn't woken.
+- Chain walks stop at 1024 hops, about six months of recycles at the current
+  rate; past that a ring reaches the principal only and the worker's resolver
+  falls back to its brief's address.
 - Pre-feature briefs don't run `resolve-coordinator.sh`; those workers fall
   back to the brief's existing "list the sessions again if a message bounces"
   rule until they finish.
@@ -597,26 +677,30 @@ C's coordinator row. The cost sweep for that worker's removal resolves
 
 ### Phase 1: What needs no koto change (buildable now)
 
-- The compat number, `record/meta` fields and the CI fingerprint check.
+- The compat number, `COMPAT_REVIEWED`, `record/meta` fields and the CI
+  fingerprint check.
 - Told and pending: `--pending`, the gate change, re-brief evidence recording
   told (tsukumogami/shirabe#1245), the liveness probe.
 
-### Phase 2: koto's supersede verb and ring forwarding
+### Phase 2: Readers of the relation (needs only koto's relation release)
 
-- `koto session supersede` with the fence, refusal, carry and ring, local
-  backend first, then the cloud path once koto's bucket walk for the relation
-  is in.
+- `chain-start` over the relation, with the legacy `dispatched-by` fallback.
+
+### Phase 3: koto's supersede and ring forwarding
+
+- `koto init --supersede` on the local backend: fence, refusal, carry, marker,
+  ring, refusals.
+- The same on the cloud backend, after koto's bucket walk for the relation.
 - Ring forwarding in the request store.
 
-### Phase 3: The takeover in shirabe
+### Phase 4: The takeover in shirabe
 
 - `coordinate-open.sh` takeover, result contract, rival and re-run handling,
-  coordinator row and told reset, arm-watch step, refusal directive in the
-  template.
-- Lineage readers: `chain-start`, the cost sweep, legacy `dispatched-by`.
+  driver id, coordinator row and told reset, refusal directive.
+- The cost sweep's forward resolution.
 - Worker side: `resolve-coordinator.sh`, brief template, `render-result.sh`.
 
-### Phase 4: Import
+### Phase 5: Import
 
 - `coordinate-open.sh --import` as import plus takeover, once koto's import
   keeps its source as a read-only predecessor.
@@ -626,25 +710,33 @@ C's coordinator row. The cost sweep for that worker's removal resolves
 The takeover runs inside koto's existing trust boundary. Whoever can write a
 session's log (a process of the same user on the local backend, a holder of
 the bucket credential on the cloud backend) can already cancel or alter any
-session in it. The supersede verb doesn't widen that boundary, but it makes an
-irreversible action one command long, so the design treats mistakes and
-confused agents as the main threat and attributes every fence.
+session in it. On a host or bucket where every writer holds every prefix, the
+fence doesn't widen that boundary, but it makes an irreversible action one
+command long, so the design treats mistakes and confused agents as the main
+threat and attributes every fence. Where a bucket grants writes per prefix, a
+holder of one prefix that can write another's state can now redirect that
+run's workers, legs and cost sweep, which a cancel never did; that deployment
+shape is unsupported, and the fence refuses rather than half-writes when the
+bucket denies it.
 
-**Who may fence.** `koto session supersede` checks that the successor holds a
-continues relation naming the predecessor. The successor creates that
-relation itself and the relation grants no authority, so the check proves
-intent, not permission: any session that can name another can fence it, and
-a wrong fence stops the right coordinator and redirects its workers and legs.
-Three things reduce the chance of a wrong fence. The opener passes the log
-sequence number its preflight observed (`--expect-seq`), and koto refuses a
-fence decided on stale facts. The opener re-checks the scope and run identity
-from `record/meta` before fencing. And the `session_superseded` event records
-the actor (Claude session, host, user, time), which the predecessor's refusal
-echoes. A fenced session can't be revived; recovery is another takeover of
-the newest member. That is why the carry is all-or-nothing: the verb writes a
-`koto/superseded-carry-complete` marker into the successor after the batch,
-and a takeover or tick of a successor without the marker re-copies from the
-fenced predecessor rather than running on a partial record.
+**Who may fence.** `koto init --supersede` fences a predecessor the successor
+names in its own continues relation. The successor writes that relation
+itself and the relation grants no authority, so this proves intent, not
+permission: any session that can name another can fence it, and a wrong
+fence stops the right coordinator and redirects its workers and legs. This is
+accepted residual risk, escalated in the plan's report. Three things reduce
+the chance of a wrong fence. The opener passes the predecessor's workflow
+state its preflight observed (`--expect-state`), and koto refuses a fence
+decided on stale facts; a state, unlike a log sequence number, doesn't move
+on every tick, so a live predecessor doesn't make the check flap. The opener
+re-checks the scope and run identity from `record/meta` before fencing. And
+the `session_superseded` event records the actor (Claude session, host, user,
+time), which the predecessor's refusal echoes. A fenced session can't be
+revived; recovery is another takeover of the newest member. That is why the
+carry is all-or-nothing: koto writes the `koto/superseded-carry-complete`
+marker into the successor after the batch, and the opener, which reads it on
+every re-run, re-runs the carry before the successor's first tick when it is
+missing.
 
 **Cloud backend.** The fence is a write into the predecessor's prefix with the
 successor host's credential, so that host can write both prefixes. The
@@ -652,14 +744,19 @@ conditional push is the only cross-prefix write; if the bucket refuses it the
 verb exits 3 with nothing written and the opener reports
 `predecessor-unstoppable`. The verb refuses on a backend that can't do a
 conditional write rather than falling back to an unconditional one. Carrying a
-run into another prefix copies its full record there, so the destination must
-be at least as private as the source; retention releases the whole lineage
-together.
+run into another prefix copies its full record there; nothing checks that the
+destination is as private as the source, so an operator taking a run into
+another workspace owns that choice. Retention releases the whole lineage
+together. After an import, the source refuses writes as `session_migrated`
+(koto's import keeps it as a read-only predecessor), so the original can't
+keep driving while the copy is taken over; carried values from the import are
+validated like any other carried key.
 
 **Chains.** Every walker that follows `session_superseded` (ring forwarding,
 the stale-wake lookup, `resolve-coordinator.sh`, the cost sweep, the refusal
 message) checks that each hop's session id matches the event's
-`by_session_id`, keeps a visited set and stops after 64 hops. koto refuses a
+`by_session_id`, keeps a visited set and stops after 1024 hops (about six
+months of recycles; koto validates each name before building a path from it). koto refuses a
 supersede whose successor is the predecessor, is already in the predecessor's
 forward chain, or has the predecessor in its own relation ancestry, so a cycle
 built with `koto session link --continues` can't make a ring loop. On a broken
@@ -704,18 +801,21 @@ test fixtures use synthetic names.
 
 ### Negative
 
-- Two new koto capabilities (the supersede verb and ring forwarding) beyond
-  the relation koto already ships, so the takeover can't land until a koto
-  release carries both.
+- New koto work beyond the relation koto already ships: the takeover can't
+  land until a koto release carries `init --supersede` on the local backend,
+  can't run on the cloud backend until the cloud fence ships, and doesn't
+  wake on old legs until ring forwarding ships.
 - The carry duplicates the run's keys into every member, so storage grows
   with the number of takeovers until retention releases the lineage.
-- A meaning-only gate change still relies on the author bumping `COMPAT`.
+- A meaning-only change in a file no gate invokes still relies on review.
+- Anyone who can name a session can fence it; the fence is attributed, not
+  authorized.
 - A superseded session can't be revived; a takeover started by mistake is
   undone only by another takeover.
 
 ### Mitigations
 
-- Phase 1 lands before koto's work, and the opener prints
+- Phases 1 and 2 land before koto's supersede work, and the opener prints
   `leg_wake=unsupported` on a koto without ring forwarding rather than
   failing.
 - Retention releases a whole lineage together once its newest member's
