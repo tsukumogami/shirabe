@@ -11,7 +11,7 @@ problem: |
 goals: |
   A successor coordinator continues the run it takes over, through koto's
   continues relation, with one command from any instance or compatible plugin
-  version: exactly one session drives the run at any moment, nothing the run
+  version: at most one session drives the run at any moment, nothing the run
   held is lost, workers and legs reach the successor without hand edits, and
   every tool that reads the run's history follows the recorded relation.
 upstream: docs/briefs/BRIEF-coordinate-successor-continues.md
@@ -67,11 +67,12 @@ a takeover built on it.
 - A coordinator, or an operator acting for one, hands a run to a fresh
   session with one command, and the run continues in that session: same
   record, same legs, same lineage, no second run and no cancelled original.
-- Exactly one session drives a run at any moment, including while the
-  predecessor is still running when the successor opens.
+- At most one session drives a run at any instant. The only moment with no
+  driver is the takeover command itself.
 - The handover works from another instance, another checkout, after a plugin
-  upgrade and after an import, whenever the run's template is one the
-  successor can keep driving, and refuses by name when it isn't.
+  upgrade and after an import into another workspace, whenever the run's
+  template is one the successor can keep driving, and refuses by name when it
+  isn't.
 - Workers and legs follow the run: briefs, legs, watches and the told set all
   reach the successor, and no idle worker is woken only to learn an address.
 - Lineage comes from the relation, never from session names.
@@ -80,28 +81,57 @@ a takeover built on it.
 
 1. As a coordinator whose context is filling, I want to start my successor
    from a fresh niwa instance running a newer shirabe while I'm still
-   ticking, so that the run moves to the successor without a window where we
-   both drive it or neither does.
-2. As a successor coordinator, I want my first tick to work with no rebind,
+   ticking, so that the run moves to the successor and I stop driving it,
+   with no moment where we both do.
+2. As an operator whose coordinator crashed overnight, I want to start a
+   successor that continues the crashed run, so that the run picks up without
+   anyone reconstructing its record.
+3. As a successor coordinator, I want my first tick to work with no rebind,
    no record edit and no copy, and my first reconcile to find every holding my
    predecessor had reconciled, so that I pick the run up where it was.
-3. As a coordinator with a `/work-on` worker in flight across a handover, I
+4. As a coordinator with a `/work-on` worker in flight across a handover, I
    want that worker's leg result to wake my watch when it lands, so that
    work finished after the handover isn't lost in a watch nobody runs.
-4. As a coordinator taking over while a worker is parked for an owner pause,
+5. As a coordinator taking over while a worker is parked for an owner pause,
    I want that worker recorded as pending and the handover to go ahead, so
-   that I don't resume it just to tell it my address, and it learns the
-   address when it next starts.
-5. As an operator importing a run into another workspace with the cloud
-   session configuration, I want the takeover there to behave exactly as on
-   the original host, and to refuse by naming the template when my shirabe's
-   coordinate template can't drive the run.
-6. As a coordinator settling a removed worker's cost, or checking whether a
+   that I don't resume it just to tell it my address, and it reaches me when
+   it next starts.
+6. As an operator importing a run into another workspace on the same host
+   with the cloud session configuration, I want the takeover there to meet
+   the same criteria as in the original workspace, and to refuse by naming
+   the template when my shirabe's coordinate template can't drive the run.
+7. As a coordinator settling a removed worker's cost, or checking whether a
    standing deferral still holds, I want both lookups to follow the recorded
    succession, so that a run whose session names don't fit the old pattern
    still resolves to the right chain.
 
 ## Requirements
+
+### Terms
+
+These words have one meaning everywhere in this document.
+
+- **Run**: one coordinate effort for one scope (a roadmap or a discipline),
+  across every session that has driven it. Its **members** are those
+  sessions, linked by continues relations; its **newest member** is the one
+  no other member continues.
+- **Drive**: accept a `koto next` that advances the run's workflow, or a
+  write to the run's record by a coordinate script.
+- **Live** (a session): its koto session is not finished or cancelled, and
+  either its Claude job shows a running process on this host or, when the
+  job can't be observed from this host, its koto log recorded an event in
+  the last 10 minutes. A session that isn't live is **not live**.
+- **Holding**: a unit of work the run is responsible for, recorded as a Work
+  row in the record (a dispatched worker, a parked item, a pull request
+  awaiting landing or teardown). Its **classification** is the kind and
+  state reconcile assigns to that row.
+- **Told**: a worker is told when the coordinator's current address has been
+  delivered to it: a message to its session that the send reported as
+  accepted, or a re-rendered brief followed by such a message.
+- **Pending**: a worker that can't be told now because its session is not
+  live, recorded as such rather than as told or missing.
+- **Template version**: the content hash of the compiled coordinate
+  template, plus the shirabe version that shipped it.
 
 ### Functional
 
@@ -109,183 +139,269 @@ a takeover built on it.
 
 - **R1.** Taking over a run opens a new koto session for the successor, tied
   to the successor's own Claude session, and records in it, at open, that it
-  continues the predecessor through koto's continues relation. The takeover
-  creates no second run alongside a cancelled first one and copies no key
-  family as a substitute for the relation.
+  continues the run's newest member through koto's continues relation. The
+  takeover opens no second run alongside a cancelled first one and copies no
+  key family as a substitute for the relation. A run taken over several
+  times forms a chain of members, each continuing the one before.
 - **R2.** The takeover works whoever launched the successor: a coordinator's
-  own recycle, an operator by hand, or another session picking up a stalled
-  run. It names the predecessor explicitly or finds it from the scope; it
-  never depends on the launcher's identity.
-- **R3.** A takeover finds the predecessor by scope (roadmap or discipline)
-  and refuses with a named reason when the scope has no run to continue, more
-  than one live run, or a run whose newest member already has a successor.
-  A plain start with no prior run behaves as today.
+  own recycle, an operator by hand, or a session unrelated to the
+  predecessor. The predecessor is either named on the command line or found
+  from the scope; nothing depends on the launcher's identity.
+- **R3.** A takeover refuses, with a named reason and without changing
+  anything, when: the scope has no run; the scope has more than one run whose
+  newest member is live; the named predecessor isn't the newest member of a
+  run of that scope; or another takeover of the same run is in progress or
+  has completed. Of two takeovers of one run started at the same time,
+  exactly one succeeds. A start with no prior run for the scope opens a new
+  run as today.
 
 **Single writer**
 
-- **R4.** At no point after the successor's open returns do two sessions both
-  accept ticks or record writes for one run. When the predecessor is live,
-  the open either stops it before the successor takes over or refuses,
-  naming the live predecessor and the reason.
-- **R5.** After a takeover, the predecessor's `koto next` and every
-  coordinate script that writes the record refuse, and the refusal names the
-  successor session.
-- **R6.** A takeover interrupted part-way leaves the run driven by exactly one
-  of the two sessions, and re-running the same command converges on a
-  completed takeover without a hand repair.
+- **R4.** When the newest member is live, the open takes over and stops it
+  from driving the run; it refuses (`predecessor-unstoppable`) only when it
+  can't establish that stop. When the newest member is not live, the open
+  takes over without stopping anything. In every case, from the moment the
+  open returns, at most one session drives the run, and a tick or record
+  write the predecessor started before the takeover either completes before
+  the successor's first tick or is refused.
+- **R5.** After a takeover, every attempt by a predecessor to drive the run
+  is refused, and the refusal names the session that now drives it (the
+  newest member, after any later takeovers). This covers the predecessor's
+  `koto next` and every coordinate script that writes the record; the design
+  lists those scripts.
+- **R6.** The design lists the takeover's steps. A takeover interrupted after
+  any step leaves the run driven by at most one session, and re-running the
+  same command completes the takeover without a hand repair.
 
 **What the successor starts from**
 
-- **R7.** The successor starts from everything the run holds that a later
-  reconcile or wait reads: the record (sections, entries, posted
-  references), the legs and which of them were already taken, and the
-  run's lineage facts (chain start, standing go-aheads). It does not start
-  from facts that are rebuilt every visit or sealed to the predecessor's own
-  session, and the design states which those are.
-- **R8.** The successor's first reconcile finds every holding the
-  predecessor had reconciled, with the same classification, and re-processes
-  no leg the predecessor had already taken.
-- **R9.** The successor's first tick succeeds from its own instance and
-  directory with no `koto session rebind`, no edit of the record's state by
-  hand and no carry.
+- **R7.** The successor starts from these facts of the run, read or carried,
+  without a hand step: every record section, record entry and posted
+  reference; every leg and whether it was already taken; and the run's
+  lineage facts (its chain start and the standing go-aheads recorded since
+  then). It does not start from facts rebuilt on every visit to a state
+  (`coord/*`, `reconcile/*`) or from checks sealed into the predecessor's own
+  log; the successor rebuilds those. The design publishes the closed list of
+  key families in each group.
+- **R8.** The successor's first reconcile reports every holding the
+  predecessor's last reconcile reported, with the same classification,
+  except where the holding's state changed after the takeover began; it
+  takes no leg the predecessor had taken.
+- **R9.** The successor's first tick, run from the directory and instance the
+  successor was launched in, exits 0 and is accepted by the workflow, with
+  no `koto session rebind`, no hand edit of the record and no carry.
 
 **Template and plugin compatibility**
 
-- **R10.** A successor whose plugin sits at another absolute path, or in
-  another checkout, continues the run when the template is compatible. The
-  plugin path is never part of the compatibility test.
-- **R11.** Compatibility is decided by a stated, deterministic rule over the
-  predecessor's template and the successor's shipped template. An identical
-  template is compatible. A template that changed only in ways the rule
-  declares safe is compatible. Any other change is incompatible.
-- **R12.** A successor whose shipped coordinate template is incompatible
-  refuses to continue the run, names the template and both versions, and
-  leaves the predecessor and its run unchanged.
+- **R10.** A successor whose plugin sits at another absolute path, in another
+  checkout, or at a newer shirabe version continues the run when the
+  template is compatible. The plugin path is never part of the test.
+- **R11.** Compatibility is a stated, deterministic rule over the
+  predecessor's template version and the successor's. At minimum: an
+  identical compiled template is compatible; a change only to directive or
+  details text that no gate, evidence schema or transition reads is
+  compatible; a change to a state name, a transition, an evidence field, a
+  variable, or what a gate's exit code means is incompatible, including a
+  change that keeps a gate's command and shape but changes the meaning of
+  its result.
+- **R12.** A successor whose shipped template is incompatible refuses,
+  naming the template and both template versions. The refusal writes
+  nothing: no session, no relation, no record entry; the predecessor's run
+  is unchanged.
 
 **Coordinator address and workers**
 
 - **R13.** On takeover the run's coordinator address becomes the successor's
   session. Every brief dispatched or re-briefed afterwards names the
   successor as its `reports_to`.
-- **R14.** The told set restarts at takeover. A worker counts as told when
-  the successor has delivered the address to it, including by
-  `dispatch-worker.sh --rebrief`, which records told itself once delivery
-  worked.
-- **R15.** A worker that can't be told now because its session ended idle is
-  recorded as pending, not told and not missing. The handover gate passes
-  with pending workers. A pending worker becomes told when it next starts and
-  has the successor's address, and nothing resumes a worker only to tell it.
-- **R16.** A worker that starts again after one or more takeovers reaches the
-  run's current coordinator, not the one its brief originally named, without
-  anyone editing its brief by hand.
+- **R14.** The told set is empty at takeover; a worker told by a predecessor
+  isn't told for the successor. `dispatch-worker.sh --rebrief` records the
+  worker as told once its message is accepted, and records nothing when
+  delivery fails.
+- **R15.** At the handover gate, each worker of a live holding is classified
+  by what the successor can observe:
+
+  | Worker condition | Status |
+  |---|---|
+  | Session live and the address message accepted | told |
+  | Session not live (ended idle, stopped, or not observable from this host) | pending |
+  | Instance gone, as today's teardown check reads it | missing (today's handling) |
+
+  The handover gate passes with pending workers. A pending worker becomes
+  told when its first report after starting again reaches the successor;
+  the successor records that at its next reconcile. Nothing resumes a worker
+  only to tell it.
+- **R16.** A worker that starts again after one or more takeovers sends its
+  first report to the run's newest member, not the coordinator its brief
+  originally named, without anyone editing its brief by hand.
 
 **Legs and watches**
 
-- **R17.** A leg the predecessor opened, completing after the takeover, wakes
-  the successor's `koto request watch` within one wait. This needs koto's
-  request store to follow the run's succession from the session that
-  requested the leg.
-- **R18.** The successor's open arms the successor's leg watch, and any watch
-  the predecessor had armed exits rather than outliving the takeover.
+- **R17.** A leg any earlier member opened, completing after a takeover, makes
+  the newest member's armed `koto request watch` exit with a wake within 10
+  seconds of the leg's result being recorded. This needs koto's request
+  store to follow the run's continues chain from the member that requested
+  the leg.
+- **R18.** A successful open leaves a `koto request watch` armed on the
+  successor's session and no watch running on any predecessor's session on
+  this host. A predecessor watcher already gone is not an error. A watcher
+  the open can't observe (on another host) doesn't block the takeover, and
+  the result says so. A refused open arms nothing.
 
 **Lineage**
 
 - **R19.** `coord-log.sh chain-start` and the on-reap cost sweep
-  (`unit-removed.sh`) find a run's lineage by following the continues
-  relation. Neither reads a session-name prefix or a cancel event to decide
-  lineage.
-- **R20.** For runs carried before this feature, which hold no continues
-  relation, lineage reads the recycled-coordinator link the carry already
-  writes; it never falls back to the name prefix.
+  (`unit-removed.sh`) find a run's members by following the continues
+  relation. Their result is the same whatever the members' names are and
+  whether or not any member was cancelled.
+- **R20.** A run carried before this feature holds no continues relation.
+  Lineage for it follows the recycled-coordinator link the carry wrote
+  (`dispatched-by`, from each carried run to the run it carried). A run with
+  neither a relation nor that link is its own chain start.
 
 **Import**
 
-- **R21.** After `coordinate-open.sh --import` into a second workspace with
-  the cloud session configuration, every requirement above holds for a
-  takeover in that workspace.
+- **R21.** After `coordinate-open.sh --import` into a second workspace on the
+  same host with the cloud session configuration, a takeover in that
+  workspace meets the same requirements.
 
 ### Non-functional
 
-- **R22.** A takeover of a run with at least 65 record entries completes
-  within koto's action limits (no single koto action over its 30-second cap)
-  while the host's one-minute load average is 25 or more.
-- **R23.** The takeover prints one result line per outcome (taken over,
-  refused with a reason, stopped predecessor) that a calling coordinator can
-  parse, and records the takeover as an entry in the run's record.
-- **R24.** The takeover requires a koto release that ships the continues
-  relation; with an older koto the opener refuses and names the koto version
-  it needs rather than falling back to carry-and-cancel.
-- **R25.** The relation grants nothing: no authority check reads it, and the
-  successor's merge, close and release posture comes from its own grant as
-  today.
+- **R22.** A takeover of a run with at least 65 record entries completes with
+  no koto action exceeding koto's 30-second action cap, while the host's
+  one-minute load average is 25 or more. The design states the largest run
+  size it supports and the koto calls a takeover makes per entry.
+- **R23.** The open prints its outcome as `key=value` lines, one key per
+  line, with a fixed `outcome=` line whose value is one of `continued`,
+  `opened`, `resumed` or `refused`; `continued` adds `predecessor=`,
+  `predecessor_stopped=yes|no` and `watcher=stopped|absent|unobserved`, and
+  `refused` adds `reason=` with a code. A takeover appends one record entry
+  naming predecessor and successor; a refusal appends none.
+- **R24.** The takeover needs a koto release with the continues relation and
+  one with the request-store change behind R17. With a koto older than the
+  first, the open refuses and names the koto version it needs; it never
+  falls back to carry-and-cancel.
+- **R25.** The relation grants nothing. The successor's merge, close and
+  release posture, as the coordinate grant reader reports it, is identical
+  with and without the relation.
 
 ## Acceptance Criteria
 
-- [ ] From a fresh niwa instance running a different shirabe version than the
-      predecessor's, while the predecessor's Claude session is still ticking,
-      the successor's open either stops the predecessor and takes over or
-      refuses naming the live predecessor; in neither case do two sessions
-      accept a tick for the run afterwards. (R4)
-- [ ] After a takeover, the predecessor's `koto next` refuses and the refusal
-      names the successor; a predecessor-side `state-stored-set.sh` write
-      refuses the same way. (R5)
-- [ ] Killing the takeover at each of its steps and re-running the same
-      command ends with exactly one session driving the run and a completed
-      takeover. (R6)
+Takeover and single writer
+
+- [ ] From a fresh niwa instance on a different shirabe version than the
+      predecessor's, with the predecessor's Claude job running and ticking,
+      the open prints `outcome=continued` and `predecessor_stopped=yes`; the
+      predecessor's next `koto next` refuses naming the successor; no tick
+      by the predecessor is accepted after the open returns. (R4, R5)
+- [ ] With the predecessor's job finished and its last koto event over 10
+      minutes old, the open prints `outcome=continued` and
+      `predecessor_stopped=no`. (R4)
+- [ ] After a takeover, each record-writing script the design lists, run
+      against the predecessor, refuses naming the successor. (R5)
+- [ ] For each takeover step the design lists, killing the open after that
+      step and re-running the same command ends in `outcome=continued` with
+      at most one session having driven the run at any point. (R6)
 - [ ] The successor's session holds a continues relation naming the
-      predecessor, written at open; no `coordinate-` session of the scope was
-      cancelled by the takeover and no run besides the successor's was
-      opened. (R1)
-- [ ] A takeover started by a session that is neither the predecessor nor
+      predecessor, written at open; no session of the scope was cancelled
+      by the takeover and no other run was opened. (R1)
+- [ ] On a chain A, B, C (B continues A, C continues B), `koto session
+      hierarchy` shows each relation; a takeover naming A or B refuses, one
+      naming C succeeds, and A's and B's `koto next` both refuse naming the
+      new member. (R1, R3, R5)
+- [ ] A takeover launched by a session that is neither the predecessor nor
       anything it dispatched succeeds and writes the same relation. (R2)
-- [ ] A takeover refuses with a named reason for a scope with no run, a scope
-      with two live runs, and a predecessor that already has a successor. (R3)
-- [ ] The successor's first tick succeeds with no `koto session rebind`, no
-      hand edit of record state and no carry. (R9)
+- [ ] A takeover naming the predecessor explicitly and one finding it from
+      the scope produce the same relation; naming a session of another scope
+      refuses. (R2, R3)
+- [ ] A takeover refuses, leaving the store unchanged, for a scope with no
+      run, a scope with two runs whose newest members are live, and a
+      predecessor that already has a successor. (R3)
+- [ ] Two takeovers of one run started together: exactly one prints
+      `outcome=continued`, the other refuses. (R3)
+- [ ] A start for a scope with no prior run prints `outcome=opened`. (R3)
+
+What the successor starts from
+
+- [ ] The successor's first tick, run from its launch directory in a
+      different checkout from the predecessor's, exits 0 and is accepted,
+      with no `koto session rebind`, record edit or carry. (R9)
 - [ ] On a run holding open legs, taken legs, dispatched and parked
-      holdings, the successor's first reconcile reports every holding the
-      predecessor had reconciled, with the same classification, and takes no
-      leg the predecessor had taken. (R7, R8)
-- [ ] A run with at least 65 record entries is taken over with no koto action
-      exceeding 30 seconds while the one-minute load, recorded at the start
-      and end of the takeover, is 25 or more. (R22)
-- [ ] A successor whose plugin root is at a different absolute path, with an
-      identical template, continues the run. (R10)
-- [ ] A successor whose template differs from the predecessor's only in a
-      change the compatibility rule declares safe continues the run; one
-      whose template changed in any other way refuses, naming the template
-      and both versions, and the predecessor still drives the run. (R11, R12)
-- [ ] After takeover the run's coordinator row names the successor, and the
-      next brief dispatched carries the successor as `reports_to`. (R13)
-- [ ] After `dispatch-worker.sh --rebrief` delivers a brief to a worker,
-      `state-handover.sh --check` reports no `not-told` gap for that worker
-      with no manual `--told` step. (R14)
-- [ ] A worker whose session ended idle is recorded pending; the handover
-      gate passes; when the worker next starts it reports to the successor
-      and is then recorded told; no resume was made only to tell it. (R15)
+      holdings, standing go-aheads and at least 65 entries, taken over while
+      the one-minute load recorded at start and end is 25 or more: no koto
+      action exceeds 30 seconds; the successor's first reconcile reports
+      every holding the predecessor's last reconcile reported with the same
+      classification; it takes no already-taken leg; `chain-start` and the
+      standing go-aheads read the same as before the takeover. (R7, R8, R22)
+- [ ] The successor's `coord/*` and `reconcile/*` keys and log seals are its
+      own, written by its own ticks, and none was copied from the
+      predecessor. (R7)
+
+Template and plugin compatibility
+
+- [ ] A successor with an identical template, its plugin root at a different
+      absolute path, continues the run. (R10)
+- [ ] A successor on a newer shirabe whose template differs only in
+      directive text continues the run. (R10, R11)
+- [ ] A successor whose template changes a gate's exit-code meaning while
+      keeping its command refuses, naming the template and both template
+      versions; the store holds no new session, relation or record entry; the
+      predecessor still drives the run. Same for a renamed state. (R11, R12)
+
+Coordinator address and workers
+
+- [ ] After takeover the coordinator row names the successor; the next
+      dispatched brief and the next re-briefed brief carry the successor as
+      `reports_to`. (R13)
+- [ ] Immediately after takeover the told set is empty, including for
+      workers the predecessor had told. (R14)
+- [ ] After `--rebrief` with its message accepted, `state-handover.sh
+      --check` reports no `not-told` gap for that worker; with the message
+      refused, the worker is not recorded told. (R14)
+- [ ] A worker whose session ended idle, and a worker on another host, are
+      recorded pending; the handover gate passes; no resume is issued to
+      either. When the idle worker is resumed for its own work, its first
+      report reaches the successor and the successor's next reconcile
+      records it told. (R15, R16)
 - [ ] A worker dispatched two takeovers ago, started again after the second,
-      reaches the current successor with its brief file untouched by hand.
-      (R16)
-- [ ] A leg the predecessor dispatched, completing after the takeover, wakes
-      the successor's `koto request watch` within one wait. (R17)
-- [ ] A `koto request watch` the predecessor had armed has exited by the time
-      the successor's open returns, and the successor has a watch armed on
-      its own session. (R18)
-- [ ] On a fixture where the session-name prefix and the continues relation
-      disagree, `chain-start` and the cost sweep both return the lineage the
-      relation gives. (R19)
-- [ ] On a run carried before this feature, `chain-start` returns the chain
-      the recycled-coordinator link gives, and no name-prefix walk runs.
-      (R20)
-- [ ] Each criterion above that concerns a takeover passes again after
-      `coordinate-open.sh --import` into a second workspace with the cloud
-      session configuration. (R21)
-- [ ] Every takeover outcome prints its result line and appends a record
-      entry naming predecessor and successor. (R23)
-- [ ] With a koto that lacks the continues relation, the takeover refuses and
-      names the koto version it needs; no carry or cancel runs. (R24)
-- [ ] An authority check for the successor reads the same with and without
-      the relation. (R25)
+      sends its first report to the newest member, with its brief file
+      untouched by hand. (R16)
+
+Legs and watches
+
+- [ ] A leg the predecessor dispatched, completing after the takeover, makes
+      the successor's armed watch exit with a wake within 10 seconds of the
+      leg's result being recorded; the same holds two takeovers later. (R17)
+- [ ] After the open returns, a watch is armed on the successor's session and
+      no `koto request watch` for the predecessor's session runs on the host;
+      with the predecessor's watcher already gone the open prints
+      `watcher=absent`; a refused open leaves no new watch. (R18)
+
+Lineage
+
+- [ ] On a fixture whose member names follow the old prefix pattern but whose
+      relations say otherwise, with one member cancelled and one not,
+      `chain-start` and the cost sweep return the lineage the relations
+      give. (R19)
+- [ ] On a pre-feature carried run with a same-prefix sibling that a
+      name walk would include, `chain-start` returns the chain the
+      recycled-coordinator links give; a run with neither relation nor link
+      returns itself as chain start. (R20)
+
+Import, output, versions and authority
+
+- [ ] After `coordinate-open.sh --import` into a second workspace on the same
+      host with the cloud session configuration, the criteria under Takeover
+      and single writer, What the successor starts from, Template and plugin
+      compatibility, Coordinator address and workers, and Legs and watches
+      pass in that workspace. (R21)
+- [ ] Every outcome prints the `key=value` lines R23 lists; a takeover adds
+      one record entry naming both sessions; a refusal adds none. (R23)
+- [ ] With a koto older than the continues relation, the open prints
+      `outcome=refused` and names the koto version it needs; no session is
+      cancelled or carried. (R24)
+- [ ] The coordinate grant reader reports the same merge, close and release
+      posture for the successor with and without the relation. (R25)
 
 ## Out of Scope
 
@@ -300,7 +416,10 @@ a takeover built on it.
 - Succession for `/execute`, `/work-on`, `/deliver` and other skills' runs.
 - Ringing legs across hosts: koto's request store is host-local and isn't
   replicated by import, so a leg on one host can't wake a successor on
-  another. R17 and R21 cover the same host and a second workspace on it.
+  another. R17 and R21 cover one host and its workspaces.
+- Taking over a run whose newest member was cancelled by the old
+  carry-and-cancel flow: that member is not the newest member, the carried
+  run is, and R20 covers its lineage.
 - Retiring the operators' interim workarounds and recording when each one
   stopped.
 - The teardown pass's job lookup for a worker resumed from inside its
@@ -311,12 +430,13 @@ a takeover built on it.
 - Pending has no expiry here: a worker that never starts again stays pending
   until the run tears it down. The handover gate no longer protects that
   worker's address, which is the intended trade.
-- A worker's liveness can only be observed on the host it runs on. A
-  successor that can't observe a worker treats it as pending rather than
-  told, so a live worker on another host may be told late.
-- R17 needs a koto change in the request store. Until that ships, the shirabe
-  takeover can land, and legs the predecessor opened are read by the
-  successor's reconcile but don't wake its watch.
+- Liveness from another host rests on the 10-minute event window, so a
+  predecessor on another host that is alive but quiet for longer reads as not
+  live, and a worker there is treated as pending.
+- R17 needs a koto change in the request store. The shirabe takeover can be
+  built before it, and until it ships, legs the predecessor opened are read
+  by the successor's reconcile but don't wake its watch; the feature isn't
+  accepted until that criterion passes.
 
 ## Decisions and Trade-offs
 
@@ -324,27 +444,43 @@ a takeover built on it.
 its own session and records the relation instead of copying keys into a new
 run and cancelling the old one. Alternatives: keep the carry and add a link
 (keeps the copy cost and the cancelled original that lineage then has to
-walk); attach the successor to the predecessor's session (one koto session tied to
-two Claude sessions over its life, so its log can't say which one wrote what,
-and R1 requires each coordinator session to keep its own). The relation is what koto#479 builds for exactly this case.
+walk); attach the successor to the predecessor's session (one koto session
+tied to two Claude sessions over its life, so its log can't say which one
+wrote what). The relation is what tsukumogami/koto#479 builds for exactly
+this case.
 
-**The single-writer guarantee is fixed; the handshake is the design's.** The
-PRD requires that two sessions never drive one run and that the predecessor's
-refusal names the successor. Whether the open stops a live predecessor or
-refuses until it stops is a mechanism choice the design makes. koto has no
-process-liveness signal, so either way the design states what it treats as
-live.
+**A live predecessor is stopped, not waited for.** Coordinators recycle while
+they are still running, so an open that refused whenever the predecessor was
+live would turn every recycle into a hand stop followed by a retry, which is
+the workaround this feature retires. The PRD therefore requires the open to
+take over and stop the predecessor from driving the run, and to refuse only
+when it can't establish that stop. How it stops it (a fence the predecessor's
+next tick reads, a message, ending its process) is the design's choice.
+
+**Live is defined by what can be observed.** koto has no process-liveness
+signal. The Claude job's running process is the best signal on one host; a
+recent koto event is the only one across hosts. The 10-minute window matches
+the order of koto's stale-dispatch timeout and errs toward treating a quiet
+remote predecessor as not live, which R4 still handles safely because the
+predecessor's next attempt to drive the run is refused either way.
+
+**Concurrent takeovers: exactly one wins.** Two successors racing for one run
+would otherwise both pass the "no successor yet" check. Requiring exactly one
+to succeed makes the claim on the run atomic; the design picks where the
+claim is made.
 
 **Compatibility is a stated rule, not path or byte equality.** Path equality
 is what refuses tsukumogami/shirabe#806 and byte equality is what refuses
 tsukumogami/shirabe#1144. Inferring safety from a diff alone misses a change
 that keeps a gate's shape but changes its meaning, so the rule must be one an
-author can state; the design picks it.
+author can state. R11 fixes its floor (the safe and unsafe classes); the
+design picks how the rule is expressed and checked.
 
 **Pending instead of resuming to tell.** A stopped worker has no inbox, and
 writing told before it is told would make the record false. Pending keeps the
-record true and lets the gate pass; the worker resolves the current
-coordinator when it next starts.
+record true and lets the gate pass. The worker reaches the newest member when
+it next starts, and its first report is what turns pending into told, because
+that is the first moment the successor can observe the worker has the address.
 
 **Older runs read the existing link, never names.** Runs carried before this
 feature already hold a recycled-coordinator link to the run they carried.
