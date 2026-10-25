@@ -75,9 +75,11 @@ case "$KIND" in
         [[ $3 =~ $RE_LINK ]] || refuse "reserved-step names a pull request or an issue"
         ARG="$2 $3" CELL="$2 $3, reserved for a person"
         if [ "$2" != teardown ]; then
-            GC=$("$KOTO" context get "$SESSION" coord/posture.json 2>/dev/null | jq -c '.grant_check // {}' 2>/dev/null) || GC=""
-            if [ "$(printf '%s' "$GC" | jq -r '.state // ""' 2>/dev/null)" = bound ]; then
-                DISP=$(printf '%s' "$GC" | jq -r '.parent.instance // "" | strings' 2>/dev/null) || DISP=""
+            # A missing or unreadable posture leaves koto's or jq's own
+            # message on stderr and the step a person's, as before.
+            GC=$("$KOTO" context get "$SESSION" coord/posture.json | jq -c '.grant_check | objects') || GC=""
+            if [ "$(printf '%s' "$GC" | jq -r '.state // "" | strings')" = bound ]; then
+                DISP=$(printf '%s' "$GC" | jq -r '(.parent | objects | .instance) // "" | strings') || DISP=""
                 if [[ $DISP =~ ^[A-Za-z0-9][A-Za-z0-9+_.-]{0,127}$ ]]; then
                     CELL="$2 $3, for dispatcher $DISP"
                 else

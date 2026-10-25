@@ -340,15 +340,17 @@ resolve_grant() {
             printf '%s: refused: grant: own is only for a successor coordinator (entry point coordinate)\n' "$PROG" >&2
             exit 1
         fi
-        req=$(ctx coord/posture.json 2>/dev/null | jq -c '(.grant_check // {}) as $g
+        # A missing or unreadable key leaves koto's or jq's own message on
+        # stderr, then the line below.
+        req=$(ctx coord/posture.json | jq -c '((.grant_check | objects) // {}) as $g
             | if $g.state == "bound" then [($g.grant // [])[] | select(IN("merge-pr", "close-issue", "cut-release"))] | unique
-              else [] end' 2>/dev/null) || req=""
+              else [] end') || req=""
         if [ -z "$req" ]; then
             printf '%s: coord/posture.json can'\''t be read, so the successor is dispatched holding no named authority\n' "$PROG" >&2
             req='[]'
         fi
     fi
-    if ! jq -e 'type == "array" and all(.[]; IN("merge-pr", "close-issue", "cut-release")) and length == (unique | length)' <<<"$req" >/dev/null 2>&1; then
+    if ! jq -e 'type == "array" and all(.[]; IN("merge-pr", "close-issue", "cut-release")) and length == (unique | length)' <<<"$req" >/dev/null; then
         printf '%s: refused: grant: a list of distinct authorities from merge-pr, close-issue and cut-release, or own\n' "$PROG" >&2
         exit 1
     fi
