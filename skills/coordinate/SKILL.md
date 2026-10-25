@@ -291,7 +291,12 @@ up to). Where those files live goes in `record/host` through `state-stored-set.s
 keeps its last pushed head, the pull request head a report or a link last read,
 beside the row (`state-holding.sh --pushed-head`). The handover read prints all
 of it, and a record with no `reports-to` row is a gap (`no-reports-to`) that
-holds the handover gate. The reconcile report and the
+holds the handover gate. So is a live worker that hasn't been told your
+address (`not-told`): send it a line and record it with `state-stored-set.sh
+--told`, or, when its session has ended and can't be messaged, record it with
+`--pending`, and it reads the address from its brief when it next starts. A
+re-brief (`dispatch-worker.sh --rebrief`) writes your address into the brief
+and records the worker told itself. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
 

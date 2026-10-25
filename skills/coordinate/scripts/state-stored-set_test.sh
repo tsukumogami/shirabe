@@ -319,6 +319,30 @@ eq "a holding's first Work row does, since its dispatch brief named the address"
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
+# A worker whose session has ended can't be told a new address; recorded
+# pending, it holds no gap, and telling it later replaces the pending row.
+bash "$RS" "${W[@]}" --run coordinator lane-v3 --by lane-v3 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run pending worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "--run doesn't take pending" 64 $?
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "a worker whose session ended is recorded pending" 0 $?
+eq "  ... and only the worker neither told nor pending is a gap" "not-told worker-f3" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+eq "  ... the handover read marks it pending, and lists it" "true false|worker-f2" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '([.workers[] | select(.worker == "worker-f2", .worker == "worker-f3") | .pending | tostring] | join(" ")) + "|" + (.pending | join(" "))')"
+bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"
+grep -q -- '--pending worker-f3' "$T/err" && ok "  ... the not-told fix names --pending" || bad "  ... the not-told fix names --pending" "$(cat "$T/err")"
+entries | jq -e 'last | .text | test("worker-f2 can.t be told .* so it is pending")' >/dev/null \
+    && ok "  ... told as an entry" || bad "  ... told as an entry" "$(entries | jq -c 'last')"
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "  ... not twice" 65 $?
+bash "$RS" "${W[@]}" --told worker-f3 --by lane-v3 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v3 >/dev/null 2>"$T/err"; eq "a told worker can't be recorded pending" 65 $?
+bash "$RS" "${W[@]}" --told worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "a pending worker is told once it can be" 0 $?
+eq "  ... which drops its pending row" "0 worker-f2 worker-f3" \
+    "$(live | jq -r '([.run[] | select(.key == "pending")] | length | tostring) + " " + ([.run[] | select(.key == "told") | .value] | sort | join(" "))')"
+bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "  ... and the gate passes" 0 $?
+bash "$RS" "${W[@]}" --run coordinator lane-v4 --by lane-v4 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v4 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run coordinator lane-v5 --by lane-v5 >/dev/null 2>&1
+eq "a new address clears pending rows as well as told ones" 0 "$(live | jq '[.run[] | select(.key == "pending" or .key == "told")] | length')"
 # A merged holding (a Verified head, its Pull request cleared) is exempt.
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
 eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2" \

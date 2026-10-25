@@ -130,7 +130,10 @@
 # which the report just used, so the holding moves to the message path (its
 # spent request is abandoned) and its `dispatched` date, which records when
 # the worker was last briefed, is updated. The coordinator then sends the
-# worker a message pointing at the brief.
+# worker a message pointing at the brief. The brief names the coordinator's
+# current address, so the worker is recorded as told for it
+# (state-stored-set.sh --told), unless it already is; that clears a pending
+# row for it too.
 #
 # send_execution. A topic held `dispatched` at phase `scoping-ahead`, reached
 # from a pick whose choice is send_execution for that topic (the latest
@@ -193,7 +196,8 @@
 #   dispatch-worker.sh --session <koto-session> --releg-imported <topic>
 #
 # Output: `already-dispatched`, or `session=<name>` for a launched worker, or
-# `brief=<path>` for --rebrief, or `brief=<path>` and `leg=<request>:<leg>`
+# `brief=<path>` for --rebrief (and `told=<topic>` when it recorded the
+# worker told), or `brief=<path>` and `leg=<request>:<leg>`
 # (and `session=<name>` when the listing finds it) for --releg and a sent
 # execution, or `leg=<request>:<leg>` and `child=<session>` for
 # --releg-imported; reasons on stderr.

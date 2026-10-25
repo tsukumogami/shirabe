@@ -184,7 +184,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, rules, briefs, friction or reports-to>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction or reports-to>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer or assignment>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -203,7 +203,11 @@ take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name) and one `told` row per party
-that has been sent that address. A new address clears the `told` rows. It also
+that has been sent that address. A worker whose session has ended, so it
+can't be messaged, gets a `pending` row instead: it learns the address from
+its brief when it next starts, and the handover doesn't wait on it. A party is
+told or pending, never both, and telling a pending worker drops its pending
+row. A new address clears the `told` and `pending` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
@@ -249,6 +253,7 @@ state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <wh
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --told <topic> --by <who>
+state-stored-set.sh --session S --pending <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 state-stored-set.sh --session S --end <s<n>> --by <who>
 state-stored-set.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
@@ -260,6 +265,8 @@ Write each when it happens: the arguments, the cap and your address at your
 first start; a Standing row or a cap when a person's word arrives, wherever it
 arrives (you write it, the person as owner and yourself as relayer); a holding's Work row once its dispatch is sent, which the record step
 waits for and which also records its worker as told your address; a
+re-brief (`dispatch-worker.sh --rebrief`), which writes your address into the
+worker's brief and so records it told too; a
 local-agent row before the agent starts, `--done` when it lands. A Work row
 whose holding is gone is dropped at the next write. A holding's Wakes are
 brought up to date from this run's session log at each write, and its final
@@ -270,9 +277,10 @@ after its last write, isn't counted.
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
-hasn't been told the current address. The reconcile step's gate runs it at
-every start, so a replacement that writes its own address can't go on until
-it has told each live worker. A record written before these sections existed
+hasn't been told the current address and isn't recorded pending. The reconcile
+step's gate runs it at every start, so a replacement that writes its own
+address can't go on until it has told each live worker, or recorded the ones
+whose sessions ended as pending. A record written before these sections existed
 has every gap at its first start under this version; fill them once. A
 rotation's carry copies the three sections into the next rotation as they
 stand.

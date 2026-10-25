@@ -857,6 +857,43 @@ B=$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")
 has "unwatchable: dispatcher_session is the importing run" "$B" "dispatcher_session: coordinate-roadmap-plugin-system-20261024T090000Z"
 has "unwatchable: the link command names it" "$B" '--dispatched-by coordinate-roadmap-plugin-system-20261024T090000Z`'
 
+# A re-brief writes the coordinator's current address into the brief, so it
+# records the worker told for that address (tsukumogami/shirabe#1245); a
+# worker already told is left as it is, and a failed record warns without
+# undoing the brief.
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+: >"$ST/calls.log"
+OUT=$(run --rebrief 2>/dev/null); RC=$?
+eq  "told: rebrief exits 0" 0 "$RC"
+has "told: prints told=<topic>" "$OUT" "told=plugin-api"
+has "told: records the worker told the brief's address" "$(calls)" "state-stored-set --session coord --told plugin-api --by lane-coord"
+has "told: the brief names that address" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "lane-coord"
+TOLD_STUB="$T/state-stored-set-told.sh"
+cat >"$TOLD_STUB" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1-}" != --list ]; then
+    printf 'state-stored-set %s\n' "$*" >>"$ST/calls.log"
+    [ "${TOLD_MODE:-}" = fail ] && { echo "state-stored-set: refused: the record changed" >&2; exit 12; }
+    exit 0
+fi
+jq -nc --arg t "${TOLD_ROW:-}" '{run: ([{key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-09-26T08:00Z"}]
+    + (if $t == "" then [] else [{key: "told", value: $t, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end)), standing: [], work: []}'
+EOF
+chmod +x "$TOLD_STUB"
+: >"$ST/calls.log"
+OUT=$(DC_RECORD_STATE="$TOLD_STUB" TOLD_ROW=plugin-api run --rebrief 2>/dev/null); RC=$?
+eq  "told already: rebrief exits 0" 0 "$RC"
+lacks "told already: no second told row" "$(calls)" "--told plugin-api"
+lacks "told already: prints no told=" "$OUT" "told="
+: >"$ST/calls.log"
+OUT=$(DC_RECORD_STATE="$TOLD_STUB" TOLD_MODE=fail run --rebrief 2>"$T/told.err"); RC=$?
+eq  "told refused: rebrief still exits 0" 0 "$RC"
+has "told refused: the brief stands" "$OUT" "brief=$W/.niwa/dispatch-briefs/plugin-api.md"
+lacks "told refused: prints no told=" "$OUT" "told="
+has "told refused: warns, naming the worker and the reason" "$(cat "$T/told.err")" "recording it told failed: state-stored-set: refused: the record changed"
+
 # --- a review-level bound ---------------------------------------------------------------------------------
 #
 # The brief and the dispatch prompt name the same command, the bound's flags
