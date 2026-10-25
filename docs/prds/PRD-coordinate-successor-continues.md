@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A /coordinate run outlives the Claude sessions that drive it, and every
   handover today opens a second run, cancels the first and copies part of its
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-coordinate-successor-continues](docs/briefs/BRIEF-coordinate-successor-continues.md); carried in Absorbed Brief.
 
