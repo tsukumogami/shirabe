@@ -1007,8 +1007,8 @@ confirm|drop)
                 ENUM=$RN EN=$(printf '%06d' "$RN") ENTRY="$WD/posted.txt"
                 session_entry milestone-verdict
                 PH=$(sha8 "$WD/posted.txt")
-                printf '%s\n' "$ENTRY_HASHES" | grep -qxF "$PH" \
-                    || refuse "the Progress line about $TAG citing entry $RN gives the hash $(printf '%s' "$ENTRY_HASHES" | head -n 1), not the session entry's $PH; nothing is confirmed"
+                grep -qxF "$PH" <<< "$ENTRY_HASHES" \
+                    || refuse "the Progress line about $TAG citing entry $RN gives the hash ${ENTRY_HASHES%%$'\n'*}, not the session entry's $PH; nothing is confirmed"
                 WHO_ID=$RN URL="entry $RN"
             else
                 [ -n "$URL" ] || lib_die2 "$TAG's milestone-verdict row names no entry URL in its How to confirm"
