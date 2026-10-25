@@ -36,11 +36,13 @@
 # finds no such run; a
 # run A opened whose find never ran (no session-store find) is imported, then
 # refused session-source, and one A opened from a copy of the plugin at another path
-# is imported, then refused session-provenance, naming the carry; a child
+# is imported, re-attached with this host's plugin root (rebound=), and then
+# refused only as session-source, its find never having run; a child
 # source is refused with koto's import_source_is_child and leaves no session; a
 # run from a template B lacks is refused import_template_unavailable, leaving
 # no session either, and with --trust-template imported but refused
-# template-mismatch, staying on B; with that run live, another import of the
+# template-incompatible (its template isn't in the compat table), staying on
+# B; with that run live, another import of the
 # scope is refused session-live before koto runs.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
@@ -336,8 +338,8 @@ cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
 open_a "$T/plugin2"
 [ -n "$OPENED" ] && pass "host A opens a run from a plugin at another path" || fail "host A opens a run from a plugin at another path" "$(cat "$T/open-a.err")"
 import_b "[\"$RM\",\"--import\",\"$OPENED\",\"--from\",\"$WS_A\"]"
-eq "a run from another plugin path is imported, then refused" "2 refused=session-provenance" "$? $(grep '^refused=' "$T/out")"
-grep -q 'a plain start carries its record' "$T/err" && pass "  ... and the refusal names the carry" || fail "  ... and the refusal names the carry" "$(cat "$T/err")"
+eq "a run from another plugin path is imported, its plugin root moved here, then refused only for its find" "2 refused=session-source" "$? $(grep '^refused=' "$T/out")"
+grep -q '^rebound=.*PLUGIN_ROOT' "$T/out" && pass "  ... after rebound= naming PLUGIN_ROOT" || fail "  ... after rebound= naming PLUGIN_ROOT" "$(cat "$T/out")"
 host_on b koto cancel "$OPENED" >/dev/null 2>&1
 eq "  ... and neither refused run is left live on B" "" "$(host_on b bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system --all 2>/dev/null)"
 
@@ -360,7 +362,8 @@ eq "without --trust-template koto refuses the unknown template" "2 refused=impor
 grep -q -- '--trust-template' "$T/err" && pass "  ... and the refusal names --trust-template" || fail "  ... and the refusal names --trust-template" "$(cat "$T/err")"
 eq "  ... leaving no session on B" "" "$(host_on b koto session list 2>/dev/null | jq -r --arg s "$OTHER" '.[] | select(.id == $s) | .id')"
 import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\",\"--trust-template\"]"
-eq "with --trust-template it is imported, then refused as another template" "2 refused=template-mismatch" "$? $(cat "$T/out")"
+eq "with --trust-template it is imported, then refused as a template this plugin can't drive" "2 refused=template-incompatible" "$? $(cat "$T/out")"
+grep -q 'compat' "$T/err" && pass "  ... and the refusal names the compat numbers" || fail "  ... and the refusal names the compat numbers" "$(cat "$T/err")"
 eq "  ... koto was asked with --trust-template" 1 "$(grep -c -- "^session import $OTHER --from $WS_A --trust-template\$" "$T/koto-calls")"
 eq "  ... and the run stays on B" false "$(host_on b koto status "$OTHER" 2>/dev/null | jq -r .is_terminal)"
 

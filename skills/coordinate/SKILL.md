@@ -135,7 +135,7 @@ work.
    `--trust-template` only when the operator passes it. The source is marked
    migrated, and its copy refuses every later read as `session_migrated`. The
    imported run must then pass what a resume needs; one that doesn't stays here
-   (`refused=template-mismatch`, `session-provenance`, `session-source` or
+   (`refused=template-incompatible`, `session-provenance`, `session-source` or
    `session-directed`), and a plain start carries it, except after
    `session-source`: a run whose find didn't record the session as its store
    is no resume candidate, so a plain start opens a new run as it would with no
@@ -853,14 +853,24 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   imported on another host, keeps publishing to the location of the session that
   opened it. The opener writes none of koto's keys and sets no koto variable to
   move it.
-- **An import resumes only onto the same plugin path
-  (tsukumogami/shirabe#806).** A run records the
-  plugin root it was opened with, every check it runs is a script under that
-  root, and provenance accepts only a run whose root is this host's. Where the
-  plugin sits at another absolute path on the new host (another `HOME`, say),
-  the import still brings every key, then stops at `refused=session-provenance`
-  with the imported run left here; the next plain start carries its record into
-  a new run on this host's plugin, and that run reconciles here.
+- **A run moves plugin roots only when its template lets it.** A run records
+  the plugin root it was opened with, every check it runs is a script under
+  that root, and provenance accepts only a run whose root, as koto applies it
+  now, is this plugin's. A run opened from a template that declares
+  `PLUGIN_ROOT` rebindable is re-attached with this plugin's root when a start
+  or an import finds it under another (`rebound=` in the output), so a plugin
+  upgrade or another checkout resumes it. A run opened from an earlier
+  template can't be rebound: the import stops at `refused=session-provenance`
+  and a start carries its record into a new run, as before.
+- **Which template a run may continue on is the compat table's call.** The
+  table beside the template (`koto-templates/coordinate.compat.json`) lists
+  every compiled template this plugin's scripts can drive at the table's
+  compat number; a run compiled from one of them is resumed or imported
+  whatever its directive text. Any other is carried by a start, and an import
+  of one is refused as `template-incompatible`, naming both compat numbers.
+  CI (`scripts/check-template-compat.sh`) fails a change that moves the
+  template's structure without raising the compat number, or changes a script
+  a gate reaches without recording the new digest.
 - **One topic per worker.** A unit dispatched again after a failure takes a new
   topic: the dispatch script refuses a topic whose session is still live. A
   worker on the message path that went quiet past the second silence, whose

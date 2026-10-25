@@ -24,6 +24,8 @@ on:
       - 'scripts/bash-floor/coordinate.list'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      - 'scripts/check-template-compat.sh'
+      - 'scripts/check-template-compat_test.sh'
   push:
     branches: [main]
     # Must match the pull_request paths list above.
@@ -39,6 +41,8 @@ on:
       - 'scripts/bash-floor/coordinate.list'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      - 'scripts/check-template-compat.sh'
+      - 'scripts/check-template-compat_test.sh'
 
 env:
   GITHUB_TOKEN: ${{ github.token }}
@@ -115,3 +119,48 @@ jobs:
 
       - name: Run engine suites
         run: bash skills/coordinate/scripts/run-tests.sh --engine
+
+  # coordinate.compat.json decides which runs a plugin resumes or imports
+  # (coord-log.sh provenance), so a change to the template's structure, or to
+  # a script its gates reach, must move it. The judge is the base branch's copy
+  # of check-template-compat.sh, so a pull request can't loosen the check it is
+  # judged by; a base with no copy yet (the change that adds it) is judged by
+  # this change's own, with a notice. On a push the base is the commit before.
+  check-template-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Test the check
+        run: bash scripts/check-template-compat_test.sh
+
+      - name: Check the coordinate template's compat table
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE_REF" ]; then BASE="origin/$BASE_REF"; else BASE="$BEFORE"; fi
+          JUDGE=scripts/check-template-compat.sh
+          ARGS=(--template skills/coordinate/koto-templates/coordinate.md)
+          if [ -n "$BASE" ] && git cat-file -e "$BASE:scripts/check-template-compat.sh" 2>/dev/null; then
+            git show "$BASE:scripts/check-template-compat.sh" > "$RUNNER_TEMP/judge.sh"
+            JUDGE="$RUNNER_TEMP/judge.sh"
+          else
+            echo "::notice::the base has no check-template-compat.sh yet; this change's copy judges it"
+          fi
+          if [ -n "$BASE" ] && git cat-file -e "$BASE:skills/coordinate/koto-templates/coordinate.compat.json" 2>/dev/null; then
+            git show "$BASE:skills/coordinate/koto-templates/coordinate.compat.json" > "$RUNNER_TEMP/base-table.json"
+            ARGS+=(--base-table "$RUNNER_TEMP/base-table.json")
+          fi
+          bash "$JUDGE" "${ARGS[@]}"
