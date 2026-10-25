@@ -919,6 +919,18 @@ if [ "$REBRIEF" = 1 ]; then
             printf '%s: could not abandon the spent request %s\n' "$PROG" "${ROW_RP%%:*}" >&2
     fi
     printf 'brief=%s\n' "$BRIEF"
+    # The brief just written names the coordinator's current address, which
+    # is how the worker learns it, so the re-brief records the worker as told
+    # for it (tsukumogami/shirabe#1245); a worker already told is left as it
+    # is. A record that refuses the row warns and changes nothing else: the
+    # brief stands, and the handover gate still names the gap.
+    if ! jq -e --arg w "$TOPIC" 'any((.run // [])[]; .key == "told" and .value == $w)' "$WORK/state.json" >/dev/null; then
+        if bash "$DC_RECORD_STATE" --session "$SESSION" --told "$TOPIC" --by "$ADDRESS" >/dev/null 2>"$WORK/told.err"; then
+            printf 'told=%s\n' "$TOPIC"
+        else
+            printf '%s: the brief gives %s the address, but recording it told failed: %s\n' "$PROG" "$TOPIC" "$(head -1 "$WORK/told.err")" >&2
+        fi
+    fi
     exit 0
 fi
 

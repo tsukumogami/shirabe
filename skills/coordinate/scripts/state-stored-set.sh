@@ -11,6 +11,7 @@
 #   state-stored-set.sh --session S --reasoning-file FILE
 #   state-stored-set.sh --session S --reasoning-check
 #   state-stored-set.sh --session S --told WHO --by WHO
+#   state-stored-set.sh --session S --pending WHO --by WHO
 #   state-stored-set.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
 #   state-stored-set.sh --session S --end ID --by WHO
 #   state-stored-set.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
@@ -29,10 +30,15 @@
 # an id or a path). `store` is no Run key here (65): the record's store is
 # always the coordinator's session, and the legacy `store session` row a session
 # opened before that holds is kept as written. A new
-# coordinator clears every `told` row, since nobody has been told the new
-# address yet. --told records that WHO (a worker's dispatch topic, or another
-# party's session name) was sent the current address; it needs a coordinator
-# row.
+# coordinator clears every `told` and `pending` row, since nobody has been
+# told the new address yet. --told records that WHO (a worker's dispatch
+# topic, or another party's session name) was sent the current address; it
+# needs a coordinator row, and replaces a `pending` row for WHO. --pending
+# records that WHO can't be sent it yet, because its session has ended (a
+# worker parked for a pause, say): the handover gate then doesn't wait on WHO,
+# and WHO learns the address when it next starts, when --told replaces the
+# row. It needs a coordinator row too, and is refused for a party already told
+# or already pending (tsukumogami/shirabe#1245).
 #
 # The record also keeps the crash set
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 9; PRD R17),
@@ -172,6 +178,7 @@ while [ $# -gt 0 ]; do
         --reasoning-file) [ $# -ge 2 ] || usage; setmode reasoning; RFILE=$2; shift 2 ;;
         --reasoning-check) setmode reasoning-check; shift ;;
         --told) [ $# -ge 2 ] || usage; setmode told; WHO=$2; shift 2 ;;
+        --pending) [ $# -ge 2 ] || usage; setmode pending; WHO=$2; shift 2 ;;
         --standing) [ $# -ge 2 ] || usage; setmode standing; KIND=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; setmode end; ID=$2; shift 2 ;;
         --work) [ $# -ge 2 ] || usage; setmode work; ITEM=$2; shift 2 ;;
@@ -198,7 +205,7 @@ case "$MODE" in
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
-    told) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    told|pending) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     standing) [ -n "$WHAT" ] && [ -n "$OWNER" ] && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     work) [ -n "$KIND" ] && [ -n "$WHO" ] && [ -n "$NEXT" ] && [ -z "$BY$WHAT$OWNER$RELAYED$ON$UNTIL" ] || usage ;;
@@ -346,7 +353,7 @@ EKIND= ETEXT=
 case "$MODE" in
 run)
     if [ "$KEY" = coordinator ]; then
-        PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+        PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
         ETEXT="The coordinator's address is now $VALUE, set by $BY. Nobody has been told it yet."
     elif [ "$KEY" = rules ] || [ "$KEY" = briefs ]; then
         # One row per label: a new digest for a label replaces its row.
@@ -364,8 +371,18 @@ told)
     jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address to have told anyone; set it with --run coordinator first"
     jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "told" and .value == $w)' "$P" > /dev/null && refuse "$WHO has already been told the current address"
     ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
-    jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ((.run // []) + [{key: "told", value: $w, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" \
+        '.run = ([(.run // [])[] | select((.key == "pending" and .value == $w) | not)] + [{key: "told", value: $w, set_by: $b, set: $t}])' \
+        "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=told ETEXT="$WHO was told the coordinator's address, $ADDR, by $BY."
+    ;;
+pending)
+    jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address to record anyone pending for; set it with --run coordinator first"
+    jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "told" and .value == $w)' "$P" > /dev/null && refuse "$WHO has already been told the current address"
+    jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "pending" and .value == $w)' "$P" > /dev/null && refuse "$WHO is already pending"
+    ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
+    jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ((.run // []) + [{key: "pending", value: $w, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    EKIND=told ETEXT="$WHO can't be told the coordinator's address, $ADDR, until it next starts, so it is pending, recorded by $BY."
     ;;
 standing)
     case "$KIND" in pause|go-ahead|approval|answer|assignment) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval, answer or assignment" >&2; exit 64 ;; esac
@@ -464,7 +481,8 @@ work)
                     or ($takes and (.kind == "decision" or .kind == "follow-up") and (.item | same_unit)) | not)]
                  + [{item: $i, kind: $k, who: $w, next: $n, wakes: $c, updated: $t}])
         | if $k == "holding" and $first and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
-          then .run += [{key: "told", value: $w, set_by: ([.run[] | select(.key == "coordinator") | .value][0]), set: $t}]
+          then .run = ([.run[] | select((.key == "pending" and .value == $w) | not)]
+                       + [{key: "told", value: $w, set_by: ([.run[] | select(.key == "coordinator") | .value][0]), set: $t}])
           else . end' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=work ETEXT="Next step for $ITEM ($KIND, $WHO): $NEXT."
     [ "$KIND" = holding ] && ETEXT="$ETEXT Wakes so far: $WAKES."
