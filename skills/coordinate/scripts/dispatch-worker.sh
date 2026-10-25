@@ -319,21 +319,31 @@ read_inputs() {
 }
 
 # resolve_grant: what the worker is dispatched holding, settled before any
-# brief renders, and the launch flags that carry it. The coordinator's own
-# grant is the answer posture-read.sh stored, never a second lookup. The
-# input's `grant` is replaced by the grant the launch asks for, so the brief's
-# authority line names exactly that: none when niwa can't take --grant. A
-# re-brief, a re-leg and a sent execution resolve it the same way, from the
-# input, the stored posture and the help as they read now. niwa never changes
-# a running session's grant, so keep the input's `grant` as it was at the
-# dispatch: the line is then what the worker holds unless niwa or the posture
-# changed since. The help read here is the one the launch below uses;
-# --releg-imported never launches, so it skips this.
+# brief renders. The coordinator's own grant is the answer posture-read.sh
+# stored, never a second lookup. The input's `grant` is replaced by the grant
+# the launch asks for, so the brief's authority line names exactly that: none
+# when niwa can't take --grant. So a worker asking for a grant has the help
+# read here, before its brief renders; any other dispatch reads it only at the
+# launch (launch_flags), as before, and a run that launches nothing (a refusal,
+# a re-brief, a re-leg, a sent execution) makes no niwa call for it. A
+# re-brief, a re-leg and a sent execution resolve the grant the same way, from
+# the input, the stored posture and the help as they read now. niwa never
+# changes a running session's grant, so keep the input's `grant` as it was at
+# the dispatch: the line is then what the worker holds unless niwa or the
+# posture changed since. --releg-imported renders no brief, so it skips this.
 HELP=""
+PROBED=0
+GRANT='[]'
 GRANT_ARGS=()
 PARENT_ARGS=()
+# probe_help: read `niwa dispatch --help` into HELP, once per run.
+probe_help() {
+    [ "$PROBED" = 1 ] && return 0
+    HELP=$(dc_with_deadline 30 "$NIWA" dispatch --help 2>/dev/null) || HELP=""
+    PROBED=1
+}
 resolve_grant() {
-    local req a d
+    local req
     req=$(jq -c '.grant // []' "$INPUT") || die 2 "jq failed"
     if [ "$req" = '"own"' ]; then
         if [ "$(jq -r '.entry_point // "" | strings' "$INPUT")" != coordinate ]; then
@@ -354,21 +364,35 @@ resolve_grant() {
         printf '%s: refused: grant: a list of distinct authorities from merge-pr, close-issue and cut-release, or own\n' "$PROG" >&2
         exit 1
     fi
-    HELP=$(dc_with_deadline 30 "$NIWA" dispatch --help 2>/dev/null) || HELP=""
-    case "$HELP" in
-        *--grant*) ;;
-        *)
-            if [ "$req" != '[]' ]; then
+    if [ "$req" != '[]' ]; then
+        probe_help
+        case "$HELP" in
+            *--grant*) ;;
+            *)
                 printf '%s: this niwa dispatch takes no --grant, so the worker is dispatched holding no named authority\n' "$PROG" >&2
                 req='[]'
-            fi
+                ;;
+        esac
+    fi
+    GRANT=$req
+    jq --argjson g "$req" '.grant = $g' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+}
+
+# launch_flags: the flags that carry the grant and the parent, from the help:
+# one `--grant <authority>` per authority, and `--parent-from` with the first
+# directory at or above this one holding .niwa/instance.json.
+launch_flags() {
+    local a d
+    probe_help
+    case "$HELP" in
+        *--grant*)
+            while IFS= read -r a; do
+                [ -n "$a" ] && GRANT_ARGS+=(--grant "$a")
+            done <<EOF
+$(jq -r '.[]' <<<"$GRANT")
+EOF
             ;;
     esac
-    while IFS= read -r a; do
-        [ -n "$a" ] && GRANT_ARGS+=(--grant "$a")
-    done <<EOF
-$(jq -r '.[]' <<<"$req")
-EOF
     case "$HELP" in
         *--parent-from*)
             d=$(pwd -P)
@@ -381,7 +405,6 @@ EOF
             done
             ;;
     esac
-    jq --argjson g "$req" '.grant = $g' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }
 
 if [ -n "$IMPORTED" ]; then
@@ -1130,8 +1153,9 @@ fi
 # the dispatch, so they're added only when `niwa dispatch --help` lists both,
 # and the launch is otherwise exactly what it was. The skill is the entry
 # point's own name (the skill column of entry-points.tsv), which niwa requires
-# as <plugin>:<name> in lowercase letters, digits and dashes. The help is the
-# one resolve_grant read.
+# as <plugin>:<name> in lowercase letters, digits and dashes. The help is read
+# once per run (probe_help), with the grant's flags.
+launch_flags
 LINEAGE=()
 case "$HELP" in
     *--brief*)
