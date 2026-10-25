@@ -84,6 +84,10 @@ cp "$SCRIPT_DIR/run-id.sh" "$STUBDIR/run-id.sh"
 cp "$SCRIPT_DIR/run-record.sh" "$SCRIPT_DIR/run-record-lib.sh" "$SCRIPT_DIR/coord-common.sh" \
     "$SCRIPT_DIR/coord-render.sh" "$STUBDIR/"
 cp "$SCRIPT_DIR/../../../scripts/lib/coordination-body.sh" "$CT_WORK/tree/scripts/lib/"
+# The render reads the run's recorded PR content switch through the tree's
+# own pr-workflow-content.sh; without it the read fails, which reads omit.
+cp "$SCRIPT_DIR/../../../scripts/pr-workflow-content.sh" "$CT_WORK/tree/scripts/"
+cp "$SCRIPT_DIR/../../../scripts/lib/record-store.sh" "$CT_WORK/tree/scripts/lib/"
 cat > "$STUBDIR/coordination-verdict.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${VERDICT_ARGS_LOG:?}"

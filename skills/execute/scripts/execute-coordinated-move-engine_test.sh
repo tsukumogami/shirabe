@@ -166,6 +166,13 @@ git -C "$WS_B" remote add origin "$ORIGIN"
 git -C "$WS_B" fetch -q origin
 git -C "$WS_B" checkout -q -b "$CT_CB" "origin/$CT_CB"
 for w in "$WS_A" "$WS_B"; do printf '.koto/\n' >> "$w/.git/info/exclude"; done
+# Both workspaces opt in to PR workflow content: the index this case checks
+# across the move is rendered only under include, which each open records
+# from its checkout's CLAUDE.local.md (pr-workflow-content.sh --record).
+for w in "$WS_A" "$WS_B"; do
+    printf '## PR Workflow Content: include\n' > "$w/CLAUDE.local.md"
+    printf 'CLAUDE.local.md\n' >> "$w/.git/info/exclude"
+done
 
 # The body every gh call is served: a Part 1 (the coordination merge's squash
 # message is built from it) and the declaration marker, and nothing of the run.

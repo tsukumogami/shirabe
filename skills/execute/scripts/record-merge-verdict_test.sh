@@ -48,7 +48,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 [ -f "$RECORD" ] || { echo "FAIL: $RECORD not found" >&2; exit 1; }
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/record-merge-verdict-test.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/record-merge-verdict-test.XXXXXX") || { echo "FAIL: mktemp failed" >&2; exit 1; }
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"
 mkdir -p "$BIN"

@@ -23,6 +23,10 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/scope-exit-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
 trap 'case "$T" in */scope-exit-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
+# owned-pr.sh reads each PR's index at the shared address; this suite's is its
+# own and empty, never the real /tmp/shirabe-run-record, whose entries from
+# other runs would take the PRs away.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
 
 PASS=0
 FAIL=0

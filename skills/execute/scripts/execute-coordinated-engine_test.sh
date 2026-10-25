@@ -85,18 +85,20 @@
 # record before any node PR exists, as in a real run; the node PRs a case
 # added with ct_pr reach the gh model only after it (open_run), and the case
 # then seeds the heads the run recorded up to its moment through the test
-# helper (run-record.sh itself, on the real koto). The case's fixed run_id is
-# written after setup: one written before it would be a carried id, which
-# makes the start a recovery. Follow-up PRs are held back the same way. The
+# helper (run-record.sh itself, on the real koto). The run keeps the run_id
+# setup minted (one written before setup would be a carried id, which makes
+# the start a recovery), and open_run records the PR content switch as an
+# opener would. Follow-up PRs are held back the same way. The
 # recovery cases (open_recovering) leave their node PRs in the model before
 # setup: there they mean a started run. Setup and node-push.sh also write the
 # run's trail and its per-PR index sessions (scripts/run-trail.sh) through the
 # real koto.
 #
-# The real koto runs under the helpers' scratch HOME with every
-# KOTO_SESSION_* variable, KOTO_SESSIONS_BASE and KOTO_TICK_SESSION cleared,
-# and the suite stops before its first koto command unless `koto session dir`
-# resolves under the scratch directory (ct_real_koto_guard).
+# The real koto runs under a scratch HOME inside the helpers' scratch
+# directory, one per case (fixture), with every KOTO_SESSION_* variable,
+# KOTO_SESSIONS_BASE and KOTO_TICK_SESSION cleared, and the suite stops before
+# its first koto command, and again before each case's, unless
+# `koto session dir` resolves under the scratch directory (ct_real_koto_guard).
 #
 # In a checkout whose path koto's --var allowlist refuses (a `+` in a
 # directory name), the cases run a copy of the template with this checkout's
@@ -166,6 +168,16 @@ COORD_URL="https://github.com/acme/repo-a/pull/10"
 # with docs/plans/PLAN-<slug>.md committed. Sets REPO and CT_SLUG.
 fixture() {
     CT_SLUG="$1"
+    # Each case gets a koto store of its own, under a scratch HOME of its own
+    # with the suite's git settings: the PR index sessions at the shared
+    # address are named by repository and number alone, every case's run mints
+    # its own run_id, and the model reuses PR numbers, so in one store an
+    # entry an earlier case's run wrote would make this case's PR read as
+    # another run's. The guard runs again for the new HOME.
+    mkdir -p "$CT_WORK/home-$1"
+    cp "$CT_WORK/home/.gitconfig" "$CT_WORK/home-$1/.gitconfig"
+    export HOME="$CT_WORK/home-$1"
+    ct_real_koto_guard
     REPO="$CT_WORK/repo-$1"
     ct_repo "$REPO"
     ct_plan "$REPO" "${2:-}"
@@ -185,6 +197,10 @@ open_run() {
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
         || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
+    # The PR content switch, as execute-open.sh records it at an open, before
+    # setup reads it: these cases check the coordination body's index, which
+    # renders only under include, unless a case sets CT_CONTENT=omit first.
+    printf '%s' "${CT_CONTENT:-include}" | k context add "$s" pr_content >/dev/null 2>&1
     # The node PRs the case added (ct_pr, on impl/ branches) reach the model
     # only once setup has sealed the record, as in a real run, where
     # node-push.sh opens them after setup: an owned PR on a node branch at
@@ -207,10 +223,10 @@ open_run() {
             "$live" > "$live.tmp" && mv "$live.tmp" "$live"
     fi
     [ "$rc" -eq 0 ] || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
-    # The case's fixed run identity, written over the one setup minted: one
-    # written before setup would be a carried id, which makes the start a
-    # recovery rather than a new run.
-    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
+    # The run keeps the identity setup minted: setup also wrote it into the
+    # root's trail/self, which every index entry the run writes takes its
+    # run_id from, so an id written over it would make the run's own PRs read
+    # as another run's.
     k next "$s" --no-cleanup >/dev/null 2>&1
     st=$(k status "$s" | jq -r '.current_state')
     [ "$st" = coord_loop ] || { fail "$s stopped at $st, not coord_loop"; return 1; }
@@ -912,8 +928,7 @@ else
     # The leg holds a result only once the run reached its terminal, so a run
     # that stopped short is reported as that, not as an empty payload.
     if [ "$(state_of leg)" != paused_awaiting_merges ]; then
-        fail "the leg's run stopped at $(state_of leg), not paused_awaiting_merges, so nothing reached the leg: $(head -c 600 "$CASE/next.json")"
-    else
+        fail "the leg's run stopped at $(state_of leg), not paused_awaiting_merges, so nothing reached the leg: $(head -c 600 "$CASE/next.json")"    else
         LEG=$(k request get "$REQ" 2>/dev/null | jq -c '[.. | objects | select(has("name") and .name == "execute")][0] // {}')
         P=$(printf '%s' "$LEG" | jq -c '[.. | objects | select(has("outcome") and has("repos"))][0] // {}')
         if [ "$(printf '%s' "$P" | jq -r '.outcome')" = paused-awaiting-merges ] \

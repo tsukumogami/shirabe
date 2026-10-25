@@ -56,7 +56,6 @@ command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
 . "$SCRIPT_DIR/coord-test-helpers.sh"
 
 S=execute-t
-RUN=00112233445566778899aabbccddeeff
 HOME_REPO=acme/repo-a
 NODE_REPO=acme/repo-b
 
@@ -83,13 +82,15 @@ ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 # --- coord_setup ------------------------------------------------------------------
 
 # A new run's session has no run_id before setup (one there would be a
-# carried id, which makes the start a recovery); the case's fixed id is
-# written over the minted one after it.
+# carried id, which makes the start a recovery). The loop carries the id
+# setup minted: setup also writes it into the root's trail/self, which every
+# index entry the run writes takes its run_id from, so an id written over the
+# minted one would make the run's own node PRs read as another run's.
 rm -f "$CASE/ctx/$S/run_id"
 (cd "$HOMEDIR" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$S" --plan docs/plans/PLAN-t.md \
     >"$CASE/setup.out" 2>"$CASE/setup.err")
 RC=$?
-printf '%s' "$RUN" > "$CASE/ctx/$S/run_id"
+RUN=$(ctx run_id)
 if [ "$RC" -eq 0 ] && [ "$(ctx repos)" = "$NODE_REPO" ] && [ "$(ctx home_repo)" = "$HOME_REPO" ] \
     && grep -qx record=new "$CASE/setup.out"; then
     pass "coord_setup records repos=$NODE_REPO and home_repo=$HOME_REPO on a new run"
