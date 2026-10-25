@@ -928,7 +928,8 @@ else
     # The leg holds a result only once the run reached its terminal, so a run
     # that stopped short is reported as that, not as an empty payload.
     if [ "$(state_of leg)" != paused_awaiting_merges ]; then
-        fail "the leg's run stopped at $(state_of leg), not paused_awaiting_merges, so nothing reached the leg: $(head -c 600 "$CASE/next.json")"    else
+        fail "the leg's run stopped at $(state_of leg), not paused_awaiting_merges, so nothing reached the leg: $(head -c 600 "$CASE/next.json")"
+    else
         LEG=$(k request get "$REQ" 2>/dev/null | jq -c '[.. | objects | select(has("name") and .name == "execute")][0] // {}')
         P=$(printf '%s' "$LEG" | jq -c '[.. | objects | select(has("outcome") and has("repos"))][0] // {}')
         if [ "$(printf '%s' "$P" | jq -r '.outcome')" = paused-awaiting-merges ] \
