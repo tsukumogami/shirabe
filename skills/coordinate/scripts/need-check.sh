@@ -21,12 +21,24 @@
 # in the context key coord/need.json ({kind, argument, cell}) with coord-log.sh
 # seal --file --key.
 #
+# Who a reserved merge, close or release goes to follows the coordinator's own
+# grant, as posture-read.sh stored its `niwa authority check` answer in
+# coord/posture.json (grant_check). A coordinator bound to its dispatch hands
+# the step to the coordinator that dispatched it: the cell names that
+# dispatcher's instance (grant_check.parent.instance, `<step> <link>, for
+# dispatcher <instance>`), or `for the dispatcher` when the answer names no
+# instance. Any other coordinator (not dispatched, no usable answer, no
+# coord/posture.json) is a root coordinator, and the step is reserved for a
+# person as before. A teardown is the workspace's, not the grant's, and stays
+# reserved for a person.
+#
 # Verdicts (sealed to this visit): `accepted <kind> keyseal:<seq>:<sha256>`,
 # or `refused`. Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 set -uo pipefail
 
 PROG=need-check
 HERE=$(cd "$(dirname "$0")" && pwd)
+KOTO=${KOTO_BIN:-koto}
 SESSION=
 usage() { sed -n '/^# Usage:/,/^# Reads the/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -61,7 +73,21 @@ case "$KIND" in
         [ $# -eq 3 ] || refuse "reserved-step takes a step and a link"
         case "$2" in merge|release|close|teardown) ;; *) refuse "reserved-step is merge, release, close or teardown" ;; esac
         [[ $3 =~ $RE_LINK ]] || refuse "reserved-step names a pull request or an issue"
-        ARG="$2 $3" CELL="$2 $3, reserved for a person" ;;
+        ARG="$2 $3" CELL="$2 $3, reserved for a person"
+        if [ "$2" != teardown ]; then
+            # A missing or unreadable posture leaves koto's or jq's own
+            # message on stderr and the step a person's, as before.
+            GC=$("$KOTO" context get "$SESSION" coord/posture.json | jq -c '.grant_check | objects') || GC=""
+            if [ "$(printf '%s' "$GC" | jq -r '.state // "" | strings')" = bound ]; then
+                DISP=$(printf '%s' "$GC" | jq -r '(.parent | objects | .instance) // "" | strings') || DISP=""
+                if [[ $DISP =~ ^[A-Za-z0-9][A-Za-z0-9+_.-]{0,127}$ ]]; then
+                    CELL="$2 $3, for dispatcher $DISP"
+                else
+                    CELL="$2 $3, for the dispatcher"
+                fi
+            fi
+        fi
+        ;;
     access)
         [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] && ! [[ $2 =~ $RE_DOTS ]] || refuse "access takes one owner/repo"
         ARG=$2 CELL="access to $2" ;;

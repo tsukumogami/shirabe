@@ -46,6 +46,13 @@
 #   --next KEY=TEXT          what's next for a session or queued unit, keyed
 #                            by session name or unit (repeatable); refused
 #                            when it reads as a decision (phrasing-lib.sh)
+#   --dispatcher NAME        this coordinator is bound to its dispatch, so a
+#                            reserved merge, close or release goes to the
+#                            coordinator that dispatched it, not a person:
+#                            the cell reads `for dispatcher NAME` (an instance
+#                            name), or `for the dispatcher` with NAME `-`,
+#                            the same words surface_check's need carries. A
+#                            teardown stays reserved for a person
 #
 # The decision rows come from the facts' `decisions`, the record's unsettled
 # entries that pick-facts.sh adds.
@@ -67,7 +74,7 @@ set -uo pipefail
 PROG=progress-view
 HERE=$(cd "$(dirname "$0")" && pwd)
 usage() { sed -n '/^# Flags/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
-IN=/dev/stdin ORDER='' BLOCKED='{}' NEXT='{}'
+IN=/dev/stdin ORDER='' BLOCKED='{}' NEXT='{}' DISPATCHER=''
 pair() { # pair <json-object> <KEY=TEXT>: the object with KEY set to TEXT
     case "$2" in *=*) ;; *) usage ;; esac
     [ -n "${2%%=*}" ] || usage
@@ -78,6 +85,12 @@ while [ $# -gt 0 ]; do
         --merge-order) [ $# -ge 2 ] || usage; ORDER=$2; shift 2 ;;
         --blocked) [ $# -ge 2 ] || usage; BLOCKED=$(pair "$BLOCKED" "$2") || exit 64; shift 2 ;;
         --next) [ $# -ge 2 ] || usage; NEXT=$(pair "$NEXT" "$2") || exit 64; shift 2 ;;
+        --dispatcher)
+            [ $# -ge 2 ] || usage
+            [ "$2" = - ] || [[ $2 =~ ^[A-Za-z0-9][A-Za-z0-9+_.-]{0,127}$ ]] || usage
+            # A name that is itself hash-shaped would exempt a hash.
+            [[ $2 =~ ^[0-9a-f]{7,40}$ ]] && usage
+            DISPATCHER=$2; shift 2 ;;
         -*) usage ;;
         *) [ "$IN" = /dev/stdin ] && [ -r "$1" ] || usage; IN=$1; shift ;;
     esac
@@ -110,7 +123,10 @@ while IFS= read -r k; do
         reserved-step) [ $# -eq 3 ] || refuse "$k: reserved-step takes a step and a link"
             case "$2" in merge|release|close|teardown) ;; *) refuse "$k: reserved-step is merge, release, close or teardown" ;; esac
             [[ $3 =~ $RE_LINK ]] || refuse "$k: reserved-step names a pull request or an issue"
-            CELL="$2 $3, reserved for a person" ARG="$2 $3" ;;
+            CELL="$2 $3, reserved for a person" ARG="$2 $3"
+            if [ -n "$DISPATCHER" ] && [ "$2" != teardown ]; then
+                if [ "$DISPATCHER" = - ]; then CELL="$2 $3, for the dispatcher"; else CELL="$2 $3, for dispatcher $DISPATCHER"; fi
+            fi ;;
         access) [ $# -eq 2 ] && [[ $2 =~ $RE_REPO ]] && ! [[ $2 =~ $RE_DOTS ]] || refuse "$k: access takes one owner/repo"
             CELL="access to $2" ARG=$2 ;;
         *) refuse "$k: a need is credential <name>, reserved-step <step> <link> or access <owner/repo>; a decision is raised as an entry" ;;
@@ -124,10 +140,13 @@ while IFS= read -r k; do
     [ -n "$k" ] || continue
     not_a_decision "--next for $k" "$(jq -r --arg k "$k" '.[$k]' <<< "$NEXT")"
 done < <(jq -r 'keys[]' <<< "$NEXT")
-OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjson next "$NEXT" '
+OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjson next "$NEXT" --arg disp "$DISPATCHER" '
     include "state-schema";
     def cell: tostring | gsub("\n"; " ") | gsub("\\|"; "\\|");
-    def hashy: [scan("(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")]
+    # The dispatcher is an instance name, whose suffix reads like a hash: it
+    # alone is left out of the scan.
+    def hashy: (if ($disp | length) > 1 then split($disp) | join(" ") else . end)
+        | [scan("(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")]
         | any(.[]; test("[0-9]") and test("[a-f]"));
     def link($w):
         if . == "" or . == null then "none yet"

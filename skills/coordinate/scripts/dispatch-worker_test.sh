@@ -133,9 +133,11 @@ case "$1" in
     dispatch)
         # NIWA_HELP picks the niwa being stood in for: `lineage` lists
         # --brief and --skill, `old` predates them, `fail` can't print help.
+        # `grant` adds --grant and --parent-from to `lineage`.
         if [ "${2:-}" = --help ]; then
             case "${NIWA_HELP:-lineage}" in
                 lineage) printf 'Flags:\n      --brief string\n      --detach\n      --name string\n      --skill string\n' ;;
+                grant) printf 'Flags:\n      --brief string\n      --detach\n      --grant strings\n      --name string\n      --parent-from string\n      --skill string\n' ;;
                 old) printf 'Flags:\n      --detach\n      --name string\n' ;;
                 fail) exit 1 ;;
             esac
@@ -152,6 +154,11 @@ case "$1" in
                 printf 'Dispatched session 0\n  instance: /p\n  session name: %s\n' "$NIWA_NAME"
                 ;;
             fail) exit 1 ;;
+            # niwa's never-wider refusal, before any instance exists.
+            refuse-wider)
+                echo "niwa: error: authority close-issue (requested by --grant) is wider than the dispatcher's grant: the dispatcher holds merge-pr (dispatch d1)" >&2
+                exit 1
+                ;;
             fail-but-launched)
                 jq -c '. + [{"name":"x","path":"/p","session_name":"'"$NIWA_NAME"'"}]' "$ST/sessions.json" >"$ST/s.tmp" && mv "$ST/s.tmp" "$ST/sessions.json"
                 exit 1
@@ -384,6 +391,107 @@ for help in old fail; do
         *) bad "lineage ($help help): the launch ends as before" "$LAUNCHED" ;;
     esac
 done
+
+# --- the worker's grant ------------------------------------------------------------------
+
+BRIEF_FILE="$W/.niwa/dispatch-briefs/plugin-api.md"
+named() { grep '^Named authority:' "$BRIEF_FILE"; }
+
+# A worker the brief hands a merge: --grant merge-pr and nothing wider, the
+# coordinator's own instance as --parent-from, and a brief that names exactly
+# merge-pr.
+reset "$(jq -c '.grant = ["merge-pr"]' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=grant
+OUT=$(run 2>"$T/err"); RC=$?
+eq  "grant: exit 0" "0 session=$NIWA_NAME" "$RC $OUT"
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "grant: --grant merge-pr" "$LAUNCHED" "[--grant] [merge-pr]"
+eq  "grant: one --grant" 1 "$(grep -o '\[--grant\]' <<<"$LAUNCHED" | wc -l | tr -d ' ')"
+has "grant: --parent-from names the coordinator's own instance" "$LAUNCHED" "[--parent-from] [$W/inst]"
+eq  "grant: the brief names merge-pr and nothing else" "Named authority: you hold merge-pr and nothing else. A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way." "$(named)"
+lacks "grant: the brief names no other authority" "$(cat "$BRIEF_FILE")" "close-issue"
+
+# A worker the brief hands no landing step: no --grant at all, and a brief that
+# says it holds none. An empty list reads the same.
+for g in absent empty; do
+    if [ "$g" = absent ]; then reset "$INPUT_DELIVER"; else reset "$(jq -c '.grant = []' <<<"$INPUT_DELIVER")"; fi
+    export NIWA_HELP=grant
+    run >/dev/null 2>&1; RC=$?
+    eq  "no landing step ($g): exit 0" 0 "$RC"
+    LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+    lacks "no landing step ($g): no --grant" "$LAUNCHED" "[--grant]"
+    has "no landing step ($g): --parent-from still" "$LAUNCHED" "[--parent-from] [$W/inst]"
+    has "no landing step ($g): the brief says it holds none" "$(named)" "Named authority: you hold no named authority."
+done
+
+# A niwa whose dispatch help lacks --grant: dispatched without one, and the
+# brief says the worker holds none.
+for help in lineage old; do
+    reset "$(jq -c '.grant = ["merge-pr"]' <<<"$INPUT_DELIVER")"
+    export NIWA_HELP=$help
+    run >/dev/null 2>"$T/err"; RC=$?
+    eq  "old niwa ($help): exit 0" 0 "$RC"
+    LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+    lacks "old niwa ($help): no --grant" "$LAUNCHED" "[--grant]"
+    lacks "old niwa ($help): no --parent-from" "$LAUNCHED" "[--parent-from]"
+    has "old niwa ($help): the brief says it holds none" "$(named)" "Named authority: you hold no named authority."
+    has "old niwa ($help): says why" "$(cat "$T/err")" "takes no --grant"
+done
+
+# A successor (entry point coordinate, grant `own`) gets this coordinator's
+# own grant as niwa authority check reported it to posture-read.sh.
+INPUT_SUCCESSOR=$(jq -c '.entry_point = "coordinate" | .entry_args = ["plugin-api"] | .run_mode = "" | .grant = "own"' <<<"$INPUT_DELIVER")
+reset "$INPUT_SUCCESSOR"
+export NIWA_HELP=grant
+printf '%s' '{"token":"readable merge:permit close:permit teardown:confirm release:confirm","grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr","close-issue"],"parent":{"instance":"ws+root-coord"}}}' >"$ST/ctx/coord/posture.json"
+run >/dev/null 2>&1; RC=$?
+eq  "successor: exit 0" 0 "$RC"
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "successor: --grant close-issue" "$LAUNCHED" "[--grant] [close-issue]"
+has "successor: --grant merge-pr" "$LAUNCHED" "[--grant] [merge-pr]"
+lacks "successor: nothing it doesn't hold" "$LAUNCHED" "[cut-release]"
+has "successor: the brief names its grant" "$(named)" "Named authority: you hold close-issue, merge-pr and nothing else."
+# A coordinator niwa didn't dispatch holds nothing to pass on.
+reset "$INPUT_SUCCESSOR"
+export NIWA_HELP=grant
+printf '%s' '{"grant_check":{"lookup":"answered","state":"not-dispatched","reason":"no-mapping","grant":[]}}' >"$ST/ctx/coord/posture.json"
+run >/dev/null 2>&1; RC=$?
+eq  "successor, root: exit 0" 0 "$RC"
+lacks "successor, root: no --grant" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--grant]"
+has "successor, root: the brief says it holds none" "$(named)" "Named authority: you hold no named authority."
+reset "$INPUT_SUCCESSOR"
+export NIWA_HELP=grant
+run >/dev/null 2>"$T/err"; RC=$?
+eq  "successor, no posture: exit 0" 0 "$RC"
+lacks "successor, no posture: no --grant" "$(grep '^niwa dispatch' "$ST/calls.log")" "[--grant]"
+has "successor, no posture: says why" "$(cat "$T/err")" "coord/posture.json can't be read"
+
+# `own` is for a successor only, and a grant names known authorities once
+# each: anything else is refused with nothing written or launched.
+for bad_grant in '"own"' '["merge"]' '["merge-pr","merge-pr"]' '"merge-pr"'; do
+    reset "$(jq -c --argjson g "$bad_grant" '.grant = $g' <<<"$INPUT_DELIVER")"
+    export NIWA_HELP=grant
+    run >/dev/null 2>"$T/err"; RC=$?
+    eq  "refused grant $bad_grant: exit 1" 1 "$RC"
+    eq  "refused grant $bad_grant: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"
+done
+
+# A grant wider than the coordinator's own: niwa refuses it, and the refusal is
+# reported, never retried.
+reset "$(jq -c '.grant = ["merge-pr", "close-issue"]' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=grant NIWA_MODE=refuse-wider
+run >/dev/null 2>"$T/err"; RC=$?
+eq  "wider: exit 11" 11 "$RC"
+eq  "wider: one launch, no retry" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+has "wider: niwa's refusal is passed on" "$(cat "$T/err")" "is wider than the dispatcher's grant:"
+has "wider: reported as niwa's refusal" "$(cat "$T/err")" "report the refusal"
+eq  "wider: row dispatch-failed" dispatch-failed "$(row dispatch_status)"
+has "wider: the request is abandoned" "$(calls)" "koto request abandon-request req_1"
+# Any other failure stays exit 4.
+reset "$(jq -c '.grant = ["merge-pr"]' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=grant NIWA_MODE=fail
+run >/dev/null 2>&1; RC=$?
+eq  "grant, other failure: exit 4" 4 "$RC"
 
 reset "$INPUT_SCOPE"
 printf '{"requests":[{"request_id":"req_left","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_other","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"

@@ -2315,6 +2315,12 @@ them is triggered. The skill carries no permission rule of its own: land and the
 close-outs take each finishing step exactly as far as this posture allows, and
 re-read it before acting, so a posture tightened during the run applies at once.
 
+Where niwa reports this session bound to the dispatch that launched it, the
+merge, close and release steps come from your own grant instead of the hooks'
+text, as the workspace's gate decides them for that grant, and never wider than
+the permission lists allow. The same answer, kept in `coord/posture.json`, is
+the grant a successor gets and the dispatcher a need names.
+
 Read a settings file for the keys you need (its permission lists and hooks) and
 never print one whole: its `env` block can hold credentials, and whatever a
 session prints lands in its transcript.
@@ -2779,6 +2785,17 @@ repository, list those repositories as `targets`; for a unit a PLAN drives
 (`/shirabe:execute`, including a scoped unit's execution sent later), they are
 the repositories its issues land in.
 
+Its `grant` is what the worker is dispatched holding: the authorities for the
+landing steps the brief hands it to take itself (`merge-pr`, `close-issue`,
+`cut-release`), left out for a worker you hand none, and `own` for your
+successor (entry point `coordinate`), which passes your own grant. A lane
+coordinator gets none. The script passes it to `niwa dispatch` as `--grant`,
+with your instance as `--parent-from`, when niwa takes those flags, and the
+brief's authority line names exactly what the launch asked for, or says the
+worker holds none. niwa refuses a grant wider than yours: the script exits 11
+with the row dispatch-failed. Report that refusal; never dispatch the unit
+again asking for more.
+
 Before anything is written, the script checks the unit's targets against the
 entry point's requirement in `references/entry-points.tsv`: an entry point
 that takes only public (or only private) repositories refuses a unit landing
@@ -2813,7 +2830,8 @@ reports it under "Changed since then".
 (the `holding_recorded` gate reads it). Its exit codes: 1 no holding (run the
 script), 4 still dispatching (run the script again to settle it), 3
 dispatch-failed (submit `failed`; the unit is dispatched again under a new
-topic), 2 the record couldn't be read. The script's own exit codes are in its
+topic, but after the script's exit 11 never with a wider grant), 2 the record
+couldn't be read. The script's own exit codes are in its
 header; 5 means a live session already uses the topic, 8 the record refused the
 write.
 
@@ -3722,6 +3740,14 @@ it is a choice, submit `surfaced: decision` and raise it as an entry instead.
 Pull requests are links, workers are inline code, and no commit hash is shown.
 
 <!-- details -->
+
+A merge, close or release a worker hands back because its grant doesn't cover
+it is yours first: when your posture permits the step, take it yourself instead
+of surfacing it. When it doesn't and you are bound to your own dispatch,
+`surface_check` words the need for the coordinator that dispatched you, naming
+its instance, and you report up to that coordinator; pass the same dispatcher to
+the progress table as `--dispatcher <instance>` (`-` when the need names none).
+Only a root coordinator's reserved step goes to a person.
 
 A parked worker is one with a verified, ready pull request waiting only on a
 merge. After a merge-order table, the holding is already parked: its verified
