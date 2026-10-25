@@ -69,8 +69,8 @@ gh	-	-	mode:coordinated
 # skills/execute/scripts/owned-pr.sh; executed_report and the exit records read
 # the owned PR the same way, each lookup carrying the session's run identity
 # (skills/execute/scripts/run-id.sh, under the `koto context` record above).
-# A rewrite of the PR body keeps its run marker line (run-id.sh carry, after
-# one `gh pr view`). A run with no intent makes no gh call, so the
+# No PR body carries a run marker: the lookups own a PR through its index
+# entry. A run with no intent makes no gh call, so the
 # record is mode:intent and not checked at load. SKILL.md's Intent Flag
 # section verifies it with `skill-preflight.sh scope --mode intent` before
 # any work when the intent is set.
