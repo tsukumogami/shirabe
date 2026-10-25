@@ -547,7 +547,7 @@ ct_real_koto_guard() {
     for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
         unset "$v"
     done
-    dir=$(koto session dir coord-test-guard </dev/null 2>/dev/null) || dir=""
+    dir=$(koto session dir coord-test-guard </dev/null) || dir=""
     work_p=$(cd "$CT_WORK" && pwd -P) && [ -n "$work_p" ] \
         || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
     case "$dir" in

@@ -163,3 +163,4 @@ shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coor
 # (references/step-agent-handoff.md), so the child records the run that
 # dispatched it.
 koto	init	--dispatched-by	mode:coordinated
+#not-a-call-site	skills/execute/scripts/coord-test-helpers.sh	koto	-h	the -h is help text the suites' stand-in koto prints for --help; nothing calls koto with it.

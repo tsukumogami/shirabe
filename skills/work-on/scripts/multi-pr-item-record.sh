@@ -138,14 +138,14 @@ if [ "$SUB" = keep ]; then
             || { echo "$PROG: could not write record in $SESSION" >&2; exit 70; }
         exit 0
     }
-    koto context exists "$SESSION" record_root </dev/null >/dev/null 2>&1 || keep_skipped no-record-root
+    koto context exists "$SESSION" record_root </dev/null >/dev/null || keep_skipped no-record-root
     rs_valid_step "$STEP" || { echo "$PROG: --step [$STEP] is not a step id" >&2; exit 65; }
     ROOT=$(koto context get "$SESSION" record_root </dev/null) || { echo "$PROG: could not read record_root in $SESSION" >&2; exit 70; }
     OWNER=$(rs_plan_root_owner "$ROOT") || { echo "$PROG: record_root [$ROOT] in $SESSION is not a plan root" >&2; exit 65; }
     DIR=$(rs_shared_dir "$OWNER") || exit 65
     ITEM_DOC=$(rs_koto_read "$DIR" context get "$ROOT" "trail/item/$STEP" </dev/null 2>/dev/null) || ITEM_DOC=""
-    IR=$(jq -r 'if type == "object" and (.pr | type) == "object" and (.pr.repo | type) == "string" then .pr.repo else "" end' <<<"$ITEM_DOC" 2>/dev/null) || IR=""
-    IN=$(jq -r 'if type == "object" and (.pr | type) == "object" and (.pr.number | type) == "number" then (.pr.number | tostring) else "" end' <<<"$ITEM_DOC" 2>/dev/null) || IN=""
+    IR=$(jq -r 'if type == "object" and (.pr | type) == "object" and (.pr.repo | type) == "string" then .pr.repo else "" end' <<<"$ITEM_DOC") || IR=""
+    IN=$(jq -r 'if type == "object" and (.pr | type) == "object" and (.pr.number | type) == "number" then (.pr.number | tostring) else "" end' <<<"$ITEM_DOC") || IN=""
     if [ -z "$IR" ] || [ -z "$IN" ]; then
         keep_skipped no-pr
     fi

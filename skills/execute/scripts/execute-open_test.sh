@@ -821,17 +821,25 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
     fi
     # The retry: before the replace, the finished run's unpinned step session
     # is pinned under the run's own name, and the replacement carries no
-    # trail/unpinned. koto moves a pinned session aside with its parent.
-    PINNED_STEP=$(k session list 2>/dev/null | jq -r '[.[] | .id | select(test("^execute-paused(_r[0-9]+)?\\.step-1$"))] | .[]' 2>/dev/null)
-    PIN_HELD=""
-    for s in $PINNED_STEP; do
-        k context exists "$s" koto/links/pin >/dev/null 2>&1 && PIN_HELD=$s
-    done
-    if grep -qx 'pinned=execute-paused.step-1' <<<"$ERR" && [ -n "$PIN_HELD" ] \
-        && ! k context exists execute-paused trail/unpinned >/dev/null 2>&1; then
-        pass "the opener retries the finished run's unpinned sessions before the replace (pinned=execute-paused.step-1, now $PIN_HELD), and trail/unpinned isn't carried"
+    # trail/unpinned. koto moves a pinned session aside with its parent. The
+    # pin needs koto 0.24.0 (run-record-pin.sh's floor); the floor job's older
+    # koto gets the retry's below-floor answer instead, and pins nothing.
+    if KOTO_FLOOR=0.24.0 bash "$REPO_ROOT/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
+        PINNED_STEP=$(k session list 2>/dev/null | jq -r '[.[] | .id | select(test("^execute-paused(_r[0-9]+)?\\.step-1$"))] | .[]' 2>/dev/null)
+        PIN_HELD=""
+        for s in $PINNED_STEP; do
+            k context exists "$s" koto/links/pin >/dev/null 2>&1 && PIN_HELD=$s
+        done
+        if grep -qx 'pinned=execute-paused.step-1' <<<"$ERR" && [ -n "$PIN_HELD" ] \
+            && ! k context exists execute-paused trail/unpinned >/dev/null 2>&1; then
+            pass "the opener retries the finished run's unpinned sessions before the replace (pinned=execute-paused.step-1, now $PIN_HELD), and trail/unpinned isn't carried"
+        else
+            fail "retry before replace: step sessions [$PINNED_STEP], pinned [$PIN_HELD]; $ERR"
+        fi
+    elif grep -q 'unpinned=execute-paused.step-1:below-floor' <<<"$ERR"; then
+        pass "below the pin floor, the opener's retry pins nothing and reports the step session below-floor"
     else
-        fail "retry before replace: step sessions [$PINNED_STEP], pinned [$PIN_HELD]; $ERR"
+        fail "retry before replace below the pin floor: expected unpinned=execute-paused.step-1:below-floor; $ERR"
     fi
 else
     fail "could not walk execute-paused to paused_for_review"
