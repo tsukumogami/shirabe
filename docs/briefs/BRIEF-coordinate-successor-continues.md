@@ -33,9 +33,10 @@ That handover is routine; on a busy roadmap it happens more than once a day.
 
 Today the new session can't continue the run it takes over. The opener finds
 the earlier run by its name prefix, opens a second run, cancels the first and
-copies only its `record/` and `legs/` keys across. Everything else the run held
-stays behind: the reconcile state, the dispatch-path keys, the links koto keeps
-for it, the seals and captures in its log. The only trace of where the new run
+copies only its `record/` and `legs/` keys (the record entries and the request
+legs it opened) across. Everything else the run held stays behind: what its
+last reconcile established, the keys that track in-flight dispatches, the
+links koto keeps for it, and the checks it already sealed in its log. The only trace of where the new run
 came from is a guess: the lineage scripts walk back through earlier runs with
 the same name prefix for as long as each one was cancelled.
 
@@ -44,8 +45,9 @@ onto a host where the plugin sits at another path is refused on provenance
 (tsukumogami/shirabe#806), and so is an import across a template change that
 made no difference to the run (tsukumogami/shirabe#1144); both force a manual
 carry. The new session's execution directory has to be rebound by hand before
-its first tick. The coordinator address on the record and the set of workers
-told about it are rewritten by hand, and a worker that stopped idle can only be
+its first tick. The coordinator address on the record (the session workers
+report to) and the told set (the workers that have been sent that address) are
+rewritten by hand, and a worker that stopped idle can only be
 told by resuming it for that one purpose, so the handover gate holds the run
 until it is (tsukumogami/shirabe#1245). Legs the earlier run opened still name
 it as their requester, so when a worker finishes after the handover, the new
@@ -122,13 +124,15 @@ same-host takeover. A successor whose shirabe ships an incompatible coordinate
 template refuses and names the template instead. This journey validates the
 provenance and template rules across paths and hosts.
 
-### An operator traces a run's history
+### A coordinator settles a removed worker's cost and a deferral
 
-The teardown cost sweep needs the coordinator a removed worker belonged to,
-and the deferral check needs the start of a run's chain. On a run whose
-sessions' names and recorded succession disagree, both follow the recorded
-succession and return the same lineage. This journey validates that lineage
-comes from the relation, not from naming.
+A coordinator that has been through two successions tears down a finished
+worker, and the teardown's cost sweep has to charge the worker's cost to the
+coordinator run that dispatched it. Later the same coordinator checks whether
+a standing deferral still holds, which depends on when the run's chain began.
+On a run whose sessions' names and recorded succession disagree, both answers
+follow the recorded succession and reach the same lineage. This journey
+validates that lineage comes from the relation, not from naming.
 
 ## Scope Boundary
 
@@ -174,9 +178,9 @@ comes from the relation, not from naming.
 
 ## Open Questions
 
-- Does the successor's open stop a live predecessor itself, or refuse until
-  the predecessor has stopped? The PRD fixes the observable rule; the design
-  picks the handshake.
+- The guarantee is fixed (never two sessions driving one run); what is open
+  is the handshake: does the successor's open stop a live predecessor
+  itself, or refuse until the predecessor has stopped? The design picks it.
 - What counts as a compatible template when the plugin path or the template's
   bytes differ? The PRD states the cases that must continue and the case that
   must refuse.
