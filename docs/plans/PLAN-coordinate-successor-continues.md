@@ -118,14 +118,15 @@ the shirabe steps that call the fence need a koto release carrying it.
 
 - [ ] `state-stored-set.sh --pending <worker> --by <who>` records the worker as pending for the current address; `state-handover.sh --check` then reports no `not-told <worker>` gap for it, and still reports `not-told` for a live worker recorded neither told nor pending.
 - [ ] `--told <worker>` turns a pending worker into a told one; `--run coordinator` clears every told and pending row; a record holding one worker as both told and pending is refused by the schema.
-- [ ] After the re-brief step reports the worker messaged, the worker is recorded told for the current address with no `--told` run by hand; when it reports the worker's session gone while its instance still exists, the worker is recorded pending; when the message was refused, nothing is recorded and the gate keeps its `not-told` gap.
+- [ ] A `dispatch-worker.sh --rebrief` that rewrote the worker's brief with the coordinator's current address records the worker as told for that address, with no `--told` run by hand, and prints `told=<worker>`; a re-brief that failed records nothing, and one for a worker already told records nothing new.
+- [ ] The handover gate's `not-told` fix line names `--pending` for a worker whose session can't be messaged.
 - [ ] A record written before this change, with no pending rows, reads, checks and hands over exactly as before.
 
-**Check**: In hosted CI, `state-stored-set_test.sh` and `state-handover_test.sh` run the pending, told and clear cases and print each gate result, and the template's routing test drives the re-brief step's three outcomes against real koto with a scratch `HOME`, `KOTO_SESSION_*` and `KOTO_SESSIONS_BASE` unset, and shows the told set after each.
+**Check**: In hosted CI, `state-stored-set_test.sh`, `state-handover_test.sh` and `dispatch-worker_test.sh` run the pending, told, clear and re-brief cases and print each gate result and the told set after each.
 
 **Dependencies**: None
 
-**Files**: `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/references/state-keys.md`
+**Files**: `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/state-keys.md`
 
 ### Step 5: chain-start returns the lineage the continues relation and carried-run links give, whatever the names
 
