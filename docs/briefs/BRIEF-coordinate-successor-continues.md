@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A coordinator's session is replaced often, and the session that takes over
   can't continue the run it inherits. It opens a new run, copies part of the
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -175,19 +175,6 @@ validates that lineage comes from the relation, not from naming.
 - The teardown pass's job lookup for a worker resumed from inside its
   instance (tsukumogami/shirabe#1243). It touches the same scripts but is an
   independent fix.
-
-## Open Questions
-
-- The guarantee is fixed (never two sessions driving one run); what is open
-  is the handshake: does the successor's open stop a live predecessor
-  itself, or refuse until the predecessor has stopped? The design picks it.
-- What counts as a compatible template when the plugin path or the template's
-  bytes differ? The PRD states the cases that must continue and the case that
-  must refuse.
-- What does a pending worker look like on the record, and what turns pending
-  into told?
-
-None of these block the brief: each defers a detail the PRD or design owns.
 
 ## References
 
