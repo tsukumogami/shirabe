@@ -681,12 +681,7 @@ entry the workflow routed. The states and checks, all in the template:
 - **Needs that aren't decisions.** A blocked worker that needs a credential, a
   step reserved for a person or access to a repository goes through `surface`
   to `surface_check`, which takes only those kinds of need. A choice never
-  travels as a need. A merge, close or release a worker hands back because
-  its grant doesn't cover it is yours first: take it when your own posture
-  permits it, and surface it only when it doesn't. A coordinator bound to its
-  dispatch surfaces it to the coordinator that dispatched it, and the need
-  names that dispatcher's instance; only a root coordinator hands it to a
-  person.
+  travels as a need.
 
 ## What a Coordinator Never Does
 
@@ -718,12 +713,7 @@ session bound to that dispatch, the merge, close and release posture comes from
 the coordinator's own grant, not from the hooks' text: each step reads as the
 workspace's gate would decide it for that grant, never wider than the
 permission lists allow. Anywhere else (no niwa, a failed lookup, a session niwa
-didn't dispatch) the posture is read from the settings as above. The same grant
-bounds what it passes on: every niwa dispatch carries the grant for the landing
-steps the brief hands the worker, none when it hands it none, and the
-coordinator's own grant for a successor, with the coordinator's own instance as
-the parent. niwa refuses a grant wider than the coordinator's own; report that
-refusal and never retry the dispatch asking for more.
+didn't dispatch) the posture is read from the settings as above.
 
 **It doesn't tear down what it hasn't inventoried**, and it acts only on the
 sessions and instances it listed, never across the whole workspace. It never

@@ -3744,9 +3744,8 @@ A merge, close or release a worker hands back because its grant doesn't cover
 it is yours first: when your posture permits the step, take it yourself instead
 of surfacing it. When it doesn't and you are bound to your own dispatch,
 `surface_check` words the need for the coordinator that dispatched you, naming
-its instance, and you report up to that coordinator; pass the same dispatcher to
-the progress table as `--dispatcher <instance>` (`-` when the need names none).
-Only a root coordinator's reserved step goes to a person.
+its instance, and you report up to that coordinator. Only a root coordinator's
+reserved step goes to a person.
 
 A parked worker is one with a verified, ready pull request waiting only on a
 merge. After a merge-order table, the holding is already parked: its verified
