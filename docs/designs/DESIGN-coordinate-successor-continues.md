@@ -104,8 +104,8 @@ marker and the rebind fence for one session changing directory. koto has no
 process-liveness signal: "alive" in retention means the log isn't terminal.
 And koto's request store is host-local and keyed by name: a request's header
 names `requested_by` and `coordinator_of_record` once, `ring_principals` and
-the per-tick wake pass ring only those names' wake files under
-`~/.koto/wakes/`, and `koto request watch` exits only on a wake, its deadline
+the per-tick wake pass ring only those names' wake files in the `wakes/`
+directory under koto's home, and `koto request watch` exits only on a wake, its deadline
 or a signal.
 
 Three shirabe facts shape the rest. The record's mutable sections are whole-key
