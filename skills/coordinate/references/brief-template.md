@@ -35,7 +35,7 @@ script's header lists every field and its rule; this is the shape:
     "The pull request is ready with every CI job green, read job by job."
   ],
   "acceptance": ["Plugins in the configured directory load at startup."],
-  "dispatcher_session": "<your koto session name>",
+  "dispatcher_session": "<written by dispatch-worker.sh: the run rendering the brief>",
   "decisions": [{"decision": "Feature 3 waits until the 1.4 release ships.", "by": "the human"}],
   "read_first": ["docs/roadmaps/ROADMAP-plugin-system.md"],
   "out_of_scope": ["Feature 3, which a sibling worker holds."],
