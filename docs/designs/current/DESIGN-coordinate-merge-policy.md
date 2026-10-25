@@ -696,3 +696,36 @@ The coordinate scripts named above have new names: `record-confirm.sh` is
 `references/record-template.md` is now `references/state-keys.md`, which holds
 each key of the state, its JSON shape and its one writer. `record-codec.jq` is
 gone; its checks live in `state-schema.jq`, which validates the state as JSON.
+
+## Amendment — 2026-10-25
+
+This amends Decision 5, whose text above is left as written. For a coordinator
+niwa dispatched, the merge posture no longer comes from the gate hook's text.
+
+When `niwa authority check` reports the coordinator's own session bound to the
+dispatch that launched it, `posture-read.sh` takes merge, close and release
+from that session's grant, by the table the workspace's gate uses for a bound
+session: an authority held at a level where the session settles the point
+reads `permit`, one not held reads `deny` (a release lacking `cut-release`
+reads `confirm`), and one settled by the dispatcher or a person reads `deny`
+or `confirm` as the gate would. Each still takes the stricter of that and the
+permission lists, so the grant never lifts a deny or an ask rule. The hook's
+text is read as Decision 5 describes for every other session: no niwa, a
+failed lookup, or a session niwa didn't dispatch. Where Decision 5 says a
+person's permission is "on the record", for a bound coordinator that record is
+its own grant record.
+
+The land step's table is unchanged, and so is its reading of `deny` and
+`confirm`; what changes is who a reserved step goes to. A bound coordinator
+whose grant doesn't cover a merge, close or release hands it to the
+coordinator that dispatched it, and the need names that dispatcher's instance.
+Only a root coordinator hands it to a person. A coordinator that receives a
+step handed back takes it when its own posture permits, and hands it up the
+same way when it doesn't.
+
+The coordinator also passes a grant on: every niwa dispatch carries `--grant`
+for the landing steps the brief hands the worker (none when it hands it none),
+its own grant for a successor, and its own instance as `--parent-from`. niwa
+refuses a grant wider than the dispatcher's, and the coordinator reports that
+refusal instead of retrying wider. A niwa that takes no `--grant` gets none,
+and the brief says the worker holds no named authority.

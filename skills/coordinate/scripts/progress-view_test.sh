@@ -107,6 +107,19 @@ eq_ "a credential is worded for its cell" "credential: NPM_TOKEN" "$(needcell 'c
 eq_ "a reserved step is worded for its cell" "merge https://github.com/acme/widgets/pull/14, reserved for a person" \
     "$(needcell 'reserved-step merge https://github.com/acme/widgets/pull/14')"
 eq_ "access is worded for its cell" "access to acme/secret" "$(needcell 'access acme/secret')"
+# A coordinator bound to its dispatch hands a reserved merge, close or
+# release to its dispatcher, never to a person; a teardown stays a person's.
+MO=(--merge-order plugin-sandbox,plugin-manifest --dispatcher ws+coordinator-1a2b3c4d)
+eq_ "bound: a reserved close goes to the dispatcher" "close https://github.com/acme/widgets/issues/34, for dispatcher ws+coordinator-1a2b3c4d" \
+    "$(needcell 'reserved-step close https://github.com/acme/widgets/issues/34')"
+eq_ "bound: a teardown stays a person's" "teardown #34, reserved for a person" "$(needcell 'reserved-step teardown #34')"
+eq_ "bound: other needs are worded as before" "credential: NPM_TOKEN" "$(needcell 'credential NPM_TOKEN')"
+MO=(--merge-order plugin-sandbox,plugin-manifest --dispatcher -)
+eq_ "bound, dispatcher unnamed: the dispatcher's" "merge #14, for the dispatcher" "$(needcell 'reserved-step merge #14')"
+refused "bound: only the dispatcher's name is left out of the hash scan" "a cell holds a commit hash" \
+    --merge-order plugin-sandbox,plugin-manifest --dispatcher ws+coordinator-1a2b3c4d --next "plugin-cli=rebase onto abc1234" "$F"
+MO=(--merge-order plugin-sandbox,plugin-manifest)
+bash "$V" --dispatcher '../x' "$F" > /dev/null 2>&1; [ $? = 64 ] && ok "a dispatcher that isn't an instance name is a usage error" || bad "a dispatcher that isn't an instance name is a usage error"
 for need in "decide whether to ship" "a product call: which config format" "credential" "credential two words" \
     "reserved-step deploy #12" "reserved-step merge somewhere" "access not-a-repo" "your call on the pin" \
     "credential decide-whether-to-ship" "access ../.."; do

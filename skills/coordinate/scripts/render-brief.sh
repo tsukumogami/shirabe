@@ -74,6 +74,17 @@
 #                                 their only route, so the level names are
 #                                 always checked. Absent, the brief is what
 #                                 it was before the field existed.
+#   grant               optional  the named authorities the worker is
+#                                 dispatched holding, an array of distinct
+#                                 names from merge-pr, close-issue and
+#                                 cut-release, possibly empty.
+#                                 dispatch-worker.sh writes the grant its
+#                                 launch asks for here. Rendered as the
+#                                 Goal's `Named authority:` line, which names
+#                                 exactly these, or says the worker holds
+#                                 none, and sends a step they don't cover
+#                                 back to the coordinator. Absent, the brief
+#                                 is what it was before the field existed.
 #
 # The entry point's target requirement. references/entry-points.tsv gives each
 # entry point the visibility its targets must have (`any`, `public` or
@@ -233,6 +244,10 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
             then "review_level: the floor (\($r.floor)) is above the ceiling (\($r.ceiling))" else empty end )
         end )
   else empty end ),
+( if has("grant") and ((.grant | type) != "array"
+      or (all(.grant[]; type == "string" and IN("merge-pr", "close-issue", "cut-release")) | not)
+      or (.grant | length) != (.grant | unique | length))
+  then "grant: must be an array of distinct authorities from merge-pr, close-issue and cut-release" else empty end ),
 ( if ([.. | strings | select(uuid)] | length) > 0 then "input: a value carries a UUID-shaped token; a session id never goes in a brief" else empty end )
 )
 '
@@ -394,6 +409,12 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   .authority,
   "",
+  ( if (.grant | type) == "array" then
+      ( if (.grant | length) > 0
+        then "Named authority: you hold \(.grant | join(", ")) and nothing else. A merge, close or release that needs an authority you don'"'"'t hold isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way."
+        else "Named authority: you hold no named authority. A merge, close or release isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way." end ),
+      ""
+    else empty end ),
   .goal,
   "",
   "Run `\($invocation)` in \(.repo).",

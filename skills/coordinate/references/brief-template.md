@@ -71,6 +71,20 @@ The brief gets one line in Acceptance criteria and the invocation gets
 level names always go through its check. Leave the field out and the brief
 is the same as before it existed.
 
+`grant` is what the worker is dispatched holding: the named authorities for
+the landing steps the brief hands it to take itself (`merge-pr`,
+`close-issue`, `cut-release`), left out or empty when it hands it none, or
+`own` for a successor coordinator (entry point `coordinate`), which takes your
+own grant as `niwa authority check` reported it. `dispatch-worker.sh` passes
+it to `niwa dispatch` as `--grant`, with your instance as `--parent-from`, when
+the installed niwa takes those flags, and replaces it with what the launch
+asked for, so the brief's Goal carries one `Named authority:` line that names
+exactly those authorities, or says the worker holds none (always so with a
+niwa that takes no `--grant`). That line also tells the worker that a merge,
+close or release its grant doesn't cover goes back to you in a report. The
+grant is never wider than your own: niwa refuses one that is, and the
+refusal is reported, never retried wider.
+
 The rendered brief also names both reporting channels (status and blockers
 to your session, the only source of direction; tooling problems to the
 discipline coordinator for the surface), shows the invocation with
@@ -210,12 +224,15 @@ at the brief:
 ```bash
 niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.md for your complete task brief, then do it." \
   --name <topic> --detach \
-  --brief <workspace-root>/.niwa/dispatch-briefs/<topic>.md --skill shirabe:<entry point>
+  --brief <workspace-root>/.niwa/dispatch-briefs/<topic>.md --skill shirabe:<entry point> \
+  --grant <authority> --parent-from <your instance root>
 ```
 
 `--brief` and `--skill` let niwa put the brief's digest and the requested
 skill on the worker's telemetry. niwa accepts them from 0.28.0; with an older
-niwa, leave both off, since it refuses flags it doesn't know.
+niwa, leave both off, since it refuses flags it doesn't know. `--grant` (one
+per authority, none for a worker granted nothing) and `--parent-from` go on
+only when `niwa dispatch --help` lists them, for the same reason.
 
 Record the holding under the dispatch topic you passed, with
 `state-holding.sh`, before any other action. `scripts/dispatch-worker.sh`
