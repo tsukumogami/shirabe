@@ -8,6 +8,16 @@ The plugin API ships with its loader.
 
 Run `/shirabe:deliver plugin-api --auto --no-merge` in acme/widgets.
 
+Your dispatcher is the coordinator run that sent you this brief:
+
+dispatcher_session: coordinate-roadmap-plugin-system-20261006T153752Z
+
+Record it in your own session: once your entry point has opened its session, run this, with `<session>` that session's name:
+
+`"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/link-dispatcher.sh" <session> --dispatched-by coordinate-roadmap-plugin-system-20261006T153752Z`
+
+`${CLAUDE_PLUGIN_ROOT}` is the shirabe plugin root your entry point's own commands start from. Run it from the directory your session is opened in. If it prints `warning=link-failed`, go on: your session is open, and your result carries the warning (see Reporting).
+
 Run mode: `--auto`. A background worker can't answer the confirmation `--interactive` waits for.
 
 You are scoping ahead: produce the documents and stop at the checkpoint that says so; execution waits for the coordinator's go.
@@ -45,6 +55,8 @@ Nothing beyond the entry point's own inputs.
 Report to the coordinator by message, addressed to `coord-alpha`, the address its record names, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.
 
 A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn't stand in for it, so keep going to the end.
+
+Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh" --session <your session>`, adding `--pr <url>` for each pull request you opened, from the directory your session is opened in, and put the block it prints in your final report, just before the `=== WORK IN FLIGHT ===` block. That block is your result; it carries what your session recorded that the coordinator needs, such as a link that failed.
 
 A run the account's usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.
 

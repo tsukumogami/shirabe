@@ -17,9 +17,10 @@
 #   unwatchable  anything else: the worker's session stayed on the old host,
 #                is bound to another leg, was never recorded, or the holding
 #                was dispatched before leg keys existed. The holding moves to
-#                the message path and its key reads unwatchable; the handover
-#                gate's told rule then has the coordinator tell the worker the
-#                address to report to.
+#                the message path and its key reads unwatchable; the
+#                coordinator then re-briefs the worker (dispatch-worker.sh
+#                --rebrief), so its brief gives this coordinator's address and
+#                names this run as the dispatcher it records.
 #
 # The holding is re-read first and changed only while it is still the row the
 # pass read: dispatched, on the same leg. Until every leg-bound holding is one

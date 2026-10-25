@@ -87,11 +87,36 @@
 # against its variable's pattern and refuses a bad or repeated one at init,
 # with no session left behind.
 #
-# Usage: coordinate-open.sh [--plugin-root <path>] <args-file>
+# Usage: coordinate-open.sh [--plugin-root <path>] [--dispatched-by <name>] <args-file>
 # Prints koto-open.sh's result line, then `session=<name>` on success. At
 # discipline scope with no --host it opens nothing and prints
 # `ask=host`: ask the human once, with a recommendation, and re-invoke with
 # --host. It never defaults to the repository it runs in there.
+#
+# --dispatched-by <name> names the coordinator run that dispatched this one, a
+# message-path worker whose brief carries this invocation with the name filled
+# in (render-brief.sh). It is any koto session name (^[A-Za-z0-9][A-Za-z0-9._-]*$,
+# at most 200 bytes), its form checked before any koto call, and never the
+# run's own name, checked once that name is known and before the run is opened,
+# resumed or imported. Once the run is open, carried, resumed or imported, the
+# opener runs
+# `koto session link <run> --dispatched-by <name>`, which writes the link into
+# the run's own session, so koto keeps the run while its dispatcher's
+# hierarchy is alive. A failed link is run once more; a second failure prints
+# `warning=link-failed dispatched_by=<name>` after session=<name>, records the
+# same two facts in the run's key session/link-warning, and leaves the exit
+# code as it was: the run goes on, only outside the dispatcher's hierarchy.
+# The retry, warning and record are scripts/lib/dispatch-link.sh's. Without the
+# flag no link is written for a dispatcher.
+#
+# A carried run (a recycled coordinator: a new run holding an earlier run's
+# record) is linked the same way to the run it carried, with
+# `--dispatched-by <the earlier run>` written in the new run's session, with
+# the same retry and warning. That link is written as soon as the carry lands,
+# so its warning (`warning=link-failed dispatched_by=<the earlier run>`)
+# prints right after carried=, before session= and any --dispatched-by link.
+# The order matters only for reading the output; the session/link-warning key
+# keeps one line per dispatcher either way (dispatch-link.sh).
 #
 # Exit codes: 0 opened or resumed; 10 the human must name the host first; 2
 # this koto lacks the session store's features (`refused=store-unsupported`),
@@ -113,19 +138,38 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 KOTO_OPEN="$HERE/../../../scripts/koto-open.sh"
 WORDING="$HERE/coordinate-open.wording.tsv"
 KOTO="${KOTO_BIN:-koto}"
+# shellcheck source=../../../scripts/lib/dispatch-link.sh
+. "$HERE/../../../scripts/lib/dispatch-link.sh" || exit 64
 
 usage() { echo "coordinate-open: $1" >&2; exit 64; }
 
 PLUGIN_ROOT=
 ARGS_FILE=
+DISPATCHER=
+HAVE_DISPATCHER=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --plugin-root) [ $# -ge 2 ] || usage "--plugin-root needs a path"; PLUGIN_ROOT=$2; shift 2 ;;
+        --dispatched-by) [ $# -ge 2 ] || usage "--dispatched-by needs the dispatcher's session name"
+                         HAVE_DISPATCHER=$((HAVE_DISPATCHER + 1)); DISPATCHER=$2; shift 2 ;;
         --*) usage "unknown option $1" ;;
         *) [ -z "$ARGS_FILE" ] || usage "expected one <args-file>"; ARGS_FILE=$1; shift ;;
     esac
 done
 [ -n "$ARGS_FILE" ] && [ -r "$ARGS_FILE" ] || usage "expected a readable <args-file>"
+[ "$HAVE_DISPATCHER" -le 1 ] || usage "--dispatched-by given more than once"
+[ "$HAVE_DISPATCHER" -eq 0 ] || dl_valid_dispatcher "$DISPATCHER" \
+    || usage "--dispatched-by must name a koto session: ^[A-Za-z0-9][A-Za-z0-9._-]*\$, at most 200 bytes, got [$DISPATCHER]"
+# not_self <run>: refuse, before the run is touched, a dispatcher that names it.
+not_self() {
+    [ "$HAVE_DISPATCHER" -eq 0 ] || [ "$DISPATCHER" != "$1" ] \
+        || usage "--dispatched-by names $1 itself; a run is not its own dispatcher"
+}
+# link_dispatcher <run>: record the dispatcher in the run's own session. A
+# failed link has printed its warning and recorded it; the run stands.
+link_dispatcher() {
+    [ "$HAVE_DISPATCHER" -eq 0 ] || dl_link "$KOTO" "$1" "$DISPATCHER" || true
+}
 [ -n "$PLUGIN_ROOT" ] || PLUGIN_ROOT=$(cd "$HERE/../../.." && pwd)
 command -v jq >/dev/null 2>&1 || { echo "failed=jq_missing"; exit 127; }
 
@@ -232,6 +276,7 @@ case "$HELP" in *--prefix*) ;; *) MISSING="context list --prefix" ;; esac
 if [ -n "$IMPORT" ]; then
     [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
         || refuse_import session-name "$IMPORT is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>)"
+    not_self "$IMPORT"
     # The import's own target is the one live run it may find: koto keeps it
     # after `import_unmarked`, and the same import run again only marks the
     # source.
@@ -285,6 +330,7 @@ if [ -n "$IMPORT" ]; then
         --host template_hash "$HASH" > /dev/null 2>&1 \
         || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run state-stored-set.sh --host for it" >&2; exit 1; }
     printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
+    link_dispatcher "$IMPORT"
     # The run reconciles again on this host. At reconcile it does so by itself
     # (its sealed report names another host's import facts). The hub takes the
     # `moved` tick, and its directive checks for a reconcile still owed on
@@ -325,15 +371,18 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
+            not_self "$OLD"
             [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
             printf 'resumed=1\nsession=%s\n' "$OLD"
+            link_dispatcher "$OLD"
             exit 0 ;;
         carry) CARRY_FROM=$(printf '%s' "$CAND" | jq -r '.session')
                echo "coordinate-open: carrying $CARRY_FROM into a new run: $(printf '%s' "$CAND" | jq -r '.reason')" >&2 ;;
     esac
 fi
 
+not_self "$SESSION"
 DIR=$(bash "$KOTO_OPEN" --alloc-dir) || usage "could not allocate a vars directory"
 printf '%s' "$MAPPED" | jq -c --arg scope "$SCOPE" --arg root "$PLUGIN_ROOT" --argjson extra "$EXTRA" \
     '[["SCOPE", $scope]] + .pairs + $extra + [["PLUGIN_ROOT", $root]]' > "$DIR/coordinate-vars.json"
@@ -367,6 +416,11 @@ if [ -n "$CARRY_FROM" ]; then
     . "$HERE/state-write-core.sh"
     ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
     echo "carried=$CARRY_FROM"
+    # The recycled coordinator: the new run is joined to the run it carried,
+    # a dispatched-by link in the new run's own session, so the earlier run
+    # and the workers it dispatched stay in one hierarchy with it. A failed
+    # link has printed its warning and recorded it; the carry stands.
+    dl_link "$KOTO" "$SESSION" "$CARRY_FROM" || true
 elif [ "$FRESH" = 1 ]; then
     # A fresh start: no session here holds the scope's record (a discipline's
     # next rotation, whose ended rotation's session is here, isn't one). The legacy
@@ -413,4 +467,5 @@ elif [ "$FRESH" = 1 ]; then
     esac
 fi
 printf 'session=%s\n' "$SESSION"
+link_dispatcher "$SESSION"
 exit 0

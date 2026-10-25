@@ -123,6 +123,57 @@ the terminal tick koto promotes the session's declared `result:` map to the leg
 it, and the session keeps its record. Attaching to a leg doesn't make a session
 a child, and changes nothing about retention.
 
+## A message-path worker records its dispatcher itself
+
+koto keeps a session while anything in its dispatch hierarchy is alive, and
+`koto session hierarchy <name>` says why a session is kept. A worker attached
+to a request leg is joined to its coordinator by the leg. A worker `/coordinate`
+dispatches on the message path has no leg, so nothing would join it, and koto
+could reclaim it on its own schedule while the coordinator still needs to read
+it.
+
+So the worker records the coordinator itself, from its own session. The brief
+`skills/coordinate/scripts/render-brief.sh` renders for it names the
+coordinator run as `dispatcher_session` and puts in its Goal the exact command
+that opens (or, for an entry point whose opener links only on a leg, links)
+the worker's session with `--dispatched-by <dispatcher_session>` already
+filled in:
+
+- `/coordinate`: `coordinate-open.sh --dispatched-by <name>`.
+- `/explore`, `/decision`, `/release`: `skill-session.sh open <skill> <topic>
+  --dispatched-by <name>`.
+- `/scope`, `/deliver`, `/execute`, `/work-on`: `link-dispatcher.sh <session>
+  --dispatched-by <name>`, once the entry point has opened its session.
+
+No entry point's skill text passes the flag; the brief carries it. Each of
+these runs `koto session link <session> --dispatched-by <name>` after the open,
+and runs it once more when it fails. A second failure prints
+`warning=link-failed dispatched_by=<name>`, records `warning=link-failed` and
+`dispatched_by=<name>` in the session's own context key `session/link-warning`
+(one `dispatched_by` line per dispatcher whose link failed), and lets the open
+stand: the worker goes on, only outside the coordinator's hierarchy. A link
+that works prints nothing and takes its own line out of the key.
+
+The coordinator learns of a failed link from the worker's report, never by
+reading the worker's key, so no read is recorded into the worker's session.
+The brief's Reporting section names `skills/coordinate/scripts/render-result.sh
+--session <session>` as the worker's report step; it reads the key from the
+worker's own session and carries one warning line per recorded dispatcher into
+the result block.
+
+`dispatch-worker.sh` writes the run that renders a brief into it as
+`dispatcher_session`. A worker moved to the message path later (a re-brief, an
+execution sent to an entry point with no leg, or a leg a reconcile found
+unwatchable after an import, whose worker is re-briefed) gets a re-rendered
+brief with the command filled in, so after a re-brief `dispatcher_session`
+names the coordinator run that rendered the new brief.
+
+A recycled coordinator, a new run that carries an earlier run's record
+forward, is joined to that earlier run the same way: `coordinate-open.sh`
+writes a dispatched-by link naming it in the new run's own session, with the
+same retry and warning, so the earlier run and the workers it dispatched stay
+in one hierarchy with the run that took over.
+
 ## What retention does not buy
 
 A retained session keeps its name, so a skill whose re-entry initializes a
@@ -175,7 +226,7 @@ the flag on each of them.
 | `/execute` | Every tick, unconditionally. An orchestrator session is a root, including under `--koto-leg`, where its result reaches the leg by promotion. |
 | `/scope` | Every tick, unconditionally. Its session is a root, including under `--koto-leg`, where its result reaches the leg by promotion. This replaces the selective per-state form it stated before the findings above. Its entry, `scope-open.sh`, passes `--attach-live --replace-terminal`, so a re-run after a finished run gets a fresh session and never ticks the retained one. |
 | `/deliver` | Every tick, unconditionally. Its session is a root and a request coordinator; its children report through their legs, not through its session. Under its own `--koto-leg`, its result reaches the caller's leg by promotion. |
-| `/coordinate` | Every tick, unconditionally. Its session is a root and runs for days. Each invocation opens a fresh per-run session, `coordinate-<scope>-<stamp>`, through `coordinate-open.sh`, which cancels (never cleans up) any earlier live run of the scope, so every run's log stays readable, including the one a directed-transition scan reads. |
+| `/coordinate` | Every tick, unconditionally. Its session is a root and runs for days. Each invocation opens a fresh per-run session, `coordinate-<scope>-<stamp>`, through `coordinate-open.sh`, which cancels (never cleans up) any earlier live run of the scope, so every run's log stays readable, including the one a directed-transition scan reads. A carried run links itself to the run it carried, and a message-path worker records its dispatcher from its brief (see above). |
 
 ## History
 
