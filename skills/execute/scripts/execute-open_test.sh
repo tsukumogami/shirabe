@@ -822,8 +822,9 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
     # The retry: before the replace, the finished run's unpinned step session
     # is pinned under the run's own name, and the replacement carries no
     # trail/unpinned. koto moves a pinned session aside with its parent. The
-    # pin needs koto 0.24.0 (run-record-pin.sh's floor); the floor job's older
-    # koto gets the retry's below-floor answer instead, and pins nothing.
+    # pin shipped in koto 0.24.0, which is run-record-pin.sh's floor; the floor
+    # job's older koto gets the retry's below-floor answer instead, and pins
+    # nothing.
     if KOTO_FLOOR=0.24.0 bash "$REPO_ROOT/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
         PINNED_STEP=$(k session list 2>/dev/null | jq -r '[.[] | .id | select(test("^execute-paused(_r[0-9]+)?\\.step-1$"))] | .[]' 2>/dev/null)
         PIN_HELD=""
