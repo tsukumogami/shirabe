@@ -364,6 +364,8 @@ eq "  ... leaving no session on B" "" "$(host_on b koto session list 2>/dev/null
 import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\",\"--trust-template\"]"
 eq "with --trust-template it is imported, then refused as a template this plugin can't drive" "2 refused=template-incompatible" "$? $(cat "$T/out")"
 grep -q 'compat' "$T/err" && pass "  ... and the refusal names the compat numbers" || fail "  ... and the refusal names the compat numbers" "$(cat "$T/err")"
+grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); this plugin ships compat [0-9][0-9]* (template [0-9a-f]\{64\})" "$T/err" \
+    && pass "  ... the template, both compat numbers and both hashes" || fail "  ... the template, both compat numbers and both hashes" "$(cat "$T/err")"
 eq "  ... koto was asked with --trust-template" 1 "$(grep -c -- "^session import $OTHER --from $WS_A --trust-template\$" "$T/koto-calls")"
 eq "  ... and the run stays on B" false "$(host_on b koto status "$OTHER" 2>/dev/null | jq -r .is_terminal)"
 

@@ -870,7 +870,9 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   of one is refused as `template-incompatible`, naming both compat numbers.
   CI (`scripts/check-template-compat.sh`) fails a change that moves the
   template's structure without raising the compat number, or changes a script
-  a gate reaches without recording the new digest.
+  a gate reaches without recording the new digest. A script change that alters
+  what a run does also changes how the template invokes it, since runs are
+  told apart by structure; raising the number alone is refused.
 - **One topic per worker.** A unit dispatched again after a failure takes a new
   topic: the dispatch script refuses a topic whose session is still live. A
   worker on the message path that went quiet past the second silence, whose

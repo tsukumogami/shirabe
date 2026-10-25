@@ -8,7 +8,13 @@
 # output: coord-log.sh compares a run's compiled template with the compat
 # table this way (coordinate.compat.json), and scripts/check-template-compat.sh
 # keeps the table's fingerprints honest with the same program.
-def strip: walk(if type == "object" then del(.description, .directive, .details) else . end);
+#
+# Only a text value is left out: an evidence field or a decider answer that
+# happens to be named description, directive or details holds an object, and
+# stays in the structure.
+def strip: walk(if type == "object"
+    then with_entries(select((.key == "description" or .key == "directive" or .key == "details") and (.value | type == "string") | not))
+    else . end);
 {initial_state,
  variables: (.variables | strip | map_values(del(.rebind))),
  states: (.states | strip)}

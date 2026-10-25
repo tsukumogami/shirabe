@@ -13,6 +13,10 @@
 # holds, compat going down fails `compat-down`, and a base fingerprint
 # renumbered fails `renumbered`; a malformed table and an unreadable compiled
 # template can't be decided (exit 2).
+# Also: raising compat over a structure the base lists fails
+# `raise-needs-structure`, whether it stays listed at the old number or the
+# new, and a changed gate invocation listed at the raised number holds; an
+# evidence field named description is structure, not text.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
@@ -94,6 +98,26 @@ table 2 "{\"$FP0\": 2}" "$GS1"
 eq "compat going down fails" 1 "$(run "$T/c0.json" --base-table "$T/base3.json")"
 grep -q 'check-template-compat: compat-down:' "$T/err" && pass "  ... compat-down" || fail "  ... compat-down" "$(cat "$T/err")"
 grep -q 'check-template-compat: renumbered:' "$T/err" && pass "  ... and renumbered" || fail "  ... and renumbered" "$(cat "$T/err")"
+
+# A script's meaning change can't be marked by raising compat alone: the
+# base's runs carry the same structure and would still be admitted. The raise
+# is refused, and changing how the template invokes the script is the way.
+table 2 "{\"$FP0\": 1}" "$GS1"
+eq "raising compat over a structure the base lists fails" 1 "$(run "$T/c0.json" --base-table "$T/base.json")"
+grep -q 'check-template-compat: raise-needs-structure:' "$T/err" && pass "  ... raise-needs-structure" || fail "  ... raise-needs-structure" "$(cat "$T/err")"
+table 2 "{\"$FP0\": 2}" "$GS1"
+eq "  ... and relisting that structure at the raised compat fails too" 1 "$(run "$T/c0.json" --base-table "$T/base.json")"
+grep -q 'check-template-compat: raise-needs-structure:' "$T/err" && pass "  ... raise-needs-structure" || fail "  ... raise-needs-structure" "$(cat "$T/err")"
+FPG=$(print "$T/gate.json" | jq -r .fingerprint)
+table 2 "{\"$FP0\": 1, \"$FPG\": 2}" "$GS1"
+eq "  ... and a changed invocation listed at the raised compat holds" 0 "$(run "$T/gate.json" --base-table "$T/base.json")"
+
+# An evidence field named like a text key holds an object, not text, and is
+# part of the structure.
+variant '.states.a.accepts.description = {"type":"string","required":true}' descfield
+table 1 "{\"$FP0\": 1}" "$GS1"
+eq "an evidence field named description moves the structure" 1 "$(run "$T/descfield.json")"
+grep -q 'check-template-compat: fingerprint:' "$T/err" && pass "  ... and fails fingerprint" || fail "  ... and fails fingerprint" "$(cat "$T/err")"
 
 echo '{"compat": 0}' > "$TABLE"
 eq "a malformed table can't be decided" 2 "$(run "$T/c0.json")"

@@ -25,8 +25,12 @@
 #     the base's.
 #
 # Recording a new `gate_scripts` digest at the same compat number is the
-# author's statement that the scripts' change keeps their meaning; a change
-# that alters it raises `compat` too.
+# author's statement that the scripts' change keeps their meaning. A run is
+# told apart by its structure alone, so raising `compat` over a structure the
+# base already lists would admit the base's runs just the same, and is
+# refused (`raise-needs-structure`): a script change that alters what a run
+# does changes how the template invokes it too (a new flag, a new script
+# name), and that new structure is listed at the raised number.
 #
 # Usage:
 #   check-template-compat.sh --template T [--base-table F] [--compiled J]
@@ -125,15 +129,18 @@ LISTED=$(jq -r --arg f "$FINGERPRINT" '.fingerprints[$f] // empty' "$TABLE")
 jq -e '.compat >= ([.fingerprints[]] | max)' "$TABLE" >/dev/null 2>&1 \
     || fail compat-below "a fingerprint is listed above compat $COMPAT"
 [ "$(jq -r '.gate_scripts' "$TABLE")" = "$GATE_SCRIPTS" ] \
-    || fail gate-scripts "a script the template's gates or actions reach changed (digest $GATE_SCRIPTS); raise compat if what it means to a run changed, and record the digest as gate_scripts either way"
+    || fail gate-scripts "a script the template's gates or actions reach changed (digest $GATE_SCRIPTS); record the digest as gate_scripts, and if what the script means to a run changed, change how the template invokes it and list that structure at a raised compat"
 
 if [ -n "$BASE" ]; then
     [ -r "$BASE" ] || die2 "can't read the base table $BASE"
     jq -e "$WELL_FORMED" "$BASE" >/dev/null 2>&1 || die2 "the base table $BASE isn't a compat table"
     BASE_COMPAT=$(jq -r '.compat' "$BASE")
     [ "$COMPAT" -ge "$BASE_COMPAT" ] || fail compat-down "compat went from $BASE_COMPAT down to $COMPAT"
-    if [ -z "$(jq -r --arg f "$FINGERPRINT" '.fingerprints[$f] // empty' "$BASE")" ] && [ "$COMPAT" -le "$BASE_COMPAT" ]; then
-        fail structure "the template's structure is one the base doesn't list, so a run compiled from the base can't be driven the same way; raise compat above $BASE_COMPAT"
+    if [ -z "$(jq -r --arg f "$FINGERPRINT" '.fingerprints[$f] // empty' "$BASE")" ]; then
+        [ "$COMPAT" -gt "$BASE_COMPAT" ] \
+            || fail structure "the template's structure is one the base doesn't list, so a run compiled from the base can't be driven the same way; raise compat above $BASE_COMPAT"
+    elif [ "$COMPAT" -gt "$BASE_COMPAT" ]; then
+        fail raise-needs-structure "compat went from $BASE_COMPAT to $COMPAT over a structure the base already lists; runs are told apart by structure, so the base's runs would still be admitted. Change how the template invokes what changed (a new flag or script name) and list that structure at $COMPAT, or keep compat at $BASE_COMPAT"
     fi
     jq -e --slurpfile b "$BASE" '. as $t | all($b[0].fingerprints | to_entries[]; . as $e | $t.fingerprints[$e.key] == null or $t.fingerprints[$e.key] == $e.value)' "$TABLE" >/dev/null 2>&1 \
         || fail renumbered "a fingerprint the base lists changed its compat number; a structure keeps the number it shipped with"
