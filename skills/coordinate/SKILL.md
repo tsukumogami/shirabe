@@ -665,8 +665,9 @@ entry the workflow routed. The states and checks, all in the template:
   propose rather than act on. A reserved merge, close or release goes to the
   coordinator that dispatched you when your session is bound, and to a person
   only when you are a root coordinator; a reserved teardown goes to a person.
-  One entry is escalated at a time; another escalation is recorded and queued. New evidence (`decision_evidence`) clears any verdict,
-  so a changed fact always brings the entry back to you.
+  One entry is escalated at a time; another escalation is recorded and queued.
+  New evidence (`decision_evidence`) clears any verdict, so a changed fact
+  always brings the entry back to you.
 - **Messages.** A message is rendered by a check (`escalate`,
   `decision_withdraw`, `decision_reply`, `decision_redirect`) and sent from the
   state after it (`escalate_send` and the three `*_send` states), exactly as
@@ -714,8 +715,8 @@ call, a compound command); hand the step over: a merge, close or release to the
 coordinator that dispatched you when your session is bound and to a person only
 when you are a root coordinator, a teardown to a person. A step the workspace
 puts behind a person's confirmation is handed over the same way. That is how
-this skill reads the workspace's rules; it carries no permission rule of its own. Never ask the
-human for a step the workspace already permits. Read a settings file for the keys
+this skill reads the workspace's rules; it carries no permission rule of its
+own. Never ask the human for a step the workspace already permits. Read a settings file for the keys
 you need and never print one whole: its env block can hold credentials.
 
 Where niwa dispatched the coordinator and `niwa authority check` reports its

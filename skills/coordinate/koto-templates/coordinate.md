@@ -2666,11 +2666,11 @@ and drive every worker to landed work.
 Three kinds of decision, three routes. A contested choice inside your scope is
 settled by dispatching `/shirabe:decision`, not by offering the human options. A
 decision that is the human's (it changes the effort's scope, reverses or extends
-a decision the human supplied, or needs a step that isn't yours to take) is
-asked once, with one recommendation; when a unit can't start without it, that
-unit is parked on it (`await_decision`). A merge, close or release you can't
-take goes to the coordinator that dispatched you when your session is bound,
-and to a person only when you are a root coordinator.
+a decision the human supplied, or needs a step that isn't yours to take)
+is asked once, with one recommendation; when a unit can't start without it,
+that unit is parked on it (`await_decision`). A merge, close or release you
+can't take goes to the coordinator that dispatched you when your session is
+bound, and to a person only when you are a root coordinator.
 Anything outside your scope is escalated to whoever dispatched you.
 
 ## ask_up
@@ -3570,9 +3570,11 @@ and no further. A denial covers the step, not the command: once the workspace
 denies a merge, don't reach the same result another way (a different command, an
 API call, a compound command); hand it over: to the coordinator that dispatched
 you when your session is bound, and to a person only when you are a root
-coordinator. A step the workspace puts behind a person's confirmation is handed
-over the same way, rather than triggering the prompt. Never ask the human for a
-step the workspace already permits.
+coordinator. Where you are a root coordinator, a step the workspace puts behind a
+person's confirmation is reserved for a person too; where you are bound, it
+goes to your dispatcher like a denied one. Either way, hand it over rather than
+trigger the prompt. Never ask the human for a step the workspace already
+permits.
 
 ## goal_fit
 
