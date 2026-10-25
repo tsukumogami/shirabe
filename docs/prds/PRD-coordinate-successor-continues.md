@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A /coordinate run outlives the Claude sessions that drive it, and every
   handover today opens a second run, cancels the first and copies part of its
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-coordinate-successor-continues.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
