@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A /coordinate successor can't continue the run it takes over. The opener
   finds the run by name prefix, opens a second run, copies record/ and legs/
@@ -35,7 +35,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
