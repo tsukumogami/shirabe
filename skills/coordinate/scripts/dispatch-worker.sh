@@ -311,8 +311,12 @@ read_inputs() {
 # grant is the answer posture-read.sh stored, never a second lookup. The
 # input's `grant` is replaced by the grant the launch asks for, so the brief's
 # authority line names exactly that: none when niwa can't take --grant. A
-# re-brief renders the grant the input gives, which is the one the worker was
-# dispatched with, since niwa never changes a running session's grant.
+# re-brief, a re-leg and a sent execution resolve it the same way, from the
+# input, the stored posture and the help as they read now. niwa never changes
+# a running session's grant, so keep the input's `grant` as it was at the
+# dispatch: the line is then what the worker holds unless niwa or the posture
+# changed since. The help read here is the one the launch below uses;
+# --releg-imported never launches, so it skips this.
 HELP=""
 GRANT_ARGS=()
 PARENT_ARGS=()
