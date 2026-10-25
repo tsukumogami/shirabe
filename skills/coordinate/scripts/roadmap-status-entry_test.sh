@@ -25,6 +25,14 @@
 # with --entry-file, an entry of another kind, no such entry, and an entry
 # already posted elsewhere. The record is the session's alone.
 #
+# On a host that doesn't opt in (the real reader over a CLAUDE.md without
+# `## PR Workflow Content: include`): --verdict and --reopen --entry open
+# their pull request with no comment posted and a Progress line citing
+# `(entry N, <hash8>)`; --confirm checks that citation against the session's
+# entry N, refusing a hash it doesn't match, an entry of another kind and a
+# missing one, and reading a line that cites another entry as not landed. A
+# host that opts in through its CLAUDE.md keeps the comment URL citation.
+#
 # Usage: bash skills/coordinate/scripts/roadmap-status-entry_test.sh
 set -uo pipefail
 
@@ -35,6 +43,10 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 # workflow content; acme/widgets does here, through the reader's stand-in.
 printf '#!/usr/bin/env bash\necho include\n' > "$T/pr-content-reader"
 export STATE_ENTRY_PR_CONTENT_READER="$T/pr-content-reader"
+# Nothing here needs a home directory; HOME points into the scratch directory
+# so no call can reach a real koto store.
+export HOME="$T/home"
+mkdir -p "$HOME"
 RS="$HERE/roadmap-status.sh"
 RA="$HERE/state-entry.sh"
 
@@ -296,5 +308,108 @@ printf 'https://github.com/acme/widgets/issues/7#issuecomment-4242\n' | koto con
 rs --verdict MV1 --entry "$N6" >/dev/null 2>"$T/err"; eq "an entry already posted elsewhere is refused" 65 $?
 grep -q 'already posted' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
 eq "  ... and no refusal wrote to GitHub" "0 0" "$(writes) $(jq '.prs | length' "$GH_DB")"
+
+# From here the host's opt-in is read as it is outside a test: the real
+# reader over acme/widgets's CLAUDE.md as the stand-in serves it. db_init
+# serves none, so the host doesn't opt in unless a case says it does.
+export STATE_ENTRY_PR_CONTENT_READER="$HERE/../../../scripts/pr-workflow-content.sh"
+# entry_key <n>: the stand-in's file for session entry N.
+entry_key() { printf '%s/context/%s/record/entries/%06d' "$KOTO_STORE" "$SV" "$1"; }
+
+echo "== a host that doesn't opt in: --verdict --entry, verified =="
+sv_seed
+rs --unit MV1 >/dev/null 2>&1
+NS1=$(write_entry milestone-verdict "$T/v1.txt")
+reset_calls
+OUT=$(rs --verdict MV1 --entry "$NS1" 2>"$T/err"); rc=$?
+eq "on a host that doesn't opt in opens the roadmap pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... with no comment posted, and none kept as posted" "0 0 []" "$(ncomments) $(grep -c 'comments --input' "$GH_DB.calls") [$(posted "$NS1")]"
+HS1=$(sha8 "$T/v1.txt")
+diff "$T/mv.md" <(on_branch "$(branch_of 8)") > "$T/d"
+eq "  ... and writes a Progress line citing entry N and its hash" \
+    "$(printf '%s\n' '21d20' '< **Needs:** `needs-design` -- the list layout' '23,24c22,23' '< **Status:** In progress' '< **Delivered:** acme/widgets#3' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#3, acme/widgets#12' '52a52' "> - $TODAY: MV1 -- verified, checked by coordinate-plugins (entry $NS1, $HS1)")" "$(cat "$T/d")"
+BODY=$(jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB")
+case "$BODY" in *"posted as a comment"*) bad "  ... its body says the entry stays in the session" "$BODY" ;;
+    *"coordinator's session"*) ok "  ... its body says the entry stays in the session" ;;
+    *) bad "  ... its body says the entry stays in the session" "$BODY" ;; esac
+eq "  ... a milestone-done row naming the entry" "milestone-done|the roadmap on main reads MV1 Done (entry $NS1)" \
+    "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.how_to_confirm)"')"
+reset_calls
+OUT=$(rs --verdict MV1 --entry "$NS1" 2>"$T/err"); rc=$?
+eq "  ... run again it changes nothing" "0 https://github.com/acme/widgets/pull/8 1 0 0" "$rc $OUT $(jq '.prs | length' "$GH_DB") $(writes) $(ncomments)"
+rs --confirm MV1 >/dev/null 2>"$T/err"; eq "  ... --confirm while main doesn't read Done is 1" 1 $?
+to_main "$(on_branch "$(branch_of 8)")"
+rs --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "  ... --confirm once main reads Done" 0 "$rc"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+
+echo "== a host that doesn't opt in: --verdict --entry, changes needed, confirmed from the session =="
+sv_seed "$MV" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
+rs --unit MV2 >/dev/null 2>&1
+NS2=$(write_entry milestone-verdict "$T/v2.txt")
+OUT=$(rs --verdict MV2 --entry "$NS2" 2>"$T/err"); rc=$?
+eq "a changes-needed verdict on a host that doesn't opt in opens its pull request" "0 https://github.com/acme/widgets/pull/8 0" "$rc $OUT $(ncomments)"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... a milestone-verdict row naming the entry" "milestone-verdict|the roadmap on main carries its entry in Progress (entry $NS2)" \
+    "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.how_to_confirm)"')"
+HS2=$(sha8 "$T/v2.txt")
+on_branch "$(branch_of 8)" | grep -qxF -- "- $TODAY: MV2 -- changes needed, checked by coordinate-plugins (entry $NS2, $HS2)" \
+    && ok "  ... its Progress line citing the entry" || bad "  ... its Progress line citing the entry" "$(on_branch "$(branch_of 8)" | tail -3)"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "  ... --confirm before main carries the line is 1" 1 $?
+GOOD=$(on_branch "$(branch_of 8)")
+to_main "$(printf '%s\n' "$GOOD" | sed "s/(entry $NS2, $HS2)/(entry $NS2, 00000000)/")"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm refuses a line whose hash isn't the session entry's" 65 $?
+grep -q "entry $NS2" "$T/err" && ok "  ... naming the entry" || bad "  ... naming the entry" "$(cat "$T/err")"
+NX=$(write_entry milestone-verdict "$T/v1.txt")
+to_main "$(printf '%s\n' "$GOOD" | sed "s/(entry $NS2, $HS2)/(entry $NX, $(sha8 "$T/v1.txt"))/")"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm reads a line citing another entry, whose hash it holds, as not landed" 1 $?
+to_main "$GOOD"
+cp "$(entry_key "$NS2")" "$T/ns2.json"
+jq -c '.kind = "milestone-failure"' "$T/ns2.json" > "$(entry_key "$NS2")"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm refuses a cited entry of another kind" 65 $?
+rm -f "$(entry_key "$NS2")"
+rs --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm refuses a cited entry the session doesn't hold" 65 $?
+cp "$T/ns2.json" "$(entry_key "$NS2")"
+eq "  ... and none of those wrote to the record" "1" "$(slive | jq '.side_effects | length')"
+rs --confirm MV2 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm accepts the line citing the session entry" 0 "$rc"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... and writes the rework row, its Who the entry's number" "verdict $NS2|Evidence clauses not held: 1. Changes needed: answer on the public name" \
+    "$(slive | jq -r '[.work[] | select(.kind == "rework" and .item == "MV2")][0] | "\(.who)|\(.next)"')"
+
+echo "== a host that doesn't opt in: --reopen --entry =="
+sv_seed "$MVD" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
+NSF=$(write_entry milestone-failure "$T/f.txt")
+OUT=$(rs --reopen MV1 --entry "$NSF" 2>"$T/err"); rc=$?
+eq "--reopen --entry on a host that doesn't opt in opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(head -n 1 <<<"$OUT")"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... and names the held dependent, with no comment posted" "held-dependent MV2 mv2-host 0" "$(printf '%s\n' "$OUT" | sed -n '2,$p') $(ncomments)"
+HSF=$(sha8 "$T/f.txt")
+diff "$T/mvd.md" <(on_branch "$(branch_of 8)") > "$T/d"
+eq "  ... MV1 In progress, and a reopen line citing the entry" \
+    "$(printf '%s\n' '23c23' '< **Status:** Done' '---' '> **Status:** In progress' '52a53' "> - $TODAY: MV1 -- reopened: clause 2 failed, reported by an operator (entry $NSF, $HSF)")" "$(cat "$T/d")"
+GOOD=$(on_branch "$(branch_of 8)")
+to_main "$(printf '%s\n' "$GOOD" | sed "s/(entry $NSF, $HSF)/(entry $NSF, 00000000)/")"
+rs --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm refuses a reopen line whose hash isn't the session entry's" 65 $?
+fentry "$T/f2.txt" MV1 2 "a different report"
+NF2=$(write_entry milestone-failure "$T/f2.txt")
+to_main "$(printf '%s\n' "$GOOD" | sed "s/(entry $NSF, $HSF)/(entry $NF2, $(sha8 "$T/f2.txt"))/")"
+rs --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm reads a reopen line citing another entry as not landed" 1 $?
+to_main "$GOOD"
+rs --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm accepts the reopen line citing the session entry" 0 "$rc"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... and writes the rework row, its Who the entry's number" "failure $NSF|Evidence clause 2 failed: the removed manifest was listed as installed by @carol" \
+    "$(slive | jq -r '[.work[] | select(.kind == "rework" and .item == "MV1")][0] | "\(.who)|\(.next)"')"
+
+echo "== a host that opts in through its CLAUDE.md keeps the comment citation =="
+sv_seed
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
+rs --unit MV1 >/dev/null 2>&1
+NS3=$(write_entry milestone-verdict "$T/v1.txt")
+OUT=$(rs --verdict MV1 --entry "$NS3" 2>"$T/err"); rc=$?
+eq "--verdict --entry on a host that opts in opens the pull request and posts the entry" "0 https://github.com/acme/widgets/pull/8 1" "$rc $OUT $(ncomments)"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+URL3=$(posted "$NS3")
+on_branch "$(branch_of 8)" | grep -qxF -- "- $TODAY: MV1 -- verified, checked by coordinate-plugins ($URL3, $(sha8 "$T/v1.txt"))" \
+    && ok "  ... its Progress line citing the comment" || bad "  ... its Progress line citing the comment" "[$URL3] $(on_branch "$(branch_of 8)" | tail -2)"
 
 done_tests roadmap-status-entry_test
