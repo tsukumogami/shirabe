@@ -147,19 +147,25 @@ These words have one meaning everywhere in this document.
   own recycle, an operator by hand, or a session unrelated to the
   predecessor. The predecessor is either named on the command line or found
   from the scope; nothing depends on the launcher's identity.
-- **R3.** A takeover refuses, with a named reason and without changing
-  anything, when: the scope has no run; the scope has more than one run whose
-  newest member is live; the named predecessor isn't the newest member of a
-  run of that scope; or another takeover of the same run is in progress or
-  has completed. Of two takeovers of one run started at the same time,
-  exactly one succeeds. A start with no prior run for the scope opens a new
-  run as today.
+- **R3.** When the predecessor isn't named, it is the newest member of the
+  scope's one unfinished run. A takeover refuses, with a reason code and
+  without changing anything, when: the scope has more than one unfinished
+  run (`ambiguous-scope`); the named predecessor isn't the newest member of
+  an unfinished run of that scope (`not-newest-member`); or a different
+  successor has already started or completed a takeover of the run
+  (`taken-over`). Of two takeovers of one run started at the same time by
+  different successors, exactly one succeeds. A start for a scope with no
+  unfinished run opens a new run as today (`outcome=opened`). Re-running the
+  open from the session that already took over the run is not a rival: it
+  completes an interrupted takeover (`outcome=continued`) or, when the
+  takeover had completed, attaches to it (`outcome=resumed`).
 
 **Single writer**
 
 - **R4.** When the newest member is live, the open takes over and stops it
   from driving the run; it refuses (`predecessor-unstoppable`) only when it
-  can't establish that stop. When the newest member is not live, the open
+  can't establish that stop, and that refusal, like every refusal, leaves
+  the predecessor driving the run and writes nothing. When the newest member is not live, the open
   takes over without stopping anything. In every case, from the moment the
   open returns, at most one session drives the run, and a tick or record
   write the predecessor started before the takeover either completes before
@@ -185,7 +191,8 @@ These words have one meaning everywhere in this document.
   key families in each group.
 - **R8.** The successor's first reconcile reports every holding the
   predecessor's last reconcile reported, with the same classification,
-  except where the holding's state changed after the takeover began; it
+  except a holding whose state changed (a leg resolved, a pull request
+  merged) after the takeover began, which it reports in its new state; it
   takes no leg the predecessor had taken.
 - **R9.** The successor's first tick, run from the directory and instance the
   successor was launched in, exits 0 and is accepted by the workflow, with
@@ -224,10 +231,11 @@ These words have one meaning everywhere in this document.
   | Worker condition | Status |
   |---|---|
   | Session live and the address message accepted | told |
-  | Session not live (ended idle, stopped, or not observable from this host) | pending |
+  | Session live and the address message refused | not told: the gate holds with a `not-told` gap, as today |
+  | Session not live (ended idle, stopped, or on another host with no koto event in 10 minutes) | pending |
   | Instance gone, as today's teardown check reads it | missing (today's handling) |
 
-  The handover gate passes with pending workers. A pending worker becomes
+  The handover gate passes with pending workers and holds on not-told ones. A pending worker becomes
   told when its first report after starting again reaches the successor;
   the successor records that at its next reconcile. Nothing resumes a worker
   only to tell it.
@@ -256,8 +264,10 @@ These words have one meaning everywhere in this document.
   whether or not any member was cancelled.
 - **R20.** A run carried before this feature holds no continues relation.
   Lineage for it follows the recycled-coordinator link the carry wrote
-  (`dispatched-by`, from each carried run to the run it carried). A run with
-  neither a relation nor that link is its own chain start.
+  (`dispatched-by`, from each carried run to the run it carried). A chain
+  that mixes the two (a carried run later taken over through this feature)
+  follows the relation back to the first member without one, then that
+  member's link. A member with neither is the chain start.
 
 **Import**
 
@@ -274,13 +284,19 @@ These words have one meaning everywhere in this document.
 - **R23.** The open prints its outcome as `key=value` lines, one key per
   line, with a fixed `outcome=` line whose value is one of `continued`,
   `opened`, `resumed` or `refused`; `continued` adds `predecessor=`,
-  `predecessor_stopped=yes|no` and `watcher=stopped|absent|unobserved`, and
-  `refused` adds `reason=` with a code. A takeover appends one record entry
-  naming predecessor and successor; a refusal appends none.
-- **R24.** The takeover needs a koto release with the continues relation and
-  one with the request-store change behind R17. With a koto older than the
-  first, the open refuses and names the koto version it needs; it never
-  falls back to carry-and-cancel.
+  `predecessor_stopped=yes|no`, `watcher=stopped|absent|unobserved` and
+  `leg_wake=supported|unsupported`, and
+  `refused` adds `reason=` with one of `ambiguous-scope`,
+  `not-newest-member`, `taken-over`, `predecessor-unstoppable`,
+  `template-incompatible` or `koto-too-old`. A completed takeover appends
+  exactly one record entry naming predecessor and successor, however many
+  times the open was re-run to complete it; a refusal appends none.
+- **R24.** The takeover needs a koto release with the continues relation.
+  With an older koto the open refuses (`koto-too-old`) and names the version
+  it needs; it never falls back to carry-and-cancel. With the relation but
+  without koto's request-store change behind R17, the open still takes over
+  and prints `leg_wake=unsupported`; R17's criterion then fails, and the
+  feature isn't accepted until it passes.
 - **R25.** The relation grants nothing. The successor's merge, close and
   release posture, as the coordinate grant reader reports it, is identical
   with and without the relation.
@@ -297,6 +313,17 @@ Takeover and single writer
 - [ ] With the predecessor's job finished and its last koto event over 10
       minutes old, the open prints `outcome=continued` and
       `predecessor_stopped=no`. (R4)
+- [ ] With a predecessor tick held mid-action (a gate command blocked on a
+      signal the test controls) when the open runs, then released: the
+      predecessor's log has no event after the takeover's record entry, and
+      the held tick either completed before the successor's first tick or
+      exited refused naming the successor. Same for a record write held
+      mid-script. (R4)
+- [ ] When the design's stop can't be established (the design names how a
+      test forces that), the open prints `outcome=refused` and
+      `reason=predecessor-unstoppable`; the store holds no new session,
+      relation or record entry, and the predecessor's next tick is accepted.
+      (R4)
 - [ ] After a takeover, each record-writing script the design lists, run
       against the predecessor, refuses naming the successor. (R5)
 - [ ] For each takeover step the design lists, killing the open after that
@@ -314,12 +341,16 @@ Takeover and single writer
 - [ ] A takeover naming the predecessor explicitly and one finding it from
       the scope produce the same relation; naming a session of another scope
       refuses. (R2, R3)
-- [ ] A takeover refuses, leaving the store unchanged, for a scope with no
-      run, a scope with two runs whose newest members are live, and a
-      predecessor that already has a successor. (R3)
-- [ ] Two takeovers of one run started together: exactly one prints
-      `outcome=continued`, the other refuses. (R3)
-- [ ] A start for a scope with no prior run prints `outcome=opened`. (R3)
+- [ ] A takeover refuses, leaving the store unchanged and printing the named
+      reason, for a scope with two unfinished runs (`ambiguous-scope`), a
+      named predecessor that isn't the newest member (`not-newest-member`),
+      and a run another successor already took over (`taken-over`). (R3)
+- [ ] Two takeovers of one run started together by different successors:
+      exactly one prints `outcome=continued`, the other `reason=taken-over`.
+      (R3)
+- [ ] A start for a scope with no unfinished run prints `outcome=opened`;
+      re-running the open from a successor whose takeover completed prints
+      `outcome=resumed` and adds no record entry. (R3, R23)
 
 What the successor starts from
 
@@ -358,8 +389,10 @@ Coordinator address and workers
 - [ ] After `--rebrief` with its message accepted, `state-handover.sh
       --check` reports no `not-told` gap for that worker; with the message
       refused, the worker is not recorded told. (R14)
-- [ ] A worker whose session ended idle, and a worker on another host, are
-      recorded pending; the handover gate passes; no resume is issued to
+- [ ] A live worker whose address message is refused is not recorded told,
+      and `state-handover.sh --check` reports its `not-told` gap. (R15)
+- [ ] A worker whose session ended idle, and a worker on another host with no
+      koto event in 10 minutes, are recorded pending; the handover gate passes; no resume is issued to
       either. When the idle worker is resumed for its own work, its first
       report reaches the successor and the successor's next reconcile
       records it told. (R15, R16)
@@ -385,16 +418,22 @@ Lineage
       give. (R19)
 - [ ] On a pre-feature carried run with a same-prefix sibling that a
       name walk would include, `chain-start` returns the chain the
-      recycled-coordinator links give; a run with neither relation nor link
-      returns itself as chain start. (R20)
+      recycled-coordinator links give; a carried run later taken over through
+      this feature returns the relation's members followed by the carried
+      links; a run with neither relation nor link returns itself as chain
+      start. (R20)
 
 Import, output, versions and authority
 
 - [ ] After `coordinate-open.sh --import` into a second workspace on the same
       host with the cloud session configuration, the criteria under Takeover
       and single writer, What the successor starts from, Template and plugin
-      compatibility, Coordinator address and workers, and Legs and watches
-      pass in that workspace. (R21)
+      compatibility, Coordinator address and workers, Legs and watches, and
+      Lineage pass in that workspace, with the imported copy as the
+      predecessor. (R21)
+- [ ] With a koto that has the continues relation but not the request-store
+      change, the open prints `outcome=continued` and
+      `leg_wake=unsupported`. (R24)
 - [ ] Every outcome prints the `key=value` lines R23 lists; a takeover adds
       one record entry naming both sessions; a refusal adds none. (R23)
 - [ ] With a koto older than the continues relation, the open prints
