@@ -517,7 +517,7 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
        elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
        elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
-       elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; tell the worker the address of this coordinator"
+       elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; re-brief the worker (dispatch-worker.sh --rebrief) so its brief gives this coordinator'"'"'s address and names this run as the dispatcher it records"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)

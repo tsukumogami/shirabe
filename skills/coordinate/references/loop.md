@@ -70,8 +70,12 @@ measured, verified by reading, or inferred:
    with `scripts/reconcile-legs.sh`: the worker's own session, if it came here
    with the coordinator's and is bound to nothing, is attached to a new request
    on this host and the holding names it; any other worker moves to the
-   message path, and its `legs/` key, when it has one, reads unwatchable. The
-   report says which,
+   message path, and its `legs/` key, when it has one, reads unwatchable. A
+   worker moved to the message path is re-briefed: its topic as
+   `report_topic` and its brief input as `brief_input.json` in this run's
+   context, then `dispatch-worker.sh --rebrief`, so its brief gives this
+   coordinator's address and names this run as the dispatcher it records in
+   its own session. The report says which,
    under "Changed since then", and `state-handover.sh` holds the run at
    `reconcile` (`leg-unclassified`) until each such leg has its end.
 5. **Re-check side effects in flight.** A merge is confirmed when GitHub's
@@ -119,6 +123,13 @@ other, the worker is asserting a dependency the roadmap denies: say "the
 worker's claim contradicts the roadmap, which lists features N and M as
 independent", whichever side turns out right. Agreeing that the roadmap says
 they're independent and then calling the claim consistent misses it.
+
+A message-path worker's result block (`render-result.sh`) carries a
+`warning=link-failed dispatched_by=<run>` line when its session couldn't
+record your run as its dispatcher. The worker is then outside your run's
+hierarchy, so koto may reclaim its session on its own schedule once it
+finishes: read what you need from it before that, and say so in your next
+report. Learn of it from the block alone; never read the worker's keys.
 
 ## Resolving a Claim GitHub Contradicts
 

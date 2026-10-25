@@ -14,7 +14,13 @@
 # its flags before --koto-leg; without it the brief matches the goldens in
 # testdata/brief-golden/ byte for byte; a bad level, a floor above the
 # ceiling, an unknown key, an entry point that doesn't take the flags, or
-# the flags given in entry_args or run_mode is refused.
+# the flags given in entry_args or run_mode is refused. On the message path the
+# Goal names dispatcher_session and shows the command that records it with
+# --dispatched-by filled in, per entry point (skill-session.sh open for
+# /explore, /decision and /release, coordinate-open.sh for /coordinate,
+# link-dispatcher.sh for /deliver and a /work-on PLAN), and Reporting names
+# render-result.sh; a leg brief carries none of it; a dispatcher_session
+# that isn't a koto session name is refused.
 #
 # Usage: bash skills/coordinate/scripts/render-brief_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -99,7 +105,9 @@ has "conventions pointer"        "$B" "Follow the target repository's convention
 has "credentials line"           "$B" "never by printing the file or its environment block"
 has "credentials: report unquoted" "$B" "report it to the coordinator at once without quoting its value"
 has "channel: the record's address named" "$B" 'addressed to `coord-alpha`, the address its record names'
-lacks "channel: the koto session is no address" "$B" 'coordinate-roadmap-plugin-system-20261006T153752Z'
+# section <brief> <heading>: one section's lines, its heading excluded.
+section() { printf '%s\n' "$1" | awk -v h="## $2" '/^## / { on = ($0 == h); next } on'; }
+lacks "channel: the koto session is no address" "$(section "$B" Reporting)" 'coordinate-roadmap-plugin-system-20261006T153752Z'
 has "channel: only direction"    "$B" "That session is your only source of direction"
 has "channel: surface line 1"    "$B" '- `ci-health`: `ci-coord`'
 has "channel: surface line 2"    "$B" '- `releases`: `rel-coord`'
@@ -186,6 +194,55 @@ golden() { # golden <label> <golden file> <render-brief args...>
 golden "review level: absent, the base brief is unchanged" "$GOLD/base.txt" --input "$BASE"
 golden "review level: absent, the min brief is unchanged"  "$GOLD/min.txt"  --input "$MIN"
 golden "review level: absent, the leg brief is unchanged"  "$GOLD/leg.txt"  --input "$BASE" --return-path req_1:deliver
+
+# --- the dispatcher, on the message path ---------------------------------------------
+#
+# A worker with no request leg records the coordinator run that dispatched it
+# itself: its brief's Goal names the run as dispatcher_session and shows the
+# exact command that records it, --dispatched-by filled in, and its Reporting
+# names render-result.sh as the report step. A leg brief has none of it.
+D=coordinate-roadmap-plugin-system-20261006T153752Z
+G=$(section "$B" Goal)
+has "dispatcher: the Goal names dispatcher_session" "$G" "dispatcher_session: $D"
+has "dispatcher: /deliver records it with link-dispatcher.sh" "$G" \
+    "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/link-dispatcher.sh\" <session> --dispatched-by $D\`"
+has "dispatcher: run once the entry point opened its session" "$G" "once your entry point has opened its session, run this"
+has "dispatcher: a failed link is no stop" "$G" 'If it prints `warning=link-failed`, go on'
+for ep in explore decision release; do
+    E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = (if \"$ep\" == \"release\" then \"\" else \"--auto\" end)")" --stdout)
+    has "dispatcher: /$ep opens with skill-session.sh open --dispatched-by" "$(section "$E" Goal)" \
+        "\`\"\${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh\" open $ep <topic> --dispatched-by $D\`"
+    has "dispatcher: /$ep's command replaces its skill's open" "$(section "$E" Goal)" "in place of the open your entry point's skill shows"
+    has "dispatcher: /$ep, re-briefed with its session open, runs it anyway" "$(section "$E" Goal)" "If your session is already open (this brief re-briefs you), run it anyway"
+done
+lacks "dispatcher: the link command needs no already-open note" "$G" "this brief re-briefs you"
+E=$(bash "$S" --input "$(variant ep-coordinate '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = ""')" --stdout)
+has "dispatcher: /coordinate opens with coordinate-open.sh --dispatched-by" "$(section "$E" Goal)" \
+    "\`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $D \"\$ARGS_DIR/args.json\"\`"
+has "dispatcher: /coordinate's args file is its first step's" "$(section "$E" Goal)" '`$ARGS_DIR/args.json` the args file its first step writes'
+E=$(bash "$S" --input "$(variant ep-workon '.entry_point = "work-on" | .entry_args = ["docs/plans/PLAN-x.md"]')" --stdout)
+has "dispatcher: /work-on given a PLAN records it with link-dispatcher.sh" "$(section "$E" Goal)" \
+    "link-dispatcher.sh\" <session> --dispatched-by $D"
+has "dispatcher: the template's Reporting names render-result.sh too" \
+    "$(awk '/^```markdown$/ { on = 1; next } on && /^```$/ { exit } on' "$HERE/../references/brief-template.md" | awk '/^## / { on = ($0 == "## Reporting"); next } on')" \
+    'scripts/render-result.sh --session <your session>'
+R=$(section "$B" Reporting)
+has "dispatcher: Reporting names render-result.sh as the report step" "$R" \
+    'Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh" --session <your session>`'
+L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
+lacks "dispatcher: a leg brief names no dispatcher_session" "$L" "dispatcher_session:"
+lacks "dispatcher: a leg brief shows no link command" "$L" "--dispatched-by"
+lacks "dispatcher: a leg brief has no render-result step" "$L" "render-result.sh"
+for bad in "coord alpha" "../coord" "-coord"; do
+    rm -rf "$BRIEFS"
+    (cd "$W" && bash "$S" --input "$(variant bad-disp ".dispatcher_session = \"$bad\"")") >/dev/null 2>"$T/err"
+    rc=$?
+    if [ "$rc" -eq 1 ] && grep -q 'dispatcher_session: must be a koto session name' "$T/err" && [ ! -e "$BRIEFS" ]; then
+        ok "dispatcher: [$bad] is refused, nothing written"
+    else
+        bad "dispatcher: [$bad] is refused, nothing written" "rc=$rc $(cat "$T/err")"
+    fi
+done
 
 RL=$(bash "$S" --input "$(variant rl-ceiling '.review_level = {"ceiling": "standard"}')" --stdout)
 has "review level: a ceiling's line in Acceptance criteria" "$RL" "- [ ] Review level: ceiling standard; /work-on's choice must fall inside it."

@@ -25,6 +25,12 @@
 #                      written into the input as reports_to, the address
 #                      every brief tells its worker to report to; none
 #                      exits 1 with nothing written
+#   --session          the coordinator run itself, written into the input as
+#                      dispatcher_session, over any value the input gave: the
+#                      run a leg names as its requester, and the run a
+#                      message-path worker records as its dispatcher
+#                      (render-brief.sh), so a re-brief names the run that
+#                      rendered it
 #   report_topic       --rebrief: the worker whose report needs a fix;
 #                      --releg: the worker whose leg was spent
 #   coord/pick.json    the units pick_facts listed; the brief input's unit
@@ -276,7 +282,13 @@ read_inputs() {
         printf '%s: refused: the record names no coordinator address for the brief to give the worker; set it with state-stored-set.sh --session %s --run coordinator <address> --by <who>\n' "$PROG" "$SESSION" >&2
         exit 1
     fi
-    jq --arg a "$ADDRESS" '.reports_to = $a' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+    # The dispatcher a brief names is this run, the one rendering it: a
+    # message-path worker records it as its dispatcher, so after a re-brief,
+    # or once a carried or imported run has taken over, it names the run that
+    # rendered the new brief, whatever an older input said. A new leg's
+    # --requested-by is read from the same field, so it names this run too.
+    jq --arg a "$ADDRESS" --arg s "$SESSION" '.reports_to = $a | .dispatcher_session = $s' "$INPUT" >"$WORK/in.json" \
+        && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }
 
 if [ -n "$IMPORTED" ]; then

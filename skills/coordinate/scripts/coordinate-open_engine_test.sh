@@ -13,7 +13,18 @@
 # as usage naming it (the session is the only store); --reports-to sets
 # REPORTS_TO, empty without it; ROADMAP_FORM is feature for a roadmap not in
 # the working tree and milestone for a roadmap/v2 or roadmap/v3 one there; a
-# second valid invocation cancels the first run without deleting its log. On a
+# second valid invocation cancels the first run without deleting its log.
+# --dispatched-by writes a dispatched-by link in the opened run's own session
+# with one link call, and none is written without it; a link that fails once is
+# retried and recorded with no warning; one that fails twice prints
+# warning=link-failed after session=, records it in session/link-warning,
+# writes no link and leaves the run live, exit 0; a malformed or repeated
+# --dispatched-by is usage with nothing opened. A carried run (the recycled
+# coordinator) is linked in its own session to the run it carried, before its
+# dispatcher, writing nothing in the earlier run; a failed carry link warns
+# after carried= and records only that run; two failed links record both
+# dispatchers under one warning line, and a later link to one that works
+# takes away only its own line, the key going with the last. On a
 # koto without the session store's features the only case is the start's
 # refusal, store-unsupported, opening no session.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
@@ -123,6 +134,129 @@ printf -- '---\nschema: roadmap/v3\nstatus: Active\n---\n\n# ROADMAP: milestones
 OUT=$(open_ '["docs/roadmaps/ROADMAP-milestones-v3.md"]'); eq "a roadmap/v3 roadmap's run opens" 0 $?
 S4=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
 eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S4" ROADMAP_FORM)"
+
+# --- --dispatched-by: the run records the coordinator that dispatched it -------
+# koto runs behind a shim that logs each `session link` and fails the first
+# LINK_FAILS of them, so the retry and the warning are seen from outside.
+echo "== --dispatched-by =="
+REAL_KOTO=$(command -v koto)
+cat > "$T/link-shim" <<EOF
+#!/bin/sh
+if [ "\$1 \$2" = "session link" ]; then
+    printf '%s\n' "\$*" >> "$T/links"
+    n=\$(wc -l < "$T/links")
+    [ "\$n" -le "\${LINK_FAILS:-0}" ] && exit 1
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/link-shim"
+open_by() { # open_by <fails> <dispatcher> <args json>: the opener with --dispatched-by behind the shim
+    : > "$T/links"
+    printf '%s' "$3" > "$T/args.json"
+    LINK_FAILS=$1 KOTO_BIN="$T/link-shim" bash "$OPEN" --plugin-root "$T/plugin" --dispatched-by "$2" "$T/args.json" 2>"$T/err"
+}
+links() { koto context list "$1" --prefix koto/links/dispatched-by/ 2>/dev/null | jq -r '.[]' | tr '\n' ' '; }
+RMV2='["docs/roadmaps/ROADMAP-milestones.md"]'
+sleep 1
+OUT=$(open_by 0 coord-parent "$RMV2"); eq "a run opened with --dispatched-by opens" 0 $?
+SL=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+eq "  ... its own session holds the dispatched-by link" "koto/links/dispatched-by/coord-parent " "$(links "$SL")"
+eq "  ... written by one link call from the run's session" "session link $SL --dispatched-by coord-parent" "$(cat "$T/links")"
+eq "  ... printing no warning" "" "$(printf '%s\n' "$OUT" | grep '^warning=')"
+eq "without --dispatched-by no dispatcher link is written" "" "$(links "$S4")"
+sleep 1
+OUT=$(open_by 1 coord-parent "$RMV2"); eq "a link that fails once opens the run" 0 $?
+SL=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+eq "  ... the link is run twice" 2 "$(grep -c "^session link $SL --dispatched-by coord-parent\$" "$T/links")"
+eq "  ... and recorded on the retry" "koto/links/dispatched-by/coord-parent " "$(links "$SL")"
+eq "  ... with no warning printed" "" "$(printf '%s\n' "$OUT" | grep '^warning=')"
+koto context exists "$SL" session/link-warning; eq "  ... and no warning key" 1 $?
+sleep 1
+OUT=$(open_by 2 coord-parent "$RMV2"); eq "a link that fails twice still opens the run, exit 0" 0 $?
+SL=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+[ -n "$SL" ] && pass "  ... printing session=" || fail "  ... printing session=" "$OUT"
+eq "  ... the warning follows session=" "session=$SL|warning=link-failed dispatched_by=coord-parent" \
+    "$(printf '%s\n' "$OUT" | grep -A1 '^session=' | tr '\n' '|' | sed 's/|$//')"
+eq "  ... recorded in the run's own session" "warning=link-failed
+dispatched_by=coord-parent" "$(koto context get "$SL" session/link-warning)"
+eq "  ... no link written" "" "$(links "$SL")"
+eq "  ... and the run is live" false "$(koto status "$SL" | jq -r .is_terminal)"
+BEFORE=$(sessions)
+for bad in ../x -x "$(head -c 201 /dev/zero | tr '\0' a)"; do
+    open_by 0 "$bad" "$RMV2" >/dev/null; rc=$?
+    if [ $rc -eq 64 ] && [ "$(sessions)" = "$BEFORE" ] && [ ! -s "$T/links" ]; then pass "--dispatched-by ${bad:0:12} is usage, nothing opened"
+    else fail "--dispatched-by ${bad:0:12} is usage, nothing opened" "rc=$rc $(cat "$T/err")"; fi
+done
+printf '%s' "$RMV2" > "$T/args.json"
+bash "$OPEN" --plugin-root "$T/plugin" --dispatched-by a --dispatched-by b "$T/args.json" >/dev/null 2>"$T/err"
+eq "--dispatched-by given twice is usage" 64 $?
+eq "  ... nothing opened" "$BEFORE" "$(sessions)"
+
+# The recycled coordinator: a run holding the scope's record that a start
+# can't resume (its find never recorded the session store) is carried into a
+# new run, which is linked to it in its own session, and to the dispatcher
+# the start names.
+# state_json and session_keys as testdata/test-lib.sh has them (session_seed
+# needs both); this suite doesn't source test-lib.sh, which puts the koto
+# stand-in first on PATH.
+state_json() { printf '%s' "$1" | jq -c -L "$HERE" --arg w "${2:-2026-09-26T09:00:00Z}" 'include "state-schema"; normalize_state([]) | .written = $w'; }
+session_keys() {
+    local pair field key
+    jq -c '{scope, store: "session", written, pending: false}' "$2" | koto context add "$1" record/meta
+    for pair in $ES_SECTIONS; do
+        field=${pair%%:*} key=${pair#*:}
+        jq -e --arg f "$field" 'has($f)' "$2" > /dev/null || continue
+        jq -c --arg f "$field" '.[$f]' "$2" | koto context add "$1" "record/$key"
+    done
+}
+RMC='["docs/roadmaps/ROADMAP-carry.md"]'
+sleep 1
+OUT=$(open_ "$RMC"); eq "a run of another scope opens" 0 $?
+SC=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+session_seed "$SC" "$(jq -nc '{scope: {kind: "roadmap", name: "carry"}, holdings: [], deferrals: [], side_effects: [], reversals: []}')"
+eq "  ... and holds the scope's record" 0 $?
+# Its find recorded the session store, and it ended: a start carries it.
+printf '{"source":"session"}' | koto context add "$SC" coord/source.json
+koto cancel "$SC" >/dev/null 2>&1
+sleep 1
+OUT=$(open_by 0 coord-parent "$RMC"); eq "the next start opens a new run" 0 $?
+SN=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+grep -qx "carried=$SC" <<<"$OUT" && [ "$SN" != "$SC" ] && pass "  ... carrying the earlier run's record" || fail "  ... carrying the earlier run's record" "$OUT $(cat "$T/err")"
+eq "  ... linked in its own session to the run it carried and to its dispatcher" \
+    "koto/links/dispatched-by/coord-parent koto/links/dispatched-by/$SC" "$(links "$SN" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... the carry's link written first" "session link $SN --dispatched-by $SC|session link $SN --dispatched-by coord-parent" "$(tr '\n' '|' < "$T/links" | sed 's/|$//')"
+koto context exists "$SC" "koto/links/dispatched-by/$SN"; eq "  ... and nothing written in the earlier run" 1 $?
+# The carried run ends in turn; the next start carries it with its link to it
+# failing twice (the shim fails the first two link calls) and its dispatcher's
+# link working: the warning names only the run it carried.
+printf '{"source":"session"}' | koto context add "$SN" coord/source.json
+koto cancel "$SN" >/dev/null 2>&1
+sleep 1
+OUT=$(open_by 2 coord-parent "$RMC"); eq "a carry whose links fail still opens the run, exit 0" 0 $?
+SN2=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+eq "  ... warning after carried=" "carried=$SN|warning=link-failed dispatched_by=$SN" \
+    "$(printf '%s\n' "$OUT" | grep -A1 '^carried=' | tr '\n' '|' | sed 's/|$//')"
+eq "  ... recorded in the new run's own session" "warning=link-failed
+dispatched_by=$SN" "$(koto context get "$SN2" session/link-warning)"
+# Both links failing: one warning line each, and one dispatched_by line each
+# under the key's one warning line.
+printf '{"source":"session"}' | koto context add "$SN2" coord/source.json
+koto cancel "$SN2" >/dev/null 2>&1
+sleep 1
+OUT=$(open_by 4 coord-parent "$RMC"); eq "a carry whose two links both fail opens the run, exit 0" 0 $?
+SN3=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+eq "  ... printing both warnings" "warning=link-failed dispatched_by=$SN2|warning=link-failed dispatched_by=coord-parent" \
+    "$(printf '%s\n' "$OUT" | grep '^warning=' | tr '\n' '|' | sed 's/|$//')"
+eq "  ... the key names both dispatchers" "warning=link-failed
+dispatched_by=$SN2
+dispatched_by=coord-parent" "$(koto context get "$SN3" session/link-warning)"
+# A later link to one of them that works takes only its own line away.
+. "$REPO_ROOT/scripts/lib/dispatch-link.sh"
+dl_link koto "$SN3" coord-parent; eq "a later link to one dispatcher works" 0 $?
+eq "  ... leaving the other's line" "warning=link-failed
+dispatched_by=$SN2" "$(koto context get "$SN3" session/link-warning)"
+dl_link koto "$SN3" "$SN2"; eq "a link to the last one works" 0 $?
+koto context exists "$SN3" session/link-warning; eq "  ... and the key goes" 1 $?
 
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
