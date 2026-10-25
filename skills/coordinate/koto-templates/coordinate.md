@@ -2278,9 +2278,10 @@ status to read Active; at discipline scope there is nothing to check here.
 
 A coordinator drives an effort by handing work to other sessions and keeping
 track of it. It decides what happens next, writes the context a worker needs to
-start cold, checks what comes back, and lands finished work or puts it in front
-of the human where the workspace reserves that step for a person. It implements
-nothing. The judgment stays with it.
+start cold, checks what comes back, and lands finished work. A landing step that
+isn't its own to take goes to the coordinator that dispatched it when its
+session is bound, and to a person only when it is a root coordinator. It
+implements nothing. The judgment stays with it.
 
 **A roadmap scope must be Active.** A missing roadmap, or one in any other
 status, ends the run at `done_not_active` without dispatching anything; report
@@ -2665,9 +2666,11 @@ and drive every worker to landed work.
 Three kinds of decision, three routes. A contested choice inside your scope is
 settled by dispatching `/shirabe:decision`, not by offering the human options. A
 decision that is the human's (it changes the effort's scope, reverses or extends
-a decision the human supplied, or needs a step the workspace reserves for a
-person) is asked once, with one recommendation; when a unit can't start
-without it, that unit is parked on it (`await_decision`).
+a decision the human supplied, or needs a step that isn't yours to take) is
+asked once, with one recommendation; when a unit can't start without it, that
+unit is parked on it (`await_decision`). A merge, close or release you can't
+take goes to the coordinator that dispatched you when your session is bound,
+and to a person only when you are a root coordinator.
 Anything outside your scope is escalated to whoever dispatched you.
 
 ## ask_up
@@ -3210,8 +3213,11 @@ alternatives, each with its explanation.
 - `settle`: the call is yours to make. `--settle --outcome <outcome> --reason
   <reason>`.
 - `escalate`: it changes the effort's scope, reverses or extends a decision the
-  dispatcher supplied, needs a step reserved for a person, or is outside your
-  scope. `--escalate --recommendation <option> --reason <why> --context
+  dispatcher supplied, needs a step that isn't yours to take (a merge, close or
+  release goes to the coordinator that dispatched you when your session is
+  bound, and to a person only when you are a root coordinator; a teardown goes
+  to a person), or is outside your scope.
+  `--escalate --recommendation <option> --reason <why> --context
   <paragraph> --problem <paragraph> --grounds <scope|supplied-decision|reserved-step|outside-scope>[,...]`
   and one `--option '<option> -- <explanation>'` for every option.
 - `hold`: a fact you can find is missing. `--hold --reason <what it waits on>`,
@@ -3562,10 +3568,11 @@ Put that reason in the re-brief.
 Take each finishing step as far as the workspace's declared permissions allow,
 and no further. A denial covers the step, not the command: once the workspace
 denies a merge, don't reach the same result another way (a different command, an
-API call, a compound command); hand it over. A step the workspace puts behind a
-person's confirmation is reserved for a person too: hand it over rather than
-trigger the prompt. Never ask the human for a step the workspace already
-permits.
+API call, a compound command); hand it over: to the coordinator that dispatched
+you when your session is bound, and to a person only when you are a root
+coordinator. A step the workspace puts behind a person's confirmation is handed
+over the same way, rather than triggering the prompt. Never ask the human for a
+step the workspace already permits.
 
 ## goal_fit
 
@@ -4237,8 +4244,9 @@ Report what still blocks the roadmap's close ({{ROADMAP_CLOSE}}) and submit
 ## roadmap_close_step
 
 The roadmap is clear ({{ROADMAP_CLOSE}}). Where the posture permits closing,
-submit `step: closed` and the run ends; otherwise hand the close to the human
-(`step: handed_over`).
+submit `step: closed` and the run ends; otherwise hand the close over
+(`step: handed_over`): to the coordinator that dispatched you when your session
+is bound, and to a person only when you are a root coordinator.
 
 <!-- details -->
 
@@ -4271,8 +4279,9 @@ The scope is done. Print the report with `coordinate-report.sh`.
 
 ## done_handed_over
 
-The last finishing step is with the human. Print the report with
-`coordinate-report.sh`.
+The last finishing step is handed over: to the coordinator that dispatched you
+when your session is bound, and to a person only when you are a root
+coordinator. Print the report with `coordinate-report.sh`.
 
 ## done_stopped
 
