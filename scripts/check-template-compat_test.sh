@@ -31,6 +31,7 @@ eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "want [$2], got [$3]";
 SK="$T/skills/demo"
 mkdir -p "$SK/koto-templates" "$SK/scripts"
 cp "$REPO/skills/coordinate/scripts/template-fingerprint.jq" "$SK/scripts/"
+cp "$REPO/skills/coordinate/scripts/template-fingerprint.sh" "$SK/scripts/"
 TPL="$SK/koto-templates/demo.md"
 TABLE="$SK/koto-templates/demo.compat.json"
 echo "# demo template (only its path matters here)" > "$TPL"
@@ -118,6 +119,14 @@ variant '.states.a.accepts.description = {"type":"string","required":true}' desc
 table 1 "{\"$FP0\": 1}" "$GS1"
 eq "an evidence field named description moves the structure" 1 "$(run "$T/descfield.json")"
 grep -q 'check-template-compat: fingerprint:' "$T/err" && pass "  ... and fails fingerprint" || fail "  ... and fails fingerprint" "$(cat "$T/err")"
+
+# The fingerprint CI records is the one a resume computes: coord-log.sh hashes
+# a run's compiled copy with template-fingerprint.sh, and so does the check.
+# The real coordinate template's shipped table must match what that script
+# prints for a compiled copy of it.
+eq "the check's fingerprint is template-fingerprint.sh's" "$(bash "$REPO/skills/coordinate/scripts/template-fingerprint.sh" "$T/c0.json")" "$FP0"
+grep -q 'template-fingerprint.sh' "$REPO/skills/coordinate/scripts/coord-log.sh" \
+    && pass "  ... and coord-log.sh fingerprints a run with the same script" || fail "  ... and coord-log.sh fingerprints a run with the same script"
 
 echo '{"compat": 0}' > "$TABLE"
 eq "a malformed table can't be decided" 2 "$(run "$T/c0.json")"

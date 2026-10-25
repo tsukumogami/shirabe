@@ -78,7 +78,9 @@ fi
 [ -r "$COMPILED" ] || die2 "can't read the compiled template $COMPILED"
 
 STRUCTURE=$(jq -S -c -f "$FP_PROGRAM" "$COMPILED") || die2 "can't read the compiled template $COMPILED"
-FINGERPRINT=$(printf '%s' "$STRUCTURE" | sha256)
+# The fingerprint comes from the same script coord-log.sh hashes a run's copy
+# with, so the table CI records is the one a resume compares against.
+FINGERPRINT=$(bash "$SCRIPTS_DIR/template-fingerprint.sh" "$COMPILED") || die2 "can't fingerprint the compiled template $COMPILED"
 
 # The scripts the structure invokes by name, then everything they reach
 # through $HERE, until nothing new turns up. A path is kept relative to the

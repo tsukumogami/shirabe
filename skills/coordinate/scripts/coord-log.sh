@@ -233,13 +233,13 @@ run_copy() {
     [ -n "$p" ] && [ -r "$p" ] && printf '%s\n' "$p"
 }
 
-# run_fingerprint <log>: the sha256 of the structure of the compiled template
-# the session runs from (template-fingerprint.jq), or nothing when that copy
-# can't be read.
+# run_fingerprint <log>: the structural fingerprint of the compiled template
+# the session runs from (template-fingerprint.sh, the same program CI records
+# the table with), or nothing when that copy can't be read.
 run_fingerprint() {
     local p
     p=$(run_copy "$1") || return 1
-    jq -S -c -f "$HERE/template-fingerprint.jq" "$p" 2>/dev/null | sha256
+    bash "$HERE/template-fingerprint.sh" "$p" 2>/dev/null
 }
 
 # compat_verdict <fingerprint> <table>: 0 when the compat table lists the
