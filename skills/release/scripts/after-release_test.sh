@@ -111,6 +111,9 @@ mkdir -p "$REPO/.niwa"
 : >"$REPO/.niwa/workspace.toml"
 gg() { git -C "$REPO" -c user.name=t -c user.email=t@example.invalid "$@"; }
 gg init -q
+# A bare origin the published tag is fetched from.
+git init -q --bare "$T/origin.git"
+gg remote add origin "$T/origin.git"
 EXT="$REPO/.claude/shirabe-extensions/release.md"
 LOCAL="$REPO/.claude/shirabe-extensions/release.local.md"
 inst() { # inst <tag> -- a command that logs what it saw
@@ -124,8 +127,10 @@ commit_ext() { # commit_ext <file contents>
 TOPIC=t-repo
 S="$STORE/release-$TOPIC"
 # session <dispatched> <concluded> -- the keys Phases 1, 5 and 6 leave; an
-# empty value leaves its key out.
+# empty value leaves its key out. The published tag v0.3.0 is HEAD, on origin.
 session() {
+    gg tag -f v0.3.0 HEAD >/dev/null
+    git -C "$REPO" push -q -f origin refs/tags/v0.3.0 2>/dev/null
     rm -rf "$STORE" "$GH_LOG" "$NIWA_LOG" "$INSTALL_LOG"
     mkdir -p "$S/work"
     git -C "$REPO" rev-parse HEAD >"$S/work/head"
@@ -209,6 +214,26 @@ assert_lacks "a bullet added to the working copy after the release commit isn't 
 ar run "$TOPIC"
 assert_lacks "and doesn't run" "added" "$(cat "$INSTALL_LOG")"
 gg checkout -q -- "$EXT"
+
+echo "== a head that isn't in the release =="
+session 0.3.0 success
+answers "$PUBLISHED"
+# A local commit made after the tag and never pushed, as Phase 1's head:
+# whatever it changed in the extension, it isn't what was released.
+gg commit -q --allow-empty -m "local only"
+git -C "$REPO" rev-parse HEAD >"$S/work/head"
+ar plan "$TOPIC"
+assert_eq "a head outside the published tag is refused" "2" "$RC"
+assert_contains "it says so" "refused=head-not-released" "$OUT"
+assert_contains "and names each install not run" "not-run tracked 3 $THREE" "$OUT"
+assert_eq "no grant lookup" "0" "$(lines "$NIWA_LOG")"
+gg reset -q --hard HEAD~1
+session 0.3.0 success
+answers "$PUBLISHED"
+git -C "$REPO" push -q origin --delete refs/tags/v0.3.0 2>/dev/null
+ar plan "$TOPIC"
+assert_contains "a tag origin doesn't have is refused" "refused=head-unverified" "$OUT"
+assert_eq "nothing ran" "0" "$(lines "$INSTALL_LOG")"
 
 echo "== the bullet parser =="
 commit_ext "## After release

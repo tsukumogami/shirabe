@@ -37,8 +37,18 @@
 #             tag, or the wait running out prints published=no
 #             reason=<view-failed|wait-ran-out>, a not-run line per command,
 #             and exits 3.
-#          4. The grant, read again with release-grant.sh: a session that held
+#          4. The head check, when there are tracked commands: work/head must
+#             be an ancestor of the published tag, fetched from origin, so an
+#             unpushed local commit can't add a tracked install. A tag that
+#             can't be fetched prints refused=head-unverified, a head outside
+#             it refused=head-not-released, each with the not-run lines, and
+#             exits 2.
+#          5. The grant, read again with release-grant.sh: a session that held
 #             it at the go may not hold it now.
+#
+#          work/dispatched and work/concluded are what the skill recorded; the
+#          independent checks are the publication read and the head check, and
+#          the workspace gate decides the dispatch itself.
 #
 #          Prints, once published:
 #            published=v<version>
@@ -192,7 +202,7 @@ not_run_all() { # not_run_all <file>
 # --- plan -------------------------------------------------------------------------------
 
 cmd_plan() {
-    local topic s top head version concluded wait poll waited view state grant kind n cmd
+    local topic s top head listed version concluded wait poll waited view state grant kind n cmd
     [ "$#" -eq 1 ] || usage "plan takes <topic>"
     topic="$1"
     [[ "$topic" =~ $RE_TOPIC ]] || usage "topic must match $RE_TOPIC"
@@ -206,8 +216,12 @@ cmd_plan() {
     head=$(get_key "$s" work/head) || exit 1
     head=$(printf '%s' "$head" | tr -d '[:space:]')
     : >"$TMPD/after"
-    if git -C "$top" cat-file -e "$head:$EXT_TRACKED" 2>/dev/null; then
-        git -C "$top" show "$head:$EXT_TRACKED" | bullets tracked >>"$TMPD/after"
+    # ls-tree prints nothing for a commit without the file, and fails on a
+    # head it can't read, which stops the phase instead of reading as "no
+    # installs".
+    listed=$(git -C "$top" ls-tree --name-only "$head" -- "$EXT_TRACKED") || { say "cannot read commit $head (work/head)"; exit 1; }
+    if [ -n "$listed" ]; then
+        git -C "$top" show "$head:$EXT_TRACKED" | bullets tracked >>"$TMPD/after" || { say "cannot read $EXT_TRACKED at $head"; exit 1; }
     fi
     if [ -f "$top/$EXT_LOCAL" ]; then
         bullets local <"$top/$EXT_LOCAL" >>"$TMPD/after"
@@ -264,6 +278,24 @@ cmd_plan() {
         sleep "$poll"
         waited=$((waited + poll))
     done
+
+    # work/head is the local HEAD Phase 1 saw. Its tracked commands count only
+    # when that commit is in the release as published, so a local commit that
+    # was never pushed can't add an install that runs on the grant.
+    if grep -q '^tracked	' "$TMPD/after"; then
+        if ! git -C "$top" fetch --quiet --no-tags origin "refs/tags/v$version" </dev/null; then
+            printf 'refused=head-unverified\n'
+            not_run_all "$TMPD/after"
+            say "cannot fetch v$version from origin to check that $head is in the release; none of these installs ran"
+            exit 2
+        fi
+        if ! git -C "$top" merge-base --is-ancestor "$head" FETCH_HEAD; then
+            printf 'refused=head-not-released\n'
+            not_run_all "$TMPD/after"
+            say "$head, the commit this run read its installs at, isn't in v$version as published; none of these installs ran"
+            exit 2
+        fi
+    fi
 
     grant=$("$BASH_BIN" "$SCRIPT_DIR/release-grant.sh")
     case "$grant" in

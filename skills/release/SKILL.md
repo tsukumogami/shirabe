@@ -591,6 +591,9 @@ its two halves.
      about installs and go on to the close.
    - **Exit 2** (`refused=not-dispatched` or `refused=workflow-<conclusion>`):
      this run didn't dispatch the release, or its workflow didn't succeed.
+     `refused=head-not-released` or `refused=head-unverified`: the commit
+     Phase 1 read the installs at isn't in the published tag on origin (a
+     local commit never pushed), or the tag couldn't be fetched to check.
      Nothing runs; report each `not-run` line.
    - **Exit 3** (`published=no reason=wait-ran-out` or `view-failed`): the
      release wasn't seen published. Say the release isn't published yet (or
