@@ -11,6 +11,22 @@ shirabe's declarations for `/shirabe:release`, imported by
 
 - `scripts/release-eval-check.sh --finalize`
 
+## After release
+
+Run in order once the release is published. The version check stops the
+list before `niwa apply` when the update didn't land the new binary (tsuku
+hasn't seen the release yet, say), so a workspace is never re-applied with the
+old one; `niwa apply` also moves the workspace's Claude plugins to the new
+release.
+
+- `tsuku update shirabe`: update the installed shirabe to the newest release.
+  An `@v<version>` install would pin the recipe source's ref, leaving a second
+  or pinned install that later updates skip.
+- `test "$(shirabe --version)" = "shirabe v$RELEASE_VERSION"`: fail unless the
+  binary on PATH reports the released version.
+- `cd "${RELEASE_WORKSPACE_ROOT:?not in a niwa workspace}" && niwa apply`:
+  re-apply every instance of the workspace this repository is in.
+
 ## The macOS floor run
 
 Pull requests merge without waiting for their macOS legs, so a commit on

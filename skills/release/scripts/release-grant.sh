@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # release-grant.sh -- does this session hold cut-release, so /release can take
-# the version-and-notes go from its grant instead of asking a person?
+# its go, its local checks and assets, and its installs after the cut from the
+# grant instead of asking a person?
 #
 # Usage: release-grant.sh        (no arguments)
 #

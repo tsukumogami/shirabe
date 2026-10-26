@@ -58,12 +58,14 @@
 #                    unparseable file's unread, else defaultMode) and the
 #                    grant's answer, by the table the workspace gate uses:
 #                      held, decider session, author exclusion off  permit
-#                      not held                     deny (release: confirm)
+#                      not held                                       deny
 #                      held, decider dispatcher                       deny
 #                      held, decider person or author exclusion on    deny
-#                        for merge, confirm for close and release
+#                        for merge and release, confirm for close
 #                    teardown reads as below.
-#   record-unusable  merge is deny; every other step reads as below.
+#   record-unusable  merge and release are deny (niwa answers this only for
+#                    the dispatch's own session, so it can't show the grant);
+#                    every other step reads as below.
 #   anything else    (not-dispatched, a failed lookup, no lookup) every step
 #                    reads as below, as it did before the grant existed.
 # The grant never lifts a deny or an ask rule: Claude Code's own permissions
@@ -465,13 +467,13 @@ else
             | (["merge", "merge-pr"], ["close", "close-issue"], ["release", "cut-release"]) as [$s, $a]
             | first(.points[] | select(.point == $a)) as $p
             | (if (any($d.grant[]; .authority == $a) | not) then
-                  [(if $s == "release" then "confirm" else "deny" end), "the grant holds \($holds); needs \($a)"]
+                  ["deny", "the grant holds \($holds); needs \($a)"]
                elif $p.decider == "dispatcher" then
                   ["deny", "level \($d.level): \($a) is settled by dispatcher"]
                elif $p.decider == "person" then
-                  [(if $s == "merge" then "deny" else "confirm" end), "level \($d.level): \($a) is settled by person"]
+                  [(if $s == "close" then "confirm" else "deny" end), "level \($d.level): \($a) is settled by person"]
                elif $p.author_exclusion == "on" then
-                  [(if $s == "merge" then "deny" else "confirm" end), "\($a) carries author exclusion"]
+                  [(if $s == "close" then "confirm" else "deny" end), "\($a) carries author exclusion"]
                else
                   ["permit", "the grant holds \($a) at level \($d.level)"]
                end) as [$v, $why]
@@ -491,7 +493,7 @@ $(grep "^$step	" "$T/grant")
 GRANT
     if [ "$ALL_UNREAD" = 1 ] && [ -z "$IROOT$WROOT" ]; then
         v=unread; why="no niwa instance or workspace root found"
-    elif [ "$GRANT_STATE" = record-unusable ] && [ "$step" = merge ]; then
+    elif [ "$GRANT_STATE" = record-unusable ] && { [ "$step" = merge ] || [ "$step" = release ]; }; then
         v=deny; why="niwa authority check: the session's dispatch record is unusable"; src=grant
     else
         for kind in deny ask allow; do
