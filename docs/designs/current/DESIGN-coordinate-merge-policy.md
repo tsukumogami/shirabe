@@ -748,6 +748,13 @@ runs, after an import as well. `coord-log.sh result-line` finds the latest
 report or progress message from the holding's worker whose result block
 carries the line.
 
+shirabe#1217 also proposed reading the worker's run session by the name the
+holding gives, or recording the round's location on the holding. Both still
+need the worker's session to be readable from the coordinator's host, which a
+worker on another machine isn't, so neither covers the case the issue names.
+Accepting the table under `omit` for coordinated units was the other option,
+and taking the table out of bodies rules it out.
+
 A `## Review panel` table in the body is not evidence: with no round in a
 session or a report the land step reads `unready` with `no-evidence`, whatever
 the table says, and `panel-evidence.sh` judges only the JSON round. The
