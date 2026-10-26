@@ -2,7 +2,9 @@ name: Check release scripts
 
 # skills/release/scripts/release-state.sh holds the session logic /release runs
 # on the keys of release-<topic>: the topic, the range and membership written in
-# Phase 1, and the reads in later phases. Its suite drives the real koto in a
+# Phase 1, the version check, the go decision, and the reads in later phases.
+# release-grant.sh reads the session's cut-release grant from niwa; its suite
+# runs against a stub niwa with no koto. The state suite drives the real koto in a
 # store isolated by KOTO_SESSIONS_BASE with a stubbed gh, extracts the Phase 4
 # blocks out of SKILL.md at run time, and also reads the prose, so a change to
 # SKILL.md has to run it. It skips the engine
@@ -95,6 +97,10 @@ jobs:
       - name: Run release script tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/release/scripts/release-state_test.sh
+
+      - name: Run the grant read tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/release/scripts/release-grant_test.sh
 
       - name: Run release script tests on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'

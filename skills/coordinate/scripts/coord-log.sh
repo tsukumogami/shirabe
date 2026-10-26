@@ -147,6 +147,16 @@
 #       silent; anything else, resume included, for the run. Prints one JSON
 #       object, {"<topic>" | "leg <request>" | "": count}. Exit 0; 2 read
 #       failure.
+#   coord-log.sh result-line --session S --unit TOPIC --line KEY
+#       A line of a message-path worker's result block, as its report
+#       carried it. Of the `wait` evidence whose event is report or progress
+#       and whose unit is TOPIC, the latest whose report holds a result block
+#       (the last `=== RESULT ===` line, through the `=== END RESULT ===`
+#       after it; render-result.sh prints it) with a `KEY=` line in it. Lines
+#       are compared trimmed. Prints {"seq","timestamp","session","value"}:
+#       session the block's `session=` value ("" when it has none), value the
+#       text after `KEY=` on the block's last such line. KEY is
+#       [a-z][a-z0-9_]*. Exit 0; 1 none; 2 read failure.
 #
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
@@ -258,7 +268,7 @@ compat_verdict() {
 default_template() { printf '%s/skills/coordinate/koto-templates/coordinate.md' "$(cd "$HERE/../../.." && pwd -P)"; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS= AFTER_TIME= STATES=
+SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -284,6 +294,8 @@ while [ $# -gt 0 ]; do
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --event) [ $# -ge 2 ] || usage; EVENT=$2; shift 2 ;;
         --has) [ $# -ge 2 ] || usage; HAS=$2; shift 2 ;;
+        --unit) [ $# -ge 2 ] || usage; UNIT=$2; shift 2 ;;
+        --line) [ $# -ge 2 ] || usage; LINE=$2; shift 2 ;;
         --where) [ $# -ge 2 ] || usage
             case "$2" in ?*=*) ;; *) usage ;; esac
             WHERE=$(jq -nc --argjson w "$WHERE" --arg f "${2%%=*}" --arg v "${2#*=}" '$w + [[$f, $v]]') || usage
@@ -647,6 +659,32 @@ wakes)
             else . end)
         | close
         | reduce .keys[] as $k ({}; .[$k] += 1)' "$LOG" || die "cannot read $LOG"
+    ;;
+result-line)
+    need SESSION UNIT LINE
+    [[ $LINE =~ ^[a-z][a-z0-9_]*$ ]] || usage
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    # Each line trimmed, so a block the coordinator pasted indented or inside
+    # a code fence reads the same; the message's last block is its result.
+    OUT=$(jq -c --arg u "$UNIT" --arg k "$LINE" '
+        def trim: sub("^[ \t]+"; "") | sub("[ \t\r]+$"; "");
+        select(.type == "evidence_submitted" and .payload.state == "wait")
+        | (.payload.fields // {}) as $f
+        | select(($f.event // "" | tostring) as $ev | $ev == "report" or $ev == "progress")
+        | select(($f.unit // "" | tostring) == $u)
+        | ($f.report // "" | tostring | split("\n") | map(trim)) as $l
+        | ([range(0; $l | length) | select($l[.] == "=== RESULT ===")] | last) as $open
+        | select($open != null)
+        | ([range($open + 1; $l | length) | select($l[.] == "=== END RESULT ===")] | first) as $close
+        | select($close != null)
+        | $l[$open + 1:$close] as $block
+        | ([$block[] | select(startswith($k + "="))] | last) as $v
+        | select($v != null)
+        | {seq, timestamp,
+           session: ([$block[] | select(startswith("session=")) | ltrimstr("session=")] | last // ""),
+           value: ($v | ltrimstr($k + "="))}' "$LOG" | tail -1) || die "cannot read $LOG"
+    [ -n "$OUT" ] || exit 1
+    printf '%s\n' "$OUT"
     ;;
 *) usage ;;
 esac

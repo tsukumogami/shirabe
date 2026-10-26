@@ -34,7 +34,7 @@ Report at each one and continue; don't wait for approval to go past it.
 
 - [ ] The loader loads a plugin.
 - [ ] CI is green per job.
-- [ ] Each pull request has your review round recorded in your /work-on run's session with shirabe's `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat's run), every verdict pass, at the head you report ready. The land step reads it there and runs no review of its own. The round goes in the pull request body too, as a `## Review panel` table with the columns Seat, Model, Run, Verdict and Reviewed head, only when the repository declares `## PR Workflow Content: include`.
+- [ ] Each pull request has your review round recorded in your /work-on run's session with shirabe's `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat's run), every verdict pass, at the head you report ready. The land step reads it from there, through your leg or in the result block your report step prints, and runs no review of its own. It never reads a round from the pull request body, so don't put one there.
 
 ## Out of scope
 

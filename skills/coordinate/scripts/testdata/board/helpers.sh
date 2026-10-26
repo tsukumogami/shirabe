@@ -69,8 +69,8 @@ bt_materialize() {
 
 # bt_board <name>: materialize a case into $GH_BOARD_DIR.
 # With BT_PRVIEW_BODY set, it also writes pull request #12's view: the
-# merge state CLEAN, a title, and that body (board-record.sh reads the body
-# for its Review panel; land-merge.sh reads title and body for the message).
+# merge state CLEAN, a title, and that body (land-merge.sh reads title and
+# body for the message).
 # A suite whose own gh stand-in answers `gh pr view` leaves it unset, since a
 # prview file routes every `pr view` to gh-board.
 bt_board() {
@@ -180,9 +180,9 @@ bt_pause() {
     jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
         '{standing: $s, kind: $k, on: $o, until: $u, what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}'
 }
-bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
+bt_holdings() { # bt_holdings <pr-links...>: Holdings rows for worker-f12 linking each
     local l
-    for l in "$@"; do jq -nc --arg l "$l" '{worker: "w", pull_request: $l, repo: "x"}'; done | jq -sc . > "$BT_STATE/holdings"
+    for l in "$@"; do jq -nc --arg l "$l" '{worker: "worker-f12", pull_request: $l, repo: "x", return_path: "message"}'; done | jq -sc . > "$BT_STATE/holdings"
 }
 
 # bt_leg_round <request> <leg> <child> [round-json]: a Holdings row linking
@@ -195,6 +195,27 @@ bt_leg_round() {
     rm -f "$KOTO_BOARD_DIR/sessions/$3/ctx/review_round.json"
     [ $# -lt 4 ] || printf '%s\n' "$4" > "$KOTO_BOARD_DIR/sessions/$3/ctx/review_round.json"
 }
+# bt_result [round-json] [session]: a message-path worker's final report,
+# ending with the result block render-result.sh prints for <session>
+# (issue_12), which carries a review_round line when a round is given.
+bt_result() {
+    printf 'Ready: review passed, CI green.\n\n=== RESULT ===\nsession=%s\npr=https://github.com/acme/widgets/pull/12\n' "${2:-issue_12}"
+    [ -z "${1-}" ] || printf 'review_round=%s\n' "$1"
+    printf '=== END RESULT ===\n\n=== WORK IN FLIGHT ===\n- acme/widgets#12\n'
+}
+# bt_report <S> <topic> [round-json] [event]: in <S>'s log, the `wait`
+# evidence the coordinator submitted for <topic>'s message (event report
+# unless given), the worker's result block included.
+bt_report() {
+    bt_evidence "$1" wait "$(jq -nc --arg t "$2" --arg e "${4:-report}" --arg r "$(bt_result "${3-}")" '{event: $e, unit: $t, report: $r}')"
+}
+# bt_reported_round <S> <topic> [round-json]: a Holdings row for <topic>
+# linking acme/widgets#12 that returns by message (no leg, so no session the
+# land step can reach), and <topic>'s report (bt_report).
+bt_reported_round() {
+    jq -nc --arg t "$2" '[{worker: $t, pull_request: "[#12](https://github.com/acme/widgets/pull/12)", repo: "acme/widgets", return_path: "message"}]' > "$BT_STATE/holdings"
+    bt_report "$1" "$2" "${3-}"
+}
 # bt_round [reviewed-head] [verdict-of-third-seat]: a three-seat review round.
 bt_round() {
     jq -nc --arg h "${1:-$H}" --arg v "${2:-pass}" '{reviewed_head: $h, seats: [
@@ -205,10 +226,16 @@ bt_round() {
 
 # bt_merged <state> <files-json>: pull request #12's view, and the default
 # branch; then bt_blob <ref> <path> <sha|absent|fail> for each blob read.
-# bt_body [reviewed-head] [verdict-of-third-seat]: a pull request body with a
-# Part 1 and a three-seat Review panel table at <reviewed-head> ($H).
+# bt_body: a pull request body with a Part 1 and a Part 2 that carries no
+# review round, as every body does: the land step reads the round elsewhere.
 BT_PART1='Reads the worker'"'"'s **review round** in the `land` step.'
 bt_body() {
+    printf '%s\n\n---\n\n## Verification\n\nThe suites pass.\n' "$BT_PART1"
+}
+# bt_table_body [reviewed-head] [verdict-of-third-seat]: a body whose Part 2
+# also carries a three-seat Review panel table at <reviewed-head> ($H), as
+# bodies written before the round left them did. The land step never reads it.
+bt_table_body() {
     local r=${1:-$H} v=${2:-pass}
     printf '%s\n\n---\n\n## Review panel\n\n| Seat | Model | Run | Verdict | Reviewed head |\n|---|---|---|---|---|\n' "$BT_PART1"
     printf '| architect | sonnet | comment-101 | pass | %s |\n| maintainer | sonnet | comment-102 | pass | %s |\n| pragmatic | sonnet | comment-103 | %s | %s |\n' "$r" "$r" "$v" "$r"

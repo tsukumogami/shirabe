@@ -325,69 +325,105 @@ bl_reviewed_fresh() {
     echo fresh
 }
 
-# bl_review_evidence <session> <repo> <pr> <body-file>: the worker's review
-# round for <repo>#<pr>, as panel-evidence.sh's JSON plus `source`. The round
-# is read first from the worker's own run session: for each Holdings row
-# linking the pull request whose return path is a leg (`leg <request>:<leg>`),
-# latest row first (state-holding.sh --list prints rows in the record's
-# order, oldest first, so the list is reversed), the leg's bound child from
-# `koto request get`, and that
-# session's review_round.json (review-round.sh writes it), judged by
-# panel-evidence.sh --round; `source` is `session` and `session` names it.
-# With no such round (no leg, no bound child, a request this host's store
-# doesn't hold, or no key), the body's Review panel table is read instead,
-# `source: "body"`: the older home, which a worker still running an earlier
-# version, or a repository that opts in to workflow content in its PR bodies,
-# writes. Returns 0 printed; 2 the holdings, a request or a session couldn't
-# be read, or the round couldn't be judged, so the tick reads again rather
-# than call the round missing.
+# bl_review_evidence <session> <repo> <pr>: the worker's review round for
+# <repo>#<pr>, as panel-evidence.sh --round's JSON plus `source`. For each
+# Holdings row linking the pull request, latest row first (state-holding.sh
+# --list prints rows in the record's order, oldest first, so the list is
+# reversed), two places are read, in this order:
+#   1. When the row returns on a leg (`leg <request>:<leg>`): the leg's bound
+#      child from `koto request get`, and that session's review_round.json
+#      (review-round.sh writes it). `source` is `session`, and `session`
+#      names it.
+#   2. The round the worker's own report carried: the `review_round=` line of
+#      the result block render-result.sh prints, in the latest report or
+#      progress message from the row's Worker that has one, as the
+#      coordinator submitted it at `wait` (coord-log.sh result-line, over
+#      <session>'s own log). `source` is `report`; `session` is the block's
+#      `session=` value and `reported` the message's log sequence. This is
+#      how a worker with no leg, or whose session this host's store can't
+#      read, gives the land step its round: the coordinator's own session is
+#      the one record it can read wherever it runs.
+# Neither (no leg, no bound child, a request this host's store doesn't hold,
+# no key, no report carrying a round) is `{"status":"absent","source":"none"}`.
+# The pull request body is never read: a Review panel table there is not a
+# round. Returns 0 printed; 2 the holdings, a request, a session or the log
+# couldn't be read, or the round couldn't be judged, so the tick reads again
+# rather than call the round missing.
 bl_review_evidence() {
-    local s=$1 repo=$2 pr=$3 body=$4 rows rps rp req leg view child rc ev d
+    local s=$1 repo=$2 pr=$3 rows rws rp worker rc ev d line
     rows=$(bash "$HERE/state-holding.sh" --session "$s" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
-    rps=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "state-schema";
+    # One line per row: its return path (or `-`) and its Worker, tab-separated.
+    rws=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$pr" --arg r "$repo" 'include "state-schema";
         [.[]? | select(any(.pull_request // "" | pr_link; .number == $n and (.repo | ascii_downcase) == ($r | ascii_downcase)))
-         | .return_path // "" | strings | select(test("^leg [^: ]+:[^: ]+$")) | ltrimstr("leg ")]
+         | [(.return_path // "" | strings | select(test("^leg [^: ]+:[^: ]+$")) | ltrimstr("leg ")) // "-",
+            (.worker // "" | strings)] | join("\t")]
         | reverse | reduce .[] as $x ([]; if index([$x]) then . else . + [$x] end) | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-round.XXXXXX") || return 2
-    while IFS= read -r rp; do
+    while IFS='	' read -r rp worker; do
         [ -n "$rp" ] || continue
-        req=${rp%%:*} leg=${rp#*:}
-        [[ $req =~ $DC_RE_REQ ]] && [[ $leg =~ $DC_RE_LEG ]] || continue
-        view=$("$KOTO" request get "$req" </dev/null 2>"$d/err")
+        ev=$(bl_leg_round "$rp" "$d")
         rc=$?
         case "$rc" in
-            0) ;;
-            # koto's 2 is a request this host's store doesn't hold: the
-            # worker ran elsewhere, so its session isn't here to read.
-            2) continue ;;
-            *) echo "$PROG: request $req couldn't be read: $(head -1 "$d/err")" >&2; rm -rf "$d"; return 2 ;;
+            0) rm -rf "$d"; printf '%s\n' "$ev"; return 0 ;;
+            1) ;;
+            *) rm -rf "$d"; return 2 ;;
         esac
-        child=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings') || {
-            echo "$PROG: request $req is not JSON" >&2; rm -rf "$d"; return 2; }
-        [ -n "$child" ] && bl_session_ok "$child" || continue
-        # koto's 1 is no such key: the worker recorded no round, so the
-        # body is read. Any other failure is a read that didn't happen.
-        rc=0
-        "$KOTO" context exists "$child" review_round.json </dev/null >/dev/null 2>&1 || rc=$?
-        case "$rc" in
+        [ -n "$worker" ] && bl_topic_ok "$worker" || continue
+        line=$(bash "$HERE/coord-log.sh" result-line --session "$s" --unit "$worker" --line review_round 2>"$d/err")
+        case $? in
             0) ;;
             1) continue ;;
-            *) echo "$PROG: $child's review_round.json couldn't be checked (koto exited $rc)" >&2; rm -rf "$d"; return 2 ;;
+            *) echo "$PROG: $worker's reports couldn't be read: $(head -1 "$d/err")" >&2; rm -rf "$d"; return 2 ;;
         esac
-        "$KOTO" context get "$child" review_round.json </dev/null > "$d/round" 2>"$d/err" || {
-            echo "$PROG: $child's review_round.json couldn't be read: $(head -1 "$d/err")" >&2; rm -rf "$d"; return 2; }
+        printf '%s' "$line" | jq -r '.value' > "$d/round" || { rm -rf "$d"; return 2; }
         ev=$(bash "$HERE/panel-evidence.sh" --round "$d/round") || { rm -rf "$d"; return 2; }
         rm -rf "$d"
-        printf '%s' "$ev" | jq -c --arg c "$child" '. + {source: "session", session: $c}'
+        printf '%s' "$ev" | jq -c --argjson l "$line" '. + {source: "report", session: $l.session, reported: $l.seq}'
         return 0
     done <<EOF
-$rps
+$rws
 EOF
     rm -rf "$d"
-    ev=$(bash "$HERE/panel-evidence.sh" "$body") || return 2
-    printf '%s' "$ev" | jq -c '. + {source: "body"}'
+    echo '{"status":"absent","source":"none"}'
+}
+
+# bl_leg_round <request>:<leg> <scratch-dir>: the review round in the session
+# a leg is bound to, printed as bl_review_evidence's JSON with `source:
+# "session"`. Returns 0 printed; 1 no round there (`-` for no leg, a malformed
+# leg, no bound child, a request this host's store doesn't hold, or no key);
+# 2 a read failed or the round couldn't be judged.
+bl_leg_round() {
+    local rp=$1 d=$2 req leg view child rc ev
+    [ "$rp" != - ] || return 1
+    req=${rp%%:*} leg=${rp#*:}
+    [[ $req =~ $DC_RE_REQ ]] && [[ $leg =~ $DC_RE_LEG ]] || return 1
+    view=$("$KOTO" request get "$req" </dev/null 2>"$d/err")
+    rc=$?
+    case "$rc" in
+        0) ;;
+        # koto's 2 is a request this host's store doesn't hold: the worker
+        # ran elsewhere, so its session isn't here to read.
+        2) return 1 ;;
+        *) echo "$PROG: request $req couldn't be read: $(head -1 "$d/err")" >&2; return 2 ;;
+    esac
+    child=$(printf '%s' "$view" | jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings') || {
+        echo "$PROG: request $req is not JSON" >&2; return 2; }
+    [ -n "$child" ] && bl_session_ok "$child" || return 1
+    # koto's 1 is no such key: the worker recorded no round there. Any other
+    # failure is a read that didn't happen.
+    rc=0
+    "$KOTO" context exists "$child" review_round.json </dev/null >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 1 ;;
+        *) echo "$PROG: $child's review_round.json couldn't be checked (koto exited $rc)" >&2; return 2 ;;
+    esac
+    "$KOTO" context get "$child" review_round.json </dev/null > "$d/round" 2>"$d/err" || {
+        echo "$PROG: $child's review_round.json couldn't be read: $(head -1 "$d/err")" >&2; return 2; }
+    ev=$(bash "$HERE/panel-evidence.sh" --round "$d/round") || return 2
+    printf '%s' "$ev" | jq -c --arg c "$child" '. + {source: "session", session: $c}'
 }
 
 # bl_holds_on <session> <repo> <pr>: the record's holds on <repo>#<pr>, each

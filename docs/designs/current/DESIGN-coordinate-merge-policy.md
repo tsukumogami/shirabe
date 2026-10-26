@@ -729,3 +729,35 @@ its own grant for a successor, and its own instance as `--parent-from`. niwa
 refuses a grant wider than the dispatcher's, and the coordinator reports that
 refusal instead of retrying wider. A niwa that takes no `--grant` gets none,
 and the brief says the worker holds no named authority.
+
+## Amendment — 2026-10-25: the round leaves the body
+
+This amends Decision 1, whose text above is left as written. The worker's
+review round is no longer read from the pull request body, and no brief or
+reference asks a worker to write it there.
+
+The round is the JSON record `review-round.sh` stores in the worker's run
+session. The land step reads it in one of two places. A holding that returns
+on a leg is read through the leg's bound session, as before. A worker with no
+leg, or whose session this host's store can't read, gives the round in its
+report: its report step, `render-result.sh`, prints the stored round in its
+result block as one `review_round=` line, and the coordinator submits the
+message at `wait`, so the round sits in the coordinator's own session log.
+That log is the one record the land step can read wherever the coordinator
+runs, after an import as well. `coord-log.sh result-line` finds the latest
+report or progress message from the holding's worker whose result block
+carries the line.
+
+shirabe#1217 also proposed reading the worker's run session by the name the
+holding gives, or recording the round's location on the holding. Both still
+need the worker's session to be readable from the coordinator's host, which a
+worker on another machine isn't, so neither covers the case the issue names.
+Accepting the table under `omit` for coordinated units was the other option,
+and taking the table out of bodies rules it out.
+
+A `## Review panel` table in the body is not evidence: with no round in a
+session or a report the land step reads `unready` with `no-evidence`, whatever
+the table says, and `panel-evidence.sh` judges only the JSON round. The
+`pr-body/workflow-content` finding still reports a table in a body that
+doesn't opt in to workflow content. The binding of the table to Part 1 that
+shirabe#633 asked for has no table left to bind.

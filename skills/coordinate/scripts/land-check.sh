@@ -21,10 +21,12 @@
 #    (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 # 4. The worker's review round (board-lib.sh's bl_review_evidence): the
 #    review_round.json the worker recorded in its own run session, found
-#    through the leg its holding returns on, else the body's Review panel
-#    table (panel-evidence.sh). No round in either, a malformed one, fewer
-#    than three seats or any verdict but pass is `unready <pr> <sha>`. The
-#    detail's `evidence.source` says which was read.
+#    through the leg its holding returns on, else the round the worker's
+#    report carried in its result block, read from this run's own log. The
+#    body is never read for it: a Review panel table there is not a round.
+#    No round in either, a malformed one, fewer than three seats or any
+#    verdict but pass is `unready <pr> <sha>`. The detail's
+#    `evidence.source` says which was read (`session`, `report` or `none`).
 # 5. The reviewed head against <sha> (board-lib.sh's bl_reviewed_fresh): a
 #    head further from it than merge-ins of the base branch is `unready`.
 # 6. The body's mechanical checks (shirabe validate --pr-body, with the
@@ -172,7 +174,7 @@ if [ -n "$PAUSED" ]; then
     finish "paused $PR $SHA"
 fi
 
-EV=$(bl_review_evidence "$SESSION" "$REPO" "$PR" "$MS.body") || { echo "$PROG: the evidence couldn't be read" >&2; exit 2; }
+EV=$(bl_review_evidence "$SESSION" "$REPO" "$PR") || { echo "$PROG: the evidence couldn't be read" >&2; exit 2; }
 detail '.evidence = $e' --argjson e "$EV"
 case "$(printf '%s' "$EV" | jq -r .status)" in
     ok) ;;

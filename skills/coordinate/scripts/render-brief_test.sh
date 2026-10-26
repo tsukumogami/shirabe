@@ -194,6 +194,16 @@ golden() { # golden <label> <golden file> <render-brief args...>
 golden "review level: absent, the base brief is unchanged" "$GOLD/base.txt" --input "$BASE"
 golden "review level: absent, the min brief is unchanged"  "$GOLD/min.txt"  --input "$MIN"
 golden "review level: absent, the leg brief is unchanged"  "$GOLD/leg.txt"  --input "$BASE" --return-path req_1:deliver
+# No brief tells the worker to put its review round in the pull request body.
+for args in "--input $BASE" "--input $MIN" "--input $BASE --return-path req_1:deliver"; do
+    # shellcheck disable=SC2086
+    OUT=$(bash "$S" $args --stdout)
+    case "$OUT" in
+        *'## Review panel'*|*'PR Workflow Content'*) bad "no Review panel table in the body ($args)" "$(printf '%s\n' "$OUT" | grep -n 'Review panel\|PR Workflow Content')" ;;
+        *"It never reads a round from the pull request body"*) ok "the brief says the body carries no round ($args)" ;;
+        *) bad "the brief says the body carries no round ($args)" ;;
+    esac
+done
 
 # --- the worker's grant -------------------------------------------------------------
 #

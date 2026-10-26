@@ -11,9 +11,11 @@
 # and a session that isn't here are refused before any link. render-result.sh
 # then renders the result block: with a warning recorded it carries
 # `warning=link-failed dispatched_by=<name>`, one line per dispatcher the key
-# names, and without one it carries none; each --pr is a line; a session that
-# isn't here, a missing --session and a --pr that isn't an https URL are
-# refused with nothing printed.
+# names, and without one it carries none; each --pr is a line; a review round
+# review-round.sh recorded is one `review_round=` line of compact JSON that
+# panel-evidence.sh --round reads as ok, and a stored round that isn't JSON
+# is refused; a session that isn't here, a missing --session and a --pr that
+# isn't an https URL are refused with nothing printed.
 #
 # Needs koto and jq; SKIPs (exit 0) without one, which run-tests.sh --engine
 # turns into a failure.
@@ -110,6 +112,39 @@ result --session task_w3
 eq "once every link has worked the result carries no warning" "=== RESULT ===
 session=task_w3
 === END RESULT ===" "$OUT"
+# The worker's review round, recorded with review-round.sh: one line, the
+# round as compact JSON, after the pull requests and before any warning.
+H=0123456789abcdef0123456789abcdef01234567
+ROUND=$(jq -nc --arg h "$H" '{reviewed_head: $h, seats: [
+    {seat: "architect", model: "sonnet", run: "agent-r1", verdict: "pass"},
+    {seat: "maintainer", model: "sonnet", run: "agent-r2", verdict: "pass"},
+    {seat: "pragmatic", model: "sonnet", run: "agent-r3", verdict: "pass"}]}')
+printf '%s\n' "$ROUND" | jq . > "$T/round.json"
+bash "$HERE/review-round.sh" record --session task_w1 "$T/round.json" > /dev/null 2>&1
+eq "review-round.sh records the round in the worker's session" 0 $?
+result --session task_w1 --pr https://github.com/acme/widgets/pull/7
+eq "a result carries the recorded round on one line" "=== RESULT ===
+session=task_w1
+pr=https://github.com/acme/widgets/pull/7
+review_round=$ROUND
+=== END RESULT ===" "$OUT"
+eq "  ... exit 0" 0 "$RC"
+link 2 task_w1 --dispatched-by coord-c
+result --session task_w1
+eq "  ... before a warning line" "=== RESULT ===
+session=task_w1
+review_round=$ROUND
+warning=link-failed dispatched_by=coord-c
+=== END RESULT ===" "$OUT"
+LINE=$(printf '%s\n' "$OUT" | sed -n 's/^review_round=//p')
+printf '%s' "$LINE" > "$T/carried.json"
+eq "  ... and the carried round is one the land step reads as ok" ok \
+    "$(bash "$HERE/panel-evidence.sh" --round "$T/carried.json" | jq -r .status)"
+worker task_w4
+printf 'not json\n' > "$T/bad"
+koto context add task_w4 review_round.json --from-file "$T/bad" > /dev/null 2>&1
+result --session task_w4
+eq "a round that isn't JSON: exit 2, nothing printed" "2 " "$RC $OUT"
 result --session task_nosuch
 eq "a session that isn't here: exit 2, nothing printed" "2 " "$RC $OUT"
 result --pr https://github.com/acme/widgets/pull/7

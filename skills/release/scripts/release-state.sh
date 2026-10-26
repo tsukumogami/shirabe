@@ -15,9 +15,12 @@
 #   release-state.sh topic
 #   release-state.sh membership <topic>
 #   release-state.sh read <topic> <range|prs|unattributed|notes>
+#   release-state.sh version <value>
+#   release-state.sh go <topic> (--given | --bump <major|minor|patch>) [--unresolved]
 #
 # Arguments (checked before any koto call):
 #   <topic>   ^[a-z0-9][a-z0-9-]*$; `topic` prints one.
+#   <value>   a version as the author typed it or chose it at the go.
 #
 # Subcommands and their output (stdout carries machine-readable lines or the
 # key's content only; messages go to stderr):
@@ -52,11 +55,39 @@
 #             work/notes.md), or exits 1 with "Phase 1 did not run" on stderr
 #             when the key is absent. An empty key prints nothing and exits 0.
 #
+#   version      checks a version before it reaches any command line: one
+#             leading v is dropped, and the rest must match, as a whole value,
+#             ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ (a bash test, never a
+#             line-based tool, so a second line can't ride along). Prints the
+#             bare X.Y.Z[-pre], or refused=bad_version with exit 2 and a
+#             message naming the value. No koto call.
+#
+#   go           decides whether this release's version-and-notes go can come
+#             from the session's grant. Prints one line and exits 0:
+#               go=grant dispatch=<dispatch id>
+#               go=person reason=<token>
+#             It asks a person, whatever the grant, for
+#               first-release   work/range is HEAD (no earlier v* tag)
+#               major-bump      --bump major with no version given (--given)
+#               unresolved      the security check printed an UNRESOLVED line
+#                               (--unresolved)
+#               direct-push     a commit in the range names no pull request
+#                               and isn't one the release workflow wrote: both
+#                               author and committer github-actions[bot]
+#                               (RELEASE_BOT_NAME, RELEASE_BOT_EMAIL below)
+#                               and the subject
+#                               "chore(release): set version to v<version>" or
+#                               "chore(release): advance to X.Y.Z-dev". Each
+#                               such commit is named on stderr.
+#             in that order, and otherwise prints release-grant.sh's line (its
+#             own reasons when it says go=person). release-grant.sh runs only
+#             when none of the above asked, so a holder's run calls niwa once.
+#
 # Exit codes:
 #   0    success
-#   1    a koto, gh or git operation failed; read: the key is absent
+#   1    a koto, gh or git operation failed; read, go: the key is absent
 #   2    refused: topic's empty result, membership's session not live or
-#        directory not a git work tree
+#        directory not a git work tree, a version that fails the check
 #   4    cannot tell: koto answered something other than a session's state
 #   64   usage error; no koto call was made
 #   127  koto, gh, git or jq is not on PATH (whichever the subcommand needs)
@@ -80,13 +111,24 @@ BASH_BIN="${BASH:-bash}"
 KOTO="${KOTO_BIN:-koto}"
 
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
+RE_VERSION='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+
+# The identity and subjects shirabe's reusable release workflow
+# (.github/workflows/release.yml) commits with. A commit matching them is the
+# workflow's own version stamp or dev bump, which nobody reviews as a pull
+# request; any other commit with no (#N) is a direct push.
+RELEASE_BOT_NAME='github-actions[bot]'
+RELEASE_BOT_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
+RE_STAMP='^chore\(release\): set version to v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+RE_DEVBUMP='^chore\(release\): advance to [0-9]+\.[0-9]+\.[0-9]+-dev$'
+RE_PR_SUFFIX='\(#[0-9]+\)$'
 
 say() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 
 usage() {
     printf 'error=usage\n'
     say "$1"
-    say "usage: release-state.sh topic | membership <topic> | read <topic> <range|prs|unattributed|notes> (see the header of this script)"
+    say "usage: release-state.sh topic | membership <topic> | read <topic> <range|prs|unattributed|notes> | version <value> | go <topic> (--given | --bump <major|minor|patch>) [--unresolved] (see the header of this script)"
     exit 64
 }
 
@@ -257,6 +299,91 @@ cmd_read() {
     "$KOTO" context get "$s" "$key" || { say "cannot read $key"; exit 1; }
 }
 
+# --- version ----------------------------------------------------------------------------
+
+cmd_version() {
+    local v
+    [ "$#" -eq 1 ] || usage "version takes <value>"
+    v="${1#v}"
+    if [[ "$v" =~ $RE_VERSION ]]; then
+        printf '%s\n' "$v"
+        return 0
+    fi
+    printf 'refused=bad_version\n'
+    say "the version $(printf '%q' "$1") is not X.Y.Z or X.Y.Z-<pre> (letters, digits and dots); the release stops here"
+    exit 2
+}
+
+# --- go ---------------------------------------------------------------------------------
+
+cmd_go() {
+    local topic given=0 bump="" unresolved=0 s range log line hash an ae cn ce subj foreign=0
+    [ "$#" -ge 1 ] || usage "go takes <topic>"
+    topic="$1"
+    shift
+    check_topic "$topic"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --given) given=1 ;;
+            --unresolved) unresolved=1 ;;
+            --bump)
+                [ "$#" -ge 2 ] || usage "--bump takes major, minor or patch"
+                case "$2" in major | minor | patch) bump="$2" ;; *) usage "--bump takes major, minor or patch" ;; esac
+                shift
+                ;;
+            *) usage "unknown go argument: $1" ;;
+        esac
+        shift
+    done
+    [ "$given" -eq 1 ] || [ -n "$bump" ] || usage "go takes --given or --bump"
+    need_koto
+    need_tool git "install git"
+    s="release-$topic"
+    if ! key_exists "$s" work/range; then
+        say "Phase 1 did not run: work/range is absent from $s (run Phase 1 first; its membership step writes it)"
+        exit 1
+    fi
+    range=$("$KOTO" context get "$s" work/range) || { say "cannot read work/range"; exit 1; }
+
+    if [ "$range" = HEAD ]; then
+        printf 'go=person reason=first-release\n'
+        return 0
+    fi
+    if [ "$given" -eq 0 ] && [ "$bump" = major ]; then
+        printf 'go=person reason=major-bump\n'
+        return 0
+    fi
+    if [ "$unresolved" -eq 1 ]; then
+        printf 'go=person reason=unresolved\n'
+        return 0
+    fi
+
+    log=$(git log --format='%h%x09%an%x09%ae%x09%cn%x09%ce%x09%s' "$range") || { say "git log $range failed"; exit 1; }
+    while IFS='	' read -r hash an ae cn ce subj; do
+        [ -n "$hash" ] || continue
+        [[ "$subj" =~ $RE_PR_SUFFIX ]] && continue
+        if [ "$an" = "$RELEASE_BOT_NAME" ] && [ "$ae" = "$RELEASE_BOT_EMAIL" ] \
+            && [ "$cn" = "$RELEASE_BOT_NAME" ] && [ "$ce" = "$RELEASE_BOT_EMAIL" ] \
+            && { [[ "$subj" =~ $RE_STAMP ]] || [[ "$subj" =~ $RE_DEVBUMP ]]; }; then
+            continue
+        fi
+        say "direct push, not written by the release workflow: $hash $subj"
+        foreign=1
+    done <<EOF
+$log
+EOF
+    if [ "$foreign" -eq 1 ]; then
+        printf 'go=person reason=direct-push\n'
+        return 0
+    fi
+
+    line=$("$BASH_BIN" "$SCRIPT_DIR/release-grant.sh")
+    case "$line" in
+        "go=grant dispatch="* | "go=person reason="*) printf '%s\n' "$line" ;;
+        *) printf 'go=person reason=unreadable-answer\n' ;;
+    esac
+}
+
 # --- dispatch ---------------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage "a subcommand is required"
@@ -266,5 +393,7 @@ case "$sub" in
     topic) cmd_topic "$@" ;;
     membership) cmd_membership "$@" ;;
     read) cmd_read "$@" ;;
+    version) cmd_version "$@" ;;
+    go) cmd_go "$@" ;;
     *) usage "unknown subcommand: $sub" ;;
 esac

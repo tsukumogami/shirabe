@@ -11,7 +11,15 @@
 # coordinator learns of anything below, so no read is recorded into the
 # worker's session from the coordinator's side.
 #
-# What it carries: when the worker's opener could not record which coordinator
+# What it carries: the worker's review round, when its session holds one
+# (review-round.sh stores it as review_round.json), as one
+# `review_round=<the round as compact JSON>` line. The land step reads the
+# round from that line in the report the coordinator submitted (board-lib.sh's
+# bl_review_evidence), so a worker with no leg, or whose session the
+# coordinator's host can't read, lands with no table in its pull request body.
+# A round that isn't JSON is refused here (exit 2) rather than carried.
+#
+# And when the worker's opener could not record which coordinator
 # run dispatched it (scripts/lib/dispatch-link.sh, after two attempts), the
 # opener left the key session/link-warning in the worker's session, one
 # dispatched_by=<name> line per dispatcher under a warning=link-failed line.
@@ -31,13 +39,15 @@
 #   === RESULT ===
 #   session=<session>
 #   pr=<url>                                     (one per --pr)
+#   review_round=<json>                          (when the session holds one)
 #   warning=link-failed dispatched_by=<name>     (one per recorded dispatcher)
 #   === END RESULT ===
 #
-# Exit codes: 0 rendered; 2 the session doesn't exist or its warning key
-# couldn't be read (nothing printed); 64 usage; 127 koto missing.
+# Exit codes: 0 rendered; 2 the session doesn't exist, or its round or warning
+# key couldn't be read, or its round isn't JSON (nothing printed); 64 usage;
+# 127 koto or jq missing.
 #
-# Requires: bash 3.2+, koto. KOTO_BIN overrides the binary.
+# Requires: bash 3.2+, koto, jq. KOTO_BIN overrides the koto binary.
 set -uo pipefail
 
 PROG=render-result
@@ -64,10 +74,22 @@ done
 [ -n "$SESSION" ] || usage "--session is required"
 [[ $SESSION =~ $RE_NAME ]] || usage "--session must name a koto session, got [$SESSION]"
 command -v "$KOTO" >/dev/null 2>&1 || { printf 'failed=koto_missing\n'; exit 127; }
+command -v jq >/dev/null 2>&1 || { printf 'failed=jq_missing\n'; exit 127; }
 
 # koto's own diagnostics go to stderr as they are, beside this script's.
 "$KOTO" status "$SESSION" </dev/null >/dev/null \
     || { printf '%s: no session %s here; run this from the directory your session was opened in\n' "$PROG" "$SESSION" >&2; exit 2; }
+ROUND=""
+"$KOTO" context exists "$SESSION" review_round.json </dev/null >/dev/null
+case $? in
+    0) VALUE=$("$KOTO" context get "$SESSION" review_round.json </dev/null) \
+           || { printf '%s: could not read review_round.json from %s\n' "$PROG" "$SESSION" >&2; exit 2; }
+       # jq's own parse error, if any, goes to stderr beside this script's.
+       ROUND=$(printf '%s' "$VALUE" | jq -c .) && [ -n "$ROUND" ] && [ "$(printf '%s\n' "$ROUND" | wc -l | tr -d ' ')" = 1 ] \
+           || { printf '%s: review_round.json in %s is not one JSON value\n' "$PROG" "$SESSION" >&2; exit 2; } ;;
+    1) ;;
+    *) printf '%s: could not read review_round.json from %s\n' "$PROG" "$SESSION" >&2; exit 2 ;;
+esac
 WARNINGS=""
 "$KOTO" context exists "$SESSION" "$KEY" </dev/null >/dev/null
 case $? in
@@ -81,6 +103,7 @@ esac
 printf '=== RESULT ===\n'
 printf 'session=%s\n' "$SESSION"
 for pr in ${PRS[@]+"${PRS[@]}"}; do printf 'pr=%s\n' "$pr"; done
+[ -z "$ROUND" ] || printf 'review_round=%s\n' "$ROUND"
 [ -z "$WARNINGS" ] || printf '%s\n' "$WARNINGS"
 printf '=== END RESULT ===\n'
 exit 0

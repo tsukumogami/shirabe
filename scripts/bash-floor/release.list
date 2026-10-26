@@ -5,3 +5,6 @@ workflow: .github/workflows/check-release-scripts.yml
 # koto skip where it is absent and run on the Linux job. It
 # extracts the Phase 4 blocks from SKILL.md at run time.
 skills/release/scripts/release-state_test.sh
+# /release's read of its session's grant, against a stub niwa; needs
+# only bash, git and jq, and no koto.
+skills/release/scripts/release-grant_test.sh
