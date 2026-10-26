@@ -15,7 +15,7 @@
 #
 # Usage: shared-deferral-record.sh --session <execute session>
 #            --verification <local|hosted-ci|""> [--reason <reason>]
-#            [--child <session>]... [--body] [--list | -- <owned-pr.sh arguments>]
+#            [--child <session>]... [--list | -- <owned-pr.sh arguments>]
 #
 # The reasons the PR must carry, each once:
 #
@@ -44,12 +44,10 @@
 # run's: a line saying local verification did not run, a line reading exactly
 # `Reason: <reason>` for each reason, and a line saying hosted CI is the build
 # of record (skills/work-on/references/phases/phase-6-pr.md). That check
-# reads the switch itself: in a repository that doesn't opt in to workflow
-# content in its PR bodies (scripts/pr-workflow-content.sh prints omit, the
-# default) it passes without reading GitHub, and the children's context keys
-# are the record. --body passes check-pr-output.sh --body, which reads the body
-# whatever the setting: node-push.sh and coord-common.sh give it, since a
-# coordinated node PR's body carries the record in every repository.
+# reads the switch this run recorded at its open (check-pr-output.sh
+# --session <session>, scripts/pr-workflow-content.sh --session): under
+# omit, the default, it passes without reading GitHub, and the children's
+# context keys are the record. A coordinated node PR is read the same way.
 #
 # Time. koto stops a gate command at 30 seconds, and a stop is no answer, so
 # the script answers 2 on its own first. It ends TOTAL_SECS (25) after it
@@ -106,7 +104,6 @@ VERIFICATION=""
 RUN_REASON=""
 SAW_VERIFICATION=0
 LIST=0
-BODY_ALWAYS=0
 CHILDREN=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -114,7 +111,6 @@ while [ $# -gt 0 ]; do
         --verification) [ $# -ge 2 ] || usage; VERIFICATION=$2; SAW_VERIFICATION=1; shift 2 ;;
         --reason) [ $# -ge 2 ] || usage; RUN_REASON=$2; shift 2 ;;
         --child) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILDREN+=("$2"); shift 2 ;;
-        --body) BODY_ALWAYS=1; shift ;;
         --list) LIST=1; shift; break ;;
         --) shift; break ;;
         *) usage ;;
@@ -255,14 +251,13 @@ ARGS=()
 for r in "${REASONS[@]}"; do
     ARGS+=(--reason "$r")
 done
-[ "$BODY_ALWAYS" = 0 ] || ARGS+=(--body)
 # SECONDS counts from the script's start, so the child reads are spent too.
 OWNED_SECS=$((TOTAL_SECS - SECONDS - 5))
 [ "$OWNED_SECS" -le 20 ] || OWNED_SECS=20
 [ "$OWNED_SECS" -ge 1 ] \
     || undecided "no time left of the ${TOTAL_SECS}s to check the PR body after reading the children; tick again"
 CHECK_PR_OUTPUT_OWNED_TIMEOUT=$OWNED_SECS \
-    "$CHECK_PR_OUTPUT" --deferral-record "${ARGS[@]}" --owned "$@" \
+    "$CHECK_PR_OUTPUT" --deferral-record --session "$SESSION" "${ARGS[@]}" --owned "$@" \
     > "$WORK/check.out" 2> "$WORK/check.err" < /dev/null &
 poll $! "$TOTAL_SECS"
 rc=$?

@@ -24,6 +24,8 @@
 #   mode=<v>
 #   store=<github|session>
 #   run=<32 hex>   left out when the document's run is ""
+#   Run record: <session> (run <32 hex>)   the document's reference, left out
+#                  when it is "" or absent (the run's switch is omit)
 #
 #   ## PR Index
 #
@@ -37,6 +39,13 @@
 #   # One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
 #   <node-id> | <pr|gate> | after: <node-ids joined ", ", or ->
 #   ```
+#
+# Under omit (the document's `content` is "omit"), the body is Part 1 alone,
+# with nothing after it: no separator, declaration, run lines, reference, PR
+# index or merge order. Part 1 is then the live one (the caller passes the
+# whole live body when it has no top-level `---`), or the composed sentence
+# when the live body is empty. Nothing is indexed, so no visibility refusal
+# arises; only the size cap applies. `content` absent reads include.
 #
 # The composed Part 1, used when the live body has no top-level `---`, is
 # `Coordination pull request for <topic>. It carries the planning documents
@@ -59,7 +68,8 @@
 #       under a public home: the diagnostic names the node id, never the
 #       repository, and nothing is printed; 4 the body would be over
 #       CB_MAX_BYTES (UTF-8 bytes), nothing printed. The document:
-#         {topic, part1: <string>|null, run_lines: {topic?, exit?, outcome?,
+#         {topic, part1: <string>|null, content?: include|omit,
+#          reference?: <string>, run_lines: {topic?, exit?, outcome?,
 #          intent?, mode?}, store, run: <32 hex>|"", nodes: <run/setup nodes>,
 #          records: {<node>: <run/node/<node>>},
 #          follow_ups: {<node>: [<run/follow-up/<node>/<n>>, ...]},
@@ -139,6 +149,8 @@ def valid:
     type == "object"
     and (.topic | type == "string" and test("^[a-z0-9-]+$"))
     and (.part1 == null or (.part1 | type == "string"))
+    and ((has("content") | not) or .content == "include" or .content == "omit")
+    and ((has("reference") | not) or (.reference | type == "string" and test("^(Run record: [A-Za-z0-9][A-Za-z0-9._-]* \\(run [0-9a-f]{32}\\))?$")))
     and (.run_lines | type == "object"
         and all(keys[]; . == "topic" or . == "exit" or . == "outcome" or . == "intent" or . == "mode")
         and all(.[]; type == "string" and test("^[A-Za-z0-9._-]{1,64}$")))
@@ -164,12 +176,16 @@ def entries:
 def vis($r):
     if ($r | ascii_downcase) == (.home.repo | ascii_downcase) then .home.visibility
     else .visibility[$r] end;
+def part1:
+    if .part1 == null then
+        "Coordination pull request for \(.topic). It carries the planning documents for \([.nodes[] | select(.kind == "pr")] | length) node pull requests and merges after all of them.\n\n"
+    else .part1 end;
+def omit: (.content // "include") == "omit";
 def body:
     . as $d
     | entries as $es
-    | (if $d.part1 == null then
-          "Coordination pull request for \($d.topic). It carries the planning documents for \([$d.nodes[] | select(.kind == "pr")] | length) node pull requests and merges after all of them.\n\n"
-       else $d.part1 end)
+    | if $d | omit then $d | part1 else
+      ($d | part1)
       + "---\n\n"
       + "> This is a **coordination PR** for a coordinated effort. It is docs-only and\n"
       + "> merges **last**, once every indexed PR has merged and finalization is complete.\n"
@@ -178,6 +194,7 @@ def body:
           | "\($k)=\($d.run_lines[$k])\n"] | join(""))
       + "store=\($d.store)\n"
       + (if $d.run == "" then "" else "run=\($d.run)\n" end)
+      + (if ($d.reference // "") == "" then "" else "\($d.reference)\n" end)
       + "\n## PR Index\n\n"
       + (if ($es | length) == 0 then ""
          else ($es | map("- \(.id) | \(.repo):docs/plans/PLAN-\($d.topic).md#\(.pr) | \($d.states["\(.repo)#\(.pr)"] // "unknown") | head=\(.head)\n") | join("")) + "\n"
@@ -186,9 +203,12 @@ def body:
       + "# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.\n"
       + "# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>\n"
       + ($d.nodes | map("\(.name) | \(.kind) | after: \(if (.waits_on | length) == 0 then "-" else (.waits_on | join(", ")) end)\n") | join(""))
-      + "```\n";
+      + "```\n"
+      end;
 def check:
     if valid | not then {code: 2}
+    elif omit then (body | utf8bytelength) as $n
+      | if $n > $max then {code: 4, bytes: $n} else {code: 0} end
     else . as $d
       | [entries[] | . as $e | {id: $e.id, vis: ($d | vis($e.repo))}] as $vs
       | if $d.home.visibility == "public" and any($vs[]; .vis == null) then {code: 2}

@@ -56,7 +56,11 @@
 #     under --koto-leg: that refusal recorded on the leg with source refused;
 #       an accepted run bound to the leg
 #     a retained paused_for_review session: replaced, and the resume passes
-#       PAUSE_BEFORE_FINALIZE=false
+#       PAUSE_BEFORE_FINALIZE=false; the trail/ keys the paused root held
+#       (a step record and a departure) are still there after the replace
+#       (trail_carried=2), and the snapshot is gone; a step session the
+#       paused root's trail/unpinned lists is pinned by the retry before the
+#       replace (pinned=<name> on stderr), and trail/unpinned isn't carried
 #     --review-floor=standard --review-ceiling=full: both variables set on
 #       the session; resumed without them, both rebound to empty, never
 #       inherited, like MERGE; --review-floor=medium: invalid_var, no session;
@@ -64,6 +68,8 @@
 #       the bound too
 #     a coordinated PLAN: execute-coordinated.md under the same execute-<slug>
 #       name, no run_id minted before setup, the five variables bound empty;
+#       a single-pr open's trail/self (the checkout, the session, koto's
+#       session id, the run_id), rewritten with the new id on a replacement;
 #       --store session then an attach without it: STORE rebound to empty;
 #       a malformed --adopt-run on a coordinated PLAN: koto's invalid_var;
 #       --follow-up <node>=<url> on a coordinated PLAN: accepted by koto's
@@ -72,6 +78,11 @@
 #       on a live execute.md session koto's template_mismatch (session
 #       unchanged, outcome=error step=execute:refused, recorded on the leg
 #       under --koto-leg); a retained terminal execute.md session replaced
+#
+# The engine-backed cases run under a scratch HOME with every KOTO_SESSION_*
+# variable, KOTO_SESSIONS_BASE and KOTO_TICK_SESSION cleared, and the suite
+# stops before its first case unless `koto session dir` resolves under the
+# scratch directory.
 #
 # koto status does not print a session's variables, so the effective value is
 # read from the session's own log: the init event's variables with every
@@ -99,6 +110,31 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/execute-open-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"
+# The run record's shared address, should any case reach it through
+# run-trail.sh, is this suite's own (record-store.sh's test-only override).
+SHIRABE_RUN_RECORD_TEST_ROOT="$(cd "$WORK" && pwd -P)/shared-record"
+export SHIRABE_RUN_RECORD_TEST_ROOT
+
+# The engine-backed cases run the real koto, so it must write only to this
+# suite's scratch HOME: a caller's koto session context (KOTO_SESSIONS_BASE,
+# KOTO_TICK_SESSION, every KOTO_SESSION_* setting) is cleared, and before any
+# case runs koto's session directory must resolve under the scratch
+# directory. When it doesn't, nothing runs.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+if command -v koto >/dev/null 2>&1; then
+    GUARD_DIR=$(koto session dir execute-open-guard </dev/null) || GUARD_DIR=""
+    WORK_P=$(cd "$WORK" && pwd -P) && [ -n "$WORK_P" ] || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
+    case "$GUARD_DIR" in
+        "$WORK"/*|"$WORK_P"/*) ;;
+        *)
+            echo "FAIL: koto's session directory [$GUARD_DIR] is not under this suite's scratch directory; no case ran" >&2
+            exit 1
+            ;;
+    esac
+fi
 
 FIXREPO="$WORK/repo"
 mkdir -p "$FIXREPO"
@@ -198,6 +234,11 @@ cat > "$PAIRS_BIN/koto" <<'STUB'
 [ -n "${KOTO_STUB_LOG-}" ] && printf '%s\n' "$*" >> "$KOTO_STUB_LOG"
 if [ "${1-}" = status ] && [ -n "${KOTO_STUB_STATUS-}" ]; then
     printf '%s\n' "$KOTO_STUB_STATUS"
+    exit 0
+fi
+# A finished session's trail is read before it is replaced: it holds none.
+if [ "${1-} ${2-}" = "context list" ]; then
+    echo '[]'
     exit 0
 fi
 prev=""
@@ -517,6 +558,27 @@ else
     fail "vars: PLUGIN_ROOT [$(session_var execute-fresh PLUGIN_ROOT)], PLAN_SLUG [$(session_var execute-fresh PLAN_SLUG)]"
 fi
 
+# The PR content switch, recorded at every open from the checkout's files: a
+# fresh run with no header records omit; one under an include header records
+# include; reopened after the header turned to omit, it records omit.
+if [ "$(k context get execute-fresh pr_content 2>/dev/null)" = omit ]; then
+    pass "a fresh run in a repository with no header records pr_content omit"
+else
+    fail "fresh pr_content: [$(k context get execute-fresh pr_content 2>&1)]"
+fi
+printf '## PR Workflow Content: include\n' > "$FIXREPO/CLAUDE.local.md"
+run_open '["docs/plans/PLAN-content.md"]'
+FIRST_CONTENT=$(k context get execute-content pr_content 2>/dev/null)
+printf '## PR Workflow Content: omit\n' > "$FIXREPO/CLAUDE.local.md"
+run_open '["docs/plans/PLAN-content.md"]'
+SECOND_CONTENT=$(k context get execute-content pr_content 2>/dev/null)
+rm -f "$FIXREPO/CLAUDE.local.md"
+if [ "$FIRST_CONTENT" = include ] && [ "$RC" -eq 0 ] && [ "$SECOND_CONTENT" = omit ]; then
+    pass "opened under include it records include; reopened after the header turned to omit, it records omit"
+else
+    fail "pr_content across opens: [$FIRST_CONTENT] then [$SECOND_CONTENT], exit $RC; $ERR"
+fi
+
 run_open '["docs/plans/PLAN-merging.md","--merge","--auto"]'
 if [ "$RC" -eq 0 ] && [ "$(session_var execute-merging MERGE)" = true ] \
     && [ "$(session_var execute-merging PAUSE_BEFORE_FINALIZE)" = false ]; then
@@ -680,6 +742,40 @@ if [[ $FIRST_RUN_ID =~ ^[0-9a-f]{32}$ ]]; then
 else
     fail "no run_id after open: [$FIRST_RUN_ID]"
 fi
+# trail/self: the run's address for its record, as koto itself lists the
+# session, written by the open (scripts/run-trail.sh self).
+koto_sid() { k session list | jq -r --arg s "$1" '.[] | select(.id == $s) | .session_id'; }
+FIRST_SID=$(koto_sid execute-paused)
+SELF=$(k context get execute-paused trail/self 2>/dev/null)
+if [ "$(jq -r '.workspace' <<<"$SELF" 2>/dev/null)" = "$(cd "$FIXREPO" && pwd -P)" ] \
+    && [ "$(jq -r '.session' <<<"$SELF" 2>/dev/null)" = execute-paused ] \
+    && [ -n "$FIRST_SID" ] && [ "$(jq -r '.session_id' <<<"$SELF" 2>/dev/null)" = "$FIRST_SID" ] \
+    && [ "$(jq -r '.run_id' <<<"$SELF" 2>/dev/null)" = "$FIRST_RUN_ID" ]; then
+    pass "a single-pr open records trail/self: the checkout, the session, koto's session id and the run_id"
+else
+    fail "trail/self after open: [$SELF], session id [$FIRST_SID]; $ERR"
+fi
+# The run's trail before the pause: a step record and a departure in the
+# root, written as the lead shape writes them.
+TRAIL="$REPO_ROOT/scripts/run-trail.sh"
+(cd "$FIXREPO" && bash "$TRAIL" step --session execute-paused --step step-1 --child execute-paused.step-1 </dev/null \
+    && printf '{"what": "step 2 rewritten", "why": "step 1 moved the reader"}' \
+        | bash "$TRAIL" departure --session execute-paused --step step-2 --kind entry-rewritten) >/dev/null \
+    || fail "could not write execute-paused's trail before the pause"
+TRAIL_BEFORE_STEP=$(k context get execute-paused trail/step/step-1 2>/dev/null)
+TRAIL_BEFORE_DEP=$(k context get execute-paused trail/departure/1.json 2>/dev/null)
+# The step session the trail names, a finished koto child of the root, which
+# the finished run's record_keep is taken to have failed to pin.
+{
+    printf -- '---\nname: plain-step\nversion: "1.0"\ninitial_state: work\nstates:\n'
+    printf '  work:\n    accepts:\n      go:\n        type: enum\n        values: [yes]\n        required: true\n'
+    printf '    transitions:\n      - target: fin\n        when:\n          go: yes\n'
+    printf '  fin:\n    terminal: true\n---\n## work\nWork.\n## fin\nDone.\n'
+} > "$WORK/plain-step.md"
+printf '{"go": "yes"}' > "$WORK/go.json"
+{ k init execute-paused.step-1 --parent execute-paused --template "$WORK/plain-step.md" \
+    && k next execute-paused.step-1 --with-data @"$WORK/go.json" --no-cleanup; } >/dev/null 2>&1 \
+    || fail "could not run execute-paused.step-1 to its terminal"
 # The first hop leaves write_set_record across repos_recorded, which is
 # overridable: false. From koto 0.14 (koto#257) a directed hop across such a
 # gate is refused unless the gate's current result satisfies the edge, so the
@@ -690,6 +786,10 @@ for t in orchestrator_setup settled_branch_record drift_facts worktree_sync work
     k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; then
+    FIX_P=$(cd "$FIXREPO" && pwd -P)
+    jq -nc --arg w "$FIX_P" '{names: [{session: "execute-paused.step-1", workspace: $w, code: "2"}], at: "2026-01-01T00:00:00Z"}' \
+        | k context add execute-paused trail/unpinned >/dev/null 2>&1 \
+        || fail "could not write execute-paused's trail/unpinned"
     run_open '["docs/plans/PLAN-paused.md"]'
     if [ "$RC" -eq 0 ] && line 'opened=replaced' && line 'replaced_state=paused_for_review' \
         && [ "$(session_var execute-paused PAUSE_BEFORE_FINALIZE)" = false ]; then
@@ -701,6 +801,46 @@ if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; 
         pass "the replacement carries the finished run's identity, so it still owns that run's PR"
     else
         fail "run_id after replacement: [$(k context get execute-paused run_id 2>/dev/null)], was [$FIRST_RUN_ID]"
+    fi
+    SELF=$(k context get execute-paused trail/self 2>/dev/null)
+    NEW_SID=$(koto_sid execute-paused)
+    if [ -n "$NEW_SID" ] && [ "$NEW_SID" != "$FIRST_SID" ] \
+        && [ "$(jq -r '.session_id' <<<"$SELF" 2>/dev/null)" = "$NEW_SID" ] \
+        && [ "$(jq -r '.run_id' <<<"$SELF" 2>/dev/null)" = "$FIRST_RUN_ID" ]; then
+        pass "the replacement's trail/self names its own new session id and the carried run_id"
+    else
+        fail "trail/self after replacement: [$SELF], session id [$NEW_SID], was [$FIRST_SID]"
+    fi
+    if line 'trail_carried=2' && [ -n "$TRAIL_BEFORE_STEP" ] \
+        && [ "$(k context get execute-paused trail/step/step-1 2>/dev/null)" = "$TRAIL_BEFORE_STEP" ] \
+        && [ "$(k context get execute-paused trail/departure/1.json 2>/dev/null)" = "$TRAIL_BEFORE_DEP" ] \
+        && [ ! -e "$SHIRABE_STATE_DIR/execute-carry/execute-paused.trail.json" ]; then
+        pass "after the pause's replace, the replacement still holds the earlier trail/ keys (trail_carried=2), the snapshot removed"
+    else
+        fail "trail after replacement: out [$OUT], step [$(k context get execute-paused trail/step/step-1 2>/dev/null)], was [$TRAIL_BEFORE_STEP]; $ERR"
+    fi
+    # The retry: before the replace, the finished run's unpinned step session
+    # is pinned under the run's own name, and the replacement carries no
+    # trail/unpinned. koto moves a pinned session aside with its parent. The
+    # pin shipped in koto 0.24.0, which is run-record-pin.sh's floor; the floor
+    # job's older koto gets the retry's below-floor answer instead, and pins
+    # nothing.
+    if KOTO_FLOOR=0.24.0 bash "$REPO_ROOT/scripts/assert-koto-floor.sh" >/dev/null 2>&1; then
+        PINNED_STEP=$(k session list 2>/dev/null | jq -r '[.[] | .id | select(test("^execute-paused(_r[0-9]+)?\\.step-1$"))] | .[]' 2>/dev/null)
+        PIN_HELD=""
+        for s in $PINNED_STEP; do
+            k context exists "$s" koto/links/pin >/dev/null 2>&1 && PIN_HELD=$s
+        done
+        if grep -qx 'pinned=execute-paused.step-1' <<<"$ERR" && [ -n "$PIN_HELD" ] \
+            && ! k context exists execute-paused trail/unpinned >/dev/null 2>&1; then
+            pass "the opener retries the finished run's unpinned sessions before the replace (pinned=execute-paused.step-1, now $PIN_HELD), and trail/unpinned isn't carried"
+        else
+            fail "retry before replace: step sessions [$PINNED_STEP], pinned [$PIN_HELD]; $ERR"
+        fi
+    elif grep -q 'unpinned=execute-paused.step-1:below-floor' <<<"$ERR"; then
+        pass "below the pin floor, the opener's retry pins nothing and reports the step session below-floor"
+    else
+        fail "retry before replace below the pin floor: expected unpinned=execute-paused.step-1:below-floor; $ERR"
     fi
 else
     fail "could not walk execute-paused to paused_for_review"

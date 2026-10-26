@@ -32,44 +32,43 @@
 # (a CLOSED-unmerged PR only) answers zero survivors, as `--state open` does.
 #
 # Those five can't tell two runs apart: two sessions resuming the same PLAN
-# slug under one account share the author and the head branch. So a PR also
-# carries the run that opened it, as one hidden line in its body that
-# run-id.sh writes:
+# slug under one account share the author and the head branch. So every PR a
+# run records gets an entry naming the run in its index session,
+# `pr.<owner>.<repo>.<n>` (scripts/run-trail.sh index, read here through
+# scripts/lib/record-store.sh's rs_index_latest_run). Nothing is written into
+# the PR's text. With --run-id, a PR that passed the five checks is then
+# dropped only when:
 #
-#   <!-- shirabe-run: <id> -->
+#   its latest index entry names another run   another run recorded it last
 #
-# With --run-id, a PR that passed the five checks is then kept only when:
-#
-#   its marker names <id>             the caller's own run opened it
-#   it carries no marker at all       opened before markers existed, or by a
-#                                     skill that doesn't stamp one (/scope):
-#                                     the login-and-branch match stands
-#
-# A PR whose marker names any other run, or whose marker line is malformed,
-# is dropped however well its login and branch match. Without --run-id (a
-# lookup run by hand, outside any koto session) the marker is not consulted
-# and the five checks alone decide, as they did before markers existed.
+# Every other candidate survives: one whose latest entry names this run, and
+# one with no entry at all (opened before the index existed, or by a skill
+# that records none, such as /scope). The index can only take a PR away: an
+# entry planted for this run never makes a PR that fails one of the five
+# checks a survivor. Without --run-id (a lookup run by hand, outside any koto
+# session) the index is not read and the five checks alone decide. A form of
+# the index that can't be read is a failed read (exit 2), never a guess.
 #
 # Taking over. A run that re-enters a PLAN after an earlier run on it ended,
-# and has lost that run's identity, finds its own branch's PR carrying a
-# foreign marker: the ordinary lookup refuses it (exit 5) and GitHub refuses a
+# and has lost that run's identity, finds its own branch's PR recorded last by
+# another run: the ordinary lookup refuses it (exit 5) and GitHub refuses a
 # second PR on the same head. `--take-over` is the one way out, and only an
 # explicit caller passes it (/execute's re-entry, on the directive's say-so,
 # through adopt-or-create-pr.sh, which refuses --take-over on any head but
 # the PLAN's own impl/<slug>);
 # no lookup takes a PR over on its own. With it, when the lookup would exit 5
-# -- no survivor, and exactly one PR that passed the five checks carries a
-# foreign marker -- the script rewrites that PR's marker to name --run-id
-# (`gh pr edit --body-file`, the rest of the body kept), looks again, and
-# prints the URL. A PR from a fork, another author, another base, or another
-# head never reaches that point, so it is never taken over. In every other
-# case --take-over changes nothing. It is the only path on which this script
-# writes to GitHub.
+# -- no survivor, and exactly one PR that passed the five checks is another
+# run's -- the script writes this run's entry into that PR's index session
+# (`run-trail.sh index --session <S> --mode single-pr`, the topic from
+# execute-<topic>), looks again, and prints the URL. It edits no PR. A PR from
+# a fork, another author, another base, or another head never reaches that
+# point, so it is never taken over. In every other case --take-over changes
+# nothing.
 #
 # Usage:
 #   owned-pr.sh --repo <owner/repo> --head <branch>
 #               --state open|all|open-else-merged
-#               [--base <branch>] [--run-id <id>]
+#               [--base <branch>] [--run-id <id> [--take-over --session <s>]]
 #
 # Flags may come in any order, each at most once, as `--flag value`. Closed
 # patterns, checked before any gh call:
@@ -80,7 +79,9 @@
 #             checked against the same pattern.
 #   --state   exactly `open`, `all` or `open-else-merged`
 #   --run-id  ^[0-9a-f]{32}$, the caller's run identity (run-id.sh get)
-#   --take-over  needs --run-id and --state open; takes no value
+#   --take-over  needs --run-id, --session and --state open; takes no value
+#   --session execute-<topic>, the run's record root, whose entry a
+#             --take-over writes (only with --take-over)
 #
 # Output and exit codes. The contract names no caller step: each caller maps
 # these codes to its own (for /execute, see the orchestrator_setup directive in
@@ -89,20 +90,21 @@
 #   0  exactly one survivor: its URL is the only line on stdout
 #   0  zero survivors: stdout is empty. A branch whose only PRs come from
 #      forks, other authors, or another base counts as zero. A PR another
-#      run marked is never a survivor either, but it is reported: exit 5
-#      for one, exit 4 for several.
-#   3  several survivors, none of them carrying a run marker: stdout is empty
+#      run recorded last is never a survivor either, but it is reported:
+#      exit 5 for one, exit 4 for several.
+#   3  several survivors, none of them with an index entry naming this run:
+#      stdout is empty
 #   4  ambiguous, picks none: several candidates (PRs that passed the five
-#      checks) of which at least one carries a run marker -- two runs' PRs, a
-#      marked PR beside an unmarked one, this run's or an unmarked PR beside
-#      one another run marked, or several PRs other runs marked. stdout is
-#      empty
-#   5  no survivor, and exactly one PR that passed the five checks carries
-#      another run's marker (or a malformed one): the PR on this login and
-#      branch belongs to a different run. Never adopted without --take-over.
-#      stdout is empty; stderr names the PR
-#   2  a gh read failed (after one retry) or returned something outside its
-#      expected shape: stdout is empty
+#      checks) of which at least one has an index entry -- this run's PR
+#      beside a PR with no entry, any survivor beside one another run
+#      recorded, or several PRs other runs recorded. stdout is empty
+#   5  no survivor, and exactly one PR that passed the five checks was
+#      recorded last by another run: the PR on this login and branch belongs
+#      to a different run. Never adopted without --take-over. stdout is
+#      empty; stderr names the PR
+#   2  a gh read or an index read failed (a gh read after one retry), or
+#      returned something outside its expected shape, or a takeover's index
+#      write failed: stdout is empty
 #   64 usage error: stdout is empty and no gh call was made
 #
 # Diagnostics go to stderr. Every gh call reads stdin from /dev/null.
@@ -112,25 +114,29 @@
 #   gh api repos/<repo>                                  (only without --base)
 #   gh pr list --repo <repo> --head <branch> --state <open|all>
 #       (`all` for --state open-else-merged)
-#       --json url,state,isCrossRepository,author,baseRefName,headRefName,body
+#       --json url,state,isCrossRepository,author,baseRefName,headRefName
 #       --limit 100
-#   gh pr edit <number> --repo <repo> --body-file <file>   (only a --take-over)
+# No gh call writes. The index reads are koto reads at the shared address
+# (one per candidate, only with --run-id); a --take-over's one write is
+# scripts/run-trail.sh's.
 #
-# Requires: bash 3.2+, jq.
+# Requires: bash 3.2+, jq, koto (with --run-id).
 set -uo pipefail
 
 PROG=owned-pr
 SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
+TRAIL="$SELF_DIR/../../../scripts/run-trail.sh"
 
 RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_BRANCH='^[A-Za-z0-9._/-]+$'
 RE_LOGIN='^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
 RE_RUN_ID='^[0-9a-f]{32}$'
+RE_ROOT='^execute-[a-z0-9-]+$'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: owned-pr.sh --repo <owner/repo> --head <branch> --state open|all|open-else-merged [--base <branch>] [--run-id <id> [--take-over]]" >&2
+    echo "usage: owned-pr.sh --repo <owner/repo> --head <branch> --state open|all|open-else-merged [--base <branch>] [--run-id <id> [--take-over --session <execute-topic>]]" >&2
     exit 64
 }
 
@@ -148,7 +154,7 @@ valid_branch() {
     return 0
 }
 
-REPO=""; HEAD=""; BASE=""; STATE=""; RUN_ID=""; TAKE_OVER=0
+REPO=""; HEAD=""; BASE=""; STATE=""; RUN_ID=""; SESSION=""; TAKE_OVER=0
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -158,7 +164,7 @@ while [ $# -gt 0 ]; do
             TAKE_OVER=1
             shift
             ;;
-        --repo|--head|--base|--state|--run-id)
+        --repo|--head|--base|--state|--run-id|--session)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
@@ -168,6 +174,7 @@ while [ $# -gt 0 ]; do
                 --base) BASE="$2" ;;
                 --state) STATE="$2" ;;
                 --run-id) RUN_ID="$2" ;;
+                --session) SESSION="$2" ;;
             esac
             shift 2
             ;;
@@ -194,11 +201,18 @@ case "$SEEN" in
     *" --run-id "*) [[ $RUN_ID =~ $RE_RUN_ID ]] || usage_error "--run-id [$RUN_ID] is not a run id" ;;
 esac
 if [ "$TAKE_OVER" -eq 1 ]; then
-    [ -n "$RUN_ID" ] || usage_error "--take-over needs --run-id: it restamps the PR with that run"
+    [ -n "$RUN_ID" ] || usage_error "--take-over needs --run-id: it records the PR as that run's"
     [ "$STATE" = open ] || usage_error "--take-over works on an open PR only (--state open)"
+    [[ $SESSION =~ $RE_ROOT ]] || usage_error "--take-over needs --session execute-<topic>: the record root whose entry it writes"
+else
+    case "$SEEN" in *" --session "*) usage_error "--session goes with --take-over" ;; esac
 fi
 
 command -v jq >/dev/null || read_error "jq is not on PATH"
+if [ -n "$RUN_ID" ]; then
+    # shellcheck source=../../../scripts/lib/record-store.sh
+    . "$SELF_DIR/../../../scripts/lib/record-store.sh" || read_error "scripts/lib/record-store.sh could not be read"
+fi
 
 # gh_read <outvar> <args...> -- run one gh read, retried once after 1 s. Sets
 # the named variable to stdout on success; returns non-zero after two failures.
@@ -234,19 +248,43 @@ fi
 GH_STATE="$STATE"
 [ "$STATE" = open-else-merged ] && GH_STATE=all
 
-# list_candidates -- read the branch's PRs and keep the ones that pass the five
-# checks, one line each: `<mark> <url>`. The mark is `none` (no marker line),
-# `mine` (every marker line names --run-id), `foreign` (a marker line names
-# another run, or is malformed), or, without --run-id, `marked`.
+check_url() {
+    [[ $1 =~ $RE_URL ]] || read_error "the owned pull request's URL is unusable [$1]"
+    # The URL must name the repository that was asked about.
+    local url_repo
+    url_repo=$(printf '%s' "$1" | sed -E 's#^https://[^/]+/([^/]+/[^/]+)/pull/[0-9]+$#\1#')
+    [ "$(printf '%s' "$url_repo" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$REPO" | tr 'A-Z' 'a-z')" ] \
+        || read_error "the owned pull request's URL names $url_repo, not $REPO"
+}
+
+# index_mark <url> -- with --run-id, what the PR's index says: `mine` (its
+# latest entry names --run-id), `foreign` (it names another run) or `none`
+# (no entry). Without --run-id the index isn't read and the answer is `none`.
+index_mark() {
+    local latest rc
+    [ -n "$RUN_ID" ] || { printf 'none'; return 0; }
+    check_url "$1"
+    latest=$(rs_index_latest_run "$REPO" "${1##*/}")
+    rc=$?
+    [ "$rc" -eq 0 ] || read_error "the index of $1 could not be read (record-store exit $rc)"
+    if [ -z "$latest" ]; then printf 'none'
+    elif [ "$latest" = "$RUN_ID" ]; then printf 'mine'
+    else printf 'foreign'
+    fi
+}
+
+# list_candidates -- read the branch's PRs, keep the ones that pass the five
+# checks, and sort them by what the index says: SURVIVORS (mine or none),
+# FOREIGN (another run's), each one URL per line, and N_MINE.
 list_candidates() {
+    local urls url mark
     LIST_JSON=""
     gh_read LIST_JSON pr list --repo "$REPO" --head "$HEAD" --state "$GH_STATE" \
-        --json url,state,isCrossRepository,author,baseRefName,headRefName,body --limit 100 \
+        --json url,state,isCrossRepository,author,baseRefName,headRefName --limit 100 \
         || read_error "gh pr list failed for $REPO head $HEAD"
 
-    CANDIDATES=$(printf '%s' "$LIST_JSON" | jq -r \
-        --arg login "$LOGIN" --arg base "$BASE" --arg head "$HEAD" --arg state "$STATE" \
-        --arg runid "$RUN_ID" '
+    urls=$(printf '%s' "$LIST_JSON" | jq -r \
+        --arg login "$LOGIN" --arg base "$BASE" --arg head "$HEAD" --arg state "$STATE" '
         if type != "array" then error("not an array") else . end
         | map(select(
             type == "object"
@@ -261,51 +299,33 @@ list_candidates() {
         # OPEN candidates whenever there is one.
         | if $state == "open-else-merged" and any(.[]; .state == "OPEN")
           then map(select(.state == "OPEN")) else . end
-        | .[]
-        | [(.body // "") | tostring | split("\n")[]
-           | select(test("^\\s*<!--\\s*shirabe-run:"))] as $marks
-        | (if ($marks | length) == 0 then "none"
-           elif $runid == "" then "marked"
-           elif ($marks | all(test("^\\s*<!-- shirabe-run: " + $runid + " -->\\s*$"))) then "mine"
-           else "foreign" end) as $mark
-        | $mark + " " + (.url // "")') \
+        | .[] | (.url // "")') \
         || read_error "gh pr list returned something that is not a JSON array of pull requests"
 
-    SURVIVORS=$(printf '%s\n' "$CANDIDATES" | sed -n -E 's/^(none|mine|marked) //p')
-    FOREIGN=$(printf '%s\n' "$CANDIDATES" | sed -n 's/^foreign //p')
-    N_SURV=$(printf '%s' "$SURVIVORS" | grep -c .)
-    N_FOREIGN=$(printf '%s' "$FOREIGN" | grep -c .)
-    N_MARKED=$(printf '%s\n' "$CANDIDATES" | grep -cE '^(mine|marked) ')
+    SURVIVORS=""; FOREIGN=""; N_SURV=0; N_FOREIGN=0; N_MINE=0
+    while IFS= read -r url; do
+        [ -n "$url" ] || continue
+        mark=$(index_mark "$url") || exit $?
+        case "$mark" in
+            foreign) FOREIGN="${FOREIGN:+$FOREIGN
+}$url"; N_FOREIGN=$((N_FOREIGN + 1)) ;;
+            *) SURVIVORS="${SURVIVORS:+$SURVIVORS
+}$url"; N_SURV=$((N_SURV + 1))
+               [ "$mark" = mine ] && N_MINE=$((N_MINE + 1)) ;;
+        esac
+    done <<<"$urls"
 }
 
-check_url() {
-    [[ $1 =~ $RE_URL ]] || read_error "the owned pull request's URL is unusable [$1]"
-    # The URL must name the repository that was asked about.
-    local url_repo
-    url_repo=$(printf '%s' "$1" | sed -E 's#^https://[^/]+/([^/]+/[^/]+)/pull/[0-9]+$#\1#')
-    [ "$(printf '%s' "$url_repo" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$REPO" | tr 'A-Z' 'a-z')" ] \
-        || read_error "the owned pull request's URL names $url_repo, not $REPO"
-}
-
-# take_over <url> -- rewrite the one foreign-marked candidate's body so its
-# only marker names --run-id, then post it. The rest of the body is kept as
-# it is.
+# take_over <url> -- write this run's entry into the one foreign candidate's
+# index session, so its latest entry names --run-id. No PR is edited.
 take_over() {
-    local url="$1" body_file
+    local url="$1" topic
     check_url "$url"
-    body_file=$(mktemp "${TMPDIR:-/tmp}/owned-pr-takeover.XXXXXX") || read_error "mktemp failed"
-    # shellcheck disable=SC2064
-    trap "rm -f '$body_file'" EXIT
-    # The live body as listed, restamped by run-id.sh: the one writer of the
-    # marker line, so the format lives in one place.
-    printf '%s' "$LIST_JSON" | jq -r --arg url "$url" \
-        '[.[] | select(type == "object" and .url == $url)][0] | (.body // "") | tostring' \
-        > "$body_file" || read_error "could not read the body of $url"
-    "$BASH" "$SELF_DIR/run-id.sh" restamp "$RUN_ID" "$body_file" </dev/null \
-        || read_error "could not restamp the body of $url"
-    echo "$PROG: taking over $url: its marker named another run; restamping it with this run's" >&2
-    gh pr edit "${url##*/}" --repo "$REPO" --body-file "$body_file" </dev/null >&2 \
-        || read_error "gh pr edit failed while taking over $url"
+    topic=${SESSION#execute-}
+    echo "$PROG: taking over $url: another run recorded it last; recording it as this run's in its index" >&2
+    "$BASH" "$TRAIL" index --repo "$REPO" --number "${url##*/}" --session "$SESSION" \
+        --mode single-pr --topic "$topic" </dev/null >&2 \
+        || read_error "the index entry for $url could not be written while taking it over"
 }
 
 list_candidates
@@ -321,28 +341,28 @@ fi
 
 if [ "$N_SURV" -eq 0 ]; then
     if [ "$N_FOREIGN" -eq 1 ]; then
-        echo "$PROG: the one pull request on $REPO head $HEAD ($FOREIGN) was opened by another run; not adopting it" >&2
+        echo "$PROG: the one pull request on $REPO head $HEAD ($FOREIGN) was recorded by another run; not adopting it" >&2
         exit 5
     fi
     if [ "$N_FOREIGN" -gt 1 ]; then
-        echo "$PROG: $N_FOREIGN pull requests on $REPO head $HEAD were opened by other runs; refusing to pick one" >&2
+        echo "$PROG: $N_FOREIGN pull requests on $REPO head $HEAD were recorded by other runs; refusing to pick one" >&2
         exit 4
     fi
     exit 0
 fi
 
 # A survivor beside another run's candidate is ambiguous too: under
-# --state all, an unmarked (or this run's) merged PR can sit beside an open
-# PR another run marked on the same head, and picking the survivor would
+# --state all, this run's (or an unrecorded) merged PR can sit beside an open
+# PR another run recorded on the same head, and picking the survivor would
 # compute a verdict while that other run works on the branch.
 if [ "$N_SURV" -ge 1 ] && [ "$N_FOREIGN" -gt 0 ]; then
-    echo "$PROG: $REPO head $HEAD has $N_SURV candidate(s) for this run beside $N_FOREIGN another run marked; ambiguous, refusing to pick one" >&2
+    echo "$PROG: $REPO head $HEAD has $N_SURV candidate(s) for this run beside $N_FOREIGN another run recorded; ambiguous, refusing to pick one" >&2
     exit 4
 fi
 
 if [ "$N_SURV" -gt 1 ]; then
-    if [ "$N_MARKED" -gt 0 ]; then
-        echo "$PROG: $N_SURV owned pull requests on $REPO head $HEAD, at least one carrying a run marker; ambiguous, refusing to pick one" >&2
+    if [ "$N_MINE" -gt 0 ]; then
+        echo "$PROG: $N_SURV owned pull requests on $REPO head $HEAD, at least one recorded by this run; ambiguous, refusing to pick one" >&2
         exit 4
     fi
     echo "$PROG: $N_SURV owned pull requests on $REPO head $HEAD; refusing to pick one" >&2

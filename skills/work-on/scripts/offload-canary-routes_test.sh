@@ -65,9 +65,20 @@ T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */offload-canary-routes.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
+# No session variable from the caller's environment reaches koto.
+for v in $(compgen -v KOTO_SESSION_); do unset "$v"; done
 export KOTO_SESSIONS_BASE="$T/sessions"
 export XDG_CONFIG_HOME="$T/xdg"
-mkdir -p "$KOTO_SESSIONS_BASE" "$XDG_CONFIG_HOME/shirabe"
+# koto's store follows HOME, so the real koto this suite drives gets one of
+# its own, and the suite stops before any session is made unless koto's
+# session directory resolves inside this scratch directory.
+export HOME="$T/home"
+mkdir -p "$KOTO_SESSIONS_BASE" "$XDG_CONFIG_HOME/shirabe" "$HOME"
+SESSION_DIR_PROBE=$(koto session dir offload-canary-probe 2>/dev/null) || SESSION_DIR_PROBE=""
+case "$SESSION_DIR_PROBE" in
+    "$T"/*) ;;
+    *) echo "FAIL: koto session dir [$SESSION_DIR_PROBE] is not under the scratch directory $T; no case ran" >&2; exit 1 ;;
+esac
 echo on > "$XDG_CONFIG_HOME/shirabe/offload-canary"
 JOURNAL="$KOTO_SESSIONS_BASE/_run_journal.jsonl"
 
@@ -227,7 +238,9 @@ FIX="$T/fixture.md"
     echo "description: the shipped canary states before the shipped pr_creation directive"
     echo "initial_state: offload_canary"
     echo "variables:"
-    for v in PLUGIN_ROOT ARTIFACT_PREFIX SHARED_BRANCH BRANCH ISSUE_NUMBER; do
+    # Every variable the shipped pr_creation body names, the multi-pr item
+    # hook's PLAN_DOC and ISSUE_SOURCE included.
+    for v in PLUGIN_ROOT ARTIFACT_PREFIX SHARED_BRANCH BRANCH ISSUE_NUMBER PLAN_DOC ISSUE_SOURCE; do
         echo "  $v:"
         echo "    description: fixture"
         echo "    required: false"
@@ -269,9 +282,12 @@ if ! koto template compile "$FIX" >/dev/null 2>"$T/compile.err"; then
 fi
 
 # directive <root> [--var K=V]...: sets D to the rendered stub directive, the
-# plugin root replaced by a placeholder so runs from different roots compare.
-# It sets a variable rather than printing, because start's session counter
-# must survive the call, which a command substitution would throw away.
+# plugin root replaced by a placeholder so runs from different roots compare,
+# and DN to D with the run's own session name replaced too: the directive's
+# PR-content reads (`--session`, `--reference`) name the session, which
+# differs from run to run by design. It sets variables rather than printing,
+# because start's session counter must survive the call, which a command
+# substitution would throw away.
 directive() {
     local root=$1; shift
     if start "$FIX" "$root" --var BRANCH=feature/x "$@"; then
@@ -279,24 +295,29 @@ directive() {
     else
         D="INIT-FAILED: $(cat "$T/init.err")"
     fi
+    DN=${D//$SESS/SESSION}
 }
 FWS=""; FPS=""; WDIR=""; PDIR=""; tries=0
 while { [ -z "$FWS" ] || [ -z "$FPS" ]; } && [ $tries -lt 40 ]; do
     directive "$ROOT"
     if [ "$(entered "$SESS" offload_arm_withheld)" -eq 1 ]; then [ -n "$FWS" ] || { FWS=$SESS; WDIR=$D; }; fi
-    if [ "$(entered "$SESS" offload_arm_preloaded)" -eq 1 ]; then [ -n "$FPS" ] || { FPS=$SESS; PDIR=$D; }; fi
+    if [ "$(entered "$SESS" offload_arm_preloaded)" -eq 1 ]; then [ -n "$FPS" ] || { FPS=$SESS; PDIR=$DN; }; fi
     tries=$((tries + 1))
 done
-directive "$ROOT" --var OFFLOAD_CANARY=off; OFF=$D
-directive "$ROOT" --var SHARED_BRANCH=impl/plan; SHARED=$D
-directive "$T/root-failing"; FAILED=$D
-directive "$T/root-missing"; MISSING=$D
+directive "$ROOT" --var OFFLOAD_CANARY=off; OFF=$DN
+directive "$ROOT" --var SHARED_BRANCH=impl/plan; SHARED=$DN
+directive "$T/root-failing"; FAILED=$DN
+directive "$T/root-missing"; MISSING=$DN
 
 grep -qF 'ROOT/references/pr-body-conformance.md' <<<"$OFF" \
     && pass "a canary-off run's pr_creation directive names the real conformance text" \
     || fail "the off directive does not name the real conformance text: $OFF"
+# The multi-pr item hook's line names the run's own session, prefix and
+# SHARED_BRANCH, which differ from run to run by design; every other line
+# must match byte for byte.
+without_hook() { grep -vF 'multi-pr-item-record.sh' <<<"$1"; }
 same=1
-for d in "$PDIR" "$SHARED" "$FAILED" "$MISSING"; do [ "$d" = "$OFF" ] || same=0; done
+for d in "$PDIR" "$SHARED" "$FAILED" "$MISSING"; do [ "$(without_hook "$d")" = "$(without_hook "$OFF")" ] || same=0; done
 [ $same -eq 1 ] && pass "preloaded, shared, failed and missing-script runs render pr_creation byte for byte as a canary-off run" \
     || fail "a pr_creation directive differs from the canary-off one"
 

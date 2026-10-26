@@ -73,6 +73,7 @@ class	engine	scripts/lib/acceptance-rule.sh
 class	engine	scripts/lib/claude-md-header.sh
 class	engine	scripts/lib/test-classify.sh
 class	engine	scripts/plan-mode.sh
+class	engine	scripts/run-record-pin.sh
 class	engine	scripts/skill-session.sh
 class	engine	skills/coordinate/scripts/board-record.sh
 class	engine	skills/coordinate/scripts/closeout-read.sh
@@ -138,6 +139,7 @@ class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/fix-kind.sh
 class	engine	skills/work-on/scripts/has-commits.sh
+class	engine	skills/work-on/scripts/multi-pr-item-record.sh
 class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh

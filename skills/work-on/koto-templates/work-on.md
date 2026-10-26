@@ -58,7 +58,11 @@ variables:
     description: Source of issue data for plan-backed mode (github or plan_outline)
     required: false
   PLAN_DOC:
-    description: Path to the PLAN document for plan-backed mode
+    description: >-
+      Path to the PLAN document: for plan-backed mode, and for an item of a
+      multi-pr PLAN, whose analysis and pr_creation hooks record the item
+      and its PR in the plan's record root through
+      scripts/multi-pr-item-record.sh.
     required: false
   SHARED_BRANCH:
     description: >
@@ -2073,8 +2077,10 @@ states:
     # Blocking human-approval gate for a deferred acceptance criterion (Decision E,
     # PRD R4/R5). The agent halts here and surfaces the unmet criterion to the human.
     # The human's decision is the evidence:
-    #   approved -> record the deferral via `koto decisions record`, then proceed to PR
-    #               with the deferral recorded in the audit trail (and PR body).
+    #   approved -> record the deferral through scripts/run-trail.sh (a decision
+    #               with actor person, which also goes through `koto decisions
+    #               record`, and a deferral departure), then proceed to PR with
+    #               the deferral recorded in the audit trail (and PR body).
     #   rejected -> the issue is not done; route to the non-clean done_blocked terminal.
     gates:
       summary_exists:
@@ -2107,7 +2113,7 @@ states:
         type: string
         description: >
           The unmet acceptance criterion and the human's rationale. On approved, this is
-          the deferral recorded via `koto decisions record`; the PR body says in plain
+          the deferral recorded through scripts/run-trail.sh; the PR body says in plain
           terms what is left undone.
     transitions:
       - target: pre_pr_evidence
@@ -2394,11 +2400,11 @@ states:
       # default pass-through list, so the template declares no pass_env.
       pr_body_conformant:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body --session {{SESSION_NAME}}'
       # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
       # verification_deferred) records the deferral where a reviewer reads it.
-      # In a repository that doesn't opt in to workflow content
-      # (scripts/pr-workflow-content.sh prints omit) the script exits 0 with no
+      # When the run's recorded switch reads omit
+      # (scripts/pr-workflow-content.sh --session) the script exits 0 with no
       # GitHub read: verification_deferral in context is the record. Otherwise
       # check-pr-output.sh --deferral-record reads the pull request body from
       # GitHub and exits 0 when it says local verification did not run, has
@@ -2410,7 +2416,7 @@ states:
       # no GitHub read.
       verification_deferral_recorded:
         type: command
-        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
+        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --session {{SESSION_NAME}} --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
     accepts:
       pr_status:
         type: enum
@@ -2773,7 +2779,7 @@ states:
       - target: cascade_run
         when:
           gates.anchor_present.exit_code: 0
-      - target: done
+      - target: record_keep
         when:
           gates.anchor_present.exit_code: 1
       - target: done_blocked
@@ -2856,11 +2862,11 @@ states:
           cascade_status: partial
         context_assignments:
           failure_reason: "cascade_run: cascade reported partial: ${evidence.cascade_detail}"
-      - target: done
+      - target: record_keep
         when:
           cascade_status: completed
           post_state: verified
-      - target: done
+      - target: record_keep
         when:
           cascade_status: skipped
           post_state: verified
@@ -2925,9 +2931,36 @@ states:
         context_assignments:
           failure_reason: "cascade_run: the post-state could not be determined. Not treated as success: re-run verify-cascade-commit.sh against ${evidence.anchor_plan} and read its diagnostics."
 
+  # A root run's way to `done`, once CI passed on its ready pull request
+  # (a plan-backed child goes to `done` from ci_pass_counting and
+  # pr_creation directly, and its parent pins its evidence). For a top-level
+  # item of a multi-pr plan, multi-pr-item-record.sh keep records the item's
+  # PR as ready in the plan root's trail and pins the plan root, this run's
+  # session and the PR's index session (scripts/run-record-pin.sh,
+  # references/koto-session-retention.md "What shirabe pins"), writing
+  # `record` and `record_unpinned`, which done's result reads. Every other run
+  # (no record_root in its session, so not a multi-pr item) prints a
+  # `skipped=` line, pins nothing and records `record` as skipped. The
+  # command ends `|| true`: a default
+  # action that fails stops the tick here, and a pin never holds the run. A
+  # pin koto refuses is recorded in the plan root's trail/unpinned and
+  # retried by the next item's start. Its one edge is unconditional, so the
+  # tick chains through to `done`.
+  record_keep:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/multi-pr-item-record.sh" keep --session "{{SESSION_NAME}}" --plan "{{PLAN_DOC}}" --step "{{ARTIFACT_PREFIX}}" --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}" || true'
+      fallback: >-
+        The pin step never fails the run; if koto still reports this action
+        as failed, tick again.
+    transitions:
+      - target: done
+
   # The success terminals' result is the payload koto promotes onto a caller's
   # leg (--koto-leg), so a coordinator reads the pull request from koto's
-  # record instead of asking the worker for it (#995). pr_url is written on
+  # record instead of asking the worker for it (#995). done also carries
+  # `record` and `unpinned`, the outcome of record_keep's pins (`skipped` on a
+  # root run that isn't a multi-pr item; a plan-backed child never passes
+  # record_keep, so koto lists both under `missing` for it). pr_url is written on
   # pr_creation's created edge. A run that opened none (a child on
   # /execute's shared branch, or an already-complete issue) resolves pr to ""
   # and koto lists it under `missing`. There is no head: nothing on the run's
@@ -2938,6 +2971,8 @@ states:
     terminal: true
     result:
       pr: "${context.pr_url}"
+      record: "${context.record}"
+      unpinned: "${context.record_unpinned}"
 
   done_already_complete:
     terminal: true
@@ -3195,10 +3230,28 @@ koto records `impl_base`, the commit this work starts from, as it enters this
 state. You don't submit it, and you don't classify the issue's type here: that
 question is asked once, at `issue_type_routing`, after implementation.
 
+**An item of a multi-pr PLAN records itself.** On the first pass through this
+state, before the plan, run from the checkout:
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/multi-pr-item-record.sh" start --session {{SESSION_NAME}} --plan "{{PLAN_DOC}}" --step {{ARTIFACT_PREFIX}} --repo <owner/repo> --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}"`,
+with `<owner/repo>` the repository this run's pull request opens in. It opens
+the plan's record root, `plan.<owner>.<repo>.<topic>.<sha12>`, and records the
+PLAN as committed now and this run as the item. It decides for itself whether
+the run is an item: a plan-backed child of `/execute` (its parent records it), a
+run with no `PLAN_DOC` and a PLAN that isn't `multi-pr` each print a
+`skipped=` line and write nothing. Any other nonzero exit means nothing was
+recorded: fix what its message names and run it again, and don't go on with an
+item the record doesn't hold.
+
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
 use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
-Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
+Before a `scope_changed_retry`, record the scope change in the run's record:
+write `{"what": "<what changed in scope>", "why": "<what showed it>"}` to a file
+in the run's scratch directory and run
+`"{{PLUGIN_ROOT}}/scripts/run-trail.sh" departure --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --kind scope-change < <file>`.
+Record non-obvious decisions with
+`"{{PLUGIN_ROOT}}/scripts/run-trail.sh" decision --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --actor agent:{{SESSION_NAME}} < <scratch>/decision.json`
+(SKILL.md's Decision Capture), which also records them through `koto decisions record`.
 
 ## offload_canary
 
@@ -3335,7 +3388,12 @@ Retry cap: self-loop with `partial_tests_failing_retry` up to 3 times. After 3,
 use `partial_tests_failing_escalate`. The cap lives here until koto enforces it
 from its attempt counts, with the same number. Submit `blocked` for external
 blockers.
-Record non-obvious judgment calls with `koto decisions record {{SESSION_NAME}}`.
+Before a `scope_expanded_retry`, record the scope change as a `scope-change`
+departure, as `analysis` does before its own retry
+(`references/phases/phase-4-implementation.md`).
+Record non-obvious judgment calls with
+`"{{PLUGIN_ROOT}}/scripts/run-trail.sh" decision --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --actor agent:{{SESSION_NAME}} < <scratch>/decision.json`
+(SKILL.md's Decision Capture).
 
 ## changed_paths_record
 
@@ -3762,9 +3820,14 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
 - If the human **approves** the deferral: record it as their decision. Write
   `{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}` to
   `decision.json` in the run's scratch directory and run
-  `koto decisions record <WF> --with-data @<scratch>/decision.json` (the file
-  form, as SKILL.md's execution loop says; remove the file after),
-  then submit `approval_decision: approved`. The recorded deferral is the audit trail and
+  `"{{PLUGIN_ROOT}}/scripts/run-trail.sh" decision --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --actor person < <scratch>/decision.json`,
+  which records it with the human as its actor and also through
+  `koto decisions record`. Then record the deferral against the step: write
+  `{"what": "<the unmet criterion>", "why": "<the human's rationale>"}` to
+  `departure.json` there and run
+  `"{{PLUGIN_ROOT}}/scripts/run-trail.sh" departure --session {{SESSION_NAME}} --step {{ARTIFACT_PREFIX}} --kind deferral < <scratch>/departure.json`.
+  The text goes only on stdin; remove both files after.
+  Then submit `approval_decision: approved`. The recorded deferral is the audit trail and
   must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
   By default the body says in plain terms what the change leaves undone; the
   recorded approval goes in it only when the repository opts in to workflow content.
@@ -3884,6 +3947,16 @@ Submit `pr_url`, the pull request's URL, with every `pr_status: created`. koto
 records it, and when this run answers a caller's leg it is the `pr` the caller
 reads from the run's result.
 
+An item of a multi-pr PLAN records its pull request in the plan's record once
+the pull request is open, before the first `pr_status: created`:
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/multi-pr-item-record.sh" pr --session {{SESSION_NAME}} --plan "{{PLAN_DOC}}" --step {{ARTIFACT_PREFIX}} --repo <owner/repo> --number <N> --shared-branch "{{SHARED_BRANCH}}" --issue-source "{{ISSUE_SOURCE}}"`,
+from the checkout, with the pull request's repository and number. It records
+the item's PR, the PR in the root's list and the PR's index entry, in that
+order, so a reader holding only the PR's number reaches the plan's root. Any
+run that isn't an item prints a `skipped=` line and writes nothing, as at
+`analysis`; any other nonzero exit means the record is incomplete: fix what
+its message names and run it again before submitting.
+
 `pr_status: created` advances only when the `pr_body_conformant` gate passes. It
 runs `check-pr-output.sh --pr-body`, which reads the pull request's title and body
 from GitHub and checks them with `shirabe validate --pr-body` against the PR-body
@@ -3893,19 +3966,25 @@ holds and each finding names the rule it breaks; a banned word is
 instead. Fix the title or body with `gh pr edit` and submit `pr_status: created`
 again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
-`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body --session {{SESSION_NAME}}` for the reason.
 
 Write the body about the change and how it was verified, in terms a reader of
 this repository understands. By default that means no review panel table, no
-override or deferral notes, no session, state or ledger names, no pointers to
-PLAN or ROADMAP files: those records stay in this run's session. The repository
-can opt in to them:
-`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh"` prints `include` when it
-declares `## PR Workflow Content: include`, and `omit`, the default, otherwise.
+override or deferral notes, no session, state or ledger names, no run lines,
+no pointers to PLAN or ROADMAP files: those records stay in this run's session.
+The repository can opt in to them:
+`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh" --session {{SESSION_NAME}}`
+prints `include` when the run recorded `## PR Workflow Content: include` at its
+open (or, for a session that recorded nothing, the checkout declares it), and
+`omit`, the default, otherwise.
 Under `omit` the `pr_body_conformant` gate also holds on a `## Review panel`
-heading or table, a `Plan:` or `Roadmap:` line, or an `Implements` line naming a
-PLAN or ROADMAP file (`pr-body/workflow-content`); `references/phases/phase-6-pr.md`
-says what goes where under each.
+heading or table, a `Plan:` or `Roadmap:` line, an `Implements` line naming a
+PLAN or ROADMAP file, a run marker, a run line, a PR index line or a
+`Run record:` line (`pr-body/workflow-content`); `references/phases/phase-6-pr.md`
+says what goes where under each. Under `include`, a multi-pr item's body also
+carries, in Part 2, the one line
+`"{{PLUGIN_ROOT}}/scripts/pr-workflow-content.sh" --reference {{SESSION_NAME}}`
+prints, naming the plan's record root.
 
 A run that deferred verification to hosted CI (it passed through
 `verification_deferred`, and `verification_deferral` is in context) says so in
@@ -3917,7 +3996,7 @@ deferral in Part 2, under a `Verification` heading, with the three lines
 hosted CI is the build of record for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
-pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`. Under
+pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}} --reason <reason>`. Under
 `omit` it passes without reading GitHub. Under `include` it reads the body from
 GitHub and holds the state until it says local verification did not run, has the
 line `Reason: <reason>` exactly and whole (the reason anywhere else in the body
@@ -4097,6 +4176,14 @@ them published what it reached: the remote carries that commit, and recovery is
 a follow-up commit or a revert rather than a reset. Inspect the `steps` array to
 tell which shape you have; the verdict alone does not say.
 
+## record_keep
+
+Pinning a multi-pr item's evidence on the way to `done`. koto runs the pin
+itself on entry and goes on to `done`; you only see this state if the action
+could not run at all. It pins only for a top-level item of a multi-pr plan
+(the plan root, this run's session and its PR's index session); every other
+run prints a `skipped=` line. It never fails the run: tick again.
+
 ## done
 
 The workflow is complete. The PR has been created and CI is passing.
@@ -4104,6 +4191,10 @@ The workflow is complete. The PR has been created and CI is passing.
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds,
 CI passed on a MERGED pull request with cancelled macOS floor checks: read it
 with `koto context get` and name those checks in your final report.
+
+When the result's `record` is `unpinned`, name the sessions its `unpinned`
+lists in your final report: koto refused to pin them, and the next item's run
+retries.
 
 ## done_already_complete
 

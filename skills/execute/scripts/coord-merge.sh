@@ -40,7 +40,9 @@
 # and runs the merge-last gate itself: `shirabe validate --merge-gate
 # --mode=ready` over the refs of the index in the body this run just rendered
 # and posted (or found already equal), which the render hands back through
-# `--rendered-out`, never over a re-read of the live body, with
+# `--rendered-out`, never over a re-read of the live body (under the run's
+# recorded switch omit, whose body indexes nothing, over the same refs built
+# from the run record's node and follow-up PRs), with
 # any entry pointing at the coordination PR itself dropped (the coordination PR
 # can't wait on its own merge), and with `--visibility private` when the home
 # repository reads private live (repo-visibility.sh's read), so a private
@@ -316,9 +318,21 @@ fi
 
 if [ "$NODE" = coordination ]; then
     # The merge-last gate, over every indexed PR but the coordination PR
-    # itself, read from the body the render just posted or found equal.
+    # itself, read from the body the render just posted or found equal. Under
+    # the run's recorded switch omit the body is Part 1 alone and indexes
+    # nothing, so the refs come from the run record instead, in the index's
+    # own shape: each recorded node PR and each live follow-up.
     REFS=""
-    if [ -f "$SCRATCH/body.md" ]; then
+    if [ "$COORD_CONTENT" = omit ]; then
+        REFS=$(rr_record "$SESSION" | jq -r --arg slug "$SLUG" '
+            .["run/setup"].nodes as $nodes | . as $r
+            | $nodes[] | select(.kind == "pr") | .name as $n
+            | select($r | has("run/node/\($n)"))
+            | ($r["run/node/\($n)"] | "\(.repo):docs/plans/PLAN-\($slug).md#\(.pr)"),
+              ($r | to_entries[] | select(.key | startswith("run/follow-up/\($n)/"))
+               | select((.value.removed // false) | not)
+               | "\(.value.repo):docs/plans/PLAN-\($slug).md#\(.value.pr)")') || REFS=""
+    elif [ -f "$SCRATCH/body.md" ]; then
         REFS=$(bash "$REPO_ROOT/scripts/coordination-gate-refs.sh" "$HOME_REPO" "$C_NUM" < "$SCRATCH/body.md") || REFS=""
     else
         echo "$PROG: the render handed back no body for the merge-last gate" >&2

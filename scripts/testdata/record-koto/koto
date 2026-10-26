@@ -1,0 +1,354 @@
+#!/usr/bin/env bash
+# record-koto/koto -- a stand-in koto for the run-record suites. Test-only:
+# never on a production PATH.
+#
+# It models the part of koto the run record touches, keyed the way koto's
+# cloud backend keys a session: by workspace, the first 16 hex digits of the
+# SHA-256 of the canonical working directory (`pwd -P`). A session written
+# from one directory is not visible from another, so a read from a fresh
+# directory finds only what it addresses.
+#
+# The read-only workspace option, as tsukumogami/koto#455 proposes it, in two
+# modes chosen by RECORD_KOTO_WORKSPACE_OPTION:
+#   absent (default)  any --workspace is an unknown argument: exit 2.
+#   present           the read verbs (context get, context list, context
+#                     exists, status, session list) take --workspace <id>
+#                     (or --workspace=<id>) and resolve the session in that
+#                     workspace, keyed by the id as given; every write verb
+#                     given it refuses with exit 2 and an error naming the
+#                     option. Help for a read verb names the option. A
+#                     context get, context list or status of a session the
+#                     addressed workspace doesn't hold answers `workflow
+#                     '<name>' not found in workspace '<id>'` with exit 2, the
+#                     answer a read of an unused workspace is expected to
+#                     give; context exists answers 1, as for any absent key.
+#
+# Verbs: init (with --attach-live, --replace-terminal, --parent <P> and
+# --dispatched-by <D>), context add|get|exists|list|remove,
+# status, session list, session import (marks the source migrated),
+# session pin, workflows --children, decisions record|list, version, and
+# --help on any of them. Anything else (`session unpin` among them) exits 9.
+#
+# The session pin, as koto 0.24.0 has it. `session pin --reason <R> <name>`
+# is a write: it stores {reason, set_at, set_by} under the session's
+# `koto/links/pin` key and prints {name, pin, store}; pinning a pinned
+# session changes nothing and prints the pin it holds. A name the workspace
+# doesn't hold is refused with exit 2. `init --parent <P>` makes the session
+# a koto child of <P> (`parent_workflow` in `session list`, listed by
+# `workflows --children <P>`), and `init --dispatched-by <D>` writes the
+# dispatched-by link `koto/links/dispatched-by/<D>` in its context, as koto
+# does. `decisions record` takes --with-data as inline JSON or @<file>,
+# refuses (2) an object without string choice and rationale, and keeps each
+# record as given; `decisions list` prints them in koto's shape.
+#
+# The same-name replace. `init <name> --replace-terminal` on a name the
+# workspace holds moves the old session aside the way koto does: it becomes
+# `<name>_r<N>`, N the lowest value from 1 leaving every target name free, and
+# each session named `<name>.<rest>` or `<name>~<rest>` moves to the same
+# suffix under `<name>_r<N>`. Every moved session keeps its session id and its
+# keys; the new `<name>` gets a new id and no keys. The stub has no states, so
+# every session counts as finished.
+#
+# Environment:
+#   RECORD_KOTO_STORE             the store directory (required)
+#   RECORD_KOTO_WORKSPACE_OPTION  absent | present
+#   RECORD_KOTO_FAIL_READS        1: every read exits 1, the bucket unreadable
+#   RECORD_KOTO_FAIL_READS_IN     a workspace id: every read of it exits 1
+#   RECORD_KOTO_FAIL_WRITES       1: every write exits 1
+#   RECORD_KOTO_AS_CWD            a path taken as the canonical working
+#                                 directory, so a suite can place a session
+#                                 at a form of the shared address this host
+#                                 doesn't canonicalize to
+#   RECORD_KOTO_LIST_EXTRA        a JSON array of rows `session list` appends
+#                                 to its own, so a suite can show a reader a
+#                                 row the stub would never write
+#   RECORD_KOTO_VERSION           the version `koto version` reports
+#                                 (default 0.0.0-record-stub)
+#   RECORD_KOTO_PIN_FAIL          space-separated `<name>:<code>` pairs: a pin
+#                                 of <name> exits <code> and writes nothing,
+#                                 as koto 0.24.0 under the cloud backend
+#                                 refuses (2) or can't confirm (3) one
+#
+# Every call is appended to $RECORD_KOTO_STORE/calls.log as
+# `<canonical cwd><TAB><arguments>`, before anything is decided, so a test can
+# read what a script asked for, refused or not.
+
+set -uo pipefail
+
+STORE="${RECORD_KOTO_STORE:?record-koto: RECORD_KOTO_STORE is not set}"
+MODE="${RECORD_KOTO_WORKSPACE_OPTION:-absent}"
+mkdir -p "$STORE/ws"
+CWD=${RECORD_KOTO_AS_CWD:-$(pwd -P)}
+printf '%s\t%s\n' "$CWD" "$*" >> "$STORE/calls.log"
+
+err() { printf '{"error":"%s"}\n' "$1" >&2; exit "$2"; }
+
+hash16() {
+    local h
+    if command -v sha256sum >/dev/null; then
+        h=$(printf '%s' "$1" | sha256sum)
+    else
+        h=$(printf '%s' "$1" | shasum -a 256)
+    fi
+    printf '%s' "${h:0:16}"
+}
+
+# Pull --workspace out of the arguments, wherever it stands.
+WS=""
+HAS_WS=0
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --workspace=*) WS=${1#--workspace=}; HAS_WS=1 ;;
+        --workspace) [ $# -ge 2 ] || err "--workspace needs a value" 2
+                     WS=$2; HAS_WS=1; shift ;;
+        *) ARGS+=("$1") ;;
+    esac
+    shift
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
+
+VERB="${1:-} ${2:-}"
+case "$VERB" in
+    "context get"*|"context list"*|"context exists"*|"session list"*) KIND=read ;;
+    "status "*) KIND=read ;;
+    "version "*) KIND=read ;;
+    "workflows --children") KIND=read ;;
+    "decisions list") KIND=read ;;
+    *) KIND=write ;;
+esac
+
+for a in "$@"; do
+    case "$a" in
+        --help|-h)
+            case "$VERB" in
+                "context get"*) printf 'Usage: koto context get [OPTIONS] <SESSION> <KEY>\n      --to-file <TO_FILE>\n' ;;
+                *) printf 'Usage: koto %s [OPTIONS]\n' "$VERB" ;;
+            esac
+            if [ "$KIND" = read ] && [ "$MODE" = present ]; then
+                printf '      --workspace <WORKSPACE>  Read the session in another workspace (read-only)\n'
+            fi
+            printf '  -h, --help\n'
+            exit 0
+            ;;
+    esac
+done
+
+if [ "$HAS_WS" -eq 1 ]; then
+    [ "$MODE" = present ] || err "unexpected argument '--workspace' found" 2
+    [ "$KIND" = read ] || err "--workspace is read-only: koto $VERB refuses it" 2
+else
+    WS=$CWD
+fi
+
+[ "$KIND" = read ] && [ "${RECORD_KOTO_FAIL_READS:-0}" = 1 ] && err "the session store could not be read" 1
+[ "$KIND" = read ] && [ -n "${RECORD_KOTO_FAIL_READS_IN:-}" ] && [ "$WS" = "$RECORD_KOTO_FAIL_READS_IN" ] \
+    && err "the session store could not be read" 1
+[ "$KIND" = write ] && [ "${RECORD_KOTO_FAIL_WRITES:-0}" = 1 ] && err "the session store could not be written" 1
+
+WSDIR="$STORE/ws/$(hash16 "$WS")"
+mkdir -p "$WSDIR"
+[ -f "$WSDIR/.path" ] || printf '%s\n' "$WS" > "$WSDIR/.path"
+
+name_ok() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+key_ok() { [[ $1 =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] && case "$1" in *..*|*//*|*/) false ;; *) true ;; esac; }
+need_session() { name_ok "$1" || err "invalid session name" 2; [ -d "$WSDIR/$1" ] || err "workflow '$1' not found" 2; }
+
+# A read through --workspace of a session that workspace doesn't hold.
+if [ "$HAS_WS" -eq 1 ]; then
+    case "$VERB" in
+        "context get"|"context list") s=${3:-} ;;
+        "status "*) s=${2:-} ;;
+        *) s="" ;;
+    esac
+    if [ -n "$s" ] && name_ok "$s" && [ ! -d "$WSDIR/$s" ]; then
+        err "workflow '$s' not found in workspace '$WS'" 2
+    fi
+fi
+
+new_id() {
+    local h
+    h=$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')
+    printf '%s-%s-%s-%s-%s' "${h:0:8}" "${h:8:4}" "${h:12:4}" "${h:16:4}" "${h:20:12}"
+}
+
+case "$VERB" in
+    "version "*) echo "koto ${RECORD_KOTO_VERSION:-0.0.0-record-stub}" ;;
+    "init "*)
+        name=${2:-}
+        name_ok "$name" || err "invalid session name" 2
+        attach=0
+        replace=0
+        parent=""
+        dispatcher=""
+        prev=""
+        for a in "$@"; do
+            [ "$a" = --attach-live ] && attach=1
+            [ "$a" = --replace-terminal ] && replace=1
+            [ "$prev" = --parent ] && parent=$a
+            [ "$prev" = --dispatched-by ] && dispatcher=$a
+            prev=$a
+        done
+        if [ -n "$parent" ] && [ ! -d "$WSDIR/$name" ]; then
+            name_ok "$parent" && [ -d "$WSDIR/$parent" ] || err "parent workflow '$parent' not found" 2
+            mkdir -p "$WSDIR/$name/ctx"
+            new_id > "$WSDIR/$name/session_id"
+            printf '%s\n' "$parent" > "$WSDIR/$name/parent"
+        fi
+        if [ -n "$dispatcher" ]; then
+            name_ok "$dispatcher" || err "invalid dispatcher name" 2
+            mkdir -p "$WSDIR/$name/ctx/koto/links/dispatched-by"
+            [ -f "$WSDIR/$name/session_id" ] || new_id > "$WSDIR/$name/session_id"
+            : > "$WSDIR/$name/ctx/koto/links/dispatched-by/$dispatcher"
+            printf '{"name":"%s","state":"open"}\n' "$name"
+            exit 0
+        fi
+        if [ -n "$parent" ]; then
+            printf '{"name":"%s","state":"open"}\n' "$name"
+            exit 0
+        fi
+        if [ -d "$WSDIR/$name" ] && [ "$replace" -eq 1 ]; then
+            # The move-aside: the session and every `<name>.`/`<name>~` one.
+            moving=()
+            for d in "$WSDIR"/*/; do
+                d=${d%/}; d=${d##*/}
+                case "$d" in "$name"|"$name".*|"$name"~*) moving+=("$d") ;; esac
+            done
+            n=1
+            while :; do
+                free=1
+                for d in "${moving[@]}"; do
+                    [ -e "$WSDIR/${name}_r$n${d#"$name"}" ] && free=0
+                done
+                [ "$free" -eq 1 ] && break
+                n=$((n + 1))
+            done
+            for d in "${moving[@]}"; do
+                mv -- "$WSDIR/$d" "$WSDIR/${name}_r$n${d#"$name"}"
+            done
+            mkdir -p "$WSDIR/$name/ctx"
+            new_id > "$WSDIR/$name/session_id"
+            printf '{"name":"%s","state":"open","replaced_result":{"moved_to":"%s"}}\n' "$name" "${name}_r$n"
+            exit 0
+        fi
+        if [ -d "$WSDIR/$name" ]; then
+            [ "$attach" -eq 1 ] || err "workflow '$name' already exists" 1
+            printf '{"name":"%s","outcome":"attached","state":"open"}\n' "$name"
+            exit 0
+        fi
+        mkdir -p "$WSDIR/$name/ctx"
+        new_id > "$WSDIR/$name/session_id"
+        printf '{"name":"%s","state":"open"}\n' "$name"
+        ;;
+    "context add")
+        need_session "${3:-}"
+        key_ok "${4:-}" || err "invalid key" 2
+        f="$WSDIR/$3/ctx/$4"
+        mkdir -p "$(dirname "$f")"
+        if [ "${5:-}" = --from-file ]; then cat -- "$6" > "$f"; else cat > "$f"; fi
+        ;;
+    "context remove")
+        need_session "${3:-}"
+        rm -f -- "$WSDIR/$3/ctx/$4"
+        ;;
+    "context get")
+        f="$WSDIR/${3:-}/ctx/${4:-}"
+        name_ok "${3:-}" && key_ok "${4:-}" && [ -f "$f" ] \
+            || err "failed to read context key '${4:-}' for session '${3:-}'" 3
+        if [ "${5:-}" = --to-file ]; then cat -- "$f" > "$6"; else cat -- "$f"; fi
+        ;;
+    "context exists")
+        name_ok "${3:-}" && key_ok "${4:-}" && [ -f "$WSDIR/$3/ctx/$4" ]
+        ;;
+    "context list")
+        name_ok "${3:-}" || err "invalid session name" 2
+        prefix=""
+        [ "${4:-}" = --prefix ] && prefix=${5:-}
+        d="$WSDIR/$3/ctx"
+        if [ -d "$d" ]; then
+            (cd "$d" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) \
+                | while IFS= read -r k; do
+                    case "$k" in "$prefix"*) printf '%s\n' "$k" ;; esac
+                done | jq -R . | jq -sc .
+        else
+            echo '[]'
+        fi
+        ;;
+    "status "*)
+        need_session "${2:-}"
+        printf '{"name":"%s","current_state":"open","is_terminal":false}\n' "$2"
+        ;;
+    "session list")
+        for s in "$WSDIR"/*/; do
+            [ -d "$s" ] || continue
+            s=${s%/}; n=${s##*/}
+            p=""
+            [ -f "$s/parent" ] && p=$(cat "$s/parent")
+            jq -nc --arg id "$n" --arg sid "$(cat "$s/session_id")" --arg dir "$WS" --arg p "$p" \
+                '{id: $id, session_id: $sid, execution_dir: $dir, parent_workflow: (if $p == "" then null else $p end)}'
+        done | jq -sc --argjson extra "${RECORD_KOTO_LIST_EXTRA:-[]}" '. + $extra'
+        ;;
+    "workflows --children")
+        p=${3:-}
+        name_ok "$p" || err "invalid session name" 2
+        for s in "$WSDIR"/*/; do
+            [ -f "$s/parent" ] || continue
+            [ "$(cat "$s/parent")" = "$p" ] || continue
+            s=${s%/}
+            jq -nc --arg n "${s##*/}" --arg p "$p" '{name: $n, parent_workflow: $p}'
+        done | jq -sc .
+        ;;
+    "session pin")
+        reason=""
+        name=""
+        shift 2
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --reason) [ $# -ge 2 ] || err "--reason needs a value" 2; reason=$2; shift ;;
+                *) name=$1 ;;
+            esac
+            shift
+        done
+        [ -n "$reason" ] && [ "${#reason}" -le 500 ] || err "invalid reason" 2
+        case "$reason" in *[[:cntrl:]]*) err "invalid reason" 2 ;; esac
+        name_ok "$name" || err "invalid session name" 2
+        for pair in ${RECORD_KOTO_PIN_FAIL:-}; do
+            if [ "${pair%:*}" = "$name" ]; then
+                printf '{"error":{"code":"pin_failed","message":"pin of %s failed"}}\n' "$name"
+                exit "${pair##*:}"
+            fi
+        done
+        [ -d "$WSDIR/$name" ] || { printf '{"error":{"code":"no_session","message":"session %s does not exist"}}\n' "$name"; exit 2; }
+        f="$WSDIR/$name/ctx/koto/links/pin"
+        if [ ! -f "$f" ]; then
+            mkdir -p "$(dirname "$f")"
+            jq -nc --arg r "$reason" '{reason: $r, set_at: "2026-01-01T00:00:00.000Z", set_by: null}' > "$f"
+        fi
+        jq -c --arg n "$name" '{name: $n, pin: ., store: "local"}' "$f"
+        ;;
+    "decisions record")
+        need_session "${3:-}"
+        [ "${4:-}" = --with-data ] || err "decisions record needs --with-data" 2
+        data=${5:-}
+        case "$data" in @*) data=$(cat -- "${data#@}") || err "could not read ${5#@}" 2 ;; esac
+        jq -e 'type == "object" and (.choice | type) == "string" and (.rationale | type) == "string"' \
+            >/dev/null <<<"$data" || err "decision data must include choice and rationale" 2
+        jq -c . <<<"$data" >> "$WSDIR/$3/decisions.jsonl"
+        printf '{"decisions_recorded":%s,"state":"open"}\n' "$(wc -l < "$WSDIR/$3/decisions.jsonl" | tr -d ' ')"
+        ;;
+    "decisions list")
+        need_session "${3:-}"
+        f="$WSDIR/$3/decisions.jsonl"
+        [ -f "$f" ] || : > "$f"
+        jq -sc '{decisions: {count: length, items: .}, state: "open"}' "$f"
+        ;;
+    "session import")
+        # The command that crosses workspaces by migrating: the source is
+        # marked inert, which is exactly what a read must never do.
+        name=${3:-}
+        for s in "$STORE"/ws/*/"$name"; do
+            [ -d "$s" ] && : > "$s/migrated"
+        done
+        ;;
+    *) err "record-koto: unsupported command [$*]" 9 ;;
+esac

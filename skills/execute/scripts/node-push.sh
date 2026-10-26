@@ -49,10 +49,12 @@
 # coordination modes write the run record there.
 #
 # --run-id is this run's identity (`run-id.sh get <session>`, ^[0-9a-f]{32}$).
-# The node branch's lookups carry it, so a PR another run opened is never
-# adopted, and a node PR this script opens carries the run's marker line
-# (`run-id.sh stamp`). Omitted only on a hand run: the lookups then match by
-# login and branch alone, and a new node PR carries no marker.
+# The node branch's lookups carry it, so a PR another run recorded last in
+# its index is never adopted; the node PR this script opens or adopts is
+# indexed as this run's (step 5c). Omitted only on a hand run: the lookups
+# then match by login and branch alone. Nothing of the run goes into a node
+# PR's text but, under the run's recorded switch include, the one Part 2
+# line `scripts/pr-workflow-content.sh --reference` prints.
 #
 # The expected head of every coordinated PR is recorded here and nowhere else:
 # no other script, template, or directive writes a node's or the cascade's
@@ -86,11 +88,13 @@
 # `verification_deferral`. The node's reasons are the run's own (--reason,
 # when --verification is hosted-ci) and each of those children's, collected
 # by shared-deferral-record.sh --list before anything is pushed. With none,
-# nothing below changes. With any, a new node PR's body carries the
-# `## Verification` section /work-on's phase-6-pr.md gives, in its second
+# nothing below changes. With any, under the run's recorded switch include
+# (scripts/pr-workflow-content.sh --session), a new node PR's body carries
+# the `## Verification` section /work-on's phase-6-pr.md gives, in its second
 # part: that local verification did not run, one `Reason: ` line per reason,
-# verbatim, and that hosted CI is the build of record. An owned PR already on
-# the node branch is adopted only when its body records every reason
+# verbatim, and that hosted CI is the build of record; under omit it carries
+# none, and the work items' keys are the record. Under include an owned PR
+# already on the node branch is adopted only when its body records every reason
 # (shared-deferral-record.sh over it, the check /execute's single-pr gate
 # makes): one that doesn't is refused with 80 before the push, so a node PR
 # carrying a deferred work item never gets a push it doesn't record. It is
@@ -134,9 +138,9 @@
 #      branch, titled `<type>(<slug>): <node-id>`, with a two-part body passed
 #      with --body-file: the node's description (each work item's goal from
 #      the PLAN), one top-level `---`, then the fixed fields (the node id,
-#      the work-item ids, the coordination PR's link, and the `## Verification`
-#      section when the node carries a deferral) and the run's marker
-#      line last. The type is `docs` when every file the node changes against
+#      the work-item ids, the coordination PR's link, and, under include,
+#      the `## Verification` section when the node carries a deferral and the
+#      one `Run record:` line last). The type is `docs` when every file the node changes against
 #      the default branch is under docs/ or a Markdown file at the repository
 #      root, `feat` otherwise. The link is left out when the node's
 #      repository is public and the coordination PR's is private, so a public
@@ -150,6 +154,11 @@
 #      recorded merged_head), coordination mode `run/cascade` {verdict:
 #      pushed, head} (`run-record.sh cascade`). A refused or failed write is
 #      exit 70, and nothing is rendered;
+#   5c. node mode: record the node PR in the run's trail through
+#      scripts/run-trail.sh: `pr` (role node, state open) in the root, then
+#      `index` (mode coordinated, topic <slug>) at the PR's owner's shared
+#      address, so a lookup from the node PR reaches the run. Either one
+#      failing is exit 70, naming the PR, and nothing is rendered;
 #   6. render the coordination PR's body from the record: coord-render.sh,
 #      which observes merges, validates the body with
 #      `shirabe validate --coordination-body`, and posts it with
@@ -168,9 +177,10 @@
 #   67  the branch is the remote's default branch
 #   68  the push failed; nothing was recorded
 #   69  HEAD, read back after the push, is not a commit id
-#   70  the run record write failed or was refused; the push happened, and
-#       the coordination PR's body was not rendered (the caller's
-#       execute:push)
+#   70  the run record write failed or was refused, or (node mode) the node
+#       PR's trail or index write failed, stderr naming the PR; the push
+#       happened, and the coordination PR's body was not rendered (the
+#       caller's execute:push)
 #   72  a GitHub read failed, or the run record could not be read (the
 #       caller's execute:status-read)
 #   73  no single owned PR where one must be adopted: the recorded
@@ -559,13 +569,13 @@ if [ "$MODE" = node ]; then
         *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
     esac
     # A node PR already open that carries a deferred work item gets no push
-    # until its body records the deferral: the check /execute's single-pr
-    # gate makes, over the same owned PR. --body: a node PR's body carries
-    # the record whatever the repository's PR Workflow Content setting.
+    # until its body records the deferral, under include: the check
+    # /execute's single-pr gate makes, over the same owned PR. Under omit the
+    # work items' verification_deferral keys are the record, and it passes.
     if [ -n "$DEFERRAL" ] && [ -n "$OWNED_NOW" ]; then
         OWNED_ARGS=(--repo "$REPO" --head "$BRANCH" --state open)
         [ -n "$COORD_RUN_ID" ] && OWNED_ARGS+=(--run-id "$COORD_RUN_ID")
-        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" --body -- "${OWNED_ARGS[@]}" </dev/null
+        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" -- "${OWNED_ARGS[@]}" </dev/null
         case $? in
             0) ;;
             1) echo "$PROG: node $NODE carries a verification deferral that $OWNED_NOW's body doesn't record; nothing was pushed. Add the ## Verification section to its body and push again" >&2
@@ -658,11 +668,20 @@ if [ "$MODE" = node ]; then
         BASE=$(printf '%s' "$REPO_JSON" | jq -r 'if type == "object" then (.default_branch // "") else "" end')
         coord_valid_branch "$BASE" || { echo "$PROG: the default branch of $REPO is unusable [$BASE]" >&2; exit 72; }
         # The body is the two-part shape a squash merge expects: the node's
-        # description, one top-level `---`, then the fixed fields and the
-        # run's marker line, which the stamp appends last.
+        # description, one top-level `---`, then the fixed fields. The run's
+        # recorded switch decides the rest: under include, the deferral's
+        # record and the one line naming the run's record; under omit,
+        # nothing of the run (the work items' keys hold the deferral).
         # A public node PR links its coordination PR only when that PR is
         # public too: a link from a public PR into a private repository is a
         # public-to-private reference.
+        CONTENT=$("$BASH" "$COORD_SELF_DIR/../../../scripts/pr-workflow-content.sh" --session "$SESSION" </dev/null) \
+            || { echo "$PROG: the run's PR content switch could not be read; nothing created" >&2; exit 75; }
+        REF=""
+        if [ "$CONTENT" = include ]; then
+            REF=$("$BASH" "$COORD_SELF_DIR/../../../scripts/pr-workflow-content.sh" --reference "$SESSION" </dev/null) \
+                || { echo "$PROG: the run's record reference could not be read; nothing created" >&2; exit 75; }
+        fi
         {
             printf '%s\n\n---\n\n' "$NODE_DESC"
             printf 'Coordinated node `%s` of `%s`.\n\n' "$NODE" "$SLUG"
@@ -673,21 +692,16 @@ if [ "$MODE" = node ]; then
                 printf '\nCoordination PR: %s\n' "$C_URL"
             fi
             # The deferral's record, in phase-6-pr.md's words, one Reason:
-            # line per reason.
-            if [ -n "$DEFERRAL" ]; then
+            # line per reason, under include only.
+            if [ -n "$DEFERRAL" ] && [ "$CONTENT" = include ]; then
                 printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\n'
                 while IFS= read -r r; do
                     printf 'Reason: %s\n' "$r"
                 done <<<"$DEFERRAL"
                 printf 'Hosted CI is the build of record for this change.\n'
             fi
+            [ -z "$REF" ] || printf '\n%s\n' "$REF"
         } > "$WORK/node-body.md"
-        if [ -n "$COORD_RUN_ID" ]; then
-            "$BASH" "$COORD_SELF_DIR/run-id.sh" stamp "$COORD_RUN_ID" "$WORK/node-body.md" </dev/null || {
-                echo "$PROG: could not stamp the node PR's body; nothing created" >&2
-                exit 75
-            }
-        fi
         TYPE=$(node_type "$BASE")
         TITLE="$TYPE($SLUG): $NODE"
         # A slug shaped like an issue number is no Conventional Commits scope.
@@ -733,6 +747,20 @@ fi
 if ! "$BASH" "$COORD_SELF_DIR/run-record.sh" "$RR_VERB" --session "$SESSION" --json "$WORK/record.json" </dev/null >&2; then
     echo "$PROG: the run record write failed; the push happened, and the coordination PR's body was not rendered" >&2
     exit 70
+fi
+
+# 5c. Node mode: the node PR in the run's trail, in the same call that
+# recorded it: the root lists it (`trail/pr/*`, role node) and its index
+# session, at its owner's shared address, names the root, so a lookup from
+# the node PR (scripts/run-record-lookup.sh) reaches the run. Both go through
+# scripts/run-trail.sh, whose index entry takes the root's address from the
+# `trail/self` record-coord-setup.sh wrote in the coordination checkout.
+if [ "$MODE" = node ]; then
+    TRAIL="$COORD_SELF_DIR/../../../scripts/run-trail.sh"
+    "$BASH" "$TRAIL" pr --session "$SESSION" --repo "$REPO" --number "$PR_NUM" --role node --state open </dev/null >&2 \
+        || { echo "$PROG: could not record the node PR $PR_URL in $SESSION's run record; the push happened, and the body was not rendered" >&2; exit 70; }
+    "$BASH" "$TRAIL" index --repo "$REPO" --number "$PR_NUM" --session "$SESSION" --mode coordinated --topic "$SLUG" </dev/null >&2 \
+        || { echo "$PROG: could not write the index entry of the node PR $PR_URL; the push happened, and the body was not rendered" >&2; exit 70; }
 fi
 
 # 6. The body, rendered from the record just written.

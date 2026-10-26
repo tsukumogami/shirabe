@@ -104,6 +104,20 @@ git -C "$R" checkout -q -b scope-fixture
 
 k() { (cd "$R" && HOME="$KH" "$REAL_KOTO" "$@"); }
 
+# The real koto must write only to this suite's scratch HOME: a caller's koto
+# session context (KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, every
+# KOTO_SESSION_* setting) is cleared, and before any case runs koto's session
+# directory must resolve under the scratch directory. When it doesn't,
+# nothing runs.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+case "$(k session dir scope-open-guard </dev/null 2>/dev/null)" in
+    "$T"/*) ;;
+    *) echo "FAIL: koto's session directory is not under this suite's scratch directory; no case ran" >&2; exit 1 ;;
+esac
+
 # open_scope <tokens-json> [scope-open options...] -- one invocation from $R.
 # Sets RC, STDOUT, STDERR, ARGS_DIR, ARGS.
 RC=0; STDOUT=""; STDERR=""; ARGS=""; ARGS_DIR=""
@@ -264,6 +278,10 @@ if [[ "$(k context get scope-t-empty run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; 
 else
     bad "the opened session carries a run identity" "[$(k context get scope-t-empty run_id 2>&1)]"
 fi
+case "$(k context get scope-t-empty pr_content 2>/dev/null)" in
+    include|omit) ok "the open records the PR content switch it read (pr_content)" ;;
+    *) bad "the open records pr_content" "[$(k context get scope-t-empty pr_content 2>&1)]" ;;
+esac
 eq "--intent= alone: no INTENT_FLAG pair" "[]" "$(vars '[.[] | select(.[0] == "INTENT_FLAG")]')"
 if [ -e "$ARGS" ] || [ -e "$ARGS_DIR" ]; then bad "--intent= alone: the args file is removed after success"; else ok "--intent= alone: the args file is removed after success"; fi
 NEXT=$(k next scope-t-empty --no-cleanup 2>/dev/null)

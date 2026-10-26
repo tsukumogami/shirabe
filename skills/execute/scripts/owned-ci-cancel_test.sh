@@ -68,6 +68,8 @@ MINE=0123456789abcdef0123456789abcdef
 OTHER=fedcba9876543210fedcba9876543210
 BRANCH=impl/x
 FIX="$T/fixture"
+# The PRs' index sessions sit at a shared address of this suite's own.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -137,7 +139,15 @@ cat > "$T/bin/koto" <<'STUB'
 FIX="${GH_FIXTURE:?}"
 echo "$*" >> "$FIX/koto.log"
 case "$1 ${2:-}" in
-    "context get") [ -f "$FIX/ctx-$4" ] || exit 1; cat "$FIX/ctx-$4" ;;
+    # A PR's index session (pr.<owner>.<repo>.<n>): its run/<id> entries are
+    # the files of $FIX/idx-<session>, the read owned-pr.sh decides by.
+    "context list")
+        (cd "$FIX/idx-$3" 2>/dev/null && ls) | sed 's#^#run/#' | jq -Rsc 'split("\n") | map(select(length > 0 and . != "run/"))' ;;
+    "context get")
+        case "$4" in
+            run/*) [ -f "$FIX/idx-$3/${4#run/}" ] || exit 1; cat "$FIX/idx-$3/${4#run/}" ;;
+            *) [ -f "$FIX/ctx-$4" ] || exit 1; cat "$FIX/ctx-$4" ;;
+        esac ;;
     "context exists") [ -f "$FIX/ctx-$4" ] ;;
     "context add")
         [ "${KOTO_FAIL:-0}" = 1 ] && { echo "koto: context write failed" >&2; exit 1; }
@@ -190,7 +200,7 @@ CANCEL_OTHER=$(check cancel "templates" "Check templates" "$RUN/300/job/5")
 
 # fixture: a fresh fixture with no PRs, the run's context recorded.
 fixture() {
-    rm -rf "$FIX" && mkdir -p "$FIX" || return 1
+    rm -rf "$FIX" "$SHIRABE_RUN_RECORD_TEST_ROOT" && mkdir -p "$FIX" "$SHIRABE_RUN_RECORD_TEST_ROOT/acme" || return 1
     echo '[]' > "$FIX/prs.json"
     printf '%s' "$R" > "$FIX/ctx-repos"
     printf '%s' "$BRANCH" > "$FIX/ctx-settled_branch"
@@ -207,16 +217,17 @@ RUNS
 }
 
 # pr <number> <state> <run-id|-> <merge-state> -- <check-json...>: adds one PR
-# on the run's branch, owned by $ME, marked with <run-id> (`-` for no marker),
-# with its view and its checks.
+# on the run's branch, owned by $ME, recorded in its index by <run-id> (`-`
+# for no entry), with its view and its checks.
 pr() {
-    local n="$1" state="$2" mark="$3" merge="$4" body=""
+    local n="$1" state="$2" mark="$3" merge="$4" body="Implements the change."
     shift 4
     [ "${1:-}" = -- ] && shift
-    [ "$mark" = - ] || body="Implements docs/plans/PLAN-x.md.
-
-<!-- shirabe-run: $mark -->
-"
+    if [ "$mark" != - ]; then
+        mkdir -p "$FIX/idx-pr.acme.widgets.$n" || return 1
+        printf '{"workspace":"/w","session":"execute-x","session_id":"sid-1","mode":"single-pr","topic":"x","written_at":"2026-01-01T00:00:00Z"}' \
+            > "$FIX/idx-pr.acme.widgets.$n/$mark" || return 1
+    fi
     jq --arg u "$REPO_URL/pull/$n" --arg s "$state" --arg me "$ME" --arg b "$body" \
         --arg h "$BRANCH" '. + [{url: $u, state: $s, isCrossRepository: false,
             author: {login: $me}, baseRefName: "main", headRefName: $h, body: $b}]' \

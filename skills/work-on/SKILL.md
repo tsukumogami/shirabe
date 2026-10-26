@@ -197,10 +197,12 @@ When an acceptance criterion is unmet, finalization reports `deferral_requested`
 routes to the blocking `deferral_approval` human gate. The human makes an explicit
 decision:
 
-- **Approved** — the deferral is recorded as the human's decision via
-  `koto decisions record`, so the audit trail shows what was deferred and on whose
-  authority, and the PR body says in plain terms what the change leaves undone. The
-  workflow then proceeds to PR creation.
+- **Approved** — the deferral is recorded as the human's decision through
+  `scripts/run-trail.sh decision` with actor `person` (which also sends it through
+  `koto decisions record`), and as a `deferral` departure against the step, so the
+  audit trail shows what was deferred and on whose authority, and the PR body says
+  in plain terms what the change leaves undone. The workflow then proceeds to PR
+  creation.
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
@@ -245,7 +247,13 @@ branch interpolation** (an out-of-set value halts with a clear error). Then rout
   from the PLAN (an issue is blocked while its Dependencies reference open issues) and
   run it as a single issue-backed unit against the repo-persisted PLAN, each landing
   its own PR. There is no shared branch and no cross-issue carry-forward — multi-pr
-  issues are independent, per the DESIGN's ephemeral-home model. On a `plan/v2` step
+  issues are independent, per the DESIGN's ephemeral-home model. Each item's init
+  adds `--var PLAN_DOC=<PLAN>`, the PLAN's path as given, and leaves
+  `SHARED_BRANCH` and `ISSUE_SOURCE` unset, since either one marks a plan-backed
+  child of `/execute`, whose parent records it: the template's hooks
+  record the item and its PR in the plan's one record root
+  (`scripts/multi-pr-item-record.sh`), which leads a reader from any item's PR to
+  every other. On a `plan/v2` step
   plan the unit is a step, taken in step order: an outline step waits on the step
   before it. Before a step's work starts, run
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/step-detail-check.sh <PLAN> <N>`;
@@ -499,11 +507,16 @@ promoted `work-on` leg on both, since `validation_exit` is a success too, and ro
 a refusal on its source rather than on the payload: the leg records
 `result_source: refused`, which a `request-leg` gate exposes as `source`.
 
-The payload is `pr` alone. `done` and `done_already_complete` declare a `result:`
-map whose one key, `pr`, is the URL submitted as `pr_url` with `pr_status: created`.
-A run that opened no pull request (an already-complete issue, or a child on
-`/execute`'s shared branch) resolves `pr` to `""`, and koto lists it under
-`missing`. The payload carries no head: a coordinator reads that from GitHub when
+The payload is `pr`, and on `done` the pin outcome beside it.
+`done` and `done_already_complete` declare a `result:` map whose key `pr` is the
+URL submitted as `pr_url` with `pr_status: created`. A run that opened no pull
+request (an already-complete issue, or a child on `/execute`'s shared branch)
+resolves `pr` to `""`, and koto lists it under `missing`. `done` also declares
+`record` and `unpinned`, which `record_keep` writes on the way to it: for a
+top-level item of a `multi-pr` plan `pinned`, or `unpinned` with the names koto
+refused; for every other root run `skipped`, with `unpinned` empty. A child on
+`/execute`'s shared branch reaches `done` without `record_keep`, so koto lists
+both under `missing` there. The payload carries no head: a coordinator reads that from GitHub when
 it verifies. `done_blocked` and `validation_exit` declare no map, so their payload
 is koto's own. work-on.md declares no `outcome`, so a coordinator still routes on
 status and final state, and reads the pull request from `pr`.
@@ -778,7 +791,9 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
    Start fresh instead: `koto session cleanup <WF>` when its record is no longer
    wanted and then `koto init`, or `koto init` under a different workflow name to
    keep the record. (`koto init` on a name still in use refuses and says the
-   same.) Under `--koto-leg` either init goes through `work-on-open.sh`; a
+   same.) A pinned session is kept: a multi-pr item's run pins its session at
+   `record_keep`, and cleanup refuses a pinned one (exit 2, nothing removed),
+   so start that one under a different name. Under `--koto-leg` either init goes through `work-on-open.sh`; a
    renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so a leg that pins it
    still admits the session.
 3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`. Under
@@ -796,8 +811,37 @@ During analysis and implementation, record non-obvious decisions. Write
 `decision.json` in the run's scratch directory, then:
 
 ```bash
-koto decisions record <WF> --with-data @<scratch>/decision.json
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" decision --session <WF> --step <ARTIFACT_PREFIX> --actor agent:<WF> < <scratch>/decision.json
 rm <scratch>/decision.json
+```
+
+`scripts/run-trail.sh` keeps the decision in the run's record, with the step
+it belongs to and who made it, as `trail/decision/<n>.json` in this session,
+and sends the same choice and rationale through `koto decisions record`. Run
+it from this run's checkout, since the keys are written in the current
+directory's workspace. The step is the run's `ARTIFACT_PREFIX` (`step-<N>` or
+`issue-<N>` for a plan-backed child, `issue_<N>` or `task_<slug>` for a run
+of its own). The actor is `agent:<WF>` for a call the agent made, and
+`person` when a human made it, as at `deferral_approval`. The text goes only on
+stdin: the script refuses (exit 64 or 65, nothing recorded) text passed as an
+argument, a document without a choice and a rationale, and one holding a
+token, an `Authorization:` line or a private key. A refusal means the record is
+wrong, not that the decision goes unrecorded: fix the document and run it
+again. An exit 70 after the trail key was written (the message says so)
+already recorded the decision, so don't run it again for that one.
+
+The same script records the run's departures, each against its step, at the
+sites that make one: a deviated acceptance criterion at finalization
+(`references/phases/phase-5-finalization.md`), an approved deferral at
+`deferral_approval`, and a scope change at either retry loop
+(`references/phases/phase-3-analysis.md`,
+`references/phases/phase-4-implementation.md`). Each writes
+`{"what": "...", "why": "..."}` to `departure.json` in the scratch directory and
+runs:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" departure --session <WF> --step <ARTIFACT_PREFIX> --kind <deviated|deferral|scope-change> < <scratch>/departure.json
+rm <scratch>/departure.json
 ```
 
 ## Output
@@ -815,8 +859,8 @@ mode, follow `references/decision-protocol.md` at decision points W1 (handling a
 `needs-triage` issue) and W2 (clarifying an ambiguity during introspection). Safety
 gates W3 (CI failure guidance) and W4 (accepting a red check) remain blocking in both
 modes: blocking means the run ends at `done_blocked` through `failing_unresolvable`,
-and an unattended run never asks the user instead. Use
-`koto decisions record <WF>` to capture any decisions made.
+and an unattended run never asks the user instead. Capture any decisions made
+with `scripts/run-trail.sh decision` (see **Decision Capture**).
 
 First, resolve the input using the Input Resolution section above. Once you have an
 issue number, read the issue with `gh issue view <issue-number>` (adding

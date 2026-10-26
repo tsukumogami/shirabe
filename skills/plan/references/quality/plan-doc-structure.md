@@ -56,6 +56,14 @@ directory in the new model. The chain-aware `--lifecycle` check
 enforces the deletion; the work-on cascade performs it atomically
 before `gh pr ready` fires (the DRAFT-vs-READY discipline).
 
+Only a `multi-pr` PLAN reaches the default branch. It stays there while
+its item PRs land, and the PR that completes it deletes it; a
+`single-pr` or `coordinated` PLAN is deleted before its PR merges. A
+later reader who wants what the work followed (the plan as each step
+began, each step's proof, the departures and the decisions) goes to the
+run's koto session, not to the plan: `scripts/run-record-lookup.sh
+<owner/repo> <n>` finds it from any of the run's merged PRs.
+
 ## Frontmatter
 
 ```yaml

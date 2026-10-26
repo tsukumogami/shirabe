@@ -12,15 +12,22 @@
 #
 #   merge_attempt has no default_action and carries the merge_intent gate,
 #     `test "{{MERGE}}" = true`, overridable: false, whose failure edge
-#     (exit_code 1) targets ready_awaiting_merge and whose other edges all
-#     require it to pass; its merge_exec enum adds squash-message, whose edge
-#     (gated on merge_intent 0) ends ready_awaiting_merge with the literal
+#     (exit_code 1) goes through record_keep to ready_awaiting_merge and whose
+#     other edges all require it to pass; its merge_exec enum adds
+#     squash-message, whose edge (gated on merge_intent 0) goes through
+#     record_keep with the literal
 #     reason merge-refused:squash-message; its directive builds the message
 #     with merge-message.sh and passes it as merge-exec.sh's fourth argument
 #   every merge_route and merge_confirm gate is a context-matches gate declared
 #     overridable: false, and merge_confirm has no command gate
 #   no transition targets the legacy `done`
-#   merged's only incoming edge is from merge_confirm
+#   merged's only incoming edge is from record_keep, routed on the same
+#     non-overridable confirmed_merged gate merge_confirm reads; both
+#     merge_confirm edges, and every edge into ready_awaiting_merge, go through
+#     record_keep, whose default action is run-record-pin.sh on this run's
+#     root ending `|| true`; paused_for_review is not reached from it; every
+#     terminal reads record and unpinned from context; plan_completion records
+#     the readied PR through run-trail.sh pr-state
 #   no context_assignments block writes home_pr
 #   escalate_dirty_merge_state still routes to done_blocked, ci_monitor's
 #     DIRTY edge (owned_merge_state_clean failing) targets it, and ci_monitor's
@@ -45,6 +52,11 @@
 #     children's summaries through `koto context get <child> summary.md`, one
 #     read per child, saying why the count is small; no skills/execute file
 #     outside evals names current-context.md
+#   spawn_and_await records each step's PLAN snapshot (run-trail.sh plan, from
+#     docs/plans/PLAN-{{PLAN_SLUG}}.md) and step session (run-trail.sh step,
+#     --supersede for a new step agent) before its agent starts, step 1
+#     included; records an entry rewrite as an entry-rewritten departure with
+#     its text on stdin only; and stops the hand-offs when a write fails
 #   settled_branch_record's own prose names SETTLED_BRANCH without braces and
 #     says why (a braced mention there stops the failure-path tick with
 #     capture_unset)
@@ -66,7 +78,9 @@
 # and, so the checks are known to bite, that each fails on a mutated copy: an
 # assignment writing home_pr, an overridable merge_intent gate, an overridable
 # owned_pr_merged gate, a merged edge that also needs green CI, an edge into
-# `done`, a second edge into `merged`, and a `${context.` in a default action.
+# `done`, a second edge into `merged`, a `${context.` in a default action, a
+# record_keep pin that can hold the run, and record_keep routing on an
+# overridable gate.
 #
 # Usage: execute-template-structure_test.sh
 # Exit codes: 0 all pass (or koto absent: a loud SKIP), 1 a failure
@@ -93,6 +107,23 @@ trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 
+# koto runs here, so it must write only to the scratch HOME: a caller's koto
+# session context is cleared, and koto's session directory must resolve under
+# the scratch directory before anything is compiled.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+GUARD_DIR=$(koto session dir execute-structure-guard </dev/null) || GUARD_DIR=""
+WORK_P=$(cd "$WORK" && pwd -P) && [ -n "$WORK_P" ] || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
+case "$GUARD_DIR" in
+    "$WORK"/*|"$WORK_P"/*) ;;
+    *)
+        echo "FAIL: koto's session directory [$GUARD_DIR] is not under this suite's scratch directory; nothing was checked" >&2
+        exit 1
+        ;;
+esac
+
 compile() { # compile <template> -> prints the compiled JSON path, or nothing
     koto template compile "$1" 2>/dev/null | tail -1
 }
@@ -106,9 +137,9 @@ holds() { jq -e "$2" "$1" >/dev/null 2>&1; }
 CHECKS=(
 "merge_attempt has no default_action|.states.merge_attempt.default_action == null"
 "merge_attempt carries the non-overridable merge_intent gate|.states.merge_attempt.gates.merge_intent == {type: \"command\", command: \"test \\\"{{MERGE}}\\\" = true\", overridable: false}"
-"merge_intent's failure edge targets ready_awaiting_merge|[.states.merge_attempt.transitions[] | select(.when == {\"gates.merge_intent.exit_code\": 1})] | length == 1 and .[0].target == \"ready_awaiting_merge\""
+"merge_intent's failure edge goes through record_keep to ready_awaiting_merge|[.states.merge_attempt.transitions[] | select(.when == {\"gates.merge_intent.exit_code\": 1})] | length == 1 and .[0].target == \"record_keep\" and .[0].context_assignments.outcome == \"ready-awaiting-merge\""
 "every other merge_attempt edge requires merge_intent to pass|[.states.merge_attempt.transitions[] | select(.when != {\"gates.merge_intent.exit_code\": 1}) | .when[\"gates.merge_intent.exit_code\"] == 0] | length > 0 and all"
-"merge_attempt's squash-message edge, gated on merge_intent 0, ends ready_awaiting_merge with the literal reason|[.states.merge_attempt.transitions[] | select(.when == {\"gates.merge_intent.exit_code\": 0, \"merge_exec\": \"squash-message\"})] | length == 1 and .[0].target == \"ready_awaiting_merge\" and .[0].context_assignments.reason == \"merge-refused:squash-message\" and .[0].context_assignments.outcome == \"ready-awaiting-merge\""
+"merge_attempt's squash-message edge, gated on merge_intent 0, goes through record_keep with the literal reason|[.states.merge_attempt.transitions[] | select(.when == {\"gates.merge_intent.exit_code\": 0, \"merge_exec\": \"squash-message\"})] | length == 1 and .[0].target == \"record_keep\" and .[0].context_assignments.reason == \"merge-refused:squash-message\" and .[0].context_assignments.outcome == \"ready-awaiting-merge\""
 "merge_exec accepts called, refused and squash-message|.states.merge_attempt.accepts.merge_exec.values == [\"called\",\"refused\",\"squash-message\"]"
 "merge_attempt's directive builds the message with merge-message.sh and passes it as merge-exec.sh's fourth argument|.states.merge_attempt.directive | (contains(\"scripts/merge-message.sh \\\"\$REPO\\\" \\\"\${HOME_PR##*/}\\\"\") and contains(\"scripts/merge-exec.sh \\\"\$REPO\\\" \\\"\${HOME_PR##*/}\\\" \\\"\$EXPECTED\\\" \\\"\$MSG\\\"\") and contains(\"LINE=merge-refused:squash-message\"))"
 "every merge_route gate is a non-overridable context-matches gate|[.states.merge_route.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
@@ -117,7 +148,13 @@ CHECKS=(
 "merge_confirm's confirm read is a default action running record-merge-verdict.sh --confirm|(.states.merge_confirm.default_action.command // \"\") | test(\"record-merge-verdict\\\\.sh --confirm \")"
 "merge_readiness's default action runs record-merge-verdict.sh with {{MERGE}}|(.states.merge_readiness.default_action.command // \"\") | (test(\"record-merge-verdict\\\\.sh \") and test(\"--merge \\\"\\\\{\\\\{MERGE\\\\}\\\\}\\\"\"))"
 "no transition targets done|[.states[] | (.transitions // [])[] | select(.target == \"done\")] | length == 0"
-"merged's only incoming edge is from merge_confirm|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"merge_confirm\"]"
+"merged's only incoming edge is from record_keep|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"record_keep\"]"
+"record_keep's merged edge needs confirmed_merged, the non-overridable confirm_verdict ^merged\$ gate merge_confirm reads|(.states.record_keep.gates.confirmed_merged == {type: \"context-matches\", key: \"confirm_verdict\", pattern: \"^merged\$\", overridable: false}) and (.states.record_keep.gates == .states.merge_confirm.gates) and ([.states.record_keep.transitions[] | select(.target == \"merged\") | .when] == [{\"gates.confirmed_merged.matches\": true}]) and ([.states.record_keep.transitions[] | select(.target == \"ready_awaiting_merge\") | .when] == [{\"gates.confirmed_merged.matches\": false}])"
+"both merge_confirm edges go to record_keep|[.states.merge_confirm.transitions[].target] == [\"record_keep\",\"record_keep\"]"
+"every edge into ready_awaiting_merge comes from record_keep|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"ready_awaiting_merge\") | \$s] | length > 0 and all(. == \"record_keep\")"
+"no edge into paused_for_review comes from record_keep|[.states.record_keep.transitions[].target] | index(\"paused_for_review\") == null"
+"record_keep's default action pins this run's root with run-record-pin.sh and can't hold the run|(.states.record_keep.default_action.command // \"\") == \"\\\"{{PLUGIN_ROOT}}/scripts/run-record-pin.sh\\\" --root \\\"execute-{{PLAN_SLUG}}\\\" --result \\\"execute-{{PLAN_SLUG}}\\\" || true\""
+"plan_completion records the readied PR's state through run-trail.sh pr-state|.states.plan_completion.directive | (contains(\"scripts/run-trail.sh\\\" pr-state --session {{SESSION_NAME}}\") and contains(\"--state ready\"))"
 "no context_assignments block writes home_pr|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | has(\"home_pr\")] | any | not"
 "escalate_dirty_merge_state routes to done_blocked|[.states.escalate_dirty_merge_state.transitions[].target] == [\"done_blocked\"]"
 "ci_monitor's DIRTY edge still targets escalate_dirty_merge_state|[.states.ci_monitor.transitions[] | select(.when[\"gates.owned_merge_state_clean.exit_code\"] == 1) | .target] == [\"escalate_dirty_merge_state\"]"
@@ -129,7 +166,8 @@ CHECKS=(
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "no assignment reads \${context.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | contains(\"\${context.\")] | any | not"
 "step and reason are assigned only as literals|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | to_entries[] | select(.key == \"step\" or .key == \"reason\") | .value | (contains(\"\${\") or contains(\"{{\"))] | any | not"
-"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length >= 5 and all"
+"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"outcome\",\"pr\",\"reason\",\"record\",\"repos\",\"resume\",\"step\",\"unpinned\",\"waiting\"]] | length >= 5 and all"
+"every terminal reads record and unpinned from context|[.states[] | select(.terminal == true) | .result.record == \"\${context.record}\" and .result.unpinned == \"\${context.record_unpinned}\"] | all"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
 "the legacy done terminal's outcome is ready-awaiting-merge|.states.done.result.outcome == \"ready-awaiting-merge\""
 "MERGE is values [true, false], default false, rebind|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
@@ -149,6 +187,9 @@ CHECKS=(
 "pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
 "no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
 "spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
+"spawn_and_await records each step's PLAN snapshot and step session through run-trail.sh before its agent starts, step 1 included|.states.spawn_and_await.directive | (contains(\"/scripts/run-trail.sh\\\" plan --session {{SESSION_NAME}} --step <step> --plan docs/plans/PLAN-{{PLAN_SLUG}}.md\") and contains(\"/scripts/run-trail.sh\\\" step --session {{SESSION_NAME}} --step <step> --child <child>\") and contains(\"with \`--supersede\` added for a new step agent\") and contains(\"Right before each step agent starts (step 1 included\") and contains(\"\`task_name\`\"))"
+"spawn_and_await records an entry rewrite as an entry-rewritten departure, its text on stdin only|.states.spawn_and_await.directive | (contains(\"/scripts/run-trail.sh\\\" departure --session {{SESSION_NAME}} --step <step> --kind entry-rewritten < <file>\") and contains(\"never as an argument\"))"
+"spawn_and_await stops the hand-offs when a record write fails|.states.spawn_and_await.directive | contains(\"A nonzero exit from any of these stops the hand-offs\")"
 "settled_branch_record's prose names SETTLED_BRANCH without braces|.states.settled_branch_record | (((.directive // \"\") + (.details // \"\")) | (contains(\"SETTLED_BRANCH\") and contains(\"without braces here on purpose\") and (contains(\"{{SETTLED_BRANCH}}\") | not)))"
 )
 
@@ -287,8 +328,14 @@ mutate "ci_monitor's merged edge needing green CI" \
     "ci_monitor routes a MERGED owned PR to merge_readiness on the lookup and owned_pr_merged alone" \
     's/(          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_pr_merged.exit_code: 0\n)/$1          gates.owned_ci_passing.exit_code: 0\n/'
 mutate "a second edge into merged" \
-    "merged's only incoming edge is from merge_confirm" \
-    's/(      - target: )ready_awaiting_merge(\n        when:\n          gates.merge_intent.exit_code: 0\n          merge_exec: refused)/${1}merged$2/'
+    "merged's only incoming edge is from record_keep" \
+    's/(      - target: )record_keep(\n        when:\n          gates.merge_intent.exit_code: 0\n          merge_exec: refused)/${1}merged$2/'
+mutate "record_keep's pin able to hold the run" \
+    "record_keep's default action pins this run's root with run-record-pin.sh and can't hold the run" \
+    's/( --result "execute-\{\{PLAN_SLUG\}\}") \|\| true/$1/'
+mutate "record_keep routing merged on an overridable gate" \
+    "record_keep's merged edge needs confirmed_merged, the non-overridable confirm_verdict ^merged\$ gate merge_confirm reads" \
+    's/(  record_keep:\n(?:.*\n)*?        pattern: .\^merged\$.\n        overridable: )false/${1}true/'
 mutate "a \${context. in a default action" \
     "no default_action command holds \${context." \
     's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'

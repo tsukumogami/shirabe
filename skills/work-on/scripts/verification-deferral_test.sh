@@ -240,6 +240,17 @@ cat > "$FAKE_ROOT/skills/work-on/scripts/session-role.sh" <<'EOF'
 echo root
 EOF
 chmod +x "$FAKE_ROOT"/skills/work-on/scripts/*
+# record_keep's script is the real one, with the record scripts it reaches: a
+# root run that isn't a multi-pr item records record=skipped there and goes
+# on to done. It never reaches the shared address; were it to, it would land
+# in this suite's own directory.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$WORKDIR/shared"
+REAL_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+mkdir -p "$FAKE_ROOT/scripts/lib"
+cp "$SCRIPT_DIR/multi-pr-item-record.sh" "$FAKE_ROOT/skills/work-on/scripts/"
+cp "$REAL_ROOT/scripts/run-trail.sh" "$REAL_ROOT/scripts/run-record-pin.sh" "$FAKE_ROOT/scripts/"
+cp "$REAL_ROOT/scripts/lib/record-store.sh" "$FAKE_ROOT/scripts/lib/"
+chmod +x "$FAKE_ROOT/skills/work-on/scripts/multi-pr-item-record.sh" "$FAKE_ROOT/scripts/run-trail.sh" "$FAKE_ROOT/scripts/run-record-pin.sh"
 set_rc() { printf '%s\n' "$2" > "$RC_DIR/$1"; }
 reset_rc() { rm -f "$RC_DIR"/*; }
 calls() { grep -c -- "^$1" "$LOG" 2>/dev/null || true; }
@@ -252,6 +263,7 @@ render() {
     c=${c//\{\{PLUGIN_ROOT\}\}/$FAKE_ROOT}
     c=${c//\{\{VERIFICATION_DEFERRAL_REASON\}\}/$2}
     c=${c//\{\{VERIFICATION\}\}/$1}
+    c=${c//\{\{SESSION_NAME\}\}/vd-gate}
     printf '%s' "$c"
 }
 
@@ -264,8 +276,8 @@ eq "local: the record gate never starts check-pr-output.sh" 0 "$(calls check-pr-
 reset_rc; : > "$LOG"
 sh -c "$(render hosted-ci "$REASON")" >/dev/null 2>&1
 eq "hosted-ci, body records it: the record gate passes" 0 "$?"
-eq "hosted-ci: the gate passes the reason to --deferral-record" \
-    "check-pr-output.sh --deferral-record --reason $REASON" "$(cat "$LOG")"
+eq "hosted-ci: the gate passes the session and the reason to --deferral-record" \
+    "check-pr-output.sh --deferral-record --session vd-gate --reason $REASON" "$(cat "$LOG")"
 
 reset_rc; : > "$LOG"
 set_rc check-pr-output.sh--deferral-record 1
@@ -289,6 +301,16 @@ echo "--- the routes"
 # $HOME/.koto.
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
+# No session variable from the caller's environment reaches koto, and the
+# suite stops before any session is made unless koto's session directory
+# resolves inside this scratch directory.
+for v in $(compgen -v KOTO_SESSION_); do unset "$v"; done
+unset KOTO_SESSIONS_BASE
+SESSION_DIR_PROBE=$(koto session dir verification-deferral-probe 2>/dev/null) || SESSION_DIR_PROBE=""
+case "$SESSION_DIR_PROBE" in
+    "$WORKDIR"/*) ;;
+    *) echo "FAIL: koto session dir [$SESSION_DIR_PROBE] is not under the scratch directory $WORKDIR; no case ran" >&2; exit 1 ;;
+esac
 # No decider for any case here, whatever the host has set: issue_type_routing's
 # issue_type then takes the submitted answer, and no case reaches the network.
 unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT
@@ -333,6 +355,8 @@ build() {
             '  ISSUE_REPO:' '    description: issue repository' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
+            '  ISSUE_SOURCE:' '    description: issue source' '    required: false' \
+            '  ARTIFACT_PREFIX:' '    description: artifact prefix' '    required: false' \
             '  PLAN_DOC:' '    description: plan' '    required: false' \
             '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
             '    pattern: ^(light|standard|full)?$'
@@ -572,7 +596,7 @@ open_leg() {
     S="vd-leg-$N"
     mkdir -p "$DIR"
     build "$DIR/work-on.md" work-on pr_creation \
-        "pr_creation ci_monitor ci_pass_counting cascade_entry done done_already_complete done_blocked" \
+        "pr_creation ci_monitor ci_pass_counting cascade_entry record_keep done done_already_complete done_blocked" \
         closing_keyword=0 ci_passing=0 merge_state_clean=0
     REQ=$(cd "$REPO" && koto request create \
         --with-data '{"legs":[{"name":"work-on","role":"work-on","template":"work-on.md","inputs":{}}]}' \
@@ -596,11 +620,11 @@ if open_leg --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$RE
     eq "deferred, body without the record: pr_status created holds at pr_creation" pr_creation "$(state)"
     # The gate runs on every evaluation of pr_creation, the entering tick
     # included, so it was asked at least once.
-    n=$(calls "check-pr-output.sh --deferral-record --reason $REASON")
+    n=$(calls "check-pr-output.sh --deferral-record --session $S --reason $REASON")
     if [ "$n" -ge 1 ]; then
         pass "deferred: the gate asked check-pr-output.sh about this run's reason"
     else
-        fail "deferred: check-pr-output.sh --deferral-record --reason was not called: [$(cat "$LOG")]"
+        fail "deferred: check-pr-output.sh --deferral-record --session --reason was not called: [$(cat "$LOG")]"
     fi
     set_rc check-pr-output.sh--deferral-record 0
     tick --with-data "$CREATED"

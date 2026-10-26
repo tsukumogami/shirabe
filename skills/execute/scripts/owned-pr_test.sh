@@ -12,14 +12,19 @@
 #   no PR / fork only / other author only /
 #     wrong base only / wrong head only            empty stdout, exit 0
 #   two owned PRs                                  empty stdout, exit 3
-#   --run-id: marker names this run                its URL, exit 0
-#   --run-id: unmarked PR                          its URL, exit 0 (fallback)
-#   --run-id: one PR, another run's marker         empty stdout, exit 5
-#   several candidates, at least one marked        empty stdout, exit 4
-#     (including a lone survivor beside a PR another run marked)
-#   --take-over: the exit-5 PR is restamped        its URL, exit 0; never a
-#                                                  fork's, another author's,
-#                                                  or another branch's PR
+#   --run-id: latest index entry names this run    its URL, exit 0
+#   --run-id: no index entry                       its URL, exit 0 (fallback)
+#   --run-id: one PR, another run's latest entry   empty stdout, exit 5
+#   --run-id: an entry for this run on a PR that   never a survivor
+#     fails one of the five checks
+#   several candidates, at least one recorded      empty stdout, exit 4
+#     (including a lone survivor beside a PR another run recorded)
+#   --run-id: an index that can't be read          empty stdout, exit 2
+#   no --run-id: the index is never read
+#   --take-over: the exit-5 PR gets this run's     its URL, exit 0; no PR
+#     index entry                                  edited; never a fork's,
+#                                                  another author's, or
+#                                                  another branch's PR
 #   --state all: closed-unmerged + open owned      the open URL, exit 0
 #   --state all: one merged owned PR alone         its URL, exit 0
 #   --state open: a merged owned PR                empty stdout, exit 0
@@ -31,7 +36,9 @@
 #   usage errors                                   empty stdout, exit 64, no gh call
 #
 # plus: the base defaults to the repository's default branch, the output names
-# no caller step, and every gh call reads no stdin.
+# no caller step, and every gh call reads no stdin. The index lives in the
+# record stub koto (scripts/testdata/record-koto), asserted to be the koto on
+# PATH, at a shared address under each case's own SHIRABE_RUN_RECORD_TEST_ROOT.
 #
 # Usage: owned-pr_test.sh
 # Exit codes: 0 all pass, 1 a failure (or jq missing)
@@ -89,6 +96,17 @@ exit "$rc"
 STUB
 chmod +x "$BIN/gh"
 
+# The index reads and a takeover's write go to the record stub koto, never a
+# real one, with each case's shared address in its own temp directory
+# (SHIRABE_RUN_RECORD_TEST_ROOT). The stub must be the koto on PATH.
+STUB_DIR="$SCRIPT_DIR/../../../scripts/testdata/record-koto"
+STUB_DIR=$(CDPATH='' cd "$STUB_DIR" && pwd) || { echo "FAIL: the record stub koto is missing" >&2; exit 1; }
+case "$(PATH="$BIN:$STUB_DIR:$PATH" command -v koto)" in
+    "$STUB_DIR/koto") ;;
+    *) echo "FAIL: the koto on PATH is not the record stub; refusing to run" >&2; exit 1 ;;
+esac
+export PATH="$STUB_DIR:$PATH"
+
 ME=octo
 URL1="https://github.com/o/r/pull/7"
 URL2="https://github.com/o/r/pull/8"
@@ -111,7 +129,8 @@ pr() {
 
 new_case() {
     CASE="$WORK/cases/$1"
-    rm -rf "$CASE"; mkdir -p "$CASE"; : > "$CASE/calls.log"
+    RUN_DIR="$WORK"
+    rm -rf "$CASE"; mkdir -p "$CASE/koto" "$CASE/shared"; : > "$CASE/calls.log"
     printf '{"login":"%s"}\n' "$ME" > "$CASE/user.out"
     echo '{"default_branch":"main"}' > "$CASE/repo.out"
     echo '[]' > "$CASE/list.out"
@@ -133,7 +152,8 @@ run() { # run [args...] — default: open lookup on o/r feat/x base main
 }
 
 run_raw() { # run_raw [args...] — exactly these arguments, none added
-    OUT=$(GH_FIX="$CASE" PATH="$BIN:$PATH" bash "$OWNED" "$@" </dev/null 2>"$CASE/stderr")
+    OUT=$(cd "$RUN_DIR" && GH_FIX="$CASE" PATH="$BIN:$STUB_DIR:$PATH" RECORD_KOTO_STORE="$CASE/koto" \
+        SHIRABE_RUN_RECORD_TEST_ROOT="$CASE/shared" bash "$OWNED" "$@" </dev/null 2>"$CASE/stderr")
     RC=$?
     ERR=$(cat "$CASE/stderr")
 }
@@ -244,86 +264,125 @@ new_case foreign-url
 list "$(pr 7 OPEN '.url = "https://github.com/evil/r/pull/7"')"
 expect "a survivor whose URL names another repository" "" 2
 
-# --- the run marker ------------------------------------------------------------
+# --- the run's index entry --------------------------------------------------------
 
+# A PR's index session holds one entry per run that recorded it; the latest
+# (by written_at) decides. plant <n> <run_id> [<written_at>] writes one entry
+# the way scripts/run-trail.sh index lays it out, at this case's shared
+# address, through the stub koto.
 MINE=0123456789abcdef0123456789abcdef
 OTHER=fedcba9876543210fedcba9876543210
-mark() { printf '.body = "Implements docs/plans/PLAN-x.md.\\n\\n<!-- shirabe-run: %s -->\\n"' "$1"; }
+THIRD=11111111111111111111111111111111
+plant() {
+    local n="$1" rid="$2" at="${3:-2026-01-01T00:00:00Z}" d="$CASE/shared/o"
+    mkdir -p "$d"
+    (cd "$d" && RECORD_KOTO_STORE="$CASE/koto" koto init "pr.o.r.$n" --template t >/dev/null 2>&1
+     jq -nc --arg at "$at" '{workspace: "/w", session: "execute-x", session_id: "sid-1",
+         mode: "single-pr", topic: "x", written_at: $at}' \
+         | RECORD_KOTO_STORE="$CASE/koto" koto context add "pr.o.r.$n" "run/$rid" >/dev/null)
+}
+# latest <n>: the run the PR's index names last, read the way owned-pr.sh does.
+latest() {
+    (SHIRABE_RUN_RECORD_TEST_ROOT="$CASE/shared" RECORD_KOTO_STORE="$CASE/koto" bash -c \
+        '. "$1/../../../scripts/lib/record-store.sh" && rs_index_latest_run o/r "$2"' _ "$SCRIPT_DIR" "$1")
+}
 RUN=(--repo o/r --head feat/x --state open --base main --run-id "$MINE")
 
-new_case marker-mine
-list "$(pr 7 OPEN "$(mark "$MINE")")"
-expect "--run-id: the PR's marker names this run" "$URL1" 0 "${RUN[@]}"
+new_case index-mine
+list "$(pr 7 OPEN)"; plant 7 "$MINE"
+expect "--run-id: the PR's latest index entry names this run" "$URL1" 0 "${RUN[@]}"
 
-new_case marker-foreign
-list "$(pr 7 OPEN "$(mark "$OTHER")")"
-expect "--run-id: the one PR on this login and branch names another run (exit 5)" "" 5 "${RUN[@]}"
+new_case index-foreign
+list "$(pr 7 OPEN)"; plant 7 "$OTHER"
+expect "--run-id: the one PR on this login and branch was recorded by another run (exit 5)" "" 5 "${RUN[@]}"
 case "$ERR" in
     *"$URL1"*) pass "exit 5 names the other run's PR on stderr" ;;
     *) fail "exit 5 does not name the PR on stderr: [$ERR]" ;;
 esac
 
-new_case marker-malformed
-list "$(pr 7 OPEN '.body = "x\n<!-- shirabe-run: not-an-id -->"')"
-expect "--run-id: a malformed marker line is never this run's" "" 5 "${RUN[@]}"
+new_case index-latest-mine
+list "$(pr 7 OPEN)"; plant 7 "$OTHER" 2026-01-01T00:00:00Z; plant 7 "$MINE" 2026-02-01T00:00:00Z
+expect "--run-id: the latest entry decides (this run's after another's)" "$URL1" 0 "${RUN[@]}"
 
-new_case marker-mixed-lines
-list "$(pr 7 OPEN "$(mark "$MINE")" ".body += \"<!-- shirabe-run: $OTHER -->\n\"")"
-expect "--run-id: a body naming this run and another is not this run's" "" 5 "${RUN[@]}"
+new_case index-latest-foreign
+list "$(pr 7 OPEN)"; plant 7 "$MINE" 2026-01-01T00:00:00Z; plant 7 "$OTHER" 2026-02-01T00:00:00Z
+expect "--run-id: the latest entry decides (another run's after this one's)" "" 5 "${RUN[@]}"
 
-new_case marker-unmarked-fallback
+new_case index-none
 list "$(pr 7 OPEN '.body = "Implements docs/plans/PLAN-x.md."')"
-expect "--run-id: an unmarked PR falls back to the login-and-branch match" "$URL1" 0 "${RUN[@]}"
+expect "--run-id: a PR with no index entry falls back to the five checks" "$URL1" 0 "${RUN[@]}"
 
-new_case marker-null-body
-list "$(pr 7 OPEN '.body = null')"
-expect "--run-id: a PR with no body at all falls back too" "$URL1" 0 "${RUN[@]}"
+new_case index-malformed
+list "$(pr 7 OPEN)"; plant 7 "$OTHER" not-a-time
+expect "--run-id: an entry whose written_at fails its pattern is passed over" "$URL1" 0 "${RUN[@]}"
 
-new_case marker-foreign-other-author
-list "$(pr 7 OPEN "$(mark "$MINE")" '.author.login = "someone-else"')"
-expect "--run-id: a matching marker never rescues another author's PR" "" 0 "${RUN[@]}"
+new_case index-mine-other-author
+list "$(pr 7 OPEN '.author.login = "someone-else"')"; plant 7 "$MINE"
+expect "--run-id: an entry for this run never rescues another author's PR" "" 0 "${RUN[@]}"
 
-new_case marker-foreign-fork
-list "$(pr 7 OPEN "$(mark "$MINE")" '.isCrossRepository = true')"
-expect "--run-id: a matching marker never rescues a fork's PR" "" 0 "${RUN[@]}"
+new_case index-mine-fork
+list "$(pr 7 OPEN '.isCrossRepository = true')"; plant 7 "$MINE"
+expect "--run-id: an entry for this run never rescues a fork's PR" "" 0 "${RUN[@]}"
 
-new_case marker-hand-run
-list "$(pr 7 OPEN "$(mark "$OTHER")")"
-expect "no --run-id (a hand run): a marked PR is matched by login and branch" "$URL1" 0
+new_case index-mine-wrong-base
+list "$(pr 7 OPEN '.baseRefName = "release"')"; plant 7 "$MINE"
+expect "--run-id: an entry for this run never rescues a PR on another base" "" 0 "${RUN[@]}"
 
-new_case marker-mine-beside-unmarked
-list "$(pr 7 OPEN "$(mark "$MINE")")" "$(pr 8 OPEN)"
-expect "a marked and an unmarked candidate are ambiguous (exit 4)" "" 4 "${RUN[@]}"
+new_case index-mine-closed
+list "$(pr 7 CLOSED)"; plant 7 "$MINE"
+expect "--run-id: an entry for this run never rescues a closed PR" "" 0 "${RUN[@]}"
 
-new_case marker-two-runs-hand
-list "$(pr 7 OPEN "$(mark "$MINE")")" "$(pr 8 OPEN "$(mark "$OTHER")")"
-expect "no --run-id: two runs' marked PRs are ambiguous (exit 4)" "" 4
+new_case index-hand-run
+list "$(pr 7 OPEN)"; plant 7 "$OTHER"
+expect "no --run-id (a hand run): the index is not read and the five checks decide" "$URL1" 0
+if [ -s "$CASE/koto/calls.log" ] && grep -q 'context list' "$CASE/koto/calls.log"; then
+    fail "a hand run read the index: $(cat "$CASE/koto/calls.log")"
+else
+    pass "a hand run makes no koto call"
+fi
 
-new_case marker-two-foreign
-list "$(pr 7 OPEN "$(mark "$OTHER")")" "$(pr 8 OPEN '.body = "<!-- shirabe-run: 11111111111111111111111111111111 -->"')"
+new_case index-mine-beside-none
+list "$(pr 7 OPEN)" "$(pr 8 OPEN)"; plant 7 "$MINE"
+expect "this run's PR beside one with no entry is ambiguous (exit 4)" "" 4 "${RUN[@]}"
+
+new_case index-two-hand
+list "$(pr 7 OPEN)" "$(pr 8 OPEN)"; plant 7 "$MINE"; plant 8 "$OTHER"
+expect "no --run-id: two owned PRs stay several (exit 3), the index unread" "" 3
+
+new_case index-two-foreign
+list "$(pr 7 OPEN)" "$(pr 8 OPEN)"; plant 7 "$OTHER"; plant 8 "$THIRD"
 expect "--run-id: two other runs' PRs and none of mine are ambiguous (exit 4)" "" 4 "${RUN[@]}"
 
-new_case marker-mine-beside-foreign
-list "$(pr 7 MERGED "$(mark "$OTHER")")" "$(pr 8 OPEN "$(mark "$MINE")")"
-expect "--run-id --state all: my PR beside one another run marked is ambiguous (exit 4)" "" 4 \
+new_case index-mine-beside-foreign
+list "$(pr 7 MERGED)" "$(pr 8 OPEN)"; plant 7 "$OTHER"; plant 8 "$MINE"
+expect "--run-id --state all: my PR beside one another run recorded is ambiguous (exit 4)" "" 4 \
     --repo o/r --head feat/x --state all --base main --run-id "$MINE"
 
-new_case marker-foreign-beside-unmarked
-list "$(pr 8 MERGED)" "$(pr 7 OPEN "$(mark "$OTHER")")"
-expect "--run-id --state all: an unmarked merged PR beside another run's open PR is ambiguous (exit 4)" "" 4 \
+new_case index-foreign-beside-none
+list "$(pr 8 MERGED)" "$(pr 7 OPEN)"; plant 7 "$OTHER"
+expect "--run-id --state all: an unrecorded merged PR beside another run's open PR is ambiguous (exit 4)" "" 4 \
     --repo o/r --head feat/x --state all --base main --run-id "$MINE"
 
-new_case marker-two-unmarked
+new_case index-two-none
 list "$(pr 7 OPEN)" "$(pr 8 OPEN)"
-expect "--run-id: two unmarked candidates stay exit 3" "" 3 "${RUN[@]}"
+expect "--run-id: two candidates with no entry stay exit 3" "" 3 "${RUN[@]}"
 
-new_case marker-body-requested
+new_case index-unreadable
+list "$(pr 7 OPEN)"; plant 7 "$MINE"
+RECORD_KOTO_FAIL_READS=1 run "${RUN[@]}"
+if [ "$RC" -eq 2 ] && [ -z "$OUT" ]; then
+    pass "--run-id: an index that can't be read is a failed read (exit 2), never a guess"
+else
+    fail "an unreadable index: [$OUT] exit $RC; stderr: $ERR"
+fi
+
+new_case index-no-body
 list "$(pr 7 OPEN)"
 run "${RUN[@]}"
-if grep -q -- '--json url,state,isCrossRepository,author,baseRefName,headRefName,body ' "$CASE/calls.log"; then
-    pass "gh pr list asks for the body"
+if grep -q -- '--json url,state,isCrossRepository,author,baseRefName,headRefName --limit' "$CASE/calls.log"; then
+    pass "gh pr list no longer asks for the body"
 else
-    fail "gh pr list does not ask for the body: $(cat "$CASE/calls.log")"
+    fail "gh pr list's fields: $(cat "$CASE/calls.log")"
 fi
 
 # --- --state open-else-merged -------------------------------------------------
@@ -334,19 +393,19 @@ fi
 OEM=(--repo o/r --head feat/x --state open-else-merged --base main --run-id "$MINE")
 
 new_case oem-open
-list "$(pr 7 OPEN "$(mark "$MINE")")"
+list "$(pr 7 OPEN)"; plant 7 "$MINE"
 expect "open-else-merged: my open PR alone" "$URL1" 0 "${OEM[@]}"
 
 new_case oem-merged
-list "$(pr 7 MERGED "$(mark "$MINE")")"
+list "$(pr 7 MERGED)"; plant 7 "$MINE"
 expect "open-else-merged: my merged PR alone" "$URL1" 0 "${OEM[@]}"
 
-new_case oem-merged-unmarked
+new_case oem-merged-unrecorded
 list "$(pr 7 MERGED)"
-expect "open-else-merged: an unmarked merged PR falls back to the login-and-branch match" "$URL1" 0 "${OEM[@]}"
+expect "open-else-merged: a merged PR with no entry falls back to the five checks" "$URL1" 0 "${OEM[@]}"
 
 new_case oem-closed-only
-list "$(pr 7 CLOSED "$(mark "$MINE")")"
+list "$(pr 7 CLOSED)"; plant 7 "$MINE"
 expect "open-else-merged: a closed-unmerged PR alone is no survivor, as under --state open" "" 0 "${OEM[@]}"
 run --repo o/r --head feat/x --state open --base main --run-id "$MINE"
 [ "$RC" -eq 0 ] && [ -z "$OUT" ] \
@@ -357,35 +416,35 @@ new_case oem-none
 expect "open-else-merged: no PR on the branch" "" 0 "${OEM[@]}"
 
 new_case oem-earlier-merged-plus-open
-list "$(pr 7 MERGED "$(mark "$OTHER")")" "$(pr 8 OPEN "$(mark "$MINE")")"
+list "$(pr 7 MERGED)" "$(pr 8 OPEN)"; plant 7 "$OTHER"; plant 8 "$MINE"
 expect "open-else-merged: an earlier run's merged PR beside my open one gives the open one" "$URL2" 0 "${OEM[@]}"
 
-new_case oem-unmarked-merged-plus-open
-list "$(pr 7 MERGED)" "$(pr 8 OPEN "$(mark "$MINE")")"
-expect "open-else-merged: an unmarked merged PR beside my open one gives the open one" "$URL2" 0 "${OEM[@]}"
+new_case oem-unrecorded-merged-plus-open
+list "$(pr 7 MERGED)" "$(pr 8 OPEN)"; plant 8 "$MINE"
+expect "open-else-merged: an unrecorded merged PR beside my open one gives the open one" "$URL2" 0 "${OEM[@]}"
 
 new_case oem-my-merged-plus-foreign-open
-list "$(pr 7 MERGED "$(mark "$MINE")")" "$(pr 8 OPEN "$(mark "$OTHER")")"
+list "$(pr 7 MERGED)" "$(pr 8 OPEN)"; plant 7 "$MINE"; plant 8 "$OTHER"
 expect "open-else-merged: my merged PR beside another run's open one is that run's branch (exit 5, as --state open)" "" 5 "${OEM[@]}"
 
 new_case oem-foreign-merged
-list "$(pr 7 MERGED "$(mark "$OTHER")")"
+list "$(pr 7 MERGED)"; plant 7 "$OTHER"
 expect "open-else-merged: another run's merged PR alone is never mine (exit 5)" "" 5 "${OEM[@]}"
 
 new_case oem-merged-other-author
-list "$(pr 7 MERGED "$(mark "$MINE")" '.author.login = "someone-else"')"
+list "$(pr 7 MERGED '.author.login = "someone-else"')"; plant 7 "$MINE"
 expect "open-else-merged: another author's merged PR is no survivor" "" 0 "${OEM[@]}"
 
 new_case oem-merged-fork
-list "$(pr 7 MERGED "$(mark "$MINE")" '.isCrossRepository = true')"
+list "$(pr 7 MERGED '.isCrossRepository = true')"; plant 7 "$MINE"
 expect "open-else-merged: a fork's merged PR is no survivor" "" 0 "${OEM[@]}"
 
 new_case oem-two-merged
-list "$(pr 7 MERGED "$(mark "$MINE")")" "$(pr 8 MERGED "$(mark "$MINE")")"
+list "$(pr 7 MERGED)" "$(pr 8 MERGED)"; plant 7 "$MINE"; plant 8 "$MINE"
 expect "open-else-merged: two merged PRs of mine are ambiguous (exit 4)" "" 4 "${OEM[@]}"
 
 new_case oem-closed-plus-merged
-list "$(pr 7 CLOSED "$(mark "$MINE")")" "$(pr 8 MERGED "$(mark "$MINE")")"
+list "$(pr 7 CLOSED)" "$(pr 8 MERGED)"; plant 7 "$MINE"; plant 8 "$MINE"
 expect "open-else-merged: a closed-unmerged PR never stands beside the merged one" "$URL2" 0 "${OEM[@]}"
 
 new_case oem-state-arg
@@ -399,62 +458,78 @@ fi
 
 # --- taking over ------------------------------------------------------------------
 
-new_case takeover
-list "$(pr 7 OPEN "$(mark "$OTHER")" '.body += "trailing words\n"')"
-expect "--take-over: the one foreign-marked PR on my branch is restamped and returned" "$URL1" 0 \
-    "${RUN[@]}" --take-over
-if grep -qxF "<!-- shirabe-run: $MINE -->" "$CASE/edited-body" \
-    && ! grep -qF "$OTHER" "$CASE/edited-body" \
-    && grep -qxF "trailing words" "$CASE/edited-body" \
-    && grep -qF "Implements docs/plans/PLAN-x.md." "$CASE/edited-body"; then
-    pass "--take-over replaces the marker and keeps the rest of the body"
+# take_case: a case whose checkout holds this run's record root, execute-x,
+# with run_id MINE, so run-trail.sh index can write its entry from there.
+take_case() {
+    new_case "$1"
+    RUN_DIR="$CASE/checkout"
+    mkdir -p "$RUN_DIR"
+    (cd "$CASE/checkout" && RECORD_KOTO_STORE="$CASE/koto" koto init execute-x --template t >/dev/null \
+        && printf '%s' "$MINE" | RECORD_KOTO_STORE="$CASE/koto" koto context add execute-x run_id >/dev/null)
+}
+TAKE=(--take-over --session execute-x)
+
+take_case takeover
+list "$(pr 7 OPEN '.body = "Some body.\ntrailing words\n"')"; plant 7 "$OTHER" 2026-01-01T00:00:00Z
+run "${RUN[@]}" "${TAKE[@]}"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$URL1" ]; then
+    pass "--take-over: the one PR another run recorded on my branch is recorded as mine and returned"
 else
-    fail "--take-over body: [$(cat "$CASE/edited-body" 2>/dev/null)]"
+    fail "--take-over: [$OUT] exit $RC; stderr: $ERR"
+fi
+if [ "$(latest 7)" = "$MINE" ]; then
+    pass "--take-over writes this run's index entry, now the PR's latest"
+else
+    fail "--take-over: the latest entry is [$(latest 7)]"
+fi
+if grep -q '^pr edit' "$CASE/calls.log"; then
+    fail "--take-over edited a PR: $(grep '^pr edit' "$CASE/calls.log")"
+else
+    pass "--take-over edits no PR body"
 fi
 expect "after a takeover the ordinary lookup matches" "$URL1" 0 "${RUN[@]}"
-if [ "$(grep -c '^pr edit' "$CASE/calls.log")" -eq 1 ]; then
-    pass "the ordinary lookup after a takeover edits nothing"
+
+take_case takeover-not-silent
+list "$(pr 7 OPEN)"; plant 7 "$OTHER"
+expect "without --take-over another run's PR is refused and nothing is written" "" 5 "${RUN[@]}"
+if [ "$(latest 7)" = "$OTHER" ]; then pass "the ordinary lookup writes no index entry"; else fail "the ordinary lookup wrote an entry"; fi
+
+take_case takeover-other-author
+list "$(pr 7 OPEN '.author.login = "someone-else"')"; plant 7 "$OTHER"
+expect "--take-over refuses a PR that is not mine (another author)" "" 0 "${RUN[@]}" "${TAKE[@]}"
+take_case takeover-fork
+list "$(pr 7 OPEN '.isCrossRepository = true')"; plant 7 "$OTHER"
+expect "--take-over refuses a PR that is not mine (a fork)" "" 0 "${RUN[@]}" "${TAKE[@]}"
+take_case takeover-other-head
+list "$(pr 7 OPEN '.headRefName = "feat/y"')"; plant 7 "$OTHER"
+expect "--take-over refuses a PR on another branch" "" 0 "${RUN[@]}" "${TAKE[@]}"
+if [ "$(latest 7)" = "$OTHER" ]; then
+    pass "--take-over writes nothing for a PR it refuses"
 else
-    fail "pr edit calls: $(grep '^pr edit' "$CASE/calls.log")"
+    fail "--take-over wrote an entry for a PR that was not mine"
 fi
 
-new_case takeover-not-silent
-list "$(pr 7 OPEN "$(mark "$OTHER")")"
-expect "without --take-over the foreign PR is refused and nothing is edited" "" 5 "${RUN[@]}"
-if grep -q '^pr edit' "$CASE/calls.log"; then
-    fail "the ordinary lookup edited a PR"
+take_case takeover-two-foreign
+list "$(pr 7 OPEN)" "$(pr 8 OPEN)"; plant 7 "$OTHER"; plant 8 "$THIRD"
+expect "--take-over never picks among several foreign PRs (exit 4)" "" 4 "${RUN[@]}" "${TAKE[@]}"
+
+take_case takeover-mine-already
+list "$(pr 7 OPEN)"; plant 7 "$MINE"
+expect "--take-over on a PR already mine just returns it" "$URL1" 0 "${RUN[@]}" "${TAKE[@]}"
+if [ "$(grep -c 'context add pr.o.r.7' "$CASE/koto/calls.log")" -eq 1 ]; then
+    pass "no entry written when the PR is already mine"
 else
-    pass "the ordinary lookup never edits"
+    fail "--take-over wrote an entry for a PR already mine"
 fi
 
-new_case takeover-other-author
-list "$(pr 7 OPEN "$(mark "$OTHER")" '.author.login = "someone-else"')"
-expect "--take-over refuses a PR that is not mine (another author)" "" 0 "${RUN[@]}" --take-over
-new_case takeover-fork
-list "$(pr 7 OPEN "$(mark "$OTHER")" '.isCrossRepository = true')"
-expect "--take-over refuses a PR that is not mine (a fork)" "" 0 "${RUN[@]}" --take-over
-new_case takeover-other-head
-list "$(pr 7 OPEN "$(mark "$OTHER")" '.headRefName = "feat/y"')"
-expect "--take-over refuses a PR on another branch" "" 0 "${RUN[@]}" --take-over
-if [ -s "$CASE/edited-body" ] || grep -q '^pr edit' "$CASE/calls.log"; then
-    fail "--take-over edited a PR that was not mine"
+take_case takeover-write-fails
+list "$(pr 7 OPEN)"; plant 7 "$OTHER"
+RECORD_KOTO_FAIL_WRITES=1 run "${RUN[@]}" "${TAKE[@]}"
+if [ "$RC" -eq 2 ] && [ -z "$OUT" ]; then
+    pass "--take-over whose index write fails is a failed read (exit 2)"
 else
-    pass "--take-over edits nothing it refuses"
+    fail "--take-over with a failing write: [$OUT] exit $RC"
 fi
-
-new_case takeover-two-foreign
-list "$(pr 7 OPEN "$(mark "$OTHER")")" "$(pr 8 OPEN '.body = "<!-- shirabe-run: 11111111111111111111111111111111 -->"')"
-expect "--take-over never picks among several foreign PRs (exit 4)" "" 4 "${RUN[@]}" --take-over
-
-new_case takeover-mine-already
-list "$(pr 7 OPEN "$(mark "$MINE")")"
-expect "--take-over on a PR already mine just returns it" "$URL1" 0 "${RUN[@]}" --take-over
-if grep -q '^pr edit' "$CASE/calls.log"; then fail "--take-over edited a PR already mine"; else pass "no edit when already mine"; fi
-
-new_case takeover-edit-fails
-list "$(pr 7 OPEN "$(mark "$OTHER")")"
-echo 1 > "$CASE/edit.rc"
-expect "--take-over whose edit fails is a failed read (exit 2)" "" 2 "${RUN[@]}" --take-over
 
 # --- the base defaults to the repository's default branch ---------------------
 
@@ -502,9 +577,12 @@ expect_usage "malformed --run-id" --repo o/r --head a --state open --run-id ABC
 expect_usage "empty --run-id" --repo o/r --head a --state open --run-id ''
 expect_usage "repeated --run-id" --repo o/r --head a --state open --run-id "$MINE" --run-id "$MINE"
 expect_usage "--take-over without --run-id" --repo o/r --head a --state open --take-over
-expect_usage "--take-over with --state all" --repo o/r --head a --state all --run-id "$MINE" --take-over
-expect_usage "--take-over with --state open-else-merged" --repo o/r --head a --state open-else-merged --run-id "$MINE" --take-over
+expect_usage "--take-over with --state all" --repo o/r --head a --state all --run-id "$MINE" --take-over --session execute-x
+expect_usage "--take-over with --state open-else-merged" --repo o/r --head a --state open-else-merged --run-id "$MINE" --take-over --session execute-x
 expect_usage "a near miss of open-else-merged" --repo o/r --head a --state open-or-merged
+expect_usage "--take-over without --session" --repo o/r --head a --state open --run-id "$MINE" --take-over
+expect_usage "--take-over with a session that is not a record root" --repo o/r --head a --state open --run-id "$MINE" --take-over --session scope-x
+expect_usage "--session without --take-over" --repo o/r --head a --state open --run-id "$MINE" --session execute-x
 
 # --- the contract names no caller step ----------------------------------------
 

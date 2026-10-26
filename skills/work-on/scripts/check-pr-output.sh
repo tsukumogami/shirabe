@@ -7,7 +7,7 @@
 # Each mode calls a check that already ships, unchanged, and translates its
 # result:
 #
-#   --pr-body [--owned <owned-pr.sh arguments>]
+#   --pr-body [--session <session>] [--owned <owned-pr.sh arguments>]
 #       Reads the pull request's title and body with `gh pr view --json
 #       title,body` and runs
 #       `shirabe validate --pr-body <file> --pr-title <title> --format json
@@ -29,14 +29,20 @@
 #       older than --writing-style rejects the flag with exit 1, so the gate
 #       holds (2) and says to upgrade; preflight (requires.tsv) reports the
 #       same gap when the skill loads.
-#       Unless the repository opts in to workflow content in its PR bodies
-#       (scripts/pr-workflow-content.sh prints include for the work tree this
-#       runs in), the body is also scanned, outside fenced code, for workflow
-#       records (references/pr-body-conformance.md, "Workflow content"): a
+#       Unless the switch reads include (scripts/pr-workflow-content.sh: with
+#       --session, the value that session's run recorded at its open, else
+#       the files of the work tree this runs in), the body is also scanned,
+#       outside fenced code, for workflow records
+#       (references/pr-body-conformance.md, "Workflow content"): a
 #       `## Review panel` heading, a Seat/Model/Run/Verdict/Reviewed head
 #       table, a `Plan:` or `Roadmap:` line, an `Implements` line naming a
-#       PLAN- or ROADMAP- file. Each is a pr-body/workflow-content finding, at
-#       that rule's stage, whatever the validator answered.
+#       PLAN- or ROADMAP- file, and the run's own traces: a run marker line
+#       (an HTML comment naming a shirabe run), a run line (`topic=`, `exit=`,
+#       `outcome=`, `intent=`, `mode=`, `store=`, `run=`), a `## PR Index` or
+#       `## Merge Order` heading or a PR index line, a `Run record:` line
+#       (which names a session), and a `record:` or `unpinned` result line.
+#       Each is a pr-body/workflow-content finding, at that rule's stage,
+#       whatever the validator answered.
 #
 #   --owned-pr <owned-pr.sh arguments>
 #       Runs skills/execute/scripts/owned-pr.sh with the arguments, bounded in
@@ -47,16 +53,16 @@
 #         owned-pr.sh exit 2, 64, a timeout, or anything else -> 2
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
-#   --deferral-record --reason <reason> [--reason <reason>]...
-#                     [--body] [--owned <owned-pr.sh arguments>]
+#   --deferral-record [--session <session>] --reason <reason>
+#                     [--reason <reason>]... [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
-#       VERIFICATION=hosted-ci, #1012). In a repository that doesn't opt in
-#       to workflow content (scripts/pr-workflow-content.sh prints omit, the
-#       default) it passes (0) without reading GitHub: the deferral is
-#       recorded in the run's context as verification_deferral, and the body
-#       says in plain terms that hosted CI verified the change. In one that
-#       opts in, or with --body (a coordinated node PR, whose body carries the
-#       record whatever the setting), it reads the pull request body with
+#       VERIFICATION=hosted-ci, #1012). When the switch reads omit (the
+#       default; with --session, the value that session's run recorded) it
+#       passes (0) without reading GitHub: the deferral is recorded in the
+#       run's context as verification_deferral, and the body says in plain
+#       terms that hosted CI verified the change. That holds for a
+#       coordinated node PR too. When it reads include, it reads the pull
+#       request body with
 #       `gh pr view --json body` and checks that it records the deferral, in
 #       three parts:
 #         a line saying "local verification did not run"
@@ -130,9 +136,9 @@ RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*
 
 usage() {
     cat >&2 <<'EOF'
-Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
+Usage: check-pr-output.sh --pr-body [--session <session>] [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
-       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--body] [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --deferral-record [--session <session>] --reason <reason> [--reason <reason>]... [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
@@ -240,12 +246,12 @@ rule_for_message() {
     esac
 }
 
-# workflow_content: pr-workflow-content.sh's answer for the
-# repository this script runs in (the work tree holding the current
-# directory), `include` or `omit`; any failure is undecided.
+# workflow_content: pr-workflow-content.sh's answer, `include` or `omit`:
+# the value --session's run recorded, else (no --session) the files of the
+# work tree holding the current directory. Any failure is undecided.
 workflow_content() {
     local v
-    v=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" 2>"$WORK/pwc.err" </dev/null) \
+    v=$(bash "$HERE/../../../scripts/pr-workflow-content.sh" ${CONTENT_SESSION:+--session "$CONTENT_SESSION"} 2>"$WORK/pwc.err" </dev/null) \
         || undecided "scripts/pr-workflow-content.sh failed: $(tail -n 1 "$WORK/pwc.err")"
     case "$v" in
         include|omit) printf '%s\n' "$v" ;;
@@ -283,6 +289,24 @@ workflow_records() {
             }
             if (l ~ /^implements[ \t]/ && t ~ /(PLAN|ROADMAP)-[^ \t]*\.md/) {
                 printf "an `Implements` line naming a PLAN or ROADMAP file (line %d)\n", NR; next
+            }
+            if (l ~ /^<!--[ \t]*shirabe-run:/) {
+                printf "a run marker line (line %d)\n", NR; next
+            }
+            if (t ~ /^(topic|exit|outcome|intent|mode|store|run)=[^ \t]+$/) {
+                printf "a `%s` run line (line %d)\n", substr(t, 1, index(t, "=")), NR; next
+            }
+            if (l == "## pr index" || l == "## merge order") {
+                printf "a `%s` heading (line %d)\n", t, NR; next
+            }
+            if (t ~ /^- [a-z][a-z0-9-]*(\/follow-up-[0-9]+)? \| [^ |]+\/[^ |]+:[^ |]+#[0-9]+ \|/) {
+                printf "a PR index line (line %d)\n", NR; next
+            }
+            if (l ~ /^run record:/) {
+                printf "a `Run record:` line naming a session (line %d)\n", NR; next
+            }
+            if (l ~ /^(record|record_unpinned|unpinned)[ \t]*[:=]/) {
+                printf "a run record result line (line %d)\n", NR; next
             }
         }' "$1"
 }
@@ -361,7 +385,7 @@ check_pr_body() {
     fi
     while IFS= read -r rec; do
         [ -n "$rec" ] || continue
-        finding pr-body/workflow-content "$rec; the repository doesn't declare ## PR Workflow Content: include, so it belongs in the run's session, not the body"
+        finding pr-body/workflow-content "$rec; the run's PR content switch reads omit (the repository doesn't declare ## PR Workflow Content: include), so it belongs in the run's session, not the body"
     done < "$WORK/records"
     # The fallback stands in for a violation the validator didn't list, so it
     # prints only when nothing was listed: a listed finding below block is
@@ -424,11 +448,6 @@ check_deferral_record() {
         shift 2
     done
     [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
-    body_always=0
-    if [ $# -gt 0 ] && [ "$1" = --body ]; then
-        body_always=1
-        shift
-    fi
     if [ $# -gt 0 ]; then
         [ "$1" = --owned ] || { usage; exit 2; }
         shift
@@ -436,15 +455,13 @@ check_deferral_record() {
         OWNED=1
     fi
     make_work
-    # A repository that doesn't opt in to workflow content keeps the deferral
-    # out of the body: the run's context already records it
-    # (verification_deferral), and the body's Verification section says in
-    # plain terms that hosted CI verified the change. --body reads the body
-    # whatever the setting: a coordinated node PR always carries the record.
-    content=include
-    [ "$body_always" = 1 ] || content=$(workflow_content) || exit 2
+    # Under omit the deferral stays out of the body: the run's context already
+    # records it (verification_deferral), and the body's Verification section
+    # says in plain terms that hosted CI verified the change. A coordinated
+    # node PR is no exception.
+    content=$(workflow_content) || exit 2
     if [ "$content" = omit ]; then
-        echo "check-pr-output: the repository doesn't declare ## PR Workflow Content: include, so the deferral is recorded in the run's context, not the PR body" >&2
+        echo "check-pr-output: the run's switch reads omit, so the deferral is recorded in the run's context, not the PR body" >&2
         exit 0
     fi
     for tool in gh jq; do
@@ -508,6 +525,19 @@ check_owned_pr() {
 MODE=$1
 shift
 OWNED=0
+# --session <s>: read the switch the run recorded (pr-workflow-content.sh
+# --session) rather than the files. --pr-body and --deferral-record take it.
+CONTENT_SESSION=""
+case "$MODE" in
+    --pr-body|--deferral-record)
+        if [ $# -gt 0 ] && [ "$1" = --session ]; then
+            [ $# -ge 2 ] || { usage; exit 2; }
+            [[ $2 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { usage; exit 2; }
+            CONTENT_SESSION=$2
+            shift 2
+        fi
+        ;;
+esac
 case "$MODE" in
     --pr-body)
         if [ $# -gt 0 ]; then

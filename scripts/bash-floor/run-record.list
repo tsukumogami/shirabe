@@ -1,0 +1,12 @@
+workflow: .github/workflows/check-run-record.yml
+# The run record's store library, its one writer, its lookup, its pins and
+# its rules check. Every case runs against the stand-in koto in
+# scripts/testdata/record-koto/ and a stub gh, so all of them execute on the
+# floor; they need jq. The pin suite's real-koto case skips itself where no
+# koto at or above 0.24.0 is on PATH.
+scripts/record-store_test.sh
+scripts/run-trail_test.sh
+scripts/run-record-lookup_test.sh
+skills/work-on/scripts/multi-pr-item-record_test.sh
+scripts/run-record-pin_test.sh
+scripts/check-run-record-rules_test.sh

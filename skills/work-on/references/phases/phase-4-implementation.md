@@ -113,8 +113,9 @@ Do this:
 If an AC is literally under-specified or contradicts reality (e.g., an
 AC references `rule.config.pattern` but the rest of the system uses
 `rule.tools`), implement what makes sense for the system and record a
-decision via `koto decisions record` — don't ship a contorted
-implementation to transcribe the AC verbatim.
+decision through `scripts/run-trail.sh decision` (SKILL.md's Decision
+Capture), which also sends it through `koto decisions record` — don't ship a
+contorted implementation to transcribe the AC verbatim.
 
 ## Acceptance Criteria Validation Scripts
 
@@ -154,6 +155,13 @@ the change in `rationale`; the transition rewinds to `analysis` so the plan can
 absorb it cleanly.
 
 ## Retry Loop: scope_expanded_retry
+
+First record the scope change in the run's record, against this run's step: write `{"what": "<the scope that appeared>", "why": "<what revealed it>"}` to `departure.json` in the run's scratch directory and run
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" departure --session <WF> --step <ARTIFACT_PREFIX> --kind scope-change < <scratch>/departure.json
+rm <scratch>/departure.json
+```
 
 The rewind lands on `analysis`, whose `plan_artifact` gate holds the `plan.md` the rewind exists to replace. Clear it before submitting:
 

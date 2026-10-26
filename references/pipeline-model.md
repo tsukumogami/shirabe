@@ -97,10 +97,10 @@ draft, accepted/active, in-progress, completed.
 |----------|--------|----------|
 | VISION | Draft -> Accepted -> Active -> Sunset | Sunset |
 | Strategy | Draft -> Accepted -> Active -> Sunset | Sunset |
-| Roadmap | Draft -> Active -> Done | Done |
+| Roadmap | Draft -> Active -> Done -> DELETED | DELETED |
 | PRD | Draft -> Accepted -> In Progress -> Done | Done |
 | Design Doc | Proposed -> Accepted -> Planned -> Current (or Superseded) | Current |
-| Plan | Draft -> Active -> Done | Done |
+| Plan | Draft -> Active -> Done -> DELETED | DELETED |
 | Spike Report | Draft -> Complete | Complete |
 | Decision Record | Draft -> Accepted | Accepted |
 
@@ -111,6 +111,8 @@ draft, accepted/active, in-progress, completed.
 - **Planned**: downstream /plan has created issues (design docs only)
 - **Current**: implementation is complete, design is the active reference
 - **Done/Complete**: all planned work finished
+- **DELETED**: the cascade removed a working artifact (Roadmap, Plan) once
+  its work finished
 - **Superseded**: replaced by a newer artifact
 - **Sunset**: VISION is no longer actively driving work but remains as context
 
@@ -177,6 +179,14 @@ one. Roadmaps and Plans are working artifacts: they are deleted when their work
 completes. Every other type is durable. So a durable document never names a
 working one -- the link would be correct on the day it is written and dangling
 on the day the cascade runs.
+
+Of the Plans, only a `multi-pr` one reaches the default branch: it stays
+there while its item PRs land, and the PR that completes it deletes it. A
+`single-pr` or `coordinated` Plan is deleted before its PR merges. Neither a
+Plan nor a Roadmap is the record of the work. For what a finished plan's work
+followed (the plan as each step began, each step's proof, the departures and
+the decisions), a later reader goes to the run's koto session, found from any
+of its merged PRs with `scripts/run-record-lookup.sh <owner/repo> <n>`.
 
 A working document may name another working one, and the guarantee there rests
 on cascade ordering rather than on the lifetime classes alone. The classes say

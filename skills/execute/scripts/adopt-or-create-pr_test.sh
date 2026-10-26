@@ -34,19 +34,45 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/adopt-or-create-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"
 mkdir -p "$BIN"
+# The run record's shared address is a directory of this suite's own
+# (record-store.sh's test-only override), never the real
+# /tmp/shirabe-run-record a run on this host writes to.
+SHIRABE_RUN_RECORD_TEST_ROOT="$(cd "$WORK" && pwd -P)/shared-record"
+export SHIRABE_RUN_RECORD_TEST_ROOT
 S=execute-topic
 URL="https://github.com/o/r/pull/7"
 
+# The run record's writes reach it too (scripts/run-trail.sh): `init` opens
+# the index session, keys may hold slashes, and `session list` names every
+# session with one fixed id. koto-cwd.log keeps the directory each call ran
+# from, so a case can see the index written from the shared address.
+# KOTO_FAIL_KEY fails a `context add` of keys under that prefix.
 cat > "$BIN/koto" <<'STUB'
 #!/usr/bin/env bash
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto.log"
+printf '%s\t%s\n' "$(pwd -P)" "$*" >> "$store/koto-cwd.log"
+case "$1 ${2:-}" in
+    "init "*) mkdir -p "$store/ctx/$2"; echo '{}'; exit 0 ;;
+    "session list")
+        for s in "$store"/ctx/*/; do
+            n=${s%/}; n=${n##*/}
+            printf '{"id":"%s","session_id":"sid-0001"}\n' "$n"
+        done | jq -sc .
+        exit 0 ;;
+esac
 d="$store/ctx/$3"
 mkdir -p "$d"
 case "$1 $2" in
-    "context add") cat > "$d/$4" ;;
+    "context add")
+        case "$4" in "${KOTO_FAIL_KEY:-//}"*) exit 1 ;; esac
+        mkdir -p "$(dirname "$d/$4")"; cat > "$d/$4" ;;
     "context get") [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
     "context exists") [ -f "$d/$4" ] ;;
+    "context list")
+        # context list <s> --prefix <p>: the keys under <p>, as a JSON array.
+        p=""; [ "${4:-}" = --prefix ] && p=${5:-}
+        (cd "$d" && find . -type f | sed 's#^\./##' | grep "^$p" | jq -Rsc 'split("\n") | map(select(length > 0))') ;;
     *) exit 9 ;;
 esac
 STUB
@@ -132,6 +158,55 @@ else
     fail "adopt: exit $RC, out [$OUT], home_pr [$(ctx home_pr)], creates $(creates)"
 fi
 
+# The run record: the adopted PR is in the root's trail, and the PR's index
+# session names the root, written from the shared address.
+TRAIL_PR=$(ctx trail/pr/o.r.7)
+INDEX_ENTRY=$(cat "$CASE/ctx/pr.o.r.7/run/$SEEDED" 2>/dev/null)
+REPO_WS=$(cd "$REPO_DIR" && pwd -P)
+SHARED_WS=$(mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/o" && cd "$SHIRABE_RUN_RECORD_TEST_ROOT/o" && pwd -P)
+if [ "$(jq -r '[.repo, .number, .role, .state] | map(tostring) | join(" ")' <<<"$TRAIL_PR")" = "o/r 7 home open" ]; then
+    pass "the adopted home PR is recorded in the root's trail/pr, role home, state open"
+else
+    fail "trail/pr/o.r.7: [$TRAIL_PR]"
+fi
+if [ "$(jq -r '[.session, .mode, .topic, .workspace] | join(" ")' <<<"$INDEX_ENTRY")" = "$S single-pr topic $REPO_WS" ] \
+    && [ "$(jq -r '.workspace' <<<"$(ctx trail/self)")" = "$REPO_WS" ]; then
+    pass "the PR's index entry names the root, its mode, its topic and the checkout it runs in"
+else
+    fail "index entry [$INDEX_ENTRY], trail/self [$(ctx trail/self)]"
+fi
+if grep -qF "$(printf '%s\tinit pr.o.r.7 ' "$SHARED_WS")" "$CASE/koto-cwd.log" \
+    && grep -qF "$(printf '%s\tcontext add pr.o.r.7 run/%s' "$SHARED_WS" "$SEEDED")" "$CASE/koto-cwd.log" \
+    && ! grep -q -- '--workspace' "$CASE/koto.log"; then
+    pass "the index session is opened and written from the shared address, with no --workspace"
+else
+    fail "index writes: [$(cat "$CASE/koto-cwd.log")]"
+fi
+
+new_case trail-fails
+echo "[$(owned 7)]" > "$CASE/list.out"
+KOTO_FAIL_KEY=trail/pr
+export KOTO_FAIL_KEY
+run_adopt --session "$S" --repo o/r --head impl/topic
+unset KOTO_FAIL_KEY
+if [ "$RC" -eq 70 ] && [ -z "$OUT" ] && [ ! -e "$CASE/ctx/pr.o.r.7/run/$SEEDED" ]; then
+    pass "a failed run-record write: exit 70, no URL printed, no index entry"
+else
+    fail "trail fails: exit $RC, out [$OUT]"
+fi
+
+new_case index-fails
+echo "[$(owned 7)]" > "$CASE/list.out"
+KOTO_FAIL_KEY=run/
+export KOTO_FAIL_KEY
+run_adopt --session "$S" --repo o/r --head impl/topic
+unset KOTO_FAIL_KEY
+if [ "$RC" -eq 70 ] && [ -z "$OUT" ] && [ -n "$(ctx trail/pr/o.r.7)" ]; then
+    pass "a failed index write: exit 70 after the root's trail/pr is written"
+else
+    fail "index fails: exit $RC, out [$OUT]"
+fi
+
 new_case adopt-with-create
 echo "[$(owned 7)]" > "$CASE/list.out"
 run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
@@ -168,11 +243,20 @@ else
 fi
 RID=$(ctx run_id)
 if [[ $RID =~ ^[0-9a-f]{32}$ ]] \
-    && [ "$(head -1 "$CASE/created-body")" = "Draft of the topic work; its description is written when the work is done." ] \
-    && grep -qxF "<!-- shirabe-run: $RID -->" "$CASE/created-body"; then
-    pass "the created PR's body carries this run's marker, and the run's id is recorded"
+    && [ "$(cat "$CASE/created-body")" = "Draft of the topic work; its description is written when the work is done." ]; then
+    pass "default (omit): the created PR's body is one plain line, nothing of the run"
 else
     fail "created body [$(cat "$CASE/created-body" 2>/dev/null)], run_id [$RID]"
+fi
+if grep -qF -e "$RID" -e "$S" -e 'shirabe''-run' -e 'Run record' "$CASE/created-body"; then
+    fail "default: the created body carries the run: [$(cat "$CASE/created-body")]"
+else
+    pass "default: the created body holds no run id, session name, marker or record line"
+fi
+if [ -f "$CASE/ctx/pr.o.r.7/run/$RID" ]; then
+    pass "the created PR's ownership is its index entry for this run, not its text"
+else
+    fail "no index entry for the created PR"
 fi
 if grep -q 'PLAN-' "$CASE/created-body"; then
     fail "default: the created body points at the PLAN: [$(cat "$CASE/created-body")]"
@@ -186,37 +270,59 @@ echo "[$(owned 7)]" > "$CASE/list.out.2"
 REPO_DIR="$WORK/include-repo"
 run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
 REPO_DIR="$WORK/omit-repo"
-if [ "$RC" -eq 0 ] && [ "$(head -1 "$CASE/created-body")" = "Implements docs/plans/PLAN-topic.md." ]; then
-    pass "a repository that opts in to workflow content: the body points at the PLAN, as before"
+WANT_BODY=$(printf 'Implements docs/plans/PLAN-topic.md.\n\n---\n\nRun record: %s (run %s)' "$S" "$SEEDED")
+if [ "$RC" -eq 0 ] && [ "$(cat "$CASE/created-body")" = "$WANT_BODY" ]; then
+    pass "include: the body points at the PLAN, and its Part 2 is the one Run record line"
 else
     fail "include: exit $RC, created body [$(cat "$CASE/created-body" 2>/dev/null)]"
 fi
 
-# --- the run marker -------------------------------------------------------------
+# The switch is the run's recorded value, not the files at the write: an
+# opener that recorded omit wins over a checkout whose header now says include.
+new_case create-recorded-omit
+echo '[]' > "$CASE/list.out.1"
+echo "[$(owned 7)]" > "$CASE/list.out.2"
+printf 'omit' > "$CASE/ctx/$S/pr_content"
+REPO_DIR="$WORK/include-repo"
+run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
+REPO_DIR="$WORK/omit-repo"
+if [ "$RC" -eq 0 ] && [ "$(cat "$CASE/created-body")" = "Draft of the topic work; its description is written when the work is done." ]; then
+    pass "a recorded omit wins over an include header read at the write"
+else
+    fail "recorded omit: exit $RC, created body [$(cat "$CASE/created-body" 2>/dev/null)]"
+fi
+
+# --- the run's index entry --------------------------------------------------------
 
 MINE=0123456789abcdef0123456789abcdef
 OTHER=fedcba9876543210fedcba9876543210
-marked() { owned "$1" ".body = \"Implements x.\\n\\n<!-- shirabe-run: $2 -->\\n\""; }
+# plant <n> <run_id>: an index entry for PR <n>, laid out as run-trail.sh
+# index writes one, dated well before any entry this suite's runs write.
+plant() {
+    mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/o" "$CASE/ctx/pr.o.r.$1/run"
+    printf '{"workspace":"/w","session":"execute-topic","session_id":"sid-9","mode":"single-pr","topic":"topic","written_at":"2020-01-01T00:00:00Z"}' \
+        > "$CASE/ctx/pr.o.r.$1/run/$2"
+}
 
-new_case marker-mine
+new_case index-mine
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
-echo "[$(marked 7 "$MINE")]" > "$CASE/list.out"
+echo "[$(owned 7)]" > "$CASE/list.out"; plant 7 "$MINE"
 run_adopt --session "$S" --repo o/r --head impl/topic
 if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ]; then
-    pass "the PR this run opened (its marker) is adopted"
+    pass "the PR this run recorded (its index entry) is adopted"
 else
-    fail "marker-mine: exit $RC, home_pr [$(ctx home_pr)]"
+    fail "index-mine: exit $RC, home_pr [$(ctx home_pr)]"
 fi
 
-new_case marker-foreign
+new_case index-foreign
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
-echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+echo "[$(owned 7)]" > "$CASE/list.out"; plant 7 "$OTHER"
 run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
 if [ "$RC" -eq 6 ] && [ -z "$(ctx home_pr)" ] && [ "$(creates)" -eq 0 ] \
     && ! grep -q '^pr edit' "$CASE/gh.log"; then
     pass "another run's PR on the branch: exit 6, not adopted, nothing created or edited"
 else
-    fail "marker-foreign: exit $RC, home_pr [$(ctx home_pr)], creates $(creates)"
+    fail "index-foreign: exit $RC, home_pr [$(ctx home_pr)], creates $(creates)"
 fi
 
 # The same answer releases the takeover rule on stderr: the marker line, the
@@ -241,25 +347,23 @@ else
 fi
 [ -z "$OUT" ] && pass "exit 6 still prints nothing on stdout" || fail "exit 6 printed on stdout: [$OUT]"
 
-new_case marker-takeover
+new_case index-takeover
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
-echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out.1"
-echo "[$(marked 7 "$MINE")]" > "$CASE/list.out.2"
-echo 0 > "$CASE/edit.rc"
+echo "[$(owned 7)]" > "$CASE/list.out"; plant 7 "$OTHER"
 run_adopt --session "$S" --repo o/r --head impl/topic --take-over --plan-slug topic
-if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ] && [ "$(grep -c '^pr edit' "$CASE/gh.log")" -eq 1 ] \
-    && [ "$(creates)" -eq 0 ]; then
-    pass "--take-over restamps the other run's PR on this PLAN's impl/<slug> and adopts it"
+if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ] && ! grep -q '^pr edit' "$CASE/gh.log" \
+    && [ "$(creates)" -eq 0 ] && [ -f "$CASE/ctx/pr.o.r.7/run/$MINE" ]; then
+    pass "--take-over writes this run's index entry for the other run's PR on impl/<slug>, edits no body, and adopts it"
 else
-    fail "marker-takeover: exit $RC, home_pr [$(ctx home_pr)], edits $(grep -c '^pr edit' "$CASE/gh.log")"
+    fail "index-takeover: exit $RC, home_pr [$(ctx home_pr)], edits $(grep -c '^pr edit' "$CASE/gh.log")"
 fi
 
 # Cross-PLAN: the branch the user is on (another PLAN's impl/<slug>, a
-# scoping branch, a node branch) carries a live run's marked PR. A takeover
-# there must be refused before any gh or koto call.
+# scoping branch, a node branch) carries a live run's PR. A takeover there
+# must be refused before any gh or koto call.
 for head in impl/other-plan docs/topic impl/topic-node-a; do
     new_case "takeover-refused-$(printf '%s' "$head" | tr '/' '-')"
-    echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+    echo "[$(owned 7)]" > "$CASE/list.out"
     run_adopt --session "$S" --repo o/r --head "$head" --take-over --plan-slug topic
     if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ] && ! grep -q '^pr edit' "$CASE/gh.log"; then
         pass "--take-over on $head (not this PLAN's impl/topic) is refused, nothing read or edited"
@@ -268,7 +372,7 @@ for head in impl/other-plan docs/topic impl/topic-node-a; do
     fi
 done
 new_case takeover-no-slug
-echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+echo "[$(owned 7)]" > "$CASE/list.out"
 run_adopt --session "$S" --repo o/r --head impl/topic --take-over
 if [ "$RC" -eq 64 ] && [ ! -s "$CASE/gh.log" ]; then
     pass "--take-over without --plan-slug is refused"
@@ -286,24 +390,24 @@ else
     fail "no-identity: exit $RC, run_id [$(ctx run_id)]"
 fi
 
-new_case marker-unmarked
+new_case index-unrecorded
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
-echo "[$(owned 7 '.body = "A /scope PR."')]" > "$CASE/list.out"
+echo "[$(owned 7)]" > "$CASE/list.out"
 run_adopt --session "$S" --repo o/r --head impl/topic
 if [ "$RC" -eq 0 ] && [ "$(ctx home_pr)" = "$URL" ] && ! grep -q '^pr edit' "$CASE/gh.log"; then
-    pass "an unmarked PR (a /scope PR) is adopted on the login-and-branch match, unedited"
+    pass "a PR with no index entry (a /scope PR) is adopted on the login-and-branch match, unedited"
 else
-    fail "marker-unmarked: exit $RC, home_pr [$(ctx home_pr)]"
+    fail "index-unrecorded: exit $RC, home_pr [$(ctx home_pr)]"
 fi
 
-new_case marker-ambiguous
+new_case index-ambiguous
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
-echo "[$(marked 7 "$MINE"),$(owned 8)]" > "$CASE/list.out"
+echo "[$(owned 7),$(owned 8)]" > "$CASE/list.out"; plant 7 "$MINE"
 run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
 if [ "$RC" -eq 3 ] && [ -z "$(ctx home_pr)" ] && [ "$(creates)" -eq 0 ]; then
     pass "an ambiguous lookup (owned-pr.sh 4) ends pr-adopt (3), nothing recorded or created"
 else
-    fail "marker-ambiguous: exit $RC"
+    fail "index-ambiguous: exit $RC"
 fi
 
 new_case fork-then-create
@@ -473,12 +577,13 @@ done
 # A copy of the plugin with no registry: exit 6 is unchanged and stderr carries
 # release's one notice line instead of the rule.
 NOREG="$WORK/noreg"
-mkdir -p "$NOREG/skills/execute" "$NOREG/scripts"
+mkdir -p "$NOREG/skills/execute" "$NOREG/scripts/lib"
 cp -R "$SCRIPT_DIR" "$NOREG/skills/execute/"
 cp "$ROOT/scripts/rule-registry.sh" "$NOREG/scripts/"
+cp "$ROOT/scripts/lib/record-store.sh" "$NOREG/scripts/lib/"
 new_case no-registry
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
-echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+echo "[$(owned 7)]" > "$CASE/list.out"; plant 7 "$OTHER"
 SAVED_ADOPT=$ADOPT
 ADOPT="$NOREG/skills/execute/scripts/adopt-or-create-pr.sh"
 run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md

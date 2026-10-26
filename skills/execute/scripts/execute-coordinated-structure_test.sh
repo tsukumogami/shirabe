@@ -10,13 +10,20 @@
 # It asserts, on the shipped template:
 #
 #   the states are exactly coord_setup (initial), coord_loop, coord_verdict,
-#     coord_merge_confirm, merged, ready_awaiting_merge,
+#     coord_merge_confirm, record_keep, merged, ready_awaiting_merge,
 #     paused_awaiting_merges, done_blocked, and done_error; no done_refused
+#   record_keep is the only way into merged and ready_awaiting_merge (both
+#     coord_merge_confirm edges and coord_verdict's ready edge go there), it
+#     routes merged on the same non-overridable confirmed_merged gate, never
+#     reaches paused_awaiting_merges, and its default action is
+#     run-record-pin.sh on this run's root ending `|| true`; every terminal
+#     reads record and unpinned from context; coord_loop records each readied
+#     node PR and the readied coordination PR through run-trail.sh pr-state
 #   coord_setup and coord_loop are agent-run (no default_action); coord_loop's
 #     edges key only on the agent's loop_exit, never on a gate or merge state
 #   coord_verdict takes no agent evidence and runs
 #     record-coordination-verdict.sh as its default action
-#   every edge into `merged` comes from coord_merge_confirm and no other state
+#   every edge into `merged` comes from record_keep and no other state
 #   coord_merge_confirm declares no command gate, and runs
 #     record-merge-verdict.sh --confirm with --repo read from home_repo (never
 #     the comma-joined repos) and --head-branch from coord_branch
@@ -45,6 +52,11 @@
 #     exit 80 stopping the loop as error:execute:deferral-record
 #   coord_loop's dispatch step hands the review-level bound to every child,
 #     naming both variables, only when not empty
+#   coord_loop's dispatch step records, right before each work item's step
+#     agent starts, the PLAN at plan_abs (run-trail.sh plan) and the step
+#     session work-on-<slug>-<node>-<item> with the node's worktree as its
+#     workspace (run-trail.sh step --child-workspace), and stops the loop on
+#     a failure (mutation: the plan call dropped)
 #   no default_action command holds ${context.
 #   STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE and ADOPT_RUN are
 #     optional and rebind, each with its pattern admitting empty; coord_setup
@@ -92,6 +104,10 @@
 # and that each structural check bites on a mutated copy: a second edge into
 # merged, a command gate on coord_merge_confirm, an overridable coord_verdict
 # gate, a reason assignment out of coord_verdict, and a done_refused state.
+#
+# The compile runs the real koto under a scratch HOME with every
+# KOTO_SESSION_* variable, KOTO_SESSIONS_BASE and KOTO_TICK_SESSION cleared,
+# and only once `koto session dir` resolves under the scratch directory.
 #
 # Usage: execute-coordinated-structure_test.sh
 # Exit codes: 0 all pass (or koto absent: the compiled checks SKIP loudly),
@@ -350,12 +366,29 @@ fi
 WORK="$T/compile"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
+# The real koto compiles here, so it must keep its store in this suite's
+# scratch HOME: the caller's koto session context (every KOTO_SESSION_*
+# variable, KOTO_SESSIONS_BASE, KOTO_TICK_SESSION) is cleared, and no compile
+# runs unless `koto session dir` resolves under the scratch directory.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+GUARD_DIR=$(koto session dir coord-structure-guard </dev/null 2>/dev/null) || GUARD_DIR=""
+T_P=$(cd "$T" && pwd -P) || { echo "FAIL: could not resolve the scratch directory" >&2; exit 1; }
+case "$GUARD_DIR" in
+    "$T"/*|"$T_P"/*) ;;
+    *)
+        echo "FAIL: koto's session directory [$GUARD_DIR] is not under this suite's scratch directory; nothing was compiled" >&2
+        exit 1
+        ;;
+esac
 
 compile() { koto template compile "$@" 2>/dev/null | tail -1; }
 holds() { jq -e "$2" "$1" >/dev/null 2>&1; }
 
 CHECKS=(
-"the states are exactly the envelope's nine|.states | keys == [\"coord_loop\",\"coord_merge_confirm\",\"coord_setup\",\"coord_verdict\",\"done_blocked\",\"done_error\",\"merged\",\"paused_awaiting_merges\",\"ready_awaiting_merge\"]"
+"the states are exactly the envelope's ten|.states | keys == [\"coord_loop\",\"coord_merge_confirm\",\"coord_setup\",\"coord_verdict\",\"done_blocked\",\"done_error\",\"merged\",\"paused_awaiting_merges\",\"ready_awaiting_merge\",\"record_keep\"]"
 "coord_setup is the initial state|.initial_state == \"coord_setup\""
 "no done_refused state is declared|.states | has(\"done_refused\") | not"
 "merged, ready_awaiting_merge, and paused_awaiting_merges are non-failure terminals|[.states.merged, .states.ready_awaiting_merge, .states.paused_awaiting_merges] | all(. != null and .terminal == true and ((.failure // false) == false))"
@@ -365,18 +398,24 @@ CHECKS=(
 "coord_loop's edges key only on loop_exit|[.states.coord_loop.transitions[] | .when | keys == [\"loop_exit\"]] | length == 3 and all"
 "coord_verdict takes no agent evidence|(.states.coord_verdict.accepts // {}) | length == 0"
 "coord_verdict's default action runs record-coordination-verdict.sh|(.states.coord_verdict.default_action.command // \"\") | test(\"record-coordination-verdict\\\\.sh \")"
-"every edge into merged comes from coord_merge_confirm|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"coord_merge_confirm\"]"
+"every edge into merged comes from record_keep|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"record_keep\"]"
+"record_keep routes merged on the same non-overridable confirmed_merged gate coord_merge_confirm reads|(.states.record_keep.gates == .states.coord_merge_confirm.gates) and (.states.record_keep.gates.confirmed_merged == {type: \"context-matches\", key: \"confirm_verdict\", pattern: \"^merged\$\", overridable: false}) and ([.states.record_keep.transitions[] | select(.target == \"merged\") | .when] == [{\"gates.confirmed_merged.matches\": true}]) and ([.states.record_keep.transitions[] | select(.target == \"ready_awaiting_merge\") | .when] == [{\"gates.confirmed_merged.matches\": false}])"
+"both coord_merge_confirm edges, and coord_verdict's ready edge, go to record_keep|([.states.coord_merge_confirm.transitions[].target] == [\"record_keep\",\"record_keep\"]) and ([.states.coord_verdict.transitions[] | select(.when[\"gates.verdict_ready.matches\"] == true) | .target] == [\"record_keep\"])"
+"every edge into ready_awaiting_merge comes from record_keep, and none from it reaches paused_awaiting_merges|([.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"ready_awaiting_merge\") | \$s] | length > 0 and all(. == \"record_keep\")) and ([.states.record_keep.transitions[].target] | index(\"paused_awaiting_merges\") == null)"
+"record_keep's default action pins this run's root with run-record-pin.sh and can't hold the run|(.states.record_keep.default_action.command // \"\") == \"\\\"{{PLUGIN_ROOT}}/scripts/run-record-pin.sh\\\" --root \\\"execute-{{PLAN_SLUG}}\\\" --result \\\"execute-{{PLAN_SLUG}}\\\" || true\""
+"coord_loop records each readied node PR and the readied coordination PR through run-trail.sh pr-state|.states.coord_loop.directive | ((split(\"scripts/run-trail.sh\\\" pr-state --session {{SESSION_NAME}}\") | length) == 3 and contains(\"--number <n> --state ready\"))"
 "coord_merge_confirm declares no command gate|[.states.coord_merge_confirm.gates[] | select(.type == \"command\")] | length == 0"
 "every coord_merge_confirm gate is a non-overridable context-matches gate|[.states.coord_merge_confirm.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
 "every coord_verdict gate is a non-overridable context-matches gate|[.states.coord_verdict.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
 "coord_merge_confirm runs record-merge-verdict.sh --confirm on home_repo and coord_branch|(.states.coord_merge_confirm.default_action.command // \"\") | (test(\"record-merge-verdict\\\\.sh --confirm \") and test(\"--repo \\\"\\\\\$\\\\(koto context get execute-\\\\{\\\\{PLAN_SLUG\\\\}\\\\} home_repo\\\\)\\\"\") and test(\"--head-branch \\\"\\\\\$\\\\(koto context get execute-\\\\{\\\\{PLAN_SLUG\\\\}\\\\} coord_branch\\\\)\\\"\") and (test(\" repos\\\\)\") | not))"
 "no edge out of coord_verdict assigns reason|[.states.coord_verdict.transitions[] | (.context_assignments // {}) | has(\"reason\")] | any | not"
 "only coord_verdict's absent-or-unmatched edge assigns step, the literal execute:status-read|[.states.coord_verdict.transitions[] | select((.context_assignments // {}) | has(\"step\"))] | length == 1 and .[0].context_assignments.step == \"execute:status-read\" and ([.[0].when | to_entries[] | select(.key | startswith(\"gates.\")) | .value] | all(. == false))"
-"coord_merge_confirm's not-merged edge assigns reason merge-not-observed|[.states.coord_merge_confirm.transitions[] | select(.target == \"ready_awaiting_merge\") | .context_assignments.reason] == [\"merge-not-observed\"]"
+"coord_merge_confirm's not-merged edge assigns reason merge-not-observed|[.states.coord_merge_confirm.transitions[] | select(.when[\"gates.confirmed_merged.matches\"] == false) | .context_assignments.reason] == [\"merge-not-observed\"]"
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "step and reason are assigned only as literals|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | to_entries[] | select(.key == \"step\" or .key == \"reason\") | .value | (contains(\"\${\") or contains(\"{{\"))] | any | not"
 "no assignment reads \${context. or \${gates.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | (contains(\"\${context.\") or contains(\"\${gates.\"))] | any | not"
-"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"body\",\"outcome\",\"pr\",\"reason\",\"recovered\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length == 5 and all"
+"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"body\",\"outcome\",\"pr\",\"reason\",\"record\",\"recovered\",\"repos\",\"resume\",\"step\",\"unpinned\",\"waiting\"]] | length == 5 and all"
+"every terminal reads record and unpinned from context|[.states[] | select(.terminal == true) | .result.record == \"\${context.record}\" and .result.unpinned == \"\${context.record_unpinned}\"] | length == 5 and all"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
 "every terminal reads body from context|[.states[] | select(.terminal == true) | .result.body == \"\${context.body}\"] | all"
 "every terminal reads recovered from context|[.states[] | select(.terminal == true) | .result.recovered == \"\${context.recovered}\"] | length == 5 and all"
@@ -398,6 +437,7 @@ CHECKS=(
 "coord_setup accepts blocked and the sixteen typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\",\"follow-up-node\",\"follow-up-repo\",\"follow-up-base\",\"follow-up-author\",\"follow-up-closed\"]"
 "coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
 "every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
+"the dispatch step records each work item's PLAN snapshot and step session through run-trail.sh before its hand-off|(.states.coord_loop.directive // \"\") | ((split(\"- \`dispatch:<node>\`\")[1] // \"\") | split(\"\\n- \`\")[0]) | (contains(\"Right before each work item's step agent starts\") and contains(\"run-trail.sh\\\" plan --session {{SESSION_NAME}} --step <step> --plan \\\"\$(koto context get {{SESSION_NAME}} plan_abs)\\\"\") and contains(\"run-trail.sh\\\" step --session {{SESSION_NAME}} --step <step> --child <step> --child-workspace <the node's worktree>\") and contains(\"\`<step>\` the child's session name \`work-on-{{PLAN_SLUG}}-<node>-<item>\`\") and contains(\"stops the loop before the step agent starts\"))"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail
@@ -476,8 +516,14 @@ mutate() { # mutate <label> <expected failing check> <perl substitution>
 }
 
 mutate "a second edge into merged (from coord_verdict)" \
-    "every edge into merged comes from coord_merge_confirm" \
+    "every edge into merged comes from record_keep" \
     's/(      - target: )coord_merge_confirm(\n        when:\n          gates.verdict_merged.matches: true)/${1}merged$2/'
+mutate "record_keep's pin able to hold the run" \
+    "record_keep's default action pins this run's root with run-record-pin.sh and can't hold the run" \
+    's/( --result "execute-\{\{PLAN_SLUG\}\}") \|\| true/$1/'
+mutate "coord_verdict's ready edge straight to its terminal" \
+    "both coord_merge_confirm edges, and coord_verdict's ready edge, go to record_keep" \
+    's/(      - target: )record_keep(\n        when:\n          gates.verdict_merged.matches: false\n          gates.verdict_ready.matches: true)/${1}ready_awaiting_merge$2/'
 mutate "a command gate on coord_merge_confirm" \
     "coord_merge_confirm declares no command gate" \
     's/(    gates:\n      confirmed_merged:\n)/$1        type: context-matches\n        key: confirm_verdict\n        pattern: x\n        overridable: false\n      confirm_exit:\n        type: command\n        command: "true"\n        overridable: false\n      confirmed_merged_2:\n/'
@@ -487,6 +533,9 @@ mutate "an overridable coord_verdict gate" \
 mutate "a reason assigned out of coord_verdict" \
     "no edge out of coord_verdict assigns reason" \
     's/(        context_assignments:\n          outcome: paused-awaiting-merges\n)/$1          reason: predecessor-unmerged\n/'
+mutate "the dispatch step's PLAN snapshot dropped" \
+    "the dispatch step records each work item's PLAN snapshot and step session through run-trail.sh before its hand-off" \
+    's/first the PLAN as committed now, `"\{\{PLUGIN_ROOT\}\}\/scripts\/run-trail.sh" plan [^`]*`, //'
 mutate "a done_refused state" \
     "no done_refused state is declared" \
     's/(\n  done_error:\n)/\n  done_refused:\n    terminal: true\n    failure: true\n$1/; s/\z/\n## done_refused\n\nRefused.\n/'

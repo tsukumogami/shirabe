@@ -55,10 +55,18 @@ case "$2" in
     remove) rm -f "$d/$4" ;;
     exists) [ -f "$d/$4" ] ;;
     get) cat "$d/$4" 2>/dev/null || exit 1 ;;
+    # list <s> --prefix <p>: the keys under <p>, as a JSON array (the index
+    # read owned-pr.sh makes).
+    list) p=""; [ "${4:-}" = --prefix ] && p=${5:-}
+          (cd "$d" 2>/dev/null && find . -type f | sed 's#^\./##' | grep "^$p") \
+              | jq -Rsc 'split("\n") | map(select(length > 0))' ;;
     *) exit 2 ;;
 esac
 KOTO
 chmod +x "$SHIM/gh" "$SHIM/koto"
+# The PRs' index sessions sit at a shared address of this suite's own, never
+# the real /tmp/shirabe-run-record.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
 
 N=0
 R=""; O=""; GHF=""
@@ -71,6 +79,8 @@ setup() {
     N=$((N + 1))
     O="$T/origin$N.git"; R="$T/work$N"; GHF="$T/gh$N"
     mkdir -p "$GHF"; : >"$GHF/calls"; printf '[]' >"$GHF/prs.json"
+    # Each case's PRs start with no index entry.
+    rm -rf "$SHIRABE_RUN_RECORD_TEST_ROOT" "$STORE"/pr.*
     git init -q --bare -b main "$O"
     git init -q -b main "$R"
     printf '# repo\n' >"$R/README.md"
@@ -259,13 +269,16 @@ eq "several: no pr create" "0" "$(calls create)"
 eq "several: no pr edit" "0" "$(calls edit)"
 eq "several: publish_step recorded" "scope:pr-create" "$(cat "$STORE/s-several/publish_step" 2>/dev/null)"
 
-echo "== the run marker =="
+echo "== the run's index entry =="
 MINE=0123456789abcdef0123456789abcdef
 FOREIGN=fedcba9876543210fedcba9876543210
-# mark <url> <id> -- append a run marker line to that seeded PR's body.
+# mark <url> <id> -- an index entry naming <id> for that seeded PR, at the
+# shared address, as scripts/run-trail.sh index lays one out.
 mark() {
-    jq --arg u "$1" --arg m "<!-- shirabe-run: $2 -->" 'map(if .url == $u then .body += ($m + "\n") else . end)' \
-        "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
+    local n="${1##*/}"
+    mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/acme" "$STORE/pr.acme.widgets.$n/run"
+    printf '{"workspace":"/w","session":"execute-topic","session_id":"sid-1","mode":"single-pr","topic":"topic","written_at":"2026-01-01T00:00:00Z"}' \
+        >"$STORE/pr.acme.widgets.$n/run/$2"
 }
 
 setup single-pr
@@ -285,8 +298,11 @@ run --topic topic --exit full-run --intent continue --session s-carry
 BODY7=$(jq -r '.[] | select(.url == "https://github.com/acme/widgets/pull/7") | .body' "$GHF/prs.json")
 eq "the intent rewrite: one pr edit" "1" "$(calls edit)"
 case "$BODY7" in
-    *"intent=continue"*"<!-- shirabe-run: $MINE -->"*) ok "the intent rewrite keeps the PR's run marker" ;;
-    *) bad "the intent rewrite keeps the PR's run marker" "$BODY7" ;;
+    *"intent=continue"*) case "$BODY7" in
+        *"$MINE"*|*'shirabe''-run'*) bad "the intent rewrite carries nothing of the run" "$BODY7" ;;
+        *) ok "the intent rewrite is the template alone, nothing of the run in it" ;;
+        esac ;;
+    *) bad "the intent rewrite is the template" "$BODY7" ;;
 esac
 
 setup single-pr
@@ -382,6 +398,23 @@ else
     eq "coordinated, no shirabe: no pr create" "0" "$(calls create)"
     echo "SKIP: shirabe not on PATH -- the coordinated body was not rendered or validated"
 fi
+# Under omit a coordinated full-run's body is the plain description: no
+# declaration, run lines, index or merge order, and a title naming no skill.
+CONTENT=omit setup coordinated
+run --topic topic --exit full-run --intent continue --session s-coord-omit
+BODY=$(jq -r '.[0].body // ""' "$GHF/prs.json")
+TITLE=$(grep '^pr create' "$GHF/calls" | sed -n 's/.*--title \(.*\) --body-file.*/\1/p')
+eq "coordinated under omit: exit 0" 0 "$RC"
+case "$BODY" in
+    *"coordination PR"*|*"## PR Index"*|*"## Merge Order"*|*"topic="*|*"intent="*|*'shirabe''-run'*)
+        bad "coordinated under omit: the body carries nothing of the run" "$BODY" ;;
+    "The scoping documents for topic."*) ok "coordinated under omit: the body is the plain description" ;;
+    *) bad "coordinated under omit: the body is the plain description" "$BODY" ;;
+esac
+case "$TITLE" in
+    *scope*|*full-run*) bad "coordinated under omit: the title names no skill or exit" "$TITLE" ;;
+    *) ok "coordinated under omit: the title names no skill or exit" ;;
+esac
 
 echo "== --verify =="
 setup single-pr

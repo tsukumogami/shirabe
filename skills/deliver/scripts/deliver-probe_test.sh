@@ -108,9 +108,18 @@ scoped_store() { reset_store; seed scope_intent continue; seed pr "$URL"; }
 # reset_store -- an empty session store holding only the run identity
 # deliver-open.sh mints at the session's birth; the probe only reads it.
 reset_store() {
-    rm -rf "${KOTO_STORE:?}/$SESS"
+    rm -rf "${KOTO_STORE:?}/$SESS" "$KOTO_STORE"/pr.* "$SHIRABE_RUN_RECORD_TEST_ROOT"
     mkdir -p "$KOTO_STORE/$SESS"
     printf '%s' 00112233445566778899aabbccddeeff >"$KOTO_STORE/$SESS/run_id"
+}
+# The PRs' index sessions sit at a shared address of this suite's own.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
+# index_entry <n> <run_id> -- an entry naming <run_id> in acme/widgets#<n>'s
+# index session, as scripts/run-trail.sh index lays one out.
+index_entry() {
+    mkdir -p "$SHIRABE_RUN_RECORD_TEST_ROOT/acme" "$KOTO_STORE/pr.acme.widgets.$1/run"
+    printf '{"workspace":"/w","session":"execute-t1","session_id":"sid-1","mode":"single-pr","topic":"t1","written_at":"2026-01-01T00:00:00Z"}' \
+        >"$KOTO_STORE/pr.acme.widgets.$1/run/$2"
 }
 
 RC=0; OUT=""
@@ -178,17 +187,17 @@ eq "a session with no run_id: exit 66" 66 "$RC"
 if has run_id; then bad "the probe mints no run_id" "[$(key run_id)]"; else ok "the probe mints no run_id"; fi
 
 scoped_store; seed run_id "$MINE"
-db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
-<!-- shirabe-run: $FOREIGN -->")]"
+db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue")]"
+index_entry "${URL##*/}" "$FOREIGN"
 run scoped
-failed "the topic branch's PR was opened by another run (exit 5)" fail
+failed "the topic branch's PR was recorded by another run (exit 5)" fail
 no_writes "another run's PR"
 
 scoped_store; seed run_id "$MINE"
-db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue
-<!-- shirabe-run: $MINE -->"),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
+db "[$(pr "$URL" OPEN me false "$BRANCH" "intent=continue"),$(pr "https://github.com/acme/widgets/pull/43" OPEN)]"
+index_entry "${URL##*/}" "$MINE"
 run scoped
-failed "a marked and an unmarked PR are ambiguous (exit 4)" fail
+failed "a PR this run recorded beside one with no entry are ambiguous (exit 4)" fail
 
 scoped_store
 db "[$(pr "$URL" OPEN)]" '{"pr list": 1}'

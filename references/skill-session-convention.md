@@ -71,6 +71,7 @@ The areas are fixed:
 | `chain/` | what passes between a parent and a child: `chain/dispatch`, `chain/roadmap-scope`, `chain/parent` | the parent writes `dispatch` and `roadmap-scope` in its own session; the child writes `parent` in its own |
 | `handoff/` | what one skill leaves for another's entry (`handoff/scope.md`, `handoff/charter.md`) | the leaving skill |
 | `session/` | the convention's bookkeeping: `session/branch`, and `session/link-warning` when a dispatcher link could not be recorded | `skill-session.sh`; `session/link-warning` by `scripts/lib/dispatch-link.sh`, for every opener that links |
+| `trail/` | a plan run's record, in the sessions that hold the evidence: in the record root `trail/self`, `trail/pr/<owner>.<repo>.<n>`, `trail/plan/<step>.md` and `.json` (the PLAN as each step began) and `trail/step/<step>`, or, in a multi-pr plan's root (`plan.<owner>.<repo>.<topic>.<sha12>` at the shared address), `trail/item/<step>` for each item; in the session where it happened `trail/departure/<n>.json` and `trail/decision/<n>.json`; and in the record root `trail/unpinned`, the sessions koto refused to pin, until a retry pins them | `scripts/run-trail.sh` only, through its verbs, except `trail/unpinned`, which `scripts/run-record-pin.sh` alone writes and removes; `scripts/run-record-lookup.sh` reads it |
 | `record/`, `legs/` | reserved for coordinator state | no skill under this convention |
 
 A skill run inside another skill's session writes under a sub-area there:

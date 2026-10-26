@@ -1,0 +1,141 @@
+name: Check run-record
+
+# The run record: scripts/lib/record-store.sh (the shared address and koto's
+# read-only --workspace option), scripts/run-trail.sh (its one writer) and
+# scripts/run-record-lookup.sh (from a PR back to the session that ran its
+# plan), scripts/run-record-pin.sh (the pins that keep a finished run's
+# sessions) and scripts/check-run-record-rules.sh (no unpin call, no retention
+# window of shirabe's own, no prune instruction that forgets the pinned
+# sessions, across skills/ and scripts/). The suites run against the
+# stand-in koto in scripts/testdata/record-koto/ and a stub gh, so they need
+# only jq: the Linux leg runs them directly and the macOS leg runs them on the
+# bash 3.2 floor through scripts/check-bash-floor.sh. run-record-pin_test.sh
+# also has a real-koto case, which the Linux leg runs on the koto the project
+# tool manifest installs and which skips itself where there is none.
+
+on:
+  # The two paths lists below must match; edit both together. The rules check
+  # reads all of skills/ and scripts/, so both are listed whole.
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'scripts/**'
+      - 'references/koto-session-retention.md'
+      - 'scripts/lib/record-store.sh'
+      - 'scripts/record-store_test.sh'
+      - 'scripts/run-trail.sh'
+      - 'scripts/run-trail_test.sh'
+      - 'scripts/run-record-lookup.sh'
+      - 'scripts/run-record-lookup_test.sh'
+      - 'scripts/testdata/record-koto/**'
+      # The lookup suite's skeleton records the home PR through it, and
+      # through owned-pr.sh and run-id.sh, which it calls.
+      - 'skills/execute/scripts/adopt-or-create-pr.sh'
+      - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/run-id.sh'
+      # A multi-pr plan's item records itself through it, from the hooks in
+      # the work-on template; the lookup suite drives it too.
+      - 'skills/work-on/scripts/multi-pr-item-record.sh'
+      - 'skills/work-on/scripts/multi-pr-item-record_test.sh'
+      - 'skills/work-on/koto-templates/work-on.md'
+      # run-trail.sh opens index sessions and plan roots from it.
+      - 'koto-templates/skill-session.md'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/run-record.list'
+      - '.github/workflows/check-run-record.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A merge cancels the pull
+    # request's macOS leg (cancel-closed-pr-macos-runs.yml), so this is the
+    # merge commit's own run on the bash 3.2 floor.
+    paths:
+      - 'skills/**'
+      - 'scripts/**'
+      - 'references/koto-session-retention.md'
+      - 'scripts/lib/record-store.sh'
+      - 'scripts/record-store_test.sh'
+      - 'scripts/run-trail.sh'
+      - 'scripts/run-trail_test.sh'
+      - 'scripts/run-record-lookup.sh'
+      - 'scripts/run-record-lookup_test.sh'
+      - 'scripts/testdata/record-koto/**'
+      - 'skills/execute/scripts/adopt-or-create-pr.sh'
+      - 'skills/execute/scripts/owned-pr.sh'
+      - 'skills/execute/scripts/run-id.sh'
+      - 'skills/work-on/scripts/multi-pr-item-record.sh'
+      - 'skills/work-on/scripts/multi-pr-item-record_test.sh'
+      - 'skills/work-on/koto-templates/work-on.md'
+      - 'koto-templates/skill-session.md'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/run-record.list'
+      - '.github/workflows/check-run-record.yml'
+
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-run-record:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq
+
+      - name: Run the record-store tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/record-store_test.sh
+
+      - name: Run the run-trail tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/run-trail_test.sh
+
+      - name: Run the run-record-lookup tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/run-record-lookup_test.sh
+
+      - name: Run the multi-pr item record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/multi-pr-item-record_test.sh
+
+      - name: Run the run-record rules check (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-run-record-rules.sh
+
+      - name: Run the run-record rules check tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-run-record-rules_test.sh
+
+      # The pin suite's real-koto case: koto arrives through the project tool
+      # manifest, as in check-execute-scripts.yml.
+      - name: Install tsuku (Linux)
+        if: runner.os == 'Linux'
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install project tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Run the run-record pin tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/run-record-pin_test.sh
+
+      - name: Run run-record suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system run-record

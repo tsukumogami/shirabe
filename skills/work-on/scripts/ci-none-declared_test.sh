@@ -179,7 +179,15 @@ cat > "$T/bin/koto" <<'STUB'
 FIX="${GH_FIXTURE:?}"
 echo "$*" >> "$FIX/koto.log"
 case "$1 ${2:-}" in
-    "context get") [ -f "$FIX/ctx-$4" ] || exit 1; cat "$FIX/ctx-$4" ;;
+    # A PR's index session (pr.<owner>.<repo>.<n>): its run/<id> entries are
+    # the files of $FIX/idx-<session>, the read owned-pr.sh decides by.
+    "context list")
+        (cd "$FIX/idx-$3" 2>/dev/null && ls) | sed 's#^#run/#' | jq -Rsc 'split("\n") | map(select(length > 0 and . != "run/"))' ;;
+    "context get")
+        case "$4" in
+            run/*) [ -f "$FIX/idx-$3/${4#run/}" ] || exit 1; cat "$FIX/idx-$3/${4#run/}" ;;
+            *) [ -f "$FIX/ctx-$4" ] || exit 1; cat "$FIX/ctx-$4" ;;
+        esac ;;
     "context exists") [ -f "$FIX/ctx-$4" ] ;;
     "context add")
         [ "${KOTO_FAIL:-0}" = 1 ] && { echo "koto: context write failed" >&2; exit 1; }
@@ -190,6 +198,8 @@ case "$1 ${2:-}" in
 esac
 STUB
 chmod +x "$T/bin/gh" "$T/bin/koto" || exit 1
+# The PRs' index sessions sit at a shared address of this suite's own.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
 
 # A repository on the run's branch. It has no macOS floor script, so
 # ci-cancel-after-merge.sh, the fallback before this one, exits 1 quietly.
@@ -216,7 +226,7 @@ PENDING_CHECK=$(check pending "test (ubuntu-latest)")
 # fixture: a fresh fixture with no PRs and no declaration, the run's context
 # recorded.
 fixture() {
-    rm -rf "$FIX" && mkdir -p "$FIX" || return 1
+    rm -rf "$FIX" "$SHIRABE_RUN_RECORD_TEST_ROOT" && mkdir -p "$FIX" "$SHIRABE_RUN_RECORD_TEST_ROOT/acme" || return 1
     echo '[]' > "$FIX/prs.json"
     printf '%s' "$R" > "$FIX/ctx-repos"
     printf '%s' "$BRANCH" > "$FIX/ctx-settled_branch"
@@ -235,8 +245,8 @@ declare_ci_on() { printf '%s' "$1" > "$FIX/decl-host" && declare_ci_in "$2" "$3"
 DECLARED=$(jq -cn --arg r "$REASON" '{hosted_ci: "none", reason: $r}')
 
 # pr <n> <state> <run-id> <body> -- [none | <check-json>...]: one PR on the
-# run's branch, owned by $ME and marked with <run-id>, with its view and its
-# checks. `none` is gh's answer for no checks (stderr, exit 1); no check
+# run's branch, owned by $ME and recorded in its index by <run-id>, with its
+# view and its checks. `none` is gh's answer for no checks (stderr, exit 1); no check
 # arguments at all is an empty JSON list. An OPEN PR is the current branch's.
 # Its URL is under $PR_BASE, the repository's URL on github.com unless a case
 # moves it to another host.
@@ -246,9 +256,10 @@ pr() {
     shift 4
     [ "${1:-}" = -- ] && shift
     body="$text
-
-<!-- shirabe-run: $mark -->
 "
+    mkdir -p "$FIX/idx-pr.acme.widgets.$n" || return 1
+    printf '{"workspace":"/w","session":"execute-x","session_id":"sid-1","mode":"single-pr","topic":"x","written_at":"2026-01-01T00:00:00Z"}' \
+        > "$FIX/idx-pr.acme.widgets.$n/$mark" || return 1
     jq --argjson n "$n" --arg u "$PR_BASE/pull/$n" --arg s "$state" --arg me "$ME" \
         --arg b "$body" --arg h "$BRANCH" '. + [{number: $n, url: $u, state: $s,
             isCrossRepository: false, author: {login: $me}, baseRefName: "main",

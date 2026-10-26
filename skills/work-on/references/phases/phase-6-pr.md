@@ -90,17 +90,25 @@ none of the workflow's own records:
 
 Those records already live in this run's session. A repository opts in to them
 with `## PR Workflow Content: include` in its `CLAUDE.local.md` or `CLAUDE.md`.
-Ask the one reader rather than reading the header yourself:
+The run reads the header once, when it opens, and records it; ask for that
+recorded value rather than reading the header yourself:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh --session <WF>
 ```
 
 It prints `include` or `omit` (the default). Under `omit`, `pr_body_conformant`
-also holds on a `## Review panel` heading or table, a `Plan:` or `Roadmap:` line, or
-an `Implements` line naming a PLAN or ROADMAP file, each a `pr-body/workflow-content`
-finding; move the record out and submit again. Under `include` every section
-below is written as it says, and nothing is refused for carrying a record.
+also holds on a `## Review panel` heading or table, a `Plan:` or `Roadmap:` line,
+an `Implements` line naming a PLAN or ROADMAP file, a run marker, a run line
+(`topic=`, `run=` and the like), a PR index line or a `Run record:` line, each a
+`pr-body/workflow-content` finding; move the record out and submit again. Under
+`include` every section below is written as it says, and nothing is refused for
+carrying a record. A multi-pr item under `include` also puts, in Part 2 and
+nowhere else, the one line naming its plan's record root:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh --reference <WF>
+```
 
 A Verification section, when the change needs one, says what ran and what it
 showed, in plain terms: "the coordinate script suites pass", "hosted CI built and
@@ -169,6 +177,32 @@ let a pull request with no checks yet pass in the window just after a push.
 Never add the file on the
 branch you're working on to get past the gate: the gate reads the default
 branch, so the declaration is a change someone reviews and merges first.
+
+## A multi-pr item's PR in the plan's record
+
+A `multi-pr` PLAN runs one item at a time, each item a top-level `/work-on` run
+with its own pull request and no `/execute` session above it. The plan's record
+is one root at the shared address, `plan.<owner>.<repo>.<topic>.<sha12>`, which
+each item opened and recorded itself into at `analysis`. Once the item's pull
+request is open, and before the first `pr_status: created`, record it there
+from the checkout:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/multi-pr-item-record.sh" pr --session <WF> \
+  --plan "<PLAN_DOC>" --step <ARTIFACT_PREFIX> --repo <owner/repo> --number <N> \
+  --shared-branch "<SHARED_BRANCH>" --issue-source "<ISSUE_SOURCE>"
+```
+
+The `pr_creation` directive gives the line with the run's own values filled
+in. It records the item's PR, the PR in the root's list (role `item`) and the
+PR's index entry, in that order, so `scripts/run-record-lookup.sh <owner/repo>
+<N>` leads from the PR to the plan's root, which lists every item's PR. A
+plan-backed child of `/execute` (`SHARED_BRANCH` or `ISSUE_SOURCE` set), a run
+with no `PLAN_DOC` and a PLAN that isn't `multi-pr` print a `skipped=` line and
+write nothing: the plan-backed child's parent records it. Any other nonzero
+exit means the record is incomplete; fix what its message names and run it
+again before submitting. Nothing about the record goes in the pull request
+body.
 
 ## CI Monitoring
 

@@ -237,9 +237,22 @@ coord_find_pr() {
     return 0
 }
 
+# coord_content <session> -- the run's recorded PR content switch
+# (scripts/pr-workflow-content.sh --session) into COORD_CONTENT, include or
+# omit; a failed read is omit. Under omit a coordination PR's body is its
+# Part 1 alone: no declaration, run lines, index or merge order, so nothing
+# below asks a body for them.
+COORD_CONTENT=""
+coord_content() {
+    COORD_CONTENT=$("$BASH" "$COORD_SELF_DIR/../../../scripts/pr-workflow-content.sh" --session "$1" </dev/null 2>/dev/null) \
+        || COORD_CONTENT=omit
+    [ "$COORD_CONTENT" = include ] || COORD_CONTENT=omit
+}
+
 # coord_view_pr <home-repo> -- read the coordination PR #C_NUM into C_JSON and
-# check it is a PR object carrying the declaration marker. Returns 2 on a
-# failed read (C_WHY read), 3 when the marker is missing (C_WHY marker).
+# check it is a PR object, carrying the declaration marker unless
+# COORD_CONTENT is omit (an omit body carries none). Returns 2 on a failed
+# read (C_WHY read), 3 when the marker is missing (C_WHY marker).
 coord_view_pr() {
     coord_gh_read C_JSON pr view "$C_NUM" --repo "$1" --json url,state,isDraft,body,title,headRefOid \
         || { C_WHY=read; echo "$PROG: gh pr view of the coordination PR failed" >&2; return 2; }
@@ -249,6 +262,7 @@ coord_view_pr() {
     # A here-string, not a pipe into grep -q: under pipefail an early grep
     # exit can SIGPIPE the producer and fail a match that succeeded.
     local c_body
+    [ "$COORD_CONTENT" != omit ] || return 0
     c_body=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
     if ! grep -qF "$COORD_MARKER" <<<"$c_body"; then
         C_WHY=marker
@@ -277,6 +291,7 @@ coord_recorded_pr() {
     esac
     C_NUM=$(printf '%s' "$setup" | jq -r '.coordination_pr // ""')
     [[ $C_NUM =~ ^[1-9][0-9]*$ ]] || { echo "$PROG: run/setup in session $1 holds no coordination PR number" >&2; return 2; }
+    [ -n "$COORD_CONTENT" ] || coord_content "$1"
     coord_view_pr "$2" || return $?
     C_URL=$(printf '%s' "$C_JSON" | jq -r '.url // ""')
     [[ $C_URL =~ $RE_COORD_URL ]] || { echo "$PROG: the coordination PR read carries no usable URL" >&2; return 2; }
@@ -510,9 +525,9 @@ cc_deferral_record() {
         args+=(--child "work-on-$CC_SLUG-$1-$item")
     done
     IFS=$oldifs
-    # --body: a node PR's body carries the record whatever the repository's
-    # PR Workflow Content setting.
-    args+=(--body -- --repo "$3" --head "$4" --state open)
+    # The node PR's body carries the record only when the run's recorded
+    # switch is include; under omit the children's keys are the record.
+    args+=(-- --repo "$3" --head "$4" --state open)
     [ -n "$COORD_RUN_ID" ] && args+=(--run-id "$COORD_RUN_ID")
     # Its stderr is shown only when it holds the node: a node with no
     # deferral prints nothing new.

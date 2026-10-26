@@ -98,6 +98,22 @@ sections are the recommended shape:
 | <criterion> | Deviated | <what and why> |
 ```
 
+### Record Each Deviation
+
+Every `Deviated` row is also a departure in the run's record, against this
+run's step. For each one, write `{"what": "<the criterion>", "why": "<what was
+done instead, and why>"}` to `departure.json` in the run's scratch directory
+and run:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/run-trail.sh" departure --session <WF> --step <ARTIFACT_PREFIX> --kind deviated < <scratch>/departure.json
+rm <scratch>/departure.json
+```
+
+The text goes only on stdin; a refusal (exit 64 or 65) means the document is
+wrong, so fix it and run it again (SKILL.md's Decision Capture). A summary
+with no `Deviated` row records nothing here.
+
 ### Record the Pre-PR Referents
 
 After the cleanup pass, write `pre_pr.md`:

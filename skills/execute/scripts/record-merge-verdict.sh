@@ -63,9 +63,11 @@
 # Confirm mode (--confirm): clear confirm_verdict, re-resolve the PR the same
 # way (never from agent evidence), run `merge-verdict.sh --confirm` on it, and
 # write confirm_verdict only when the line matches
-# ^(merged|not-merged:merge-not-observed)$. Nothing else is read or written,
-# except that both modes read the session's run identity through run-id.sh,
-# which only reads it: a session with no `run_id` exits 70.
+# ^(merged|not-merged:merge-not-observed)$. On `merged` it also records the PR
+# as merged in the run's trail (scripts/run-trail.sh pr-state), a write that
+# only warns when it fails. Nothing else is read or written, except that both
+# modes read the session's run identity through run-id.sh, which only reads
+# it: a session with no `run_id` exits 70.
 #
 # Exit codes:
 #   0   recorded (in verdict mode this includes the lookup failures of step 3,
@@ -237,6 +239,15 @@ if [ "$CONFIRM" -eq 1 ]; then
         exit 1
     fi
     ctx_write confirm_verdict "$LINE"
+    # A confirmed merge is the run seeing its PR merge: the run's trail
+    # records it (scripts/run-trail.sh pr-state, keeping the role the PR was
+    # recorded under). The trail is the record, not the routing, so a write
+    # that fails only warns.
+    if [ "$LINE" = merged ]; then
+        "$BASH" "$SELF_DIR/../../../scripts/run-trail.sh" pr-state --session "$SESSION" \
+            --repo "$REPO" --number "$PR_NUMBER" --state merged </dev/null >/dev/null \
+            || echo "$PROG: could not record $REPO#$PR_NUMBER as merged in $SESSION's trail" >&2
+    fi
     exit 0
 fi
 

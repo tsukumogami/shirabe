@@ -43,7 +43,16 @@ mirroring the working-artifact lifecycle template established in
 **Deleted by:** the work-on cascade's PLAN deletion step.
 
 The PLAN file is removed from disk in the same atomic finalization
-commit that transitions BRIEF/PRD to Done and DESIGN to Current.
+commit that transitions BRIEF/PRD to Done and DESIGN to Current. Only a
+`multi-pr` PLAN reaches the default branch, where it stays while its
+item PRs land; the PR that completes it deletes it. A `single-pr` or
+`coordinated` PLAN is deleted before its PR merges.
+
+A finished plan is not the record of its work. What the work followed
+(the plan as each step began, each step's proof, the departures and
+the decisions) is kept in the run's koto session, which a later reader
+finds from any of the run's merged PRs with
+`scripts/run-record-lookup.sh <owner/repo> <n>`.
 
 ## PLAN Doc Structure
 

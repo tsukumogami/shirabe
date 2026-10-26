@@ -10,11 +10,17 @@
 # key `home_pr`, and `waiting` as `<url>:human`. No transition and no agent
 # evidence ever writes `home_pr`.
 #
+# Recording the PR records it in the run's record too: the root's
+# `trail/pr/*` key and the PR's index entry, both through
+# scripts/run-trail.sh, so scripts/run-record-lookup.sh leads from the PR
+# back to this session. A failure there is exit 70, like a failed home_pr
+# write.
+#
 # Every lookup carries this run's identity (`run-id.sh get <session>`), so a
-# PR another run opened on the same branch is never adopted, and a PR this
-# script opens carries the run's marker line (`run-id.sh stamp`). An unmarked
-# PR -- a /scope PR, or one opened before markers existed -- is still adopted
-# on the login-and-branch match.
+# PR another run recorded last in its index is never adopted. Nothing of the
+# run goes into a PR's text: a PR with no index entry -- a /scope PR, or one
+# opened before the index existed -- is still adopted on the login-and-branch
+# match, and this run's own entry is written when the PR is recorded.
 #
 # Usage:
 #   adopt-or-create-pr.sh --session <koto-session> --repo <owner/repo>
@@ -29,12 +35,14 @@
 #                  gh pr create --draft --repo <repo> --head <branch>
 #                    --title "impl: <slug>" --body-file <file>
 #                where the file is a line naming the work ("Implements
-#                <path>." only when scripts/pr-workflow-content.sh prints
-#                include for the repository, since the PLAN is deleted when
-#                the work completes) and this run's marker line; then
+#                <path>." only when the run's recorded switch,
+#                `scripts/pr-workflow-content.sh --session <session>`, is
+#                include, since the PLAN is deleted when the work completes,
+#                and then the one Part 2 line `--reference` prints); then
 #                resolve again, and record what the lookup finds.
-#   --take-over  passed to owned-pr.sh: when the one PR on the branch carries
-#                another run's marker, restamp it as this run's and adopt it.
+#   --take-over  passed to owned-pr.sh with --session: when the one PR on
+#                the branch was recorded last by another run, write this
+#                run's index entry for it and adopt it. No body is edited.
 #                Needs --plan-slug, and --head must be exactly
 #                impl/<plan-slug>: any other branch is a usage error, so a
 #                takeover can never reach another PLAN's (or another node's)
@@ -61,9 +69,10 @@
 #       another run (owned-pr.sh 5); nothing        otherwise execute:pr-adopt
 #       recorded, nothing created
 #   64  usage error; no gh or koto call made
-#   70  the koto context write failed
+#   70  a koto context write failed, home_pr's or the run record's
+#       (trail/pr or the index entry; home_pr may already be recorded then)
 #
-# Requires: bash 3.2+, jq (through owned-pr.sh), gh, koto, od (run-id.sh).
+# Requires: bash 3.2+, jq (through owned-pr.sh), gh, koto.
 set -uo pipefail
 
 PROG=adopt-or-create-pr
@@ -130,8 +139,8 @@ else
 fi
 # A takeover is bound to this PLAN's own shared branch. Any other head -- the
 # branch the user happens to be on, another PLAN's impl/<slug>, a coordinated
-# node branch -- may carry a live run's PR, and restamping it would hand that
-# run's PR to this one.
+# node branch -- may carry a live run's PR, and recording it as this run's
+# would hand that run's PR to this one.
 if [ "$TAKE_OVER" -eq 1 ]; then
     [[ $SLUG =~ $RE_SLUG ]] || usage_error "--take-over needs --plan-slug: it only takes over impl/<plan-slug>"
     [ "$HEAD" = "impl/$SLUG" ] \
@@ -140,13 +149,14 @@ fi
 
 SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 64
 OWNED="$SELF_DIR/owned-pr.sh"
+TRAIL="$SELF_DIR/../../../scripts/run-trail.sh"
 
 RUN_ID=$("$BASH" "$SELF_DIR/run-id.sh" get "$SESSION" </dev/null) \
     || { echo "$PROG: could not read this run's identity (run-id.sh get $SESSION)" >&2; exit 70; }
 
 lookup() {
     local take=""
-    [ "$TAKE_OVER" -eq 1 ] && take="--take-over"
+    [ "$TAKE_OVER" -eq 1 ] && take="--take-over --session $SESSION"
     # shellcheck disable=SC2086
     URL=$("$BASH" "$OWNED" --repo "$REPO" --head "$HEAD" --state open --run-id "$RUN_ID" $take </dev/null)
     LOOKUP_RC=$?
@@ -158,8 +168,33 @@ record() {
         || { echo "$PROG: could not record home_pr" >&2; exit 70; }
     printf '%s' "$URL:human" | koto context add "$SESSION" waiting >/dev/null \
         || { echo "$PROG: could not record waiting" >&2; exit 70; }
+    record_trail
     printf '%s\n' "$URL"
     exit 0
+}
+
+# record_trail: the home PR in the run's record, in the same step that
+# records home_pr, so the PR's index entry exists before any later lookup can
+# see the PR again. The root lists the PR (`trail/pr/*`), and the PR's index
+# session names the root (scripts/run-trail.sh). The repository and number
+# come from the URL owned-pr.sh printed; the topic is the session's own,
+# execute-<topic>.
+record_trail() {
+    local path owner_repo number topic
+    path=${URL#https://*/}
+    owner_repo=${path%/pull/*}
+    number=${path##*/}
+    topic=${SESSION#execute-}
+    if [ "$topic" = "$SESSION" ] || ! [[ $topic =~ $RE_SLUG ]]; then
+        echo "$PROG: $SESSION is not execute-<topic>; its run record can't name a topic" >&2
+        exit 70
+    fi
+    "$BASH" "$TRAIL" pr --session "$SESSION" --repo "$owner_repo" --number "$number" \
+        --role home --state open </dev/null \
+        || { echo "$PROG: could not record the home PR in $SESSION's run record" >&2; exit 70; }
+    "$BASH" "$TRAIL" index --repo "$owner_repo" --number "$number" --session "$SESSION" \
+        --mode single-pr --topic "$topic" </dev/null \
+        || { echo "$PROG: could not write the home PR's index entry" >&2; exit 70; }
 }
 
 lookup
@@ -189,16 +224,21 @@ BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/adopt-or-create-pr.XXXXXX") || exit 5
 trap 'rm -f "$BODY_FILE"' EXIT
 # The draft's first body, replaced at pr_finalization. Its pointer to the PLAN
 # file is a workflow record (the PLAN is deleted when the work completes), so
-# it is written only for a repository that opts in to workflow content.
-CONTENT=$("$BASH" "$SELF_DIR/../../../scripts/pr-workflow-content.sh" </dev/null) \
+# it is written only when the run's recorded switch is include, and then the
+# body's Part 2 is the one line naming the run's record. Under omit the body
+# carries nothing of the run.
+CONTENT=$("$BASH" "$SELF_DIR/../../../scripts/pr-workflow-content.sh" --session "$SESSION" </dev/null) \
     || { echo "$PROG: scripts/pr-workflow-content.sh failed; nothing created" >&2; exit 5; }
 if [ "$CONTENT" = include ]; then
-    printf 'Implements %s.\n' "$DOC" > "$BODY_FILE"
+    REF=$("$BASH" "$SELF_DIR/../../../scripts/pr-workflow-content.sh" --reference "$SESSION" </dev/null) \
+        || { echo "$PROG: the run's record reference could not be read; nothing created" >&2; exit 5; }
+    {
+        printf 'Implements %s.\n' "$DOC"
+        [ -z "$REF" ] || printf '\n---\n\n%s\n' "$REF"
+    } > "$BODY_FILE"
 else
     printf 'Draft of the %s work; its description is written when the work is done.\n' "$SLUG" > "$BODY_FILE"
 fi
-"$BASH" "$SELF_DIR/run-id.sh" stamp "$RUN_ID" "$BODY_FILE" </dev/null \
-    || { echo "$PROG: could not stamp the new PR's body; nothing created" >&2; exit 5; }
 if ! gh pr create --draft --repo "$REPO" --head "$HEAD" \
         --title "impl: $SLUG" --body-file "$BODY_FILE" </dev/null >&2; then
     echo "$PROG: gh pr create failed; nothing recorded" >&2

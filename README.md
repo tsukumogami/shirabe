@@ -299,28 +299,48 @@ no automatic migration.
 
 The pull request titles, bodies and commit messages shirabe's skills write
 describe the change and how it was verified, in terms a reader of your
-repository understands. By default they leave out the workflow's own
-records: review panel tables, override and verification-deferral notes,
-session, state and ledger names, run records, and pointers to PLAN and ROADMAP
-files, which are deleted when the work completes. Those records stay in the
-run's koto session, where the skills and gates that need them read them.
+repository understands. By default they carry nothing from koto, shirabe or
+niwa: no review panel tables, override or verification-deferral notes, no
+session, state or ledger names, no run marker or run lines, no PR index or
+merge order, and no pointers to PLAN and ROADMAP files, which are deleted when
+the work completes. A coordination PR's body is its plain description too.
+Those records stay in the run's koto sessions, where the skills and gates that
+need them read them. Which run a pull request belongs to is kept there as
+well, in an index session per pull request, so
+`scripts/run-record-lookup.sh <owner/repo> <number>` leads from a PR to its
+run's record without anything in the PR's text.
 
-To keep those records in your pull requests, opt in with one header in the
-repository's `CLAUDE.md`, or in `CLAUDE.local.md` if your workspace manager
-writes that file for you (niwa does, from the workspace configuration):
+The integration is off by default. To keep those records in your pull
+requests, opt in with one header in the repository's `CLAUDE.md`, or in
+`CLAUDE.local.md` if your workspace manager writes that file for you (niwa
+does, from the workspace configuration):
 
 ```markdown
 ## PR Workflow Content: include
+```
+
+With it, the skills write the records as they always have, and every pull
+request a plan's run opens or rewrites gets exactly one more line, in Part 2
+(below the body's `---`), never in its title or Part 1:
+
+```text
+Run record: <record root session> (run <run id>)
 ```
 
 `CLAUDE.local.md` is read before `CLAUDE.md`, and the first header that reads
 `include` or `omit` wins. Any other value is ignored, so a typo leaves the
 default in place. `scripts/pr-workflow-content.sh [<repository directory>]`
 prints `include` or `omit` for a repository. It's the one reader every skill
-and gate uses, so scripts of your own can ask it too. With the default,
-`/work-on`'s and `/execute`'s pull request gate refuses a body that carries a
-`## Review panel` table or a `Plan:` line; with `include`, the skills write
-both as they always have.
+and gate uses, so scripts of your own can ask it too. A run reads it once,
+when it opens (`--record <session>`), and every writer and gate of that run
+reads the recorded value back (`--session <session>`), so turning the header
+off takes effect at the next invocation. With the default, `/work-on`'s and
+`/execute`'s pull request gate refuses a body that carries a `## Review panel`
+table, a `Plan:` line, a run marker, a run line, a PR index line or a
+`Run record:` line.
+
+The reader reads files, so it needs the repository's checkout: an opener that
+runs outside one records `omit`, whatever the workspace configuration says.
 
 ## The pre-action hook
 

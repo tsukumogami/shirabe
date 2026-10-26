@@ -313,6 +313,10 @@ RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 case "$OUT" in
     opened=*)
+        # The PR content switch, read once for this invocation and recorded
+        # as pr_content; the run's PR writer and gates read it back.
+        bash "$PLUGIN_DIR/scripts/pr-workflow-content.sh" --record "$WORKFLOW" </dev/null >/dev/null \
+            || echo "$PROG: could not record $WORKFLOW's PR content switch (pr_content)" >&2
         printf 'session=%s\n' "$WORKFLOW"
         # A failed link has printed its warning and recorded it; the open stands.
         # koto-open.sh prints opened= only on exit 0; the check keeps it so if

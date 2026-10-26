@@ -401,6 +401,10 @@ if [ "$RC" -eq 0 ]; then
     # where the session is born, and only read afterwards (run-id.sh get).
     bash "$HERE/../../execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
         || printf '%s: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$PROG" "$SESSION" >&2
+    # The PR content switch, read once for this invocation and recorded as
+    # pr_content; the publish step reads it back (--session).
+    bash "$HERE/../../../scripts/pr-workflow-content.sh" --record "$SESSION" </dev/null >/dev/null \
+        || printf '%s: could not record %s'"'"'s PR content switch (pr_content)\n' "$PROG" "$SESSION" >&2
     printf 'session=%s\n' "$SESSION"
 else
     printf 'outcome=error\n'

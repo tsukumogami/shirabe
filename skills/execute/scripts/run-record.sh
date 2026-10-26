@@ -54,7 +54,7 @@
 # each value ^[A-Za-z0-9._-]{1,64}$; repo owner/repo; head and merged_head 40
 # hex; removed a boolean; verdict not-run|pushed|failed; step
 # ^execute:[a-z-]+$; recovered's pr a pull request URL and source
-# carried|run-line|markers|minted|adopted; id 32 hex; login a GitHub login; at
+# carried|run-line|index|minted|adopted; id 32 hex; login a GitHub login; at
 # UTC YYYY-MM-DDTHH:MM:SSZ. A follow-up's pr equals the <n> in its key.
 #
 # Write semantics. A verb that owns every field of the key's kind replaces the
@@ -211,7 +211,7 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
         elif $f == "removed" then type == "boolean"
         elif $f == "verdict" then . == "not-run" or . == "pushed" or . == "failed"
         elif $f == "step" then is_str("^execute:[a-z-]+$")
-        elif $f == "source" then . == "carried" or . == "run-line" or . == "markers" or . == "minted" or . == "adopted"
+        elif $f == "source" then . == "carried" or . == "run-line" or . == "index" or . == "minted" or . == "adopted"
         elif $f == "id" then is_str("^[0-9a-f]{32}$")
         elif $f == "login" then is_str("^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$")
         elif $f == "at" then is_str("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")

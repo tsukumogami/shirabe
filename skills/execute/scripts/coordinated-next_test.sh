@@ -578,20 +578,20 @@ OTHER=fedcba9876543210fedcba9876543210
 ct_case foreign-run
 ct_record_setup
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $OTHER -->\""
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "index=\"$OTHER\""
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true --run-id "$MINE")
-expect "--run-id: a recorded PR another run opened" "error:execute:pr-adopt" "$out"
+expect "--run-id: a recorded PR another run recorded last in its index" "error:execute:pr-adopt" "$out"
 wrote_nothing "the foreign-run case"
 
 ct_case own-run
 ct_record_setup
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $MINE -->\""
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "index=\"$MINE\""
 ct_write_db
 out_own=$(run_next "$PLANDIR" --merge true --run-id "$MINE")
 out_hand=$(run_next "$PLANDIR" --merge true)
-expect "--run-id: the run's own marked node PR reads as it does by hand" "$out_hand" "$out_own"
+expect "--run-id: the run's own indexed node PR reads as it does by hand" "$out_hand" "$out_own"
 
 ct_case bad-run-id
 ct_write_db

@@ -102,6 +102,18 @@ chmod +x "$WRAP"
 export DELIVER_TEST_LOG="$T" DELIVER_TEST_REAL_KOTO="$REAL_KOTO" DELIVER_TEST_TEMPLATE="$LOCAL_TEMPLATE"
 export HOME="$T/home"
 mkdir -p "$HOME"
+# The real koto must write only to this suite's scratch HOME: a caller's koto
+# session context is cleared, and before any case runs koto's session
+# directory must resolve under the scratch directory. When it doesn't,
+# nothing runs.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
+case "$("$REAL_KOTO" session dir deliver-open-guard </dev/null 2>/dev/null)" in
+    "$T"/*) ;;
+    *) echo "FAIL: koto's session directory is not under this suite's scratch directory; no case ran" >&2; exit 1 ;;
+esac
 
 mkrepo() { # mkrepo <dir> [CLAUDE.md text]
     mkdir -p "$1"
@@ -165,6 +177,10 @@ if [[ "$(k context get deliver-t-new run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; 
 else
     bad "the opened session carries a run identity" "[$(k context get deliver-t-new run_id 2>&1)]"
 fi
+case "$(k context get deliver-t-new pr_content 2>/dev/null)" in
+    include|omit) ok "the open records the PR content switch it read (pr_content)" ;;
+    *) bad "the open records pr_content" "[$(k context get deliver-t-new pr_content 2>&1)]" ;;
+esac
 eq "a fresh session at open_request" open_request "$(state_of t-new)"
 eq "MODE interactive with no flag and no header" '["interactive"]' "$(var MODE)"
 eq "MERGE true without --no-merge" '["true"]' "$(var MERGE)"

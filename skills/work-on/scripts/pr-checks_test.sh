@@ -152,6 +152,9 @@ case "$1 ${2:-}" in
 esac
 STUB
 chmod +x "$T/bin/gh" "$T/bin/koto" || exit 1
+# The PR's index session would sit at a shared address of this suite's own,
+# which holds none: the PR has no index entry and passes on the five checks.
+export SHIRABE_RUN_RECORD_TEST_ROOT="$T/shared-record"
 
 # A repository on the run's branch, with no macOS floor script.
 REPO="$T/repo"
@@ -174,7 +177,7 @@ fixture() {
         > "$FIX/view.json"
     jq -n --arg u "https://$host/$R/pull/7" --arg b "$BRANCH" --arg me "$ME" --arg m "$MINE" \
         '[{number: 7, url: $u, state: "OPEN", isCrossRepository: false, author: {login: $me},
-           baseRefName: "main", headRefName: $b, body: "Fixes #1.\n\n<!-- shirabe-run: \($m) -->\n"}]' \
+           baseRefName: "main", headRefName: $b, body: "Fixes #1.\n"}]' \
         > "$FIX/prs.json"
     printf '%s' "$R" > "$FIX/ctx-repos"
     printf '%s' "$BRANCH" > "$FIX/ctx-settled_branch"

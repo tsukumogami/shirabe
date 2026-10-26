@@ -1,6 +1,6 @@
 # coord-coordination-not-observed
 
-The one-repository PLAN with both node PRs already `MERGED` and indexed with their `head=` records, each carrying the run's marker (`<!-- shirabe-run: 5e7a1c0d9b8f4e3a2c1b0a9f8e7d6c5b -->`, the id the body's `run=` line names), so setup recovers the record the session doesn't hold. The cascade runs, the coordination PR is readied, and its merge call is accepted but never lands (`merge: stays-open`), so the confirm read keeps seeing `OPEN`.
+The one-repository PLAN with both node PRs already `MERGED` and indexed with their `head=` records, each with no index entry naming another run, the body's `run=` line naming the run, so setup recovers the record the session doesn't hold. The cascade runs, the coordination PR is readied, and its merge call is accepted but never lands (`merge: stays-open`), so the confirm read keeps seeing `OPEN`.
 
 Served by `fixtures/bin/gh` from `gh/db.json`, the shim's repository model
 (see the shim's header): the database is copied beside `GH_CALL_LOG` on the
