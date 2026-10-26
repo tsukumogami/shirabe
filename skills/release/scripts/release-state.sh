@@ -5,7 +5,7 @@
 # /release keeps what Phase 1 derives as keys in the koto session
 # release-<topic> (references/skill-session-convention.md), because each phase
 # runs in a new shell and a shell variable set in Phase 1 is gone by Phase 2.
-# The three rules that compute or read that state live here, so a test can run
+# The rules that compute or read that state live here, so a test can run
 # them on the real path; plain open, put, get and close calls stay in the prose
 # as direct skill-session.sh calls. This script reaches the session through
 # scripts/skill-session.sh (found relative to this file) and `koto context`,
@@ -14,9 +14,11 @@
 # Usage:
 #   release-state.sh topic
 #   release-state.sh membership <topic>
-#   release-state.sh read <topic> <range|prs|unattributed|notes>
+#   release-state.sh read <topic> <range|prs|unattributed|notes|head>
 #   release-state.sh version <value>
-#   release-state.sh go <topic> (--given | --bump <major|minor|patch>) [--unresolved]
+#   release-state.sh go <topic> [--unresolved]
+#   release-state.sh mark <topic> dispatched <version>
+#   release-state.sh mark <topic> concluded <success|failure|timeout>
 #
 # Arguments (checked before any koto call):
 #   <topic>   ^[a-z0-9][a-z0-9-]*$; `topic` prints one.
@@ -34,7 +36,7 @@
 #
 #   membership   in the live release-<topic>, from the git repository in the
 #             current directory, computes what the release contains and writes
-#             it as three keys, replacing any value an earlier run left:
+#             it as four keys, replacing any value an earlier run left:
 #               work/range          the last v* tag's range <tag>..HEAD, or
 #                                   HEAD when no v* tag exists (a first release)
 #               work/prs            the pull request numbers named by "(#N)"
@@ -43,16 +45,21 @@
 #               work/unattributed   "<short hash> <subject>" for each commit in
 #                                   the range whose subject names no pull
 #                                   request
-#             A list with nothing in it is an empty key. It also removes
-#             work/notes.md when an earlier run left one, so a crashed run's
-#             notes can't be published. Prints
+#               work/head           the full hash of HEAD, the commit the
+#                                   release is cut from; after-release.sh reads
+#                                   the committed extension there
+#             A list with nothing in it is an empty key. It also removes the
+#             keys a later phase writes (work/notes.md, work/dispatched,
+#             work/concluded, work/after, work/after-go) when an earlier run
+#             left them, so a crashed run's notes can't be published and its
+#             dispatch can't start this run's installs. Prints
 #               range=<range>
 #               prs=<count>
 #               unattributed=<count>
 #
 #   read         prints the key's content as stored (range -> work/range,
 #             prs -> work/prs, unattributed -> work/unattributed, notes ->
-#             work/notes.md), or exits 1 with "Phase 1 did not run" on stderr
+#             work/notes.md, head -> work/head), or exits 1 with "Phase 1 did not run" on stderr
 #             when the key is absent. An empty key prints nothing and exits 0.
 #
 #   version      checks a version before it reaches any command line: one
@@ -66,28 +73,30 @@
 #             from the session's grant. Prints one line and exits 0:
 #               go=grant dispatch=<dispatch id>
 #               go=person reason=<token>
-#             It asks a person, whatever the grant, for
-#               first-release   work/range is HEAD (no earlier v* tag)
-#               major-bump      --bump major with no version given (--given)
+#             It asks a person, whatever the grant, only for
 #               unresolved      the security check printed an UNRESOLVED line
-#                               (--unresolved)
-#               direct-push     a commit in the range names no pull request
-#                               and isn't one the release workflow wrote: both
-#                               author and committer github-actions[bot]
-#                               (RELEASE_BOT_NAME, RELEASE_BOT_EMAIL below)
-#                               and the subject
-#                               "chore(release): set version to v<version>" or
-#                               "chore(release): advance to X.Y.Z-dev". Each
-#                               such commit is named on stderr.
-#             in that order, and otherwise prints release-grant.sh's line (its
-#             own reasons when it says go=person). release-grant.sh runs only
-#             when none of the above asked, so a holder's run calls niwa once.
+#                               (--unresolved): a finding about what the
+#                               release contains, not an approval of the cut
+#             and otherwise prints release-grant.sh's line (its own reasons
+#             when it says go=person), so a holder's run calls niwa once. A
+#             first release, a major bump and a commit pushed straight to the
+#             base branch are the grant's to answer, as any other cut is.
+#
+#   mark         records what Phase 5 and Phase 6 saw, for Phase 7 to read:
+#               dispatched <version>   work/dispatched, the version this run
+#                                      dispatched the release workflow for
+#                                      (checked as `version` checks it, with
+#                                      no leading v)
+#               concluded <conclusion> work/concluded: success, failure or
+#                                      timeout, as Phase 6's monitoring ended
+#             Prints nothing. A session that isn't live is refused.
 #
 # Exit codes:
 #   0    success
 #   1    a koto, gh or git operation failed; read, go: the key is absent
-#   2    refused: topic's empty result, membership's session not live or
-#        directory not a git work tree, a version that fails the check
+#   2    refused: topic's empty result, membership's or mark's session not
+#        live, membership's directory not a git work tree, a version that
+#        fails the check
 #   4    cannot tell: koto answered something other than a session's state
 #   64   usage error; no koto call was made
 #   127  koto, gh, git or jq is not on PATH (whichever the subcommand needs)
@@ -98,7 +107,7 @@
 #   TMPDIR     where membership's temporary files are made (a private 0700
 #              directory, removed on every exit path).
 #
-# Requires: bash 3.2+, jq, git, gh (topic), koto (membership, read). No eval,
+# Requires: bash 3.2+, jq, git, gh (topic), koto (membership, read, go, mark). No eval,
 # no associative arrays, no mapfile, no namerefs.
 
 set -uo pipefail
@@ -113,22 +122,12 @@ KOTO="${KOTO_BIN:-koto}"
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
 RE_VERSION='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
 
-# The identity and subjects shirabe's reusable release workflow
-# (.github/workflows/release.yml) commits with. A commit matching them is the
-# workflow's own version stamp or dev bump, which nobody reviews as a pull
-# request; any other commit with no (#N) is a direct push.
-RELEASE_BOT_NAME='github-actions[bot]'
-RELEASE_BOT_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
-RE_STAMP='^chore\(release\): set version to v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
-RE_DEVBUMP='^chore\(release\): advance to [0-9]+\.[0-9]+\.[0-9]+-dev$'
-RE_PR_SUFFIX='\(#[0-9]+\)$'
-
 say() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 
 usage() {
     printf 'error=usage\n'
     say "$1"
-    say "usage: release-state.sh topic | membership <topic> | read <topic> <range|prs|unattributed|notes> | version <value> | go <topic> (--given | --bump <major|minor|patch>) [--unresolved] (see the header of this script)"
+    say "usage: release-state.sh topic | membership <topic> | read <topic> <range|prs|unattributed|notes|head> | version <value> | go <topic> [--unresolved] | mark <topic> (dispatched <version> | concluded <success|failure|timeout>) (see the header of this script)"
     exit 64
 }
 
@@ -251,11 +250,14 @@ cmd_membership() {
     git log --format='%h %s' "$range" >"$TMPD/log" || { say "git log $range failed"; exit 1; }
     { grep -vE '\(#[0-9]+\)$' "$TMPD/log" || true; } >"$TMPD/unattributed"
 
-    # Nothing an earlier run wrote survives into this one: its notes, and its
-    # membership keys, which go before any new one is written so a write that
-    # fails part-way leaves keys missing (read stops on them) rather than a mix
-    # of this run's and the last one's.
-    for k in work/notes.md work/range work/prs work/unattributed; do
+    git rev-parse --verify HEAD >"$TMPD/head" || { say "git rev-parse HEAD failed"; exit 1; }
+
+    # Nothing an earlier run wrote survives into this one: its notes, its
+    # dispatch and installs, and its membership keys, which go before any new
+    # one is written so a write that fails part-way leaves keys missing (read
+    # stops on them) rather than a mix of this run's and the last one's.
+    for k in work/notes.md work/dispatched work/concluded work/after work/after-go \
+        work/range work/prs work/unattributed work/head; do
         key_exists "$s" "$k" || continue
         if ! "$KOTO" context remove "$s" "$k" >/dev/null; then
             printf 'failed=%s\n' "$k"
@@ -267,6 +269,7 @@ cmd_membership() {
     put_file "$s" work/range "$TMPD/range"
     put_file "$s" work/prs "$TMPD/prs"
     put_file "$s" work/unattributed "$TMPD/unattributed"
+    put_file "$s" work/head "$TMPD/head"
 
     count_prs=$(grep -c . "$TMPD/prs" || true)
     count_un=$(grep -c . "$TMPD/unattributed" || true)
@@ -279,7 +282,7 @@ cmd_membership() {
 
 cmd_read() {
     local topic which s key
-    [ "$#" -eq 2 ] || usage "read takes <topic> <range|prs|unattributed|notes>"
+    [ "$#" -eq 2 ] || usage "read takes <topic> <range|prs|unattributed|notes|head>"
     topic="$1"
     which="$2"
     check_topic "$topic"
@@ -288,7 +291,8 @@ cmd_read() {
         prs) key="work/prs" ;;
         unattributed) key="work/unattributed" ;;
         notes) key="work/notes.md" ;;
-        *) usage "read's key must be range, prs, unattributed or notes" ;;
+        head) key="work/head" ;;
+        *) usage "read's key must be range, prs, unattributed, notes or head" ;;
     esac
     need_koto
     s="release-$topic"
@@ -317,63 +321,27 @@ cmd_version() {
 # --- go ---------------------------------------------------------------------------------
 
 cmd_go() {
-    local topic given=0 bump="" unresolved=0 s range log line hash an ae cn ce subj foreign=0
+    local topic unresolved=0 s line
     [ "$#" -ge 1 ] || usage "go takes <topic>"
     topic="$1"
     shift
     check_topic "$topic"
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --given) given=1 ;;
             --unresolved) unresolved=1 ;;
-            --bump)
-                [ "$#" -ge 2 ] || usage "--bump takes major, minor or patch"
-                case "$2" in major | minor | patch) bump="$2" ;; *) usage "--bump takes major, minor or patch" ;; esac
-                shift
-                ;;
             *) usage "unknown go argument: $1" ;;
         esac
         shift
     done
-    [ "$given" -eq 1 ] || [ -n "$bump" ] || usage "go takes --given or --bump"
     need_koto
-    need_tool git "install git"
     s="release-$topic"
     if ! key_exists "$s" work/range; then
         say "Phase 1 did not run: work/range is absent from $s (run Phase 1 first; its membership step writes it)"
         exit 1
     fi
-    range=$("$KOTO" context get "$s" work/range) || { say "cannot read work/range"; exit 1; }
 
-    if [ "$range" = HEAD ]; then
-        printf 'go=person reason=first-release\n'
-        return 0
-    fi
-    if [ "$given" -eq 0 ] && [ "$bump" = major ]; then
-        printf 'go=person reason=major-bump\n'
-        return 0
-    fi
     if [ "$unresolved" -eq 1 ]; then
         printf 'go=person reason=unresolved\n'
-        return 0
-    fi
-
-    log=$(git log --format='%h%x09%an%x09%ae%x09%cn%x09%ce%x09%s' "$range") || { say "git log $range failed"; exit 1; }
-    while IFS='	' read -r hash an ae cn ce subj; do
-        [ -n "$hash" ] || continue
-        [[ "$subj" =~ $RE_PR_SUFFIX ]] && continue
-        if [ "$an" = "$RELEASE_BOT_NAME" ] && [ "$ae" = "$RELEASE_BOT_EMAIL" ] \
-            && [ "$cn" = "$RELEASE_BOT_NAME" ] && [ "$ce" = "$RELEASE_BOT_EMAIL" ] \
-            && { [[ "$subj" =~ $RE_STAMP ]] || [[ "$subj" =~ $RE_DEVBUMP ]]; }; then
-            continue
-        fi
-        say "direct push, not written by the release workflow: $hash $subj"
-        foreign=1
-    done <<EOF
-$log
-EOF
-    if [ "$foreign" -eq 1 ]; then
-        printf 'go=person reason=direct-push\n'
         return 0
     fi
 
@@ -382,6 +350,37 @@ EOF
         "go=grant dispatch="* | "go=person reason="*) printf '%s\n' "$line" ;;
         *) printf 'go=person reason=unreadable-answer\n' ;;
     esac
+}
+
+# --- mark -------------------------------------------------------------------------------
+
+cmd_mark() {
+    local topic what value s
+    [ "$#" -eq 3 ] || usage "mark takes <topic> (dispatched <version> | concluded <success|failure|timeout>)"
+    topic="$1"
+    what="$2"
+    value="$3"
+    check_topic "$topic"
+    case "$what" in
+        dispatched)
+            [[ "$value" =~ $RE_VERSION ]] || usage "mark dispatched takes a bare X.Y.Z or X.Y.Z-<pre> version"
+            ;;
+        concluded)
+            case "$value" in success | failure | timeout) ;; *) usage "mark concluded takes success, failure or timeout" ;; esac
+            ;;
+        *) usage "mark records dispatched or concluded" ;;
+    esac
+    need_koto
+    s="release-$topic"
+    if ! session_live "$s"; then
+        printf 'refused=session_not_live\n'
+        say "$s is not live; Phase 1 opens it"
+        exit 2
+    fi
+    TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
+    trap cleanup EXIT
+    printf '%s\n' "$value" >"$TMPD/value"
+    put_file "$s" "work/$what" "$TMPD/value"
 }
 
 # --- dispatch ---------------------------------------------------------------------------
@@ -395,5 +394,6 @@ case "$sub" in
     read) cmd_read "$@" ;;
     version) cmd_version "$@" ;;
     go) cmd_go "$@" ;;
+    mark) cmd_mark "$@" ;;
     *) usage "unknown subcommand: $sub" ;;
 esac

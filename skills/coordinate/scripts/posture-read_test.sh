@@ -353,20 +353,26 @@ eq "the re-read before a merge permits it too" "readable merge:permit close:perm
 answer "$(bound_doc close-issue,cut-release autonomous)"
 eq "bound without merge-pr denies the merge" "readable merge:deny close:permit teardown:permit release:permit" "$(read_grant)"
 answer "$(bound_doc "$ALL3" strict)"
-eq "merge-pr at strict denies the merge and confirms close and release" \
-    "readable merge:deny close:confirm teardown:permit release:confirm" "$(read_grant)"
+eq "at strict a person settles each step: merge and release deny, close confirms" \
+    "readable merge:deny close:confirm teardown:permit release:deny" "$(read_grant)"
 answer "$(bound_doc "$ALL3" supervised)"
 eq "at supervised the dispatcher settles every step: deny" \
     "readable merge:deny close:deny teardown:permit release:deny" "$(read_grant)"
 answer "$(bound_doc merge-pr,close-issue autonomous)"
-eq "bound without cut-release confirms the release" \
-    "readable merge:permit close:permit teardown:permit release:confirm" "$(read_grant)"
+eq "bound without cut-release denies the release, as without merge-pr the merge" \
+    "readable merge:permit close:permit teardown:permit release:deny" "$(read_grant)"
 answer "$(bound_doc '' autonomous)"
-eq "bound with no grant denies merge and close and confirms release" \
-    "readable merge:deny close:deny teardown:permit release:confirm" "$(read_grant)"
+eq "bound with no grant denies merge, close and release" \
+    "readable merge:deny close:deny teardown:permit release:deny" "$(read_grant)"
 answer "$(bound_doc "$ALL3" autonomous | jq -c '.points[].author_exclusion = "on"')"
-eq "author exclusion denies the merge and confirms close and release" \
-    "readable merge:deny close:confirm teardown:permit release:confirm" "$(read_grant)"
+eq "author exclusion denies merge and release and confirms close" \
+    "readable merge:deny close:confirm teardown:permit release:deny" "$(read_grant)"
+answer "$(bound_doc "$ALL3" autonomous | jq -c '(.points[] | select(.point == "cut-release")).decider = "person"')"
+eq "cut-release settled by a person denies the release alone" \
+    "readable merge:permit close:permit teardown:permit release:deny" "$(read_grant)"
+answer "$(bound_doc "$ALL3" autonomous | jq -c '(.points[] | select(.point == "close-issue")).decider = "person"')"
+eq "close-issue settled by a person still confirms the close" \
+    "readable merge:permit close:confirm teardown:permit release:permit" "$(read_grant)"
 answer "$(bound_doc "$ALL3" autonomous)"
 ws_settings "$(perm deny 'Bash(gh pr merge:*)')"
 eq "a deny rule on gh pr merge still wins over a bound merge-pr" \
@@ -384,8 +390,8 @@ gate_fixture; answer "$(bound_doc "$ALL3" autonomous)"
 eq "with niwa off PATH, NIWA_BIN names it" "readable merge:permit close:permit teardown:permit release:permit" \
     "$(seen "$(CLAUDE_CODE_SESSION_ID=$SID NIWA_BIN="$STUB/niwa" PATH="$NOPATH" bash "$PRD" --instance-root "$IN" --workspace-root "$WS" --no-seal 2>"$T/err")")"
 answer '{"schema":"niwa.authority.check/v1","state":"record-unusable","reason":"record-missing","dispatch_id":"dispatch-under-test","grant":[]}'
-eq "record-unusable denies the merge and reads the rest as today" \
-    "readable merge:deny close:confirm teardown:permit release:confirm" "$(read_grant)"
+eq "record-unusable denies merge and release and reads the rest as today" \
+    "readable merge:deny close:confirm teardown:permit release:deny" "$(read_grant)"
 
 # Every answer that isn't bound or record-unusable, and every failed lookup,
 # reads exactly as with no niwa: today's token plus the release step.
@@ -435,7 +441,7 @@ log_new "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" start start_posture
 OUT=$(CLAUDE_CODE_SESSION_ID=$SID PATH="$STUB:$PATH" bash "$PRD" --session "$S" --instance-root "$IN" --workspace-root "$WS" 2>"$T/err")
 seen "$OUT" > /dev/null
-case "$OUT" in "readable merge:permit close:permit teardown:permit release:confirm sealed:"*) ok "a bound verdict is sealed" ;; *) bad "a bound verdict is sealed" "$OUT $(cat "$T/err")" ;; esac
+case "$OUT" in "readable merge:permit close:permit teardown:permit release:deny sealed:"*) ok "a bound verdict is sealed" ;; *) bad "a bound verdict is sealed" "$OUT $(cat "$T/err")" ;; esac
 D="$KOTO_STORE/context/$S/coord/posture.json"
 eq "the grant's steps record source=grant" "merge=grant close=grant teardown=workspace release=grant" \
     "$(jq -r '[.steps | to_entries[] | "\(.key)=\(.value.source)"] | join(" ")' "$D")"

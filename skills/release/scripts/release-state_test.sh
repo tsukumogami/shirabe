@@ -351,11 +351,16 @@ done
 if stub_called; then fail "version reached koto: $(cat "$STUB_LOG")"; else pass "version makes no koto call"; fi
 check_usage "version with no value" version
 check_usage "version with two values" version 1.2.3 1.2.4
-check_usage "go with no version source" go some-topic
-check_usage "go with an unknown bump" go some-topic --bump huge
-check_usage "go with --bump and no value" go some-topic --bump
-check_usage "go with an unknown flag" go some-topic --given --yes
-check_usage "go with a bad topic" go Bad_Topic --given
+check_usage "go with no topic" go
+check_usage "go with an unknown flag" go some-topic --yes
+check_usage "go with the old version flags" go some-topic --bump minor
+check_usage "go with a bad topic" go Bad_Topic
+check_usage "mark with too few arguments" mark some-topic dispatched
+check_usage "mark with an unknown key" mark some-topic tagged 1.2.3
+check_usage "mark dispatched with a v" mark some-topic dispatched v1.2.3
+check_usage "mark dispatched with shell in the version" mark some-topic dispatched '1.2.3;id'
+check_usage "mark concluded with an unknown conclusion" mark some-topic concluded cancelled
+check_usage "mark with a bad topic" mark Bad_Topic concluded success
 
 # --- engine-backed --------------------------------------------------------------------------
 
@@ -404,6 +409,7 @@ assert_eq "work/prs holds the numbers in (#N) subjects, sorted and unique" "7
 12" "$(kget "$S" work/prs)"
 assert_eq "work/unattributed holds the commits naming no pull request" "$LAST_UNATTR
 $BUMP_UNATTR" "$(kget "$S" work/unattributed)"
+assert_eq "work/head holds the commit the release is cut from" "$(git -C "$REPO" rev-parse HEAD)" "$(kget "$S" work/head)"
 assert_no_staging "after membership"
 
 rs read "$TP" range
@@ -415,6 +421,8 @@ assert_eq "read prs prints the stored list" "7
 rs read "$TP" unattributed
 assert_eq "read unattributed prints the stored list" "$LAST_UNATTR
 $BUMP_UNATTR" "$STDOUT"
+rs read "$TP" head
+assert_eq "read head prints the stored commit" "$(git -C "$REPO" rev-parse HEAD)" "$STDOUT"
 
 # A second run after a new commit replaces the keys.
 g commit -q --allow-empty -m "fix: late fix (#30)"
@@ -576,57 +584,62 @@ RC=0
 assert_eq "open release go-run exits 0" "0" "$RC"
 go_membership
 
-for args in "--bump minor" "--bump patch" "--given" "--given --bump major"; do
-    # shellcheck disable=SC2086 # the flags split on purpose
-    go_run go go-run $args
-    assert_eq "holder, $args: go exits 0" "0" "$RC"
-    assert_eq "holder, $args: the go comes from the grant" "go=grant dispatch=$GO_ID" "$STDOUT"
-    assert_eq "holder, $args: niwa was asked once" "1" "$(niwa_calls)"
-done
+go_run go go-run
+assert_eq "holder: go exits 0" "0" "$RC"
+assert_eq "holder: the go comes from the grant" "go=grant dispatch=$GO_ID" "$STDOUT"
+assert_eq "holder: niwa was asked once" "1" "$(niwa_calls)"
 assert_contains "the check asked for cut-release from the instance root" "authority check --json --session $GO_SID -C $GO_INST --point cut-release" "$(cat "$NIWA_LOG")"
-if [ -z "$STDERR" ]; then pass "the release workflow's own commits are not named as direct pushes"; else fail "go named a commit: $STDERR"; fi
 
-go_run go go-run --bump major
-assert_eq "holder, a recommended major bump with no version given asks" "go=person reason=major-bump" "$STDOUT"
-assert_eq "major bump: niwa not asked" "0" "$(niwa_calls)"
-go_run go go-run --bump minor --unresolved
+go_run go go-run --unresolved
 assert_eq "holder, an UNRESOLVED line in the security check asks" "go=person reason=unresolved" "$STDOUT"
 assert_eq "unresolved: niwa not asked" "0" "$(niwa_calls)"
 
 RC=0
 (cd "$GOREPO" && NIWA_STUB=not-held NIWA_LOG="$NIWA_LOG" CLAUDE_CODE_SESSION_ID="$GO_SID" \
-    PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" go go-run --given) >"$T/stdout" 2>"$T/stderr" || RC=$?
+    PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" go go-run) >"$T/stdout" 2>"$T/stderr" || RC=$?
 assert_eq "a session without cut-release is asked, with release-grant.sh's reason" "go=person reason=not-held" "$(cat "$T/stdout")"
 
-# Commits with no (#N) that the release workflow didn't write.
+# A commit pushed straight to the branch is the grant's to answer: it is
+# listed with the unattributed commits the go prints, and asks nobody.
 gg commit -q --allow-empty -m "fix: pushed straight to main"
 go_membership
-go_run go go-run --bump patch
-assert_eq "holder, a direct push in the range asks" "go=person reason=direct-push" "$STDOUT"
-assert_contains "the direct push is named" "pushed straight to main" "$STDERR"
-assert_eq "direct push: niwa not asked" "0" "$(niwa_calls)"
-gg reset -q --hard HEAD~1
-bot "chore: tidy"
-go_membership
-go_run go go-run --bump patch
-assert_eq "the bot identity with another subject is a direct push" "go=person reason=direct-push" "$STDOUT"
-gg reset -q --hard HEAD~1
-gg commit -q --allow-empty -m "chore(release): advance to 0.1.2-dev"
-go_membership
-go_run go go-run --bump patch
-assert_eq "the release subject from another identity is a direct push" "go=person reason=direct-push" "$STDOUT"
+go_run go go-run
+assert_eq "holder, a direct push in the range: the go comes from the grant" "go=grant dispatch=$GO_ID" "$STDOUT"
 gg reset -q --hard HEAD~1
 go_membership
-go_run go go-run --bump patch
-assert_eq "with the direct pushes gone the go comes from the grant again" "go=grant dispatch=$GO_ID" "$STDOUT"
 
-# A first release asks, whatever the grant and the version given.
+# A first release is the grant's to answer too.
 RC=0
-(cd "$FIRST" && CLAUDE_CODE_SESSION_ID="$GO_SID" PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
-    "$BASH_BIN" "$RS" go first-release --given) >"$T/stdout" 2>"$T/stderr" || RC=$?
-assert_eq "a first release asks for the version" "go=person reason=first-release" "$(cat "$T/stdout")"
+(cd "$FIRST" && unset NIWA_BIN NIWA_LOOKUP_SECONDS && CLAUDE_CODE_SESSION_ID="$GO_SID" \
+    PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" go first-release) >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "a first release outside a niwa instance is asked, as any cut is" "go=person reason=no-instance-root" "$(cat "$T/stdout")"
+mkdir -p "$FIRST/.niwa"
+echo '{}' >"$FIRST/.niwa/instance.json"
+RC=0
+(cd "$FIRST" && unset NIWA_BIN NIWA_LOOKUP_SECONDS && CLAUDE_CODE_SESSION_ID="$GO_SID" \
+    PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" go first-release) >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "holder, a first release: the go comes from the grant" "go=grant dispatch=$GO_ID" "$(cat "$T/stdout")"
+rm -rf "$FIRST/.niwa"
 
-go_run go never-opened --given
+# mark records what Phases 5 and 6 saw; the next membership clears it.
+go_run mark go-run dispatched 0.1.1
+assert_eq "mark dispatched exits 0" "0" "$RC"
+go_run mark go-run concluded success
+assert_eq "mark concluded exits 0" "0" "$RC"
+assert_eq "work/dispatched holds the version" "0.1.1" "$(cd "$GOREPO" && "$REAL_KOTO" context get release-go-run work/dispatched)"
+assert_eq "work/concluded holds the conclusion" "success" "$(cd "$GOREPO" && "$REAL_KOTO" context get release-go-run work/concluded)"
+go_membership
+for k in work/dispatched work/concluded; do
+    if (cd "$GOREPO" && "$REAL_KOTO" context exists release-go-run "$k" >/dev/null 2>&1); then
+        fail "membership left an earlier run's $k"
+    else
+        pass "membership removes an earlier run's $k"
+    fi
+done
+go_run mark never-opened concluded success
+assert_eq "mark on a session that isn't live is refused" "2" "$RC"
+
+go_run go never-opened
 assert_eq "go without Phase 1's range exits 1" "1" "$RC"
 assert_contains "it names Phase 1" "Phase 1 did not run" "$STDERR"
 
@@ -785,10 +798,53 @@ fi
 # on an earlier stop, a refused draft or dispatch included.
 PH5=$(phase '### Phase 5')
 PH6=$(phase '### Phase 6')
-case "$PH6" in
-    *'skill-session.sh" close release-<topic> done'*) pass "Phase 6 closes the session done at the end of the run" ;;
-    *) fail "Phase 6 has no skill-session.sh close release-<topic> done" ;;
+PH7=$(phase '### Phase 7')
+GRANT=$(phase '## The release grant')
+case "$PH7" in
+    *'skill-session.sh" close release-<topic> done'*) pass "Phase 7 closes the session done at the end of the run" ;;
+    *) fail "Phase 7 has no skill-session.sh close release-<topic> done" ;;
 esac
+case "$PH6" in
+    *'close release-<topic> done'*'```'*) fail "Phase 6 still closes the session before the installs" ;;
+    *) pass "Phase 6 leaves the session open for the installs" ;;
+esac
+
+# Phases 5 and 6 record what Phase 7 checks; Phase 7 runs after-release.sh.
+case "$PH5" in
+    *"\"$CALL\" mark <topic> dispatched <version>"*) pass "Phase 5 records the dispatch" ;;
+    *) fail "Phase 5 does not record the dispatch with release-state.sh mark" ;;
+esac
+case "$PH6" in
+    *"\"$CALL\" mark <topic> concluded"*) pass "Phase 6 records how the workflow ended" ;;
+    *) fail "Phase 6 does not record the conclusion with release-state.sh mark" ;;
+esac
+AFTER_CALL='"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/after-release.sh"'
+case "$PH7" in
+    *"$AFTER_CALL plan <topic>"*"$AFTER_CALL run <topic>"*) pass "Phase 7 plans, then runs, the installs" ;;
+    *) fail "Phase 7 does not call after-release.sh plan and then run" ;;
+esac
+case "$PH7" in
+    *'--tracked-approved'*'--local-approved'*) pass "Phase 7 passes a person's answers to run" ;;
+    *) fail "Phase 7 does not pass --tracked-approved and --local-approved" ;;
+esac
+
+# The grant section lists each step a person still decides, with its reason,
+# and nothing treats the release grant as answering one go only.
+for step in 'UNRESOLVED' 'exits 5 with a `confirm:` line' '`security`-labelled pull request' '`## After release` command from `release.local.md`'; do
+    case "$GRANT" in
+        *"$step"*) pass "the grant section lists the person's step: $step" ;;
+        *) fail "the grant section does not list: $step" ;;
+    esac
+done
+case "$GRANT" in
+    *'not an approval of the cut'*'merge-pr'*) pass "the grant section gives the reason those steps stay a person's" ;;
+    *) fail "the grant section gives no reason for the steps a person still decides" ;;
+esac
+if grep -qF 'The grant answers this go and nothing else' "$SKILL_MD"; then
+    fail "SKILL.md still says the grant answers one go only"
+else
+    pass "SKILL.md no longer says the grant answers one go only"
+fi
 case "$PH4" in
     *'close release-<topic> done'*) fail "Phase 4 still closes the session done before the dispatch" ;;
     *) pass "Phase 4 leaves the session open for the dispatch" ;;

@@ -8,3 +8,6 @@ skills/release/scripts/release-state_test.sh
 # /release's read of its session's grant, against a stub niwa; needs
 # only bash, git and jq, and no koto.
 skills/release/scripts/release-grant_test.sh
+# /release's Phase 7 installs, against a koto stand-in and stubbed gh
+# and niwa; needs only bash, git and jq.
+skills/release/scripts/after-release_test.sh
