@@ -525,13 +525,16 @@ GOREPO="$GO_INST/repo"
 mkdir -p "$GO_INST/.niwa" "$GOREPO" "$T/niwastub"
 echo '{}' >"$GO_INST/.niwa/instance.json"
 NIWA_LOG="$T/niwa-calls"
-GO_ID=3c803591-4c01-486f-a927-f96ec399d6a7
+# Ids are built at run time: a committed id-shaped literal reads as a real session id.
+GO_ID=$(printf "%s-%s-%s-%s-%s" 3c803591 4c01 486f a927 f96ec399d6a7)
+GO_SID=$(printf "%s-%s-%s-%s-%s" 0f1e2d3c 4b5a 4968 8776 a5b4c3d2e1f0)
+export GO_ID
 cat >"$T/niwastub/niwa" <<'STUB'
 #!/bin/bash
 printf '%s\n' "$*" >>"$NIWA_LOG"
 grant='[{"authority":"cut-release","sources":["dispatch"]}]'
 [ "${NIWA_STUB:-}" = not-held ] && grant='[{"authority":"merge-pr","sources":["dispatch"]}]'
-printf '{"schema":"niwa.authority.check/v1","state":"bound","dispatch_id":"3c803591-4c01-486f-a927-f96ec399d6a7","grant":%s,"level":"autonomous","points":[{"point":"cut-release","decider":"session","author_exclusion":"off"}]}\n' "$grant"
+printf '{"schema":"niwa.authority.check/v1","state":"bound","dispatch_id":"%s","grant":%s,"level":"autonomous","points":[{"point":"cut-release","decider":"session","author_exclusion":"off"}]}\n' "$GO_ID" "$grant"
 STUB
 chmod +x "$T/niwastub/niwa"
 export NIWA_LOG
@@ -556,7 +559,7 @@ go_run() {
     RC=0
     : >"$NIWA_LOG"
     (cd "$GOREPO" && unset NIWA_BIN NIWA_LOOKUP_SECONDS \
-        && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
+        && CLAUDE_CODE_SESSION_ID="$GO_SID" PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
             "$BASH_BIN" "$RS" "$@") >"$T/stdout" 2>"$T/stderr" || RC=$?
     STDOUT=$(cat "$T/stdout")
     STDERR=$(cat "$T/stderr")
@@ -580,7 +583,7 @@ for args in "--bump minor" "--bump patch" "--given" "--given --bump major"; do
     assert_eq "holder, $args: the go comes from the grant" "go=grant dispatch=$GO_ID" "$STDOUT"
     assert_eq "holder, $args: niwa was asked once" "1" "$(niwa_calls)"
 done
-assert_contains "the check asked for cut-release from the instance root" "authority check --json --session 0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 -C $GO_INST --point cut-release" "$(cat "$NIWA_LOG")"
+assert_contains "the check asked for cut-release from the instance root" "authority check --json --session $GO_SID -C $GO_INST --point cut-release" "$(cat "$NIWA_LOG")"
 if [ -z "$STDERR" ]; then pass "the release workflow's own commits are not named as direct pushes"; else fail "go named a commit: $STDERR"; fi
 
 go_run go go-run --bump major
@@ -591,7 +594,7 @@ assert_eq "holder, an UNRESOLVED line in the security check asks" "go=person rea
 assert_eq "unresolved: niwa not asked" "0" "$(niwa_calls)"
 
 RC=0
-(cd "$GOREPO" && NIWA_STUB=not-held NIWA_LOG="$NIWA_LOG" CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 \
+(cd "$GOREPO" && NIWA_STUB=not-held NIWA_LOG="$NIWA_LOG" CLAUDE_CODE_SESSION_ID="$GO_SID" \
     PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" go go-run --given) >"$T/stdout" 2>"$T/stderr" || RC=$?
 assert_eq "a session without cut-release is asked, with release-grant.sh's reason" "go=person reason=not-held" "$(cat "$T/stdout")"
 
@@ -619,7 +622,7 @@ assert_eq "with the direct pushes gone the go comes from the grant again" "go=gr
 
 # A first release asks, whatever the grant and the version given.
 RC=0
-(cd "$FIRST" && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
+(cd "$FIRST" && CLAUDE_CODE_SESSION_ID="$GO_SID" PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
     "$BASH_BIN" "$RS" go first-release --given) >"$T/stdout" 2>"$T/stderr" || RC=$?
 assert_eq "a first release asks for the version" "go=person reason=first-release" "$(cat "$T/stdout")"
 

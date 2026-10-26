@@ -46,15 +46,18 @@ T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */release-grant-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
-ID=3c803591-4c01-486f-a927-f96ec399d6a7
-SID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0
+# Built at run time: a committed id-shaped literal reads as a real session id.
+uuid() { printf "%s-%s-%s-%s-%s" "$@"; }
+ID=$(uuid 3c803591 4c01 486f a927 f96ec399d6a7)
+export GRANT_ID="$ID"
+SID=$(uuid 0f1e2d3c 4b5a 4968 8776 a5b4c3d2e1f0)
 
 # --- the tools on PATH ------------------------------------------------------------------
 
 # tools/ holds links to what the script and the stub run; nothing else is on
 # PATH. notimeout/ is the same without `timeout`.
 mkdir -p "$T/tools" "$T/notimeout"
-for tool in bash jq mktemp rm readlink sleep cat printf dirname sed; do
+for tool in bash jq mktemp rm readlink sleep cat printf dirname sed tr; do
     p=$(command -v "$tool" 2>/dev/null) || continue
     case "$p" in /*) ;; *) continue ;; esac
     ln -s "$p" "$T/tools/$tool"
@@ -70,7 +73,7 @@ mkdir -p "$T/stubbin"
 cat >"$T/stubbin/niwa" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$STUB_LOG"
-id=3c803591-4c01-486f-a927-f96ec399d6a7
+id=$GRANT_ID
 doc() { # doc <grant authorities json> <decider> <author exclusion> [<dispatch id>]
     printf '{"schema":"niwa.authority.check/v1","state":"bound","binding":"mapping","dispatch_id":"%s","grant":%s,"level":"autonomous","points":[{"point":"cut-release","decider":"%s","author_exclusion":"%s"}]}\n' \
         "${4:-$id}" "$1" "$2" "$3"
@@ -85,7 +88,7 @@ case "$STUB_MODE" in
     record-unusable) printf '{"schema":"niwa.authority.check/v1","state":"record-unusable","reason":"x","dispatch_id":"%s","grant":[]}\n' "$id" ;;
     not-dispatched) printf '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"x","grant":[]}\n' ;;
     id-not-uuid) doc "$held" session off not-a-uuid ;;
-    id-upper) doc "$held" session off 3C803591-4C01-486F-A927-F96EC399D6A7 ;;
+    id-upper) doc "$held" session off "$(printf %s "$id" | tr a-f A-F)" ;;
     no-id) printf '{"schema":"niwa.authority.check/v1","state":"bound","grant":%s,"level":"autonomous","points":[{"point":"cut-release","decider":"session","author_exclusion":"off"}]}\n' "$held" ;;
     wrong-schema) doc "$held" session off | sed 's/check\/v1/check\/v2/' ;;
     two-docs) doc "$held" session off; doc "$held" session off ;;
@@ -134,7 +137,7 @@ ln -s "$REPO/bin/niwa" "$T/linkbin/niwa"
 mkdir -p "$REPO/tools"
 cat >"$REPO/tools/jq" <<'FAKE'
 #!/bin/sh
-echo "go=grant dispatch=3c803591-4c01-486f-a927-f96ec399d6a7"
+echo "go=grant dispatch=$GRANT_ID"
 FAKE
 cat >"$REPO/tools/timeout" <<'FAKE'
 #!/bin/sh
