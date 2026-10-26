@@ -32,7 +32,10 @@
 #          work items) with no child listing, holding the PR on a named
 #          child's reason and ignoring a listed child it doesn't name;
 #        - --list prints the run's reason and each named child's, once each,
-#          with no GitHub read, and nothing with no deferral.
+#          with no GitHub read, and nothing with no deferral;
+#        - --child-dir runs every child read in that directory (the node
+#          worktree the children were opened in), and is a 2 without
+#          --child or when it is no directory.
 #   2. Engine: a parent session and two children made with `koto init
 #      --parent`, one from a fixture holding work-on.md's SHIPPED
 #      verification_deferred state (extracted at run time) with
@@ -93,6 +96,7 @@ cat > "$BIN/koto" <<'EOF'
 #!/usr/bin/env bash
 STUB="${SDR_STUB:?}"
 printf '%s\n' "$*" >> "$STUB/koto.calls"
+printf '%s\n' "$(pwd -P)" >> "$STUB/koto.dirs"
 hang() { printf '%s\n' "$$" > "$STUB/hang.pid"; exec sleep 60; }
 case "$1 ${2-}" in
     "workflows --children")
@@ -366,6 +370,33 @@ expect "--list: hosted-ci with no reason" 2
 (PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification local --child) >/dev/null 2>"$WORKDIR/err"
 RC=$?
 expect "--child with no session name: usage" 2
+
+# --child-dir: the named children are read from that directory (a coordinated
+# node's worktree, where their sessions were opened), whatever the caller's.
+reset_stub
+mkdir -p "$WORKDIR/node-worktree"
+NODE_DIR=$(cd "$WORKDIR/node-worktree" && pwd -P)
+child_deferred work-on-t-core-2 "$REASON2"
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification local \
+    --child work-on-t-core-1 --child work-on-t-core-2 --child-dir "$WORKDIR/node-worktree" --list) \
+    >"$WORKDIR/out" 2>"$WORKDIR/err"
+RC=$?
+expect "--child-dir: listed" 0
+[ "$(cat "$WORKDIR/out")" = "$REASON2" ] && pass "--child-dir: the named child's reason is read" \
+    || fail "--child-dir printed [$(cat "$WORKDIR/out")]"
+if [ -s "$STUB/koto.dirs" ] && [ -z "$(grep -vxF "$NODE_DIR" "$STUB/koto.dirs")" ]; then
+    pass "--child-dir: every koto read ran in that directory"
+else
+    fail "--child-dir: the koto reads ran in [$(sort -u "$STUB/koto.dirs" | tr '\n' ' ')]"
+fi
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification local \
+    --child-dir "$WORKDIR/node-worktree" --list) >/dev/null 2>"$WORKDIR/err"
+RC=$?
+expect "--child-dir with no --child: usage" 2
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification local \
+    --child work-on-t-core-1 --child-dir "$WORKDIR/no-such-dir" --list) >/dev/null 2>"$WORKDIR/err"
+RC=$?
+expect "--child-dir that is no directory: undecided" 2
 
 reset_stub
 children execute-x.o-a

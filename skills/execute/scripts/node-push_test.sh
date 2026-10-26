@@ -5,10 +5,11 @@
 # node-push.sh is the one writer of a node's and the cascade's pushed head, in
 # the run record (run/node/<node>, run/cascade); the coordination PR's body is
 # then rendered from that record by coord-render.sh, the one place a `head=`
-# field is built. Each case runs it in a real git worktree
-# (node-cut.sh) whose origin is a local bare repository, against the eval gh
-# shim's repository model, a shirabe stub, and the koto context stub, with a
-# sealed run record naming the coordination PR (see coord-test-helpers.sh).
+# field is built. Each node case runs it in the coordination checkout with
+# --worktree naming a real git worktree (node-cut.sh) whose origin is a local
+# bare repository, against the eval gh shim's repository model, a shirabe
+# stub, and the koto context stub, with a sealed run record naming the
+# coordination PR (see coord-test-helpers.sh).
 #
 # The run record:
 #   a fresh push records run/node/<node> {repo, pr, head=<the pushed sha>};
@@ -24,7 +25,9 @@
 # Cases:
 #   usage errors                                 exit 64, no push, no gh write
 #     (a node push without --plan, a --plan that is no file, and --plan in
-#     the coordination mode among them)
+#     the coordination mode among them; a node push without --worktree, with
+#     an empty one or one that is no directory, and --worktree in the
+#     coordination or order mode)
 #   a detached HEAD, the wrong branch, the default branch   65, 66, 67
 #   a fresh node push                            the branch reaches origin; one
 #     draft PR titled feat(<slug>): <node-id> with the fixed fields (node id,
@@ -111,7 +114,19 @@
 #     a --plan outside any git repository        exit 79, nothing pushed
 #     the node's own clone (control)             pushed
 #   coord_url_key                                one key per repository
-#   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
+#   a session bound to its own directory (ct_bind), as koto's cloud backend
+#   binds one: the execute session to the coordination checkout, a work
+#   item's child to the node worktree
+#     a node in the home repository with a deferred work item
+#                                                pushed, run/node recorded,
+#                                                the child's reason in the
+#                                                node PR, no call refused
+#     a node in another repository               pushed and recorded, no call
+#                                                refused
+#     the script run in the node worktree        72, nothing pushed, recorded
+#                                                or written
+#   the push is `git -C <worktree> push <remote> HEAD:refs/heads/<branch>`,
+#   never forced
 #
 # Usage: node-push_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -148,12 +163,13 @@ np_case() {
 }
 rec_node() { cat "$CASE/ctx/$S/run/node/$1" 2>/dev/null; }
 
-# The push itself, read from the script: the explicit refspec, never a force.
-PUSH_LINES=$(grep -v '^[[:space:]]*#' "$PUSH" | grep 'git push')
+# The push itself, read from the script: the explicit refspec, in the node's
+# worktree, never a force.
+PUSH_LINES=$(grep -v '^[[:space:]]*#' "$PUSH" | grep -E 'git( -C "\$GIT_WT")? push')
 if [ "$(printf '%s\n' "$PUSH_LINES" | grep -c .)" -eq 1 ] \
-    && grep -qF 'git push "$REMOTE" "HEAD:refs/heads/$BRANCH"' <<<"$PUSH_LINES" \
+    && grep -qF 'git -C "$GIT_WT" push "$REMOTE" "HEAD:refs/heads/$BRANCH"' <<<"$PUSH_LINES" \
     && ! grep -Eq -- '--force|-f( |$)|\+HEAD' <<<"$PUSH_LINES"; then
-    pass "the one push is git push <remote> HEAD:refs/heads/<branch>, never forced"
+    pass "the one push is git -C <worktree> push <remote> HEAD:refs/heads/<branch>, never forced"
 else
     fail "the push lines are: $PUSH_LINES"
 fi
@@ -175,7 +191,7 @@ fresh_repo() {
 }
 
 push_node() { # push_node [extra args]
-    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1,2 \
+    OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" "$@" 2>"$CASE/stderr")
     RC=$?
 }
@@ -199,14 +215,22 @@ for args in "" "branch --slug t" "node --session $S --slug T --node $CT_CORE --r
             "coordination --session $S --slug t --node $CT_CORE --home-repo $CT_REPO --coord-branch $CT_CB" \
             "node --session $S --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB" \
             "node --session $S --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB --plan $CT_WORK/no-such-plan.md" \
-            "coordination --session $S --slug t --home-repo $CT_REPO --coord-branch $CT_CB --plan $PLAN"; do
+            "coordination --session $S --slug t --home-repo $CT_REPO --coord-branch $CT_CB --plan $PLAN" \
+            "node --session $S --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB --plan $PLAN" \
+            "node --session $S --worktree $CT_WORK/no-such-worktree --slug t --node $CT_CORE --repo $CT_REPO --issues 1 --home-repo $CT_REPO --coord-branch $CT_CB --plan $PLAN" \
+            "coordination --session $S --worktree $WT --slug t --home-repo $CT_REPO --coord-branch $CT_CB" \
+            "order --session $S --worktree $WT --slug t --home-repo $CT_REPO --coord-branch $CT_CB"; do
     # shellcheck disable=SC2086
-    (cd "$WT" && bash "$PUSH" $args >/dev/null 2>&1); rc=$?
+    (cd "$REPO" && bash "$PUSH" $args >/dev/null 2>&1); rc=$?
     [ "$rc" -eq 64 ] && pass "usage [$args] exits 64" || fail "usage [$args]: rc=$rc"
 done
-(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 --home-repo "$CT_REPO" \
+(cd "$REPO" && bash "$PUSH" node --worktree "$WT" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 --home-repo "$CT_REPO" \
     --coord-branch "$CT_CB" --plan "$PLAN" >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "a node push without --session exits 64" || fail "no --session: rc=$rc"
+# An empty --worktree would leave the git work in the coordination checkout.
+(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "a node push with an empty --worktree exits 64" || fail "empty --worktree: rc=$rc"
 if [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/*")" ]; then
     fail "a usage error pushed"
 else
@@ -385,7 +409,7 @@ ct_write_db
 fresh_repo defer-subset
 defer_child 2 "$REASON2"
 push_node_issues() { # push_node_issues <issues>
-    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues "$1" \
+    OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues "$1" \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
 }
@@ -485,10 +509,10 @@ else
     fail "defer-unreadable koto: rc=$RC"
 fi
 unset KOTO_FAIL_EXISTS
-(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 \
+(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 1 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" --verification sometimes >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "--verification outside local and hosted-ci: 64" || fail "--verification sometimes: rc=$rc"
-(cd "$WT" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" \
+(cd "$REPO" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" \
     --verification hosted-ci >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "--verification in the order mode: 64" || fail "order --verification: rc=$rc"
 
@@ -754,7 +778,7 @@ into tokens.
 
 **Goal**: Test the tokens.
 OUTLINES
-OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 2,1 \
+OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 2,1 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
 db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
 if [ "$RC" -eq 0 ] && [ "$(part1 "$CASE/node-body.md" | grep -v '^$' | tr '\n' '|')" = "Test the tokens.|Read the input into tokens.|" ]; then
@@ -1039,7 +1063,7 @@ vis_push() {
     if [ -n "${4:-}" ]; then
         (cd "$WT" && printf '%s\n' "$4" > notes.txt && git add notes.txt && git commit -q -m "docs: notes")
     fi
-    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
     NBODY=$(jq -r '.prs[] | select(.repo == "acme/repo-b") | .body' "$GH_CALL_LOG.d/db.json" 2>/dev/null)
@@ -1106,7 +1130,7 @@ fresh_repo vis-goal
 awk '{ print } index($0, "| [#1: ") == 1 { print "| _Mirror private/tools into the parser._ | | |" }' "$PLAN" > "$PLAN.new" \
     && mv "$PLAN.new" "$PLAN"
 node_clone vis-goal
-OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
 if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
     pass "a work item's goal naming a private/ path, public node under a private home: 78, nothing pushed"
@@ -1122,7 +1146,7 @@ CT_VIS_B=public
 ct_write_db
 fresh_repo vis-reason
 node_clone vis-reason
-OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" \
     --verification hosted-ci --reason "see private/plans/notes.md" 2>"$CASE/stderr"); RC=$?
 if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
@@ -1165,7 +1189,7 @@ vis_push vis-scan-priv-node private private "see private/plans/notes.md"
 
 # home_push -- push the node from $WT with --repo acme/repo-b.
 home_push() {
-    OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
     RC=$?
 }
@@ -1206,7 +1230,7 @@ ct_write_db
 fresh_repo home-worktree-alt-remote
 git init -q --bare "$CT_WORK/alt-remote.git"
 (cd "$REPO" && git remote add alt "$CT_WORK/alt-remote.git")
-OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" --remote alt 2>"$CASE/stderr")
 RC=$?
 if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$CT_WORK/alt-remote.git" "refs/heads/impl/*")" ]; then
@@ -1341,61 +1365,28 @@ fi
 #
 # Under koto 0.25.0's cloud backend a session is read and written only from
 # the directory it was opened in, and a context call from any other directory
-# exits 2 with session_bound_elsewhere. bind_session <session> <dir> makes the
-# koto stub do the same for <session>: the execute session is bound to the
-# coordination checkout, and a work item's child to the node worktree its step
-# agent opened it in. Each refusal is appended to the case's refused.log.
-mv "$CT_BIN/koto" "$CT_BIN/koto-unbound"
-cat > "$CT_BIN/koto" <<'STUB'
-#!/usr/bin/env bash
-store="${KOTO_STORE:?}"
-s=""
-if [ "${1:-}" = context ]; then
-    if [ "${2:-}" = list ]; then
-        # list [--prefix <p>] <session>, the flag on either side.
-        for a in "${@:3}"; do
-            if [ -n "${skip:-}" ]; then skip=""; continue; fi
-            case "$a" in --prefix) skip=1 ;; *) s="$a" ;; esac
-        done
-    else
-        s="${3:-}"
-    fi
-fi
-if [ -n "$s" ] && [ -f "$store/bound/$s" ]; then
-    b=$(cat "$store/bound/$s")
-    if [ "$(pwd -P)" != "$b" ]; then
-        msg="session_bound_elsewhere: session '$s' is bound to $b, not to the directory this command ran in"
-        printf '%s\n' "$msg" >> "$store/refused.log"
-        echo "$msg" >&2
-        exit 2
-    fi
-fi
-exec "$(dirname "$0")/koto-unbound" "$@"
-STUB
-chmod +x "$CT_BIN/koto"
-bind_session() { # bind_session <session> <dir>
-    mkdir -p "$CASE/bound"
-    (cd "$2" && pwd -P) > "$CASE/bound/$1"
-}
-refused() { cat "$CASE/refused.log" 2>/dev/null; }
+# exits 2 with session_bound_elsewhere. ct_bind makes the koto stub do the
+# same: the execute session is bound to the coordination checkout, and a work
+# item's child to the node worktree its step agent opened it in. node-push.sh
+# runs in the coordination checkout and reaches the node through --worktree.
 
 # A node in the coordination PR's repository, with a work item that deferred.
 np_case bound-home
 ct_write_db
 fresh_repo bound-home
-bind_session "$S" "$REPO"
+ct_bind "$S" "$REPO"
 defer_child 2 "$REASON2"
-bind_session "work-on-t-$CT_CORE-2" "$WT"
+ct_bind "work-on-t-$CT_CORE-2" "$WT"
 push_node
 if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$(git -C "$WT" rev-parse HEAD)" ] \
     && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$(git -C "$WT" rev-parse HEAD)" ]; then
     pass "a session bound to the coordination checkout: the node is pushed and run/node/$CT_CORE records it"
 else
-    fail "bound session: rc=$RC; nothing is pushed or recorded; $(refused) $(tail -2 "$CASE/stderr")"
+    fail "bound session: rc=$RC; nothing is pushed or recorded; $(ct_refused) $(tail -2 "$CASE/stderr")"
 fi
-[ -z "$(refused)" ] && pass "a session bound to the coordination checkout: no koto call came from another directory" \
-    || fail "koto calls refused: $(refused)"
-part2 | grep -qxF "Reason: $REASON2" && pass "a bound child's deferral is read and recorded in the node PR" \
+[ -z "$(ct_refused)" ] && pass "a session bound to the coordination checkout: no koto call came from another directory" \
+    || fail "koto calls refused: $(ct_refused)"
+part2 | grep -qxF "Reason: $REASON2" && pass "a bound child's deferral is read from the node worktree and recorded in the node PR" \
     || fail "bound child's deferral: part2=[$(part2)]"
 
 # A node in another repository: its worktree is in a clone of acme/repo-b.
@@ -1403,16 +1394,32 @@ np_case bound-other-repo
 ct_write_db
 fresh_repo bound-other-repo
 node_clone bound-other-repo
-bind_session "$S" "$REPO"
+ct_bind "$S" "$REPO"
 home_push
 if [ "$RC" -eq 0 ] && [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] \
-    && [ "$(rec_node "$CT_CORE" | jq -r .repo)" = acme/repo-b ]; then
+    && [ "$(rec_node "$CT_CORE" | jq -r .repo)" = acme/repo-b ] \
+    && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$(git -C "$WT" rev-parse HEAD)" ]; then
     pass "a node in another repository, its session bound to the coordination checkout: pushed and recorded"
 else
-    fail "bound session, other repository: rc=$RC; nothing is pushed or recorded; $(refused) $(tail -2 "$CASE/stderr")"
+    fail "bound session, other repository: rc=$RC; nothing is pushed or recorded; $(ct_refused) $(tail -2 "$CASE/stderr")"
 fi
-[ -z "$(refused)" ] && pass "a node in another repository: no koto call came from another directory" \
-    || fail "koto calls refused: $(refused)"
+[ -z "$(ct_refused)" ] && pass "a node in another repository: no koto call came from another directory" \
+    || fail "koto calls refused: $(ct_refused)"
+
+# The script run in the node worktree, as the directive said before
+# --worktree: the session refuses the read, and nothing is pushed.
+np_case bound-from-worktree
+ct_write_db
+fresh_repo bound-from-worktree
+ct_bind "$S" "$REPO"
+OUT=$(cd "$WT" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo "$CT_REPO" \
+    --issues 1,2 --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 72 ] && [ -z "$(remote_head)" ] && [ -z "$(rec_node "$CT_CORE")" ] \
+    && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "run from the node worktree, away from the session's directory: 72, nothing pushed, recorded or written"
+else
+    fail "from the worktree: rc=$RC remote=[$(remote_head)] $(tail -1 "$CASE/stderr")"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -15,7 +15,8 @@
 #
 # Usage: shared-deferral-record.sh --session <execute session>
 #            --verification <local|hosted-ci|""> [--reason <reason>]
-#            [--child <session>]... [--body] [--list | -- <owned-pr.sh arguments>]
+#            [--child <session>]... [--child-dir <dir>]
+#            [--body] [--list | -- <owned-pr.sh arguments>]
 #
 # The reasons the PR must carry, each once:
 #
@@ -31,6 +32,13 @@
 #     child without the key, or a named session that doesn't exist, didn't
 #     defer. This catches a child that deferred without the run's variable (a
 #     task built by hand).
+#
+# --child-dir is the directory the --child sessions' koto reads run from:
+# the node worktree a coordinated node's step agents opened them in. Under
+# koto's cloud backend a session answers only in the directory it was opened
+# in, so node-push.sh, which runs in the coordination checkout, reads the
+# node's children from their own. Without it every read runs here. It needs
+# --child.
 #
 # With --list the script prints the reasons, one per line in the order above,
 # and exits 0 without reading GitHub; nothing after --list is read. koto's
@@ -108,12 +116,14 @@ SAW_VERIFICATION=0
 LIST=0
 BODY_ALWAYS=0
 CHILDREN=()
+CHILD_DIR=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
         --verification) [ $# -ge 2 ] || usage; VERIFICATION=$2; SAW_VERIFICATION=1; shift 2 ;;
         --reason) [ $# -ge 2 ] || usage; RUN_REASON=$2; shift 2 ;;
         --child) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILDREN+=("$2"); shift 2 ;;
+        --child-dir) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILD_DIR=$2; shift 2 ;;
         --body) BODY_ALWAYS=1; shift ;;
         --list) LIST=1; shift; break ;;
         --) shift; break ;;
@@ -122,6 +132,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SESSION" ] && [ "$SAW_VERIFICATION" = 1 ] || usage
 [ "$LIST" = 1 ] || [ $# -gt 0 ] || usage
+[ -z "$CHILD_DIR" ] || [ "${#CHILDREN[@]}" -gt 0 ] || usage
+[ -z "$CHILD_DIR" ] || [ -d "$CHILD_DIR" ] || undecided "--child-dir [$CHILD_DIR] is not a directory"
 case "$VERIFICATION" in
     ""|local|hosted-ci) ;;
     *) undecided "--verification must be local or hosted-ci, got [$VERIFICATION]" ;;
@@ -169,12 +181,19 @@ collect_children() {
     local child rc reason kpid=""
     trap '[ -z "$kpid" ] || kill "$kpid" 2>/dev/null; exit 143' TERM
     # koto_call <out> <koto arguments>...: one koto call, its stdout to <out>
-    # and its stderr to koto.err. Returns koto's status. kpid is cleared once
-    # the call ends, so the trap never kills a PID that may have been reused.
+    # and its stderr to koto.err, run in --child-dir when one was given (only
+    # with --child, so the listing below never runs there). Returns koto's
+    # status. kpid is cleared once the call ends, so the trap never kills a
+    # PID that may have been reused; the subshell execs koto, so kpid is
+    # koto's own.
     koto_call() {
         local out=$1 st
         shift
-        koto "$@" > "$out" 2> "$WORK/koto.err" < /dev/null &
+        if [ -n "$CHILD_DIR" ]; then
+            (CDPATH='' cd -- "$CHILD_DIR" && exec koto "$@") > "$out" 2> "$WORK/koto.err" < /dev/null &
+        else
+            koto "$@" > "$out" 2> "$WORK/koto.err" < /dev/null &
+        fi
         kpid=$!
         wait "$kpid"
         st=$?

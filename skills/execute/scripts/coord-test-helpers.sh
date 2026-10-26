@@ -16,7 +16,11 @@
 #
 # koto is a stub whose context store is a directory, so reads, clears, and
 # writes are observable without an engine; `workflows --roots` lists the
-# sessions the store holds a directory for.
+# sessions the store holds a directory for. A session ct_bind bound to a
+# directory answers context calls only from that directory, as koto's cloud
+# backend answers a session only in the directory it was opened in: from any
+# other the call exits 2 with session_bound_elsewhere, appended to the case's
+# refused.log too.
 #
 # Callers set SCRIPT_DIR (this directory) before sourcing, and define nothing
 # these names use.
@@ -65,6 +69,25 @@ if [ "$1 ${2:-}" = "workflows --roots" ]; then
     exit 0
 fi
 [ "$1" = context ] || { echo "koto stub: only context and workflows --roots are served" >&2; exit 9; }
+# The session the call names: list [--prefix <p>] <session>, the flag on
+# either side; every other verb's third word.
+bound_s="${3:-}"
+if [ "$2" = list ]; then
+    bound_s=""; skip=""
+    for a in "${@:3}"; do
+        if [ -n "$skip" ]; then skip=""; continue; fi
+        case "$a" in --prefix) skip=1 ;; *) bound_s="$a" ;; esac
+    done
+fi
+if [ -n "$bound_s" ] && [ -f "$store/bound/$bound_s" ]; then
+    b=$(cat "$store/bound/$bound_s")
+    if [ "$(pwd -P)" != "$b" ]; then
+        msg="session_bound_elsewhere: session '$bound_s' is bound to $b, not to the directory this command ran in"
+        printf '%s\n' "$msg" >> "$store/refused.log"
+        echo "$msg" >&2
+        exit 2
+    fi
+fi
 if [ "$2" = list ]; then
     # list [--prefix <p>] <session>, the flag on either side.
     shift 2
@@ -168,6 +191,15 @@ ct_case() {
     CT_VIS_A=public
     CT_VIS_B=public
 }
+
+# ct_bind <session> <dir> -- the case's koto stub answers <session>'s context
+# calls only from <dir> (see the stub above). ct_refused prints the refusals
+# the case's calls met, one per line.
+ct_bind() {
+    mkdir -p "$CASE/bound"
+    (cd "$2" && pwd -P) > "$CASE/bound/$1"
+}
+ct_refused() { cat "$CASE/refused.log" 2>/dev/null; return 0; }
 
 # The run record (run-record-lib.sh's layout), seeded through run-record.sh
 # itself so the record's shape and its checks are defined once. Each helper

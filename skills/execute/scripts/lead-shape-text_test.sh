@@ -34,7 +34,9 @@
 #     time, the node's worktree, koto status on the child it names,
 #     step_refine/, plan_abs and the local refine commit, and still carries
 #     the repo-visibility.sh, node-cut.sh and node-push.sh calls (the
-#     owning session's, since the step agent's block never names node-push.sh);
+#     owning session's, since the step agent's block never names node-push.sh),
+#     node-push.sh's with --worktree and run in the coordination checkout,
+#     never in the node worktree;
 #   the hand-off's coordinated template names the session the step agent
 #     opens, the dispatch variables, and that it makes no push and no gh
 #     write, and its fenced block never tells the agent to run node-push.sh;
@@ -295,9 +297,21 @@ PLAN entries, issue bodies, earlier children's `summary.md` files and step-agent
 Copy no private repository names, URLs or issue content into a PLAN entry or `step_refine` key
 {{PLUGIN_ROOT}}/skills/execute/scripts/repo-visibility.sh --home-repo "$HOME_REPO" --repo <REPO> --node <node>
 {{PLUGIN_ROOT}}/skills/execute/scripts/node-cut.sh {{PLAN_SLUG}} <node>
-Then push the node and record it: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh node --session {{SESSION_NAME}}
+Then push the node and record it: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh node --session {{SESSION_NAME}} --worktree <the node's worktree>
+run here in this coordination checkout, the directory `{{SESSION_NAME}}` was opened in
+with `--worktree` the `worktree=` path `node-cut.sh` printed
+this session is never read from the node worktree
 EOF
 check "the dispatch:<node> action" "$WORK/dispatch.flat" "$WORK/dispatch.txt"
+
+# node-push.sh runs in the coordination checkout: under koto's cloud backend
+# the run's session answers only there, so no directive runs it in the node
+# worktree.
+if grep -Eq 'node-push\.sh node[^`]*`, run in the node worktree|run node-push\.sh (node )?in the node' "$WORK/dispatch.flat"; then
+    fail "the dispatch:<node> action runs node-push.sh in the node worktree"
+else
+    pass "the dispatch:<node> action never runs node-push.sh in the node worktree"
+fi
 
 # The coordinated template: its section of the hand-off, and its fenced block
 # alone, which is the text a step agent is given.

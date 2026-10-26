@@ -533,8 +533,12 @@ was scoped, and the run writes there only through the coordination PR's body edi
 `gh pr ready`, and its merge, each given `home_repo` explicitly, and its branch's push
 from the coordination checkout, whose origin `home_repo` is read from. Every node then
 lives in another repository, so each is cut with `node-cut.sh --repo-dir <clone>`;
-`node-push.sh` refuses a node pushed from the coordination checkout or from a clone of
-the coordination PR's repository (exit 79, nothing pushed).
+`node-push.sh` refuses a node whose worktree belongs to the coordination checkout or
+to a clone of the coordination PR's repository (exit 79, nothing pushed). Wherever
+the node's worktree lives, `node-push.sh` itself runs in the coordination checkout,
+the directory the run's session was opened in, and reaches the node through
+`--worktree`: under koto's cloud backend a session answers only in the directory it
+was opened in.
 
 **The pause.** When a node can't start because a predecessor's PR is unmerged,
 the run ends `paused_awaiting_merges`. The run record in `execute-<plan-slug>` is

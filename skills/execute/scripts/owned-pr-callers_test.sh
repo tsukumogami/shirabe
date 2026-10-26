@@ -185,7 +185,7 @@ else
 fi
 NP=skills/execute/scripts/node-push.sh
 OWN=$(grep -n '^    OWNED_NOW=$(coord_owned "$REPO" "$BRANCH" open)' "$NP" | head -1 | cut -d: -f1)
-GP=$(grep -n '^[[:space:]]*if ! git push' "$NP" | head -1 | cut -d: -f1)
+GP=$(grep -n '^[[:space:]]*if ! git -C "$GIT_WT" push' "$NP" | head -1 | cut -d: -f1)
 if [ -n "$OWN" ] && [ -n "$GP" ] && [ "$OWN" -lt "$GP" ]; then
     pass "node-push.sh checks the node branch's PR before it pushes"
 else
