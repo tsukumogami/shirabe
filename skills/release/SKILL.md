@@ -34,12 +34,30 @@ identification, release notes, draft creation, workflow dispatch, and monitoring
 ```
 
 - **`/release`** -- analyzes commits and recommends a version
-- **`/release 0.3.0`** -- uses the specified version (`v0.3.0` also accepted)
+- **`/release 0.3.0`** -- uses the specified version (`v0.3.0` also accepted);
+  anything other than `X.Y.Z` or `X.Y.Z-<pre>` stops the run before it starts
 - **`/release --dry-run`** -- previews without side effects
 
 ## Phases
 
 ### Phase 1: Version Analysis and Release Contents
+
+**Check a given version first.** When the invocation names a version, check
+it before anything else runs, and before Phase 2's declared checks put it on
+a command line. Pass it as one single-quoted argument, exactly as typed:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" version '<as typed>'
+```
+
+It drops one leading `v` and prints the bare version, which is the version
+from here on. A value that isn't `X.Y.Z` or `X.Y.Z-<pre>` (letters, digits and
+dots) prints `refused=bad_version` and exits 2 with a message naming it: stop
+the run there, repeat that message, and run nothing else. A value holding a
+single quote can't be quoted this way and can't pass the check either, so
+stop on it the same way without running the command. The check is the same
+for every session, whatever its grant. Nothing is open yet, so there is no
+session to close.
 
 Establish what the release contains, once, and keep it in the release's koto
 session, `release-<topic>`. Phase 2's security check and Phase 3's notes are
@@ -133,7 +151,8 @@ Count commits by prefix over the range in `work/range`
 | `feat:` | minor |
 | `fix:`, `docs:`, `chore:`, `ci:`, `refactor:`, `test:` | patch |
 
-Normalize version input: accept both `0.3.0` and `v0.3.0`.
+Version input is normalized by the check above: both `0.3.0` and `v0.3.0` are
+accepted.
 
 ### Phase 2: Precondition Checks
 
@@ -276,10 +295,15 @@ All must pass before proceeding:
 
 Report the specific failure and stop on any check, closing the session first:
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> abandoned`.
+Name the check that stopped the run (clean tree, CI, tag, draft, blockers, or
+the declared check's command and file). These checks stop every run the same
+way, a session holding the release grant included.
 
 ### Phase 3: Release Notes and Version Confirmation
 
-Generate notes, present them, and confirm the version with the user.
+Generate notes, present them, and confirm the version: with the user, or,
+for a session holding the release grant on an ordinary cut, from the grant
+(step 6).
 
 1. Gather commits over the range Phase 1 stored:
 
@@ -311,7 +335,47 @@ Generate notes, present them, and confirm the version with the user.
    it here puts it in front of the author at the moment they are deciding
    whether the notes are complete.
 
-6. **Use AskUserQuestion** to present the recommended version with
+6. **Decide where the go comes from.** A session dispatched by niwa with the
+   `cut-release` authority can take the go from its grant on an ordinary
+   cut; everyone else is asked as below. Pass `--given` when the invocation
+   gave a version, otherwise `--bump` with the bump Phase 1's commit analysis
+   recommends (`major`, `minor` or `patch`), and add `--unresolved` when Phase
+   2's security check printed any `UNRESOLVED` line:
+
+   ```bash
+   topic=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" topic) || exit
+   "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" go "$topic" <flags>
+   ```
+
+   For example `--bump minor`, `--given`, or `--bump patch --unresolved`.
+   When the commit analysis leaves the bump in doubt, pass the larger one.
+   Any output other than the two lines below, or a non-zero exit, is a
+   `go=person`: ask.
+
+   It prints one line. `go=person reason=<why>` means a person gives the go:
+   a first release, a recommended major bump with no version given, an
+   `UNRESOLVED` security line, a commit in the range that names no pull
+   request and isn't the release workflow's own version commit (a direct
+   push, named on stderr), or a session that doesn't hold the grant (the
+   reason says which). Go on with the question below, exactly as without a
+   grant.
+
+   `go=grant dispatch=<id>` means the go comes from the grant. Ask nothing:
+   the version is the one given, or else the recommended one, and the notes
+   are the ones printed in step 5. Print the version, then this line with
+   the dispatch id it printed, and go on to Phase 4:
+
+   ```
+   release go: from the grant of dispatch <id>
+   ```
+
+   The grant answers this go and nothing else. The security-label treatment
+   (Phase 2 step 6), running a `release.local.md` command, and a declared
+   check's confirmation (exit 5) are still asked, and every Phase 2 check
+   still stops the run. The answer is advisory: the workspace gate still
+   decides the draft and the dispatch for this session on its own.
+
+   Otherwise, **use AskUserQuestion** to present the recommended version with
    alternatives. Include the commit analysis from Phase 1:
 
    > Based on 3 feat, 8 fix, and 1 breaking change since v0.2.0:
@@ -322,12 +386,17 @@ Generate notes, present them, and confirm the version with the user.
    > 4. **Custom version** -- enter a specific version
 
    If the user picks a different version than the one used to draft the
-   notes, update the notes title to reflect the chosen version.
+   notes, update the notes title to reflect the chosen version. A version
+   chosen here, a custom one above all, goes through the same check as a
+   given one before it is used anywhere (`release-state.sh version '<chosen>'`);
+   a version that fails it stops the run as in step 7.
 
 7. Allow the user to request edits to the notes before proceeding. Only
    move to Phase 4 after the user confirms both version and notes. If the
-   author declines the version, stop and close the session
-   `abandoned`.
+   author declines the version or the notes, or the question can't be put to
+   a person, stop: close the session `abandoned`
+   (`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic>
+   abandoned`) and report that the run stopped at the go, and why.
 
 ### Phase 4: Draft Release
 
@@ -385,16 +454,22 @@ string, as in Phase 2.
   the `gh release upload` line above), and quote the extension's note on what
   that item's failure costs, if it gives one.
 
-With the draft created and the assets handled (or none declared), the run's
-state is no longer needed. Close the session; its keys stay readable:
+The session stays open through Phases 5 and 6, which read nothing from it,
+and is closed once, at the end of the run (Phase 6), so a step refused on
+the way closes it `abandoned` instead.
+
+If draft creation fails, stop. When the workspace gate denied the command,
+or asked and the answer was no or nobody could answer, report the step (the
+draft) and the gate's reason as it gave it; otherwise check `gh auth status`.
+Either way close the session `abandoned`; the stored notes stay readable
+(`release-state.sh read <topic> notes`):
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> done
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> abandoned
 ```
 
-If draft creation fails, check `gh auth status`, close the session `abandoned`
-and stop; the stored notes stay readable (`release-state.sh read <topic>
-notes`). Phases 5 and 6 read nothing from the session.
+Never reach a refused step another way: no other command, API call or
+workaround creates the draft.
 
 ### Phase 5: Workflow Dispatch
 
@@ -409,6 +484,13 @@ gh workflow run <workflow-file> \
   -f tag=v<version> \
   -f ref=main
 ```
+
+If the dispatch is refused (the workspace gate denies it, or asks and the
+answer is no or nobody can answer) or fails, stop: report the step (the
+dispatch) and the gate's reason or the error, and close the session
+`abandoned`. Never reach a refused dispatch another way, such as the REST
+form (`gh api .../actions/workflows/<file>/dispatches`) or a tag push: the
+draft stands, and a person can dispatch it later.
 
 **Skill-only mode**: If no release workflow found, print:
 
@@ -433,13 +515,23 @@ Draft release with notes: <url>
    - **Failure**: Print details. Suggest `gh run view <id> --log-failed`.
    - **Timeout**: Print run URL: "Workflow still running -- monitor at <url>"
 
+The run ends here, and so does its state. Close the session `done`, whatever
+the monitoring found (a failed or still-running workflow is reported above,
+not retried), and in skill-only mode once the instructions are printed; its
+keys stay readable:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> done
+```
+
 ## Dry-Run Mode
 
 When `--dry-run` is passed:
 
 - Phases 1-3 run normally (version analysis and release contents, checks,
   notes + confirmation). Phase 1's derivation reads git and nothing else, so it
-  runs on this path unchanged.
+  runs on this path unchanged, and so do the version check and Phase 3's go
+  (a holder's dry run asks no go either).
 - The repository's declared checks (Phase 2 step 7) run, with
   `RELEASE_DRY_RUN=1`, and stop the dry run the same way they would stop a
   release.
@@ -453,6 +545,7 @@ When `--dry-run` is passed:
 
 | Phase | Failure | Recovery |
 |-------|---------|---------|
+| 1 | `version` prints `refused=bad_version` | The version given isn't `X.Y.Z` or `X.Y.Z-<pre>`. Nothing ran and no session is open; run `/release` again with a version that is |
 | 1 | `open` prints `refused=branch_mismatch` | A `release-<topic>` is live from an interrupted run on another branch. Run `skill-session.sh close release-<topic> abandoned`, then `/release` again |
 | 1 | `work/prs` is empty but the range has commits | Read `work/unattributed` (`release-state.sh read <topic> unattributed`): if every commit is listed there, the repository is not writing `(#N)` suffixes (the merge strategy changed) and the derivation's assumption no longer holds |
 | 1 | `work/range` holds `HEAD` on a repo that has tags | `git describe` found no `v*` tag from this commit -- check you are on the release branch and that tags are fetched (`git fetch --tags`) |
@@ -466,7 +559,11 @@ When `--dry-run` is passed:
 | 2 | A declared release check exits non-zero (other than 5) | The step repeated the last lines of the check's output; fix what they report, and run the release again; the check is named with the file that declared it |
 | 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
 | 4 | A `## Release assets` command fails or its upload fails | The draft stands. Re-run the command from the repository root with the same `RELEASE_*` values, then `gh release upload v<version> <path> --clobber` |
+| 3 | `go` prints `go=person` for a session dispatched to release | The reason says why: `first-release`, `major-bump`, `unresolved` or `direct-push` are cases the grant never answers; the others (`not-held`, `decider-person`, `no-niwa`, ...) mean niwa didn't confirm the grant. The go is asked as usual |
+| 3 | The go is declined, or nobody can answer it | The run stopped and closed its session `abandoned`. Run `/release` again when a person can give the go |
+| 4 | The workspace gate refuses `gh release create` | The run stopped, closed its session `abandoned`, and printed the gate's reason. Ask whoever dispatched the session for the grant, or cut the release from a session that holds it; don't create the draft another way |
 | 4 | Draft creation fails | Check `gh auth status`; the notes are still in `work/notes.md`. Close the session `abandoned` and run again |
+| 5 | The workspace gate refuses the workflow dispatch | The run stopped, closed its session `abandoned`, and printed the gate's reason. The draft stands; a person dispatches the workflow, never through the REST endpoint as a way around the gate |
 | 5 | Dispatch fails | Check workflow exists and permissions |
 | 6 | Workflow fails | `gh run view <id> --log-failed` |
 | 6 | Timeout | Check URL printed at timeout |
