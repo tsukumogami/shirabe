@@ -305,7 +305,7 @@ rs_resume_candidate() {
     # number (coord-log.sh compat). A run whose PLUGIN_ROOT is another plugin
     # root is resumed with `rebind` when its compiled template lets koto move
     # it (the opener re-attaches it with this root), and carried otherwise.
-    local rebind=false root
+    local rebind=false root run_root
     if ! grep -qxF -- "$s" <<< "$live"; then reason="it is finished or cancelled"
     elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live"
     elif [ "$("$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ] \
@@ -313,7 +313,10 @@ rs_resume_candidate() {
         reason="koto compiled it from a template this plugin's compat table doesn't list at its compat number"
     else
         root=$(bash "$HERE/coord-log.sh" plugin-root --session "$s" 2>/dev/null) || return 2
-        if [ "$(cd "$(printf '%s' "$root" | jq -r '.root')" 2>/dev/null && pwd -P)" != "$(cd "$HERE/../../.." && pwd -P)" ]; then
+        run_root=$(printf '%s' "$root" | jq -r '.root') || return 2
+        # A root that no longer exists on this host is another plugin's: cd's
+        # complaint about it says nothing the comparison doesn't.
+        if [ "$(cd "$run_root" 2>/dev/null && pwd -P)" != "$(cd "$HERE/../../.." && pwd -P)" ]; then
             if [ "$(printf '%s' "$root" | jq -r '.rebind')" = true ]; then rebind=true
             else reason="its plugin root is another plugin's, and its template doesn't let koto rebind it"; fi
         fi

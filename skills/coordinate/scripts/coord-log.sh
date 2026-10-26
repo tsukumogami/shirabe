@@ -248,9 +248,9 @@ run_fingerprint() {
 # be read.
 compat_verdict() {
     [ -r "$2" ] || return 2
-    jq -e 'type == "object" and (.compat | type == "number") and (.fingerprints | type == "object")' "$2" >/dev/null 2>&1 || return 2
+    jq -e 'type == "object" and (.compat | type == "number") and (.fingerprints | type == "object")' "$2" >/dev/null || return 2
     [ -n "$1" ] || return 1
-    jq -e --arg f "$1" '.fingerprints[$f] == .compat' "$2" >/dev/null 2>&1 && return 0
+    jq -e --arg f "$1" '.fingerprints[$f] == .compat' "$2" >/dev/null && return 0
     return 1
 }
 
@@ -488,7 +488,7 @@ plugin-root)
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     ROOT=$(effective_root "$LOG")
     REBIND=false
-    if RUN_COPY=$(run_copy "$LOG") && jq -e '.variables.PLUGIN_ROOT.rebind == true' "$RUN_COPY" >/dev/null 2>&1; then
+    if RUN_COPY=$(run_copy "$LOG") && jq -e '.variables.PLUGIN_ROOT.rebind == true' "$RUN_COPY" >/dev/null; then
         REBIND=true
     fi
     jq -nc --arg r "$ROOT" --argjson b "$REBIND" '{root: $r, rebind: $b}'
