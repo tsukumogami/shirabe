@@ -1337,6 +1337,83 @@ else
     fail "own clone: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
 fi
 
+# --- a session bound to its own directory ------------------------------------------
+#
+# Under koto 0.25.0's cloud backend a session is read and written only from
+# the directory it was opened in, and a context call from any other directory
+# exits 2 with session_bound_elsewhere. bind_session <session> <dir> makes the
+# koto stub do the same for <session>: the execute session is bound to the
+# coordination checkout, and a work item's child to the node worktree its step
+# agent opened it in. Each refusal is appended to the case's refused.log.
+mv "$CT_BIN/koto" "$CT_BIN/koto-unbound"
+cat > "$CT_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+store="${KOTO_STORE:?}"
+s=""
+if [ "${1:-}" = context ]; then
+    if [ "${2:-}" = list ]; then
+        # list [--prefix <p>] <session>, the flag on either side.
+        for a in "${@:3}"; do
+            if [ -n "${skip:-}" ]; then skip=""; continue; fi
+            case "$a" in --prefix) skip=1 ;; *) s="$a" ;; esac
+        done
+    else
+        s="${3:-}"
+    fi
+fi
+if [ -n "$s" ] && [ -f "$store/bound/$s" ]; then
+    b=$(cat "$store/bound/$s")
+    if [ "$(pwd -P)" != "$b" ]; then
+        msg="session_bound_elsewhere: session '$s' is bound to $b, not to the directory this command ran in"
+        printf '%s\n' "$msg" >> "$store/refused.log"
+        echo "$msg" >&2
+        exit 2
+    fi
+fi
+exec "$(dirname "$0")/koto-unbound" "$@"
+STUB
+chmod +x "$CT_BIN/koto"
+bind_session() { # bind_session <session> <dir>
+    mkdir -p "$CASE/bound"
+    (cd "$2" && pwd -P) > "$CASE/bound/$1"
+}
+refused() { cat "$CASE/refused.log" 2>/dev/null; }
+
+# A node in the coordination PR's repository, with a work item that deferred.
+np_case bound-home
+ct_write_db
+fresh_repo bound-home
+bind_session "$S" "$REPO"
+defer_child 2 "$REASON2"
+bind_session "work-on-t-$CT_CORE-2" "$WT"
+push_node
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$(git -C "$WT" rev-parse HEAD)" ] \
+    && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$(git -C "$WT" rev-parse HEAD)" ]; then
+    pass "a session bound to the coordination checkout: the node is pushed and run/node/$CT_CORE records it"
+else
+    fail "bound session: rc=$RC; nothing is pushed or recorded; $(refused) $(tail -2 "$CASE/stderr")"
+fi
+[ -z "$(refused)" ] && pass "a session bound to the coordination checkout: no koto call came from another directory" \
+    || fail "koto calls refused: $(refused)"
+part2 | grep -qxF "Reason: $REASON2" && pass "a bound child's deferral is read and recorded in the node PR" \
+    || fail "bound child's deferral: part2=[$(part2)]"
+
+# A node in another repository: its worktree is in a clone of acme/repo-b.
+np_case bound-other-repo
+ct_write_db
+fresh_repo bound-other-repo
+node_clone bound-other-repo
+bind_session "$S" "$REPO"
+home_push
+if [ "$RC" -eq 0 ] && [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] \
+    && [ "$(rec_node "$CT_CORE" | jq -r .repo)" = acme/repo-b ]; then
+    pass "a node in another repository, its session bound to the coordination checkout: pushed and recorded"
+else
+    fail "bound session, other repository: rc=$RC; nothing is pushed or recorded; $(refused) $(tail -2 "$CASE/stderr")"
+fi
+[ -z "$(refused)" ] && pass "a node in another repository: no koto call came from another directory" \
+    || fail "koto calls refused: $(refused)"
+
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ] || exit 1
