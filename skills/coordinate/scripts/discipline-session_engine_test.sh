@@ -210,7 +210,9 @@ stops() { # stops <label> <discipline> <expected-session>
 }
 craft badname coordinate-discipline-badname-20261001T100000Zx "$(vars_of badname)"
 stops "a name that isn't coordinate-<slug>-<stamp>" badname coordinate-discipline-badname-20261001T100000Zx
-sed 's/^## start$/## start\n\nA different template./' "$TPL" > "$T/other-template.md"
+# A structural change: a text-only one passes provenance through the compat
+# table (coordinate.compat.json).
+sed 's/^variables:$/variables:\n  PROVENANCE_PROBE:\n    description: A variable the shipped template does not declare.\n    default: ""/' "$TPL" > "$T/other-template.md"
 craft prov coordinate-discipline-prov-20261001T100000Z "$(vars_of prov)" "$T/other-template.md"
 stops "a session that fails provenance" prov coordinate-discipline-prov-20261001T100000Z
 craft disc coordinate-discipline-disc-20261001T100000Z "$(vars_of other)"
