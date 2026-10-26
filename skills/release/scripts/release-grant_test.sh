@@ -54,7 +54,7 @@ SID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0
 # tools/ holds links to what the script and the stub run; nothing else is on
 # PATH. notimeout/ is the same without `timeout`.
 mkdir -p "$T/tools" "$T/notimeout"
-for tool in bash git jq mktemp rm readlink sleep cat printf dirname sed; do
+for tool in bash jq mktemp rm readlink sleep cat printf dirname sed; do
     p=$(command -v "$tool" 2>/dev/null) || continue
     case "$p" in /*) ;; *) continue ;; esac
     ln -s "$p" "$T/tools/$tool"
@@ -95,6 +95,8 @@ case "$STUB_MODE" in
     bad-level) doc "$held" session off | sed 's/autonomous/reckless/' ;;
     bad-authority) doc '[{"authority":"cut-release"},{"authority":"deploy"}]' session off ;;
     no-point) doc "$held" session off | sed 's/"cut-release","decider"/"merge-pr","decider"/' ;;
+    two-points) doc "$held" session off | sed 's/}]}$/},{"point":"cut-release","decider":"person","author_exclusion":"off"}]}/' ;;
+    id-newline) doc "$held" session off "$id\\n" ;;
     exit-1) doc "$held" session off; exit 1 ;;
     no-check) [ "${2:-}" = check ] && { echo "unknown command \"check\" for \"niwa authority\"" >&2; exit 2; }; doc "$held" session off ;;
     sleep) sleep 30; doc "$held" session off ;;
@@ -125,6 +127,20 @@ g "$OUTSIDE" commit -q --allow-empty -m init
 mkdir -p "$REPO/bin" "$T/linkbin"
 cp "$T/stubbin/niwa" "$REPO/bin/niwa"
 ln -s "$REPO/bin/niwa" "$T/linkbin/niwa"
+
+# A jq and a timeout planted inside the working tree, each forging a holder's
+# answer: the jq prints the grant line itself, the timeout prints a holder's
+# document in place of running niwa.
+mkdir -p "$REPO/tools"
+cat >"$REPO/tools/jq" <<'FAKE'
+#!/bin/sh
+echo "go=grant dispatch=3c803591-4c01-486f-a927-f96ec399d6a7"
+FAKE
+cat >"$REPO/tools/timeout" <<'FAKE'
+#!/bin/sh
+STUB_MODE=holder exec "$4" "$@"
+FAKE
+chmod +x "$REPO/tools/jq" "$REPO/tools/timeout"
 
 # --- the runner -------------------------------------------------------------------------
 
@@ -182,7 +198,7 @@ for mode in not-held decider-person decider-dispatcher author-exclusion record-u
 done
 
 echo "--- answers nobody can read ---"
-for mode in id-not-uuid id-upper no-id wrong-schema two-docs nothing not-json bad-state bad-level bad-authority no-point; do
+for mode in id-not-uuid id-upper id-newline no-id wrong-schema two-docs nothing not-json bad-state bad-level bad-authority no-point two-points; do
     grant "$REPO" "$WITH" "$mode"
     expect "$mode" "go=person reason=unreadable-answer"
 done
@@ -215,6 +231,14 @@ grant "$REPO" "$T/linkbin:$T/tools" holder
 expect "a link outside the tree to a niwa inside it" "go=person reason=no-niwa"
 grant "$REPO" "$REPO/bin:$T/tools" holder "$SID" "$T/stubbin/niwa"
 expect "PATH's niwa under the tree, NIWA_BIN outside it" "go=grant dispatch=$ID"
+
+echo "--- nothing from the working tree runs ---"
+grant "$REPO" "$REPO/tools:$WITH" not-held
+expect "a jq and a timeout inside the tree, ahead on PATH, are passed over" "go=person reason=not-held"
+grant "$REPO" "tools:$WITH" not-held
+expect "a relative PATH entry is passed over" "go=person reason=not-held"
+grant "$REPO/bin" "$REPO/tools:$WITH" not-held
+expect "the same from a subdirectory of the tree" "go=person reason=not-held"
 
 grant "$REPO" "$WITH" holder -
 expect "CLAUDE_CODE_SESSION_ID unset" "go=person reason=no-session-id"

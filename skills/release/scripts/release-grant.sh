@@ -46,11 +46,16 @@
 # NIWA_LOOKUP_SECONDS when that is 1 or 2, as the workspace gate reads it.
 # KILL is what bounds it: a niwa that traps TERM can't hold the caller.
 #
-# A niwa whose resolved path (symlinks followed) lies under the repository's
-# working tree is never run: a committed settings file can point PATH or
-# NIWA_BIN there. The instance root is the nearest directory at or above
-# `git rev-parse --show-toplevel` holding .niwa/instance.json; niwa itself
-# resolves an outer instance from there.
+# Nothing under the repository's working tree is ever run: a committed
+# settings file can point PATH or NIWA_BIN there, and a planted jq or timeout
+# could forge the answer as surely as a planted niwa. So the working tree is
+# found without running anything (the nearest directory at or above the
+# current one holding a .git entry), PATH is rebuilt without its relative
+# entries and without any directory inside the tree before any command runs,
+# and a niwa whose resolved path (symlinks followed) lies inside the tree is
+# refused. The instance root is the nearest directory at or above the
+# working tree holding .niwa/instance.json; niwa itself resolves an outer
+# instance from there.
 #
 # The answer is advisory. The session id comes from the environment and the
 # instance from the working directory, both the session's own to change, so a
@@ -58,12 +63,40 @@
 # own questions: the gate reads the hook payload's session id and its own
 # installed path, and still decides the draft and the dispatch.
 #
-# Needs bash 3.2+, git and jq; never koto. Without niwa it prints go=person.
+# Needs bash 3.2+ and jq; never git or koto. Without niwa it prints
+# go=person.
 
 set -u
 
 say() { printf '%s\n' "$1"; exit 0; }
 person() { say "go=person reason=$1"; }
+
+# The working tree, found with shell builtins only.
+TOP=
+d=$(pwd -P 2>/dev/null) || d=
+while [ -n "$d" ]; do
+    if [ -e "$d/.git" ]; then TOP=$d; break; fi
+    [ "$d" = / ] && break
+    d=${d%/*}
+    [ -n "$d" ] || d=/
+done
+
+# PATH without relative entries (they resolve against the working directory)
+# and without directories inside the working tree, before anything runs.
+rest="${PATH:-}:"
+safe=
+while [ -n "$rest" ]; do
+    e=${rest%%:*}
+    rest=${rest#*:}
+    case "$e" in /*) ;; *) continue ;; esac
+    r=$(cd -P -- "$e" 2>/dev/null && pwd -P) || continue
+    if [ -n "$TOP" ]; then
+        case "$r/" in "${TOP%/}"/*) continue ;; esac
+    fi
+    safe="${safe:+$safe:}$e"
+done
+PATH=$safe
+export PATH
 
 # resolve <path>: the path with every symlink followed, as an absolute path
 # whose directories are physical. Fails when a directory can't be entered.
@@ -81,8 +114,6 @@ resolve() {
     printf '%s/%s\n' "${d%/}" "${p##*/}"
 }
 
-TOP=$(git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd -P -- "$TOP" 2>/dev/null && pwd -P) || TOP=
-
 # usable <candidate>: an absolute, executable file outside the working tree.
 usable() {
     local r
@@ -90,7 +121,7 @@ usable() {
     [ -f "$1" ] && [ -x "$1" ] || return 1
     r=$(resolve "$1") || return 1
     if [ -n "$TOP" ]; then
-        case "$r/" in "$TOP"/*) return 1 ;; esac
+        case "$r/" in "${TOP%/}"/*) return 1 ;; esac
     fi
     return 0
 }
@@ -125,7 +156,7 @@ esac
 
 DOC=$(mktemp "${TMPDIR:-/tmp}/release-grant.XXXXXX" 2>/dev/null) || person lookup-failed
 trap 'rm -f "$DOC"' EXIT
-trap 'rm -f "$DOC"; exit 0' HUP INT TERM
+trap 'rm -f "$DOC"; person lookup-failed' HUP INT TERM
 
 set -- authority check --json --session "$CLAUDE_CODE_SESSION_ID" -C "$ROOT" --point cut-release
 if command -v timeout >/dev/null 2>&1; then
@@ -149,7 +180,7 @@ command -v jq >/dev/null 2>&1 || person unreadable-answer
 # none of it is trusted), and any dispatch_id a lowercase UUID.
 LINE=$(jq -r -s '
     def oneof($set): . as $v | any($set[]; . == $v);
-    def uuid: type == "string"
+    def uuid: type == "string" and length == 36
         and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     if length != 1 then error("not one document") else .[0] end
     | if type != "object" or .schema != "niwa.authority.check/v1" then error("schema") else . end
@@ -170,8 +201,8 @@ LINE=$(jq -r -s '
         | if (.dispatch_id | uuid) then . else error("dispatch_id") end
         | if (any($grant[]; .authority == "cut-release") | not) then "go=person reason=not-held"
           else
-            ([$points[] | select(.point == "cut-release")] | .[0]
-              | if . == null then error("no cut-release point") else . end) as $p
+            ([$points[] | select(.point == "cut-release")]
+              | if length != 1 then error("not one cut-release point") else .[0] end) as $p
             | if $p.decider == "dispatcher" then "go=person reason=decider-dispatcher"
               elif $p.decider == "person" then "go=person reason=decider-person"
               elif $p.author_exclusion == "on" then "go=person reason=author-exclusion"

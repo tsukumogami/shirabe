@@ -348,6 +348,9 @@ for a session holding the release grant on an ordinary cut, from the grant
    ```
 
    For example `--bump minor`, `--given`, or `--bump patch --unresolved`.
+   When the commit analysis leaves the bump in doubt, pass the larger one.
+   Any output other than the two lines below, or a non-zero exit, is a
+   `go=person`: ask.
 
    It prints one line. `go=person reason=<why>` means a person gives the go:
    a first release, a recommended major bump with no version given, an
