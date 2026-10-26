@@ -354,8 +354,12 @@ EOF
     # The plugin root: a run opened from another plugin root, whose template
     # lets koto rebind it, is re-attached with this one before provenance runs.
     ROOTS=$(bash "$HERE/coord-log.sh" plugin-root --session "$IMPORT" 2>/dev/null) || ROOTS=
+    RUN_ROOT=
+    [ -n "$ROOTS" ] && RUN_ROOT=$(printf '%s' "$ROOTS" | jq -r '.root')
+    # A root that no longer exists on this host is another plugin's: cd's
+    # complaint about it says nothing the comparison doesn't.
     if [ -n "$ROOTS" ] && [ "$(printf '%s' "$ROOTS" | jq -r '.rebind')" = true ] \
-        && [ "$(cd "$(printf '%s' "$ROOTS" | jq -r '.root')" 2>/dev/null && pwd -P)" != "$(cd "$PLUGIN_ROOT" && pwd -P)" ]; then
+        && [ "$(cd "$RUN_ROOT" 2>/dev/null && pwd -P)" != "$(cd "$PLUGIN_ROOT" && pwd -P)" ]; then
         rebind_root "$IMPORT" || refuse_import session-provenance \
             "$IMPORT's plugin root couldn't be moved to this host's; it stays on this host, and a plain start carries its record into a new run"
     fi
