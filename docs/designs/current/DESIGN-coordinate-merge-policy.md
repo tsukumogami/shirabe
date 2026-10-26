@@ -707,7 +707,7 @@ dispatch that launched it, `posture-read.sh` takes merge, close and release
 from that session's grant, by the table the workspace's gate uses for a bound
 session: an authority held at a level where the session settles the point
 reads `permit`, one not held reads `deny` (a release lacking `cut-release`
-as much as a merge lacking `merge-pr`), and one settled by the dispatcher or
+reads `deny`, as a merge lacking `merge-pr` does), and one settled by the dispatcher or
 a person reads `deny`, or `confirm` for a close, as the gate would. Each still takes the stricter of that and the
 permission lists, so the grant never lifts a deny or an ask rule. The hook's
 text is read as Decision 5 describes for every other session: no niwa, a

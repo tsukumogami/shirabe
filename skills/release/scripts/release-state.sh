@@ -335,6 +335,7 @@ cmd_go() {
     done
     need_koto
     s="release-$topic"
+    # Only a guard that Phase 1 ran; the range's value no longer decides the go.
     if ! key_exists "$s" work/range; then
         say "Phase 1 did not run: work/range is absent from $s (run Phase 1 first; its membership step writes it)"
         exit 1
