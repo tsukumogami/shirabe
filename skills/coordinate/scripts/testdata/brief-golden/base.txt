@@ -44,7 +44,7 @@ Report at each one and continue; don't wait for approval to go past it.
 
 - [ ] The loader loads a plugin.
 - [ ] CI is green per job.
-- [ ] Each pull request has your review round recorded in your /work-on run's session with shirabe's `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat's run), every verdict pass, at the head you report ready. The land step reads it there and runs no review of its own. The round goes in the pull request body too, as a `## Review panel` table with the columns Seat, Model, Run, Verdict and Reviewed head, only when the repository declares `## PR Workflow Content: include`.
+- [ ] Each pull request has your review round recorded in your /work-on run's session with shirabe's `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat's run), every verdict pass, at the head you report ready. The land step reads it from there, through your leg or in the result block your report step prints, and runs no review of its own. It never reads a round from the pull request body, so don't put one there.
 
 ## Out of scope
 
@@ -60,7 +60,7 @@ Report to the coordinator by message, addressed to `coord-alpha`, the address it
 
 A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn't stand in for it, so keep going to the end.
 
-Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh" --session <your session>`, adding `--pr <url>` for each pull request you opened, from the directory your session is opened in, and put the block it prints in your final report, just before the `=== WORK IN FLIGHT ===` block. That block is your result; it carries what your session recorded that the coordinator needs, such as a link that failed.
+Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh" --session <your session>`, adding `--pr <url>` for each pull request you opened, from the directory your session is opened in, and put the block it prints in your final report, just before the `=== WORK IN FLIGHT ===` block. That block is your result; it carries what your session recorded that the coordinator needs: your review round, and a link that failed.
 
 A run the account's usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.
 

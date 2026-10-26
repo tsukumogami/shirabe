@@ -243,7 +243,7 @@
         "The head is re-read on entering the land step, and a moved head goes back to verification",
         "The merge is pinned to the verified head and made because the workspace permits it, not handed to the human",
         "After the merge, the merge is confirmed from GitHub's record: merged from the verified head, its merge commit on the default branch",
-        "The coordinator runs no review panel of its own: the land step reads the worker's review round from the worker's own run session (review_round.json), or from the body's Review panel table when the session has none, and the merge carries a squash message built from the title and Part 1"
+        "The coordinator runs no review panel of its own: the land step reads the worker's review round from the worker's own run session (review_round.json), or from the round the worker's report carried in its result block when no session can be read, never from the pull request body, and the merge carries a squash message built from the title and Part 1"
       ],
       "requirements": [
         "R10",

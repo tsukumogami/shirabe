@@ -5,17 +5,20 @@
 # gh-board stand-in, with coord-verdict.sh as every gate.
 #
 # Proves: a verified board routes verify_board to land in the same advance,
-# and a land check that reads the worker's Review panel at the head routes to
-# goal_fit, and a fit pull request under a permitted merge to land_merge;
+# and a land check that reads the round a message-path worker's report
+# carried (its result block, submitted at wait), with no Review panel table
+# in the body, routes to goal_fit, and a fit pull request under a permitted
+# merge to land_merge;
 # land-merge.sh, run by the agent, merges the verified sha through a stand-in
 # merge-exec.sh with the title and Part 1 as the squash message; a ready pull
 # request under a denied or confirm-only posture is handed to the person
 # (surface) and never merged, and the block merge-order-entry.sh prints for it
 # carries the seats' evidence and the squash message; a standing hold in the
 # record routes land to surface as held, its block naming the hold, and a
-# lifted one lets it go on to goal_fit; a goal-fit gap and a body with no Review
-# panel each go to rebrief, the reason in coord/land.json; a
-# malformed table stops verify_board (unevidenced); and merge_confirm routes
+# lifted one lets it go on to goal_fit; a goal-fit gap, and a body whose
+# Review panel table is the only round, each go to rebrief, the reason in
+# coord/land.json; a malformed reported round stops verify_board
+# (unevidenced); and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
 # wait; a refused check rollup green from the Actions jobs and statuses
 # routes to land like any verified board, and one whose required check only
@@ -105,7 +108,7 @@ states:
         command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state record_find --capture "{{RECORD_FIND}}"'
         overridable: false
     transitions:
-      - target: verify
+      - target: wait
         when:
           gates.verdict.exit_code: 10
   verify:
@@ -156,12 +159,22 @@ states:
       - target: rebrief
         when:
           gates.verdict.exit_code: 79
+  # The hub, as the real template's: a worker's message arrives here as
+  # evidence (event, unit, report), which is where the land check reads the
+  # round its result block carried.
   wait:
     accepts:
       go:
         type: enum
         values: [verify]
         required: true
+      event:
+        type: enum
+        values: [report, progress]
+      unit:
+        type: string
+      report:
+        type: string
     transitions:
       - target: verify
         when:
@@ -345,26 +358,34 @@ TPLEOF
 PERMIT="readable merge:permit close:permit teardown:permit release:permit"
 CL="$PS/coord-log.sh"
 state() { printf '%s' "$1" | jq -r .state; }
-start() { # start <session> <board case> [posture] [body-file]
+# start <session> <board case> [posture] [body-file]: a run whose pull request
+# #12 is held by worker-f12 on the message path, its body (bt_body: no Review
+# panel) or <body-file>, and the worker's report arriving at wait with its
+# result block; that block carries $BT_ROUND (a passing three-seat round at
+# the head unless set; set and empty, no round).
+start() {
     S=$1
     printf '%s\n' "${3:-$PERMIT}" > "$BT_STATE/posture"
     bt_board "$2"
     bt_prview CLEAN ${4:+"$4"}
     if [ -n "${BT_STANDING:-}" ]; then bt_record_paused "$BT_STANDING" "${BT_HOLDS:-[]}"
     else bt_record_body '[]' "${BT_HOLDS:-[]}"; fi
+    bt_holdings "[#12](https://github.com/acme/widgets/pull/12)"
     rm -f "$BT_STATE/merge-exec.calls"
     # $KOTO_LEGACY_ENV_ARG: #483.
     (cd "$T/work" && koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
     # The record just built, in the run's own keys: the session is its store.
     (cd "$T/work" && KOTO_BIN=koto bt_session_record "$S" > /dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
-    eq "$S: start_posture routes to verify" verify "$(state "$(cd "$T/work" && koto next "$S" --no-cleanup 2>/dev/null)")"
+    eq "$S: start_posture routes to wait" wait "$(state "$(cd "$T/work" && koto next "$S" --no-cleanup 2>/dev/null)")"
+    jq -nc --arg r "$(bt_result "${BT_ROUND-$(bt_round)}")" '{go: "verify", event: "report", unit: "worker-f12", report: $r}' > "$T/report.json"
+    eq "$S: the worker's report moves wait to verify" verify "$(state "$(tick "$S" --with-data @"$T/report.json")")"
 }
 tick() { (cd "$T/work" && koto next "$@" --no-cleanup 2>/dev/null); }
 
 echo "== verified, permitted, merged =="
 start coordinate-demo-20260926T150001Z complete-board || { echo "FAIL: koto init"; exit 1; }
 FITS='{"fit":"fits","rationale":"delivers the unit"}'
-eq "a verified board with seat evidence at the head reaches goal_fit in one advance" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"every job green","predicted":"yes"}')")"
+eq "a message-path worker's verified board, its round in its report and no table in its body, reaches goal_fit in one advance" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"every job green","predicted":"yes"}')")"
 case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "verified 12 $H sealed:"*) ok "VERIFIED is the sealed verified head" ;; *) bad "VERIFIED is the sealed verified head" ;; esac
 case "$(bash "$CL" capture --session "$S" --name LAND)" in "permit 12 $H sealed:"*) ok "LAND is the sealed permit" ;; *) bad "LAND is the sealed permit" ;; esac
 eq "the land check's message is the title and the fixture's Part 1" \
@@ -396,7 +417,7 @@ entry_has() {
     local out
     out=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>"$T/err")
     eq "$1: merge-order-entry.sh prints the block" 0 $?
-    case "$out" in *"- Review: 3 of 3 seats pass (architect, maintainer, pragmatic) at $H, in the pull request body's Review panel section"*)
+    case "$out" in *"- Review: 3 of 3 seats pass (architect, maintainer, pragmatic) at $H, carried in the worker's report from its run session issue_12"*)
         ok "$1: the block carries the seats' evidence" ;; *) bad "$1: the block carries the seats' evidence" "$out" ;; esac
     case "$out" in *"  feat(land): read the round"*"  Reads the worker's review round in the land step."*)
         ok "$1: the block carries the squash message" ;; *) bad "$1: the block carries the squash message" "$out" ;; esac
@@ -455,16 +476,18 @@ tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a goal-fit gap goes to rebrief, whatever the posture" rebrief "$(state "$(tick "$S" --with-data '{"fit":"gap","rationale":"stops short of the loader"}')")"
 
 echo "== the worker's review round =="
-printf '%s\n\n---\n\nNo panel here.\n' "$BT_PART1" > "$T/nopanel"
-start coordinate-demo-20260926T150013Z complete-board "$PERMIT" "$T/nopanel"
-eq "no Review panel table: land refuses, to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+# The first case above is a message-path worker landing with no table in its
+# body: its round came in its report. A table in the body, with no round in
+# any report, never lands.
+bt_table_body > "$T/table"
+BT_ROUND="" start coordinate-demo-20260926T150013Z complete-board "$PERMIT" "$T/table"
+eq "a Review panel table in the body and no round in the report: land refuses, to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 eq "  ... with the reason no-evidence" no-evidence "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r .reason)"
 [ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and nothing is merged" || bad "  ... and nothing is merged"
 # A stale round leaves land on the same unready arm; land-check_test.sh
 # covers its reasons.
-bt_body | sed 's/comment-103/comment-101/' > "$T/dup"
-start coordinate-demo-20260926T150015Z complete-board "$PERMIT" "$T/dup"
-eq "seats sharing a Run: verify_board refuses (unevidenced), to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+BT_ROUND=$(bt_round | jq -c '.seats[2].run = "agent-r1"') start coordinate-demo-20260926T150015Z complete-board
+eq "seats sharing a Run in the reported round: verify_board refuses (unevidenced), to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "unevidenced 12 none sealed:"*) ok "  ... and no verified head is captured" ;; *) bad "  ... and no verified head is captured" ;; esac
 
 echo "== a board that can't be judged leaves verify_board =="

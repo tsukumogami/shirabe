@@ -118,7 +118,7 @@ listings() { grep -c 'issues?state=open' "$GH_DB.calls"; }
 row() { (cd "$WD" && bash "$PS/state-holding.sh" --session "$S" --topic feat-1 --read 2>/dev/null); }
 
 seed_roadmap ship
-# The worker's pull request, its Review panel at the head, on feat/x; the
+# The worker's pull request on feat/x, its body with no Review panel; the
 # board reads complete.
 db '.prs = [{repo: "acme/widgets", number: 12, title: "feat: the loader", body: $b, state: "OPEN", isDraft: false,
     isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice",
@@ -157,8 +157,12 @@ eq "2: pick holds into wait" wait "$(at --with-data '{"choice":"hold"}')"
 
 # ---- 3. the worker's pull request ----------------------------------------------------
 echo "== 3. the worker's result names its pull request =="
+# The worker records its review round in its own session, where land reads it
+# through the leg, and keeps the session when it finishes.
+bt_round > "$T/round.json"
 (cd "$T" && koto init deliver-feat-1 --template "$T/tpl/deliver.md" --var TOPIC=feat-1 --koto-leg "$REQ:deliver" > /dev/null 2> "$T/child.err" \
-    && koto next deliver-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+    && bash "$HERE/review-round.sh" record --session deliver-feat-1 "$T/round.json" > /dev/null 2>> "$T/child.err" \
+    && koto next deliver-feat-1 --with-data '{"finish":"go"}' --no-cleanup > /dev/null 2>&1) \
     || bad "3: the stand-in worker promotes its result" "$(cat "$T/child.err")"
 eq "3: the leg result naming the pull request goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
 write_as_agent holding-link.sh

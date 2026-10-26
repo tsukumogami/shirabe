@@ -9,7 +9,10 @@
 # capture with and without --for and --state, directed-since, run-facts (the
 # found tokens it accepts, no record number, and no run-store subcommand),
 # run-start, vars, entered, entry, evidence (--where, --has), captures, unit
-# (the message and leg paths), count, slug, live-session --all, the refusal of
+# (the message and leg paths), count, slug, live-session --all, wakes,
+# result-line (a report's or progress message's last result block, the latest
+# carrying the key, never another unit's, a merged event's, a line outside a
+# block or an unterminated block; an indented block trimmed), the refusal of
 # a header whose schema_version isn't 1, provenance by template hash and
 # plugin root (and, after the plugin is rewritten in place, by the template
 # path koto compiled the run from and the compiled copy it runs), and
@@ -322,5 +325,37 @@ eq "every wake attributed: messages and merged by unit, a leg by its request, a 
 eq "--after-time counts only the wakes after it" '{"":2,"alpha":1}' \
     "$(bash "$HERE/coord-log.sh" wakes --session "$WS" --after-time 2026-09-26T09:05:00Z | jq -cS .)"
 eq "a run with no wakes prints an empty object" '{}' "$(bash "$HERE/coord-log.sh" wakes --session "$WS" --after-time 2026-09-26T10:00:00Z | jq -c .)"
+
+echo "== result-line =="
+RS=coordinate-roadmap-results-20260926T080000Z
+found_session "$RS" "$(roadmap_vars results)"
+log_to "$RS" reconcile wait 2026-09-26T08:02:00.000Z
+# msg <event> <unit> <report>: one wait evidence carrying a message.
+msg() { log_evidence "$RS" wait "$(jq -nc --arg e "$1" --arg u "$2" --arg r "$3" '{event: $e, unit: $u, report: $r}')"; }
+rl() { bash "$CL" result-line --session "$RS" "$@"; }
+BLOCK=$(printf 'Ready.\n\n=== RESULT ===\nsession=issue_7\npr=https://github.com/acme/widgets/pull/7\nreview_round={"a":1}\n=== END RESULT ===\n')
+bash "$CL" result-line --session "$RS" --unit alpha --line review_round > /dev/null; eq "no message from the unit: exit 1" 1 $?
+msg report alpha "$BLOCK"
+eq "a report's result block: the line's value and the block's session" '{"session":"issue_7","value":"{\"a\":1}"}' \
+    "$(rl --unit alpha --line review_round | jq -c '{session, value}')"
+eq "  ... with the evidence's sequence" true "$(rl --unit alpha --line review_round | jq '.seq > 0')"
+rl --unit beta --line review_round > /dev/null; eq "another unit's report: exit 1" 1 $?
+rl --unit alpha --line warning > /dev/null; eq "a key the block doesn't carry: exit 1" 1 $?
+msg progress alpha "$(printf '%s' "$BLOCK" | sed 's/"a":1/"a":2/')"
+eq "a later progress message with the line wins" '{"a":2}' "$(rl --unit alpha --line review_round | jq -r .value)"
+msg report alpha "$(printf 'Done.\n\n=== RESULT ===\nsession=issue_7\n=== END RESULT ===\n')"
+eq "a later block without the line leaves the earlier one" '{"a":2}' "$(rl --unit alpha --line review_round | jq -r .value)"
+msg merged alpha "$(printf '%s' "$BLOCK" | sed 's/"a":1/"a":3/')"
+eq "a merged event's message isn't read" '{"a":2}' "$(rl --unit alpha --line review_round | jq -r .value)"
+msg report alpha "$(printf 'review_round={"a":4}\n')"
+eq "the line outside a block isn't read" '{"a":2}' "$(rl --unit alpha --line review_round | jq -r .value)"
+msg report alpha "$(printf '=== RESULT ===\nreview_round={"a":5}\n')"
+eq "a block that never ends isn't read" '{"a":2}' "$(rl --unit alpha --line review_round | jq -r .value)"
+msg report alpha "$(printf '=== RESULT ===\nreview_round={"a":6}\n=== END RESULT ===\nlater\n=== RESULT ===\nsession=x\n=== END RESULT ===\n')"
+eq "only the message's last block counts" '{"a":2}' "$(rl --unit alpha --line review_round | jq -r .value)"
+msg report alpha "$(printf '```\n  === RESULT ===\n  session=issue_8\n  review_round={"a":7}  \n  === END RESULT ===\n```\n')"
+eq "an indented block in a fence is read, its lines trimmed" 'issue_8 {"a":7}' "$(rl --unit alpha --line review_round | jq -r '"\(.session) \(.value)"')"
+rl --unit alpha --line Review-Round > /dev/null 2>&1; eq "a key outside [a-z][a-z0-9_]*: usage" 64 $?
+rl --unit alpha > /dev/null 2>&1; eq "no --line: usage" 64 $?
 
 done_tests coord-log

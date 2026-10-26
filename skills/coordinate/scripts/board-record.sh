@@ -26,9 +26,9 @@
 #                                commit's statuses where the token can't
 #                                read checks, and the worker's review round,
 #                                if it has one, parses (the round recorded
-#                                in its session, else the body's Review
-#                                panel table: board-lib.sh's
-#                                bl_review_evidence)
+#                                in its session, else the one its report
+#                                carried: board-lib.sh's
+#                                bl_review_evidence; never the body)
 #   unevidenced <pr> none        the board is green but the review round is
 #                                malformed (panel-evidence.sh):
 #                                a panel claim with seats that can't be told
@@ -36,9 +36,7 @@
 #                                parsed round is coord/board.json's
 #                                `evidence` and its rule a reason coded
 #                                `unevidenced` (that file's `verdict` stays
-#                                the board's own, `verified`). A body that
-#                                can't be read is board-unreadable, reason
-#                                `evidence-read`
+#                                the board's own, `verified`)
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
 #   not-run <pr> none            a job at the head never ran (it completed
@@ -185,29 +183,21 @@ if [ -z "$TOKEN" ]; then
     esac
 fi
 # A green board with a malformed review round (the one the worker recorded in
-# its session, else the body's Review panel table; board-lib.sh's
+# its session, else the one its report carried; board-lib.sh's
 # bl_review_evidence) is a panel claim the land step can't read, seats that
 # can't be told apart included: no verified head is recorded on it. No round
 # yet is fine here; land refuses it later.
 # docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 1.
 case "$TOKEN" in
     verified\ *)
-        if bl_gh "$T.pr" pr view "$PR" --repo "$REPO" --json body; then
-            jq -r '.body // ""' "$T.pr" > "$T.body" || exit 2
-            EV=$(bl_review_evidence "$SESSION" "$REPO" "$PR" "$T.body") || EV=
-            rm -f "$T.body"
-            case "$(printf '%s' "$EV" | jq -r '.status // ""')" in
-                ok|absent) ;;
-                malformed)
-                    jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ((if $e.source == "session" then "the recorded review round is malformed: " else "the Review panel table is malformed: " end) + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"
-                    TOKEN="unevidenced $PR none" ;;
-                *) echo "$PROG: the review round couldn't be read" >&2; exit 2 ;;
-            esac
-        else
-            jq '.reasons += [{code: "evidence-read", detail: "the pull request body could not be read"}]' "$T" > "$T.e" && mv "$T.e" "$T"
-            TOKEN="board-unreadable $PR none"
-        fi
-        rm -f "$T.pr" "$T.pr.err" "$T.pr.fail" ;;
+        EV=$(bl_review_evidence "$SESSION" "$REPO" "$PR") || EV=
+        case "$(printf '%s' "$EV" | jq -r '.status // ""')" in
+            ok|absent) ;;
+            malformed)
+                jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ((if $e.source == "session" then "the review round recorded in the worker'"'"'s session is malformed: " else "the review round the worker'"'"'s report carried is malformed: " end) + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"
+                TOKEN="unevidenced $PR none" ;;
+            *) echo "$PROG: the review round couldn't be read" >&2; exit 2 ;;
+        esac ;;
 esac
 case "$TOKEN" in
     verified\ *|unverified\ *|pending\ *) ;;

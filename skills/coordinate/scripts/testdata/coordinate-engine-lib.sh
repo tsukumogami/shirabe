@@ -230,14 +230,16 @@ land_row() { # land_row [verified-head]; LAND_PHASE sets the Phase (executing), 
 }
 
 land_run() {
-    # The body carries the worker's Review panel at the head, which land reads.
+    # The body carries no Review panel: the worker reports by message, and its
+    # result block carries the round at the head, which land reads.
     db '.prs = [{repo: "acme/widgets", number: 12, title: "feat: the loader", body: $b, state: "OPEN", isDraft: false,
         isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice",
         mergeStateStatus: "CLEAN"}]' --arg h "$H" --arg b "$(bt_body)"
     bt_board complete-board
     to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || return 1
-    [ "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR #12 is ready; CI is green."}')" = classify_report ] || return 1
+    [ "$(at --with-data "$(jq -nc --arg r "PR #12 is ready; CI is green.
+$(bt_result "$(bt_round)")" '{event: "report", unit: "feat-1", report: $r}')")" = classify_report ] || return 1
     [ "$(at --with-data '{"classification":"done"}')" = verify ] || return 1
     [ "$(at --with-data '{"predicted":"recorded","prediction":"every job green"}')" = verified_confirm ]
 }
