@@ -332,6 +332,31 @@ assert_contains "it says failed=koto_below_floor" "failed=koto_below_floor" "$(c
 assert_contains "its message names koto" "koto" "$(cat "$T/stderr")"
 assert_no_staging "open release with a koto below the floor"
 
+# --- version ---------------------------------------------------------------------------------
+
+echo
+echo "== version =="
+for v in 0.3.0 v0.3.0 10.20.30 1.0.0-rc.1 0.3.0-alpha.2.b; do
+    rs_stub version "$v"
+    assert_eq "version $v exits 0" "0" "$RC"
+    assert_eq "version $v prints the bare version" "${v#v}" "$STDOUT"
+done
+for v in '1.2.3;id' '1.2' '' 'vv1.2.3' '1.2.3 ' ' 1.2.3' '1.2.3-' '1.2.3-rc_1' '1.2.3$(id)' "1.2.3
+id" 'V1.2.3' '1.2.3.4'; do
+    rs_stub version "$v"
+    assert_eq "version $(printf '%q' "$v") is refused with 2" "2" "$RC"
+    assert_eq "version $(printf '%q' "$v") prints refused=bad_version" "refused=bad_version" "$STDOUT"
+    assert_contains "version $(printf '%q' "$v"): the message names the version" "$(printf '%q' "$v")" "$STDERR"
+done
+if stub_called; then fail "version reached koto: $(cat "$STUB_LOG")"; else pass "version makes no koto call"; fi
+check_usage "version with no value" version
+check_usage "version with two values" version 1.2.3 1.2.4
+check_usage "go with no version source" go some-topic
+check_usage "go with an unknown bump" go some-topic --bump huge
+check_usage "go with --bump and no value" go some-topic --bump
+check_usage "go with an unknown flag" go some-topic --given --yes
+check_usage "go with a bad topic" go Bad_Topic --given
+
 # --- engine-backed --------------------------------------------------------------------------
 
 if [ -z "$REAL_KOTO" ]; then
@@ -477,8 +502,8 @@ assert_eq "open release in the untagged repository exits 0" "0" "$RC"
 RC=0
 (cd "$FIRST" && PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" membership first-release) >"$T/stdout" 2>"$T/stderr" || RC=$?
 assert_eq "membership in the untagged repository exits 0" "0" "$RC"
-assert_eq "a first release's range is HEAD" "HEAD" "$("$REAL_KOTO" context get release-first-release work/range)"
-assert_eq "a first release's work/prs holds its pull request" "3" "$("$REAL_KOTO" context get release-first-release work/prs)"
+assert_eq "a first release's range is HEAD" "HEAD" "$(cd "$FIRST" && "$REAL_KOTO" context get release-first-release work/range)"
+assert_eq "a first release's work/prs holds its pull request" "3" "$(cd "$FIRST" && "$REAL_KOTO" context get release-first-release work/prs)"
 
 # membership outside a git work tree is refused.
 NOREPO="$T/norepo"
@@ -487,6 +512,120 @@ RC=0
 (cd "$NOREPO" && PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" membership "$TP") >"$T/stdout" 2>"$T/stderr" || RC=$?
 assert_eq "membership outside a git work tree is refused with 2" "2" "$RC"
 assert_contains "it says refused=not_a_repository" "refused=not_a_repository" "$(cat "$T/stdout")"
+
+# --- go -------------------------------------------------------------------------------------------
+
+echo
+echo "== go =="
+# A repository inside a niwa instance root, a stub niwa that logs each call
+# and answers as a holder (or, with NIWA_STUB=not-held, without cut-release),
+# and a session id: what release-grant.sh needs to ask.
+GO_INST="$T/go-inst"
+GOREPO="$GO_INST/repo"
+mkdir -p "$GO_INST/.niwa" "$GOREPO" "$T/niwastub"
+echo '{}' >"$GO_INST/.niwa/instance.json"
+NIWA_LOG="$T/niwa-calls"
+GO_ID=3c803591-4c01-486f-a927-f96ec399d6a7
+cat >"$T/niwastub/niwa" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$NIWA_LOG"
+grant='[{"authority":"cut-release","sources":["dispatch"]}]'
+[ "${NIWA_STUB:-}" = not-held ] && grant='[{"authority":"merge-pr","sources":["dispatch"]}]'
+printf '{"schema":"niwa.authority.check/v1","state":"bound","dispatch_id":"3c803591-4c01-486f-a927-f96ec399d6a7","grant":%s,"level":"autonomous","points":[{"point":"cut-release","decider":"session","author_exclusion":"off"}]}\n' "$grant"
+STUB
+chmod +x "$T/niwastub/niwa"
+export NIWA_LOG
+
+gg() { git -C "$GOREPO" -c user.name=t -c user.email=t@example.invalid "$@"; }
+bot() {
+    GIT_AUTHOR_NAME='github-actions[bot]' GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' \
+        GIT_COMMITTER_NAME='github-actions[bot]' GIT_COMMITTER_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' \
+        git -C "$GOREPO" commit -q --allow-empty -m "$1"
+}
+gg init -q
+gg checkout -q -b docs/go
+gg commit -q --allow-empty -m "feat: first (#1)"
+bot "chore(release): set version to v0.1.0"
+gg tag v0.1.0
+bot "chore(release): advance to 0.1.1-dev"
+gg commit -q --allow-empty -m "feat: add gamma (#21)"
+
+# go_run <args...> -- release-state.sh in the go repository, with real koto,
+# the stub niwa and a session id.
+go_run() {
+    RC=0
+    : >"$NIWA_LOG"
+    (cd "$GOREPO" && unset NIWA_BIN NIWA_LOOKUP_SECONDS \
+        && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
+            "$BASH_BIN" "$RS" "$@") >"$T/stdout" 2>"$T/stderr" || RC=$?
+    STDOUT=$(cat "$T/stdout")
+    STDERR=$(cat "$T/stderr")
+}
+niwa_calls() { grep -c . "$NIWA_LOG" 2>/dev/null || true; }
+go_membership() {
+    RC=0
+    (cd "$GOREPO" && PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" membership go-run) >"$T/stdout" 2>"$T/stderr" || RC=$?
+    [ "$RC" -eq 0 ] || fail "membership go-run exited $RC: $(cat "$T/stderr")"
+}
+
+RC=0
+(cd "$GOREPO" && PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$SS" open release go-run) >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "open release go-run exits 0" "0" "$RC"
+go_membership
+
+for args in "--bump minor" "--bump patch" "--given" "--given --bump major"; do
+    # shellcheck disable=SC2086 # the flags split on purpose
+    go_run go go-run $args
+    assert_eq "holder, $args: go exits 0" "0" "$RC"
+    assert_eq "holder, $args: the go comes from the grant" "go=grant dispatch=$GO_ID" "$STDOUT"
+    assert_eq "holder, $args: niwa was asked once" "1" "$(niwa_calls)"
+done
+assert_contains "the check asked for cut-release from the instance root" "authority check --json --session 0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 -C $GO_INST --point cut-release" "$(cat "$NIWA_LOG")"
+if [ -z "$STDERR" ]; then pass "the release workflow's own commits are not named as direct pushes"; else fail "go named a commit: $STDERR"; fi
+
+go_run go go-run --bump major
+assert_eq "holder, a recommended major bump with no version given asks" "go=person reason=major-bump" "$STDOUT"
+assert_eq "major bump: niwa not asked" "0" "$(niwa_calls)"
+go_run go go-run --bump minor --unresolved
+assert_eq "holder, an UNRESOLVED line in the security check asks" "go=person reason=unresolved" "$STDOUT"
+assert_eq "unresolved: niwa not asked" "0" "$(niwa_calls)"
+
+RC=0
+(cd "$GOREPO" && NIWA_STUB=not-held NIWA_LOG="$NIWA_LOG" CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 \
+    PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$RS" go go-run --given) >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "a session without cut-release is asked, with release-grant.sh's reason" "go=person reason=not-held" "$(cat "$T/stdout")"
+
+# Commits with no (#N) that the release workflow didn't write.
+gg commit -q --allow-empty -m "fix: pushed straight to main"
+go_membership
+go_run go go-run --bump patch
+assert_eq "holder, a direct push in the range asks" "go=person reason=direct-push" "$STDOUT"
+assert_contains "the direct push is named" "pushed straight to main" "$STDERR"
+assert_eq "direct push: niwa not asked" "0" "$(niwa_calls)"
+gg reset -q --hard HEAD~1
+bot "chore: tidy"
+go_membership
+go_run go go-run --bump patch
+assert_eq "the bot identity with another subject is a direct push" "go=person reason=direct-push" "$STDOUT"
+gg reset -q --hard HEAD~1
+gg commit -q --allow-empty -m "chore(release): advance to 0.1.2-dev"
+go_membership
+go_run go go-run --bump patch
+assert_eq "the release subject from another identity is a direct push" "go=person reason=direct-push" "$STDOUT"
+gg reset -q --hard HEAD~1
+go_membership
+go_run go go-run --bump patch
+assert_eq "with the direct pushes gone the go comes from the grant again" "go=grant dispatch=$GO_ID" "$STDOUT"
+
+# A first release asks, whatever the grant and the version given.
+RC=0
+(cd "$FIRST" && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0 PATH="$T/niwastub:$TOOLS_KOTO:$SYS_PATH" \
+    "$BASH_BIN" "$RS" go first-release --given) >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "a first release asks for the version" "go=person reason=first-release" "$(cat "$T/stdout")"
+
+go_run go never-opened --given
+assert_eq "go without Phase 1's range exits 1" "1" "$RC"
+assert_contains "it names Phase 1" "Phase 1 did not run" "$STDERR"
 
 fi
 
@@ -632,17 +771,52 @@ case "$PH3" in
 esac
 
 # Every call to the script names it by the plugin-root path.
-BARE=$(grep -nE 'release-state\.sh"? +(topic|membership|read)' "$SKILL_MD" | grep -vF "$CALL" | grep -vE '`release-state\.sh' || true)
+BARE=$(grep -nE 'release-state\.sh"? +(topic|membership|read|version|go)' "$SKILL_MD" | grep -vF "$CALL" | grep -vE '`release-state\.sh' || true)
 if [ -n "$BARE" ]; then
     fail "a bash call names release-state.sh without its plugin-root path: $BARE"
 else
     pass "every bash call to release-state.sh names it by its plugin-root path"
 fi
 
-# The closes: done after Phase 4 and at the end of a dry run, abandoned on an earlier stop.
+# The closes: done at the end of the run (Phase 6) and of a dry run, abandoned
+# on an earlier stop, a refused draft or dispatch included.
+PH5=$(phase '### Phase 5')
+PH6=$(phase '### Phase 6')
+case "$PH6" in
+    *'skill-session.sh" close release-<topic> done'*) pass "Phase 6 closes the session done at the end of the run" ;;
+    *) fail "Phase 6 has no skill-session.sh close release-<topic> done" ;;
+esac
 case "$PH4" in
-    *'skill-session.sh" close release-<topic> done'*) pass "Phase 4 closes the session done" ;;
-    *) fail "Phase 4 has no skill-session.sh close release-<topic> done" ;;
+    *'close release-<topic> done'*) fail "Phase 4 still closes the session done before the dispatch" ;;
+    *) pass "Phase 4 leaves the session open for the dispatch" ;;
+esac
+case "$PH4" in
+    *'gate'*'close release-<topic> abandoned'*) pass "Phase 4 closes the session abandoned when the draft is refused" ;;
+    *) fail "Phase 4 has no abandoned close for a refused draft" ;;
+esac
+case "$PH5" in
+    *'refused'*'abandoned'*'REST'*) pass "Phase 5 closes abandoned on a refused dispatch and rules out the REST route" ;;
+    *) fail "Phase 5 does not close abandoned on a refused dispatch, or does not rule out the REST route" ;;
+esac
+
+# The version check comes before anything runs; the go reads the grant.
+L_VER=$(grep -n -m1 -F "\"$CALL\" version" <<<"$PH1" | cut -d: -f1)
+if [ -n "$L_VER" ] && [ -n "$L_OPEN" ] && [ "$L_VER" -lt "$L_OPEN" ]; then
+    pass "Phase 1 checks a given version before it opens the session"
+else
+    fail "Phase 1 does not check the version before the open (lines: version=$L_VER open=$L_OPEN)"
+fi
+case "$PH3" in
+    *"\"$CALL\" go"*) pass "Phase 3 decides the go with release-state.sh go" ;;
+    *) fail "Phase 3 does not call \"$CALL\" go" ;;
+esac
+case "$PH3" in
+    *'release go: from the grant of dispatch <id>'*) pass "Phase 3 prints the grant's provenance line" ;;
+    *) fail "Phase 3 has no provenance line for a go from the grant" ;;
+esac
+case "$PH3" in
+    *'release-state.sh version'*) pass "Phase 3 checks a version chosen at the go" ;;
+    *) fail "Phase 3 does not check a version chosen at the go" ;;
 esac
 case "$DRY" in
     *'close'*'release-<topic> done'*) pass "the dry run closes the session done" ;;
