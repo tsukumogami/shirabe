@@ -248,8 +248,9 @@ def check_holds($h; $private):
 #            follow-up row the pull request that landed its scoping,
 #            `owner/repo#n`; for a verdict-owed row the topic of the worker
 #            that held the milestone, or `none`; for a rework row
-#            `verdict <id>` or `failure <id>`, the record comment holding the
-#            verdict or failure entry
+#            `verdict <id>` or `failure <id>`, the comment holding the
+#            verdict or failure entry, or that entry's number when it stayed
+#            in the session
 #   Next step  what happens next, one line; a verdict-owed row's is
 #            `verdict owed since YYYY-MM-DD`; a rework row's is the
 #            verdict's not-held clauses and Changes needed line, or the
@@ -373,7 +374,7 @@ def check_srow($sec; $private):
        else (.who | check_worker) as $_ | . end)
     elif $sec.key == "work" and .kind == "rework" then
       (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `Milestone 2`, `MV1`, `AB10b`)")
-       elif (.who | test("^(verdict|failure) [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>` or `failure <id>`, the record comment holding its verdict or failure entry")
+       elif (.who | test("^(verdict|failure) [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>` or `failure <id>`, the comment holding its verdict or failure entry, or that entry's number when it stayed in the session")
        elif (.next | rework_problem) != null then refuse("work.next: a rework row's text is one paragraph of at most 600 bytes with no URL or markdown link: \(.next | rework_problem)")
        else . end)
     elif $sec.key == "standing" then

@@ -586,13 +586,20 @@ post_session_entry() {
 # requests, read as state-entry.sh reads it before a post: `## PR Workflow
 # Content: include` in the CLAUDE.md GitHub serves from the default branch,
 # through scripts/pr-workflow-content.sh (STATE_ENTRY_PR_CONTENT_READER
-# overrides its path, for tests). A CLAUDE.md that can't be read, a missing
-# reader, or any answer but `include` is 1.
+# overrides its path, for tests). It is read here rather than asked of
+# state-entry.sh, whose post gate this script leaves as it is, so the pull
+# request's body and Progress line are settled before anything is opened. No
+# CLAUDE.md (404), a missing reader, or any answer but `include` is 1. Any
+# other failed read exits 2: a host that opts in must not be read as one that
+# doesn't because GitHub failed once, or a run again would add a second
+# Progress line citing the comment.
 host_opts_in() {
     local reader=${STATE_ENTRY_PR_CONTENT_READER:-$HERE/../../../scripts/pr-workflow-content.sh} d="$WD/pr-content" out=
     rm -rf "$d" && mkdir -p "$d" || lib_die2 "cannot make a temporary directory"
-    if gh api --method GET "repos/$REPO/contents/CLAUDE.md" --jq '.content // ""' > "$WD/claude-md.b64" 2> /dev/null < /dev/null; then
+    if gh api --method GET "repos/$REPO/contents/CLAUDE.md" --jq '.content // ""' > "$WD/claude-md.b64" 2> "$WD/cm.err" < /dev/null; then
         lib_b64d "$WD/claude-md.b64" "$d/CLAUDE.md" || rm -f "$d/CLAUDE.md"
+    else
+        grep -q 'HTTP 404' "$WD/cm.err" || lib_die2 "cannot read $REPO's CLAUDE.md, which says whether the entry is posted: $(lib_scrub < "$WD/cm.err")"
     fi
     [ -f "$reader" ] && out=$(bash "$reader" "$d" 2> /dev/null < /dev/null) || out=
     [ "${out%%$'\n'*}" = include ]
@@ -1289,6 +1296,8 @@ EOF
                     else printf -- '- amends %s: its Outcome, Evidence and Left open are the follow-up'"'"'s, with a Progress line naming the amendment\n' "$at"; fi
                 done < "$WD/fu-plan.tsv"
             fi
+            # The body carries the whole entry either way, so whoever merges
+            # reviews the judgment even when no comment holds it.
             if [ "$POSTS" = 1 ]; then
                 printf '\nThe verdict entry, as the coordinator recorded it; it is posted as a comment on this pull request, and a Progress line names that comment:\n\n'
             else

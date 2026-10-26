@@ -411,5 +411,25 @@ eq "--verdict --entry on a host that opts in opens the pull request and posts th
 URL3=$(posted "$NS3")
 on_branch "$(branch_of 8)" | grep -qxF -- "- $TODAY: MV1 -- verified, checked by coordinate-plugins ($URL3, $(sha8 "$T/v1.txt"))" \
     && ok "  ... its Progress line citing the comment" || bad "  ... its Progress line citing the comment" "[$URL3] $(on_branch "$(branch_of 8)" | tail -2)"
+sv_seed "$MVD" "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')"
+db '.files["acme/widgets"]["main:CLAUDE.md"] = "# widgets\n\n## PR Workflow Content: include"'
+NF3=$(write_entry milestone-failure "$T/f.txt")
+OUT=$(rs --reopen MV1 --entry "$NF3" 2>"$T/err"); rc=$?
+eq "--reopen --entry on a host that opts in posts the entry" "0 https://github.com/acme/widgets/pull/8 1" "$rc $(head -n 1 <<<"$OUT") $(ncomments)"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+URLF3=$(posted "$NF3")
+on_branch "$(branch_of 8)" | grep -qxF -- "- $TODAY: MV1 -- reopened: clause 2 failed, reported by an operator ($URLF3, $(sha8 "$T/f.txt"))" \
+    && ok "  ... its reopen line citing the comment" || bad "  ... its reopen line citing the comment" "[$URLF3] $(on_branch "$(branch_of 8)" | tail -2)"
+
+echo "== a CLAUDE.md read that fails is no answer about the opt-in =="
+sv_seed
+rs --unit MV1 >/dev/null 2>&1
+NS4=$(write_entry milestone-verdict "$T/v1.txt")
+db '.fail = [{match: "contents/CLAUDE.md", rc: 1, stderr: "gh: HTTP 502"}]'
+reset_calls
+rs --verdict MV1 --entry "$NS4" >/dev/null 2>"$T/err"; eq "--verdict --entry exits 2 when the host's CLAUDE.md can't be read" 2 $?
+grep -q 'CLAUDE.md' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
+eq "  ... and opens nothing, posts nothing" "0 0 0" "$(writes) $(jq '.prs | length' "$GH_DB") $(ncomments)"
+db '.fail = []'
 
 done_tests roadmap-status-entry_test
