@@ -20,9 +20,11 @@
 # round with a failing seat is well-formed and is stored; the land step
 # refuses it as not unanimous.
 #
-# The session is the worker's own: the /work-on run the coordinator's leg is
-# bound to (its name, such as issue_<N>). The coordinator finds it through the
-# leg, so nothing else names it.
+# The session is the worker's own: the run the coordinator's leg is bound to,
+# or on the message path the one its opener opened (its name, such as
+# issue_<N>). The coordinator finds it through the leg; a worker with no leg
+# reports it instead, since render-result.sh carries the stored round in the
+# result block of its final report.
 #
 # Exit codes: 0 stored (prints `recorded <count> seats at <reviewed head>`);
 # 1 the round is malformed (prints `malformed <reason> row <n>` on stderr);

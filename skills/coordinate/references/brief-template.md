@@ -116,8 +116,10 @@ learn of it from the worker's result, never by reading the worker's key.
 The Reporting section then names the worker's report step:
 `scripts/render-result.sh --session <its session>`, with `--pr <url>` per
 pull request, whose block goes in the final report. It reads the worker's own
-session and carries a `warning=link-failed dispatched_by=<your run>` line for
-a link that failed. No skill's text asks the worker to pass the warning on.
+session and carries the worker's review round as a `review_round=` line, which
+is where the land step reads it for a worker with no leg, and a
+`warning=link-failed dispatched_by=<your run>` line for a link that failed. No
+skill's text asks the worker to pass either on: the script does.
 
 A worker moved to the message path later (a re-brief, an execution sent to an
 entry point with no leg, a leg found unwatchable after an import) is
@@ -196,9 +198,10 @@ DESIGN, a related pull request. Path, number or URL only.>
 - [ ] Each pull request has your review round recorded in your /work-on
   run's session with `review-round.sh record` (the round in
   `verification-checklist.md`), at the head you report ready. The land step
-  reads it there and runs no review of its own. The `## Review panel` table
-  goes in the body too only when the repository declares
-  `## PR Workflow Content: include`. (Always; the renderer adds it.)
+  reads it from there, through the worker's leg or in the result block its
+  report step prints, and runs no review of its own. It never reads a round
+  from the pull request body, so the worker puts none there. (Always; the
+  renderer adds it.)
 
 ## Out of scope
 
@@ -231,7 +234,8 @@ On the message path only: your report step. When your entry point finishes,
 run `scripts/render-result.sh --session <your session>`, with `--pr <url>`
 for each pull request you opened, and put the block it prints in your final
 report, just before the `=== WORK IN FLIGHT ===` block. That block is your
-result; it carries a link to the coordinator that failed.
+result; it carries your review round, and a link to the coordinator that
+failed.
 
 A run the account's usage limit cut short (an eval or a nested session that
 executed nothing) is not a result: re-run it once the limit resets, and never

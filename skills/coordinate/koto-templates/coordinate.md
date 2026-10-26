@@ -684,7 +684,7 @@ states:
         description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here. With landed or failure, the heading tag of the feature or milestone instead (MV2, Feature 7).
       report:
         type: string
-        description: With a report or progress event, the worker's message as it arrived.
+        description: With a report or progress event, the worker's message as it arrived, its result block whole (the land step reads the worker's review round from it).
       pull_request:
         type: string
         description: With a report or progress event whose message names the worker's pull request, that pull request as its URL or as owner/repo#number. report_facts has it written onto a holding that has none yet, after checking it on GitHub.
@@ -1544,9 +1544,9 @@ states:
       - target: wait
         when:
           gates.verify_board_verdict.exit_code: 78  # not-run
-      # A green board whose body holds a malformed Review panel table: a
-      # panel claim with seats that can't be told apart is the worker's to
-      # fix, and no verified head is recorded on it.
+      # A green board whose worker's review round is malformed: a panel
+      # claim with seats that can't be told apart is the worker's to fix,
+      # and no verified head is recorded on it.
       - target: rebrief
         when:
           gates.verify_board_verdict.exit_code: 79  # unevidenced
@@ -3460,16 +3460,17 @@ report is shaped.
 Reading the pull request's board. koto runs `board-record.sh` itself: it reads
 the head from the remote and judges every workflow run and job at that head.
 On a green board it also reads the worker's review round, the one recorded in
-its own run session or else the body's Review panel table, and a malformed one
-is `unevidenced`, which sends you to `rebrief`.
+its own run session or else the one its report carried, and a malformed one is
+`unevidenced`, which sends you to `rebrief`. The pull request body is never
+read for it.
 
 <!-- details -->
 
 `unevidenced` means the worker's panel claim can't be read: a round whose seats
 share a Seat or a Run, or that breaks another rule `panel-evidence.sh` lists.
 The rule broken is in `coord/board.json` (`evidence.reason`, with
-`evidence.source` saying whether the session or the body was read) and on the
-action's output. Fixing the round is the worker's: put the rule in the
+`evidence.source` saying whether the session or the report was read) and on
+the action's output. Fixing the round is the worker's: put the rule in the
 re-brief. No round yet passes here; the land step asks for it.
 
 A head is verified only when the board is non-empty, every run finished and none
@@ -3538,7 +3539,7 @@ verified sha, the run goes back to verify.
 Checking the land step. koto runs `land-check.sh` itself: it re-reads the pull
 request's head against the verified one and reads the merge state, then reads
 the worker's review round (the one it recorded in its own run session with
-`review-round.sh`, else the body's Review panel table), checks the head
+`review-round.sh`, else the one its report carried), checks the head
 the seats reviewed, runs the body's mechanical checks, builds the squash message
 from the title and Part 1, reads the record's holds on the pull request, and
 re-reads the posture for the merge. `unready` sends you to `rebrief` with the
@@ -3551,9 +3552,13 @@ report again at the resume.
 
 The land step never runs a review panel of its own: the worker's three-seat
 round is the panel. It is read from the worker's run session first, found
-through the leg the holding returns on, and from the body's table only when the
-session holds none; `coord/land.json`'s `evidence.source` says which. An
-`unready` names what the worker fixes: no round in either
+through the leg the holding returns on, and otherwise from the
+`review_round=` line of the result block in the latest report from the
+holding's worker that carries one (`render-result.sh` prints it); that report
+is in this run's own log, so it is read wherever the run is.
+`coord/land.json`'s `evidence.source` says which (`session`, `report` or
+`none`). The body is never read for it: a Review panel table there is not a
+round. An `unready` names what the worker fixes: no round in either
 (`no-evidence`), a round that breaks the format (`malformed:<rule>`), too
 few seats, a failing seat, a reviewed head further from the head than merge-ins
 of the base branch (`stale:<why>`), or a body or message that fails its checks.

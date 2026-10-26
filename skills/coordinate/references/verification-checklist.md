@@ -154,27 +154,25 @@ At least three seats, each with its own Seat and a Run unique to that seat's
 run (an agent or session id, or `comment-<id>` for a review comment the seat's
 verdict was posted as), every Verdict `pass`, and one reviewed head for all of
 them: the head itself, or one that only merge-ins of the base branch have moved
-past since. The script stores it as the session's `review_round.json`, and the
-land step finds it through the leg the worker's holding returns on.
+past since. The script stores it as the session's `review_round.json`.
 
-A repository that opts in to workflow content in its PR bodies (it declares
-`## PR Workflow Content: include`; `scripts/pr-workflow-content.sh` reads it)
-also carries the round in Part 2 of the body, as the older home:
+The land step reads the round from one of two places. For a holding that
+returns on a leg, it reads the session the leg is bound to, when this host's
+store holds it. Otherwise it reads the round the worker's report carried: a
+message-path worker's report step, `scripts/render-result.sh`, prints the
+recorded round in its result block as one `review_round=<compact JSON>` line,
+and the report you submit at `wait` keeps that block in your own session's
+log, which the land step can read wherever you run. So pass the worker's
+message whole, its result block included. `coord/land.json`'s
+`evidence.source` says which was read: `session`, `report`, or `none`.
 
-```markdown
-## Review panel
-
-| Seat | Model | Run | Verdict | Reviewed head |
-|---|---|---|---|---|
-| architect | sonnet | <run id> | pass | <40-hex sha> |
-| maintainer | sonnet | <run id> | pass | <40-hex sha> |
-| pragmatic | sonnet | <run id> | pass | <40-hex sha> |
-```
-
-The land step reads the session's round first and the body's table only when
-the session has none, which is also how a worker on an earlier version still
-lands. `scripts/panel-evidence.sh` is the parser of both (`--round` for the
-session's); its header lists every rule.
+The pull request body is never read for the round. A `## Review panel` table
+in it, whatever it says, is not evidence: a body with a table and no round in
+a session or a report is `unready` with `no-evidence`. Without the
+`## PR Workflow Content: include` opt-in, `/work-on`'s pull request gate
+reports such a table as `pr-body/workflow-content`.
+`scripts/panel-evidence.sh --round` judges the round; its header lists every
+rule.
 
 ## Confirming a Merge
 

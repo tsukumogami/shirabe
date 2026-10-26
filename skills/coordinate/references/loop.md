@@ -131,6 +131,11 @@ hierarchy, so koto may reclaim its session on its own schedule once it
 finishes: read what you need from it before that, and say so in your next
 report. Learn of it from the block alone; never read the worker's keys.
 
+The same block carries the worker's review round as a `review_round=` line.
+The land step reads it from the report you submit at `wait`, so pass the
+message as it arrived, the block whole: a block you summarize or drop leaves
+land with no round, and the worker gets an `unready` it can't fix.
+
 ## Resolving a Claim GitHub Contradicts
 
 When a row says one thing and the read says another, act on the read,
