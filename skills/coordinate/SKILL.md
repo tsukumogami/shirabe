@@ -24,10 +24,10 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 A coordinator drives an effort by handing work to other sessions and keeping
 track of it. It decides what happens next, writes the context a worker needs to
-start cold, checks what comes back, and lands finished work. A landing step that
-isn't its own to take goes to the coordinator that dispatched it when its
-session is bound, and to a person only when it is a root coordinator. It
-implements nothing. The judgment stays with it.
+start cold, checks what comes back, and lands finished work. A coordinator whose
+session is bound hands a landing step it can't take to the coordinator that
+dispatched it; only a root coordinator hands one to a person. It implements
+nothing. The judgment stays with it.
 
 `/coordinate` is a koto workflow. Its loop, and each step's guidance, live in
 `skills/coordinate/koto-templates/coordinate.md`; each state shows its longer
@@ -713,11 +713,13 @@ step, not the command: once the workspace denies a session a merge, a close or a
 teardown, don't reach the same result another way (a different command, an API
 call, a compound command); hand the step over: a merge, close or release to the
 coordinator that dispatched you when your session is bound and to a person only
-when you are a root coordinator, a teardown to a person. A step the workspace
-puts behind a person's confirmation is handed over the same way. That is how
-this skill reads the workspace's rules; it carries no permission rule of its
-own. Never ask the human for a step the workspace already permits. Read a settings file for the keys
-you need and never print one whole: its env block can hold credentials.
+when you are a root coordinator, a teardown to a person. Where you are a root
+coordinator, a step the workspace puts behind a person's confirmation is
+reserved for a person too; where you are bound, it goes to your dispatcher like
+a denied one. That is how this skill reads the workspace's rules; it carries no
+permission rule of its own. Never ask the human for a step the workspace
+already permits. Read a settings file for the keys you need and never print one
+whole: its env block can hold credentials.
 
 Where niwa dispatched the coordinator and `niwa authority check` reports its
 session bound to that dispatch, the merge, close and release posture comes from

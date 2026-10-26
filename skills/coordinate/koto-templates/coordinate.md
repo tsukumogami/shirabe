@@ -2278,10 +2278,10 @@ status to read Active; at discipline scope there is nothing to check here.
 
 A coordinator drives an effort by handing work to other sessions and keeping
 track of it. It decides what happens next, writes the context a worker needs to
-start cold, checks what comes back, and lands finished work. A landing step that
-isn't its own to take goes to the coordinator that dispatched it when its
-session is bound, and to a person only when it is a root coordinator. It
-implements nothing. The judgment stays with it.
+start cold, checks what comes back, and lands finished work. A coordinator whose
+session is bound hands a landing step it can't take to the coordinator that
+dispatched it; only a root coordinator hands one to a person. It implements
+nothing. The judgment stays with it.
 
 **A roadmap scope must be Active.** A missing roadmap, or one in any other
 status, ends the run at `done_not_active` without dispatching anything; report
