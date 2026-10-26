@@ -94,11 +94,38 @@ the shirabe steps that call the fence need a koto release carrying it.
 
 ### Step 3: a handover across a text-only template change or another plugin path no longer refuses
 
-shirabe: the template declares COMPAT and COMPAT_REVIEWED, record/meta stores them with the shirabe version, the opener's resume and `--import` paths compare COMPAT instead of the compiled hash and the plugin path (tsukumogami/shirabe#1144, tsukumogami/shirabe#806), and a CI check judged by the base branch fails a structural or gate-script change without a bump or a recorded review; needs no koto change.
+**Goal**: The coordinate opener decides whether a live or imported run can be resumed by a compat number shipped beside the template, not by the compiled template's bytes or the plugin's absolute path, and CI keeps that number honest. A run opened from today's template keeps resuming exactly as it does now.
+
+**Acceptance Criteria**:
+
+- [ ] A live run whose compiled template is listed in the shipped compat table at the shipped compat number resumes (`resumed=1`) even when its compiled hash differs from the shipped template's, where today it is carried.
+- [ ] A live run compiled from the coordinate template on main before this change resumes with no other change: its hash is in the table at compat 1.
+- [ ] A live run opened from this change's template under one plugin root resumes when the opener runs from another plugin root on the same host, and afterwards `koto` reports its `PLUGIN_ROOT` as the new root.
+- [ ] A live run whose hash is missing from the table, or listed at another compat number, is carried as today, and `coordinate-open.sh --import` of such a run prints `refused=template-incompatible`, naming the template and both sides' compat numbers and hashes.
+- [ ] The compat check in CI, run from the base branch's copy of its script, fails a pull request that changes a state name, a transition, an evidence field, a variable or a gate command without raising the compat number; fails one that changes a script a gate invokes (or a library it sources) without raising the compat number or recording the new gate-script hash; fails one whose shipped template hash isn't in the table at the shipped compat number; and passes a change to directive or details text alone.
+
+**Check**: In hosted CI, `check-template-compat_test.sh` runs the check over fixture template pairs (text only, state renamed, gate script changed with and without a bump, hash missing from the table) and prints one expected verdict per pair; `coordinate-open_engine_test.sh`'s new cases open a run, change the template's directive text and its plugin root, and see `resumed=1`, then see `refused=template-incompatible` for an unlisted hash. Engine cases run under test-coordinate-engine with a scratch `HOME`, `KOTO_SESSION_*` and `KOTO_SESSIONS_BASE` unset and the store asserted under scratch.
+
+**Dependencies**: None
+
+**Files**: `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/coord-log.sh`, `skills/coordinate/scripts/state-read.sh`, `skills/coordinate/scripts/coordinate-open.sh`, `scripts/check-template-compat.sh`, `.github/workflows/check-coordinate-scripts.yml`
 
 ### Step 4: the handover gate passes with pending workers, and a delivered re-brief records told
 
-shirabe: `state-stored-set.sh --pending`, a gate that accepts pending and still holds on not-told, the re-brief evidence `delivered` recording told and `refused` recording nothing, and `worker_gone` recording pending while the instance exists (tsukumogami/shirabe#1245); needs no koto change.
+**Goal**: A worker that can't be told the coordinator's address yet is recorded as pending and no longer holds the handover gate, and a re-brief that reached the worker records it as told with no hand step (tsukumogami/shirabe#1245).
+
+**Acceptance Criteria**:
+
+- [ ] `state-stored-set.sh --pending <worker> --by <who>` records the worker as pending for the current address; `state-handover.sh --check` then reports no `not-told <worker>` gap for it, and still reports `not-told` for a live worker recorded neither told nor pending.
+- [ ] `--told <worker>` turns a pending worker into a told one; `--run coordinator` clears every told and pending row; a record holding one worker as both told and pending is refused by the schema.
+- [ ] After the re-brief step reports the worker messaged, the worker is recorded told for the current address with no `--told` run by hand; when it reports the worker's session gone while its instance still exists, the worker is recorded pending; when the message was refused, nothing is recorded and the gate keeps its `not-told` gap.
+- [ ] A record written before this change, with no pending rows, reads, checks and hands over exactly as before.
+
+**Check**: In hosted CI, `state-stored-set_test.sh` and `state-handover_test.sh` run the pending, told and clear cases and print each gate result, and the template's routing test drives the re-brief step's three outcomes against real koto with a scratch `HOME`, `KOTO_SESSION_*` and `KOTO_SESSIONS_BASE` unset, and shows the told set after each.
+
+**Dependencies**: None
+
+**Files**: `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/references/state-keys.md`
 
 ### Step 5: chain-start returns the lineage the continues relation and carried-run links give, whatever the names
 

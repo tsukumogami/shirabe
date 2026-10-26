@@ -205,18 +205,21 @@ eq "  ... and changes no key" "$SNAP" "$(keys "$OLD")"
 S=$NEW
 
 echo "== 4. a changed template carries the record into a new run (PRD R12) =="
-# The plugin with a changed template: the live run, compiled from the old one,
-# isn't resumed. Its record/ and legs/ keys are carried, and its log stays
-# readable. No writer makes a legs/ key yet, so the case writes one itself.
+# The plugin with a changed template whose compat table no longer lists the
+# old one at its compat number: the live run, compiled from the old one, isn't
+# resumed. Its record/ and legs/ keys are carried, and its log stays readable.
+# No writer makes a legs/ key yet, so the case writes one itself.
 mkdir -p "$T/plugin2"
 cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
 printf '\n<!-- a change to the template, for the carry case -->\n' >> "$T/plugin2/skills/coordinate/koto-templates/coordinate.md"
+COMPAT2=$T/plugin2/skills/coordinate/koto-templates/coordinate.compat.json
+jq '.compat += 1' "$COMPAT2" > "$T/compat2.json" && mv "$T/compat2.json" "$COMPAT2"
 printf '{"request":"req-1","leg":"deliver"}' | (cd "$WD" && koto context add "$S" legs/req-1/deliver)
 OLD=$S
 sleep 1
 open_run "$T/plugin2" && [ "$S" != "$OLD" ] && ok "a start with a changed template opens a new run" || bad "a start with a changed template opens a new run" "$(cat "$T/open.err")"
 has_line "carried=$OLD" && ok "  ... carrying the old one's record" || bad "  ... carrying the old one's record" "$OPEN_OUT $(cat "$T/open.err")"
-grep -q 'another template' "$T/open.err" && ok "  ... because koto compiled it from another template" || bad "  ... because koto compiled it from another template" "$(cat "$T/open.err")"
+grep -q "compat table doesn't list" "$T/open.err" && ok "  ... because its compat table doesn't list the run's template" || bad "  ... because its compat table doesn't list the run's template" "$(cat "$T/open.err")"
 eq "  ... with every record/ key" "$(keys "$OLD")" "$(keys "$S")"
 eq "  ... and its legs/ key" '{"request":"req-1","leg":"deliver"}' "$(cd "$WD" && koto context get "$S" legs/req-1/deliver)"
 [ -r "$(koto session dir "$OLD")/koto-$OLD.state.jsonl" ] && ok "  ... the old run's log kept readable" || bad "  ... the old run's log kept readable" ""

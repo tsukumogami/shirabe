@@ -48,8 +48,12 @@
 # run from the bucket, taking the template from the bucket only under
 # `--trust-template`, and marks the source migrated; its refusals print
 # `refused=<koto code>`. The imported run must pass what a resume needs, or it
-# stays here refused: the shipped template's hash (`refused=template-mismatch`),
-# provenance (`refused=session-provenance`), a find that recorded the session
+# stays here refused: a template this plugin can drive, the shipped one or one
+# the compat table beside it lists at the shipped compat number
+# (`refused=template-incompatible`, naming both compat numbers and hashes),
+# provenance (`refused=session-provenance`; a run from another plugin root
+# whose template lets koto rebind it is re-attached with this root first, and
+# refused only when that attach is), a find that recorded the session
 # (`refused=session-source`) and no directed transition
 # (`refused=session-directed`). A plain start then carries it, except after
 # session-source: a run whose find never ran is no resume candidate, so the
@@ -258,6 +262,31 @@ refuse_import() { # refuse_import <code> <why>
     echo "refused=$1"; echo "coordinate-open: $2" >&2; exit 2
 }
 
+# rebind_root <run>: re-attach <run> with this plugin's root, for a run whose
+# PLUGIN_ROOT is another plugin root and whose compiled template declares it
+# rebindable (coord-log.sh plugin-root). koto checks the run's origin and its
+# fixed variables and re-applies PLUGIN_ROOT, so its gates run this plugin's
+# scripts from now on. Prints koto-open.sh's rebound= line (the variables koto
+# changed, e.g. rebound={"PLUGIN_ROOT":"<this root>"}); returns non-zero, having
+# printed koto's refusal on stderr, when koto refuses the attach.
+rebind_root() {
+    local d out rc
+    d=$(bash "$KOTO_OPEN" --alloc-dir) || return 1
+    jq -nc --arg r "$PLUGIN_ROOT" '[["PLUGIN_ROOT", $r]]' > "$d/rebind-vars.json" || { rm -rf "$d"; return 1; }
+    out=$(bash "$KOTO_OPEN" "$1" "$TEMPLATE" "$d/rebind-vars.json" --attach-live --wording "$WORDING")
+    rc=$?
+    rm -rf "$d"
+    [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | sed -n 's/^opened=//p')" = attached ] || {
+        echo "coordinate-open: $1 couldn't be re-attached with this plugin's root ($(printf '%s' "$out" | tr '\n' ' '))" >&2
+        return 1
+    }
+    printf '%s\n' "$out" | grep '^rebound=' || true
+}
+
+# compat_line <run>: "<run's compat> <shipped compat> <template hash>" from the
+# compat table (coord-log.sh compat), for a refusal to name both sides.
+compat_line() { bash "$HERE/coord-log.sh" compat --session "$1" 2>/dev/null; }
+
 # The session store's koto features, read by feature before anything else
 # (PRD R2): `context list --prefix` and `session import`. The help text is
 # captured whole before it is matched: piped into `grep -q` under pipefail,
@@ -312,8 +341,28 @@ if [ -n "$IMPORT" ]; then
     # its record into a new run on this host's template and plugin, all but
     # session-source's, which holds no session-store record to carry.
     HASH=$(bash "$HERE/coord-log.sh" template-hash --session "$IMPORT" 2>/dev/null)
-    [ "$HASH" = "$SHIPPED" ] || refuse_import template-mismatch \
-        "$IMPORT was compiled from another template than the one shipped here; it stays on this host, and a plain start carries its record into a new run"
+    # The template: the shipped one, or one the compat table beside it lists
+    # at the shipped compat number (coord-log.sh compat), so a change to
+    # directive text alone no longer stops an import.
+    if [ "$HASH" != "$SHIPPED" ] && ! bash "$HERE/coord-log.sh" compat --session "$IMPORT" >/dev/null 2>&1; then
+        read -r RUN_COMPAT SHIP_COMPAT _ <<EOF
+$(compat_line "$IMPORT")
+EOF
+        refuse_import template-incompatible \
+            "$IMPORT was compiled from coordinate.md at compat ${RUN_COMPAT:--} (template ${HASH:-unknown}); this plugin ships compat ${SHIP_COMPAT:--} (template $SHIPPED), so it can't drive the run; it stays on this host, and a plain start carries its record into a new run"
+    fi
+    # The plugin root: a run opened from another plugin root, whose template
+    # lets koto rebind it, is re-attached with this one before provenance runs.
+    ROOTS=$(bash "$HERE/coord-log.sh" plugin-root --session "$IMPORT" 2>/dev/null) || ROOTS=
+    RUN_ROOT=
+    [ -n "$ROOTS" ] && RUN_ROOT=$(printf '%s' "$ROOTS" | jq -r '.root')
+    # A root that no longer exists on this host is another plugin's: cd's
+    # complaint about it says nothing the comparison doesn't.
+    if [ -n "$ROOTS" ] && [ "$(printf '%s' "$ROOTS" | jq -r '.rebind')" = true ] \
+        && [ "$(cd "$RUN_ROOT" 2>/dev/null && pwd -P)" != "$(cd "$PLUGIN_ROOT" && pwd -P)" ]; then
+        rebind_root "$IMPORT" || refuse_import session-provenance \
+            "$IMPORT's plugin root couldn't be moved to this host's; it stays on this host, and a plain start carries its record into a new run"
+    fi
     bash "$HERE/coord-log.sh" provenance --session "$IMPORT" >/dev/null 2>&1 || refuse_import session-provenance \
         "$IMPORT wasn't opened from this host's plugin (its plugin root differs); it stays on this host, and a plain start carries its record into a new run"
     [ "$("$KOTO" context get "$IMPORT" coord/source.json < /dev/null 2>/dev/null | jq -r '.source // empty' 2>/dev/null)" = session ] \
@@ -372,6 +421,16 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
             not_self "$OLD"
+            # A run from another plugin root is re-attached with this one
+            # first; a refused attach carries it instead, as before.
+            if [ "$(printf '%s' "$CAND" | jq -r '.rebind // false')" = true ] && ! rebind_root "$OLD"; then
+                CAND=$(printf '%s' "$CAND" | jq -c '.action = "carry" | .reason = "its plugin root couldn'"'"'t be moved to this plugin'"'"'s"')
+            fi
+        ;;
+    esac
+    case "$(printf '%s' "$CAND" | jq -r '.action')" in
+        resume)
+            OLD=$(printf '%s' "$CAND" | jq -r '.session')
             [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
             printf 'resumed=1\nsession=%s\n' "$OLD"

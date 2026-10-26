@@ -243,13 +243,18 @@ rs_scope_sessions() {
 # coordinate-<slug>-<stamp>, a root session, holding record/meta) and prints
 # {session, action, live, reason}:
 #   resume  it is live and the scope's only live run, koto compiled it from the
-#           shipped template's hash, it passes provenance, its find recorded the
+#           shipped template or one the compat table beside it lists at the
+#           shipped compat number, it passes provenance, its find recorded the
 #           session store (coord/source.json), and it has no directed
-#           transition: the start keeps it, opening and cancelling nothing
+#           transition: the start keeps it, opening and cancelling nothing.
+#           A run whose PLUGIN_ROOT is another plugin root, and whose compiled
+#           template declares it rebindable, is resumed with `rebind: true`:
+#           the opener re-attaches it with this plugin's root
 #   carry   it holds a record but fails one of the run checks
-#           (finished, cancelled, another template hash, provenance, a directed
-#           transition, another live run): the start opens a new run and copies
-#           its record/ and legs/ keys into it through the write core
+#           (finished, cancelled, a template outside the compat table,
+#           provenance, another plugin root it can't be rebound from, a
+#           directed transition, another live run): the start opens a new run
+#           and copies its record/ and legs/ keys into it through the write core
 #   none    no session here holds a record, or the newest's find never
 #           recorded the session (no coord/source.json reading session): the
 #           start opens a new run
@@ -295,16 +300,37 @@ rs_resume_candidate() {
         jq -nc --arg s "$s" '{session: $s, action: "none", live: false, reason: "its store isn'"'"'t session"}'
         return 0
     fi
+    # A run is resumed when this plugin can drive its template: the shipped
+    # template itself, or one the compat table lists at the shipped compat
+    # number (coord-log.sh compat). A run whose PLUGIN_ROOT is another plugin
+    # root is resumed with `rebind` when its compiled template lets koto move
+    # it (the opener re-attaches it with this root), and carried otherwise.
+    local rebind=false root run_root
     if ! grep -qxF -- "$s" <<< "$live"; then reason="it is finished or cancelled"
     elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live"
-    elif [ "$("$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ]; then reason="koto compiled it from another template"
-    elif ! bash "$HERE/coord-log.sh" provenance --session "$s" > /dev/null 2>&1; then reason="it fails provenance"
+    elif [ "$("$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ] \
+        && ! bash "$HERE/coord-log.sh" compat --session "$s" > /dev/null 2>&1; then
+        reason="koto compiled it from a template this plugin's compat table doesn't list at its compat number"
     else
+        root=$(bash "$HERE/coord-log.sh" plugin-root --session "$s" 2>/dev/null) || return 2
+        run_root=$(printf '%s' "$root" | jq -r '.root') || return 2
+        # A root that no longer exists on this host is another plugin's: cd's
+        # complaint about it says nothing the comparison doesn't.
+        if [ "$(cd "$run_root" 2>/dev/null && pwd -P)" != "$(cd "$HERE/../../.." && pwd -P)" ]; then
+            if [ "$(printf '%s' "$root" | jq -r '.rebind')" = true ]; then rebind=true
+            else reason="its plugin root is another plugin's, and its template doesn't let koto rebind it"; fi
+        fi
+        if [ -z "$reason" ] && [ "$rebind" = false ] && ! bash "$HERE/coord-log.sh" provenance --session "$s" > /dev/null 2>&1; then
+            reason="it fails provenance"
+        fi
+    fi
+    if [ -z "$reason" ]; then
         bash "$HERE/coord-log.sh" directed-since --session "$s" --from 0 > /dev/null 2>&1
         case $? in 0) ;; 1) reason="it has a directed transition" ;; *) return 2 ;; esac
     fi
-    jq -nc --arg s "$s" --arg r "$reason" --argjson l "$(grep -qxF -- "$s" <<< "$live" && echo true || echo false)" \
-        '{session: $s, action: (if $r == "" then "resume" else "carry" end), live: $l, reason: (if $r == "" then "the live run" else $r end)}'
+    jq -nc --arg s "$s" --arg r "$reason" --argjson b "$rebind" --argjson l "$(grep -qxF -- "$s" <<< "$live" && echo true || echo false)" \
+        '{session: $s, action: (if $r == "" then "resume" else "carry" end), live: $l, reason: (if $r == "" then "the live run" else $r end)}
+         + (if $r == "" and $b then {rebind: true} else {} end)'
 }
 
 # rs_host <session> <out>: the host facts a record keeps in record/host, as a

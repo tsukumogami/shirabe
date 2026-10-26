@@ -198,9 +198,12 @@ variables:
     description: >-
       Absolute path to the shirabe plugin root, with no `..` segment. Every
       action and gate runs a script that ships in the plugin, and koto runs
-      them in the coordinator's working directory.
+      them in the coordinator's working directory. Rebindable: a run resumed
+      from another plugin root (an upgrade, another checkout) is re-attached
+      with the new root, so its gates run the scripts of the plugin driving it.
     pattern: '^/([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+|\.)?(/([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+|\.)?)*$'
     required: true
+    rebind: true
 
 states:
   start:

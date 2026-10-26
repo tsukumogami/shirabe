@@ -53,14 +53,31 @@
 #       chain shorter; so does a name that isn't
 #       coordinate-<slug>-<UTC stamp>. Exit 0; 2 S's own log can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
-#       Exit 0 when the session was created from coordinate.md as shipped beside
-#       this script and its PLUGIN_ROOT variable is this script's plugin root;
-#       1 otherwise; 2 read failure. Created from it means either the template
+#       Exit 0 when the session's template is one this plugin can drive and
+#       its PLUGIN_ROOT, as koto applies it now (the value it opened with,
+#       folded with every rebind), is this script's plugin root; 1 otherwise;
+#       2 read failure. A template this plugin can drive is one whose
+#       structure (template-fingerprint.jq over the compiled copy koto runs
+#       the session from) the compat table beside the shipped template
+#       (coordinate.compat.json) lists at the table's compat number, or the
+#       shipped template itself: one that
 #       compiles today to the header's template_hash, or (the plugin rewritten
-#       in place since the run opened) the header shows koto compiled the run
-#       from that template's own path, and the compiled copy koto runs it from
-#       still hashes to template_hash. --template is for tests that run a
-#       localized copy.
+#       in place since the run opened) the template koto compiled the run from
+#       by its own path, when the compiled copy koto runs it from still hashes
+#       to template_hash. --template is for tests that run a localized copy;
+#       its table is the .compat.json beside it.
+#   coord-log.sh compat --session S [--template PATH]
+#       Prints "<run's compat> <shipped compat> <run's fingerprint>" from the
+#       compat table, the run's compat `-` when the table doesn't list its
+#       template's structure (the fingerprint `unreadable` when the compiled
+#       copy the run runs from can't be read).
+#       Exit 0 when the run's compat is the shipped one; 1 otherwise; 2 the log
+#       or the table can't be read.
+#   coord-log.sh plugin-root --session S
+#       Prints {"root","rebind"}: the run's PLUGIN_ROOT as koto applies it now,
+#       and whether the compiled template the run runs from declares it
+#       rebindable (so `koto init --attach-live` can move it). Exit 0; 2 read
+#       failure.
 #   coord-log.sh template-hash --session S
 #       Prints the template_hash in S's header, the hash of the template koto
 #       compiled the run from, which a resume compares with the shipped
@@ -209,6 +226,46 @@ is_entry() { # is_entry <log> <state> <seq>
 }
 
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
+
+# effective_root <log>: the run's PLUGIN_ROOT as koto applies it now, the
+# value it opened with folded with every variables_rebound event in log order
+# (a later rebind wins, as koto folds them).
+effective_root() {
+    jq -rn '[inputs | select(.type == "workflow_initialized" or .type == "variables_rebound")
+             | .payload.variables.PLUGIN_ROOT // empty] | last // empty' "$1"
+}
+
+# run_copy <log>: the compiled template koto runs the session from (the
+# template_path its workflow_initialized event records), when readable.
+run_copy() {
+    local p
+    p=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path // empty' "$1" | head -1)
+    [ -n "$p" ] && [ -r "$p" ] && printf '%s\n' "$p"
+}
+
+# run_fingerprint <log>: the structural fingerprint of the compiled template
+# the session runs from (template-fingerprint.sh, the same program CI records
+# the table with), or nothing when that copy can't be read.
+run_fingerprint() {
+    local p
+    p=$(run_copy "$1") || return 1
+    bash "$HERE/template-fingerprint.sh" "$p" 2>/dev/null
+}
+
+# compat_verdict <fingerprint> <table>: 0 when the compat table lists the
+# template structure <fingerprint> at the table's own (shipped) compat number;
+# 1 when it lists it at another number or not at all; 2 when the table can't
+# be read.
+compat_verdict() {
+    [ -r "$2" ] || return 2
+    jq -e 'type == "object" and (.compat | type == "number") and (.fingerprints | type == "object")' "$2" >/dev/null || return 2
+    [ -n "$1" ] || return 1
+    jq -e --arg f "$1" '.fingerprints[$f] == .compat' "$2" >/dev/null && return 0
+    return 1
+}
+
+# default_template: coordinate.md as shipped beside this script.
+default_template() { printf '%s/skills/coordinate/koto-templates/coordinate.md' "$(cd "$HERE/../../.." && pwd -P)"; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
 SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE=
@@ -390,11 +447,16 @@ provenance)
     need SESSION
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     HASH=$(head -1 "$LOG" | jq -r '.template_hash // empty')
-    ROOT=$(jq -r 'select(.type == "workflow_initialized") | .payload.variables.PLUGIN_ROOT // empty' "$LOG" | head -1)
+    ROOT=$(effective_root "$LOG")
     MINE=$(cd "$HERE/../../.." && pwd -P)
     [ -n "$ROOT" ] && [ "$(cd "$ROOT" 2>/dev/null && pwd -P)" = "$MINE" ] || { echo "coord-log: PLUGIN_ROOT is not this plugin" >&2; exit 1; }
-    [ -n "$TEMPLATE" ] || TEMPLATE="$MINE/skills/coordinate/koto-templates/coordinate.md"
+    [ -n "$TEMPLATE" ] || TEMPLATE=$(default_template)
     [ -n "$HASH" ] || { echo "coord-log: the session's header has no template_hash" >&2; exit 1; }
+    # A run compiled from a template whose structure the shipped compat table
+    # lists at the shipped compat number is one this plugin's scripts can
+    # drive, whatever its directive text (coordinate.compat.json; CI's
+    # check-template-compat.sh keeps the table honest).
+    compat_verdict "$(run_fingerprint "$LOG")" "${TEMPLATE%.md}.compat.json" && exit 0
     # A template that doesn't compile (a reinstall left half-written, say)
     # proves nothing either way, so it falls through to the check below.
     COMPILED=$("$KOTO" template compile "$TEMPLATE") || COMPILED=
@@ -420,6 +482,28 @@ EOF
     fi
     echo "coord-log: the session was not created from $TEMPLATE" >&2
     exit 1
+    ;;
+compat)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    FP=$(run_fingerprint "$LOG") || FP=
+    [ -n "$TEMPLATE" ] || TEMPLATE=$(default_template)
+    TABLE=${TEMPLATE%.md}.compat.json
+    compat_verdict "$FP" "$TABLE"
+    RC=$?
+    [ $RC -eq 2 ] && die "the compat table $TABLE can't be read"
+    jq -r --arg f "$FP" '"\(if $f == "" then "-" else (.fingerprints[$f] // "-") end) \(.compat) \(if $f == "" then "unreadable" else $f end)"' "$TABLE"
+    exit $RC
+    ;;
+plugin-root)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    ROOT=$(effective_root "$LOG")
+    REBIND=false
+    if RUN_COPY=$(run_copy "$LOG") && jq -e '.variables.PLUGIN_ROOT.rebind == true' "$RUN_COPY" >/dev/null; then
+        REBIND=true
+    fi
+    jq -nc --arg r "$ROOT" --argjson b "$REBIND" '{root: $r, rebind: $b}'
     ;;
 template-hash)
     need SESSION

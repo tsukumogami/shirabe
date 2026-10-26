@@ -37,6 +37,19 @@ decision_provenance: inline-resolved
 
 Planned
 
+Amended during the plan's step 3: the compat number and its history live in
+a table beside the template, `coordinate.compat.json`, keyed by the template's
+structural fingerprint, rather than in a `COMPAT` header field and a
+`record/meta` entry written at open. A run's compat is read from the compiled
+copy koto runs it from, so runs opened before the change are judged the same
+way and nothing a live run reads changes shape; the fingerprint doesn't depend
+on the bytes koto writes, so the table holds across koto versions. Since a run
+is told apart by structure alone, a gate script whose meaning changes can't
+be marked by raising the number over an unchanged structure (the earlier
+runs would still be admitted): the change alters how the template invokes the
+script, and that new structure is listed at the raised number. CI refuses the
+bare raise.
+
 ## Context and Problem Statement
 
 A `/coordinate` run is driven by one Claude session at a time, through one

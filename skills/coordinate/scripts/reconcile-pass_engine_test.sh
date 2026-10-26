@@ -195,7 +195,9 @@ eq "the reconcile_pass directive does not name RECONCILE_SEAL" 0 "$(jq '[.states
 for f in $(jq -r '[.states.reconcile_pass.default_action.command, (.states.reconcile_pass.gates[].command), (.states.reconcile.gates[].command)] | .[] | capture("scripts/(?<f>[a-z-]+\\.sh)").f' "$CJ" | sort -u); do
     [ -x "$HERE/$f" ] && pass "$f, which the template runs directly, is executable" || fail "$f, which the template runs directly, is executable"
 done
-eq "PLUGIN_ROOT is declared without rebind" null "$(jq -c '.variables.PLUGIN_ROOT.rebind' "$CJ")"
+# A successor at another plugin root re-attaches the run with its own root
+# (coord-log.sh plugin-root); provenance still admits only this plugin's.
+eq "PLUGIN_ROOT is declared rebindable" true "$(jq -c '.variables.PLUGIN_ROOT.rebind' "$CJ")"
 
 S=reconcile-engine
 koto init "$S" --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>&1 || { echo "FAIL: koto init"; exit 1; }

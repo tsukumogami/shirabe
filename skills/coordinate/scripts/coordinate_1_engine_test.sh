@@ -20,6 +20,12 @@
 #   2. a restart while the run is live resumes it (resumed=1, the same
 #      session, where it stood) and never enters record_open again or looks
 #      for a record on GitHub; the run's record names its session;
+#   2b. a restart from a plugin at another root, whose coordinate.md differs in
+#      text alone and whose compat table lists the run's template at its compat
+#      number, resumes the run (resumed=1, rebound= naming PLUGIN_ROOT, the run's
+#      PLUGIN_ROOT now that root, provenance passing there); a plugin whose
+#      table doesn't list the run's template carries it into a new run, naming
+#      the compat table;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
 #      state-write.sh --state-file disposes it, then dispatch is reached;
 #   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
@@ -98,6 +104,60 @@ if open_run restart && [ "$(at)" = record_open ]; then
     fi
 else
     bad "2: first run reaches record_open" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 2b. a restart from another plugin root, across a text-only change -------
+echo "== 2b. a restart from another plugin root resumes a compatible run =="
+# plugin_copy <dir> <compat>: the plugin copied to <dir>, its coordinate.md
+# changed in a variable's description alone (so another compiled template with
+# the same structure), and its compat table's compat number set to <compat>.
+# At compat 1 the table is the shipped one, listing that structure at 1; at a
+# higher number the structure stays listed at 1 and the plugin has moved on.
+plugin_copy() {
+    local d=$1 n=$2 c0 c1
+    mkdir -p "$d" && cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$d/" || return 1
+    sed -i.bak 's/Absolute path to the shirabe plugin root/Absolute path to the plugin root/' \
+        "$d/skills/coordinate/koto-templates/coordinate.md" && rm -f "$d/skills/coordinate/koto-templates/coordinate.md.bak"
+    c0=$(koto template compile "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md") || return 1
+    c1=$(koto template compile "$d/skills/coordinate/koto-templates/coordinate.md") || return 1
+    [ "$(basename "$c0")" != "$(basename "$c1")" ] || return 1
+    jq --argjson n "$n" '.compat = $n' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json" \
+        > "$d/skills/coordinate/koto-templates/coordinate.compat.json"
+}
+seed_roadmap rebind
+if plugin_copy "$T/plugin-b" 1 && plugin_copy "$T/plugin-c" 2 && open_run rebind && [ "$(at)" = record_open ]; then
+    write_as_agent state-open.sh
+    eq "2b: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    FIRST=$S
+    sleep 1
+    SAVED_PR=$PR SAVED_PS=$PS
+    PR="$T/plugin-b" PS="$T/plugin-b/skills/coordinate/scripts"
+    if open_run rebind; then
+        eq "2b: a plugin at another root, its template changed in text alone, resumes the run" "$FIRST" "$S"
+        grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "2b:   ... printing resumed=1" || bad "2b:   ... printing resumed=1" "$OPEN_OUT $(cat "$T/open.err")"
+        grep -q '^rebound=.*PLUGIN_ROOT' <<< "$OPEN_OUT" && ok "2b:   ... and rebound=, naming PLUGIN_ROOT" || bad "2b:   ... and rebound=, naming PLUGIN_ROOT" "$OPEN_OUT"
+        eq "2b:   ... whose PLUGIN_ROOT is now that plugin's root" "$T/plugin-b" \
+            "$( (cd "$WD" && bash "$PS/coord-log.sh" plugin-root --session "$S") | jq -r .root)"
+        (cd "$WD" && bash "$PS/coord-log.sh" provenance --session "$S" >/dev/null 2>&1) \
+            && ok "2b:   ... and passes that plugin's provenance" || bad "2b:   ... and passes that plugin's provenance"
+        eq "2b:   ... where it stood" reconcile "$(now_at)"
+    else
+        bad "2b: restart from the plugin at another root" "$(cat "$T/open.err")"
+    fi
+    # A plugin whose compat table no longer lists the run's template (its
+    # compat moved on) carries it into a new run, as any other template does.
+    PR="$T/plugin-c" PS="$T/plugin-c/skills/coordinate/scripts"
+    sleep 1
+    if open_run rebind; then
+        [ "$S" != "$FIRST" ] && ok "2b: a plugin at another compat number opens a new run" || bad "2b: a plugin at another compat number opens a new run" "$OPEN_OUT"
+        grep -qx "carried=$FIRST" <<< "$OPEN_OUT" && ok "2b:   ... carrying the run" || bad "2b:   ... carrying the run" "$OPEN_OUT $(cat "$T/open.err")"
+        grep -q "compat table doesn't list" "$T/open.err" && ok "2b:   ... naming the compat table" || bad "2b:   ... naming the compat table" "$(cat "$T/open.err")"
+    else
+        bad "2b: restart from the plugin at another compat number" "$(cat "$T/open.err")"
+    fi
+    PR=$SAVED_PR PS=$SAVED_PS
+else
+    bad "2b: set up the plugin copies and the first run" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 # ---- 3. an undisposed deferral ----------------------------------------------
