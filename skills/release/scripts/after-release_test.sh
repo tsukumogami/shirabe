@@ -382,8 +382,8 @@ gg commit -q -m "own ext"
 session 0.3.0 success
 answers "$PUBLISHED"
 ar plan "$TOPIC"
-assert_eq "shirabe declares a reinstall, a version check and a workspace apply, in that order" \
-    "install tracked 1 tsuku install \"tsukumogami/shirabe@v\$RELEASE_VERSION\"
+assert_eq "shirabe declares an update, a version check and a workspace apply, in that order" \
+    "install tracked 1 tsuku update shirabe
 install tracked 2 test \"\$(shirabe --version)\" = \"shirabe v\$RELEASE_VERSION\"
 install tracked 3 cd \"\${RELEASE_WORKSPACE_ROOT:?not in a niwa workspace}\" && niwa apply" \
     "$(printf '%s\n' "$OUT" | grep '^install ')"
