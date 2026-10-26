@@ -710,9 +710,10 @@ state and the default branch, never the entries alone.
 When every feature reads Done or Dropped on the roadmap, Holdings and Side
 effects are empty, every deferral is filed or closed, and every
 decision is settled, the close step ends the run if the workspace permits
-closing, or hands the close to the human. There is nothing on GitHub to close:
-the record stays in the session, readable after the run ends. On a milestone
-roadmap no verdict-owed row may stand either: close-out names one
+closing, or hands the close over: to the coordinator that dispatched this one
+when the session is bound, and to a person only for a root coordinator. There
+is nothing on GitHub to close: the record stays in the session, readable after
+the run ends. On a milestone roadmap no verdict-owed row may stand either: close-out names one
 (`verdict-owed`, the reason `verdict-owed <tag>`) even once the milestone reads
 Done, and a pending reopen edit blocks as a side effect in flight with the
 reason `reopen-pending <tag>`.

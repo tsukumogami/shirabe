@@ -24,8 +24,9 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 A coordinator drives an effort by handing work to other sessions and keeping
 track of it. It decides what happens next, writes the context a worker needs to
-start cold, checks what comes back, and lands finished work or puts it in front
-of the human where the workspace reserves that step for a person. It implements
+start cold, checks what comes back, and lands finished work. A coordinator whose
+session is bound hands a landing step it can't take to the coordinator that
+dispatched it; only a root coordinator hands one to a person. It implements
 nothing. The judgment stays with it.
 
 `/coordinate` is a koto workflow. Its loop, and each step's guidance, live in
@@ -540,9 +541,11 @@ from `references/brief-template.md`, lists the checkpoints it reports at and
 tells it to report and continue at each one: a worker waits on no approval.
 
 **A decision is the human's when it does any of these:** changes the effort's
-scope; reverses or extends a decision the human supplied; or needs a step the
-workspace reserves for a person, such as a merge it denies to sessions, a
-credential, a product-scope call or acceptance of finished work. Such a
+scope; reverses or extends a decision the human supplied; or needs a step that
+isn't yours to take, such as a merge your posture denies you, a credential, a
+product-scope call or acceptance of finished work. A merge, close or release you
+can't take goes to the coordinator that dispatched you when your session is
+bound, and to a person only when you are a root coordinator. Such a
 decision is escalated once, as a decision entry with a recommendation (see
 Decisions); don't ask for anything else.
 
@@ -657,11 +660,14 @@ entry the workflow routed. The states and checks, all in the template:
   alternatives, each with its explanation. Escalate only on one of the four
   grounds the record takes, each from Bounds and Authority: it changes the
   effort's scope (`scope`); it reverses or extends a decision the dispatcher
-  supplied (`supplied-decision`); it needs a step reserved for a person
+  supplied (`supplied-decision`); it needs a step that isn't yours to take
   (`reserved-step`); or it is outside your scope (`outside-scope`), which you
-  propose rather than act on. One entry is escalated at a time; another escalation
-  is recorded and queued. New evidence (`decision_evidence`) clears any verdict,
-  so a changed fact always brings the entry back to you.
+  propose rather than act on. A reserved merge, close or release goes to the
+  coordinator that dispatched you when your session is bound, and to a person
+  only when you are a root coordinator; a reserved teardown goes to a person.
+  One entry is escalated at a time; another escalation is recorded and queued.
+  New evidence (`decision_evidence`) clears any verdict, so a changed fact
+  always brings the entry back to you.
 - **Messages.** A message is rendered by a check (`escalate`,
   `decision_withdraw`, `decision_reply`, `decision_redirect`) and sent from the
   state after it (`escalate_send` and the three `*_send` states), exactly as
@@ -679,9 +685,12 @@ entry the workflow routed. The states and checks, all in the template:
   message route. A coordinator above you (`--reports-to`) always gets a
   message.
 - **Needs that aren't decisions.** A blocked worker that needs a credential, a
-  step reserved for a person or access to a repository goes through `surface`
-  to `surface_check`, which takes only those kinds of need. A choice never
-  travels as a need.
+  step neither it nor you may take, or access to a repository goes through
+  `surface` to `surface_check`, which takes only those kinds of need. A merge,
+  close or release a worker hands back is yours first when your posture
+  permits it; otherwise the need is worded for the coordinator that dispatched
+  you when your session is bound, and for a person only when you are a root
+  coordinator. A choice never travels as a need.
 
 ## What a Coordinator Never Does
 
@@ -702,11 +711,15 @@ and PreToolUse hooks) at the start and again at each finishing step, and takes a
 merge, a close or a teardown exactly as far as it allows. A denial covers the
 step, not the command: once the workspace denies a session a merge, a close or a
 teardown, don't reach the same result another way (a different command, an API
-call, a compound command); hand the step over. A step the workspace puts behind a
-person's confirmation is reserved for a person too. That is how this skill reads
-the workspace's rules; it carries no permission rule of its own. Never ask the
-human for a step the workspace already permits. Read a settings file for the keys
-you need and never print one whole: its env block can hold credentials.
+call, a compound command); hand the step over: a merge, close or release to the
+coordinator that dispatched you when your session is bound and to a person only
+when you are a root coordinator, a teardown to a person. Where you are a root
+coordinator, a step the workspace puts behind a person's confirmation is
+reserved for a person too; where you are bound, it goes to your dispatcher like
+a denied one. That is how this skill reads the workspace's rules; it carries no
+permission rule of its own. Never ask the human for a step the workspace
+already permits. Read a settings file for the keys you need and never print one
+whole: its env block can hold credentials.
 
 Where niwa dispatched the coordinator and `niwa authority check` reports its
 session bound to that dispatch, the merge, close and release posture comes from
@@ -778,7 +791,7 @@ way.
 | Outcome | Meaning |
 |---------|---------|
 | `closed` | The roadmap is done and the close step ended the run, or the rotation ended with its reasoning written at `rotation_end`. |
-| `handed-over` | The last finishing step (the roadmap's close, or a merge) is with the human. |
+| `handed-over` | The last finishing step (the roadmap's close, or a merge) is handed over: to the coordinator that dispatched this one when its session is bound, and to a person only for a root coordinator. |
 | `stopped` | The human stopped the run, or the scope ended without a close-out. |
 | `not-active` | The roadmap is missing or not Active; nothing was dispatched. |
 

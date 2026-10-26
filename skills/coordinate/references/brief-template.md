@@ -207,7 +207,7 @@ DESIGN, a related pull request. Path, number or URL only.>
 
 <What this worker must not change, including things a reader might
 assume are in: sibling units, open issues next to this one, and finishing
-steps the workspace reserves for a person.>
+steps the brief doesn't hand it, which come back to you in a report.>
 
 - Anything you find that should be closed, report to the coordinator with
   its number, the reason and the evidence; whether you may close it
