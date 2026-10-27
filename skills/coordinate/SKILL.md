@@ -141,9 +141,50 @@ work.
    koto, and either a running Claude job on this host for its driver or, when
    no such job can be seen from here, a koto event in its log within the last
    10 minutes. Running the opener again from this session prints
-   `outcome=resumed` and writes nothing. A refused takeover writes nothing and
-   prints `outcome=refused` with a `reason=`. A plain resume prints
-   `outcome=resumed` too.
+   `outcome=resumed` and writes nothing. A plain resume prints
+   `outcome=resumed` too. Add `--continues <old run>` to name the run to take
+   over; without it, the opener takes the newest session of the scope's one
+   unfinished run.
+
+   A takeover cut short at any point (the session crashed, the opener was
+   killed) converges on the same command run again from the same session.
+   Before the fence nothing was written, so it takes over afresh. After it,
+   the opener knows the takeover as its own by the fence's actor (this
+   session's Claude session id) and finishes what is missing: koto creates or
+   carries the new run if it is absent or its carry unfinished, then the
+   driver, the coordinator row, the takeover entry and `takeover_done`, each
+   written once, so the run ends with exactly one takeover entry. It prints
+   `outcome=continued`, or `outcome=resumed` when only the result line was
+   missing. Of two sessions taking one run over at the same moment, koto's
+   fence lets exactly one through: it prints `outcome=continued`, and the
+   other refuses `taken-over`.
+
+   A refused takeover writes nothing, leaves the old run driving, and prints
+   `outcome=refused` and one `reason=`:
+
+   - `ambiguous-scope`: more than one run of the scope is unfinished here, so
+     which to continue isn't clear.
+   - `not-newest-member`: `--continues` names a run that isn't the newest
+     session of the scope's unfinished run (a run of another scope, or one a
+     takeover already superseded); the message names the newest.
+   - `taken-over`: another Claude session fenced the run, because it won the
+     race or its takeover is still under way. This session also refuses when
+     it has no Claude session id (`CLAUDE_CODE_SESSION_ID`) and the run is one
+     a takeover has touched, since it can't tell itself from the run's driver.
+   - `predecessor-unstoppable`: the fence couldn't be taken (koto's
+     `fence_unavailable`, the old run's log held locked past 10 seconds), or
+     the old run moved state twice between the opener's read and the fence.
+   - `template-incompatible`: the old run's compat number isn't the one this
+     plugin ships, or it sits in a state the shipped template doesn't have.
+     The message names the template, both compat numbers and both compiled
+     hashes.
+   - `koto-too-old`: this koto lacks `koto init --supersede` and its flags;
+     the takeover needs koto 0.28.0 or later.
+
+   A run of 65 or more record entries is taken over with no single koto call
+   reaching koto's 30-second action limit, even at a one-minute load average
+   of 25: koto copies every carried key in one read and one write batch, so
+   the takeover's koto calls don't grow with the number of entries.
 
    **Moving the run to another host is an import**, given the roadmap path,
    `--import <the run's session name>` and `--from <the source workspace's
