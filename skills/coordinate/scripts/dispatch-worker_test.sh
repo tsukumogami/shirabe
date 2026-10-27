@@ -532,6 +532,19 @@ run >/dev/null 2>&1
 lacks "explore: no request opened" "$(calls)" "koto request create"
 eq  "explore: return path" message "$(row return_path)"
 
+# So does a charter (shirabe#1290), and its brief records the dispatcher itself.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')"
+OUT=$(run 2>/dev/null); RC=$?
+eq  "charter: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+lacks "charter: no request opened" "$(calls)" "koto request create"
+eq  "charter: return path" message "$(row return_path)"
+eq  "charter: one launch" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+lacks "charter: the invocation carries no leg" "$(cat "$ST/prompt")" "--koto-leg"
+has "charter: the prompt runs charter" "$(cat "$ST/prompt")" "/shirabe:charter plugin-api --auto"
+eq  "charter: the brief names the run that rendered it as its dispatcher" "dispatcher_session: coord" \
+    "$(grep '^dispatcher_session:' "$W/.niwa/dispatch-briefs/plugin-api.md")"
+has "charter: the brief records it with link-dispatcher.sh" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "link-dispatcher.sh\" <session> --dispatched-by coord\`"
+
 # --- a resumed dispatching row -------------------------------------------------------------------
 
 reset "$INPUT_DELIVER"

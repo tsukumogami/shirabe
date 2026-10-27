@@ -23,8 +23,9 @@
 # What counts as a violation:
 #   - every finding whose `severity` is "error", whatever its code, so a check
 #     the validator adds or promotes later is held with no change here;
-#   - an FC10 finding whose message starts with BANNED_PREFIX or TRUNC_PREFIX
-#     below (a banned word, or the line saying banned-word findings were capped).
+#   - an FC10 finding whose message starts with DV_BANNED_PREFIX or
+#     DV_TRUNC_PREFIX in scripts/lib/doc-validate.sh (a banned word, or the
+#     line saying banned-word findings were capped).
 #     FC10's em-dash-density finding and every other notice are not violations.
 # Each violation prints under the registry entry whose `aliases` hold its code
 # (code_to_id below), with the validator's message, cut to 400 characters, as
@@ -72,11 +73,6 @@ HERE=$(cd "$(dirname "$0")" && pwd -P)
 PLUGIN_ROOT=$(cd "$HERE/../../.." && pwd -P)
 RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type"
 
-# The validator's FC10 message prefixes, from check_writing_style_with in
-# crates/shirabe-validate/src/checks.rs. check-hop-document_test.sh pins both
-# against the built validator.
-BANNED_PREFIX='[FC10] writing-style banned word '
-TRUNC_PREFIX='[FC10] writing-style findings truncated at '
 MESSAGE_CAP=400
 
 usage() {
@@ -96,6 +92,10 @@ undecided() {
 . "$PLUGIN_ROOT/scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
 # shellcheck source=../../../scripts/lib/declared-visibility.sh
 . "$PLUGIN_ROOT/scripts/lib/declared-visibility.sh" || undecided "cannot load scripts/lib/declared-visibility.sh"
+# The validator call, its envelope, the in-repository refusal, the rules pin,
+# the canary and the file checks, shared with scripts/doc-check.sh.
+# shellcheck source=../../../scripts/lib/doc-validate.sh
+. "$PLUGIN_ROOT/scripts/lib/doc-validate.sh" || undecided "cannot load scripts/lib/doc-validate.sh"
 
 # --- arguments ----------------------------------------------------------------
 
@@ -149,35 +149,14 @@ ROOT_REAL=$(pwd -P)
 # own author could have written it. Symlinks are followed to the file they name
 # (a link outside the tree to a binary inside it is still inside), with a hop
 # limit so a link loop can't hang the gate.
-SHIRABE_BIN=$(command -v shirabe)
-hops=0
-while [ -L "$SHIRABE_BIN" ] && [ "$hops" -lt 40 ]; do
-    target=$(readlink "$SHIRABE_BIN") || undecided "cannot read the link $SHIRABE_BIN"
-    case "$target" in
-        /*) SHIRABE_BIN=$target ;;
-        *) SHIRABE_BIN="$(dirname "$SHIRABE_BIN")/$target" ;;
-    esac
-    hops=$((hops + 1))
-done
-[ -L "$SHIRABE_BIN" ] && undecided "shirabe resolves through more than 40 links"
-SHIRABE_DIR=$(cd "$(dirname "$SHIRABE_BIN")" 2>/dev/null && pwd -P) \
-    || undecided "cannot resolve the directory of $SHIRABE_BIN"
-case "$SHIRABE_DIR/" in
-    "$ROOT_REAL"/*) undecided "shirabe resolves inside the repository ($SHIRABE_DIR); refusing a validator from the tree under review" ;;
-esac
+dv_resolve_validator "$ROOT_REAL" || undecided "$DV_REASON"
 # The path only: skills/scope/requires.tsv may declare shirabe subcommands and
 # nothing else, so the gate doesn't call `shirabe --version`.
-echo "check-hop-document: validator $SHIRABE_DIR/$(basename "$SHIRABE_BIN")" >&2
+echo "check-hop-document: validator $DV_SHIRABE" >&2
 
-RULES_FILE="$PLUGIN_ROOT/skills/writing-style/rules.yaml"
-[ -f "$RULES_FILE" ] && [ -r "$RULES_FILE" ] \
-    || undecided "the writing-style rules $RULES_FILE are not readable"
-awk '/^words:/ { found = 1; exit } END { exit found ? 0 : 1 }' "$RULES_FILE" \
-    || undecided "the writing-style rules $RULES_FILE have no words: entry"
 # Always the plugin's file: an inherited value (SHIRABE_RULES=/dev/null, say)
 # would switch the banned-word check off without a word.
-SHIRABE_RULES=$RULES_FILE
-export SHIRABE_RULES
+dv_pin_rules "$PLUGIN_ROOT" || undecided "$DV_REASON"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document.XXXXXX") \
     || undecided "cannot create a temporary directory"
@@ -185,59 +164,15 @@ cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 trap 'cleanup; exit 2' INT TERM HUP
 
-# select_violations <envelope>: one compact JSON object per violation.
-select_violations() {
-    jq -c --arg bw "$BANNED_PREFIX" --arg tr "$TRUNC_PREFIX" '
-        .findings[]
-        | select(.severity == "error"
-                 or (.code == "FC10"
-                     and ((.message | tostring | startswith($bw))
-                          or (.message | tostring | startswith($tr)))))' "$1"
-}
-
-# complete_envelope <envelope>: a full verdict this script can read.
-complete_envelope() {
-    jq -e '
-        .schema_version == "shirabe-validate/v1"
-        and (.summary.outcome == "clean" or .summary.outcome == "violations")
-        and (.findings | type == "array")
-        and all(.findings[]; (.severity | type) == "string")' "$1" >/dev/null 2>&1
-}
-
 # --- the canary ---------------------------------------------------------------
 
-# The first `- <term>` under the first `terms:` of the rules file. `terms:` is
-# the list inside the `words:` entry the precheck above requires, so both read
-# the same banned-word list.
-CANARY_WORD=$(awk '
-    /^[[:space:]]*terms:[[:space:]]*$/ { inside = 1; next }
-    inside && /^[[:space:]]*-[[:space:]]+/ {
-        line = $0
-        sub(/^[[:space:]]*-[[:space:]]+/, "", line)
-        sub(/[[:space:]]+$/, "", line)
-        gsub(/^["'"'"']|["'"'"']$/, "", line)
-        print line
-        exit
-    }' "$RULES_FILE")
-[ -n "$CANARY_WORD" ] || undecided "no banned word could be read from $RULES_FILE"
-printf 'Canary: we %s this.\n' "$CANARY_WORD" > "$WORK/canary.md" \
-    || undecided "cannot write the canary"
-(cd "$WORK" && shirabe validate --format json canary.md) > "$WORK/canary.json" 2> "$WORK/canary.err"
-rc=$?
-[ "$rc" -eq 0 ] || undecided "the canary run exited $rc: $(tail -n 1 "$WORK/canary.err")"
-select_violations "$WORK/canary.json" > "$WORK/canary.hits" 2>/dev/null \
-    || undecided "cannot read the canary run's output"
-[ -s "$WORK/canary.hits" ] \
-    || undecided "the validator reported no banned-word finding for the canary word [$CANARY_WORD]; its rules didn't load or its message wording changed"
+dv_canary "$WORK" || undecided "$DV_REASON"
 
 # --- the documents ------------------------------------------------------------
 
+# With no declared visibility the flag is left off, so the validator detects
+# visibility as it does in CI.
 VIS=$(declared_visibility)
-# The arguments were parsed above, so the positional parameters are free: they
-# carry the optional --visibility flag, which keeps an empty value from reaching
-# the validator as an empty argument (bash 3.2 has no safe empty-array expansion).
-set --
-[ -z "$VIS" ] || set -- "--visibility=$VIS"
 
 : > "$WORK/checked"
 n=0
@@ -245,34 +180,10 @@ for p in $PATHS; do
     if [ ! -e "$p" ] && [ ! -L "$p" ]; then
         continue
     fi
-    [ -L "$p" ] && undecided "$p is a symlink"
-    [ -f "$p" ] || undecided "$p is not a regular file"
-    [ -s "$p" ] || undecided "$p is empty"
-    dir_real=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P) || undecided "cannot resolve the directory of $p"
-    case "$dir_real/" in
-        "$ROOT_REAL"/*) ;;
-        *) undecided "$p resolves outside the repository" ;;
-    esac
+    dv_check_file "$p" "$ROOT_REAL" || undecided "$DV_REASON"
     n=$((n + 1))
-    shirabe validate --format json "$@" -- "$p" > "$WORK/$n.json" 2> "$WORK/$n.err"
-    rc=$?
-    case "$rc" in
-        0|2) ;;
-        *)
-            reason=$(tail -n 1 "$WORK/$n.err")
-            undecided "the validator exited $rc on $p: $reason" ;;
-    esac
-    complete_envelope "$WORK/$n.json" \
-        || undecided "shirabe validate gave no complete verdict on $p (a schema-skipped document, or output this script can't read)"
-    errors=$(jq '[.findings[] | select(.severity == "error")] | length' "$WORK/$n.json") \
-        || undecided "cannot count the errors on $p"
-    if [ "$rc" -eq 2 ] && [ "$errors" -eq 0 ]; then
-        undecided "shirabe validate exited 2 on $p but reported no error"
-    fi
-    if [ "$rc" -eq 0 ] && [ "$errors" -ne 0 ]; then
-        undecided "shirabe validate exited 0 on $p but reported $errors error(s)"
-    fi
-    select_violations "$WORK/$n.json" >> "$WORK/hits" 2>/dev/null \
+    dv_validate "$p" "$WORK/$n.json" "$WORK/$n.err" "$VIS" || undecided "$DV_REASON"
+    dv_select_violations "$WORK/$n.json" >> "$WORK/hits" 2>/dev/null \
         || undecided "cannot read shirabe validate's output on $p"
     printf '%s\n' "$p" >> "$WORK/checked"
 done

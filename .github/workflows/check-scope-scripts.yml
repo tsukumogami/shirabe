@@ -63,6 +63,18 @@ on:
       - 'scripts/rule-registry.sh'
       - 'references/rule-registry.json'
       - 'skills/writing-style/rules.yaml'
+      # The hop gate shares its validator handling with the document check,
+      # whose suites run here too; the check reads the phase map, and its
+      # suite compares the map's error codes with validate.rs.
+      - 'scripts/lib/doc-validate.sh'
+      - 'scripts/lib/doc-session.sh'
+      - 'scripts/lib/doc-check-testlib.sh'
+      - 'scripts/doc-check.sh'
+      - 'scripts/doc-check_test.sh'
+      - 'scripts/doc-events.sh'
+      - 'scripts/doc-events_test.sh'
+      - 'references/doc-check-phases.json'
+      - 'crates/shirabe-validate/src/validate.rs'
   push:
     branches: [main]
     # Must match the pull_request paths list above. A merge cancels the pull
@@ -97,6 +109,15 @@ on:
       - 'scripts/rule-registry.sh'
       - 'references/rule-registry.json'
       - 'skills/writing-style/rules.yaml'
+      - 'scripts/lib/doc-validate.sh'
+      - 'scripts/lib/doc-session.sh'
+      - 'scripts/lib/doc-check-testlib.sh'
+      - 'scripts/doc-check.sh'
+      - 'scripts/doc-check_test.sh'
+      - 'scripts/doc-events.sh'
+      - 'scripts/doc-events_test.sh'
+      - 'references/doc-check-phases.json'
+      - 'crates/shirabe-validate/src/validate.rs'
 
 env:
   # `tsuku install` calls the GitHub API; the token
@@ -256,6 +277,15 @@ jobs:
         env:
           SCOPE_GATE_REQUIRE_SHIRABE: "1"
         run: bash skills/scope/scripts/check-hop-document_test.sh
+
+      # The document check and its event recorder, which share the gate's
+      # validator library. Their cases run against a stub validator and a stub
+      # koto; the macOS leg runs them on the bash 3.2 floor in the `scope`
+      # suite.
+      - name: Run doc-check and doc-events tests
+        run: |
+          bash scripts/doc-check_test.sh
+          bash scripts/doc-events_test.sh
 
   # Drives real koto sessions against the shipped template. This is the job that
   # asserts the thing the whole feature is for: a run cannot reach the full-run

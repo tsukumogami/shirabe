@@ -187,6 +187,35 @@ case_ "an execute-leg-lost reason carrying shell text is dropped" \
     "outcome=error
 step=deliver:child-absent"
 
+echo "== a session isolated in one repository's worktree =="
+case_ "/deliver's isolation stop names both repositories and what to do" \
+    '{outcome: "error", step: "deliver:worktree-isolated", reason: "worktree-isolated", worktree_repo: "acme/docs", other_repos: "acme/koto,acme/shirabe"}' \
+    "outcome=error
+step=deliver:worktree-isolated
+reason=worktree-isolated
+worktree_repo=acme/docs
+other_repos=acme/koto,acme/shirabe
+message=Stopped before any node was cut: this session is isolated in a worktree of acme/docs, and the PLAN also has nodes in acme/koto, acme/shirabe. A session isolated in one repository's worktree can't run git in another repository's checkout, so run this again from a session that isn't isolated in one repository's worktree."
+
+case_ "/execute's isolation stop, relayed without the repositories, still says what to do" \
+    '{outcome: "error", step: "execute:coord_setup", reason: "worktree-isolated"}' \
+    "outcome=error
+step=execute:coord_setup
+reason=worktree-isolated
+message=Stopped before any node was cut: this session is isolated in one repository's worktree, and the PLAN has nodes in other repositories. Run this again from a session that isn't isolated in one repository's worktree."
+
+case_ "repository values outside owner/repo are dropped from the message" \
+    '{outcome: "error", step: "deliver:worktree-isolated", reason: "worktree-isolated", worktree_repo: "acme/docs; rm -rf x", other_repos: "acme/koto\noutcome=merged"}' \
+    "outcome=error
+step=deliver:worktree-isolated
+reason=worktree-isolated
+message=Stopped before any node was cut: this session is isolated in one repository's worktree, and the PLAN has nodes in other repositories. Run this again from a session that isn't isolated in one repository's worktree."
+
+case_ "the repositories print only beside the isolation reason" \
+    '{outcome: "error", step: "deliver:child-outcome", worktree_repo: "acme/docs", other_repos: "acme/koto"}' \
+    "outcome=error
+step=deliver:child-outcome"
+
 case_ "a PR value with prose appended is dropped" \
     "{outcome: \"merged\", pr: \"$URL and more\"}" \
     "outcome=merged"

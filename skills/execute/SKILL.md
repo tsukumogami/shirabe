@@ -404,6 +404,20 @@ on the coordination branch (never by title), or verifies the one
 `--coordination-pr` hands it against that lookup; it must carry the
 `This is a **coordination PR**` marker, and setup records its number.
 
+**Where a multi-repo run can run.** A PLAN with nodes in more than one
+repository needs a session that isn't isolated in one repository's worktree. A
+harness's worktree guard lets an isolated session, and every step agent it
+starts, run git only in its own worktree, so a node in any other repository
+can't be cut or built from there. Setup checks this before anything else, with
+`scripts/worktree-isolation.sh`: when the coordination checkout is a linked
+worktree and the PLAN has PR nodes in repositories other than that worktree's,
+the run stops `worktree-isolated` before any node is cut, and the message names
+the worktree's repository, the PLAN's other repositories, and that the run has to
+be started again from a session that isn't isolated in one repository's worktree.
+A PLAN whose nodes all land in the worktree's own repository runs there as
+before. Whoever dispatches a coordinated run should start it outside such a
+worktree.
+
 **The run record is the run's store.** A coordinated run keeps its
 control-plane facts as `run/` keys in its own session, `execute-<plan-slug>`,
 beside its `run_id`: `run/setup` (the store, the coordination PR's number,

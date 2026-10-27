@@ -23,6 +23,8 @@ stateDiagram-v2
     executed_check --> done_error : gates.executed_merged.matches: false, gates.executed_open.matches: false
     executed_check --> done_error : gates.executed_merged.matches: true, gates.executed_open.matches: false, gates.executed_pr.matches: false
     executed_check --> done_error : gates.executed_merged.matches: false, gates.executed_open.matches: true, gates.executed_pr.matches: false
+    isolation_check --> mode_route : gates.isolation_pass.matches: true
+    isolation_check --> done_error : gates.isolation_isolated.matches: true, gates.isolation_pass.matches: false
     merged_check --> done : gates.merged_confirmed.matches: true, gates.merged_pr.matches: true
     merged_check --> done : gates.merged_confirmed.matches: false
     merged_check --> done : gates.merged_confirmed.matches: true, gates.merged_pr.matches: false
@@ -48,7 +50,7 @@ stateDiagram-v2
     scope_run --> done_error : gates.scope_leg.disposition: abandoned
     scope_run --> done_error : gates.scope_leg.disposition: missing
     scope_run --> scope_absent : child_returned: yes, gates.scope_leg.bound: false, gates.scope_leg.disposition: open
-    scoped_check --> mode_route : gates.scoped_pass.matches: true, gates.scoped_pr.matches: true
+    scoped_check --> isolation_check : gates.scoped_pass.matches: true, gates.scoped_pr.matches: true
     scoped_check --> done_error : gates.scoped_pass.matches: false
     scoped_check --> done_error : gates.scoped_pass.matches: true, gates.scoped_pr.matches: false
     done --> [*]
@@ -68,6 +70,12 @@ stateDiagram-v2
     end note
     note left of executed_check
         gate: executed_pr
+    end note
+    note left of isolation_check
+        gate: isolation_isolated
+    end note
+    note left of isolation_check
+        gate: isolation_pass
     end note
     note left of merged_check
         gate: merged_confirmed
