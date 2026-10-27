@@ -120,6 +120,28 @@ starting `Implements` and naming a `PLAN-` or `ROADMAP-` file. The check
 matches these shapes only, never words, so a body that discusses plans or
 reviews in prose passes. CI and the PreToolUse hook don't run it.
 
+## When the gate can't read the pull request (workflow gate only)
+
+The /work-on and /execute pull request gate reads the title and body with
+`gh` before it checks them. When it can't, it decides nothing and holds the
+run, and it names why under one of three rules, so a failure is never
+credited to the gate's name alone:
+
+- **`pr-body/pr-missing`: no pull request yet.** `gh` found no pull request
+  for the checked-out branch, or the owned pull request lookup found none.
+  Open the pull request, then let the gate run again.
+- **`pr-body/body-missing`: no title or body.** The pull request exists, but
+  `gh` returned no title or no body to check. Write both with `gh pr edit`,
+  then let the gate run again.
+- **`pr-body/read-failed`: the check couldn't run.** A `gh` read or the owned
+  pull request lookup failed, a tool is missing, the plugin's writing-style
+  rules are missing, or the validator failed to run. The gate's standard
+  error says which; fix that, then let the gate run again.
+
+The first two also mark the evaluation "not ready" for telemetry, so a gate
+run before its input exists is counted apart from a broken rule. Being not
+ready changes nothing about routing: the gate still holds the run.
+
 ## What stays advisory (subjective)
 
 Everything else is judgment and is **not** gated:

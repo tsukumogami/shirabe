@@ -1327,6 +1327,117 @@
       }
     },
     {
+      "id": "pr-body/pr-missing",
+      "status": "active",
+      "summary": "There is no pull request for the PR-body gate to read yet",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "- **`pr-body/pr-missing`: no pull request yet.**",
+        "last": "Open the pull request, then let the gate run again."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-27",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Added after the offload baseline's pinned commit, so the baseline holds no text for it. Not a conformance rule: the gate's could-not-decide when gh finds no pull request for the branch or the owned pull request lookup finds none. It exits 2 as before, and its finding comes with the not-ready telemetry marker, so a gate run before the pull request exists is counted apart from a broken rule."
+    },
+    {
+      "id": "pr-body/body-missing",
+      "status": "active",
+      "summary": "The pull request has no title or body for the PR-body gate to check",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "- **`pr-body/body-missing`: no title or body.**",
+        "last": "then let the gate run again."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-27",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Added after the offload baseline's pinned commit, so the baseline holds no text for it. Not a conformance rule: the gate's could-not-decide when gh returns no title or no body string. It exits 2 as before, and its finding comes with the not-ready telemetry marker."
+    },
+    {
+      "id": "pr-body/read-failed",
+      "status": "active",
+      "summary": "The PR-body gate could not read or check the pull request",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "- **`pr-body/read-failed`: the check couldn't run.**",
+        "last": "error says which; fix that, then let the gate run again."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-27",
+      "gates": [
+        "work-on:pr_creation:pr_body_conformant",
+        "execute:pr_finalization:owned_pr_body_conformant"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Added after the offload baseline's pinned commit, so the baseline holds no text for it. Not a conformance rule: every other could-not-decide of the gate once its rules resolve (a gh read or lookup that failed, a missing tool, missing writing-style rules, a validator that failed to run). It exits 2 as before and, unlike pr-body/pr-missing and pr-body/body-missing, prints no not-ready marker."
+    },
+    {
       "id": "prose/banned-word",
       "status": "active",
       "summary": "A document uses a word the writing-style rules ban",

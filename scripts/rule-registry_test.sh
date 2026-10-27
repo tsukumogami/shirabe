@@ -728,7 +728,9 @@ ladder "$LOGS/one.jsonl" g t/multi
 [ $RC -eq 1 ] && [ "$(released t/multi)" = 1 ] && grep -qx '::shirabe-rule-end::' "$T/lerr" && [ "$(notices)" = 0 ] \
     && pass "ladder: count 2 releases the rule's text once and offers no exit" \
     || fail "ladder count 2" "rc=$RC err=[$(cat "$T/lerr")]"
-cmp -s "$T/lout" "$T/plain.out" && pass "ladder: count 2 leaves standard output unchanged" || fail "ladder stdout 2" "outputs differ"
+full_marker() { printf '::koto-rule-delivered::{"rule_id":"%s","extent":"full","delivery":"%s"}\n' "$1" "${2:-printed}"; }
+{ cat "$T/plain.out"; full_marker t/multi; } | cmp -s "$T/lout" - \
+    && pass "ladder: count 2 adds only the full delivery marker to standard output" || fail "ladder stdout 2" "outputs differ"
 
 DELIVER_TWICE=1 ladder "$LOGS/one.jsonl" g t/multi
 [ "$(released t/multi)" = 1 ] && pass "ladder: rf_deliver runs once per process" || fail "ladder once" "released $(released t/multi) times"
@@ -806,7 +808,7 @@ for bad in "$LOGS/missing.jsonl" "$LOGS/noheader.jsonl" "$LOGS/v2.jsonl" "$LOGS/
     if [ $RC -eq 1 ] && [ "$(released t/multi)" = 1 ] && [ "$(released t/single)" = 1 ] && [ "$(notices)" = 0 ] \
         && grep -q "^rule-findings: could not read koto's counts from $bad" "$T/lerr" \
         && ! grep -q '^jq: ' "$T/lerr" \
-        && cmp -s "$T/lout" <("$L/probe.sh" t/multi t/single 2>/dev/null); then
+        && cmp -s "$T/lout" <("$L/probe.sh" t/multi t/single 2>/dev/null; full_marker t/multi; full_marker t/single); then
         pass "ladder: an unreadable log ($(basename "$bad")) releases every rule and offers no exit"
     else
         fail "ladder unreadable $(basename "$bad")" "rc=$RC err=[$(cat "$T/lerr")]"
@@ -840,6 +842,65 @@ if grep -q '^rule-registry: could not release t/long: ' "$T/lerr" \
     pass "ladder: a rule release refuses gets the refusal and its anchored reference"
 else
     fail "ladder refused" "err=[$(cat "$T/lerr")]"
+fi
+if [ "$(grep -cxF -- "$(full_marker t/long refused)" "$T/lout")" = 1 ] \
+    && [ "$(grep -cxF -- "$(full_marker t/docs refused)" "$T/lout")" = 1 ] \
+    && ! grep -q 'koto-rule-delivered' "$T/lerr"; then
+    pass "ladder: each refused release prints its full, refused delivery marker on standard output"
+else
+    fail "ladder refused markers" "out=[$(cat "$T/lout")]"
+fi
+
+# --- delivery markers -----------------------------------------------------------
+#
+# rf_emit prints a summary marker beside each finding it prints; rf_release
+# a full one beside each release, printed or refused; an id the run didn't
+# resolve gets none. Run against the ladder's installed-style copy.
+cat > "$L/marker-probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/multi t/single t/long t/docs"
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require t/multi t/long
+mode=$1; shift
+case "$mode" in
+    find) for id in "$@"; do rf_finding "$id" "detail for $id"; done ;;
+    release) for id in "$@"; do rf_release "$id"; echo "rc=$?"; done ;;
+esac
+PROBE
+chmod +x "$L/marker-probe.sh"
+summary_marker() { printf '::koto-rule-delivered::{"rule_id":"%s","extent":"summary","delivery":"printed"}' "$1"; }
+
+"$L/marker-probe.sh" find t/multi > "$T/mout" 2> "$T/merr"; RC=$?
+if [ $RC -eq 0 ] && [ "$(sed -n 2p "$T/mout")" = "$(summary_marker t/multi)" ] \
+    && sed -n 1p "$T/mout" | grep -q '^::koto-finding::{"rule_id":"t/multi"' \
+    && [ "$(wc -l < "$T/mout" | tr -d ' ')" = 2 ] && ! grep -q 'koto-rule-delivered' "$T/merr"; then
+    pass "markers: a finding is followed on standard output by its exact summary marker"
+else
+    fail "markers summary" "rc=$RC out=[$(cat "$T/mout")] err=[$(cat "$T/merr")]"
+fi
+
+"$L/marker-probe.sh" release t/multi t/long > "$T/mout" 2> "$T/merr"; RC=$?
+want="$(full_marker t/multi printed)
+rc=0
+$(full_marker t/long refused)
+rc=1"
+if [ $RC -eq 0 ] && [ "$(cat "$T/mout")" = "$want" ] \
+    && grep -q '^::shirabe-rule::{"rule_id":"t/multi"' "$T/merr" \
+    && grep -q '^rule-registry: could not release t/long: ' "$T/merr"; then
+    pass "markers: rf_release prints full/printed for a release and full/refused for a refusal, text and refusal on stderr"
+else
+    fail "markers release" "rc=$RC out=[$(cat "$T/mout")] err=[$(cat "$T/merr")]"
+fi
+
+# t/single is registered but this run didn't resolve it; t/nope has no entry.
+"$L/marker-probe.sh" release t/single t/nope > "$T/mout" 2> "$T/merr"; RC=$?
+if [ $RC -eq 0 ] && ! grep -q 'koto-rule-delivered' "$T/mout" && ! grep -q 'koto-rule-delivered' "$T/merr" \
+    && [ "$(cat "$T/mout")" = "rc=0
+rc=1" ]; then
+    pass "markers: an id the run didn't resolve, or with no entry, prints no delivery marker"
+else
+    fail "markers unresolved" "rc=$RC out=[$(cat "$T/mout")] err=[$(cat "$T/merr")]"
 fi
 
 # The rules a /work-on gate script can report that release refuses. A rule
@@ -913,8 +974,10 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # reasons, the scrutiny batch's Jev contract, to 60 and 39;
 # pr-body/workflow-content, the PR gate's workflow-records check, to 61 and 40;
 # red-first/no-red, red-first/no-green and test-change/held (gates) and
-# review/test-edit-judgment and review/test-edit-weakens (prose) to 66 and 43.
-[ "$n" = 66 ] && [ "$gates" = 43 ] && [ "$rsn" = 20 ] && pass "the registry has 66 rules: 43 gates and 20 criteria" \
+# review/test-edit-judgment and review/test-edit-weakens (prose) to 66 and 43;
+# pr-body/pr-missing, pr-body/body-missing and pr-body/read-failed, the PR
+# gate's could-not-decide rules, to 69 and 46.
+[ "$n" = 69 ] && [ "$gates" = 46 ] && [ "$rsn" = 20 ] && pass "the registry has 69 rules: 46 gates and 20 criteria" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -930,7 +993,7 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-00[4-6]$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
 jev_never=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[7-9]|1[0-9]|20)$")) | select(.withhold == "never")] | length' "$REG")
-[ "$never" = 46 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
+[ "$never" = 49 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
     && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-006 are eligible; the Jev criteria rs-007 to rs-020 are never" \
     || fail "withhold marking" "never=$never eligible=$eligible jev_never=$jev_never"
 
@@ -953,13 +1016,17 @@ unexplained=$(jq -r '
 
 # The lifecycle fields: every active script entry at block since the landing
 # date with gates (an entry added later, at block since the day it was added:
-# red-first/no-red and red-first/no-green, test-change/held and
-# pr-body/workflow-content), both retired script entries at retired, and
-# nothing on any entry that isn't script-checked.
+# red-first/no-red and red-first/no-green, test-change/held,
+# pr-body/workflow-content and the PR gate's three could-not-decide rules),
+# both retired script entries at retired, and nothing on any entry that isn't
+# script-checked.
 STAGE_SINCE=2026-10-16
 bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script" and .status == "active")
     | select(.stage != "block"
              or .stage_since != ({"pr-body/workflow-content": "2026-10-23",
+                                  "pr-body/pr-missing": "2026-10-27",
+                                  "pr-body/body-missing": "2026-10-27",
+                                  "pr-body/read-failed": "2026-10-27",
                                   "test-change/held": "2026-10-23",
                                   "red-first/no-red": "2026-10-22",
                                   "red-first/no-green": "2026-10-22"}[.id] // $since)
@@ -967,7 +1034,7 @@ bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script
              or any(.gates[]; type != "string" or (test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)))
     | .id' "$REG")
 nactive=$(jq '[.rules[] | select(.check.kind == "script" and .status == "active")] | length' "$REG")
-[ -z "$bad" ] && [ "$nactive" = 39 ] && pass "all 39 active script entries are at block since their landing date with gates" \
+[ -z "$bad" ] && [ "$nactive" = 42 ] && pass "all 42 active script entries are at block since their landing date with gates" \
     || fail "active script stages" "n=$nactive bad: $bad"
 retired=$(jq -r '[.rules[] | select(.check.kind == "script" and .status == "retired") | "\(.id)=\(.stage)"] | join(",")' "$REG")
 [ "$retired" = "branch/no-wip-files=retired,panel/blocking-finding=retired" ] \

@@ -75,6 +75,12 @@
 #   rf_deliver                 the escalation ladder, below; called once, right
 #                              before the script's non-zero exit that follows
 #                              its findings
+#   rf_release <id>            `rule-registry.sh release <id>`, the rule's full
+#                              text on standard error, plus its delivery
+#                              marker (below) on standard output; returns 0
+#                              when the text printed and 1 when release
+#                              refused it. For a script that releases a rule's
+#                              text itself, outside the ladder
 #   rf_dispute_hint            one line on standard error telling the agent how
 #                              to dispute a finding with scripts/rule-dispute.sh,
 #                              for a script about to exit non-zero on block
@@ -126,9 +132,27 @@
 # nothing and the script prints what it always printed. With them, a log the
 # ladder can't read puts every reported rule at RF_FULL_TEXT_AT and offers no
 # exit.
-# rf_deliver writes only to standard error and always returns 0, so it never
-# changes a gate's exit status, its standard output or the findings koto records.
+# rf_deliver always returns 0 and writes the rule text and its notices only to
+# standard error, so it never changes a gate's exit status or the findings koto
+# records; on standard output it adds only the delivery markers below.
 # DESIGN-validate-and-return.md has the reasoning.
+#
+# Delivery markers. For telemetry, every rule delivery prints one line on
+# standard output, which koto records as a rule delivery:
+#
+#   ::koto-rule-delivered::{"rule_id":"<id>","extent":"<extent>","delivery":"<delivery>"}
+#
+#   extent summary, delivery printed   beside each finding rf_emit prints (a
+#                                      retired finding prints none)
+#   extent full, delivery printed      beside each full-text release that
+#                                      printed the text (rf_release)
+#   extent full, delivery refused      beside each release that refused it
+#
+# Only a rule this run resolved gets one; an id it didn't resolve prints no
+# marker. A koto without marker support ignores the line. koto reads a marker
+# only at the start of a line, and every line this library prints on standard
+# output starts with its own marker, so text from a finding's detail can't
+# start one.
 #
 # Written for the bash 3.2 floor: no associative arrays, so the resolved refs,
 # summaries and stages are kept as tab-separated lines.
@@ -240,6 +264,37 @@ rf_level() {
     esac
 }
 
+# rf_delivered <id> <extent> <delivery>: the delivery marker (see the header)
+# on standard output, for a rule this run resolved; nothing for any other id.
+# The caller passes extent and delivery from the header's fixed values.
+rf_delivered() {
+    local line
+    [ -n "$(rf_field "$1" 2)" ] || return 0
+    line=$(jq -cn --arg id "$1" --arg extent "$2" --arg delivery "$3" \
+        '{rule_id: $id, extent: $extent, delivery: $delivery}' 2>/dev/null) || return 0
+    printf '::koto-rule-delivered::%s\n' "$line"
+}
+
+# rf_release <id>: the rule's full text through `rule-registry.sh release`,
+# which writes only to standard error and always exits 0: its
+# ::shirabe-rule:: marker line first when it printed the text, its one
+# `could not release` line otherwise (references/rule-registry.md,
+# "Delivering a rule when it applies"). The marker is how the two are told
+# apart. Returns 0 when the text printed, 1 when release refused it.
+rf_release() {
+    local id=$1 released
+    released=$("$RF_HELPER" release "$id" 2>&1 </dev/null)
+    [ -z "$released" ] || printf '%s\n' "$released" >&2
+    case "$released" in
+        "::shirabe-rule::"*)
+            rf_delivered "$id" full printed
+            return 0
+            ;;
+    esac
+    rf_delivered "$id" full refused
+    return 1
+}
+
 rf_emit() {
     local json=$1 source=${2-} id ref msg want_ref want_summary stage level line
     RF_COUNTED=0
@@ -264,6 +319,7 @@ rf_emit() {
     [ -n "$json" ] || undecided "could not set the level of a finding for $id"
     line="::koto-finding::$json"
     printf '%s\n' "$line"
+    rf_delivered "$id" summary printed
     RF_PRINTED=$((RF_PRINTED + 1))
     "$RF_HELPER" log-finding "$line" </dev/null >/dev/null 2>&1 || true
     if [ "$stage" = block ]; then
@@ -346,10 +402,10 @@ rf_ladder_counts() {
     printf '%s\n' "$out"
 }
 
-# rf_deliver: the ladder (see the header). Once per process; stderr only;
-# returns 0.
+# rf_deliver: the ladder (see the header). Once per process; stderr only,
+# apart from the delivery markers; returns 0.
 rf_deliver() {
-    local counts state field id count released top_id="" top=0 notice
+    local counts state field id count top_id="" top=0 notice
     [ -z "$RF_DELIVERED" ] || return 0
     [ -n "$RF_REPORTED" ] || return 0
     rf_ladder_active || return 0
@@ -370,17 +426,8 @@ rf_deliver() {
             top_id=$id
         fi
         [ "$count" -ge "$RF_FULL_TEXT_AT" ] || continue
-        # release writes only to standard error and always exits 0: its
-        # ::shirabe-rule:: marker line first when it printed the text, its one
-        # `could not release` line otherwise (references/rule-registry.md,
-        # "Delivering a rule when it applies"). The marker is how the two are
-        # told apart.
-        released=$("$RF_HELPER" release "$id" 2>&1 </dev/null)
-        [ -z "$released" ] || printf '%s\n' "$released" >&2
-        case "$released" in
-            "::shirabe-rule::"*) ;;
-            *) echo "rule-findings: $id's full text is at $(rf_field "$id" 2)" >&2 ;;
-        esac
+        rf_release "$id" \
+            || echo "rule-findings: $id's full text is at $(rf_field "$id" 2)" >&2
     done <<EOF
 $counts
 EOF
