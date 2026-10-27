@@ -97,6 +97,7 @@ cost	importer-call_engine_test.sh	5
 cost	legacy-records_engine_test.sh	5
 cost	session-fixture_engine_test.sh	5
 cost	session-start_engine_test.sh	5
+cost	coordinate-takeover_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
 cost	find-reads_test.sh	4
