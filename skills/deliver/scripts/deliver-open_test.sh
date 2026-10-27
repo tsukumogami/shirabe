@@ -27,6 +27,14 @@
 # result read back off the leg; koto's refusals (an invalid topic, a collision
 # the probe stops, a leg pinning another topic) recorded on the leg.
 #
+# The removal (shirabe#1278): a first run, with no session by the name, makes
+# no probe and runs no `koto session cleanup`, even under an anchor whose
+# hierarchy holds a live session, so koto prints no retention warning. A run
+# that does remove a session prints removed= and removed_predates=, yes for
+# an earlier live session, no for the session the probe itself made (a
+# terminal one's replacement, or a name that was listed but gone by the
+# probe). An unreadable session listing falls back to the probe.
+#
 # koto admits a --var value only inside ^[a-zA-Z0-9._/:@ \-]*$, and
 # PLUGIN_ROOT is such a value. When this checkout's path falls outside it,
 # PLUGIN_ROOT is a clean symlink under TMPDIR; when TMPDIR is outside it too,
@@ -87,6 +95,13 @@ mkdir -p "$T/bin"
 cat >"$WRAP" <<'WRAPPER'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$DELIVER_TEST_LOG/koto.argv"
+# DELIVER_TEST_LIST stands in for koto's session listing: `fail` makes the
+# listing fail, anything else is printed as the listing.
+if [ "${1-} ${2-}" = "session list" ] && [ -n "${DELIVER_TEST_LIST:-}" ]; then
+    [ "$DELIVER_TEST_LIST" = fail ] && exit 1
+    printf '%s\n' "$DELIVER_TEST_LIST"
+    exit 0
+fi
 out=()
 prev=""
 for a in "$@"; do
@@ -174,6 +189,54 @@ eq "no COORDINATION, UPSTREAM or MAX_ROUNDS pair" '[]' "$(vars '[.[] | select(.[
 eq "no flags: exactly the pairs a run had before the review-level bound existed" \
     '["TOPIC","MODE","MERGE","PLUGIN_ROOT"]' "$(vars 'map(.[0])')"
 args_gone "no session"
+if grep -q "session cleanup" "$T/koto.argv"; then bad "no session: no koto session cleanup ran" "$(cat "$T/koto.argv")"; else ok "no session: no koto session cleanup ran"; fi
+if grep -q -- "--attach-live" "$T/koto.argv"; then bad "no session: no probe was made" "$(cat "$T/koto.argv")"; else ok "no session: no probe was made"; fi
+case "$STDOUT" in *removed=*) bad "no session: no removed= line" "$STDOUT" ;; *) ok "no session: no removed= line" ;; esac
+
+echo "== a first run under an anchor with a live session in its hierarchy =="
+# The probe used to open deliver-<topic> on a first run, and the cleanup that
+# followed removed it and warned that the retention rule would have kept it,
+# naming every live session in the caller's hierarchy. A first run now makes
+# no probe and removes nothing.
+if k session anchor open --harness-session t-first-run --source startup >/dev/null 2>&1; then
+    export KOTO_ANCHOR=anchor-t-first-run
+    k init deliver-t-peer --template "$(tpl)" --var TOPIC=t-peer --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
+    open_deliver '["t-first","--auto"]'
+    eq "a first run: exit 0" 0 "$RC"
+    has "a first run: prints session=deliver-t-first" "session=deliver-t-first" "$STDOUT"
+    eq "a first run: the fresh session is at open_request" open_request "$(state_of t-first)"
+    eq "a first run: the fresh session carries this invocation's MODE" '["auto"]' "$(var MODE)"
+    if grep -q "session cleanup" "$T/koto.argv"; then bad "a first run: no koto session cleanup ran" "$(cat "$T/koto.argv")"; else ok "a first run: no koto session cleanup ran"; fi
+    case "$STDERR" in *"retention rule"*) bad "a first run: no retention warning" "$STDERR" ;; *) ok "a first run: no retention warning" ;; esac
+    case "$STDOUT" in *removed=*) bad "a first run: no removed= line" "$STDOUT" ;; *) ok "a first run: no removed= line" ;; esac
+    eq "a first run: the live session in the hierarchy is untouched" open_request "$(state_of t-peer)"
+
+    # The name was listed but gone by the probe: the probe makes the session,
+    # and removing it says so, without koto's retention warning about it.
+    export DELIVER_TEST_LIST='[{"id":"deliver-t-race"}]'
+    open_deliver '["t-race"]'
+    unset DELIVER_TEST_LIST
+    eq "a probe that made the session: exit 0" 0 "$RC"
+    has "a probe that made the session: removed= names it" "removed=deliver-t-race" "$STDOUT"
+    has "a probe that made the session: it does not predate this invocation" "removed_predates=no" "$STDOUT"
+    case "$STDERR" in *"retention rule"*) bad "a probe that made the session: no retention warning" "$STDERR" ;; *) ok "a probe that made the session: no retention warning" ;; esac
+    eq "a probe that made the session: session= is the last line" "session=deliver-t-race" "$(printf '%s\n' "$STDOUT" | tail -1)"
+    eq "a probe that made the session: the fresh session is at open_request" open_request "$(state_of t-race)"
+    unset KOTO_ANCHOR
+else
+    echo "SKIP: this koto has no session anchors -- the first-run hierarchy cases did not run"
+fi
+
+echo "== the session listing cannot be read =="
+# Without the listing the probe runs as before: it makes the session, and the
+# removal says the session is this invocation's.
+export DELIVER_TEST_LIST=fail
+open_deliver '["t-nolist"]'
+unset DELIVER_TEST_LIST
+eq "an unreadable listing: exit 0" 0 "$RC"
+has "an unreadable listing: the probe ran" "--attach-live" "$(cat "$T/koto.argv")"
+has "an unreadable listing: removed_predates=no" "removed_predates=no" "$STDOUT"
+eq "an unreadable listing: the fresh session is at open_request" open_request "$(state_of t-nolist)"
 
 echo "== a same-origin live session =="
 k init deliver-t-live --template "$(tpl)" --var TOPIC=t-live --var PLUGIN_ROOT="$PLUGIN" --var MERGE=false >/dev/null 2>&1
@@ -185,6 +248,10 @@ eq "the fresh session is at open_request" open_request "$(state_of t-live)"
 if [ -z "$(ctx_get t-live marker)" ]; then ok "the earlier session's context is gone"; else bad "the earlier session's context is gone"; fi
 eq "this invocation's MERGE, not the earlier one's" '["true"]' "$(var MERGE)"
 eq "this invocation's MODE" '["auto"]' "$(var MODE)"
+has "a live session: the cleanup ran" "session cleanup deliver-t-live" "$(cat "$T/koto.argv")"
+has "a live session: removed= names it" "removed=deliver-t-live" "$STDOUT"
+has "a live session: it predates this invocation" "removed_predates=yes" "$STDOUT"
+eq "a live session: session= is the last line" "session=deliver-t-live" "$(printf '%s\n' "$STDOUT" | tail -1)"
 
 echo "== a same-origin terminal session =="
 k init deliver-t-done --template "$(tpl)" --var TOPIC=t-done --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
@@ -195,6 +262,10 @@ open_deliver '["t-done"]'
 eq "exit 0" 0 "$RC"
 eq "replaced by a fresh session at open_request" open_request "$(state_of t-done)"
 if k status deliver-t-done | jq -e '.result == null' >/dev/null; then ok "the fresh session carries no result"; else bad "the fresh session carries no result"; fi
+# koto's replace already took the finished run; what the cleanup removes is
+# the replacement the probe made.
+has "a terminal session: removed= names the name" "removed=deliver-t-done" "$STDOUT"
+has "a terminal session: the removed replacement does not predate this invocation" "removed_predates=no" "$STDOUT"
 
 echo "== a same-origin terminal session its hierarchy holds =="
 # From koto 0.23.0 a finished session another live session names is kept, and
@@ -425,8 +496,9 @@ eq "under --koto-leg: exit 0" 0 "$RC"
 has "under --koto-leg: prints session=" "session=deliver-t-leg" "$STDOUT"
 eq "the leg value is not part of TOPIC" '["t-leg"]' "$(var TOPIC)"
 has "the open carried --koto-leg" "--koto-leg $REQ:deliver" "$(grep '^init ' "$T/koto.argv" | tail -1)"
-if grep -m1 '^init ' "$T/koto.argv" | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
+eq "a first run under --koto-leg: one koto init, the open" 1 "$(grep -c '^init ' "$T/koto.argv")"
 eq "the leg is bound to deliver-t-leg" '"deliver-t-leg"' "$(leg "$REQ" .bound_child)"
+if grep -q "session cleanup" "$T/koto.argv"; then bad "a first run under --koto-leg: no koto session cleanup ran" "$(cat "$T/koto.argv")"; else ok "a first run under --koto-leg: no koto session cleanup ran"; fi
 KDIR="$OTHER" to_terminal t-leg
 eq "the run ends at done_error" done_error "$(KDIR="$OTHER" state_of t-leg)"
 eq "the leg's result was promoted" '"promoted"' "$(leg "$REQ" .result_source)"
@@ -447,6 +519,7 @@ REQ=$(new_request t-tpl)
 open_deliver "[\"t-tpl\",\"--koto-leg=$REQ:deliver\"]"
 refused "another template under --koto-leg"
 has "prints the probe's refused=template_mismatch" "refused=template_mismatch" "$STDOUT"
+if grep -m1 '^init ' "$T/koto.argv" | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
 eq "the leg records a refusal for the collision" '"refused"' "$(leg "$REQ" .result_source)"
 eq "the collision's recorded reason matches the printed code" '"template-mismatch"' "$(leg "$REQ" .result.payload.reason)"
 eq "that session is still left alone" work "$(state_of t-tpl)"

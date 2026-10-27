@@ -8,21 +8,31 @@
 # same-named session that belongs to someone else. Session names are
 # machine-wide, and only koto can tell whose a session is: it compares the
 # session's origin record (worktree and store), which it doesn't expose. So
-# the script asks koto, in two calls:
+# the script asks koto:
 #
-#   1. a probe: koto-open.sh --attach-live --replace-terminal with an args file
-#      carrying only TOPIC and PLUGIN_ROOT, so no other non-rebind variable is
-#      compared. `refused=origin_mismatch` (another worktree or store) or
+#   0. a listing: `koto session list`, read only. When no session has the
+#      name, there is nothing to probe or remove, and the run goes straight
+#      to the open. A first run therefore runs no `koto session cleanup`:
+#      a probe would make the session, koto would link it into the caller's
+#      hierarchy, and removing it would warn that the retention rule would
+#      have kept it. When the listing can't be read, the probe runs.
+#   1. a probe, when the name is listed: koto-open.sh --attach-live
+#      --replace-terminal with an args file carrying only TOPIC and
+#      PLUGIN_ROOT, so no other non-rebind variable is compared.
+#      `refused=origin_mismatch` (another worktree or store) or
 #      `refused=template_mismatch` is a collision: the run stops with koto's
 #      refusal, and that session is left untouched. `opened=new`, `attached`
-#      or `replaced` means the name is this worktree's, and the session is
-#      removed with `koto session cleanup deliver-<topic>`. A finished run
-#      koto keeps for its hierarchy is not removed: the probe's replace moves
-#      it aside to `deliver-<topic>_r<N>`, where its record stays readable,
-#      and the probe's moved_to= and moved_reason= lines are printed after
-#      the open's. When it can't be moved, the probe is refused
-#      (replace_held_live or replace_failed) and stops the run like any
-#      other refusal.
+#      or `replaced` means the name is this worktree's, and the session left
+#      under it is removed with `koto session cleanup deliver-<topic>`:
+#      after `attached` an earlier live session, after `replaced` the
+#      probe's own replacement of an earlier finished run, after `new` (the
+#      session went away between the listing and the probe) the probe's own
+#      session. A finished run koto keeps for its hierarchy is not removed:
+#      the probe's replace moves it aside to `deliver-<topic>_r<N>`, where
+#      its record stays readable, and the probe's moved_to= and
+#      moved_reason= lines are printed after the open's. When it can't be
+#      moved, the probe is refused (replace_held_live or replace_failed) and
+#      stops the run like any other refusal.
 #   2. the open: koto-open.sh once more, with no attach flags and the full
 #      args file, so the session is always new. koto checks every argument
 #      here and its refusal is printed.
@@ -101,6 +111,12 @@
 #                                    when the probe moved this worktree's
 #                                    finished run aside, whether the open
 #                                    then succeeded or not
+#   removed=deliver-<topic>, removed_predates=yes|no
+#                                    when a session was removed before the
+#                                    open, whether the open then succeeded or
+#                                    not: yes for this worktree's earlier
+#                                    live session, no for a session this
+#                                    invocation's probe made
 #   session=deliver-<topic>          on success
 #   outcome=error                    on every refusal or failure, followed by
 #   step=deliver:refused
@@ -303,12 +319,17 @@ write_vars() {
     printf '%s' "$f"
 }
 
-# --- 1. the probe ------------------------------------------------------------------
+# --- 0. the listing ----------------------------------------------------------------
 
-PROBE_VARS=$(write_vars '[["TOPIC", .topic], ["PLUGIN_ROOT", $root]]') \
-    || stop "error=usage" "could not write the probe's vars file" 64
-PROBE=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$PROBE_VARS" --attach-live --replace-terminal --wording "$WORDING")
-RC=$?
+# yes when koto lists a session by this name, no when it lists none, unknown
+# when the listing can't be read. Only `no` skips the probe.
+LISTED=unknown
+if LISTING=$("$KOTO" session list </dev/null 2>/dev/null); then
+    LISTED=$(printf '%s' "$LISTING" | jq -r --arg s "$SESSION" '
+        if type == "array"
+        then (if any(.[]; type == "object" and .id == $s) then "yes" else "no" end)
+        else error("not a listing") end' 2>/dev/null) || LISTED=unknown
+fi
 
 # open_session [flag...] -- the full vars file, the leg when one was given,
 # and any extra koto-open.sh flags. Without flags it is the open: no attach
@@ -323,12 +344,32 @@ open_session() {
     RC=$?
 }
 
-# fresh_start -- remove this worktree's deliver-<topic>, found by an accepted
-# probe, so the open makes a new one.
+# fresh_start <probe-output> -- remove the session an accepted probe left
+# under the name, so the open makes a new one, and record the removal in
+# REMOVED. After opened=attached that is this worktree's earlier live
+# session. After opened=replaced koto has already replaced the earlier
+# finished run (or moved it aside, which moved_to= reports), so what is left
+# is the probe's own replacement; after opened=new the probe made it. For a
+# session this invocation made, koto's warning that the retention rule would
+# have kept it describes seconds-old work, so that one line is dropped; every
+# other line koto writes to stderr is passed on.
+REMOVED=""
 fresh_start() {
-    if ! "$KOTO" session cleanup "$SESSION" </dev/null >/dev/null; then
-        stop "failed=cleanup" "could not remove this worktree's earlier $SESSION session" 1
+    local predates=no err rc
+    case "$1" in opened=attached*) predates=yes ;; esac
+    err=$("$KOTO" session cleanup "$SESSION" </dev/null 2>&1 >/dev/null)
+    rc=$?
+    if [ "$rc" -eq 0 ] && [ "$predates" = no ]; then
+        err=$(printf '%s\n' "$err" | grep -v -F "warning: removed '$SESSION', which the retention rule would have kept")
     fi
+    [ -n "$err" ] && printf '%s\n' "$err" >&2
+    if [ "$rc" -ne 0 ]; then
+        if [ "$predates" = yes ]; then
+            stop "failed=cleanup" "could not remove this worktree's earlier $SESSION session" 1
+        fi
+        stop "failed=cleanup" "could not remove the $SESSION session this run's probe made" 1
+    fi
+    REMOVED=$(printf 'removed=%s\nremoved_predates=%s' "$SESSION" "$predates")
 }
 
 # moved_lines <koto-open-output> -- the moved_to= and moved_reason= lines of an
@@ -340,31 +381,44 @@ moved_lines() {
     MOVED=$(printf '%s\n' "$1" | grep -E '^moved_(to|reason)=')
 }
 
-case "$PROBE" in
-    opened=*) moved_lines "$PROBE"; fresh_start ;;
-    *)
-        # A collision (origin_mismatch, template_mismatch) or any other
-        # refusal: koto's own wording is already on stderr, and the session,
-        # if any, is untouched. Under a leg, the probe is repeated with the
-        # full vars and the leg so koto records the same refusal on the leg;
-        # its wording would repeat the probe's, so it is dropped.
-        PROBE_RC=$RC
-        RECORDED=""
-        if [ -n "$LEG" ]; then
-            open_session --attach-live --replace-terminal 2>/dev/null
-            RECORDED=$OUT
-        fi
-        case "$RECORDED" in
-            opened=*) moved_lines "$RECORDED"; fresh_start ;;
-            *)
-                [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
-                bash "$REPORT" --refused
-                [ "$PROBE_RC" -ne 0 ] || PROBE_RC=1
-                exit "$PROBE_RC"
-                ;;
-        esac
-        ;;
-esac
+# --- 1. the probe ------------------------------------------------------------------
+
+# A name koto lists no session for needs no probe: the open below makes the
+# session, and nothing is removed. A session that appears in between is
+# refused by the open, which carries no attach flags.
+if [ "$LISTED" != no ]; then
+    PROBE_VARS=$(write_vars '[["TOPIC", .topic], ["PLUGIN_ROOT", $root]]') \
+        || stop "error=usage" "could not write the probe's vars file" 64
+    PROBE=$(bash "$KOTO_OPEN" "$SESSION" "$TEMPLATE" "$PROBE_VARS" --attach-live --replace-terminal --wording "$WORDING")
+    RC=$?
+
+    case "$PROBE" in
+        opened=*) moved_lines "$PROBE"; fresh_start "$PROBE" ;;
+        *)
+            # A collision (origin_mismatch, template_mismatch) or any other
+            # refusal: koto's own wording is already on stderr, and the
+            # session, if any, is untouched. Under a leg, the probe is
+            # repeated with the full vars and the leg so koto records the
+            # same refusal on the leg; its wording would repeat the probe's,
+            # so it is dropped.
+            PROBE_RC=$RC
+            RECORDED=""
+            if [ -n "$LEG" ]; then
+                open_session --attach-live --replace-terminal 2>/dev/null
+                RECORDED=$OUT
+            fi
+            case "$RECORDED" in
+                opened=*) moved_lines "$RECORDED"; fresh_start "$RECORDED" ;;
+                *)
+                    [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
+                    bash "$REPORT" --refused
+                    [ "$PROBE_RC" -ne 0 ] || PROBE_RC=1
+                    exit "$PROBE_RC"
+                    ;;
+            esac
+            ;;
+    esac
+fi
 
 # --- 2. the open -----------------------------------------------------------------------
 
@@ -376,11 +430,13 @@ if [ "$RC" -eq 0 ]; then
     bash "$PLUGIN_ROOT/skills/execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
         || printf 'deliver-open: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$SESSION" >&2
     [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
+    [ -n "$REMOVED" ] && printf '%s\n' "$REMOVED"
     printf 'session=%s\n' "$SESSION"
 else
-    # The probe already moved the earlier run aside; say where, even though
-    # this open failed.
+    # The probe already moved the earlier run aside, or a session was
+    # removed; say so, even though this open failed.
     [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
+    [ -n "$REMOVED" ] && printf '%s\n' "$REMOVED"
     bash "$REPORT" --refused
 fi
 exit "$RC"
