@@ -37,8 +37,9 @@
 # and need no verb.
 #
 # The session: every tick is `koto next --no-cleanup` (evidence with
-# --with-data), the report reads `koto status`, deliver-open.sh removes this
-# worktree's earlier deliver-<topic> with `koto session cleanup`, and
+# --with-data), the report reads `koto status`, deliver-open.sh reads
+# `koto session list` to learn whether deliver-<topic> exists and, only when
+# it does, removes this worktree's earlier one with `koto session cleanup`, and
 # deliver-probe.sh writes its verdicts with `koto context add` after clearing
 # them with `koto context remove`, reading /scope's result first with `koto
 # context exists` and `koto context get`. deliver-execute-leg.sh reads
@@ -48,6 +49,7 @@
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	status	-	always
+koto	session list	-	always
 koto	session cleanup	-	always
 koto	context add	-	always
 koto	context remove	-	always
