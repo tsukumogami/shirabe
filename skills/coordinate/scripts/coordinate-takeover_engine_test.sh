@@ -163,7 +163,8 @@ eq "5: B's record/meta names B's Claude session as driver" "$B_ID true" "$( (cd 
 ENTRIES=$(cd "$WD" && bash "$PS/state-entry.sh" --session "$B" --list 2>/dev/null)
 TK=$(printf '%s' "$ENTRIES" | jq -c '[.[] | select(.kind == "takeover")]')
 eq "5: exactly one takeover entry" 1 "$(printf '%s' "$TK" | jq length)"
-printf '%s' "$TK" | jq -r '.[0].text' | grep -q "$A" && printf '%s' "$TK" | jq -r '.[0].text' | grep -q "$B" \
+TKT=$(jq -r '.[0].text' <<< "$TK")
+grep -q "$A" <<< "$TKT" && grep -q "$B" <<< "$TKT" \
     && ok "5:   ... naming A and B" || bad "5:   ... naming A and B" "$TK"
 
 # ---- 6. a re-run from B resumes ---------------------------------------------------------------

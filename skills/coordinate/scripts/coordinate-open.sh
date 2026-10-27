@@ -431,15 +431,22 @@ CALLER=${CLAUDE_CODE_SESSION_ID:-}
 [[ $CALLER =~ ^[0-9a-f][0-9a-f-]{7,63}$ ]] || CALLER=
 CALLER_NAME=
 [ -z "$CALLER" ] || CALLER_NAME=$(dc_claude_name "${DC_CLAUDE_HOME:-$HOME/.claude}" "$CALLER") || CALLER_NAME=
+# The record is read through its readers, never key by key here: record/meta
+# through state-read.sh --meta, the Run section through state-stored-set.sh
+# --list (as dispatch-worker.sh reads the address).
+# meta_json <run>: the run's record/meta, {} when it holds none, "" when the
+# read fails.
+meta_json() {
+    bash "$HERE/state-read.sh" --session "$1" --meta < /dev/null 2> /dev/null
+}
 # meta_field <run> <field>: a string field of the run's record/meta, "" when absent.
 meta_field() {
-    "$KOTO" context get "$1" record/meta < /dev/null 2> /dev/null \
-        | jq -r --arg f "$2" '.[$f] // "" | if type == "string" or type == "boolean" then tostring else "" end' 2> /dev/null
+    jq -r --arg f "$2" '.[$f] // "" | if type == "string" or type == "boolean" then tostring else "" end' <<< "$(meta_json "$1")" 2> /dev/null
 }
 # run_address <run>: the address in the run's coordinator row, "" when none.
 run_address() {
-    "$KOTO" context get "$1" record/run < /dev/null 2> /dev/null \
-        | jq -r '[(if type == "object" then .run else . end) // [] | .[]? | select(.key == "coordinator") | .value][0] // ""' 2> /dev/null
+    jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // ""' \
+        <<< "$(bash "$HERE/state-stored-set.sh" --session "$1" --list < /dev/null 2> /dev/null)" 2> /dev/null
 }
 driven_by_another() {
     local d a
@@ -450,21 +457,13 @@ driven_by_another() {
     [ -n "$a" ] && [ -n "$CALLER_NAME" ] && [ "$a" != "$CALLER_NAME" ]
 }
 # meta_set <run> <jq filter> [jq args...]: rewrite the run's record/meta with
-# the filter applied. Only the opener writes these fields, while no one
-# drives the run (between the fence and the end of the takeover), and every
-# record write after keeps them, since the write core changes only written
-# and pending.
+# the filter applied, through the write core (core_write_meta), in a subshell
+# since the core exits on a refusal. Only the opener writes these fields,
+# while no one drives the run (between the fence and the end of the
+# takeover), and every record write after keeps them.
 meta_set() {
-    local s=$1 f=$2 d rc
-    shift 2
-    d=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-meta.XXXXXX") || return 1
-    "$KOTO" context get "$s" record/meta < /dev/null > "$d/meta" 2> /dev/null \
-        && jq -e '.pending != true' "$d/meta" > /dev/null 2>&1 \
-        && jq -c "$@" "$f" "$d/meta" > "$d/next" \
-        && "$KOTO" context add "$s" record/meta --from-file "$d/next" < /dev/null > /dev/null 2>&1
-    rc=$?
-    rm -rf "$d"
-    return $rc
+    ( PROG=coordinate-open SESSION=$1 SKIP_CHECKS=0 REPO=${HOST:-}
+      . "$HERE/state-common.sh" && . "$HERE/state-write-core.sh" && core_write_meta "$@" ) > /dev/null 2>&1
 }
 refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
     printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
@@ -512,7 +511,7 @@ finish_takeover() {
 # its coordinator row. A predecessor that moved state between the read and the
 # fence (stale_state) is read again once.
 takeover() {
-    local pred=$1 pd pa state stopped succ out rc code tries=0 d
+    local pred=$1 pd pa state stopped succ out rc code tries=0 d why
     pd=$(meta_field "$pred" driver); pa=$(run_address "$pred")
     while :; do
         state=$("$KOTO" status "$pred" < /dev/null 2> /dev/null | jq -r '.current_state // empty' 2> /dev/null)
@@ -541,7 +540,8 @@ takeover() {
             *) if printf '%s' "$out" | jq -e '.superseded_by // empty' > /dev/null 2>&1; then
                    refuse_takeover taken-over "$pred was already taken over by $(printf '%s' "$out" | jq -r '.superseded_by'); nothing was written"
                fi
-               refuse_takeover "${code:-koto-refused}" "koto refused the takeover of $pred (exit $rc): $(printf '%s' "$out" | jq -r '.error | if type == "object" then .message // empty else . // empty end' 2> /dev/null | head -c 400)" ;;
+               why=$(jq -r '.error | if type == "object" then .message // empty else . // empty end' <<< "$out" 2> /dev/null)
+               refuse_takeover "${code:-koto-refused}" "koto refused the takeover of $pred (exit $rc): ${why:0:400}" ;;
         esac
     done
     finish_takeover "$succ" "$pred" "$stopped"
@@ -593,8 +593,9 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
             # This session's own takeover, cut short after the fence: finish
             # it (finish_takeover exits).
             if [ -n "$CALLER" ] && [ "$(meta_field "$OLD" takeover_done)" = false ]; then
-                finish_takeover "$OLD" "$("$KOTO" context get "$OLD" record/meta < /dev/null 2> /dev/null | jq -r '.takeover.predecessor // ""')" \
-                    "$("$KOTO" context get "$OLD" record/meta < /dev/null 2> /dev/null | jq -r '.takeover.predecessor_stopped // "no"')"
+                META=$(meta_json "$OLD")
+                finish_takeover "$OLD" "$(jq -r '.takeover.predecessor // ""' <<< "$META")" \
+                    "$(jq -r '.takeover.predecessor_stopped // "no"' <<< "$META")"
             fi
             [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
