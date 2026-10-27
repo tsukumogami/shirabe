@@ -299,6 +299,12 @@ rs_resume_candidate() {
         *) rm -rf "$d"; return 2 ;;
     esac
     rm -rf "$d"
+    # A successor that took the run over (koto init --supersede) holds the
+    # record its predecessor's find found, carried at the fence, before its
+    # own find has run: the carry's completion marker stands for the source.
+    if [ "$src" != session ] && "${KOTO:-${KOTO_BIN:-koto}}" context exists "$s" koto/superseded-carry-complete < /dev/null > /dev/null 2>&1; then
+        src=session
+    fi
     if [ "$src" != session ]; then
         jq -nc --arg s "$s" '{session: $s, action: "none", live: false, reason: "its store isn'"'"'t session"}'
         return 0
@@ -308,12 +314,14 @@ rs_resume_candidate() {
     # number (coord-log.sh compat). A run whose PLUGIN_ROOT is another plugin
     # root is resumed with `rebind` when its compiled template lets koto move
     # it (the opener re-attaches it with this root), and carried otherwise.
-    local rebind=false root run_root
+    # The two reasons a takeover refuses on instead of carrying also carry a
+    # code: several-live (ambiguous-scope) and template (template-incompatible).
+    local rebind=false root run_root code=
     if ! grep -qxF -- "$s" <<< "$live"; then reason="it is finished or cancelled"
-    elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live"
+    elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live" code=several-live
     elif [ "$("$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ] \
         && ! bash "$HERE/coord-log.sh" compat --session "$s" > /dev/null 2>&1; then
-        reason="koto compiled it from a template this plugin's compat table doesn't list at its compat number"
+        reason="koto compiled it from a template this plugin's compat table doesn't list at its compat number" code=template
     else
         root=$(bash "$HERE/coord-log.sh" plugin-root --session "$s" 2>/dev/null) || return 2
         run_root=$(printf '%s' "$root" | jq -r '.root') || return 2
@@ -331,9 +339,9 @@ rs_resume_candidate() {
         bash "$HERE/coord-log.sh" directed-since --session "$s" --from 0 > /dev/null 2>&1
         case $? in 0) ;; 1) reason="it has a directed transition" ;; *) return 2 ;; esac
     fi
-    jq -nc --arg s "$s" --arg r "$reason" --argjson b "$rebind" --argjson l "$(grep -qxF -- "$s" <<< "$live" && echo true || echo false)" \
+    jq -nc --arg s "$s" --arg r "$reason" --arg c "$code" --argjson b "$rebind" --argjson l "$(grep -qxF -- "$s" <<< "$live" && echo true || echo false)" \
         '{session: $s, action: (if $r == "" then "resume" else "carry" end), live: $l, reason: (if $r == "" then "the live run" else $r end)}
-         + (if $r == "" and $b then {rebind: true} else {} end)'
+         + (if $r == "" and $b then {rebind: true} else {} end) + (if $c == "" then {} else {code: $c} end)'
 }
 
 # rs_host <session> <out>: the host facts a record keeps in record/host, as a
