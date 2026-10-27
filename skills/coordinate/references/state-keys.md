@@ -75,7 +75,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 
 | Key | Holds | Writer |
 |---|---|---|
-| `record/meta` | `{scope: {kind, name}, store: "session", written, pending}`: the scope, the written time, and the mark a write sets while it is part way through | `state-write-core.sh`, for every writer |
+| `record/meta` | `{scope: {kind, name}, store: "session", written, pending, standing_used}`: the scope, the written time, the mark a write sets while it is part way through, and the highest Standing id number the record has given out, which `state-stored-set.sh --standing` reads instead of the entries to choose the next id (a record from before it has none, and its first `--standing` reads the entries once and records it) | `state-write-core.sh`, for every writer |
 | `record/holdings` | an array of Holdings rows (below), each with its `pushed_head` beside it when one is kept | `state-write.sh` through `state-holding.sh` |
 | `record/deferrals` | an array of Deferrals rows | `state-write.sh` through `state-holding.sh` |
 | `record/side-effects` | an array of Side effects rows | `state-write.sh` through `state-holding.sh`; `roadmap-status.sh` adds the roadmap edits' rows |
@@ -408,8 +408,9 @@ holds and pauses. The find writes `coord/source.json` reading `session`, which
 a later start's resume reads.
 
 The record's sections live in the run's own session, under `record/`:
-`record/meta` (the scope, the written time, and a pending mark a write sets
-while it is part way through), one key per section (`record/holdings`,
+`record/meta` (the scope, the written time, a pending mark a write sets
+while it is part way through, and `standing_used`, the highest Standing id
+given out), one key per section (`record/holdings`,
 `record/deferrals`, `record/side-effects`, `record/reversals`, `record/holds`,
 `record/run`, `record/standing`, `record/work`, `record/decisions`), each in
 the JSON form The Keys shows, one `record/entries/<n>` per entry

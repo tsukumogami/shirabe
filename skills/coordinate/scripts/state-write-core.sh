@@ -85,6 +85,12 @@ IMPORT_WRITER=0
 # --pushed-head, which state-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
 # with CORE_PUSHED_TOPIC and CORE_PUSHED_HEAD, 40 hex or empty to clear it).
 CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
+# The highest Standing id number the record has given out, kept in record/meta
+# as standing_used so the next id is chosen without reading every entry
+# (shirabe#1283). A write keeps it as record/meta has it; state-stored-set.sh
+# --standing raises it to the id it gives out (CORE_STANDING_USED, a whole
+# number); a seed into a session holding no entry, and a carry, set it.
+CORE_STANDING_USED=
 
 # core_live: the live record, read through the seam, and every check against it:
 # the record this scope's, the compare on the written time, and the section
@@ -194,7 +200,9 @@ core_live() {
 # caller edited from (a seeding write needs no record/meta at all); then
 # record/meta is marked pending, each section key whose JSON changed is written
 # (a section the state no longer holds loses its key), and record/meta is written
-# last with the new time. A failure after the first key changed exits 11; the
+# last with the new time, its standing_used kept, raised to CORE_STANDING_USED
+# when that is set, or started on a seed (CORE_STANDING_USED above). A failure
+# after the first key changed exits 11; the
 # pending mark tells a reader not to trust the sections until a write clears it.
 core_write_session() {
     local s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC
@@ -219,10 +227,17 @@ core_write_session() {
     jq -c '.pending = true' "$T/meta.now" > "$T/meta.pending"
     "$KOTO" context add "$s" record/meta --from-file "$T/meta.pending" < /dev/null > /dev/null 2> "$T/k.err" \
         || { echo "$PROG: the session write failed: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
-    # A re-seed removes the section keys the unfinished seed left that this state
-    # doesn't hold; one listing names them.
-    if [ -n "${RESEED:-}" ]; then
+    # A seed lists the session's record keys once: a re-seed removes the section
+    # keys the unfinished seed left that this state doesn't hold, and a session
+    # holding no entry starts standing_used at the seeded Standing rows' highest
+    # id, since no entry names another.
+    if [ "$SESSION_SEED" = 1 ]; then
         rs_list "$s" record/ "$T/reseed-keys" || lib_die2 "cannot list session $s's record keys: $(lib_scrub < "$T/reseed-keys.err")"
+        if ! jq -e 'any(.[]; startswith("record/entries/"))' "$T/reseed-keys" > /dev/null; then
+            jq -c --slurpfile st "$T/next-state.json" \
+                '.standing_used = ([($st[0].standing // [])[] | .standing[1:] | tonumber] | max // 0)' \
+                "$T/meta.now" > "$T/meta.seeded" && mv "$T/meta.seeded" "$T/meta.now" || lib_die2 "jq failed"
+        fi
     fi
     # The live holdings as the session keeps them, pushed heads included (the
     # parsed live record has them stripped): each row's head is carried forward
@@ -257,7 +272,9 @@ core_write_session() {
                 || { echo "$PROG: the session write failed part way, removing record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
         fi
     done
-    jq -c --arg w "$(jq -r '.written' "$T/next-state.json")" '.written = $w | .pending = false' "$T/meta.now" > "$T/meta.next"
+    jq -c --arg w "$(jq -r '.written' "$T/next-state.json")" --arg u "$CORE_STANDING_USED" '.written = $w | .pending = false
+        | if $u == "" then . else .standing_used = ([(.standing_used | if type == "number" then . else 0 end), ($u | tonumber)] | max) end' \
+        "$T/meta.now" > "$T/meta.next" || lib_die2 "jq failed"
     "$KOTO" context add "$s" record/meta --from-file "$T/meta.next" < /dev/null > /dev/null 2> "$T/k.err" \
         || { echo "$PROG: the session write failed part way, at record/meta: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
 }
@@ -364,7 +381,9 @@ core_write_rotation() {
 # checked against the session store's names and its value checked (JSON, or for
 # record/posted/<n> a comment URL on an issue or pull request, the item an
 # outward entry was posted on), then copied, and
-# record/meta goes last, with the source's written time: until it lands the new
+# record/meta goes last, with the source's written time and a standing_used no
+# lower than any Standing id the source's meta, entries or rows name (read from
+# the entries as they are copied, so no extra call): until it lands the new
 # run holds no record, so a carry cut short leaves nothing a start would resume,
 # and the next start carries again. Only coordinate-open.sh calls it, which a
 # structure test holds. Exits 10 the source holds no record; 12 it was being
@@ -390,6 +409,9 @@ core_carry() {
     rs_list "$from" record/ "$d/rk" && rs_list "$from" legs/ "$d/lk" || { rm -rf "$d"; lib_die2 "cannot list session $from's keys"; }
     secs=" $(for p in $RS_SECTIONS; do printf 'record/%s ' "${p#*:}"; done)"
     jq -r '.[]' "$d/rk" "$d/lk" > "$d/keys" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    # standing_used for the new run, from the entries the carry reads anyway:
+    # each one's leading Standing id is collected as it is copied.
+    : > "$d/used"
     while IFS= read -r k; do
         case "$k" in
             record/meta) continue ;;
@@ -406,10 +428,21 @@ core_carry() {
                     || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on an issue or a pull request" >&2; exit 65; } ;;
             *) jq -e . "$d/v" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
         esac
+        case "$k" in
+            record/entries/*) jq -r '.text? // empty | strings | scan("^(s[1-9][0-9]*)") | .[0][1:]' "$d/v" >> "$d/used" \
+                || { rm -rf "$d"; lib_die2 "jq failed"; } ;;
+        esac
         "$KOTO" context add "$to" "$k" --from-file "$d/v" < /dev/null > /dev/null 2> "$d/k.err" \
             || { echo "$PROG: the carry into $to failed at $k: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     done < "$d/keys"
-    jq -c '{scope, store: "session", written, pending: false}' "$d/rec.state" > "$d/meta" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    # The highest of the source's own standing_used, the ids the entries name
+    # and the Standing rows': the next id in the new run is above all of them.
+    jq -c --rawfile e "$d/used" --slurpfile m "$d/rec.meta" '
+        {scope, store: "session", written, pending: false,
+         standing_used: ([($m[0].standing_used | if type == "number" then . else 0 end),
+                          ($e | split("\n")[] | select(. != "") | tonumber),
+                          ((.standing // [])[] | .standing[1:] | tonumber)] | max)}' \
+        "$d/rec.state" > "$d/meta" || { rm -rf "$d"; lib_die2 "jq failed"; }
     "$KOTO" context add "$to" record/meta --from-file "$d/meta" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the carry into $to failed at record/meta: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     rm -rf "$d"

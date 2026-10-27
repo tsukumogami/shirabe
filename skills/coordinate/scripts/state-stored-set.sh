@@ -389,13 +389,26 @@ standing)
         fi
     fi
     SID=$(jq -r '"s\(([(.standing // [])[] | .standing[1:] | tonumber] | max // 0) + 1)"' "$P")
-    # The next id never reuses an ended one: the entries name ids, so the
-    # highest id ever used is read from the stream too.
-    ENTRIES=$(bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
-        || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/list.err")"
-    USED=$(printf '%s' "$ENTRIES" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
-        || lib_die2 "the record's entries are not JSON"
+    # The next id never reuses an ended one. record/meta keeps the highest id
+    # the record has given out (standing_used, read with the record), so no
+    # entry is read (shirabe#1283). The entries are still listed, in one call:
+    # this write's entry is numbered from that listing, so a stream that can't
+    # be listed refuses the write before anything is written.
+    rs_list "${RS_SESSION:-$SESSION}" record/entries/ "$WD/entry-keys" \
+        || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/entry-keys.err")"
+    USED=$(jq -r '.standing_used | select(type == "number" and . >= 0 and . == floor)' "$P.meta") \
+        || lib_die2 "the record's record/meta is not JSON"
+    if [ -z "$USED" ]; then
+        # A record written before record/meta kept it: the entries name the
+        # ids, so the highest id ever used is read from the stream, once; this
+        # write then records it.
+        ENTRIES=$(bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
+            || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/list.err")"
+        USED=$(printf '%s' "$ENTRIES" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
+            || lib_die2 "the record's entries are not JSON"
+    fi
     N=${SID#s}; [ "$USED" -ge "$N" ] && SID="s$((USED + 1))"
+    STANDING_USED=${SID#s}
     jq --arg s "$SID" --arg k "$KIND" --arg on "$ON" --arg u "$UNTIL" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" \
         '.standing = ((.standing // []) + [{standing: $s, kind: $k, on: $on, until: $u, what: $w, owner: $o, relayed_by: $r, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=$KIND
@@ -530,6 +543,7 @@ STATE_FILE="$WD/final.json" CORE_CLEANUP=$WD
 lib_write_guard
 . "$HERE/state-write-core.sh"
 STATE_WRITER=1
+CORE_STANDING_USED=${STANDING_USED:-}
 core_write
 
 if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
