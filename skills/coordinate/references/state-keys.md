@@ -75,7 +75,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 
 | Key | Holds | Writer |
 |---|---|---|
-| `record/meta` | `{scope: {kind, name}, store: "session", written, pending, standing_used}`: the scope, the written time, the mark a write sets while it is part way through, and the highest Standing id number the record has given out, which `state-stored-set.sh --standing` reads instead of the entries to choose the next id (a record from before it has none, and its first `--standing` reads the entries once and records it) | `state-write-core.sh`, for every writer |
+| `record/meta` | `{scope: {kind, name}, store: "session", written, pending, standing_used}`: the scope, the written time, the mark a write sets while it is part way through, and the highest Standing id number the record has given out, which `state-stored-set.sh --standing` reads instead of the entries to choose the next id. A seed into a session with no entries and a carry set it; a record from before it, one the legacy importer wrote, or one re-seeded over entries has none, and its first `--standing` reads the entries once and records it | `state-write-core.sh`, for every writer |
 | `record/holdings` | an array of Holdings rows (below), each with its `pushed_head` beside it when one is kept | `state-write.sh` through `state-holding.sh` |
 | `record/deferrals` | an array of Deferrals rows | `state-write.sh` through `state-holding.sh` |
 | `record/side-effects` | an array of Side effects rows | `state-write.sh` through `state-holding.sh`; `roadmap-status.sh` adds the roadmap edits' rows |
