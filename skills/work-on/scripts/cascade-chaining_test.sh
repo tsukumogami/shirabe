@@ -36,6 +36,7 @@
 #   2 — preconditions unmet (states not found in the shipped template)
 
 set -euo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 TEMPLATE="$SCRIPT_DIR/../koto-templates/work-on.md"

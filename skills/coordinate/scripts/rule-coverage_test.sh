@@ -21,6 +21,7 @@
 # Usage: bash skills/coordinate/scripts/rule-coverage_test.sh
 # Exit codes: 0 every check passed; 1 a check failed.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
 TSV="$HERE/testdata/rule-coverage.tsv"

@@ -31,6 +31,7 @@
 #
 # Usage: bash skills/work-on/scripts/red-first_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/red-first.sh"

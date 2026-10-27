@@ -11,6 +11,7 @@
 # Usage: bash skills/deliver/scripts/deliver-report_test.sh
 # Exit codes: 0 all pass; 1 a failure.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 S="$HERE/deliver-report.sh"

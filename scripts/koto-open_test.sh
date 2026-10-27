@@ -26,6 +26,7 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 OPEN="$SCRIPT_DIR/koto-open.sh"
@@ -788,7 +789,14 @@ A=$(new_args "$OUTSIDE" '[["TOPIC","t4"]]')
 run_real e4 "$TPL" "$A" --attach-live --replace-terminal --wording "$T/wording.tsv"
 assert_eq "a session with no origin record: refused=origin_mismatch" "refused=origin_mismatch" "$STDOUT"
 assert_contains "the rendering names the missing origin record" "no origin record" "$STDERR"
-assert_contains "the rendering keeps the koto session cleanup instruction" "koto session cleanup e4" "$STDERR"
+# koto before 0.27.0 tells the caller to clean the session up; 0.27.0 tells it
+# to finish the session with the koto that started it. Either is koto's own
+# instruction, and the rendering has to keep it.
+case "$STDERR" in
+    *"koto session cleanup e4"* | *"finish it with the koto version that started it"*)
+        pass "the rendering keeps koto's instruction for the session" ;;
+    *) fail "the rendering keeps koto's instruction for the session: got [$STDERR]" ;;
+esac
 case "$STDERR" in
     *"someone else owns"*) fail "the no-origin refusal was replaced by generic mismatch wording" ;;
     *) pass "the no-origin refusal is not replaced by generic mismatch wording" ;;

@@ -36,6 +36,7 @@
 # 4 are asserted as distinguishable rather than merely non-empty.
 
 set -uo pipefail
+. "$(dirname "$0")/../../scripts/lib/koto-test-guard.sh" || exit 1
 
 # The entry point runs under LC_ALL=C and the filter's character classes are
 # byte ranges. A unit case under the developer's UTF-8 locale would be testing

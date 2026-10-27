@@ -9,6 +9,7 @@
 # Usage: bash scripts/coordination-gate-refs_test.sh
 
 set -euo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SUT="$SCRIPT_DIR/coordination-gate-refs.sh"

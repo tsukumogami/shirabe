@@ -39,6 +39,7 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd -P "$(dirname "$0")" && pwd -P)
 RS="$SCRIPT_DIR/release-state.sh"

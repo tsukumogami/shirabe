@@ -34,6 +34,7 @@
 # Exit 0 when every case holds. The compiled-template cases need koto and jq and
 # are skipped with a message without them; the text cases need only bash and awk.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATE="$HERE/../koto-templates/scope.md"

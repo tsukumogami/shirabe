@@ -28,6 +28,11 @@ for tool in gh koto; do
     printf '#!/bin/sh\necho "offline: a test reached the real %s; use a stand-in" >&2\nexit 97\n' "$tool" > "$T/stubs/$tool"
     chmod +x "$T/stubs/$tool"
 done
+# The one koto call the stub answers is scripts/lib/koto-test-guard.sh's probe,
+# which every suite makes before its first case: with no real koto on this
+# PATH, nothing can reach a store, so it gets a session directory under the
+# guard's scratch HOME. Every other koto call still refuses.
+printf '#!/bin/sh\n[ "$*" = "session dir koto-test-guard-probe" ] && { echo "$HOME/.koto/sessions/koto-test-guard-probe"; exit 0; }\necho "offline: a test reached the real koto; use a stand-in" >&2\nexit 97\n' > "$T/stubs/koto"
 [ "$ENGINE" = 1 ] && rm -f "$T/stubs/koto"
 
 # The restricted PATH: declared tools plus the POSIX utilities.
