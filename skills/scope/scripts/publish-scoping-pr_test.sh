@@ -17,6 +17,7 @@
 # Needs bash, git and jq; the coordinated-body case also needs shirabe and is
 # skipped with a message without it.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SKILL="$(cd "$HERE/.." && pwd)"

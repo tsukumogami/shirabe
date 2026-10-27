@@ -32,6 +32,7 @@
 # Needs koto and jq; SKIPs (exit 0) without koto.
 # Usage: bash skills/coordinate/scripts/board-land_engine_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq; do

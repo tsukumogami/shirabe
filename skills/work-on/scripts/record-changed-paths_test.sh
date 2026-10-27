@@ -30,6 +30,7 @@
 #   1 -- one or more cases failed
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$SCRIPT_DIR/record-changed-paths.sh"

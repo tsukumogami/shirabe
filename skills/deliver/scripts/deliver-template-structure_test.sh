@@ -64,6 +64,7 @@
 # Exit codes: 0 all pass (the compiled checks SKIP loudly without koto);
 #             1 a failure.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$HERE/.." && pwd)

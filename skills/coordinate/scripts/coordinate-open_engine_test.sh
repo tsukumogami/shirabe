@@ -48,6 +48,7 @@
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
 for b in koto jq git python3; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on PATH"; exit 0; }; done

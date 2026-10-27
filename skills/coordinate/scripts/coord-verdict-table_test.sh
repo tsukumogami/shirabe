@@ -14,6 +14,7 @@
 # Needs only awk; no koto.
 # Usage: bash skills/coordinate/scripts/coord-verdict-table_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 V="$HERE/coord-verdict.sh"
 TPL="$HERE/../koto-templates/coordinate.md"

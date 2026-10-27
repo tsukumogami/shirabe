@@ -18,6 +18,7 @@
 # sessions or the developer's own. The suite needs koto and jq and SKIPs
 # without them; the CI job asserts koto is present first.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/resume-probe.sh"

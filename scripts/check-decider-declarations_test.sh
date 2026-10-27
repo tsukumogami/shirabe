@@ -28,6 +28,7 @@
 #   1 - one or more tests failed
 
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

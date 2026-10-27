@@ -11,6 +11,7 @@
 # error when the lookup cannot name exactly one owned PR, and stale keys
 # cleared. Needs bash, git and jq.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/record-scope-exit.sh"

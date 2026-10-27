@@ -26,6 +26,7 @@
 #
 # Usage: bash skills/work-on/scripts/fix-kind_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/fix-kind.sh"

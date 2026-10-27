@@ -20,6 +20,7 @@
 # koto or shirabe is absent -- and the CI job installs both explicitly, so a skip
 # there is a failure of the job rather than a quiet pass.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

@@ -8,6 +8,7 @@
 # real koto, a network or the caller's own configuration.
 
 set -u
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(CDPATH='' cd -P -- "$(dirname -- "$0")" && pwd -P)
 SCRIPT="$HERE/jev-withhold.sh"

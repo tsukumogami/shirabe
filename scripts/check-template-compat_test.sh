@@ -18,6 +18,7 @@
 # new, and a changed gate invocation listed at the raised number holds; an
 # evidence field named description is structure, not text.
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 CHECK="$REPO/scripts/check-template-compat.sh"

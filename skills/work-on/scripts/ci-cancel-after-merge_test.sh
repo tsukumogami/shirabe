@@ -27,6 +27,7 @@
 # Bash 3.2: no associative arrays, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)

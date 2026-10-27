@@ -14,6 +14,7 @@
 #   1 — one or more cases failed
 
 set -euo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ASSERT="$SCRIPT_DIR/assert-child-template.sh"
