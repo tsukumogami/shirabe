@@ -208,11 +208,18 @@ case "$BRIEF" in *'addressed to `coord-b`, the address its record names'*) ok "6
 # ---- 7. a predecessor quiet for 11 minutes, with no job seen ---------------------------------------
 export CLAUDE_CODE_SESSION_ID=$A_ID
 WD=$T/work
-if to_reconciled quiet "$(two_holdings quiet)"; then
+mkdir -p "$T/pcopy" && cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/pcopy/"
+if PR=$T/pcopy PS=$T/pcopy/skills/coordinate/scripts to_reconciled quiet "$(two_holdings quiet)"; then
     A2=$S
     export CLAUDE_CODE_SESSION_ID=$B_ID
+    # B runs the opener from this plugin and A2 from a copy of it, so the
+    # candidate asks for a rebind; the takeover comes first and A2 is never
+    # written.
     DC_NOW=$(( $(date +%s) + 660 )) opener quiet "$T/work2"
     eq "7: the takeover of a run quiet for 11 minutes" "0 continued $A2 no" "$ORC $(line outcome) $(line predecessor) $(line predecessor_stopped)"
+    eq "7: from another plugin root, A2 is taken over without a rebind" 0 \
+        "$(jq -s '[.[] | select(.type == "variables_rebound")] | length' "$(koto session dir "$A2")/koto-$A2.state.jsonl")"
+    eq "7:   ... and B2 runs from this plugin's root" "$PR" "$( (cd "$T/work2" && bash "$PS/coord-log.sh" vars --session "$(line session)") | jq -r .PLUGIN_ROOT)"
 else
     bad "7: the second run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi

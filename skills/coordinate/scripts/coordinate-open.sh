@@ -575,6 +575,11 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
             not_self "$OLD"
+            # A live run another Claude session drives is taken over, not
+            # resumed beside it (takeover exits). That comes before any
+            # rebind: the takeover passes this plugin root to the new run
+            # itself, and a run this session doesn't drive is never written.
+            if driven_by_another "$OLD"; then takeover "$OLD"; fi
             # A run from another plugin root is re-attached with this one
             # first; a refused attach carries it instead, as before.
             if [ "$(printf '%s' "$CAND" | jq -r '.rebind // false')" = true ] && ! rebind_root "$OLD"; then
@@ -585,9 +590,6 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
-            # A live run another Claude session drives is taken over, not
-            # resumed beside it (takeover exits).
-            if driven_by_another "$OLD"; then takeover "$OLD"; fi
             # This session's own takeover, cut short after the fence: finish
             # it (finish_takeover exits).
             if [ -n "$CALLER" ] && [ "$(meta_field "$OLD" takeover_done)" = false ]; then
