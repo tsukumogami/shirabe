@@ -48,11 +48,12 @@
 #   no default_action command holds ${context.
 #   STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE and ADOPT_RUN are
 #     optional and rebind, each with its pattern admitting empty; coord_setup
-#     accepts blocked and the sixteen typed stops (the five the record's
+#     accepts blocked and the seventeen typed stops (the five the record's
 #     setup makes; recovery's session-absent, recovery-unproven,
 #     recovery-plan-gone, coordination-index-missing, coordination-body-full
-#     and adopt-run-refused; and the follow-up's follow-up-node,
-#     follow-up-repo, follow-up-base, follow-up-author and follow-up-closed),
+#     and adopt-run-refused; the follow-up's follow-up-node,
+#     follow-up-repo, follow-up-base, follow-up-author and follow-up-closed;
+#     and worktree-isolated),
 #     each stop's edge assigning its own code as a
 #     literal reason; its directive passes all five variables to
 #     record-coord-setup.sh; every coordinated-next.sh and node-push.sh call in
@@ -398,8 +399,8 @@ CHECKS=(
 "PLUGIN_ROOT is rebindable|.variables.PLUGIN_ROOT.rebind == true"
 "STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE, ADOPT_RUN are optional and rebind|[.variables.STORE, .variables.COORDINATION_PR, .variables.FOLLOW_UP, .variables.FOLLOW_UP_REMOVE, .variables.ADOPT_RUN] | all(. != null and (.required // false) == false and .rebind == true)"
 "the five coordinated variables carry their patterns, each admitting empty|.variables.STORE.pattern == \"^(github|session)?\$\" and .variables.COORDINATION_PR.pattern == \"^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP.pattern == \"^([a-z][a-z0-9-]* https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP_REMOVE.pattern == \"^(true)?\$\" and .variables.ADOPT_RUN.pattern == \"^([0-9a-f]{32})?\$\""
-"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 16 and all"
-"coord_setup accepts blocked and the sixteen typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\",\"follow-up-node\",\"follow-up-repo\",\"follow-up-base\",\"follow-up-author\",\"follow-up-closed\"]"
+"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 17 and all"
+"coord_setup accepts blocked and the seventeen typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\",\"session-absent\",\"recovery-unproven\",\"recovery-plan-gone\",\"coordination-index-missing\",\"coordination-body-full\",\"adopt-run-refused\",\"follow-up-node\",\"follow-up-repo\",\"follow-up-base\",\"follow-up-author\",\"follow-up-closed\",\"worktree-isolated\"]"
 "coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
 "every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
 )

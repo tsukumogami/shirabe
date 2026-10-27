@@ -140,7 +140,12 @@
 # next transition renders again).
 #
 # Every check runs before any write, so a stop changes no key and, adopt's
-# stamps aside, nothing on GitHub.
+# stamps aside, nothing on GitHub. The first comes right after the argument
+# checks, before any GitHub read or koto call, and only while the PLAN is
+# present: worktree-isolation.sh stops worktree-isolated when this
+# session is isolated in one repository's worktree and the PLAN has PR nodes
+# in other repositories, which it couldn't build; its message names both and
+# what to do.
 #
 # Usage: record-coord-setup.sh --session <koto-session> --plan <path>
 #            [--store <github|session>] [--coordination-pr <url>]
@@ -162,14 +167,15 @@
 # coordination-pr-closed, session-absent, recovery-unproven,
 # recovery-plan-gone, coordination-index-missing, coordination-body-full,
 # adopt-run-refused, follow-up-node, follow-up-repo, follow-up-base,
-# follow-up-author, follow-up-closed.
+# follow-up-author, follow-up-closed, worktree-isolated.
 #
 # Exit codes:
 #   0   recorded (or already recorded with the same values)
 #   64  usage error
 #   65  HEAD is detached
-#   66  a value is outside its pattern, or this checkout's owner/repo could
-#       not be read
+#   66  a value is outside its pattern, this checkout's owner/repo could
+#       not be read, or worktree-isolation.sh could not decide whether this
+#       session is isolated
 #   67  the checked-out branch is the remote's default branch
 #   68  a different value is already recorded for this session
 #   69  the PLAN could not be read into nodes
@@ -259,6 +265,29 @@ PLAN_PRESENT=0
 [ -f "$PLAN" ] && PLAN_PRESENT=1
 SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
+
+# A session isolated in one repository's worktree can't run git in another
+# repository's checkout, so a PLAN with nodes there stops here, before any
+# GitHub read or koto call and before any node is cut. With the PLAN gone
+# (the cascade deleted it) no node is left to cut, so the check is skipped.
+if [ "$PLAN_PRESENT" -eq 1 ]; then
+    ISOLATION=$(bash "$COORD_SELF_DIR/worktree-isolation.sh" --plan "$PLAN" </dev/null)
+    case $? in
+        0) ;;
+        1)
+            ISOLATION_MSG=$(printf '%s\n' "$ISOLATION" | sed -n 's/^message=//p')
+            stop worktree-isolated "${ISOLATION_MSG%.}"
+            ;;
+        64)
+            echo "$PROG: worktree-isolation.sh refused its arguments" >&2
+            exit 64
+            ;;
+        *)
+            echo "$PROG: could not tell whether this session is isolated in one repository's worktree" >&2
+            exit 66
+            ;;
+    esac
+fi
 
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf -- "$WORK"; return 0; }
