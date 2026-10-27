@@ -131,13 +131,13 @@ bash "$PLAN_MODE" "$PLAN" </dev/null >/dev/null 2>&1
 # abs_dir <dir> -- <dir> resolved from the current directory, symlinks too.
 abs_dir() { (CDPATH='' cd -- "$1" 2>/dev/null && pwd -P); }
 
-GIT_DIR_REL=$(git rev-parse --git-dir 2>/dev/null) || undecided "not inside a git repository"
-COMMON_REL=$(git rev-parse --git-common-dir 2>/dev/null) || undecided "not inside a git repository"
+GIT_DIR_REL=$(git rev-parse --git-dir) || undecided "not inside a git repository"
+COMMON_REL=$(git rev-parse --git-common-dir) || undecided "not inside a git repository"
 GIT_DIR_ABS=$(abs_dir "$GIT_DIR_REL") || undecided "cannot resolve the git directory [$GIT_DIR_REL]"
 COMMON_ABS=$(abs_dir "$COMMON_REL") || undecided "cannot resolve the git common directory [$COMMON_REL]"
 [ "$GIT_DIR_ABS" != "$COMMON_ABS" ] || pass not-a-worktree
 
-WORKTREE=$(git rev-parse --show-toplevel 2>/dev/null) || undecided "cannot read the worktree's top level"
+WORKTREE=$(git rev-parse --show-toplevel) || undecided "cannot read the worktree's top level"
 WORKTREE=$(abs_dir "$WORKTREE") || undecided "cannot resolve the worktree [$WORKTREE]"
 WT_REPO=$(bash "$WRITE_SET" --print </dev/null) || undecided "cannot read this worktree's owner/repo"
 [[ $WT_REPO =~ $RE_REPO ]] || undecided "this worktree's owner/repo read as [$WT_REPO]"

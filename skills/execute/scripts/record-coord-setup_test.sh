@@ -773,8 +773,9 @@ case "$(cat "$CASE/stderr")" in
         pass "the stop's message names both repositories and what to do" ;;
     *) fail "isolated message: [$(cat "$CASE/stderr")]" ;;
 esac
-if ct_calls | grep -q '^pr '; then
-    fail "isolated: a pull request was read before the stop: $(ct_calls | grep '^pr ' | head -1)"
+CALLS=$(ct_calls)
+if grep -q '^pr ' <<<"$CALLS"; then
+    fail "isolated: a pull request was read before the stop: $(grep -m 1 '^pr ' <<<"$CALLS")"
 else
     pass "the isolation stop comes before any pull request read"
 fi

@@ -276,6 +276,10 @@ if [ "$PLAN_PRESENT" -eq 1 ]; then
             ISOLATION_MSG=$(printf '%s\n' "$ISOLATION" | sed -n 's/^message=//p')
             stop worktree-isolated "${ISOLATION_MSG%.}"
             ;;
+        64)
+            echo "$PROG: worktree-isolation.sh refused its arguments" >&2
+            exit 64
+            ;;
         *)
             echo "$PROG: could not tell whether this session is isolated in one repository's worktree" >&2
             exit 66

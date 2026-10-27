@@ -73,7 +73,11 @@ Scoping may well run in such a worktree; building the other repositories'
 nodes can't. Whoever dispatches `/deliver` on work that may span repositories
 should start it outside one.
 
-The run checks this as soon as the PLAN's repositories are known: right after
+Nothing tells a script that a session is isolated, so the check reads the
+shape isolation leaves: a session whose directory is a linked git worktree
+counts as isolated in that worktree's repository, including one a person made
+with `git worktree add`. The run checks this as soon as the PLAN's
+repositories are known: right after
 the scoping re-check, before `/execute` starts and before any node is cut. When
 the session sits in a linked worktree and the coordinated PLAN has nodes in
 repositories other than that worktree's, the run ends `outcome=error` with

@@ -277,7 +277,11 @@ the nodes in its own repository, but not the rest, so a coordinator that
 dispatches `/deliver` or `/execute` on work that may span repositories should
 start it from a session that isn't confined that way.
 
-Both entry points check before any node is cut. `/deliver` runs the check
+Both entry points check before any node is cut. Nothing tells them a session
+is isolated, so they read the shape isolation leaves: a session whose
+directory is a linked git worktree counts as isolated in that worktree's
+repository, including one a person made with `git worktree add`. `/deliver`
+runs the check
 right after its scoping re-check, as soon as the PLAN's repositories are known,
 and ends `step=deliver:worktree-isolated`; `/execute` runs it first thing in
 its coordinated setup and ends `step=execute:coord_setup` with
