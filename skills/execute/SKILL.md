@@ -138,7 +138,9 @@ Two more flags, on both paths:
   `paused_for_review` run, or a coordinated run's `paused_awaiting_merges`
   one, among them) starts from this invocation's flags alone, so pass the
   same two flags again there. A node already pushed keeps its record either
-  way: the loop reads each node's children for it, not the run's flags. A
+  way: `node-push.sh` reads each node's children for it at the push and
+  records their reasons in the node's run record, which the loop then reads,
+  not the run's flags. A
   reason uses only letters, digits, spaces and `. _ / : @ + -` and starts
   with a letter or digit, for example `--verification-reason=host is in a
   measurement window until 02:40Z`.

@@ -111,6 +111,7 @@ run/setup|run_lines|{}|setup recover carry
 run/node/pr-repo-a-core|repo|\"acme/repo-a\"|push recover carry
 run/node/pr-repo-a-core|pr|11|push recover carry
 run/node/pr-repo-a-core|head|\"$CT_HEAD\"|push recover carry
+run/node/pr-repo-a-core|deferrals|[]|push recover carry
 run/node/pr-repo-a-core|merged_head|\"$CT_HEAD\"|observe recover carry
 $FU|repo|\"acme/repo-a\"|follow-up recover carry
 $FU|pr|12|follow-up recover carry
@@ -170,6 +171,10 @@ rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":0,"head":"'"$CT_
 expect "a pr of 0" 66 "refused=invalid key=run/node/pr-repo-a-core field=pr"
 rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":"11","head":"'"$CT_HEAD"'"}}'
 expect "a pr given as a string" 66 "refused=invalid key=run/node/pr-repo-a-core field=pr"
+for d in '"a reason"' '[""]' '["a\nb"]' '["a","a"]' '[1]'; do
+    rec push '{"run/node/pr-repo-a-core":{"repo":"acme/repo-a","pr":11,"head":"'"$CT_HEAD"'","deferrals":'"$d"'}}'
+    expect "deferrals [$d]: not distinct non-empty one-line strings" 66 "refused=invalid key=run/node/pr-repo-a-core field=deferrals"
+done
 rec cascade '{"run/cascade":{"verdict":"failed","step":"deploy"}}'
 expect "a step outside ^execute:[a-z-]+\$" 66 "refused=invalid key=run/cascade field=step"
 [ "$(store_sum)" = "$SUM0" ] && pass "no layout or value refusal changed the store" || fail "a refusal changed the store"
@@ -232,6 +237,11 @@ expect "a later push of a new head" 0 "written=run/node/pr-repo-a-core"
 got=$(val run/node/pr-repo-a-core | jq -c '[.repo, .pr, .head, .merged_head]')
 want=$(jq -cn --arg h "$CT_OTHER" --arg m "$CT_HEAD" '["acme/repo-a", 11, $h, $m]')
 [ "$got" = "$want" ] && pass "the push merged: the new head, and merged_head kept" || fail "after the push: $got"
+rec push "{\"run/node/pr-repo-a-core\":{\"head\":\"$CT_HEAD\",\"deferrals\":[\"host is busy\",\"runner pool down\"]}}"
+expect "a push recording the node's deferrals" 0 "written=run/node/pr-repo-a-core"
+[ "$(val run/node/pr-repo-a-core | jq -c '[.deferrals, .merged_head]')" = "[[\"host is busy\",\"runner pool down\"],\"$CT_HEAD\"]" ] \
+    && pass "deferrals are stored in order, beside the kept merged_head" \
+    || fail "after the deferrals push: $(val run/node/pr-repo-a-core)"
 rec push '{"run/node/pr-repo-a-cli":{"repo":"acme/repo-b","pr":21,"head":"'"$CT_HEAD"'"}}'
 expect "a push to a repository outside run/setup's repos" 66 "refused=repo-outside key=run/node/pr-repo-a-cli field=repo"
 

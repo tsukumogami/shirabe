@@ -121,6 +121,30 @@ work.
    restarts it, and one after the window opens the next rotation, which
    carries the last one.
 
+   **A live run another session drives is taken over.** When the run the
+   opener would resume names another Claude session as its driver (or, with
+   no driver recorded, another coordinator address than this session's
+   name), the opener continues it in a new run through koto's fence
+   (`koto init --continues --supersede`), carrying its `record/`, `legs/`,
+   `taken_legs` and `leg_children` keys, instead of resuming beside it. It
+   prints `outcome=continued`, `predecessor=<old run>`, `session=<new run>`
+   and `predecessor_stopped=yes|no`. Nothing is cancelled. From the fence on
+   koto refuses every write to the old run with `session_superseded`, naming
+   the new one, and the old run's agent stops on it (the hub's "Taken over"
+   directive: stop, report the newest session to whoever launched it, and
+   don't re-arm the watch). The new run's record names this session as its
+   driver and its coordinator address, with nobody told yet, and holds one
+   takeover entry naming both runs; its first tick needs no rebind and its
+   first reconcile reads the holdings it carried. `predecessor_stopped=yes`
+   means the old run was live just before the fence, by the liveness probe
+   (`dc_session_live` in `dispatch-common.sh`): not finished or cancelled in
+   koto, and either a running Claude job on this host for its driver or, when
+   no such job can be seen from here, a koto event in its log within the last
+   10 minutes. Running the opener again from this session prints
+   `outcome=resumed` and writes nothing. A refused takeover writes nothing and
+   prints `outcome=refused` with a `reason=`. A plain resume prints
+   `outcome=resumed` too.
+
    **Moving the run to another host is an import**, given the roadmap path,
    `--import <the run's session name>` and `--from <the source workspace's
    absolute path>`. It's refused before koto runs when the name isn't a run of

@@ -2978,6 +2978,13 @@ expiry, a polling loop or a check-in timer, and set a keep-alive only when the
 person asks for one. The quiet check runs on the first wake after a worker has
 been silent for 30 minutes; nothing is armed to make that wake happen.
 
+**Taken over.** When `koto next`, a write script or a watch on this run answers
+`session_superseded`, another session has taken the run over and koto refuses
+every write to it; the refusal names the newest session (`newest`). Stop: tick
+nothing more, write nothing, and don't re-arm the watch or arm a new one. Report
+the newest session's name to whoever launched this session, and end your turn.
+Nothing is lost: the newest session holds the record and the legs.
+
 **A usage-limit stop is not a pause.** Nobody sets it and nobody resumes it:
 the account's reset does, so write no Standing row for one. It shows as a
 worker's runs executing nothing (nested sessions exiting without running), as

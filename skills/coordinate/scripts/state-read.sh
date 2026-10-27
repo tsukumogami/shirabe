@@ -69,6 +69,7 @@
 # Usage (as a script):
 #   state-read.sh --session S --facts <topic>
 #   state-read.sh --session S --host
+#   state-read.sh --session S --meta
 #   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
 #   state-read.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>
@@ -76,7 +77,9 @@
 #
 # A person reads the state through koto's own view of the session (`koto
 # context get` on its record/ keys); --host prints record/host, the object
-# rs_host reads.
+# rs_host reads; --meta prints record/meta as it stands, pending or not, or
+# {} when the session holds none (coordinate-open.sh reads a run's driver
+# and takeover fields there).
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
 # failed; 4 the session holds no record/meta; 12 the session record was still
@@ -536,6 +539,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --name) [ $# -ge 2 ] || rs_usage; NAME=$2; shift 2 ;;
             --repo) [ $# -ge 2 ] || rs_usage; REPO=$2; shift 2 ;;
             --host) ACTION=host; shift ;;
+            --meta) ACTION=meta; shift ;;
             --candidate) ACTION=candidate; shift ;;
             --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
             --today) [ $# -ge 2 ] || rs_usage; TODAY=$2; shift 2 ;;
@@ -561,6 +565,16 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             rs_host "${RS_SESSION:-$SESSION}" "$RS_T/host" \
                 || { echo "$PROG: record/host couldn't be read: $(lib_scrub < "$RS_T/host.err" | head -3)" >&2; exit 2; }
             jq -c . "$RS_T/host"
+            exit 0 ;;
+        meta)
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX")
+            trap 'rm -rf "$RS_T"' EXIT
+            rs_key "${RS_SESSION:-$SESSION}" record/meta "$RS_T/meta"
+            case $? in
+                0) jq -c . "$RS_T/meta" 2> /dev/null || { echo "$PROG: record/meta isn't JSON" >&2; exit 2; } ;;
+                1) echo '{}' ;;
+                *) echo "$PROG: record/meta couldn't be read: $(lib_scrub < "$RS_T/meta.err" | head -3)" >&2; exit 2 ;;
+            esac
             exit 0 ;;
     esac
     [ "$ACTION" != facts ] || [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }

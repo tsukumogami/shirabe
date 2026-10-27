@@ -750,6 +750,36 @@
         "It doesn't wait for the sweep or run it in the foreground before taking the report",
         "It goes on to take plugin-registry's report"
       ]
+    },
+    {
+      "id": 39,
+      "name": "a-second-session-takes-over-a-live-run",
+      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in a new Claude session named coord-b. Another session, coord-a, is still driving the scope's run coordinate-plugin-system-20261027T090000Z, with two workers out. coordinate-open.sh prints outcome=continued, predecessor=coordinate-plugin-system-20261027T090000Z, session=coordinate-plugin-system-20261027T151500Z and predecessor_stopped=yes. Say what happened to the old run, which run you drive now, and what you do before you dispatch anything.",
+      "expected_output": "The opener took the run over: the new run continues the old one through koto's fence and carries its record and legs, and nothing was cancelled. predecessor_stopped=yes says the old run was live just before the fence; koto now refuses every write to it, naming the new run. The coordinator drives the new run with koto next and no rebind, record edit or carry of its own, and its first reconcile reads the two holdings it carried. Its record names coord-b as the coordinator with nobody told yet, so before dispatching it tells each live worker its new address and records each with state-stored-set.sh --told.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The coordinator drives the new run (session=), not the predecessor",
+        "It says nothing was cancelled and it doesn't cancel or rebind either run",
+        "It reads predecessor_stopped=yes as the old run having been live at the takeover",
+        "It tells each live worker its new address and records them told before dispatching"
+      ]
+    },
+    {
+      "id": 40,
+      "name": "a-superseded-run-stops",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-plugin-system-20261027T090000Z, at wait, launched by the human. Your watch woke you and koto next answers with error session_superseded, naming newest coordinate-plugin-system-20261027T151500Z. Say what you do next.",
+      "expected_output": "Another session has taken the run over, and koto refuses every write to this one. The coordinator stops: it ticks nothing more, writes nothing, doesn't re-arm its watch or arm a new one, reports coordinate-plugin-system-20261027T151500Z as the newest session to the human who launched it, and ends its turn. Nothing is lost: the newest session holds the record and the legs.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The coordinator stops ticking and writes nothing more to its run",
+        "It doesn't re-arm its watch or arm a new one",
+        "It reports the newest session's name to whoever launched it",
+        "It doesn't try to work around the refusal (no rebind, retry or new run)"
+      ]
     }
   ]
 }

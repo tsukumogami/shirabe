@@ -479,7 +479,7 @@ eq "  ... and the new run isn't cancelled" "" "$CANCELLED"
 printf '{"source":"session","reason":"found"}' | koto context add "$NEW" coord/source.json
 reset_calls; : > "$KOTO_STORE/calls"
 fresh_open
-eq "the next start resumes the run" "0 resumed=1 session=$NEW" "$RC $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "the next start resumes the run" "0 outcome=resumed resumed=1 session=$NEW" "$RC $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... with no importer lookup and no GitHub call" "" "$(calls)"
 # The next rotation, once that one has ended: not a fresh start, since the
 # ended rotation's session is here, so the importer isn't asked, though the
