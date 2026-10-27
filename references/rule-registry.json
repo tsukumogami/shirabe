@@ -3016,6 +3016,1176 @@
         },
         "false_passes": []
       }
+    },
+    {
+      "id": "rs-021",
+      "status": "active",
+      "summary": "A BRIEF problem statement names a missing feature instead of a problem a user has",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "1. **Problem Statement states a problem, not a smuggled solution.**",
+        "last": "out of the tool\" is a problem. Only genuine problems pass."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's content-quality seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-022",
+      "status": "active",
+      "summary": "A BRIEF user outcome lists the product's parts instead of what a user experiences",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "2. **User Outcome is outcome-shaped, not a feature list.**",
+        "last": "skill adds a command, a format reference, and a jury\" is a feature list."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's content-quality seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-023",
+      "status": "active",
+      "summary": "Two BRIEF user journeys retell the same path with cosmetic variation",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "4. **User Journeys are distinct.**",
+        "last": "journey written twice."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's content-quality seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-024",
+      "status": "active",
+      "summary": "A BRIEF scope boundary's out-list holds no exclusion a reader would expect to be in",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "5. **Scope Boundary has real in/out exclusions.**",
+        "last": "downstream work\") pass."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's content-quality seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-025",
+      "status": "active",
+      "summary": "A BRIEF open question hides a blocker instead of deferring a decision to the PRD",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "6. **Open Questions defer to the PRD (if present).**",
+        "last": "masquerading as an open question is a FAIL."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's content-quality seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-026",
+      "status": "active",
+      "summary": "A BRIEF's frontmatter lacks a required field or carries an invalid status",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "1. **Frontmatter validity.** Required fields `status`, `problem`, `outcome`",
+        "last": "point at a private artifact."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-027",
+      "status": "active",
+      "summary": "A BRIEF required section is missing or out of order",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "2. **Required sections present and in order.** The five required sections",
+        "last": "Missing or out-of-order sections fail this check."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-028",
+      "status": "active",
+      "summary": "A BRIEF's body Status line is not the bare frontmatter status word",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "3. **Body Status first word matches frontmatter status.**",
+        "last": "come after a blank line. Flag a prose-on-the-status-line violation."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-029",
+      "status": "active",
+      "summary": "A public BRIEF references a private path, repository, file or issue number",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "4. **Public-visibility cleanliness.**",
+        "last": "positives are acceptable"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-030",
+      "status": "active",
+      "summary": "A BRIEF section holds placeholder text instead of content",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "5. **No placeholders.**",
+        "last": "will fill this>\". All required sections must carry real content."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-031",
+      "status": "active",
+      "summary": "A BRIEF past Draft status still has an Open Questions section",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "7. **Open Questions is Draft-only (if present).**",
+        "last": "Questions."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-032",
+      "status": "active",
+      "summary": "A BRIEF's prose breaks a writing-style rule",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "8. **Writing style.** Check the prose against the rules in",
+        "last": "attribution, and flag specific offending phrases."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-033",
+      "status": "active",
+      "summary": "A PRD's requirements leave an implementer guessing",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "1. Are requirements sufficient? Could an implementer build this without guessing?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's completeness seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-034",
+      "status": "active",
+      "summary": "A PRD's requirements leave part of its problem statement unaddressed",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "2. Are there gaps between the problem statement and the requirements?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's completeness seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-035",
+      "status": "active",
+      "summary": "A PRD requirement has no acceptance criterion",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "3. Do the acceptance criteria cover all requirements?",
+        "last": "corresponding AC?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's completeness seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-036",
+      "status": "active",
+      "summary": "A PRD's user stories leave out a user type or scenario",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "4. Are the user stories complete? Are there user types or scenarios missing?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's completeness seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-037",
+      "status": "active",
+      "summary": "A PRD's Out of Scope section is too vague to prevent scope creep",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "5. Is Out of Scope clear enough to prevent scope creep?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's completeness seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-038",
+      "status": "active",
+      "summary": "Two developers could read a PRD and build different things",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "1. Could two developers read this PRD and build different things?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's clarity seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-039",
+      "status": "active",
+      "summary": "A PRD requirement uses vague wording such as should, appropriate or as needed",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "2. Are requirements specific enough? Look for words like",
+        "last": "\"reasonable,\" \"as needed\" -- these signal ambiguity."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's clarity seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-040",
+      "status": "active",
+      "summary": "A PRD user story is too vague to derive a test case from",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "4. Are user stories concrete enough to derive test cases from?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's clarity seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-041",
+      "status": "active",
+      "summary": "A PRD's problem statement is too vague to judge a solution against",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "5. Is the problem statement specific enough to evaluate solutions against?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's clarity seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-042",
+      "status": "active",
+      "summary": "A test plan can't be written from a PRD's acceptance criteria alone",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "1. Could you write a test plan from the acceptance criteria alone?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's testability seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-043",
+      "status": "active",
+      "summary": "A PRD acceptance criterion names nothing a tester could verify",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "2. For each acceptance criterion: what would you test? How would you verify it?",
+        "last": "If you can't answer these questions, the criterion isn't testable."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's testability seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-044",
+      "status": "active",
+      "summary": "A PRD requirement has no testable acceptance criterion",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "3. Are there requirements that have no testable acceptance criteria?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's testability seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-045",
+      "status": "active",
+      "summary": "A PRD acceptance criterion depends on judgment or external factors and can't be tested",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "4. Are there acceptance criteria that are technically untestable",
+        "last": "judgment, depend on external factors, or are too vague to verify)?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's testability seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-046",
+      "status": "active",
+      "summary": "A PRD's acceptance criteria cover only the happy path",
+      "text": {
+        "path": "skills/prd/references/phases/phase-4-validate.md",
+        "first": "5. Do the criteria cover edge cases and error conditions, or only the happy path?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /prd jury's testability seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-047",
+      "status": "active",
+      "summary": "A design's architecture is not clear enough to implement",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "1. Is the architecture clear enough to implement?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's architecture seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-048",
+      "status": "active",
+      "summary": "A design leaves out a component or interface",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "2. Are there missing components or interfaces?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's architecture seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-049",
+      "status": "active",
+      "summary": "A design's implementation phases are out of order",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "3. Are the implementation phases correctly sequenced?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's architecture seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-050",
+      "status": "active",
+      "summary": "A design overlooks a simpler alternative",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "4. Are there simpler alternatives we overlooked?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's architecture seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-051",
+      "status": "active",
+      "summary": "A design's security analysis leaves an attack vector out",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "1. Are there attack vectors not considered?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's security seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-052",
+      "status": "active",
+      "summary": "A design's mitigations fall short of a risk it identifies",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "2. Are mitigations sufficient for identified risks?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's security seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-053",
+      "status": "active",
+      "summary": "A design marks a security dimension not applicable when it applies",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "3. Are any \"not applicable\" justifications actually applicable?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's security seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-054",
+      "status": "active",
+      "summary": "A design leaves residual risk that should be escalated",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "4. Is there residual risk that should be escalated?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's security seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-055",
+      "status": "active",
+      "summary": "A design's required sections are missing or out of the canonical order",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "1. Section presence and order: do all nine required sections appear",
+        "last": "Consequences)?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-056",
+      "status": "active",
+      "summary": "A design's frontmatter fields are out of order or in the wrong shape",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "2. Frontmatter field order: are the four required fields (status,",
+        "last": "consistently with the format reference?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-057",
+      "status": "active",
+      "summary": "A design section holds content of another document's altitude",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "3. Section-altitude conformance: does each section contain the",
+        "last": "requirements, no PLAN-altitude atomic issues)?"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-058",
+      "status": "active",
+      "summary": "A design section runs more than half again over its documented length budget",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "4. R19 budget-vs-spec: heuristic check on section length.",
+        "last": "flagging healthy detail and surfaces only meaningful overshoot."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /design jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-059",
+      "status": "active",
+      "summary": "A plan's issue count or complexity doesn't fit its design's scope",
+      "text": {
+        "path": "skills/review-plan/references/phases/phase-1-scope-gate.md",
+        "first": "# Phase 1: Scope Gate (Category A)",
+        "last": "unimplemented; a plan with too many may fragment work beyond what the design warrants."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /review-plan jury's scope-gate seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-060",
+      "status": "active",
+      "summary": "A plan inherits a contradiction from its upstream design",
+      "text": {
+        "path": "skills/review-plan/references/phases/phase-2-design-fidelity.md",
+        "first": "# Phase 2: Design Fidelity (Category B)",
+        "last": "names for the same purpose, producing issues with mutually exclusive behaviors."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /review-plan jury's design-fidelity seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-061",
+      "status": "active",
+      "summary": "A plan acceptance criterion would pass for a plausible wrong implementation",
+      "text": {
+        "path": "skills/review-plan/references/phases/phase-3-ac-discriminability.md",
+        "first": "# Phase 3: AC Discriminability (Category C)",
+        "last": "implementation. It runs in two passes:"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /review-plan jury's ac-discriminability seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-062",
+      "status": "active",
+      "summary": "A plan defers its end-to-end validation behind the work it should check",
+      "text": {
+        "path": "skills/review-plan/references/phases/phase-4-sequencing.md",
+        "first": "# Phase 4: Sequencing / Priority Integrity (Category D)",
+        "last": "removes the safety net that catches cross-component failures."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /review-plan jury's sequencing seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-063",
+      "status": "active",
+      "summary": "A plan is cut by component instead of by behaviour",
+      "text": {
+        "path": "skills/review-plan/references/phases/phase-4b-functional-shape.md",
+        "first": "# Phase 4b: Functional Shape (Category E)",
+        "last": "entry lands, so every checkpoint before it can only confirm that files exist."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /review-plan jury's functional-shape seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-verdict-missing",
+      "status": "active",
+      "summary": "A jury seat's output has no parseable review-verdicts block or no valid entry in it",
+      "text": {
+        "path": "references/review-verdicts.md",
+        "first": "A seat whose output has no block, a block that doesn't parse as a JSON array,",
+        "last": "telemetry instead of silently absent."
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Recorded by scripts/review-events.sh itself, as one FAIL for a seat that left no valid verdict entry. Its id names what it records, so it is the one rs- id outside rs-NNN. Registered after the baseline pin, so it has no baseline key."
     }
   ]
 }

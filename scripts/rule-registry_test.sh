@@ -976,8 +976,10 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # red-first/no-red, red-first/no-green and test-change/held (gates) and
 # review/test-edit-judgment and review/test-edit-weakens (prose) to 66 and 43;
 # pr-body/pr-missing, pr-body/body-missing and pr-body/read-failed, the PR
-# gate's could-not-decide rules, to 69 and 46.
-[ "$n" = 69 ] && [ "$gates" = 46 ] && [ "$rsn" = 20 ] && pass "the registry has 69 rules: 46 gates and 20 criteria" \
+# gate's could-not-decide rules, to 69 and 46; rs-021 to rs-063 and
+# rs-verdict-missing, the document juries' rubric items, to 113 rules and 64
+# rs- ids.
+[ "$n" = 113 ] && [ "$gates" = 46 ] && [ "$rsn" = 64 ] && pass "the registry has 113 rules: 46 gates and 64 rs- ids" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \

@@ -91,3 +91,11 @@ If no findings: return `critical_findings: []` for this category.
 When the upstream design doc is unavailable (wrong path in analysis.md, file missing),
 set `confidence: "low"` in the verdict and note the missing doc in the `summary`.
 Return empty findings for this category — do not invent findings without the source.
+
+## Verdict Block
+
+End the returned findings with a fenced block tagged `review-verdicts`
+holding a JSON array with one `{"rule_id": "rs-060", "section", "verdict"}`
+entry per section judged (`document` for the plan as a whole): `FAIL` where a
+critical finding was raised, `PASS` otherwise
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`).

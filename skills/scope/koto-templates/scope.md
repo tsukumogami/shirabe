@@ -59,7 +59,25 @@ description: >
   value outside a variable's constraint, or a repeated flag, is refused at
   `koto init` with exit 2 and no session, and under --koto-leg the refusal is
   recorded on the leg. Every gate command quotes each {{VAR}} it uses.
+
+  review_vocabulary lists the document jury seats and section slugs the
+  chain's juries record on this session through scripts/review-events.sh, so
+  koto keeps them as given and records anything else as other
+  (references/review-verdicts.md). koto-templates/skill-session.md declares
+  the same lists for a direct child run.
 initial_state: intake
+
+review_vocabulary:
+  seats: [content-quality, structural-format, completeness, clarity, testability,
+          architecture, security, scope-gate, design-fidelity, ac-discriminability,
+          sequencing, functional-shape]
+  sections: [status, problem-statement, user-outcome, user-journeys, scope-boundary,
+             goals, user-stories, requirements, acceptance-criteria, out-of-scope,
+             context-and-problem-statement, decision-drivers, considered-options,
+             decision-outcome, solution-architecture, implementation-approach,
+             security-considerations, consequences, scope-summary,
+             decomposition-strategy, issue-outlines, implementation-issues,
+             dependency-graph, implementation-sequence, steps, frontmatter, document]
 
 variables:
   TOPIC:
@@ -3040,12 +3058,17 @@ Evidence schema:
 ## publish_full_run
 
 Publish this intent run's full-run exit: push the branch and open (or reuse)
-its one pull request. Run the publish script, then submit
-`publish_result: attempted`.
+its one pull request. Run the document check, then the publish script, then
+submit `publish_result: attempted`.
 
 ```bash
+"{{PLUGIN_ROOT}}/scripts/doc-shadow-check.sh" --topic "{{TOPIC}}"
 "{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --exit full-run --intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"
 ```
+
+`doc-shadow-check.sh` records, as telemetry, whether each final document passes
+its format's document rules. It always exits 0 and decides nothing here, so
+run the publish script whatever it prints.
 
 <!-- details -->
 
@@ -3078,10 +3101,11 @@ Evidence schema:
 ## publish_re_evaluation
 
 Publish this intent run's re-evaluation exit: push the branch and open a draft
-pull request with the Decision Record. Run the publish script, then submit
-`publish_result: attempted`.
+pull request with the Decision Record. Run the document check, then the
+publish script, then submit `publish_result: attempted`.
 
 ```bash
+"{{PLUGIN_ROOT}}/scripts/doc-shadow-check.sh" --topic "{{TOPIC}}"
 "{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --exit re-evaluation --intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"
 ```
 
@@ -3099,10 +3123,11 @@ Evidence schema:
 ## publish_abandonment
 
 Publish this intent run's abandonment-forced exit: push the branch and open a
-draft pull request with the force-materialized artifact. Run the publish
-script, then submit `publish_result: attempted`.
+draft pull request with the force-materialized artifact. Run the document
+check, then the publish script, then submit `publish_result: attempted`.
 
 ```bash
+"{{PLUGIN_ROOT}}/scripts/doc-shadow-check.sh" --topic "{{TOPIC}}"
 "{{PLUGIN_ROOT}}/skills/scope/scripts/publish-scoping-pr.sh" --topic "{{TOPIC}}" --exit abandonment-forced --intent "{{RUN_INTENT}}" --session "scope-{{TOPIC}}"
 ```
 
