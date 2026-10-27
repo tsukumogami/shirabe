@@ -73,7 +73,8 @@
 # pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
 # hold (a hold added or lifted, state-hold.sh), moved (found in a record an
 # earlier release moved onto its session; only the legacy importer still posts
-# one, on the GitHub record it imports),
+# one, on the GitHub record it imports), takeover (a session that took the
+# run over from its predecessor, coordinate-open.sh, one per successor),
 # milestone-verdict (a checked verdict on a milestone, milestone.sh
 # check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
 # landed pull request judged against its milestone's Evidence, milestone.sh
@@ -140,7 +141,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold moved cost milestone-verdict milestone-failure goal-fit decisions "
+ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold moved takeover cost milestone-verdict milestone-failure goal-fit decisions "
 # The kinds a reader outside the coordinator reads from GitHub.
 OUTWARD_KINDS=" cost milestone-verdict goal-fit milestone-failure "
 case "$MODE" in

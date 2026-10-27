@@ -23,6 +23,28 @@
 # `carried=<old>`. A carry cut short exits 1 (`failed=carry`) with the new run
 # holding no record, and the next start carries again.
 #
+# A resumable run another Claude session drives is taken over instead
+# (docs/designs/DESIGN-coordinate-successor-continues.md, Decision 1): its
+# record/meta names another driver, or no driver and another coordinator
+# address than this session's name (CLAUDE_CODE_SESSION_ID, and the name its
+# Claude job state file gives it). A new run continues it through koto's fence,
+# `koto init <new> --continues <run> --supersede --expect-state <its state>`
+# carrying record/, legs/, taken_legs and leg_children; from then on koto
+# refuses every write to the old run with session_superseded, naming the new
+# one, and coord-log.sh live-session no longer lists it. The new run's
+# record/meta takes this session as its driver, its coordinator row this
+# session's name (which clears the told set), one takeover entry is
+# appended, and record/meta's takeover_done is written last. Nothing is
+# cancelled, rebound or copied key by key. It prints `outcome=continued`,
+# `predecessor=<run>`, `session=<new>` and `predecessor_stopped=yes|no`: yes
+# when the old run was live by the liveness probe (dispatch-common.sh
+# dc_session_live) just before the fence. The same opener run again from
+# this session finds the new run its own and resumes it, printing
+# `outcome=resumed` and writing nothing; one cut short after the fence
+# finishes what is missing. A refused takeover writes nothing and prints
+# `outcome=refused` and `reason=` (taken-over, predecessor-unstoppable, or
+# koto's own code), exit 2.
+#
 # A fresh start (no session here holds the scope's record) opens
 # `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
 # scope, and then calls the legacy importer (../legacy-import/import.sh) once:
@@ -395,6 +417,138 @@ EOF
     exit 0
 fi
 
+# The takeover. The caller is the Claude session running this opener
+# (CLAUDE_CODE_SESSION_ID); its name, the messaging address workers report
+# to, is the one its job state file gives it (dc_claude_name). A resumable run
+# is the caller's own when its record/meta names the caller as its driver, or,
+# with no driver recorded (a run no one has taken over), when its coordinator
+# row names the caller. It is another session's when it names another driver,
+# or no driver and another coordinator than the caller's name. A caller with
+# no Claude session id, or no name to compare, can't tell, and resumes.
+# shellcheck source=dispatch-common.sh
+. "$HERE/dispatch-common.sh" || exit 64
+CALLER=${CLAUDE_CODE_SESSION_ID:-}
+[[ $CALLER =~ ^[0-9a-f][0-9a-f-]{7,63}$ ]] || CALLER=
+CALLER_NAME=
+[ -z "$CALLER" ] || CALLER_NAME=$(dc_claude_name "${DC_CLAUDE_HOME:-$HOME/.claude}" "$CALLER") || CALLER_NAME=
+# The record is read through its readers, never key by key here: record/meta
+# through state-read.sh --meta, the Run section through state-stored-set.sh
+# --list (as dispatch-worker.sh reads the address).
+# meta_json <run>: the run's record/meta, {} when it holds none, "" when the
+# read fails.
+meta_json() {
+    bash "$HERE/state-read.sh" --session "$1" --meta < /dev/null 2> /dev/null
+}
+# meta_field <run> <field>: a string field of the run's record/meta, "" when absent.
+meta_field() {
+    jq -r --arg f "$2" '.[$f] // "" | if type == "string" or type == "boolean" then tostring else "" end' <<< "$(meta_json "$1")" 2> /dev/null
+}
+# run_address <run>: the address in the run's coordinator row, "" when none.
+run_address() {
+    jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // ""' \
+        <<< "$(bash "$HERE/state-stored-set.sh" --session "$1" --list < /dev/null 2> /dev/null)" 2> /dev/null
+}
+driven_by_another() {
+    local d a
+    [ -n "$CALLER" ] || return 1
+    d=$(meta_field "$1" driver)
+    if [ -n "$d" ]; then [ "$d" != "$CALLER" ]; return; fi
+    a=$(run_address "$1")
+    [ -n "$a" ] && [ -n "$CALLER_NAME" ] && [ "$a" != "$CALLER_NAME" ]
+}
+# meta_set <run> <jq filter> [jq args...]: rewrite the run's record/meta with
+# the filter applied, through the write core (core_write_meta), in a subshell
+# since the core exits on a refusal. Only the opener writes these fields,
+# while no one drives the run (between the fence and the end of the
+# takeover), and every record write after keeps them.
+meta_set() {
+    ( PROG=coordinate-open SESSION=$1 SKIP_CHECKS=0 REPO=${HOST:-}
+      . "$HERE/state-common.sh" && . "$HERE/state-write-core.sh" && core_write_meta "$@" ) > /dev/null 2>&1
+}
+refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
+    printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
+}
+# finish_takeover <successor> <predecessor> <yes|no>: the successor's own
+# record changes after the fence, each written once, so a re-run after a crash
+# finishes what is missing: the driver (first, so a re-run knows the run is
+# its own), the coordinator row naming the caller, which clears the told set,
+# one takeover entry, and record/meta's takeover_done last. Then the result.
+finish_takeover() {
+    local succ=$1 pred=$2 stopped=$3 d
+    if [ "$(meta_field "$succ" driver)" != "$CALLER" ] || [ "$(meta_field "$succ" takeover_done)" = true ]; then
+        meta_set "$succ" '.driver = $c | .takeover_done = false | .takeover = {predecessor: $p, predecessor_stopped: $st}' \
+            --arg c "$CALLER" --arg p "$pred" --arg st "$stopped" \
+            || { echo "failed=takeover_record"; echo "coordinate-open: $pred is fenced and $succ holds its record, but $succ's record/meta wasn't written; run the opener again from this session to finish" >&2; exit 1; }
+    fi
+    if [ -n "$CALLER_NAME" ]; then
+        if [ "$(run_address "$succ")" != "$CALLER_NAME" ]; then
+            bash "$HERE/state-stored-set.sh" --session "$succ" --run coordinator "$CALLER_NAME" --by "$CALLER_NAME" > /dev/null 2> "$T_ERR" \
+                || { echo "failed=takeover_record"; echo "coordinate-open: $succ's coordinator row wasn't written: $(head -c 400 "$T_ERR"); run the opener again from this session to finish" >&2; exit 1; }
+        fi
+    else
+        echo "coordinate-open: this session's name couldn't be read, so $succ's coordinator row still names the predecessor's; write yours with state-stored-set.sh --run coordinator" >&2
+    fi
+    if ! bash "$HERE/state-entry.sh" --session "$succ" --list 2> "$T_ERR" \
+            | jq -e --arg p "takeover $succ:" 'any(.[]; .kind == "takeover" and (.text | startswith($p)))' > /dev/null; then
+        d=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-entry.XXXXXX") || { echo "failed=takeover_record"; exit 1; }
+        printf 'takeover %s: %s continues %s, which it fenced; %s was %s when it was taken over.\n' \
+            "$succ" "$succ" "$pred" "$pred" "$([ "$stopped" = yes ] && echo live || echo "not live")" > "$d"
+        bash "$HERE/state-entry.sh" --session "$succ" --kind takeover --text-file "$d" > /dev/null 2> "$T_ERR" \
+            || { rm -f "$d"; echo "failed=takeover_record"; echo "coordinate-open: $succ's takeover entry wasn't written: $(head -c 400 "$T_ERR"); run the opener again from this session to finish" >&2; exit 1; }
+        rm -f "$d"
+    fi
+    meta_set "$succ" '.takeover_done = true' \
+        || { echo "failed=takeover_record"; echo "coordinate-open: $succ's takeover wasn't marked done; run the opener again from this session to finish" >&2; exit 1; }
+    printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\n' "$pred" "$succ" "$stopped"
+    link_dispatcher "$succ"
+    exit 0
+}
+# takeover <predecessor>: continue the predecessor's run in a new session
+# through koto's fence (koto init --continues --supersede), carrying the
+# record and the legs from the fenced state, then finish_takeover. The
+# predecessor's liveness is read before the fence, by the liveness probe
+# (dc_session_live), against the driver its record/meta names or, with none,
+# its coordinator row. A predecessor that moved state between the read and the
+# fence (stale_state) is read again once.
+takeover() {
+    local pred=$1 pd pa state stopped succ out rc code tries=0 d why
+    pd=$(meta_field "$pred" driver); pa=$(run_address "$pred")
+    while :; do
+        state=$("$KOTO" status "$pred" < /dev/null 2> /dev/null | jq -r '.current_state // empty' 2> /dev/null)
+        [ -n "$state" ] || { echo "failed=takeover_read"; echo "coordinate-open: $pred's state couldn't be read; nothing was written" >&2; exit 1; }
+        if dc_session_live "$pred" "$pd" "$pa" > "$T_ERR" 2>&1; then stopped=yes; else stopped=no; fi
+        succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"
+        # Named to the second: a takeover in the second the run opened waits.
+        while [ "$succ" = "$pred" ]; do sleep 1; succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"; done
+        not_self "$succ"
+        d=$(bash "$KOTO_OPEN" --alloc-dir) || usage "could not allocate a vars directory"
+        bash "$HERE/coord-log.sh" vars --session "$pred" 2> /dev/null \
+            | jq -c --arg r "$PLUGIN_ROOT" '. + {PLUGIN_ROOT: $r} | to_entries | map([.key, (.value | tostring)])' > "$d/vars.json" \
+            || { rm -rf "$d"; echo "failed=takeover_read"; echo "coordinate-open: $pred's variables couldn't be read; nothing was written" >&2; exit 1; }
+        set -- init "$succ" --template "$TEMPLATE" --vars-file "$d/vars.json" --continues "$pred" --supersede \
+            --expect-state "$state" --carry record/ --carry legs/ --carry taken_legs --carry leg_children
+        case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in ''|0|false) ;; *) set -- "$@" --legacy-environment ;; esac
+        out=$("$KOTO" "$@" < /dev/null 2> "$T_ERR")
+        rc=$?
+        rm -rf "$d"
+        [ $rc -eq 0 ] && break
+        code=$(printf '%s' "$out" | jq -r '.error.code // .code // empty' 2> /dev/null)
+        case "$rc:$code" in
+            2:stale_state) [ $tries -eq 0 ] || refuse_takeover predecessor-unstoppable "$pred kept moving between its state read and the fence; nothing was written"
+                           tries=1 ;;
+            3:*) refuse_takeover predecessor-unstoppable "$pred's log lock couldn't be taken (fence_unavailable); nothing was written and $pred still drives" ;;
+            *) if printf '%s' "$out" | jq -e '.superseded_by // empty' > /dev/null 2>&1; then
+                   refuse_takeover taken-over "$pred was already taken over by $(printf '%s' "$out" | jq -r '.superseded_by'); nothing was written"
+               fi
+               why=$(jq -r '.error | if type == "object" then .message // empty else . // empty end' <<< "$out" 2> /dev/null)
+               refuse_takeover "${code:-koto-refused}" "koto refused the takeover of $pred (exit $rc): ${why:0:400}" ;;
+        esac
+    done
+    finish_takeover "$succ" "$pred" "$stopped"
+}
+T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
+trap 'rm -f "$T_ERR"' EXIT
+
 # The record lives in a run's session on this host, so a start first looks
 # here for the scope's run that holds it
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12).
@@ -421,6 +575,11 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
             not_self "$OLD"
+            # A live run another Claude session drives is taken over, not
+            # resumed beside it (takeover exits). That comes before any
+            # rebind: the takeover passes this plugin root to the new run
+            # itself, and a run this session doesn't drive is never written.
+            if driven_by_another "$OLD"; then takeover "$OLD"; fi
             # A run from another plugin root is re-attached with this one
             # first; a refused attach carries it instead, as before.
             if [ "$(printf '%s' "$CAND" | jq -r '.rebind // false')" = true ] && ! rebind_root "$OLD"; then
@@ -431,9 +590,16 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)
             OLD=$(printf '%s' "$CAND" | jq -r '.session')
+            # This session's own takeover, cut short after the fence: finish
+            # it (finish_takeover exits).
+            if [ -n "$CALLER" ] && [ "$(meta_field "$OLD" takeover_done)" = false ]; then
+                META=$(meta_json "$OLD")
+                finish_takeover "$OLD" "$(jq -r '.takeover.predecessor // ""' <<< "$META")" \
+                    "$(jq -r '.takeover.predecessor_stopped // "no"' <<< "$META")"
+            fi
             [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
-            printf 'resumed=1\nsession=%s\n' "$OLD"
+            printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$OLD"
             link_dispatcher "$OLD"
             exit 0 ;;
         carry) CARRY_FROM=$(printf '%s' "$CAND" | jq -r '.session')
@@ -471,7 +637,7 @@ if [ -n "$CARRY_FROM" ]; then
     . "$HERE/state-common.sh"
     lib_write_guard
     T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") || { echo "failed=carry"; exit 1; }
-    trap 'rm -rf "$T"' EXIT
+    trap 'rm -rf "$T" "$T_ERR"' EXIT
     . "$HERE/state-write-core.sh"
     ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
     echo "carried=$CARRY_FROM"
@@ -492,7 +658,7 @@ elif [ "$FRESH" = 1 ]; then
     IMP="$HERE/../legacy-import/import.sh"
     IMP_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-import.XXXXXX") \
         || { echo "failed=import"; echo "coordinate-open: could not make a scratch file" >&2; exit 1; }
-    trap 'rm -f "$IMP_ERR"' EXIT
+    trap 'rm -f "$IMP_ERR" "$T_ERR"' EXIT
     stop_fresh() { # stop_fresh <refused|failed> <code> <why>
         "$KOTO" cancel "$SESSION" </dev/null >/dev/null 2>&1 || echo "coordinate-open: $SESSION couldn't be cancelled; cancel it before starting again" >&2
         echo "$1=$2"; echo "coordinate-open: $3" >&2

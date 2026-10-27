@@ -282,7 +282,8 @@ cat > "$WORK/dispatch.txt" <<'EOF'
 one at a time in `ISSUES` order
 starts in the foreground in the node's worktree
 the owning session never runs `koto next` on a child
-run `koto status work-on-{{PLAN_SLUG}}-<node>-<item>`
+run `{{PLUGIN_ROOT}}/skills/execute/scripts/child-read.sh <node worktree> status work-on-{{PLAN_SLUG}}-<node>-<item>`
+the owning session reads a child only through `child-read.sh`, never with a bare koto call from here
 the next work item starts only after `koto status` on the previous child shows a terminal
 `SHARED_BRANCH=impl/{{PLAN_SLUG}}-<node>`
 `ISSUE_NUMBER=<item>` and `PLAN_DOC` set to the `plan_abs` value

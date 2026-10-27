@@ -457,7 +457,7 @@ cc_pr_node() {
         *) CC_ACTION="error:execute:status-read"; return 1 ;;
     esac
     all_merged=0
-    cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" || return 1
+    cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
     if [ "$draft" = "true" ]; then
         local checks
         if ! coord_gh_read checks pr checks "$n_pr" --repo "$n_repo" --json name,bucket; then
@@ -478,38 +478,68 @@ cc_pr_node() {
     cc_verdict_arm "$name" "$url" "$verdict" "$attempt"
 }
 
-# cc_deferral_record <node> <items> <repo> <branch> -- an open node PR whose
-# work items deferred verification to hosted CI is evaluated (and so readied)
-# or merged only once its body records the deferral. The node's children are
-# `work-on-<slug>-<node>-<item>` for each comma-joined item; a child holding
-# `verification_deferral` deferred. shared-deferral-record.sh reads them with
-# local koto reads, and only when one deferred reads the PR's body from
-# GitHub, so a node with no deferral costs no GitHub read. The run's own
-# reason is not passed here: every child the run deferred holds it, and
-# node-push.sh wrote it into the body. With no items (the PLAN gone, so the
-# node list comes from run/setup, which records none) the children are the
-# root sessions named `work-on-<slug>-<node>-<number>` that `koto workflows
-# --roots` lists: the cascade deletes the PLAN only once every node merged,
-# so this is a node left open with its PLAN missing, which must not be read
-# as having no deferral. Called from cc_pr_node, in coord_compute's scope.
-# Returns 1 once it has set CC_ACTION: error:execute:deferral-record when the
-# body misses a part, error:execute:status-read when it can't be decided.
+# cc_deferral_record <node> <items> <repo> <branch> <node record> -- an open
+# node PR whose work items deferred verification to hosted CI is evaluated
+# (and so readied) or merged only once its body records the deferral.
+#
+# The reasons come from the node's run record: node-push.sh writes
+# `deferrals` into run/node/<node> at every push, read from the node's
+# children in the node worktree their step agents opened them in. This loop
+# runs in the coordination checkout, where koto's cloud backend refuses a
+# read of those sessions (session_bound_elsewhere), so with `deferrals`
+# recorded it reads no child session at all: an empty list holds nothing and
+# reads nothing, and a non-empty one has shared-deferral-record.sh check the
+# PR's body against it (--recorded), the only GitHub read.
+#
+# A record without `deferrals` was pushed before node-push.sh recorded them
+# (or rebuilt by record-coord-setup.sh's recover, which reads GitHub and can't
+# know them); its children are read as they were then, from here. Under the
+# cloud backend those reads are refused, so such a node stops the pass at
+# error:execute:status-read, failing closed, until node-push.sh pushes it
+# again and records its deferrals. They are `work-on-<slug>-<node>-<item>` for each
+# comma-joined item; a child holding `verification_deferral` deferred. The
+# run's own reason is not passed here: every child the run deferred holds it,
+# and node-push.sh wrote it into the body. With no items (the PLAN gone, so
+# the node list comes from run/setup, which records none) the children are
+# the root sessions named `work-on-<slug>-<node>-<number>` that `koto
+# workflows --roots` lists: the cascade deletes the PLAN only once every node
+# merged, so this is a node left open with its PLAN missing, which must not
+# be read as having no deferral.
+#
+# Called from cc_pr_node, in coord_compute's scope. Returns 1 once it has set
+# CC_ACTION: error:execute:deferral-record when the body misses a part,
+# error:execute:status-read when it can't be decided.
 cc_deferral_record() {
-    local items="$2" item rc err args roots oldifs=$IFS
-    if [ -z "$items" ]; then
-        roots=$(koto workflows --roots </dev/null) \
-            && items=$(printf '%s' "$roots" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
-                '[.[] | .name | select(type == "string" and startswith($p)) | ltrimstr($p)
-                  | select(test("^[1-9][0-9]*$"))] | join(",")') \
-            || { CC_ACTION="error:execute:status-read"; return 1; }
-        [ -n "$items" ] || return 0
-    fi
+    local items="$2" item rc err args roots has recorded oldifs=$IFS
     args=(--session "$CC_SESSION" --verification "")
-    IFS=,
-    for item in $items; do
-        args+=(--child "work-on-$CC_SLUG-$1-$item")
-    done
-    IFS=$oldifs
+    has=$(printf '%s' "$5" | jq -r 'has("deferrals")') || has=""
+    case "$has" in
+        true)
+            # run-record.sh holds each reason to one non-empty line.
+            recorded=$(printf '%s' "$5" | jq -r '.deferrals[]') \
+                || { CC_ACTION="error:execute:status-read"; return 1; }
+            [ -n "$recorded" ] || return 0
+            while IFS= read -r item; do
+                args+=(--recorded "$item")
+            done <<< "$recorded"
+            ;;
+        false)
+            if [ -z "$items" ]; then
+                roots=$(koto workflows --roots </dev/null) \
+                    && items=$(printf '%s' "$roots" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
+                        '[.[] | .name | select(type == "string" and startswith($p)) | ltrimstr($p)
+                          | select(test("^[1-9][0-9]*$"))] | join(",")') \
+                    || { CC_ACTION="error:execute:status-read"; return 1; }
+                [ -n "$items" ] || return 0
+            fi
+            IFS=,
+            for item in $items; do
+                args+=(--child "work-on-$CC_SLUG-$1-$item")
+            done
+            IFS=$oldifs
+            ;;
+        *) CC_ACTION="error:execute:status-read"; return 1 ;;
+    esac
     # --body: a node PR's body carries the record whatever the repository's
     # PR Workflow Content setting.
     args+=(--body -- --repo "$3" --head "$4" --state open)

@@ -283,6 +283,33 @@ core_write_host() {
     rm -rf "$d"
 }
 
+# core_write_meta <session> <jq filter> [jq args...]: rewrite the run's
+# record/meta with <filter> applied, for the fields a takeover keeps there
+# (driver, takeover, takeover_done; DESIGN-coordinate-successor-continues.md).
+# Every other write keeps them, since core_write_session changes only written
+# and pending. One key replaced whole, and never while a write holds it
+# pending. Only coordinate-open.sh calls it. Exits 10 the session holds no
+# record; 12 its record is being written; 65 the filter failed; 11 the write
+# failed; 2 a read failed.
+core_write_meta() {
+    local s=$1 f=$2 d
+    shift 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-meta.XXXXXX") || lib_die2 "mktemp failed"
+    rs_key "$s" record/meta "$d/meta"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; echo "$PROG: refused: session $s holds no record" >&2; exit 10 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $s's record/meta" ;;
+    esac
+    jq -e '.pending != true' "$d/meta" > /dev/null 2>&1 \
+        || { rm -rf "$d"; echo "$PROG: refused: session $s's record is being written" >&2; exit 12; }
+    jq -c "$@" "$f" "$d/meta" > "$d/next" 2> /dev/null \
+        || { rm -rf "$d"; echo "$PROG: refused: the record/meta filter failed" >&2; exit 65; }
+    "$KOTO" context add "$s" record/meta --from-file "$d/next" < /dev/null > /dev/null 2> "$d/k.err" \
+        || { echo "$PROG: the record/meta write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rm -rf "$d"
+}
+
 # core_write_pushed: set one holding's pushed head (CORE_PUSHED_TOPIC,
 # CORE_PUSHED_HEAD: 40 hex, or empty to clear it) by rewriting record/holdings
 # alone, the one key that keeps it. The head is no field of the state, so the

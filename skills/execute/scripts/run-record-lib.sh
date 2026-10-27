@@ -11,7 +11,7 @@
 #
 #   run/setup                  store, coordination_pr, repos, mode, nodes,
 #                              run_lines
-#   run/node/<node>            repo, pr, head, merged_head
+#   run/node/<node>            repo, pr, head, deferrals, merged_head
 #   run/follow-up/<node>/<n>   repo, pr, head, merged_head, removed
 #   run/cascade                verdict, head, step
 #   run/recovered              pr, source

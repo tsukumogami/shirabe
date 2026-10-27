@@ -29,7 +29,11 @@
 #                            node's children come from koto's root sessions,
 #                            an unreadable list is status-read; no deferral
 #                            evaluates as before with no body read and no
-#                            stderr)
+#                            stderr); with run/node's deferrals recorded and
+#                            the children bound to a node worktree: a reason
+#                            the body lacks holds, one it records evaluates,
+#                            an empty list reads no body, the PLAN gone lists
+#                            no sessions, and no case reads a child
 #   evaluate:<root>          a ready root PR whose checks are pending
 #   merge:<root>             a ready, mergeable root with --merge true, at the
 #                            recorded head; a body index head= that differs
@@ -353,6 +357,73 @@ if grep -v '^\[plan-to-tasks\]' "$CASE/stderr" | grep -q .; then
 else
     pass "no child deferred: nothing new on stderr"
 fi
+
+# The deferrals node-push.sh records in run/node at the push. The node's
+# children are bound to the node worktree, where their step agents opened
+# them, and the loop runs in the coordination checkout: it reads the record,
+# never a child (a read would be refused with session_bound_elsewhere).
+NODEWT="$CT_WORK/node-wt"
+mkdir -p "$NODEWT"
+record_node_deferrals() { # record_node_deferrals <node> <pr> <deferrals-json>
+    ct_record push "$(jq -cn --arg k "run/node/$1" --arg r "$CT_REPO" --argjson p "$2" --arg h "$CT_HEAD" \
+        --argjson d "$3" '{($k): {repo: $r, pr: $p, head: $h, deferrals: $d}}')"
+}
+bound_children() { # bound_children: the core node's two children, item 2 deferred
+    defer_child 2 "$DREASON"
+    mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-1"
+    ct_bind "work-on-t-$CT_CORE-1" "$NODEWT"
+    ct_bind "work-on-t-$CT_CORE-2" "$NODEWT"
+}
+child_reads() { grep -c "work-on-t-" "$CASE/koto-calls.log"; }
+
+ct_case recorded-unrecorded-body
+ct_record_setup
+record_node_deferrals "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "a recorded deferral its body lacks, the children bound elsewhere" "error:execute:deferral-record" "$out"
+grep -qF "exactly: Reason: $DREASON" "$CASE/stderr" && pass "the hold names the recorded reason" \
+    || fail "the recorded hold's stderr: [$(cat "$CASE/stderr")]"
+[ "$(child_reads)" -eq 0 ] && [ -z "$(ct_refused)" ] && pass "a recorded deferral: no koto call on a child, none refused" \
+    || fail "a recorded deferral read a child: $(grep -m1 "work-on-t-" "$CASE/koto-calls.log") $(ct_refused)"
+
+ct_case recorded-recorded-body
+ct_record_setup
+record_node_deferrals "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$RECORDED_BODY"
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "a recorded deferral its body records, the children bound elsewhere" "evaluate:$CT_CORE" "$out"
+[ "$(child_reads)" -eq 0 ] && [ -z "$(ct_refused)" ] && pass "the recorded body check: no koto call on a child" \
+    || fail "the recorded body check read a child: $(ct_refused)"
+
+ct_case recorded-none
+ct_record_setup
+record_node_deferrals "$CT_CORE" 11 '[]'
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "an empty recorded deferral list, though a child holds the key" "evaluate:$CT_CORE" "$out"
+[ "$(child_reads)" -eq 0 ] && [ "$(body_reads)" -eq 0 ] && [ -z "$(ct_refused)" ] \
+    && pass "an empty recorded list: no child read, no body read" \
+    || fail "an empty recorded list: child reads $(child_reads), body reads $(body_reads) $(ct_refused)"
+
+ct_case recorded-plan-gone
+ct_record_setup
+record_node_deferrals "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')"
+ct_record_node "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+ct_write_db
+bound_children
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, a recorded deferral its body lacks" "error:execute:deferral-record" "$out"
+grep -q '^workflows' "$CASE/koto-calls.log" && fail "the PLAN gone with deferrals recorded listed koto's sessions" \
+    || pass "the PLAN gone with deferrals recorded: no session listing, no child read"
 
 ct_case root-pending
 ct_record_setup
