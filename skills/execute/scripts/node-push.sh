@@ -23,8 +23,8 @@
 #     session is read and written only from this checkout, and the node's
 #     work-item children only from the worktree their step agents opened them
 #     in (shared-deferral-record.sh --child-dir). It pushes, finds the
-#     node's owned PR or opens a draft one, records the node's PR and pushed
-#     head in the run record (`run/node/<node>` through `run-record.sh push`),
+#     node's owned PR or opens a draft one, records the node's PR, pushed
+#     head and deferral reasons in the run record (`run/node/<node>` through `run-record.sh push`),
 #     and renders the coordination PR's body from the record
 #     (coord-render.sh). --plan is the PLAN in the coordination checkout (the
 #     recorded plan_abs), since the node branch doesn't carry it: the node
@@ -157,8 +157,11 @@
 #      (`run/node/<node>`), which must then be the one adopted: zero
 #      survivors, or a survivor other than the recorded PR, refuse;
 #   5b. record the pushed commit in the run record: node mode
-#      `run/node/<node>` {repo, pr, head} (`run-record.sh push`, which keeps a
-#      recorded merged_head), coordination mode `run/cascade` {verdict:
+#      `run/node/<node>` {repo, pr, head, deferrals} (`run-record.sh push`,
+#      which keeps a recorded merged_head), deferrals being the node's
+#      reasons step 1 collected, `[]` when none, so the loop checks the node
+#      PR's body against them without reading a work item's session from
+#      the coordination checkout; coordination mode `run/cascade` {verdict:
 #      pushed, head} (`run-record.sh cascade`). A refused or failed write is
 #      exit 70, and nothing is rendered;
 #   6. render the coordination PR's body from the record: coord-render.sh,
@@ -751,8 +754,9 @@ PR_NUM="${PR_URL##*/}"
 # post that fails after this leaves the head recorded, and a write that fails
 # here renders nothing.
 if [ "$MODE" = node ]; then
-    jq -cn --arg k "run/node/$NODE" --arg r "$REPO" --argjson p "$PR_NUM" --arg h "$SHA" \
-        '{($k): {repo: $r, pr: $p, head: $h}}' > "$WORK/record.json"
+    jq -cn --arg k "run/node/$NODE" --arg r "$REPO" --argjson p "$PR_NUM" --arg h "$SHA" --arg d "$DEFERRAL" \
+        '{($k): {repo: $r, pr: $p, head: $h, deferrals: ($d | split("\n") | map(select(length > 0)))}}' \
+        > "$WORK/record.json"
     RR_VERB=push
 else
     jq -cn --arg h "$SHA" '{"run/cascade": {verdict: "pushed", head: $h}}' > "$WORK/record.json"

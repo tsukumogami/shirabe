@@ -15,7 +15,7 @@
 #
 # Usage: shared-deferral-record.sh --session <execute session>
 #            --verification <local|hosted-ci|""> [--reason <reason>]
-#            [--child <session>]... [--child-dir <dir>]
+#            [--child <session>]... [--child-dir <dir>] [--recorded <reason>]...
 #            [--body] [--list | -- <owned-pr.sh arguments>]
 #
 # The reasons the PR must carry, each once:
@@ -39,6 +39,15 @@
 # in, so node-push.sh, which runs in the coordination checkout, reads the
 # node's children from their own. Without it every read runs here. It needs
 # --child.
+#
+# --recorded <reason>, once per reason, gives the children's reasons as the
+# run record holds them (run/node/<node>'s deferrals, which node-push.sh
+# wrote from the children at push time), in place of reading the children:
+# with it the script reads no child session at all, so coordinated-next.sh,
+# which runs in the coordination checkout, never reads a work item's session
+# from a directory koto's cloud backend refuses. It can't be given with
+# --child or --child-dir. The run's own reason (--verification hosted-ci)
+# still counts first.
 #
 # With --list the script prints the reasons, one per line in the order above,
 # and exits 0 without reading GitHub; nothing after --list is read. koto's
@@ -117,6 +126,8 @@ LIST=0
 BODY_ALWAYS=0
 CHILDREN=()
 CHILD_DIR=""
+RECORDED=()
+SAW_RECORDED=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
@@ -124,6 +135,7 @@ while [ $# -gt 0 ]; do
         --reason) [ $# -ge 2 ] || usage; RUN_REASON=$2; shift 2 ;;
         --child) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILDREN+=("$2"); shift 2 ;;
         --child-dir) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILD_DIR=$2; shift 2 ;;
+        --recorded) [ $# -ge 2 ] && [ -n "$2" ] || usage; RECORDED+=("$2"); SAW_RECORDED=1; shift 2 ;;
         --body) BODY_ALWAYS=1; shift ;;
         --list) LIST=1; shift; break ;;
         --) shift; break ;;
@@ -133,6 +145,7 @@ done
 [ -n "$SESSION" ] && [ "$SAW_VERIFICATION" = 1 ] || usage
 [ "$LIST" = 1 ] || [ $# -gt 0 ] || usage
 [ -z "$CHILD_DIR" ] || [ "${#CHILDREN[@]}" -gt 0 ] || usage
+[ "$SAW_RECORDED" = 0 ] || { [ "${#CHILDREN[@]}" -eq 0 ] && [ -z "$CHILD_DIR" ]; } || usage
 [ -z "$CHILD_DIR" ] || [ -d "$CHILD_DIR" ] || undecided "--child-dir [$CHILD_DIR] is not a directory"
 case "$VERIFICATION" in
     ""|local|hosted-ci) ;;
@@ -248,16 +261,26 @@ if [ "$VERIFICATION" = hosted-ci ]; then
     add_reason "$RUN_REASON"
 fi
 
-collect_children > "$WORK/collected" 2> "$WORK/collect.err" < /dev/null &
-poll $! "$LOOP_SECS"
-case $? in
-    0) ;;
-    124) undecided "reading the children's verification_deferral took longer than the ${LOOP_SECS}s it had; tick again" ;;
-    *) cat "$WORK/collect.err" >&2; exit 2 ;;
-esac
-while IFS= read -r reason; do
-    add_reason "$reason"
-done < "$WORK/collected"
+if [ "$SAW_RECORDED" = 1 ]; then
+    # The run record's reasons stand in for the children: no koto read.
+    for reason in "${RECORDED[@]}"; do
+        case "$reason" in
+            *"$NL"*|*$'\r'*) undecided "a recorded verification deferral spans more than one line" ;;
+        esac
+        add_reason "$reason"
+    done
+else
+    collect_children > "$WORK/collected" 2> "$WORK/collect.err" < /dev/null &
+    poll $! "$LOOP_SECS"
+    case $? in
+        0) ;;
+        124) undecided "reading the children's verification_deferral took longer than the ${LOOP_SECS}s it had; tick again" ;;
+        *) cat "$WORK/collect.err" >&2; exit 2 ;;
+    esac
+    while IFS= read -r reason; do
+        add_reason "$reason"
+    done < "$WORK/collected"
+fi
 
 if [ "$LIST" = 1 ]; then
     [ "${#REASONS[@]}" -eq 0 ] || printf '%s\n' "${REASONS[@]}"

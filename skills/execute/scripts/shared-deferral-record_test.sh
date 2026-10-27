@@ -35,7 +35,9 @@
 #          with no GitHub read, and nothing with no deferral;
 #        - --child-dir runs every child read in that directory (the node
 #          worktree the children were opened in), and is a 2 without
-#          --child or when it is no directory.
+#          --child or when it is no directory;
+#        - --recorded checks the body against the reasons given, with no
+#          koto call, and is a 2 with --child, empty, or over two lines.
 #   2. Engine: a parent session and two children made with `koto init
 #      --parent`, one from a fixture holding work-on.md's SHIPPED
 #      verification_deferred state (extracted at run time) with
@@ -398,6 +400,43 @@ expect "--child-dir with no --child: usage" 2
     --child work-on-t-core-1 --child-dir "$WORKDIR/no-such-dir" --list) >/dev/null 2>"$WORKDIR/err"
 RC=$?
 expect "--child-dir that is no directory: undecided" 2
+
+# --recorded: the run record's reasons stand in for the children, and no
+# koto call is made at all (the loop's check in the coordination checkout).
+# run_recorded <reason>... -- the gate with one --recorded per reason.
+run_recorded() {
+    local r args=()
+    for r in "$@"; do args+=(--recorded "$r"); done
+    # shellcheck disable=SC2086 # OWNED_ARGS is a word list
+    (PATH="$BIN:$PATH" SDR_STUB="$STUB" CHECK_PR_OUTPUT_OWNED_PR="$BIN/owned-pr.sh" \
+        "$GATE" --session execute-x --verification "" "${args[@]}" --body -- $OWNED_ARGS) \
+        >"$WORKDIR/out" 2>"$WORKDIR/err"
+    RC=$?
+}
+reset_stub
+children execute-x.o-a
+child_deferred execute-x.o-a "$REASON"
+run_recorded "$REASON2"
+expect "--recorded: a reason the body lacks holds" 1
+grep -qF "exactly: Reason: $REASON2" "$WORKDIR/err" && pass "--recorded: stderr names the recorded reason" \
+    || fail "--recorded: stderr [$(cat "$WORKDIR/err")]"
+grep -qF "exactly: Reason: $REASON" "$WORKDIR/err" && fail "--recorded read a child's reason" \
+    || pass "--recorded: a child's own key isn't read"
+[ "$(count koto.calls)" = 0 ] && pass "--recorded: no koto call" \
+    || fail "--recorded made koto calls: $(cat "$STUB/koto.calls")"
+body "$REASON2"
+run_recorded "$REASON2"
+expect "--recorded: the body records the reason: passes" 0
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification "" \
+    --recorded "$REASON" --child work-on-t-core-1 --list) >/dev/null 2>"$WORKDIR/err"
+RC=$?
+expect "--recorded with --child: usage" 2
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification "" \
+    --recorded "" --list) >/dev/null 2>"$WORKDIR/err"
+RC=$?
+expect "--recorded with an empty reason: usage" 2
+run_recorded "$(printf 'line one\nline two')"
+expect "--recorded with a reason over two lines: undecided" 2
 
 reset_stub
 children execute-x.o-a

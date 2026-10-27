@@ -76,7 +76,10 @@ no file contents, environment values or command output.
 On a `coordinated` PLAN the `dispatch:<node>` action hands each of a node's
 work items to one step agent, one at a time in `ISSUES` order. koto does not
 materialize these children: the step agent opens the work item's session
-itself, and the owning session reads it with `koto status`. Start the agent in
+itself, in the node's worktree, and the owning session reads it with `koto
+status` run there, through `scripts/child-read.sh <node worktree> status
+<child>`: koto's cloud backend answers a session only in the directory it was
+opened in, and the owning session works in the coordination checkout. Start the agent in
 the foreground, in the node's worktree, with no worktree isolation: the child
 commits to the node branch that worktree is on. The owning session keeps every
 push, `gh` write and run-record write (`repo-visibility.sh`, `node-cut.sh`,

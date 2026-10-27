@@ -59,6 +59,7 @@ skills/execute/scripts/record-coord-follow-up_test.sh
 skills/execute/scripts/worktree-isolation_test.sh
 skills/execute/scripts/node-cut_test.sh
 skills/execute/scripts/node-push_test.sh
+skills/execute/scripts/child-read_test.sh
 skills/execute/scripts/repo-visibility_test.sh
 skills/execute/scripts/coordinated-visibility_test.sh
 skills/execute/scripts/coord-merge_test.sh
