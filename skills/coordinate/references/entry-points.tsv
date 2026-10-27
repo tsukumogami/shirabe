@@ -31,9 +31,11 @@
 #               the target (with its own positional and flags), or - when
 #               there is none
 #
-# No entry point restricts its targets' visibility today: /deliver and
-# /execute ran only in public repositories until shirabe#505, and the column is
-# kept for the next requirement an entry point adds.
+# Only /comp restricts its targets' visibility: a COMP is private-only, and
+# /comp refuses to finalize one in a public repository, so a worker sent to a
+# public one would do the work and land nothing. No other entry point takes
+# its place there. /deliver and /execute ran only in public repositories until
+# shirabe#505.
 #
 # /release takes no leg and no execution mode: its positional is the version,
 # and its one flag --dry-run. Whether a release may be cut is the workspace's
@@ -67,4 +69,4 @@ plan	-	-	-	--auto,--interactive,--strategic,--tactical,--walking-skeleton,--no-s
 roadmap	-	-	-	--auto,--interactive,--max-rounds=*	any	-
 strategy	-	-	-	--auto,--interactive	any	-
 vision	-	-	-	--auto,--interactive,--max-rounds=*	any	-
-comp	-	-	-	-	any	-
+comp	-	-	-	-	private	-

@@ -341,8 +341,9 @@ has "charter: --max-rounds=N on the invocation" "$C" 'Run `/shirabe:charter plug
 refused "charter with --upstream" "$(variant ch-up '.entry_point = "charter" | .entry_args = ["plugin-api", "--upstream"] | .run_mode = "--auto"')" "entry_args: charter doesn't allow --upstream"
 refused "charter with --merge"    "$(variant ch-merge '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto --merge"')" "run_mode: charter doesn't allow --merge"
 refused "charter with no run mode" "$(variant ch-none '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = ""')" "run_mode: required for charter, which takes --auto or --interactive"
-# The other planning skills take their own SKILL.md's flags; /brief and /comp
-# document no execution mode, so they render with none and refuse --auto.
+# The other planning skills take their own SKILL.md's flags; /brief documents
+# no execution mode, so it renders with none and refuses --auto (/comp, which
+# takes only private targets, is under the target requirement below).
 for ep in prd design plan roadmap strategy vision; do
     bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = \"--auto\"")" --stdout >/dev/null 2>"$T/ep.err"
     eq "$ep: renders with --auto" 0 "$?"
@@ -353,12 +354,10 @@ has "plan: the invocation" "$P" 'Run `/shirabe:plan docs/designs/DESIGN-x.md --a
 refused "plan with --plan-version=v3" "$(variant plan-v3 '.entry_point = "plan" | .entry_args = ["x", "--plan-version=v3"] | .run_mode = "--auto"')" "entry_args: plan doesn't allow --plan-version=v3"
 refused "roadmap with --issues"       "$(variant rm-issues '.entry_point = "roadmap" | .entry_args = ["x", "--issues"] | .run_mode = "--auto"')" "entry_args: roadmap doesn't allow --issues"
 refused "strategy with --max-rounds"  "$(variant st-rounds '.entry_point = "strategy" | .entry_args = ["x", "--max-rounds=2"] | .run_mode = "--auto"')" "entry_args: strategy doesn't allow --max-rounds=2"
-for ep in brief comp; do
-    E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = \"\"")" --stdout 2>"$T/ep.err")
-    eq  "$ep: renders with no run mode" 0 "$?"
-    has "$ep: says it takes no run mode" "$E" "Run mode: none; \`/shirabe:$ep\` takes no execution mode."
-    refused "$ep with --auto" "$(variant "$ep-auto" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = \"--auto\"")" "run_mode: $ep doesn't allow --auto"
-done
+E=$(bash "$S" --input "$(variant ep-brief '.entry_point = "brief" | .entry_args = ["plugin-api"] | .run_mode = ""')" --stdout 2>"$T/ep.err")
+eq  "brief: renders with no run mode" 0 "$?"
+has "brief: says it takes no run mode" "$E" 'Run mode: none; `/shirabe:brief` takes no execution mode.'
+refused "brief with --auto" "$(variant brief-auto '.entry_point = "brief" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')" "run_mode: brief doesn't allow --auto"
 refused "no entry_args"         "$(variant no-args 'del(.entry_args)')"                    "entry_args: required"
 refused "flag first"            "$(variant flag-first '.entry_args = ["--auto"]')"         "the first token must be the positional argument"
 refused "no checkpoints"        "$(variant no-cp '.checkpoints = []')"                     "checkpoints: required"
@@ -463,6 +462,22 @@ eq  "target: a visibility that can't be read is exit 2, never a pass" 2 "$RC"
 ERR=$(DC_ENTRY_POINTS="$RT" PATH="$GHB:$PATH" bash "$S" --input "$T/priv-repo.json" --stdout --targets-checked 2>&1 >/dev/null)
 eq  "target: --targets-checked skips the requirement" 0 "$?"
 eq  "target: and reads no visibility" "" "$(cat "$GH_LOG")"
+
+# The shipped table does restrict one entry point since shirabe#1290: /comp
+# takes only private repositories and names no alternative. It documents no
+# execution mode, so it renders with none.
+: >"$GH_LOG"
+ERR=$(PATH="$GHB:$PATH" bash "$S" --input "$(variant comp-public '.entry_point = "comp" | .entry_args = ["plugin-api"] | .run_mode = ""')" --stdout 2>&1 >/dev/null)
+eq  "comp: a public repository is refused (exit 1)" 1 "$?"
+has "comp: its visibility was read live" "$(cat "$GH_LOG")" "api --method GET repos/acme/widgets"
+has "comp: the refusal names the requirement" "$ERR" "entry_point: /shirabe:comp takes only private repositories, and repo is public"
+has "comp: with no alternative, the unit goes back to pick" "$ERR" "no entry point takes it; the unit goes back to pick"
+E=$(PATH="$GHB:$PATH" bash "$S" --input "$(variant comp-private '.entry_point = "comp" | .entry_args = ["plugin-api"] | .run_mode = "" | .repo = "acme/vault"')" --stdout 2>"$T/comp.err")
+eq  "comp: a private repository renders" 0 "$?"
+has "comp: says it takes no run mode" "$E" 'Run mode: none; `/shirabe:comp` takes no execution mode.'
+ERR=$(PATH="$GHB:$PATH" bash "$S" --input "$(variant comp-auto '.entry_point = "comp" | .entry_args = ["plugin-api"] | .run_mode = "--auto" | .repo = "acme/vault"')" --stdout 2>&1 >/dev/null)
+eq  "comp: --auto is refused (exit 1)" 1 "$?"
+has "comp: the refusal names the flag" "$ERR" "run_mode: comp doesn't allow --auto"
 
 # Written, not printed: a refusal still leaves nothing in the brief directory.
 ERR=$(DC_ENTRY_POINTS="$RT" PATH="$GHB:$PATH" bash "$S" --input "$T/priv-repo.json" --workspace-root "$W" 2>&1 >/dev/null)
