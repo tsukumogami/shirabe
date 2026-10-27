@@ -27,7 +27,11 @@
 # changing or removing it refused, --done --kind rework removing it;
 # state-handover.sh's report and gaps (a holding with no next step among
 # them); the crash set's rows written in a fresh session with no store row, and
-# --host. Every record is the session's; nothing is written on GitHub.
+# --host; --pending (its refusals, its row and entry, the gate passing a pending
+# worker while holding on an untold one, --told turning it told, a new address
+# clearing told and pending, a holding's first Work row never leaving both),
+# with each gate result printed. Every record is the session's; nothing is
+# written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
@@ -400,6 +404,50 @@ eq "the handover read carries a worker's pushed head" "${SHA:0:40}|null" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.workers[] | .pushed_head | tostring] | join("|")')"
 eq "the crash set's rows sit in a Run section with no store row" "" \
     "$(koto context get "$SD" record/run | jq -r '[.[] | select(.key == "store")] | map(.value) | join(" ")')"
+
+echo "== pending: a worker that can't be told yet =="
+# gate: the handover gate's result, printed and kept in G as "<exit> <gaps>".
+gate() {
+    bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"
+    G="$? $(sed -n 's/^  \([^:]*\): .*/\1/p' "$T/gate" | paste -sd, -)"
+    echo "     gate: $G"
+}
+run_rows() { live | jq -r --arg k "$1" '[.run[] | select(.key == $k) | .value] | join(" ")'; }
+seed "$TWO"
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "--pending without a coordinator address is refused" 65 $?
+bash "$RS" "${W[@]}" --pending worker-f2 >/dev/null 2>"$T/err"; eq "--pending without --by is usage" 64 $?
+bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
+bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run coordinator lane-v3 --by lane-v3 >/dev/null 2>&1
+gate; eq "a new address: both live workers are not told" "1 not-told worker-f2,not-told worker-f3" "$G"
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "--pending records a worker" 0 $?
+eq "  ... as a pending row for the current address" "worker-f2 lane-v3" \
+    "$(live | jq -r '.run[] | select(.key == "pending") | "\(.value) \(.set_by)"')"
+eq "  ... told as a pending entry" "pending|worker-f2 can't be told the coordinator's address, lane-v3, yet: it is pending, recorded by lane-v3." \
+    "$(entries | jq -r 'last | "\(.kind)|\(.text)"')"
+gate; eq "  ... the gate passes the pending worker and still holds on the untold live one" "1 not-told worker-f3" "$G"
+eq "  ... and the handover read names it pending" '["worker-f2"]|worker-f2:true worker-f3:false' \
+    "$(bash "$RH" "${RM[@]}" | jq -r '"\(.pending | tojson)|" + ([.workers[] | "\(.worker):\(.pending // false)"] | join(" "))')"
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "  ... not twice" 65 $?
+grep -q 'already pending' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --told worker-f3 --by lane-v3 >/dev/null 2>&1
+gate; eq "told: once the other worker is told, the gate passes" "0 " "$G"
+bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v3 >/dev/null 2>"$T/err"; eq "--pending refuses a worker already told" 65 $?
+bash "$RS" "${W[@]}" --told worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "--told for a pending worker" 0 $?
+eq "  ... turns its pending row into a told one" "worker-f3 worker-f2|" "$(run_rows told)|$(run_rows pending)"
+gate; eq "  ... and the gate still passes" "0 " "$G"
+bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v3 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run coordinator lane-v4 --by lane-v4 >/dev/null 2>"$T/err"; eq "clear: a new address is set over a told and a pending worker" 0 $?
+eq "  ... clearing every told and pending row" "|" "$(run_rows told)|$(run_rows pending)"
+gate; eq "  ... so the gate holds on both again" "1 not-told worker-f2,not-told worker-f3" "$G"
+bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v4 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --done "Feature 3" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next "dispatched again" >/dev/null 2>"$T/err"
+eq "a holding's first Work row for a pending worker records it told, not both" "worker-f3|" "$(run_rows told)|$(run_rows pending)"
+gate; eq "  ... and the gate holds only on the untold one" "1 not-told worker-f2" "$G"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
 done_tests state-stored-set_test

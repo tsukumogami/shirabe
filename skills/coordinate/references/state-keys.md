@@ -184,7 +184,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, rules, briefs, friction or reports-to>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction or reports-to>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer or assignment>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -202,8 +202,11 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
-name) and one `told` row per party
-that has been sent that address. A new address clears the `told` rows. It also
+name), one `told` row per party
+that has been sent that address, and one `pending` row per worker that can't
+be sent it yet: its session is gone, but its instance is still there to be
+started again. A worker is never both told and pending (the record is refused
+if it is). A new address clears the `told` and `pending` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
@@ -249,6 +252,7 @@ state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <wh
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --told <topic> --by <who>
+state-stored-set.sh --session S --pending <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 state-stored-set.sh --session S --end <s<n>> --by <who>
 state-stored-set.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
@@ -267,12 +271,23 @@ count is appended as an entry when its row leaves Work; the count is a floor,
 since a wake inside the minute after a write, or one a crashed run logged
 after its last write, isn't counted.
 
+A re-brief records its worker by itself: the template's `rebrief_record` step
+reads what you submitted at `rebrief` and writes `--told` when the worker was
+messaged its new brief (which names your address), `--pending` when its
+session is gone while niwa still lists its instance, and nothing when the
+message was refused or no instance is left. `--told` for a pending worker
+turns its `pending` row into a `told` one; `--pending` refuses a worker already
+told or already pending.
+
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
-hasn't been told the current address. The reconcile step's gate runs it at
-every start, so a replacement that writes its own address can't go on until
-it has told each live worker. A record written before these sections existed
+has been neither told the current address nor recorded pending. The reconcile
+step's gate runs it at every start, so a replacement that writes its own
+address can't go on until each live worker is told or pending. A pending
+worker doesn't hold the gate; it is told when it can be. A record with no
+`pending` row reads, checks and hands over as it did before the row existed.
+A record written before these sections existed
 has every gap at its first start under this version; fill them once. A
 rotation's carry copies the three sections into the next rotation as they
 stand.

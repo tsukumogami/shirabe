@@ -75,7 +75,11 @@ measured, verified by reading, or inferred:
    `report_topic` and its brief input as `brief_input.json` in this run's
    context, then `dispatch-worker.sh --rebrief`, so its brief gives this
    coordinator's address and names this run as the dispatcher it records in
-   its own session. The report says which,
+   its own session. This re-brief happens at `reconcile`, not in the loop's
+   `rebrief` step, so record its outcome yourself, as the handover gate's
+   `not-told` line says: `state-stored-set.sh --told <topic>` once the
+   message reaches the worker, or `--pending <topic>` when its session is
+   gone and its instance is still there. The report says which,
    under "Changed since then", and `state-handover.sh` holds the run at
    `reconcile` (`leg-unclassified`) until each such leg has its end.
 5. **Re-check side effects in flight.** A merge is confirmed when GitHub's
