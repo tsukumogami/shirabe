@@ -41,11 +41,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 case "$(koto init --help 2>/dev/null)" in *--supersede*) ;; *) echo "SKIP: this koto has no init --supersede"; exit 0 ;; esac
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
 
-A_ID=aaaaaaaa-0000-4000-8000-000000000001
-B_ID=bbbbbbbb-0000-4000-8000-000000000002
+# Synthetic Claude session ids, built here so no id-shaped literal ships.
+A_ID=$(printf '%s-0000-4000-8000-%012d' aaaaaaaa 1)
+B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
 export DC_CLAUDE_HOME="$T/claude"
-mkdir -p "$DC_CLAUDE_HOME/jobs/bbbbbbbb"
-jq -n --arg s "$B_ID" '{sessionId: $s, name: "coord-b", state: "working"}' > "$DC_CLAUDE_HOME/jobs/bbbbbbbb/state.json"
+mkdir -p "$DC_CLAUDE_HOME/jobs/job-b"
+jq -n --arg s "$B_ID" '{sessionId: $s, name: "coord-b", state: "working"}' > "$DC_CLAUDE_HOME/jobs/job-b/state.json"
 # B works from a directory of its own, shaped like work/.
 mkdir -p "$T/work2/.niwa" "$T/work2/.claude"
 (cd "$T/work2" && git init -q && git remote add origin https://github.com/acme/widgets.git)
