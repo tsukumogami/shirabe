@@ -101,6 +101,14 @@ koto	request attach	--session	always
 # koto finds the run's template in this host's cache), and passes --from
 # always and --trust-template only when the operator gave it.
 koto	session import	--from,--trust-template	mode:session-store
+# The takeover (docs/designs/DESIGN-coordinate-successor-continues.md): when
+# the run a start would resume is driven by another Claude session,
+# coordinate-open.sh continues it through koto's fence, `koto init --continues
+# --supersede --expect-state --carry` (koto 0.28.0 and later). Only a takeover
+# makes the call, so the record is mode:takeover, never checked at load; on an
+# older koto the init itself refuses, and the opener prints outcome=refused
+# with nothing written.
+koto	init	--continues,--supersede,--expect-state,--carry	mode:takeover
 #
 # The on-reap step (scripts/unit-removed.sh record, which niwa runs when it
 # removes a session) starts its sweep in a new session through perl's
