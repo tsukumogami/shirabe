@@ -276,7 +276,11 @@ while IFS='	' read -r seat file; do
                     continue
                 fi
                 section=$(printf '%s' "$e" | jq -r '.value.section')
-                if ! grep -qxF -- "$section" "$WORK/sections"; then
+                # The slug shape comes first: grep -F reads a value with a
+                # newline as several patterns, so "document\n<forged row>"
+                # would match the list and its extra line would reach the
+                # tab-separated file below as an unchecked entry.
+                if ! [[ "$section" =~ ^[a-z0-9-]+$ ]] || ! grep -qxF -- "$section" "$WORK/sections"; then
                     ds_notice "seat $seat entry $n: section is not on the $SKILL list; recorded as document"
                     section=document
                 fi

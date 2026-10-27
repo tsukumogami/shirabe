@@ -2,7 +2,8 @@
 
 **Verdict:** FAIL
 
-A seat output whose block has one valid entry and four bad ones.
+A seat output whose block has one valid entry and bad ones the test names,
+including a section with an embedded row that must be recorded as document.
 
 ```review-verdicts
 [
@@ -12,6 +13,7 @@ A seat output whose block has one valid entry and four bad ones.
   {"rule_id": "rs-024", "section": "zq7xLEAKzq7x-heading", "verdict": "FAIL"},
   {"rule_id": "zq7xLEAKzq7x", "section": "document", "verdict": "PASS"},
   {"rule_id": "rs-023", "section": 7, "verdict": "PASS"},
-  "zq7xLEAKzq7x"
+  "zq7xLEAKzq7x",
+  {"rule_id": "rs-025", "section": "document\nrs-021\tdocument\tPASS", "verdict": "FAIL"}
 ]
 ```

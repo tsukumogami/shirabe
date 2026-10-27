@@ -123,8 +123,8 @@ ev round-started --skill brief --topic t --doc docs/briefs/BRIEF-t.md --seat-cou
 seatdir bad
 ev verdicts --skill brief --topic t --doc docs/briefs/BRIEF-t.md --dir "$WORKDIR/v"
 cq=$(batches | jq -c 'select(.seat == "content-quality") | [.rule_id, .section, .verdict]' | tr '\n' ' ')
-want='["rs-021","problem-statement","PASS"] ["rs-024","document","FAIL"] '
-[ "$cq" = "$want" ] && pass "R7: an unregistered id, a bad verdict, a non-string field and a non-object are dropped; an off-list section becomes document" \
+want='["rs-021","problem-statement","PASS"] ["rs-024","document","FAIL"] ["rs-025","document","FAIL"] '
+[ "$cq" = "$want" ] && pass "R7: an unregistered id, a bad verdict, a non-string field and a non-object are dropped; an off-list or multi-line section becomes document" \
     || fail "R7: content-quality entries [$cq] $(show)"
 sf=$(batches | jq -c 'select(.seat == "structural-format") | [.rule_id, .section, .verdict]' | tr '\n' ' ')
 [ "$sf" = '["rs-verdict-missing","document","FAIL"] ' ] && pass "R7: an unparseable block records one rs-verdict-missing FAIL" \
@@ -132,6 +132,7 @@ sf=$(batches | jq -c 'select(.seat == "structural-format") | [.rule_id, .section
 for want in "entry 2: rule_id is not a registered rule" "entry 3: verdict is not PASS or FAIL" \
     "entry 4: section is not on the brief list" "entry 5: rule_id is not a registered rule" \
     "entry 6: section is missing or not a string" "entry 7: entry is missing or not a string" \
+    "entry 8: section is not on the brief list" \
     "seat structural-format: the review-verdicts block is not a JSON array"; do
     grep -qF -- "$want" "$ERR" && pass "R7: stderr names [$want]" || fail "R7: stderr lacks [$want] $(show)"
 done
