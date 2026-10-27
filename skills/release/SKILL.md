@@ -25,7 +25,8 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 # Release
 
 Cut a release. Handles version selection, precondition checks, blocker
-identification, release notes, draft creation, workflow dispatch, and monitoring.
+identification, release notes, draft creation, workflow dispatch, monitoring,
+and the host installs the repository declares for after a release.
 
 ## Invocation
 
@@ -37,6 +38,47 @@ identification, release notes, draft creation, workflow dispatch, and monitoring
 - **`/release 0.3.0`** -- uses the specified version (`v0.3.0` also accepted);
   anything other than `X.Y.Z` or `X.Y.Z-<pre>` stops the run before it starts
 - **`/release --dry-run`** -- previews without side effects
+
+## The release grant
+
+A session niwa dispatched with the `cut-release` authority releases the way a
+session holding `merge-pr` merges: the grant is the approval, and nobody is
+asked to approve the cut. `release-grant.sh` reads it, once per question
+below, through one bounded `niwa authority check`; it prints `go=grant
+dispatch=<id>` for a holder and `go=person reason=<why>` for anyone else:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-grant.sh"
+```
+
+For a holder the grant answers the version-and-notes go (Phase 3 step 6),
+whatever kind of cut it is: a first release, a recommended major bump with no
+version given, and a range holding a commit pushed straight to the branch
+included. It answers running a check or an asset from the untracked
+`release.local.md` (Phase 2 step 7, Phase 4), and the tracked installs after
+the release is published (Phase 7). Any other session, a session niwa didn't
+dispatch included, is asked each of these, as it always was.
+
+These still go to a person whatever the grant, because each is a finding
+about what the release contains or runs, not an approval of the cut, the way
+failing required checks still block a `merge-pr` holder:
+
+- **An `UNRESOLVED` line from the security check** (Phase 2 step 6): a `(#N)`
+  in the range that isn't a pull request here, so nobody can say what change
+  it carries or whether it needs a security treatment.
+- **A declared check that exits 5 with a `confirm:` line** (Phase 2 step 7):
+  the check found something in this release only a person can accept, such as
+  a drop in an eval pass rate.
+- **How a `security`-labelled pull request is described** (Phase 2 step 6):
+  whether naming the fix arms an attacker before users upgrade is a judgment
+  about the change itself.
+- **An `## After release` command from `release.local.md`** (Phase 7): an
+  untracked command run on the host after the cut, outside anything a
+  reviewer saw, is asked about one at a time.
+
+Every Phase 2 check stops a holder's run exactly as it stops anyone's. The
+grant's answer is advisory: the workspace gate still decides the draft and
+the dispatch for this session on its own.
 
 ## Phases
 
@@ -99,8 +141,10 @@ for this repository). A later phase recomputes it with the same command.
   whatever an earlier run left. It also removes a `work/notes.md` an earlier
   run left, so a crashed run's notes can't be published. A release with no
   `(#N)` subjects gets an empty `work/prs`, which reads back as an empty list.
-- **`read <topic> <range|prs|unattributed|notes>`** prints one key. A key that
-  is absent exits 1 saying Phase 1 did not run; stop there.
+- **`read <topic> <range|prs|unattributed|notes|head>`** prints one key. A key
+  that is absent exits 1 saying Phase 1 did not run; stop there. `work/head`
+  is the commit the release is cut from; Phase 7 reads the committed
+  extension there.
 
 The membership step's rules, for the record:
 
@@ -140,7 +184,9 @@ reconcile by hand before releasing when that happens (close the session
 rather than empty. Printing it here, before the notes are drafted, is also what
 makes it useful rather than a footnote.
 
-If no tag exists, this is the first release -- ask for version.
+If no tag exists, this is the first release: there is nothing to bump from,
+so the recommended version is `0.1.0` unless the invocation gave one. Phase 3
+settles it as it settles any version.
 
 Count commits by prefix over the range in `work/range`
 (`release-state.sh read <topic> range`):
@@ -250,7 +296,10 @@ All must pass before proceeding:
       `release.local.md`'s), print the command and the file it came from. A
       check from `release.local.md` is labelled local: that file is untracked
       and nobody reviewed it, so ask with AskUserQuestion before running it,
-      and skip it on a no.
+      and skip it on a no. A session holding the release grant isn't asked:
+      before the first local check, run `release-grant.sh` once (see **The
+      release grant**), and on `go=grant` run each local check unasked,
+      printing `local check: run on the grant of dispatch <id>` before it.
 
    c. **Run it from the repository root** (`git rev-parse --show-toplevel`),
       exactly as written, with these variables set for the command:
@@ -335,45 +384,31 @@ for a session holding the release grant on an ordinary cut, from the grant
    it here puts it in front of the author at the moment they are deciding
    whether the notes are complete.
 
-6. **Decide where the go comes from.** A session dispatched by niwa with the
-   `cut-release` authority can take the go from its grant on an ordinary
-   cut; everyone else is asked as below. Pass `--given` when the invocation
-   gave a version, otherwise `--bump` with the bump Phase 1's commit analysis
-   recommends (`major`, `minor` or `patch`), and add `--unresolved` when Phase
-   2's security check printed any `UNRESOLVED` line:
+6. **Decide where the go comes from.** A session holding the release grant
+   takes the go from it; everyone else is asked as below. Add `--unresolved`
+   when Phase 2's security check printed any `UNRESOLVED` line:
 
    ```bash
    topic=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" topic) || exit
-   "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" go "$topic" <flags>
+   "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" go "$topic" [--unresolved]
    ```
 
-   For example `--bump minor`, `--given`, or `--bump patch --unresolved`.
-   When the commit analysis leaves the bump in doubt, pass the larger one.
    Any output other than the two lines below, or a non-zero exit, is a
    `go=person`: ask.
 
    It prints one line. `go=person reason=<why>` means a person gives the go:
-   a first release, a recommended major bump with no version given, an
-   `UNRESOLVED` security line, a commit in the range that names no pull
-   request and isn't the release workflow's own version commit (a direct
-   push, named on stderr), or a session that doesn't hold the grant (the
-   reason says which). Go on with the question below, exactly as without a
-   grant.
+   an `UNRESOLVED` security line (`unresolved`), or a session the grant
+   doesn't cover (the reason says which). Go on with the question below.
 
    `go=grant dispatch=<id>` means the go comes from the grant. Ask nothing:
-   the version is the one given, or else the recommended one, and the notes
-   are the ones printed in step 5. Print the version, then this line with
-   the dispatch id it printed, and go on to Phase 4:
+   the version is the one given, or else the recommended one (a major bump
+   and a first release's `0.1.0` included), and the notes are the ones
+   printed in step 5. Print the version, then this line with the dispatch id
+   it printed, and go on to Phase 4:
 
    ```
    release go: from the grant of dispatch <id>
    ```
-
-   The grant answers this go and nothing else. The security-label treatment
-   (Phase 2 step 6), running a `release.local.md` command, and a declared
-   check's confirmation (exit 5) are still asked, and every Phase 2 check
-   still stops the run. The answer is advisory: the workspace gate still
-   decides the draft and the dispatch for this session on its own.
 
    Otherwise, **use AskUserQuestion** to present the recommended version with
    alternatives. Include the commit analysis from Phase 1:
@@ -431,8 +466,8 @@ UI.
 
 **Release assets.** Once the draft exists, and only when this isn't a dry
 run, run each bullet under `## Release assets` in the release extension
-(`release.md`, then `release.local.md`; ask before a local one, as in Phase 2
-step 7). No heading means nothing to attach. Print each command and its file,
+(`release.md`, then `release.local.md`; a local one is asked about, or run on
+the grant, as in Phase 2 step 7). No heading means nothing to attach. Print each command and its file,
 then run it from the repository root with `RELEASE_VERSION` set to the
 version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
 Phase 2 (read the range back with `release-state.sh read <topic> range`, as
@@ -454,9 +489,9 @@ string, as in Phase 2.
   the `gh release upload` line above), and quote the extension's note on what
   that item's failure costs, if it gives one.
 
-The session stays open through Phases 5 and 6, which read nothing from it,
-and is closed once, at the end of the run (Phase 6), so a step refused on
-the way closes it `abandoned` instead.
+The session stays open through Phases 5 to 7 and is closed once, at the end
+of the run (Phase 7), so a step refused on the way closes it `abandoned`
+instead.
 
 If draft creation fails, stop. When the workspace gate denied the command,
 or asked and the answer was no or nobody could answer, report the step (the
@@ -485,6 +520,13 @@ gh workflow run <workflow-file> \
   -f ref=main
 ```
 
+Once the dispatch succeeds, record it, so Phase 7 knows this run dispatched
+this version and nothing else can start its installs:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" mark <topic> dispatched <version>
+```
+
 If the dispatch is refused (the workspace gate denies it, or asks and the
 answer is no or nobody can answer) or fails, stop: report the step (the
 dispatch) and the gate's reason or the error, and close the session
@@ -510,15 +552,91 @@ Draft release with notes: <url>
 3. Use timestamp correlation to match the dispatched run (created within
    30 seconds of dispatch time)
 4. Up to 5 minutes:
-   - **Success**: Verify draft promoted via `gh release view v<version> --json isDraft`.
-     Print release URL.
+   - **Success**: Print the release URL, and whether `gh release view
+     v<version> --json isDraft` already reports it published, as a line of
+     the report. In some repositories later workflows publish the release;
+     Phase 7 owns that wait.
    - **Failure**: Print details. Suggest `gh run view <id> --log-failed`.
    - **Timeout**: Print run URL: "Workflow still running -- monitor at <url>"
+5. Record how the monitoring ended, `success`, `failure` or `timeout`:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" mark <topic> concluded <success|failure|timeout>
+   ```
+
+A failed or still-running workflow is reported above, not retried. Go on to
+Phase 7 either way; it runs no install unless the run concluded `success`.
+In skill-only mode, once the instructions are printed, close the session
+`done` as Phase 7's last step says and stop.
+
+### Phase 7: After Release
+
+The installs the repository declares for its host once a release is out:
+reinstalling the released tool, checking it reports the new version,
+re-applying a workspace. Each is a bullet under `## After release` in the
+release extension, the command in the bullet's first backtick span, as for
+`## Release checks`. `after-release.sh` reads them, waits for this run's
+release to be published, and runs them; the skill asks its questions between
+its two halves.
+
+1. **Plan.** The wait can take up to 30 minutes, longer than a foreground
+   shell call is allowed, so start it in the background and wait for it to
+   exit:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/after-release.sh" plan <topic>
+   ```
+
+   - **No output, exit 0**: the repository declares no installs. Say nothing
+     about installs and go on to the close.
+   - **Exit 2** (`refused=not-dispatched` or `refused=workflow-<conclusion>`):
+     this run didn't dispatch the release, or its workflow didn't succeed.
+     `refused=head-not-released` or `refused=head-unverified`: the commit
+     Phase 1 read the installs at isn't in the published tag on origin (a
+     local commit never pushed), or the tag couldn't be fetched to check.
+     Nothing runs; report each `not-run` line.
+   - **Exit 3** (`published=no reason=wait-ran-out` or `view-failed`): the
+     release wasn't seen published. Say the release isn't published yet (or
+     that `gh release view` failed), report each `not-run` line, and say the
+     installs can be run by hand once it is.
+   - **Exit 0 with `published=v<version>`**: the second line is the grant read
+     again (a session that held it at the go may not hold it now), and each
+     `install tracked <n> <command>` or `install local <n> <command>` line is
+     one install.
+
+   The tracked commands are read from `release.md` as committed at the
+   commit Phase 1 recorded, so an edit to the working copy during the run
+   can't add one.
+
+2. **Ask what the grant doesn't answer.** On `go=grant`, ask nothing about
+   the tracked commands. Otherwise put one AskUserQuestion that lists every
+   tracked command; a yes runs them all, and a no, or no person to answer,
+   runs none. Ask about each local command on its own, for every session,
+   holder or not, naming the command; a no skips it.
+
+3. **Run.**
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/after-release.sh" run <topic> [--tracked-approved] [--local-approved <n>]...
+   ```
+
+   Pass `--tracked-approved` for a person's yes to the tracked list, and
+   `--local-approved <n>` for each local command answered yes. Each command
+   runs from the repository root with `RELEASE_VERSION` (bare `X.Y.Z`),
+   `RELEASE_WORKSPACE_ROOT` (the nearest directory above the repository
+   holding `.niwa/workspace.toml`, or empty) and `RELEASE_DRY_RUN=0` set.
+   Run it in the background too; a reinstall or a workspace apply can be
+   slow.
+
+4. **Report.** Print each `result` line: `passed`, `failed`, `not-run` or
+   `declined`. The first command that fails stops the list, so a failed
+   reinstall or version check never reaches a workspace apply; repeat the
+   failed command's last output lines, which `run` prints after it. The
+   release stays published whatever an install does. Keep the output in this
+   run's report; never copy it into an issue or a pull request.
 
 The run ends here, and so does its state. Close the session `done`, whatever
-the monitoring found (a failed or still-running workflow is reported above,
-not retried), and in skill-only mode once the instructions are printed; its
-keys stay readable:
+the monitoring and the installs found; its keys stay readable:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> done
@@ -535,8 +653,9 @@ When `--dry-run` is passed:
 - The repository's declared checks (Phase 2 step 7) run, with
   `RELEASE_DRY_RUN=1`, and stop the dry run the same way they would stop a
   release.
-- Phase 4-6 are skipped (no draft, no dispatch), so no `## Release assets`
-  command runs and nothing is attached. The session is closed `done` at the
+- Phase 4-7 are skipped (no draft, no dispatch), so no `## Release assets`
+  command runs, nothing is attached, and no `## After release` command
+  runs. The session is closed `done` at the
   end of the dry run: `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close
   release-<topic> done`.
 - Print what would happen: which files change, what tag, what dev version
@@ -559,7 +678,7 @@ When `--dry-run` is passed:
 | 2 | A declared release check exits non-zero (other than 5) | The step repeated the last lines of the check's output; fix what they report, and run the release again; the check is named with the file that declared it |
 | 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
 | 4 | A `## Release assets` command fails or its upload fails | The draft stands. Re-run the command from the repository root with the same `RELEASE_*` values, then `gh release upload v<version> <path> --clobber` |
-| 3 | `go` prints `go=person` for a session dispatched to release | The reason says why: `first-release`, `major-bump`, `unresolved` or `direct-push` are cases the grant never answers; the others (`not-held`, `decider-person`, `no-niwa`, ...) mean niwa didn't confirm the grant. The go is asked as usual |
+| 3 | `go` prints `go=person` for a session dispatched to release | The reason says why: `unresolved` is a finding the grant never answers (see **The release grant**); the others (`not-held`, `decider-person`, `no-niwa`, ...) mean niwa didn't confirm the grant. The go is asked as usual |
 | 3 | The go is declined, or nobody can answer it | The run stopped and closed its session `abandoned`. Run `/release` again when a person can give the go |
 | 4 | The workspace gate refuses `gh release create` | The run stopped, closed its session `abandoned`, and printed the gate's reason. Ask whoever dispatched the session for the grant, or cut the release from a session that holds it; don't create the draft another way |
 | 4 | Draft creation fails | Check `gh auth status`; the notes are still in `work/notes.md`. Close the session `abandoned` and run again |
@@ -567,3 +686,6 @@ When `--dry-run` is passed:
 | 5 | Dispatch fails | Check workflow exists and permissions |
 | 6 | Workflow fails | `gh run view <id> --log-failed` |
 | 6 | Timeout | Check URL printed at timeout |
+| 7 | `plan` prints `published=no reason=wait-ran-out` | The release is still a draft after 30 minutes; a later workflow may still publish it. Once it is published, run each command it named from the repository root with `RELEASE_VERSION` set |
+| 7 | `plan` prints `refused=...` | This run didn't dispatch the release, or its workflow didn't succeed, so no install is this run's to make |
+| 7 | `run` prints `result failed` | The release stands. Fix what the command's last lines report, then run it and the `not-run` ones after it by hand, in order |
