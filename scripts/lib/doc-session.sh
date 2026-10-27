@@ -162,7 +162,7 @@ ds_record_session() {
         ds_notice "could not read the chain's dispatch (skill-session exit $rc); telemetry goes to $DS_RECORD_SESSION"
         return 0
     fi
-    parent=$(printf '%s\n' "$out" | sed -n 's/^parent=//p' | head -n 1)
+    parent=$(sed -n '/^parent=/{s/^parent=//p;q;}' <<< "$out")
     if [ -n "$parent" ] && [[ "$parent" =~ $DS_RE_SESSION ]]; then
         DS_RECORD_SESSION=$parent
     fi
