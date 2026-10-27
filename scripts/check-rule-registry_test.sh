@@ -12,6 +12,7 @@
 # Run from anywhere: bash scripts/check-rule-registry_test.sh
 
 set -u
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(CDPATH='' cd -P -- "$SCRIPT_DIR/.." && pwd -P)

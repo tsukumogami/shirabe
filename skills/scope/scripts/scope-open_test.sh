@@ -25,6 +25,7 @@
 # Exit 0 when every case that ran passed; SKIP (exit 0) when koto or jq is
 # absent. The CI job asserts koto is present first.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

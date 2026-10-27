@@ -22,6 +22,7 @@
 #   runner cases run scripts/run-evals.sh end to end against the stub.
 
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 # The cases set these themselves; a value from the caller's shell would change
 # what the runner does.

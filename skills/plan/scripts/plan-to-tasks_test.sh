@@ -18,6 +18,7 @@
 #   1 - One or more tests failed
 
 set -euo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSER_SCRIPT="$SCRIPT_DIR/plan-to-tasks.sh"

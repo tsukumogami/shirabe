@@ -44,6 +44,7 @@
 # run-tests.sh --engine turns into a failure.
 # Usage: bash skills/coordinate/scripts/decisions-replay_engine_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do

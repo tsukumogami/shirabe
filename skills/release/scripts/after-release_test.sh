@@ -20,6 +20,7 @@
 # namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd -P "$(dirname "$0")" && pwd -P)
 AR="$SCRIPT_DIR/after-release.sh"

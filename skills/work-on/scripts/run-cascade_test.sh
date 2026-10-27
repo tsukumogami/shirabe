@@ -12,6 +12,7 @@
 #   1 — one or more scenarios failed
 
 set -euo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 VERBOSE=false
 if [[ "${1:-}" == "--verbose" ]]; then
