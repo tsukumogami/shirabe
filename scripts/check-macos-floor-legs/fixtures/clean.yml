@@ -1,7 +1,10 @@
 # Passes: Linux runs its suites with bash, the macOS leg reaches the floor
 # through the runner, and the installer pipe and bash -c are not suite runs.
+# The macOS leg waits for a draft pull request to be marked ready.
 name: clean
-on: pull_request
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -9,7 +12,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
