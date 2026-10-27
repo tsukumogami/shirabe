@@ -32,13 +32,17 @@
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
 # asserted under the scratch directory. The Claude job directory is a fixture
-# (DC_CLAUDE_HOME). Needs koto, jq and git; SKIPs (exit 0) without one, or on a
-# koto without --supersede, which run-tests.sh --engine turns into a failure.
+# (DC_CLAUDE_HOME). Needs koto, jq and git; SKIPs (exit 0) without one, which
+# run-tests.sh --engine turns into a failure. On a koto without --supersede it
+# runs case 0 alone: the opener refuses the takeover and writes nothing.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
-case "$(koto init --help 2>/dev/null)" in *--supersede*) ;; *) echo "SKIP: this koto has no init --supersede"; exit 0 ;; esac
+# A koto without the fence (older than 0.28.0, the entry floor among them)
+# can't take a run over: there the suite proves the opener refuses the
+# takeover and writes nothing, and runs no other case.
+case "$(koto init --help 2>/dev/null)" in *--supersede*) SUPERSEDE=1 ;; *) SUPERSEDE=0 ;; esac
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
 
 # Synthetic Claude session ids, built here so no id-shaped literal ships.
@@ -104,6 +108,19 @@ if open_run takeover && [ "$(at)" = reconcile ] && A_CLASS=$(classes "$S" "$WD")
     [ "$NA" -ge 6 ] && ok "A: holds record, leg, taken_legs and leg_children keys ($NA)" || bad "A: holds record, leg, taken_legs and leg_children keys" "$BEFORE"
 else
     bad "A: the run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 0. on a koto without the fence, the takeover is refused -------------------
+if [ "$SUPERSEDE" = 0 ]; then
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    opener takeover "$T/work2"
+    eq "0: a koto without init --supersede refuses the takeover" "2 refused" "$ORC $(line outcome)"
+    eq "0:   ... opening no run" "" "$(line session)"
+    ALOG="$(koto session dir "$A")/koto-$A.state.jsonl"
+    eq "0:   ... and cancelling nothing" 0 "$(jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$ALOG")"
+    eq "0:   ... and A's keys are as they were" "$BEFORE" "$(keyset "$A" "$WD")"
+    echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed (this koto has no init --supersede: only the refusal ran)"
+    [ "$FAIL" -eq 0 ]; exit
 fi
 
 # ---- 1. B takes it over --------------------------------------------------------
