@@ -40,7 +40,10 @@
 #       (the find's sealed token is `found`, the run's own session holding the
 #       record, or at discipline scope `first` or `predecessor
 #       coordinate-<slug>-<stamp>`, the rotation record_open or
-#       predecessor_carry puts there); 2 read failure.
+#       predecessor_carry puts there). A successor that took a run over
+#       (koto init --supersede) has found it too, before its own find runs,
+#       once it holds koto/superseded-carry-complete and record/meta: the
+#       record its predecessor found, carried at the fence. 2 read failure.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
 #   coord-log.sh chain-start --session S
 #       Prints the created_at of the earliest run in the unbroken chain of
@@ -86,6 +89,8 @@
 #       be read.
 #   coord-log.sh live-session --scope-slug SLUG [--all]
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
+#       A run that is finished, cancelled or taken over (its log holds a
+#       session_superseded event) isn't live.
 #       With --all, prints every live one, one per line. Exit 0; 1 none.
 #   coord-log.sh slug --scope SCOPE --name NAME
 #       Prints the scope slug sessions are named by: `<scope>-<name>` lowercased,
@@ -435,9 +440,15 @@ run-facts)
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
     [ -n "$VARS" ] || die "no workflow_initialized event"
-    FOUND=$(NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture) || exit 1
-    found_token "${FOUND% sealed:*}" "$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')" || exit 1
-    (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || exit 1
+    # A successor that took the run over (koto init --supersede) holds the
+    # record its predecessor found, carried at the fence, before its own find
+    # has run: the carry's completion marker and record/meta say so.
+    if ! { FOUND=$(NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture) \
+            && found_token "${FOUND% sealed:*}" "$(printf '%s' "$VARS" | jq -r '.SCOPE // ""')" \
+            && (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1; }; then
+        "$KOTO" context exists "$SESSION" koto/superseded-carry-complete </dev/null >/dev/null 2>&1 \
+            && "$KOTO" context exists "$SESSION" record/meta </dev/null >/dev/null 2>&1 || exit 1
+    fi
     printf '%s' "$VARS" | jq -c '{
         scope: .SCOPE,
         name: (if .SCOPE == "roadmap" then (.ROADMAP | split("/") | last | sub("^ROADMAP-"; "") | sub("\\.md$"; "")) else .DISCIPLINE end),
@@ -524,6 +535,9 @@ live-session)
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
         jq -e 'select(.type == "workflow_cancelled")' "$LOG" >/dev/null && continue
+        # A run another session took over is fenced: koto refuses every write
+        # to it, so its successor is the live run.
+        jq -e 'select(.type == "session_superseded")' "$LOG" >/dev/null && continue
         [ "$ALL" = 1 ] && printf '%s\n' "$id"
         LIVE=$id
         n=$((n + 1))

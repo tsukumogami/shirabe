@@ -126,7 +126,7 @@ eq "  ... the rotation's window is in the session, with no predecessor" "$TODAY 
 
 echo "== 2. a restart inside the open rotation =="
 open_run ops
-eq "a live run on the shipped template is resumed" "resumed=1 session=$S1" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "a live run on the shipped template is resumed" "outcome=resumed resumed=1 session=$S1" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
 # A second live run of the discipline, holding no record: the rotation's run is
 # no longer the scope's only live run, so it can't be resumed.
 EXTRA=coordinate-discipline-ops-$(date -u -d '+1 minute' +%Y%m%dT%H%M%SZ 2>/dev/null || date -u -v+1M +%Y%m%dT%H%M%SZ)
@@ -146,7 +146,7 @@ eq "  ... with no second rotation" found "$(token)"
 echo "== 3. a start on the end date =="
 rotation_end_date "$S2" "$TODAY"; eq "the window now ends today" 0 $?
 open_run ops
-eq "a start on the end date is a restart" "resumed=1 session=$S2" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "a start on the end date is a restart" "outcome=resumed resumed=1 session=$S2" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
 
 echo "== 4. a start on the day after the end date =="
 rotation_end_date "$S2" "$YESTERDAY"; eq "the window ended yesterday" 0 $?

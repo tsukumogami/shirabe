@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# coordinate-takeover_engine_test.sh -- a second coordinator session takes a
+# live run over with coordinate-open.sh, against real koto (0.28.0 or later,
+# with `koto init --supersede`) and the shipped coordinate.md.
+#
+# Proves, on a run A opened by one Claude session (CLAUDE_CODE_SESSION_ID set
+# by the suite, a synthetic value per session) and holding two holdings,
+# record entries, leg keys, taken_legs and leg_children:
+#   1. the opener run by another Claude session from another directory prints
+#      outcome=continued, predecessor=A, session=B and, A's last koto event
+#      being seconds old and no Claude job for A seen, predecessor_stopped=yes;
+#   2. no session is cancelled, `koto session hierarchy B` shows B continuing
+#      A, and every key A held under legs/, taken_legs, leg_children and
+#      record/ (but record/meta and record/run, which the takeover rewrites)
+#      is in B with the same value;
+#   3. `koto next A` and a state-stored-set.sh write against A both exit
+#      non-zero naming B, and the hub's directive tells A's agent to stop and
+#      not re-arm its watch;
+#   4. B's first `koto next` exits 0 with no rebind in its log, and its first
+#      reconcile reports both holdings;
+#   5. B's record has the coordinator row naming B's session, no told row,
+#      record/meta naming B's Claude session as driver, and exactly one
+#      takeover entry naming A and B;
+#   6. the opener run again from B's Claude session prints outcome=resumed
+#      and adds no entry;
+#   7. with the liveness probe's clock 11 minutes on and no Claude job for
+#      the predecessor, the same takeover prints predecessor_stopped=no.
+#
+# Every koto call runs under koto-test-guard.sh: a scratch HOME, every
+# KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
+# asserted under the scratch directory. The Claude job directory is a fixture
+# (DC_CLAUDE_HOME). Needs koto, jq and git; SKIPs (exit 0) without one, or on a
+# koto without --supersede, which run-tests.sh --engine turns into a failure.
+set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/testdata/coordinate-engine-lib.sh"
+case "$(koto init --help 2>/dev/null)" in *--supersede*) ;; *) echo "SKIP: this koto has no init --supersede"; exit 0 ;; esac
+case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
+
+A_ID=aaaaaaaa-0000-4000-8000-000000000001
+B_ID=bbbbbbbb-0000-4000-8000-000000000002
+export DC_CLAUDE_HOME="$T/claude"
+mkdir -p "$DC_CLAUDE_HOME/jobs/bbbbbbbb"
+jq -n --arg s "$B_ID" '{sessionId: $s, name: "coord-b", state: "working"}' > "$DC_CLAUDE_HOME/jobs/bbbbbbbb/state.json"
+# B works from a directory of its own, shaped like work/.
+mkdir -p "$T/work2/.niwa" "$T/work2/.claude"
+(cd "$T/work2" && git init -q && git remote add origin https://github.com/acme/widgets.git)
+cp "$T/work/.niwa/instance.json" "$T/work2/.niwa/"; cp "$T/work/.claude/settings.json" "$T/work2/.claude/"
+
+opener() { # opener <name> <workdir>: coordinate-open.sh as the agent runs it; OUT its stdout, ORC its exit
+    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+    OUT=$(cd "$2" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
+}
+line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
+keyset() { # keyset <session> <workdir>: every carried key and its value's digest
+    local p k
+    for p in record/ legs/ taken_legs leg_children; do
+        (cd "$2" && koto context list "$1" --prefix "$p") | jq -r '.[]'
+    done | grep -v '^record/meta$' | grep -v '^record/run$' | grep -v '^koto/' | sort -u | while read -r k; do
+        printf '%s %s\n' "$k" "$( (cd "$2" && koto context get "$1" "$k") | $SHA256 | cut -d' ' -f1)"
+    done
+}
+two_holdings() {
+    record_json roadmap "$1" | jq -c --argjson a "$(holding feat-1 '{"unit": "Feature 1"}')" --argjson b "$(holding feat-2 '{"unit": "Feature 2"}')" '.holdings = [$a, $b]'
+}
+put() { printf '%s' "$3" > "$T/v.json"; (cd "$WD" && koto context add "$1" "$2" --from-file "$T/v.json" >/dev/null); }
+
+# ---- A: a run driven by one Claude session -----------------------------------
+export CLAUDE_CODE_SESSION_ID=$A_ID
+if to_reconciled takeover "$(two_holdings takeover)"; then
+    A=$S
+    ok "A: the run opens and reconciles ($REACHED)"
+    printf 'a first account line\n' > "$T/e1"; printf 'a second account line\n' > "$T/e2"
+    write_as_agent state-entry.sh --text-file "$T/e1" && write_as_agent state-entry.sh --text-file "$T/e2"
+    eq "A: two record entries are written" 0 $?
+    put "$A" legs/req-a1/work-on '{"worker":"feat-1","request":"req-a1"}'
+    put "$A" legs/req-a2/work-on '{"worker":"feat-2","request":"req-a2"}'
+    put "$A" taken_legs '["req-a1:work-on"]'
+    put "$A" leg_children '{"req-a1:work-on":"feat-1-session"}'
+    BEFORE=$(keyset "$A" "$WD")
+    NA=$(printf '%s\n' "$BEFORE" | grep -c .)
+    [ "$NA" -ge 6 ] && ok "A: holds record, leg, taken_legs and leg_children keys ($NA)" || bad "A: holds record, leg, taken_legs and leg_children keys" "$BEFORE"
+else
+    bad "A: the run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 1. B takes it over --------------------------------------------------------
+export CLAUDE_CODE_SESSION_ID=$B_ID
+opener takeover "$T/work2"
+eq "1: the opener exits 0" 0 "$ORC"
+eq "1: outcome=continued" continued "$(line outcome)"
+eq "1: predecessor= names A" "$A" "$(line predecessor)"
+B=$(line session)
+case "$B" in coordinate-roadmap-takeover-2*Z) [ "$B" != "$A" ] && ok "1: session= names a new run" || bad "1: session= names a new run" "$B" ;; *) bad "1: session= names a new run" "$OUT $(cat "$T/open.err")" ;; esac
+eq "1: A's last event is seconds old and no job for A is seen: predecessor_stopped=yes" yes "$(line predecessor_stopped)"
+
+# ---- 2. nothing cancelled, the relation, the carried keys -------------------------
+ALOG="$(koto session dir "$A")/koto-$A.state.jsonl"
+eq "2: A is not cancelled" 0 "$(jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$ALOG")"
+grep -q "^cancelled=" <<< "$OUT" && bad "2: the opener cancels nothing" "$OUT" || ok "2: the opener cancels nothing"
+(cd "$T/work2" && koto session hierarchy "$B") | grep -qx "continues: $A" && ok "2: koto session hierarchy shows B continuing A" \
+    || bad "2: koto session hierarchy shows B continuing A" "$( (cd "$T/work2" && koto session hierarchy "$B") 2>&1)"
+AFTER=$(keyset "$B" "$T/work2")
+MISSING=$(comm -23 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER"))
+eq "2: every key A held is in B with the same value" "" "$MISSING"
+
+# ---- 3. A is refused by name ---------------------------------------------------------
+NA_OUT=$(cd "$WD" && koto next "$A" --no-cleanup 2>&1); rc=$?
+if [ $rc -ne 0 ] && grep -q session_superseded <<< "$NA_OUT" && grep -q "$B" <<< "$NA_OUT"; then ok "3: koto next A is refused session_superseded, naming B"
+else bad "3: koto next A is refused session_superseded, naming B" "rc=$rc $NA_OUT"; fi
+eq "3:   ... and A's log gains nothing" "$(wc -l < "$ALOG")" "$( (cd "$WD" && koto next "$A" --no-cleanup >/dev/null 2>&1); wc -l < "$ALOG")"
+S=$A write_as_agent state-stored-set.sh --run cap 3 --by "the human"; rc=$?
+if [ $rc -ne 0 ] && grep -q "$B" "$T/w.err"; then ok "3: a state-stored-set.sh write against A is refused, naming B"
+else bad "3: a state-stored-set.sh write against A is refused, naming B" "rc=$rc $(cat "$T/w.err")"; fi
+WAIT_TEXT=$(awk '/^## wait$/{on=1; next} /^## /{on=0} on' "$TPL")
+grep -q 'session_superseded' <<< "$WAIT_TEXT" && grep -q "don't re-arm the watch" <<< "$WAIT_TEXT" \
+    && ok "3: the hub's directive tells a superseded run's agent to stop and not re-arm its watch" \
+    || bad "3: the hub's directive tells a superseded run's agent to stop and not re-arm its watch"
+
+# ---- 4. B ticks with no rebind and reconciles both holdings ------------------------------
+S=$B WD=$T/work2
+FIRST=$(tick); rc=$?
+eq "4: B's first koto next exits 0" 0 "$rc"
+BLOG="$(koto session dir "$B")/koto-$B.state.jsonl"
+eq "4: no rebind in B's log" 0 "$(jq -s '[.[] | select(.type == "variables_rebound")] | length' "$BLOG")"
+N=0; ST=$(printf '%s' "$FIRST" | jq -r '.state // empty')
+while [ "$ST" != reconcile ] && [ $N -lt 6 ]; do ST=$(at); N=$((N + 1)); done
+eq "4: B reaches its first reconcile" reconcile "$ST"
+REPORT=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$B" --md 2>&1)
+grep -q feat-1 <<< "$REPORT" && grep -q feat-2 <<< "$REPORT" && ok "4: B's first reconcile reports both holdings" \
+    || bad "4: B's first reconcile reports both holdings" "$REPORT"
+
+# ---- 5. B's record -------------------------------------------------------------------------
+RUN=$(cd "$WD" && koto context get "$B" record/run)
+eq "5: B's coordinator row names B's session" coord-b "$(printf '%s' "$RUN" | jq -r '[.[] | select(.key == "coordinator") | .value][0]')"
+eq "5: B's told set is empty" 0 "$(printf '%s' "$RUN" | jq '[.[] | select(.key == "told")] | length')"
+eq "5: B's record/meta names B's Claude session as driver" "$B_ID true" "$( (cd "$WD" && koto context get "$B" record/meta) | jq -r '"\(.driver) \(.takeover_done)"')"
+ENTRIES=$(cd "$WD" && bash "$PS/state-entry.sh" --session "$B" --list 2>/dev/null)
+TK=$(printf '%s' "$ENTRIES" | jq -c '[.[] | select(.kind == "takeover")]')
+eq "5: exactly one takeover entry" 1 "$(printf '%s' "$TK" | jq length)"
+printf '%s' "$TK" | jq -r '.[0].text' | grep -q "$A" && printf '%s' "$TK" | jq -r '.[0].text' | grep -q "$B" \
+    && ok "5:   ... naming A and B" || bad "5:   ... naming A and B" "$TK"
+
+# ---- 6. a re-run from B resumes ---------------------------------------------------------------
+NE=$(printf '%s' "$ENTRIES" | jq length)
+opener takeover "$T/work2"
+eq "6: the opener again from B's session resumes B" "0 resumed $B" "$ORC $(line outcome) $(line session)"
+eq "6:   ... adding no entry" "$NE" "$( (cd "$WD" && bash "$PS/state-entry.sh" --session "$B" --list 2>/dev/null) | jq length)"
+
+# ---- 7. a predecessor quiet for 11 minutes, with no job seen ---------------------------------------
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+if to_reconciled quiet "$(two_holdings quiet)"; then
+    A2=$S
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    DC_NOW=$(( $(date +%s) + 660 )) opener quiet "$T/work2"
+    eq "7: the takeover of a run quiet for 11 minutes" "0 continued $A2 no" "$ORC $(line outcome) $(line predecessor) $(line predecessor_stopped)"
+else
+    bad "7: the second run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

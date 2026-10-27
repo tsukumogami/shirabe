@@ -231,6 +231,31 @@
 #       that isn't one, a live pid, or a state file that is missing, isn't
 #       JSON, reads `working` or reads anything else. A caller about to
 #       remove a job refuses on 1; a wrong answer here only refuses.
+#
+#   dc_claude_job <claude-home> <claude-session-id> [<session-name>]
+#       Prints the id of the Claude Code job on this host whose
+#       <claude-home>/jobs/<id>/state.json names the Claude session by its
+#       `sessionId`, or, when no job does and a name is given, by its `name`.
+#       Returns 0 found, 1 none (no jobs directory, an id or a name that
+#       isn't one, or no state file names it).
+#
+#   dc_claude_name <claude-home> <claude-session-id>
+#       Prints the `name` the session's job state file gives it: its
+#       messaging address. Returns 0; 1 when no job names the session or its
+#       name isn't a session name.
+#
+#   dc_session_live <koto-session> <claude-session-id> <session-name>
+#       The liveness probe: 0 when the koto session is live by the
+#       coordinator's definition, 1 when it isn't, printing why either way; 2
+#       when its log can't be read. Live is: not finished or cancelled in
+#       koto, and either a running Claude job on this host for the Claude
+#       session that drives it (its job found by dc_claude_job, by id or by
+#       name, and dc_job_finished saying it isn't finished), or, when no job
+#       for it can be seen from here, a koto event in its log within the last
+#       10 minutes (600 seconds). Either argument after the koto session may
+#       be empty. DC_CLAUDE_HOME (default $HOME/.claude) and DC_NOW (epoch
+#       seconds, default the host clock) move the job directory and the
+#       clock, for tests.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -760,5 +785,62 @@ dc_job_finished() {
         working) printf 'the state file of job %s reads working\n' "$job" ;;
         *) printf "the state file of job %s reads [%s], which isn't known to be finished\n" "$job" "$st" ;;
     esac
+    return 1
+}
+
+dc_claude_job() {
+    local home="$1" sid="$2" name="${3-}" f
+    [ -d "$home/jobs" ] || return 1
+    if grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' <<<"$sid"; then
+        for f in "$home"/jobs/*/state.json; do
+            [ -f "$f" ] || continue
+            [ "$(jq -r '.sessionId // "" | strings' "$f" 2>/dev/null)" = "$sid" ] || continue
+            f=${f%/state.json}; printf '%s\n' "${f##*/}"; return 0
+        done
+    fi
+    [[ $name =~ $DC_RE_SESSION ]] || return 1
+    for f in "$home"/jobs/*/state.json; do
+        [ -f "$f" ] || continue
+        [ "$(jq -r '.name // "" | strings' "$f" 2>/dev/null)" = "$name" ] || continue
+        f=${f%/state.json}; printf '%s\n' "${f##*/}"; return 0
+    done
+    return 1
+}
+
+dc_claude_name() {
+    local home="$1" job name
+    job=$(dc_claude_job "$home" "$2") || return 1
+    name=$(jq -r '.name // "" | strings' "$home/jobs/$job/state.json" 2>/dev/null) || return 1
+    [[ $name =~ $DC_RE_SESSION ]] || return 1
+    printf '%s\n' "$name"
+}
+
+dc_session_live() {
+    local s="$1" sid="$2" name="$3" home="${DC_CLAUDE_HOME:-$HOME/.claude}" now="${DC_NOW:-$(date +%s)}" st log job why last at
+    st=$("${KOTO_BIN:-koto}" status "$s" </dev/null 2>/dev/null) || { printf '%s has no readable status\n' "$s"; return 2; }
+    if [ "$(printf '%s' "$st" | jq -r '.is_terminal')" != false ]; then
+        printf '%s is finished\n' "$s"; return 1
+    fi
+    log="$("${KOTO_BIN:-koto}" session dir "$s" </dev/null 2>/dev/null)/koto-$s.state.jsonl"
+    [ -r "$log" ] || { printf "%s's log can't be read\n" "$s"; return 2; }
+    if jq -e 'select(.type == "workflow_cancelled")' "$log" >/dev/null 2>&1; then
+        printf '%s is cancelled\n' "$s"; return 1
+    fi
+    if job=$(dc_claude_job "$home" "$sid" "$name"); then
+        # A job seen from here decides: only its own state file and pid say
+        # whether it is still running.
+        if why=$(dc_job_finished "$home" "$job" '{}'); then
+            printf "%s's Claude job %s has finished\n" "$s" "$job"; return 1
+        fi
+        printf '%s is driven by a running Claude job: %s\n' "$s" "$why"; return 0
+    fi
+    last=$(tail -n 1 "$log" | jq -r '.timestamp // empty' 2>/dev/null)
+    [ -n "$last" ] || { printf "%s's log has no timed event\n" "$s"; return 2; }
+    at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' 2>/dev/null) \
+        || { printf "%s's last event time [%s] can't be read\n" "$s" "$last"; return 2; }
+    if [ $((now - at)) -le 600 ]; then
+        printf "no Claude job for %s is seen here, and its last koto event is %ss old\n" "$s" "$((now - at))"; return 0
+    fi
+    printf "no Claude job for %s is seen here, and its last koto event is %ss old, past 10 minutes\n" "$s" "$((now - at))"
     return 1
 }
