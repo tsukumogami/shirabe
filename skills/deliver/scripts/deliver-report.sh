@@ -41,6 +41,14 @@
 #                        on error only, when the result names the execute
 #                        session's state (a lost execute leg): its state, or
 #                        absent, or unreadable
+#   worktree_repo=<owner/repo>
+#   other_repos=<owner/repo[,owner/repo...]>
+#   message=<sentences>  on reason=worktree-isolated: the repository whose
+#                        worktree the session is isolated in and the PLAN's
+#                        other repositories, when the result names them
+#                        (/deliver's own stop does; one /execute relayed
+#                        doesn't), then a fixed message built from them that
+#                        says what to do
 #   repos=<owner/repo[,owner/repo...]>
 #   pr=<url>             on merged, and on every outcome that names one PR
 #   pr=<url> waiting=<human|predecessor> [reason=<condition>]
@@ -80,9 +88,12 @@
 #                           recording a result, or the execute leg was lost:
 #                           refused, or its request missing from this host's
 #                           store), deliver:request-abandoned
-#                           (this run's request was abandoned under it), or
-#                           deliver:refused (koto refused this invocation's
-#                           own arguments)
+#                           (this run's request was abandoned under it),
+#                           deliver:worktree-isolated (the session is
+#                           isolated in one repository's worktree and the
+#                           coordinated PLAN has nodes in others, so /execute
+#                           was not started), or deliver:refused (koto
+#                           refused this invocation's own arguments)
 #
 # Exit codes: 0 lines printed; 64 usage error; 65 the input is not JSON.
 #
@@ -92,8 +103,9 @@ set -uo pipefail
 PROG=deliver-report
 
 RE_OUTCOME='^(merged|ready-awaiting-merge|paused-awaiting-merges|paused-for-review|scoped|handed-off-multi-pr|scope-ended-early|error)$'
-RE_STEP='^(scope:(push|pr-create|intake|resume-probe|refused)|execute:[a-z][a-z0-9_-]*|deliver:(intent-mismatch|child-outcome|child-absent|request-abandoned|refused))$'
-RE_REASON='^(re-evaluation|abandonment|cancelled|intent-mismatch|upstream-(wip|untracked|outside|basename)|plan-active|plan-done|(invalid-var|duplicate-var|unknown-var|var-mismatch):[A-Z][A-Z0-9_]*|template-mismatch|origin-mismatch|input-mismatch|session-terminal|session-live|leg-[a-z]+(-[a-z]+)*|merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified|execute-leg-lost:[a-z][a-z0-9_-]*(:[A-Z][A-Z0-9_]*)?)$'
+RE_STEP='^(scope:(push|pr-create|intake|resume-probe|refused)|execute:[a-z][a-z0-9_-]*|deliver:(intent-mismatch|child-outcome|child-absent|request-abandoned|refused|worktree-isolated))$'
+RE_REASON='^(re-evaluation|abandonment|cancelled|intent-mismatch|upstream-(wip|untracked|outside|basename)|plan-active|plan-done|(invalid-var|duplicate-var|unknown-var|var-mismatch):[A-Z][A-Z0-9_]*|template-mismatch|origin-mismatch|input-mismatch|session-terminal|session-live|leg-[a-z]+(-[a-z]+)*|merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified|worktree-isolated|execute-leg-lost:[a-z][a-z0-9_-]*(:[A-Z][A-Z0-9_]*)?)$'
+RE_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
 RE_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
 RE_ROLE='^(human|predecessor)$'
@@ -147,6 +159,8 @@ RESUME=$(pattern "$(field resume)" "$RE_RESUME")
 NEXT=$(pattern "$(field next)" "$RE_NEXT")
 WAITING=$(field waiting)
 EXECUTE_STATE=$(pattern "$(field execute_state)" "$RE_EXECUTE_STATE")
+WORKTREE_REPO=$(pattern "$(field worktree_repo)" "$RE_REPO")
+OTHER_REPOS=$(pattern "$(field other_repos)" "$RE_REPO_LIST")
 
 # startable is several lines by design; each `#<N> <title>` line is kept on its
 # own, and a line holding anything else is dropped.
@@ -170,6 +184,18 @@ case "$OUTCOME" in
         printf 'step=%s\n' "${STEP:-deliver:child-outcome}"
         [ -n "$REASON" ] && printf 'reason=%s\n' "$REASON"
         [ -n "$EXECUTE_STATE" ] && printf 'execute_state=%s\n' "$EXECUTE_STATE"
+        if [ "$REASON" = worktree-isolated ]; then
+            # The message is fixed text around values that passed their
+            # patterns, never prose read from the result.
+            if [ -n "$WORKTREE_REPO" ] && [ -n "$OTHER_REPOS" ]; then
+                printf 'worktree_repo=%s\n' "$WORKTREE_REPO"
+                printf 'other_repos=%s\n' "$OTHER_REPOS"
+                printf "message=Stopped before any node was cut: this session is isolated in a worktree of %s, and the PLAN also has nodes in %s. A session isolated in one repository's worktree can't run git in another repository's checkout, so run this again from a session that isn't isolated in one repository's worktree.\n" \
+                    "$WORKTREE_REPO" "${OTHER_REPOS//,/, }"
+            else
+                printf "message=Stopped before any node was cut: this session is isolated in one repository's worktree, and the PLAN has nodes in other repositories. Run this again from a session that isn't isolated in one repository's worktree.\n"
+            fi
+        fi
         ;;
     scope-ended-early)
         case "$REASON" in

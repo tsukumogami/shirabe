@@ -70,7 +70,7 @@ RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*
 # five follow-up ones among them: follow-up-node, -repo, -base, -author and
 # -closed), and the loop's follow-up-closed:<url>, a follow-up closed
 # unmerged, which carries that PR's URL.
-RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified|store-mismatch|coordination-pr-missing|coordination-pr-ambiguous|coordination-pr-mismatch|coordination-pr-closed|session-absent|recovery-unproven|recovery-plan-gone|coordination-index-missing|coordination-body-full|adopt-run-refused|follow-up-(node|repo|base|author|closed)|follow-up-closed:https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)$'
+RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified|store-mismatch|coordination-pr-missing|coordination-pr-ambiguous|coordination-pr-mismatch|coordination-pr-closed|session-absent|recovery-unproven|recovery-plan-gone|coordination-index-missing|coordination-body-full|adopt-run-refused|worktree-isolated|follow-up-(node|repo|base|author|closed)|follow-up-closed:https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)$'
 RE_ROLE='^(human|predecessor)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --[a-z][a-z-]*)*$'
 

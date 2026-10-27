@@ -88,6 +88,10 @@
 #                                  other than the recorded one: mismatch
 #   empty optional values          the same as leaving the flags out
 #   two repositories               repos sorted and comma-joined
+#   isolated in one worktree       a linked worktree of repo-a with a node in
+#                                  repo-b stops worktree-isolated before any
+#                                  PR read, its message naming both and what
+#                                  to do; a single-repo PLAN there records
 #   home_repo outside repos        recorded: a coordination PR whose
 #                                  repository holds no node (repos names only
 #                                  the node repositories, home_repo the
@@ -745,6 +749,42 @@ setup_case two-repo two-repo
 run_setup
 [ "$RC" -eq 0 ] && [ "$(val repos)" = "acme/repo-a,acme/repo-b" ] \
     && pass "two repositories: repos sorted and comma-joined" || fail "two-repo: rc=$RC repos=[$(val repos)]"
+
+# isolated_checkout -- move REPO to a linked worktree of the checkout on the
+# coordination branch, the shape a session isolated in that repository's
+# worktree runs in, with the PLAN beside it.
+isolated_checkout() {
+    local wt="$CT_WORK/$1-wt"
+    (cd "$REPO" && git checkout -q main && git worktree add -q "$wt" "$CT_CB" >/dev/null 2>&1)
+    mkdir -p "$wt/docs/plans"
+    cp "$REPO/docs/plans/PLAN-t.md" "$wt/docs/plans/"
+    REPO="$wt"
+}
+
+# The checkout is a linked worktree of acme/repo-a and the PLAN has a node in
+# acme/repo-b, which this session couldn't build: a typed stop before any PR
+# read, naming both repositories and what to do.
+setup_case isolated two-repo
+isolated_checkout isolated
+run_setup
+stopped "isolated in repo-a's worktree with a node in repo-b" worktree-isolated
+case "$(cat "$CASE/stderr")" in
+    *"worktree of acme/repo-a"*"nodes in acme/repo-b"*"isn't isolated in one repository's worktree. Nothing was written."*)
+        pass "the stop's message names both repositories and what to do" ;;
+    *) fail "isolated message: [$(cat "$CASE/stderr")]" ;;
+esac
+if ct_calls | grep -q '^pr '; then
+    fail "isolated: a pull request was read before the stop: $(ct_calls | grep '^pr ' | head -1)"
+else
+    pass "the isolation stop comes before any pull request read"
+fi
+
+setup_case isolated-one
+isolated_checkout isolated-one
+run_setup
+[ "$RC" -eq 0 ] && [ "$(val repos)" = acme/repo-a ] \
+    && pass "a single-repo PLAN in that repository's worktree records as before" \
+    || fail "isolated-one: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
 
 # The coordination PR lives in a planning repository that holds none of the
 # PLAN's nodes: every node names acme/repo-a, the checkout is acme/plans.

@@ -63,6 +63,29 @@ no leg to record a refusal on (see Answering a Caller's Leg).
 earlier run: a re-invocation without `--no-merge` merges, and one with it
 doesn't, whatever the previous run did.
 
+## Where to Run It
+
+A coordinated PLAN with nodes in more than one repository needs a session that
+isn't isolated in one repository's worktree. A harness that isolates a session
+in a linked worktree lets it, and every step agent it starts, run git only in
+that worktree, so the nodes in other repositories can't be built from there.
+Scoping may well run in such a worktree; building the other repositories'
+nodes can't. Whoever dispatches `/deliver` on work that may span repositories
+should start it outside one.
+
+The run checks this as soon as the PLAN's repositories are known: right after
+the scoping re-check, before `/execute` starts and before any node is cut. When
+the session sits in a linked worktree and the coordinated PLAN has nodes in
+repositories other than that worktree's, the run ends `outcome=error` with
+`step=deliver:worktree-isolated`, and the report names the worktree's
+repository (`worktree_repo=`) and the PLAN's others (`other_repos=`) and says
+to run it again from a session that isn't isolated in one repository's
+worktree. The documents and the scoping PR `/scope` published stay, so
+`/deliver <topic>` from such a session picks the topic up where it stopped. A
+single-pr PLAN, and a coordinated one whose nodes all land in the worktree's
+own repository, run as before. `/execute` makes the same check at its own
+setup when it is run directly on a coordinated PLAN.
+
 ## Moving a Run
 
 A `/deliver` run's sessions move between workspaces with session import, each

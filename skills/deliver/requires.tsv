@@ -45,7 +45,9 @@
 # context exists` and `koto context get`. deliver-execute-leg.sh reads
 # checked_pr the same way for the handover, and for a lost execute leg reads
 # `koto status` of the execute session and writes execute_state with `koto
-# context add`.
+# context add`. isolation_check's skills/execute/scripts/worktree-isolation.sh
+# clears its verdict keys with `koto context remove` and writes them with
+# `koto context add`.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
 koto	status	-	always
@@ -72,6 +74,9 @@ koto	request close	-	always
 # Every lookup carries the session's run identity, which
 # skills/execute/scripts/run-id.sh reads with `koto context exists` and
 # `koto context get`; deliver-open.sh mints it once with `koto context add`.
+# worktree-isolation.sh reads git's worktree layout and, through
+# record-write-set.sh, the origin remote (falling back to `gh repo view`) and
+# skills/plan/scripts/plan-to-tasks.sh's node list with jq.
 # jq maps the invocation's tokens and reads koto's and gh's JSON. Every
 # repository write happens inside /scope and /execute, under their own
 # declarations.

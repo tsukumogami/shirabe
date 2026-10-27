@@ -267,6 +267,26 @@ to `node-cut.sh` with `--repo-dir`. A node pushed from the planning checkout
 instead is refused before anything is pushed, and so is a PR index line other
 than the coordination PR's own that names the planning repository.
 
+## Where a multi-repo run needs to start
+
+A PLAN with nodes in more than one repository needs a session that isn't
+isolated in one repository's worktree. Some harnesses confine a session to a
+linked worktree and refuse every git command it, or any agent it starts, aims
+at another repository's checkout. Such a session can scope the work and build
+the nodes in its own repository, but not the rest, so a coordinator that
+dispatches `/deliver` or `/execute` on work that may span repositories should
+start it from a session that isn't confined that way.
+
+Both entry points check before any node is cut. `/deliver` runs the check
+right after its scoping re-check, as soon as the PLAN's repositories are known,
+and ends `step=deliver:worktree-isolated`; `/execute` runs it first thing in
+its coordinated setup and ends `step=execute:coord_setup` with
+`reason=worktree-isolated`. Either way the message names the worktree's
+repository, the PLAN's other repositories, and says to run it again from a
+session that isn't isolated in one repository's worktree. The check passes a
+session in a repository's main checkout, and a PLAN whose nodes all land in the
+worktree's own repository.
+
 ## Visibility
 
 Cross-repo references use `owner/repo:path`. A public coordination PR never
