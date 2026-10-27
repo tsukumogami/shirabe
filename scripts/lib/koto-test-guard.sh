@@ -21,7 +21,9 @@
 #     KOTO_SESSION_* variable and every AWS_* variable are unset;
 #   - HOME is a new directory under KOTO_TEST_GUARD_DIR, a directory made
 #     here with mkdir under TMPDIR (not with mktemp, so a suite run under a
-#     failing mktemp still reaches its own mktemp check);
+#     failing mktemp still reaches its own mktemp check). It is named
+#     suite-scratch.*, without "koto": suites assert that output naming HOME
+#     says nothing about koto;
 #   - when koto is on PATH, `koto session dir`, run from the suite's current
 #     directory so a .koto/config.toml there counts, printed a path under
 #     KOTO_TEST_GUARD_DIR. With no koto on PATH there is nothing to ask, and
@@ -59,17 +61,17 @@ _ktg_tmp=${TMPDIR:-/tmp}
 _ktg_tmp=${_ktg_tmp%/}
 _ktg_dir=""
 for _ktg_try in 1 2 3 4 5; do
-    _ktg_dir="$_ktg_tmp/koto-test-guard.$$.$RANDOM"
+    _ktg_dir="$_ktg_tmp/suite-scratch.$$.$RANDOM"
     mkdir -m 700 "$_ktg_dir" && break
     _ktg_dir=""
 done
 [ -n "$_ktg_dir" ] || _ktg_fail "could not make a directory under $_ktg_tmp"
 KOTO_TEST_GUARD_DIR=$(cd -P "$_ktg_dir" && pwd -P)
 case "$KOTO_TEST_GUARD_DIR" in
-    */koto-test-guard.*) ;;
+    */suite-scratch.*) ;;
     *) _ktg_fail "could not resolve $_ktg_dir" ;;
 esac
-trap 'case "${KOTO_TEST_GUARD_DIR:-}" in */koto-test-guard.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+trap 'case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
 export HOME="$KOTO_TEST_GUARD_DIR/home"
 mkdir "$HOME" || _ktg_fail "could not make $HOME"
 

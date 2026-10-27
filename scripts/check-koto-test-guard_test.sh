@@ -34,7 +34,7 @@ BASH_BIN=$(command -v bash)
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-koto-test-guard-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 trap 'case "$T" in */check-koto-test-guard-test.*) rm -rf "$T" ;; esac
-case "${KOTO_TEST_GUARD_DIR:-}" in */koto-test-guard.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
 PASS=0 FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
@@ -164,7 +164,7 @@ case "$(cat "$LOG")" in
     *) bad "dummy backend settings: koto's first call is the probe" "$(cat "$LOG")" ;;
 esac
 DIR=$(sed -n 's/^DIR=//p' <<<"$OUT")
-case "$DIR" in "$T/tmp/koto-test-guard."*) ok "the guard's directory is under TMPDIR" ;; *) bad "the guard's directory is under TMPDIR" "$DIR" ;; esac
+case "$DIR" in "$T/tmp/suite-scratch."*) ok "the guard's directory is under TMPDIR" ;; *) bad "the guard's directory is under TMPDIR" "$DIR" ;; esac
 case "$OUT" in *"HOME=$DIR/home"*) ok "HOME is under the guard's directory" ;; *) bad "HOME is under the guard's directory" "$OUT" ;; esac
 [ -n "$DIR" ] && [ ! -e "$DIR" ] && ok "the guard's directory is gone after a suite that sets no trap" \
     || bad "the guard's directory is gone after a suite that sets no trap" "$DIR"
