@@ -22,8 +22,17 @@
 #                    repository of the current directory. A node in another
 #                    repository is cut in that repository's clone.
 #   --worktree-root  where node worktrees live; default
-#                    <git-common-dir>/shirabe-node-worktrees, outside every
-#                    work tree. The worktree is <root>/<slug>-<node-id>.
+#                    <top-level>-node-worktrees, next to the checkout this
+#                    runs in (or the --repo-dir clone): outside every work
+#                    tree and every .git directory. When /execute runs in a
+#                    session isolated to its own worktree, the top-level is
+#                    that worktree, so its step agents run git next to it
+#                    rather than inside the shared checkout's .git, where a
+#                    worktree guard refuses them. The worktree is
+#                    <root>/<slug>-<node-id>. A node
+#                    worktree is found again by its branch (git worktree
+#                    list), wherever it lives, so one an earlier version made
+#                    under <git-common-dir>/shirabe-node-worktrees is reused.
 #
 # Output (stdout), one key=value per line:
 #   worktree=<absolute path>
@@ -77,8 +86,8 @@ if [ -n "$REPO_DIR" ]; then
 fi
 TOP=$(git rev-parse --show-toplevel) || usage_error "not inside a git repository"
 cd -- "$TOP" || exit 64
-COMMON=$(CDPATH='' cd "$(git rev-parse --git-common-dir)" && pwd -P) || usage_error "no git common dir"
-[ -n "$WT_ROOT" ] || WT_ROOT="$COMMON/shirabe-node-worktrees"
+TOP=$(pwd -P) || exit 64
+[ -n "$WT_ROOT" ] || WT_ROOT="$(dirname -- "$TOP")/$(basename -- "$TOP")-node-worktrees"
 mkdir -p -- "$WT_ROOT" || usage_error "cannot create [$WT_ROOT]"
 WT_ROOT=$(CDPATH='' cd "$WT_ROOT" && pwd -P) || usage_error "cannot resolve [$WT_ROOT]"
 
