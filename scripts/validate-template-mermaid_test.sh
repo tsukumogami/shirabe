@@ -3,6 +3,7 @@
 # Usage: bash scripts/validate-template-mermaid_test.sh
 
 set -euo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT="$(dirname "$0")/validate-template-mermaid.sh"
 PASS=0

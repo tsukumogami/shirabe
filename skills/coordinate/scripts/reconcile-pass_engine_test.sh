@@ -25,6 +25,7 @@
 # stand-in's clock, not the wall's. SKIPs (exit 0) without koto.
 # Usage: bash skills/coordinate/scripts/reconcile-pass_engine_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -u
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 # Tests for rule-registry.sh.
 #

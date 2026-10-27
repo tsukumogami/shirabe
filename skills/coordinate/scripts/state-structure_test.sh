@@ -30,6 +30,7 @@
 #
 # Usage: bash skills/coordinate/scripts/state-structure_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/test-lib.sh"

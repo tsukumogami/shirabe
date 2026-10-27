@@ -37,6 +37,7 @@
 #
 # Exit 0 when every case passed; SKIP (exit 0) when koto or jq is absent.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

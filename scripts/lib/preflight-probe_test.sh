@@ -42,6 +42,7 @@
 #   which is the form every declaration names.
 
 set -uo pipefail
+. "$(dirname "$0")/../../scripts/lib/koto-test-guard.sh" || exit 1
 
 # The entry point runs under LC_ALL=C and the helper's character classes are
 # byte ranges, so the harness runs there too. A unit case under the developer's

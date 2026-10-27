@@ -9,6 +9,7 @@
 # Usage: skills/scope/scripts/hop-complete_test.sh
 # Exit 0 when every case behaves as required.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

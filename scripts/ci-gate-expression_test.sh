@@ -27,6 +27,7 @@
 # Usage: bash scripts/ci-gate-expression_test.sh
 
 set -euo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

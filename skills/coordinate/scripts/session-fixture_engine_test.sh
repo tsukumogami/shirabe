@@ -33,6 +33,7 @@
 # run-tests.sh --engine turns into a failure.
 # Usage: bash skills/coordinate/scripts/session-fixture_engine_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)

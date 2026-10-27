@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+. "$(dirname "$0")/../../scripts/lib/koto-test-guard.sh" || exit 1
 
 # Tests for check-normal-runs-unchanged.sh, against a throwaway repository.
 #

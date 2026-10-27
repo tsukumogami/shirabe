@@ -13,6 +13,7 @@
 # `gh pr view`); and stale keys from an earlier run that get cleared.
 # Needs bash, git and jq.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/record-executed-report.sh"
