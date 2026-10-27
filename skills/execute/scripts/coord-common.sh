@@ -492,8 +492,11 @@ cc_pr_node() {
 # PR's body against it (--recorded), the only GitHub read.
 #
 # A record without `deferrals` was pushed before node-push.sh recorded them
-# (or rebuilt by record-coord-setup.sh's recover); its children are read as
-# they were then, from here. They are `work-on-<slug>-<node>-<item>` for each
+# (or rebuilt by record-coord-setup.sh's recover, which reads GitHub and can't
+# know them); its children are read as they were then, from here. Under the
+# cloud backend those reads are refused, so such a node stops the pass at
+# error:execute:status-read, failing closed, until node-push.sh pushes it
+# again and records its deferrals. They are `work-on-<slug>-<node>-<item>` for each
 # comma-joined item; a child holding `verification_deferral` deferred. The
 # run's own reason is not passed here: every child the run deferred holds it,
 # and node-push.sh wrote it into the body. With no items (the PLAN gone, so
