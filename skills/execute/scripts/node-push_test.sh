@@ -121,7 +121,10 @@
 #                                                pushed, run/node recorded,
 #                                                the child's reason in the
 #                                                node PR, no call refused
-#     a node in another repository               pushed and recorded, no call
+#     the loop's next pass over it, from the     evaluate:<node>, no call
+#     coordination checkout                      refused, no koto call on a
+#                                                work item's session
+#     a node in another repository              pushed and recorded, no call
 #                                                refused
 #     the script run in the node worktree        72, nothing pushed, recorded
 #                                                or written
@@ -1389,6 +1392,19 @@ fi
     || fail "koto calls refused: $(ct_refused)"
 part2 | grep -qxF "Reason: $REASON2" && pass "a bound child's deferral is read from the node worktree and recorded in the node PR" \
     || fail "bound child's deferral: part2=[$(part2)]"
+# The loop's next pass, in the coordination checkout, over the node PR just
+# opened: the work item's session answers only in the node worktree, so the
+# deferral check must not read it from here. It reads no child session at all.
+: > "$CASE/koto-calls.log"
+NEXT_OUT=$(cd "$REPO" && bash "$SCRIPT_DIR/coordinated-next.sh" --session "$S" --plan docs/plans/PLAN-t.md --slug t \
+    --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>"$CASE/next-stderr")
+if [ "$NEXT_OUT" = "evaluate:$CT_CORE" ] && [ -z "$(ct_refused)" ]; then
+    pass "the loop's next pass over the pushed node, its child bound to the node worktree: evaluate:$CT_CORE, no koto call refused"
+else
+    fail "the loop's next pass over the pushed node: [$NEXT_OUT]; $(ct_refused) $(grep -v '^\[plan-to-tasks\]' "$CASE/next-stderr" | tail -2)"
+fi
+grep -q "work-on-t-" "$CASE/koto-calls.log" && fail "the loop read a work item's session: $(grep -m1 "work-on-t-" "$CASE/koto-calls.log")" \
+    || pass "the loop's next pass makes no koto call on a work item's session"
 
 # A node in another repository: its worktree is in a clone of acme/repo-b.
 np_case bound-other-repo
