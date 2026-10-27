@@ -27,7 +27,8 @@
 //! - **L03**: a cycle detected in the upstream graph. The message
 //!   names every doc participating in the cycle.
 //! - **L04**: a chain member references an `upstream:` parent that
-//!   does not exist in the index.
+//!   does not resolve to a file in the repository. A parent that exists
+//!   but isn't indexed, such as a STRATEGY, ends the walk instead.
 //! - **L05**: defensive parsing fallback — the walker could not
 //!   extract `upstream:` or `status:` from a chain-participating doc.
 //! - **L06**: an outline-AC checkbox on an outline-shaped PLAN member is
@@ -639,9 +640,15 @@ pub fn canonicalize_indexed_path(path: &Path) -> Option<PathBuf> {
 /// members. That cannot hide a cycle. Any cycle among a node's
 /// ancestors is a property of the graph above it, so the branch that
 /// expanded the node first walked into it and reported it.
-fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
+///
+/// An upstream the index doesn't hold is L04 only when it doesn't resolve
+/// to a file under `root`. One that does is an artifact the walk doesn't
+/// model -- a PRD's STRATEGY, or a document whose parse failure is already
+/// L05 -- and the branch ends there.
+fn discover_chains(idx: &DocIndex, root: &Path) -> (Vec<Chain>, Vec<Walk>) {
+    let canon_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let mut chains = Vec::new();
-    let mut errors = Vec::new();
+    let mut walks = Vec::new();
 
     for indexed in idx.values() {
         let root_kind = match indexed.format.as_str() {
@@ -651,6 +658,7 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
         };
 
         let mut members: Vec<ChainMember> = Vec::new();
+        let mut errors: Vec<ValidationError> = Vec::new();
         // Nodes this chain's walk has already expanded, over the whole
         // traversal. Guards against re-walking a reconvergence point,
         // and against recording a diamond's shared ancestor twice.
@@ -692,6 +700,7 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
 
             let node = match idx.get(&cur_path) {
                 Some(n) => n,
+                None if cur_path.is_file() && cur_path.starts_with(&canon_root) => continue,
                 None => {
                     // Upstream points at a missing parent — L04. Only
                     // this branch ends; sibling entries still resolve.
@@ -729,10 +738,8 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
             // `upstream:` points at the STRATEGY it operationalizes —
             // a member of the strategic chain, which this walk does
             // not model. `build_doc_index` never indexes
-            // `docs/strategies/` or `docs/visions/`, so following that
-            // edge reports a present file as a missing chain member
-            // (L04). The strategic chain is out of scope here, not
-            // absent.
+            // `docs/strategies/` or `docs/visions/`; the strategic
+            // chain is out of scope here, not absent.
             //
             // Both stops happen after the push above, so the stopping
             // node is itself a member.
@@ -749,6 +756,11 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                 frontier.push((parent.clone(), child_branch.clone()));
             }
         }
+
+        walks.push(Walk {
+            reached: expanded,
+            errors,
+        });
 
         if members.is_empty() {
             continue;
@@ -768,7 +780,19 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
         });
     }
 
-    (chains, errors)
+    (chains, walks)
+}
+
+/// One root's walk in [`discover_chains`]: every path it reached, present
+/// or not, and the findings (L03, L04) it raised.
+///
+/// Kept per root so the chain-targeted mode can report the walks that
+/// reached its target and leave every other walk to the whole-tree mode.
+/// `reached` outlives a cyclic walk whose chain is dropped, which is how a
+/// cycle stays visible to a run targeting a document on it.
+struct Walk {
+    reached: HashSet<PathBuf>,
+    errors: Vec<ValidationError>,
 }
 
 /// Infer the posture from the root doc's frontmatter.
@@ -1473,9 +1497,8 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
 /// as the obligation map is built (see [`effective_posture`]).
 ///
 /// The scope is every indexed document. Corpus-integrity findings —
-/// the index and chain errors, L03/L04/L05 — are whole-corpus here and
-/// in the chain-targeted mode alike; they are properties of the corpus
-/// rather than of a document under review.
+/// the index and chain errors, L03/L04/L05 — are whole-corpus here; the
+/// chain-targeted mode keeps only the ones its target's chains raise.
 ///
 /// `ReviewPosture::Ready` is the successor of the old `strict == true`:
 /// the CI workflow asserts `Ready` when the PR is ready-for-review
@@ -1488,8 +1511,8 @@ pub fn run_lifecycle_check(
 ) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
     let inv = build_inverse_upstream(&idx);
-    let (mut chains, chain_errors) = discover_chains(&idx);
-    errors.extend(chain_errors);
+    let (mut chains, walks) = discover_chains(&idx, root);
+    errors.extend(walks.into_iter().flat_map(|w| w.errors));
 
     // This run is the pull-request gate, so an outline-shaped multi-pr
     // PLAN's chain is judged at the multi-pr posture its pull requests move
@@ -1794,7 +1817,9 @@ fn check_l10_outline_steps(chain: &Chain) -> Vec<ValidationError> {
 /// The narrowing is a scope, not a different check. Both modes state
 /// the same thing about a document they both report on, because both
 /// read the same obligation map, built over every chain in the corpus.
-/// Corpus-integrity findings (L03/L04/L05) are whole-corpus here too.
+/// Corpus-integrity findings are scoped the same way: the L03 and L04 of
+/// the walks that reached `doc_path`, and the L05 of the documents those
+/// walks reached. Another chain's drift is the whole-tree mode's to report.
 ///
 /// The `doc_path` argument may name any chain member: PLAN, DESIGN,
 /// PRD, BRIEF, or ROADMAP. The function canonicalizes the path,
@@ -1884,16 +1909,21 @@ pub fn run_lifecycle_chain_check(
         }
     };
 
-    let (idx, mut errors) = build_doc_index(&root);
+    let (idx, index_errors) = build_doc_index(&root);
 
     // The doc must appear in the index we just built. If it does
     // not, the index-building step rejected it (e.g. frontmatter
-    // parse failure) and the error is already in `errors`. Return
-    // those errors as-is.
+    // parse failure) and the error is among `index_errors`. Return
+    // that error alone.
     if !idx.contains_key(&canon_doc) {
+        let target = rel_path_lossy(&canon_doc);
+        let mut errors: Vec<ValidationError> = index_errors
+            .into_iter()
+            .filter(|e| e.file == target)
+            .collect();
         if errors.is_empty() {
             errors.push(error(
-                rel_path_lossy(&canon_doc),
+                target,
                 "L05",
                 "doc not found in lifecycle index (frontmatter parse failure or non-standard placement)",
             ));
@@ -1902,8 +1932,21 @@ pub fn run_lifecycle_chain_check(
     }
 
     let inv = build_inverse_upstream(&idx);
-    let (chains, chain_errors) = discover_chains(&idx);
-    errors.extend(chain_errors);
+    let (chains, walks) = discover_chains(&idx, &root);
+
+    // Corpus-integrity findings, narrowed to the walks that reached the
+    // target: their own L03/L04, and the L05 of a document they reached.
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for walk in walks.into_iter().filter(|w| w.reached.contains(&canon_doc)) {
+        reached.extend(walk.reached.iter().map(|p| rel_path_lossy(p)));
+        errors.extend(walk.errors);
+    }
+    errors.extend(
+        index_errors
+            .into_iter()
+            .filter(|e| reached.contains(&e.file)),
+    );
 
     // The obligation map is built over every chain in the corpus, not
     // only the ones in scope. That is what makes the two modes agree:
@@ -2857,7 +2900,8 @@ mod tests {
     /// chain shape rather than on emitted findings.
     fn chains_of(root: &Path) -> (Vec<Chain>, Vec<ValidationError>) {
         let (idx, _) = build_doc_index(root);
-        discover_chains(&idx)
+        let (chains, walks) = discover_chains(&idx, root);
+        (chains, walks.into_iter().flat_map(|w| w.errors).collect())
     }
 
     fn member_names(chain: &Chain) -> Vec<String> {
@@ -3461,10 +3505,10 @@ mod tests {
     }
 
     #[test]
-    fn corpus_integrity_findings_are_whole_corpus_in_both_modes() {
-        // An unrelated chain's cycle (L03) is a property of the corpus,
-        // not of the document under review, so the targeted mode
-        // reports it even though none of its documents are in scope.
+    fn corpus_integrity_findings_follow_each_mode_s_scope() {
+        // An unrelated chain's cycle (L03) is the whole-tree mode's to
+        // report. The targeted mode reports it only to a run targeting a
+        // document on that chain.
         let root = build_tree(&[
             (
                 "docs/prds/PRD-cyc-a.md",
@@ -3510,11 +3554,17 @@ mod tests {
             "the fixture needs a cycle to report, got {:?}",
             whole
         );
-        assert_eq!(
-            l03s(&targeted),
-            l03s(&whole),
-            "the cycle is corpus integrity and belongs in both modes",
+        assert!(
+            l03s(&targeted).is_empty(),
+            "the cycle is not on PLAN-clean's chain, got {:?}",
+            targeted
         );
+        let on_cycle = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-cyc.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert_eq!(l03s(&on_cycle), l03s(&whole), "the cycle is PLAN-cyc's own");
     }
 
     // ---- root versus member ----
