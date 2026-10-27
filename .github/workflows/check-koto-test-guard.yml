@@ -1,0 +1,27 @@
+name: Check koto test guard
+
+on:
+  pull_request:
+    paths:
+      - '**/*_test.sh'
+      - 'scripts/lib/koto-test-guard.sh'
+      - 'scripts/check-koto-test-guard.sh'
+      - '.github/workflows/check-koto-test-guard.yml'
+
+jobs:
+  check-koto-test-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A suite that runs koto with the caller's environment can write its
+      # sessions to the caller's store or cloud bucket: a scratch HOME doesn't
+      # stop KOTO_SESSIONS_BASE or the KOTO_SESSION_* backend settings
+      # (shirabe#1288). Every suite that names koto sources
+      # scripts/lib/koto-test-guard.sh before it does.
+      #
+      # The test harness runs the check against the tree as its first case, then
+      # drives the guard itself with a stub koto, so this one step covers the
+      # scan, the guard, and their regression cases.
+      - name: Check every suite that runs koto sources the guard
+        run: bash scripts/check-koto-test-guard_test.sh
