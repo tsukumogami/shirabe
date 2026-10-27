@@ -42,8 +42,9 @@
 # /deliver's isolation_check state to route on: it removes
 # isolation_verdict, worktree_repo and other_repos first, then writes
 # isolation_verdict (pass or isolated) and, on isolated, worktree_repo and
-# other_repos. The message is not stored: deliver-report.sh rebuilds it from
-# those two keys.
+# other_repos. The message is not stored: deliver-report.sh writes its own,
+# shorter one (without the worktree's path) from those two keys, so a change
+# to the wording here needs the same change there.
 #
 # Exit codes:
 #   0   pass; with --session, any verdict recorded

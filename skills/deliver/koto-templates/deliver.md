@@ -573,8 +573,9 @@ states:
         nodes. Read the command's own output above: exit 65 means it could
         not decide (not in a git repository, this checkout's owner/repo
         unreadable, or the PLAN not readable into nodes), 66 a `koto context`
-        call failed, and 64 a usage error. The keys were cleared first, so
-        nothing stale is read as current. Fix the cause and tick again; there
+        call failed, and 64 a usage error. On 65 and 66 the keys were cleared
+        first, so nothing stale is read as current. Fix the cause and tick
+        again; there
         is no evidence to submit and no override.
     gates:
       isolation_pass:

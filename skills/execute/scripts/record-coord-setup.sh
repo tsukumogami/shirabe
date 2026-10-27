@@ -140,8 +140,9 @@
 # next transition renders again).
 #
 # Every check runs before any write, so a stop changes no key and, adopt's
-# stamps aside, nothing on GitHub. The first runs before any read too: with
-# the PLAN present, worktree-isolation.sh stops worktree-isolated when this
+# stamps aside, nothing on GitHub. The first comes right after the argument
+# checks, before any GitHub read or koto call, and only while the PLAN is
+# present: worktree-isolation.sh stops worktree-isolated when this
 # session is isolated in one repository's worktree and the PLAN has PR nodes
 # in other repositories, which it couldn't build; its message names both and
 # what to do.
@@ -266,8 +267,9 @@ SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
 
 # A session isolated in one repository's worktree can't run git in another
-# repository's checkout, so a PLAN with nodes there stops here, before this
-# script reads or writes anything and before any node is cut.
+# repository's checkout, so a PLAN with nodes there stops here, before any
+# GitHub read or koto call and before any node is cut. With the PLAN gone
+# (the cascade deleted it) no node is left to cut, so the check is skipped.
 if [ "$PLAN_PRESENT" -eq 1 ]; then
     ISOLATION=$(bash "$COORD_SELF_DIR/worktree-isolation.sh" --plan "$PLAN" </dev/null)
     case $? in
