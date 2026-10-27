@@ -4,8 +4,9 @@
 # with `koto init --supersede`) and the shipped coordinate.md.
 #
 # Proves, on a run A opened by one Claude session (CLAUDE_CODE_SESSION_ID set
-# by the suite, a synthetic value per session) and holding two holdings,
-# record entries, leg keys, taken_legs and leg_children:
+# by the suite, a synthetic value per session) and holding one dispatched and
+# one parked holding (a verified, ready pull request waiting on a merge),
+# record entries, two open legs (one taken), taken_legs and leg_children:
 #   1. the opener run by another Claude session from another directory prints
 #      outcome=continued, predecessor=A, session=B and, A's last koto event
 #      being seconds old and no Claude job for A seen, predecessor_stopped=yes;
@@ -16,13 +17,15 @@
 #   3. `koto next A` and a state-stored-set.sh write against A both exit
 #      non-zero naming B, and the hub's directive tells A's agent to stop and
 #      not re-arm its watch;
-#   4. B's first `koto next` exits 0 with no rebind in its log, and its first
-#      reconcile reports both holdings;
+#   4. B's first `koto next` exits 0 with no rebind in its log, its first
+#      reconcile reports both holdings with the classification A's gave them,
+#      and taken_legs and leg_children are as A left them;
 #   5. B's record has the coordinator row naming B's session, no told row,
 #      record/meta naming B's Claude session as driver, and exactly one
 #      takeover entry naming A and B;
 #   6. the opener run again from B's Claude session prints outcome=resumed
-#      and adds no entry;
+#      and adds no entry, and the next brief dispatch-worker.sh renders from
+#      B tells the worker to report to B's session;
 #   7. with the liveness probe's clock 11 minutes on and no Claude job for
 #      the predecessor, the same takeover prints predecessor_stopped=no.
 #
@@ -64,13 +67,30 @@ keyset() { # keyset <session> <workdir>: every carried key and its value's diges
 two_holdings() {
     record_json roadmap "$1" | jq -c --argjson a "$(holding feat-1 '{"unit": "Feature 1"}')" --argjson b "$(holding feat-2 '{"unit": "Feature 2"}')" '.holdings = [$a, $b]'
 }
+# The takeover run's holdings: feat-1 dispatched on #12, feat-2 parked on #13,
+# verified at its head and ready.
+VH=1111111111111111111111111111111111111111
+dispatched_and_parked() {
+    record_json roadmap "$1" | jq -c --argjson a "$(holding feat-1 '{"unit": "Feature 1"}')" \
+        --argjson b "$(holding feat-2 "$(jq -nc --arg h "$VH" '{unit: "Feature 2", branch: "feat/y", verified_head: $h, pull_request: "[#13](https://github.com/acme/widgets/pull/13)"}')")" \
+        '.holdings = [$a, $b]'
+}
+classes() { # classes <session> <workdir>: each holding's topic and next_code in the run's sealed reconcile report
+    (cd "$2" && bash "$PS/reconcile-report-get.sh" --session "$1") | jq -c '[.report.holdings[] | {topic, next_code}] | sort_by(.topic)'
+}
 put() { printf '%s' "$3" > "$T/v.json"; (cd "$WD" && koto context add "$1" "$2" --from-file "$T/v.json" >/dev/null); }
 
 # ---- A: a run driven by one Claude session -----------------------------------
 export CLAUDE_CODE_SESSION_ID=$A_ID
-if to_reconciled takeover "$(two_holdings takeover)"; then
+db '.prs = [{repo: "acme/widgets", number: 12, title: "feat: one", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
+        baseRefName: "main", headRefName: "feat/x", headRefOid: "2222222222222222222222222222222222222222", author: "alice", mergeStateStatus: "CLEAN"},
+    {repo: "acme/widgets", number: 13, title: "feat: two", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
+        baseRefName: "main", headRefName: "feat/y", headRefOid: $h, author: "alice", mergeStateStatus: "CLEAN"}]' --arg h "$VH"
+three_features takeover; seed_record takeover "$(dispatched_and_parked takeover)"
+if open_run takeover && [ "$(at)" = reconcile ] && A_CLASS=$(classes "$S" "$WD") && REACHED=$(at --with-data '{"reconciled":"reported"}') && [ -n "$REACHED" ]; then
     A=$S
     ok "A: the run opens and reconciles ($REACHED)"
+    eq "A: its reconcile classifies two holdings" 2 "$(printf '%s' "$A_CLASS" | jq length)"
     printf 'a first account line\n' > "$T/e1"; printf 'a second account line\n' > "$T/e2"
     write_as_agent state-entry.sh --text-file "$T/e1" && write_as_agent state-entry.sh --text-file "$T/e2"
     eq "A: two record entries are written" 0 $?
@@ -130,6 +150,10 @@ eq "4: B reaches its first reconcile" reconcile "$ST"
 REPORT=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$B" --md 2>&1)
 grep -q feat-1 <<< "$REPORT" && grep -q feat-2 <<< "$REPORT" && ok "4: B's first reconcile reports both holdings" \
     || bad "4: B's first reconcile reports both holdings" "$REPORT"
+eq "4:   ... with the classification A's reconcile gave them" "${A_CLASS:-A unclassified}" "$(classes "$B" "$WD")"
+eq "4: B took neither of A's legs again: taken_legs as A left it" '["req-a1:work-on"]' "$( (cd "$WD" && koto context get "$B" taken_legs) | jq -c .)"
+eq "4:   ... and leg_children as A left it" '{"req-a1:work-on":"feat-1-session"}' "$( (cd "$WD" && koto context get "$B" leg_children) | jq -c .)"
+eq "4: with nobody told B's address, the handover gate holds B at reconcile" reconcile "$(at --with-data '{"reconciled":"reported"}')"
 
 # ---- 5. B's record -------------------------------------------------------------------------
 RUN=$(cd "$WD" && koto context get "$B" record/run)
@@ -147,6 +171,39 @@ NE=$(printf '%s' "$ENTRIES" | jq length)
 opener takeover "$T/work2"
 eq "6: the opener again from B's session resumes B" "0 resumed $B" "$ORC $(line outcome) $(line session)"
 eq "6:   ... adding no entry" "$NE" "$( (cd "$WD" && bash "$PS/state-entry.sh" --session "$B" --list 2>/dev/null) | jq length)"
+
+# ---- 6. the next brief B renders names B's session as reports_to -------------------------------
+# niwa, for the dispatch: `list --json` names the sessions launched so far,
+# `dispatch --name <topic>` launches one.
+mkdir -p "$T/niwa-bin"
+printf '[]\n' > "$T/niwa-sessions.json"
+cat > "$T/niwa-bin/niwa" <<EOF
+#!/usr/bin/env bash
+case "\$1 \${2-}" in
+    "list --json") cat "$T/niwa-sessions.json" ;;
+    "dispatch --help") : ;;
+    dispatch*) shift; t=; while [ \$# -gt 0 ]; do [ "\$1" = --name ] && t=\$2; shift; done
+        n="\$(printf '%s' "\$t" | tr '-' '_')-1a2b3c4d"
+        jq -c --arg n "\$n" '. + [{name: "w", path: "/w", session_name: \$n}]' "$T/niwa-sessions.json" > "$T/niwa-s.tmp" && mv "$T/niwa-s.tmp" "$T/niwa-sessions.json"
+        printf 'Dispatched\n  session name: %s\n' "\$n" ;;
+    *) exit 64 ;;
+esac
+EOF
+chmod +x "$T/niwa-bin/niwa"
+# B's agent tells both live workers its address, as the handover gate asks.
+write_as_agent state-stored-set.sh --told feat-1 --by coord-b && write_as_agent state-stored-set.sh --told feat-2 --by coord-b
+eq "6: B records both workers told" 0 $?
+eq "6: B is at pick after its reconcile" pick "$(at --with-data '{"reconciled":"reported"}')"
+eq "6: B's pick dispatches Feature 3" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-3"}')"
+brief feat-3 "Feature 3" deliver feat-3 executing > "$T/brief.json"
+(cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/brief.json" >/dev/null)
+: > "$WD/.niwa/workspace.toml"
+(cd "$WD" && NIWA="$T/niwa-bin/niwa" bash "$PS/dispatch-worker.sh" --session "$S" >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+rm -f "$WD/.niwa/workspace.toml"
+eq "6: dispatch-worker.sh launches the worker from B" 0 "$DW_RC"
+BRIEF=$(cat "$WD/.niwa/dispatch-briefs/feat-3.md" 2>/dev/null)
+case "$BRIEF" in *'addressed to `coord-b`, the address its record names'*) ok "6: the brief B renders carries B's session as reports_to" ;;
+    *) bad "6: the brief B renders carries B's session as reports_to" "$(printf '%s' "$BRIEF" | grep -i 'report to the coordinator') $(cat "$T/dw.err")" ;; esac
 
 # ---- 7. a predecessor quiet for 11 minutes, with no job seen ---------------------------------------
 export CLAUDE_CODE_SESSION_ID=$A_ID
