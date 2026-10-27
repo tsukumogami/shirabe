@@ -327,6 +327,38 @@ R=$(bash "$S" --input "$REL" --stdout 2>"$T/rel.err"); eq "release: renders with
 has "release: the invocation" "$R" 'Run `/shirabe:release v0.25.0 --dry-run` in acme/widgets.'
 has "release: says it takes no run mode" "$R" 'Run mode: none; `/shirabe:release` takes no execution mode.'
 refused "release with --auto"   "$(variant rel-auto '.entry_point = "release" | .entry_args = ["v0.25.0"] | .run_mode = "--auto"')" "run_mode: release doesn't allow --auto"
+# A charter (shirabe#1290): no leg, its SKILL.md's flags, and on the message
+# path the dispatcher is recorded with link-dispatcher.sh once its session is open.
+CH=$(variant charter '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto"')
+C=$(bash "$S" --input "$CH" --stdout 2>"$T/ch.err"); eq "charter: renders with --auto" 0 "$?"
+has "charter: the invocation" "$C" 'Run `/shirabe:charter plugin-api --auto` in acme/widgets.'
+has "charter: the run mode" "$C" 'Run mode: `--auto`.'
+has "charter: records its dispatcher with link-dispatcher.sh" "$(section "$C" Goal)" \
+    "link-dispatcher.sh\" <session> --dispatched-by coordinate-roadmap-plugin-system-20261006T153752Z"
+C=$(bash "$S" --input "$(variant charter-rounds '.entry_point = "charter" | .entry_args = ["plugin-api", "--max-rounds=2"] | .run_mode = "--interactive"')" --stdout 2>"$T/ch.err")
+eq  "charter: takes --interactive and --max-rounds=N" 0 "$?"
+has "charter: --max-rounds=N on the invocation" "$C" 'Run `/shirabe:charter plugin-api --interactive --max-rounds=2` in acme/widgets.'
+refused "charter with --upstream" "$(variant ch-up '.entry_point = "charter" | .entry_args = ["plugin-api", "--upstream"] | .run_mode = "--auto"')" "entry_args: charter doesn't allow --upstream"
+refused "charter with --merge"    "$(variant ch-merge '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = "--auto --merge"')" "run_mode: charter doesn't allow --merge"
+refused "charter with no run mode" "$(variant ch-none '.entry_point = "charter" | .entry_args = ["plugin-api"] | .run_mode = ""')" "run_mode: required for charter, which takes --auto or --interactive"
+# The other planning skills take their own SKILL.md's flags; /brief and /comp
+# document no execution mode, so they render with none and refuse --auto.
+for ep in prd design plan roadmap strategy vision; do
+    bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = \"--auto\"")" --stdout >/dev/null 2>"$T/ep.err"
+    eq "$ep: renders with --auto" 0 "$?"
+done
+P=$(bash "$S" --input "$(variant plan-flags '.entry_point = "plan" | .entry_args = ["docs/designs/DESIGN-x.md", "--intent=stop", "--plan-version=v2", "--tactical"] | .run_mode = "--auto"')" --stdout 2>"$T/ep.err")
+eq  "plan: takes its intent, plan version and scope flags" 0 "$?"
+has "plan: the invocation" "$P" 'Run `/shirabe:plan docs/designs/DESIGN-x.md --auto --intent=stop --plan-version=v2 --tactical` in acme/widgets.'
+refused "plan with --plan-version=v3" "$(variant plan-v3 '.entry_point = "plan" | .entry_args = ["x", "--plan-version=v3"] | .run_mode = "--auto"')" "entry_args: plan doesn't allow --plan-version=v3"
+refused "roadmap with --issues"       "$(variant rm-issues '.entry_point = "roadmap" | .entry_args = ["x", "--issues"] | .run_mode = "--auto"')" "entry_args: roadmap doesn't allow --issues"
+refused "strategy with --max-rounds"  "$(variant st-rounds '.entry_point = "strategy" | .entry_args = ["x", "--max-rounds=2"] | .run_mode = "--auto"')" "entry_args: strategy doesn't allow --max-rounds=2"
+for ep in brief comp; do
+    E=$(bash "$S" --input "$(variant "ep-$ep" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = \"\"")" --stdout 2>"$T/ep.err")
+    eq  "$ep: renders with no run mode" 0 "$?"
+    has "$ep: says it takes no run mode" "$E" "Run mode: none; \`/shirabe:$ep\` takes no execution mode."
+    refused "$ep with --auto" "$(variant "$ep-auto" ".entry_point = \"$ep\" | .entry_args = [\"plugin-api\"] | .run_mode = \"--auto\"")" "run_mode: $ep doesn't allow --auto"
+done
 refused "no entry_args"         "$(variant no-args 'del(.entry_args)')"                    "entry_args: required"
 refused "flag first"            "$(variant flag-first '.entry_args = ["--auto"]')"         "the first token must be the positional argument"
 refused "no checkpoints"        "$(variant no-cp '.checkpoints = []')"                     "checkpoints: required"

@@ -43,6 +43,14 @@
 # leg only for an issue or a task, never for a PLAN path, so dispatch-worker.sh
 # opens no leg for a /work-on worker whose argument is one.
 #
+# /charter, the skills it and /scope chain through (/vision, /strategy,
+# /roadmap, /brief, /prd, /design, /plan) and /comp take no leg: their workers
+# report by message, as /explore's do (shirabe#1290). Each row admits the
+# flags its skill's SKILL.md documents for an invocation. /brief and /comp
+# document no execution mode, so their briefs give none. /roadmap's --issues
+# and --no-issues are left out: they belong to `populate <path>`, whose second
+# positional a brief can't give.
+#
 scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*	any	-
 execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge,--review-floor=*,--review-ceiling=*	any	-
 deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*,--review-floor=*,--review-ceiling=*	any	-
@@ -51,3 +59,12 @@ explore	-	-	-	--auto,--interactive	any	-
 decision	-	-	-	--auto	any	-
 coordinate	-	-	-	-	any	-
 release	-	-	-	--dry-run	any	-
+charter	-	-	-	--auto,--interactive,--max-rounds=*	any	-
+brief	-	-	-	-	any	-
+prd	-	-	-	--auto,--interactive,--max-rounds=*	any	-
+design	-	-	-	--auto,--interactive,--max-rounds=*	any	-
+plan	-	-	-	--auto,--interactive,--strategic,--tactical,--walking-skeleton,--no-skeleton,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--plan-version=v1,--plan-version=v2	any	-
+roadmap	-	-	-	--auto,--interactive,--max-rounds=*	any	-
+strategy	-	-	-	--auto,--interactive	any	-
+vision	-	-	-	--auto,--interactive,--max-rounds=*	any	-
+comp	-	-	-	-	any	-
