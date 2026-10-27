@@ -496,7 +496,7 @@ eq "under --koto-leg: exit 0" 0 "$RC"
 has "under --koto-leg: prints session=" "session=deliver-t-leg" "$STDOUT"
 eq "the leg value is not part of TOPIC" '["t-leg"]' "$(var TOPIC)"
 has "the open carried --koto-leg" "--koto-leg $REQ:deliver" "$(grep '^init ' "$T/koto.argv" | tail -1)"
-if grep -m1 '^init ' "$T/koto.argv" | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
+eq "a first run under --koto-leg: one koto init, the open" 1 "$(grep -c '^init ' "$T/koto.argv")"
 eq "the leg is bound to deliver-t-leg" '"deliver-t-leg"' "$(leg "$REQ" .bound_child)"
 if grep -q "session cleanup" "$T/koto.argv"; then bad "a first run under --koto-leg: no koto session cleanup ran" "$(cat "$T/koto.argv")"; else ok "a first run under --koto-leg: no koto session cleanup ran"; fi
 KDIR="$OTHER" to_terminal t-leg
@@ -519,6 +519,7 @@ REQ=$(new_request t-tpl)
 open_deliver "[\"t-tpl\",\"--koto-leg=$REQ:deliver\"]"
 refused "another template under --koto-leg"
 has "prints the probe's refused=template_mismatch" "refused=template_mismatch" "$STDOUT"
+if grep -m1 '^init ' "$T/koto.argv" | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
 eq "the leg records a refusal for the collision" '"refused"' "$(leg "$REQ" .result_source)"
 eq "the collision's recorded reason matches the printed code" '"template-mismatch"' "$(leg "$REQ" .result.payload.reason)"
 eq "that session is still left alone" work "$(state_of t-tpl)"

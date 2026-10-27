@@ -177,7 +177,11 @@ nothing else.
    `session=deliver-<topic>`. A refusal prints koto's reason on stderr and then
    `outcome=error` and `step=deliver:refused`; print them and stop. A
    same-named session from another worktree or another template is refused
-   this way and left untouched.
+   this way and left untouched. A first run, with no session by that name,
+   removes nothing. When the run does remove a same-named session of this
+   worktree before opening the fresh one, it prints `removed=deliver-<topic>`
+   and `removed_predates=yes` for an earlier session or `no` for one this
+   invocation made.
 
 3. **Tick.** Call `koto next deliver-<topic> --no-cleanup`, do what the
    directive says, submit the evidence it asks for, and repeat.
