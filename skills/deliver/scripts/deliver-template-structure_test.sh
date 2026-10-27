@@ -13,9 +13,14 @@
 #     skills/deliver/
 #
 # Over the compiled JSON:
-#   - a state for each step of the run (request, scope, re-check, mode
-#     route, confirm, execute, merged re-check, report terminals), and no
-#     others
+#   - a state for each step of the run (request, scope, re-check, isolation
+#     check, mode route, confirm, execute, merged re-check, report
+#     terminals), and no others
+#   - scoped_check's pass reaches isolation_check, the only way into
+#     mode_route; isolation_check runs worktree-isolation.sh with this
+#     session, routes on two non-overridable context-matches gates over
+#     isolation_verdict, and ends an isolated verdict at done_error as
+#     deliver:worktree-isolated
 #   - TOPIC, PLUGIN_ROOT, COORDINATION, UPSTREAM and MAX_ROUNDS carry
 #     scope.md's constraints exactly; MODE is auto|interactive, MERGE
 #     true|false; REVIEW_FLOOR and REVIEW_CEILING are optional, default
@@ -27,8 +32,8 @@
 #     executed_check and merged_check is overridable: false; so are the
 #     mode_route and confirm gates
 #   - the default actions are exactly open_request, scope_absent,
-#     execute_absent, the three re-checks, mode_route's handover read and
-#     execute_lost, and none pushes, merges, or opens a PR; no command koto
+#     execute_absent, the three re-checks, isolation_check, mode_route's
+#     handover read and execute_lost, and none pushes, merges, or opens a PR; no command koto
 #     runs (a default action or a gate) reads ${context. or ${gates., which
 #     koto never substitutes
 #   - mode_route captures EXEC_HANDOVER from deliver-execute-leg.sh handover
@@ -53,8 +58,9 @@
 #   - outcome=merged is assigned only by merged_check and executed_check, on
 #     an arm requiring both the verdict and a non-empty checked_pr; every
 #     other merged_check arm ends ready-awaiting-merge
-#   - the three terminals declare the same eleven-key result map (the ten
-#     report keys and execute_state), each read as ${context.<key>};
+#   - the three terminals declare the same thirteen-key result map (the ten
+#     report keys, execute_state, worktree_repo and other_repos), each read
+#     as ${context.<key>};
 #     done_error is a failure
 #   - the child directives name --intent=continue and the legs; execute_run's
 #     appends --review-floor={{REVIEW_FLOOR}} and
@@ -161,7 +167,7 @@ for v in TOPIC PLUGIN_ROOT COORDINATION UPSTREAM MAX_ROUNDS; do
 done
 
 CHECKS=(
-"the states are exactly the run's|.states | keys == [\"confirm\",\"done\",\"done_error\",\"done_stopped\",\"execute_absent\",\"execute_lost\",\"execute_run\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scope_run\",\"scoped_check\"]"
+"the states are exactly the run's|.states | keys == [\"confirm\",\"done\",\"done_error\",\"done_stopped\",\"execute_absent\",\"execute_lost\",\"execute_run\",\"executed_check\",\"isolation_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scope_run\",\"scoped_check\"]"
 "open_request is the initial state|.initial_state == \"open_request\""
 "MODE is auto or interactive, default interactive|.variables.MODE | (.values == [\"auto\",\"interactive\"] and .default == \"interactive\")"
 "MERGE is true or false, default false|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\")"
@@ -171,7 +177,7 @@ CHECKS=(
 "exec_leg is a non-overridable request-leg gate on REQ's execute leg|.states.execute_run.gates.exec_leg | (.type == \"request-leg\" and .overridable == false and .request == \"{{REQ}}\" and .leg == \"execute\" and .expect.outcome == [\"merged\",\"ready-awaiting-merge\",\"paused-for-review\",\"paused-awaiting-merges\",\"error\"])"
 "every re-check gate is a non-overridable context-matches gate|[.states.scoped_check, .states.executed_check, .states.merged_check | .gates[] | (.type == \"context-matches\" and .overridable == false)] | length == 7 and all"
 "the mode_route and confirm gates refuse overrides|[.states.mode_route, .states.confirm | .gates[] | .overridable == false] | length == 2 and all"
-"the default actions are exactly the request-store, re-check, handover and lost-leg states|[.states | to_entries[] | select(.value.default_action != null) | .key] | sort == [\"execute_absent\",\"execute_lost\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scoped_check\"]"
+"the default actions are exactly the request-store, re-check, isolation, handover and lost-leg states|[.states | to_entries[] | select(.value.default_action != null) | .key] | sort == [\"execute_absent\",\"execute_lost\",\"executed_check\",\"isolation_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scoped_check\"]"
 "no default action pushes, merges, or writes a PR|[.states[] | (.default_action.command // \"\") | test(\"git push|gh pr (merge|create|edit|ready|close)|gh api .*-X\")] | any | not"
 "the re-checks run deliver-probe.sh in their own mode|(.states.scoped_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" scoped \")) and (.states.executed_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" executed \")) and (.states.merged_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" merged \"))"
 "open_request captures REQ from deliver-open-request.sh|.states.open_request.default_action | (.capture_stdout_as == \"REQ\" and (.command | test(\"deliver-open-request\\\\.sh\")))"
@@ -197,10 +203,14 @@ CHECKS=(
 "merged_check's merged arm requires the verdict and a non-empty checked_pr|[.states.merged_check.transitions[] | select(.context_assignments.outcome == \"merged\") | .when == {\"gates.merged_confirmed.matches\": true, \"gates.merged_pr.matches\": true}] == [true]"
 "every other merged_check arm ends ready-awaiting-merge in done|[.states.merged_check.transitions[] | select(.context_assignments.outcome != \"merged\") | (.target == \"done\" and .context_assignments.outcome == \"ready-awaiting-merge\")] | length == 2 and all"
 "the merged_check verdict gate matches only merged|.states.merged_check.gates.merged_confirmed | (.key == \"merged_verdict\" and .pattern == \"^merged\$\")"
-"scoped_check routes to mode_route only on pass and a non-empty checked_pr|[.states.scoped_check.transitions[] | select(.target == \"mode_route\") | .when] == [{\"gates.scoped_pass.matches\": true, \"gates.scoped_pr.matches\": true}]"
+"scoped_check routes to isolation_check only on pass and a non-empty checked_pr|[.states.scoped_check.transitions[] | select(.target == \"isolation_check\") | .when] == [{\"gates.scoped_pass.matches\": true, \"gates.scoped_pr.matches\": true}]"
+"only isolation_check enters mode_route|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"mode_route\") | \$s] == [\"isolation_check\"]"
+"isolation_check runs worktree-isolation.sh on the PLAN, recording into this session|.states.isolation_check.default_action.command == \"\\\"{{PLUGIN_ROOT}}/skills/execute/scripts/worktree-isolation.sh\\\" --plan \\\"docs/plans/PLAN-{{TOPIC}}.md\\\" --session \\\"deliver-{{TOPIC}}\\\"\""
+"isolation_check's gates are non-overridable context-matches gates on isolation_verdict|[.states.isolation_check.gates[] | (.type == \"context-matches\" and .overridable == false and .key == \"isolation_verdict\")] | length == 2 and all"
+"isolation_check: pass to mode_route, isolated to done_error as deliver:worktree-isolated|[.states.isolation_check.transitions[] | [.target, (.context_assignments.step // \"\"), (.context_assignments.reason // \"\")]] == [[\"mode_route\",\"\",\"\"],[\"done_error\",\"deliver:worktree-isolated\",\"worktree-isolated\"]] and .states.isolation_check.gates.isolation_pass.pattern == \"^pass\$\" and .states.isolation_check.gates.isolation_isolated.pattern == \"^isolated\$\""
 "mode_route: 0 and 10 to confirm, 20 to done_stopped as handed-off-multi-pr, 4 to an error|[.states.mode_route.transitions[] | [.when[\"gates.plan_mode.exit_code\"], .target, (.context_assignments.outcome // \"\")]] == [[0,\"confirm\",\"\"],[10,\"confirm\",\"\"],[20,\"done_stopped\",\"handed-off-multi-pr\"],[4,\"done_error\",\"error\"]]"
 "confirm: auto goes on without evidence; stop ends scoped with next=/deliver <topic>|(.states.confirm.transitions[0] | .target == \"execute_run\" and .when == {\"gates.mode_auto.exit_code\": 0}) and ([.states.confirm.transitions[] | select(.target == \"done_stopped\") | .context_assignments] == [{\"outcome\":\"scoped\",\"next\":\"/deliver {{TOPIC}}\"}])"
-"the three terminals declare the eleven-key result map read from context|[.states[] | select(.terminal == true) | .result | (keys == ([\"outcome\",\"step\",\"reason\",\"pr\",\"pr_state\",\"repos\",\"resume\",\"waiting\",\"next\",\"startable\",\"execute_state\"] | sort) and (to_entries | all(.value == (\"\${context.\" + .key + \"}\"))))] | length == 3 and all"
+"the three terminals declare the thirteen-key result map read from context|[.states[] | select(.terminal == true) | .result | (keys == ([\"outcome\",\"step\",\"reason\",\"pr\",\"pr_state\",\"repos\",\"resume\",\"waiting\",\"next\",\"startable\",\"execute_state\",\"worktree_repo\",\"other_repos\"] | sort) and (to_entries | all(.value == (\"\${context.\" + .key + \"}\"))))] | length == 3 and all"
 "the three terminals' result maps are equal|[.states[] | select(.terminal == true) | .result] | (length == 3 and (unique | length) == 1)"
 "done_error is a failure; done and done_stopped are not|.states.done_error.failure == true and ((.states.done.failure // false) == false) and ((.states.done_stopped.failure // false) == false)"
 "scope_run's directive runs /scope --intent=continue on the scope leg|.states.scope_run.directive | (contains(\"--intent=continue\") and contains(\"--koto-leg={{REQ}}:scope\"))"

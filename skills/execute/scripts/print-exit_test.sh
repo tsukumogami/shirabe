@@ -247,7 +247,7 @@ pr=$URL waiting=human"
 
 for r in store-mismatch coordination-pr-missing coordination-pr-ambiguous coordination-pr-mismatch coordination-pr-closed \
     session-absent recovery-unproven recovery-plan-gone coordination-index-missing coordination-body-full adopt-run-refused \
-    follow-up-node follow-up-repo follow-up-base follow-up-author follow-up-closed; do
+    follow-up-node follow-up-repo follow-up-base follow-up-author follow-up-closed worktree-isolated; do
     STOP=$(jq -nc --arg r "$r" '{action: "done", state: "done_error", result: {status: "failure", summary: "s",
         payload: {outcome: "error", step: "execute:coord_setup", reason: $r, pr: "", repos: "", waiting: "", recovered: ""}}}')
     check "a coord_setup stop: $r" "$STOP" \

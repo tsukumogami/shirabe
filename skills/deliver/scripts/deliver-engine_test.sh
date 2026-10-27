@@ -42,6 +42,10 @@
 #     single-pr PLAN, with or without STORE, and `--coordination-pr <the
 #     verified PR>`, plus `--store session` when STORE is set, on a
 #     coordinated one
+#   - a session isolated in one repository's worktree: run from a linked
+#     worktree, a coordinated PLAN with a node in another repository ends
+#     deliver:worktree-isolated naming both repositories, with /execute never
+#     started; a single-repo PLAN there goes on to execute_run
 #   - /scope stopping early (scope-ended-early naming which), its errors, an
 #     unrecognised outcome (deliver:child-outcome), the multi-pr hand-off with
 #     no /execute leg bound, the interactive confirmation (stop and proceed),
@@ -208,6 +212,64 @@ START_EXTRA=(--var STORE=session)
 start auto && to_execute_run
 START_EXTRA=()
 eq "a single-pr PLAN ignores --store: none" none "$(handover_line)"
+
+echo "== a session isolated in one repository's worktree =="
+# iso_fixture <topic> <second repo> -- a coordinated PLAN with a node in
+# acme/widgets (the fixture's repository) and one in <second repo>, run from a
+# linked worktree of the fixture's checkout on the docs branch: the shape a
+# session isolated in that repository's worktree runs in.
+iso_fixture() {
+    fixture "$1" coordinated
+    cat >"$R/docs/plans/PLAN-$1.md" <<PLAN
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "$1"
+issue_count: 2
+---
+
+# PLAN: $1
+
+## Status
+
+Active
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat a](https://example.com/1) | None | testable |
+| ^_Repo: acme/widgets \| Group: default_ | | |
+| [#2: feat b](https://example.com/2) | None | testable |
+| ^_Repo: $2 \| Group: default_ | | |
+PLAN
+    g add docs
+    g commit -q -m "docs: $1 nodes"
+    g push -q origin "HEAD:refs/heads/docs/$1"
+    g checkout -q main
+    git -C "$R" worktree add -q "$T/wt-$1" "docs/$1" 2>/dev/null
+    R="$T/wt-$1"
+}
+iso_fixture iso-two acme/gadgets
+start auto && to_execute_run
+expect "a node outside the worktree's repository stops the run before /execute" done_error \
+    outcome=error step=deliver:worktree-isolated reason=worktree-isolated \
+    worktree_repo=acme/widgets other_repos=acme/gadgets
+if k request get "$REQ" | jq -e '.legs.execute.bound_child == null' >/dev/null; then
+    pass "iso-two: /execute never started, so no node was cut"
+else
+    fail "iso-two: /execute never started"
+fi
+REPORT=$(k status "deliver-$TOPIC" 2>/dev/null | bash "$HERE/deliver-report.sh")
+case "$REPORT" in
+    *"message=Stopped before any node was cut: this session is isolated in a worktree of acme/widgets, and the PLAN also has nodes in acme/gadgets."*)
+        pass "iso-two: the report names both repositories and what to do" ;;
+    *) fail "iso-two: the report's message" "$REPORT" ;;
+esac
+iso_fixture iso-one acme/widgets
+start auto && to_execute_run
+eq "a single-repo PLAN in that repository's worktree goes on to /execute" execute_run "$(state)"
 
 echo "== ready-awaiting-merge carries the /execute leg's own pr =="
 fixture ready single-pr

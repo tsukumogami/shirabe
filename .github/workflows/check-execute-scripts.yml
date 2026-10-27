@@ -173,8 +173,9 @@ jobs:
         run: bash skills/execute/scripts/eval-koto-shim_test.sh
 
       # The coordinated loop's scripts: the run record's writer and reader,
-      # the next action, the verdict and its record, the setup record, node
-      # branches, node pushes and their head records, and the merge. Each
+      # the next action, the verdict and its record, the setup record, the
+      # worktree-isolation check, node branches, node pushes and their head
+      # records, and the merge. Each
       # drives the eval gh shim's repository model, a koto context stub, and
       # real git, so none needs the engine.
       - name: Run coordinated loop script tests (Linux)
@@ -186,6 +187,7 @@ jobs:
           bash skills/execute/scripts/record-coordination-verdict_test.sh
           bash skills/execute/scripts/record-coord-setup_test.sh
           bash skills/execute/scripts/record-coord-follow-up_test.sh
+          bash skills/execute/scripts/worktree-isolation_test.sh
           bash skills/execute/scripts/node-cut_test.sh
           bash skills/execute/scripts/node-push_test.sh
           bash skills/execute/scripts/repo-visibility_test.sh

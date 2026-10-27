@@ -17,6 +17,11 @@ on:
       - 'skills/execute/scripts/run-id.sh'
       - 'skills/execute/scripts/merge-verdict.sh'
       - 'skills/scope/scripts/publish-scoping-pr.sh'
+      # isolation_check runs /execute's worktree-isolation check, which reads
+      # the worktree's repository and the PLAN's nodes through these.
+      - 'skills/execute/scripts/worktree-isolation.sh'
+      - 'skills/execute/scripts/record-write-set.sh'
+      - 'skills/plan/scripts/plan-to-tasks.sh'
       # The eval gh shim delegates to /execute's repository model, and the
       # structure test compares variables with scope.md's.
       - 'skills/execute/evals/fixtures/bin/gh'
@@ -50,6 +55,9 @@ on:
       - 'skills/execute/scripts/run-id.sh'
       - 'skills/execute/scripts/merge-verdict.sh'
       - 'skills/scope/scripts/publish-scoping-pr.sh'
+      - 'skills/execute/scripts/worktree-isolation.sh'
+      - 'skills/execute/scripts/record-write-set.sh'
+      - 'skills/plan/scripts/plan-to-tasks.sh'
       - 'skills/execute/evals/fixtures/bin/gh'
       - 'skills/scope/koto-templates/scope.md'
       - '.github/workflows/check-deliver-scripts.yml'

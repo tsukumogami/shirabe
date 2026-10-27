@@ -6,7 +6,9 @@ description: >
   root child through a per-run koto request leg and read only through a
   request-leg gate. Opens this run's request (superseding any earlier one for
   the topic), runs /scope --intent=continue on the scope leg, re-checks the
-  PLAN and the owned scoping PR, routes on the PLAN's mode, asks one
+  PLAN and the owned scoping PR, stops a coordinated PLAN this session
+  couldn't build because it is isolated in one repository's worktree and
+  the PLAN has nodes in others, routes on the PLAN's mode, asks one
   confirmation when interactive, runs /execute on the execute leg, re-checks
   the merge against GitHub, and ends in a result-declaring terminal that
   deliver-report.sh renders.
@@ -38,7 +40,9 @@ description: >
   No state pushes, merges, or writes to GitHub as a default action. The
   default actions are open_request, scope_absent and execute_absent, which
   touch only koto's request store; the three re-checks, which only read git
-  and GitHub and write only this session's own context keys; mode_route's
+  and GitHub and write only this session's own context keys;
+  isolation_check, which reads git and the PLAN and writes only this
+  session's own context keys; mode_route's
   handover read, which reads the PLAN's mode and this session's checked_pr
   and prints /execute's coordination arguments; and execute_lost, which
   reads the execute session's status and writes execute_state here. Every
@@ -532,7 +536,7 @@ states:
         pattern: '^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
         overridable: false
     transitions:
-      - target: mode_route
+      - target: isolation_check
         when:
           gates.scoped_pass.matches: true
           gates.scoped_pr.matches: true
@@ -551,6 +555,52 @@ states:
           outcome: error
           step: "deliver:child-outcome"
           failure_reason: "/deliver stopped: deliver:child-outcome"
+
+  isolation_check:
+    # The first point the PLAN's repositories are known, and before /execute
+    # is started: a coordinated PLAN with PR nodes outside the repository
+    # whose worktree this session is isolated in can't be built from here, so
+    # the run stops before any node is cut. worktree-isolation.sh clears
+    # isolation_verdict, worktree_repo and other_repos, then writes the
+    # verdict: pass for a PLAN that isn't coordinated, a session in a main
+    # checkout, or nodes all in the worktree's own repository; isolated, with
+    # the worktree's repository and the PLAN's others, otherwise. An absent
+    # verdict matches no arm.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/execute/scripts/worktree-isolation.sh" --plan "docs/plans/PLAN-{{TOPIC}}.md" --session "deliver-{{TOPIC}}"'
+      fallback: >-
+        koto could not record whether this session can build the PLAN's
+        nodes. Read the command's own output above: exit 65 means it could
+        not decide (not in a git repository, this checkout's owner/repo
+        unreadable, or the PLAN not readable into nodes), 66 a `koto context`
+        call failed, and 64 a usage error. On 65 and 66 the keys were cleared
+        first, so nothing stale is read as current. Fix the cause and tick
+        again; there
+        is no evidence to submit and no override.
+    gates:
+      isolation_pass:
+        type: context-matches
+        key: isolation_verdict
+        pattern: '^pass$'
+        overridable: false
+      isolation_isolated:
+        type: context-matches
+        key: isolation_verdict
+        pattern: '^isolated$'
+        overridable: false
+    transitions:
+      - target: mode_route
+        when:
+          gates.isolation_pass.matches: true
+      - target: done_error
+        when:
+          gates.isolation_pass.matches: false
+          gates.isolation_isolated.matches: true
+        context_assignments:
+          outcome: error
+          step: "deliver:worktree-isolated"
+          reason: worktree-isolated
+          failure_reason: "/deliver stopped: deliver:worktree-isolated"
 
   mode_route:
     # Routes on plan-mode.sh's exit code: single-pr and coordinated go on
@@ -969,8 +1019,10 @@ states:
   # from context. `outcome` and, where literal, `step` and `reason` were
   # assigned on the edge in; leg-derived keys were copied from the leg's
   # payload; `pr` (and `pr_state`) was written by deliver-probe.sh wherever a
-  # re-check ran, replacing the leg's copy. `outcome: refused` is a payload
-  # value only: deliver-report.sh prints it as outcome=error.
+  # re-check ran, replacing the leg's copy; `worktree_repo` and `other_repos`
+  # were written by worktree-isolation.sh, on an isolation stop only.
+  # `outcome: refused` is a payload value only: deliver-report.sh prints it
+  # as outcome=error.
   done:
     terminal: true
     result:
@@ -985,6 +1037,8 @@ states:
       next: "${context.next}"
       startable: "${context.startable}"
       execute_state: "${context.execute_state}"
+      worktree_repo: "${context.worktree_repo}"
+      other_repos: "${context.other_repos}"
 
   done_stopped:
     terminal: true
@@ -1000,6 +1054,8 @@ states:
       next: "${context.next}"
       startable: "${context.startable}"
       execute_state: "${context.execute_state}"
+      worktree_repo: "${context.worktree_repo}"
+      other_repos: "${context.other_repos}"
 
   done_error:
     terminal: true
@@ -1016,6 +1072,8 @@ states:
       next: "${context.next}"
       startable: "${context.startable}"
       execute_state: "${context.execute_state}"
+      worktree_repo: "${context.worktree_repo}"
+      other_repos: "${context.other_repos}"
 ---
 
 ## open_request
@@ -1121,6 +1179,24 @@ branch is pushed at HEAD with that one owned open PR. It reads /scope's
 result, never an `intent=` line in the PR's body. The gates refuse overrides
 and there is nothing to submit. Read the action's output, fix the cause, and
 tick again.
+
+## isolation_check
+
+Checking that this session can build every node the PLAN names. koto runs the
+check itself and routes on its verdict; you only see this state if the check
+could not record one.
+
+<!-- details -->
+
+A session isolated in one repository's worktree can't run git in another
+repository's checkout, so a coordinated PLAN with nodes in other repositories
+can't be built from it. The check passes a PLAN that isn't coordinated, a
+session in a repository's main checkout, and a PLAN whose nodes all land in the
+worktree's own repository. Otherwise the run ends in an error,
+`deliver:worktree-isolated`, before /execute starts and before any node is
+cut, and the report names the worktree's repository and the PLAN's others. The
+gates refuse overrides and there is nothing to submit. Read the action's
+output, fix the cause, and tick again.
 
 ## mode_route
 
