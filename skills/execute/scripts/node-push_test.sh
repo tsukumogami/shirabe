@@ -123,7 +123,8 @@
 #                                                node PR, no call refused
 #     the loop's next pass over it, from the     evaluate:<node>, no call
 #     coordination checkout                      refused, no koto call on a
-#                                                work item's session
+#                                                work item's session (the
+#                                                deferrals run/node recorded)
 #     a node in another repository              pushed and recorded, no call
 #                                                refused
 #     the script run in the node worktree        72, nothing pushed, recorded
@@ -295,9 +296,9 @@ else
     fail "the index line is missing; body: $(db_body | grep '^- ')"
 fi
 [ "$(printf '%s\n' "$OUT" | sed -n 's/^head=//p')" = "$SHA" ] && pass "node-push.sh prints head=<sha>" || fail "output: [$OUT]"
-WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $h}')
+WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $h, deferrals: []}')
 [ "$(rec_node "$CT_CORE")" = "$WANT_REC" ] \
-    && pass "the run record holds run/node/<node> {repo, pr, head=<the pushed sha>}" \
+    && pass "the run record holds run/node/<node> {repo, pr, head=<the pushed sha>, deferrals=[]}" \
     || fail "run/node after the push: [$(rec_node "$CT_CORE")]"
 ADD_AT=$(grep -n "^context add $S run/node/$CT_CORE" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
 [ -n "$ADD_AT" ] && pass "the head was written through the run record's writer" || fail "no run/node write in the koto log"
@@ -436,6 +437,10 @@ if [ "$RC" -eq 0 ] && [ "$(grep '^Reason: ' <<<"$P2")" = "$(printf 'Reason: %s\n
 else
     fail "defer-run: rc=$RC part2=[$P2]"
 fi
+WANT_DEF=$(jq -cn --arg a "$REASON" --arg b "$REASON2" '[$a, $b]')
+[ "$(rec_node "$CT_CORE" | jq -c .deferrals)" = "$WANT_DEF" ] \
+    && pass "run/node/<node> records the node's reasons in the body's order, the shared one once" \
+    || fail "defer-run deferrals: [$(rec_node "$CT_CORE" | jq -c .deferrals)]"
 
 np_case defer-run-only
 ct_write_db
