@@ -6,14 +6,23 @@
 #
 # Three modes.
 #
-#   node-push.sh node --session <S> --slug <slug> --node <node-id>
-#                     --repo <owner/repo> --issues <ids>
+#   node-push.sh node --session <S> --worktree <dir> --slug <slug>
+#                     --node <node-id> --repo <owner/repo> --issues <ids>
 #                     --home-repo <owner/repo> --coord-branch <branch>
 #                     --plan <path> [--remote <name>] [--run-id <id>]
 #                     [--verification <local|hosted-ci|""> [--reason <text>]]
 #
-#     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
-#     after the node's work items committed there. It pushes, finds the
+#     Run in the coordination checkout, the directory the run's session was
+#     opened in, after the node's work items committed on impl/<slug>-<node-id>
+#     in the node's worktree. --worktree is that worktree, the path
+#     node-cut.sh printed as `worktree=`; every git operation on the node
+#     (the branch checks, the push, the commits read for the scan and the PR
+#     title) runs there with `git -C`, and every koto call runs here. Under
+#     koto's cloud backend a session answers only in the directory it was
+#     opened in (session_bound_elsewhere from any other), so the run's
+#     session is read and written only from this checkout, and the node's
+#     work-item children only from the worktree their step agents opened them
+#     in (shared-deferral-record.sh --child-dir). It pushes, finds the
 #     node's owned PR or opens a draft one, records the node's PR and pushed
 #     head in the run record (`run/node/<node>` through `run-record.sh push`),
 #     and renders the coordination PR's body from the record
@@ -111,7 +120,8 @@
 #      node's deferral reasons;
 #   (the order mode skips steps 2, 4, 5, 5b, and the node-branch check in 3)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
-#      one, and the remote's default branch; in node mode, for a node whose
+#      one (in node mode, the worktree's), and the remote's default branch;
+#      in node mode, for a node whose
 #      repository is not the coordination PR's, refuse a worktree that
 #      shares the coordination checkout's git directory or origin URL;
 #   3. before any push, read the coordination PR the run record names (open,
@@ -127,8 +137,9 @@
 #      lines and messages) and the node's description scanned for the
 #      public-content markers, a hit or a failed scan refused with 78;
 #      nothing pushed either way;
-#   4. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
-#      force option;
+#   4. push with exactly `git -C <worktree> push <remote>
+#      HEAD:refs/heads/<branch>` (the coordination mode's worktree is this
+#      checkout), never a force option;
 #   5. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
 #      survivor is adopted. Zero survivors open a draft PR against the default
 #      branch, titled `<type>(<slug>): <node-id>`, with a two-part body passed
@@ -162,7 +173,8 @@
 #
 # Exit codes:
 #   0   pushed and recorded (order mode: rendered), whatever the body= line
-#   64  usage error
+#   64  usage error, a node push without --worktree or with one that is no
+#       directory among them; nothing was pushed
 #   65  HEAD is detached
 #   66  the checked-out branch is not the expected one, or its name is refused
 #   67  the branch is the remote's default branch
@@ -227,7 +239,8 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --session <koto-session> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>] [--verification <local|hosted-ci|\"\"> [--reason <text>]]" >&2
+    echo "usage: node-push.sh node --session <koto-session> --worktree <node worktree> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>] [--verification <local|hosted-ci|\"\"> [--reason <text>]]" >&2
+    echo "       (run in the coordination checkout; --worktree is the node's worktree, node-cut.sh's worktree=)" >&2
     echo "       node-push.sh coordination --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
     echo "       node-push.sh order --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--run-id <id>]" >&2
     exit 64
@@ -238,17 +251,18 @@ MODE="$1"; shift
 case "$MODE" in node|coordination|order) ;; *) usage_error "mode must be node, coordination, or order, got [$MODE]" ;; esac
 
 SESSION=""; SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="origin"
-VERIFICATION=""; RUN_REASON=""
+VERIFICATION=""; RUN_REASON=""; NODE_WT=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --session|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id|--verification|--reason)
+        --session|--worktree|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id|--verification|--reason)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
                 --run-id) COORD_RUN_ID="$2" ;;
                 --session) SESSION="$2" ;;
+                --worktree) NODE_WT="$2" ;;
                 --slug) SLUG="$2" ;;
                 --node) NODE="$2" ;;
                 --repo) REPO="$2" ;;
@@ -283,17 +297,26 @@ if [ "$MODE" = node ]; then
     case "$SEEN" in *" --plan "*) ;; *) usage_error "--plan is required in the node mode" ;; esac
     [ -f "$PLAN" ] || usage_error "--plan [$PLAN] is not a file"
     case "$VERIFICATION" in ""|local|hosted-ci) ;; *) usage_error "--verification must be local or hosted-ci, got [$VERIFICATION]" ;; esac
+    case "$SEEN" in *" --worktree "*) ;; *) usage_error "--worktree is required in the node mode: the node's worktree, run from the coordination checkout" ;; esac
+    # The node's git work runs in its worktree (git -C), and this script's
+    # koto calls in the directory it was started in, the session's own.
+    # `cd ""` succeeds and stays here, so an empty value is refused first.
+    [ -n "$NODE_WT" ] || usage_error "--worktree is empty"
+    GIT_WT=$(CDPATH='' cd -- "$NODE_WT" 2>/dev/null && pwd -P) || usage_error "--worktree [$NODE_WT] is not a directory"
     BRANCH="impl/$SLUG-$NODE"
 elif [ "$MODE" = order ]; then
     # The merge order renders from run/setup's node list, so the order mode
     # reads no PLAN.
-    for f in --node --repo --issues --remote --plan --verification --reason; do
+    for f in --worktree --node --repo --issues --remote --plan --verification --reason; do
         case "$SEEN" in *" $f "*) usage_error "$f does not belong to the order mode" ;; esac
     done
+    GIT_WT=.
 else
-    for f in --node --repo --issues --plan --verification --reason; do
+    for f in --worktree --node --repo --issues --plan --verification --reason; do
         case "$SEEN" in *" $f "*) usage_error "$f belongs to the node mode" ;; esac
     done
+    # The coordination branch is pushed from this checkout itself.
+    GIT_WT=.
     BRANCH="$CB"
 fi
 command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
@@ -406,11 +429,13 @@ fi
 # The node's verification deferral (see the header), read before anything is
 # pushed: the run's reason and each work item's child's, one per line. The
 # work items are --issues and the node's own ISSUES in the PLAN, so an
-# --issues that leaves an item out can't hide that item's deferral.
+# --issues that leaves an item out can't hide that item's deferral. The
+# children are read from the node's worktree, where their step agents opened
+# them.
 DEFERRAL_ARGS=()
 DEFERRAL=""
 if [ "$MODE" = node ]; then
-    DEFERRAL_ARGS=(--session "$SESSION" --verification "$VERIFICATION" --reason "$RUN_REASON")
+    DEFERRAL_ARGS=(--session "$SESSION" --verification "$VERIFICATION" --reason "$RUN_REASON" --child-dir "$GIT_WT")
     PLAN_ISSUES=$(printf '%s' "$TASKS" | jq -r --arg n "$NODE" \
         '[.[] | select(.name == $n) | .vars.ISSUES // empty] | first // ""')
     OLDIFS=$IFS; IFS=,
@@ -430,8 +455,9 @@ fi
 
 # Step 2 prepares a branch to push; the order mode pushes nothing.
 if [ "$MODE" != order ]; then
-    # 2. The branch.
-    CUR=$(git symbolic-ref --quiet --short HEAD) || {
+    # 2. The branch: in node mode the worktree's, in the coordination mode
+    # this checkout's.
+    CUR=$(git -C "$GIT_WT" symbolic-ref --quiet --short HEAD) || {
         echo "$PROG: HEAD is detached, so there is no branch to push" >&2
         exit 65
     }
@@ -440,11 +466,11 @@ if [ "$MODE" != order ]; then
         exit 66
     fi
     coord_valid_branch "$BRANCH" || { echo "$PROG: refusing branch name [$BRANCH]" >&2; exit 66; }
-    DEFAULT=$(git ls-remote --symref "$REMOTE" HEAD </dev/null \
+    DEFAULT=$(git -C "$GIT_WT" ls-remote --symref "$REMOTE" HEAD </dev/null \
         | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p')
     DEFAULT=${DEFAULT%%$'\n'*}
     if [ -z "$DEFAULT" ]; then
-        DEFAULT=$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)
+        DEFAULT=$(git -C "$GIT_WT" symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" || true)
         DEFAULT=${DEFAULT#"$REMOTE"/}
     fi
     if [ -n "$DEFAULT" ]; then
@@ -462,16 +488,16 @@ if [ "$MODE" != order ]; then
     if [ "$MODE" = node ] && [ "$(coord_lower "$REPO")" != "$(coord_lower "$HOME_REPO")" ]; then
         PLAN_DIR=$(dirname -- "$PLAN")
         HOME_GIT=$(coord_git_common_dir "$PLAN_DIR") || HOME_GIT=""
-        NODE_GIT=$(coord_git_common_dir .) || NODE_GIT=""
+        NODE_GIT=$(coord_git_common_dir "$GIT_WT") || NODE_GIT=""
         # The node side is where its push goes (insteadOf, pushInsteadOf and
         # pushurl applied). The home side is both of origin's URLs, insteadOf
         # applied: the fetch URL (the remote.origin.url home_repo was read
         # from) and the push URL, which differ when origin has a pushurl.
         HOME_FETCH=$(CDPATH='' cd "$PLAN_DIR" && git remote get-url origin) || HOME_FETCH=""
         HOME_URL=$(CDPATH='' cd "$PLAN_DIR" && git remote get-url --push origin) || HOME_URL=""
-        NODE_URL=$(git remote get-url --push "$REMOTE") || NODE_URL=""
+        NODE_URL=$(git -C "$GIT_WT" remote get-url --push "$REMOTE") || NODE_URL=""
         if [ -z "$HOME_GIT" ] || [ -z "$NODE_GIT" ]; then
-            echo "$PROG: could not read the git directories of this worktree and of the coordination checkout the PLAN is in; nothing was pushed. Pass --plan as the PLAN inside the coordination checkout (the recorded plan_abs), and run this from a node worktree node-cut.sh made" >&2
+            echo "$PROG: could not read the git directories of the node's worktree and of the coordination checkout the PLAN is in; nothing was pushed. Pass --plan as the PLAN inside the coordination checkout (the recorded plan_abs), and --worktree as a node worktree node-cut.sh made" >&2
             exit 79
         fi
         HOME_FETCH=$(coord_url_key "$HOME_FETCH")
@@ -481,7 +507,7 @@ if [ "$MODE" != order ]; then
             || { [ -n "$NODE_URL" ] && { [ "$NODE_URL" = "$HOME_FETCH" ] || [ "$NODE_URL" = "$HOME_URL" ]; }; }; then
             # Names no repository, either of which may be private: only the
             # node id and this worktree's local path and branch.
-            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but this worktree belongs to, or pushes to, the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(git rev-parse --show-toplevel)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
+            echo "$PROG: node $NODE lands in another repository than the coordination PR's, but its worktree belongs to, or pushes to, the coordination checkout's; cut it with node-cut.sh --repo-dir <a clone of the node's repository>. Nothing was pushed. Re-cut the node in its own repository's clone and run its work items there; then remove this worktree ($(git -C "$GIT_WT" rev-parse --show-toplevel)) with git worktree remove and its branch $BRANCH with git branch -D, both in the repository this worktree belongs to" >&2
             exit 79
         fi
     fi
@@ -510,10 +536,10 @@ if [ "$MODE" = node ]; then
     if [ "$COORD_HOME_VIS" = private ] && [ "$COORD_NODE_VIS" = public ]; then
         SCAN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/node-push-scan.XXXXXX") || exit 78
         BASE=""
-        [ -n "$DEFAULT" ] && BASE=$(git merge-base HEAD "refs/remotes/$REMOTE/$DEFAULT")
+        [ -n "$DEFAULT" ] && BASE=$(git -C "$GIT_WT" merge-base HEAD "refs/remotes/$REMOTE/$DEFAULT")
         if [ -z "$BASE" ] \
-            || ! git log --format=%B "$BASE..HEAD" >"$SCAN_DIR/text" \
-            || ! git diff "$BASE" HEAD >"$SCAN_DIR/diff"; then
+            || ! git -C "$GIT_WT" log --format=%B "$BASE..HEAD" >"$SCAN_DIR/text" \
+            || ! git -C "$GIT_WT" diff "$BASE" HEAD >"$SCAN_DIR/diff"; then
             rm -rf "$SCAN_DIR"
             echo "$PROG: the public-content check could not read node $NODE's commits since the default branch; nothing was pushed" >&2
             exit 78
@@ -586,11 +612,11 @@ fi
 # 4. The push: the explicit refspec, never a force option. The order mode
 # pushes nothing.
 if [ "$MODE" != order ]; then
-    if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
+    if ! git -C "$GIT_WT" push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
         echo "$PROG: the push failed; nothing was recorded" >&2
         exit 68
     fi
-    SHA=$(git rev-parse HEAD)
+    SHA=$(git -C "$GIT_WT" rev-parse HEAD)
     [[ $SHA =~ $RE_COORD_SHA ]] || { echo "$PROG: HEAD read back as [$SHA]" >&2; exit 69; }
 fi
 
@@ -602,8 +628,8 @@ fi
 # changes behaviour.
 node_type() {
     local mb files
-    mb=$(git merge-base HEAD "refs/remotes/$REMOTE/$1") || { echo feat; return 0; }
-    files=$(git diff --name-only "$mb" HEAD) || { echo feat; return 0; }
+    mb=$(git -C "$GIT_WT" merge-base HEAD "refs/remotes/$REMOTE/$1") || { echo feat; return 0; }
+    files=$(git -C "$GIT_WT" diff --name-only "$mb" HEAD) || { echo feat; return 0; }
     if [ -n "$files" ] && ! grep -Ev '^docs/|^[^/]+\.md$' <<<"$files" | grep . >/dev/null; then
         echo docs
     else
@@ -697,7 +723,9 @@ if [ "$MODE" = node ]; then
             echo "$PROG: shirabe validate --pr-body refused the node PR's title or body; no PR was created" >&2
             exit 74
         fi
-        OUT=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
+        # In the node's worktree, where the branch was just pushed from, as
+        # it always ran: gh is no koto call, and nothing here reads a session.
+        OUT=$(CDPATH='' cd -- "$GIT_WT" && gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
             --title "$TITLE" --body-file "$WORK/node-body.md" </dev/null) || {
             echo "$PROG: gh pr create failed" >&2
             exit 75

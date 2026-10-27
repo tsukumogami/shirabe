@@ -13,15 +13,19 @@
 # coord-merge.sh for a merge, node-push.sh order and coordination around the
 # cascade, coord-render.sh --before-coordination before the coordination PR is
 # readied). GitHub is the eval gh shim's repository model and koto the context
-# stub (see coord-test-helpers.sh); both repositories' origins are local bare
-# repositories.
+# stub (see coord-test-helpers.sh), with the run's session bound to the
+# coordination checkout (ct_bind), so a koto call from the node's worktree,
+# which lives in the other repository's clone, is refused as koto's cloud
+# backend refuses it; both repositories' origins are local bare repositories.
 #
 # Cases:
 #   coord_setup           records repos=acme/repo-b and home_repo=acme/repo-a
 #   the loop              dispatches, readies, and merges both nodes in node
 #                         order, runs the cascade, readies and merges the
 #                         coordination PR, and ends done:merged within a bound
-#                         on steps; the action sequence is asserted whole
+#                         on steps; the action sequence is asserted whole;
+#                         node-push.sh node runs in the coordination checkout
+#                         with --worktree, and no koto call is refused
 #   the home's writes     every GitHub write naming acme/repo-a is an edit,
 #                         ready, or merge of the coordination PR #10, and no PR
 #                         is created there; every other write names acme/repo-b
@@ -73,6 +77,9 @@ ct_repo "$HOMEDIR"
 ct_plan "$HOMEDIR" remote
 (cd "$HOMEDIR" && git add docs && git commit -q -m "docs: plan" && git push -q origin "$CT_CB")
 PLAN="$HOMEDIR/docs/plans/PLAN-t.md"
+# The run's session answers only in the coordination checkout, as koto's
+# cloud backend answers a session only in the directory it was opened in.
+ct_bind "$S" "$HOMEDIR"
 # A clone of the node repository.
 NODEDIR="$CT_WORK/node-clone"
 ct_repo "$NODEDIR"
@@ -130,7 +137,7 @@ while [ "$step" -lt 20 ]; do
                 | sed -n 's/^worktree=//p')
             [ -n "$WT" ] && [ -d "$WT" ] || { fail "node-cut.sh made no worktree for $node: $(cat "$CASE/cut.err")"; break; }
             (cd "$WT" && echo "$node" > "$node.txt" && git add "$node.txt" && git commit -q -m "feat: $node")
-            (cd "$WT" && bash "$SCRIPT_DIR/node-push.sh" node --session "$S" --slug "$CT_SLUG" --node "$node" --repo "$NODE_REPO" \
+            (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" node --session "$S" --worktree "$WT" --slug "$CT_SLUG" --node "$node" --repo "$NODE_REPO" \
                 --issues "$(node_issues "$node")" --home-repo "$(ctx home_repo)" --coord-branch "$(ctx coord_branch)" \
                 --plan "$(ctx plan_abs)" --run-id "$RUN" >>"$CASE/push.out" 2>>"$CASE/push.err") \
                 || { fail "node-push.sh node $node: $(tail -3 "$CASE/push.err")"; break; }
@@ -187,6 +194,8 @@ else
     fail "the loop's actions: [$ACTIONS], expected [$WANT]"
     tail -5 "$CASE/next.err" 2>/dev/null | sed 's/^/    /'
 fi
+[ -z "$(ct_refused)" ] && pass "the session, bound to the coordination checkout, refused no koto call" \
+    || fail "koto calls refused: $(ct_refused)"
 STATES=$(jq -r '[.prs[] | "\(.repo)#\(.number)=\(.state)"] | join(" ")' "$DB")
 if [ "$(jq '[.prs[] | select(.state == "MERGED")] | length' "$DB")" -eq 3 ] \
     && [ "$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .state' "$DB")" = MERGED ]; then

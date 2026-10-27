@@ -56,7 +56,9 @@
 #     each stop's edge assigning its own code as a
 #     literal reason; its directive passes all five variables to
 #     record-coord-setup.sh; every coordinated-next.sh and node-push.sh call in
-#     coord_loop's directive passes --session
+#     coord_loop's directive passes --session; node-push.sh node takes the
+#     node's worktree as --worktree and runs in the coordination checkout,
+#     and no directive runs it in the node worktree
 #
 # and, engine-free, over the source and the skill's tree (non-test files:
 # no *_test.sh, coord-test-helpers.sh, testdata/ or evals/), each check a
@@ -387,6 +389,7 @@ CHECKS=(
 "VERIFICATION is values [local, hosted-ci], default local, optional, not rebind, as in execute.md|.variables.VERIFICATION | (.values == [\"local\",\"hosted-ci\"] and .default == \"local\" and (.required // false) == false and (.rebind // false) == false)"
 "VERIFICATION_DEFERRAL_REASON is optional, starts with a letter or digit, not rebind|.variables.VERIFICATION_DEFERRAL_REASON | (. != null and (.required // false) == false and .pattern == \"^([a-zA-Z0-9].*)?\$\" and (.rebind // false) == false)"
 "the dispatch step gives every child the deferral when VERIFICATION is hosted-ci|(.states.coord_loop.directive // \"\") | (contains(\"verification is \`{{VERIFICATION}}\`, with reason \`{{VERIFICATION_DEFERRAL_REASON}}\`\") and contains(\"give every child \`VERIFICATION=hosted-ci\` and \`VERIFICATION_DEFERRAL_REASON\`\"))"
+"node-push.sh node runs in the coordination checkout with --worktree, never in the node worktree|(.states.coord_loop.directive // \"\") | (contains(\"node-push.sh node --session {{SESSION_NAME}} --worktree <the node's worktree> \") and contains(\"run here in this coordination checkout\") and (contains(\"run in the node worktree\") | not))"
 "node-push.sh node gets the run's deferral and its exit 80 is error:execute:deferral-record|(.states.coord_loop.directive // \"\") | (contains(\"--verification \\\"{{VERIFICATION}}\\\" --reason \\\"{{VERIFICATION_DEFERRAL_REASON}}\\\"\") and contains(\"An exit 80\") and contains(\"loop_line: error:execute:deferral-record\"))"
 "PAUSE_BEFORE_FINALIZE is values [true, false], default false, rebind|.variables.PAUSE_BEFORE_FINALIZE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"

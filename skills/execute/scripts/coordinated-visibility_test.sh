@@ -92,7 +92,7 @@ dispatch() {
     wt=$(cd "$HOME_CO" && bash "$CUT" t "$node" --repo-dir "$dir" 2>>"$CASE/walk.log" | sed -n 's/^worktree=//p')
     [ -n "$wt" ] && [ -d "$wt" ] || { echo "no worktree for $node" >>"$CASE/walk.log"; return 1; }
     (cd "$wt" && echo "$node" > "$node.txt" && git add "$node.txt" && git commit -q -m "feat: $node")
-    (cd "$wt" && bash "$PUSH" node --session "$S" --slug t --node "$node" --repo "$repo" --issues 1 \
+    (cd "$HOME_CO" && bash "$PUSH" node --session "$S" --worktree "$wt" --slug t --node "$node" --repo "$repo" --issues 1 \
         --home-repo acme/repo-a --coord-branch "$CT_CB" --plan "$PLAN") >>"$CASE/walk.log" 2>&1
 }
 
