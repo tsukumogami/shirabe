@@ -17,6 +17,14 @@
 #     rebase)
 #   a branch that exists without a worktree     attached as it stands
 #   a node in another repository (--repo-dir)   cut in that clone
+#   no --worktree-root                          the worktree sits next to the
+#     checkout, outside the git common dir, where an isolated session may run
+#     git
+#   run from a linked worktree                  next to that worktree, outside
+#     it, the common dir and the main checkout
+#   an explicit --worktree-root                 the worktree is there, and a
+#     re-run without the flag reuses it
+#   a worktree under the old .git default       still reused
 #
 # Usage: node-cut_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -138,6 +146,76 @@ if [ "$rc" -eq 0 ] && [ "$(git -C "$OWT" rev-parse HEAD)" = "$OTIP" ] \
     pass "a node in another repository is cut in that repository's clone"
 else
     fail "--repo-dir: rc=$rc out=[$OUT]"
+fi
+
+# --- the default root: next to the checkout, outside the git common dir ---------------
+
+REPO_P=$(cd "$REPO" && pwd -P)
+COMMON_DIR=$(cd "$REPO" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
+OUT=$(cd "$REPO" && bash "$CUT" t pr-default-root 2>/dev/null); rc=$?
+DWT=$(kv "$OUT" worktree)
+case "$DWT" in
+    "$COMMON_DIR"/*) fail "with no --worktree-root the worktree [$DWT] is inside the git common dir [$COMMON_DIR]" ;;
+    "") fail "with no --worktree-root: rc=$rc out=[$OUT]" ;;
+    *) pass "with no --worktree-root the worktree is outside the git common dir" ;;
+esac
+if [ "$DWT" = "$(dirname "$REPO_P")/$(basename "$REPO_P")-node-worktrees/t-pr-default-root" ]; then
+    pass "with no --worktree-root the worktree sits next to the checkout"
+else
+    fail "with no --worktree-root the worktree is [$DWT], not next to the checkout [$REPO_P]"
+fi
+
+# --- run from a linked worktree, as an isolated session is ------------------------------
+
+ISO="$CT_WORK/iso"
+git -C "$REPO" worktree add -q -b session/iso -- "$ISO" "$CT_CB"
+ISO_P=$(cd "$ISO" && pwd -P)
+OUT=$(cd "$ISO" && bash "$CUT" t pr-isolated 2>/dev/null); rc=$?
+IWT=$(kv "$OUT" worktree)
+case "$IWT" in
+    "") fail "from a linked worktree: rc=$rc out=[$OUT]" ;;
+    "$COMMON_DIR"/* | "$ISO_P"/* | "$REPO_P"/*)
+        fail "from a linked worktree the node worktree [$IWT] is inside the common dir, the session's worktree or the main checkout" ;;
+    *) pass "from a linked worktree the node worktree is outside the common dir, that worktree and the main checkout" ;;
+esac
+if [ "$IWT" = "$(dirname "$ISO_P")/iso-node-worktrees/t-pr-isolated" ]; then
+    pass "from a linked worktree the node worktree sits next to it"
+else
+    fail "from a linked worktree the node worktree is [$IWT], not next to [$ISO_P]"
+fi
+if [ -n "$IWT" ] && [ "$(git -C "$IWT" symbolic-ref --short HEAD 2>/dev/null)" = impl/t-pr-isolated ]; then
+    pass "plain git runs in the node worktree cut from a linked worktree"
+else
+    fail "git in [$IWT] does not answer on impl/t-pr-isolated"
+fi
+
+# --- an explicit --worktree-root ----------------------------------------------------------
+
+ROOT="$CT_WORK/roots"
+OUT=$(cd "$REPO" && bash "$CUT" t pr-explicit --worktree-root "$ROOT" 2>/dev/null); rc=$?
+EWT=$(kv "$OUT" worktree)
+ROOT_P=$(cd "$ROOT" 2>/dev/null && pwd -P)
+if [ "$rc" -eq 0 ] && [ "$(kv "$OUT" cut)" = new ] && [ -n "$ROOT_P" ] && [ "$EWT" = "$ROOT_P/t-pr-explicit" ] && [ -d "$EWT" ]; then
+    pass "an explicit --worktree-root places the worktree there"
+else
+    fail "--worktree-root: rc=$rc out=[$OUT]"
+fi
+OUT=$(cd "$REPO" && bash "$CUT" t pr-explicit 2>/dev/null); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(kv "$OUT" cut)" = reused ] && [ "$(kv "$OUT" worktree)" = "$EWT" ]; then
+    pass "a re-run without --worktree-root reuses the worktree at the explicit root"
+else
+    fail "re-run after --worktree-root: rc=$rc out=[$OUT]"
+fi
+
+# --- a worktree an earlier version made under the .git default ------------------------------
+
+OLD="$COMMON_DIR/shirabe-node-worktrees/t-pr-legacy"
+git -C "$REPO" worktree add -q --no-track -b impl/t-pr-legacy -- "$OLD" origin/main
+OUT=$(cd "$REPO" && bash "$CUT" t pr-legacy 2>/dev/null); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(kv "$OUT" cut)" = reused ] && [ "$(kv "$OUT" worktree)" = "$OLD" ]; then
+    pass "a node worktree under the old .git default is still reused"
+else
+    fail "old-default reuse: rc=$rc out=[$OUT]"
 fi
 
 echo
