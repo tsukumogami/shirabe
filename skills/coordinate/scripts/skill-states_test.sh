@@ -11,6 +11,7 @@
 #
 # Usage: bash skills/coordinate/scripts/skill-states_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 SKILL="$HERE/../SKILL.md"
 TPL="$HERE/../koto-templates/coordinate.md"

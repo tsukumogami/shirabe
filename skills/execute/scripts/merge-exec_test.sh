@@ -28,6 +28,7 @@
 #   1 — one or more cases failed, or jq is missing
 
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../../.." && pwd)

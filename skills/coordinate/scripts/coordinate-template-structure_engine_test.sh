@@ -31,6 +31,7 @@
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 TPL="$HERE/../koto-templates/coordinate.md"
 for b in koto jq; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on PATH"; exit 0; }; done

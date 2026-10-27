@@ -20,6 +20,7 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 # check-skill validates with SHIRABE_BIN when it is set (CI sets it for some
 # suites); these fixtures exercise the stubs, so it is cleared here and set
 # only by the case that tests it.

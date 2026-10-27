@@ -14,6 +14,7 @@
 #
 # Usage: bash skills/coordinate/scripts/report-questions_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/test-lib.sh"
 Q="$HERE/report-questions.sh"

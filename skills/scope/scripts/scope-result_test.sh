@@ -33,6 +33,7 @@
 # path written in for {{PLUGIN_ROOT}}. SKIPs (exit 0) without koto, jq, git or
 # shirabe; the CI job installs all four.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"

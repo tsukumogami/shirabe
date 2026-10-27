@@ -13,6 +13,7 @@
 # koto removed at its terminal prints its block from the record koto answers
 # with, and that a name that never existed exits 1. Needs bash and jq.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/print-scope-exit.sh"

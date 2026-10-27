@@ -7,6 +7,7 @@
 # work/state.md and, for the replaced-run cases, work/prior-run.md. SKIPs
 # (exit 0) without koto; the CI job asserts koto is present first.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/resolve-intent.sh"

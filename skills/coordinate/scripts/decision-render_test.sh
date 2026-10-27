@@ -6,6 +6,7 @@
 #
 # Usage: bash skills/coordinate/scripts/decision-render_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/test-lib.sh"
 R="$HERE/decision-render.sh"

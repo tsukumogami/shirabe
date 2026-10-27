@@ -20,6 +20,7 @@
 # Needs koto and jq; SKIPs (exit 0) without koto, which CI asserts first.
 # Usage: bash skills/coordinate/scripts/coord-log_engine_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
