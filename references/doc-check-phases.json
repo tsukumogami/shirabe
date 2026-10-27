@@ -1,0 +1,129 @@
+{
+  "schema": "doc-check-phases/v1",
+  "notes": "Read by scripts/doc-check.sh and scripts/doc-events.sh. Per format: the document's canonical paths, the required sections (the validator's FC04 list, every plan mode and roadmap version together), the error-level codes the validator can emit for the format, the check-held rules (registered ids), the sections each section-reading rule reads, and per skill phase the required sections that phase has written. A rule whose section a phase has not reached is not_ready at that phase. docs/required-sections reads every required section and is decided per missing section.",
+  "formats": {
+    "brief": {
+      "paths": ["docs/briefs/BRIEF-{topic}.md"],
+      "required_sections": ["Status", "Problem Statement", "User Outcome", "User Journeys", "Scope Boundary"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC10", "FC18", "FC19", "FC20", "R6", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word"
+      ],
+      "rule_sections": {},
+      "phases": {
+        "2": ["Status", "Problem Statement", "User Outcome"],
+        "3": ["Status", "Problem Statement", "User Outcome", "User Journeys", "Scope Boundary"],
+        "4": ["Status", "Problem Statement", "User Outcome", "User Journeys", "Scope Boundary"]
+      }
+    },
+    "prd": {
+      "paths": ["docs/prds/PRD-{topic}.md"],
+      "required_sections": ["Status", "Problem Statement", "Goals", "User Stories", "Requirements", "Acceptance Criteria", "Out of Scope"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC10", "FC18", "FC19", "FC20", "R6", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word"
+      ],
+      "rule_sections": {},
+      "phases": {
+        "3": ["Status", "Problem Statement", "Goals", "User Stories", "Requirements", "Acceptance Criteria", "Out of Scope"],
+        "4": ["Status", "Problem Statement", "Goals", "User Stories", "Requirements", "Acceptance Criteria", "Out of Scope"]
+      }
+    },
+    "design": {
+      "paths": ["docs/designs/DESIGN-{topic}.md", "docs/designs/current/DESIGN-{topic}.md"],
+      "required_sections": ["Status", "Context and Problem Statement", "Decision Drivers", "Considered Options", "Decision Outcome", "Solution Architecture", "Implementation Approach", "Security Considerations", "Consequences"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC10", "FC18", "FC19", "FC20", "R6", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word"
+      ],
+      "rule_sections": {},
+      "phases": {
+        "4": ["Status", "Context and Problem Statement", "Decision Drivers", "Considered Options", "Decision Outcome", "Solution Architecture", "Implementation Approach", "Consequences"],
+        "5": ["Status", "Context and Problem Statement", "Decision Drivers", "Considered Options", "Decision Outcome", "Solution Architecture", "Implementation Approach", "Consequences"],
+        "6": ["Status", "Context and Problem Statement", "Decision Drivers", "Considered Options", "Decision Outcome", "Solution Architecture", "Implementation Approach", "Security Considerations", "Consequences"]
+      }
+    },
+    "plan": {
+      "paths": ["docs/plans/PLAN-{topic}.md"],
+      "required_sections": ["Status", "Scope Summary", "Decomposition Strategy", "Issue Outlines", "Implementation Issues", "Dependency Graph", "Implementation Sequence", "Steps"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "FC10", "FC17", "FC18", "FC19", "FC20", "FC22", "R6", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "plan/issues-table-shape", "plan/issues-table-dependencies", "plan/outline-dependency-resolves"
+      ],
+      "rule_sections": {
+        "plan/issues-table-shape": ["Implementation Issues"],
+        "plan/issues-table-dependencies": ["Implementation Issues"],
+        "plan/outline-dependency-resolves": ["Issue Outlines"]
+      },
+      "phases": {
+        "0": ["Status", "Scope Summary", "Decomposition Strategy", "Issue Outlines", "Implementation Issues", "Dependency Graph", "Implementation Sequence", "Steps"],
+        "6": [],
+        "7": ["Status", "Scope Summary", "Decomposition Strategy", "Issue Outlines", "Implementation Issues", "Dependency Graph", "Implementation Sequence", "Steps"]
+      }
+    },
+    "vision": {
+      "paths": ["docs/visions/VISION-{topic}.md"],
+      "required_sections": ["Status", "Thesis", "Audience", "Value Proposition", "Org Fit", "Success Criteria", "Non-Goals"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC10", "FC18", "FC19", "FC20", "R6", "R7", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "docs/visibility-vision-sections"
+      ],
+      "rule_sections": {
+        "docs/visibility-vision-sections": ["Status", "Thesis", "Audience", "Value Proposition", "Org Fit", "Success Criteria", "Non-Goals"]
+      },
+      "phases": {
+        "3": ["Status", "Thesis", "Audience", "Value Proposition", "Org Fit", "Success Criteria", "Non-Goals"],
+        "4": ["Status", "Thesis", "Audience", "Value Proposition", "Org Fit", "Success Criteria", "Non-Goals"]
+      }
+    },
+    "strategy": {
+      "paths": ["docs/strategies/STRATEGY-{topic}.md"],
+      "required_sections": ["Status", "Strategic Context", "Defensibility Thesis", "Building Blocks", "Coordination Dependencies", "Bet-Specific Falsifiability", "Non-Goals", "Downstream Artifacts"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC10", "FC18", "FC19", "FC20", "R6", "R8", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "docs/visibility-strategy-sections"
+      ],
+      "rule_sections": {
+        "docs/visibility-strategy-sections": ["Status", "Strategic Context", "Defensibility Thesis", "Building Blocks", "Coordination Dependencies", "Bet-Specific Falsifiability", "Non-Goals", "Downstream Artifacts"]
+      },
+      "phases": {
+        "3": ["Status", "Strategic Context", "Defensibility Thesis", "Building Blocks", "Coordination Dependencies", "Bet-Specific Falsifiability", "Non-Goals", "Downstream Artifacts"],
+        "4": ["Status", "Strategic Context", "Defensibility Thesis", "Building Blocks", "Coordination Dependencies", "Bet-Specific Falsifiability", "Non-Goals", "Downstream Artifacts"]
+      }
+    },
+    "roadmap": {
+      "paths": ["docs/roadmaps/ROADMAP-{topic}.md"],
+      "required_sections": ["Status", "Theme", "Features", "Milestones", "Sequencing Rationale", "Progress", "Implementation Issues", "Dependency Graph"],
+      "error_codes": ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "FC10", "FC16", "FC18", "FC19", "FC20", "FC21", "R6", "R10", "R11"],
+      "rules": [
+        "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
+        "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "plan/issues-table-shape", "plan/issues-table-dependencies"
+      ],
+      "rule_sections": {
+        "plan/issues-table-shape": ["Implementation Issues"],
+        "plan/issues-table-dependencies": ["Implementation Issues"]
+      },
+      "phases": {
+        "3": ["Status", "Theme", "Features", "Milestones", "Sequencing Rationale", "Progress", "Implementation Issues", "Dependency Graph"],
+        "4": ["Status", "Theme", "Features", "Milestones", "Sequencing Rationale", "Progress", "Implementation Issues", "Dependency Graph"]
+      }
+    }
+  }
+}
