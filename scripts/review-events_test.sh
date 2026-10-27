@@ -281,7 +281,7 @@ for t in skills/scope/koto-templates/scope.md koto-templates/skill-session.md; d
     vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/$t" | tr -d '[],' | tr ' ' '\n')
     missing=""
     for v in $seats_listed $slugs; do
-        printf '%s\n' "$vocab" | grep -qxF -- "$v" || missing="$missing $v"
+        grep -qxF -- "$v" <<< "$vocab" || missing="$missing $v"
     done
     [ -z "$missing" ] && pass "$t declares every seat and section slug review-events.sh records" \
         || fail "$t lacks [$missing]"
