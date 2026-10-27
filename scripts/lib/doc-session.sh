@@ -47,8 +47,8 @@
 #   ds_state_write <session> <file>
 #                         stores <file> as work/doc-check.json; a notice on
 #                         failure
-#   ds_record <what> <verb> <arg...>
-#                         `koto review record <verb> <arg...>`; a notice naming
+#   ds_record <what> <session> <verb> <arg...>
+#                         `koto review record <session> <verb> <arg...>`; a notice naming
 #                         <what> on failure. Never changes the caller's exit.
 #
 # Recording is best effort: koto absent, a koto without the verb, no session,

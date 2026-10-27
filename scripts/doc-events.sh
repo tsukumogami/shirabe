@@ -20,7 +20,7 @@
 #   that is new at HEAD or whose body changed, prints
 #     doc-events: section <slug> first|rewrite
 #   and records
-#     koto review record section-written <session> --doc-format <f> --section <slug> --write first|rewrite
+#     koto review record <session> section-written --doc-format <f> --section <slug> --write first|rewrite
 #   Unchanged sections and sections the format doesn't require are ignored.
 #   With no --since it diffs from the commit work/doc-check.json last recorded
 #   sections at; with none recorded every present required section is
@@ -30,7 +30,7 @@
 #   writes one entry per (rule, section) the failure is in, with check_rule
 #   the failing rule itself:
 #     doc-events: fix <rule-id> <section slug>
-#     koto review record fix <session> --doc-format <f> --answers check_fail --file <batch>
+#     koto review record <session> fix --doc-format <f> --answers check_fail --file <batch>
 #   The section is the one the check named (a missing required section, or a
 #   section-reading rule's section), else the required section around the
 #   finding's line in the document as the check saw it, else `other`. With no
@@ -201,7 +201,7 @@ if [ "$CMD" = sections ]; then
         [ -n "$name" ] || continue
         slug=$(ds_slug "$name")
         echo "doc-events: section $slug $write"
-        ds_record "section $slug" section-written "$DS_RECORD_SESSION" \
+        ds_record "section $slug" "$DS_RECORD_SESSION" section-written \
             --doc-format "$FORMAT" --section "$slug" --write "$write"
     done < "$WORK/written"
     jq -c --arg doc "$DOC" --arg f "$FORMAT" --arg h "$HEAD" '
@@ -279,5 +279,5 @@ jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t")
     | {rule_id: .[0], section: .[1], check_rule: .[0]})' "$WORK/pairs.u" > "$BATCH" \
     || { ds_notice "could not build the telemetry batch; the fix was not recorded"; exit 0; }
 ds_record_session "$SKILL" "$TOPIC"
-ds_record "the fix" fix "$DS_RECORD_SESSION" --doc-format "$FORMAT" --answers check_fail --file "$BATCH"
+ds_record "the fix" "$DS_RECORD_SESSION" fix --doc-format "$FORMAT" --answers check_fail --file "$BATCH"
 exit 0

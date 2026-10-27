@@ -69,7 +69,7 @@
 # pre-jury check.
 #
 # Telemetry: the outcomes go, best effort, to
-#   koto review record rule-checks <session> --doc-format <f> --moment <m> --file <batch>
+#   koto review record <session> rule-checks --doc-format <f> --moment <m> --file <batch>
 # on the session `skill-session.sh dispatch read` resolves (the chain's parent
 # when one dispatched this skill, else <skill>-<topic>), entries
 # {"rule_id","outcome"}, dropping any rule id the registry doesn't hold. A
@@ -358,7 +358,7 @@ if [ -n "$BATCH" ] && jq -c --slurpfile reg "$REGISTRY" '
         "$WORK/outcomes.json" > "$BATCH" 2>/dev/null; then
     if jq -e 'length > 0' "$BATCH" >/dev/null 2>&1; then
         ds_record_session "$SKILL" "$TOPIC"
-        ds_record "the rule checks" rule-checks "$DS_RECORD_SESSION" \
+        ds_record "the rule checks" "$DS_RECORD_SESSION" rule-checks \
             --doc-format "$FORMAT" --moment "$MOMENT" --file "$BATCH"
     fi
 else

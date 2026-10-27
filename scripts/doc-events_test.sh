@@ -40,7 +40,7 @@ ERR="$WORKDIR/err"
 RC=0
 ev() { (cd "$REPO" && "$EVENTS" "$@") > "$OUT" 2> "$ERR"; RC=$?; }
 show() { printf 'rc=%s out=[%s] err=[%s]' "$RC" "$(tr '\n' '|' < "$OUT")" "$(head -c 400 "$ERR" | tr '\n' '|')"; }
-recorded() { grep '^section-written ' "$STUB_KOTO_DIR/review.log" | sed 's/^section-written [^ ]* //' | sort | tr '\n' '|'; }
+recorded() { grep '^[^ ]* section-written ' "$STUB_KOTO_DIR/review.log" | sed 's/^[^ ]* section-written //' | sort | tr '\n' '|'; }
 
 PRD="docs/prds/PRD-t.md"
 write_prd() { # <problem text> [<goals text>]
@@ -116,7 +116,7 @@ call=$(sed -n 1p "$STUB_KOTO_DIR/review.log")
 batch=$(sed -n 's/^file://p' "$STUB_KOTO_DIR/review.log")
 want='[{"check_rule":"docs/required-fields","rule_id":"docs/required-fields","section":"other"},{"check_rule":"docs/required-sections","rule_id":"docs/required-sections","section":"goals"},{"check_rule":"docs/upstream-resolves","rule_id":"docs/upstream-resolves","section":"problem-statement"}]'
 case "$call" in
-    "fix prd-t --doc-format prd --answers check_fail --file "*)
+    "prd-t fix --doc-format prd --answers check_fail --file "*)
         if [ "$(printf '%s' "$batch" | jq -c 'map(to_entries | sort_by(.key) | from_entries) | sort_by(.rule_id)')" = "$want" ] \
             && [ "$(awk 'END { print NR }' "$OUT")" -eq 3 ]; then
             pass "one fix entry per (rule, section), check_rule the failing rule, sections from the check or the finding's line"

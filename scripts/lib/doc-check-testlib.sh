@@ -81,7 +81,7 @@ case "$cmd" in
         esac
         [ "${1-}" = record ] || exit 2
         shift
-        [ -d "$d/s/${2-}" ] || exit 1
+        [ -d "$d/s/${1-}" ] || exit 1
         printf '%s\n' "$*" >> "$d/review.log"
         prev=""
         for a in "$@"; do

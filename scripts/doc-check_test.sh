@@ -341,7 +341,7 @@ check_prd pre_jury 4
 call=$(sed -n 1p "$STUB_KOTO_DIR/review.log")
 batch=$(sed -n 's/^file://p' "$STUB_KOTO_DIR/review.log")
 case "$call" in
-    "rule-checks prd-t --doc-format prd --moment pre_jury --file "*)
+    "prd-t rule-checks --doc-format prd --moment pre_jury --file "*)
         if printf '%s' "$batch" | jq -e 'length == 11 and all(.[]; keys == ["outcome", "rule_id"])
                 and (map(select(.rule_id == "docs/required-fields"))[0].outcome == "fail")' >/dev/null 2>&1; then
             pass "the outcomes are recorded with koto review record rule-checks on the skill's session"
@@ -359,7 +359,7 @@ printf 'main' | dct_put scope-t session/branch
 printf 'child: prd\nsuppress_status_aware_prompt: false\nrationale: fresh-chain\n' | dct_put scope-t chain/dispatch
 : > "$STUB_KOTO_DIR/review.log"
 check_prd post_fix 4
-grep -q '^rule-checks scope-t ' "$STUB_KOTO_DIR/review.log" \
+grep -q '^scope-t rule-checks ' "$STUB_KOTO_DIR/review.log" \
     && pass "a skill dispatched by /scope records on the scope session" || fail "dispatch: [$(cat "$STUB_KOTO_DIR/review.log")]"
 [ "$(dct_key prd-t work/doc-check.json | jq -r '.last.moment')" = post_fix ] \
     && pass "the state stays in the skill's own session" || fail "state session"
