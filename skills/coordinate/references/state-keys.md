@@ -379,7 +379,8 @@ A record moved from GitHub may also hold `decisions` entries, the archived
 Decisions rows (see Decisions). Each is written with a marker beside it,
 `record/archive/<n>`, so a reader of the archived rows lists the markers and
 gets those entries alone. A record imported before the markers has none, and
-its reader reads every entry instead.
+its reader reads every entry instead, as it does when a cited row is in no
+marked entry.
 
 An outward entry, one that a reader outside the coordinator reads on GitHub,
 is also posted as a comment on the item it concerns, named with `--on`: a

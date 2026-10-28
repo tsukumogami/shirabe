@@ -142,6 +142,12 @@ unmarked_archive() { own_archive; rm -f "$KOTO_STORE/context/$S/record/archive/"
 run_archived unmarked_archive
 eq "an archived citation on a record without markers is still kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
 eq "  ... from a read of every entry" 1 "$(grep -c -e "--prefix record/entries/ " "$T/q.calls")"
+# One that gained a marked entry since, its cited row only in an unmarked
+# entry: every entry is read, so the citation isn't lost.
+mixed_archive() { own_archive; rm -f "$KOTO_STORE/context/$S/record/archive/"*; archive_row "$(printf '%s' "$SETTLED3" | jq -c '.decision = "5"')"; }
+run_archived mixed_archive
+eq "an archived citation whose row only an unmarked entry holds is still kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+eq "  ... from a read of every entry" 1 "$(grep -c -e "--prefix record/entries/ " "$T/q.calls")"
 # A marker whose entry isn't there (its write failed after the marker) names nothing.
 orphan_archive() { own_archive; printf '{"n":9}' > "$KOTO_STORE/context/$S/record/archive/000009"; }
 run_archived orphan_archive
