@@ -39,6 +39,12 @@ for bin in koto shirabe; do
         exit 0
     fi
 done
+# The document gate's canary needs a validator with FC23 to FC25; on an older
+# one every gate stops on an environment fault. `--check FC23` is the probe.
+if ! (cd "${TMPDIR:-/tmp}" && shirabe validate --check FC23 >/dev/null 2>&1); then
+    echo "SKIP: the shirabe on PATH predates FC23 to FC25; this suite's gates cannot run on it"
+    exit 0
+fi
 [ -f "$TEMPLATE" ] || { echo "FAIL: no template at $TEMPLATE" >&2; exit 1; }
 
 PASS=0
