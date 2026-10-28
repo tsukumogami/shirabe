@@ -74,6 +74,7 @@ cost	legacy-import_test.sh	23
 cost	rebrief-record_engine_test.sh	22
 cost	read-once_test.sh	20
 cost	render-brief_test.sh	19
+cost	handover-classify_engine_test.sh	19
 cost	state-holding_test.sh	17
 cost	state-find_test.sh	16
 cost	dispatch-path_engine_test.sh	15
@@ -119,6 +120,7 @@ cost	rule-coverage_test.sh	3
 cost	coordinate-template-structure_engine_test.sh	2
 cost	report-pr_test.sh	2
 cost	start-check_test.sh	2
+cost	newest-member_engine_test.sh	2
 cost	dispatch-common_test.sh	1
 cost	panel-evidence_test.sh	1
 cost	review-round_test.sh	1

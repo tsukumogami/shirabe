@@ -2519,8 +2519,12 @@ Before you submit, make the record one a replacement could continue from: run
 and close every gap it names with the `state-stored-set.sh` call it gives. Write
 this run's arguments and the cap if the record has neither, and your own address
 (`--run coordinator`) if the record names another coordinator's or none. A new
-address leaves every live worker untold: send each one a line naming it, then
-record it with `--told`. The workflow stays here until the check passes.
+address leaves every live worker untold: run
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
+which records a worker whose session isn't live as pending and a pending
+worker whose report reached you as told, then send each worker it prints as
+`live` a line naming the address and record it with `--told`. The workflow
+stays here until the check passes.
 
 <!-- details -->
 
