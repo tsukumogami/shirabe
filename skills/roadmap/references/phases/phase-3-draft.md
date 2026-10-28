@@ -200,6 +200,13 @@ After incorporating all feedback, commit the ROADMAP:
 docs(roadmap): draft ROADMAP for <topic>
 ```
 
+Then record the sections the commit wrote, as telemetry
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/roadmaps/ROADMAP-<topic>.md --format roadmap --skill roadmap
+```
+
 ## Quality Checklist
 
 Before proceeding:

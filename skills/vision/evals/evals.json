@@ -164,6 +164,18 @@
         "PR body names no koto session or context key"
       ],
       "id": 11
+    },
+    {
+      "name": "document-check-before-jury-and-after-fix",
+      "prompt": "/vision dev-tooling -- the draft is committed at 3.7 and the run reaches Phase 4. The content-boundary reviewer FAILs with a minor issue; the other two PASS.",
+      "expected_output": "Before launching the jury the run calls scripts/doc-check.sh --moment pre_jury --phase 4 and review-events.sh round-started --skill vision ... --doc-format vision. Verdicts are recorded before ingest; after the minor fix it calls doc-events.sh fix --answers jury_fail, sections and doc-check.sh --moment post_fix --phase 4, and records the decision with --doc-format vision.",
+      "files": [],
+      "expectations": [
+        "Transcript runs doc-check.sh --moment pre_jury --phase 4 before review-events.sh round-started --skill vision with --doc-format vision",
+        "Transcript runs review-events.sh verdicts --skill vision before skill-session.sh ingest",
+        "After the fix, transcript runs doc-events.sh fix --answers jury_fail and doc-check.sh --moment post_fix --phase 4"
+      ],
+      "id": 12
     }
   ]
 }
