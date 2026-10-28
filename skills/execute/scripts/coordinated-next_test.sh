@@ -304,7 +304,10 @@ expect "a draft root PR whose check read fails" "evaluate:$CT_CORE" "$out"
 # which lists the Actions jobs at the head and the commit's statuses instead.
 # The gh below stands in front of the harness's: it refuses the check read and
 # answers the fallback's REST reads from the case's refused/ directory; every
-# other call goes on to the harness's gh.
+# other call goes on to the harness's gh. It takes those reads in the shape
+# pr-checks.sh makes them, `api --method GET <path> --hostname <host> ...`, so
+# the path is the fourth argument. It lives here rather than in the eval gh
+# shim, which this change leaves as it is.
 #   runs.json     the runs at the head (one list)
 #   jobs.json     run 100's jobs
 #   branch.json   the base's protection; unprotected without it

@@ -727,7 +727,10 @@ done
 # The coordinated loop reads checks by the same rule (#752): coord-common.sh's
 # draft-node read and execute-coordinated.md's evaluate actions name
 # pr-checks.sh and make no direct `pr checks` call, through gh or through
-# coord_gh_read. Comment lines in the script don't count.
+# coord_gh_read. `(^|[^-])` keeps the name pr-checks.sh itself from matching.
+# Whole-line comments in the script don't count, so its comments may name the
+# call it replaced; the template is prose an agent follows, so every line of
+# it counts.
 for f in "$REPO_ROOT/skills/execute/scripts/coord-common.sh" \
          "$REPO_ROOT/skills/execute/koto-templates/execute-coordinated.md"; do
     name="${f#"$REPO_ROOT"/}"
@@ -736,7 +739,7 @@ for f in "$REPO_ROOT/skills/execute/scripts/coord-common.sh" \
         *) direct=$(grep -nE '(^|[^-])pr checks' "$f") ;;
     esac
     if [ -n "$direct" ]; then
-        fail "$name still reads checks directly: $(printf '%s' "$direct" | head -n 1)"
+        fail "$name still reads checks directly: $(head -n 1 <<<"$direct")"
     else
         pass "$name makes no direct pr checks call"
     fi

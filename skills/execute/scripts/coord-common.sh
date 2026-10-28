@@ -161,7 +161,10 @@ coord_gh_read() {
 # statuses where GitHub refuses it (#752). Read as merge-verdict.sh reads it:
 # a JSON array of objects on stdout is the list whatever the exit, and `no
 # checks reported` on stderr is the empty list. Any other failure is retried
-# once after 1 s, then returns 1. stderr passes through, as coord_gh_read's.
+# once after 1 s, as coord_gh_read retries, then returns 1: fewer attempts than
+# merge-verdict.sh makes, since a draft node whose read fails is only
+# evaluated, and the evaluate action reads the checks again. stderr passes
+# through, as coord_gh_read's.
 coord_pr_checks() {
     local __out="$1" attempt out rc err
     err=$(mktemp "${TMPDIR:-/tmp}/coord-checks.XXXXXX") || return 1
