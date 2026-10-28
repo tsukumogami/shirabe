@@ -355,6 +355,22 @@ core_write_meta() {
     rm -rf "$d"
 }
 
+# core_carry_withdraw <to>: remove record/meta from the run a carry wrote into
+# when the carry didn't land (shirabe#1257), so it holds no record and a later
+# start never takes its copy for the record; the keys copied before it stay,
+# unread. Only coordinate-open.sh calls it, before cancelling that run. Returns
+# 0 removed or never written; 1 the listing or the removal failed.
+core_carry_withdraw() {
+    local d rc=0
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-withdraw.XXXXXX") || return 1
+    rs_list "$1" record/meta "$d/keys" || { rm -rf "$d"; return 1; }
+    if jq -e 'index("record/meta") != null' "$d/keys" > /dev/null; then
+        "$KOTO" context remove "$1" record/meta < /dev/null > /dev/null 2>&1 || rc=1
+    fi
+    rm -rf "$d"
+    return $rc
+}
+
 # core_write_pushed: set one holding's pushed head (CORE_PUSHED_TOPIC,
 # CORE_PUSHED_HEAD: 40 hex, or empty to clear it) by rewriting record/holdings
 # alone, the one key that keeps it. The head is no field of the state, so the

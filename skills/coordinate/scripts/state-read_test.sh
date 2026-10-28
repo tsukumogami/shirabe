@@ -472,6 +472,7 @@ clear_rp
 bash "$RS" --candidate --scope roadmap --name resume-probe --hash abc >/dev/null 2>&1; eq "--candidate refuses a hash that isn't 64 hex" 64 $?
 # The carry's write path: core_carry is called only by the opener.
 eq "only coordinate-open.sh calls core_carry" "" "$(fn_callers "$HERE" core_carry '^coordinate-open\.sh$')"
+eq "only coordinate-open.sh calls core_carry_withdraw" "" "$(fn_callers "$HERE" core_carry_withdraw '^coordinate-open\.sh$')"
 
 echo "== 9. the opener's fresh start and the legacy importer =="
 # A koto for the opener: the stand-in, with the session store's features, plus

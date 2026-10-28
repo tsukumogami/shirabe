@@ -276,9 +276,14 @@ rs_session_read() {
 # scope, coordinate-<slug>-<stamp> (the slug coord-log.sh slug derives, as
 # coordinate-open.sh names them), that hold record/meta, one name per line,
 # oldest stamp first. A child session is never one: a coordinator run is a root.
-# Returns 2 when the session list can't be read.
+# A session koto answers isn't here (session_migrated, moved to another host
+# by an import; session_not_found) holds no record here and is left out. Any
+# other refused listing leaves it unknown whether the session holds a record,
+# so it is never printed; with <unreadable-file> given, it is appended there
+# as `<session><TAB><koto's reason>`, oldest first, and without it, it is left
+# out as before. Returns 2 when the session list can't be read.
 rs_scope_sessions() {
-    local d s slug
+    local d s slug why
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$1" --name "$2") || return 2
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
     "${KOTO:-${KOTO_BIN:-koto}}" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
@@ -286,7 +291,14 @@ rs_scope_sessions() {
         | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
         2> "$d/err" | LC_ALL=C sort > "$d/names" || { rm -rf "$d"; return 2; }
     while IFS= read -r s; do
-        rs_list "$s" record/meta "$d/keys" || continue
+        : > "$d/keys.err"
+        if ! rs_list "$s" record/meta "$d/keys"; then
+            # koto puts its refusal on stdout (the listing) or stderr: both, on one line.
+            why=$(cat "$d/keys" "$d/keys.err" 2> /dev/null | tr -s '\t\n' '  ' | head -c 400)
+            case "$why" in *session_migrated*|*session_not_found*) continue ;; esac
+            [ -z "${3:-}" ] || printf '%s\t%s\n' "$s" "$why" >> "$3"
+            continue
+        fi
         jq -e 'index("record/meta") != null' "$d/keys" > /dev/null && printf '%s\n' "$s"
     done < "$d/names"
     rm -rf "$d"
@@ -313,6 +325,13 @@ rs_scope_sessions() {
 #   none    no session here holds a record, or the newest's find never
 #           recorded the session (no coord/source.json reading session): the
 #           start opens a new run
+#   unreadable
+#           a session of the scope newer than every holder (or with no
+#           holder at all) whose record/meta listing koto refused, so it may
+#           hold the record (shirabe#1257): reason is koto's, code is
+#           bound-elsewhere when koto refused it as bound to another
+#           directory (session_bound_elsewhere), and live is false, since
+#           nothing about it could be read. The opener refuses the start
 # At discipline scope the window rule comes first
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3): the
 # newest rotation is resumed or carried only while it is open (rs_rotation_open,
@@ -322,9 +341,20 @@ rs_scope_sessions() {
 # live is whether that session is a live run, which the opener cancels on a
 # carry. Returns 0 printed; 2 a read failed.
 rs_resume_candidate() {
-    local scope=$1 name=$2 hash=$3 today=${4:-$(date -u +%Y-%m-%d)} holders s slug live d src reason=
-    holders=$(rs_scope_sessions "$scope" "$name") || return 2
+    local scope=$1 name=$2 hash=$3 today=${4:-$(date -u +%Y-%m-%d)} holders s slug live d src reason= u
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
+    holders=$(rs_scope_sessions "$scope" "$name" "$d/unreadable") || { rm -rf "$d"; return 2; }
     s=$(printf '%s\n' "$holders" | grep -v '^$' | tail -1)
+    # Names sort by stamp, so the newest unreadable session is the last line,
+    # and it outranks every holder older than it.
+    u=$(tail -1 "$d/unreadable" 2> /dev/null)
+    if [ -n "$u" ] && { [ -z "$s" ] || [[ ${u%%$'\t'*} > $s ]]; }; then
+        jq -nc --arg s "${u%%$'\t'*}" --arg r "${u#*$'\t'}" '{session: $s, action: "unreadable", live: false, reason: $r}
+            + (if $r | test("session_bound_elsewhere") then {code: "bound-elsewhere"} else {} end)'
+        rm -rf "$d"
+        return 0
+    fi
+    rm -rf "$d"
     if [ -z "$s" ]; then
         jq -nc '{session: null, action: "none", live: false, reason: "no session here holds a record"}'
         return 0

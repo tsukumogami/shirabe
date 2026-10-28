@@ -31,6 +31,8 @@
 # one cut short by another failure is failed=carry, each with the source live
 # and uncancelled and the new run cancelled holding no record; a start whose
 # candidate can't be read is refused with no session= and nothing opened; a
+# carry whose source is written while it runs is failed=carry, the source
+# live and the new run cancelled with the record/meta it got withdrawn; a
 # carry that lands cancels the source after it, the new run holding the
 # source's written time; and after that run is cancelled and can't be read,
 # the second start is refused, and the next once it reads carries it. On a
@@ -284,6 +286,14 @@ echo "== a carry whose source is bound elsewhere =="
 mkdir -p "$T/beshim" "$T/plugin3"
 cat > "$T/beshim/koto" <<EOF
 #!/bin/sh
+# BE_ARM=touch: once the carry writes the new run's record/meta, the source's
+# record/meta is written with a later time, a write that landed mid-carry.
+if [ "\$BE_ARM" = touch ] && [ "\$1 \$2" = "context add" ] && [ "\$3" != "\$BE_SRC" ] && [ "\$4" = record/meta ]; then
+    "$REAL_KOTO" "\$@" || exit \$?
+    "$REAL_KOTO" context get "\$BE_SRC" record/meta | jq -c '.written = "2099-01-01T00:00:00Z"' > "$T/touched-meta" \
+        && "$REAL_KOTO" context add "\$BE_SRC" record/meta --from-file "$T/touched-meta" > /dev/null
+    exit 0
+fi
 if [ "\$1 \$2" = "context add" ] && [ "\$3" != "\$BE_SRC" ] && [ "\$BE_ARM" = write ]; then
     case "\$4" in record/*|legs/*) : > "$T/be-armed" ;; esac
 fi
@@ -354,6 +364,16 @@ eq "  ... opening nothing" "$BEFORE" "$(sessions)"
 grep -qF "koto session rebind $BS --to $(pwd -P)" "$T/err" && pass "  ... naming the rebind" || fail "  ... naming the rebind" "$(cat "$T/err")"
 
 sleep 1
+BEFORE=$(sessions)
+open_be touch bound "$BS"; rc=$?
+NB=$(opened_by "$BEFORE")
+eq "a carry whose source was written while it ran is failed=carry, exit 1" "1 failed=carry" "$rc $(grep '^failed=' "$T/out")"
+grep -q 'written during the carry' "$T/err" && pass "  ... saying so" || fail "  ... saying so" "$(cat "$T/err")"
+eq "  ... the source still live and uncancelled" "$BS 0" "$(live_bound) $(cancelled "$BS")"
+eq "  ... the new run cancelled" 1 "$( [ -n "$NB" ] && cancelled "$NB")"
+koto context exists "$NB" record/meta; eq "  ... its record/meta, written by the carry, withdrawn" 1 $?
+
+sleep 1
 open_be none bound "$BS"; rc=$?
 NB=$(sed -n 's/^session=//p' "$T/out")
 eq "a carry that lands opens the new run" "0 carried=$BS" "$rc $(grep '^carried=' "$T/out")"
@@ -364,6 +384,7 @@ eq "  ... leaving the new run the scope's live one" "$NB" "$(live_bound)"
 
 # The issue's second start: the run holding the record was cancelled and can't
 # be read from here. The start refuses rather than open an empty run.
+printf '{"source":"session"}' | koto context add "$NB" coord/source.json
 koto cancel "$NB" > /dev/null 2>&1
 sleep 1
 BEFORE=$(sessions)
@@ -374,7 +395,8 @@ eq "  ... opening nothing" "$BEFORE" "$(sessions)"
 # Once it reads again (rebound here), the next start carries the cancelled run.
 sleep 1
 open_be none bound "$NB"
-eq "once it can be read, the next start carries the cancelled run" "carried=$NB" "$(grep '^carried=' "$T/out")"
+grep -qx "carried=$NB" "$T/out" && pass "once it can be read, the next start carries the cancelled run" \
+    || fail "once it can be read, the next start carries the cancelled run" "$(cat "$T/out" "$T/err")"
 
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own

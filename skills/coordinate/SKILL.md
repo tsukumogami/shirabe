@@ -109,17 +109,44 @@ work.
    aren't applied to it). One that can't be resumed (another template, another
    plugin, a directed transition, or not the scope's only live run) is
    **carried**: a new run opens and every `record/` and `legs/` key is copied
-   into it, printed `carried=<old run>`; the old run's log stays readable, and
-   a carry cut short (`failed=carry`) is carried again by the next start. A
-   carried run reconciles before acting: the record is a snapshot dated by its
-   `written` time, so reconciling re-checks every holding in it against
-   GitHub (pull request state and head, branch, issue, CI) and the host before
-   anything acts on it, and GitHub wins where they disagree. The opener cancels
-   any earlier live run of the same scope without deleting its log. `ask=host`
-   means the human must name the host first; a refusal prints koto's reason and
+   into it, printed `carried=<old run>`, and only once the copy is checked
+   (every key there, its `record/meta` read back at the old run's `written`
+   time, the old run unchanged meanwhile) is the old run cancelled, its log
+   kept readable. A carry cut short or failing that check (`failed=carry`)
+   leaves the old run as it was and cancels the new one, which holds no
+   record, and the next start carries again. A carried run reconciles before
+   acting: the record is a snapshot dated by its `written` time, so
+   reconciling re-checks every holding in it against GitHub (pull request
+   state and head, branch, issue, CI) and the host before anything acts on
+   it, and GitHub wins where they disagree. The opener cancels any earlier
+   live run of the same scope without deleting its log. `ask=host` means the
+   human must name the host first; a refusal prints koto's reason and
    `refused=<code>`. At discipline scope a start inside the rotation's window
    restarts it, and one after the window opens the next rotation, which
    carries the last one.
+
+   **Handing over to a successor in another directory.** koto's cloud backend
+   answers a run only from the directory it is bound to, and refuses a read
+   from anywhere else as `session_bound_elsewhere`. A successor starting in
+   its own instance can meet that when it carries its predecessor's run. The
+   opener then stops with `refused=bound-elsewhere` (exit 2), leaving the old
+   run as it was and cancelling any run it opened, and its message names the
+   run and this directory. Do the handover in this order:
+
+   1. Stop the predecessor's coordinator session, so nothing ticks or writes
+      the old run.
+   2. From the successor's directory, either let the start carry the old run,
+      or, when it refuses `bound-elsewhere`, run `koto session rebind <old
+      run> --to <successor's directory>` and start again there, which then
+      reads the old run as any run of this directory.
+   3. Only once the carry or the rebind has landed (the start printed
+      `session=` with no refusal) reap the predecessor's instance.
+
+   Reaping first leaves a run nobody may read from where the successor stands.
+   A start that finds a run of the scope it can't read, newer than every run
+   that holds a record, opens nothing: it refuses `bound-elsewhere` as above,
+   or `candidate-unreadable` with koto's reason, rather than open an empty run
+   past a record it couldn't see.
 
    **A live run another session drives is taken over.** When the run the
    opener would resume names another Claude session as its driver (or, with
