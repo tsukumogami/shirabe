@@ -904,7 +904,8 @@ else
     fail "light re-check after a fix: exit $PRC: $(cat "$WORKDIR/pstderr")"
 fi
 [ "$PRC" -eq 0 ] && rm -f "$POUT"
-[ -z "$(ls "$WORKDIR/ptmp")" ] && pass "every packet was cleaned up" || fail "packets left behind: $(ls "$WORKDIR/ptmp")"
+LEFT="$(ls -A "$WORKDIR/ptmp")$(ls -A "$WORKDIR/pscratch")"
+[ -z "$LEFT" ] && pass "every packet was cleaned up" || fail "packets left behind: $LEFT"
 
 echo "--- script: a seat's verdict comes from its findings' severity"
 

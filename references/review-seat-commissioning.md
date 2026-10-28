@@ -17,7 +17,8 @@ those lines have in common, so it is said once.
    gives. It prints the packet's path. Every packet command takes `--scratch`,
    a directory of the run's own from `skill-session.sh scratch`, which the
    packet is written into: a `/work-on` run's scratch directory (the one its
-   evidence files go in), a jury's `<inputs-dir>`, or, at a site that keeps
+   evidence files go in, which nothing ingests), a jury's `<inputs-dir>`, or,
+   at a site that keeps
    neither, one allocated for the packet. Never a directory whose files are
    ingested as keys, and never the shared `$TMPDIR`, where another run's
    cleanup can remove the packet between panels. The script refuses a missing
