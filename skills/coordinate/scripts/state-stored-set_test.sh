@@ -439,8 +439,9 @@ bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v3 >/dev/null 2>"$T/err"; eq 
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v3 >/dev/null 2>"$T/err"; eq "--told for a pending worker" 0 $?
 eq "  ... turns its pending row into a told one" "worker-f3 worker-f2|" "$(run_rows told)|$(run_rows pending)"
 gate; eq "  ... and the gate still passes" "0 " "$G"
-bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v3 >/dev/null 2>&1
-bash "$RS" "${W[@]}" --run coordinator lane-v4 --by lane-v4 >/dev/null 2>"$T/err"; eq "clear: a new address is set over a told and a pending worker" 0 $?
+bash "$RS" "${W[@]}" --pending worker-f4 --by lane-v3 >/dev/null 2>&1
+eq "clear: before it, a told and a pending row stand" "worker-f3 worker-f2|worker-f4" "$(run_rows told)|$(run_rows pending)"
+bash "$RS" "${W[@]}" --run coordinator lane-v4 --by lane-v4 >/dev/null 2>"$T/err"; eq "  ... a new address is set over them" 0 $?
 eq "  ... clearing every told and pending row" "|" "$(run_rows told)|$(run_rows pending)"
 gate; eq "  ... so the gate holds on both again" "1 not-told worker-f2,not-told worker-f3" "$G"
 bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v4 >/dev/null 2>&1
