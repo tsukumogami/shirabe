@@ -15,9 +15,9 @@
 # gh call lands in the case's call log.
 #
 # koto is a stub whose context store is a directory, so reads, clears, and
-# writes are observable without an engine; `workflows --roots` lists the
-# sessions the store holds a directory for, and `session list` lists them
-# with the directory each is bound to. A session ct_bind bound to a
+# writes are observable without an engine; `session list` lists the sessions
+# the store holds a directory for, with the directory each is bound to, and
+# any `workflows` call is refused. A session ct_bind bound to a
 # directory answers context calls only from that directory, as koto's cloud
 # backend answers a session only in the directory it was opened in: from any
 # other the call exits 2 with session_bound_elsewhere, appended to the case's
@@ -62,13 +62,6 @@ cat > "$CT_BIN/koto" <<'STUB'
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto-calls.log"
 printf 'koto %s\n' "$*" >> "$store/order.log"
-# workflows --roots: every session the store holds a context directory for.
-if [ "$1 ${2:-}" = "workflows --roots" ]; then
-    [ -n "${KOTO_FAIL_WORKFLOWS:-}" ] && exit 3
-    (cd "$store/ctx" && find . -mindepth 1 -maxdepth 1 -type d | sed 's#^\./##' | LC_ALL=C sort) \
-        | jq -R '{name: .}' | jq -sc .
-    exit 0
-fi
 # session list: one row per session the store holds a context directory for,
 # with the directory ct_bind bound it to as its execution_dir (none when
 # unbound). It answers from any directory, as koto's does.
@@ -83,7 +76,7 @@ if [ "$1 ${2:-}" = "session list" ]; then
         done | jq -sc .
     exit 0
 fi
-[ "$1" = context ] || { echo "koto stub: only context, workflows --roots and session list are served" >&2; exit 9; }
+[ "$1" = context ] || { echo "koto stub: only context and session list are served" >&2; exit 9; }
 # The session the call names: list [--prefix <p>] <session>, the flag on
 # either side; every other verb's third word.
 bound_s="${3:-}"
@@ -195,7 +188,7 @@ ct_case() {
     export EVAL_SCENARIO_DIR="$CASE/scenario"
     export GH_CALL_LOG="$CASE/gh.log"
     export KOTO_STORE="$CASE"
-    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST KOTO_FAIL_WORKFLOWS
+    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST
     unset KOTO_FAIL_SESSION_LIST
     unset CT_RECORD_REPOS GH_SHIM_FAIL CT_GH_HOOK
     CT_PRS='[]'
