@@ -114,6 +114,7 @@ cost	rule-coverage_test.sh	3
 cost	coordinate-template-structure_engine_test.sh	2
 cost	report-pr_test.sh	2
 cost	start-check_test.sh	2
+cost	newest-member_engine_test.sh	2
 cost	dispatch-common_test.sh	1
 cost	panel-evidence_test.sh	1
 cost	review-round_test.sh	1
