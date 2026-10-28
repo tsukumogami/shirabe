@@ -44,9 +44,10 @@ fi
 COORD_MARKER='This is a **coordination PR**'
 COORD_RUN_ID=""
 RE_COORD_RUN_ID='^[0-9a-f]{32}$'
-# The PLAN's node list, from /plan's script: the one cross-skill path the
-# coordinated scripts share.
+# The cross-skill paths the coordinated scripts share: the PLAN's node list,
+# from /plan's script, and a PR's checks, from work-on's one check read.
 COORD_PLAN_TO_TASKS="$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh"
+COORD_PR_CHECKS="$COORD_SELF_DIR/../../work-on/scripts/pr-checks.sh"
 
 RE_COORD_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_COORD_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
@@ -151,6 +152,36 @@ coord_gh_read() {
         fi
         [ "$attempt" -eq 1 ] && sleep 1
     done
+    return 1
+}
+
+# coord_pr_checks <outvar> <pr> <repo> -- a PR's checks as a JSON array of
+# {name, bucket}, read through work-on's pr-checks.sh: the check read itself
+# wherever the token can read checks, the Actions jobs and the commit's
+# statuses where GitHub refuses it (#752). Read as merge-verdict.sh reads it:
+# a JSON array of objects on stdout is the list whatever the exit, and `no
+# checks reported` on stderr is the empty list. Any other failure is retried
+# once after 1 s, then returns 1. stderr passes through, as coord_gh_read's.
+coord_pr_checks() {
+    local __out="$1" attempt out rc err
+    err=$(mktemp "${TMPDIR:-/tmp}/coord-checks.XXXXXX") || return 1
+    for attempt in 1 2; do
+        out=$("$BASH" "$COORD_PR_CHECKS" "$2" --repo "$3" --json name,bucket </dev/null 2>"$err")
+        rc=$?
+        cat "$err" >&2
+        if [ -n "$out" ] && jq -e 'type == "array" and all(.[]; type == "object")' >/dev/null 2>&1 <<<"$out"; then
+            printf -v "$__out" '%s' "$out"
+            rm -f "$err"
+            return 0
+        fi
+        if [ "$rc" -ne 0 ] && grep -q 'no checks reported' "$err"; then
+            printf -v "$__out" '%s' '[]'
+            rm -f "$err"
+            return 0
+        fi
+        [ "$attempt" -eq 1 ] && sleep 1
+    done
+    rm -f "$err"
     return 1
 }
 
@@ -459,11 +490,13 @@ cc_pr_node() {
     all_merged=0
     cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
     if [ "$draft" = "true" ]; then
+        # A check that failed, was cancelled, or is `unreadable` (a required
+        # check nothing the token can read answers) stops the run, as in
+        # merge-verdict.sh. A read that fails is no list: the node is
+        # evaluated, and the evaluate action reads its checks again.
         local checks
-        if ! coord_gh_read checks pr checks "$n_pr" --repo "$n_repo" --json name,bucket; then
-            checks="[]"
-        fi
-        if printf '%s' "$checks" | jq -e 'type == "array" and any(.[]; .bucket == "fail" or .bucket == "cancel")' >/dev/null; then
+        coord_pr_checks checks "$n_pr" "$n_repo" || checks="[]"
+        if printf '%s' "$checks" | jq -e 'type == "array" and any(.[]; .bucket == "fail" or .bucket == "cancel" or .bucket == "unreadable")' >/dev/null; then
             CC_ACTION="error:execute:ci"; return 1
         fi
         [ -n "$eval_cand" ] || eval_cand="$name"

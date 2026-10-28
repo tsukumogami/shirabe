@@ -740,7 +740,7 @@ for f in "$REPO_ROOT/skills/execute/scripts/coord-common.sh" \
     else
         pass "$name makes no direct pr checks call"
     fi
-    if grep -q 'skills/work-on/scripts/pr-checks.sh' "$f"; then
+    if grep -q 'work-on/scripts/pr-checks\.sh' "$f"; then
         pass "$name reads checks through pr-checks.sh"
     else
         fail "$name does not name pr-checks.sh"
