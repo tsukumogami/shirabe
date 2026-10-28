@@ -34,19 +34,43 @@
 # can't be made, a `koto session dir` that fails or points anywhere else.
 # A suite may set HOME or KOTO_SESSIONS_BASE to its own directory afterwards.
 #
-# KOTO_TEST_GUARD_DIR is removed on exit by the trap set here, unless the
-# suite sets its own EXIT trap, which replaces it; the directory then stays
-# under TMPDIR.
+# KOTO_TEST_GUARD_DIR is removed on exit by the EXIT trap set here. A suite
+# with its own exit cleanup hands it to ktg_on_exit instead of setting
+# `trap ... EXIT`, which would replace the guard's trap and leave the
+# directory under TMPDIR:
+#
+#     ktg_on_exit 'rm -rf "$T"'
+#
+# On exit the command runs first, as the suite's own trap would have run it,
+# then the directory goes. A later call replaces the command an earlier one
+# gave, as a second `trap` would, and keeps the guard's part. The command
+# must not call exit, and under `set -e` one that fails ends the trap there
+# as it would have ended the suite's own; either way the directory stays.
 #
 # scripts/check-koto-test-guard.sh fails when a suite that names koto doesn't
-# source this file before it does; scripts/check-koto-test-guard_test.sh
-# covers both.
+# source this file before it does, and when a suite that sources it sets its
+# own EXIT trap; scripts/check-koto-test-guard_test.sh covers both.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 _ktg_fail() {
     echo "FAIL: koto-test-guard: $*; no case ran" >&2
     exit 1
+}
+
+_ktg_cleanup() {
+    case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac
+}
+
+# ktg_on_exit <command>: run <command> on exit, then remove the guard's
+# directory (see the header).
+ktg_on_exit() {
+    if [ "$#" -ne 1 ]; then
+        echo "FAIL: koto-test-guard: ktg_on_exit takes one command, got $#" >&2
+        exit 1
+    fi
+    trap "$1
+_ktg_cleanup" EXIT
 }
 
 for _ktg_v in KOTO_SESSIONS_BASE KOTO_TICK_SESSION KOTO_HOME KOTO_WORKFLOWS_DIR \
@@ -71,7 +95,7 @@ case "$KOTO_TEST_GUARD_DIR" in
     */suite-scratch.*) ;;
     *) _ktg_fail "could not resolve $_ktg_dir" ;;
 esac
-trap 'case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+trap _ktg_cleanup EXIT
 export HOME="$KOTO_TEST_GUARD_DIR/home"
 mkdir "$HOME" || _ktg_fail "could not make $HOME"
 

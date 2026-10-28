@@ -54,7 +54,7 @@ REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
 for b in koto jq git python3; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on PATH"; exit 0; }; done
 T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-engine.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */coordinate-open-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */coordinate-open-engine.*) rm -rf "$T" ;; esac'
 export HOME="$T/home"; mkdir -p "$HOME"; export GIT_CEILING_DIRECTORIES="$T"
 PASS=0 FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
@@ -267,7 +267,7 @@ koto context exists "$SN3" session/link-warning; eq "  ... and the key goes" 1 $
 # needs koto's `session import`, which the start above already required.
 echo "== two hosts =="
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; case "$T" in */coordinate-open-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 's3_stop; case "$T" in */coordinate-open-engine.*) rm -rf "$T" ;; esac'
 s3_start || { fail "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; exit 1; }
 host_make a; host_make b
 for h in a b; do

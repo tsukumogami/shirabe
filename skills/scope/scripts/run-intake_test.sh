@@ -38,7 +38,7 @@ done
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/run-intake-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'case "$T" in */run-intake-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */run-intake-test.*) rm -rf "$T" ;; esac'
 export GIT_CEILING_DIRECTORIES="$T"
 
 PASS=0

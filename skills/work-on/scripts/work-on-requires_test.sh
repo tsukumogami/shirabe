@@ -39,7 +39,7 @@ ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/work-on-requires-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 MODE_FLAGS=$(awk -F'\t' '$1 == "koto" && $2 == "init" && $4 == "mode:koto-leg" { print $3 }' "$REQ")
 for f in --vars-file --attach-live --koto-leg; do

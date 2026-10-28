@@ -49,7 +49,7 @@ command -v git >/dev/null || { echo "ci-cancel-after-merge_test: git is required
 T=$(mktemp -d "${TMPDIR:-/tmp}/ci-cancel-after-merge-test.XXXXXX") || exit 1
 # The trailing `return 0` keeps the trap's status from replacing the script's.
 cleanup() { rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 REPO_URL="https://github.com/acme/widgets"
 RUN="$REPO_URL/actions/runs"

@@ -44,7 +44,7 @@ fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/scope-open-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'case "$T" in */scope-open-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */scope-open-test.*) rm -rf "$T" ;; esac'
 
 PASS=0
 FAIL=0

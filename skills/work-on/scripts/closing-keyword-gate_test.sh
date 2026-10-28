@@ -38,7 +38,7 @@ TMPS=()
 # prints nothing at all. The trigger is `set -e` and not any shell version --
 # measured, bash 5.2 and 3.2 behave identically.
 cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # The gate command, read out of the template: the `command:` line belonging to
 # the closing_keyword gate, unquoted from its YAML single-quoted scalar.

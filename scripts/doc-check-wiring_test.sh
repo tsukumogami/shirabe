@@ -45,7 +45,7 @@ done
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/doc-check-wiring-test.XXXXXX") || exit 2
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 2
 cleanup() { case "${WORKDIR:-}" in */doc-check-wiring-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # shellcheck source=lib/doc-check-testlib.sh
 . "$SCRIPT_DIR/lib/doc-check-testlib.sh"

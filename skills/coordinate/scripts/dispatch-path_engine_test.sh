@@ -48,7 +48,7 @@ done
 koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-path-engine.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */dispatch-path-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */dispatch-path-engine.*) rm -rf "$T" ;; esac'
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
 mkdir -p "$HOME"
 cd "$T" || exit 1

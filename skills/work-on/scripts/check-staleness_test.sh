@@ -53,7 +53,7 @@ cleanup() {
     for d in "${TMPS[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 WORK=$(mktemp -d) || exit 1; TMPS+=("$WORK")
 SESSIONS_FILE="$WORK/sessions"

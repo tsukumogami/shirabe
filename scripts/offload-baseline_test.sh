@@ -33,7 +33,7 @@ cleanup() {
     [ -n "$TEST_DIR" ] && rm -rf "$TEST_DIR"
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 fail() {
     echo "FAIL: $1 - $2" >&2

@@ -17,7 +17,7 @@ READER="$HERE/rule-registry.sh"
 T=$(mktemp -d "${TMPDIR:-/tmp}/jev-withhold-test.XXXXXX") || exit 1
 T=$(CDPATH='' cd -P -- "$T" && pwd -P) || exit 1
 cleanup() { rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 PASSED=0
 FAILED=0

@@ -22,7 +22,7 @@ PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/verdict-table.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 # state<TAB>word pairs with no arm on purpose. start and start_posture share a
 # comment line but are two states with two word sets. record: moved is

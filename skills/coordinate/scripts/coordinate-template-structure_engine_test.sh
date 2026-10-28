@@ -38,7 +38,7 @@ for b in koto jq; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on 
 PASS=0 FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
-T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX") || exit 1; trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX") || exit 1; ktg_on_exit 'rm -rf "$T"'
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 

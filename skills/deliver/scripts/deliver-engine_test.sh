@@ -87,7 +87,7 @@ koto_legacy_env_enable
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-engine-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */deliver-engine-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */deliver-engine-test.*) rm -rf "$T" ;; esac'
 export HOME="$T/home"
 mkdir -p "$HOME"
 export GIT_CEILING_DIRECTORIES="$T"

@@ -9,7 +9,7 @@ SCRIPT="$(dirname "$0")/validate-template-mermaid.sh"
 PASS=0
 FAIL=0
 TMPDIR_ROOT=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_ROOT"' EXIT
+ktg_on_exit 'rm -rf "$TMPDIR_ROOT"'
 
 run_test() {
     local name="$1"

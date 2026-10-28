@@ -8,7 +8,12 @@
 # real koto writes.
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-test.XXXXXX") || exit 1
-trap 'case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
+# A suite that sourced scripts/lib/koto-test-guard.sh keeps the guard's trap.
+if declare -F ktg_on_exit >/dev/null; then
+    ktg_on_exit 'case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
+else
+    trap 'case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
+fi
 export GH_DB="$T/db.json" KOTO_STORE="$T/koto" KOTO_COMPILED_HASH=feedface
 mkdir -p "$KOTO_STORE/sessions"
 PATH="$HERE/testdata:$PATH"

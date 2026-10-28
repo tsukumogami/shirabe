@@ -49,7 +49,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 WORK=$(mktemp -d) || exit 1
 
 TAB=$(printf '\t')

@@ -92,7 +92,7 @@ PS="$PR/skills/coordinate/scripts"
 # niwa instance that permits every finishing step, so the posture reads
 # `readable`.
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests handover-engine; exit 1; }
 host_make a; host_make b; host_make c
 for h in a b c; do

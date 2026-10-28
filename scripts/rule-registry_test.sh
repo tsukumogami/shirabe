@@ -32,7 +32,7 @@ fail() { echo "FAIL: $1 - $2"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 T=$(mktemp -d "${TMPDIR:-/tmp}/rule-registry-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */rule-registry-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Commits in the scratch repositories must not depend on the host's identity.
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid

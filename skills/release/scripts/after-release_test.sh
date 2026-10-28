@@ -47,7 +47,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran";
 T=$(mktemp -d "${TMPDIR:-/tmp}/after-release-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */after-release-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 export TMPDIR="$T/tmp"
 mkdir -p "$TMPDIR"
 export GIT_CEILING_DIRECTORIES="$T"

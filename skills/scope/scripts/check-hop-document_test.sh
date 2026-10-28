@@ -44,7 +44,7 @@ done
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document-test.XXXXXX") || exit 1
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
 cleanup() { case "${WORKDIR:-}" in */check-hop-document-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 REAL_SHIRABE=$(command -v shirabe 2>/dev/null || true)
 ORIG_PATH=$PATH

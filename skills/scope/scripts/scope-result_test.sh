@@ -54,7 +54,7 @@ koto_legacy_env_enable
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/scope-result-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'case "$T" in */scope-result-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */scope-result-test.*) rm -rf "$T" ;; esac'
 export GIT_CEILING_DIRECTORIES="$T"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 

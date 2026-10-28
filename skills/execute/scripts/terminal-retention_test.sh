@@ -258,7 +258,7 @@ command -v jq >/dev/null 2>&1 || skip_engine_cases "jq not on PATH"
 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/terminal-retention.XXXXXX") || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Keep every session this harness creates out of the developer's real ~/.koto.
 # This suite retains sessions on purpose, so it would leave more behind than most.
