@@ -21,3 +21,5 @@ skills/scope/scripts/check-hop-document_test.sh
 # library; their stub validator and stub koto run every case on the floor.
 scripts/doc-check_test.sh
 scripts/doc-events_test.sh
+scripts/review-events_test.sh
+scripts/doc-shadow-check_test.sh

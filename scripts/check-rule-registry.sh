@@ -35,7 +35,10 @@
 #      rule-registry.sh's own lookup, to a range with no marker line and no
 #      control character but tab; a retired entry is exempt
 #   5  review-shadow agreement: the rs- ids of the registry and criteria.json
-#      are one set, and each entry's text.path is its criterion's rule_ref
+#      are one set, and each entry's text.path is its criterion's rule_ref;
+#      an rs- entry with check.kind `none` is a jury rubric item, judged by a
+#      document jury seat (references/review-verdicts.md), and has no
+#      criterion. `rs-verdict-missing` is the one rs- id outside rs-NNN
 #   6  printable ids: every id on a RULE_IDS="..." line under skills/,
 #      scripts/ or hooks/ (a hook's *_test.sh suite aside), and every id a
 #      script passes to `rule-registry.sh release`,
@@ -134,7 +137,7 @@ PATH_SHAPE='^[A-Za-z0-9._][A-Za-z0-9._/-]*$'
 HEX40='^[0-9a-f]{40}$'
 KEY_SHAPE='^([A-Za-z0-9._][A-Za-z0-9._/-]*)#L([0-9]+)-L([0-9]+)$'
 TIMING_SHAPE='^([a-z0-9-]+):([a-z0-9_]+)$'
-ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$'
+ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3}|rs-verdict-missing)$'
 RULE_IDS_LINE='^RULE_IDS="([a-z0-9/-]+( [a-z0-9/-]+)*)"$'
 COMMENT_LINE='^[[:space:]]*#'
 # The guards vocabulary less `none`: the actions a guard, a backstop or a
@@ -194,7 +197,7 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" 
       (if ($e.id | type) == "string" then $e.id else "entry \($i)" end) as $n
       | ($fields[] as $f | select(($e | has($f)) | not) | "\($n): missing field \($f)"),
         (select($e | has("id")) | $e.id
-          | select(type != "string" or (test("^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$") | not))
+          | select(type != "string" or (test("^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3}|rs-verdict-missing)$") | not))
           | "\($n): id \(tojson) matches neither <area>/<rule> nor rs-NNN"),
         (select($e | has("status")) | $e.status
           | select(. != "active" and . != "retired") | "\($n): status \(tojson) is not active or retired"),
@@ -383,7 +386,10 @@ else
         grep -qxF "$crit" "$TMP/crit-ids" || problem "$id: review-shadow criterion $crit is not in criteria.json"
     done < "$TMP/rs-checks"
 
-    jqf "$TMP/reg-rs.raw" -r '.rules[] | objects | .id | strings | select(test("^rs-"))' "$REG"
+    # A jury rubric item (check.kind none) is judged by a document jury seat,
+    # not by review-shadow.py, so it has no criterion (references/review-verdicts.md).
+    jqf "$TMP/reg-rs.raw" -r '.rules[] | objects | select(.check.kind? != "none")
+                              | .id | strings | select(test("^rs-"))' "$REG"
     sort -u "$TMP/reg-rs.raw" > "$TMP/reg-rs"
     grep '^rs-' "$TMP/crit-ids" | sort -u > "$TMP/crit-rs"
     comm -23 "$TMP/reg-rs" "$TMP/crit-rs" | sed 's/$/: in the registry but not in criteria.json/' > "$TMP/rs-only-reg"

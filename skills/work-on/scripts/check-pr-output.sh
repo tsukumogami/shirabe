@@ -22,6 +22,17 @@
 #       owned-pr.sh resolves from the
 #       arguments that follow, and anything but exactly one owned pull request
 #       is exit 2.
+#       Every exit 2 after the rules resolve prints one finding naming why,
+#       so koto never credits the failure to the gate's name:
+#         pr-body/pr-missing    no pull request yet (gh finds none for the
+#                               branch, or owned-pr.sh answers 3)
+#         pr-body/body-missing  gh returned no title or no body
+#         pr-body/read-failed   anything else: a gh read or lookup that
+#                               failed, a missing tool, missing writing-style
+#                               rules, a validator that failed to run
+#       The first two also print `::koto-not-ready::` on stdout, the
+#       telemetry marker for a gate run before its input exists; read-failed
+#       doesn't. Neither changes the exit.
 #       Validator exit 0 -> 0, and 1, 3, 4 -> 2. Exit 2 prints one finding
 #       per listed message, at its rule's stage, and maps to 1 when one of
 #       them is of a rule at `block`, else 0. An exit 2 that lists no message
@@ -110,7 +121,12 @@
 #   PB4 (heading in Part 1)  pr-body/no-heading-in-part1
 #   PB5 (banned word)        pr-body/banned-word
 #   anything else            pr-body/conformance
-# and this script's own scan, pr-body/workflow-content.
+# and this script's own scan, pr-body/workflow-content, and its
+# could-not-decide rules above. Beside each finding the rule library prints
+# a ::koto-rule-delivered:: marker (scripts/lib/rule-findings.sh). Every line
+# on stdout starts with one of the library's markers or ::koto-not-ready::;
+# text from the pull request reaches stdout only inside a finding's JSON, so
+# a body line can't start a marker.
 # The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
 # resolves each one's reference, summary and stage through scripts/rule-registry.sh.
 #
@@ -119,7 +135,7 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word pr-body/conformance pr-body/workflow-content"
+RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word pr-body/conformance pr-body/workflow-content pr-body/pr-missing pr-body/body-missing pr-body/read-failed"
 # Seconds owned-pr.sh may run. koto stops a gate command at 30 seconds; this
 # stays under it so the answer is this script's 2, not koto's timeout.
 # CHECK_PR_OUTPUT_OWNED_TIMEOUT is the tests' seam, and also how
@@ -155,6 +171,22 @@ require_rules() {
 # finding <rule_id> <detail>
 finding() {
     rf_finding "$1" "$2"
+}
+
+# pr_undecided <rule_id> <detail>: --pr-body's could-not-decide, once its
+# rules are resolved. Prints the reason on stderr and the rule's finding on
+# stdout, so koto credits the failure to a pr-body rule rather than to the
+# gate's name; for pr-body/pr-missing and pr-body/body-missing, whose input
+# doesn't exist yet, also the ::koto-not-ready:: marker. The exit stays 2. It
+# must run in the script's main shell, never inside $(...), where its stdout
+# would be captured.
+pr_undecided() {
+    echo "check-pr-output: $2" >&2
+    finding "$1" "$2"
+    case "$1" in
+        pr-body/pr-missing|pr-body/body-missing) printf '::koto-not-ready::\n' ;;
+    esac
+    exit 2
 }
 
 WORK=""
@@ -290,37 +322,54 @@ workflow_records() {
 check_pr_body() {
     require_rules pr-body/conventional-title pr-body/one-separator \
         pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word \
-        pr-body/conformance pr-body/workflow-content
+        pr-body/conformance pr-body/workflow-content \
+        pr-body/pr-missing pr-body/body-missing pr-body/read-failed
+    # From here every could-not-decide names its rule (pr_undecided):
+    # pr-body/pr-missing when there is no pull request to read yet,
+    # pr-body/body-missing when it has no title or body, and
+    # pr-body/read-failed for anything else that stops the check.
     for tool in gh jq shirabe; do
-        command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
+        command -v "$tool" >/dev/null 2>&1 || pr_undecided pr-body/read-failed "$tool is not on PATH"
     done
     rules_dir=$(cd "$HERE/../../writing-style" 2>/dev/null && pwd -P) \
-        || undecided "this plugin's skills/writing-style directory is missing"
+        || pr_undecided pr-body/read-failed "this plugin's skills/writing-style directory is missing"
     rules_file="$rules_dir/rules.yaml"
     [ -f "$rules_file" ] && [ -r "$rules_file" ] \
-        || undecided "this plugin's writing-style rules are missing: $rules_file"
-    make_work
+        || pr_undecided pr-body/read-failed "this plugin's writing-style rules are missing: $rules_file"
+    WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output.XXXXXX") \
+        || pr_undecided pr-body/read-failed "cannot create a temporary directory"
     if [ "$OWNED" = 1 ]; then
         lookup "$@"
         rc=$?
-        [ "$rc" -eq 0 ] || undecided "--owned: no single owned pull request to read (lookup answered $rc)"
+        case "$rc" in
+            0) ;;
+            3) pr_undecided pr-body/pr-missing "--owned: no single owned pull request to read (lookup answered 3)" ;;
+            *) pr_undecided pr-body/read-failed "--owned: the owned pull request lookup failed (lookup answered $rc)" ;;
+        esac
         gh pr view "$URL" --json title,body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
-            || undecided "gh pr view $URL failed: $(tail -n 1 "$WORK/gh.err")"
-    else
-        gh pr view --json title,body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
-            || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
+            || pr_undecided pr-body/read-failed "gh pr view $URL failed: $(tail -n 1 "$WORK/gh.err")"
+    elif ! gh pr view --json title,body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null; then
+        # gh's own wording for a branch with no pull request.
+        if grep -qiF -- "no pull requests found" "$WORK/gh.err"; then
+            pr_undecided pr-body/pr-missing "gh pr view found no pull request for the checked-out branch: $(tail -n 1 "$WORK/gh.err")"
+        fi
+        pr_undecided pr-body/read-failed "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
     fi
     jq -e 'type == "object" and (.title | type == "string") and (.body | type == "string")' \
-        "$WORK/pr.json" >/dev/null || undecided "gh pr view did not return a title and a body"
+        "$WORK/pr.json" >/dev/null 2>&1 \
+        || pr_undecided pr-body/body-missing "gh pr view did not return a title and a body"
     title=$(jq -r '.title' "$WORK/pr.json")
     jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
 
-    # Workflow records, unless the repository opts in to them.
+    # Workflow records, unless the repository opts in to them. workflow_content
+    # runs in a subshell, so its own refusal reaches stderr there and the
+    # finding is printed here.
     : > "$WORK/records"
-    content=$(workflow_content) || exit 2
+    content=$(workflow_content) \
+        || pr_undecided pr-body/read-failed "could not tell whether the repository opts in to workflow content"
     if [ "$content" = omit ]; then
         workflow_records "$WORK/body.md" > "$WORK/records" \
-            || undecided "the PR body couldn't be scanned for workflow records"
+            || pr_undecided pr-body/read-failed "the PR body couldn't be scanned for workflow records"
     fi
 
     # --writing-style goes last so the earlier arguments keep their positions.
@@ -342,9 +391,9 @@ check_pr_body() {
         *)
             # clap's last line is its usage hint, so the whole stderr is read.
             if grep -qF -- "unexpected argument '--writing-style'" "$WORK/err"; then
-                undecided "the installed shirabe predates the PR writing-style check (--writing-style); upgrade shirabe"
+                pr_undecided pr-body/read-failed "the installed shirabe predates the PR writing-style check (--writing-style); upgrade shirabe"
             fi
-            undecided "shirabe validate --pr-body exited $rc: $(tail -n 1 "$WORK/err")"
+            pr_undecided pr-body/read-failed "shirabe validate --pr-body exited $rc: $(tail -n 1 "$WORK/err")"
             ;;
     esac
     pb4=0
@@ -380,12 +429,13 @@ check_pr_body() {
     # it is released here on every failure, as before the ladder. At warn the
     # gate passes and the ladder doesn't run, so it is released here. release
     # prints on stderr, which koto returns to the agent with the gate's output,
-    # and always exits 0, so no path changes this gate's result.
+    # and always exits 0; rf_release adds only its delivery marker on stdout,
+    # so no path changes this gate's result.
     if [ "$pb4" -eq 1 ]; then
         pb4_stage=$(rf_stage pr-body/no-heading-in-part1) || exit 2
         case "$pb4_stage" in
-            warn) "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null ;;
-            block) rf_ladder_active || "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null ;;
+            warn) rf_release pr-body/no-heading-in-part1 ;;
+            block) rf_ladder_active || rf_release pr-body/no-heading-in-part1 ;;
         esac
     fi
     if [ "$RF_BLOCKING" -gt 0 ]; then

@@ -14,7 +14,23 @@ description: >
   live session refuse to attach. scripts/skill-session.sh opens, reads and
   closes these sessions; references/skill-session-convention.md states the
   rules.
+
+  review_vocabulary lists the document jury seats and section slugs
+  scripts/review-events.sh records on a direct child run, so koto keeps them
+  as given and records anything else as other (references/review-verdicts.md).
+  scope.md declares the same lists for a run under /scope.
 initial_state: open
+review_vocabulary:
+  seats: [content-quality, structural-format, completeness, clarity, testability,
+          architecture, security, scope-gate, design-fidelity, ac-discriminability,
+          sequencing, functional-shape]
+  sections: [status, problem-statement, user-outcome, user-journeys, scope-boundary,
+             goals, user-stories, requirements, acceptance-criteria, out-of-scope,
+             context-and-problem-statement, decision-drivers, considered-options,
+             decision-outcome, solution-architecture, implementation-approach,
+             security-considerations, consequences, scope-summary,
+             decomposition-strategy, issue-outlines, implementation-issues,
+             dependency-graph, implementation-sequence, steps, frontmatter, document]
 states:
   open:
     accepts:

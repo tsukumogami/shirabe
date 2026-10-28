@@ -138,6 +138,28 @@ output. Examples:
 - `"Loop-back required at Phase 4. Issue 3 has fixture-anchored ACs (pattern 1) that would pass for an incorrect implementation; correction hint provided."`
 - `"Loop-back required at Phase 1. Design contradiction in sections 3.2 and 5.1 must be resolved before issue bodies can be regenerated."`
 
+## Recording the Round
+
+Each category ended its findings with a `review-verdicts` block (its phase
+file's Verdict Block). Write each category's block, as returned, to its file in
+`<verdicts-dir>` from Phase 0 with the Write tool: `category-a.md` (Scope
+Gate), `category-b.md` (Design Fidelity), `category-c.md` (AC
+Discriminability), `category-d.md` (Sequencing) and `category-e.md`
+(Functional Shape). In adversarial mode, write the block that matches the
+category's final findings after cross-examination. A category that returned no
+block gets no file. Then record the blocks and the verdict as telemetry, and
+remove the directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill plan --topic <topic> --doc <plan-doc> --dir <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill plan --topic <topic> --doc <plan-doc> --decision <proceed|loop_back>
+rm -rf -- <verdicts-dir>
+```
+
+`proceed` for a proceed verdict, `loop_back` for a loop-back. Both calls
+always exit 0 and change nothing about the verdict
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`).
+
 ## Do Not Write Both Keys
 
 Write exactly one key per review run. If the verdict is "proceed", do not write
