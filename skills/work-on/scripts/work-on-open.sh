@@ -124,18 +124,29 @@
 # `to`). An attach resets every rebind variable it isn't passed, and without
 # this a resume through this script would empty the run's chosen level. With
 # no session or no ledger nothing is added, so a new session's variables are
-# unchanged. A ledger that exists but can't be read adds nothing either, with
-# a warning on stderr: the level check then holds on the empty level, which
-# `review-level.sh set <session> <level>` clears.
+# unchanged. A read that fails stops the open before koto init: `level`
+# exiting non-zero, or printing anything but one level name. The second is
+# what a session bound to another workspace gives, since koto's refusal of the
+# read lands on `level`'s output. The script prints `failed=level_unreadable`,
+# says why on stderr and exits 66, so nothing reaches the leg and a later open
+# can still bind it.
+#
+# The other values handed to koto can't carry a failed read. The tokens file
+# is read once, and a failed read is a usage refusal. PLUGIN_ROOT is the
+# environment's CLAUDE_PLUGIN_ROOT or this script's own plugin directory,
+# whose lookup exits 64 when it fails. The --var pairs and the values mapped
+# from the tokens are the caller's input, not reads: koto checks them, and its
+# invalid_var on the leg is their intended answer.
 #
 # Output: koto-open.sh's lines (opened=..., rebound=..., leg=..., refused=...,
 # failed=...), then `session=<name>` when a session was opened or attached,
 # then, under --dispatched-by, `warning=link-failed dispatched_by=<dispatcher>`
-# when the link could not be recorded.
+# when the link could not be recorded; or `failed=level_unreadable` alone.
 # koto's refusal wording goes to stderr.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
-# own code otherwise), or 64 for this script's own usage refusals.
+# own code otherwise), 64 for this script's own usage refusals, or 66 for a
+# failed review-level read, with no koto init.
 #
 # A bare `--koto-leg` followed by another flag takes that flag as its value, so
 # the value fails the leg pattern and exits 64. deliver-open.sh records an empty
@@ -229,7 +240,7 @@ command -v jq >/dev/null || { remove_tokens; printf 'failed=jq_missing\n'; echo 
 jq -e 'type == "array" and all(.[]; type == "string")' "$TOKENS_FILE" >/dev/null \
     || own_refusal "the tokens file is not a JSON array of strings"
 
-TOKENS=$(cat -- "$TOKENS_FILE")
+TOKENS=$(cat -- "$TOKENS_FILE") || own_refusal "could not read the tokens file"
 DIR=$(dirname -- "$TOKENS_FILE")
 rm -f -- "$TOKENS_FILE"
 
@@ -283,14 +294,25 @@ REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
-# The level the live session's ledger last recorded, or nothing.
+# The level the live session's ledger last recorded, or nothing. Anything but
+# a clean read of nothing or one level name stops the open here, before koto
+# init: passed on, it would reach koto as REVIEW_LEVEL, and koto's invalid_var
+# would resolve a still-open leg as refused.
 LEVEL=""
-if LEVEL=$(bash "$SELF_DIR/review-level.sh" level "$WORKFLOW" 2>"$DIR/level.err"); then
-    :
-else
-    LEVEL=""
-    echo "$PROG: could not read $WORKFLOW's review level ledger, so REVIEW_LEVEL is not passed and the level check will hold until review-level.sh set rebinds it: $(head -c 300 "$DIR/level.err")" >&2
-fi
+LEVEL_RC=0
+LEVEL=$(bash "$SELF_DIR/review-level.sh" level "$WORKFLOW" 2>"$DIR/level.err") || LEVEL_RC=$?
+case "$LEVEL_RC:$LEVEL" in
+    0:|0:light|0:standard|0:full) ;;
+    *)
+        LEVEL_ERR=$( { printf '%s ' "$LEVEL"; cat -- "$DIR/level.err"; } 2>/dev/null | tr '\n' ' ')
+        LEVEL_ERR=${LEVEL_ERR:0:300}
+        rm -f -- "$DIR/level.err"
+        remove_tokens
+        printf 'failed=level_unreadable\n'
+        echo "$PROG: could not read $WORKFLOW's review level (exit $LEVEL_RC), so the open stops with no koto init and the leg stays open: $LEVEL_ERR" >&2
+        exit 66
+        ;;
+esac
 rm -f -- "$DIR/level.err"
 
 PAIRS_FILE="$DIR/work-on-vars.json"
