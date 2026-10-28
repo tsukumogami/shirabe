@@ -2,10 +2,11 @@
 name: scope
 version: "1.0"
 description: >
-  Tactical-chain orchestrator for /scope. Forty states across five phases:
+  Tactical-chain orchestrator for /scope. Forty-one states across five phases:
   setup (intake, the branch check, resume routing and its five ladder
   prompts, setup), discovery and the chain proposal, four hop states, the
-  shared fold state and the hop selector a resume enters the chain through,
+  shared fold state, the check_exit marker a document gate's named exit
+  passes through, and the hop selector a resume enters the chain through,
   six exit states, three publish states, three cleanup states, the two intent
   shortcuts and the record state behind one of them, and eight terminals,
   each declaring its result. Each hop delivers its own directive on
@@ -33,7 +34,8 @@ description: >
   `hop_select` route on non-overridable gates alone, because where a run
   resumes is read from the tree, never asserted. `branch_check` advances on
   its gate alone on the passing path and asks for evidence only when the gate
-  fails.
+  fails. `check_exit` has one unconditional transition on purpose: it is a
+  marker the run passes through on the way to `exit_abandonment`.
 
   Every terminal declares a `result:` map, and every edge into one assigns
   `outcome` (and `step` on the error edges) as a literal through
@@ -807,25 +809,42 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       brief_document:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop brief'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=brief_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop brief'
         overridable: false
     accepts:
       outcome:
         type: enum
         # /brief's Phase 5 Reject discards the draft BRIEF in its own discard
         # commit, which routes to the re-evaluation exit at the `brief` boundary,
-        # as /prd's and /design's rejects do at theirs.
-        values: [landed, skipped, rejected, bail]
+        # as /prd's and /design's rejects do at theirs. check_unsatisfiable is
+        # the document gate's named exit (below).
+        values: [landed, skipped, rejected, bail, check_unsatisfiable]
         required: true
       detail:
         type: string
         description: The child's outcome, the skip reason, or the reject rationale.
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing document
+          rule can't be satisfied. It stays in the session's context.
     transitions:
+      # The named exit (DESIGN-validate-and-return.md): accepted only while the
+      # document gate fails on a rule (exit 1, never an exit 2 the gate couldn't
+      # decide), and it ends the run at exit_abandonment through check_exit,
+      # never past the gate.
+      - target: check_exit
+        when:
+          outcome: check_unsatisfiable
+          gates.brief_document.exit_code: 1
+        context_assignments:
+          check_exit_reason: "${evidence.check_exit_reason}"
       - target: hop_prd
         when:
           outcome: landed
@@ -851,22 +870,35 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       prd_document:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop prd'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=prd_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop prd'
         overridable: false
     accepts:
       outcome:
         type: enum
-        values: [landed, skipped, rejected, bail]
+        values: [landed, skipped, rejected, bail, check_unsatisfiable]
         required: true
       detail:
         type: string
         description: The child's outcome, the skip reason, or the reject rationale.
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing document
+          rule can't be satisfied. It stays in the session's context.
     transitions:
+      # The named exit, as in hop_brief.
+      - target: check_exit
+        when:
+          outcome: check_unsatisfiable
+          gates.prd_document.exit_code: 1
+        context_assignments:
+          check_exit_reason: "${evidence.check_exit_reason}"
       - target: fold
         when:
           outcome: landed
@@ -897,22 +929,35 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       design_document:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop design'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=design_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop design'
         overridable: false
     accepts:
       outcome:
         type: enum
-        values: [landed, skipped, rejected, bail]
+        values: [landed, skipped, rejected, bail, check_unsatisfiable]
         required: true
       detail:
         type: string
         description: The child's outcome, the skip reason, or the reject rationale.
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing document
+          rule can't be satisfied. It stays in the session's context.
     transitions:
+      # The named exit, as in hop_brief.
+      - target: check_exit
+        when:
+          outcome: check_unsatisfiable
+          gates.design_document.exit_code: 1
+        context_assignments:
+          check_exit_reason: "${evidence.check_exit_reason}"
       - target: fold
         when:
           outcome: landed
@@ -938,12 +983,13 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       plan_document:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop plan'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=plan_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop plan'
         overridable: false
       # koto cannot see the Skill call, only what it produced. This re-runs
       # /plan's own resolve-split-mode.sh over the PLAN's split verdict, the
@@ -979,12 +1025,26 @@ states:
     accepts:
       outcome:
         type: enum
-        values: [landed, skipped, bail]
+        values: [landed, skipped, bail, check_unsatisfiable]
         required: true
       detail:
         type: string
         description: The child's outcome, or the vocabulary reason for a skip.
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing document
+          rule can't be satisfied. It stays in the session's context.
     transitions:
+      # The named exit, as in hop_brief. It names plan_document alone: the
+      # mode and filing gates aren't document rules, and their failures keep
+      # the routes below.
+      - target: check_exit
+        when:
+          outcome: check_unsatisfiable
+          gates.plan_document.exit_code: 1
+        context_assignments:
+          check_exit_reason: "${evidence.check_exit_reason}"
       - target: fold
         when:
           outcome: landed
@@ -1055,23 +1115,36 @@ states:
       # still has a way out. Not overridable.
       fold_documents:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop all'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=fold_documents SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop all'
         overridable: false
     accepts:
       verdict:
         type: enum
-        values: [keep, absorb, bail]
+        values: [keep, absorb, bail, check_unsatisfiable]
         required: true
       finding:
         type: string
         description: >
           On keep, what the upstream holds that the survivor would not. On
           absorb, what the carry check confirmed arrived.
+      check_exit_reason:
+        type: string
+        description: >-
+          With check_unsatisfiable: one sentence saying why the failing document
+          rule can't be satisfied. It stays in the session's context.
     transitions:
       # The way out when fold_documents can't pass. It names no gate.
       - target: bail
         when:
           verdict: bail
+      # The named exit, as in hop_brief: unlike bail, it is open only while
+      # fold_documents fails on a rule, and it keeps the run's documents.
+      - target: check_exit
+        when:
+          verdict: check_unsatisfiable
+          gates.fold_documents.exit_code: 1
+        context_assignments:
+          check_exit_reason: "${evidence.check_exit_reason}"
       # Nothing remains: the plan hop is satisfied, so the chain is at its end.
       - target: finalize
         when:
@@ -1184,6 +1257,15 @@ states:
           gates.design_present.exit_code: 2
         context_assignments:
           failure_reason: "fold: neither the design nor the plan hop could be decided (both gates exit 2). Routed as not-yet-run; no hop was found incomplete."
+
+  check_exit:
+    # phase: 2
+    # The marker state of a document gate's named exit. Its one transition is
+    # unconditional, so koto passes through it on entry: the state_entered
+    # record it leaves is what tells a check exit apart from a bail, and the
+    # run ends at the abandonment exit with its committed documents kept.
+    transitions:
+      - target: exit_abandonment
 
   finalize:
     # phase: 3
@@ -2472,10 +2554,27 @@ the environment, not in the document: run
 by hand for the reason. When it can't be fixed, `bail` is the way out; it
 names no gate.
 
+**When a rule keeps failing.** `brief_document`'s output escalates. The first
+time a rule fails here, its finding carries the rule's summary. From the second
+failed evaluation of the same rule in this state, the gate's output also carries
+the rule's full text, or, where that text can't be printed, the file and line
+range to read; from the third, a `::shirabe-check-exit::` line says this
+state's exit is open. koto's own count decides each step, and telemetry records
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`brief_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
+as `check_exit_reason`; telemetry records only that the exit was taken.
+
 Evidence schema:
-- `outcome`: `landed`, `skipped`, `rejected`, or `bail`
+- `outcome`: `landed`, `skipped`, `rejected`, `bail`, or `check_unsatisfiable`
 - `detail`: the child's outcome, the skip reason, the reject rationale, or the
   bail reason
+- `check_exit_reason`: with `check_unsatisfiable`, why the rule can't be
+  satisfied
 
 ## hop_prd
 
@@ -2522,9 +2621,26 @@ the environment, not in the document: run
 by hand for the reason. When it can't be fixed, `bail` is the way out; it
 names no gate.
 
+**When a rule keeps failing.** `prd_document`'s output escalates. The first
+time a rule fails here, its finding carries the rule's summary. From the second
+failed evaluation of the same rule in this state, the gate's output also carries
+the rule's full text, or, where that text can't be printed, the file and line
+range to read; from the third, a `::shirabe-check-exit::` line says this
+state's exit is open. koto's own count decides each step, and telemetry records
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`prd_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
+as `check_exit_reason`; telemetry records only that the exit was taken.
+
 Evidence schema:
-- `outcome`: `landed`, `skipped`, `rejected`, or `bail`
+- `outcome`: `landed`, `skipped`, `rejected`, `bail`, or `check_unsatisfiable`
 - `detail`: the child's outcome, the skip reason, or the reject rationale
+- `check_exit_reason`: with `check_unsatisfiable`, why the rule can't be
+  satisfied
 
 ## hop_design
 
@@ -2567,9 +2683,26 @@ the environment, not in the document: run
 by hand for the reason. When it can't be fixed, `bail` is the way out; it
 names no gate.
 
+**When a rule keeps failing.** `design_document`'s output escalates. The first
+time a rule fails here, its finding carries the rule's summary. From the second
+failed evaluation of the same rule in this state, the gate's output also carries
+the rule's full text, or, where that text can't be printed, the file and line
+range to read; from the third, a `::shirabe-check-exit::` line says this
+state's exit is open. koto's own count decides each step, and telemetry records
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`design_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
+as `check_exit_reason`; telemetry records only that the exit was taken.
+
 Evidence schema:
-- `outcome`: `landed`, `skipped`, `rejected`, or `bail`
+- `outcome`: `landed`, `skipped`, `rejected`, `bail`, or `check_unsatisfiable`
 - `detail`: the child's outcome, the skip reason, or the reject rationale
+- `check_exit_reason`: with `check_unsatisfiable`, why the rule can't be
+  satisfied
 
 ## hop_plan
 
@@ -2664,9 +2797,27 @@ the environment, not in the document: run
 by hand for the reason. When it can't be fixed, `bail` is the way out; it
 names no gate.
 
+**When a rule keeps failing.** `plan_document`'s output escalates. The first
+time a rule fails here, its finding carries the rule's summary. From the second
+failed evaluation of the same rule in this state, the gate's output also carries
+the rule's full text, or, where that text can't be printed, the file and line
+range to read; from the third, a `::shirabe-check-exit::` line says this
+state's exit is open. koto's own count decides each step, and telemetry records
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`plan_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
+as `check_exit_reason`; telemetry records only that the exit was taken. The
+mode and filing gates aren't document rules: the exit doesn't open on them.
+
 Evidence schema:
-- `outcome`: `landed`, `skipped`, or `bail`
+- `outcome`: `landed`, `skipped`, `bail`, or `check_unsatisfiable`
 - `detail`: the child's outcome, the skip reason, or the bail reason
+- `check_exit_reason`: with `check_unsatisfiable`, why the rule can't be
+  satisfied
 
 ## fold
 
@@ -2740,12 +2891,37 @@ run `"{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic {{TOPI
 by hand for the reason. When it can't be fixed, submit `verdict: bail`, which
 names no gate.
 
+**When a rule keeps failing.** `fold_documents`' output escalates. The first
+time a rule fails here, its finding carries the rule's summary. From the second
+failed evaluation of the same rule in this state, the gate's output also carries
+the rule's full text, or, where that text can't be printed, the file and line
+range to read; from the third, a `::shirabe-check-exit::` line says this
+state's exit is open. koto's own count decides each step, and telemetry records
+each one; a rule's failures at an earlier hop don't count here. Fix the
+document first. Take the exit only when the rule's full text shows the document
+can't satisfy it; that normally means the exit line has already appeared. Then
+submit `verdict: check_unsatisfiable` with `check_exit_reason` set to one
+sentence saying why. koto accepts it only while `fold_documents` fails on a rule
+(exit 1, never an exit 2). It ends the run at `exit_abandonment` through
+`check_exit`, with every committed document kept; it never moves the run past
+the gate. Unlike `bail`, it records which check ended
+the run. The reason stays in the session's context as `check_exit_reason`;
+telemetry records only that the exit was taken.
+
 Evidence schema:
 - `verdict`: `keep` or `absorb`
 - `finding`: what the upstream holds that the survivor would not, or what the
   carry check confirmed arrived
 - `verdict` also takes `bail`, the way out when `fold_documents` can't pass;
   its route names no gate
+- `verdict` also takes `check_unsatisfiable`, the named exit while
+  `fold_documents` fails on a rule, with `check_exit_reason` saying why
+
+## check_exit
+
+koto passes through this state to `exit_abandonment` without stopping. There is
+nothing to submit: the run took a document gate's named exit, and the session's
+`check_exit_reason` says why.
 
 ## hop_select
 
@@ -2964,6 +3140,15 @@ child, and the enum has no "none").
 Phase 2 invocation began most recently, ties broken by position in the planned
 chain, later winning, except on a stop between hops, where it is the child the
 stop came just before (as above). The tie-break is mechanical and prompts nobody.
+
+**After a check exit.** A run that took a document gate's named exit arrives
+here through `check_exit`, with the session's `check_exit_reason` set. The
+child had already returned, so there is no intermediate to materialize: its
+document is on disk as it wrote it, held by the gate. The triggering child is
+the hop whose gate the exit was taken at (at `fold`, the child of the hop that
+landed last). Put the marker on that document at its current status, or, when
+it is the PLAN, follow the PLAN rule above. Leave every committed document as
+it is.
 
 **On a coordinated run, close the coordination PR without merging** — `gh pr
 close`, the same `gh` surface that authored and posted its body. Abandonment

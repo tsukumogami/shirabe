@@ -397,7 +397,10 @@ eq  "removed, a symlinked header: it isn't opened" "$TEARDOWN_KOTO_SESSIONS/wk-r
 
 # No koto session store at all: the path comes from a transcript's cwd.
 rfixture
-rmdir "$TEARDOWN_KOTO_SESSIONS"
+# rm, not rmdir: rmdir isn't on run-tests.sh's PATH, and the store it left in
+# place passed this case without testing a missing store.
+rm -r "$TEARDOWN_KOTO_SESSIONS"
+[ -e "$TEARDOWN_KOTO_SESSIONS" ] && bad "removed, no koto session store: the fixture has no store" "$TEARDOWN_KOTO_SESSIONS is still there"
 RPD="$TEARDOWN_CLAUDE_HOME/projects/$(printf '%s' "$RINST" | sed 's/[^A-Za-z0-9]/-/g')"
 RJOB=9f8e7d6c
 RSID="$RJOB-1111-4222-8333-444455556666"

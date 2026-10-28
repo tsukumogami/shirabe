@@ -1,1 +1,2 @@
 ::error file=synthetic/DESIGN-typed-scalar-hex-status.md,line=6::[FC02] status "0x1F" is not valid for Design docs. Valid values: Proposed, Accepted, Planned, Current, Superseded
+::notice file=synthetic/DESIGN-typed-scalar-hex-status.md::[FC24] frontmatter key 'problem' is out of order; a design's keys go schema, status, problem, decision, rationale, upstream, spawned_from, motivating_context, user_visible_surface, decision_provenance

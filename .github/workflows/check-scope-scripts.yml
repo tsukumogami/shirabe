@@ -374,6 +374,12 @@ jobs:
       - name: Run scope substrate sessions
         run: bash skills/scope/scripts/scope-substrate_test.sh
 
+      # The document gates' escalation and named exit, through real sessions:
+      # koto's own failure count drives what each gate prints, so the ladder
+      # can only be shown against a real store.
+      - name: Run the document gates' escalation sessions
+        run: bash skills/scope/scripts/scope-check-exit_test.sh
+
       # The entry and intake against the same koto: every argument
       # refusal, the leg records, attach and mismatch, and intake routing each
       # verdict to its terminal. TMPDIR is /tmp here, so PLUGIN_ROOT is a path
