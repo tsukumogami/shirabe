@@ -3942,6 +3942,13 @@ Retry cap: self-loop with `creation_failed_retry` up to 3 times. After 3, use
 `creation_failed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number.
 
+`koto rewind` doesn't reopen a round. From `done` it steps back to this state
+only, and the next submission returns to `done`, so rewinding again and again
+just flips between the two. A fix that review or CI asks for after the run
+reaches `done` is a fix round, started from `done` with
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from` and this
+run's session name; the `done` directive says how.
+
 ## check_exit
 
 koto passes through this state to `done_blocked` without stopping. There is
@@ -4104,6 +4111,40 @@ The workflow is complete. The PR has been created and CI is passing.
 If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds,
 CI passed on a MERGED pull request with cancelled macOS floor checks: read it
 with `koto context get` and name those checks in your final report.
+
+**A fix after `done`.** When review or CI asks for a change to this branch after
+the run got here, don't use `koto rewind`: it doesn't reopen a round. From `done`
+it reaches `pr_creation` only, and the next submission comes straight back here.
+Take a fix round instead, from the branch this run worked on:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from {{SESSION_NAME}}
+```
+
+It starts `{{SESSION_NAME}}-fix-<n>`, a new work-on session with this run's
+variables and parent (a child stays a child, so it never cascades), and records
+the round in both sessions' context: `fix_round.json` in the round, a line in
+`fix_rounds.jsonl` here. Drive the round from `entry` with the entry evidence
+this run was given, and commit the fix in the round's `implementation`, not
+before: the round's `analysis` records HEAD as its `impl_base`, so its review
+panels and changed paths cover the fix commits only and its verification runs
+at the fix head, while a fix committed earlier falls before the base and out of
+the round's review. The script refuses (`refused=<reason>`,
+exit 1) while an earlier round is still open (`round-open`), after three
+rounds (`cap`; a fourth is a person's call), and from a branch other than
+this run's `SHARED_BRANCH` (`wrong-branch`).
+
+The round is a unit like any other. An issue with a fix label makes it a fix
+again, so it owes a red at `reproduce`; a review change or a CI repair with no
+check that fails on the base records a before-observation there instead
+(`references/red-first.md`). Under a parent the round counts in the parent's
+children-complete gate while it runs, so a round that ends at `done_blocked` is
+the parent's failure too.
+
+A coordinator reads the review round from this session, not the round's. Once
+the round's panels pass at the fix head, record it here too with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/review-round.sh" record --session {{SESSION_NAME}} <round.json>`,
+`reviewed_head` set to the fix head.
 
 ## done_already_complete
 

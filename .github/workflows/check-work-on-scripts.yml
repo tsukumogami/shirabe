@@ -534,6 +534,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/test-change-routes_test.sh
 
+      # A fix round after done (#1322): a child of a stand-in parent driven to
+      # done, rewound to show rewind only reaches pr_creation, then fix rounds
+      # started from the shipped work-on.md through a real koto, their changed
+      # paths, review-round.sh at the fix head in both sessions, and the
+      # open-round and three-round refusals. Skips without koto.
+      - name: Run fix round tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/fix-round_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.
