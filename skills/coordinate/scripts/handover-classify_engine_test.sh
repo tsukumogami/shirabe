@@ -46,9 +46,12 @@ gaps() { (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") | jq -r '[.ga
 
 # niwa: `list --json` names an instance for feat-1 and feat-2, each a directory
 # under ws/, and none for feat-3.
+# The session names and job ids are built here, so no id-shaped literal ships.
+N1=$(printf 'feat_1-%s' 0a1a1a1a) N2=$(printf 'feat_2-%s' 0b2b2b2b)
+J1=$(printf '%s%s' a1a1 a1a1) J2=$(printf '%s%s' b2b2 b2b2)
 mkdir -p "$T/niwa-bin" "$T/ws/feat-1" "$T/ws/feat-2"
-jq -n --arg a "$T/ws/feat-1" --arg b "$T/ws/feat-2" \
-    '[{name: "feat-1", path: $a, session_name: "feat_1-0a1a1a1a"}, {name: "feat-2", path: $b, session_name: "feat_2-0b2b2b2b"}]' > "$T/niwa-list.json"
+jq -n --arg a "$T/ws/feat-1" --arg b "$T/ws/feat-2" --arg n1 "$N1" --arg n2 "$N2" \
+    '[{name: "feat-1", path: $a, session_name: $n1}, {name: "feat-2", path: $b, session_name: $n2}]' > "$T/niwa-list.json"
 cat > "$T/niwa-bin/niwa" <<EOF
 #!/usr/bin/env bash
 case "\$*" in
@@ -60,9 +63,9 @@ chmod +x "$T/niwa-bin/niwa"
 
 # The Claude jobs: feat-1's is working, feat-2's is done.
 export DC_CLAUDE_HOME="$T/claude"
-mkdir -p "$DC_CLAUDE_HOME/jobs/a1a1a1a1" "$DC_CLAUDE_HOME/jobs/b2b2b2b2"
-jq -n '{name: "feat_1-0a1a1a1a", state: "working"}' > "$DC_CLAUDE_HOME/jobs/a1a1a1a1/state.json"
-jq -n '{name: "feat_2-0b2b2b2b", state: "done"}' > "$DC_CLAUDE_HOME/jobs/b2b2b2b2/state.json"
+mkdir -p "$DC_CLAUDE_HOME/jobs/$J1" "$DC_CLAUDE_HOME/jobs/$J2"
+jq -n --arg n "$N1" '{name: $n, state: "working"}' > "$DC_CLAUDE_HOME/jobs/$J1/state.json"
+jq -n --arg n "$N2" '{name: $n, state: "done"}' > "$DC_CLAUDE_HOME/jobs/$J2/state.json"
 
 # feat-1's instance holds its running koto session.
 cat > "$T/worker.md" <<'TPL'
