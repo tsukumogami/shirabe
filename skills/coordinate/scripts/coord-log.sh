@@ -60,11 +60,14 @@
 #       replaces, so that is a restart, while a rotation's predecessor ended
 #       at a terminal state and a coordinator that dispatched this one runs
 #       another scope; neither joins the chain. Of several such links, the
-#       newest run. A member with neither is the chain start. A run whose log
-#       can't be read ends the chain at the member after it, which only makes
-#       the chain shorter; a run met twice ends it too, and the walk stops
-#       after 1024 runs. Exit 0; 2 S's own log or a member's links can't be
-#       read.
+#       newest run. A member with neither is the chain start. Names decide
+#       nothing, so a cancelled run named like S that S holds no link to (one
+#       a person cancelled before starting S by hand, or one carried before
+#       coordinate-open.sh linked carried runs) is not in the chain. A run
+#       whose log can't be read ends the chain at the member after it, which
+#       only makes the chain shorter; a run met twice ends it too, and the
+#       walk stops after 1024 runs. Exit 0; 2 S's own log or a member's
+#       links can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
 #       Exit 0 when the session's template is one this plugin can drive and
 #       its PLUGIN_ROOT, as koto applies it now (the value it opened with,

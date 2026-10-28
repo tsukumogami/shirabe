@@ -100,7 +100,7 @@ open() {
     local s=$1; shift
     koto init "$s" --template "$TPL" "$@" >/dev/null 2>"$T/init.err" || { fail "koto init $s" "$(cat "$T/init.err")"; return 1; }
 }
-takeover() { open "$1" --continues "$2" --supersede; } # takeover <successor> <predecessor>
+takeover() { local s=$1 p=$2; shift 2; open "$s" --continues "$p" --supersede "$@"; } # takeover <successor> <predecessor> [koto init flags...]
 carry() { koto session link "$1" --dispatched-by "$2" >/dev/null 2>&1 || fail "link $1 dispatched-by $2"; } # carry <new run> <run it carried>
 cancel() { koto cancel "$1" >/dev/null 2>&1 || fail "koto cancel $1"; }
 finish() { koto next "$1" --no-cleanup >/dev/null 2>&1 || fail "koto next $1"; }
