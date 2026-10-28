@@ -325,7 +325,7 @@ open_be() { # open_be <arm> <kind> <source>: a start from the plugin copy behind
 }
 live_bound() { bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-bound --all 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 cancelled() { jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$(koto session dir "$1")/koto-$1.state.jsonl"; }
-opened_by() { comm -13 <(printf '%s\n' $1 | LC_ALL=C sort) <(sessions | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort) | tr '\n' ' ' | sed 's/ $//'; }
+opened_by() { jq -nr --arg b "$1" --arg a "$(sessions)" '($a | split(" ")) - ($b | split(" ")) | map(select(. != "")) | join(" ")'; }
 sleep 1
 OUT=$(open_ "$RMB"); BS=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
 session_seed "$BS" "$(jq -nc '{scope: {kind: "roadmap", name: "bound"}, holdings: [], deferrals: [], side_effects: [], reversals: []}')"
