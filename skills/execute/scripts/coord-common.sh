@@ -578,7 +578,7 @@ cc_children_deferrals() {
         echo "$PROG: koto session list failed, so node $1's work items can't be found where they are bound" >&2
         return 1
     }
-    printf '%s' "$listing" | jq -e 'type == "array"' >/dev/null 2>&1 || {
+    printf '%s' "$listing" | jq -e 'type == "array"' >/dev/null || {
         echo "$PROG: koto session list did not answer a list of sessions" >&2
         return 1
     }
