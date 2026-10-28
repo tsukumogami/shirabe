@@ -24,10 +24,15 @@
 #
 # A suite that holds the guard line must not set its own EXIT trap, which
 # replaces the guard's and leaves its directory under TMPDIR; it hands its
-# cleanup to the guard's ktg_on_exit instead. Refused: a `trap` at the start
-# of a line, outside a heredoc, that names EXIT, SIGEXIT or 0 among its
-# signals (`trap cleanup EXIT`, `trap - EXIT`, a quoted command over several
-# lines). An indented `trap`, such as a subshell's own, is left alone.
+# cleanup to the guard's ktg_on_exit instead. Refused: a `trap` that names
+# EXIT, SIGEXIT or 0 among its signals, as any command of a line that starts
+# at its first column, outside a heredoc: `trap cleanup EXIT`,
+# `T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT`,
+# `[ -n "$T" ] && trap ...`, `if ...; then trap ...; fi`, a quoted command
+# over several lines. Left alone: an indented `trap`, such as a subshell's
+# own; one in a quoted string or a comment; and `trap - EXIT`, which drops
+# every exit cleanup on purpose (a KEEP_T-style switch that keeps the
+# scratch directories for a look) rather than replacing the guard's.
 #
 # Usage:
 #   scripts/check-koto-test-guard.sh             every tracked *_test.sh in the repository
@@ -50,42 +55,53 @@ esac
 GUARD_RE='^\. "\$\(dirname "\$0"\)/(([.][.]/)*(scripts/)?lib/)?koto-test-guard\.sh" \|\| exit 1$'
 
 # Prints the line of the file's first EXIT trap, as the header describes it.
-# unq() drops the quoted parts of a line and sets OPEN when the line ends
-# inside a quote, so a quoted command over several lines is read whole.
+# unq() drops the quoted parts of a line and a trailing comment, and sets
+# OPEN when the line ends inside a quote, so a quoted command over several
+# lines is read whole. sets_exit() splits what is left into its commands.
 TRAP_AWK='
-function unq(s,   i, c, q, out) {
-    q = ""; out = ""
+function unq(s,   i, c, p, q, out) {
+    q = ""; out = ""; p = " "
     for (i = 1; i <= length(s); i++) {
         c = substr(s, i, 1)
         if (q == "") {
-            if (c == "\\") { i++; continue }
-            if (c == "\047" || c == "\"") { q = c; out = out " "; continue }
-            out = out c
+            if (c == "\\") { i++; p = "x"; continue }
+            if (c == "#" && p ~ /[ \t;&|(]/) break
+            if (c == "\047" || c == "\"") { q = c; out = out " "; p = "x"; continue }
+            out = out c; p = c
         } else if (c == q) q = ""
         else if (q == "\"" && c == "\\") i++
     }
     OPEN = (q != ""); QUOTE = q
     return out
 }
+function sets_exit(t,   segs, n, k, s, w, m, i) {
+    n = split(t, segs, /;|&&|\|\|/)
+    for (k = 1; k <= n; k++) {
+        s = segs[k]
+        sub(/^[ \t]+/, "", s)
+        while (sub(/^(then|do|else|!|\{)[ \t]+/, "", s)) {}
+        if (s !~ /^trap([ \t]|$)/) continue
+        m = split(s, w, /[ \t|&]+/)
+        if (w[2] == "-" || w[2] == "-p" || w[2] == "-l") continue
+        for (i = 2; i <= m; i++) if (w[i] ~ /^(EXIT|SIGEXIT|0)$/) return 1
+    }
+    return 0
+}
 hd != "" { l = $0; if (hdtab) sub(/^\t+/, "", l); if (l == hd) hd = ""; next }
 /^[[:space:]]*#/ { next }
-/^trap[[:space:]]/ {
-    start = NR; t = unq($0)
+{
+    start = NR; top = ($0 !~ /^[[:space:]]/); raw = $0; t = unq($0)
     while (OPEN && (getline more) > 0) {
         p = index(more, QUOTE)
         if (p == 0) continue
         t = t " " unq(substr(more, p + 1))
     }
-    n = split(t, w, /[[:space:];&|]+/)
-    for (i = 2; i <= n; i++) {
-        if (w[i] == "-p" || w[i] == "-l") break
-        if (w[i] ~ /^(EXIT|SIGEXIT|0)$/) { print start; exit }
+    if (top && sets_exit(t)) { print start; exit }
+    if (match(raw, /<<-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*/) && substr(raw, RSTART - 1, 1) != "<" &&
+        index(substr(raw, 1, RSTART), "((") == 0) {
+        m = substr(raw, RSTART, RLENGTH); hdtab = (m ~ /^<<-/)
+        sub(/^<<-?[ \t]*["\047]?/, "", m); hd = m
     }
-    next
-}
-match($0, /<<-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*/) && substr($0, RSTART - 1, 1) != "<" {
-    m = substr($0, RSTART, RLENGTH); hdtab = (m ~ /^<<-/)
-    sub(/^<<-?[ \t]*["\047]?/, "", m); hd = m
 }'
 
 # check <file>: print the file's finding, if any; return 1 when there is one.

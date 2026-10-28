@@ -8,11 +8,14 @@
 # the line in another shape is refused at its first koto; one that names koto
 # only in a comment, or not at all, is not; only *_test.sh is read; a missing
 # path is 2. A suite that holds the guard line and sets its own EXIT trap
-# (`trap cmd EXIT`, `trap - EXIT`, signal 0, EXIT in a list, a quoted command
-# over several lines) is refused at the trap, with or without koto in it; one
-# that uses ktg_on_exit, sets a trap only for other signals, prints its traps,
-# or sets an EXIT trap indented (a subshell's) or inside a heredoc is not, nor
-# is a suite without the guard line.
+# (`trap cmd EXIT`, signal 0, EXIT in a list, a quoted command over several
+# lines, a trap after `;`, `&&` or `then`, one after a comment holding a quote
+# or an arithmetic shift) is refused at the trap, with or without koto in it,
+# and so is one whose guard line names a missing file; one that uses
+# ktg_on_exit, sets a trap only for other signals, prints its traps, drops
+# them with `trap - EXIT`, or sets an EXIT trap indented (a subshell's),
+# inside a heredoc or inside a quoted string is not, nor is a suite without
+# the guard line.
 #
 # And the guard, sourced by a fixture suite run under `env -i` with a stub koto
 # that only answers `koto session dir` and records what it was called with, so
@@ -25,8 +28,9 @@
 # koto call; no koto on PATH and a failing mktemp don't; the guard's directory
 # is gone after a suite that sets no trap; a suite that hands its cleanup to
 # ktg_on_exit leaves TMPDIR empty, runs its cleanup and keeps its exit status,
-# a second call replaces the first command, and a call with two arguments
-# stops the suite; a suite that sets its own EXIT trap leaves the guard's
+# a second call replaces the first command, a call with two arguments stops
+# the suite, and under set -e a failing command exits as the suite's own trap
+# did; a suite that sets its own EXIT trap leaves the guard's
 # directory behind, which is why the check refuses one; and
 # deliver-open_test.sh, the suite
 # that pushed sessions to a real bucket, stops before its first case when koto
@@ -87,8 +91,22 @@ lint "KOTO_ variables alone are not koto: passes" 0 "" \
     'set -u<NL>echo "${KOTO_BIN:-none}"'
 lint "the guard and its own trap ... EXIT: refused at the trap" 1 "a_test.sh:4: sets its own EXIT trap" \
     "set -u<NL>$LINE3<NL>trap cleanup EXIT<NL>koto next s"
-lint "the guard and trap - EXIT: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
-    "set -u<NL>$LINE3<NL>trap - EXIT<NL>koto next s"
+lint "the guard and an EXIT trap after ; on the mktemp line: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>T=\$(mktemp -d) || exit 1; trap 'rm -rf \"\$T\"' EXIT<NL>koto next s"
+lint "the guard and an EXIT trap after &&: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>[ -n \"\$T\" ] && trap cleanup EXIT<NL>koto next s"
+lint "the guard and an EXIT trap after then: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>if true; then trap cleanup EXIT; fi<NL>koto next s"
+lint "the guard and an EXIT trap after a comment with a quote: refused" 1 "a_test.sh:5: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>echo hi # it's here<NL>trap cleanup EXIT<NL>koto next s"
+lint "the guard and an EXIT trap after a shift in arithmetic: refused" 1 "a_test.sh:5: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>n=\$((1<<x))<NL>trap cleanup EXIT<NL>koto next s"
+lint "the guard and trap - EXIT, which keeps every directory: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>if [ -n \"\${KEEP_T-}\" ]; then trap - EXIT; fi<NL>koto next s"
+lint "the guard and trap ... EXIT inside a quoted string: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>echo \"trap cleanup EXIT\"<NL>koto next s"
+lint "the guard line naming a missing file, no koto in the suite: refused" 1 "which is not there" \
+    'set -u<NL>. "$(dirname "$0")/../../scripts/lib/koto-test-guard.sh" || exit 1<NL>echo hi'
 lint "the guard and a trap on signal 0: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
     "set -u<NL>$LINE3<NL>trap 'rm -rf \"\$T\"' 0<NL>koto next s"
 lint "the guard and EXIT in a list of signals: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
@@ -266,6 +284,17 @@ LEFT=$(ls -A "$CT")
 put "$G/scripts/chain3_test.sh" "set -uo pipefail<NL>$GUARDED<NL>ktg_on_exit 'echo a' 'echo b'<NL>echo CASES RAN"
 run honest "$BIN:$SYS" "$CT" "$G/scripts/chain3_test.sh"
 stopped "ktg_on_exit with two arguments: the suite stops" "ktg_on_exit takes one command, got 2"
+
+# Under set -e a command that fails ends the trap with its status, with
+# ktg_on_exit as with the suite's own trap: the helper changes no exit status.
+put "$G/scripts/fail-own_test.sh" "set -euo pipefail<NL>$GUARDED<NL>trap false EXIT<NL>echo CASES RAN"
+put "$G/scripts/fail-chain_test.sh" "set -euo pipefail<NL>$GUARDED<NL>ktg_on_exit false<NL>echo CASES RAN"
+run honest "$BIN:$SYS" "$CT" "$G/scripts/fail-own_test.sh"
+OWN_RC=$RC
+run honest "$BIN:$SYS" "$CT" "$G/scripts/fail-chain_test.sh"
+[ "$RC" = "$OWN_RC" ] && [ "$RC" != 0 ] && ok "ktg_on_exit under set -e: a failing command exits as the suite's own trap did" \
+    || bad "ktg_on_exit under set -e: a failing command exits as the suite's own trap did" "own=$OWN_RC chain=$RC"
+rm -rf "$CT"/suite-scratch.*
 
 put "$G/scripts/own-trap_test.sh" "set -uo pipefail<NL>$GUARDED<NL>trap 'echo own-ran >\"\$MARK\"' EXIT<NL>echo CASES RAN"
 : > "$MARK"
