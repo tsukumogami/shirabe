@@ -40,10 +40,31 @@
 # when the old run was live by the liveness probe (dispatch-common.sh
 # dc_session_live) just before the fence. The same opener run again from
 # this session finds the new run its own and resumes it, printing
-# `outcome=resumed` and writing nothing; one cut short after the fence
-# finishes what is missing. A refused takeover writes nothing and prints
-# `outcome=refused` and `reason=` (taken-over, predecessor-unstoppable, or
-# koto's own code), exit 2.
+# `outcome=resumed` and writing nothing. One cut short after any step
+# converges on the same command run again: before the fence nothing was
+# written and it takes over afresh; after it, this session knows the run as
+# its own by the fence's actor (its Claude session) and finishes what is
+# missing, running koto init again under the fence's name when the successor
+# is absent or its carry unfinished, and prints `outcome=continued`. Of two
+# sessions taking one run over at once, koto's fence lets exactly one through.
+# `--continues <run>` names the predecessor; without it, it is the newest
+# member of the scope's one unfinished run. A refused takeover writes nothing,
+# leaves the predecessor driving, and prints `outcome=refused` and `reason=`,
+# exit 2:
+#   ambiguous-scope          more than one run of the scope is unfinished
+#   not-newest-member        --continues names a run that isn't the newest
+#                            member of the scope's unfinished run
+#   taken-over               another Claude session fenced the run (it lost
+#                            the race, or its rival's takeover is under way),
+#                            or this session has no Claude session id and the
+#                            run is one a takeover has touched
+#   predecessor-unstoppable  the fence couldn't be taken (fence_unavailable),
+#                            or the run moved state twice before it
+#   template-incompatible    the run's compat number isn't the shipped one, or
+#                            its state isn't in the shipped template; names
+#                            both compat numbers and compiled hashes
+#   koto-too-old             this koto lacks init --supersede and its flags
+# (or koto's own code for any other refusal).
 #
 # A fresh start (no session here holds the scope's record) opens
 # `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
@@ -100,6 +121,8 @@
 #                                reports to; without it the run reports to a
 #                                person. Fixed for the run: every escalation goes
 #                                there (REPORTS_TO)
+#   --continues <run>            the run a takeover continues; it must be the
+#                                scope's newest member (not with --import)
 #   --import <session>, --from <workspace path>, [--trust-template]
 #                                import that run from the bucket (with the
 #                                roadmap path, or a discipline's --discipline
@@ -205,8 +228,11 @@ MAP='
 if (type != "array") or (map(type == "string") | all | not) then error("not a JSON array of strings") else . end
 | (index("--") // length) as $cut
 | .[:$cut] as $s
-| reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null, import: {}};
+| reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null, import: {}, continues: []};
     if .skip then .skip = false
+    elif $s[$i] == "--continues" then
+      if $i + 1 >= ($s | length) then .bad = "--continues needs a value"
+      else .skip = true | .continues += [$s[$i + 1]] end
     elif ($s[$i] | IN("--import", "--from")) then
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true | .import[$s[$i] | ltrimstr("--")] += [$s[$i + 1]] end
@@ -242,6 +268,16 @@ if [ "$(printf '%s' "$MAPPED" | jq '.import | length')" -gt 0 ]; then
     [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] != "DISCIPLINE" and .[0] != "HOST_REPO")] | length')" -eq 0 ] \
         || usage "--import resumes the imported run with its own settings; give none with it but a discipline's --discipline and --host"
 fi
+# --continues <run>: the predecessor a takeover names, which must be the
+# scope's newest member (checked once the scope is known). Without it the
+# predecessor is the newest member of the scope's one unfinished run.
+NAMED=
+case "$(printf '%s' "$MAPPED" | jq '.continues | length')" in
+    0) ;;
+    1) [ -z "$IMPORT" ] || usage "--continues names a run to take over here; it doesn't go with --import"
+       NAMED=$(printf '%s' "$MAPPED" | jq -r '.continues[0]') ;;
+    *) usage "--continues goes once" ;;
+esac
 
 NPOS=$(printf '%s' "$MAPPED" | jq '.positional | length')
 DISC=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')
@@ -424,7 +460,10 @@ fi
 # with no driver recorded (a run no one has taken over), when its coordinator
 # row names the caller. It is another session's when it names another driver,
 # or no driver and another coordinator than the caller's name. A caller with
-# no Claude session id, or no name to compare, can't tell, and resumes.
+# no Claude session id can't tell itself from another session: a run a
+# takeover has touched (a driver recorded, or the run continues a predecessor)
+# refuses it `taken-over`, the safe side, and a run no takeover has touched
+# resumes as it did before takeovers existed.
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh" || exit 64
 CALLER=${CLAUDE_CODE_SESSION_ID:-}
@@ -468,6 +507,49 @@ meta_set() {
 refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
     printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
 }
+# fence_of <run>: set FENCE to the run's fence (coord-log.sh fence), "" when
+# it has none, and FENCE_BY and FENCE_ACTOR to its successor and the Claude
+# session that fenced it. A log that can't be read stops the opener.
+fence_of() {
+    FENCE=$(bash "$HERE/coord-log.sh" fence --session "$1" < /dev/null 2> /dev/null)
+    case $? in
+        0|1) ;;
+        *) echo "failed=takeover_read"; echo "coordinate-open: $1's log couldn't be read for a fence; nothing was written" >&2; exit 1 ;;
+    esac
+    FENCE_BY=$(jq -r '.by // ""' <<< "${FENCE:-null}" 2> /dev/null)
+    FENCE_ACTOR=$(jq -r '.claude_session // ""' <<< "${FENCE:-null}" 2> /dev/null)
+}
+# pred_of <run>: the run it continues (koto's continues relation), "" when none.
+# The hierarchy is captured whole before it is read, so no reader stopping
+# early can leave koto writing into a closed pipe.
+pred_of() {
+    local h
+    h=$("$KOTO" session hierarchy "$1" < /dev/null 2> /dev/null)
+    sed -n '/^continues: /{s///p;q;}' <<< "$h"
+}
+# koto_takeover_missing: the init flags a takeover needs that this koto lacks,
+# "" when it has them all (requires.tsv's mode:takeover record).
+koto_takeover_missing() {
+    local help f missing=
+    help=$("$KOTO" init --help < /dev/null 2> /dev/null) || help=
+    for f in --continues --supersede --expect-state --carry; do
+        case "$help" in *"$f"*) ;; *) missing="$missing${missing:+ }$f" ;; esac
+    done
+    printf '%s' "$missing"
+}
+# compat_refusal <run> <why-prefix>: refuse template-incompatible, naming the
+# template and both sides' compat numbers and compiled hashes, and this
+# plugin's shirabe version.
+compat_refusal() {
+    local rc sc ver hash
+    read -r rc sc _ <<EOF
+$(compat_line "$1")
+EOF
+    hash=$(bash "$HERE/coord-log.sh" template-hash --session "$1" 2> /dev/null)
+    ver=$(jq -r '.version // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2> /dev/null)
+    refuse_takeover template-incompatible \
+        "$2: $1 runs coordinate.md at compat ${rc:--} (template ${hash:-unknown}); this plugin (shirabe ${ver:-unknown}) ships coordinate.md at compat ${sc:--} (template $SHIPPED), so it can't drive the run; nothing was written and $1 still drives"
+}
 # finish_takeover <successor> <predecessor> <yes|no>: the successor's own
 # record changes after the fence, each written once, so a re-run after a crash
 # finishes what is missing: the driver (first, so a re-run knows the run is
@@ -509,17 +591,30 @@ finish_takeover() {
 # predecessor's liveness is read before the fence, by the liveness probe
 # (dc_session_live), against the driver its record/meta names or, with none,
 # its coordinator row. A predecessor that moved state between the read and the
-# fence (stale_state) is read again once.
+# fence (stale_state) is read again once. With <successor> given, this
+# session's own takeover was cut short after the fence: the same init runs
+# again under that name, and koto creates or carries whatever is missing.
+# Before anything is written it refuses `koto-too-old` on a koto without the
+# fence's flags, and `template-incompatible` when the predecessor sits in a
+# state the shipped template doesn't have (Decision 2).
 takeover() {
-    local pred=$1 pd pa state stopped succ out rc code tries=0 d why
+    local pred=$1 given=${2:-} pd pa state stopped succ out rc code tries=0 d why missing
+    missing=$(koto_takeover_missing)
+    [ -z "$missing" ] || refuse_takeover koto-too-old \
+        "this koto ($("$KOTO" version < /dev/null 2> /dev/null | head -1)) lacks koto init $missing; the fence a takeover of $pred makes shipped in koto 0.28.0, so it runs on koto 0.28.0 and later; nothing was written and $pred still drives"
     pd=$(meta_field "$pred" driver); pa=$(run_address "$pred")
     while :; do
         state=$("$KOTO" status "$pred" < /dev/null 2> /dev/null | jq -r '.current_state // empty' 2> /dev/null)
         [ -n "$state" ] || { echo "failed=takeover_read"; echo "coordinate-open: $pred's state couldn't be read; nothing was written" >&2; exit 1; }
+        [ -n "$given" ] || jq -e --arg s "$state" '.states | has($s)' "$COMPILED" > /dev/null 2>&1 \
+            || compat_refusal "$pred" "$pred is at $state, a state this plugin's coordinate.md doesn't have"
         if dc_session_live "$pred" "$pd" "$pa" > "$T_ERR" 2>&1; then stopped=yes; else stopped=no; fi
-        succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"
-        # Named to the second: a takeover in the second the run opened waits.
-        while [ "$succ" = "$pred" ]; do sleep 1; succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"; done
+        if [ -n "$given" ]; then succ=$given
+        else
+            succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"
+            # Named to the second: a takeover in the second the run opened waits.
+            while [ "$succ" = "$pred" ]; do sleep 1; succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"; done
+        fi
         not_self "$succ"
         d=$(bash "$KOTO_OPEN" --alloc-dir) || usage "could not allocate a vars directory"
         bash "$HERE/coord-log.sh" vars --session "$pred" 2> /dev/null \
@@ -544,7 +639,74 @@ takeover() {
                refuse_takeover "${code:-koto-refused}" "koto refused the takeover of $pred (exit $rc): ${why:0:400}" ;;
         esac
     done
+    # koto knows a re-run by the successor's name alone, so a rival named in
+    # the same second as this one can find its fence and take it for ours:
+    # the fence's actor says whose it is, and a rival's is refused.
+    fence_of "$pred"
+    [ "$FENCE_BY" = "$succ" ] && [ -n "$CALLER" ] && [ "$FENCE_ACTOR" = "$CALLER" ] \
+        || refuse_takeover taken-over "$pred was taken over by ${FENCE_BY:-another session} from another Claude session; continue in it"
     finish_takeover "$succ" "$pred" "$stopped"
+}
+# takeover_check <run> <action> <code>: what a start does with the scope's
+# newest run that holds a record (state-read.sh --candidate's session, action
+# and code), before it resumes or carries it. It exits when the start is a
+# takeover or finishes one, or refuses, and returns when the run is this
+# session's own (or no takeover has touched it and this session can't tell),
+# so the start resumes or carries it as before. In order:
+#   - the run is fenced: a takeover of it started, and its successor holds no
+#     record yet. This session's own (the fence's actor) runs koto init again
+#     under the fence's name, which creates and carries what is missing; any
+#     other's refuses taken-over.
+#   - the run continues a predecessor whose fence this session ran: this
+#     session's own takeover, finished when its record/meta names this
+#     session as driver with takeover_done, else finished now (koto init again
+#     when the carry's marker is missing). One another session ran and hasn't
+#     finished refuses taken-over.
+#   - with no Claude session id, a run a takeover has touched refuses
+#     taken-over; one it hasn't is this session's, as before.
+#   - a run another session drives is taken over when it could be resumed;
+#     with another live run of the scope it refuses ambiguous-scope, and on a
+#     template this plugin can't drive template-incompatible. A run carried
+#     for another reason (finished, cancelled, provenance, a directed
+#     transition) is carried as before.
+takeover_check() {
+    local run=$1 action=$2 code=$3 p stopped
+    fence_of "$run"
+    if [ -n "$FENCE" ]; then
+        if [ -n "$CALLER" ] && [ "$FENCE_ACTOR" = "$CALLER" ]; then not_self "$FENCE_BY"; takeover "$run" "$FENCE_BY"; fi
+        refuse_takeover taken-over "$run was taken over by $FENCE_BY from another Claude session, and that takeover hasn't finished; nothing was written"
+    fi
+    p=$(pred_of "$run")
+    if [ -n "$p" ]; then
+        fence_of "$p"
+        if [ "$FENCE_BY" = "$run" ] && [ -n "$CALLER" ] && [ "$FENCE_ACTOR" = "$CALLER" ]; then
+            [ "$(meta_field "$run" driver)" = "$CALLER" ] && [ "$(meta_field "$run" takeover_done)" = true ] && return 0
+            "$KOTO" context exists "$run" koto/superseded-carry-complete < /dev/null > /dev/null 2>&1 || takeover "$p" "$run"
+            # The probe's reading before the fence, once the driver holds it;
+            # read again when the cut came before the driver was written.
+            if [ "$(meta_field "$run" driver)" = "$CALLER" ]; then
+                stopped=$(jq -r '.takeover.predecessor_stopped // "no"' <<< "$(meta_json "$run")")
+            elif dc_session_live "$p" "$(meta_field "$p" driver)" "$(run_address "$p")" > /dev/null 2>&1; then stopped=yes
+            else stopped=no; fi
+            finish_takeover "$run" "$p" "$stopped"
+        fi
+        if [ "$FENCE_BY" = "$run" ] && { [ "$(meta_field "$run" takeover_done)" != true ] || [ "$(meta_field "$run" driver)" != "$FENCE_ACTOR" ]; }; then
+            refuse_takeover taken-over "$run is taking $p over from another Claude session, and that takeover hasn't finished; nothing was written"
+        fi
+    fi
+    if [ -z "$CALLER" ]; then
+        if [ -n "$p" ] || [ -n "$(meta_field "$run" driver)" ]; then
+            refuse_takeover taken-over "this session has no Claude session id (CLAUDE_CODE_SESSION_ID), so it can't tell itself from $run's driver; nothing was written"
+        fi
+        return 0
+    fi
+    driven_by_another "$run" || return 0
+    case "$action:$code" in
+        resume:*) takeover "$run" ;;
+        carry:several-live) refuse_takeover ambiguous-scope \
+            "more than one run of $SLUG is unfinished here ($(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2> /dev/null | tr '\n' ' ')), so which to take over is ambiguous; nothing was written" ;;
+        carry:template) compat_refusal "$run" "$run's template isn't one this plugin's compat table lists at its compat number" ;;
+    esac
 }
 T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
 trap 'rm -f "$T_ERR"' EXIT
@@ -571,15 +733,28 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     CAND=$(bash "$HERE/state-read.sh" --candidate --scope "$SCOPE" --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
         || { echo "failed=resume_candidate"; echo "coordinate-open: could not read this host's runs of $SLUG; nothing was opened" >&2; exit 1; }
     [ "$(printf '%s' "$CAND" | jq -r '.session // empty')" = "" ] && FRESH=1
-    case "$(printf '%s' "$CAND" | jq -r '.action')" in
+    ACTION=$(printf '%s' "$CAND" | jq -r '.action')
+    OLD=$(printf '%s' "$CAND" | jq -r '.session // empty')
+    # A named predecessor (--continues) must be the scope's newest member: the
+    # run the candidate names, one that holds the record.
+    if [ -n "$NAMED" ]; then
+        [[ $NAMED =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
+            || refuse_takeover not-newest-member "$NAMED is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>); nothing was written"
+        { [ -n "$OLD" ] && [ "$ACTION" != none ]; } \
+            || refuse_takeover not-newest-member "$NAMED isn't the newest member of an unfinished run of $SLUG: no run of it here holds a record to continue; nothing was written"
+        [ "$NAMED" = "$OLD" ] \
+            || refuse_takeover not-newest-member "$NAMED isn't the newest member of $SLUG's run, $OLD is; name it, or name none; nothing was written"
+    fi
+    # The takeover decision (takeover_check exits on a takeover, a finished
+    # interrupted one, or a refusal). It comes before any rebind: the takeover
+    # passes this plugin root to the new run itself, and a run this session
+    # doesn't drive is never written.
+    if [ -n "$OLD" ] && [ "$ACTION" != none ]; then
+        not_self "$OLD"
+        takeover_check "$OLD" "$ACTION" "$(printf '%s' "$CAND" | jq -r '.code // empty')"
+    fi
+    case "$ACTION" in
         resume)
-            OLD=$(printf '%s' "$CAND" | jq -r '.session')
-            not_self "$OLD"
-            # A live run another Claude session drives is taken over, not
-            # resumed beside it (takeover exits). That comes before any
-            # rebind: the takeover passes this plugin root to the new run
-            # itself, and a run this session doesn't drive is never written.
-            if driven_by_another "$OLD"; then takeover "$OLD"; fi
             # A run from another plugin root is re-attached with this one
             # first; a refused attach carries it instead, as before.
             if [ "$(printf '%s' "$CAND" | jq -r '.rebind // false')" = true ] && ! rebind_root "$OLD"; then
@@ -589,14 +764,6 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     esac
     case "$(printf '%s' "$CAND" | jq -r '.action')" in
         resume)
-            OLD=$(printf '%s' "$CAND" | jq -r '.session')
-            # This session's own takeover, cut short after the fence: finish
-            # it (finish_takeover exits).
-            if [ -n "$CALLER" ] && [ "$(meta_field "$OLD" takeover_done)" = false ]; then
-                META=$(meta_json "$OLD")
-                finish_takeover "$OLD" "$(jq -r '.takeover.predecessor // ""' <<< "$META")" \
-                    "$(jq -r '.takeover.predecessor_stopped // "no"' <<< "$META")"
-            fi
             [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
             printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$OLD"
