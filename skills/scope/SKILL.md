@@ -180,7 +180,9 @@ of the body keeps whatever marker the live PR carries. That is a known
 limitation, not a guarantee: two runs sharing a login and a topic name can
 still reach the same scoping PR, so unique topic names remain the only
 separation on this path until the `/scope` and `/execute` legs of one workflow
-share one identity (see `/execute`'s **Owned-PR lookup**).
+share one identity (see `/execute`'s **Owned-PR lookup**). A rewrite of a
+coordination PR that `/execute` has rendered also keeps its `store=` and `run=`
+lines, its PR Index and its Merge Order.
 
 ## Request Leg Flag
 
