@@ -52,6 +52,10 @@ that triggered the PRD; reach for it when `problem` alone does not
 convey why the PRD is being written now). Each
 field should be 1 paragraph using YAML literal block scalars (`|`).
 
+`schema: prd/v1` is the frontmatter's first key. A PRD without it is skipped
+by every structural check (see "The declared schema" in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
+
 **Two written shapes are supported for `upstream:`.** A scalar -- the path
 on the key's own line -- and a sequence, written either as `- ` entries on
 the following lines or inline as `[<path>, <path>]`. Every entry of a

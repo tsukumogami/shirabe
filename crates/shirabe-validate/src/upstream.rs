@@ -149,6 +149,7 @@ mod tests {
             value: String::new(),
             line: 1,
             entries,
+            source_lines: None,
         }
     }
 
