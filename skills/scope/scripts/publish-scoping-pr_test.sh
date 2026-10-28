@@ -737,6 +737,122 @@ eq "blank Part 1: the Review panel section is still carried" "$(printf '## Revie
     "$(section '## Review panel' "$T/blank-new.md")"
 two_parts "blank Part 1: the rewritten body" "$T/blank-new.md"
 
+echo "== a republish over a body /execute rendered keeps its record =="
+# cb_fields <body-file> -- what cb_parse reads back: the nodes, run and store.
+cb_fields() {
+    ( . "$HERE/../../../scripts/lib/coordination-body.sh" && cb_parse "$1" ) | jq -cS '{nodes, follow_ups, run, store}'
+}
+# The body coord-render.sh posts (scripts/lib/coordination-body.sh's header):
+# /scope's Part 1, the declaration, the run lines with store= and run=, a PR
+# Index of two nodes, the Merge Order naming them, and the run's marker.
+cat >"$T/rendered.tmpl" <<'EOF'
+The coordination pull request for topic, which merges after every node pull request.
+
+---
+
+> This is a **coordination PR** for a coordinated effort. It is docs-only and
+> merges **last**, once every indexed PR has merged and finalization is complete.
+> See `references/coordination-strategy.md`.
+
+topic=topic
+exit=full-run
+outcome=scoped
+intent=stop
+mode=coordinated
+store=github
+run=@RUN@
+
+## PR Index
+
+- one | acme/widgets:docs/plans/PLAN-topic.md#31 | merged | head=1111111111111111111111111111111111111111
+- two | acme/widgets:@INDEXED@#32 | open | head=2222222222222222222222222222222222222222
+
+## Merge Order
+
+```merge-order
+# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
+# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
+one | pr | after: -
+two | pr | after: one
+```
+
+<!-- shirabe-run: @RUN@ -->
+EOF
+sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@|docs/plans/PLAN-topic.md|' "$T/rendered.tmpl" >"$T/rendered.md"
+if ! command -v shirabe >/dev/null 2>&1; then
+    echo "SKIP: shirabe not on PATH -- a coordinated republish refuses without the validator"
+else
+    setup coordinated
+    seed_pr "$P7" false me main stop
+    set_body "$P7" "$T/rendered.md"
+    mkdir -p "$STORE/s-rendered"; printf '%s' "$MINE" >"$STORE/s-rendered/run_id"
+    run --topic topic --exit full-run --intent continue --session s-rendered
+    eq "rendered: exit 0" "0" "$RC"
+    eq "rendered: one pr edit" "1" "$(calls edit)"
+    jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/rendered-new.md"
+    eq "rendered: the live Part 1 is kept" \
+        "The coordination pull request for topic, which merges after every node pull request." \
+        "$(sed -n 1p "$T/rendered-new.md")"
+    eq "rendered: the template's run lines with the new intent, then the live store= and run=" \
+        "$(printf 'topic=topic\nexit=full-run\noutcome=scoped\nintent=continue\nmode=coordinated\nstore=github\nrun=%s' "$MINE")" \
+        "$(grep -E '^(topic|exit|outcome|intent|mode|store|run)=' "$T/rendered-new.md")"
+    eq "rendered: the live PR Index is kept unchanged" \
+        "$(section '## PR Index' "$T/rendered.md")" "$(section '## PR Index' "$T/rendered-new.md")"
+    eq "rendered: the live Merge Order is kept unchanged" \
+        "$(section '## Merge Order' "$T/rendered.md")" "$(section '## Merge Order' "$T/rendered-new.md")"
+    case "$(cat "$T/rendered-new.md")" in
+        *"No node PR is open yet"*|*"# /execute renders"*) bad "rendered: no template placeholder replaces the record" "$(cat "$T/rendered-new.md")" ;;
+        *"## Artifact Chain"*"## Work Items"*"## PR Index"*"## Merge Order"*) ok "rendered: no template placeholder replaces the record" ;;
+        *) bad "rendered: no template placeholder replaces the record" "$(cat "$T/rendered-new.md")" ;;
+    esac
+    eq "rendered: cb_parse reads the body back with the live nodes, run and store" \
+        "$(cb_fields "$T/rendered.md")" "$(cb_fields "$T/rendered-new.md")"
+    marker_below "rendered: the republished body" "$T/rendered-new.md"
+    eq "rendered: the run marker is carried once" "1" "$(grep -c 'shirabe-run:' "$T/rendered-new.md" | tr -d ' ')"
+    if shirabe validate --coordination-body "$T/rendered-new.md" >/dev/null 2>&1; then
+        ok "rendered: the republished body passes shirabe validate --coordination-body"
+    else
+        bad "rendered: the republished body passes shirabe validate --coordination-body" \
+            "$(shirabe validate --coordination-body "$T/rendered-new.md" 2>&1 | tail -3)"
+    fi
+
+    # A second republish of that body changes nothing.
+    rm -f "$STORE/s-rendered/published_intent"
+    run --topic topic --exit full-run --intent continue --session s-rendered
+    jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/rendered-new2.md"
+    if cmp -s "$T/rendered-new.md" "$T/rendered-new2.md"; then
+        ok "rendered: a second republish changes nothing"
+    else
+        bad "rendered: a second republish changes nothing" "$(diff "$T/rendered-new.md" "$T/rendered-new2.md")"
+    fi
+    for h in '## PR Index' '## Merge Order' '^store=' '^run='; do
+        eq "rendered: a second republish leaves [$h] once" "1" "$(grep -c "^${h#^}" "$T/rendered-new2.md" | tr -d ' ')"
+    done
+
+    # A rendered body cb_parse refuses is a record the rewrite can't read: no edit.
+    setup coordinated
+    seed_pr "$P7" false me main stop
+    sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@#32|docs/plans/PLAN-topic.md|' "$T/rendered.tmpl" >"$T/rendered-bad.md"
+    set_body "$P7" "$T/rendered-bad.md"
+    mkdir -p "$STORE/s-rendered-bad"; printf '%s' "$MINE" >"$STORE/s-rendered-bad/run_id"
+    run --topic topic --exit full-run --intent continue --session s-rendered-bad
+    eq "an unreadable rendered body: scope:pr-create" "scope:pr-create" "$(line step)"
+    eq "an unreadable rendered body: exit 11" "11" "$RC"
+    eq "an unreadable rendered body: no pr edit" "0" "$(calls edit)"
+
+    # The body /scope opened carries no run= line: the template's placeholders, as before.
+    setup coordinated
+    run --topic topic --exit full-run --intent stop --session s-opened
+    run --topic topic --exit full-run --intent continue --session s-opened
+    eq "no run= line: one pr edit" "1" "$(calls edit)"
+    jq -r '.[0].body' "$GHF/prs.json" >"$T/opened-new.md"
+    case "$(cat "$T/opened-new.md")" in
+        *"No node PR is open yet"*"# /execute renders"*) ok "no run= line: the template's PR Index and Merge Order placeholders" ;;
+        *) bad "no run= line: the template's PR Index and Merge Order placeholders" "$(cat "$T/opened-new.md")" ;;
+    esac
+    eq "no run= line: no store= or run= line is added" "0" "$(grep -cE '^(store|run)=' "$T/opened-new.md" | tr -d ' ')"
+fi
+
 echo "== usage =="
 setup single-pr
 run --topic Bad --exit full-run --intent continue
