@@ -52,7 +52,7 @@ command -v git >/dev/null || { echo "pr-checks_test: git is required" >&2; exit 
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/pr-checks-test.XXXXXX") || exit 1
 cleanup() { rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 R=acme/widgets
 ME=octo

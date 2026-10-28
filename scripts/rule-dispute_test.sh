@@ -35,7 +35,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/rule-dispute-test.XXXXXX") || exit 1
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 ACTIVE=$(jq -r '[.rules[] | select(.status == "active" and .check.kind == "script")][0].id // empty' "$REPO/references/rule-registry.json")
 RETIRED=$(jq -r '[.rules[] | select(.status == "retired")][0].id // empty' "$REPO/references/rule-registry.json")

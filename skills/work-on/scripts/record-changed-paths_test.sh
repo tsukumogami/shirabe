@@ -54,7 +54,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran";
 
 WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 # The verification runner keeps its results under the state directory.

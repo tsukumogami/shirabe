@@ -16,7 +16,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TF="$HERE/testdata/takeover-flags.sh"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/takeover-flags.XXXXXX") || exit 1
-trap 'case "$T" in */takeover-flags.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */takeover-flags.*) rm -rf "$T" ;; esac'
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }

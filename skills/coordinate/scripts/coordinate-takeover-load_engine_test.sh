@@ -65,7 +65,7 @@ CALL_LIMIT_MS=30000
 
 BUSY=
 stop_load() { local p; for p in $BUSY; do kill "$p" 2>/dev/null; done; for p in $BUSY; do wait "$p" 2>/dev/null; done; BUSY=; }
-trap 'stop_load; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac; case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'stop_load; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

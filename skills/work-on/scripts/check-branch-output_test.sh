@@ -39,7 +39,7 @@ done
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-branch-output-test.XXXXXX") || exit 1
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
 cleanup() { case "${WORKDIR:-}" in */check-branch-output-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"

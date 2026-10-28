@@ -67,7 +67,7 @@ REAL_KOTO=$(command -v koto 2>/dev/null) || REAL_KOTO=""
 T=$(mktemp -d "${TMPDIR:-/tmp}/comp-state-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */comp-state-test.*) chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # A private HOME (koto's template cache lands there) and a private session
 # store: nothing here reaches the developer's own sessions.

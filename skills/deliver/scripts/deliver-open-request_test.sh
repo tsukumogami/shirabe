@@ -27,7 +27,7 @@ fi
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-request-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */deliver-open-request-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */deliver-open-request-test.*) rm -rf "$T" ;; esac'
 export HOME="$T/home"
 mkdir -p "$HOME"
 

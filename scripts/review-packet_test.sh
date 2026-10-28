@@ -48,7 +48,7 @@ fail() { printf "${RED}FAIL${NC}: %s\n" "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH, no case ran"; exit 0; }
 
 ROOT=$(mktemp -d) || exit 1
-trap 'rm -rf "$ROOT"' EXIT
+ktg_on_exit 'rm -rf "$ROOT"'
 
 # Stubs. KOTO_STORE is a directory with one file per context key.
 STUBS="$ROOT/stubs"

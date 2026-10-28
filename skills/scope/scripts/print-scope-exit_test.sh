@@ -21,7 +21,7 @@ S="$HERE/print-scope-exit.sh"
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/print-exit-test.XXXXXX")" || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 PASS=0
 FAIL=0

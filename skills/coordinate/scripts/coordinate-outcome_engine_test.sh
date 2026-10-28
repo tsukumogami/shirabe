@@ -81,11 +81,9 @@ case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo 
 REAL_KOTO=$(command -v koto)
 mkdir -p "$T/tmp"
 # A background helper (the lock holder, the racing openers) is stopped on
-# exit, and the scratch tree removed as test-lib.sh's own trap does, with the
-# guard's directory, whose trap this one replaces.
+# exit, and the scratch tree removed as test-lib.sh's own trap does.
 BG=
-trap 'for p in $BG; do kill "$p" 2>/dev/null; done; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac
-    case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'for p in $BG; do kill "$p" 2>/dev/null; done; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 
 # Synthetic Claude session ids, built here so no id-shaped literal ships, and
 # each one's Claude job (its name is its messaging address) and directory.

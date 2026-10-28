@@ -51,7 +51,7 @@ command -v jq   >/dev/null 2>&1 || { echo "SKIP: jq not on PATH -- no case ran";
 
 WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Keep every session out of the developer's real $HOME/.koto, and the
 # verification runner's results out of the developer's state directory.

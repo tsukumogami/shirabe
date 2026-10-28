@@ -48,7 +48,7 @@ command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 [ -f "$RECORD" ] || { echo "FAIL: $RECORD not found" >&2; exit 1; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/record-merge-verdict-test.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 BIN="$WORK/bin"
 mkdir -p "$BIN"
 

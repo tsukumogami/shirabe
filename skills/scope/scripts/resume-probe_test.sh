@@ -28,7 +28,7 @@ command -v koto >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || { echo "SKIP
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/resume-probe-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'case "$T" in */resume-probe-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */resume-probe-test.*) rm -rf "$T" ;; esac'
 export GIT_CEILING_DIRECTORIES="$T"
 export HOME="$T/home"
 mkdir -p "$HOME"

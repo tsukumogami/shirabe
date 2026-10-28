@@ -32,7 +32,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; 
 T=$(mktemp -d "${TMPDIR:-/tmp}/offload-canary-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */offload-canary-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # make_root <dir> <withhold>: a plugin root whose registry gives the rule the
 # withhold value named.

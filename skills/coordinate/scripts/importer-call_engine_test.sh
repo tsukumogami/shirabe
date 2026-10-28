@@ -84,7 +84,7 @@ has_args() {
 # Two hosts on one bucket, each workspace a clone-shaped directory in a niwa
 # instance that permits every finishing step.
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests importer-call-engine; exit 1; }
 host_make a; host_make b
 for h in a b; do

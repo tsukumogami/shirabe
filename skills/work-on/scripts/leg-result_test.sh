@@ -58,7 +58,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/leg-result.XXXXXX") || exit 1
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
 cleanup() { case "${WORKDIR:-}" in */leg-result.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # extract_state <name>: the state's block from the template's frontmatter.
 extract_state() {

@@ -45,7 +45,7 @@ command -v yq >/dev/null 2>&1 || { echo "FAIL: mikefarah yq v4 is required" >&2;
 
 T=$(mktemp -d)
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Stubs that record any call. The check must never reach one of them.
 STUBS="$T/stubs"

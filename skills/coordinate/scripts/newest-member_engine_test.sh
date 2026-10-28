@@ -36,7 +36,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/newest-member.XXXXXX") || exit 1
 T=$(cd "$T" && pwd -P)
-trap 'case "$T" in */newest-member.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */newest-member.*) rm -rf "$T" ;; esac'
 export HOME="$T/home" KOTO_HOME="$T/koto-home" XDG_STATE_HOME="$T/state" XDG_DATA_HOME="$T/data"
 unset GH_TOKEN GITHUB_TOKEN
 mkdir -p "$HOME" "$T/w"
