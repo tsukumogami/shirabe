@@ -2974,11 +2974,18 @@ directly), `--end <id> --by "<who>"` when it stops binding, `--run cap <n> --by
 <lifted | time YYYY-MM-DDTHH:MMZ | merged owner/repo#n | tag owner/repo
 TAG>`, the time in UTC (convert a person's local time); a go-ahead that lets
 one unit through a wider pause takes `--on <the unit>`, and you end it after
-the step it allowed. A person's own comment on the record is not an entry until
-you write it. And before a local agent starts work in flight (a fix round, a
-pull request it builds), write its row, `--work "<what>" --kind local-agent
---who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
-without the row a successor can't see the work.
+the step it allowed. Any word from a person that tells workers to stop, park or
+hold is a pause, written as a `pause` row scoped to what it stops: `--on all`
+or the unit, `--until` its condition, or `lifted` when it ends on someone's
+word. That holds when the order is conditional, partial or bundled with other
+rules; those rules go in an `answer` row beside it, never in its place. Pick,
+the dispatch check, the land check, the merge and the quiet check read only
+`pause` rows, so an order written only as an `answer` holds nothing, and the
+workers it parked are counted silent. A person's own comment on the record is
+not an entry until you write it. And before a local agent starts work in
+flight (a fix round, a pull request it builds), write its row, `--work
+"<what>" --kind local-agent --who "local agent" --next "<step>"`, and `--done
+"<what>"` when it lands: without the row a successor can't see the work.
 
 After writing a pause, send each live worker it covers the pause line: push
 what you have at a safe point, report, then do nothing until the resume (no
@@ -4037,11 +4044,16 @@ worker's silent checks from this session's log.
 
 A worker is quiet when neither a message nor a push has arrived from it for 30
 minutes; check a quiet worker at most once per 30 minutes, by reading its branch
-and pull request and its session on the host. A worker a pause in the record
-holds is never quiet: it was told to stop, and a sweep that skips it isn't a
-silent check. A silent check made before the latest `resume` tick no longer
-counts, so the first sweep after a resume sends a status message rather than
-going to the failure branch. The 30-minute interval is the
+and pull request and its session on the host. A worker a `pause` row in the
+record holds is never quiet: it was told to stop, and a sweep that skips it
+isn't a silent check. Only a `pause` row holds a worker; an `answer`,
+`approval` or `go-ahead` row never does. A quiet worker you find parked on a
+person's order with no `pause` row covering it gets that row and its `paused
+by <id>` Work row at `status_message`, before `sent` is submitted, so the next
+sweep skips it instead of sending its unit to the failure branch. A silent
+check made before the latest `resume` tick no longer counts, so the first
+sweep after a resume sends a status message rather than going to the failure
+branch. The 30-minute interval is the
 check's own and is fixed: a human's decision about intervals governs what your
 status message asks and when you follow up by hand, not when this check counts
 a silence. One silent check earns a status message;
@@ -4054,6 +4066,17 @@ bounces.
 Send each quiet worker one message asking for its status, and for whatever
 its Work row says is owed (a ready report after a resume, a fix round), then
 submit `sent: sent`.
+
+A quiet worker you find parked on a person's order (its last report says it
+parked, or the order stands in the record as an `answer` row) with no `pause`
+row covering it isn't silent; its pause is missing. Before you submit `sent`,
+write the order as a pause with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session {{SESSION_NAME}}`,
+`--standing pause --on <all or the unit> --until <its condition>` with the
+person as owner, and the worker's Work row, `--work "<unit>" --kind holding
+--who <topic> --next "paused by <id>; idle until the resume"`. Send it no
+status message. The next sweep skips it, where without the row it would
+send the unit to the failure branch.
 
 ## failure
 

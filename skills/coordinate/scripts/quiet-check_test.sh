@@ -13,6 +13,10 @@
 # failed read (2); no GitHub write and no teardown; the override flags a
 # usage error. The record is the run's session's.
 #
+# A person's order to park holds a worker only as a pause row: written as an
+# answer row it holds nothing, and the parked worker goes on to a second
+# silence (shirabe#1364).
+#
 # Usage: bash skills/coordinate/scripts/quiet-check_test.sh
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
@@ -90,6 +94,20 @@ log_evidence "$S" wait '{"event":"resume"}' 2026-09-26T08:40:00.000Z
 log_to "$S" wait pick_facts 2026-09-26T08:40:00.000Z; log_to "$S" pick_facts wait 2026-09-26T08:40:00.000Z
 sweep 09:15; eq "after a resume, a silent check from before it no longer counts: a first silence again, not the failure branch" "first-silence alpha beta" "$TOK"
 sweep 09:46; eq "  ... and a second silence after the resume is a second silence" "second-silence alpha beta" "$TOK"
+
+echo "== a park order holds a worker only as a pause row (shirabe#1364) =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson b "$(holding beta '{"unit": "Feature 3", "pull_request": ""}')" '[$b]')
+STANDING='[{"standing":"s1","kind":"answer","on":"","until":"","what":"park at the next clean checkpoint and hold every lane","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"}]'
+seed; run
+sweep 08:31; eq "an answer row holds no worker: the parked worker is a first silence" "first-silence beta" "$TOK"
+sweep 09:02; eq "  ... and then a second silence, the failure branch" "second-silence beta" "$TOK"
+STANDING='[{"standing":"s1","kind":"pause","on":"all","until":"lifted","what":"park at the next clean checkpoint and hold every lane","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"}]'
+seed; run
+sweep 08:31; eq "the same order as a pause row: the parked worker isn't quiet" quiet-none "$TOK"
+eq "  ... and the detail names the pause" "beta:s1" "$(jq -r '[.holdings[] | select(.paused != null) | "\(.worker):\(.paused)"] | join(" ")' "$KOTO_STORE/context/$S/coord/quiet.json")"
+sweep 09:02; eq "  ... nor on the next sweep" quiet-none "$TOK"
+HOLDINGS=$SAVED; unset STANDING
 
 echo "== activity resets the count =="
 seed; run
