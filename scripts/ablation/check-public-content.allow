@@ -13,3 +13,4 @@
 
 wip-path	scripts/check-template-directives_test.sh	tsukumogami/shirabe#738	The lint's own fixtures: one gate script names the parent state path to test the publish carve-out, one invoked script reads a child staging file to test that the staging-folder limb binds gate commands only. The literals are the subject under test.
 wip-path	skills/scope/scripts/resume-probe_test.sh	tsukumogami/shirabe#738	The probe's seeds: the suite writes the old state and handoff files to prove the session-era probe no longer reads them. Reviewers and cleanup steps grep committed code for staging paths, and an assembled or hidden form would defeat them, so the literals stay visible.
+wip-path	skills/scope/scripts/check-plan-mode_test.sh	tsukumogami/shirabe#1376	The suite's check that the gate script never reads the run's own state file: the test greps the script for the state file's path literally, so the literal is the pattern under test, not a staging path.

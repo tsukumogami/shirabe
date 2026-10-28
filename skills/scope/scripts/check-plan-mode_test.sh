@@ -100,7 +100,8 @@ expect "a --claude-md that does not exist"     2 --plan "$COORD_INTENT" --intent
 expect "a missing --coordination"              2 --plan "$SINGLE" --intent stop
 expect "an unknown argument"                   2 --plan "$SINGLE" --intent stop --coordination none --x y
 
-if grep -v '^[[:space:]]*#' "$S" | grep -q 'wip/scope_'; then
+S_CODE=$(grep -v '^[[:space:]]*#' "$S")
+if grep -q 'wip/scope_' <<<"$S_CODE"; then
     FAIL=$((FAIL + 1)); echo "FAIL the gate script reads the run's own state file"
 else
     PASS=$((PASS + 1)); echo "ok   the gate script never reads the run's own state file"
