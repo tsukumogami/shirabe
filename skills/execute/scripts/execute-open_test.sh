@@ -39,6 +39,12 @@
 #     git history does (the PLAN's version before the commit that deleted
 #     it); a deleted single-pr PLAN, and one that never existed, stay on
 #     execute.md
+#     plan_abs on a coordinated attach: a recorded PLAN that is gone is
+#     re-rooted to this checkout's PLAN when it is on coord_branch with
+#     home_repo as its origin, naming both paths on stderr; a recorded PLAN
+#     that still exists, another branch, another repository, and a replaced
+#     (not attached) session leave it unchanged; stdout and the exit are the
+#     same in every case
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -447,6 +453,94 @@ got=$(template_of '["docs/plans/PLAN-hsingle.md"]')
 [ "$got" = execute.md ] && pass "a deleted single-pr PLAN stays on execute.md" || fail "deleted single-pr PLAN: template [$got]"
 got=$(template_of '["docs/plans/PLAN-never.md"]')
 [ "$got" = execute.md ] && pass "a PLAN that never existed stays on execute.md" || fail "a PLAN that never existed: template [$got]"
+
+# --- engine-free: plan_abs on a moved attach ----------------------------------
+# The run's checkout moved: the coordinated session is attached from a new
+# clone, and the plan_abs it recorded names the old one. A stub koto answers
+# status (a live run at coord_loop), init (attached, or KOTO_STUB_OUTCOME), and
+# context reads and writes from files under KOTO_STUB_STORE.
+REROOT_BIN="$WORK/reroot-bin"
+mkdir -p "$REROOT_BIN"
+cat > "$REROOT_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+d="${KOTO_STUB_STORE:?}"
+case "${1-} ${2-}" in
+    "status "*) printf '{"name":"%s","current_state":"coord_loop","is_terminal":false}\n' "$2"; exit 0 ;;
+    "init "*) printf '{"outcome":"%s"}\n' "${KOTO_STUB_OUTCOME:-attached}"; exit 0 ;;
+    "context exists") [ -f "$d/$3/$4" ]; exit ;;
+    "context get") [ -f "$d/$3/$4" ] || exit 1; cat "$d/$3/$4"; exit 0 ;;
+    "context add") mkdir -p "$(dirname "$d/$3/$4")"; cat > "$d/$3/$4"; exit 0 ;;
+    "context remove") rm -f "$d/$3/$4"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$REROOT_BIN/koto"
+RR_STORE="$WORK/reroot-store"
+RR_GONE="$WORK/old-checkout/docs/plans/PLAN-mv.md"
+# rr_checkout <dir> <branch> <origin URL>: a checkout holding the coordinated PLAN.
+rr_checkout() {
+    mkdir -p "$1/docs/plans"
+    printf -- '---\nschema: plan/v1\nexecution_mode: coordinated\n---\n\n# PLAN: mv\n' > "$1/docs/plans/PLAN-mv.md"
+    (cd "$1" && git init -q . && git config user.email t@example.com && git config user.name t \
+        && git add -A && git commit -q -m plan && git checkout -q -b "$2" \
+        && git remote add origin "$3") >/dev/null 2>&1
+}
+# rr_open <dir> [env...]: execute-open.sh on PLAN-mv.md from <dir>, over a
+# session recording coord/mv, acme/plans and plan_abs $RR_ABS.
+rr_open() {
+    local dir="$1"
+    shift
+    rm -rf "$RR_STORE"
+    mkdir -p "$RR_STORE/execute-mv"
+    printf '%s' "$RR_ABS" > "$RR_STORE/execute-mv/plan_abs"
+    printf '%s' coord/mv > "$RR_STORE/execute-mv/coord_branch"
+    printf '%s' acme/plans > "$RR_STORE/execute-mv/home_repo"
+    tokens '["docs/plans/PLAN-mv.md"]'
+    OUT=$(cd "$dir" && env KOTO_STUB_STORE="$RR_STORE" PATH="$REROOT_BIN:$PATH" "$@" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+}
+# koto-open.sh's lines for the stub's attach, then this script's session line.
+RR_WANT=$(printf 'opened=attached\nrebound={}\nsession=execute-mv')
+rr_checkout "$WORK/rr-moved" coord/mv https://github.com/acme/plans.git
+rr_checkout "$WORK/rr-branch" coord/other https://github.com/acme/plans.git
+rr_checkout "$WORK/rr-repo" coord/mv https://github.com/acme/other.git
+RR_NEW="$(cd "$WORK/rr-moved/docs/plans" && pwd -P)/PLAN-mv.md"
+RR_ABS="$RR_GONE"
+rr_open "$WORK/rr-moved"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_NEW" ]; then
+    pass "a coordinated attach from a moved checkout on coord_branch with home_repo's origin re-roots a gone plan_abs, stdout and exit unchanged"
+else
+    fail "moved attach: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+grep -qF "[$RR_GONE] is gone; re-rooted to [$RR_NEW]" "$WORK/stderr" \
+    && pass "the re-root names both paths on stderr" || fail "moved attach stderr: [$ERR]"
+RR_ABS="$WORK/rr-branch/docs/plans/PLAN-mv.md"
+rr_open "$WORK/rr-moved"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_ABS" ]; then
+    pass "a recorded plan_abs that still exists is left unchanged, stdout and exit unchanged"
+else
+    fail "existing plan_abs: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+RR_ABS="$RR_GONE"
+rr_open "$WORK/rr-branch"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ]; then
+    pass "an attach from another branch leaves a gone plan_abs unchanged, stdout and exit unchanged"
+else
+    fail "other branch: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+rr_open "$WORK/rr-repo"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ]; then
+    pass "an attach from another repository leaves a gone plan_abs unchanged, stdout and exit unchanged"
+else
+    fail "other repository: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+rr_open "$WORK/rr-moved" KOTO_STUB_OUTCOME=replaced
+if [ "$RC" -eq 0 ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ]; then
+    pass "only an attach re-roots: a replaced session's plan_abs is left to setup"
+else
+    fail "replaced: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
 
 # --- engine-backed ------------------------------------------------------------
 
