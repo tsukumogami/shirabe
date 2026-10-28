@@ -4083,8 +4083,8 @@ send the unit to the failure branch.
 Choose the move and submit `move`: `redispatch` with the same brief plus what was
 learned, or `escalate` when the failure is for whoever dispatched you to decide,
 which raises it as a decision entry. Never tear anything down here. A worker
-parked on a person's order hasn't failed: write its missing pause and escalate,
-as the details below say.
+parked on a person's order hasn't failed: write its missing pause, then submit
+`escalate` to raise an entry you settle yourself, as the details below say.
 
 <!-- details -->
 
