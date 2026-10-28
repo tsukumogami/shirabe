@@ -344,11 +344,12 @@ The find writes the run's store, `session`, and what it read of koto, to
 guesses. A session opened before the GitHub record was removed may hold a
 `store session` Run row; it is kept, and nothing writes a new one. Outward
 entries (cost, verdicts, goal fit, failures) are posted on the item each
-concerns (`--on`) only when that item's repository opts in with `## PR
-Workflow Content: include`, and otherwise stay in the session. A run whose session doesn't hold
-the record it should stops at the find, and a koto without the session
-record's features is refused at the start (`store-unsupported`); the reason
-names the import that brings the session here.
+concerns (`--on`) only when that item's repository opts in with
+`## PR Workflow Content: include`, and otherwise stay in the session. A run
+whose session doesn't hold the record it should stops at the find, and a koto
+without the session record's features is refused at the start
+(`store-unsupported`); the reason names the import that brings the session
+here.
 
 The record also keeps the crash set, what a replacement needs after a crash and
 what never goes to GitHub. In the Run section, written with
@@ -529,9 +530,10 @@ lines, and the rows and refusals behind them, are in
   nowhere yet. It requires the default branch to contain the entry's Source
   commit, and re-checks the entry against the roadmap there. Then it opens
   one pull request with the entry in its body. When the host opts in with
-  `## PR Workflow Content: include`, it posts the entry as a comment on that
-  pull request; otherwise the entry stays in the session, nothing is posted,
-  and the pull request's body says so. Either verified verdict sets Done, removes
+  `## PR Workflow Content: include` (or an earlier run of the same edit
+  already posted the entry), it posts the entry as a comment on that pull
+  request; otherwise the entry stays in the session, nothing is posted, and
+  the pull request's body says so. Either verified verdict sets Done, removes
   Needs and adds the work checked to Delivered, and a verified with
   follow-ups verdict also adds each new milestone and rewrites each amended
   one, from the `--follow-ups` file, in the same change. A changes-needed

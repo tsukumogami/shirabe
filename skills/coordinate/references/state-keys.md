@@ -586,8 +586,10 @@ that did the work never checks it. `--verdict` passes the verdict-owed row's
 
 On a milestone run, the land check's `coord/land.json` carries `milestone:
 {tag, evidence}` (the holding's milestone and its clauses on the default
-branch), or `milestone_error: <why>` when that read failed. Goal fit writes,
-with `--kind goal-fit --on <the pull request>`, which also posts it there:
+branch), or `milestone_error: <why>` when that read failed. Goal fit writes
+this entry with `--kind goal-fit --on <the pull request>`, which also posts it
+there only when that pull request's repository opts in with `## PR Workflow
+Content: include`, and otherwise keeps it in the session:
 
 ```
 Goal fit: <owner/repo#n> -- <tag>
