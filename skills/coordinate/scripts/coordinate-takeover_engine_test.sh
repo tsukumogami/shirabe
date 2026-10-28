@@ -140,7 +140,12 @@ grep -q "^cancelled=" <<< "$OUT" && bad "2: the opener cancels nothing" "$OUT" |
 (cd "$T/work2" && koto session hierarchy "$B") | grep -qx "continues: $A" && ok "2: koto session hierarchy shows B continuing A" \
     || bad "2: koto session hierarchy shows B continuing A" "$( (cd "$T/work2" && koto session hierarchy "$B") 2>&1)"
 AFTER=$(keyset "$B" "$T/work2")
-MISSING=$(comm -23 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER"))
+# A's lines that B lacks, with grep: comm isn't on run-tests.sh's PATH, and a
+# missing tool there left MISSING empty and passed the case. grep exits 1 when
+# nothing is missing; anything above that means the comparison didn't run.
+printf '%s\n' "$AFTER" > "$T/keys.after"
+MISSING=$(printf '%s\n' "$BEFORE" | grep -vxF -f "$T/keys.after"); rc=$?
+[ $rc -le 1 ] || bad "2: the key comparison runs" "grep exited $rc"
 eq "2: every key A held is in B with the same value" "" "$MISSING"
 
 # ---- 3. A is refused by name ---------------------------------------------------------
