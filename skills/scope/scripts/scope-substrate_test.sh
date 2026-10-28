@@ -471,7 +471,8 @@ case "$fold_directive" in
     *)
         # Not necessarily at fold on this path; assert it exists in the template
         # at the fold state rather than failing on the walk's exact position.
-        if sed -n '/^## fold$/,/^## /p' "$TEMPLATE" | grep -q "Sparing"; then
+        fold_section=$(sed -n '/^## fold$/,/^## /p' "$TEMPLATE")
+        if grep -q "Sparing" <<<"$fold_section"; then
             ok "the reduction argument is carried in the fold state's directive"
         else
             bad "the reduction argument is not at the fold state" "" ;
