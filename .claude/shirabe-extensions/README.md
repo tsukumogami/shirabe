@@ -122,7 +122,7 @@ fails a suite that prints a SKIP line. A suite with a case that needs those flag
 `skills/coordinate/scripts/testdata/takeover-flags.sh` after its `koto-test-guard.sh` line
 and declares the case in one line, `if needs_takeover "<case>"; then ... fi`. On the floor
 koto the case is left out with a line naming it; on a newer koto it runs. The helper's header
-has the rest; the takeover, outcome and takeover-load suites use it.
+has the rest; the takeover, outcome, takeover-load and chain suites use it.
 
 ## `release.md` — release checks and assets
 
