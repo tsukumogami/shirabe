@@ -35,6 +35,28 @@ guidance to each agent.
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Theme Coherence, Sequencing and Dependency, and Annotation and Boundary run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/roadmaps/ROADMAP-<topic>.md --format skills/roadmap/references/roadmap-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
+Before the round starts, run the document check on the draft
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/roadmaps/ROADMAP-<topic>.md --format roadmap --moment pre_jury --phase 4 --topic <topic> --skill roadmap
+```
+
+Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
+its findings name, commit, and run the fix loop in that reference with
+`--answers check_fail` until the post-fix check exits 0, before spawning. A
+`doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user as a significant issue,
+or under `--auto` stop the run and report them.
+
+Beside the packet, before launching, record the round as telemetry (add
+`--fallback` when the round runs as the serial self-jury). It always exits 0
+and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
+describes the verdict block each seat ends its file with and the calls here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill roadmap --topic <topic> --doc docs/roadmaps/ROADMAP-<topic>.md --seat-count 3 --doc-format roadmap
+```
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
@@ -71,6 +93,13 @@ right level of granularity.
    initiative rather than unrelated independent work?
 5. Are feature rationales specific to this roadmap, or could they apply to any
    project? Generic rationales suggest weak theme coherence.
+
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-070", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
 
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_theme-coherence.md`:
@@ -119,6 +148,13 @@ are explicit and acyclic.
    suggests the sequencing wasn't thought through.
 5. Are hard blockers distinguished from soft preferences? Conflating the two
    creates artificial bottlenecks.
+
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-071", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
 
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_sequencing-dependency.md`:
@@ -192,6 +228,13 @@ doesn't contain downstream content.
 6. Are scope boundaries clear? The "covers" and "doesn't cover" should leave no
    ambiguity about what work falls inside this roadmap.
 
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-072", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
+
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_annotation-boundary.md`:
 
@@ -218,6 +261,7 @@ Wait for all 3 agents to complete. Read their summaries. Then turn the verdict f
 into keys (`ingest` removes the verdicts directory) and remove the inputs directory:
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill roadmap --topic <topic> --doc docs/roadmaps/ROADMAP-<topic>.md --dir <verdicts-dir> --doc-format roadmap
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest roadmap-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```
@@ -247,6 +291,19 @@ name the tiebreaker. The user overrides if they disagree.
 **For minor issues** (wording fixes, sharpening a needs-* label, clarifying a
 dependency): Fix directly, update the ROADMAP, show the user what changed.
 
+Commit the fixes (`docs(roadmap): apply jury fixes for <topic>`), then record what they answered and check
+the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/roadmaps/ROADMAP-<topic>.md --format roadmap --answers jury_fail --skill roadmap
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/roadmaps/ROADMAP-<topic>.md --format roadmap --skill roadmap
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/roadmaps/ROADMAP-<topic>.md --format roadmap --moment post_fix --phase 4 --topic <topic> --skill roadmap
+```
+
+While the post-fix check exits 1, fix what it names, commit, and repeat the
+three calls with `--answers check_fail`; on `doc-check: unresolved after 3
+cycles`, present the findings to the user as a significant issue (under `--auto`, stop and report).
+
 **For significant issues** (circular dependencies, missing features, downstream
 content mixed in, sequencing without rationale, a mechanism Outcome, Evidence
 the author alone could judge or that is a merge, test run or artifact, a Left
@@ -254,6 +311,15 @@ open holding part of an Outcome): Present the jury's findings to the
 user with specific recommendations. Use AskUserQuestion when the findings surface
 trade-offs or decisions. If changes are substantial (feature additions, dependency
 rewrites), loop back to Phase 3 step 3.5.
+
+**Record what follows the round**, once it is decided, as telemetry: `proceed`
+when all three pass, `fix_and_proceed` for fixes applied without a new jury,
+`loop_back` for a return to Phase 3, `rerun` for fixes that get a fresh jury,
+`stop` when the document goes no further.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill roadmap --topic <topic> --doc docs/roadmaps/ROADMAP-<topic>.md --decision <decision> --doc-format roadmap
+```
 
 ### 4.4 Finalize ROADMAP
 

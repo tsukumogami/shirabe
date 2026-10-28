@@ -35,6 +35,28 @@ guidance to each agent.
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Thesis Quality, Content Boundary and Section Guidance run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/visions/VISION-<topic>.md --format skills/vision/references/vision-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
+Before the round starts, run the document check on the draft
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/visions/VISION-<topic>.md --format vision --moment pre_jury --phase 4 --topic <topic> --skill vision
+```
+
+Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
+its findings name, commit, and run the fix loop in that reference with
+`--answers check_fail` until the post-fix check exits 0, before spawning. A
+`doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user as a significant issue,
+or under `--auto` stop the run and report them.
+
+Beside the packet, before launching, record the round as telemetry (add
+`--fallback` when the round runs as the serial self-jury). It always exits 0
+and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
+describes the verdict block each seat ends its file with and the calls here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill vision --topic <topic> --doc docs/visions/VISION-<topic>.md --seat-count 3 --doc-format vision
+```
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
@@ -75,6 +97,13 @@ rest of the document supports it.
 5. Do the thesis, audience, value proposition, and org fit tell a coherent story?
    Or could you swap the thesis and the document would still make sense (meaning
    it's too generic)?
+
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-064", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
 
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_thesis-quality.md`:
@@ -130,6 +159,13 @@ VISION does NOT contain:
    just scope exclusions ("doesn't support Windows")? VISION non-goals should
    explain WHY, tying back to the thesis.
 
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-065", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
+
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_content-boundary.md`:
 
@@ -182,6 +218,13 @@ guidance. Your job is to check each section against its specific quality criteri
   must NOT appear in public repos. Check the repo visibility.
 - Open Questions section is allowed only in Draft status
 
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-066", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
+
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_section-guidance.md`:
 
@@ -204,11 +247,13 @@ Return only the verdict, issue count, and summary to this conversation.
 
 ### 4.2 Collect Results
 
-Wait for all 3 agents to complete. Read their summaries. Then turn the verdict
-files into keys (`ingest` removes the verdicts directory) and remove the inputs
+Wait for all 3 agents to complete. Read their summaries. Then record the seats'
+verdict blocks as telemetry, turn the verdict files into keys (`ingest` removes
+the verdicts directory, so the verdicts call comes first) and remove the inputs
 directory:
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill vision --topic <topic> --doc docs/visions/VISION-<topic>.md --dir <verdicts-dir> --doc-format vision
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest vision-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```
@@ -238,11 +283,33 @@ name the tiebreaker. The user overrides if they disagree.
 **For minor issues** (wording fixes, sharpening a non-goal's reasoning, clarifying
 audience description): Fix directly, update the VISION, show the user what changed.
 
+Commit the fixes (`docs(vision): apply jury fixes for <topic>`), then record what they answered and check
+the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/visions/VISION-<topic>.md --format vision --answers jury_fail --skill vision
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/visions/VISION-<topic>.md --format vision --skill vision
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/visions/VISION-<topic>.md --format vision --moment post_fix --phase 4 --topic <topic> --skill vision
+```
+
+While the post-fix check exits 1, fix what it names, commit, and repeat the
+three calls with `--answers check_fail`; on `doc-check: unresolved after 3
+cycles`, present the findings to the user as a significant issue (under `--auto`, stop and report).
+
 **For significant issues** (thesis is a problem statement not a hypothesis, feature
 lists in the value proposition, success criteria measuring features not outcomes):
 Present the jury's findings to the user with specific recommendations. Use
 AskUserQuestion when the findings surface trade-offs or decisions. If changes are
 substantial (thesis reframing, section rewrites), loop back to Phase 3 step 3.5.
+
+**Record what follows the round**, once it is decided, as telemetry: `proceed`
+when all three pass, `fix_and_proceed` for fixes applied without a new jury,
+`loop_back` for a return to Phase 3, `rerun` for fixes that get a fresh jury,
+`stop` when the document goes no further.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill vision --topic <topic> --doc docs/visions/VISION-<topic>.md --decision <decision> --doc-format vision
+```
 
 ### 4.4 Finalize VISION
 

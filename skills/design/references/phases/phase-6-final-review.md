@@ -29,6 +29,19 @@ the path it prints, `<reviews-dir>`:
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
 ```
 
+Before the round starts, run the document check on the draft
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment pre_jury --phase 6 --topic <topic> --skill design
+```
+
+Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
+its findings name, commit, and run the fix loop in that reference with
+`--answers check_fail` until the post-fix check exits 0, before spawning. A
+`doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user before launching,
+or under `--auto` stop the run and report them.
+
 Before launching, record the round as telemetry (add `--fallback` when the
 round runs as the serial self-jury). It always exits 0 and changes nothing the
 review does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes
@@ -155,6 +168,19 @@ Then consolidate feedback:
 
 Apply changes to the design doc. If a review finding requires significant rework,
 discuss with the user before making changes.
+
+Commit the fixes (`docs(design): apply review feedback for <topic>`), then record what they answered and check
+the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/designs/DESIGN-<topic>.md --format design --answers jury_fail --skill design
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/designs/DESIGN-<topic>.md --format design --skill design
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment post_fix --phase 6 --topic <topic> --skill design
+```
+
+While the post-fix check exits 1, fix what it names, commit, and repeat the
+three calls with `--answers check_fail`; on `doc-check: unresolved after 3
+cycles`, discuss the findings with the user as significant rework (under `--auto`, stop and report).
 
 Once what follows the review is decided, record it as telemetry: `proceed`
 when nothing needed changing, `fix_and_proceed` for applied changes,

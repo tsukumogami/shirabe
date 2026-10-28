@@ -5,15 +5,20 @@
 # Usage:
 #   doc-events.sh sections --doc <path> --format <f> [--since <commit>] [--skill <s>]
 #   doc-events.sh fix --doc <path> --format <f> --answers check_fail [--skill <s>]
+#   doc-events.sh fix --doc <path> --format <f> --answers jury_fail [--round <n>] [--skill <s>]
 #
 #   --doc      the document, resolved as doc-check.sh resolves it: symlinks
 #              followed, it must be the format's canonical path under the
 #              repository's docs/; the topic is the one that path names
 #   --format   brief, prd, design, plan, vision, strategy or roadmap
 #   --since    a full hexadecimal commit id (40 or 64 characters)
-#   --answers  check_fail: the fix answers the last doc-check.sh failure
+#   --answers  check_fail: the fix answers the last doc-check.sh failure;
+#              jury_fail: the fix answers a jury round's FAIL verdicts
+#   --round    the jury round the fix answers, 1 to 50 (jury_fail only);
+#              default: the round review/round holds in the skill's session
 #   --skill    the skill whose <skill>-<topic> session holds
-#              work/doc-check.json; default: the format's own skill
+#              work/doc-check.json and the jury's keys; default: the
+#              format's own skill
 #
 # sections: diffs the document's `##` sections between <commit> and HEAD and,
 #   for each required section of the format (references/doc-check-phases.json)
@@ -35,6 +40,16 @@
 #   section-reading rule's section), else the required section around the
 #   finding's line in the document as the check saw it, else `other`. With no
 #   failure it writes none.
+#
+# fix --answers jury_fail: reads each seat's verdict file the skill ingested
+#   as `research/<pinned file>` in the <skill>-<topic> session (the seat list
+#   and file names of scripts/lib/review-verdicts.sh), parses its last
+#   review-verdicts block with that library, and writes one entry per distinct
+#   (rule, section) FAIL, rs-verdict-missing aside, with check_rule the rule's
+#   `held_by` in references/rule-registry.json, else none:
+#     doc-events: fix <rule-id> <section slug> <check rule>
+#     koto review record <session> fix --doc-format <f> --answers jury_fail --round <n> --file <batch>
+#   At most 200 entries. With no round recorded, or no FAIL, it writes none.
 #
 # Telemetry goes to the session `skill-session.sh dispatch read` resolves,
 # best effort: each failed call prints one notice on stderr and changes
@@ -61,6 +76,7 @@ usage() {
     cat >&2 <<'EOF'
 Usage: doc-events.sh sections --doc <path> --format <f> [--since <commit>] [--skill <s>]
        doc-events.sh fix --doc <path> --format <f> --answers check_fail [--skill <s>]
+       doc-events.sh fix --doc <path> --format <f> --answers jury_fail [--round <n>] [--skill <s>]
 EOF
     exit 2
 }
@@ -72,6 +88,8 @@ refuse() {
 
 # shellcheck source=lib/doc-session.sh
 . "$PLUGIN_ROOT/scripts/lib/doc-session.sh" || refuse "cannot load scripts/lib/doc-session.sh"
+# shellcheck source=lib/review-verdicts.sh
+. "$PLUGIN_ROOT/scripts/lib/review-verdicts.sh" || refuse "cannot load scripts/lib/review-verdicts.sh"
 
 # --- arguments ----------------------------------------------------------------
 
@@ -82,7 +100,7 @@ case "$CMD" in
     sections|fix) ;;
     *) usage ;;
 esac
-DOC_ARG="" FORMAT="" SINCE="" ANSWERS="" SKILL=""
+DOC_ARG="" FORMAT="" SINCE="" ANSWERS="" SKILL="" ROUND=""
 set_once() { # <current value> <name>
     [ -z "$1" ] || { echo "doc-events: $2 given twice" >&2; usage; }
 }
@@ -94,6 +112,7 @@ while [ $# -gt 0 ]; do
         *:--skill) set_once "$SKILL" --skill; SKILL=$2 ;;
         sections:--since) set_once "$SINCE" --since; SINCE=$2 ;;
         fix:--answers) set_once "$ANSWERS" --answers; ANSWERS=$2 ;;
+        fix:--round) set_once "$ROUND" --round; ROUND=$2 ;;
         *) usage ;;
     esac
     shift 2
@@ -112,8 +131,14 @@ esac
 [ -n "$SKILL" ] || SKILL=$FORMAT
 [[ "$SKILL" =~ $DS_RE_SKILL ]] || refuse "--skill must match $DS_RE_SKILL"
 if [ "$CMD" = fix ]; then
-    # jury_fail joins a jury verdict's FAIL entries; it is not recorded here.
-    [ "$ANSWERS" = check_fail ] || refuse "--answers must be check_fail"
+    case "$ANSWERS" in
+        check_fail|jury_fail) ;;
+        *) refuse "--answers must be check_fail or jury_fail" ;;
+    esac
+    if [ -n "$ROUND" ]; then
+        [ "$ANSWERS" = jury_fail ] || refuse "--round is for --answers jury_fail only"
+        [[ "$ROUND" =~ ^[1-9][0-9]?$ ]] && [ "$ROUND" -le 50 ] || refuse "--round must be a whole number from 1 to 50"
+    fi
 fi
 if [ -n "$SINCE" ]; then
     [[ "$SINCE" =~ ^[0-9a-f]{40}$ ]] || [[ "$SINCE" =~ ^[0-9a-f]{64}$ ]] \
@@ -212,7 +237,63 @@ if [ "$CMD" = sections ]; then
     exit 0
 fi
 
-# --- fix ----------------------------------------------------------------------
+# --- fix --answers jury_fail ----------------------------------------------------
+
+if [ "$ANSWERS" = jury_fail ]; then
+    ENTRY_CAP=200
+    REGISTRY="$PLUGIN_ROOT/references/rule-registry.json"
+    if [ -z "$ROUND" ]; then
+        if command -v "$KOTO" >/dev/null 2>&1; then
+            ROUND=$("$KOTO" context get "$STATE_SESSION" review/round 2>/dev/null | head -n 1 | tr -d '[:space:]')
+        fi
+        [[ "$ROUND" =~ ^[1-9][0-9]?$ ]] && [ "$ROUND" -le 50 ] || ROUND=""
+    fi
+    if [ -z "$ROUND" ]; then
+        ds_notice "no jury round is recorded in $STATE_SESSION; no fix entry written"
+        exit 0
+    fi
+    {
+        jq -r --arg f "$FORMAT" '.formats[$f].required_sections[]' "$DS_PHASES" | while IFS= read -r s; do ds_slug "$s"; echo; done
+        printf 'frontmatter\ndocument\n'
+    } | sed '/^$/d' | sort -u > "$WORK/sections"
+    : > "$WORK/fails"
+    rv_seats_of "$SKILL" > "$WORK/seats"
+    [ -s "$WORK/seats" ] || rv_seats_of "$FORMAT" > "$WORK/seats"
+    while IFS='	' read -r seat file; do
+        [ -n "$seat" ] || continue
+        if ! command -v "$KOTO" >/dev/null 2>&1 \
+            || ! "$KOTO" context get "$STATE_SESSION" "research/$file" > "$WORK/seat.md" 2>/dev/null; then
+            ds_notice "seat $seat: no verdict key research/$file in $STATE_SESSION"
+            continue
+        fi
+        rv_block "$WORK/seat.md" "$WORK/block"
+        if [ ! -s "$WORK/block" ]; then
+            ds_notice "seat $seat: no review-verdicts block"
+            continue
+        fi
+        if ! rv_entries "$WORK/block" "$WORK/sections" "$seat" "$WORK/valid" "$FORMAT"; then
+            ds_notice "seat $seat: the review-verdicts block is not a JSON array"
+            continue
+        fi
+        awk -F'\t' '$3 == "FAIL" && $1 != "rs-verdict-missing" { print $1 "\t" $2 }' "$WORK/valid" >> "$WORK/fails"
+    done < "$WORK/seats"
+    sort -u "$WORK/fails" | head -n "$ENTRY_CAP" > "$WORK/fails.u"
+    if [ ! -s "$WORK/fails.u" ]; then
+        exit 0
+    fi
+    BATCH=$(mktemp "$WORK/fix.XXXXXX") || { ds_notice "could not create the telemetry batch; the fix was not recorded"; exit 0; }
+    jq -R -s -c --slurpfile reg "$REGISTRY" '
+        ($reg[0].rules | map({(.id): (.held_by // "none")}) | add) as $held
+        | split("\n") | map(select(length > 0) | split("\t")
+          | {rule_id: .[0], section: .[1], check_rule: ($held[.[0]] // "none")})' "$WORK/fails.u" > "$BATCH" \
+        || { ds_notice "could not build the telemetry batch; the fix was not recorded"; exit 0; }
+    jq -r '.[] | "doc-events: fix \(.rule_id) \(.section) \(.check_rule)"' "$BATCH"
+    ds_record_session "$SKILL" "$TOPIC"
+    ds_record "the fix" "$DS_RECORD_SESSION" fix --doc-format "$FORMAT" --answers jury_fail --round "$ROUND" --file "$BATCH"
+    exit 0
+fi
+
+# --- fix --answers check_fail ----------------------------------------------------
 
 if ! jq -e --arg doc "$DOC" '.doc == $doc and (.last.outcomes | type) == "array"' "$WORK/state.json" >/dev/null 2>&1; then
     ds_notice "no check of $DOC is recorded in $STATE_SESSION; no fix entry written"
