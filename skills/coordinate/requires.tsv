@@ -106,9 +106,12 @@ koto	session import	--from,--trust-template	mode:session-store
 # coordinate-open.sh continues it through koto's fence, `koto init --continues
 # --supersede --expect-state --carry` (koto 0.28.0 and later). Only a takeover
 # makes the call, so the record is mode:takeover, never checked at load; on an
-# older koto the init itself refuses, and the opener prints outcome=refused
-# with nothing written.
+# older koto the opener reads `koto init --help` first and prints
+# outcome=refused and reason=koto-too-old with nothing written. It reads a
+# successor's predecessor from `koto session hierarchy`, to tell its own
+# interrupted takeover from another session's.
 koto	init	--continues,--supersede,--expect-state,--carry	mode:takeover
+koto	session hierarchy	-	mode:takeover
 #
 # The on-reap step (scripts/unit-removed.sh record, which niwa runs when it
 # removes a session) starts its sweep in a new session through perl's
