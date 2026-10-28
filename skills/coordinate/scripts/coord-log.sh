@@ -563,8 +563,10 @@ compat)
     # run whose fingerprint the table no longer lists still names its compat.
     # A run with none recorded, or a record naming another structure, is
     # looked up in the table. The exit status is the table's verdict either way.
+    # record/meta is read through the record's seam (state-read.sh --meta),
+    # the one script outside the entry writer that reads a record/ key.
     OWN=
-    [ -z "$FP" ] || OWN=$("$KOTO" context get "$SESSION" record/meta < /dev/null 2> /dev/null \
+    [ -z "$FP" ] || OWN=$(bash "$HERE/state-read.sh" --session "$SESSION" --meta < /dev/null 2> /dev/null \
         | jq -r --arg f "$FP" 'objects | select(.template_fingerprint == $f) | .template_compat
             | select(type == "number" and . >= 1 and . == floor)' 2> /dev/null)
     jq -r --arg f "$FP" --arg own "$OWN" '"\(if $own != "" then $own elif $f == "" then "-" else (.fingerprints[$f] // "-") end) \(.compat) \(if $f == "" then "unreadable" else $f end)"' "$TABLE"

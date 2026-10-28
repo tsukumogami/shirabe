@@ -22,7 +22,8 @@
 #   5. a fresh start of a discipline scope calls it once, for the lookup at
 #      discipline scope;
 #   6. a fresh start whose lookup finds one open record calls it twice: the
-#      lookup, then the import of that record by its number.
+#      lookup, then the import of that record by its number, and the imported
+#      run's record/meta names its template compat and fingerprint.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -176,5 +177,11 @@ eq "6: it calls the importer twice more" 4 "$(calls)"
 has_args 3 --lookup "--session $S" "--name oldrec" && ok "6:   ... first for the lookup" || bad "6:   ... first for the lookup" "$(sed -n 3p "$T/import.calls")"
 if has_args 4 "--ref 41" "--session $S" "--name oldrec" && ! has_args 4 --lookup; then ok "6:   ... then for the import of record 41"
 else bad "6:   ... then for the import of record 41" "$(sed -n 4p "$T/import.calls")"; fi
+# The import writes the run's record/meta, naming the compat the run was
+# compiled at and its template fingerprint (shirabe#1333).
+SHIP_COMPAT=$(jq -r .compat "$PR/skills/coordinate/koto-templates/coordinate.compat.json")
+SHIP_FP=$(bash "$PS/template-fingerprint.sh" "$(host_on a koto template compile "$PR/skills/coordinate/koto-templates/coordinate.md" 2>/dev/null)")
+eq "6:   ... whose record/meta names the shipped compat and the run's template fingerprint" "$SHIP_COMPAT $SHIP_FP" \
+    "$(host_on a koto context get "$S" record/meta 2>/dev/null | jq -r '"\(.template_compat) \(.template_fingerprint)"')"
 
 done_tests importer-call-engine
