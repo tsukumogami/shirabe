@@ -15,7 +15,11 @@
 # is rewritten in place, even with text that doesn't compile (the run advancing
 # from the copy koto compiled at init),
 # and fails for an edited copy elsewhere or once koto's compiled copy is gone;
-# `live-session` finds the live run and drops it once it ends.
+# `live-session` finds the live run and drops it once it ends; `compat` prints
+# the compat the run's record/meta keeps for its own fingerprint before the
+# table's, so a run the table no longer lists still names it, keeps the
+# table's verdict as its exit status, and reads the table alone for a run with
+# no pair recorded or a pair for another structure.
 #
 # Needs koto and jq; SKIPs (exit 0) without koto, which CI asserts first.
 # Usage: bash skills/coordinate/scripts/coord-log_engine_test.sh
@@ -230,6 +234,39 @@ bash "$CL" live-session --scope-slug demo >/dev/null 2>&1; eq "no live run once 
 RUN_COPY=$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path' "$(koto session dir "$S5")/koto-$S5.state.jsonl")
 rm -f "$RUN_COPY"
 bash "$CL" provenance --session "$S5" --template "$T/swap/coordinate.md" 2>/dev/null; eq "provenance fails once koto's compiled copy is gone" 1 $?
+
+echo "== compat: the run's recorded compat before the table's =="
+# A compat table beside a template copy, naming the run's structure or not,
+# and the run's record/meta holding a compat pair or not (shirabe#1333).
+S6=coordinate-compat-20260101T000005Z
+start "$S6" "$TPL" "found 1" && tick "$S6" >/dev/null
+FP=$(bash "$PR/skills/coordinate/scripts/template-fingerprint.sh" "$(jq -r 'select(.type == "workflow_initialized") | .payload.template_path' "$(koto session dir "$S6")/koto-$S6.state.jsonl")")
+[[ $FP =~ ^[0-9a-f]{64}$ ]] && pass "the run's fingerprint is read" || fail "the run's fingerprint is read" "$FP"
+# 64 hex characters each, written out: run-tests.sh's PATH has no seq.
+OTHER=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+GS=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+mkdir -p "$T/ct"
+cp "$TPL" "$T/ct/coordinate.md"
+table() { # table <compat> <fingerprints-json>: the compat table beside the copy
+    jq -nc --argjson c "$1" --argjson f "$2" --arg g "$GS" '{compat: $c, fingerprints: $f, gate_scripts: $g}' > "$T/ct/coordinate.compat.json"
+}
+meta() { printf '%s' "$1" > "$T/meta.json"; koto context add "$S6" record/meta --from-file "$T/meta.json" >/dev/null; }
+compat() { OUT=$(bash "$CL" compat --session "$S6" --template "$T/ct/coordinate.md" 2>/dev/null); RC=$?; }
+table 3 "$(jq -nc --arg f "$FP" '{($f): 3}')"
+compat; eq "a run with no record/meta, listed at the shipped compat: the table's compat, exit 0" "0 3 3 $FP" "$RC $OUT"
+table 4 "$(jq -nc --arg f "$OTHER" '{($f): 4}')"
+compat; eq "a run with no record/meta the table no longer lists reads compat -, exit 1, as before" "1 - 4 $FP" "$RC $OUT"
+meta "$(jq -nc --arg f "$FP" '{scope: {kind: "roadmap", name: "compat"}, store: "session", written: "", pending: false}')"
+compat; eq "a record/meta without the pair still reads the table" "1 - 4 $FP" "$RC $OUT"
+meta "$(jq -nc --arg f "$FP" '{scope: {kind: "roadmap", name: "compat"}, store: "session", written: "", pending: false, template_compat: 3, template_fingerprint: $f}')"
+compat; eq "a run the table no longer lists reports the compat its record/meta keeps, still exit 1" "1 3 4 $FP" "$RC $OUT"
+table 3 "$(jq -nc --arg f "$FP" '{($f): 3}')"
+compat; eq "the recorded compat agrees with a table that lists the run, exit 0" "0 3 3 $FP" "$RC $OUT"
+table 4 "$(jq -nc --arg f "$OTHER" '{($f): 4}')"
+meta "$(jq -nc --arg f "$OTHER" '{scope: {kind: "roadmap", name: "compat"}, store: "session", written: "", pending: false, template_compat: 2, template_fingerprint: $f}')"
+compat; eq "a record/meta pair for another structure is ignored for the table's" "1 - 4 $FP" "$RC $OUT"
+meta "$(jq -nc --arg f "$FP" '{scope: {kind: "roadmap", name: "compat"}, store: "session", written: "", pending: false, template_compat: "3", template_fingerprint: $f}')"
+compat; eq "a recorded compat that isn't a whole number is ignored" "1 - 4 $FP" "$RC $OUT"
 
 echo
 echo "coord-log engine: $PASS passed, $FAIL failed"
