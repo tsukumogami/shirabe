@@ -21,7 +21,8 @@
 #      reconcile reports both holdings with the classification A's gave them,
 #      and taken_legs and leg_children are as A left them;
 #   5. B's record has the coordinator row naming B's session, no told row,
-#      record/meta naming B's Claude session as driver, and exactly one
+#      record/meta naming B's Claude session as driver and B's own template
+#      compat and fingerprint in place of the pair A's held, and exactly one
 #      takeover entry naming A and B;
 #   6. the opener run again from B's Claude session prints outcome=resumed
 #      and adds no entry, and the next brief dispatch-worker.sh renders from
@@ -123,6 +124,12 @@ if [ "$SUPERSEDE" = 0 ]; then
     [ "$FAIL" -eq 0 ]; exit
 fi
 
+# A's record/meta names a template compat pair no shipped template has, which
+# the fence carries to B whole: the takeover writes B's own over it
+# (shirabe#1333, case 5).
+STALE_FP=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+put "$A" record/meta "$( (cd "$WD" && koto context get "$A" record/meta) | jq -c --arg f "$STALE_FP" '. + {template_compat: 1, template_fingerprint: $f}')"
+
 # ---- 1. B takes it over --------------------------------------------------------
 export CLAUDE_CODE_SESSION_ID=$B_ID
 opener takeover "$T/work2"
@@ -182,6 +189,10 @@ RUN=$(cd "$WD" && koto context get "$B" record/run)
 eq "5: B's coordinator row names B's session" coord-b "$(printf '%s' "$RUN" | jq -r '[.[] | select(.key == "coordinator") | .value][0]')"
 eq "5: B's told set is empty" 0 "$(printf '%s' "$RUN" | jq '[.[] | select(.key == "told")] | length')"
 eq "5: B's record/meta names B's Claude session as driver" "$B_ID true" "$( (cd "$WD" && koto context get "$B" record/meta) | jq -r '"\(.driver) \(.takeover_done)"')"
+SHIP_COMPAT=$(jq -r .compat "$PR/skills/coordinate/koto-templates/coordinate.compat.json")
+SHIP_FP=$(bash "$PS/template-fingerprint.sh" "$(koto template compile "$TPL" 2>/dev/null)")
+eq "5:   ... and B's own template compat and fingerprint, not the pair A's carried meta held" "$SHIP_COMPAT $SHIP_FP" \
+    "$( (cd "$WD" && koto context get "$B" record/meta) | jq -r '"\(.template_compat) \(.template_fingerprint)"')"
 ENTRIES=$(cd "$WD" && bash "$PS/state-entry.sh" --session "$B" --list 2>/dev/null)
 TK=$(printf '%s' "$ENTRIES" | jq -c '[.[] | select(.kind == "takeover")]')
 eq "5: exactly one takeover entry" 1 "$(printf '%s' "$TK" | jq length)"
