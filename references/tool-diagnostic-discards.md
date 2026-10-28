@@ -436,6 +436,16 @@ skills/coordinate/scripts/resolve-coordinator.sh	"$KOTO" context get "$1" "$2" <
 skills/coordinate/scripts/resolve-coordinator.sh	DSCOPE=$(key "$DISP" record/meta | jq -c '.scope // empty' 2>/dev/null)	1	non-zero,2,5	The dispatcher's record/meta, unread or not JSON, leaves the scope empty, and the next line exits 1 saying the dispatcher holds no record naming its run.	DESIGN-coordinate-successor-continues.md (Decision 4: the coordinator address, pending workers and reaching the newest member)
 skills/coordinate/scripts/resolve-coordinator.sh	MSCOPE=$(key "$MEMBER" record/meta | jq -c '.scope // empty' 2>/dev/null)	1	non-zero,2,5	The newest member's record/meta, unread or not JSON, leaves the scope empty, and the next line exits 1 saying the member holds no record naming its run.	DESIGN-coordinate-successor-continues.md (Decision 4: the coordinator address, pending workers and reaching the newest member)
 skills/coordinate/scripts/resolve-coordinator.sh	ADDR=$(key "$MEMBER" record/run | jq -r '[(. // [])[] | select(.key == "coordinator") | .value][0] // "" | strings' 2>/dev/null)	1	non-zero,2,5	The member's Run section, unread or not JSON, leaves the address empty, which fails the session-name check on the next line, and the resolve exits 1 saying the member names no coordinator address.	DESIGN-coordinate-successor-continues.md (Decision 4: the coordinator address, pending workers and reaching the newest member)
+# ps is declared by /coordinate and /work-on (shirabe#1329), which brings
+# their existing process reads into scope. Each asks about one pid or the
+# process table, and an empty answer or exit 1 is the ordinary "no such
+# process" reading the caller is written around. A missing ps now fails the
+# load-time check instead of reaching these lines as exit 127.
+skills/coordinate/scripts/dispatch-common.sh	if kill -0 "$pid" 2>/dev/null || ps -p "$pid" >/dev/null 2>&1; then	1	1	ps exits 1 when no process holds the pid, which with kill -0 also failing is the answer dc_job_finished asks for: the job is not running, and its state file decides the rest.	shirabe#1329
+skills/work-on/scripts/run-verification.sh	case "$(ps -p "$pid" -o command= 2>/dev/null)" in	1	1	A pid that ended between kill -0 and this read prints no command and matches no arm, so lock_live returns 1 and the lock is treated as stale, which is what an ended supervisor means.	shirabe#1329
+skills/work-on/scripts/run-verification.sh	ps -A -o pgid= 2>/dev/null | awk -v g="$1" '$1 == g { c++ } END { print c + 0 }'	1	non-zero	A table read that fails counts the group as 0, so the process bound passes that poll while the time limit and the kill of the group after the job still apply.	shirabe#1329
+skills/work-on/scripts/test-change.sh	ctl=$(ps -o tty= -p "$$" 2>/dev/null | tr -d ' ')	1	non-zero	A controlling terminal ps can't read leaves ctl empty, and one_terminal returns 1, so the check fails closed: no evidence of a terminal.	shirabe#1329
+skills/work-on/scripts/test-change.sh	ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'	1	1	A pid that has ended gives an empty start time, which differs from the one the lock recorded, so take_lock breaks the lock as its owner's, gone or reused.	shirabe#1329
 ```
 
 ## Running the scan
