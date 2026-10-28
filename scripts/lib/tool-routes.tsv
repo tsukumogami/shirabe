@@ -61,6 +61,7 @@ git	apt-get	linux	apt-get -	sudo apt-get install -y git	-
 python3	homebrew	darwin	brew -	brew install python3	-
 python3	apt-get	linux	apt-get -	sudo apt-get install -y python3	-
 pkill	apt-get	linux	apt-get -	sudo apt-get install -y procps	-
+ps	apt-get	linux	apt-get -	sudo apt-get install -y procps	-
 #
 # perl is the coordinate skill's on-reap detach (POSIX::setsid), a mode record
 # with a fallback. macOS ships it; the routes cover a host that lacks it.

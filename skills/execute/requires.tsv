@@ -44,9 +44,11 @@
 # children (`--child`, read in the node worktree with `--child-dir`), with the
 # same koto, gh and jq calls and no `koto workflows`, and records their
 # reasons in run/node. The loop (coord-common.sh) runs it with those reasons
-# (`--recorded`), making no koto call; only a node record written before the
-# reasons were recorded has its children read as before, finding them with
-# `koto workflows --roots` when the PLAN is gone. child-read.sh runs the
+# (`--recorded`), making no koto call. A node record written before the
+# reasons were recorded has its children read where they are bound: `koto
+# session list` gives each one's execution directory, and the script reads it
+# there with `--child-dir`; `koto workflows --roots` finds the children when
+# the PLAN is gone. child-read.sh runs the
 # owning session's `koto status` and `koto context get` of a work item in the
 # node worktree.
 #
@@ -148,6 +150,7 @@ jq	-	-	always
 python3	-	-	always
 shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coordinated
 koto	context list	--prefix	mode:coordinated
+koto	session list	-	mode:coordinated
 # A coordinated run's step agent opens each /work-on child itself with
 # `koto init ... --dispatched-by execute-<plan-slug>`
 # (references/step-agent-handoff.md), so the child records the run that

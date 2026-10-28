@@ -110,6 +110,10 @@ CASCADE_RUN=$(extract_state cascade_run)
 # ci_pass_counting, the state before cascade_entry: it accepts evidence and
 # routes into cascade_entry, so a tick that submits that evidence is the same
 # shape as the real one.
+#
+# The heredoc is unquoted because the body expands $CASCADE_ENTRY, $run_block
+# and a $(...) on purpose, so every other backtick or $ in it must be escaped:
+# an unescaped `word` in a YAML comment runs as a command.
 build_fixture() {
     local dir="$1" run_block="$2" anchor_exit="$3"
     cat > "$dir/fixture.md" <<FIXTURE
@@ -131,8 +135,8 @@ variables:
       without it and exercise what the gate does with an unresolved root.
     required: false
 states:
-  # `start` is this fixture's own stand-in for ci_pass_counting. Its
-  # `ci_outcome: passing` is fixture-only: the shipped ci_pass_counting
+  # \`start\` is this fixture's own stand-in for ci_pass_counting. Its
+  # \`ci_outcome: passing\` is fixture-only: the shipped ci_pass_counting
   # routes a counted pass on its gates and accepts no such value.
   start:
     accepts:
