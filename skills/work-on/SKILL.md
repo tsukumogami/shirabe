@@ -813,9 +813,11 @@ It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variable
 (not its review level or unit kind, which the round sets again) and the run's
 parent, so a child's round is a child too and never cascades. It records the round
 in both sessions: `fix_round.json` in the round and a line in the run's
-`fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence;
-its `analysis` takes the run's head as `impl_base`, so its panels and changed
-paths cover the fix commits only and its verification runs at the fix head. A
+`fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence,
+and commit the fix in the round's `implementation`, not before: its `analysis`
+records HEAD as `impl_base`, so its panels and changed paths cover the fix
+commits only and its verification runs at the fix head, while a fix committed
+earlier falls before the base and out of the round's review. A
 round started from a round counts against the original run. The script refuses
 (`refused=<reason>`, exit 1, nothing started) a run not at `done` (`not-done`; a
 run at `done_blocked` walks back with `koto rewind`), a second round while one is
@@ -830,7 +832,7 @@ ends at `done_blocked` fails the parent's batch too.
 
 A coordinator reads the review round from the run its leg is bound to, so record
 the fix head's round there with `review-round.sh record --session <WF>` as well as
-in the round. koto stores context on a session at `done`.
+in the round; koto accepts the record on a session already at `done`.
 
 ### Decision Capture
 

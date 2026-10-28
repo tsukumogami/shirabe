@@ -229,6 +229,9 @@ else
 fi
 
 # --- the round covers the fix commit only -----------------------------------------
+# analysis's action, record-changed-paths.sh --base, run here by hand as the
+# round reaches analysis; the fix is committed after it, in implementation, as
+# the done directive says.
 in_repo bash "$CHANGED_PATHS" --base "$R1"
 echo fix > "$REPO/c.txt"
 git -C "$REPO" add c.txt
@@ -265,6 +268,8 @@ else
     fail "a second round was not refused while the first was open (rc=$RC, out=[$OUT])"
 fi
 
+# entry's `skipped` mode is the shortest way to a terminal state in the shipped
+# template, which is all the open-round rule asks of a finished round.
 tick "$R1" '{"mode":"skipped"}'
 OUT=$(in_repo bash "$FIX_ROUND" start --from "$R1"); RC=$?
 if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-2\nround=2' ]]; then

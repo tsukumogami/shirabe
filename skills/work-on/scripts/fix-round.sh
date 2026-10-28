@@ -8,10 +8,11 @@
 # to `done` (#1322). A fix that review or CI asks for after `done` is taken by
 # a new session instead, started here. It is the same template with the same
 # variables and the same parent, so it routes as the original did (a child of
-# /execute stays a child and never cascades), and it starts from the head the
-# original left: `analysis` records that head as its `impl_base`, so the
-# round's changed paths, review packet and panels cover the fix commits only,
-# and its verification runs at the fix head.
+# /execute stays a child and never cascades). Its `analysis` records HEAD as
+# its `impl_base`, so the fix is committed in the round's `implementation`, not
+# before: the round's changed paths, review packet and panels then cover the
+# fix commits only, and its verification runs at the fix head. A fix committed
+# earlier falls before the base and out of the round's review.
 #
 # Why a new session rather than an edge out of `done`: an edge needs `done` to
 # stop being terminal, and a terminal `done` is what /execute's
@@ -88,14 +89,14 @@ refuse() { echo "refused=$1"; echo "fix-round: $2" >&2; exit 1; }
 FROM=$3
 [[ $FROM =~ $RE_SESSION ]] || usage
 
-command -v koto >/dev/null 2>&1 || die 2 "koto is not on PATH"
-command -v jq >/dev/null 2>&1 || die 2 "jq is not on PATH"
+command -v koto >/dev/null || die 2 "the koto CLI is not on PATH"
+command -v jq >/dev/null || die 2 "the jq CLI is not on PATH"
 [ -r "$TEMPLATE" ] || die 2 "template not found: $TEMPLATE"
 
 # A round names the run it was started for; a round started from a round
 # counts against that run.
 ORIG=$FROM
-if koto context exists "$FROM" "$ROUND_KEY" 2>/dev/null; then
+if koto context exists "$FROM" "$ROUND_KEY"; then
     ORIG=$(koto context get "$FROM" "$ROUND_KEY" | jq -r '.from // empty') \
         || die 2 "could not read $ROUND_KEY from $FROM"
     [[ $ORIG =~ $RE_SESSION ]] || die 2 "$ROUND_KEY in $FROM names no run"
@@ -106,7 +107,7 @@ STATE=$(printf '%s' "$STATUS" | jq -r '.current_state // empty')
 [ "$STATE" = done ] || refuse not-done "$ORIG is at ${STATE:-an unknown state}, not done"
 
 ROUNDS=""
-if koto context exists "$ORIG" "$ROUNDS_KEY" 2>/dev/null; then
+if koto context exists "$ORIG" "$ROUNDS_KEY"; then
     ROUNDS=$(koto context get "$ORIG" "$ROUNDS_KEY") || die 2 "could not read $ROUNDS_KEY from $ORIG"
 fi
 COUNT=$(printf '%s' "$ROUNDS" | jq -s 'length') || die 2 "$ROUNDS_KEY in $ORIG is not JSON lines"
@@ -147,12 +148,7 @@ done < <(printf '%s' "$VARS" | jq -r '
     | "\(.key)=\(.value)"')
 ARGS+=(--var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF")
 
-# koto's compile warnings about the template are the template's, not the
-# round's; its stderr is shown only when the init fails.
-if ! ERR=$(koto "${ARGS[@]}" 2>&1 >/dev/null); then
-    printf '%s\n' "$ERR" >&2
-    die 2 "koto init $NAME failed"
-fi
+koto "${ARGS[@]}" >/dev/null || die 2 "koto init $NAME failed"
 
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" \

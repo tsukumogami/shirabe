@@ -4125,9 +4125,11 @@ It starts `{{SESSION_NAME}}-fix-<n>`, a new work-on session with this run's
 variables and parent (a child stays a child, so it never cascades), and records
 the round in both sessions' context: `fix_round.json` in the round, a line in
 `fix_rounds.jsonl` here. Drive the round from `entry` with the entry evidence
-this run was given. Its `analysis` takes this run's head as its base, so its
-review panels and changed paths cover the fix commits only, and its
-verification runs at the fix head. The script refuses (`refused=<reason>`,
+this run was given, and commit the fix in the round's `implementation`, not
+before: the round's `analysis` records HEAD as its `impl_base`, so its review
+panels and changed paths cover the fix commits only and its verification runs
+at the fix head, while a fix committed earlier falls before the base and out of
+the round's review. The script refuses (`refused=<reason>`,
 exit 1) while an earlier round is still open (`round-open`), after three
 rounds (`cap`; a fourth is a person's call), and from a branch other than
 this run's `SHARED_BRANCH` (`wrong-branch`).
