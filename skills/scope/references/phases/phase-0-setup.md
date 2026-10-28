@@ -110,6 +110,12 @@ Read the lines it prints:
   describe the finished run. When koto kept that run for its hierarchy,
   `moved_to=<name>` and `moved_reason=` follow: it was moved aside to
   `<name>`, where its record is still readable, rather than removed.
+  A review round the finished run held (`review_round.json`, recorded
+  with `review-round.sh`) is carried into the fresh session unchanged,
+  `reviewed_head` included, so a coordinator's land step still finds
+  it there. When it can't be read or written, a warning names the
+  session and says to record the round again with `review-round.sh`;
+  the run goes on.
 - `refused=<code>` followed by `outcome=error` and
   `step=scope:refused`, with the refusal text on stderr — print the
   text and those two lines and stop. Nothing was created: no session,
