@@ -2982,10 +2982,10 @@ rules; those rules go in an `answer` row beside it, never in its place. Pick,
 the dispatch check, the land check, the merge and the quiet check read only
 `pause` rows, so an order written only as an `answer` holds nothing, and the
 workers it parked are counted silent. A person's own comment on the record is
-not an entry until you write it. And before a local agent starts work in flight (a fix round, a
-pull request it builds), write its row, `--work "<what>" --kind local-agent
---who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
-without the row a successor can't see the work.
+not an entry until you write it. And before a local agent starts work in
+flight (a fix round, a pull request it builds), write its row, `--work
+"<what>" --kind local-agent --who "local agent" --next "<step>"`, and `--done
+"<what>"` when it lands: without the row a successor can't see the work.
 
 After writing a pause, send each live worker it covers the pause line: push
 what you have at a safe point, report, then do nothing until the resume (no
@@ -4050,9 +4050,10 @@ isn't a silent check. Only a `pause` row holds a worker; an `answer`,
 `approval` or `go-ahead` row never does. A quiet worker you find parked on a
 person's order with no `pause` row covering it gets that row and its `paused
 by <id>` Work row at `status_message`, before `sent` is submitted, so the next
-sweep skips it instead of sending its unit to the failure branch. A silent check made before the latest `resume` tick no longer
-counts, so the first sweep after a resume sends a status message rather than
-going to the failure branch. The 30-minute interval is the
+sweep skips it instead of sending its unit to the failure branch. A silent
+check made before the latest `resume` tick no longer counts, so the first
+sweep after a resume sends a status message rather than going to the failure
+branch. The 30-minute interval is the
 check's own and is fixed: a human's decision about intervals governs what your
 status message asks and when you follow up by hand, not when this check counts
 a silence. One silent check earns a status message;
