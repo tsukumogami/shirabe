@@ -146,8 +146,10 @@ The entries depend on the version:
   absence is not an error.
 
 Before any category runs, check the PLAN document
-(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`). The check keeps its state in a session
-of this skill's own, so open it first; then run the check:
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`). This step runs only in this
+no-plan-session case: under `/plan` the plan's own Phase 6 runs the check. The
+check keeps its state in a session of this skill's own, so open it first (Phase
+5 closes it); then run the check:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open review-plan <topic>
