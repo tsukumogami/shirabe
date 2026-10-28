@@ -785,7 +785,11 @@ against its chain shape:
      `expected_head` (only after a successful push), `cascade_result.json`
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
-     `coord_branch`, `plan_abs`, `merge_attempts` (`<id>:<result>` entries,
+     `coord_branch`, `plan_abs` (fixed at setup, except that the opener
+     re-roots it on a moved attach: when the recorded PLAN is gone and this
+     checkout is on `coord_branch` with `home_repo` as its origin, it becomes
+     the PLAN here, through `record-coord-setup.sh --reroot-plan`),
+     `merge_attempts` (`<id>:<result>` entries,
      the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:
      merge-not-observed, merge-call-failed or merge-refused from
      `coord-merge.sh`, and `coordination:body-stale` or `coordination:body-full`
