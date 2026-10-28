@@ -73,6 +73,12 @@
 # three and nothing else: gh for the issue and its milestone, git log for the
 # files the issue names, and jq for the age arithmetic and its report.
 #
+# ps reads processes for two scripts. scripts/run-verification.sh tells its
+# own supervisor from a recycled pid (`ps -p <pid> -o command=`) and counts a
+# process group (`ps -A -o pgid=`); scripts/test-change.sh stamps its lock
+# with the holder's start time (`ps -o lstart=`) and reads the controlling
+# terminal (`ps -o tty=`).
+#
 # One flag a line-level extractor will surface here is not koto's and is
 # deliberately absent: `--session` is extract-context.sh's own argument,
 # mentioned on comment lines that also name `koto context add`. The scan drops
@@ -163,4 +169,5 @@ shirabe	transition	-	always
 gh	-	-	always
 git	-	-	always
 jq	-	-	always
+ps	-	-	always
 python3	-	-	always
