@@ -405,20 +405,24 @@ core_write_rotation() {
 # legs/ key (PRD R12; Decision 6). The source is read through the seam, so it
 # passes every check a read makes: it assembles and reads back as this scope's
 # record (SCOPE, NAME) under state-schema.jq's rules, and holds only
-# well-formed pushed heads. The target must hold no record. Each key's name is
-# checked against the session store's names and its value checked (JSON, or for
-# record/posted/<n> a comment URL on an issue or pull request, the item an
-# outward entry was posted on), then copied, and
-# record/meta goes last, with the source's written time and a standing_used no
-# lower than any Standing id the source's meta, entries or rows name (read from
-# the entries as they are copied, so no extra call): until it lands the new
-# run holds no record, so a carry cut short leaves nothing a start would resume,
-# and the next start carries again. Only coordinate-open.sh calls it, which a
-# structure test holds. Exits 10 the source holds no record; 12 it was being
-# written; 65 refused (the reason on stderr); 11 a
-# write failed; 2 a read failed.
+# well-formed pushed heads. The target must hold no record. Every key is read
+# and checked before any is written: its name against the session store's
+# names and its value (JSON, or for record/posted/<n> a comment URL on an issue
+# or pull request, the item an outward entry was posted on), so a refusal or a
+# failed read writes nothing into the new run. Each key is then copied from the
+# file its read left, one get and one add per key (koto has no multi-key
+# context write; on its cloud backend each add pushes the key, the manifest and
+# the state file, which is where a long record's carry spends its time,
+# shirabe#1337), and record/meta goes last, with the source's written time and
+# a standing_used no lower than any Standing id the source's meta, entries or
+# rows name (read from the entries as they are checked, so no extra call):
+# until it lands the new run holds no record, so a carry cut short leaves
+# nothing a start would resume, and the next start carries again. Only
+# coordinate-open.sh calls it, which a structure test holds. Exits 10 the
+# source holds no record; 12 it was being written; 65 refused (the reason on
+# stderr); 11 a write failed; 2 a read failed.
 core_carry() {
-    local from=$1 to=$2 d k rc secs
+    local from=$1 to=$2 d k n rc secs
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-carry.XXXXXX") || lib_die2 "mktemp failed"
     rs_session_read "$d/rec" "$from" "$SCOPE" "$NAME"; rc=$?
     case $rc in
@@ -438,8 +442,10 @@ core_carry() {
     secs=" $(for p in $RS_SECTIONS; do printf 'record/%s ' "${p#*:}"; done)"
     jq -r '.[]' "$d/rk" "$d/lk" > "$d/keys" || { rm -rf "$d"; lib_die2 "jq failed"; }
     # standing_used for the new run, from the entries the carry reads anyway:
-    # each one's leading Standing id is collected as it is copied.
+    # each one's leading Standing id is collected as it is checked. Key n's
+    # value is kept in $d/v.n until the writes below.
     : > "$d/used"
+    n=0
     while IFS= read -r k; do
         case "$k" in
             record/meta) continue ;;
@@ -449,18 +455,25 @@ core_carry() {
             record/*) case "$secs" in *" $k "*) ;; *) rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k, not one of the session store's" >&2; exit 65 ;; esac ;;
             legs/*) [[ $k =~ ^legs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
         esac
-        "$KOTO" context get "$from" "$k" < /dev/null > "$d/v" 2> "$d/k.err" || { rm -rf "$d"; lib_die2 "cannot read $k: $(lib_scrub < "$d/k.err")"; }
+        n=$((n + 1))
+        "$KOTO" context get "$from" "$k" < /dev/null > "$d/v.$n" 2> "$d/k.err" || { rm -rf "$d"; lib_die2 "cannot read $k: $(lib_scrub < "$d/k.err")"; }
         case "$k" in
             record/posted/*)
-                [[ $(cat "$d/v") =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
+                [[ $(cat "$d/v.$n") =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
                     || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on an issue or a pull request" >&2; exit 65; } ;;
-            *) jq -e . "$d/v" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
+            *) jq -e . "$d/v.$n" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
         esac
         case "$k" in
-            record/entries/*) jq -r '.text? // empty | strings | scan("^(s[1-9][0-9]*)") | .[0][1:]' "$d/v" >> "$d/used" \
+            record/entries/*) jq -r '.text? // empty | strings | scan("^(s[1-9][0-9]*)") | .[0][1:]' "$d/v.$n" >> "$d/used" \
                 || { rm -rf "$d"; lib_die2 "jq failed"; } ;;
         esac
-        "$KOTO" context add "$to" "$k" --from-file "$d/v" < /dev/null > /dev/null 2> "$d/k.err" \
+    done < "$d/keys"
+    # Every key passed: copy them in the order they were read.
+    n=0
+    while IFS= read -r k; do
+        [ "$k" = record/meta ] && continue
+        n=$((n + 1))
+        "$KOTO" context add "$to" "$k" --from-file "$d/v.$n" < /dev/null > /dev/null 2> "$d/k.err" \
             || { echo "$PROG: the carry into $to failed at $k: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     done < "$d/keys"
     # The highest of the source's own standing_used, the ids the entries name
