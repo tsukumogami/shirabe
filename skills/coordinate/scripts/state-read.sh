@@ -19,8 +19,9 @@
 #   rs_record <out>
 #       The run's record. Writes <out> (the record, normalize_state's JSON),
 #       <out>.state (the keys as assembled, pushed heads included),
-#       <out>.pushed (the pushed heads, {worker topic: sha}) and <out>.err (the
-#       read's stderr, or the rule the state breaks).
+#       <out>.pushed (the pushed heads, {worker topic: sha}), <out>.meta
+#       (record/meta as the read found it, standing_used included) and
+#       <out>.err (the read's stderr, or the rule the state breaks).
 #       Returns 0 read; 2 the read failed; 4 the session holds no record/meta
 #       (session-absent, the reason in <out>.err); 12 the session record was
 #       still being written after three re-reads (record-changed); 65 the
@@ -187,8 +188,9 @@ rs_session_state() {
 
 # rs_session_read <out> <session> <scope> <name>: the files rs_record writes:
 # <out> the record as state-schema.jq's normalize_state gives it, <out>.state
-# the keys as assembled (pushed heads included) and <out>.pushed the pushed
-# heads, {worker topic: sha}. normalize_state is what gives every reader the
+# the keys as assembled (pushed heads included), <out>.pushed the pushed
+# heads, {worker topic: sha}, and <out>.meta the record/meta the read was
+# taken at. normalize_state is what gives every reader the
 # same JSON for one state (PRD R19). Returns rs_session_state's codes; 65
 # record/meta names another scope, or the state breaks a rule of
 # state-schema.jq (the reason in <out>.err).
@@ -199,6 +201,7 @@ rs_session_read() {
     rs_session_state "$s" "$out.state"; rc=$?
     cat "$out.state.err" >> "$out.err"
     [ $rc -eq 0 ] || return $rc
+    cp "$out.state.m1" "$out.meta" || return 2
     if [ "$(jq -c '.scope' "$out.state")" != "$(jq -nc --arg k "$scope" --arg n "$name" '{kind: $k, name: $n}')" ]; then
         echo "${PROG:-state-read}: session $s's record/meta is for another scope than $scope:$name" >> "$out.err"
         return 65
@@ -466,7 +469,8 @@ rs_once_record() {
         [ "$(rs_once_gen)" = "$g" ] || return 99
     fi
     [ -f "$r/key" ] && [ "$(cat "$r/key")" = "$key" ] || return 99
-    cp "$r/s" "$out" && cp "$r/s.err" "$out.err" && cp "$r/s.state" "$out.state" && cp "$r/s.pushed" "$out.pushed" || return 99
+    cp "$r/s" "$out" && cp "$r/s.err" "$out.err" && cp "$r/s.state" "$out.state" && cp "$r/s.pushed" "$out.pushed" \
+        && cp "$r/s.meta" "$out.meta" || return 99
 }
 
 # rs_record <out>
