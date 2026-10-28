@@ -94,6 +94,17 @@ printf '%s\n' "\$*" >> "$T/shirabe.calls"
 exit 0
 EOF
 chmod +x "$T/bin/shirabe"
+# A stand-in date: roadmap-status.sh dates a verdict-owed row with
+# `date -u +%Y-%m-%d` and the cases compare it with TODAY, so a run that
+# crossed midnight UTC between the two failed them. That one form answers
+# the day the suite started; every other call goes to the real date.
+REAL_DATE=$(command -v date)
+cat > "$T/bin/date" <<EOF
+#!/usr/bin/env bash
+[ "\$*" = "-u +%Y-%m-%d" ] && { echo $("$REAL_DATE" -u +%Y-%m-%d); exit 0; }
+exec "$REAL_DATE" "\$@"
+EOF
+chmod +x "$T/bin/date"
 PATH="$T/bin:$PATH"
 
 ROADMAP=docs/roadmaps/ROADMAP-plugin-system.md
