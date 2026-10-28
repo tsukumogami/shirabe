@@ -35,7 +35,8 @@
 # (DC_CLAUDE_HOME). Needs koto, jq and git; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure. On a koto without --supersede
 # (the floor koto) it runs no case and says so without SKIP, since no
-# takeover can run there.
+# takeover can run there; the engine job that runs it in full refuses such a
+# koto before any suite runs.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 if [ -z "${CI:-}" ]; then
@@ -48,7 +49,10 @@ case "$(koto init --help 2>/dev/null)" in
     *--supersede*) ;;
     # The floor koto (CI's entry-floor job) can't take a run over at all, and
     # coordinate-outcome_engine_test.sh proves its koto-too-old refusal there;
-    # a SKIP line would fail that job's run-tests.sh --engine.
+    # a SKIP line would fail that job's run-tests.sh --engine. This exit can't
+    # pass the engine job that runs the load case in full: that job fails
+    # before any suite on a koto whose init --help lacks --supersede
+    # (check-coordinate-scripts.yml, test-coordinate-engine).
     *) echo "coordinate-takeover-load engine: 0 passed, 0 failed (this koto has no init --supersede, so no takeover can run; the outcome suite proves the koto-too-old refusal on it)"; exit 0 ;;
 esac
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
