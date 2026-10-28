@@ -34,6 +34,15 @@
 #                            the body lacks holds, one it records evaluates,
 #                            an empty list reads no body, the PLAN gone lists
 #                            no sessions, and no case reads a child
+#   a record without deferrals, the children bound to a node worktree
+#                            (pushed before node-push.sh recorded them, or
+#                            rebuilt by recover): each child is read where
+#                            koto says it is bound, so the pass goes on to
+#                            the next node with nothing refused; a deferral
+#                            read there the body lacks holds, one it records
+#                            evaluates; a key read that fails in the node
+#                            worktree, or a session listing that fails, is
+#                            status-read
 #   evaluate:<root>          a ready root PR whose checks are pending
 #   merge:<root>             a ready, mergeable root with --merge true, at the
 #                            recorded head; a body index head= that differs
@@ -424,6 +433,73 @@ out=$(run_next "$GONEDIR" --merge true)
 expect "the PLAN gone, a recorded deferral its body lacks" "error:execute:deferral-record" "$out"
 grep -q '^workflows' "$CASE/koto-calls.log" && fail "the PLAN gone with deferrals recorded listed koto's sessions" \
     || pass "the PLAN gone with deferrals recorded: no session listing, no child read"
+
+# A record without deferrals: the node was pushed before node-push.sh
+# recorded them, or the record was rebuilt by record-coord-setup.sh's
+# recover, which can't know them. The loop reads the node's children then,
+# and each must be read in the node worktree koto says it is bound to: from
+# the coordination checkout the cloud backend refuses it (exit 2,
+# session_bound_elsewhere), and the pass would stop at status-read.
+PLAN3DIR="$CT_WORK/plan3"
+ct_plan "$PLAN3DIR" three
+NODES3=$(ct_nodes_of "$PLAN3DIR/docs/plans/PLAN-t.md")
+CT_DOCS=pr-repo-a-docs
+
+ct_case bound-unrecorded-next
+ct_record_setup github 10 "$NODES3"
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-1" "$CASE/ctx/work-on-t-$CT_CORE-2"
+ct_bind "work-on-t-$CT_CORE-1" "$NODEWT"
+ct_bind "work-on-t-$CT_CORE-2" "$NODEWT"
+out=$(run_next "$PLAN3DIR" --merge true)
+expect "done children bound to the node worktree, no deferrals recorded: the next node" "dispatch:$CT_DOCS" "$out"
+[ -z "$(ct_refused)" ] && pass "children bound to the node worktree: no koto call refused" \
+    || fail "a bound child was read from the coordination checkout: $(ct_refused)"
+wrote_nothing "the bound-children pass"
+
+ct_case bound-unrecorded-defer
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "a bound child's deferral, read in the node worktree, the body without it" "error:execute:deferral-record" "$out"
+grep -qF "exactly: Reason: $DREASON" "$CASE/stderr" && pass "the hold names the reason read from the bound child" \
+    || fail "the bound hold's stderr: [$(cat "$CASE/stderr")]"
+[ -z "$(ct_refused)" ] && pass "the bound deferral hold: no koto call refused" \
+    || fail "the bound deferral hold met a refusal: $(ct_refused)"
+
+ct_case bound-unrecorded-defer-recorded
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$RECORDED_BODY"
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "a bound child's deferral the body records" "evaluate:$CT_CORE" "$out"
+[ -z "$(ct_refused)" ] && pass "the bound deferral the body records: no koto call refused" \
+    || fail "the bound recorded case met a refusal: $(ct_refused)"
+
+# A read that fails for any other reason still stops the pass: the failed key
+# read in the node worktree, and a session listing that fails, are never read
+# as a child that didn't defer.
+ct_case bound-unrecorded-read-fails
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+bound_children
+out=$(KOTO_FAIL_EXISTS=verification_deferral run_next "$PLANDIR" --merge true)
+expect "a bound child's key read that fails in the node worktree" "error:execute:status-read" "$out"
+grep -qF "verification_deferral failed (exit 2)" "$CASE/stderr" && pass "the failed read's error is relayed" \
+    || fail "the failed read's stderr: [$(cat "$CASE/stderr")]"
+[ -z "$(ct_refused)" ] && pass "the failed read ran in the node worktree, not refused" \
+    || fail "the failed read was a refusal: $(ct_refused)"
+out=$(KOTO_FAIL_SESSION_LIST=1 run_next "$PLANDIR" --merge true)
+expect "koto's session listing fails" "error:execute:status-read" "$out"
 
 ct_case root-pending
 ct_record_setup
