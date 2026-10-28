@@ -5107,7 +5107,11 @@ fn code_block_lines(body: &[String]) -> Vec<bool> {
 /// opens with its provenance.
 ///
 /// Notice-level (in `is_intrinsic_notice`). Runs only on a DESIGN whose
-/// frontmatter carries the `decision_provenance` key. Every `###` heading
+/// frontmatter carries the `decision_provenance` key, whatever its value:
+/// the format reference gives the key one value, `inline-resolved`, and says
+/// to omit it otherwise, so a key that is present but empty or misspelled is
+/// still a design claiming per-entry provenance, and its entries are held to
+/// it rather than silently skipped. Every `###` heading
 /// between `## Considered Options` and the next `##` heading, outside code
 /// blocks, is an entry; its first non-blank line, after leading spaces, must
 /// start with one of [`PROVENANCE_OPENERS`]. The match is case-sensitive and

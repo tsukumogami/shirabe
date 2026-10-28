@@ -514,11 +514,11 @@ the header followed by two rows; the exit status is 0.
 from, and `references/quality/plan-doc-examples.md` has a complete
 step plan.
 
-### What the validator checks
+### Step-plan rules
 
-`shirabe validate` checks a step plan with FC22, at error level, one
-finding per violation, each naming the step (where there is one) and
-the rule:
+These are the rules every step plan follows. `shirabe validate` checks
+a step plan against them with FC22, at error level, one finding per
+violation, each naming the step (where there is one) and the rule:
 
 - a heading under `## Steps` that is not `### Step <N>:` (an
   `### Issue` heading or a `### Gate:` block included);
@@ -542,7 +542,8 @@ the rule:
 FC01, FC04 and FC15 check the field and section lists above. The
 table and diagram checks (FC05-FC09, FC11, FC12) do not run on a step
 plan. Quoted document text in a finding has control characters
-stripped and is cut to 80 characters.
+stripped and is cut to 80 characters. That is the whole of what FC22
+checks; the sections below govern how a step plan is written.
 
 ### The horizon and the owner rule
 
