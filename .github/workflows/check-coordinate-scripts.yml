@@ -17,7 +17,9 @@ name: Check coordinate scripts
 #
 #   scripts/check-bash-floor.sh coordinate
 #
-# which reaches a bash 3.2 through docker, or through /bin/bash on macOS.
+# which reaches a bash 3.2 through /bin/bash on macOS, or through docker
+# elsewhere. The docker image's tools are GNU, so only a run on macOS also
+# catches a GNU-only flag that BSD tools refuse.
 
 on:
   # The two paths lists below must match; edit both together.
