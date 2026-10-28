@@ -16,8 +16,12 @@
 # the run's (SESSION), or RS_SESSION when a caller names another, as the tests
 # do with the override flags.
 #
-#   rs_record <out>
-#       The run's record. Writes <out> (the record, normalize_state's JSON),
+#   rs_record <out> [<fields>]
+#       The run's record. With <fields> (state fields separated by spaces,
+#       such as "holdings deferrals"), only those sections, got directly with
+#       no record/ listing, so the read's koto calls don't grow with the
+#       record's entries (shirabe#1308); it never uses RS_ONCE's read.
+#       Writes <out> (the record, normalize_state's JSON),
 #       <out>.state (the keys as assembled, pushed heads included),
 #       <out>.pushed (the pushed heads, {worker topic: sha}), <out>.meta
 #       (record/meta as the read found it, standing_used included) and
@@ -132,16 +136,22 @@ rs_assemble() {
     cat "$d/.acc"
 }
 
-# rs_session_state <session> <out>: the session's record, assembled from its
-# keys into <out> as the state's JSON, with `written` from record/meta.
-# record/meta is read before and after the section keys, and the whole read is
-# taken again, up to three times, while meta is marked pending or the two meta
-# reads differ: a write changes its sections between two meta writes. Returns 0
-# assembled; 2 a read failed or a key isn't JSON; 4 the session holds no
-# record/meta (session-absent), the reason in <out>.err; 12 the record was still
-# being written after three re-reads.
+# rs_session_state <session> <out> [<fields>]: the session's record, assembled
+# from its keys into <out> as the state's JSON, with `written` from
+# record/meta. record/meta is read before and after the section keys, and the
+# whole read is taken again, up to three times, while meta is marked pending or
+# the two meta reads differ: a write changes its sections between two meta
+# writes. Returns 0 assembled; 2 a read failed or a key isn't JSON; 4 the
+# session holds no record/meta (session-absent), the reason in <out>.err; 12
+# the record was still being written after three re-reads.
+#
+# <fields>, when given, is a space-separated list of state fields (holdings,
+# deferrals, ...): only those sections are read, each got directly, and the
+# record/ listing, which names every entry key, is never made. A get that
+# fails is told apart from an absent section by a listing of that one key, so
+# the read's calls don't grow with the entries (shirabe#1308).
 rs_session_state() {
-    local s=$1 out=$2 try pair field key changed k=${KOTO:-${KOTO_BIN:-koto}}
+    local s=$1 out=$2 only=${3:-} try pair field key changed k=${KOTO:-${KOTO_BIN:-koto}}
     : > "$out.err"
     for try in 0 1 2 3; do
         [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
@@ -160,10 +170,18 @@ rs_session_state() {
         fi
         jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
         [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
-        # One listing names the sections present; only those are read.
-        rs_list "$s" record/ "$out.keys" || { cat "$out.keys.err" >> "$out.err"; return 2; }
         rm -rf "$out.sec"; mkdir -p "$out.sec" || return 2
         changed=0
+        if [ -n "$only" ]; then
+            rs_sections_direct "$s" "$out" "$only"
+            case $? in 0) ;; 1) continue ;; *) return 2 ;; esac
+            "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
+            [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] || continue
+            rs_assemble "$out.m1" "$out.sec" > "$out" 2>> "$out.err" || return 2
+            return 0
+        fi
+        # One listing names the sections present; only those are read.
+        rs_list "$s" record/ "$out.keys" || { cat "$out.keys.err" >> "$out.err"; return 2; }
         for pair in $RS_SECTIONS; do
             field=${pair%%:*} key=${pair#*:}
             jq -e --arg key "record/$key" 'index($key) != null' "$out.keys" > /dev/null || continue
@@ -186,19 +204,47 @@ rs_session_state() {
     return 12
 }
 
-# rs_session_read <out> <session> <scope> <name>: the files rs_record writes:
-# <out> the record as state-schema.jq's normalize_state gives it, <out>.state
-# the keys as assembled (pushed heads included), <out>.pushed the pushed
-# heads, {worker topic: sha}, and <out>.meta the record/meta the read was
-# taken at. normalize_state is what gives every reader the
-# same JSON for one state (PRD R19). Returns rs_session_state's codes; 65
-# record/meta names another scope, or the state breaks a rule of
-# state-schema.jq (the reason in <out>.err).
+# rs_sections_direct <session> <out> <fields>: rs_session_state's read of only
+# <fields>' sections into <out>.sec, each got directly. A get that fails lists
+# that one key (its prefix names no entry): not listed is an absent section,
+# listed is a failed read unless record/meta moved since <out>.m1, which a
+# write that removed the key since does. Returns 0 read; 1 record/meta moved,
+# so the caller reads again; 2 a read failed or a key isn't JSON.
+rs_sections_direct() {
+    local s=$1 out=$2 only=$3 pair field key k=${KOTO:-${KOTO_BIN:-koto}}
+    for pair in $RS_SECTIONS; do
+        field=${pair%%:*} key=${pair#*:}
+        case " $only " in *" $field "*) ;; *) continue ;; esac
+        if "$k" context get "$s" "record/$key" < /dev/null > "$out.sec/$field" 2> "$out.sec.err"; then
+            jq -e . "$out.sec/$field" > /dev/null 2>> "$out.err" || return 2
+            continue
+        fi
+        rm -f "$out.sec/$field"
+        : > "$out.one.err"
+        rs_list "$s" "record/$key" "$out.one" || { cat "$out.one.err" >> "$out.err"; return 2; }
+        jq -e --arg key "record/$key" 'index($key) != null' "$out.one" > /dev/null || continue
+        cat "$out.sec.err" >> "$out.err"
+        "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
+        [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] && return 2
+        return 1
+    done
+}
+
+# rs_session_read <out> <session> <scope> <name> [<fields>]: the files
+# rs_record writes: <out> the record as state-schema.jq's normalize_state
+# gives it, <out>.state the keys as assembled (pushed heads included),
+# <out>.pushed the pushed heads, {worker topic: sha}, and <out>.meta the
+# record/meta the read was taken at. normalize_state is what gives every
+# reader the same JSON for one state (PRD R19). With <fields>, only those
+# sections are read (rs_session_state), checked and handed out: <out> holds
+# no other section, so a caller never takes one it didn't read for empty.
+# Returns rs_session_state's codes; 65 record/meta names another scope, or the
+# state breaks a rule of state-schema.jq (the reason in <out>.err).
 rs_session_read() {
-    local out=$1 s=$2 scope=$3 name=$4 rc
+    local out=$1 s=$2 scope=$3 name=$4 only=${5:-} rc
     : > "$out.err"
     [ -n "$s" ] || { echo "${PROG:-state-read}: the session store needs the run's session" >> "$out.err"; return 2; }
-    rs_session_state "$s" "$out.state"; rc=$?
+    rs_session_state "$s" "$out.state" "$only"; rc=$?
     cat "$out.state.err" >> "$out.err"
     [ $rc -eq 0 ] || return $rc
     cp "$out.state.m1" "$out.meta" || return 2
@@ -214,8 +260,10 @@ rs_session_read() {
         return 65
     fi
     jq '[(.holdings // [])[] | select((.pushed_head // "") != "") | {(.worker): .pushed_head}] | add // {}' "$out.state" > "$out.pushed" || return 2
-    if ! jq -L "$HERE" 'include "state-schema";
-            if has("holdings") then .holdings |= map(del(.pushed_head)) else . end | normalize_state([])' \
+    if ! jq -L "$HERE" --arg only "$only" 'include "state-schema";
+            if has("holdings") then .holdings |= map(del(.pushed_head)) else . end | normalize_state([])
+            | if $only == "" then . else ($only | split(" ")) as $o
+                | with_entries(select(.key == "scope" or .key == "written" or (.key as $k | $o | index($k)) != null)) end' \
             "$out.state" > "$out" 2> "$out.check"; then
         grep -q 'refused: ' "$out.check" || { cat "$out.check" >> "$out.err"; return 2; }
         echo "${PROG:-state-read}: session $s's record doesn't read back: $(sed -n 's/.*refused: //p' "$out.check" | head -1)" >> "$out.err"
@@ -465,15 +513,16 @@ rs_once_record() {
         && cp "$r/s.meta" "$out.meta" || return 99
 }
 
-# rs_record <out>
+# rs_record <out> [<fields>]
 rs_record() {
-    local out=$1 rc
-    # The step's one read (rs_once_begin).
-    if [ -n "${RS_ONCE:-}" ]; then
+    local out=$1 only=${2:-} rc
+    # The step's one read (rs_once_begin). A read of some sections is always
+    # live: it never stands in for the step's whole read.
+    if [ -n "${RS_ONCE:-}" ] && [ -z "$only" ]; then
         rs_once_record "$out"; rc=$?
         [ $rc -eq 99 ] || return $rc
     fi
-    rs_session_read "$out" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME"
+    rs_session_read "$out" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$only"
 }
 
 # rs_record_api <out> [<session>]: the record of a run named by its session.

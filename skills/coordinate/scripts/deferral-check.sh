@@ -113,7 +113,9 @@
 # Exit codes, check mode: 0 a verdict was printed; 2 a read failed; 64 usage.
 # Row mode: 0 disposed or raised-this-run; 1 undisposed; 64 usage.
 #
-# The record is read through state-read.sh. GitHub reads:
+# The record is read through state-read.sh: its Holdings, Deferrals,
+# Decisions, Run, Standing and Work sections, each key got directly, never the
+# record/ listing. GitHub reads:
 # gh api --method GET repos/R/issues/<n> (a filed deferral's issue);
 # gh pr view <n> --repo <repo> --json state,isDraft for each verified holding.
 set -uo pipefail
@@ -272,8 +274,11 @@ esac
 
 # The run's record.
 lib_run_found || { REASON="the run has no found record"; finish record-changed; }
-# The record, through the seam (state-read.sh).
-rs_record "$T/parsed.json"; RS_RC=$?
+# The record, through the seam (state-read.sh): only the sections the verdicts
+# below read, each got directly. The record/ listing names every entry, and on
+# koto's cloud backend each call costs more as the keys grow, so the check
+# makes a fixed few calls whatever the record holds (shirabe#1308).
+rs_record "$T/parsed.json" "holdings deferrals decisions run standing work"; RS_RC=$?
 case $RS_RC in
     0) ;;
     4) REASON="$(lib_record_name) holds no record: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
