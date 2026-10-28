@@ -451,4 +451,126 @@ eq "a holding's first Work row for a pending worker records it told, not both" "
 gate; eq "  ... and the gate holds only on the untold one" "1 not-told worker-f2" "$G"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
+echo "== a write's koto calls don't grow with the entries (shirabe#1283) =="
+# record/meta keeps standing_used, the highest Standing id the record has
+# given out, so no write reads the entries one key at a time: every write mode
+# makes the same koto calls on a record with a few entries and with 300 more.
+# A record from before standing_used walks its entries once, at its first
+# --standing, and records it; a seed and a carry start it.
+# filler <session> <first> <count> [<text of the first>]: entries numbered from
+# <first>, each plain text unless the first is given.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i t
+    mkdir -p "$d"
+    for ((i = $2; i < $2 + $3; i++)); do
+        t="note $i"
+        [ "$i" = "$2" ] && [ -n "${4:-}" ] && t=$4
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"%s"}' "$i" "$t" > "$d/$(printf '%06d' "$i")"
+    done
+}
+entry_count() { ls "$KOTO_STORE/context/$SR/record/entries" | wc -l | tr -d ' '; }
+meta_used() { koto context get "$1" record/meta | jq -c '.standing_used'; }
+# fixture <more>: a record with a coordinator, two Standing rows, a holding's
+# and a local agent's Work rows and the entries telling them, then <more>
+# plain entries.
+fixture() {
+    seed "$TWO"
+    bash "$RS" "${W[@]}" --run coordinator lane-v1 --by lane-v1
+    bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human"
+    bash "$RS" "${W[@]}" --standing approval --what "the release" --owner "the human"
+    bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "the panel"
+    bash "$RS" "${W[@]}" --work "docs" --kind local-agent --who "a local agent" --next "the readme"
+    filler "$SR" "$(( $(entry_count) + 1 ))" "$1"
+}
+write_state() { # a state-write.sh write of the live record, one holding's branch changed
+    live > "$T/ws-now.json"
+    jq -c 'del(.written) | .holdings[0].branch = "feat/y"' "$T/ws-now.json" > "$T/ws-edit.json"
+    state_json "$(cat "$T/ws-edit.json")" "$(jq -r .written "$T/ws-now.json")" > "$T/ws.state"
+    bash "$HERE/state-write.sh" "${W[@]}" --state-file "$T/ws.state"
+}
+holding worker-f2 '{"branch": "feat/z"}' > "$T/row.json"
+printf 'A note for the record.\n' > "$T/note.txt"
+# koto_calls <more> <write...>: the koto calls the write makes on the fixture
+# with <more> entries added, or `failed <rc>`.
+koto_calls() {
+    local more=$1 rc
+    shift
+    fixture "$more" > /dev/null 2>&1
+    : > "$KOTO_STORE/calls"
+    "$@" > /dev/null 2> "$T/kc.err"; rc=$?
+    [ $rc -eq 0 ] || { echo "failed $rc: $(head -1 "$T/kc.err")"; return; }
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+    wc -l < "$KOTO_STORE/calls" | tr -d ' '
+}
+check_mode() { # check_mode <label> <write...>
+    local label=$1 few many
+    shift
+    few=$(koto_calls 3 "$@")
+    many=$(koto_calls 300 "$@")
+    case "$few" in ''|*[!0-9]*) bad "$label: the write runs" "$few"; return ;; esac
+    eq "$label: the same koto calls with 3 entries more and with 300 ($few)" "$few" "$many"
+    eq "  ... reading no entry" 0 "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls")"
+}
+check_mode "--run" bash "$RS" "${W[@]}" --run cap 2 --by "the human"
+check_mode "--told" bash "$RS" "${W[@]}" --told worker-f3 --by lane-v1
+check_mode "--work" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "the fix round"
+check_mode "--standing" bash "$RS" "${W[@]}" --standing pause --on all --until lifted --what "a pause" --owner "the human"
+check_mode "--end" bash "$RS" "${W[@]}" --end s1 --by "the human"
+check_mode "--done" bash "$RS" "${W[@]}" --done docs
+check_mode "state-write.sh" write_state
+check_mode "state-holding.sh" bash "$HERE/state-holding.sh" "${W[@]}" --topic worker-f2 --row-file "$T/row.json"
+check_mode "an entry" bash "$RA" "${RM[@]}" --text-file "$T/note.txt"
+fixture 300 > /dev/null 2>&1
+bash "$RS" "${W[@]}" --standing pause --on all --until lifted --what "a pause" --owner "the human" >/dev/null 2>&1
+eq "the --standing write on 300 entries more gives the next id" "s1 s2 s3" "$(live | jq -r '[.standing[].standing] | join(" ")')"
+eq "  ... and raises standing_used to it" 3 "$(meta_used "$SR")"
+bash "$RS" "${W[@]}" --end s3 --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
+eq "  ... which --end and every other write keep" 3 "$(meta_used "$SR")"
+bash "$RS" "${W[@]}" --standing go-ahead --what "the release" --owner "the human" >/dev/null 2>&1
+eq "  ... so the ended s3 is still never reused" "s1 s2 s4" "$(live | jq -r '[.standing[].standing] | join(" ")')"
+KOTO_NO_LIST_PREFIX=1 bash "$RS" "${W[@]}" --standing approval --what x --owner y >/dev/null 2>"$T/err"
+eq "an entry stream that can't be listed still refuses a new Standing id (2)" 2 $?
+eq "  ... and writes nothing" "s1 s2 s4" "$(live | jq -r '[.standing[].standing] | join(" ")')"
+
+# A record from before standing_used: its first --standing reads the entries
+# once, then records the id, and the next reads none.
+seed "$TWO"
+filler "$SR" 1 40 "s7 (pause on all, until lifted): an old pause. Owner: the human."
+eq "a record from before standing_used has none" null "$(meta_used "$SR")"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${W[@]}" --standing answer --what "the scope" --owner "the human" >/dev/null 2>"$T/err"
+eq "  ... its first --standing reads every entry once" 40 "$(grep -c '^context get [^ ]* record/entries/' "$KOTO_STORE/calls")"
+eq "  ... never reusing an id an entry names" s8 "$(live | jq -r '.standing[-1].standing')"
+eq "  ... and records it" 8 "$(meta_used "$SR")"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${W[@]}" --standing answer --what "the next scope" --owner "the human" >/dev/null 2>"$T/err"
+eq "  ... the next --standing reads none" "0 s9" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$KOTO_STORE/calls") $(live | jq -r '.standing[-1].standing')"
+
+# A seed into a session with no entry starts it from the seeded rows.
+SO=coordinate-roadmap-plugin-system-20260926T180000Z
+RS_SESSION=$SO bash "$HERE/state-open.sh" "${RM[@]}" --skip-session-checks >/dev/null 2>"$T/err"
+eq "a record the opener seeds starts standing_used at 0" 0 "$(meta_used "$SO")"
+
+# A carry sets it from the source's entries and rows, as it copies them.
+carry() { # carry <from> <to>
+    ( PROG=carry SCOPE=roadmap NAME=plugin-system
+      . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; . "$HERE/state-write-core.sh"; RS_RETRY_PAUSE=0
+      core_carry "$1" "$2" )
+}
+seed "$TWO"
+filler "$SR" 1 30 "s5 (answer): an old answer. Owner: the human."
+CT=coordinate-roadmap-plugin-system-20260926T190000Z
+carry "$SR" "$CT" > /dev/null 2>"$T/err"
+eq "a carry from a record without standing_used sets it from the entries it copies" "0 5" "$? $(meta_used "$CT")"
+: > "$KOTO_STORE/calls"
+RS_SESSION=$CT bash "$RS" "${W[@]}" --standing answer --what "after the carry" --owner "the human" >/dev/null 2>"$T/err"
+eq "  ... so the carried run's first --standing reads no entry" "0 s6" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$KOTO_STORE/calls") $(RS_SESSION=$CT bash "$RS" "${RM[@]}" --list | jq -r '.standing[-1].standing')"
+CU=coordinate-roadmap-plugin-system-20260926T200000Z
+carry "$CT" "$CU" > /dev/null 2>"$T/err"
+eq "  ... and a carry keeps the source's own standing_used" "0 6" "$? $(meta_used "$CU")"
+eq "no write in this section reached GitHub" "" "$(gh_writes)"
+
 done_tests state-stored-set_test
