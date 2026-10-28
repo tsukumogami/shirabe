@@ -142,8 +142,12 @@ grep -q "^cancelled=" <<< "$OUT" && bad "2: the opener cancels nothing" "$OUT" |
 (cd "$T/work2" && koto session hierarchy "$B") | grep -qx "continues: $A" && ok "2: koto session hierarchy shows B continuing A" \
     || bad "2: koto session hierarchy shows B continuing A" "$( (cd "$T/work2" && koto session hierarchy "$B") 2>&1)"
 AFTER=$(keyset "$B" "$T/work2")
-MISSING=$(comm -23 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER"))
-eq "2: every key A held is in B with the same value" "" "$MISSING"
+# grep, not comm: run-tests.sh's PATH has no comm, and a comparison that
+# can't run must fail rather than leave MISSING empty. With B's key set
+# empty, grep -v prints every line of A's, so that fails too.
+MISSING=$(grep -vxF -f <(printf '%s\n' "$AFTER") <<< "$BEFORE"); rc=$?
+if [ -z "$BEFORE" ] || [ $rc -gt 1 ]; then bad "2: every key A held is in B with the same value" "no comparison ran (grep exit $rc, A's keys: ${BEFORE:-none})"
+else eq "2: every key A held is in B with the same value" "" "$MISSING"; fi
 
 # ---- 3. A is refused by name ---------------------------------------------------------
 NA_OUT=$(cd "$WD" && koto next "$A" --no-cleanup 2>&1); rc=$?
