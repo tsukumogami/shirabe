@@ -71,6 +71,12 @@ git config --global init.defaultBranch main
 #                                             SHIM_FAIL_ADD=<key> fails that
 #                                             key's add, SHIM_FAIL_GET=<key>
 #                                             its get. Every add is logged.
+#                                             SHIM_REFUSE=<s> refuses every
+#                                             context call on <s> the way koto
+#                                             refuses a session bound to
+#                                             another workspace: the refusal
+#                                             on stdout, exit 2 (or
+#                                             SHIM_REFUSE_RC).
 #   init <s> ... --attach-live --var REVIEW_LEVEL=<v>
 #                                             records <v> in
 #                                             $SHIM_STORE/<s>/.var and replies
@@ -87,6 +93,10 @@ cat > "$SHIM_BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
     context)
+        if [ -n "${SHIM_REFUSE:-}" ] && [ "$3" = "$SHIM_REFUSE" ]; then
+            printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
+            exit "${SHIM_REFUSE_RC:-2}"
+        fi
         f="$SHIM_STORE/$3/$4"
         case "$2" in
             add)
@@ -1175,6 +1185,51 @@ run level;                 expect_rc "level with no session" 64
 # The ledger above was written by hand, not by the script; the well-formedness
 # sweep below is about the script's own lines.
 rm -f "$(store review_level.jsonl)"
+
+# ==============================================================================
+echo "--- script: a session koto refuses to read"
+
+# koto refuses every read of a session bound to another workspace, printing
+# the refusal on stdout and exiting 2. That is a failed read, never an absent
+# key: each subcommand fails as it does for a read it can't make, and nothing
+# koto prints reaches stdout, where a caller would take it for a value. A
+# session with no ledger still reads as absent (the level cases above).
+fixture refused
+setfacts standard
+printf '{"ts":"2026-01-01T00:00:00Z","event":"choose","to":"standard"}\n' > "$(store review_level.jsonl)"
+
+# refused <label> <exit> <args...>: the script on the refused session.
+refused() {
+    local label="$1" want="$2"
+    shift 2
+    OUT=$(cd "$FX/repo" && SHIM_REFUSE="$SESSION" PATH="$SHIM_BIN:$PATH" "$SCRIPT" "$@" 2>"$WORKDIR/stderr")
+    RC=$?
+    ERR=$(cat "$WORKDIR/stderr")
+    [ "$RC" -eq "$want" ] && pass "$label: exit $want" || fail "$label: exit $RC, expected $want (out: $OUT; err: $ERR)"
+    case "$OUT" in
+        *session_bound_elsewhere*) fail "$label: koto's refusal reached stdout [$OUT]" ;;
+        *) pass "$label: koto's refusal kept off stdout" ;;
+    esac
+}
+
+refused "level of a refused session" 66 level "$SESSION"
+[ -z "$OUT" ] && pass "level of a refused session prints nothing" || fail "level of a refused session printed [$OUT]"
+case "$ERR" in
+    *session_bound_elsewhere*) pass "level relays koto's refusal on stderr" ;;
+    *) fail "level of a refused session: stderr [$ERR] lacks koto's refusal" ;;
+esac
+# koto answers an absent key with exit 1 and nothing on stdout; an exit 1 that
+# prints a refusal is still a failed read.
+SHIM_REFUSE_RC=1 refused "level of a refused session, exit 1 with the refusal" 66 level "$SESSION"
+[ -z "$OUT" ] && pass "level of a refused session at exit 1 prints nothing" || fail "level of a refused session at exit 1 printed [$OUT]"
+refused "facts on a refused session" 66 facts "$SESSION" standard
+refused "slice of a refused session" 66 slice "$SESSION" standard
+[ -z "$OUT" ] && pass "slice of a refused session prints nothing" || fail "slice of a refused session printed [$OUT]"
+refused "check on a refused session" 1 check "$SESSION" standard
+expect_out "check holds on the read it couldn't make" "hold: could not read review_level.jsonl"
+refused "report of a refused session" 2 report "$SESSION"
+[ "$(printf '%s\n' "$OUT" | sed -n 2p | cut -f1-2)" = "$(printf 'refused\tunreadable')" ] \
+    && pass "a refused ledger reads unreadable, not none" || fail "report printed [$OUT]"
 
 # ==============================================================================
 echo "--- script: usage"

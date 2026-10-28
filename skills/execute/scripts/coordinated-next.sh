@@ -7,7 +7,9 @@
 # plan-to-tasks.sh), the run record in the session (run-record-lib.sh: the
 # coordination PR's number, the sealed node list, each node's recorded PR and
 # pushed head, the cascade's verdict), each open node's work-item children's
-# `verification_deferral` keys (shared-deferral-record.sh), and live `gh`
+# `verification_deferral` keys when its record holds no `deferrals`, read
+# where koto says each child is bound (`koto session list`, then
+# shared-deferral-record.sh --child-dir), and live `gh`
 # (each recorded PR checked against the ownership filter, and an open node
 # PR's body when its children deferred), writes nothing anywhere, and prints exactly
 # one line. The agent performs that action and runs the script again, until it
