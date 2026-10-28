@@ -49,7 +49,9 @@ otherwise), and `tracking_level`.
 
 - **schema** -- `plan/v1` (or `plan/v2`, see
   [plan/v2: Step Plans](#planv2-step-plans)). Pins the artifact-type
-  contract.
+  contract. A plan without one of the two as its first key is skipped
+  by every structural check (see "The declared schema" in
+  `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
 - **execution_mode** -- one of `single-pr`, `multi-pr`, or
   `coordinated`. Determines how the work lands: one pull request

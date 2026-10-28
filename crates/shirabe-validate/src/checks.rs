@@ -4967,6 +4967,208 @@ pub fn check_slug_prefix(docs_root: &str, slug: &str) -> SlugPrefixCheck {
     }
 }
 
+/// The fewest and most non-blank lines a BRIEF's `problem:` and `outcome:`
+/// summaries may span (FC23).
+const BRIEF_SUMMARY_LINES: std::ops::RangeInclusive<usize> = 2..=4;
+
+/// FC23 -- a BRIEF's `problem:` and `outcome:` each span two to four
+/// non-blank source lines.
+///
+/// Notice-level (in `is_intrinsic_notice`). The count is
+/// [`crate::doc::FieldValue::source_lines`]: a block scalar's lines (`|` or
+/// `>`) up to the next top-level key, blanks skipped, and a value on the
+/// key's own line counting as one. A folded block is counted as written,
+/// not as the single line it parses to. The finding sits at the key's line.
+/// An absent key is FC01's, and a value built in code (no source lines) is
+/// skipped. The message names the key and the count, never the value.
+pub fn check_fc23_summary_length(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.id != FormatId::Brief {
+        return Vec::new();
+    }
+    let mut errs = Vec::new();
+    for key in ["problem", "outcome"] {
+        let Some(field) = doc.fields.get(key) else {
+            continue;
+        };
+        let Some(count) = field.source_lines else {
+            continue;
+        };
+        if BRIEF_SUMMARY_LINES.contains(&count) {
+            continue;
+        }
+        let noun = if count == 1 { "line" } else { "lines" };
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: field.line,
+            code: "FC23".to_string(),
+            message: format!(
+                "[FC23] frontmatter '{key}' spans {count} non-blank {noun}; a brief's '{key}' summary is 2 to 4 lines, counted over the block scalar up to the next key"
+            ),
+        });
+    }
+    errs
+}
+
+/// The order a DESIGN's frontmatter keys are written in (FC24). A key not
+/// listed here is ignored wherever it sits.
+pub const DESIGN_KEY_ORDER: &[&str] = &[
+    "schema",
+    "status",
+    "problem",
+    "decision",
+    "rationale",
+    "upstream",
+    "spawned_from",
+    "motivating_context",
+    "user_visible_surface",
+    "decision_provenance",
+];
+
+/// FC24 -- a DESIGN's frontmatter keys appear in [`DESIGN_KEY_ORDER`].
+///
+/// Notice-level (in `is_intrinsic_notice`). The listed keys the document
+/// carries, in written order, are compared with the same keys in canonical
+/// order; the finding is at the first position where they differ, naming
+/// the key written there. So `upstream:` written before `problem:` is
+/// reported at the `upstream:` line, the key that moved, rather than at
+/// every key after it. One finding per document: once one key is out of
+/// place, the positions after it say nothing new.
+pub fn check_fc24_key_order(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.id != FormatId::Design {
+        return Vec::new();
+    }
+    let mut written: Vec<(usize, &str)> = DESIGN_KEY_ORDER
+        .iter()
+        .filter_map(|key| doc.fields.get(*key).map(|f| (f.line, *key)))
+        .collect();
+    written.sort_unstable();
+    let canonical: Vec<&str> = DESIGN_KEY_ORDER
+        .iter()
+        .copied()
+        .filter(|key| doc.fields.contains_key(*key))
+        .collect();
+    let Some((line, key)) = written
+        .iter()
+        .zip(canonical.iter())
+        .find(|((_, w), c)| w != *c)
+        .map(|(w, _)| *w)
+    else {
+        return Vec::new();
+    };
+    vec![ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC24".to_string(),
+        message: format!(
+            "[FC24] frontmatter key '{key}' is out of order; a design's keys go {}",
+            DESIGN_KEY_ORDER.join(", ")
+        ),
+    }]
+}
+
+/// The openers a Considered Options entry's first line may start with when
+/// the DESIGN records `decision_provenance` (FC25).
+pub const PROVENANCE_OPENERS: &[&str] = &["Resolved inline.", "Delegated to /decision."];
+
+/// Which body lines sit inside a fenced or indented code block, one flag per
+/// line of `body`.
+///
+/// The same parse the prose checks use decides it, so a fence whose first
+/// content line is itself a fence marker, and a tilde fence, are handled as
+/// CommonMark handles them rather than by a hand toggle.
+fn code_block_lines(body: &[String]) -> Vec<bool> {
+    use pulldown_cmark::{Event, Options, Parser, Tag};
+
+    let lines: Vec<&str> = body
+        .iter()
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
+    let mut line_starts = Vec::with_capacity(lines.len());
+    let mut offset = 0usize;
+    for line in &lines {
+        line_starts.push(offset);
+        offset += line.len() + 1;
+    }
+    let source = lines.join("\n");
+    let mut inside = vec![false; lines.len()];
+    for (event, range) in Parser::new_ext(&source, Options::empty()).into_offset_iter() {
+        if let Event::Start(Tag::CodeBlock(_)) = event {
+            for (i, start) in line_starts.iter().enumerate() {
+                if *start >= range.start && *start < range.end {
+                    inside[i] = true;
+                }
+            }
+        }
+    }
+    inside
+}
+
+/// FC25 -- with `decision_provenance` set, each Considered Options entry
+/// opens with its provenance.
+///
+/// Notice-level (in `is_intrinsic_notice`). Runs only on a DESIGN whose
+/// frontmatter carries the `decision_provenance` key. Every `###` heading
+/// between `## Considered Options` and the next `##` heading, outside code
+/// blocks, is an entry; its first non-blank line, after leading spaces, must
+/// start with one of [`PROVENANCE_OPENERS`]. The match is case-sensitive and
+/// strips no markup, so `**Resolved inline.**` fails: the opener is a plain
+/// sentence a reader and a script both read the same way. An entry with no
+/// body before the next heading or the section's end fails too. One finding
+/// per failing entry, at its heading; the message gives the entry's position
+/// and quotes nothing from the document.
+pub fn check_fc25_provenance_opener(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.id != FormatId::Design || !doc.fields.contains_key("decision_provenance") {
+        return Vec::new();
+    }
+    let in_code = code_block_lines(&doc.body);
+    let outside = |i: usize| !in_code.get(i).copied().unwrap_or(false);
+
+    let Some(start) = doc.body.iter().enumerate().position(|(i, line)| {
+        outside(i) && line.trim_end_matches([' ', '\t']) == "## Considered Options"
+    }) else {
+        return Vec::new();
+    };
+    let end = (start + 1..doc.body.len())
+        .find(|&i| outside(i) && doc.body[i].starts_with("## "))
+        .unwrap_or(doc.body.len());
+
+    let headings: Vec<usize> = (start + 1..end)
+        .filter(|&i| outside(i) && doc.body[i].starts_with("### "))
+        .collect();
+
+    let mut errs = Vec::new();
+    for (n, &heading) in headings.iter().enumerate() {
+        let entry_end = headings.get(n + 1).copied().unwrap_or(end);
+        let first = (heading + 1..entry_end)
+            .map(|i| doc.body[i].as_str())
+            .find(|line| !line.trim().is_empty());
+        let opens = first.is_some_and(|line| {
+            let text = line.trim_start_matches(' ');
+            PROVENANCE_OPENERS
+                .iter()
+                .any(|opener| text.starts_with(opener))
+        });
+        if opens {
+            continue;
+        }
+        let why = if first.is_none() {
+            "has no body"
+        } else {
+            "does not open with its provenance"
+        };
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: doc.body_start_line + heading,
+            code: "FC25".to_string(),
+            message: format!(
+                "[FC25] Considered Options entry {} {why}; with decision_provenance set, each entry's first line starts with 'Resolved inline.' or 'Delegated to /decision.'",
+                n + 1
+            ),
+        });
+    }
+    errs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5298,6 +5500,7 @@ mod tests {
                 value: String::new(),
                 line: 7,
                 entries: FieldEntries::Sequence(entries.iter().map(|e| (*e).to_string()).collect()),
+                source_lines: None,
             }
         };
         let mut fields = HashMap::new();
@@ -5799,6 +6002,7 @@ mod tests {
             value: String::new(),
             line,
             entries: FieldEntries::Sequence(items.iter().map(|s| s.to_string()).collect()),
+            source_lines: None,
         }
     }
 
@@ -5861,6 +6065,7 @@ mod tests {
                     value: String::new(),
                     line: 9,
                     entries,
+                    source_lines: None,
                 },
             );
             let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
@@ -5911,6 +6116,7 @@ mod tests {
                 value: String::new(),
                 line: 2,
                 entries: FieldEntries::Other,
+                source_lines: None,
             },
         );
         let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);

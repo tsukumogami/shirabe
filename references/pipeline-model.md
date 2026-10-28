@@ -121,6 +121,21 @@ draft, accepted/active, in-progress, completed.
   allowing status changes
 - Status must match in both YAML frontmatter and body Status section
 
+### The declared schema
+
+A pipeline document declares its schema in the frontmatter's `schema:` key,
+and a document the pipeline produces always declares one its format accepts.
+The value names the artifact type and its version (`brief/v1`, `prd/v1`,
+`design/v1`, `plan/v1` or `plan/v2`, and so on), and it is what `shirabe
+validate` routes on: the file name picks the format, and the document is
+checked against that format only when the declared schema is one the format
+accepts. A missing `schema:`, or a version the format does not support,
+makes the validator skip every structural check for the document and report
+`SCHEMA` in their place (`schema field missing, skipping`, or `schema
+"<value>" not in supported range, skipping`). A skipped document has had
+nothing but its prose checked, so a skip is never a pass: write `schema:` as
+the frontmatter's first key, with a version the format reference names.
+
 ## Traceability chain
 
 Artifacts link to each other through `upstream` frontmatter fields, forming

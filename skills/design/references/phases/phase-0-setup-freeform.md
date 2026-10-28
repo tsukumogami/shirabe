@@ -63,6 +63,10 @@ Incorporate feedback before proceeding.
 Write the initial design doc to `docs/designs/DESIGN-<topic>.md`:
 
 ```markdown
+---
+schema: design/v1
+---
+
 # DESIGN: <Topic>
 
 ## Status
@@ -77,6 +81,11 @@ Proposed
 
 <From scoping conversation>
 ```
+
+The skeleton's frontmatter holds `schema: design/v1` and nothing the
+design hasn't settled yet. It has no `status:` on purpose: Phase 6's
+resume check reads a frontmatter `status: Proposed` as a finished
+design, and step 6.5 writes the full block in its place.
 
 ### 0.5 Write the Summary Key
 
