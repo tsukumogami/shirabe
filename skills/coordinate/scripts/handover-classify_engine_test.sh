@@ -18,10 +18,10 @@
 #   3. the live worker told its address (the agent's --told), the gate's gap
 #      is feat-3's alone; a second classification prints `missing feat-3`
 #      only, and feat-2 stays pending while it hasn't reported;
-#   4. feat-3 recorded told by the fixture, the gate passes with feat-2 pending and the
-#      run reaches wait; feat-2's first report there turns it told on the next
-#      classification, which prints `told feat-2`, and one more prints
-#      nothing.
+#   4. with feat-3 recorded told by the fixture, the gate passes with feat-2
+#      pending: the run reaches pick, and wait after a hold. feat-2's first
+#      report at wait turns it told on the next classification, which prints
+#      `told feat-2`; one more prints nothing.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME and KOTO_HOME,
 # every KOTO_SESSION_* name and KOTO_SESSIONS_BASE unset, and the store

@@ -110,7 +110,9 @@ has "channel: the record's address named" "$B" 'addressed to `coord-alpha`, the 
 section() { printf '%s\n' "$1" | awk -v h="## $2" '/^## / { on = ($0 == h); next } on'; }
 # The koto session is never an address: it is named only as the argument
 # resolve-coordinator.sh and render-result.sh --dispatcher read the newest
-# member from.
+# member from. The mask covers exactly those two argument shapes, so the check
+# still fails if the session shows up anywhere else, as an address included;
+# widen it only for another argument use, never for an address.
 lacks "channel: the koto session is no address" "$(section "$B" Reporting \
     | sed -e 's|resolve-coordinator\.sh" coordinate-roadmap-plugin-system-20261006T153752Z`|resolve-coordinator.sh" <dispatcher>`|g' \
           -e 's|--dispatcher coordinate-roadmap-plugin-system-20261006T153752Z`|--dispatcher <dispatcher>`|g')" \
