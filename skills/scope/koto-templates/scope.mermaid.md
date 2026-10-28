@@ -12,6 +12,7 @@ stateDiagram-v2
     chain_proposal --> hop_brief : author_decision: proceed
     chain_proposal --> discovery : author_decision: adjust
     chain_proposal --> bail : author_decision: bail
+    check_exit --> exit_abandonment
     cleanup_abandonment --> done_abandonment : cleanup_result: done, gates.exit_recorded.matches: true
     cleanup_abandonment --> done_error : cleanup_result: done, gates.exit_recorded.matches: false
     cleanup_full_run --> done_full_run : cleanup_result: done, gates.exit_recorded.matches: true, gates.mode_multi.matches: true
@@ -40,6 +41,7 @@ stateDiagram-v2
     finalize --> exit_re_evaluation : exit: re-evaluation
     finalize --> exit_abandonment : exit: abandonment-forced
     fold --> bail : verdict: bail
+    fold --> check_exit : gates.fold_documents.exit_code: 1, verdict: check_unsatisfiable
     fold --> finalize : gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 0, verdict: keep
     fold --> finalize : gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 0, verdict: absorb
     fold --> hop_plan : gates.design_present.exit_code: 0, gates.fold_documents.exit_code: 0, gates.plan_present.exit_code: 1, verdict: keep
@@ -59,14 +61,17 @@ stateDiagram-v2
     full_run_blocked --> full_run_blocked : gates.chain_complete.exit_code: 1, next_move: recheck
     full_run_blocked --> full_run_blocked : gates.chain_complete.exit_code: 2, next_move: recheck
     full_run_blocked --> exit_abandonment : next_move: abandon
+    hop_brief --> check_exit : gates.brief_document.exit_code: 1, outcome: check_unsatisfiable
     hop_brief --> hop_prd : gates.brief_complete.exit_code: 0, gates.brief_document.exit_code: 0, outcome: landed
     hop_brief --> hop_prd : outcome: skipped
     hop_brief --> exit_re_evaluation : outcome: rejected
     hop_brief --> bail : outcome: bail
+    hop_design --> check_exit : gates.design_document.exit_code: 1, outcome: check_unsatisfiable
     hop_design --> fold : gates.design_complete.exit_code: 0, gates.design_document.exit_code: 0, outcome: landed
     hop_design --> hop_plan : outcome: skipped
     hop_design --> exit_re_evaluation : outcome: rejected
     hop_design --> bail : outcome: bail
+    hop_plan --> check_exit : gates.plan_document.exit_code: 1, outcome: check_unsatisfiable
     hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_document.exit_code: 0, gates.plan_filing.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> fold : gates.filing_approval.matches: true, gates.plan_complete.exit_code: 0, gates.plan_document.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> bail : gates.filing_approval.matches: false, gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
@@ -74,6 +79,7 @@ stateDiagram-v2
     hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 1, outcome: landed
     hop_plan --> finalize : outcome: skipped
     hop_plan --> bail : outcome: bail
+    hop_prd --> check_exit : gates.prd_document.exit_code: 1, outcome: check_unsatisfiable
     hop_prd --> fold : gates.prd_complete.exit_code: 0, gates.prd_document.exit_code: 0, outcome: landed
     hop_prd --> hop_design : outcome: skipped
     hop_prd --> exit_re_evaluation : outcome: rejected

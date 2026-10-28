@@ -755,6 +755,23 @@ else
     fail "ladder count 3" "err=[$(cat "$T/lerr")]"
 fi
 
+# The exit's end state: a template that ends its exit somewhere other than
+# done_blocked names it in SHIRABE_GATE_EXIT_END; a value that isn't a plain
+# state name falls back to done_blocked rather than printing it.
+ends_at() {
+    SHIRABE_GATE_LOG="$LOGS/three.jsonl" SHIRABE_GATE_NAME=g SHIRABE_GATE_EXITS="$LADDER_EXITS" \
+        SHIRABE_GATE_EXIT_END="$1" "$L/probe.sh" t/multi > /dev/null 2> "$T/lerr"
+    grep '^::shirabe-check-exit::' "$T/lerr" | sed 's/^::shirabe-check-exit:://' | jq -r '.ends_at' 2>/dev/null
+}
+[ "$(ends_at exit_abandonment)" = exit_abandonment ] \
+    && pass "ladder: SHIRABE_GATE_EXIT_END names the exit's end state" \
+    || fail "ladder exit end" "err=[$(cat "$T/lerr")]"
+for bad_end in '' 'Exit-Abandonment' 'done blocked' 'x;y'; do
+    [ "$(ends_at "$bad_end")" = done_blocked ] \
+        && pass "ladder: SHIRABE_GATE_EXIT_END [$bad_end] falls back to done_blocked" \
+        || fail "ladder exit end [$bad_end]" "err=[$(cat "$T/lerr")]"
+done
+
 mklog "$LOGS/three-noexit.jsonl" verification "$(fail_ev verification g t/multi 2)"
 ladder "$LOGS/three-noexit.jsonl" g t/multi
 [ "$(released t/multi)" = 1 ] && [ "$(notices)" = 0 ] \
