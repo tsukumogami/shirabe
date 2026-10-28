@@ -112,6 +112,9 @@ koto	session import	--from,--trust-template	mode:session-store
 # interrupted takeover from another session's.
 koto	init	--continues,--supersede,--expect-state,--carry	mode:takeover
 koto	session hierarchy	-	mode:takeover
+# The engine suites' floor-koto check reads `koto init --help` from a test
+# fixture under scripts/testdata/, which only *_test.sh suites source.
+#not-a-call-site	skills/coordinate/scripts/testdata/takeover-flags.sh	koto	--help	a test fixture the engine suites source; the skill never runs it
 #
 # The on-reap step (scripts/unit-removed.sh record, which niwa runs when it
 # removes a session) starts its sweep in a new session through perl's

@@ -8,12 +8,15 @@
 # it.
 #
 # Sourced at a suite's top level, after the koto-test-guard.sh line, with koto
-# on PATH:
+# on PATH and HERE set to the suite's directory (coordinate-engine-lib.sh
+# needs it too):
 #
 #     . "$HERE/testdata/takeover-flags.sh"
 #
 # Sourcing reads `koto init --help` once and sets TAKEOVER_FLAGS to 1 when it
-# lists both --continues and --supersede, 0 otherwise. Then, per case:
+# lists both --continues and --supersede, 0 otherwise: a takeover is
+# `koto init --continues <pred> --supersede`, and --supersede needs
+# --continues. Then, per case:
 #
 #     if needs_takeover "3: past the hop cap"; then
 #         ...the case...
@@ -32,7 +35,8 @@
 
 TAKEOVER_FLAGS=0
 TAKEOVER_LEFT_OUT=0
-_tf_help=$(koto init --help 2>/dev/null)
+# A --help that fails reads as no flags; its stderr stays in the suite's output.
+_tf_help=$(koto init --help) || _tf_help=
 case "$_tf_help" in
     *--continues*) case "$_tf_help" in *--supersede*) TAKEOVER_FLAGS=1 ;; esac ;;
 esac
