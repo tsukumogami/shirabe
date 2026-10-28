@@ -87,9 +87,11 @@
 #       The region. A body with a top-level `---` (cb_part1's rule: a line
 #       matching ^[ \t]*---[ \t\r]*$ outside a ``` fence) is read only below
 #       the first one, so nothing in Part 1 (a `## ` heading, a `run=` line,
-#       a section someone titled `## PR Index`) is read as the record's. A
-#       body with none (/scope's, or one from before the render) is read
-#       whole, and its `run` is null: only a render writes `run=`. `run=`,
+#       a section someone titled `## PR Index`) is read as the record's;
+#       /scope's body has one, its run lines below it. A body with none (one
+#       /scope opened before it wrote a separator, or one from before the
+#       render) is read whole, and its `run` is null: only a render writes
+#       `run=`. `run=`,
 #       `store=` and the run lines come from the region above its first `## `
 #       heading, the first well-formed line of each key (a run line's value
 #       ^[A-Za-z0-9._-]{1,64}$, as run/setup holds it); the entries come from
