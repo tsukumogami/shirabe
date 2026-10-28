@@ -7,6 +7,18 @@ on:
       - 'scripts/lib/koto-test-guard.sh'
       - 'scripts/check-koto-test-guard.sh'
       - '.github/workflows/check-koto-test-guard.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. A pull request's last run
+    # can predate a change to the rule that lands on main before it merges, so
+    # the run on main is what catches a merged suite the tightened rule refuses
+    # (shirabe#1354). The verdict reads only these files, so whichever of the
+    # two lands second runs the check on the tree that holds both.
+    paths:
+      - '**/*_test.sh'
+      - 'scripts/lib/koto-test-guard.sh'
+      - 'scripts/check-koto-test-guard.sh'
+      - '.github/workflows/check-koto-test-guard.yml'
 
 jobs:
   check-koto-test-guard:
