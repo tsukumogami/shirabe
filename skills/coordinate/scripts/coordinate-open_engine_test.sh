@@ -24,7 +24,18 @@
 # dispatcher, writing nothing in the earlier run; a failed carry link warns
 # after carried= and records only that run; two failed links record both
 # dispatchers under one warning line, and a later link to one that works
-# takes away only its own line, the key going with the last. On a
+# takes away only its own line, the key going with the last. Behind a koto
+# that refuses reads of a live source as bound to another directory
+# (session_bound_elsewhere): a carry refused part way is refused=bound-elsewhere
+# naming `koto session rebind <run> --to <this directory>` and the order, and
+# one cut short by another failure is failed=carry, each with the source live
+# and uncancelled and the new run cancelled holding no record; a start whose
+# candidate can't be read is refused with no session= and nothing opened; a
+# carry whose source is written while it runs is failed=carry, the source
+# live and the new run cancelled with the record/meta it got withdrawn; a
+# carry that lands cancels the source after it, the new run holding the
+# source's written time; and after that run is cancelled and can't be read,
+# the second start is refused, and the next once it reads carries it. On a
 # koto without the session store's features the only case is the start's
 # refusal, store-unsupported, opening no session.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
@@ -260,6 +271,132 @@ eq "  ... leaving the other's line" "warning=link-failed
 dispatched_by=$SN2" "$(koto context get "$SN3" session/link-warning)"
 dl_link koto "$SN3" "$SN2"; eq "a link to the last one works" 0 $?
 koto context exists "$SN3" session/link-warning; eq "  ... and the key goes" 1 $?
+
+# --- a carry whose source is bound to another directory (shirabe#1257) ----------
+# koto's cloud backend answers a run only in the directory it is bound to and
+# refuses a read from any other as session_bound_elsewhere. A stand-in in front
+# of the real koto plays that for one run, BE_SRC: with BE_ARM=always every
+# read of it (context get, list and exists, and status) is refused from the
+# start; with BE_ARM=write the refusals start once the carry has written its
+# first key into the new run, a carry cut short part way. BE_KIND=other
+# refuses with another failure instead. The source is live, and the starts
+# run a copy of the plugin whose template the compat table doesn't list, so
+# each carries it.
+echo "== a carry whose source is bound elsewhere =="
+mkdir -p "$T/beshim" "$T/plugin3"
+cat > "$T/beshim/koto" <<EOF
+#!/bin/sh
+# BE_ARM=touch: once the carry writes the new run's record/meta, the source's
+# record/meta is written with a later time, a write that landed mid-carry.
+if [ "\$BE_ARM" = touch ] && [ "\$1 \$2" = "context add" ] && [ "\$3" != "\$BE_SRC" ] && [ "\$4" = record/meta ]; then
+    "$REAL_KOTO" "\$@" || exit \$?
+    "$REAL_KOTO" context get "\$BE_SRC" record/meta | jq -c '.written = "2099-01-01T00:00:00Z"' > "$T/touched-meta" \
+        && "$REAL_KOTO" context add "\$BE_SRC" record/meta --from-file "$T/touched-meta" > /dev/null
+    exit 0
+fi
+if [ "\$1 \$2" = "context add" ] && [ "\$3" != "\$BE_SRC" ] && [ "\$BE_ARM" = write ]; then
+    case "\$4" in record/*|legs/*) : > "$T/be-armed" ;; esac
+fi
+if [ "\$BE_ARM" = always ] || [ -e "$T/be-armed" ]; then
+    v=
+    case "\$1 \$2" in "context get"|"context list"|"context exists") v=1 ;; esac
+    [ "\$1" = status ] && v=1
+    if [ -n "\$v" ]; then
+        for a in "\$@"; do
+            [ "\$a" = "\$BE_SRC" ] || continue
+            if [ "\$BE_KIND" = other ]; then echo "koto: the bucket read timed out" >&2; exit 1; fi
+            printf '{"error":"session_bound_elsewhere: session %s is bound to another directory","code":"session_bound_elsewhere","session":"%s"}\n' "\$a" "\$a"
+            exit 2
+        done
+    fi
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/beshim/koto"
+cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin3/"
+printf '\n<!-- a change to the template, for the carry case -->\n' >> "$T/plugin3/skills/coordinate/koto-templates/coordinate.md"
+jq '.compat += 1' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json" > "$T/plugin3/skills/coordinate/koto-templates/coordinate.compat.json"
+RMB='["docs/roadmaps/ROADMAP-bound.md"]'
+open_be() { # open_be <arm> <kind> <source>: a start from the plugin copy behind the stand-in; output in $T/out
+    printf '%s' "$RMB" > "$T/args.json"
+    rm -f "$T/be-armed"
+    BE_SRC=$3 BE_ARM=$1 BE_KIND=$2 PATH="$T/beshim:$PATH" bash "$T/plugin3/skills/coordinate/scripts/coordinate-open.sh" \
+        --plugin-root "$T/plugin3" "$T/args.json" > "$T/out" 2>"$T/err"
+}
+live_bound() { bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-bound --all 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+cancelled() { jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$(koto session dir "$1")/koto-$1.state.jsonl"; }
+opened_by() { jq -nr --arg b "$1" --arg a "$(sessions)" '($a | split(" ")) - ($b | split(" ")) | map(select(. != "")) | join(" ")'; }
+sleep 1
+OUT=$(open_ "$RMB"); BS=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+session_seed "$BS" "$(jq -nc '{scope: {kind: "roadmap", name: "bound"}, holdings: [], deferrals: [], side_effects: [], reversals: []}')"
+printf '{"source":"session"}' | koto context add "$BS" coord/source.json
+eq "a live run of the scope holds its record" "$BS" "$(live_bound)"
+
+sleep 1
+BEFORE=$(sessions)
+open_be write bound "$BS"; rc=$?
+NB=$(opened_by "$BEFORE")
+eq "a carry whose source read is refused with session_bound_elsewhere is refused=bound-elsewhere, exit 2" "2 refused=bound-elsewhere" "$rc $(grep '^refused=' "$T/out")"
+grep -q '^session=' "$T/out" && fail "  ... printing no session=" "$(cat "$T/out")" || pass "  ... printing no session="
+grep -qF "koto session rebind $BS --to $(pwd -P)" "$T/err" && pass "  ... naming koto session rebind <run> --to <this directory>" \
+    || fail "  ... naming koto session rebind <run> --to <this directory>" "$(cat "$T/err")"
+grep -q 'stop the coordinator session.*rebind.*only then reap' "$T/err" && pass "  ... and the order: stop, rebind or carry, only then reap" \
+    || fail "  ... and the order: stop, rebind or carry, only then reap" "$(cat "$T/err")"
+eq "  ... the source still live and uncancelled" "$BS 0" "$(live_bound) $(cancelled "$BS")"
+eq "  ... the new run cancelled" 1 "$( [ -n "$NB" ] && cancelled "$NB")"
+koto context exists "$NB" record/meta; eq "  ... holding no record" 1 $?
+
+sleep 1
+BEFORE=$(sessions)
+open_be write other "$BS"; rc=$?
+NB=$(opened_by "$BEFORE")
+eq "a carry cut short at a key by another failure is failed=carry, exit 1" "1 failed=carry" "$rc $(grep '^failed=' "$T/out")"
+eq "  ... the source still live and uncancelled" "$BS 0" "$(live_bound) $(cancelled "$BS")"
+eq "  ... the new run cancelled" 1 "$( [ -n "$NB" ] && cancelled "$NB")"
+koto context exists "$NB" record/meta; eq "  ... holding no record" 1 $?
+
+sleep 1
+BEFORE=$(sessions)
+open_be always bound "$BS"; rc=$?
+eq "a start whose candidate holds a record it can't read (session_bound_elsewhere) is refused=bound-elsewhere, exit 2" "2 refused=bound-elsewhere" "$rc $(grep '^refused=' "$T/out")"
+grep -q '^session=' "$T/out" && fail "  ... printing no session=" "$(cat "$T/out")" || pass "  ... printing no session="
+eq "  ... opening nothing" "$BEFORE" "$(sessions)"
+grep -qF "koto session rebind $BS --to $(pwd -P)" "$T/err" && pass "  ... naming the rebind" || fail "  ... naming the rebind" "$(cat "$T/err")"
+
+sleep 1
+BEFORE=$(sessions)
+open_be touch bound "$BS"; rc=$?
+NB=$(opened_by "$BEFORE")
+eq "a carry whose source was written while it ran is failed=carry, exit 1" "1 failed=carry" "$rc $(grep '^failed=' "$T/out")"
+grep -q 'written during the carry' "$T/err" && pass "  ... saying so" || fail "  ... saying so" "$(cat "$T/err")"
+eq "  ... the source still live and uncancelled" "$BS 0" "$(live_bound) $(cancelled "$BS")"
+eq "  ... the new run cancelled" 1 "$( [ -n "$NB" ] && cancelled "$NB")"
+koto context exists "$NB" record/meta; eq "  ... its record/meta, written by the carry, withdrawn" 1 $?
+
+sleep 1
+open_be none bound "$BS"; rc=$?
+NB=$(sed -n 's/^session=//p' "$T/out")
+eq "a carry that lands opens the new run" "0 carried=$BS" "$rc $(grep '^carried=' "$T/out")"
+eq "  ... and cancels the source after it" "carried=$BS|cancelled=$BS" "$(grep -E '^(carried|cancelled)=' "$T/out" | tr '\n' '|' | sed 's/|$//')"
+eq "  ... once the new run's record/meta holds the source's written time" "$(koto context get "$BS" record/meta | jq -r .written)" \
+    "$(koto context get "$NB" record/meta | jq -r .written)"
+eq "  ... leaving the new run the scope's live one" "$NB" "$(live_bound)"
+
+# The issue's second start: the run holding the record was cancelled and can't
+# be read from here. The start refuses rather than open an empty run.
+printf '{"source":"session"}' | koto context add "$NB" coord/source.json
+koto cancel "$NB" > /dev/null 2>&1
+sleep 1
+BEFORE=$(sessions)
+open_be always bound "$NB"; rc=$?
+eq "a second start after a cancelled source it can't read (session_bound_elsewhere) is refused, exit 2" "2 refused=bound-elsewhere" "$rc $(grep '^refused=' "$T/out")"
+grep -q '^session=' "$T/out" && fail "  ... printing no session=" "$(cat "$T/out")" || pass "  ... printing no session="
+eq "  ... opening nothing" "$BEFORE" "$(sessions)"
+# Once it reads again (rebound here), the next start carries the cancelled run.
+sleep 1
+open_be none bound "$NB"
+grep -qx "carried=$NB" "$T/out" && pass "once it can be read, the next start carries the cancelled run" \
+    || fail "once it can be read, the next start carries the cancelled run" "$(cat "$T/out" "$T/err")"
 
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
