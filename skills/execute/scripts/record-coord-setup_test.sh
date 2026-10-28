@@ -101,6 +101,14 @@
 #   the default branch             exit 67
 #   a re-run with the same values  a no-op
 #   a different recorded value     exit 68, the record unchanged
+#   --reroot-plan                  a moved checkout of home_repo on
+#                                  coord_branch, the recorded PLAN gone:
+#                                  plan_abs re-rooted, both paths on stderr,
+#                                  a second call and a later setup keep it;
+#                                  the recorded PLAN still there, another
+#                                  branch, another repository, or no PLAN
+#                                  here: kept, nothing written; another flag
+#                                  beside it exits 64
 #   usage                          exit 64
 #
 # Usage: record-coord-setup_test.sh
@@ -821,6 +829,82 @@ setup_case default-branch
 (cd "$REPO" && git checkout -q main)
 run_setup
 [ "$RC" -eq 67 ] && pass "the default branch exits 67" || fail "default: rc=$RC"
+
+# --reroot-plan: the run's checkout moved (cloned elsewhere, the old directory
+# removed, the session rebound). plan_abs is re-rooted only when the recorded
+# file is gone, this checkout is on the recorded coord_branch, its origin is
+# the recorded home_repo, and --plan names a file here.
+run_reroot() { # run_reroot <dir> [<plan>] [flags...]
+    local d="$1" p="${2:-docs/plans/PLAN-t.md}"
+    shift
+    [ $# -eq 0 ] || shift
+    OUT=$(cd "$d" && bash "$SETUP" --reroot-plan --session "$S" --plan "$p" "$@" 2>"$CASE/stderr")
+    RC=$?
+}
+moved_clone() { # moved_clone <dir> -- $REPO cloned on the coordination branch, with the PLAN and the same origin
+    git clone -q "$REPO" "$1"
+    git -C "$1" remote set-url origin "$REPO.origin.git"
+    mkdir -p "$1/docs/plans"
+    cp "$REPO/docs/plans/PLAN-t.md" "$1/docs/plans/PLAN-t.md"
+}
+setup_case reroot
+run_setup
+OLD_ABS=$(val plan_abs)
+run_reroot "$REPO"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(val plan_abs)" = "$OLD_ABS" ]; then
+    pass "--reroot-plan with the recorded PLAN still there keeps plan_abs"
+else
+    fail "reroot present: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+MOVED="$CT_WORK/reroot-moved"
+OTHER_BRANCH="$CT_WORK/reroot-branch"
+OTHER_REPO="$CT_WORK/reroot-other"
+moved_clone "$MOVED"
+moved_clone "$OTHER_BRANCH"
+git -C "$OTHER_BRANCH" checkout -q -b elsewhere
+moved_clone "$OTHER_REPO"
+git -C "$OTHER_REPO" remote set-url origin https://github.com/acme/other.git
+rm -rf "$REPO"
+NEW_ABS="$(cd "$MOVED/docs/plans" && pwd -P)/PLAN-t.md"
+SUM=$(store_sum)
+run_reroot "$OTHER_BRANCH"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan on a branch other than coord_branch keeps plan_abs, nothing written"
+else
+    fail "reroot branch: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+run_reroot "$OTHER_REPO"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan in a checkout of another repository keeps plan_abs, nothing written"
+else
+    fail "reroot repo: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+run_reroot "$MOVED" docs/plans/PLAN-gone.md
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan naming no PLAN here keeps plan_abs, nothing written"
+else
+    fail "reroot no plan: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+run_reroot "$MOVED"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=rerooted ] && [ "$(val plan_abs)" = "$NEW_ABS" ]; then
+    pass "--reroot-plan in a moved checkout of home_repo on coord_branch re-roots plan_abs"
+else
+    fail "reroot moved: rc=$RC out=[$OUT] abs=[$(val plan_abs)] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+grep -qF "[$OLD_ABS] is gone; re-rooted to [$NEW_ABS]" "$CASE/stderr" \
+    && pass "the re-root names both paths on stderr" || fail "reroot stderr: [$(cat "$CASE/stderr")]"
+run_reroot "$MOVED"
+[ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(val plan_abs)" = "$NEW_ABS" ] \
+    && pass "a second --reroot-plan keeps the re-rooted path" || fail "reroot again: rc=$RC out=[$OUT]"
+REPO="$MOVED"
+run_setup
+if [ "$RC" -eq 0 ] && grep -qx "record=existing" <<<"$OUT" && grep -qx "plan_abs=$NEW_ABS" <<<"$OUT"; then
+    pass "setup in the moved checkout accepts the re-rooted plan_abs"
+else
+    fail "setup after reroot: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+(cd "$MOVED" && bash "$SETUP" --reroot-plan --session "$S" --plan docs/plans/PLAN-t.md --store github >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "--reroot-plan with another flag exits 64" || fail "reroot usage: rc=$rc"
 
 setup_case usage
 (cd "$REPO" && bash "$SETUP" --session "$S" >/dev/null 2>&1); rc=$?

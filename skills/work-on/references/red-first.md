@@ -130,6 +130,18 @@ person (below), with the source of that answer. Every later attempt is judged
 against it; a ledger with no header holds the unit, and `init` refuses to run
 twice.
 
+The header's work tree can move: a run handed over to a new checkout is
+rebound there, and the old directory is gone. When the recorded work tree is
+gone and the one the gate runs in is the same work (its origin names the
+header's repository when the header records one, and its HEAD has `impl_base`
+in its history), `status`,
+`seat`, `accept` and `decline` use it and append one `relocate` line naming
+both paths, which every later call reads in place of the header's. `covered`
+uses it without writing anything, and `record` reads only the relocate lines,
+never the directory it's run from. Any other case still stops the gate on the
+gone work tree. The acceptance rule doesn't fold relocate lines, so a move
+changes no verdict.
+
 The same gate runs three times: at `pass_counting`, again at `pr_precheck`
 (`tests_still_counted`, so a commit made after counting is held again before
 the pull request opens), and at `ci_pass_counting` after CI passes on the open
@@ -250,9 +262,9 @@ else: nothing here writes to a pull request, its body or its comments. They
 read back through `test-change.sh record <session>`, which prints, for a
 person or a coordinator, the fix source, the red and green or the
 observations, each test file as added or edited, every acceptance, decline,
-refusal, overrule and note with its time, and the unit's state. It works while
-the unit is held and after the run finished, and says the state is undecided
-when the run's work tree is gone.
+refusal, overrule, note and relocation with its time, and the unit's state. It
+works while the unit is held and after the run finished, and says the state is
+undecided when the run's work tree is gone.
 
 ### After CI: `ci_pass_counting`
 

@@ -700,13 +700,25 @@ the unit> --until <lifted | time <UTC minute> | merged owner/repo#n | tag
 owner/repo TAG>`, with the person as owner and whoever relayed it: the record
 holds it, so it survives this session and a replacement finds it standing.
 
+Any word from a person that tells workers to stop, park or hold is a pause,
+and gets a `pause` row scoped to what it stops: `--on all` or the unit,
+`--until` its condition, or `lifted` when it ends on someone's word. That
+holds when the order is conditional, partial or bundled with other rules;
+those rules go in an `answer` row beside it. Pick, the dispatch check, the
+land check, the merge and the quiet check read only `pause` rows, so an order
+written only as an `answer` holds nothing and the workers it parked are
+counted quiet.
+
 - **What it holds.** Pick never chooses a paused unit, and holds while the
   whole coordinator is paused; the dispatch check and `dispatch-worker.sh`
   refuse a paused dispatch; the land check and `land-merge.sh` refuse a
   paused merge and send the worker a re-brief asking it to report again at
   the resume; a paused unit's request leg stays unread. Verification, record
   writes, message intake, decisions, escalations and the teardown of merged
-  workers go on. A paused worker is never counted quiet.
+  workers go on. A paused worker is never counted quiet. A quiet worker found
+  parked on a person's order with no `pause` row gets that row, and its
+  `paused by <id>` Work row, before the status message step submits `sent`,
+  so the next sweep skips it.
 - **Resume.** A pause ends when its row ends: a person's resume, written with
   `--end <id> --by <the person>`, or its condition read as met at the next
   pick, after which you end the row yourself. Ending an `all` row resumes the

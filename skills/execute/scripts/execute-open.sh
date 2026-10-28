@@ -141,8 +141,13 @@
 # session that already has run/setup makes the snapshot stale, and it is
 # removed. `merge_attempts` and `recovered` are removed, so every invocation
 # starts with no merge attempts and reports a recovery only when its own setup
-# made one. A single-pr open seeds the prior run_id and mints one when
-# the session still has none.
+# made one. On `opened=attached` the run's plan_abs is checked against this
+# checkout with `record-coord-setup.sh --reroot-plan`, which re-roots it only
+# when the recorded PLAN is gone and this checkout is on the recorded
+# coord_branch with home_repo as its origin (one stderr line names both paths);
+# its stdout is dropped and it changes no line or exit code here. A
+# single-pr open seeds the prior run_id and mints one when the session still
+# has none.
 #
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
@@ -599,6 +604,17 @@ case "$OUT" in
                 || echo "$PROG: could not clear merge_attempts in $SESSION" >&2
             koto context remove "$SESSION" recovered >/dev/null \
                 || echo "$PROG: could not clear recovered in $SESSION" >&2
+            # A live run attached from a checkout it moved to: plan_abs is
+            # re-rooted to the PLAN here when the recorded one is gone and
+            # this is the same coordination branch of the same repository.
+            # record-coord-setup.sh decides and writes, keeping the key's one
+            # writer; its stdout is dropped so this script's lines don't
+            # change, and its one stderr line names the move.
+            if [ "${OUT%%$'\n'*}" = opened=attached ] && [ -n "$PLAN" ]; then
+                bash "$SELF_DIR/record-coord-setup.sh" --reroot-plan --session "$SESSION" --plan "$PLAN" \
+                    </dev/null >/dev/null \
+                    || echo "$PROG: could not check plan_abs in $SESSION against this checkout" >&2
+            fi
         else
             # Carry the prior run's identity into a replacement (seed writes
             # only when the session has none, so an attached live session
