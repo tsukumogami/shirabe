@@ -248,7 +248,7 @@ struct ValidateArgs {
     /// Run only the named check(s) instead of the full applicable pass.
     /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
     /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
-    /// `FC01`-`FC22`, `FC-CONVENTIONS`, `R6`-`R11`. The lifecycle codes
+    /// `FC01`-`FC25`, `FC-CONVENTIONS`, `R6`-`R11`. The lifecycle codes
     /// `L01`-`L10` come from `--lifecycle` and `--lifecycle-chain` and are not
     /// selectable. An unknown code is a tool error. A valid but
     /// format-inapplicable code is a clean no-op.
@@ -640,7 +640,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     for code in &args.check {
         if !is_known_check_code(code) {
             eprintln!(
-                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC22, FC-CONVENTIONS, R6-R11 (the lifecycle codes L01-L10 come from --lifecycle and --lifecycle-chain and are not selectable)",
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC25, FC-CONVENTIONS, R6-R11 (the lifecycle codes L01-L10 come from --lifecycle and --lifecycle-chain and are not selectable)",
                 code
             );
             return ValidateOutcome::ToolError.exit();
