@@ -22,7 +22,10 @@
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
 # verdict-owed row, or that the row names as its Who, and ok for another topic.
 # The record read once per check (one assembly, record/meta got and never
-# listed), with decision-next judging that read and not a later one.
+# listed), with decision-next judging that read and not a later one. The
+# check's koto calls the same with 3 entries and with 300, no entry read and
+# record/ never listed: the sections the verdicts read are got directly, an
+# absent one listed by its own key, and a listed one that can't be got exits 2.
 #
 # Usage: bash skills/coordinate/scripts/deferral-check_test.sh
 set -uo pipefail
@@ -246,7 +249,7 @@ reread_case() {
 }
 reread_case "$(with_entries "$(dentry 6 proposed)")" "$(with_entries)"
 eq "a proposed entry in the record the check read blocks the first dispatch" "decision-owed take" "$(PATH="$T/bin:$PATH" check)"
-eq "  ... from one assembly of the record" 1 "$(grep -c "^context list $S --prefix record/\$" "$KOTO_STORE/calls")"
+eq "  ... from one assembly of the record, which never lists record/" 0 "$(grep -c "^context list $S --prefix record/\$" "$KOTO_STORE/calls")"
 eq "  ... record/decisions read once" 1 "$(grep -c "^context get $S record/decisions\$" "$KOTO_STORE/calls")"
 eq "  ... record/meta got before and after the sections, never listed" "2 0" \
     "$(grep -c "^context get $S record/meta\$" "$KOTO_STORE/calls") $(grep -c "^context list $S --prefix record/meta\$" "$KOTO_STORE/calls")"
@@ -511,5 +514,76 @@ seed "$(with_pauses "$(with_holdings "$(scoping a5 25)" | jq -c '.holdings[0].un
 pr 25 OPEN true
 session "$(roadmap_vars plugin-system)" send_execution a5
 eq "a pause on Feature 2 doesn't hold a holding under Milestone 12" "ok a5" "$(check)"
+
+echo "== check mode: the check's koto calls don't grow with the entries (shirabe#1308) =="
+# The check gets the sections its verdicts read, each directly, and never
+# lists record/, which names every entry: the same check on a record with a
+# few entries and with 300 more makes the same koto calls, and reads no entry.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# FULL holds every section the check reads, and two it doesn't (Side
+# effects, Reversals): two holdings under the Run section's cap of 1, so
+# sending a5 its execution is at-cap only when Run is read. BARE holds the
+# one holding and none of the optional sections.
+FULL=$(with_pauses "$(with_holdings "$(scoping a5 25)" "$(active a6 26)")" "$(prow s3 go-ahead "Feature 2" "")" \
+    | jq -c --argjson e "[$(dentry 7 coordinator-verdict '"verdict": "hold", "reason": "waits on the benchmark"')]" \
+        --argjson o "$(OWEDROW MV9 nobody)" \
+        '.decisions = {next: 20, entries: $e} | .work = [$o] | .run = [{key: "cap", value: "1", set_by: "the human", set: "2026-09-26T07:00Z"}]
+         | .deferrals = [{deferral: "a carried one", reason: "r", raised: "2026-09-25T10:00Z", disposition: "carried 2026-09-26T08:30Z: later"}]')
+BARE=$(with_holdings "$(scoping a5 25)")
+# koto_calls <record-json> <entries>: the check's verdict and its koto calls
+# on that record with <entries> entries, the calls kept in $T/kc.calls.
+koto_calls() {
+    seed "$1"; pr 25 OPEN true; pr 26 OPEN true
+    session "$(roadmap_vars plugin-system)" send_execution a5
+    filler "$S" "$2"
+    : > "$KOTO_STORE/calls"
+    printf '%s %s' "$(check)" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+for name in FULL BARE; do
+    FEW=$(koto_calls "${!name}" 3)
+    MANY=$(koto_calls "${!name}" 300)
+    case "${FEW##* }" in ''|*[!0-9]*) bad "$name: the check runs" "$FEW"; continue ;; esac
+    eq "$name: the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+    eq "  ... reading no entry and never listing record/" "0 0" \
+        "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+    eval "VERDICT_$name=\${FEW% *}"
+done
+eq "FULL is judged on the Run section's cap" "at-cap 2/1 0/3" "$VERDICT_FULL"
+eq "BARE is clear" "ok a5" "$VERDICT_BARE"
+koto_calls "$FULL" 300 > /dev/null
+eq "FULL: it reads only the sections and keys its checks need, each got once" \
+    "decisions deferrals holdings run standing work" \
+    "$(sed -n "s|^context get $S record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+# The chain start (coord-log.sh chain-start) lists the run's koto/links/
+# relations, a fixed few keys; no record/ key is listed.
+eq "  ... and no record key is listed, since every one it reads is there" 0 "$(grep -c "^context list $S --prefix record/" "$T/kc.calls")"
+# A section that isn't there is told apart from a failed get by a listing of
+# that one key, which names no entry.
+koto_calls "$BARE" 300 > /dev/null
+eq "BARE: each absent section is listed alone, by its own key" "record/decisions record/run record/standing record/work" \
+    "$(sed -n "s|^context list $S --prefix \(record/[a-z-]*\)\$|\1|p" "$T/kc.calls" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+# A key that is listed but can't be got is a failed read (2), not an absent
+# section.
+cat > "$T/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-} \${4:-}" = "context get record/standing" ]; then
+    printf '%s\n' "\$*" >> "\$KOTO_STORE/calls"
+    echo "koto stub: read failed" >&2
+    exit 1
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+seed "$FULL"; pr 25 OPEN true; pr 26 OPEN true
+session "$(roadmap_vars plugin-system)" send_execution a5
+PATH="$T/bin:$PATH" bash "$DC" --session "$S" > /dev/null 2>&1
+eq "a section that is listed but can't be got exits 2" 2 $?
 
 done_tests deferral-check
