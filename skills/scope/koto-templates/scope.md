@@ -2560,12 +2560,13 @@ failed evaluation of the same rule in this state, the gate's output also carries
 the rule's full text, or, where that text can't be printed, the file and line
 range to read; from the third, a `::shirabe-check-exit::` line says this
 state's exit is open. koto's own count decides each step, and telemetry records
-each one. When a document rule can't be satisfied, take the exit rather than
-looping: submit `outcome: check_unsatisfiable` with `check_exit_reason` set to
-one sentence saying why. It is accepted only while `brief_document` fails on a
-rule (exit 1, never an exit 2), from the first failure on, and it ends the run
-at `exit_abandonment` through `check_exit`, with every committed document kept;
-it never moves the run past the gate. The reason stays in the session's context
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`brief_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
 as `check_exit_reason`; telemetry records only that the exit was taken.
 
 Evidence schema:
@@ -2626,12 +2627,13 @@ failed evaluation of the same rule in this state, the gate's output also carries
 the rule's full text, or, where that text can't be printed, the file and line
 range to read; from the third, a `::shirabe-check-exit::` line says this
 state's exit is open. koto's own count decides each step, and telemetry records
-each one. When a document rule can't be satisfied, take the exit rather than
-looping: submit `outcome: check_unsatisfiable` with `check_exit_reason` set to
-one sentence saying why. It is accepted only while `prd_document` fails on a
-rule (exit 1, never an exit 2), from the first failure on, and it ends the run
-at `exit_abandonment` through `check_exit`, with every committed document kept;
-it never moves the run past the gate. The reason stays in the session's context
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`prd_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
 as `check_exit_reason`; telemetry records only that the exit was taken.
 
 Evidence schema:
@@ -2687,12 +2689,13 @@ failed evaluation of the same rule in this state, the gate's output also carries
 the rule's full text, or, where that text can't be printed, the file and line
 range to read; from the third, a `::shirabe-check-exit::` line says this
 state's exit is open. koto's own count decides each step, and telemetry records
-each one. When a document rule can't be satisfied, take the exit rather than
-looping: submit `outcome: check_unsatisfiable` with `check_exit_reason` set to
-one sentence saying why. It is accepted only while `design_document` fails on a
-rule (exit 1, never an exit 2), from the first failure on, and it ends the run
-at `exit_abandonment` through `check_exit`, with every committed document kept;
-it never moves the run past the gate. The reason stays in the session's context
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`design_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
 as `check_exit_reason`; telemetry records only that the exit was taken.
 
 Evidence schema:
@@ -2800,12 +2803,13 @@ failed evaluation of the same rule in this state, the gate's output also carries
 the rule's full text, or, where that text can't be printed, the file and line
 range to read; from the third, a `::shirabe-check-exit::` line says this
 state's exit is open. koto's own count decides each step, and telemetry records
-each one. When a document rule can't be satisfied, take the exit rather than
-looping: submit `outcome: check_unsatisfiable` with `check_exit_reason` set to
-one sentence saying why. It is accepted only while `plan_document` fails on a
-rule (exit 1, never an exit 2), from the first failure on, and it ends the run
-at `exit_abandonment` through `check_exit`, with every committed document kept;
-it never moves the run past the gate. The reason stays in the session's context
+each one. Fix the document first. Take the exit only when the rule's full text
+shows the document can't satisfy it; that normally means the exit line has
+already appeared. Then submit `outcome: check_unsatisfiable` with
+`check_exit_reason` set to one sentence saying why. koto accepts it only while
+`plan_document` fails on a rule (exit 1, never an exit 2). It ends the run at
+`exit_abandonment` through `check_exit`, with every committed document kept; it
+never moves the run past the gate. The reason stays in the session's context
 as `check_exit_reason`; telemetry records only that the exit was taken. The
 mode and filing gates aren't document rules: the exit doesn't open on them.
 
@@ -2893,13 +2897,14 @@ failed evaluation of the same rule in this state, the gate's output also carries
 the rule's full text, or, where that text can't be printed, the file and line
 range to read; from the third, a `::shirabe-check-exit::` line says this
 state's exit is open. koto's own count decides each step, and telemetry records
-each one; a rule's failures at an earlier hop don't count here. When a document
-rule can't be satisfied, take the exit rather than looping: submit
-`verdict: check_unsatisfiable` with `check_exit_reason` set to one sentence
-saying why. It is accepted only while `fold_documents` fails on a rule (exit 1,
-never an exit 2), from the first failure on, and it ends the run at
-`exit_abandonment` through `check_exit`, with every committed document kept; it
-never moves the run past the gate. Unlike `bail`, it records which check ended
+each one; a rule's failures at an earlier hop don't count here. Fix the
+document first. Take the exit only when the rule's full text shows the document
+can't satisfy it; that normally means the exit line has already appeared. Then
+submit `verdict: check_unsatisfiable` with `check_exit_reason` set to one
+sentence saying why. koto accepts it only while `fold_documents` fails on a rule
+(exit 1, never an exit 2). It ends the run at `exit_abandonment` through
+`check_exit`, with every committed document kept; it never moves the run past
+the gate. Unlike `bail`, it records which check ended
 the run. The reason stays in the session's context as `check_exit_reason`;
 telemetry records only that the exit was taken.
 

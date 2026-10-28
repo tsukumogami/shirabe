@@ -22,7 +22,8 @@
 # `check_unsatisfiable` submitted after it, or after a pass, is refused with
 # the state unchanged. Submitted after a failure, it goes through check_exit
 # to exit_abandonment with every committed document on disk and the reason in
-# the session's context, and nothing else in the store holds the reason.
+# the session's context, and nothing else in the store, in koto's responses or
+# in the gate's standard error holds the reason.
 #
 # Further sessions take the exit at the first failure, run fail, pass, fail
 # in hop_plan with a second rule joining at its first failure, and show a
@@ -119,9 +120,14 @@ open_run() {
         && koto next "$PFX-$1" --no-cleanup >/dev/null 2>&1 )
 }
 
-# tick <tag> <json>: submit evidence; the response is in $W/<tag>.resp.
+# tick <tag> <json>: submit evidence; the response is in $W/<tag>.resp. Every
+# response the session has returned is appended to $W/<tag>.resps, and the
+# standard error of every gate those responses report to $W/<tag>.gate-err.
 tick() {
     ( cd "$W/$1" && koto next "$PFX-$1" --no-cleanup --with-data "$2" ) > "$W/$1.resp" 2>/dev/null
+    cat "$W/$1.resp" >> "$W/$1.resps"
+    jq -r '.blocking_conditions[]? | .failure.captured.stderr // empty' "$W/$1.resp" \
+        >> "$W/$1.gate-err" 2>/dev/null
 }
 
 state_of() {
@@ -244,11 +250,18 @@ exit_json() { # <state> <reason>
     jq -cn --arg f "$f" --arg r "$2" '{($f): "check_unsatisfiable", check_exit_reason: $r}'
 }
 
-# reason_elsewhere <tag> <reason>: files in the scratch store that hold the
-# reason, other than the session's own event log and its context key.
+# reason_elsewhere <tag> <reason>: where the reason turns up other than the
+# session's own event log and its context key. That covers three places: files
+# in the scratch store (under the scratch HOME); the koto responses the
+# session returned, every tick's, in $W/<tag>.resps; and the standard error of
+# every gate those responses reported, in $W/<tag>.gate-err. The two capture
+# files sit outside HOME, so the store's grep doesn't see them.
 reason_elsewhere() {
     grep -rlF -- "$2" "$KOTO_TEST_GUARD_DIR/home" 2>/dev/null \
         | grep -v "/koto-$PFX-$1\.state\.jsonl\$" | grep -v '/ctx/check_exit_reason' || true
+    grep -qF -- "$2" "$W/$1.resps" 2>/dev/null && printf '%s\n' "koto's responses to $1's ticks"
+    grep -qF -- "$2" "$W/$1.gate-err" 2>/dev/null && printf '%s\n' "the gate's standard error in $1's responses"
+    return 0
 }
 
 # transitions <tag>: the states the session entered, in order.
@@ -345,10 +358,18 @@ for spec in hop_brief:brief_document hop_prd:prd_document hop_design:design_docu
     [ "$ctx" = "$reason" ] \
         && ok "$st: the reason is in the session's context as check_exit_reason" \
         || bad "$st: check_exit_reason in context" "got=[$ctx]"
+    # The whole of every response is checked, not a field of it: koto's reply
+    # to the exit tick doesn't echo the submitted evidence, so the reason has no
+    # legitimate place there. The captures must hold the session's responses
+    # and failure 3's exit line, or an empty capture would pass the check.
     leaked=$(reason_elsewhere "$tag" "$reason")
-    [ -z "$leaked" ] \
-        && ok "$st: no file in the store but the session's log and its context key holds the reason" \
-        || bad "$st: the reason was written elsewhere" "$leaked"
+    if [ ! -s "$W/$tag.resps" ] || ! grep -q '^::shirabe-check-exit::' "$W/$tag.gate-err" 2>/dev/null; then
+        bad "$st: the captured responses or gate output are missing" "resps=$(wc -c < "$W/$tag.resps" 2>/dev/null) gate-err=[$(head -c 300 "$W/$tag.gate-err" 2>/dev/null)]"
+    elif [ -z "$leaked" ]; then
+        ok "$st: the reason is in no store file but the session's log and its context key, no koto response and no gate output"
+    else
+        bad "$st: the reason was written elsewhere" "$leaked"
+    fi
 done
 
 # --- the exit at the first failure ----------------------------------------------
@@ -457,13 +478,15 @@ LOG="$W/direct.jsonl"
 ERR="$W/direct.err"
 
 # run_gate <script> [ladder]: the gate for --hop prd from the tree, with the
-# template's four variables when the second argument is given.
+# template's four variables when the second argument is given, and with all
+# four unset when it isn't, whatever the caller's environment holds.
 run_gate() {
     if [ -n "${2-}" ]; then
         ( cd "$D" && SHIRABE_GATE_LOG="$LOG" SHIRABE_GATE_NAME=prd_document SHIRABE_GATE_EXITS="$EXIT_TABLE" \
             SHIRABE_GATE_EXIT_END=exit_abandonment "$1" --topic t --hop prd ) 2> "$ERR"
     else
-        ( cd "$D" && "$1" --topic t --hop prd ) 2> "$ERR"
+        ( cd "$D" && unset SHIRABE_GATE_LOG SHIRABE_GATE_NAME SHIRABE_GATE_EXITS SHIRABE_GATE_EXIT_END \
+            && "$1" --topic t --hop prd ) 2> "$ERR"
     fi
 }
 
@@ -517,10 +540,15 @@ rm -rf "$COPY"
 
 # Without the four variables the gate exits and prints on standard output what
 # it prints with them, apart from the delivery markers: on a failing PRD at
-# counts 1, 2 and 3, on a passing one, and on one it can't decide.
-same() { # <label> <exit>
-    local plain plain_rc laddered laddered_rc
+# counts 1 to 4, on a passing one, and on one it can't decide. Its standard
+# error then carries no `::shirabe-rule::` and no `::shirabe-check-exit::`
+# line, even when the log beside it already holds earlier failures of the
+# rule. At counts 3 and 4 the laddered run must print the exit line, so the
+# plain run's silence is the variables' doing and not a log the gate ignored.
+same() { # <label> <exit> [escalated]
+    local plain plain_rc laddered laddered_rc plain_marks
     run_gate "$CHECK" > "$W/plain.out"; plain_rc=$?
+    cp "$ERR" "$W/plain.err"
     run_gate "$CHECK" ladder > "$W/ladder.out"; laddered_rc=$?
     plain=$(grep -v '^::koto-rule-delivered::' "$W/plain.out")
     laddered=$(grep -v '^::koto-rule-delivered::' "$W/ladder.out")
@@ -529,11 +557,23 @@ same() { # <label> <exit>
     else
         bad "with and without the ladder's variables, $1" "rc $plain_rc vs $laddered_rc; [$plain] vs [$laddered]"
     fi
+    plain_marks=$(grep -cE '^::shirabe-(rule|check-exit)::' "$W/plain.err")
+    if [ "$plain_marks" -ne 0 ]; then
+        bad "without the ladder's variables, $1: standard error carries rule text or an exit line" \
+            "stderr=[$(head -c 600 "$W/plain.err")]"
+    elif [ -n "${3-}" ] && ! grep -q '^::shirabe-check-exit::' "$ERR"; then
+        bad "with the ladder's variables, $1: no exit line, so the plain run proves nothing" \
+            "stderr=[$(head -c 600 "$ERR")]"
+    else
+        ok "without the ladder's variables, $1: no ::shirabe-rule:: and no ::shirabe-check-exit:: line on standard error"
+    fi
 }
-for n in 0 1 2; do
+for n in 0 1 2 3; do
+    escalated=
+    [ "$n" -ge 2 ] && escalated=yes
     if [ "$n" -eq 0 ]; then rf_test_ladder_log "$LOG" hop_prd prd_document
     else rf_test_ladder_log "$LOG" hop_prd prd_document docs/upstream-direction "$n"; fi
-    same "a failing PRD at count $((n + 1))" 1
+    same "a failing PRD at count $((n + 1))" 1 "$escalated"
 done
 fx_prd t > "$D/docs/prds/PRD-t.md"
 git -C "$D" commit -q -am "docs: fix" || true
