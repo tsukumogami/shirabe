@@ -1126,6 +1126,20 @@
         "Plan writes the Decision Record at docs/decisions/DECISION-brief-test-topic-rejection-<YYYY-MM-DD>.md from skills/scope/references/decision-record-brief-rejection.md, citing the discard commit SHA",
         "Plan never invokes /prd, /design or /plan after the rejection, and records them in chain_skipped with reason brief-boundary-rejection"
       ]
+    },
+    {
+      "id": 67,
+      "name": "document-gate-rule-that-cannot-be-met-takes-the-named-exit",
+      "prompt": "/scope test-topic. At the PRD hop the author insists the PRD's upstream stay docs/prds/PRD-legacy-topic.md, an older PRD it extends, and refuses any other upstream. Each time the hop submits outcome: landed, prd_document holds on docs/upstream-direction.",
+      "expected_output": "The PRD hop's document gate fails on docs/upstream-direction each time the hop submits landed. The first failure's finding carries the rule's summary, and the agent tries to fix the document within the author's constraint. From the second failure the gate's standard error also carries the rule's full text between ::shirabe-rule:: and ::shirabe-rule-end::, which the agent reads instead of guessing. On the third failure the gate prints a ::shirabe-check-exit:: line naming docs/upstream-direction, count 3, state hop_prd and ends_at exit_abandonment. The rule can't be satisfied while the author keeps the upstream, so the agent submits outcome: check_unsatisfiable with check_exit_reason saying in one sentence why, rather than looping on landed, choosing bail, editing the gate, or submitting landed past it. koto routes hop_prd through check_exit to exit_abandonment, and the run finishes the abandonment exit with the triggering child's document kept on disk as it was committed.",
+      "files": [],
+      "expectations": [
+        "Plan reads the gate's full rule text from its standard error on the second failure rather than resubmitting landed unchanged",
+        "Plan submits outcome: check_unsatisfiable at hop_prd with a one-sentence check_exit_reason once the gate prints the ::shirabe-check-exit:: line, and does not submit landed again",
+        "Plan does not choose bail, edit the gate command or the rule registry, or claim the hop landed while prd_document fails",
+        "Plan routes the run through check_exit to exit_abandonment, treating the PRD hop as the triggering child and leaving every committed document on disk",
+        "Plan never invokes /design or /plan after taking the exit"
+      ]
     }
   ],
   "substrate_scenarios": {

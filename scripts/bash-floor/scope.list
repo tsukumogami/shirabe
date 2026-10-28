@@ -17,6 +17,7 @@ skills/scope/scripts/record-scope-exit_test.sh
 skills/scope/scripts/publish-scoping-pr_test.sh
 skills/scope/scripts/print-scope-exit_test.sh
 skills/scope/scripts/check-hop-document_test.sh
+skills/scope/scripts/scope-check-exit_test.sh
 # The document check and event scripts share the hop gate's validator
 # library; their stub validator and stub koto run every case on the floor.
 scripts/doc-check_test.sh

@@ -317,11 +317,17 @@ LADDER_EXITS='hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outc
 for pair in hop_brief:brief_document:outcome hop_prd:prd_document:outcome hop_design:design_document:outcome \
             hop_plan:plan_document:outcome fold:fold_documents:verdict; do
     st=${pair%%:*}; rest=${pair#*:}; g=${rest%%:*}; f=${rest#*:}
+    # The filters take the names through --arg: bash 3.2 splits a brace
+    # object written inside an escaped-quote filter in a command substitution.
     eq "$st has one check_unsatisfiable edge, to check_exit, on $g at 1, assigning the reason" \
-        "[{\"target\":\"check_exit\",\"when\":{\"$f\":\"check_unsatisfiable\",\"gates.$g.exit_code\":1},\"assign\":{\"check_exit_reason\":\"\${evidence.check_exit_reason}\"}}]" \
-        "$(q "[.states.$st.transitions[] | select(.when.$f == \"check_unsatisfiable\") | {target, when, assign: .context_assignments}]")"
+        "$(jq -cn --arg g "gates.$g.exit_code" --arg f "$f" \
+            '[{target: "check_exit", when: ({($g): 1, ($f): "check_unsatisfiable"} | to_entries | sort_by(.key) | from_entries),
+               assign: {check_exit_reason: "${evidence.check_exit_reason}"}}]')" \
+        "$(printf '%s' "$J" | jq -c --arg st "$st" --arg f "$f" \
+            '[.states[$st].transitions[] | select(.when[$f] == "check_unsatisfiable")
+              | {target, when: (.when | to_entries | sort_by(.key) | from_entries), assign: .context_assignments}]')"
     eq "$st accepts check_exit_reason as an optional string" '["string",false]' \
-        "$(q "[.states.$st.accepts.check_exit_reason | .type, (.required // false)]")"
+        "$(printf '%s' "$J" | jq -c --arg st "$st" '[.states[$st].accepts.check_exit_reason | .field_type, .required]')"
     eq "$st's $g command carries the ladder's four variables" 'true' \
         "$(q ".states.$st.gates.$g.command | contains(\"|| exit 2; SHIRABE_GATE_LOG=\\\"{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl\\\" SHIRABE_GATE_NAME=$g SHIRABE_GATE_EXITS=\\\"$LADDER_EXITS\\\" SHIRABE_GATE_EXIT_END=exit_abandonment \\\"{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh\\\"\")")"
 done
