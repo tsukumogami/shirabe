@@ -185,9 +185,18 @@ no_watcher_left() {
     left=$(ps -eo pid,args | grep -E "^ *[0-9]+ sleep $LEN\$")
     if [ -n "$left" ]; then bad "$1" "$left"; else ok "$1"; fi
 }
-if ! command -v ps >/dev/null 2>&1; then
-    ok "deadline: no watcher left behind (not checked: ps isn't on this PATH)"
+# ps isn't on run-tests.sh's PATH, so the check takes the system's and puts it
+# on PATH for this block alone, keeping it out of the cases that read
+# dispatch-common.sh's own ps fallback. With no ps to check with, the case
+# fails rather than passing unchecked.
+PS_BIN=$(command -v ps 2>/dev/null)
+for p in /bin/ps /usr/bin/ps; do [ -n "$PS_BIN" ] && break; [ -x "$p" ] && PS_BIN=$p; done
+if [ -z "$PS_BIN" ]; then
+    bad "deadline: no watcher left behind" "no ps on PATH, at /bin/ps or at /usr/bin/ps to check it with"
 else
+    mkdir -p "$T/ps-bin" && ln -sf "$PS_BIN" "$T/ps-bin/ps"
+    SAVED_PATH=$PATH
+    PATH="$T/ps-bin:$PATH"
     dc_with_deadline "$LEN" true
     no_watcher_left "deadline: no watcher left behind"
     # bash drops a TERM that reaches the watcher's sleep before it execs (the
@@ -204,6 +213,7 @@ else
     else
         no_watcher_left "deadline: no watcher left behind when its sleep ignores TERM"
     fi
+    PATH=$SAVED_PATH
 fi
 # bash also drops a TERM that reaches the watcher while `trap` installs its
 # handler. A watcher that ignores TERM for a second before its trap goes in
