@@ -650,6 +650,12 @@ leg, since one leg answers one session.
   the `warning=link-failed` record). Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
+- `scripts/fix-round.sh start --from <session>` — starts a fix round for a
+  run at `done` as `<session>-fix-<n>`, a new work-on session with the run's
+  variables and parent, and records it in both sessions (see **A Fix Round
+  After Done**). Exit codes: 0 started, 1 refused (`not-done`, `round-open`,
+  `cap`), 2 a koto call or a read of the run's log failed, 64 usage.
+  `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
   again, reading the count of unclosed blocking findings from the ledger
@@ -722,7 +728,8 @@ keeps a session that reaches a failure terminal either way, and on a child the f
 reaches its parent on that tick. `scripts/terminal-retention_test.sh` pins the behaviour.
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
-Use `koto rewind <WF>` to step back.
+Use `koto rewind <WF>` to step back. A rewind doesn't reopen a round at `done`;
+see **A Fix Round After Done**.
 
 ### Review Level
 
@@ -788,6 +795,34 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
 
 Ticking is not a substitute for the state read: a finished session answers
 `action: "done"` to any tick, which the loop would report as this run's outcome.
+
+### A Fix Round After Done
+
+A run at `done` whose pull request needs a fix after review or CI (a child of
+`/execute` reaches `done` once its pull request is open) can't go back: `done` is
+terminal, and `koto rewind` doesn't reopen a round. From `done` it steps back to
+`pr_creation` only, and the next submission returns to `done`. Take a fix round
+instead, from the branch the run worked on:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF>
+```
+
+It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variables
+(not its review level or unit kind, which the round sets again) and the run's
+parent, so a child's round is a child too and never cascades. It records the round
+in both sessions: `fix_round.json` in the round and a line in the run's
+`fix_rounds.jsonl`. Drive the round from `entry` with the run's entry evidence;
+its `analysis` takes the run's head as `impl_base`, so its panels and changed
+paths cover the fix commits only and its verification runs at the fix head. A
+round started from a round counts against the original run. The script refuses
+(`refused=<reason>`, exit 1, nothing started) a run not at `done` (`not-done`; a
+run at `done_blocked` walks back with `koto rewind`), a second round while one is
+open (`round-open`), and a fourth round (`cap`), which is a person's call.
+
+A coordinator reads the review round from the run its leg is bound to, so record
+the fix head's round there with `review-round.sh record --session <WF>` as well as
+in the round. koto stores context on a session at `done`.
 
 ### Decision Capture
 

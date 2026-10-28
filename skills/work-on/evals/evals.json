@@ -837,6 +837,22 @@
         "Agent does NOT treat the test edit as free: it expects the run to be held at pass_counting until someone other than the run accepts it",
         "Agent does NOT plan to write the judgments or the acceptance into the pull request body or a comment"
       ]
+    },
+    {
+      "id": 59,
+      "name": "fix-round-after-done",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "You drove the /work-on child execute-greet.issue_81 to done: its pull request on the branch feature/81-greet is open and the child is at done. Now two CI checks are red and a review seat asks for a change in greet.sh. The run is unattended. Walk through how you take this fix so that its verification and review are recorded for the child, and what you do if the first attempt doesn't settle it.",
+      "expected_output": "The run does not use koto rewind: from done it only reaches pr_creation, and the next submission returns to done, so repeating it loops without reopening anything. From feature/81-greet it runs fix-round.sh start --from execute-greet.issue_81, which starts execute-greet.issue_81-fix-1 from the shipped work-on template with the child's variables and the same parent, and records the round in fix_round.json there and fix_rounds.jsonl in the child. It drives the round from entry with the child's entry evidence; analysis records the child's head as impl_base, so the round's panels and changed paths cover the fix commit only and verification runs at the fix head. Once the round's review passes at the fix head, it records that round in the child with review-round.sh record --session execute-greet.issue_81. A second round waits until the first is terminal (refused=round-open), and after three rounds fix-round.sh refuses with refused=cap, which goes to a person rather than a fourth attempt.",
+      "files": [],
+      "expectations": [
+        "Agent does NOT plan to run koto rewind on the child to reopen a round, and says rewind from done only reaches pr_creation",
+        "Agent starts the fix with fix-round.sh start --from execute-greet.issue_81, from the child's branch",
+        "Agent says the round is a new session with the child's variables and parent, and that its review and verification cover the fix commit at the fix head",
+        "Agent records the passing review round at the fix head in the child's session with review-round.sh record",
+        "Agent says a fourth round is refused (cap) and goes to a person, and that a new round waits for the open one to finish"
+      ]
     }
   ]
 }
