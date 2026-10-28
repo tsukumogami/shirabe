@@ -46,11 +46,12 @@
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-check_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/land-check-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 LC="$PS/land-check.sh"
@@ -159,12 +160,12 @@ bt_record_body "[$HUMAN]"
 eq "the answer counts only when the start read was unread" "confirm 12 $H" "$(token)"
 scenario "$UNREAD" "$UNREAD"; answer permitted
 bt_record_body "[$HUMAN]"
-# The holds read comes first and goes through; the posture's read of the
-# Reversals row, after it, fails.
-echo 0 > "$KOTO_BOARD_DIR/get-count"; echo 1000 > "$KOTO_BOARD_DIR/get-fail-after"
-( PROG=t; HERE=$PS; . "$PS/state-common.sh"; rs_record_api "$T/one" "$S" > /dev/null 2>&1 )
-cp "$KOTO_BOARD_DIR/get-count" "$KOTO_BOARD_DIR/get-fail-after"; echo 0 > "$KOTO_BOARD_DIR/get-count"
-eq "a failed record read is confirm" "confirm 12 $H" "$(token)"
+# The holds and the posture's Reversals row come from the check's one read
+# (shirabe#1315), so no later read can fail on its own: a failed read
+# fails the check.
+echo 0 > "$KOTO_BOARD_DIR/get-count"; echo 0 > "$KOTO_BOARD_DIR/get-fail-after"
+bash "$LC" --session "$S" --repo acme/widgets > "$T/out" 2> "$T/err"
+eq "a failed record read exits 2, with no verdict" "2||1" "$?|$(cat "$T/out")|$(grep -c "the record couldn't be read for its pauses and holds" "$T/err")"
 rm -f "$KOTO_BOARD_DIR/get-fail-after" "$KOTO_BOARD_DIR/get-count"
 
 echo "== the verify capture =="
@@ -603,6 +604,53 @@ case "$(landjson | jq -r '.milestone_error // ""')" in
     "Feature 01 has no Evidence on main"*) ok "  ... and coord/land.json says so" ;;
     *) bad "  ... and coord/land.json says so" "$(landjson | jq -c .)" ;;
 esac
+
+echo "== land: the koto calls don't grow with the entries (shirabe#1315) =="
+# The check reads the four sections it judges (Holdings, Holds, Reversals,
+# Standing), each directly, and never lists record/, which names every entry:
+# the same permit on a record with a few entries and with 300 makes the same
+# koto calls. The real state-holding.sh stands in the tree here, so the
+# Holdings reads reach the session's keys too.
+# filler <session> <count>: plain entries numbered from 1, as the stand-in
+# keeps keys.
+filler() {
+    local d="$KOTO_BOARD_DIR/sessions/$1/ctx" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/record__entries__$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: a permitted run at land whose record holds
+# worker-f12's row on MV1 (the worker whose report carried the round), the
+# v2 roadmap on main, and <entries> entries, run as the template runs it (the
+# repository from that row); prints the token, the milestone coord/land.json
+# names, and the check's koto calls, kept in $T/kc.calls.
+koto_calls() {
+    scenario "$PERMIT" "$PERMIT"
+    jq -nc '{scope: {kind: "roadmap", name: "demo"},
+        holdings: [{unit: "MV1", entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
+            dispatch_status: "dispatched", return_path: "message", worker: "worker-f12", repo: "acme/widgets",
+            branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
+            pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
+        deferrals: [], side_effects: [], reversals: [], holds: [], standing: []}' > "$T/rec.json"
+    bt_record_here
+    main_roadmap "$T/v2.md"
+    filler "$S" "$1"
+    : > "$KOTO_BOARD_DIR/koto.calls"
+    OUT=$(bash "$LC" --session "$S" 2>"$T/err")
+    printf '%s %s %s' "${OUT% sealed:*}" "$(landjson | jq -r '.milestone.tag')" "$(wc -l < "$KOTO_BOARD_DIR/koto.calls" | tr -d ' ')"
+    cp "$KOTO_BOARD_DIR/koto.calls" "$T/kc.calls"
+}
+cp "$HERE/state-holding.sh" "$PS/state-holding.sh"
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+cp "$TD/board/stand-in-state-holding.sh" "$PS/state-holding.sh"
+eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... a permit at the head, with MV1's Evidence" "permit 12 $H MV1" "${FEW% *}"
+eq "  ... reading the four sections it judges" "holdings holds reversals standing" \
+    "$(sed -n 's|^context get [^ ]* record/\([a-z-]*\)$|\1|p' "$T/kc.calls" | grep -vx meta | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... never listing record/" 0 "$(grep -cE '^context list (.* )?--prefix record/( |$)' "$T/kc.calls")"
+
 echo
 echo "land-check: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

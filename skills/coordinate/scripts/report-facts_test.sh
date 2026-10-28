@@ -203,13 +203,52 @@ db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}
 report '{"event":"report","unit":"alpha"}'
 eq "a failed pull request read exits 2" 2 "$RC"
 db '.fail = []'
-export KOTO_NO_LIST_PREFIX=1
-report '{"event":"report","unit":"alpha"}'
-unset KOTO_NO_LIST_PREFIX
+# The read gets Holdings directly (shirabe#1315), so the failure is that get's.
+mkdir -p "$T/kfail"
+cat > "$T/kfail/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-} \${4:-}" = "context get record/holdings" ]; then
+    echo "koto stub: read failed" >&2
+    exit 1
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$T/kfail/koto"
+PATH="$T/kfail:$PATH" report '{"event":"report","unit":"alpha"}'
 eq "a failed record read exits 2" 2 "$RC"
 bash "$RF" --scope roadmap --name plugin-system --repo "$REPO" --no-seal >/dev/null 2>&1; eq "no session is a usage error" 64 $?
 bash "$RF" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal >/dev/null 2>&1; eq "--ref is a usage error" 64 $?
 OUT=$(RS_SESSION="$S" bash "$RF" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" --no-seal 2>/dev/null)
 eq "the override flags read the same record" "holding 12 alpha" "$OUT"
+
+echo "== report: the koto calls don't grow with the entries (shirabe#1315) =="
+# The facts get the Holdings section, directly, and never list record/,
+# which names every entry: the same report on a record with 3 entries and
+# with 300 makes the same koto calls, and reads no entry.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: the token for alpha's report, its seal dropped, and
+# the facts' koto calls on a record with <entries> entries, the calls kept in
+# $T/kc.calls.
+koto_calls() {
+    seed
+    filler "$S" "$1"
+    : > "$KOTO_STORE/calls"
+    report '{"event":"report","unit":"alpha"}'
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... the holding found" "holding 12 alpha" "${MANY% *}"
+eq "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
 
 done_tests report-facts

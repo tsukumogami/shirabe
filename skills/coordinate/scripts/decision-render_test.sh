@@ -189,15 +189,77 @@ eq "read: --list prints the section" '10 3,4' \
 eq "read: --read prints one entry" escalated "$(bash "$HERE/state-decision.sh" --session "$S" --read 3 | jq -r .state)"
 bash "$HERE/state-decision.sh" --session "$S" --read 8 >/dev/null 2>&1
 eq "read: --read of an entry the record doesn't hold exits 1" 1 "$?"
+# --list and --read read the Decisions section alone (shirabe#1315): a section
+# they don't read isn't theirs to judge, and one they read that isn't
+# canonical is refused.
+koto context get "$S" record/decisions > "$T/decisions.kept"
 printf '"not a record"' | koto context add "$S" record/holdings
+eq "read: a section --list doesn't read isn't judged" '10 3,4' \
+    "$(bash "$HERE/state-decision.sh" --session "$S" --list | jq -r '"\(.next) \([.entries[].decision] | join(","))"')"
+printf '"not a record"' | koto context add "$S" record/decisions
 bash "$HERE/state-decision.sh" --session "$S" --list >/dev/null 2>&1
 eq "read: a record that isn't canonical is refused with 10" 10 "$?"
-KOTO_NO_LIST_PREFIX=1 bash "$HERE/state-decision.sh" --session "$S" --list >/dev/null 2>&1
+koto context add "$S" record/decisions --from-file "$T/decisions.kept"
+# --list gets Decisions directly (shirabe#1315), so the failure is that get's.
+mkdir -p "$T/kfail"
+cat > "$T/kfail/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-} \${4:-}" = "context get record/decisions" ]; then
+    echo "koto stub: read failed" >&2
+    exit 1
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$T/kfail/koto"
+PATH="$T/kfail:$PATH" bash "$HERE/state-decision.sh" --session "$S" --list >/dev/null 2>&1
 eq "read: a failed read exits 2" 2 "$?"
 seed_session "$S" "$(record_json roadmap feat)"
 eq "read: a record with no section lists none" '{"next":1,"entries":[]}' "$(bash "$HERE/state-decision.sh" --session "$S" --list)"
 bash "$HERE/state-decision.sh" --session "$S" --read x >/dev/null 2>&1
 eq "read: an entry that isn't a number is usage" 64 "$?"
+
+echo "== render: the koto calls don't grow with the entries (shirabe#1315) =="
+# The render gets the Decisions section directly and never lists record/,
+# which names every entry: the same render on a record with a few entries and
+# with 300 makes the same koto calls.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries> <entries-json-array> <token> <state> <kind>: case_run's
+# run with <entries> entries in the record, then the render's verdict words
+# (its seals left out: they name the session) and its koto calls, the calls
+# kept in $T/kc.calls.
+koto_calls() {
+    local n=$1; shift
+    N=$((N + 1))
+    S="coordinate-roadmap-feat-c$N-$RUNSTAMP"
+    found_session "$S" "$(roadmap_vars feat | jq -c '.REPORTS_TO = ""')"
+    seed_session "$S" "$(record_json roadmap feat | jq -c --argjson e "$1" '.decisions = {next: 10, entries: $e}')"
+    log_to "$S" reconcile decision_next
+    log_capture "$S" DECISION_NEXT "$(bash "$HERE/coord-log.sh" seal --session "$S" --state decision_next --token "$2")"
+    log_to "$S" decision_next "$3"
+    filler "$S" "$n"
+    : > "$KOTO_STORE/calls"
+    OUT=$(bash "$R" --session "$S" --state "$3" --kind "$4" 2>"$T/err")
+    printf '%s %s' "$(printf '%s' "$OUT" | tr ' ' '\n' | grep -vE '^[a-z]*seal:' | tr '\n' ' ' | sed 's/ $//')" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+for kind in escalation:escalate:escalate:ESC withdrawal:withdraw:decision_withdraw:WITHDRAW \
+    reply:reply:decision_reply:SETTLED_W redirect:redirect:decision_redirect:REDIRECT; do
+    IFS=: read -r k w st v <<< "$kind"
+    case "$k" in escalation) tok="$w 3" ;; withdrawal) tok="$w 6" ;; reply) tok="$w 4" ;; redirect) tok="$w 7 12" ;; esac
+    FEW=$(koto_calls 3 "[${!v}]" "$tok" "$st" "$k")
+    MANY=$(koto_calls 300 "[${!v}]" "$tok" "$st" "$k")
+    case "${FEW##* }" in ''|*[!0-9]*) bad "$k: the render runs" "$FEW"; continue ;; esac
+    eq "$k: the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+    eq "  ... rendered" "message $k" "$(printf '%s' "$FEW" | cut -d' ' -f1-2)"
+    eq "  ... never listing record/" 0 "$(grep -cE '^context list (.* )?--prefix record/( |$)' "$T/kc.calls")"
+done
 
 tokens_ok decision-render
 done_tests decision-render

@@ -563,4 +563,36 @@ eq "every blocker a pick fixture names is a unit it lists or a done one" 0 \
 eq "fixtures cover a slice with a long done list, for every value but scope and await_decision" "ask_up,dispatch,hold,scope_ahead,send_execution" \
     "$(jq -rs '[.[] | select((.inputs.pick_facts | fromjson | .done | length) >= 150) | .expected] | sort | join(",")' "$FX")"
 
+echo "== pick: the koto calls don't grow with the entries (shirabe#1315) =="
+# The facts get the sections pick reads, each directly, and never list
+# record/, which names every entry: the same pick on a record with 3 entries
+# and with 300 makes the same koto calls, and reads no entry.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: the token pick-facts prints, its seal dropped, and its
+# koto calls for the first pick above on a record with <entries> entries, the
+# calls kept in $T/kc.calls.
+koto_calls() {
+    seed "$REC"; pr 21 OPEN true; pr 23 OPEN false
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+    session "$(roadmap_vars plugin-system)" roadmap-plugin-system
+    filler "$S" "$1"
+    : > "$KOTO_STORE/calls"
+    OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... the facts read pick" pick "${MANY% *}"
+eq "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+
 done_tests pick-facts

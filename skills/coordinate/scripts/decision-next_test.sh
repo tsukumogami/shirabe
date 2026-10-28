@@ -292,4 +292,39 @@ to pick; log_evidence "$S" pick '{"choice":"hold","rationale":"nothing to start"
 to decision_raise; to decision_next
 eq "after a later pick with another choice, a raise is judged by its stamp again" "unrecorded-raise" "$(word)"
 
+echo "== routing: the koto calls don't grow with the entries (shirabe#1315) =="
+# The routing gets the sections it reads, each directly, and never lists
+# record/, which names every entry: the same run on a record with a few
+# entries and with 300 makes the same koto calls.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <setup> <entries>: the routed verdict and its koto calls after
+# <setup> builds the run, its record given <entries> entries; the calls are
+# kept in $T/kc.calls.
+koto_calls() {
+    $1 > /dev/null
+    filler "$S" "$2"
+    : > "$KOTO_STORE/calls"
+    printf '%s %s' "$(next)" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+kc_take() { build take; }
+kc_parked() { parked_run "$(wrow "Feature 2" "decision 5")"; }
+for setup in kc_take kc_parked; do
+    FEW=$(koto_calls "$setup" 3)
+    MANY=$(koto_calls "$setup" 300)
+    case "${FEW##* }" in ''|*[!0-9]*) bad "$setup: the routing runs" "$FEW"; continue ;; esac
+    eq "$setup: the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+    eq "  ... never listing record/" 0 "$(grep -cE '^context list (.* )?--prefix record/( |$)' "$T/kc.calls")"
+    eval "VERDICT_$setup=\${FEW% *}"
+done
+eq "kc_take routes to take" "take 6" "$VERDICT_kc_take"
+eq "kc_parked is judged parked: clear" "clear" "$VERDICT_kc_parked"
+
 done_tests decision-next

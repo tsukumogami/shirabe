@@ -22,8 +22,10 @@
 #     first line that is neither a numbered item nor blank. An item's
 #     `(decision <n>)` is its citation only when there is a holding and entry
 #     <n>'s Source is `worker <topic>`, read from the row its latest unedited
-#     `decisions` entry holds when <n> is archived; any other citation is
-#     dropped;
+#     `decisions` entry holds when <n> is archived (the entries the
+#     record/archive/ markers name, or every entry on a record without
+#     markers or when a cited row is in no marked entry); any other citation
+#     is dropped;
 #   - every other line ending in `?`, and every other line the phrasing list
 #     marks as a decision (phrasing-lib.sh);
 #   - each marked `addressed` when the list's person-addressing patterns match.
@@ -96,6 +98,9 @@ WDR_CLOSING='New evidence reopened this decision, so the escalation is withdrawn
 RE_WDR='^Withdrawn: decision ([1-9][0-9]*) round ([1-9][0-9]*)\.$'
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-questions.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
+# One record read for the step: the holding row and the Decisions section
+# come from one read of those two sections (shirabe#1315).
+rs_once_begin "$T/once" "holdings decisions" || lib_die2 "cannot make a temporary directory"
 verdict() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$1" || lib_die2 "cannot seal the verdict"; exit 0; }
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 
@@ -312,8 +317,35 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
         | .[2:] | join("\t") | capture("\\(decision (?<n>[1-9][0-9]*)\\)") | .n | tonumber] | unique' "$T/all") \
         || lib_die2 "cannot read the citations"
     if printf '%s' "$SECTION" | jq -e --argjson c "$CITED" 'any((.archived // [])[]; . as $a | $c | index($a) != null)' > /dev/null; then
-        bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
-            || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+        # The decisions entries are the ones a record/archive/<n> marker names
+        # (shirabe#1315). A record imported before the markers has none, and
+        # one that gained a marked entry since may hold a cited row only in an
+        # unmarked one: either way every entry is read instead.
+        ES=${RS_SESSION:-$SESSION}
+        rs_list "$ES" record/archive/ "$T/marks" \
+            || { lib_scrub < "$T/marks.err" >&2; echo >&2; lib_die2 "cannot list the record's archive markers"; }
+        jq -r '.[] | select(test("^record/archive/[0-9]{6}$")) | ltrimstr("record/archive/")' "$T/marks" | LC_ALL=C sort > "$T/marked" \
+            || lib_die2 "the marker list is not JSON"
+        if [ -s "$T/marked" ]; then
+            : > "$T/entries.jsonl"
+            while IFS= read -r m; do
+                rs_key "$ES" "record/entries/$m" "$T/entry"
+                case $? in
+                    0) { cat "$T/entry"; printf '\n'; } >> "$T/entries.jsonl" ;;
+                    1) ;;
+                    *) lib_scrub < "$T/entry.err" >&2; echo >&2; lib_die2 "cannot read record/entries/$m" ;;
+                esac
+            done < "$T/marked"
+            jq -s -c 'map({kind, text, edited: false})' "$T/entries.jsonl" > "$T/entries.json" || lib_die2 "an entry key is not JSON"
+            jq -e -L "$HERE" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
+                [.[] | select(.kind == "decisions") | .text | d_archive_rows[] | .decision] as $held
+                | all(($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring; . as $n | $held | index($n) != null)' \
+                "$T/entries.json" > /dev/null || rm -f "$T/entries.json"
+        fi
+        if [ ! -s "$T/entries.json" ]; then
+            bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
+                || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+        fi
         OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
             ([.[] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
             | [($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring as $n
