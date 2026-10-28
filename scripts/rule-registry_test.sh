@@ -998,8 +998,10 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # rs- ids; plan/step-shape, roadmap/milestone-shape and
 # roadmap/reserved-sections (doc-check.sh gates) and rs-064 to rs-072, the
 # strategy, roadmap and vision juries' items, to 125 rules, 49 gates and 73
-# rs- ids.
-[ "$n" = 125 ] && [ "$gates" = 49 ] && [ "$rsn" = 73 ] && pass "the registry has 125 rules: 49 gates and 73 rs- ids" \
+# rs- ids; brief/summary-length, design/frontmatter-order,
+# design/provenance-opener, docs/schema-declared and docs/check-environment,
+# the /scope document gate's structural rules, to 130 rules and 54 gates.
+[ "$n" = 130 ] && [ "$gates" = 54 ] && [ "$rsn" = 73 ] && pass "the registry has 130 rules: 54 gates and 73 rs- ids" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -1015,7 +1017,7 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-00[4-6]$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
 jev_never=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[7-9]|1[0-9]|20)$")) | select(.withhold == "never")] | length' "$REG")
-[ "$never" = 52 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
+[ "$never" = 57 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
     && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-006 are eligible; the Jev criteria rs-007 to rs-020 are never" \
     || fail "withhold marking" "never=$never eligible=$eligible jev_never=$jev_never"
 
@@ -1039,14 +1041,23 @@ unexplained=$(jq -r '
 # The lifecycle fields: every active script entry at block since the landing
 # date with gates (an entry added later, at block since the day it was added:
 # red-first/no-red and red-first/no-green, test-change/held,
-# pr-body/workflow-content, the PR gate's three could-not-decide rules and the
-# three doc-check.sh gates), both retired script entries at retired, and
+# pr-body/workflow-content, the PR gate's three could-not-decide rules, the
+# three doc-check.sh gates, and the /scope document gate's docs/schema-declared
+# and docs/check-environment; its three notice rules, brief/summary-length,
+# design/frontmatter-order and design/provenance-opener, at warn since the day
+# they were added), both retired script entries at retired, and
 # nothing on any entry that isn't script-checked. An entry doc-check.sh checks
 # runs from a phase step, not a koto gate, so it has no gates to name.
 STAGE_SINCE=2026-10-16
 bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script" and .status == "active")
-    | select(.stage != "block"
-             or .stage_since != ({"pr-body/workflow-content": "2026-10-23",
+    | select(.stage != ({"brief/summary-length": "warn",
+                         "design/frontmatter-order": "warn",
+                         "design/provenance-opener": "warn"}[.id] // "block")
+             or .stage_since != ({"brief/summary-length": "2026-10-28",
+                                  "design/frontmatter-order": "2026-10-28",
+                                  "design/provenance-opener": "2026-10-28",
+                                  "docs/schema-declared": "2026-10-28",
+                                  "docs/check-environment": "2026-10-28","pr-body/workflow-content": "2026-10-23",
                                   "pr-body/pr-missing": "2026-10-27",
                                   "pr-body/body-missing": "2026-10-27",
                                   "pr-body/read-failed": "2026-10-27",
@@ -1061,7 +1072,7 @@ bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script
              or any(.gates[]; type != "string" or (test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)))
     | .id' "$REG")
 nactive=$(jq '[.rules[] | select(.check.kind == "script" and .status == "active")] | length' "$REG")
-[ -z "$bad" ] && [ "$nactive" = 45 ] && pass "all 45 active script entries are at block since their landing date, with gates unless doc-check.sh checks them" \
+[ -z "$bad" ] && [ "$nactive" = 50 ] && pass "all 50 active script entries are at their stage since their landing date, with gates unless doc-check.sh checks them" \
     || fail "active script stages" "n=$nactive bad: $bad"
 retired=$(jq -r '[.rules[] | select(.check.kind == "script" and .status == "retired") | "\(.id)=\(.stage)"] | join(",")' "$REG")
 [ "$retired" = "branch/no-wip-files=retired,panel/blocking-finding=retired" ] \
@@ -1114,11 +1125,11 @@ done < <(jq -r '.rules[] | select(.check.kind == "script" and .status == "active
 
 wrong=""
 for id in $(jq -r '.rules[] | select(.check.kind == "script") | .id' "$REG"); do
-    want=$(jq -r --arg id "$id" '.rules[] | select(.id == $id) | if .status == "retired" then "retired" else "block" end' "$REG")
+    want=$(jq -r --arg id "$id" '.rules[] | select(.id == $id) | if .status == "retired" then "retired" elif .stage == "warn" and .guards == ["none"] then "warn" else "block" end' "$REG")
     got=$("$SUT" stage "$id" 2>/dev/null) || got="rc=$?"
     [ "$got" = "$want" ] || wrong="$wrong $id=$got"
 done
-[ -z "$wrong" ] && pass "stage prints block for every active script entry and retired for the retired two" \
+[ -z "$wrong" ] && pass "stage prints block for every active script entry, warn for the three unguarded warn entries, and retired for the retired two" \
     || fail "stage on the real registry" "$wrong"
 "$SUT" stage rs-001 >/dev/null 2>&1 && fail "stage rs-001" "printed a stage for a review-shadow entry" \
     || pass "stage fails for a review-shadow entry on the real registry"

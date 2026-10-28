@@ -176,6 +176,40 @@ else
     fail "fixed-runner workflow (rc=$RC): $OUT"
 fi
 
+lint "$FIXTURES/push-only.yml"
+if [ "$RC" -eq 0 ]; then
+    pass "a matrix that drops macOS on every pull_request run passes, with no types listed"
+else
+    fail "push-only fixture (rc=$RC): $OUT"
+fi
+
+# Flipped, the event test keeps macOS on every pull request: neither shape.
+sed "s/github.event_name == 'pull_request' && '\[/github.event_name != 'pull_request' \&\& '[/" \
+    "$FIXTURES/push-only.yml" >"$T/push-only-flipped.yml"
+if ! grep -qF "github.event_name != 'pull_request' &&" "$T/push-only-flipped.yml"; then
+    fail "push-only-flipped workflow: the sed did not flip the matrix's event test"
+else
+    lint "$T/push-only-flipped.yml"
+    if [ "$RC" -eq 1 ] \
+        && has "push-only-flipped.yml: draft: job test runs shell suites on macOS" \
+        && has "github.event.pull_request.draft" \
+        && has "so it runs on the push to main and never on a pull request" \
+        && has "push-only-flipped.yml: draft: the pull_request trigger lacks opened, synchronize, reopened, ready_for_review"; then
+        pass "a matrix in neither shape fails, naming both, and the types are checked again"
+    else
+        fail "push-only-flipped workflow (rc=$RC): $OUT"
+    fi
+fi
+
+# The push-only matrix with a runner that names macOS outright still runs it.
+sed 's/runs-on: \${{ matrix.os }}/runs-on: macos-latest/' "$FIXTURES/push-only.yml" >"$T/push-only-fixed-runner.yml"
+lint "$T/push-only-fixed-runner.yml"
+if [ "$RC" -eq 1 ] && has "push-only-fixed-runner.yml: draft: job test runs shell suites on macOS"; then
+    pass "a push-only job whose runs-on names macOS instead of the matrix fails"
+else
+    fail "push-only-fixed-runner workflow (rc=$RC): $OUT"
+fi
+
 lint "$FIXTURES/clean.yml" "$FIXTURES/plain-bash.yml"
 if [ "$RC" -eq 1 ] && has "plain-bash.yml" && ! has "clean.yml:"; then
     pass "several workflows at once: only the failing one is named"

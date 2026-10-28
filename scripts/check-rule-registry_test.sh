@@ -206,6 +206,18 @@ expect_problem "an eligible entry with check none" "$RS: check.kind none require
 reg "$(sel $G2).guards = [\"none\"]"
 expect_problem "a gate entry guarding none" "$G2: a gate entry needs a guard other than none, or a backstop"
 
+# A script entry at shadow or warn never fails its gate, so it may guard
+# nothing; at block it may not.
+WN=brief/summary-length
+reg "$(sel docs/required-fields).guards = [\"none\"] | $(sel docs/required-fields).stage = \"warn\""
+expect_clean "a script gate entry at warn guarding nothing passes"
+reg "$(sel docs/required-fields).guards = [\"none\"] | $(sel docs/required-fields).stage = \"shadow\""
+expect_clean "a script gate entry at shadow guarding nothing passes"
+reg "$(sel $WN).stage = \"block\""
+expect_problem "a script gate entry at block guarding nothing" "$WN: a gate entry needs a guard other than none, or a backstop"
+reg "$(sel $WN).status = \"retired\" | $(sel $WN).stage = \"retired\""
+expect_problem "a retired script gate entry guarding nothing" "$WN: a gate entry needs a guard other than none, or a backstop"
+
 reg "$(sel $G2).guards = [\"none\"] | $(sel $G2).withhold = \"eligible\""
 expect_problem "an eligible gate entry with no backstop" "$G2: a gate entry needs a guard other than none, or a backstop"
 
@@ -425,8 +437,8 @@ expect_problem "an active script entry with no gates" "$G: gates is empty on an 
 
 # scripts/doc-check.sh runs from a skill's phase step, not a koto gate, so an
 # entry it checks may have no gates; the same entry under another check may not.
-reg "$(sel plan/step-shape).check.path = \"skills/scope/scripts/check-hop-document.sh\""
-expect_problem "an empty gates list on an entry another script checks" "plan/step-shape: gates is empty on an active entry"
+reg "$(sel roadmap/milestone-shape).check.path = \"skills/scope/scripts/check-hop-document.sh\""
+expect_problem "an empty gates list on an entry another script checks" "roadmap/milestone-shape: gates is empty on an active entry"
 
 reg "$(sel rs-027).held_by = \"rs-026\""
 expect_problem "a held_by naming an entry no script checks" "rs-027: held_by \"rs-026\" is not an active script-checked entry"
@@ -703,6 +715,25 @@ expect_base "transition: a status retired entry's stage changed fails" 1 "$R: a 
     '.' "$(sel $R).stage = \"shadow\" | $(sel $R).stage_since = \"$LATER\""
 expect_base "transition: a protected guard dropped while leaving block fails" 1 "$G2: drops protected guard(s) publish while at stage warn" \
     '.' "$(sel $G2).guards = [\"pr-create\"] | $(sel $G2).stage = \"warn\" | $(sel $G2).stage_since = \"$LATER\" | $(sel $G2).stage_backstops = [$BS_PR] | $(sel $G2).notes = \"why\""
+
+# The warn exception, against a base: a step up to block must add a protected
+# guard, and a new entry can't take a code a base entry holds, so a blocking
+# rule can't be deleted and re-added unguarded at warn under a new id.
+expect_base "transition: warn to block guarding nothing fails" 1 \
+    "$WN: steps from warn to block guarding nothing; give it a protected guard" \
+    '.' "$(sel $WN).stage = \"block\" | $(sel $WN).stage_since = \"$LATER\""
+expect_base "transition: warn to block adding protected guards passes" 0 "$OK" \
+    '.' "$(sel $WN).stage = \"block\" | $(sel $WN).stage_since = \"$LATER\" | $(sel $WN).guards = [\"pr-create\", \"publish\"]"
+RA=docs/required-fields
+expect_base "transition: a blocking entry deleted and re-added unguarded at warn under a new id fails" 1 \
+    "$RA-again: a new entry takes alias FC01, which an entry at the base holds" \
+    '.' "(.rules += [$(sel $RA) | .id = \"$RA-again\" | .stage = \"warn\" | .guards = [\"none\"]]) | del(.rules[] | select(.id == \"$RA\"))"
+expect_base "transition: a new entry taking a retired base entry's alias fails" 1 \
+    "$RA-again: a new entry takes alias FC01" \
+    "$(sel $RA).status = \"retired\" | $(sel $RA).stage = \"retired\" | $(sel $RA).aliases = [\"FC01\"]" \
+    "$(sel $RA).status = \"retired\" | $(sel $RA).stage = \"retired\" | $(sel $RA).aliases = [] | .rules += [$(sel $RA) | .id = \"$RA-again\" | .status = \"active\" | .stage = \"warn\" | .guards = [\"none\"] | .aliases = [\"FC01\"]]"
+expect_base "transition: a new entry with an alias no base entry holds passes" 0 "$OK" \
+    "del($(sel $WN))" '.'
 
 b=$(printf 'not json\n' | base_commit)
 run_check --base "$b"

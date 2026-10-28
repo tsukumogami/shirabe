@@ -1,5 +1,7 @@
 # hop-document-fixtures.sh -- minimal valid topic documents for
-# check-hop-document_test.sh.
+# check-hop-document_test.sh. Valid includes the notice-level rules the gate
+# reports: the BRIEF's summaries span two to four lines (FC23) and the
+# DESIGN's keys are in order (FC24).
 # Sourced. Each writer prints a document for topic $1 on stdout.
 
 fx_brief() {
@@ -9,8 +11,10 @@ schema: brief/v1
 status: Draft
 problem: |
   Authors lose track of which documents a run wrote.
+  Nothing lists them when the run ends.
 outcome: |
   Authors can see every document a run wrote.
+  One list names them all.
 ---
 
 # BRIEF: $1

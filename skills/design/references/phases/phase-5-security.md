@@ -28,7 +28,7 @@ recommended outcome. Skip to Phase 6.
 
 ### 5.1 Launch Security Researcher
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md --scratch <scratch>`. `<scratch>` is a directory from `skill-session.sh scratch` that holds only the packet and is removed once the round is aggregated.
 
 Before launching the researcher, commit the draft as Phases 3 and 4 left it
 (`docs(design): draft design for <topic>`) and record the sections it wrote,

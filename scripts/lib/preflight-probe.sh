@@ -320,6 +320,16 @@ preflight_probe_version() {
     _preflight_probe_bounded "$1" version
 }
 
+# preflight_probe_check_code <path> <file>
+#
+# Runs `<path> validate --format json --check FC23 -- <file>` under the same
+# bounds and sets the same two outputs. A validator that knows FC23 prints its
+# JSON verdict on <file>; an older one refuses the code on stderr and prints
+# nothing on stdout. The argv is fixed here; only the scratch file varies.
+preflight_probe_check_code() {
+    _preflight_probe_bounded "$1" validate --format json --check FC23 -- "$2"
+}
+
 # _preflight_probe_bounded <path> [<arg>...]
 #
 # The bounded call itself: `<path> [<arg>...]` exactly as given, with stdin

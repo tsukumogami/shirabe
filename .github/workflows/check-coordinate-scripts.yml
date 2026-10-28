@@ -1,18 +1,31 @@
 name: Check coordinate scripts
 
 # This workflow runs on a pull request and again on the push its merge makes
-# to main. A merge leaves the pull request's own run behind: its macOS leg, the
-# coordinate suite on the bash 3.2 floor, may still be queued or running, and
-# cancel-closed-pr-macos-runs.yml cancels it once the pull request closes,
-# giving that result up on purpose, with macos-floor.yml checking main once a
-# day. The push run is the merge commit's own run on both platforms, so a
-# change to these paths is checked on the floor as it lands rather than at
-# the next daily run (shirabe#1077).
+# to main. A pull request run is Linux only, draft or ready. The macOS leg,
+# the coordinate suite on the bash 3.2 floor, runs on the push to main, the
+# merge commit's own run, so a change to these paths is checked on the floor
+# as it lands (shirabe#1077), and macos-floor.yml runs it on main once a day.
+#
+# The leg left pull requests in shirabe#1342. A two-week read of its runs
+# (shirabe#1335) found no portability break among its macOS-only failures,
+# nothing that worked on bash 5 with GNU tools and broke on bash 3.2 with BSD
+# tools. The one product bug it caught alone, the dc_with_deadline watcher
+# leak (shirabe#947), got past Linux only because the Linux leg skipped
+# dispatch-common's watcher check, and shirabe#1328 made Linux run it. A bash
+# 3.2 regression now shows up in the merge commit's run instead of on the
+# pull request, so before pushing a change to these paths, run
+#
+#   scripts/check-bash-floor.sh coordinate
+#
+# which reaches a bash 3.2 through /bin/bash on macOS, or through docker
+# elsewhere. The docker image's tools are GNU, so only a run on macOS also
+# catches a GNU-only flag that BSD tools refuse.
 
 on:
   # The two paths lists below must match; edit both together.
   pull_request:
-    # ready_for_review runs the macOS leg a draft skipped.
+    # The other suite workflows' types. Here ready_for_review starts a
+    # Linux-only run like any other pull request event.
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'skills/coordinate/**'
@@ -50,7 +63,7 @@ env:
   GITHUB_TOKEN: ${{ github.token }}
 
 # A newer push to the same pull request supersedes this run, so it is
-# cancelled rather than left holding a macOS runner. The group is this
+# cancelled rather than run to the end. The group is this
 # workflow plus the pull request; any other event groups on its own commit
 # and is never cancelled. A push to main has no pull request number, so it
 # groups on its commit and runs to the end whatever a pull request does next.
@@ -62,13 +75,13 @@ jobs:
   # The codec, the check scripts and the write scripts need bash, git and jq,
   # and drive test-local gh and koto stand-ins. run-tests.sh shadows the real
   # gh and koto and unsets the tokens, so a test that reached either fails.
-  # Both platforms, to keep the bash 3.2 floor honest on macOS.
+  # Both platforms on a push, to keep the bash 3.2 floor honest on macOS.
   test-coordinate-scripts:
     strategy:
       matrix:
-        # No macOS leg while the pull request is a draft (shirabe#1300);
+        # No macOS leg on any pull request run, draft or ready (shirabe#1342);
         # scripts/check-macos-floor-legs.sh holds the one copy of this line.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

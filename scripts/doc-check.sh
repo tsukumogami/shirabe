@@ -33,9 +33,10 @@
 #              required section the phase hasn't reached: a section-reading
 #              rule's sections (`rule_sections`), or for docs/required-sections
 #              a missing section outside the phase's reached list
-#   fail       a violation (an error-level finding, or a banned word) maps to
-#              the rule and the not-ready test doesn't apply; a reached
-#              required section that is missing fails
+#   fail       a violation (an error-level finding, a banned word, a notice
+#              doc-validate.sh selects by code, or a schema-only skip read as
+#              SCHEMA) maps to the rule and the not-ready test doesn't apply;
+#              a reached required section that is missing fails
 #   error      no validator verdict (a missing or untrusted validator, a failed
 #              canary, a run that gave no complete envelope), or a code that
 #              maps to no check-held rule (a `defect` line on stderr names it),
@@ -96,7 +97,7 @@ PLUGIN_ROOT=$(cd "$HERE/.." && pwd -P)
 KOTO="${KOTO_BIN:-koto}"
 START_DIR=$(pwd -P)
 MESSAGE_CAP=400
-RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections plan/step-shape roadmap/reserved-sections roadmap/milestone-shape"
+RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections plan/step-shape roadmap/reserved-sections roadmap/milestone-shape brief/summary-length design/frontmatter-order design/provenance-opener docs/schema-declared"
 
 usage() {
     cat >&2 <<'EOF'
