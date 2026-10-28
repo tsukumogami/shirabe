@@ -422,13 +422,13 @@ unset STUB_PID
 # --- the script's shape ------------------------------------------------------------------
 
 code=$(grep -v '^[[:space:]]*#' "$CHECK")
-if printf '%s\n' "$code" | grep -q '^\. "\$PLUGIN_ROOT/scripts/lib/doc-validate.sh"' \
-    && ! printf '%s\n' "$code" | grep -q 'shirabe validate'; then
+if grep -q '^\. "\$PLUGIN_ROOT/scripts/lib/doc-validate.sh"' <<< "$code" \
+    && ! grep -q 'shirabe validate' <<< "$code"; then
     pass "it sources scripts/lib/doc-validate.sh and runs no validator of its own"
 else
     fail "doc-validate.sh: the script runs the validator outside the library"
 fi
-! printf '%s\n' "$code" | grep -q -e 'set -e' -e 'declare -A' -e 'koto' \
+! grep -q -e 'set -e' -e 'declare -A' -e 'koto' <<< "$code" \
     && pass "no set -e, no declare -A, no koto call" || fail "shape: set -e, declare -A or koto in the script"
 
 echo
