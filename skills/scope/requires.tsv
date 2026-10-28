@@ -14,6 +14,13 @@
 # document's presence. SCHEMA is in every list it passes, because a run that
 # deselects it reports clean on a document the validator checked nothing of.
 #
+# The hop gates' document check (check-hop-document.sh) reports the
+# validator's FC23 to FC25 notices, and its canary fails on a validator that
+# predates them. So at load the preflight probes `shirabe validate --check
+# FC23`, which an older validator refuses as an unknown code, and names the
+# release to upgrade to (scripts/lib/preflight-minimum.sh); the record below
+# already declares `--check`.
+#
 # git backs the child-doc blob-hash drift check, `git fetch`, `git ls-files`,
 # `git commit -m`, and the absorb path's `git rm`.
 #

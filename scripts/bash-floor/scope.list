@@ -25,3 +25,4 @@ scripts/doc-events_test.sh
 scripts/review-events_test.sh
 scripts/doc-check-wiring_test.sh
 scripts/doc-shadow-check_test.sh
+scripts/doc-corpus-check_test.sh
