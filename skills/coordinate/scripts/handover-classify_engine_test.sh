@@ -18,7 +18,7 @@
 #   3. the live worker told its address (the agent's --told), the gate's gap
 #      is feat-3's alone; a second classification prints `missing feat-3`
 #      only, and feat-2 stays pending while it hasn't reported;
-#   4. feat-3 dealt with by hand, the gate passes with feat-2 pending and the
+#   4. feat-3 recorded told by the fixture, the gate passes with feat-2 pending and the
 #      run reaches wait; feat-2's first report there turns it told on the next
 #      classification, which prints `told feat-2`, and one more prints
 #      nothing.
@@ -139,8 +139,10 @@ eq "3: a second classification prints only feat-3 missing" "missing feat-3" "$HC
 eq "3: feat-2 stays pending without a report" "pending:feat-2 told:feat-1" "$(run_rows)"
 
 echo "== 4. the pending worker's first report turns it told =="
+# A fixture shortcut, not how a missing worker is resolved: feat-3 is recorded
+# told only so the gate passes and the run can reach wait for feat-2's report.
 write_as_agent state-stored-set.sh --told feat-3 --by coord-test
-eq "4: feat-3's holding dealt with by hand" 0 $?
+eq "4: feat-3 recorded told by the fixture, to clear the gate" 0 $?
 eq "4: the gate passes with feat-2 pending, and the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "4: hold reaches wait" wait "$(at --with-data '{"choice":"hold"}')"
 AFTER=$(at --with-data '{"event":"report","unit":"feat-2","report":"Feature 2 is under way; no pull request yet."}')
