@@ -177,6 +177,13 @@ runner. A new script in an existing suite goes on that suite's list, and the
 workflow's path filter names the list, so the change re-runs that suite's
 floor and no other.
 
+The macOS leg skips draft pull requests. A suite workflow's matrix takes its
+`os` from the one expression the lint holds, which drops `macos-latest` while
+the pull request is a draft, and its `pull_request` trigger lists
+`ready_for_review`, so marking the pull request ready runs the macOS leg on
+the same head. Copy both from an existing suite workflow; the lint fails a
+workflow that differs.
+
 Do not rely on a grep for `declare -A` and friends. A pattern list only catches
 what its author remembered - the sweep that fixed `plan-to-tasks.sh` found
 `declare -A` by grep and missed a bash 4.3 nameref entirely. Run the suite.
