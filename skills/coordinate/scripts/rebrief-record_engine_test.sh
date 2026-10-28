@@ -98,7 +98,11 @@ fi
 echo "== worker_gone, its instance still there =="
 if to_rebrief; then
     : > "$T/work/.niwa/workspace.toml"
-    export NIWA_LIST="[{\"session_name\":\"feat_1-0123abcd\",\"path\":\"$T/inst\"}]"
+    # niwa names feat-1's session <slug>-<8 hex>; the name is built from its
+    # parts, as the other suites' niwa stand-ins do.
+    SUFFIX=0123abcd
+    NIWA_LIST=$(jq -nc --arg n "feat_1-$SUFFIX" --arg p "$T/inst" '[{session_name: $n, path: $p}]')
+    export NIWA_LIST
     ST=$(at --with-data '{"sent":"worker_gone"}')
     unset NIWA_LIST
     rm -f "$T/work/.niwa/workspace.toml"
