@@ -35,9 +35,22 @@
 //! this: a session captured by stdin `session_id` renders when `render`
 //! resolves the same id from `CLAUDE_CODE_SESSION_ID`.
 //!
+//! Live state and a refused check rollup: each row is read with
+//! `gh pr view --json state,isDraft,statusCheckRollup,reviewDecision,title`.
+//! Under a fine-grained token GitHub can refuse the rollup on some
+//! repositories, failing the whole read with `Resource not accessible`. On
+//! that refusal only, the row is read again without the rollup, so it keeps
+//! its live state, draft flag, review decision and title, and its CI token
+//! comes from the work-on skill's `pr-checks.sh` (the gates' check read),
+//! or is `ci:unknown` when that read can't answer. `ci:unknown` is never
+//! passing. Any other `gh` failure still renders the offline block.
+//!
 //! Env seams: `WS_RENDER_INTERVAL` (default 300s), `WS_ABSENCE_THRESHOLD`
 //! (default 1800s), `WS_STORE_DIR` (override store dir), `WS_NOW` (override
-//! "now" epoch secs), `WS_GH` (override the `gh` binary path).
+//! "now" epoch secs), `WS_GH` (override the `gh` binary path), `WS_PR_CHECKS`
+//! (override the `pr-checks.sh` path; otherwise
+//! `$CLAUDE_PLUGIN_ROOT/skills/work-on/scripts/pr-checks.sh`, and never a
+//! lookup on PATH or in the working directory).
 
 use std::fs;
 use std::io::{Read, Write};
@@ -172,6 +185,11 @@ fn cmd_spec() {
     println!("{MARKER}");
     println!("one line per pull request (attention-first):");
     println!("  owner/repo#N | state-tokens | title | bare-URL");
+    println!("state-tokens: open|draft|merged|closed, then for an open or draft PR one of");
+    println!("  ci:passing|ci:pending|ci:failing|ci:none|ci:unknown, then optionally");
+    println!("  review:approved|review:changes_requested, then agent-asserted for a tracked row");
+    println!("  (ci:unknown: the check read was refused and its fallback could not answer;");
+    println!("  never passing)");
     println!("updated <ISO-8601 UTC>   (freshness line; a terminal PR shows once then drops)");
     println!();
     println!("Subcommands: capture, absence, compact, render, track, spec");
@@ -228,6 +246,24 @@ fn nonempty_env(name: &str) -> Option<String> {
 /// `gh` (resolved on PATH).
 fn gh_bin() -> String {
     nonempty_env("WS_GH").unwrap_or_else(|| "gh".to_string())
+}
+
+/// The work-on skill's `pr-checks.sh`, found only from an explicit place:
+/// `WS_PR_CHECKS` (tests), else `$CLAUDE_PLUGIN_ROOT/skills/work-on/scripts/
+/// pr-checks.sh`. A relative path or a missing file is `None`, so the script
+/// is never looked up on PATH or in the working directory.
+fn pr_checks_script() -> Option<PathBuf> {
+    let path = nonempty_env("WS_PR_CHECKS")
+        .map(PathBuf::from)
+        .or_else(|| {
+            nonempty_env("CLAUDE_PLUGIN_ROOT")
+                .map(|root| PathBuf::from(root).join("skills/work-on/scripts/pr-checks.sh"))
+        })?;
+    if path.is_absolute() && path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 fn render_interval() -> i64 {
@@ -662,34 +698,105 @@ struct StateInfo {
     title: String,
 }
 
-/// Read-only `gh` view of a single PR as JSON. argv array, never a shell
-/// string; never interpolate an extracted value into `eval`/`sh -c`.
-/// Returns `None` on a non-zero exit or empty stdout (treated as offline).
-fn gh_view_json(url: &str) -> Option<String> {
+/// A live read of one PR.
+enum LiveView {
+    /// The read with the check rollup.
+    Full(String),
+    /// GitHub refused the rollup; the same PR read without it.
+    NoRollup(String),
+}
+
+/// Read-only `gh` view of a single PR as JSON. Tries today's read, rollup
+/// included, first; only when that fails and gh's stderr says `Resource not
+/// accessible` (a fine-grained token refused the rollup) is the PR read
+/// again without it. Returns `None` on any other failure, or when the second
+/// read fails too (treated as offline).
+fn gh_view_json(url: &str) -> Option<LiveView> {
+    match gh_pr_view(url, "state,isDraft,statusCheckRollup,reviewDecision,title") {
+        Ok(json) => Some(LiveView::Full(json)),
+        Err(stderr) if stderr.contains("Resource not accessible") => {
+            gh_pr_view(url, "state,isDraft,reviewDecision,title")
+                .ok()
+                .map(LiveView::NoRollup)
+        }
+        Err(_) => None,
+    }
+}
+
+/// One `gh pr view <url> --json <fields>`. argv array, never a shell string;
+/// never interpolate an extracted value into `eval`/`sh -c`. `Err` carries
+/// gh's stderr (empty when gh could not run or printed nothing).
+fn gh_pr_view(url: &str, fields: &str) -> Result<String, String> {
     let out = Command::new(gh_bin())
-        .args([
-            "pr",
-            "view",
-            url,
-            "--json",
-            "state,isDraft,statusCheckRollup,reviewDecision,title",
-        ])
+        .args(["pr", "view", url, "--json", fields])
         .output()
-        .ok()?;
+        .map_err(|_| String::new())?;
     if !out.status.success() {
-        return None;
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
     }
     let s = String::from_utf8_lossy(&out.stdout).into_owned();
     if s.trim().is_empty() {
-        None
+        Err(String::new())
     } else {
-        Some(s)
+        Ok(s)
     }
 }
 
 fn parse_state_info(json: &str) -> Option<StateInfo> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     Some(state_info(&v))
+}
+
+/// The CI token for a row whose rollup GitHub refused, from `pr-checks.sh
+/// <url> --json bucket`, read as the gates read it: a JSON array on stdout
+/// is the list whatever the exit, and `no checks reported` is no checks.
+/// Anything else (no script, another failure, output that isn't a list) is
+/// `unknown`, which is never passing.
+fn pr_checks_ci(url: &str) -> String {
+    let script = match pr_checks_script() {
+        Some(p) => p,
+        None => return "unknown".to_string(),
+    };
+    let out = match Command::new(script)
+        .args([url, "--json", "bucket"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return "unknown".to_string(),
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if let Ok(serde_json::Value::Array(entries)) = serde_json::from_str(&stdout) {
+        return ci_from_buckets(&entries).to_string();
+    }
+    if String::from_utf8_lossy(&out.stderr).contains("no checks reported") {
+        return String::new();
+    }
+    "unknown".to_string()
+}
+
+/// Fold `pr-checks.sh` buckets into a CI token: any fail, cancel or
+/// unreadable is failing, then any pending is pending; passing only when
+/// every entry is pass or skipping. A bucket outside those (or missing) is
+/// unknown. An empty list is no checks ("").
+fn ci_from_buckets(entries: &[serde_json::Value]) -> &'static str {
+    let buckets: Vec<&str> = entries
+        .iter()
+        .map(|e| e.get("bucket").and_then(|b| b.as_str()).unwrap_or(""))
+        .collect();
+    if buckets
+        .iter()
+        .any(|b| matches!(*b, "fail" | "cancel" | "unreadable"))
+    {
+        "failing"
+    } else if buckets.contains(&"pending") {
+        "pending"
+    } else if buckets.is_empty() {
+        ""
+    } else if buckets.iter().all(|b| matches!(*b, "pass" | "skipping")) {
+        "passing"
+    } else {
+        "unknown"
+    }
 }
 
 /// Port of the reference `JQ_PROG`: derive the display tokens from a
@@ -836,14 +943,21 @@ fn render_block(store: &Path, sid: &str, consume: bool) -> Option<String> {
     let mut outs: Vec<Out> = Vec::new();
 
     for (i, r) in rows.iter().enumerate() {
-        let json = match gh_view_json(&r.url) {
-            Some(j) => j,
-            None => {
-                offline = true;
-                break;
-            }
+        // A refused rollup keeps the row live; its CI token comes from
+        // pr-checks.sh instead (see the module header). A terminal PR shows
+        // no CI token, so its checks are not read.
+        let info = match gh_view_json(&r.url) {
+            Some(LiveView::Full(json)) => parse_state_info(&json),
+            Some(LiveView::NoRollup(json)) => parse_state_info(&json).map(|mut info| {
+                let st = info.state.to_ascii_uppercase();
+                if st != "MERGED" && st != "CLOSED" {
+                    info.ci = pr_checks_ci(&r.url);
+                }
+                info
+            }),
+            None => None,
         };
-        let info = match parse_state_info(&json) {
+        let info = match info {
             Some(x) => x,
             None => {
                 offline = true;
@@ -895,7 +1009,8 @@ fn render_block(store: &Path, sid: &str, consume: bool) -> Option<String> {
         }
 
         // attention-first buckets: 1=needs attention, 2=in progress,
-        // 3=settled.
+        // 3=settled. ci:unknown sits in progress, like ci:none: it is a gap
+        // in what the token can read, not a known failure.
         let bucket = if terminal {
             3u8
         } else if info.ci == "failing" || rvu == "CHANGES_REQUESTED" {
@@ -1285,7 +1400,8 @@ fn cmd_track(urls: &[String], session: Option<&str>) {
             continue;
         }
         // Live confirmation the PR is real; an offline `gh` or a nonexistent
-        // PR yields no append (the fail-safe boundary, same as capture).
+        // PR yields no append (the fail-safe boundary, same as capture). A
+        // refused rollup is retried without it, so a real PR still confirms.
         if gh_view_json(url).is_none() {
             println!("rejected (PR not found or gh unavailable): {url}");
             continue;
