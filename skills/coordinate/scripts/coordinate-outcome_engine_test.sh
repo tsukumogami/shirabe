@@ -45,9 +45,12 @@
 #      on the predecessor is refused naming that successor.
 # Every refusal also leaves the scope's session list, every session's
 # record/, legs/, taken_legs and leg_children keys (each with its value's
-# digest), every session's log line count and its cancellations as they
-# were. The interrupted takeovers are chained: each case's successor is the
-# predecessor of the next, taken over by the other synthetic session.
+# digest), every session's log (byte for byte; on a koto without the fence,
+# every line but koto's own context_read events, which that koto writes to the
+# log on each read) and its cancellations as they were, and a non-read write
+# to the log is shown to fail that check. The interrupted takeovers are
+# chained: each case's successor is the predecessor of the next, taken over by
+# the other synthetic session.
 #
 # The koto calls a case interrupts or holds are named by what a takeover
 # makes them as (logged once): the predecessor's second `status` (the
@@ -137,15 +140,29 @@ keyset() { # keyset <session>: every carried key but record/meta and record/run,
         printf '%s %s\n' "$k" "$(kget "$1" "$k" | $SHA256 | cut -d' ' -f1)"
     done
 }
+# log_kept <log>: the log's lines a refusal must leave as they were, raw and in
+# order. On a koto with the fence that is every byte of the log: reads never
+# reach it there (koto writes its read trail, the context_read events, to a
+# file of their own). A koto without the fence (the floor's) appends a
+# context_read event to the log itself for every `context get` and `context
+# exists`, so any read of the run, this suite's own key reads included, grows
+# it; there only the lines whose type is exactly context_read are left out,
+# and every other line is still compared verbatim.
+log_kept() {
+    if [ "$SUPERSEDE" = 1 ]; then cat "$1"
+    else jq -R -r 'select((try (fromjson | .type) catch null) != "context_read")' "$1"
+    fi
+}
 # snapshot <name>: what a refusal must leave as it found it: each of the
-# scope's sessions with its log's line count and cancellations, and every
-# record/, legs/, taken_legs and leg_children key it holds with its value's
-# digest.
+# scope's sessions with its log's kept lines (log_kept: their count and
+# digest) and cancellations, and every record/, legs/, taken_legs and
+# leg_children key it holds with its value's digest.
 snapshot() {
     local s p k log
     for s in $(scope_sessions "$1"); do
         log=$(logf_of "$s")
-        printf '%s lines=%s cancelled=%s\n' "$s" "$(wc -l < "$log" | tr -d ' ')" \
+        printf '%s lines=%s log=%s cancelled=%s\n' "$s" "$(log_kept "$log" | wc -l | tr -d ' ')" \
+            "$(log_kept "$log" | $SHA256 | cut -d' ' -f1)" \
             "$(jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$log")"
         for p in record/ legs/ taken_legs leg_children; do
             (cd "$T/work" && koto context list "$s" --prefix "$p") | jq -r '.[]'
@@ -167,6 +184,20 @@ refused() {
         d=$(diff <(printf '%s\n' "$4") <(printf '%s\n' "$now"))
         bad "$1:   ... and writing nothing: the sessions, their keys, logs and cancellations are as they were" "$(head -n 20 <<< "$d")"
     fi
+}
+# append_caught <label> <name> <session>: the snapshot sees a write to the
+# session's log that is not a read: a key outside the snapshot's prefixes is
+# added and removed, so the log alone changes, and the snapshot must differ.
+append_caught() {
+    local before now
+    before=$(snapshot "$2")
+    printf '"probe"' > "$T/probe.json"
+    (cd "$T/work" && koto context add "$3" probe/append --from-file "$T/probe.json" > /dev/null && koto context remove "$3" probe/append > /dev/null) \
+        || { bad "$1:   ... a non-read write to the log is made" "koto context add or remove failed"; return; }
+    now=$(snapshot "$2")
+    [ -n "$before" ] && [ "$before" != "$now" ] \
+        && ok "$1:   ... and the same check fails on a non-read write to the log" \
+        || bad "$1:   ... and the same check fails on a non-read write to the log" "the snapshot didn't change: $now"
 }
 
 # ---- wrappers koto runs through (KOTO_BIN) -------------------------------------
@@ -265,6 +296,7 @@ if [ "$SUPERSEDE" = 0 ]; then
     opener outcome "$T/work2"
     refused "5: this koto, whose init lacks --supersede" koto-too-old outcome "$SNAP"
     grep -q '0\.28\.0' "$T/open.err" && ok "5:   ... naming koto 0.28.0" || bad "5:   ... naming koto 0.28.0" "$(cat "$T/open.err")"
+    append_caught 5 outcome "$A"
     echo; echo "coordinate-outcome engine: $PASS passed, $FAIL failed (this koto has no init --supersede: only the koto-too-old refusal ran)"
     [ "$FAIL" -eq 0 ]; exit
 fi
@@ -293,6 +325,7 @@ SNAP=$(snapshot outcome)
 KOTO_BIN=$T/ko/koto opener outcome "$T/work2"
 refused "5: a koto whose init lacks --supersede" koto-too-old outcome "$SNAP"
 grep -q '0\.28\.0' "$T/open.err" && ok "5:   ... naming koto 0.28.0" || bad "5:   ... naming koto 0.28.0" "$(cat "$T/open.err")"
+append_caught 5 outcome "$A"
 
 # ---- 4. A's append lock held past the fence's wait: predecessor-unstoppable -------------------
 LOCK="$(koto session dir "$A")/append.lock"
