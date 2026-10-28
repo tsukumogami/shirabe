@@ -43,6 +43,17 @@
 # milestone_error. The record, its Reversals, holds and pauses, is read from
 # the run's session, never from GitHub.
 #
+# A run that outlived its visit (shirabe#1263): one whose land visit a later
+# entry into land overtook, or at whose own visit another run's verdict was
+# captured while it ran, writes no coord/land.json, seals nothing and exits 2,
+# naming the seqs; one at the latest visit, run by hand from surface after
+# its visit's verdict was captured, writes and seals as before. The hand-over
+# block: a detail that differs from the sealed verdict only in the posture
+# word (permit, deny, confirm) gets the block worded for the sealed verdict;
+# a detail for another pull request, one whose verdict isn't a posture word
+# and one with no message are refused, each naming the re-run that recovers
+# at surface.
+#
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-check_test.sh
 set -uo pipefail
@@ -603,6 +614,110 @@ eq "a unit held as Feature 01 isn't Milestone 1: the token stands, no Evidence" 
 case "$(landjson | jq -r '.milestone_error // ""')" in
     "Feature 01 has no Evidence on main"*) ok "  ... and coord/land.json says so" ;;
     *) bad "  ... and coord/land.json says so" "$(landjson | jq -c .)" ;;
+esac
+
+echo "== a run that outlived its visit writes nothing (shirabe#1263) =="
+# A check koto timed out, or one run by hand, can still be running when a
+# later tick re-enters land, or when another run at its own visit has had its
+# verdict captured. posture-read.sh is the check's last read before it writes,
+# so a stand-in for it first appends what that later tick left in the log:
+# $BT_STATE/overtake's events, one JSON line each, numbered as bt_append
+# numbers them.
+cp "$PS/posture-read.sh" "$BT_STATE/posture-read.real"
+cat > "$PS/posture-read.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ -f "$BT_STATE/overtake" ]; then
+    s=$(cat "$BT_STATE/overtake.session")
+    f="$KOTO_BOARD_DIR/sessions/$s/koto-$s.state.jsonl"
+    while IFS= read -r e; do
+        printf '%s\n' "$e" | jq -c --argjson q "$(wc -l < "$f" | tr -d ' ')" '.seq = $q' >> "$f"
+    done < "$BT_STATE/overtake"
+    rm -f "$BT_STATE/overtake"
+fi
+exec bash "$BT_STATE/posture-read.real" "$@"
+EOF
+# overtake <event-json>...: the events a later tick appends while this run checks.
+overtake() { printf '%s\n' "$S" > "$BT_STATE/overtake.session"; printf '%s\n' "$@" > "$BT_STATE/overtake"; }
+land_entry_event() { jq -nc '{seq: 0, timestamp: "2026-09-26T12:00:00.000Z", type: "transitioned", payload: {from: "verified_confirm", to: "land", condition_type: "auto"}}'; }
+land_capture_event() { jq -nc --arg v "$1" '{seq: 0, timestamp: "2026-09-26T12:00:00.000Z", type: "variable_captured", payload: {key: "LAND", value: $v}}'; }
+visit() { bash "$CL" entry --session "$S" --state land | cut -d' ' -f1; }
+# later_detail: the detail the later run wrote, which this one must leave alone.
+later_detail() {
+    printf '%s\n' '{"pr":"12","verdict":"confirm","later":true}' > "$T/later.json"
+    "$KOTO_BIN" context add "$S" coord/land.json --from-file "$T/later.json" >/dev/null
+}
+CONFIRM_NOW="readable merge:confirm close:permit teardown:permit release:permit"
+DENY_NOW="readable merge:deny close:permit teardown:permit release:permit"
+
+scenario "$PERMIT" "$DENY_NOW"
+V1=$(visit)
+later_detail
+overtake "$(land_entry_event)"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err"); RC=$?
+V2=$(visit)
+eq 'a run whose land visit is no longer the latest never overwrites `coord/land.json`' true "$(landjson | jq -r '.later // false')"
+eq "  ... exits 2 and prints no sealed verdict" "2 []" "$RC [$OUT]"
+case "$(cat "$T/err")" in
+    *"seq $V1"*"seq $V2"*) ok "  ... naming its own visit's seq and the later one ($V1, $V2)" ;;
+    *) bad "  ... naming its own visit's seq and the later one ($V1, $V2)" "$(cat "$T/err")" ;;
+esac
+scenario "$PERMIT" "$DENY_NOW"
+later_detail
+overtake "$(land_capture_event "confirm 12 $H sealed:$(visit):0")"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err"); RC=$?
+eq 'a run at its own visit whose verdict another run had captured meanwhile never overwrites `coord/land.json`' true "$(landjson | jq -r '.later // false')"
+eq "  ... exits 2 and prints no sealed verdict" "2 []" "$RC [$OUT]"
+grep -q 'captured' "$T/err" && ok "  ... saying a later run's verdict was captured" || bad "  ... saying a later run's verdict was captured" "$(cat "$T/err")"
+scenario "$PERMIT" "$CONFIRM_NOW"
+FIRST=$(bash "$LC" --session "$S" --repo acme/widgets 2>/dev/null)
+bt_capture "$S" LAND "$FIRST"
+bt_enter "$S" goal_fit
+bt_enter "$S" surface
+printf '%s\n' "$DENY_NOW" > "$BT_STATE/posture"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets --pr 12 2>"$T/err"); RC=$?
+eq "a run at the latest visit, by hand from surface after its verdict was captured, writes and seals as before" "0 deny 12 $H" "$RC ${OUT% sealed:*}"
+bash "$CL" check --session "$S" --state land --sealed "$OUT" >/dev/null 2>&1 \
+    && ok "  ... sealed to the latest entry into land" || bad "  ... sealed to the latest entry into land" "$OUT"
+eq "  ... and coord/land.json is its detail" "deny 12" "$(landjson | jq -r '"\(.verdict) \(.pr)"')"
+cp "$BT_STATE/posture-read.real" "$PS/posture-read.sh"
+
+echo "== merge-order-entry.sh against the sealed verdict (shirabe#1263) =="
+# moe_with <jq filter>: coord/land.json rewritten by <filter>, as a later
+# check would have written it, then the hand-over block.
+moe_with() {
+    landjson | jq -c "$1" > "$T/rewritten.json"
+    "$KOTO_BIN" context add "$S" coord/land.json --from-file "$T/rewritten.json" >/dev/null
+    MOE=$(bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>"$T/moe.err"); RC=$?
+}
+scenario "$PERMIT" "$CONFIRM_NOW"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>/dev/null)
+bt_capture "$S" LAND "$OUT"
+moe_with '.verdict = "deny"'
+eq "a detail that differs from the sealed confirm only in the posture word (deny) still gets its block" 0 "$RC"
+case "$MOE" in
+    "**[#12](https://github.com/acme/widgets/pull/12)**, ready; the merge is behind your confirmation"*) ok "  ... worded for the sealed confirm" ;;
+    *) bad "  ... worded for the sealed confirm" "$MOE $(cat "$T/moe.err")" ;;
+esac
+grep -q 'deny' "$T/moe.err" && ok "  ... and says on stderr that the detail read deny" || bad "  ... and says on stderr that the detail read deny" "$(cat "$T/moe.err")"
+moe_with '.verdict = "permit"'
+eq "  ... and one that reads permit under a sealed confirm too" 0 "$RC"
+moe_with '.verdict = "confirm" | .pr = "13"'
+eq "a detail for another pull request is still refused" 2 "$RC"
+case "$(cat "$T/moe.err")" in
+    *"land-check.sh --session $S --pr 12"*"merge-order-entry.sh"*) ok "  ... with a refusal that names the recovery at surface" ;;
+    *) bad "  ... with a refusal that names the recovery at surface" "$(cat "$T/moe.err")" ;;
+esac
+moe_with '.verdict = "unready" | .pr = "12" | .reason = "no-evidence"'
+eq "a detail whose verdict isn't a posture word is still refused" 2 "$RC"
+case "$(cat "$T/moe.err")" in
+    *"land-check.sh --session $S --pr 12"*"merge-order-entry.sh"*) ok "  ... naming the recovery too" ;;
+    *) bad "  ... naming the recovery too" "$(cat "$T/moe.err")" ;;
+esac
+moe_with '.verdict = "confirm" | del(.message)'
+eq "a detail with no message is still refused" 2 "$RC"
+case "$(cat "$T/moe.err")" in
+    *"land-check.sh --session $S --pr 12"*"merge-order-entry.sh"*) ok "  ... naming the recovery too" ;;
+    *) bad "  ... naming the recovery too" "$(cat "$T/moe.err")" ;;
 esac
 
 echo "== land: the koto calls don't grow with the entries (shirabe#1315) =="
