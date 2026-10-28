@@ -5,3 +5,4 @@
 ::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Implementation Approach'
 ::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Security Considerations'
 ::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Consequences'
+::notice file=synthetic/DESIGN-fc04-missing-sections.md::[FC24] frontmatter key 'problem' is out of order; a design's keys go schema, status, problem, decision, rationale, upstream, spawned_from, motivating_context, user_visible_surface, decision_provenance

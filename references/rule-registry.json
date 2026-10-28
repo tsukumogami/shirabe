@@ -1018,8 +1018,8 @@
       "summary": "A step plan's steps break the plan/v2 step rules",
       "text": {
         "path": "skills/plan/references/plan-format.md",
-        "first": "`shirabe validate` checks a step plan with FC22, at error level, one",
-        "last": "the rule:"
+        "first": "These are the rules every step plan follows.",
+        "last": "checks; the sections below govern how a step plan is written."
       },
       "check": {
         "kind": "script",
@@ -4057,8 +4057,8 @@
       "summary": "A design's frontmatter fields are out of order or in the wrong shape",
       "text": {
         "path": "skills/design/references/phases/phase-6-final-review.md",
-        "first": "2. Frontmatter field order: are the four required fields (status,",
-        "last": "consistently with the format reference?"
+        "first": "2. Frontmatter field order: does `schema: design/v1` come first, then",
+        "last": "follow in the format reference's order?"
       },
       "check": {
         "kind": "none"
