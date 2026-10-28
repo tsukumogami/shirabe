@@ -39,11 +39,17 @@
 #     'pull_request' }}`), so a newer push to a pull request cancels the run
 #     it supersedes instead of queueing behind it;
 #   - when that workflow runs on pull_request, each such job takes its runner
-#     from a matrix whose `os` is DRAFT_MATRIX below, and the pull_request
-#     trigger lists the types in PR_TYPES. The matrix drops macOS while the
-#     pull request is a draft, and ready_for_review starts the run that adds
-#     it back on the same head (shirabe#1300). This is the one copy of that
-#     expression; every workflow's copy must match it.
+#     from a matrix whose `os` is one of two expressions below, and every
+#     workflow's copy must match one of them exactly:
+#       - DRAFT_MATRIX drops macOS while the pull request is a draft. The
+#         pull_request trigger must then list the types in PR_TYPES, so
+#         ready_for_review starts the run that adds it back on the same head
+#         (shirabe#1300);
+#       - PUSH_ONLY_MATRIX drops macOS on every pull_request run, draft or
+#         ready, and keeps it on any other event, a push to main among them
+#         (shirabe#1342). No pull request run has a macOS leg to restart, so
+#         the trigger's types are not checked when every such job takes it.
+#     These are the one copies of the two expressions.
 #
 # Not suite runs, so not checked: `bash -c`, and an installer piped into
 # `| bash`.
@@ -202,6 +208,11 @@ CONCURRENCY = {
 DRAFT_MATRIX = (
     "${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft"
     " && '[\"ubuntu-latest\"]' || '[\"ubuntu-latest\", \"macos-latest\"]') }}")
+# A suite whose macOS leg runs on the push to main and in macos-floor.yml's
+# daily run, and on no pull request (shirabe#1342).
+PUSH_ONLY_MATRIX = (
+    "${{ fromJSON(github.event_name == 'pull_request'"
+    " && '[\"ubuntu-latest\"]' || '[\"ubuntu-latest\", \"macos-latest\"]') }}")
 # Naming any type replaces GitHub's default three, so they are listed too.
 PR_TYPES = ["opened", "synchronize", "reopened", "ready_for_review"]
 
@@ -319,18 +330,24 @@ if suite_jobs and wf.get("concurrency") != CONCURRENCY:
 draft_problems = []
 on_pull_request, pr_types = pull_request_trigger(wf)
 if suite_jobs and on_pull_request:
+    push_only = 0
     for job_name in suite_jobs:
         job = wf["jobs"][job_name]
         matrix = (job.get("strategy") or {}).get("matrix")
-        if (not isinstance(matrix, dict) or matrix.get("os") != DRAFT_MATRIX
+        os_expr = matrix.get("os") if isinstance(matrix, dict) else None
+        if (os_expr not in (DRAFT_MATRIX, PUSH_ONLY_MATRIX)
                 or job.get("runs-on") != "${{ matrix.os }}"):
             draft_problems.append(
                 f"{label}: draft: job {job_name} runs shell suites on macOS for a draft pull "
                 "request; take the runner from the matrix (runs-on: ${{ matrix.os }}) with\n"
                 f"      os: {DRAFT_MATRIX}\n"
-                "    so the macOS leg waits until the pull request is ready")
+                "    so the macOS leg waits until the pull request is ready, or with\n"
+                f"      os: {PUSH_ONLY_MATRIX}\n"
+                "    so it runs on the push to main and never on a pull request")
+        elif os_expr == PUSH_ONLY_MATRIX:
+            push_only += 1
     missing = [t for t in PR_TYPES if t not in (pr_types or [])]
-    if missing:
+    if missing and push_only < len(suite_jobs):
         draft_problems.append(
             f"{label}: draft: the pull_request trigger lacks {', '.join(missing)}; list\n"
             f"      types: [{', '.join(PR_TYPES)}]\n"
