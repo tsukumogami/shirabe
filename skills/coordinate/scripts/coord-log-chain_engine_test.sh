@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# coord-log-chain_test.sh -- coord-log.sh chain-start against real koto: the
-# chain is what koto's links give, whatever the runs are named.
+# coord-log-chain_engine_test.sh -- coord-log.sh chain-start against real koto:
+# the chain is what koto's links give, whatever the runs are named.
 #
 # Proves, printing each chain start it reads:
 #   - a three-member chain of takeovers (koto init --supersede, each writing
@@ -28,7 +28,7 @@
 # written everything, so the starts read as distinct minutes.
 #
 # Needs koto and jq; SKIPs (exit 0) without koto, which CI asserts first.
-# Usage: bash skills/coordinate/scripts/coord-log-chain_test.sh
+# Usage: bash skills/coordinate/scripts/coord-log-chain_engine_test.sh
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
@@ -62,7 +62,7 @@ cat > "$TPL" <<'TPLEOF'
 ---
 name: chain-skeleton
 version: "1.0"
-description: a skeleton for coord-log-chain_test.sh
+description: a skeleton for coord-log-chain_engine_test.sh
 initial_state: work
 variables:
   SCOPE:
