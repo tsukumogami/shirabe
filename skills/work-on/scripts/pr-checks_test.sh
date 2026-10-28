@@ -17,7 +17,9 @@
 #   wiring    work-on.md's ci_passing and execute.md's owned_ci_passing
 #             EXTRACTED FROM THE TEMPLATES, with {{PLUGIN_ROOT}},
 #             {{SESSION_NAME}} and {{PLAN_SLUG}} substituted as koto would,
-#             under a refused check read: green, red, pending and unreadable
+#             under a refused check read: green, red, pending and unreadable;
+#             and execute's coord-common.sh and execute-coordinated.md read
+#             checks through pr-checks.sh, never directly
 #
 # gh and koto are stubs on PATH, so no case reaches GitHub or a real session.
 # The gh stub answers `pr checks` from a fixture, or with the refusal GitHub
@@ -720,6 +722,29 @@ for entry in "$WORK_ON:ci_passing" "$EXECUTE:owned_ci_passing"; do
     echo '[{"bucket":"pass"},{"bucket":"pending"}]' > "$FIX/checks.json"
     run_gate "$CMD"
     expect_exit "$gate: allowed, pending as before" 1
+done
+
+# The coordinated loop reads checks by the same rule (#752): coord-common.sh's
+# draft-node read and execute-coordinated.md's evaluate actions name
+# pr-checks.sh and make no direct `pr checks` call, through gh or through
+# coord_gh_read. Comment lines in the script don't count.
+for f in "$REPO_ROOT/skills/execute/scripts/coord-common.sh" \
+         "$REPO_ROOT/skills/execute/koto-templates/execute-coordinated.md"; do
+    name="${f#"$REPO_ROOT"/}"
+    case "$f" in
+        *.sh) direct=$(grep -nE '(^|[^-])pr checks' "$f" | grep -vE '^[0-9]+:[[:space:]]*#') ;;
+        *) direct=$(grep -nE '(^|[^-])pr checks' "$f") ;;
+    esac
+    if [ -n "$direct" ]; then
+        fail "$name still reads checks directly: $(printf '%s' "$direct" | head -n 1)"
+    else
+        pass "$name makes no direct pr checks call"
+    fi
+    if grep -q 'skills/work-on/scripts/pr-checks.sh' "$f"; then
+        pass "$name reads checks through pr-checks.sh"
+    else
+        fail "$name does not name pr-checks.sh"
+    fi
 done
 
 echo
