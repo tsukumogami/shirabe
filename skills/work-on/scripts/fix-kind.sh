@@ -130,12 +130,37 @@ clean() {
     printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c "1-$REASON_MAX"
 }
 
+# ctx_has <session> <key>: 0 when the key is present, 1 when koto answers that
+# it is absent, 2 when the read failed. koto's `context exists` answers an
+# absent key with exit 1 and nothing on stdout; a refusal (a session bound to
+# another workspace, say) prints its JSON on stdout and exits 2. An exit 1
+# that prints anything is a failed read too, never an absent key. What koto
+# prints goes to $ERRLOG, never to stdout.
+ctx_has() {
+    local rc=0
+    koto context exists "$1" "$2" > "$WORK/exists.out" 2>>"$ERRLOG" || rc=$?
+    cat "$WORK/exists.out" >> "$ERRLOG"
+    case "$rc" in
+        0) return 0 ;;
+        1) [ -s "$WORK/exists.out" ] || return 1 ;;
+    esac
+    echo "koto context exists $1 $2 exited $rc" >> "$ERRLOG"
+    return 2
+}
+
+# ctx_get <session> <key> <file>: the key's content into <file>, empty when the
+# key is absent. Returns 1 when the read failed, with <file> empty.
 ctx_get() {
     : > "$3"
-    if koto context exists "$1" "$2" >/dev/null 2>>"$ERRLOG"; then
-        koto context get "$1" "$2" > "$3" 2>>"$ERRLOG" || return 1
-    fi
-    return 0
+    ctx_has "$1" "$2"
+    case $? in
+        0) ;;
+        1) return 0 ;;
+        *) return 1 ;;
+    esac
+    koto context get "$1" "$2" > "$3" 2>>"$ERRLOG" && return 0
+    : > "$3"
+    return 1
 }
 
 ctx_put() {
@@ -231,12 +256,16 @@ refuse() {
 
 # snapshot_report <session> <fix-report> <issue-body-file> <task-log>: stores
 # the unit's report once, and prints where it came from (or nothing when it
-# was already stored or none exists).
+# was already stored or none exists). Returns 1 when a read or the write
+# failed.
 snapshot_report() {
     local s="$1" fr="$2" body="$3" log="$4" src=""
-    if koto context exists "$s" "$REPORT_KEY" >/dev/null 2>>"$ERRLOG"; then
-        return 0
-    fi
+    ctx_has "$s" "$REPORT_KEY"
+    case $? in
+        0) return 0 ;;
+        1) ;;
+        *) return 1 ;;
+    esac
     : > "$WORK/report"
     if [ -n "$fr" ]; then
         printf '%s\n' "$fr" > "$WORK/report"; src=fix_report
@@ -338,7 +367,7 @@ step"
     # before this ever ran still needs one for its red.
     local src rsrc
     src=$(head -n 1 <<<"$sources")
-    rsrc=$(snapshot_report "$s" "$fr" "$WORK/body" "$log") || die 66 "could not store $REPORT_KEY"
+    rsrc=$(snapshot_report "$s" "$fr" "$WORK/body" "$log") || die 66 "could not read or store $REPORT_KEY"
     if [ -z "$last" ] || { [ "$last" = change ] && [ "$want" = fix ]; }; then
         jq -nc --arg ts "$(now)" --arg kind "$want" --arg source "${src:-none}" --arg sources "$sources" \
             --arg fl "$fix_labels" --arg lf "$labels_from" --arg rs "$rsrc" \

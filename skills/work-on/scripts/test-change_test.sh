@@ -69,6 +69,9 @@
 #   record of a fix
 #              the fix source, the red with its marker, the green, the
 #              reproducing test as added, and the state
+#   a refused read
+#              a context read koto refuses fails status and init with 66, the
+#              ledger untouched, never reading as an absent key
 #   nothing reaches a pull request
 #              gh is a stand-in that logs every call, and the log stays
 #              empty; the script holds no gh pr edit or comment and has no
@@ -111,6 +114,9 @@ STORE="$W/store"
 mkdir -p "$BIN" "$STORE"
 SHIM_FLOOR=$(env -u KOTO_FLOOR bash "$PLUGIN/scripts/assert-koto-floor.sh" --print-floor 2>"$W/floor.err")
 [ -n "$SHIM_FLOOR" ] || { echo "FAIL: assert-koto-floor.sh --print-floor printed no floor: $(head -c 400 "$W/floor.err")"; exit 1; }
+# SHIM_REFUSE=<s> refuses every context call on <s>, and SHIM_REFUSE_KEY=<key>
+# every `context exists` of <key>, the way koto refuses a session bound to
+# another workspace: the refusal on stdout, exit 2 (or SHIM_REFUSE_RC).
 cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
@@ -119,6 +125,10 @@ case "$1" in
     context) ;;
     *) echo "shim: unsupported $*" >&2; exit 2 ;;
 esac
+if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
+    printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
+    exit "${SHIM_REFUSE_RC:-2}"
+fi
 f="$SHIM_STORE/$3/$4"
 case "$2" in
     add) mkdir -p "$SHIM_STORE/$3"; cat > "$f" ;;
@@ -695,6 +705,29 @@ has "record prints the marker" "marker: error: name required" "$OUT"
 has "record prints the green" "green: sh tests/run.sh at $(git rev-parse HEAD) exited 0" "$OUT"
 has "record prints the reproducing test as added" "added tests/empty_test.sh" "$OUT"
 has "record prints the state" "state: counted" "$OUT"
+
+# --- a refused read ------------------------------------------------------------------------
+# koto refuses a read of a session bound to another workspace, printing the
+# refusal on stdout and exiting 2. That is a failed read, which fails the
+# command rather than reading as an absent key.
+echo "--- a refused read"
+S=refu
+start "$S"
+LEDGER_REFU=$(ledger "$S")
+SHIM_REFUSE=$S run status "$S"
+eq "status on a refused session: exit 66 rather than reading as an absent key" 66 "$RC"
+hasnt "status on a refused session: koto's refusal kept off stdout" "session_bound_elsewhere" "$OUT"
+has "status on a refused session: koto's refusal on stderr" "session_bound_elsewhere" "$(cat "$W/err")"
+SHIM_REFUSE_KEY=test_change_ledger.jsonl run init "$S"
+eq "init with the ledger read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "init with the ledger read refused: the ledger is untouched" "$LEDGER_REFU" "$(ledger "$S")"
+SHIM_REFUSE_KEY=test_change_ledger.jsonl SHIM_REFUSE_RC=1 run init "$S" --entry
+eq "init --entry with the ledger read refused at exit 1 with the refusal: exit 66 rather than reading as an absent key" 66 "$RC"
+SHIM_REFUSE_KEY=red_first.json run status "$S"
+eq "status with the red-first record read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+has "status with the red-first record read refused: names the failed read" "could not read red_first.json" "$(cat "$W/err")"
+run status "$S"
+eq "status with nothing refused: counted as before" 0 "$RC"
 
 # --- nothing reaches a pull request --------------------------------------------------------
 echo "--- nothing reaches a pull request"
