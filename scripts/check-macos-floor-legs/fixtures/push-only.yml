@@ -1,0 +1,25 @@
+# Passes: the macOS leg runs on the push to main and never on a pull request,
+# draft or ready (shirabe#1342). With no macOS leg for ready_for_review to
+# restart, the pull_request trigger names no types.
+name: push-only
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/demo/scripts/one_test.sh
+      - name: Run tests on the floor (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system demo
