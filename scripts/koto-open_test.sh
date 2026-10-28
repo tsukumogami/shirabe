@@ -176,7 +176,8 @@ echo
 
 # --- the script never evaluates anything --------------------------------------
 
-if grep -v '^[[:space:]]*#' "$OPEN" | grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)'; then
+OPEN_CODE=$(grep -v '^[[:space:]]*#' "$OPEN")
+if grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)' <<<"$OPEN_CODE"; then
     fail "koto-open.sh contains eval"
 else
     pass "koto-open.sh contains no eval"
