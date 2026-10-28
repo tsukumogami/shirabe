@@ -97,11 +97,12 @@ Questions covering the four named items:
    Decision Drivers, Considered Options, Decision Outcome, Solution
    Architecture, Implementation Approach, Security Considerations,
    Consequences)?
-2. Frontmatter field order: are the four required fields (status,
-   problem, decision, rationale) declared in the canonical order with
-   the documented YAML literal block scalar shape? Are optional
-   fields (upstream, spawned_from, motivating_context) placed
-   consistently with the format reference?
+2. Frontmatter field order: does `schema: design/v1` come first, then
+   the four required fields (status, problem, decision, rationale) in
+   the canonical order with the documented YAML literal block scalar
+   shape? Do optional fields (upstream, spawned_from,
+   motivating_context, user_visible_surface, decision_provenance)
+   follow in the format reference's order?
 3. Section-altitude conformance: does each section contain the
    altitude of content the reference prescribes (no PRD-altitude
    requirements, no PLAN-altitude atomic issues)?
@@ -215,24 +216,31 @@ git grep -nE 'wip/' -- docs/designs/DESIGN-<topic>.md || true
 
 ### 6.5 Write Frontmatter
 
-Add YAML frontmatter using the summary key (`work/summary.md`). Each field is 1 paragraph, using
-YAML literal block scalars (`|`):
+Replace the skeleton's frontmatter with the full block, using the summary key
+(`work/summary.md`). Each summary field is 1 paragraph, using YAML literal block
+scalars (`|`):
 
 ```markdown
 ---
+schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-<name>.md   # Only if PRD mode AND step 0.4a resolved to a usable path. OMIT if 0.4a resolved to "omit" (private cross-repo) or if no upstream PRD exists.
 problem: |
   <1 paragraph: what technical problem this solves>
 decision: |
   <1 paragraph: what approach was chosen and key properties>
 rationale: |
   <1 paragraph: why this approach over alternatives>
+upstream: docs/prds/PRD-<name>.md   # Only if PRD mode AND step 0.4a resolved to a usable path. OMIT if 0.4a resolved to "omit" (private cross-repo) or if no upstream PRD exists.
 decision_provenance: inline-resolved   # Only when Phase 2 resolved a question inline (step 2.2a). OMIT otherwise.
 ---
 ```
 
-The frontmatter must be the first content in the file, before the `# DESIGN:` heading.
+Keep the keys in this order: `schema`, `status`, `problem`, `decision`,
+`rationale`, `upstream`, `spawned_from`, `motivating_context`,
+`user_visible_surface`, `decision_provenance`. An optional key you add goes in
+its place in that list, and `shirabe validate` reports a key out of place as
+FC24. The frontmatter must be the first content in the file, before the
+`# DESIGN:` heading.
 
 ### 6.6 Commit and PR
 
