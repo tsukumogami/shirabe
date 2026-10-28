@@ -213,13 +213,15 @@ same_laddered() {
 }
 
 # packet <args>: runs review-packet.sh in the fixture, against the same koto
-# stand-in. Sets POUT (the packet path) and PRC.
+# stand-in, with the packet in a private scratch directory as a run's own.
+# Sets POUT (the packet path) and PRC.
 PACKET_SH="$PLUGIN_ROOT/scripts/review-packet.sh"
 PRC=0
 POUT=""
 mkdir -p "$WORKDIR/ptmp"
+mkdir -m 700 "$WORKDIR/pscratch"
 packet() {
-    POUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" TMPDIR="$WORKDIR/ptmp" "$PACKET_SH" "$@" 2>"$WORKDIR/pstderr")
+    POUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" TMPDIR="$WORKDIR/ptmp" "$PACKET_SH" "$@" --scratch "$WORKDIR/pscratch" 2>"$WORKDIR/pstderr")
     PRC=$?
 }
 
