@@ -75,7 +75,8 @@ git config --global init.defaultBranch main
 #                                             context call on <s> the way koto
 #                                             refuses a session bound to
 #                                             another workspace: the refusal
-#                                             on stdout, exit 2.
+#                                             on stdout, exit 2 (or
+#                                             SHIM_REFUSE_RC).
 #   init <s> ... --attach-live --var REVIEW_LEVEL=<v>
 #                                             records <v> in
 #                                             $SHIM_STORE/<s>/.var and replies
@@ -94,7 +95,7 @@ case "$1" in
     context)
         if [ -n "${SHIM_REFUSE:-}" ] && [ "$3" = "$SHIM_REFUSE" ]; then
             printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
-            exit 2
+            exit "${SHIM_REFUSE_RC:-2}"
         fi
         f="$SHIM_STORE/$3/$4"
         case "$2" in
@@ -1217,6 +1218,10 @@ case "$ERR" in
     *session_bound_elsewhere*) pass "level relays koto's refusal on stderr" ;;
     *) fail "level of a refused session: stderr [$ERR] lacks koto's refusal" ;;
 esac
+# koto answers an absent key with exit 1 and nothing on stdout; an exit 1 that
+# prints a refusal is still a failed read.
+SHIM_REFUSE_RC=1 refused "level of a refused session, exit 1 with the refusal" 66 level "$SESSION"
+[ -z "$OUT" ] && pass "level of a refused session at exit 1 prints nothing" || fail "level of a refused session at exit 1 printed [$OUT]"
 refused "facts on a refused session" 66 facts "$SESSION" standard
 refused "slice of a refused session" 66 slice "$SESSION" standard
 [ -z "$OUT" ] && pass "slice of a refused session prints nothing" || fail "slice of a refused session printed [$OUT]"

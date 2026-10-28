@@ -208,15 +208,19 @@ valid_session() {
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # ctx_has <session> <key>: 0 when the key is present, 1 when koto answers that
-# it is absent, 2 when the read failed. koto's `context exists` exits 1 only
-# for an absent key; a refusal (a session bound to another workspace, say)
-# exits 2 with its JSON on stdout. Anything koto prints goes to stderr, so a
-# refusal never reaches the caller's stdout as a value.
+# it is absent, 2 when the read failed. koto's `context exists` answers an
+# absent key with exit 1 and nothing on stdout; a refusal (a session bound to
+# another workspace, say) prints its JSON on stdout and exits 2. An exit 1
+# that prints anything is a failed read too, never an absent key. Anything
+# koto prints goes to stderr, so a refusal never reaches the caller's stdout
+# as a value.
 ctx_has() {
     local rc=0
-    koto context exists "$1" "$2" >&2 || rc=$?
+    koto context exists "$1" "$2" > "$WORK/exists.out" || rc=$?
+    [ -s "$WORK/exists.out" ] && cat "$WORK/exists.out" >&2
     case "$rc" in
-        0|1) return "$rc" ;;
+        0) return 0 ;;
+        1) [ -s "$WORK/exists.out" ] || return 1 ;;
     esac
     echo "review-level: koto context exists $1 $2 exited $rc" >&2
     return 2
