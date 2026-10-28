@@ -61,7 +61,7 @@ cleanup() {
     [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"

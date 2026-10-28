@@ -74,7 +74,7 @@ REAL_KOTO=$(command -v koto || true)
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/shared-deferral-record-test.XXXXXX") || exit 2
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 2
 cleanup() { case "${WORKDIR:-}" in */shared-deferral-record-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # The PR body holds the deferral only in a repository that opts in to
 # workflow content, so the gate runs in one; the default is pinned in its own

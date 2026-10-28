@@ -66,7 +66,7 @@ done
 koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass-engine.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */teardown-pass-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */teardown-pass-engine.*) rm -rf "$T" ;; esac'
 # Its own HOME and koto home, inside the scratch directory, so suites run
 # side by side share no path.
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T" KOTO_SESSIONS_BASE="$T/koto-home"

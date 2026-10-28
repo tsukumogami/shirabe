@@ -59,7 +59,7 @@ command -v git >/dev/null || { echo "owned-ci-cancel_test: git is required" >&2;
 T=$(mktemp -d "${TMPDIR:-/tmp}/owned-ci-cancel-test.XXXXXX") || exit 1
 # The trailing `return 0` keeps the trap's status from replacing the script's.
 cleanup() { rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 R=acme/widgets
 REPO_URL="https://github.com/$R"

@@ -78,7 +78,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/verification-deferral.XXXXXX") || exit 1
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
 cleanup() { case "${WORKDIR:-}" in */verification-deferral.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 REASON="host is in a measurement window until 02:40Z"
 

@@ -36,7 +36,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 [ -f "$PAR" ] || { echo "FAIL: $PAR not found" >&2; exit 1; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/push-and-record-test.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 BIN="$WORK/bin"
 mkdir -p "$BIN"
 

@@ -7,7 +7,12 @@
 # after its first koto, with the line naming a file that isn't there, or with
 # the line in another shape is refused at its first koto; one that names koto
 # only in a comment, or not at all, is not; only *_test.sh is read; a missing
-# path is 2.
+# path is 2. A suite that holds the guard line and sets its own EXIT trap
+# (`trap cmd EXIT`, `trap - EXIT`, signal 0, EXIT in a list, a quoted command
+# over several lines) is refused at the trap, with or without koto in it; one
+# that uses ktg_on_exit, sets a trap only for other signals, prints its traps,
+# or sets an EXIT trap indented (a subshell's) or inside a heredoc is not, nor
+# is a suite without the guard line.
 #
 # And the guard, sourced by a fixture suite run under `env -i` with a stub koto
 # that only answers `koto session dir` and records what it was called with, so
@@ -18,7 +23,12 @@
 # failing `koto session dir`, a missing guard file and a directory that can't
 # be made each stop the suite before its cases, the first of them before any
 # koto call; no koto on PATH and a failing mktemp don't; the guard's directory
-# is gone after a suite that sets no trap; and deliver-open_test.sh, the suite
+# is gone after a suite that sets no trap; a suite that hands its cleanup to
+# ktg_on_exit leaves TMPDIR empty, runs its cleanup and keeps its exit status,
+# a second call replaces the first command, and a call with two arguments
+# stops the suite; a suite that sets its own EXIT trap leaves the guard's
+# directory behind, which is why the check refuses one; and
+# deliver-open_test.sh, the suite
 # that pushed sessions to a real bucket, stops before its first case when koto
 # resolves its store anywhere else.
 #
@@ -33,8 +43,7 @@ GUARD="$HERE/lib/koto-test-guard.sh"
 BASH_BIN=$(command -v bash)
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-koto-test-guard-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */check-koto-test-guard-test.*) rm -rf "$T" ;; esac
-case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */check-koto-test-guard-test.*) rm -rf "$T" ;; esac'
 PASS=0 FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
@@ -76,6 +85,30 @@ lint "koto named only in a comment: passes" 0 "" \
     'set -u<NL># this suite never runs koto<NL>echo hi'
 lint "KOTO_ variables alone are not koto: passes" 0 "" \
     'set -u<NL>echo "${KOTO_BIN:-none}"'
+lint "the guard and its own trap ... EXIT: refused at the trap" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>trap cleanup EXIT<NL>koto next s"
+lint "the guard and trap - EXIT: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>trap - EXIT<NL>koto next s"
+lint "the guard and a trap on signal 0: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>trap 'rm -rf \"\$T\"' 0<NL>koto next s"
+lint "the guard and EXIT in a list of signals: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>trap 'rm -rf \"\$T\"' INT EXIT<NL>koto next s"
+lint "the guard and a quoted trap over two lines: refused at its first line" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>trap 'rm -rf \"\$T\"<NL>    echo done' EXIT<NL>koto next s"
+lint "the guard and an EXIT trap, no koto in the suite: refused" 1 "a_test.sh:4: sets its own EXIT trap" \
+    "set -u<NL>$LINE3<NL>trap cleanup EXIT<NL>echo hi"
+lint "the guard and ktg_on_exit: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>ktg_on_exit 'rm -rf \"\$T\"'<NL>koto next s"
+lint "the guard and a trap on INT and TERM only: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>trap 'exit 130' INT<NL>trap 'exit 143' TERM<NL>koto next s"
+lint "the guard and trap -p EXIT: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>trap -p EXIT<NL>koto next s"
+lint "the guard and a subshell's indented EXIT trap: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>(<NL>    trap 'echo exit' EXIT<NL>    koto next s<NL>)"
+lint "the guard and an EXIT trap in a heredoc fixture: passes" 0 "" \
+    "set -u<NL>$LINE3<NL>cat > \"\$T/f.sh\" <<'EOF'<NL>trap cleanup EXIT<NL>EOF<NL>koto next s"
+lint "no guard line, no koto, its own EXIT trap: passes" 0 "" \
+    'set -u<NL>trap cleanup EXIT<NL>echo hi'
 put "$S/helper.sh" 'koto next s'
 OUT=$(bash "$CHECK" "$S" 2>&1); rc=$?
 case "$OUT" in *helper.sh*) bad "a directory: only *_test.sh is read" "$OUT" ;; *) ok "a directory: only *_test.sh is read" ;; esac
@@ -207,6 +240,41 @@ case "$OUT" in *"still set:"*) bad "no koto on PATH: the settings are cleared al
 # mktemp (scripts/mktemp-failure_test.sh) still reaches its own mktemp check.
 run honest "$BIN:$SYS" "$T/tmp" "$G/scripts/s_test.sh"
 case "$RC:$OUT" in 0:*"CASES RAN"*) ok "a failing mktemp doesn't stop the guard" ;; *) bad "a failing mktemp doesn't stop the guard" "rc=$RC out=$OUT" ;; esac
+
+# A suite with its own cleanup, run in an empty TMPDIR: it makes a directory
+# there and hands its removal, and a line written outside TMPDIR, to
+# ktg_on_exit, then exits 3.
+GUARDED=". \"\$(dirname \"\$0\")/lib/koto-test-guard.sh\" || exit 1"
+MARK="$T/mark"
+CT="$T/tmp-chain"
+mkdir "$CT"
+put "$G/scripts/chain_test.sh" "set -uo pipefail<NL>$GUARDED<NL>mkdir \"\$TMPDIR/own\"<NL>ktg_on_exit 'rm -rf \"\$TMPDIR/own\"; echo own-ran >\"\$MARK\"'<NL>echo CASES RAN<NL>exit 3"
+: > "$MARK"
+run honest "$BIN:$SYS" "$CT" "$G/scripts/chain_test.sh" MARK="$MARK"
+case "$RC:$OUT" in 3:*"CASES RAN"*) ok "ktg_on_exit: the suite runs and keeps its exit status" ;; *) bad "ktg_on_exit: the suite runs and keeps its exit status" "rc=$RC out=$OUT" ;; esac
+[ "$(cat "$MARK")" = own-ran ] && ok "ktg_on_exit: the suite's own cleanup ran" || bad "ktg_on_exit: the suite's own cleanup ran" "$(cat "$MARK")"
+LEFT=$(ls -A "$CT")
+[ -z "$LEFT" ] && ok "ktg_on_exit: TMPDIR is empty after the suite" || bad "ktg_on_exit: TMPDIR is empty after the suite" "$LEFT"
+
+put "$G/scripts/chain2_test.sh" "set -uo pipefail<NL>$GUARDED<NL>ktg_on_exit 'echo first >>\"\$MARK\"'<NL>ktg_on_exit 'echo second >>\"\$MARK\"'<NL>echo CASES RAN"
+: > "$MARK"
+run honest "$BIN:$SYS" "$CT" "$G/scripts/chain2_test.sh" MARK="$MARK"
+[ "$(cat "$MARK")" = second ] && ok "ktg_on_exit twice: only the second command runs" || bad "ktg_on_exit twice: only the second command runs" "$(cat "$MARK")"
+LEFT=$(ls -A "$CT")
+[ -z "$LEFT" ] && ok "ktg_on_exit twice: TMPDIR is empty after the suite" || bad "ktg_on_exit twice: TMPDIR is empty after the suite" "$LEFT"
+
+put "$G/scripts/chain3_test.sh" "set -uo pipefail<NL>$GUARDED<NL>ktg_on_exit 'echo a' 'echo b'<NL>echo CASES RAN"
+run honest "$BIN:$SYS" "$CT" "$G/scripts/chain3_test.sh"
+stopped "ktg_on_exit with two arguments: the suite stops" "ktg_on_exit takes one command, got 2"
+
+put "$G/scripts/own-trap_test.sh" "set -uo pipefail<NL>$GUARDED<NL>trap 'echo own-ran >\"\$MARK\"' EXIT<NL>echo CASES RAN"
+: > "$MARK"
+run honest "$BIN:$SYS" "$CT" "$G/scripts/own-trap_test.sh" MARK="$MARK"
+LEFT=$(ls -A "$CT")
+case "$(cat "$MARK"):$LEFT" in
+    own-ran:suite-scratch.*) ok "its own trap ... EXIT: the guard's directory is left in TMPDIR" ;;
+    *) bad "its own trap ... EXIT: the guard's directory is left in TMPDIR" "mark=$(cat "$MARK") left=$LEFT" ;;
+esac
 
 echo "== deliver-open_test.sh =="
 run outside "$BIN:$SYS" "$T/tmp" "$REPO/skills/deliver/scripts/deliver-open_test.sh"

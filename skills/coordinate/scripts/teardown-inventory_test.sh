@@ -51,7 +51,7 @@ done
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */teardown-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */teardown-test.*) rm -rf "$T" ;; esac'
 export GIT_CEILING_DIRECTORIES="$T"
 # Run from inside the scratch directory: the checkout this test sits in may be
 # a worktree whose .git points somewhere a container can't see, and git fails

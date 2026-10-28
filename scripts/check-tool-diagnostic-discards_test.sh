@@ -41,7 +41,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 TMPS=()
 cleanup() { for d in "${TMPS[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 WORK=$(mktemp -d) || exit 1; TMPS+=("$WORK")
 TAB=$'\t'

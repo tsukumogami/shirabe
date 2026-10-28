@@ -33,7 +33,7 @@ TMPS=()
 # prints nothing at all. The trigger is `set -e` and not any shell version --
 # measured, bash 5.2 and 3.2 behave identically.
 cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 TEMPLATE="skills/work-on/koto-templates/work-on.md"
 SKILL_DOC="skills/work-on/SKILL.md"

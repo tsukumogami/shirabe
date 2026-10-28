@@ -47,7 +47,7 @@ has() { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "[$3] lacks [$2]" ;; esac; }
 hasnt() { case "$3" in *"$2"*) bad "$1" "[$3] holds [$2]" ;; *) ok "$1" ;; esac; }
 
 W=$(mktemp -d) || { echo "FAIL: could not create a temporary directory"; exit 1; }
-trap 'rm -rf "$W"' EXIT
+ktg_on_exit 'rm -rf "$W"'
 export HOME="$W/home"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1

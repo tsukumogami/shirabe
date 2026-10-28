@@ -60,7 +60,7 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-koto-release-test.XXXXXX") || exit 1
 T=$(cd "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */check-koto-release-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # stub <version> <compile-behaviour>: writes $T/koto. Behaviours:
 #   clean      every compile succeeds, the mutated copy fails with E-DECIDER-FLOOR

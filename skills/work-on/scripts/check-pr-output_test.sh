@@ -35,7 +35,7 @@ command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output-test.XXXXXX") || exit 1
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
 cleanup() { case "${WORKDIR:-}" in */check-pr-output-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # A real validator for the PB5 cases near the end, found before the stand-ins
 # go on PATH: CHECK_PR_OUTPUT_REAL_SHIRABE, else the shirabe already on PATH.

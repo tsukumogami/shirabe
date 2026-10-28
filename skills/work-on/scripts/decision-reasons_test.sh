@@ -41,7 +41,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH -- no case ran"; e
 
 WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && chmod -R u+rwx "$WORKDIR" 2>/dev/null; [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 HEADER='{"schema_version":1,"workflow":"t","session_id":"s-1","template_name":"work-on"}'
 

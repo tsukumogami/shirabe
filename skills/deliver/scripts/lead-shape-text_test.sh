@@ -43,7 +43,7 @@ pass() { echo "PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/deliver-lead-shape-text-test.XXXXXX") || exit 1
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 
 # section <file> <heading line> -> the lines from that exact heading up to the
 # next heading of the same or a higher level. Lines inside ``` fences are never

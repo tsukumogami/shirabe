@@ -66,7 +66,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null || { echo "SKIP: jq not on PATH"; exit 0; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */teardown-pass-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */teardown-pass-test.*) rm -rf "$T" ;; esac'
 
 PASS=0
 FAIL=0

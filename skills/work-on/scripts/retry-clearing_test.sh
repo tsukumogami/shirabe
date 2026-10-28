@@ -86,7 +86,7 @@ cleanup() {
     [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # koto resolves its session store through the home directory, so pointing HOME
 # at the temp tree keeps every session this harness creates out of the

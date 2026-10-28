@@ -70,7 +70,7 @@ case "$REPO" in
         esac ;;
 esac
 REAL_HOME="$HOME"
-trap 'rm -rf "$SANDBOX"' EXIT
+ktg_on_exit 'rm -rf "$SANDBOX"'
 
 # Every session name carries this prefix. It is not the production prefix, so a
 # name collision with a real run is impossible even if the store isolation ever

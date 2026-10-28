@@ -29,7 +29,7 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 check() { if [ "$2" = 0 ]; then ok "$1"; else bad "$1" "${3-}"; fi; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 # The pass makes its working directory under TMPDIR, and the planting cases
 # glob TMPDIR for it: a TMPDIR of the suite's own keeps both away from another
 # suite's pass running at the same time (check-skill.sh runs suites in parallel).

@@ -36,7 +36,7 @@ done
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-engine.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */reconcile-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */reconcile-engine.*) rm -rf "$T" ;; esac'
 export HOME="$T/home"
 mkdir -p "$HOME"
 # The session store, named explicitly for the pass and this test alike.

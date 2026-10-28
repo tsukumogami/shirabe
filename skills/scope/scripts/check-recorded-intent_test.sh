@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/check-recorded-intent.sh"
 command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH -- no case ran"; exit 0; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/check-recorded-intent-test.XXXXXX")"
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 export HOME="$T/home" KOTO_SESSIONS_BASE="$T/store"
 mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 STORE_TEMPLATE="$HERE/../../../koto-templates/skill-session.md"

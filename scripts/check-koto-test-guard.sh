@@ -22,6 +22,13 @@
 # koto only through a script whose name doesn't say so, and one that never
 # writes the word.
 #
+# A suite that holds the guard line must not set its own EXIT trap, which
+# replaces the guard's and leaves its directory under TMPDIR; it hands its
+# cleanup to the guard's ktg_on_exit instead. Refused: a `trap` at the start
+# of a line, outside a heredoc, that names EXIT, SIGEXIT or 0 among its
+# signals (`trap cleanup EXIT`, `trap - EXIT`, a quoted command over several
+# lines). An indented `trap`, such as a subshell's own, is left alone.
+#
 # Usage:
 #   scripts/check-koto-test-guard.sh             every tracked *_test.sh in the repository
 #   scripts/check-koto-test-guard.sh PATH...     these files, or the *_test.sh under
@@ -42,25 +49,71 @@ esac
 
 GUARD_RE='^\. "\$\(dirname "\$0"\)/(([.][.]/)*(scripts/)?lib/)?koto-test-guard\.sh" \|\| exit 1$'
 
+# Prints the line of the file's first EXIT trap, as the header describes it.
+# unq() drops the quoted parts of a line and sets OPEN when the line ends
+# inside a quote, so a quoted command over several lines is read whole.
+TRAP_AWK='
+function unq(s,   i, c, q, out) {
+    q = ""; out = ""
+    for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q == "") {
+            if (c == "\\") { i++; continue }
+            if (c == "\047" || c == "\"") { q = c; out = out " "; continue }
+            out = out c
+        } else if (c == q) q = ""
+        else if (q == "\"" && c == "\\") i++
+    }
+    OPEN = (q != ""); QUOTE = q
+    return out
+}
+hd != "" { l = $0; if (hdtab) sub(/^\t+/, "", l); if (l == hd) hd = ""; next }
+/^[[:space:]]*#/ { next }
+/^trap[[:space:]]/ {
+    start = NR; t = unq($0)
+    while (OPEN && (getline more) > 0) {
+        p = index(more, QUOTE)
+        if (p == 0) continue
+        t = t " " unq(substr(more, p + 1))
+    }
+    n = split(t, w, /[[:space:];&|]+/)
+    for (i = 2; i <= n; i++) {
+        if (w[i] == "-p" || w[i] == "-l") break
+        if (w[i] ~ /^(EXIT|SIGEXIT|0)$/) { print start; exit }
+    }
+    next
+}
+match($0, /<<-?[ \t]*["\047]?[A-Za-z_][A-Za-z0-9_]*/) && substr($0, RSTART - 1, 1) != "<" {
+    m = substr($0, RSTART, RLENGTH); hdtab = (m ~ /^<<-/)
+    sub(/^<<-?[ \t]*["\047]?/, "", m); hd = m
+}'
+
 # check <file>: print the file's finding, if any; return 1 when there is one.
 check() {
-    local f=$1 first guard rel
+    local f=$1 first guard rel trap_at
+    guard=$(grep -n -m1 -E "$GUARD_RE" "$f" | cut -d: -f1)
     # The guard line names koto-test-guard.sh, which is not a use of koto.
     first=$(awk '!/^[[:space:]]*#/ && !/^\. .*\/koto-test-guard\.sh" \|\| exit 1$/ &&
         /(^|[^A-Za-z0-9_])koto([^A-Za-z0-9_]|$)/ { print NR; exit }' "$f")
-    [ -n "$first" ] || return 0
-    guard=$(grep -n -m1 -E "$GUARD_RE" "$f" | cut -d: -f1)
-    if [ -z "$guard" ]; then
-        printf '%s:%s: names koto without sourcing scripts/lib/koto-test-guard.sh first\n' "$f" "$first"
-        return 1
+    if [ -n "$first" ]; then
+        if [ -z "$guard" ]; then
+            printf '%s:%s: names koto without sourcing scripts/lib/koto-test-guard.sh first\n' "$f" "$first"
+            return 1
+        fi
+        if [ "$guard" -ge "$first" ]; then
+            printf '%s:%s: names koto before the koto-test-guard.sh line (line %s)\n' "$f" "$first" "$guard"
+            return 1
+        fi
     fi
-    if [ "$guard" -ge "$first" ]; then
-        printf '%s:%s: names koto before the koto-test-guard.sh line (line %s)\n' "$f" "$first" "$guard"
-        return 1
-    fi
+    [ -n "$guard" ] || return 0
     rel=$(sed -n "${guard}p" "$f" | sed -E 's/^\. "\$\(dirname "\$0"\)\/(.*)" \|\| exit 1$/\1/')
     if [ ! -f "$(dirname "$f")/$rel" ]; then
         printf '%s:%s: the koto-test-guard.sh line names %s, which is not there\n' "$f" "$guard" "$rel"
+        return 1
+    fi
+    trap_at=$(awk "$TRAP_AWK" "$f")
+    if [ -n "$trap_at" ]; then
+        printf '%s:%s: sets its own EXIT trap, which replaces koto-test-guard.sh'"'"'s; hand the command to ktg_on_exit\n' "$f" "$trap_at"
         return 1
     fi
     return 0
@@ -94,7 +147,7 @@ for f in ${FILES[@]+"${FILES[@]}"}; do
 done
 
 if [ "$FOUND" -gt 0 ]; then
-    echo "check-koto-test-guard: $FOUND suite(s) name koto without the guard; see scripts/lib/koto-test-guard.sh" >&2
+    echo "check-koto-test-guard: $FOUND suite(s) name koto without the guard or replace its EXIT trap; see scripts/lib/koto-test-guard.sh" >&2
     exit 1
 fi
 exit 0
