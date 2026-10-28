@@ -611,6 +611,105 @@ BAD
     eq "a failing key write: the open still succeeds" "0" "$RC"
     has "a failing key write: the session is still reported" "session=scope-t-wf" "$(cat "$T/out")"
     has "a failing key write: a warning names the key" "work/prior-run.md" "$(cat "$T/err")"
+
+    echo "== a replaced run's review round reaches the new run =="
+
+    # The round as review-round.sh stores it: one compact JSON object and a
+    # newline. Recorded in the run's session before it finishes.
+    printf '%s\n' '{"reviewed_head":"0123456789abcdef0123456789abcdef01234567","seats":[{"seat":"architect","model":"sonnet","run":"run-a","verdict":"pass"},{"seat":"maintainer","model":"opus","run":"run-b","verdict":"pass"}]}' >"$T/round.json"
+    round_key() { k context get "scope-$1" review_round.json 2>/dev/null; }
+    # finish_with_round <topic> <round-file> -- a run that recorded a round and finished
+    finish_with_round() {
+        PLUGIN_ARG="$FP" open_scope "[\"$1\"]"
+        k context add "scope-$1" review_round.json <"$2" >/dev/null
+        k next "scope-$1" --no-cleanup --with-data '{"pick":"clean"}' >/dev/null 2>&1
+    }
+    # open_with <koto-bin> <topic> -- open_scope through another koto
+    open_with() {
+        ARGS_DIR=$(bash "$KOTO_OPEN" --alloc-dir); ARGS="$ARGS_DIR/args.json"; printf '["%s"]' "$2" >"$ARGS"
+        : >"$T/koto.argv"
+        (cd "$R" && HOME="$KH" KOTO_BIN="$1" bash "$OPEN" --plugin-root "$FP" "$ARGS" >"$T/out" 2>"$T/err"); RC=$?
+        STDOUT=$(cat "$T/out"); STDERR=$(cat "$T/err")
+    }
+    round_writes() { grep -c '^context add [^ ]* review_round.json' "$T/koto.argv"; }
+
+    finish_with_round t-rr "$T/round.json"
+    k context get scope-t-rr review_round.json >"$T/round.before" 2>/dev/null
+    PLUGIN_ARG="$FP" open_scope '["t-rr"]'
+    eq "a recorded round: the replace is reported" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    k context get scope-t-rr review_round.json >"$T/round.after" 2>/dev/null
+    if cmp -s "$T/round.before" "$T/round.after" && cmp -s "$T/round.json" "$T/round.after"; then
+        ok "a recorded round: the new session holds the same round, byte for byte"
+    else
+        bad "a recorded round: the new session holds the same round, byte for byte" "[$(cat "$T/round.after")]"
+    fi
+    eq "a recorded round: it is written once" "1" "$(round_writes)"
+    hasnt "a recorded round: no warning" "review-round.sh" "$STDERR"
+    eq "a recorded round: the fresh session starts over" "start|false" \
+        "$(k status scope-t-rr | jq -r '"\(.current_state)|\(.is_terminal)"')"
+    if [ -e "$ARGS" ] || [ -e "$ARGS_DIR" ]; then bad "a recorded round: the args file and its directory are removed" "$(ls -A "$ARGS_DIR" 2>&1)"; else ok "a recorded round: the args file and its directory are removed"; fi
+
+    PLUGIN_ARG="$FP" open_scope '["t-rr"]'
+    eq "a live run holding a round: attached" "opened=attached" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    eq "a live run holding a round: no round is written" "0" "$(round_writes)"
+    eq "a live run holding a round: its round is unchanged" "$(cat "$T/round.json")" "$(round_key t-rr)"
+    if [ -e "$ARGS_DIR" ]; then bad "a live run holding a round: the args directory is removed"; else ok "a live run holding a round: the args directory is removed"; fi
+
+    PLUGIN_ARG="$FP" open_scope '["t-rn"]'
+    eq "a new run: opened=new" "opened=new" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    eq "a new run: no round is written" "0" "$(round_writes)"
+    if k context exists scope-t-rn review_round.json >/dev/null 2>&1; then bad "a new run: no round key" "$(round_key t-rn)"; else ok "a new run: no round key"; fi
+
+    prior_case t-r0 clean
+    eq "a replaced run with no round: no round is written" "0" "$(round_writes)"
+    hasnt "a replaced run with no round: no warning" "review-round.sh" "$STDERR"
+
+    # A read or a write that fails warns and the run still opens.
+    NOGET="$T/bin/koto-noroundget"
+    cat >"$NOGET" <<'BAD'
+#!/usr/bin/env bash
+case "$1 $2 ${4-}" in "context get review_round.json") exit 1 ;; esac
+exec "$SCOPE_TEST_LOG/bin/koto" "$@"
+BAD
+    NOADD="$T/bin/koto-noroundadd"
+    cat >"$NOADD" <<'BAD'
+#!/usr/bin/env bash
+case "$1 $2 ${4-}" in "context add review_round.json") exit 1 ;; esac
+exec "$SCOPE_TEST_LOG/bin/koto" "$@"
+BAD
+    chmod +x "$NOGET" "$NOADD"
+
+    finish_with_round t-rg "$T/round.json"
+    open_with "$NOGET" t-rg
+    eq "a failing round read: the open still succeeds" "0" "$RC"
+    has "a failing round read: the replace is reported" "opened=replaced" "$STDOUT"
+    has "a failing round read: the session is still reported" "session=scope-t-rg" "$STDOUT"
+    has "a failing round read: the warning names review-round.sh" "record it again with review-round.sh" "$STDERR"
+    has "a failing round read: the warning names the session" "scope-t-rg" "$STDERR"
+    if k context exists scope-t-rg review_round.json >/dev/null 2>&1; then bad "a failing round read: no round key" "$(round_key t-rg)"; else ok "a failing round read: no round key"; fi
+    if [ -e "$ARGS_DIR" ]; then bad "a failing round read: the args directory is removed" "$(ls -A "$ARGS_DIR" 2>&1)"; else ok "a failing round read: the args directory is removed"; fi
+
+    finish_with_round t-ra "$T/round.json"
+    open_with "$NOADD" t-ra
+    eq "a failing round write: the open still succeeds" "0" "$RC"
+    has "a failing round write: the session is still reported" "session=scope-t-ra" "$STDOUT"
+    has "a failing round write: the warning names review-round.sh" "record it again with review-round.sh" "$STDERR"
+    has "a failing round write: the warning names the session" "scope-t-ra" "$STDERR"
+    if k context exists scope-t-ra review_round.json >/dev/null 2>&1; then bad "a failing round write: no round key" "$(round_key t-ra)"; else ok "a failing round write: no round key"; fi
+
+    printf '%s\n%s\n' '{"reviewed_head":"a"}' '{"reviewed_head":"b"}' >"$T/round-two.json"
+    finish_with_round t-r2 "$T/round-two.json"
+    PLUGIN_ARG="$FP" open_scope '["t-r2"]'
+    eq "two JSON values: the open still succeeds" "0" "$RC"
+    eq "two JSON values: no round is written" "0" "$(round_writes)"
+    has "two JSON values: the warning says why" "is not one JSON object" "$STDERR"
+    if k context exists scope-t-r2 review_round.json >/dev/null 2>&1; then bad "two JSON values: no round key" "$(round_key t-r2)"; else ok "two JSON values: no round key"; fi
+
+    printf '[%s]\n' '{"reviewed_head":"a"}' >"$T/round-array.json"
+    finish_with_round t-rl "$T/round-array.json"
+    PLUGIN_ARG="$FP" open_scope '["t-rl"]'
+    eq "a JSON array: no round is written" "0" "$(round_writes)"
+    has "a JSON array: the warning says why" "is not one JSON object" "$STDERR"
 else
     echo "SKIP: TMPDIR holds a character koto refuses in a plugin root -- the prior-run cases did not run"
 fi
