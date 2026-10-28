@@ -437,8 +437,8 @@ expect_problem "an active script entry with no gates" "$G: gates is empty on an 
 
 # scripts/doc-check.sh runs from a skill's phase step, not a koto gate, so an
 # entry it checks may have no gates; the same entry under another check may not.
-reg "$(sel plan/step-shape).check.path = \"skills/scope/scripts/check-hop-document.sh\""
-expect_problem "an empty gates list on an entry another script checks" "plan/step-shape: gates is empty on an active entry"
+reg "$(sel roadmap/milestone-shape).check.path = \"skills/scope/scripts/check-hop-document.sh\""
+expect_problem "an empty gates list on an entry another script checks" "roadmap/milestone-shape: gates is empty on an active entry"
 
 reg "$(sel rs-027).held_by = \"rs-026\""
 expect_problem "a held_by naming an entry no script checks" "rs-027: held_by \"rs-026\" is not an active script-checked entry"

@@ -69,7 +69,8 @@
 #      change to retired sets stage retired; a status retired base entry keeps
 #      its status and stage; an active entry that drops a protected guard is
 #      at block; an active script entry stepping up to block from a stage
-#      where it guarded nothing gains a protected guard in the same change;
+#      where it guarded nothing gains a protected guard in the same change,
+#      unless a backstop covers it;
 #      a new entry takes no alias an entry at the base holds. A base with no
 #      registry passes; one that doesn't parse exits 2
 #  12  hook links: a `deny` is an object of hook and before only, whose hook
@@ -784,7 +785,9 @@ if [ -n "$BASE" ]; then
               (select($h.status == "active" and ($h.stage // "block") != "block")
                 | ($b | pguards) - ($h | pguards) | select(length > 0)
                 | "\($n): drops protected guard(s) \(join(", ")) while at stage \($h.stage); drop a guard only at block, and soften the stage in a later change"),
+              # An entry with a backstop guards none by design (check 2).
               (select($h.status == "active" and ($h.stage // "block") == "block"
+                      and ($h | has("backstop") | not)
                       and ($b | has("stage")) and $b.stage != "block"
                       and ($b | pguards | length) == 0 and ($h | pguards | length) == 0)
                 | "\($n): steps from \($b.stage) to block guarding nothing; give it a protected guard in the same change")
