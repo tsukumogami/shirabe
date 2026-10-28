@@ -230,7 +230,9 @@ break_doc() {
             printf 'docs/upstream-direction' ;;
         hop_design)
             fx_design other | put "$tag" docs/designs/DESIGN-other.md
-            fx_design "$tag" | sed 's#^rationale: |$#upstream: docs/designs/DESIGN-other.md\nrationale: |#' \
+            # upstream goes after rationale, the documented key order, so
+            # the only rule this DESIGN breaks is the upstream direction.
+            fx_design "$tag" | sed 's#^  It is the simplest place\.$#&\nupstream: docs/designs/DESIGN-other.md#' \
                 | put "$tag" "$(the_doc "$st" "$tag")"
             printf 'docs/upstream-direction' ;;
         hop_plan)
