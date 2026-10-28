@@ -28,6 +28,9 @@
 # written everything, so the starts read as distinct minutes.
 #
 # Needs koto and jq; SKIPs (exit 0) without koto, which CI asserts first.
+# On a koto without init --supersede (the entry floor among them) no run can
+# take another over: there it runs only the cases with no takeover in them and
+# prints a skip line for each case it leaves out.
 # Usage: bash skills/coordinate/scripts/coord-log-chain_engine_test.sh
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
@@ -49,6 +52,8 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "want [$2], got [$3]"; fi; }
+SKIPPED=0
+skip() { SKIPPED=$((SKIPPED + 1)); printf 'skip %s\n     this koto has no init --supersede\n' "$1"; }
 
 CL="$HERE/coord-log.sh"
 DC="$HERE/deferral-check.sh"
@@ -56,6 +61,8 @@ DC="$HERE/deferral-check.sh"
 mkdir -p "$T/work"
 cd "$T/work" && git init -q && git commit -q --allow-empty -m init 2>/dev/null
 case "$(koto session dir probe)" in "$T"/*) ;; *) echo "FAIL: koto's store is outside the scratch directory; no case ran"; exit 1 ;; esac
+# --supersede requires --continues, so a koto that lists it can run takeover below.
+case "$(koto init --help 2>/dev/null)" in *--supersede*) TAKEOVER=1 ;; *) TAKEOVER=0 ;; esac
 
 TPL="$T/skeleton.md"
 cat > "$TPL" <<'TPLEOF'
@@ -121,13 +128,19 @@ check_chain() { # check_chain <label> <want> <session>
 }
 
 echo "== a continues chain whose names share no prefix =="
-open north-17 && takeover q.relay north-17 && takeover zz-final q.relay
-stamp north-17 2026-05-01T08:00:00.000Z
-stamp q.relay 2026-05-02T08:00:00.000Z
-stamp zz-final 2026-05-03T08:00:00.000Z
-check_chain "the newest member reaches the first" 2026-05-01T08:00:00.000Z zz-final
-check_chain "the middle member reaches the first" 2026-05-01T08:00:00.000Z q.relay
-check_chain "the first member is its own chain start" 2026-05-01T08:00:00.000Z north-17
+if [ "$TAKEOVER" = 1 ]; then
+    open north-17 && takeover q.relay north-17 && takeover zz-final q.relay
+    stamp north-17 2026-05-01T08:00:00.000Z
+    stamp q.relay 2026-05-02T08:00:00.000Z
+    stamp zz-final 2026-05-03T08:00:00.000Z
+    check_chain "the newest member reaches the first" 2026-05-01T08:00:00.000Z zz-final
+    check_chain "the middle member reaches the first" 2026-05-01T08:00:00.000Z q.relay
+    check_chain "the first member is its own chain start" 2026-05-01T08:00:00.000Z north-17
+else
+    skip "the newest member reaches the first"
+    skip "the middle member reaches the first"
+    skip "the first member is its own chain start"
+fi
 
 echo "== same-prefix runs outside the chain =="
 A=coordinate-demo-20260601T000000Z B=coordinate-demo-20260602T000000Z S=coordinate-demo-20260603T000000Z
@@ -139,22 +152,30 @@ stamp "$B" 2026-06-02T00:00:00.000Z
 stamp "$S" 2026-06-03T00:00:00.000Z
 # The name walk read A's start here: S's prefix and stamp, every earlier one cancelled.
 check_chain "cancelled runs named like S, unlinked, are not S's chain" 2026-06-03T00:00:00.000Z "$S"
-open elsewhere-run
-stamp elsewhere-run 2026-05-20T00:00:00.000Z
-S2=coordinate-demo-20260604T000000Z
-takeover "$S2" elsewhere-run
-stamp "$S2" 2026-06-04T00:00:00.000Z
-check_chain "a run continuing another name reaches it, not its name neighbours" 2026-05-20T00:00:00.000Z "$S2"
+if [ "$TAKEOVER" = 1 ]; then
+    open elsewhere-run
+    stamp elsewhere-run 2026-05-20T00:00:00.000Z
+    S2=coordinate-demo-20260604T000000Z
+    takeover "$S2" elsewhere-run
+    stamp "$S2" 2026-06-04T00:00:00.000Z
+    check_chain "a run continuing another name reaches it, not its name neighbours" 2026-05-20T00:00:00.000Z "$S2"
+else
+    skip "a run continuing another name reaches it, not its name neighbours"
+fi
 
 echo "== a member with only a dispatched-by link =="
 open head-run && open mid-run
 carry mid-run head-run
 cancel head-run
-takeover tail-run mid-run
+[ "$TAKEOVER" = 1 ] && takeover tail-run mid-run
 stamp head-run 2026-07-01T00:00:00.000Z
 stamp mid-run 2026-07-02T00:00:00.000Z
-stamp tail-run 2026-07-03T00:00:00.000Z
-check_chain "the relation, then the carried run's dispatched-by link" 2026-07-01T00:00:00.000Z tail-run
+if [ "$TAKEOVER" = 1 ]; then
+    stamp tail-run 2026-07-03T00:00:00.000Z
+    check_chain "the relation, then the carried run's dispatched-by link" 2026-07-01T00:00:00.000Z tail-run
+else
+    skip "the relation, then the carried run's dispatched-by link"
+fi
 check_chain "a member with only a dispatched-by link reaches the run it carried" 2026-07-01T00:00:00.000Z mid-run
 open rot-old --var SCOPE=discipline --var DISCIPLINE=ci-health
 finish rot-old
@@ -202,27 +223,38 @@ open tk-a --var ROADMAP=docs/roadmaps/ROADMAP-tk.md
 open tk-b --var ROADMAP=docs/roadmaps/ROADMAP-tk.md
 carry tk-b tk-a
 cancel tk-a
-takeover tk-new tk-b --var ROADMAP=docs/roadmaps/ROADMAP-tk.md
+[ "$TAKEOVER" = 1 ] && takeover tk-new tk-b --var ROADMAP=docs/roadmaps/ROADMAP-tk.md
 stamp tk-a 2026-09-01T00:00:00.000Z
 stamp tk-b 2026-09-02T00:00:00.000Z
-stamp tk-new 2026-09-03T00:00:00.000Z
 check_chain "the predecessor's chain start" 2026-09-01T00:00:00.000Z tk-b
-CS=$(chain tk-new)
-show tk-new "$CS"
-eq "a takeover's chain start is its predecessor's" 2026-09-01T00:00:00.000Z "$CS"
-RS=$(bash "$CL" run-start --session tk-new)
-eq "the takeover's own run start is later" 2026-09-03T00:00:00.000Z "$RS"
-row() { jq -nc --arg d "$1" '{deferral: "x", reason: "r", raised: "2026-08-31T10:00Z", disposition: $d}' > "$T/row.json"; bash "$DC" --row-file "$T/row.json" --run-start "$RS" --chain-start "$CS"; }
-OUT=$(row 'carried 2026-09-01T12:00Z: tk-a carried it'); RC=$?
-printf '     deferral carried 2026-09-01T12:00Z -> %s\n' "$OUT"
-eq "a carry made in the chain before the takeover stays disposed" "0 disposed carried 2026-09-01T12:00Z" "$RC $OUT"
-OUT=$(row 'carried 2026-08-31T12:00Z: before the chain'); RC=$?
-printf '     deferral carried 2026-08-31T12:00Z -> %s\n' "$OUT"
-eq "a carry made before the chain start is open" "1 undisposed carried-before-chain-start" "$RC $OUT"
+if [ "$TAKEOVER" = 1 ]; then
+    stamp tk-new 2026-09-03T00:00:00.000Z
+    CS=$(chain tk-new)
+    show tk-new "$CS"
+    eq "a takeover's chain start is its predecessor's" 2026-09-01T00:00:00.000Z "$CS"
+    RS=$(bash "$CL" run-start --session tk-new)
+    eq "the takeover's own run start is later" 2026-09-03T00:00:00.000Z "$RS"
+    row() { jq -nc --arg d "$1" '{deferral: "x", reason: "r", raised: "2026-08-31T10:00Z", disposition: $d}' > "$T/row.json"; bash "$DC" --row-file "$T/row.json" --run-start "$RS" --chain-start "$CS"; }
+    OUT=$(row 'carried 2026-09-01T12:00Z: tk-a carried it'); RC=$?
+    printf '     deferral carried 2026-09-01T12:00Z -> %s\n' "$OUT"
+    eq "a carry made in the chain before the takeover stays disposed" "0 disposed carried 2026-09-01T12:00Z" "$RC $OUT"
+    OUT=$(row 'carried 2026-08-31T12:00Z: before the chain'); RC=$?
+    printf '     deferral carried 2026-08-31T12:00Z -> %s\n' "$OUT"
+    eq "a carry made before the chain start is open" "1 undisposed carried-before-chain-start" "$RC $OUT"
+else
+    skip "a takeover's chain start is its predecessor's"
+    skip "the takeover's own run start is later"
+    skip "a carry made in the chain before the takeover stays disposed"
+    skip "a carry made before the chain start is open"
+fi
 
 echo "== reads that fail =="
 bash "$CL" chain-start --session no-such-run >/dev/null 2>&1; eq "an unreadable S exits 2" 2 $?
 
 echo
-echo "coord-log chain: $PASS passed, $FAIL failed"
+if [ "$SKIPPED" -gt 0 ]; then
+    echo "coord-log chain: $PASS passed, $FAIL failed, $SKIPPED skipped (this koto has no init --supersede: no takeover ran)"
+else
+    echo "coord-log chain: $PASS passed, $FAIL failed"
+fi
 [ "$FAIL" -eq 0 ]
