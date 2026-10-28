@@ -448,6 +448,26 @@ eq "a run whose find never recorded the session: none" "none $R1" "$(cand)"
 clear_rp; mk coordinate-roadmap-resume-probe-copy; eq "a name off the pattern is never a candidate" "none null" "$(cand)"
 clear_rp; mk "$R1"; printf '%s' coordinate-roadmap-other-20261013T090000Z > "$KOTO_STORE/sessions/$R1/.parent"
 eq "a child session is never a candidate" "none null" "$(cand)"
+# A run whose record/meta listing koto refuses may hold the record, so it is
+# never skipped (shirabe#1257): newer than the newest holder, or with no holder
+# at all, it is the answer, unreadable, with koto's reason, and the code
+# bound-elsewhere when koto refused it as bound to another directory.
+cand_json() { KOTO_COMPILED_HASH=$HS bash "$RS" --candidate --scope roadmap --name resume-probe --hash "$HS" 2>"$T/c.err"; }
+clear_rp; mk "$R1"; log_end "$R1"; mk "$R2"
+KOTO_BOUND_ELSEWHERE=$R2 cand_json > "$T/cand.json"
+eq "a newer run refused as session_bound_elsewhere is unreadable, not skipped" "unreadable $R2 bound-elsewhere" \
+    "$(jq -r '"\(.action) \(.session) \(.code)"' "$T/cand.json")"
+grep -q session_bound_elsewhere <<< "$(jq -r .reason "$T/cand.json")" && ok "  ... its reason koto's" || bad "  ... its reason koto's" "$(cat "$T/cand.json")"
+clear_rp; mk "$R1"; log_end "$R1"
+eq "  ... and so is the only holder (the issue's second start)" "unreadable $R1 bound-elsewhere" \
+    "$(KOTO_BOUND_ELSEWHERE=$R1 cand_json | jq -r '"\(.action) \(.session) \(.code)"')"
+clear_rp; mk "$R1"; log_end "$R1"; mk "$R2"
+KOTO_READ_FAIL=$R2 cand_json > "$T/cand.json"
+eq "a newer run whose listing fails otherwise is unreadable with no code" "unreadable $R2 " \
+    "$(jq -r '"\(.action) \(.session) \(.code // "")"' "$T/cand.json")"
+grep -q 'the read of' <<< "$(jq -r .reason "$T/cand.json")" && ok "  ... its reason koto's" || bad "  ... its reason koto's" "$(cat "$T/cand.json")"
+clear_rp; mk "$R1"; log_end "$R1"; mk "$R2"
+eq "an unreadable run older than the newest holder changes nothing" "resume $R2" "$(KOTO_BOUND_ELSEWHERE=$R1 cand)"
 clear_rp
 bash "$RS" --candidate --scope roadmap --name resume-probe --hash abc >/dev/null 2>&1; eq "--candidate refuses a hash that isn't 64 hex" 64 $?
 # The carry's write path: core_carry is called only by the opener.
