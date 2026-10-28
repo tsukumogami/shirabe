@@ -56,6 +56,11 @@ shirabe	roadmap populate	-	always
 koto	context list	--prefix	always
 koto	context remove	-	always
 pkill	-	-	always
+# dispatch-common.sh's dc_job_finished, the job liveness check
+# teardown-pass.sh and teardown-handoff.sh run, calls `ps -p` after `kill -0`,
+# which fails on a live process another user owns, so a job is dead only when
+# neither finds its pid.
+ps	-	-	always
 # The record's checks (state-schema.jq) and every script that reads or writes
 # the record are jq programs over its JSON.
 jq	-	-	always

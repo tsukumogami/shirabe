@@ -493,10 +493,9 @@ cc_pr_node() {
 #
 # A record without `deferrals` was pushed before node-push.sh recorded them
 # (or rebuilt by record-coord-setup.sh's recover, which reads GitHub and can't
-# know them); its children are read as they were then, from here. Under the
-# cloud backend those reads are refused, so such a node stops the pass at
-# error:execute:status-read, failing closed, until node-push.sh pushes it
-# again and records its deferrals. They are `work-on-<slug>-<node>-<item>` for each
+# know them), so the node's children are read for their reasons
+# (cc_children_deferrals) and the body is checked against those as against
+# recorded ones. They are `work-on-<slug>-<node>-<item>` for each
 # comma-joined item; a child holding `verification_deferral` deferred. The
 # run's own reason is not passed here: every child the run deferred holds it,
 # and node-push.sh wrote it into the body. With no items (the PLAN gone, so
@@ -510,7 +509,7 @@ cc_pr_node() {
 # CC_ACTION: error:execute:deferral-record when the body misses a part,
 # error:execute:status-read when it can't be decided.
 cc_deferral_record() {
-    local items="$2" item rc err args roots has recorded oldifs=$IFS
+    local items="$2" item rc err args roots has recorded
     args=(--session "$CC_SESSION" --verification "")
     has=$(printf '%s' "$5" | jq -r 'has("deferrals")') || has=""
     case "$has" in
@@ -518,10 +517,6 @@ cc_deferral_record() {
             # run-record.sh holds each reason to one non-empty line.
             recorded=$(printf '%s' "$5" | jq -r '.deferrals[]') \
                 || { CC_ACTION="error:execute:status-read"; return 1; }
-            [ -n "$recorded" ] || return 0
-            while IFS= read -r item; do
-                args+=(--recorded "$item")
-            done <<< "$recorded"
             ;;
         false)
             if [ -z "$items" ]; then
@@ -532,14 +527,15 @@ cc_deferral_record() {
                     || { CC_ACTION="error:execute:status-read"; return 1; }
                 [ -n "$items" ] || return 0
             fi
-            IFS=,
-            for item in $items; do
-                args+=(--child "work-on-$CC_SLUG-$1-$item")
-            done
-            IFS=$oldifs
+            recorded=$(cc_children_deferrals "$1" "$items") \
+                || { CC_ACTION="error:execute:status-read"; return 1; }
             ;;
         *) CC_ACTION="error:execute:status-read"; return 1 ;;
     esac
+    [ -n "$recorded" ] || return 0
+    while IFS= read -r item; do
+        args+=(--recorded "$item")
+    done <<< "$recorded"
     # --body: a node PR's body carries the record whatever the repository's
     # PR Workflow Content setting.
     args+=(--body -- --repo "$3" --head "$4" --state open)
@@ -557,6 +553,46 @@ cc_deferral_record() {
         CC_ACTION="error:execute:status-read"
     fi
     return 1
+}
+
+# cc_children_deferrals <node> <items> -- the verification deferral reasons
+# of a node's work items, read from their sessions, one per line.
+#
+# Each child is read where it is bound. Its step agent opened it in the node
+# worktree, and koto's cloud backend answers a session only in the directory
+# it was opened in, refusing a read from this coordination checkout
+# (session_bound_elsewhere). The loop doesn't hold the node worktree, so it
+# asks koto: `koto session list` gives each session's execution_dir, from any
+# directory. The child is then read there with shared-deferral-record.sh
+# --child-dir, the read node-push.sh makes at push time. A child koto doesn't
+# list, or whose directory is gone, is read from here as before: a session
+# that doesn't exist didn't defer, and one bound elsewhere is still refused.
+#
+# Returns 1 when it can't decide: the listing failed or isn't a list, or a
+# child's read failed for any reason (shared-deferral-record.sh's message is
+# on stderr). A failed read is never a child that didn't defer.
+cc_children_deferrals() {
+    local listing item child dir out
+    local -a items cargs
+    listing=$(koto session list </dev/null) || {
+        echo "$PROG: koto session list failed, so node $1's work items can't be found where they are bound" >&2
+        return 1
+    }
+    printf '%s' "$listing" | jq -e 'type == "array"' >/dev/null || {
+        echo "$PROG: koto session list did not answer a list of sessions" >&2
+        return 1
+    }
+    IFS=, read -r -a items <<< "$2"
+    for item in "${items[@]}"; do
+        child="work-on-$CC_SLUG-$1-$item"
+        dir=$(printf '%s' "$listing" | jq -r --arg c "$child" \
+            '[.[] | select(.id == $c) | .execution_dir | strings][0] // ""') || return 1
+        cargs=(--session "$CC_SESSION" --verification "" --child "$child")
+        [ -n "$dir" ] && [ -d "$dir" ] && cargs+=(--child-dir "$dir")
+        out=$("$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${cargs[@]}" --list </dev/null) || return 1
+        [ -z "$out" ] || printf '%s\n' "$out"
+    done
+    return 0
 }
 
 # cc_verdict_arm <id> <url> <verdict> <attempt> -- what a node's or a

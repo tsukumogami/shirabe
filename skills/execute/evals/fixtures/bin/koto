@@ -258,6 +258,17 @@ case "$ARGS" in
     echo '{"current_state":"unknown","is_terminal":false}'
     exit 0
     ;;
+  "session list"|"session list "*)
+    # Where each session is bound (its execution_dir). The coordinated loop
+    # reads it to find a node's work items. Default: none listed, so a work
+    # item is read here, as before the loop looked.
+    if [ -f "$SCENARIO_DIR/koto-session-list.json" ]; then
+      cat "$SCENARIO_DIR/koto-session-list.json"
+      exit 0
+    fi
+    echo '[]'
+    exit 0
+    ;;
   *"session cleanup"*)
     # The Resume guard's recovery, once a retained record has been read.
     exit 0

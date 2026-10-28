@@ -514,6 +514,12 @@ if [ -n "$SHIRABE_FOR_OUTLINES" ] && "$SHIRABE_FOR_OUTLINES" plan outlines --hel
     mkdir -p "$KSTUB"
     cat > "$KSTUB/koto" <<'STUB'
 #!/usr/bin/env bash
+# session list: no session is listed, so the loop reads a node's work items
+# here, as the shim's own session list answers.
+if [ "$1 ${2:-}" = "session list" ]; then
+    printf '[]\n'
+    exit 0
+fi
 [ "$1" = context ] || exit 9
 if [ "$2" = list ]; then
     shift 2; p=""; s=""
