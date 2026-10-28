@@ -114,7 +114,10 @@ esac
 bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state verify --after "${ENT%% *}" >/dev/null 2>&1 || no_prediction
 
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
-trap 'rm -f "$T" "$T".*' EXIT
+trap 'rm -rf "$T" "$T".*' EXIT
+# One record read for the step: both Holdings listings below come from one
+# read of that section (state-read.sh rs_once_begin; shirabe#1315).
+rs_once_begin "$T.once" holdings || exit 2
 # stopped <word> <code> <detail> [<pr>]: a verdict with no board read behind
 # it, written in board-verdict.sh's shape (nothing read: no head, source,
 # state, jobs or required set) so coord/board.json has one shape. The token's

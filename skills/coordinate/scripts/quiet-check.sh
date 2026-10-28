@@ -74,6 +74,9 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/quiet-check.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
+# One record read for the step: the holdings and the Standing rows come from
+# one read of the sections the two listers print (shirabe#1315).
+rs_once_begin "$T/once" "holdings run standing work" || lib_die2 "cannot make a temporary directory"
 
 bash "$HERE/state-holding.sh" --session "$SESSION" --list > "$T/holdings.json" 2> "$T/h.err" \
     || lib_die2 "state-holding.sh --list failed: $(lib_scrub < "$T/h.err")"

@@ -96,6 +96,9 @@ WDR_CLOSING='New evidence reopened this decision, so the escalation is withdrawn
 RE_WDR='^Withdrawn: decision ([1-9][0-9]*) round ([1-9][0-9]*)\.$'
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-questions.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
+# One record read for the step: the holding row and the Decisions section
+# come from one read of those two sections (shirabe#1315).
+rs_once_begin "$T/once" "holdings decisions" || lib_die2 "cannot make a temporary directory"
 verdict() { bash "$HERE/coord-log.sh" seal --session "$SESSION" --state report_questions --token "$1" || lib_die2 "cannot seal the verdict"; exit 0; }
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 

@@ -97,6 +97,10 @@ lib_facts
 lib_run_stamp
 T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
+# One record read for the step: the Decisions section, and the Work rows a
+# park is judged on, come from one read of the sections they print
+# (shirabe#1315).
+rs_once_begin "$T/once" "decisions run standing work" || lib_die2 "cannot make a temporary directory"
 CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 
 # The section and the log facts the rules read.
