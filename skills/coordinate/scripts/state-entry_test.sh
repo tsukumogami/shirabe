@@ -36,7 +36,7 @@ RM=(--scope roadmap --name plugin-system --repo "$REPO")
 seed() {
     db_init
     seed_session "$SR" "$(record_json roadmap plugin-system)"
-    rm -rf "$KOTO_STORE/context/$SR/record/entries" "$KOTO_STORE/context/$SR/record/posted"
+    rm -rf "$KOTO_STORE/context/$SR/record/entries" "$KOTO_STORE/context/$SR/record/posted" "$KOTO_STORE/context/$SR/record/archive"
     jq -nc '[{key: "coordinator", value: "coord", set_by: "alice", set: "2026-10-07T09:00Z"}]' | koto context add "$SR" record/run
 }
 entry() { printf '%s\n' "$1" > "$T/entry.txt"; }
@@ -72,6 +72,14 @@ eq "blank-only edge lines are trimmed, and & and @ come back exactly" "keep &#64
 eq "a read writes nothing on GitHub" "" "$(gh_writes)"
 rm -rf "$KOTO_STORE/context/$SR/record/run"
 eq "a record with no coordinator row lists an empty author" "" "$(list "${RM[@]}" | jq -r '.[0].author')"
+eq "no entry so far is marked as archived" "" "$(ls "$KOTO_STORE/context/$SR/record/archive" 2>/dev/null)"
+entry "Decisions 3, settled, moved out of the record body as it held them."
+OUT=$(bash "$RA" "${RM[@]}" --kind decisions --text-file "$T/entry.txt" 2>"$T/err"); rc=$?
+eq "a decisions entry is written" "0 record/entries/000004" "$rc $OUT"
+eq "  ... with its marker, record/archive/<n> holding {n}" '000004 {"n":4}' \
+    "$(ls "$KOTO_STORE/context/$SR/record/archive") $(koto context get "$SR" record/archive/000004)"
+KOTO_FAIL_ADD=record/archive/000005 bash "$RA" "${RM[@]}" --kind decisions --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; rc=$?
+eq "  ... and a failed marker write writes no entry (11)" "11 000004" "$rc $(ls "$KOTO_STORE/context/$SR/record/entries" | tail -1)"
 
 echo "== discipline scope =="
 SD=coordinate-discipline-perf-20260926T150000Z

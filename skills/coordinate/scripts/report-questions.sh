@@ -22,8 +22,9 @@
 #     first line that is neither a numbered item nor blank. An item's
 #     `(decision <n>)` is its citation only when there is a holding and entry
 #     <n>'s Source is `worker <topic>`, read from the row its latest unedited
-#     `decisions` entry holds when <n> is archived; any other citation is
-#     dropped;
+#     `decisions` entry holds when <n> is archived (the entries the
+#     record/archive/ markers name, or every entry on a record without
+#     markers); any other citation is dropped;
 #   - every other line ending in `?`, and every other line the phrasing list
 #     marks as a decision (phrasing-lib.sh);
 #   - each marked `addressed` when the list's person-addressing patterns match.
@@ -315,8 +316,29 @@ if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | len
         | .[2:] | join("\t") | capture("\\(decision (?<n>[1-9][0-9]*)\\)") | .n | tonumber] | unique' "$T/all") \
         || lib_die2 "cannot read the citations"
     if printf '%s' "$SECTION" | jq -e --argjson c "$CITED" 'any((.archived // [])[]; . as $a | $c | index($a) != null)' > /dev/null; then
-        bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
-            || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+        # The decisions entries are the ones a record/archive/<n> marker names;
+        # a record imported before the markers has none, and every entry is
+        # read instead (shirabe#1315).
+        ES=${RS_SESSION:-$SESSION}
+        rs_list "$ES" record/archive/ "$T/marks" \
+            || { lib_scrub < "$T/marks.err" >&2; echo >&2; lib_die2 "cannot list the record's archive markers"; }
+        jq -r '.[] | select(test("^record/archive/[0-9]{6}$")) | ltrimstr("record/archive/")' "$T/marks" | LC_ALL=C sort > "$T/marked" \
+            || lib_die2 "the marker list is not JSON"
+        if [ -s "$T/marked" ]; then
+            : > "$T/entries.jsonl"
+            while IFS= read -r m; do
+                rs_key "$ES" "record/entries/$m" "$T/entry"
+                case $? in
+                    0) { cat "$T/entry"; printf '\n'; } >> "$T/entries.jsonl" ;;
+                    1) ;;
+                    *) lib_scrub < "$T/entry.err" >&2; echo >&2; lib_die2 "cannot read record/entries/$m" ;;
+                esac
+            done < "$T/marked"
+            jq -s -c 'map({kind, text, edited: false})' "$T/entries.jsonl" > "$T/entries.json" || lib_die2 "an entry key is not JSON"
+        else
+            bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
+                || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+        fi
         OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "state-schema";
             ([.[] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
             | [($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring as $n

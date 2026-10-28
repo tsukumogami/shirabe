@@ -95,5 +95,35 @@ bash "$F" --scope roadmap --name plugin-system >/dev/null 2>&1; eq "partial over
 bash "$F" --scope roadmap --name 'a b' --repo "$REPO" --no-seal >/dev/null 2>&1; eq "a bad name is a usage error" 64 $?
 bash "$F" --scope roadmap --name plugin-system --repo "$REPO" --store session --no-seal >/dev/null 2>&1; eq "--store is a usage error" 64 $?
 
+echo "== found: the koto calls don't grow with the entries (shirabe#1315) =="
+# The find gets record/meta and each section directly, and never lists
+# record/, which names every entry: the same find on a record with 3 entries
+# and with 300 makes the same koto calls, and reads no entry.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: the find's verdict and its koto calls on a record with
+# Holdings and a Decisions section and <entries> entries, the calls kept in
+# $T/kc.calls.
+koto_calls() {
+    fresh
+    seed_session "$S" "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .decisions = {next: 3, entries: []}')"
+    filler "$S" "$1"
+    : > "$KOTO_STORE/calls"
+    printf '%s %s' "$(find_rm)" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+eq "the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... the record found" found "${MANY% *}"
+eq "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+
 tokens_ok state-find
 done_tests state-find

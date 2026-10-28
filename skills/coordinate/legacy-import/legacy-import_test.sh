@@ -154,6 +154,8 @@ jq -n -L "$HERE" --slurpfile s "$T/imported.json" 'include "state-schema"; $s[0]
     && ok "  ... every key passing state-schema.jq" || bad "  ... every key passing state-schema.jq" "$(cat "$T/err")"
 eq "  ... with Decisions' Archived line" "[1,2,3]" "$(key "$S" record/decisions | jq -c .archived)"
 eq "  ... the writers' entries only, decoded and numbered" "$ENTRIES" "$(entries_of "$S")"
+eq "  ... the decisions entry marked as state-entry.sh marks one" 'record/archive/000002 {"n":2}' \
+    "$(cd "$KOTO_STORE/context/$S" && ls record/archive/*) $(key "$S" record/archive/000002)"
 eq "  ... record/meta with the body's written time" '{"scope":{"kind":"roadmap","name":"plugin-system"},"store":"session","written":"2026-10-08T10:00:00Z","pending":false}' "$(key "$S" record/meta)"
 eq "  ... record/meta written last" "record/meta" "$(grep '^context add' "$KOTO_STORE/calls" | tail -1 | awk '{print $4}')"
 eq "  ... one GitHub write: a comment on the record" "api --method POST repos/acme/widgets/issues/7/comments" \
@@ -168,6 +170,7 @@ echo "== a crash, and the next start =="
 crash() { # crash <label> <setup>: a run cut short, then the next start
     world 7 roadmap
     koto context add "$S" record/entries/000005 < "$FX/state.json" > /dev/null
+    printf '{"n":5}' | koto context add "$S" record/archive/000005 > /dev/null
     OUT=$(eval "$2"; imp --ref 7 2> "$T/err"); rc=$?
     eq "$1: the run stops part way" "11" "$rc"
     eq "  ... leaving no record/meta" "" "$(key "$S" record/meta)"
@@ -177,6 +180,7 @@ crash() { # crash <label> <setup>: a run cut short, then the next start
     eq "  ... and imports again" "0 imported=7 entries=2" "$rc $OUT"
     eq "  ... rewriting the same sections whole" "$(printf '%s' "$EXPECT" | jq -cS 'del(.written)')" "$(state_of "$S" | jq -cS 'del(.written)')"
     eq "  ... and the same entries, none left past them" "$ENTRIES" "$(entries_of "$S")"
+    eq "  ... and only the decisions entry's marker" "record/archive/000002" "$(cd "$KOTO_STORE/context/$S" && ls record/archive/*)"
     eq "  ... ending with one note" "1" "$(notes 7)"
     eq "  ... and one record/meta" "false" "$(key "$S" record/meta | jq -r .pending)"
 }

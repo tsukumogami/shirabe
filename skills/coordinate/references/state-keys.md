@@ -86,6 +86,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/rotation`, `record/reasoning` | a discipline rotation's window, host and predecessor, and the reasoning it leaves the next rotation | `state-stored-set.sh` (`STATE_WRITER`) |
 | `record/host` | the host facts (see Where State Lives), never sent to GitHub | `state-stored-set.sh --host` |
 | `record/entries/<n>`, `record/posted/<n>` | the account, one entry each, and the URL of an outward entry's comment | `state-entry.sh` |
+| `record/archive/<n>` | `{n}`, the marker beside a `decisions` entry, so the archived rows are read without listing every entry | `state-entry.sh`; the legacy importer |
 | `legs/<request>/<leg>` | a worker leg (see Where State Lives) | `dispatch-worker.sh`, `wait-target.sh`, `reconcile-legs.sh` |
 
 Any section key may also be written by the core's carry: `state-open.sh`
@@ -375,7 +376,10 @@ It stamps the entry from the host clock in UTC to the second and writes
 with `--kind`. The milestone steps write three: `milestone-verdict`,
 `goal-fit` and `milestone-failure`, whose lines are under Milestone Verdicts.
 A record moved from GitHub may also hold `decisions` entries, the archived
-Decisions rows (see Decisions).
+Decisions rows (see Decisions). Each is written with a marker beside it,
+`record/archive/<n>`, so a reader of the archived rows lists the markers and
+gets those entries alone. A record imported before the markers has none, and
+its reader reads every entry instead.
 
 An outward entry, one that a reader outside the coordinator reads on GitHub,
 is also posted as a comment on the item it concerns, named with `--on`: a

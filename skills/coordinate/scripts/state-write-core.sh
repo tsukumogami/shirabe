@@ -445,7 +445,7 @@ core_carry() {
             record/meta) continue ;;
             # A rotation's window and its reasoning go with it on a restart.
             record/host|record/rotation|record/reasoning) ;;
-            record/entries/*|record/posted/*) [[ $k =~ ^record/(entries|posted)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
+            record/entries/*|record/posted/*|record/archive/*) [[ $k =~ ^record/(entries|posted|archive)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
             record/*) case "$secs" in *" $k "*) ;; *) rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k, not one of the session store's" >&2; exit 65 ;; esac ;;
             legs/*) [[ $k =~ ^legs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
         esac
@@ -498,7 +498,9 @@ core_validate() {
 # core_validate whole before any key is written; each section key is then
 # written whole (a section the state doesn't hold loses its key), each entry in
 # <entries-file>, a JSON array of {n, stamp, kind, text} numbered from 1, as
-# record/entries/<n> (an entry key numbered past the last is removed), and at
+# record/entries/<n> (an entry key numbered past the last is removed), a
+# `decisions` entry with its marker record/archive/<n> as state-entry.sh writes
+# one (a marker on any other number is removed), and at
 # discipline scope <rotation-file>, {start, end, host_repo, predecessor: null},
 # as record/rotation. record/meta is left to core_import_meta, which the
 # importer calls last, so an import cut short leaves no record and the next
@@ -534,9 +536,19 @@ core_import() {
     n=$(jq length "$2")
     for i in $(jq -r 'keys[]' "$2"); do
         jq -c --argjson i "$i" '.[$i]' "$2" > "$T/entry"
+        if [ "$(jq -r .kind "$T/entry")" = decisions ]; then
+            jq -c '{n}' "$T/entry" > "$T/marker"
+            core_import_add "$s" "record/archive/$(printf '%06d' $((i + 1)))" "$T/marker"
+        fi
         core_import_add "$s" "record/entries/$(printf '%06d' $((i + 1)))" "$T/entry"
     done
     for key in $(jq -r --argjson n "$n" '.[] | select(test("^record/entries/[0-9]{6}$")) | select((ltrimstr("record/entries/") | tonumber) > $n)' "$T/keys"); do
+        core_import_remove "$s" "$key"
+    done
+    # A marker an earlier, cut-short import left on an entry this one doesn't
+    # write as a decisions entry.
+    for key in $(jq -r --slurpfile e "$2" '[$e[0][] | select(.kind == "decisions") | .n] as $d
+            | .[] | select(test("^record/archive/[0-9]{6}$")) | select((ltrimstr("record/archive/") | tonumber) as $m | $d | index($m) | not)' "$T/keys"); do
         core_import_remove "$s" "$key"
     done
     [ "$SCOPE" != discipline ] || core_import_add "$s" record/rotation "$3"
