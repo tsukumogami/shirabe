@@ -125,6 +125,12 @@ How to drive it:
   and submit the entry evidence {"mode": "plan_backed", "issue_source":
   "{{ISSUE_SOURCE}}", "issue_number": "{{ISSUE_NUMBER}}"}. When it exists, go
   on from the state it reports.
+- If the child hasn't passed plan_validation and the PLAN path it was opened
+  with no longer exists (the checkout moved after the child was opened; at
+  plan_validation the step_detail gate then exits 2), don't submit
+  `verdict: exit` or a blocked status: either ends the work item as though
+  its step were at fault. Build nothing, leave the child where it is, and put
+  `plan_doc=gone` on line 3 of your report.
 - Every `koto next` carries `--no-cleanup`, on every tick. At pr_creation submit
   `pr_status: shared`; the session that started you owns the pull requests.
 - You make no push and no `gh` write: no `git push`, no `gh pr`, `gh issue` or
@@ -158,3 +164,19 @@ acts on line 2 alone. A missing or malformed line 2 counts as
 child's state is read from `koto status`, never from line 1. The owning session
 keeps no more than the first ten lines of a report; the cap is the agent's
 instruction, not something a script enforces.
+
+## A child moved before plan_validation
+
+A coordinated child's `PLAN_DOC` is the `plan_abs` its run held when the child
+was opened, and it isn't a rebind variable: an attach that didn't pass it would
+blank it. After the run's checkout moves, the opener re-roots `plan_abs`, so a
+child opened from then on gets the new path. A child opened before the move
+still holds the old one. Of the states that read `PLAN_DOC`, a child of
+`/execute` reaches only `plan_context_injection` and `plan_validation`
+(`cascade_entry` and `cascade_run` are a root run's), and once it has passed
+`plan_validation` nothing reads it again. Before then, the outline can't be
+read from it, and at `plan_validation` the `step_detail` gate exits 2, so
+`proceed` is refused. The step agent stops and reports `plan_doc=gone`, as the
+coordinated template says, rather than ending the work item at
+`validation_exit` or `done_blocked`; the child stays where it is until it can
+read its PLAN again.
