@@ -76,8 +76,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # On a koto without the fence (the floor's), only the koto-too-old case can
 # run, against that koto itself; run-tests.sh --engine fails a suite that
 # SKIPs, so the floor job runs that one case rather than skipping the suite.
-SUPERSEDE=1
-case "$(koto init --help 2>/dev/null)" in *--supersede*) ;; *) SUPERSEDE=0 ;; esac
+. "$HERE/testdata/takeover-flags.sh"
 command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 \
     || { echo "SKIP: neither flock nor perl is on PATH -- the lock case can't hold koto's append lock; no case ran"; exit 0; }
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
@@ -151,7 +150,7 @@ keyset() { # keyset <session>: every carried key but record/meta and record/run,
 # it; there only the lines whose type is exactly context_read are left out,
 # and every other line is still compared verbatim.
 log_kept() {
-    if [ "$SUPERSEDE" = 1 ]; then cat "$1"
+    if [ "$TAKEOVER_FLAGS" = 1 ]; then cat "$1"
     else jq -R -r 'select((try (fromjson | .type) catch null) != "context_read")' "$1"
     fi
 }
@@ -292,16 +291,18 @@ else
 fi
 
 # ---- 5 on a koto without the fence: koto-too-old against that koto -------------------
-if [ "$SUPERSEDE" = 0 ]; then
+if [ "$TAKEOVER_FLAGS" = 0 ]; then
     export CLAUDE_CODE_SESSION_ID=$B_ID
     SNAP=$(snapshot outcome)
     opener outcome "$T/work2"
     refused "5: this koto, whose init lacks --supersede" koto-too-old outcome "$SNAP"
     grep -q '0\.28\.0' "$T/open.err" && ok "5:   ... naming koto 0.28.0" || bad "5:   ... naming koto 0.28.0" "$(cat "$T/open.err")"
     append_caught 5 outcome "$A"
+fi
+needs_takeover "1-7: every case after the floor's koto-too-old refusal" || {
     echo; echo "coordinate-outcome engine: $PASS passed, $FAIL failed (this koto has no init --supersede: only the koto-too-old refusal ran)"
     [ "$FAIL" -eq 0 ]; exit
-fi
+}
 
 # ---- 3. with no Claude session id, the untouched run resumes ---------------------------
 NOID=1 opener outcome "$T/work"

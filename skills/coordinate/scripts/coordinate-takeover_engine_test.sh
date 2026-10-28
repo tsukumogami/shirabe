@@ -42,8 +42,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
 # A koto without the fence (older than 0.28.0, the entry floor among them)
 # can't take a run over: there the suite proves the opener refuses the
-# takeover and writes nothing, and runs no other case.
-case "$(koto init --help 2>/dev/null)" in *--supersede*) SUPERSEDE=1 ;; *) SUPERSEDE=0 ;; esac
+# takeover and writes nothing, and leaves every other case out.
+. "$HERE/testdata/takeover-flags.sh"
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
 
 # Synthetic Claude session ids, built here so no id-shaped literal ships.
@@ -112,7 +112,7 @@ else
 fi
 
 # ---- 0. on a koto without the fence, the takeover is refused -------------------
-if [ "$SUPERSEDE" = 0 ]; then
+if [ "$TAKEOVER_FLAGS" = 0 ]; then
     export CLAUDE_CODE_SESSION_ID=$B_ID
     opener takeover "$T/work2"
     eq "0: a koto without init --supersede refuses the takeover" "2 refused" "$ORC $(line outcome)"
@@ -120,9 +120,11 @@ if [ "$SUPERSEDE" = 0 ]; then
     ALOG="$(koto session dir "$A")/koto-$A.state.jsonl"
     eq "0:   ... and cancelling nothing" 0 "$(jq -s '[.[] | select(.type == "workflow_cancelled")] | length' "$ALOG")"
     eq "0:   ... and A's keys are as they were" "$BEFORE" "$(keyset "$A" "$WD")"
+fi
+needs_takeover "1-7: B takes the run over, and every case after it" || {
     echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed (this koto has no init --supersede: only the refusal ran)"
     [ "$FAIL" -eq 0 ]; exit
-fi
+}
 
 # A's record/meta names a template compat pair no shipped template has, which
 # the fence carries to B whole: the takeover writes B's own over it
