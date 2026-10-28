@@ -28,7 +28,9 @@
 #   6. the session read: the same state from rs_record and rs_record_api,
 #      pending (record-changed), absent (session-absent) and another scope's
 #      record, record/host kept out of the state, --host, and --show an unknown
-#      option (64);
+#      option (64); a read of some sections handing back only those, never
+#      listing record/, refusing a field with no section and reading again when
+#      a listed section's get failed while record/meta moved;
 #   7. one read per step (rs_once_begin): reads under one shared read take one
 #      assembly, a write's drop makes the next read live, and reconcile-read.sh's
 #      read takes one assembly;
@@ -341,6 +343,42 @@ SX=coordinate-roadmap-plugin-system-20260926T110300Z
 jq '.scope.name = "other"' "$T/rec.json" > "$T/other.json"
 session_keys "$SX" "$T/other.json"
 eq "a session record for another scope is refused" rc=65 "$(seam_read "$T/x" "$SX")"
+
+# A read of some sections (shirabe#1308): each got directly, record/ never
+# listed, the record handed back holding only those sections.
+seam_fields() { # seam_fields <out> <session> <fields>
+    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO; . "$HERE/state-common.sh"; lib_facts
+      RS_SESSION=$2 RS_RETRY_PAUSE=0 rs_record "$1" "$3"; echo "rc=$?" )
+}
+SF=coordinate-roadmap-plugin-system-20260926T110600Z
+seed_session "$SF" "$REC"
+: > "$KOTO_STORE/calls"
+eq "a read of some sections reads the session" rc=0 "$(seam_fields "$T/f" "$SF" "holdings deferrals")"
+eq "  ... handing back only those sections" "deferrals holdings scope written" "$(jq -r 'keys | join(" ")' "$T/f")"
+eq "  ... as the state holds them" "$(jq -cS '{holdings, deferrals}' "$T/rec.json")" "$(jq -cS '{holdings, deferrals}' "$T/f")"
+eq "  ... and never lists record/" 0 "$(grep -c "^context list $SF --prefix record/\$" "$KOTO_STORE/calls")"
+eq "a field the record has no section for is refused" rc=2 "$(seam_fields "$T/fu" "$SF" "holdings holding")"
+grep -q 'holding is not a section of the record' "$T/fu.err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/fu.err")"
+# A section that is listed but whose get failed, while record/meta moved
+# (a write landed): the read is taken again rather than failed.
+mkdir -p "$T/fbin"
+cat > "$T/fbin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-} \${4:-}" = "context get record/deferrals" ] && [ ! -f "$T/fbin/moved" ]; then
+    : > "$T/fbin/moved"
+    printf '%s\n' "\$*" >> "\$KOTO_STORE/calls"
+    m="\$KOTO_STORE/context/\$3/record/meta"
+    jq -c '.written = "2026-09-26T09:30:00Z"' "\$m" > "\$m.new" && mv "\$m.new" "\$m"
+    exit 1
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$T/fbin/koto"
+: > "$KOTO_STORE/calls"
+eq "a listed section whose get failed while record/meta moved is read again" rc=0 \
+    "$(PATH="$T/fbin:$PATH" seam_fields "$T/fm" "$SF" "holdings deferrals")"
+eq "  ... getting it twice, the second time whole" "2 $(jq -cS '.deferrals' "$T/rec.json")" \
+    "$(grep -c "^context get $SF record/deferrals\$" "$KOTO_STORE/calls") $(jq -cS '.deferrals' "$T/fm")"
 
 # record/host is read through --host, and is no part of the state a reader is handed.
 SW=coordinate-roadmap-plugin-system-20260926T110400Z

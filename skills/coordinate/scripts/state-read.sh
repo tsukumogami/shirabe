@@ -20,7 +20,9 @@
 #       The run's record. With <fields> (state fields separated by spaces,
 #       such as "holdings deferrals"), only those sections, got directly with
 #       no record/ listing, so the read's koto calls don't grow with the
-#       record's entries (shirabe#1308); it never uses RS_ONCE's read.
+#       record's entries (shirabe#1308). It never uses or fills RS_ONCE's
+#       read, so a step under rs_once_begin pays a live read for each one. A
+#       field the record has no section for is refused (2).
 #       Writes <out> (the record, normalize_state's JSON),
 #       <out>.state (the keys as assembled, pushed heads included),
 #       <out>.pushed (the pushed heads, {worker topic: sha}), <out>.meta
@@ -241,9 +243,15 @@ rs_sections_direct() {
 # Returns rs_session_state's codes; 65 record/meta names another scope, or the
 # state breaks a rule of state-schema.jq (the reason in <out>.err).
 rs_session_read() {
-    local out=$1 s=$2 scope=$3 name=$4 only=${5:-} rc
+    local out=$1 s=$2 scope=$3 name=$4 only=${5:-} rc f
     : > "$out.err"
     [ -n "$s" ] || { echo "${PROG:-state-read}: the session store needs the run's session" >> "$out.err"; return 2; }
+    # A field the record has no section for would read as absent: refuse it.
+    for f in $only; do
+        case " $RS_SECTIONS " in *" $f:"*) ;; *)
+            echo "${PROG:-state-read}: $f is not a section of the record" >> "$out.err"; return 2 ;;
+        esac
+    done
     rs_session_state "$s" "$out.state" "$only"; rc=$?
     cat "$out.state.err" >> "$out.err"
     [ $rc -eq 0 ] || return $rc
