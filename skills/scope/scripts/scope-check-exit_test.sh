@@ -397,7 +397,12 @@ if open_run plan-seq; then
         | put plan-seq docs/plans/PLAN-plan-seq.md
     tick plan-seq '{"outcome":"landed"}'
     ids=$(finding_ids plan-seq plan_document)
-    second=$(printf '%s\n' $ids | grep -vxF plan/issues-table-shape | head -n 1)
+    second=
+    for id in $ids; do
+        [ "$id" = plan/issues-table-shape ] && continue
+        second=$id
+        break
+    done
     if [ "$(printf '%s\n' $ids | grep -cxF plan/issues-table-shape)" -eq 1 ] && [ -n "$second" ] \
         && [ "$(gate_err plan-seq plan_document | grep -c "^::shirabe-rule::{\"rule_id\":\"$second\"")" -eq 0 ]; then
         ok "hop_plan: a second rule ($second) failing for the first time prints only its summary"
