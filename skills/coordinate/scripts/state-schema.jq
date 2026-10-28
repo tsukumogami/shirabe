@@ -69,8 +69,8 @@ def recomputable_names:
   ["status", "state", "ci", "checks", "checkstatus", "merge", "mergestate",
    "mergeable", "review", "reviewdecision"];
 
-# check_worker: a Worker cell, and a Run `coordinator` or `told` value (a
-# messaging address). re_topic takes letters, digits, `.`, `_` and `-`, so a
+# check_worker: a Worker cell, and a Run `coordinator`, `told` or `pending`
+# value (a messaging address). re_topic takes letters, digits, `.`, `_` and `-`, so a
 # session name such as niwa's `plugin_api-worker` passes; an id, a path, a
 # job id, an instance name and a `session_` value never do.
 def check_worker:
@@ -201,15 +201,17 @@ def check_holds($h; $private):
 # once it has a row (normalize_state leaves an empty one out). Only
 # state-stored-set.sh changes them.
 #
-# Run, one row per key from a closed set; `told` repeats, and `rules` and
-# `briefs` once per label:
-#   Key      arguments | cap | coordinator | told | store | rules | briefs |
-#            friction | reports-to
+# Run, one row per key from a closed set; `told` and `pending` repeat, and
+# `rules` and `briefs` once per label:
+#   Key      arguments | cap | coordinator | told | pending | store | rules |
+#            briefs | friction | reports-to
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
-#            told: a party that has been sent that address. Both of the last
-#            two are messaging addresses (check_worker): a dispatch topic or
-#            a session name, which may hold `_`, never an id or a path.
+#            told: a party that has been sent that address; pending: a worker
+#            that can't be sent it yet (its session is gone while its instance
+#            still exists), never one that is also told. The last three are
+#            messaging addresses (check_worker): a dispatch topic or a session
+#            name, which may hold `_`, never an id or a path.
 #            store: session only, the legacy row (see run_keys below). The
 #            last four are the crash set (see run_keys below).
 #   Set by   who set it, in words
@@ -285,7 +287,7 @@ def state_secs: [
 #   friction       a label, one row; its location is in record/host
 #   reports-to     `<role>` or `<role> at <address>`: words naming who the
 #                  coordinator reports up to, and their messaging address
-def run_keys: ["arguments", "cap", "coordinator", "told", "store", "rules", "briefs", "friction", "reports-to"];
+def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "store", "rules", "briefs", "friction", "reports-to"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
@@ -348,7 +350,7 @@ def check_srow($sec; $private):
   | reduce $sec.cols[] as $c ({}; .[$c[0]] = (($row[$c[0]] // "") | check_scell($sec.key; $c[0]; $private)))
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
-       elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
+       elif .key == "coordinator" or .key == "told" or .key == "pending" then (.value | check_worker) as $_ | .
        elif .key == "store" then (if .value == "session" then . else refuse("run.value: the store is the session; a store row reads session, never \(.value)") end)
        elif .key == "rules" or .key == "briefs" then
          (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
@@ -397,12 +399,15 @@ def check_state($sec; $rows; $private):
   elif ($rows | type) != "array" then refuse("\($sec.key): not a list")
   else ($rows | map(check_srow($sec; $private))) as $r
     | if $sec.key == "run" then
-        ($r | map(select(.key != "told" and .key != "rules" and .key != "briefs") | .key)) as $once
+        ($r | map(select(.key != "told" and .key != "pending" and .key != "rules" and .key != "briefs") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
+        | ($r | map(select(.key == "pending") | .value)) as $pending
         | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
         | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: the store row is used twice")
-          elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, rules and briefs is used twice")
+          elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, pending, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
+          elif ($pending | unique | length) != ($pending | length) then refuse("run: a worker is pending twice")
+          elif any($pending[]; . as $p | $told | index($p) != null) then refuse("run: a worker is both told and pending")
           elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
           else $r end
       elif $sec.key == "standing" then

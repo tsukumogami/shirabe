@@ -109,11 +109,12 @@ fi
 
 # ---- 2b. a restart from another plugin root, across a text-only change -------
 echo "== 2b. a restart from another plugin root resumes a compatible run =="
-# plugin_copy <dir> <compat>: the plugin copied to <dir>, its coordinate.md
+# plugin_copy <dir> <step>: the plugin copied to <dir>, its coordinate.md
 # changed in a variable's description alone (so another compiled template with
-# the same structure), and its compat table's compat number set to <compat>.
-# At compat 1 the table is the shipped one, listing that structure at 1; at a
-# higher number the structure stays listed at 1 and the plugin has moved on.
+# the same structure), and its compat table's compat number raised by <step>.
+# At step 0 the table is the shipped one, listing that structure at the
+# shipped number; at a higher step the structure stays listed there and the
+# plugin has moved on.
 plugin_copy() {
     local d=$1 n=$2 c0 c1
     mkdir -p "$d" && cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$d/" || return 1
@@ -122,11 +123,11 @@ plugin_copy() {
     c0=$(koto template compile "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md") || return 1
     c1=$(koto template compile "$d/skills/coordinate/koto-templates/coordinate.md") || return 1
     [ "$(basename "$c0")" != "$(basename "$c1")" ] || return 1
-    jq --argjson n "$n" '.compat = $n' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json" \
+    jq --argjson n "$n" '.compat += $n' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json" \
         > "$d/skills/coordinate/koto-templates/coordinate.compat.json"
 }
 seed_roadmap rebind
-if plugin_copy "$T/plugin-b" 1 && plugin_copy "$T/plugin-c" 2 && open_run rebind && [ "$(at)" = record_open ]; then
+if plugin_copy "$T/plugin-b" 0 && plugin_copy "$T/plugin-c" 1 && open_run rebind && [ "$(at)" = record_open ]; then
     write_as_agent state-open.sh
     eq "2b: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     FIRST=$S

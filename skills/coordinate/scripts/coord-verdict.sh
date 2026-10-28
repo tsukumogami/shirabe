@@ -98,6 +98,8 @@ case "$WORD" in
     handoff-ready) exit 200 ;; handoff-refused) exit 201 ;;
     # teardown_confirm
     teardown-confirmed) exit 202 ;; teardown-incomplete) exit 203 ;;
+    # rebrief_record
+    rebrief-told) exit 210 ;; rebrief-pending) exit 211 ;; rebrief-gone) exit 212 ;;
     waiting|land-blocked)
         echo "coord-verdict: $WORD: $STATE stays here until your next action changes what it reads" >&2; exit 4 ;;
     *) echo "coord-verdict: unknown verdict word [$WORD] for $STATE" >&2; exit 3 ;;
