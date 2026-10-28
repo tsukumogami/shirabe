@@ -601,7 +601,7 @@ takeover() {
     local pred=$1 given=${2:-} pd pa state stopped succ out rc code tries=0 d why missing
     missing=$(koto_takeover_missing)
     [ -z "$missing" ] || refuse_takeover koto-too-old \
-        "this koto ($("$KOTO" version < /dev/null 2> /dev/null | head -1)) lacks koto init $missing; taking $pred over needs koto 0.28.0 or later; nothing was written and $pred still drives"
+        "this koto ($("$KOTO" version < /dev/null 2> /dev/null | head -1)) lacks koto init $missing; the fence a takeover of $pred makes shipped in koto 0.28.0, so it runs on koto 0.28.0 and later; nothing was written and $pred still drives"
     pd=$(meta_field "$pred" driver); pa=$(run_address "$pred")
     while :; do
         state=$("$KOTO" status "$pred" < /dev/null 2> /dev/null | jq -r '.current_state // empty' 2> /dev/null)

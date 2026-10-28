@@ -179,7 +179,8 @@ work.
      The message names the template, both compat numbers and both compiled
      hashes.
    - `koto-too-old`: this koto lacks `koto init --supersede` and its flags;
-     the takeover needs koto 0.28.0 or later.
+     the fence shipped in koto 0.28.0, so a takeover runs on koto 0.28.0
+     and later.
 
    A run of 65 or more record entries is taken over with no single koto call
    reaching koto's 30-second action limit, even at a one-minute load average
