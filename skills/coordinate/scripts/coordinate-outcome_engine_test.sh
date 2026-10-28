@@ -61,16 +61,18 @@
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
 # asserted under the scratch directory. The Claude job directory is a fixture
 # (DC_CLAUDE_HOME). Needs koto, jq, git and perl (or flock); SKIPs (exit 0)
-# without one, or on a koto without --supersede, which run-tests.sh --engine
-# turns into a failure.
+# without one, which run-tests.sh --engine turns into a failure. On a koto
+# without --supersede (the floor koto CI's entry-floor job installs) it opens
+# A and runs only case 5's koto-too-old refusal, against that koto.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
-case "$(koto init --help 2>/dev/null)" in
-    *--supersede*) ;;
-    *) echo "SKIP: this koto has no init --supersede -- the takeover outcome cases did not run (coordinate-takeover_engine_test.sh proves the refusal there)"; exit 0 ;;
-esac
+# On a koto without the fence (the floor's), only the koto-too-old case can
+# run, against that koto itself; run-tests.sh --engine fails a suite that
+# SKIPs, so the floor job runs that one case rather than skipping the suite.
+SUPERSEDE=1
+case "$(koto init --help 2>/dev/null)" in *--supersede*) ;; *) SUPERSEDE=0 ;; esac
 command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 \
     || { echo "SKIP: neither flock nor perl is on PATH -- the lock case can't hold koto's append lock; no case ran"; exit 0; }
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
@@ -254,6 +256,17 @@ if open_run outcome && [ "$(at)" = reconcile ]; then
 else
     bad "A: the run opens and reaches reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
     echo; echo "coordinate-outcome engine: $PASS passed, $FAIL failed (no run to take over)"; exit 1
+fi
+
+# ---- 5 on a koto without the fence: koto-too-old against that koto -------------------
+if [ "$SUPERSEDE" = 0 ]; then
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    SNAP=$(snapshot outcome)
+    opener outcome "$T/work2"
+    refused "5: this koto, whose init lacks --supersede" koto-too-old outcome "$SNAP"
+    grep -q '0\.28\.0' "$T/open.err" && ok "5:   ... naming koto 0.28.0" || bad "5:   ... naming koto 0.28.0" "$(cat "$T/open.err")"
+    echo; echo "coordinate-outcome engine: $PASS passed, $FAIL failed (this koto has no init --supersede: only the koto-too-old refusal ran)"
+    [ "$FAIL" -eq 0 ]; exit
 fi
 
 # ---- 3. with no Claude session id, the untouched run resumes ---------------------------

@@ -32,9 +32,10 @@
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
 # asserted under the scratch directory. The Claude job directory is a fixture
-# (DC_CLAUDE_HOME). Needs koto, jq and git; SKIPs (exit 0) without one, or on
-# a koto without --supersede, which run-tests.sh --engine turns into a
-# failure.
+# (DC_CLAUDE_HOME). Needs koto, jq and git; SKIPs (exit 0) without one, which
+# run-tests.sh --engine turns into a failure. On a koto without --supersede
+# (the floor koto) it runs no case and says so without SKIP, since no
+# takeover can run there.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 if [ -z "${CI:-}" ]; then
@@ -45,7 +46,10 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
 case "$(koto init --help 2>/dev/null)" in
     *--supersede*) ;;
-    *) echo "SKIP: this koto has no init --supersede -- the load case did not run"; exit 0 ;;
+    # The floor koto (CI's entry-floor job) can't take a run over at all, and
+    # coordinate-outcome_engine_test.sh proves its koto-too-old refusal there;
+    # a SKIP line would fail that job's run-tests.sh --engine.
+    *) echo "coordinate-takeover-load engine: 0 passed, 0 failed (this koto has no init --supersede, so no takeover can run; the outcome suite proves the koto-too-old refusal on it)"; exit 0 ;;
 esac
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
 REAL_KOTO=$(command -v koto)
