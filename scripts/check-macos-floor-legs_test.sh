@@ -137,6 +137,45 @@ else
     fail "weak-concurrency workflow (rc=$RC): $OUT"
 fi
 
+lint "$FIXTURES/draft-gate.yml"
+if [ "$RC" -eq 1 ] \
+    && has "draft-gate.yml: draft: job test runs shell suites on macOS for a draft pull request" \
+    && has "draft-gate.yml: draft: the pull_request trigger lacks opened, synchronize, reopened, ready_for_review" \
+    && has "github.event.pull_request.draft" \
+    && [ "$(count 'step "')" -eq 0 ]; then
+    pass "a suite workflow on pull_request with a fixed macOS matrix and no types fails, naming both"
+else
+    fail "draft-gate fixture (rc=$RC): $OUT"
+fi
+
+# The same workflow with no pull_request trigger has no draft to wait for.
+sed "s/^on: .*/on: [push]/" "$FIXTURES/draft-gate.yml" >"$T/push-only.yml"
+lint "$T/push-only.yml"
+if [ "$RC" -eq 0 ]; then
+    pass "a suite workflow with no pull_request trigger keeps its fixed macOS matrix"
+else
+    fail "push-only workflow (rc=$RC): $OUT"
+fi
+
+# Naming types without ready_for_review leaves a draft's macOS leg unrun.
+sed "s/, ready_for_review//" "$FIXTURES/clean.yml" >"$T/no-ready.yml"
+lint "$T/no-ready.yml"
+if [ "$RC" -eq 1 ] && has "no-ready.yml: draft: the pull_request trigger lacks ready_for_review;" \
+    && ! has "no-ready.yml: draft: job"; then
+    pass "a pull_request trigger without ready_for_review fails"
+else
+    fail "no-ready workflow (rc=$RC): $OUT"
+fi
+
+# The draft matrix with a runner that names macOS outright still runs it.
+sed 's/runs-on: \${{ matrix.os }}/runs-on: macos-latest/' "$FIXTURES/clean.yml" >"$T/fixed-runner.yml"
+lint "$T/fixed-runner.yml"
+if [ "$RC" -eq 1 ] && has "fixed-runner.yml: draft: job test runs shell suites on macOS"; then
+    pass "a job whose runs-on names macOS instead of the matrix fails"
+else
+    fail "fixed-runner workflow (rc=$RC): $OUT"
+fi
+
 lint "$FIXTURES/clean.yml" "$FIXTURES/plain-bash.yml"
 if [ "$RC" -eq 1 ] && has "plain-bash.yml" && ! has "clean.yml:"; then
     pass "several workflows at once: only the failing one is named"

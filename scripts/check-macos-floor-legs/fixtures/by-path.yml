@@ -1,9 +1,9 @@
 # Fails: a suite run by path gets `#!/usr/bin/env bash`, which on a macOS
 # runner is Homebrew's bash 5. The chained form is caught too, after `cd` and
 # an environment prefix, and so is a registered non-test script however it is
-# reached.
+# reached. It runs on push, so its fixed macOS runner has no draft to wait for.
 name: by-path
-on: pull_request
+on: push
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

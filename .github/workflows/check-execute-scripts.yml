@@ -7,6 +7,8 @@ on:
   # floor read on main is macos-floor.yml's daily run, which files an issue
   # when it fails (shirabe#1085).
   pull_request:
+    # ready_for_review runs the macOS leg a draft skipped.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'skills/execute/scripts/**'
       # The cascade script and its test moved under /work-on, which /execute
@@ -73,7 +75,9 @@ jobs:
   test-execute-scripts:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # No macOS leg while the pull request is a draft (shirabe#1300);
+        # scripts/check-macos-floor-legs.sh holds the one copy of this line.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

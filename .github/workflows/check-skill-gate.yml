@@ -15,11 +15,16 @@ name: Check skill gate
 on:
   # The two paths lists below must match; edit both together.
   pull_request:
+    # ready_for_review runs the macOS leg a draft skipped.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'scripts/check-skill.sh'
       - 'scripts/check-skill_test.sh'
       - 'scripts/lib/check-evals-shape.py'
       - 'scripts/lib/check-evals-shape_test.py'
+      # check-skill_test.sh reads the cost rows here (one per coordinate
+      # suite), so a change to a skill's map alone has to re-run it.
+      - 'skills/*/check-skill.tsv'
       - '.github/workflows/check-skill-gate.yml'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
@@ -35,6 +40,7 @@ on:
       - 'scripts/check-skill_test.sh'
       - 'scripts/lib/check-evals-shape.py'
       - 'scripts/lib/check-evals-shape_test.py'
+      - 'skills/*/check-skill.tsv'
       - '.github/workflows/check-skill-gate.yml'
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/check-skill.list'
@@ -54,7 +60,9 @@ jobs:
   test-check-skill:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # No macOS leg while the pull request is a draft (shirabe#1300);
+        # scripts/check-macos-floor-legs.sh holds the one copy of this line.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
