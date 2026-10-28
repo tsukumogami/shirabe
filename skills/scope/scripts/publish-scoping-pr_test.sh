@@ -725,6 +725,18 @@ eq "no separator: the template's Part 1" "The scoping documents for topic." "$(s
 eq "no separator: the separator follows it" "3" "$(sep_line "$T/nosep-new.md")"
 two_parts "no separator: the rewritten body" "$T/nosep-new.md"
 
+# A live Part 1 with no text is not kept (PB2 needs one); its sections still are.
+setup single-pr
+seed_pr "$P7" false me main stop
+printf '\n---\n\n## Review panel\n\n| x |\n' >"$T/blank.md"
+set_body "$P7" "$T/blank.md"
+run --topic topic --exit full-run --intent continue --session s-blank
+jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/blank-new.md"
+eq "blank Part 1: the template's Part 1" "The scoping documents for topic." "$(sed -n 1p "$T/blank-new.md")"
+eq "blank Part 1: the Review panel section is still carried" "$(printf '## Review panel\n\n| x |')" \
+    "$(section '## Review panel' "$T/blank-new.md")"
+two_parts "blank Part 1: the rewritten body" "$T/blank-new.md"
+
 echo "== usage =="
 setup single-pr
 run --topic Bad --exit full-run --intent continue
