@@ -10,6 +10,7 @@ use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
     check_fc15, check_fc17, check_fc18, check_fc19, check_fc21_milestones, check_fc22_steps,
+    check_fc23_summary_length, check_fc24_key_order, check_fc25_provenance_opener,
     check_plan_design_field_consistency, check_plan_section_structure, check_private_only,
     check_roadmap_reserved_sections, check_schema, check_stale_references, check_strategy_public,
     check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
@@ -95,6 +96,13 @@ pub enum PostureClass {
 /// reference) passed through this seam and left it: it shipped notice-level
 /// against a dirty corpus and was promoted once that corpus was clean, which
 /// is the path each remaining arm above is on.
+///
+/// `FC23` (BRIEF summary length), `FC24` (DESIGN key order) and `FC25`
+/// (DESIGN provenance openers) arrive here rather than at error level
+/// because a large share of merged BRIEFs and DESIGNs break them: at error
+/// level every repository's docs check would turn red on documents nobody
+/// is editing. As notices they still reach the JSON envelope with file and
+/// line, where a caller that wants to act on them selects them by code.
 fn is_intrinsic_notice(code: &str) -> bool {
     matches!(
         code,
@@ -108,6 +116,9 @@ fn is_intrinsic_notice(code: &str) -> bool {
             | "FC13"
             | "FC14"
             | "FC15"
+            | "FC23"
+            | "FC24"
+            | "FC25"
             | "FC-CONVENTIONS"
     )
 }
@@ -159,7 +170,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC22`, `FC-CONVENTIONS`, and `R6`-`R11`. The
+/// can emit: `SCHEMA`, `FC01`-`FC25`, `FC-CONVENTIONS`, and `R6`-`R11`. The
 /// lifecycle codes (`L01`-`L10`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -188,6 +199,9 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC20"
             | "FC21"
             | "FC22"
+            | "FC23"
+            | "FC24"
+            | "FC25"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -345,6 +359,15 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
         }
         "Strategy" => {
             errs.extend(check_strategy_public(doc, cfg));
+        }
+        // FC23-FC25 are notice-level (in is_intrinsic_notice), so these two
+        // arms change no exit code, only what the envelope reports.
+        "Brief" => {
+            errs.extend(check_fc23_summary_length(doc, spec));
+        }
+        "Design" => {
+            errs.extend(check_fc24_key_order(doc, spec));
+            errs.extend(check_fc25_provenance_opener(doc, spec));
         }
         _ => {}
     }
@@ -683,6 +706,9 @@ mod tests {
             "FC20",
             "FC21",
             "FC22",
+            "FC23",
+            "FC24",
+            "FC25",
             "FC-CONVENTIONS",
             "R6",
             "R7",

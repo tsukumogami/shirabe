@@ -242,11 +242,22 @@ fn parse_yaml_fields(
     // input's first line in the source file.
     let offset = fm_start_line.saturating_sub(1);
 
+    // Every top-level key's 1-indexed line within the YAML input, sorted, so
+    // each value's source span can run up to the key after it.
+    let source: Vec<&str> = split_lines(yaml_str).collect();
+    let mut key_lines: Vec<usize> = mapping
+        .iter()
+        .map(|(key_node, _)| key_node.span.start.line())
+        .collect();
+    key_lines.sort_unstable();
+
     for (key_node, val_node) in mapping.iter() {
         let Some(key) = scalar_source_text(&key_node.data) else {
             continue;
         };
-        let absolute_line = key_node.span.start.line() + offset;
+        let relative_line = key_node.span.start.line();
+        let absolute_line = relative_line + offset;
+        let source_lines = Some(value_source_lines(&source, relative_line, &key_lines));
         let entries = field_entries(&val_node.data);
         // `value` is the scalar text for a scalar and the empty string for
         // every other shape - unchanged from before entries existed, because
@@ -261,11 +272,73 @@ fn parse_yaml_fields(
                 value,
                 line: absolute_line,
                 entries,
+                source_lines,
             },
         );
     }
 
     Ok(fields)
+}
+
+/// The non-blank source lines a top-level key's value occupies; see
+/// [`FieldValue::source_lines`].
+///
+/// `source` is the frontmatter text split into lines, `key_line` the key's
+/// 1-indexed line within it and `key_lines` every top-level key's line,
+/// sorted. The value runs from the key's own line up to the line before the
+/// next key, or to the end of the frontmatter for the last key.
+///
+/// The key's own line counts when the text after the key's colon is a value
+/// rather than nothing, a comment, or a block-scalar header (`|` or `>` with
+/// optional chomping and indentation indicators). The colon is the first one
+/// on the line, which holds for every key a check reads by name.
+fn value_source_lines(source: &[&str], key_line: usize, key_lines: &[usize]) -> usize {
+    let Some(own) = key_line.checked_sub(1).and_then(|i| source.get(i)) else {
+        return 0;
+    };
+    let after_colon = own.split_once(':').map(|(_, rest)| rest).unwrap_or("");
+    let inline = after_colon.trim();
+    let inline_is_value =
+        !inline.is_empty() && !inline.starts_with('#') && !is_block_scalar_header(inline);
+
+    let next_key = key_lines
+        .iter()
+        .copied()
+        .find(|&line| line > key_line)
+        .unwrap_or(source.len() + 1);
+    let continuation = source
+        .iter()
+        .take(next_key.saturating_sub(1))
+        .skip(key_line)
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .count();
+
+    usize::from(inline_is_value) + continuation
+}
+
+/// Whether `text` (trimmed) is a block-scalar header: `|` or `>`, then at
+/// most one chomping indicator and one indentation digit in either order,
+/// then optionally whitespace and a comment.
+fn is_block_scalar_header(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('|').or_else(|| text.strip_prefix('>')) else {
+        return false;
+    };
+    let indicators = match rest.find(char::is_whitespace) {
+        Some(i) => {
+            let tail = rest[i..].trim_start();
+            if !tail.is_empty() && !tail.starts_with('#') {
+                return false;
+            }
+            &rest[..i]
+        }
+        None => rest,
+    };
+    let chomping = indicators
+        .chars()
+        .filter(|c| matches!(c, '+' | '-'))
+        .count();
+    let digits = indicators.chars().filter(char::is_ascii_digit).count();
+    chomping + digits == indicators.chars().count() && chomping <= 1 && digits <= 1
 }
 
 /// Decompose a value node into entries, preserving written order.
@@ -690,5 +763,76 @@ mod tests {
         let fv = doc.fields.get("issue_count").expect("issue_count missing");
         assert_eq!(fv.value, "42", "typed integer must coerce to string");
         assert_eq!(fv.line, 4, "issue_count is on line 4");
+    }
+
+    fn source_lines(input: &str, key: &str) -> Option<usize> {
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        doc.fields.get(key).and_then(|fv| fv.source_lines)
+    }
+
+    #[test]
+    fn source_lines_counts_a_block_to_the_next_key_skipping_blanks() {
+        let input = "---\nproblem: |\n  one\n\n  two\n  three\nnext: x\n---\n";
+        assert_eq!(source_lines(input, "problem"), Some(3));
+        assert_eq!(source_lines(input, "next"), Some(1));
+    }
+
+    #[test]
+    fn source_lines_counts_a_folded_block_as_written() {
+        let input = "---\nproblem: >-\n  one\n  two\n  three\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(doc.fields["problem"].value, "one two three");
+        assert_eq!(doc.fields["problem"].source_lines, Some(3));
+    }
+
+    #[test]
+    fn source_lines_counts_the_keys_own_line_only_when_it_holds_a_value() {
+        assert_eq!(
+            source_lines("---\nproblem: one line\n---\n", "problem"),
+            Some(1)
+        );
+        assert_eq!(
+            source_lines("---\nproblem: first\n  continued\n---\n", "problem"),
+            Some(2)
+        );
+        for header in [
+            "|",
+            ">",
+            "|-",
+            ">+",
+            "|2",
+            "|-2",
+            ">2-",
+            "| # note",
+            "# only a comment",
+        ] {
+            let input = format!("---\nproblem: {header}\n  one\n  two\n---\n");
+            assert_eq!(
+                source_lines(&input, "problem"),
+                Some(2),
+                "header {header:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn source_lines_skips_a_column_zero_comment_between_keys() {
+        let input = "---\nproblem: |\n  one\n  two\n# a note about outcome\noutcome: x\n---\n";
+        assert_eq!(source_lines(input, "problem"), Some(2));
+    }
+
+    #[test]
+    fn block_scalar_header_refuses_text_that_only_starts_like_one() {
+        for text in ["|", ">", "|+", ">-", "|9", "|+9", "|9-", "| # c", ">-  # c"] {
+            assert!(is_block_scalar_header(text), "{text:?}");
+        }
+        for text in ["|x", "|++", "|12", ">-- ", "| text", "a|", ""] {
+            assert!(!is_block_scalar_header(text), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_field_built_in_code_has_no_source_lines() {
+        assert_eq!(FieldValue::scalar("a problem", 3).source_lines, None);
     }
 }
