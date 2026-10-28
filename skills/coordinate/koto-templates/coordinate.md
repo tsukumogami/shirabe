@@ -1484,22 +1484,53 @@ states:
           classification: needs_fix
 
   rebrief:
+    # What the re-brief's outcome records about the worker (told or pending)
+    # is rebrief_record's, read from this evidence; refused records nothing,
+    # so the handover gate keeps its not-told gap (tsukumogami/shirabe#1245).
     accepts:
       sent:
         type: enum
-        values: [sent, worker_gone]
+        values: [sent, refused, worker_gone]
         required: true
-        description: sent after dispatch-worker.sh --rebrief rewrote the brief and the worker was messaged; worker_gone when its session no longer exists and the unit goes back through pick.
+        description: sent after dispatch-worker.sh --rebrief rewrote the brief and the worker was messaged; refused when the message to the worker was refused; worker_gone when its session no longer exists and the unit goes back through pick.
+    transitions:
+      - target: rebrief_record
+        when:
+          sent: sent
+      - target: wait
+        when:
+          sent: refused
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      - target: rebrief_record
+        when:
+          sent: worker_gone
+
+  rebrief_record:
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/rebrief-record.sh" --session "{{SESSION_NAME}}"'
+      capture_stdout_as: REBRIEF_RECORD
+      fallback: >-
+        The read or the record write failed; the action's own output above says why. Fix the cause (a koto or niwa error, a record with no coordinator address) and tick again with no evidence: the action re-runs on entry. There is no evidence to submit here and no override.
+    gates:
+      rebrief_record_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state rebrief_record --capture "{{REBRIEF_RECORD}}"'
+        overridable: false
     transitions:
       - target: wait
         when:
-          sent: sent
+          gates.rebrief_record_verdict.exit_code: 210  # rebrief-told
         context_assignments:
           worker_report: ""
           report_topic: ""
       - target: pick_facts
         when:
-          sent: worker_gone
+          gates.rebrief_record_verdict.exit_code: 211  # rebrief-pending
+      - target: pick_facts
+        when:
+          gates.rebrief_record_verdict.exit_code: 212  # rebrief-gone
 
   verify:
     accepts:
@@ -3439,8 +3470,10 @@ Update the brief input with what was learned (`koto context add
 {{SESSION_NAME}} brief_input.json --from-file <file>`), run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
 "{{SESSION_NAME}}" --rebrief`, send the worker a message pointing at the brief
-it printed, and submit `sent: sent`; submit `sent: worker_gone` when the
-worker's session no longer exists.
+it printed, and submit `sent: sent`; submit `sent: refused` when the message
+was refused, and `sent: worker_gone` when the worker's session no longer
+exists. Don't run `state-stored-set.sh --told` or `--pending` yourself: the
+next step records what the outcome means.
 
 Arriving here from `land` or `land_merge` on `paused`, there is nothing to fix:
 the brief input's what-was-learned says so, names the pause from
@@ -3459,6 +3492,27 @@ comes after it, so a leg-bound worker reports by message from here: the
 script moves its holding to the message path and abandons the spent request.
 A worker that's gone goes back through pick, dispatched under a new topic with
 what it pushed as what was learned.
+
+The new brief names this coordinator's address, so a delivered re-brief tells
+the worker that address: `rebrief_record` records it told. A refused message
+told it nothing, so nothing is recorded and the handover gate keeps its
+`not-told` gap for the worker until it is told some other way.
+
+## rebrief_record
+
+Recording what the re-brief told the worker. koto runs `rebrief-record.sh`
+itself, from the `sent` you submitted at `rebrief` and the worker in
+`report_topic`: `sent` records the worker told the current address, and goes
+on to `wait`; `worker_gone` records it pending when niwa still lists an
+instance for it, and nothing when it doesn't, and goes back through pick.
+
+<!-- details -->
+
+A pending worker is one that can't be told the address yet: its session is
+gone, but its instance is still there to be started again. The handover gate
+(`state-handover.sh --check`) doesn't hold on a pending worker, as it does on a
+live one that is neither told nor pending, and a later `--told` for it turns
+the pending row into a told one. A new coordinator address clears both.
 
 ## verify
 

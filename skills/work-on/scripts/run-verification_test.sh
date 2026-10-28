@@ -347,7 +347,8 @@ WANT_RANGE=$(rf_test_expected_range verification/command-failed)
 [ "${REF%@*}" = "$WANT_RANGE" ] && pass "a failing command: verification/command-failed's range is $WANT_RANGE, found from its anchors with grep" \
     || fail "a failing command: range [${REF%@*}], want [$WANT_RANGE]"
 # The escalation ladder: koto already recorded the verdict gate failing once on
-# the rule, so the template's context releases its text and changes nothing else.
+# the rule, so the template's context releases its text, adds its full delivery
+# marker on stdout, and changes nothing else.
 PLAIN_OUT=$OUT; PLAIN_RC=$RC
 LADDER_LOG="$WORKDIR/ladder.jsonl"
 rf_test_ladder_log "$LADDER_LOG" verification verification_verdict verification/command-failed 1
@@ -355,7 +356,9 @@ OUT=$(SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=verification_verdict \
     SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
     "$VERDICT" --verdict --session s-fail 2>"$WORKDIR/verdict.err")
 RC=$?
-if [ "$RC" -eq "$PLAIN_RC" ] && [ "$OUT" = "$PLAIN_OUT" ] \
+WANT_OUT="$PLAIN_OUT
+::koto-rule-delivered::{\"rule_id\":\"verification/command-failed\",\"extent\":\"full\",\"delivery\":\"printed\"}"
+if [ "$RC" -eq "$PLAIN_RC" ] && [ "$OUT" = "$WANT_OUT" ] \
     && [ "$(grep -c '^::shirabe-rule::{"rule_id":"verification/command-failed"' "$WORKDIR/verdict.err")" -eq 1 ] \
     && ! grep -q '^::shirabe-check-exit::' "$WORKDIR/verdict.err"; then
     pass "a failing command, laddered: a second failure releases the rule's text and changes nothing else"

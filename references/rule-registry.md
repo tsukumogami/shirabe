@@ -150,6 +150,22 @@ every other rule, from its second failure. `check-pr-output.sh` run without that
 (by `/execute`'s `pr_finalization`, by hand, or by a test) still releases it on every
 failure.
 
+**Delivery markers.** So telemetry can count what a gate handed the agent, the rule library
+(`scripts/lib/rule-findings.sh`) prints one line on standard output for every delivery of a
+rule this run resolved, which koto records as a rule delivery:
+
+```text
+::koto-rule-delivered::{"rule_id":"<id>","extent":"<summary|full>","delivery":"<printed|refused>"}
+```
+
+Extent `summary` with delivery `printed` follows each finding the library prints; extent
+`full` follows each full-text release a gate script makes through `rf_release` (the ladder's
+and the PR-body gate's own), with delivery `printed` when the text printed and `refused` when
+`release` refused it. A retired finding prints no marker, and neither does an id the run
+didn't resolve. A koto without marker support ignores the line. koto reads a marker only at
+the start of a line, and every line the library prints on standard output starts with its own
+marker, so a finding's detail, which may quote a pull request body, can't forge one.
+
 ## Escalating a rule's text
 
 A gate script prints each violation as a finding whose message starts with the rule's
@@ -191,8 +207,9 @@ SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_pr
 agent's shell, a test or `/execute` gets no ladder. With them, a log the ladder can't read
 (missing, not a schema-version-1 koto log, or no transition in it) releases every reported
 rule, prints one line naming the log, and offers no exit, since opening the exit needs a real
-count. `rf_deliver` writes only to standard error and returns 0, so a gate's exit status, its
-standard output and the findings koto records never change.
+count. `rf_deliver` writes the rule text and its notices only to standard error and returns 0,
+so a gate's exit status and the findings koto records never change; on standard output it
+adds only the delivery markers below.
 
 **Rules `release` refuses.** Five rules a `/work-on` gate script can report have text `release`
 won't print, so their second rung is the refusal and the reference: `pr-body/banned-word` (its

@@ -99,3 +99,11 @@ If no findings: return `critical_findings: []` for this category.
 When this phase raises both D subtypes, a structural deferral and a dependency
 ordering error, the structural one takes precedence: Phase 5's Loop Target
 Selection sends the plan back to `/plan`'s Phase 3 for it, not to Phase 5.
+
+## Verdict Block
+
+End the returned findings with a fenced block tagged `review-verdicts`
+holding a JSON array with one `{"rule_id": "rs-062", "section", "verdict"}`
+entry per section judged (`document` for the plan as a whole): `FAIL` where a
+critical finding was raised, `PASS` otherwise
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`).

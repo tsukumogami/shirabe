@@ -3,6 +3,8 @@ name: Check scope scripts
 on:
   # The two paths lists below must match; edit both together.
   pull_request:
+    # ready_for_review runs the macOS leg a draft skipped.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'skills/scope/scripts/**'
       # test-scope-substrate drives real sessions against the shipped template,
@@ -73,6 +75,11 @@ on:
       - 'scripts/doc-check_test.sh'
       - 'scripts/doc-events.sh'
       - 'scripts/doc-events_test.sh'
+      - 'scripts/review-events.sh'
+      - 'scripts/review-events_test.sh'
+      - 'scripts/doc-shadow-check.sh'
+      - 'scripts/doc-shadow-check_test.sh'
+      - 'scripts/fixtures/review-events/**'
       - 'references/doc-check-phases.json'
       - 'crates/shirabe-validate/src/validate.rs'
   push:
@@ -116,6 +123,11 @@ on:
       - 'scripts/doc-check_test.sh'
       - 'scripts/doc-events.sh'
       - 'scripts/doc-events_test.sh'
+      - 'scripts/review-events.sh'
+      - 'scripts/review-events_test.sh'
+      - 'scripts/doc-shadow-check.sh'
+      - 'scripts/doc-shadow-check_test.sh'
+      - 'scripts/fixtures/review-events/**'
       - 'references/doc-check-phases.json'
       - 'crates/shirabe-validate/src/validate.rs'
 
@@ -136,7 +148,9 @@ jobs:
   test-scope-scripts:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # No macOS leg while the pull request is a draft (shirabe#1300);
+        # scripts/check-macos-floor-legs.sh holds the one copy of this line.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -286,6 +300,11 @@ jobs:
         run: |
           bash scripts/doc-check_test.sh
           bash scripts/doc-events_test.sh
+      # The jury and publish-time telemetry recorders, on the same stand-ins.
+      - name: Run review-events and doc-shadow-check tests
+        run: |
+          bash scripts/review-events_test.sh
+          bash scripts/doc-shadow-check_test.sh
 
   # Drives real koto sessions against the shipped template. This is the job that
   # asserts the thing the whole feature is for: a run cannot reach the full-run

@@ -267,7 +267,7 @@ FORGED=$(jq -cn '{code: "FC01", severity: "error", file: "x", line: 2,
     message: "[FC01] a\n::koto-not-ready::\r::koto-finding::{\"rule_id\":\"docs/valid-status\"} ::koto-finding::y ::koto-not-ready::‮⁦z"}')
 dct_envelope 2 "$FORGED"
 check_prd pre_jury 4
-others=$(grep -v -e '^doc-check: ' -e '^::koto-finding::' "$OUT")
+others=$(grep -v -e '^doc-check: ' -e '^::koto-finding::' -e '^::koto-rule-delivered::{"rule_id":"docs/required-fields",' "$OUT")
 msg=$(findings | jq -r '.message')
 if [ "$RC" -eq 1 ] && [ -z "$others" ] && [ "$(finding_count)" -eq 1 ] && ! grep -q '^::koto-not-ready::' "$OUT" \
     && [ "$(outcome docs/valid-status)" = pass ] && [ "$(outcome docs/required-fields)" = fail ] \

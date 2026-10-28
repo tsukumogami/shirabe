@@ -61,6 +61,7 @@ cost	quiet-check_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
 cost	discipline-session_test.sh	40
+cost	coordinate-takeover_engine_test.sh	40
 cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
@@ -71,6 +72,7 @@ cost	handover_engine_test.sh	29
 cost	writeback_engine_test.sh	25
 cost	state-schema_test.sh	24
 cost	legacy-import_test.sh	23
+cost	rebrief-record_engine_test.sh	22
 cost	read-once_test.sh	20
 cost	render-brief_test.sh	19
 cost	state-holding_test.sh	17
@@ -103,11 +105,13 @@ cost	importer-call_engine_test.sh	5
 cost	legacy-records_engine_test.sh	5
 cost	session-fixture_engine_test.sh	5
 cost	session-start_engine_test.sh	5
+cost	coordinate-takeover_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
 cost	find-reads_test.sh	4
 cost	state-structure_test.sh	4
 cost	teardown-handoff_test.sh	4
+cost	state-handover_test.sh	4
 cost	coord-log_engine_test.sh	3
 cost	coord-verdict-table_test.sh	3
 cost	normalize_test.sh	3
