@@ -44,6 +44,11 @@
 #       (koto init --supersede) has found it too, before its own find runs,
 #       once it holds koto/superseded-carry-complete and record/meta: the
 #       record its predecessor found, carried at the fence. 2 read failure.
+#   coord-log.sh fence --session S
+#       Prints S's fence, the first session_superseded event in its log, as
+#       {"by","by_session_id","claude_session"}: the successor koto init
+#       --supersede named and the Claude session that ran it ("" when the
+#       environment gave none). Exit 0 fenced; 1 not fenced; 2 read failure.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
 #   coord-log.sh chain-start --session S
 #       Prints the created_at of the earliest run in the unbroken chain of
@@ -434,6 +439,15 @@ chain-start)
         START=$(head -1 "$L" | jq -er '.created_at') || die "no created_at in $id's header"
     done
     printf '%s\n' "$START"
+    ;;
+fence)
+    need SESSION
+    LOG=$(session_log "$SESSION") || exit 2
+    FENCE=$(jq -cn 'first(inputs | select(.type == "session_superseded") | .payload
+        | {by: (.by // ""), by_session_id: (.by_session_id // ""), claude_session: (.actor.claude_session // "")})' "$LOG" 2>/dev/null) \
+        || exit 2
+    [ -n "$FENCE" ] || exit 1
+    printf '%s\n' "$FENCE"
     ;;
 run-facts)
     need SESSION
