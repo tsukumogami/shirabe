@@ -87,6 +87,9 @@ on:
       - 'scripts/fixtures/review-events/**'
       - 'references/doc-check-phases.json'
       - 'crates/shirabe-validate/src/validate.rs'
+      # The corpus check runs the same validator library over merged documents.
+      - 'scripts/doc-corpus-check.sh'
+      - 'scripts/doc-corpus-check_test.sh'
   push:
     branches: [main]
     # Must match the pull_request paths list above. A merge cancels the pull
@@ -140,6 +143,8 @@ on:
       - 'scripts/fixtures/review-events/**'
       - 'references/doc-check-phases.json'
       - 'crates/shirabe-validate/src/validate.rs'
+      - 'scripts/doc-corpus-check.sh'
+      - 'scripts/doc-corpus-check_test.sh'
 
 env:
   # `tsuku install` calls the GitHub API; the token
@@ -310,6 +315,7 @@ jobs:
         run: |
           bash scripts/doc-check_test.sh
           bash scripts/doc-events_test.sh
+          bash scripts/doc-corpus-check_test.sh
       # The jury and publish-time telemetry recorders, on the same stand-ins.
       - name: Run review-events and doc-shadow-check tests
         run: |

@@ -26,7 +26,8 @@
       "rules": [
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
-        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word"
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "docs/schema-declared"
       ],
       "rule_sections": {},
       "phases": {
@@ -84,7 +85,7 @@
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
         "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
-        "docs/visibility-vision-sections"
+        "docs/visibility-vision-sections", "docs/schema-declared"
       ],
       "rule_sections": {
         "docs/visibility-vision-sections": ["Status", "Thesis", "Audience", "Value Proposition", "Org Fit", "Success Criteria", "Non-Goals"]
@@ -102,7 +103,7 @@
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
         "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
-        "docs/visibility-strategy-sections"
+        "docs/visibility-strategy-sections", "docs/schema-declared"
       ],
       "rule_sections": {
         "docs/visibility-strategy-sections": ["Status", "Strategic Context", "Defensibility Thesis", "Building Blocks", "Coordination Dependencies", "Bet-Specific Falsifiability", "Non-Goals", "Downstream Artifacts"]
@@ -121,7 +122,7 @@
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
         "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
         "plan/issues-table-shape", "plan/issues-table-dependencies",
-        "roadmap/reserved-sections", "roadmap/milestone-shape"
+        "roadmap/reserved-sections", "roadmap/milestone-shape", "docs/schema-declared"
       ],
       "rule_sections": {
         "plan/issues-table-shape": ["Implementation Issues"],

@@ -303,6 +303,22 @@ for shape in two-skipped other-doc error-beside; do
         fail "exit 4 $shape: $(show)"
     fi
 done
+# /prd's validate phase checks a PRD the same way: a schema-less PRD fails
+# docs/schema-declared by name, and no rule falls back to error.
+mkdir -p "$REPO/docs/prds"
+printf -- '---\nstatus: Draft\n---\n\n# PRD\n\n## Status\n\nDraft\n' > "$REPO/docs/prds/PRD-t.md"
+dct_commit "docs: a prd without a schema"
+schema_skip docs/prds/PRD-t.md
+check_prd pre_jury 4
+ln=$(findings | jq -c '{rule_id, line}')
+if [ "$RC" -eq 1 ] && [ "$(outcome docs/schema-declared)" = fail ] \
+    && [ -z "$(sed -n 's/^doc-check: [^ ]* //p' "$OUT" | grep -v -e '^pass$' -e '^fail$')" ] \
+    && [ "$ln" = '{"rule_id":"docs/schema-declared","line":1}' ] && ! grep -q 'defect' "$ERR"; then
+    pass "a PRD without schema: fails docs/schema-declared at line 1, exit 1, no rule at error"
+else
+    fail "prd schema skip: $(show) finding=$ln"
+fi
+
 printf 'oops\n' > "$STUB_JSON"; STUB_RC=4
 check_design 6
 [ "$RC" -eq 0 ] && [ "$(outcome docs/schema-declared)" = error ] \
@@ -399,9 +415,11 @@ CLEAN
 check_prd post_fix 4
 state=$(dct_key prd-t work/doc-check.json)
 c=$(dct_head)
-if printf '%s' "$state" | jq -e --arg c "$c" '.schema == "doc-check-state/v1" and .doc == "docs/prds/PRD-t.md"
+# One outcome per prd rule, counted from the phase map.
+prd_rules=$(jq '.formats.prd.rules | length' "$PHASES")
+if printf '%s' "$state" | jq -e --arg c "$c" --argjson n "$prd_rules" '.schema == "doc-check-state/v1" and .doc == "docs/prds/PRD-t.md"
         and .last.moment == "post_fix" and .last.commit == $c and .last.block_fail == false
-        and (.last.outcomes | length) == 11 and .cycles.post_fix == 0' >/dev/null 2>&1; then
+        and (.last.outcomes | length) == $n and .cycles.post_fix == 0' >/dev/null 2>&1; then
     pass "work/doc-check.json holds the moment, the document commit, the outcomes and the cycle counts"
 else
     fail "state: [$state]"
@@ -456,7 +474,7 @@ call=$(sed -n 1p "$STUB_KOTO_DIR/review.log")
 batch=$(sed -n 's/^file://p' "$STUB_KOTO_DIR/review.log")
 case "$call" in
     "prd-t rule-checks --doc-format prd --moment pre_jury --file "*)
-        if printf '%s' "$batch" | jq -e 'length == 11 and all(.[]; keys == ["outcome", "rule_id"])
+        if printf '%s' "$batch" | jq -e --argjson n "$prd_rules" 'length == $n and all(.[]; keys == ["outcome", "rule_id"])
                 and (map(select(.rule_id == "docs/required-fields"))[0].outcome == "fail")' >/dev/null 2>&1; then
             pass "the outcomes are recorded with koto review record rule-checks on the skill's session"
         else
@@ -489,8 +507,10 @@ if rf_test_stage_copy "$COPY" docs/required-fields block scripts/doc-check.sh sc
     : > "$STUB_KOTO_DIR/review.log"
     check_prd pre_jury 4 "$COPY/scripts/doc-check.sh"
     batch=$(sed -n 's/^file://p' "$STUB_KOTO_DIR/review.log")
+    # Every prd rule but the dropped one, counted from the phase map.
+    kept=$(jq '.formats.prd.rules | length - 1' "$PHASES")
     if [ "$(outcome docs/upstream-lifetime)" = pass ] \
-        && printf '%s' "$batch" | jq -e 'length == 10 and all(.[]; .rule_id != "docs/upstream-lifetime")' >/dev/null 2>&1; then
+        && printf '%s' "$batch" | jq -e --argjson n "$kept" 'length == $n and all(.[]; .rule_id != "docs/upstream-lifetime")' >/dev/null 2>&1; then
         pass "an entry whose rule id the registry lacks is dropped before the call"
     else
         fail "dropped entry: $(show) batch=[$batch]"
