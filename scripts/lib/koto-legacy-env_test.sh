@@ -22,7 +22,7 @@ pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/koto-legacy-env-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 mkdir -p "$T/new" "$T/old"
 cat >"$T/new/koto" <<'STUB'

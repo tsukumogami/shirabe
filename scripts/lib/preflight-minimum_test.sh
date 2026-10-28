@@ -65,7 +65,7 @@ esac
 T=$(mktemp -d "${TMPDIR:-/tmp}/preflight-minimum-test.XXXXXX") || exit 1
 T=$(cd "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */preflight-minimum-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 ROOT="$T/root"
 mkdir -p "$ROOT/.claude-plugin" "$ROOT/scripts/lib" "$ROOT/skills"

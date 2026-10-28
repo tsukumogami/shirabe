@@ -114,6 +114,16 @@ Keeping `check-skill.tsv` current:
 - A suite that drives a script only through a variable, never by name, can't be found by
   name. Name the script in the suite, a comment is enough, or make the script shared.
 
+### Coordinate engine suites on the floor koto
+
+The entry-floor job runs coordinate's engine suites against the oldest koto shirabe
+supports, which has no `koto init --continues` or `--supersede`, and `run-tests.sh --engine`
+fails a suite that prints a SKIP line. A suite with a case that needs those flags sources
+`skills/coordinate/scripts/testdata/takeover-flags.sh` after its `koto-test-guard.sh` line
+and declares the case in one line, `if needs_takeover "<case>"; then ... fi`. On the floor
+koto the case is left out with a line naming it; on a newer koto it runs. The helper's header
+has the rest; the takeover, outcome, takeover-load, chain and newest-member suites use it.
+
 ## `release.md` — release checks and assets
 
 `release.md` lists the commands `/shirabe:release` runs before it tags (`## Release checks`)

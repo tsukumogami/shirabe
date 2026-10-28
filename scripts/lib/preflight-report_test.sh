@@ -67,7 +67,7 @@ cleanup() {
         [ -n "$d" ] && rm -rf "$d"
     done
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 mktmp() {
     local d

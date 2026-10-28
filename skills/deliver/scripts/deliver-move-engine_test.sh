@@ -117,7 +117,7 @@ export PATH="$BIN:$PATH"
 CLOUD_HOSTS_S3="$REPO_ROOT/skills/coordinate/scripts/testdata/fake-s3.py"
 # shellcheck source=../../coordinate/scripts/testdata/cloud-hosts.sh
 . "$REPO_ROOT/skills/coordinate/scripts/testdata/cloud-hosts.sh"
-trap 's3_stop; case "$T" in */deliver-move-engine-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 's3_stop; case "$T" in */deliver-move-engine-test.*) rm -rf "$T" ;; esac'
 if ! s3_start; then
     fail "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"
     echo "Results: $PASS passed, $FAIL failed"

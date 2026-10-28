@@ -45,7 +45,7 @@ done
 koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/board-land-engine.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */board-land-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */board-land-engine.*) rm -rf "$T" ;; esac'
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 unset KOTO_BIN KOTO_BOARD_DIR KOTO_BOARD_HASH

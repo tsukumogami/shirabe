@@ -126,7 +126,7 @@ T=$(cd -P "$CT_WORK" && pwd -P) || exit 1
 CLOUD_HOSTS_S3="$REPO_ROOT/skills/coordinate/scripts/testdata/fake-s3.py"
 # shellcheck source=../../coordinate/scripts/testdata/cloud-hosts.sh
 . "$REPO_ROOT/skills/coordinate/scripts/testdata/cloud-hosts.sh"
-trap 's3_stop; rm -rf "$CT_WORK"' EXIT
+ktg_on_exit 's3_stop; rm -rf "$CT_WORK"'
 if ! s3_start; then
     fail "the fake S3 server starts: $(cat "$T/s3/log" 2>&1)"
     results

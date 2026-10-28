@@ -45,16 +45,17 @@ if [ -z "${CI:-}" ]; then
 fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
-case "$(koto init --help 2>/dev/null)" in
-    *--supersede*) ;;
-    # The floor koto (CI's entry-floor job) can't take a run over at all, and
-    # coordinate-outcome_engine_test.sh proves its koto-too-old refusal there;
-    # a SKIP line would fail that job's run-tests.sh --engine. This exit can't
-    # pass the engine job that runs the load case in full: that job fails
-    # before any suite on a koto whose init --help lacks --supersede
-    # (check-coordinate-scripts.yml, test-coordinate-engine).
-    *) echo "coordinate-takeover-load engine: 0 passed, 0 failed (this koto has no init --supersede, so no takeover can run; the outcome suite proves the koto-too-old refusal on it)"; exit 0 ;;
-esac
+# The floor koto (CI's entry-floor job) can't take a run over at all, and
+# coordinate-outcome_engine_test.sh proves its koto-too-old refusal there;
+# a SKIP line would fail that job's run-tests.sh --engine. This exit can't
+# pass the engine job that runs the load case in full: that job fails
+# before any suite on a koto whose init --help lacks --supersede
+# (check-coordinate-scripts.yml, test-coordinate-engine).
+. "$HERE/testdata/takeover-flags.sh"
+needs_takeover "the load case" || {
+    echo "coordinate-takeover-load engine: 0 passed, 0 failed (this koto has no init --supersede, so no takeover can run; the outcome suite proves the koto-too-old refusal on it)"
+    exit 0
+}
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
 REAL_KOTO=$(command -v koto)
 WANT_LOAD=25
@@ -64,7 +65,7 @@ CALL_LIMIT_MS=30000
 
 BUSY=
 stop_load() { local p; for p in $BUSY; do kill "$p" 2>/dev/null; done; for p in $BUSY; do wait "$p" 2>/dev/null; done; BUSY=; }
-trap 'stop_load; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac; case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'stop_load; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

@@ -25,7 +25,9 @@
 #      released `koto next A` is accepted;
 #   5. against the run from the plugin copy, whose structure the shipped
 #      compat table doesn't list, reason=template-incompatible, naming both
-#      sides' compat numbers and compiled hashes; on a koto whose `init
+#      sides' compat numbers and compiled hashes, the run's as `-` with no
+#      compat recorded and as its record/meta's template_compat once it holds
+#      one (shirabe#1333); on a koto whose `init
 #      --help` lacks --supersede, reason=koto-too-old, naming 0.28.0;
 #   6. two successors taking one run over at once, from two Claude sessions
 #      and two directories, held at koto's fence until both reach it: exactly
@@ -74,19 +76,16 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # On a koto without the fence (the floor's), only the koto-too-old case can
 # run, against that koto itself; run-tests.sh --engine fails a suite that
 # SKIPs, so the floor job runs that one case rather than skipping the suite.
-SUPERSEDE=1
-case "$(koto init --help 2>/dev/null)" in *--supersede*) ;; *) SUPERSEDE=0 ;; esac
+. "$HERE/testdata/takeover-flags.sh"
 command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 \
     || { echo "SKIP: neither flock nor perl is on PATH -- the lock case can't hold koto's append lock; no case ran"; exit 0; }
 case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo "FAIL: the koto store is outside the scratch directory"; exit 1 ;; esac
 REAL_KOTO=$(command -v koto)
 mkdir -p "$T/tmp"
 # A background helper (the lock holder, the racing openers) is stopped on
-# exit, and the scratch tree removed as test-lib.sh's own trap does, with the
-# guard's directory, whose trap this one replaces.
+# exit, and the scratch tree removed as test-lib.sh's own trap does.
 BG=
-trap 'for p in $BG; do kill "$p" 2>/dev/null; done; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac
-    case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'for p in $BG; do kill "$p" 2>/dev/null; done; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 
 # Synthetic Claude session ids, built here so no id-shaped literal ships, and
 # each one's Claude job (its name is its messaging address) and directory.
@@ -149,7 +148,7 @@ keyset() { # keyset <session>: every carried key but record/meta and record/run,
 # it; there only the lines whose type is exactly context_read are left out,
 # and every other line is still compared verbatim.
 log_kept() {
-    if [ "$SUPERSEDE" = 1 ]; then cat "$1"
+    if [ "$TAKEOVER_FLAGS" = 1 ]; then cat "$1"
     else jq -R -r 'select((try (fromjson | .type) catch null) != "context_read")' "$1"
     fi
 }
@@ -290,16 +289,18 @@ else
 fi
 
 # ---- 5 on a koto without the fence: koto-too-old against that koto -------------------
-if [ "$SUPERSEDE" = 0 ]; then
+if [ "$TAKEOVER_FLAGS" = 0 ]; then
     export CLAUDE_CODE_SESSION_ID=$B_ID
     SNAP=$(snapshot outcome)
     opener outcome "$T/work2"
     refused "5: this koto, whose init lacks --supersede" koto-too-old outcome "$SNAP"
     grep -q '0\.28\.0' "$T/open.err" && ok "5:   ... naming koto 0.28.0" || bad "5:   ... naming koto 0.28.0" "$(cat "$T/open.err")"
     append_caught 5 outcome "$A"
+fi
+needs_takeover "1-7: every case after the floor's koto-too-old refusal" || {
     echo; echo "coordinate-outcome engine: $PASS passed, $FAIL failed (this koto has no init --supersede: only the koto-too-old refusal ran)"
     [ "$FAIL" -eq 0 ]; exit
-fi
+}
 
 # ---- 3. with no Claude session id, the untouched run resumes ---------------------------
 NOID=1 opener outcome "$T/work"
@@ -378,6 +379,24 @@ if PR=$T/pcopy PS=$T/pcopy/skills/coordinate/scripts open_run compat && [ "$(at)
         *"at compat - (template $A2_HASH)"*"at compat $SHIP_COMPAT (template $SHIPPED)"*)
             ok "5:   ... naming the run's compat number (unlisted) and hash and the shipped compat $SHIP_COMPAT and hash" ;;
         *) bad "5:   ... naming the run's compat number (unlisted) and hash and the shipped compat $SHIP_COMPAT and hash" "$(cat "$T/open.err")" ;;
+    esac
+    # The same run with its compat recorded, as the plugin copy's write core
+    # records it (its own table's answer for the run; shirabe#1333): the
+    # shipped table still doesn't list the run, and the refusal names the
+    # run's real compat instead of `-`.
+    read -r PCOMPAT _ PFP_RUN <<< "$(bash "$T/pcopy/skills/coordinate/scripts/coord-log.sh" compat --session "$A2" 2>/dev/null)"
+    eq "5: the plugin copy's table lists the run at its raised compat" "$((SHIP_COMPAT + 1)) $PFP" "$PCOMPAT $PFP_RUN"
+    kget "$A2" record/meta | jq -c --argjson c "$PCOMPAT" --arg f "$PFP_RUN" '. + {template_compat: $c, template_fingerprint: $f}' > "$T/a2-meta.json"
+    (cd "$T/work" && koto context add "$A2" record/meta --from-file "$T/a2-meta.json" > /dev/null)
+    COUT=$(bash "$REPO_ROOT/skills/coordinate/scripts/coord-log.sh" compat --session "$A2" 2>/dev/null); CRC=$?
+    eq "5: coord-log.sh compat reports the recorded compat the shipped table doesn't list, still exit 1" "1 $PCOMPAT $SHIP_COMPAT $PFP" "$CRC $COUT"
+    SNAP=$(snapshot compat)
+    opener compat "$T/work2"
+    refused "5: a run whose recorded compat the shipped table doesn't list" template-incompatible compat "$SNAP"
+    case "$(cat "$T/open.err")" in
+        *"at compat $PCOMPAT (template $A2_HASH)"*"at compat $SHIP_COMPAT (template $SHIPPED)"*)
+            ok "5:   ... naming the run's recorded compat $PCOMPAT and hash and the shipped compat $SHIP_COMPAT and hash" ;;
+        *) bad "5:   ... naming the run's recorded compat $PCOMPAT and hash and the shipped compat $SHIP_COMPAT and hash" "$(cat "$T/open.err")" ;;
     esac
 else
     bad "5: the run from the plugin copy opens and reaches reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"

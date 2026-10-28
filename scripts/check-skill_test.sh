@@ -41,7 +41,7 @@ command -v python3 >/dev/null || { echo "FAIL: python3 is required" >&2; exit 1;
 command -v git >/dev/null || { echo "FAIL: git is required" >&2; exit 1; }
 
 WORK=$(mktemp -d) || exit 1
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 
 # Stubs: shirabe, koto, claude. A second directory holds the same stubs
 # without koto, for the missing-tool case.

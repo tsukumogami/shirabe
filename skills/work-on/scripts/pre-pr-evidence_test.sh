@@ -52,7 +52,7 @@ cleanup() {
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 if ! command -v koto >/dev/null 2>&1; then
     skip "koto not on PATH; the ladder cannot be driven without the engine"

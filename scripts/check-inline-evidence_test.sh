@@ -26,7 +26,7 @@ pass() { echo "PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/inline-evidence.XXXXXX") || { echo "mktemp failed" >&2; exit 1; }
-trap 'rm -rf "$WORKDIR"' EXIT
+ktg_on_exit 'rm -rf "$WORKDIR"'
 
 # --- the tree -----------------------------------------------------------------
 

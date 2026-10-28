@@ -45,7 +45,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran";
 T=$(mktemp -d "${TMPDIR:-/tmp}/release-grant-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */release-grant-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Built at run time: a committed id-shaped literal reads as a real session id.
 uuid() { printf "%s-%s-%s-%s-%s" "$@"; }

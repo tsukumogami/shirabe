@@ -40,7 +40,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-tick-launches-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */check-tick-launches-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */check-tick-launches-test.*) rm -rf "$T" ;; esac'
 
 RC=0
 OUT=""

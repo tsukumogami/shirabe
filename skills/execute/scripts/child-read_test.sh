@@ -32,8 +32,7 @@ pass() { echo "PASS: $*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/child-read-test.XXXXXX") || exit 1
-# This trap replaces koto-test-guard.sh's, so it removes the guard's directory too.
-trap 'rm -rf "$WORK"; case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 mkdir -p "$WORK/bin" "$WORK/coord" "$WORK/node-wt"
 NODE_WT=$(cd "$WORK/node-wt" && pwd -P)
 CHILD=work-on-t-core-2

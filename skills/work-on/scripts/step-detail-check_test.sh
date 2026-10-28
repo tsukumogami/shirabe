@@ -68,7 +68,7 @@ export SHIRABE_BIN
 
 WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # A HOME of its own: git's identity for the fixture commits and koto's session
 # store both live under it.

@@ -52,7 +52,7 @@ REAL_JQ=$(command -v jq 2>/dev/null) || { echo "SKIP: jq not on PATH -- no case 
 
 WORKDIR=$(mktemp -d) || { echo "FAIL: could not create a temporary directory" >&2; exit 1; }
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # A PATH with jq and nothing else: no koto, no gh.
 BIN="$WORKDIR/bin"

@@ -128,7 +128,7 @@ else
 fi
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure-test.XXXXXX") || { echo "FAIL: mktemp failed" >&2; exit 1; }
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 CODEC="$SKILL_DIR/../../scripts/lib/coordination-body.sh"
 
 # The body is read in one place: the codec, called from setup. Each check is

@@ -16,7 +16,7 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 S="$HERE/hop-complete.sh"
 T="demo"
 BASE="$(mktemp -d)" || exit 1
-trap 'rm -rf "$BASE"' EXIT
+ktg_on_exit 'rm -rf "$BASE"'
 
 # The predicate runs `shirabe validate` from PATH. A plan/v2 PLAN needs a
 # shirabe that reads plan/v2, which an older install does not, so a SHIRABE_BIN

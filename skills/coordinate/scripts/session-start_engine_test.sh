@@ -9,8 +9,9 @@
 # Proves, one line per case:
 #   1. a fresh start of a new roadmap scope, given no store, opens a session
 #      that stops at record_open; state-open.sh writes the record into the
-#      session's keys and opens nothing on GitHub; the next find reaches
-#      reconcile and writes coord/source.json reading `session`;
+#      session's keys and opens nothing on GitHub, its record/meta naming the
+#      shipped template compat and the run's template fingerprint; the next
+#      find reaches reconcile and writes coord/source.json reading `session`;
 #   2. on that fresh session, state-stored-set.sh writes each crash-set Run row
 #      (rules, briefs, friction, reports-to), each accepted with no `store`
 #      row in the record, and record/run then holds all four and still no
@@ -57,6 +58,13 @@ eq "1: with no record it stops at record_open" record_open "$(at)"
 write_as_agent state-open.sh
 eq "1: state-open.sh (agent-run) opens the record" 0 $?
 (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the session's record/meta" || bad "1:   ... in the session's record/meta" "$(cat "$T/w.err")"
+# The seed records the compat the run was compiled at and its template's
+# fingerprint (shirabe#1333): the shipped compat and the shipped structure.
+SHIP_COMPAT=$(jq -r .compat "$PR/skills/coordinate/koto-templates/coordinate.compat.json")
+SHIP_FP=$(bash "$PS/template-fingerprint.sh" "$(koto template compile "$TPL" 2>/dev/null)")
+eq "1:   ... naming the shipped compat and the run's template fingerprint" "$SHIP_COMPAT $SHIP_FP" \
+    "$( (cd "$WD" && koto context get "$S" record/meta) | jq -r '"\(.template_compat) \(.template_fingerprint)"')"
+eq "1:   ... which coord-log.sh compat reports" "$SHIP_COMPAT $SHIP_COMPAT $SHIP_FP" "$(cd "$WD" && bash "$PS/coord-log.sh" compat --session "$S")"
 grep -Eq '^(issue|pr) create|^api --method POST' "$GH_DB.calls" \
     && bad "1:   ... opening nothing on GitHub" "$(grep -E '^(issue|pr) create|^api --method POST' "$GH_DB.calls")" || ok "1:   ... opening nothing on GitHub"
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"

@@ -24,6 +24,8 @@
 #      next start opens a new run holding every record/ key of the old one;
 #   4. a changed template carries the live run's record/ and legs/ keys into a
 #      new run and keeps the old log readable;
+#   4b. a carry writes the new run's own template compat and fingerprint into
+#      its record/meta, never the old run's;
 #   5. on a host where no session holds the record there is nothing on GitHub
 #      to find either: the start is a new scope's, and the find stops at
 #      record_open.
@@ -224,6 +226,28 @@ grep -q "compat table doesn't list" "$T/open.err" && ok "  ... because its compa
 eq "  ... with every record/ key" "$(keys "$OLD")" "$(keys "$S")"
 eq "  ... and its legs/ key" '{"request":"req-1","leg":"deliver"}' "$(cd "$WD" && koto context get "$S" legs/req-1/deliver)"
 [ -r "$(koto session dir "$OLD")/koto-$OLD.state.jsonl" ] && ok "  ... the old run's log kept readable" || bad "  ... the old run's log kept readable" ""
+
+echo "== 4b. a carry records the new run's own template compat (shirabe#1333) =="
+# The run's record/meta is made to name another compat and structure than any
+# shipped template, and the run is cancelled after its find, so the next start
+# carries it: the new run's record/meta names the compat and fingerprint of the
+# template it was compiled from, never the old run's.
+SHIP_COMPAT=$(jq -r .compat "$PR/skills/coordinate/koto-templates/coordinate.compat.json")
+SHIP_FP=$(bash "$PS/template-fingerprint.sh" "$(koto template compile "$PR/skills/coordinate/koto-templates/coordinate.md" 2>/dev/null)")
+STALE_FP=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+eq "the carried run's find reaches reconcile" reconcile "$(at)"
+(cd "$WD" && koto context get "$S" record/meta) | jq -c --arg f "$STALE_FP" '.template_compat = 1 | .template_fingerprint = $f' > "$T/stale-meta.json"
+(cd "$WD" && koto context add "$S" record/meta --from-file "$T/stale-meta.json" > /dev/null) \
+    && (cd "$WD" && koto cancel "$S" > /dev/null) && ok "the run's record/meta names a stale compat and it is cancelled" \
+    || bad "the run's record/meta names a stale compat and it is cancelled" ""
+OLD=$S
+sleep 1
+open_run && [ "$S" != "$OLD" ] && has_line "carried=$OLD" && ok "the next start carries it into a new run" \
+    || bad "the next start carries it into a new run" "$OPEN_OUT $(cat "$T/open.err")"
+eq "  ... whose record/meta names the shipped compat and its own fingerprint" "$SHIP_COMPAT $SHIP_FP" \
+    "$( (cd "$WD" && koto context get "$S" record/meta) | jq -r '"\(.template_compat) \(.template_fingerprint)"')"
+eq "  ... while the old run's still names the stale pair" "1 $STALE_FP" \
+    "$( (cd "$WD" && koto context get "$OLD" record/meta) | jq -r '"\(.template_compat) \(.template_fingerprint)"')"
 
 echo "== 5. a host where no session holds the record (PRD R12) =="
 # Another HOME is another koto session store: nothing here holds the record,

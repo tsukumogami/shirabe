@@ -25,7 +25,7 @@ pass() { PASS=$((PASS + 1)); echo "ok: $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $1"; [ $# -lt 2 ] || printf '  %s\n' "$2"; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-registry-test.XXXXXX") || exit 1
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 
 GIT_ID="-c user.name=test -c user.email=test@example.com -c commit.gpgsign=false"
 
