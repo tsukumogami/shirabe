@@ -29,8 +29,8 @@ confirms both are gone. It leaves the build trees a worker left in its job's
 the marker cargo writes in it, and any `node_modules`), and lists each one
 it left out, with its size, in the archive's `SKIPPED`. When `niwa destroy` already removed the job, the pass
 checks it is gone from both listings and its directory, counts the removal as
-done, and says so in the archive's RESULT. Before the destroy it also posts the unit's cost
-entry on the coordinator's record (`unit-cost.md`), which can make the pass
+done, and says so in the archive's RESULT. Before the destroy it also writes the unit's cost
+entry into the coordinator's record (`unit-cost.md`), which can make the pass
 run up to two minutes longer and never changes its exit code or last line.
 
 Report back to the coordinator the script's exit code and its last line,
