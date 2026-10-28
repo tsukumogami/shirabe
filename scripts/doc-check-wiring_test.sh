@@ -280,8 +280,8 @@ for spec in "brief brief/references/phases/phase-2-draft.md brief/references/pha
         && pass "/$f under /$par: every record lands on $par-t" || fail "/$f under /$par: own session has [$(events "$f-t")]"
 
     # A pre-jury check before the first round.
-    first_check=$(printf '%s\n' $chained | grep -n '^rule-checks:pre_jury$' | head -n 1 | cut -d: -f1)
-    first_round=$(printf '%s\n' $chained | grep -n '^round-started$' | head -n 1 | cut -d: -f1)
+    first_check=$(grep -n -m 1 '^rule-checks:pre_jury$' <<< "$(printf '%s\n' $chained)" | cut -d: -f1)
+    first_round=$(grep -n -m 1 '^round-started$' <<< "$(printf '%s\n' $chained)" | cut -d: -f1)
     [ -n "$first_check" ] && [ -n "$first_round" ] && [ "$first_check" -lt "$first_round" ] \
         && pass "/$f under /$par: a pre-jury check precedes the first review round" || fail "/$f under /$par: order [$chained]"
     if [ "$f" = design ]; then
