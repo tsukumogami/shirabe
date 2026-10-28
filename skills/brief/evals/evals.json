@@ -233,6 +233,17 @@
         "PR body links docs/briefs/BRIEF-offline-sync.md and docs/strategies/STRATEGY-sync.md"
       ],
       "id": 15
+    },
+    {
+      "name": "document-check-before-jury-and-after-fix",
+      "prompt": "/brief offline-sync -- the draft is committed through Phase 3 and the run reaches Phase 4. The structural-format reviewer FAILs Scope Boundary with a minor wording issue; the content reviewer PASSes.",
+      "expected_output": "Before spawning the jury the run calls scripts/doc-check.sh at --moment pre_jury --phase 4. After applying the minor fix it commits, calls doc-events.sh fix --answers jury_fail, doc-events.sh sections, and doc-check.sh --moment post_fix --phase 4.",
+      "files": [],
+      "expectations": [
+        "Transcript runs doc-check.sh with --moment pre_jury --phase 4 before the reviewers are spawned and before review-events.sh round-started",
+        "After the minor fix, transcript runs doc-events.sh fix --answers jury_fail, then doc-events.sh sections, then doc-check.sh --moment post_fix --phase 4"
+      ],
+      "id": 16
     }
   ]
 }

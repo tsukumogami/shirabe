@@ -133,6 +133,64 @@ ev fix --doc "$PRD" --format prd --answers check_fail
 [ "$RC" -eq 0 ] && [ ! -s "$OUT" ] && [ ! -s "$STUB_KOTO_DIR/review.log" ] \
     && pass "a check with no failure: no fix entry written" || fail "fix after a clean check: $(show)"
 
+# --- fix --answers jury_fail ----------------------------------------------------------
+
+BRIEF="docs/briefs/BRIEF-t.md"
+dct_repo jury
+dct_session brief-t
+mkdir -p "$REPO/docs/briefs"
+printf -- '---\nschema: brief/v1\nstatus: Draft\n---\n\n# Brief\n\n## Status\n\nDraft\n' > "$REPO/$BRIEF"
+dct_commit "docs: draft"
+ev fix --doc "$BRIEF" --format brief --answers jury_fail
+[ "$RC" -eq 0 ] && [ ! -s "$OUT" ] && [ ! -s "$STUB_KOTO_DIR/review.log" ] && grep -q 'no jury round' "$ERR" \
+    && pass "jury_fail with no round recorded: no fix entry, a notice, exit 0" || fail "jury_fail no round: $(show)"
+
+printf '2\n' | dct_put brief-t review/round
+printf '# Content Quality Review\n\n**Verdict:** FAIL\n\n```review-verdicts\n%s\n```\n' \
+    '[{"rule_id":"rs-021","section":"problem-statement","verdict":"FAIL"},{"rule_id":"rs-022","section":"user-outcome","verdict":"PASS"},{"rule_id":"rs-099","section":"status","verdict":"FAIL"}]' \
+    | dct_put brief-t research/phase4_content-quality.md
+printf '# Structural Format Review\n\n**Verdict:** FAIL\n\n```review-verdicts\n%s\n```\n' \
+    '[{"rule_id":"rs-027","section":"scope-boundary","verdict":"FAIL"},{"rule_id":"rs-027","section":"scope-boundary","verdict":"FAIL"},{"rule_id":"rs-verdict-missing","section":"document","verdict":"FAIL"}]' \
+    | dct_put brief-t research/phase4_structural-format.md
+ev fix --doc "$BRIEF" --format brief --answers jury_fail
+call=$(sed -n 1p "$STUB_KOTO_DIR/review.log")
+batch=$(sed -n 's/^file://p' "$STUB_KOTO_DIR/review.log")
+want='[{"check_rule":"docs/required-sections","rule_id":"rs-027","section":"scope-boundary"},{"check_rule":"none","rule_id":"rs-021","section":"problem-statement"}]'
+case "$call" in
+    "brief-t fix --doc-format brief --answers jury_fail --round 2 --file "*)
+        if [ "$(printf '%s' "$batch" | jq -c 'map(to_entries | sort_by(.key) | from_entries) | sort_by(.check_rule)')" = "$want" ] \
+            && [ "$(grep -c '^brief-t fix ' "$STUB_KOTO_DIR/review.log")" -eq 1 ] && [ "$(awk 'END { print NR }' "$OUT")" -eq 2 ]; then
+            pass "two FAIL verdicts answered by one fix: one call, two entries, the round, check_rule from held_by or none"
+        else
+            fail "jury_fail batch: [$batch] $(show)"
+        fi ;;
+    *) fail "jury_fail call: [$call] $(show)" ;;
+esac
+grep -q 'rule_id is not a registered rule' "$ERR" && pass "jury_fail drops an unregistered rule id with a notice" \
+    || fail "jury_fail unregistered: $(show)"
+held=$(jq -r '.rules[] | select(.id == "rs-027") | .held_by' "$SCRIPT_DIR/../references/rule-registry.json")
+[ "$held" = docs/required-sections ] && pass "the check_rule written is the registry's held_by for the rubric item" \
+    || fail "held_by of rs-027 is [$held]"
+
+: > "$STUB_KOTO_DIR/review.log"
+ev fix --doc "$BRIEF" --format brief --answers jury_fail --round 1
+grep -q -- '--answers jury_fail --round 1 --file ' "$STUB_KOTO_DIR/review.log" \
+    && pass "--round names the round the fix answers" || fail "jury_fail --round: [$(cat "$STUB_KOTO_DIR/review.log")]"
+
+printf '# Content Quality Review\n\n**Verdict:** PASS\n\n```review-verdicts\n[{"rule_id":"rs-021","section":"problem-statement","verdict":"PASS"}]\n```\n' \
+    | dct_put brief-t research/phase4_content-quality.md
+printf 'no block\n' | dct_put brief-t research/phase4_structural-format.md
+: > "$STUB_KOTO_DIR/review.log"
+ev fix --doc "$BRIEF" --format brief --answers jury_fail
+[ "$RC" -eq 0 ] && [ ! -s "$OUT" ] && [ ! -s "$STUB_KOTO_DIR/review.log" ] && grep -q 'seat structural-format: no review-verdicts block' "$ERR" \
+    && pass "no FAIL verdict: no fix entry; a seat with no block is a notice" || fail "jury_fail no fail: $(show)"
+
+# The hardening cases below run on a PRD repository.
+dct_repo hardening
+dct_session prd-t
+write_prd "a problem"
+dct_commit "docs: draft"
+
 # --- input hardening ----------------------------------------------------------------
 
 refused() { # <label> <args...>
@@ -147,7 +205,10 @@ refused() { # <label> <args...>
     fi
 }
 refused "an unknown subcommand" record --doc "$PRD" --format prd
-refused "--answers jury_fail (not recorded here)" fix --doc "$PRD" --format prd --answers jury_fail
+refused "--round on --answers check_fail" fix --doc "$PRD" --format prd --answers check_fail --round 1
+refused "--round 0" fix --doc "$PRD" --format prd --answers jury_fail --round 0
+refused "--round past 50" fix --doc "$PRD" --format prd --answers jury_fail --round 51
+refused "--round on sections" sections --doc "$PRD" --format prd --round 1
 refused "--answers outside its set" fix --doc "$PRD" --format prd --answers maybe
 refused "--answers on sections" sections --doc "$PRD" --format prd --answers check_fail
 refused "--since on fix" fix --doc "$PRD" --format prd --answers check_fail --since "$(dct_head)"

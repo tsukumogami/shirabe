@@ -30,6 +30,24 @@ recommended outcome. Skip to Phase 6.
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
 
+Before launching the researcher, commit the draft as Phases 3 and 4 left it
+(`docs(design): draft design for <topic>`) and record the sections it wrote,
+then run the document check on it
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/designs/DESIGN-<topic>.md --format design --skill design
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment pre_jury --phase 5 --topic <topic> --skill design
+```
+
+Security Considerations is not written yet at this phase, so the check counts
+it as not ready rather than missing. Exit 0 goes on. Exit 1 means a
+block-stage rule failed: fix what its findings name, commit, and run the fix
+loop in that reference with `--answers check_fail` until the post-fix check
+exits 0. A `doc-check: unresolved after 3 cycles` line is a significant issue:
+present the findings to the user before going on, or under `--auto` stop the
+run and report them.
+
 Allocate a private directory outside the work tree for the report and keep the
 path it prints, `<research-dir>`:
 
@@ -144,6 +162,18 @@ Based on the security researcher's recommendation:
   justification from the researcher
 - The justification must make sense on its own -- the full report is a session
   key, not part of the repository, so future readers won't have access to it
+
+Once the outcome is applied (Option 2 or 3), commit the section
+(`docs(design): add security considerations for <topic>`), record it and check
+the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/designs/DESIGN-<topic>.md --format design --skill design
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment post_fix --phase 5 --topic <topic> --skill design
+```
+
+While it exits 1, fix what it names, commit, and run the fix loop in
+`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` with `--answers check_fail`.
 
 ### 5.3 Update the Summary Key
 

@@ -93,6 +93,28 @@ context key into the second:
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Bet Quality and Altitude run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/strategies/STRATEGY-<topic>.md --format skills/strategy/references/strategy-format.md --extra <upstream-doc>`. `<upstream-doc>` is the grounding document the Altitude prompt names; drop the `--extra` when there is none. The Structural Format prompt also names `<context-file>`, the path `get` printed.
 
+Before the round starts, run the document check on the draft
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/strategies/STRATEGY-<topic>.md --format strategy --moment pre_jury --phase 4 --topic <topic> --skill strategy
+```
+
+Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
+its findings name, commit, and run the fix loop in that reference with
+`--answers check_fail` until the post-fix check exits 0, before spawning. A
+`doc-check: unresolved after 3 cycles` line is a significant issue: surface the findings to the user as step 4.5 does for a significant FAIL,
+or under `--auto` stop the run and report them.
+
+Beside the packet, before spawning, record the round as telemetry (add
+`--fallback` when the round runs as the serial self-jury). It always exits 0
+and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
+describes the verdict block each seat ends its file with and the calls here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill strategy --topic <topic> --doc docs/strategies/STRATEGY-<topic>.md --seat-count 3 --doc-format strategy
+```
+
 Spawn all three agents in parallel. Each prompt opens with the fixed
 preamble below to defuse prompt-injection attempts via the STRATEGY body.
 
@@ -165,6 +187,13 @@ a concrete corrective action.
    (the bet was right but the strategy missed). A set of bullets that
    only addresses one axis suggests the author hasn't thought about
    the other.
+
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-067", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
 
 ## Output Format
 
@@ -268,6 +297,13 @@ format reference; defaults at the time of this prompt are:
    answer ("does Strategic Context stand alone via org artifacts and
    first-principles framing?") rather than as a failure mode. The
    format accommodates this case.
+
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-068", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
 
 ## Output Format
 
@@ -390,6 +426,13 @@ sections.
    single source of truth for the Sunset reason (the transition
    script does not record reason elsewhere).
 
+## Verdict Block
+
+End the file, after the Summary, with a fenced block tagged review-verdicts
+holding a JSON array of one entry: {"rule_id": "rs-069", "section":
+"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
+verdict is FAIL.
+
 ## Output Format
 
 Write your full review to `<verdicts-dir>/phase4_structural-format.md`
@@ -428,6 +471,7 @@ this conversation. Then turn the verdict files into keys (`ingest` removes the
 verdicts directory) and remove the inputs directory:
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill strategy --topic <topic> --doc docs/strategies/STRATEGY-<topic>.md --dir <verdicts-dir> --doc-format strategy
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest strategy-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```
@@ -473,6 +517,15 @@ decompose); Strategic Context fails to stand alone; verbatim
 private-upstream content surfaced by the structural reviewer's leakage
 flag. These warrant a user decision before the workflow continues.
 
+**Record what follows the round**, once it is decided, as telemetry: `proceed`
+for all PASS, `fix_and_proceed` for minor fixes, `loop_back` for a loop back
+to Phase 2 or 3, `rerun` for targeted fixes and a fresh jury, `stop` when the
+strategy goes no further.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill strategy --topic <topic> --doc docs/strategies/STRATEGY-<topic>.md --decision <decision> --doc-format strategy
+```
+
 ## 4.4 Apply Minor Fixes (If Any)
 
 For each minor issue identified across the three verdicts:
@@ -484,6 +537,19 @@ For each minor issue identified across the three verdicts:
 After all minor fixes are applied, re-read the draft as a whole to confirm
 the fixes did not introduce new issues. If they did, treat the residual as
 significant and route to step 4.5's AskUserQuestion path instead.
+
+Commit the fixes (`docs(strategy): apply jury fixes for <topic>`), then record what they answered and check
+the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/strategies/STRATEGY-<topic>.md --format strategy --answers jury_fail --skill strategy
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/strategies/STRATEGY-<topic>.md --format strategy --skill strategy
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/strategies/STRATEGY-<topic>.md --format strategy --moment post_fix --phase 4 --topic <topic> --skill strategy
+```
+
+While the post-fix check exits 1, fix what it names, commit, and repeat the
+three calls with `--answers check_fail`; on `doc-check: unresolved after 3
+cycles`, take step 4.5's significant-FAIL path (under `--auto`, stop and report).
 
 ## 4.5 Surface Verdicts to User
 

@@ -224,6 +224,17 @@
         "PR body links docs/strategies/STRATEGY-edge-runtime.md and docs/visions/VISION-edge.md"
       ],
       "id": 15
+    },
+    {
+      "name": "document-check-before-jury-and-after-fix",
+      "prompt": "/strategy adopting-plugin-x -- the draft is committed through Phase 3 and the run reaches Phase 4. The structural-format reviewer FAILs with a minor wording issue; the other two PASS.",
+      "expected_output": "Before spawning the jury the run calls scripts/doc-check.sh --moment pre_jury --phase 4 and review-events.sh round-started --skill strategy ... --doc-format strategy. At 4.4 it commits the fix and calls doc-events.sh fix --answers jury_fail, sections and doc-check.sh --moment post_fix --phase 4.",
+      "files": [],
+      "expectations": [
+        "Transcript runs doc-check.sh --moment pre_jury --phase 4 before review-events.sh round-started --skill strategy with --doc-format strategy",
+        "After the 4.4 fix, transcript runs doc-events.sh fix --answers jury_fail and doc-check.sh --moment post_fix --phase 4"
+      ],
+      "id": 16
     }
   ]
 }
