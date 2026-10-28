@@ -103,7 +103,9 @@
 # JSON object. It keeps its reviewed_head, so the land step still refuses a
 # round whose head has moved. A read or a write that fails prints a warning
 # naming the session and saying the round has to be recorded again with
-# review-round.sh, and the run goes on without it.
+# review-round.sh, and the run goes on without it. The round is the one
+# per-run record a coordinator reads from this session; nothing else of the
+# finished session is carried beyond the keys named here.
 #
 # Output. stdout carries koto-open.sh's machine-readable lines, then:
 #
@@ -439,7 +441,9 @@ write_prior_round() {
         none) return 0 ;;
         failed) why="could not be read" ;;
         read)
-            if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' <"$ROUND_FILE" >/dev/null 2>&1; then
+            # jq's own parse error, for a value that isn't JSON at all, is
+            # left on stderr above the warning.
+            if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' <"$ROUND_FILE" >/dev/null; then
                 why="is not one JSON object"
             elif ! "${KOTO_BIN:-koto}" context add "$session" review_round.json <"$ROUND_FILE" >/dev/null 2>&1; then
                 why="could not be written"
@@ -449,8 +453,8 @@ write_prior_round() {
     remove_if_untracked "$ROUND_FILE"
     ROUND_FILE=""
     [ -n "$why" ] || return 0
-    printf '%s: the review round recorded in the finished %s %s, so %s has none; record it again with review-round.sh\n' \
-        "$PROG" "$session" "$why" "$session" >&2
+    printf '%s: the review round recorded in the finished run of %s %s, so the new run has none; record it again with review-round.sh\n' \
+        "$PROG" "$session" "$why" >&2
     return 0
 }
 
