@@ -229,13 +229,15 @@ state3() { printf 'topic: %s\nlast_updated: %s\nphase_pointer: 3\nintent: %s\n' 
 # session: the replaced result's closed-set values become work/prior-run.md.
 # The function is taken from scope-open.sh itself, and fed koto's own
 # `koto init` answer, so the suite exercises the shipped code on the real
-# template's result map.
+# template's result map. write_prior_run ends by calling write_forced_artifact,
+# which reads TOPIC, so both functions are taken and TOPIC is the topic
+# scope-open.sh would have mapped.
 PRIOR_LIB="$T/write-prior-run.sh"
-sed -n '/^write_prior_run() {/,/^}/p' "$HERE/scope-open.sh" >"$PRIOR_LIB"
+sed -n '/^write_prior_run() {/,/^}/p; /^write_forced_artifact() {/,/^}/p' "$HERE/scope-open.sh" >"$PRIOR_LIB"
 carry_prior() {
     local out
     out=$(printf 'opened=replaced\nreplaced_result=%s\n' "$(jq -c '.replaced_result' "$T/init.out")")
-    (cd "$R" && HOME="$KH" PATH="$BIN:$PATH" PROG=scope-open bash -c '. "$1"; write_prior_run "$2" "$3"' _ "$PRIOR_LIB" "scope-$1" "$out")
+    (cd "$R" && HOME="$KH" PATH="$BIN:$PATH" PROG=scope-open TOPIC="$1" bash -c '. "$1"; write_prior_run "$2" "$3"' _ "$PRIOR_LIB" "scope-$1" "$out")
 }
 
 repo fn
