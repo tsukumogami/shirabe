@@ -253,9 +253,23 @@
 #       name, and dc_job_finished saying it isn't finished), or, when no job
 #       for it can be seen from here, a koto event in its log within the last
 #       10 minutes (600 seconds). Either argument after the koto session may
-#       be empty. DC_CLAUDE_HOME (default $HOME/.claude) and DC_NOW (epoch
-#       seconds, default the host clock) move the job directory and the
-#       clock, for tests.
+#       be empty. The koto session may be empty too, for a worker whose koto
+#       session can't be found: then only its Claude job decides, and with no
+#       job seen from here there is no event to read, so it isn't live.
+#       DC_CLAUDE_HOME (default $HOME/.claude) and DC_NOW (epoch seconds,
+#       default the host clock) move the job directory and the clock, for
+#       tests.
+#
+#   dc_newest_member <koto-session>
+#       Follows `session_superseded` events forward from the session (each
+#       names the run that continued it, koto init --continues --supersede)
+#       and prints the newest member of its chain, the session itself when
+#       nothing superseded it, then a tab and the hops taken. Each name is
+#       checked against a koto session name's grammar before it is read, and
+#       a name met twice ends the walk. Returns 0 found; 1 the chain can't be
+#       read (a log that can't be read, a name that isn't one, a cycle); 3 the
+#       walk passed its hop cap, DC_HOP_CAP (default 1024, about six months of
+#       recycles), printing nothing.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -817,6 +831,14 @@ dc_claude_name() {
 
 dc_session_live() {
     local s="$1" sid="$2" name="$3" home="${DC_CLAUDE_HOME:-$HOME/.claude}" now="${DC_NOW:-$(date +%s)}" st log job why last at
+    if [ -z "$s" ]; then
+        job=$(dc_claude_job "$home" "$sid" "$name") \
+            || { printf 'no koto session and no Claude job for %s is seen here\n' "${name:-$sid}"; return 1; }
+        if why=$(dc_job_finished "$home" "$job" '{}'); then
+            printf "%s's Claude job %s has finished\n" "${name:-$sid}" "$job"; return 1
+        fi
+        printf '%s is a running Claude job: %s\n' "${name:-$sid}" "$why"; return 0
+    fi
     st=$("${KOTO_BIN:-koto}" status "$s" </dev/null 2>/dev/null) || { printf '%s has no readable status\n' "$s"; return 2; }
     if [ "$(printf '%s' "$st" | jq -r '.is_terminal')" != false ]; then
         printf '%s is finished\n' "$s"; return 1
@@ -843,4 +865,26 @@ dc_session_live() {
     fi
     printf "no Claude job for %s is seen here, and its last koto event is %ss old, past 10 minutes\n" "$s" "$((now - at))"
     return 1
+}
+
+dc_newest_member() {
+    local s="$1" cap="${DC_HOP_CAP:-1024}" hops=0 seen=" " dir log next
+    [[ $s =~ $DC_RE_SESSION ]] || return 1
+    while :; do
+        case "$seen" in *" $s "*) return 1 ;; esac
+        seen="$seen$s "
+        dir=$("${KOTO_BIN:-koto}" session dir "$s" </dev/null 2>/dev/null) || return 1
+        log="$dir/koto-$s.state.jsonl"
+        [ -r "$log" ] || return 1
+        # The last supersede event, should a run carry more than one.
+        next=$(jq -r 'select(.type == "session_superseded") | .payload.by // "" | strings' "$log" 2>/dev/null | tail -n 1) || return 1
+        if [ -z "$next" ]; then
+            printf '%s\t%s\n' "$s" "$hops"
+            return 0
+        fi
+        [[ $next =~ $DC_RE_SESSION ]] || return 1
+        [ "$hops" -lt "$cap" ] || return 3
+        hops=$((hops + 1))
+        s=$next
+    done
 }
