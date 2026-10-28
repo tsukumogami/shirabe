@@ -61,6 +61,9 @@ doc_for() {
         prd) echo docs/prds/PRD-t.md ;;
         design) echo docs/designs/DESIGN-t.md ;;
         plan) echo docs/plans/PLAN-t.md ;;
+        vision) echo docs/visions/VISION-t.md ;;
+        strategy) echo docs/strategies/STRATEGY-t.md ;;
+        roadmap) echo docs/roadmaps/ROADMAP-t.md ;;
     esac
 }
 write_doc() { # <skill> <schema>
@@ -266,17 +269,78 @@ for mode in missing refuse; do
     fi
 done
 
-ev verdicts --skill vision --topic t --doc x --dir "$WORKDIR"
-[ "$RC" -eq 2 ] && pass "a skill outside the four is refused" || fail "skill $(show)"
+ev verdicts --skill charter --topic t --doc x --dir "$WORKDIR"
+[ "$RC" -eq 2 ] && pass "a skill outside the seven is refused" || fail "skill $(show)"
 ev round-started --skill brief --topic t --doc x --seat-count 0
 [ "$RC" -eq 2 ] && pass "a seat count of 0 is refused" || fail "seat count $(show)"
 
+# --- the charter juries: the format, and no document type ---------------------------
+
+for skill in vision strategy roadmap; do
+    dct_repo "charter-$skill"
+    dct_session "$skill-t"
+    write_doc "$skill" "$skill/v1"
+    doc=$(doc_for "$skill")
+    ev round-started --skill "$skill" --topic t --doc "$doc" --seat-count 3 --doc-format "$skill"
+    grep -qx -- "$skill-t round-started --schema $skill/v1 --round 1 --seat-count 3 --doc-format $skill" "$LOG" \
+        && pass "$skill: round-started records the format and no document type" || fail "$skill round: [$(cat "$LOG")] $(show)"
+    seatdir "$skill"
+    ev verdicts --skill "$skill" --topic t --doc "$doc" --dir "$WORKDIR/v" --doc-format "$skill"
+    calls=$(grep -c -- "^$skill-t verdicts --file .* --doc-format $skill\$" "$LOG")
+    want=$(cat "$FIX/$skill"/*.md | awk '/^```review-verdicts/ { f = 1; next } /^```/ { f = 0 } f' \
+        | jq -s -c 'add | map({rule_id, section, verdict}) | sort')
+    got=$(batches | jq -s -c 'map({rule_id, section, verdict}) | sort')
+    typed=$(batches | jq -c 'select(has("doc_type"))')
+    if [ "$RC" -eq 0 ] && [ "$calls" -eq 3 ] && [ "$got" = "$want" ] && [ -z "$typed" ] && [ ! -s "$ERR" ]; then
+        pass "$skill: one verdicts call per seat with the format, every entry recorded, none with a document type"
+    else
+        fail "$skill verdicts: calls=$calls got=$got want=$want typed=[$typed] $(show)"
+    fi
+    ev decision --skill "$skill" --topic t --doc "$doc" --decision fix_and_proceed --doc-format "$skill"
+    grep -qx -- "$skill-t decision --schema $skill/v1 --round 1 --decision fix_and_proceed --doc-format $skill" "$LOG" \
+        && pass "$skill: the decision records the format" || fail "$skill decision: [$(tail -n 1 "$LOG")]"
+    : > "$LOG"
+    ev round-started --skill "$skill" --topic t --doc "$doc" --seat-count 3
+    grep -q -- "--doc-format $skill\$" "$LOG" && pass "$skill: the format is recorded when the call leaves it out" \
+        || fail "$skill implied format: [$(cat "$LOG")]"
+done
+dct_repo format-given
+dct_session prd-t
+ev round-started --skill prd --topic t --doc docs/prds/PRD-t.md --seat-count 3 --doc-format prd
+grep -qx -- "prd-t round-started --doc-type prd --schema  --round 1 --seat-count 3 --doc-format prd" "$LOG" \
+    && pass "a /scope-chain jury records the format beside its document type when given" || fail "prd format: [$(cat "$LOG")]"
+ev round-started --skill prd --topic t --doc docs/prds/PRD-t.md --seat-count 3 --doc-format design
+[ "$RC" -eq 2 ] && pass "a --doc-format other than the skill's is refused" || fail "format mismatch $(show)"
+
 # --- template vocabulary -----------------------------------------------------------
 
-seats_listed=$(sed -n '/^seats_of() {/,/^}/p' "$EVENTS" | grep -o '[a-z-]* phase[0-9]_[a-z-]*\.md\|[a-z-]* category-[a-e]\.md' | awk '{ print $1 }' | sort -u)
-slugs=$(jq -r '.formats | (.brief, .prd, .design, .plan) | .required_sections[]' "$REPO_ROOT/references/doc-check-phases.json" \
-    | while IFS= read -r s; do printf '%s' "$s" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
-        | LC_ALL=C sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//'; echo; done; printf 'frontmatter\ndocument\n')
+# The /scope chain's four juries are declared in both templates; the charter
+# juries only in the skill-session template, since /scope never runs them.
+seats_of_lib() { # <format>...: the seats the shared parser lists for them
+    local f
+    for f in "$@"; do
+        sed -n '/^rv_seats_of() {/,/^}/p' "$REPO_ROOT/scripts/lib/review-verdicts.sh" | sed -n "/^ *$f)/,/;;/p" \
+            | grep -o '[a-z-]* phase[0-9]_[a-z-]*\.md\|[a-z-]* category-[a-e]\.md' | awk '{ print $1 }'
+    done | sort -u
+}
+slugs_of() { # <format>...: their required sections, slugged, plus frontmatter and document
+    local f
+    for f in "$@"; do jq -r --arg f "$f" '.formats[$f].required_sections[]' "$REPO_ROOT/references/doc-check-phases.json"; done \
+        | while IFS= read -r s; do printf '%s' "$s" | LC_ALL=C tr '[:upper:]' '[:lower:]' \
+            | LC_ALL=C sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//'; echo; done
+    printf 'frontmatter\ndocument\n'
+}
+seats_listed=$(seats_of_lib brief prd design plan)
+slugs=$(slugs_of brief prd design plan)
+[ "$(echo "$seats_listed" | wc -l | tr -d ' ')" -eq 12 ] && pass "the parser lists the twelve seats of the four /scope juries" \
+    || fail "seat list [$seats_listed]"
+charter_vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/koto-templates/skill-session.md" | tr -d '[],' | tr ' ' '\n')
+missing=""
+for v in $(seats_of_lib vision strategy roadmap) $(slugs_of vision strategy roadmap); do
+    grep -qxF -- "$v" <<< "$charter_vocab" || missing="$missing $v"
+done
+[ -z "$missing" ] && pass "koto-templates/skill-session.md declares every VISION, STRATEGY and ROADMAP seat and section slug" \
+    || fail "skill-session.md lacks [$missing]"
 for t in skills/scope/koto-templates/scope.md koto-templates/skill-session.md; do
     vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/$t" | tr -d '[],' | tr ' ' '\n')
     missing=""

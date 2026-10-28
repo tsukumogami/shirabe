@@ -269,6 +269,17 @@
         "PR body names no koto session or context key"
       ],
       "id": 18
+    },
+    {
+      "name": "document-check-before-jury-and-after-fix",
+      "prompt": "/roadmap plugin-rollout -- the draft is committed at the end of Phase 3 and the run reaches Phase 4. The annotation-boundary reviewer FAILs with a minor wording issue; the other two PASS.",
+      "expected_output": "Before launching the jury the run calls scripts/doc-check.sh --moment pre_jury --phase 4 and review-events.sh round-started --skill roadmap ... --doc-format roadmap. After the minor fix it calls doc-events.sh fix --answers jury_fail, sections and doc-check.sh --moment post_fix --phase 4.",
+      "files": [],
+      "expectations": [
+        "Transcript runs doc-check.sh --moment pre_jury --phase 4 before review-events.sh round-started --skill roadmap with --doc-format roadmap",
+        "After the fix, transcript runs doc-events.sh fix --answers jury_fail and doc-check.sh --moment post_fix --phase 4"
+      ],
+      "id": 19
     }
   ]
 }

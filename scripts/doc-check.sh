@@ -64,9 +64,9 @@
 # per-moment count of failing checks in a row, and the commit
 # doc-events.sh last recorded sections at. A failing check is one that exits
 # 1; any other check sets its moment's count back to 0. At pre_jury, when the
-# last check was a post_fix check on the same document commit with no block
-# failure, it records nothing and exits 0: that check serves as the round's
-# pre-jury check.
+# last check was a post_fix check on the same document commit, at the same
+# phase, with no block failure, it records nothing and exits 0: that check
+# serves as the round's pre-jury check.
 #
 # Telemetry: the outcomes go, best effort, to
 #   koto review record <session> rule-checks --doc-format <f> --moment <m> --file <batch>
@@ -96,7 +96,7 @@ PLUGIN_ROOT=$(cd "$HERE/.." && pwd -P)
 KOTO="${KOTO_BIN:-koto}"
 START_DIR=$(pwd -P)
 MESSAGE_CAP=400
-RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections"
+RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections plan/step-shape roadmap/reserved-sections roadmap/milestone-shape"
 
 usage() {
     cat >&2 <<'EOF'
@@ -191,12 +191,13 @@ STATE_SESSION="$SKILL-$TOPIC"
 ds_state_read "$STATE_SESSION" "$WORK/state.json"
 COMMIT=$(ds_doc_commit "$DOC")
 
-# A pre-jury check right after a clean post-fix check of the same commit is
-# that check: nothing runs and nothing is recorded.
+# A pre-jury check right after a clean post-fix check of the same commit at
+# the same phase is that check: nothing runs and nothing is recorded. A check
+# at another phase read another reached list, so it serves nothing here.
 if [ "$MOMENT" = pre_jury ] && [ -n "$COMMIT" ] \
-    && jq -e --arg doc "$DOC" --arg c "$COMMIT" '
+    && jq -e --arg doc "$DOC" --arg c "$COMMIT" --arg p "$PHASE" '
         .doc == $doc and .last.moment == "post_fix" and .last.commit == $c
-        and .last.block_fail == false' "$WORK/state.json" >/dev/null 2>&1; then
+        and .last.phase == $p and .last.block_fail == false' "$WORK/state.json" >/dev/null 2>&1; then
     echo "doc-check: the post_fix check of $DOC at $COMMIT serves as this pre_jury check" >&2
     exit 0
 fi

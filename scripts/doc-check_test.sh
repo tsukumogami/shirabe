@@ -316,6 +316,12 @@ check_prd pre_jury 4
 [ -s "$OUT" ] && pass "an uncommitted change to the document is not the same commit: the check runs" \
     || fail "dirty document skipped: $(show)"
 git -C "$REPO" checkout -q -- docs/prds/PRD-t.md
+check_prd post_fix 3
+: > "$STUB_KOTO_DIR/review.log"
+check_prd pre_jury 4
+[ "$RC" -eq 0 ] && [ -s "$OUT" ] && [ -s "$STUB_KOTO_DIR/review.log" ] \
+    && pass "a clean post-fix check at another phase doesn't serve the pre-jury check: it runs in full" \
+    || fail "pre-jury after another phase's post-fix: $(show)"
 
 dct_envelope 2 "$FC01"
 lines=""
@@ -467,6 +473,31 @@ for code in $listed; do
 done
 echo "REPORT: error-level codes with no registered id yet:${lacking:- none}"
 pass "the enumeration lists every error-level code and reports those lacking a registered id"
+
+# Every error-level code a VISION, STRATEGY, ROADMAP or PLAN can emit, seeded
+# one at a time, fails the rule it maps to and leaves no rule in error.
+seeded_bad=""
+for f in vision strategy roadmap plan; do
+    dct_repo "seed-$f"
+    doc=$(jq -r --arg f "$f" '.formats[$f].paths[0] | sub("\\{topic\\}"; "t")' "$PHASES")
+    mkdir -p "$REPO/$(dirname "$doc")"
+    printf -- '---\nschema: %s/v1\nstatus: Draft\n---\n\n# Doc\n\n## Status\n\nDraft\n' "$f" > "$REPO/$doc"
+    dct_commit "docs: a $f"
+    dct_session "$f-t"
+    phase=$(jq -r --arg f "$f" '.formats[$f].phases | keys | last' "$PHASES")
+    for code in $(jq -r --arg f "$f" '.formats[$f].error_codes[]' "$PHASES"); do
+        rule=$(jq -r --arg c "$code" '[.rules[] | select(.status == "active" and ((.aliases // []) | index($c))) | .id] | first // ""' "$REGISTRY")
+        if [ -z "$rule" ]; then seeded_bad="$seeded_bad $f:$code-unregistered"; continue; fi
+        msg="[$code] seeded"
+        [ "$code" = FC04 ] && msg="[FC04] missing required section '## Status'"
+        dct_envelope 2 "$(jq -cn --arg c "$code" --arg m "$msg" '{code: $c, severity: "error", message: $m, file: "x", line: 9}')"
+        run -- --doc "$doc" --format "$f" --moment post_fix --phase "$phase" --topic t --skill "$f"
+        [ "$(outcome "$rule")" = fail ] || seeded_bad="$seeded_bad $f:$code->$rule:$(outcome "$rule")"
+        grep -q '^doc-check: [^ ]* error$' "$OUT" && seeded_bad="$seeded_bad $f:$code-error"
+    done
+done
+[ -z "$seeded_bad" ] && pass "each seeded error-level VISION, STRATEGY, ROADMAP and PLAN code fails its registered rule, with no error outcome" \
+    || fail "seeded codes: $seeded_bad"
 
 # --- source properties ---------------------------------------------------------------
 
