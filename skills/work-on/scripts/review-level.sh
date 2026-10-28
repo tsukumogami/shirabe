@@ -119,7 +119,7 @@
 #   1  -- set refused (a `refused:` line on stdout names the rule; nothing
 #         changed), or check or agree holds (a `hold:` line names why)
 #   2  -- report printed every row, but a ledger had a line that isn't JSON
-#         or couldn't be read
+#         or couldn't be read (koto refused the read, or the get failed)
 #   3  -- check: the level is empty and the ledger records none (the unset
 #         route, a session from an earlier template). An empty level over a
 #         ledger that has one holds (1): the variable was reset
@@ -127,7 +127,10 @@
 #         file, a --shared-branch that isn't a branch name, or no git base to
 #         diff (on a shared branch, no impl_base)
 #   66 -- a koto call failed: the rebind, or a context read or write (for
-#         level, a ledger that exists but can't be read). After
+#         level, a ledger that exists but can't be read, or a session koto
+#         refuses to read, such as one bound to another workspace; nothing
+#         is printed on stdout, and koto's reason goes to stderr). A key
+#         koto answers is absent is never a failure. After
 #         set exits 66 neither the variable nor the ledger has changed. (check
 #         and agree never exit 66: a read they can't make is a hold)
 #
@@ -204,12 +207,36 @@ valid_session() {
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# ctx_has <session> <key>: 0 when the key is present, 1 when koto answers that
+# it is absent, 2 when the read failed. koto's `context exists` exits 1 only
+# for an absent key; a refusal (a session bound to another workspace, say)
+# exits 2 with its JSON on stdout. Anything koto prints goes to stderr, so a
+# refusal never reaches the caller's stdout as a value.
+ctx_has() {
+    local rc=0
+    koto context exists "$1" "$2" >&2 || rc=$?
+    case "$rc" in
+        0|1) return "$rc" ;;
+    esac
+    echo "review-level: koto context exists $1 $2 exited $rc" >&2
+    return 2
+}
+
 # ctx_get <session> <key> <file>: the key's content into <file>, empty when the
-# key is absent. Returns 1 when the key exists but can't be read.
+# key is absent. Returns 1 when the read failed (koto refused it, or the key
+# exists but can't be read), with <file> empty and koto's output on stderr.
 ctx_get() {
     : > "$3"
-    if koto context exists "$1" "$2"; then
-        koto context get "$1" "$2" > "$3" || return 1
+    ctx_has "$1" "$2"
+    case $? in
+        0) ;;
+        1) return 0 ;;
+        *) return 1 ;;
+    esac
+    if ! koto context get "$1" "$2" > "$3"; then
+        cat "$3" >&2
+        : > "$3"
+        return 1
     fi
     return 0
 }
@@ -548,12 +575,11 @@ cmd_set() {
 
 # ---------------------------------------------------------------- facts -------
 
-# stored_base <session>: prints the stored impl_base when it names a commit.
+# stored_base <file>: prints the impl_base read into <file> when it names a
+# commit.
 stored_base() {
-    local stored=""
-    if ctx_get "$1" impl_base "$WORK/impl_base"; then
-        stored=$(tr -d '[:space:]' < "$WORK/impl_base")
-    fi
+    local stored
+    stored=$(tr -d '[:space:]' < "$1")
     [ -n "$stored" ] && git rev-parse --verify -q "${stored}^{commit}"
 }
 
@@ -674,7 +700,8 @@ cmd_facts() {
     # it there is no base. (record-changed-paths.sh also prefers impl_base,
     # but falls back to the merge-base; a floor must not.)
     local ibase="" mbase="" base="" source="" lines=0 files=0
-    ibase=$(stored_base "$s") || ibase=""
+    ctx_get "$s" impl_base "$WORK/impl_base" || die 66 "could not read impl_base"
+    ibase=$(stored_base "$WORK/impl_base") || ibase=""
     if [ -n "$shared" ]; then
         [ -n "$ibase" ] || die 64 "no base resolves on a shared branch: impl_base is unset"
     else
@@ -741,10 +768,15 @@ cmd_facts() {
     while IFS= read -r -d '' p; do
         case "$p" in docs/plans/*|docs/prds/*) criteria_changed=true ;; esac
     done < "$WORK/paths"
-    if [ "$criteria_changed" = false ] && koto context exists "$s" "$CRITERIA_KEY"; then
-        ctx_get "$s" "$CRITERIA_KEY" "$WORK/criteria.stored" || die 66 "could not read $CRITERIA_KEY"
-        session_criteria "$s" "$WORK/criteria.now" || die 66 "could not read context.md"
-        cmp -s "$WORK/criteria.stored" "$WORK/criteria.now" || criteria_changed=true
+    if [ "$criteria_changed" = false ]; then
+        local has_criteria=0
+        ctx_has "$s" "$CRITERIA_KEY" || has_criteria=$?
+        [ "$has_criteria" -le 1 ] || die 66 "could not read $CRITERIA_KEY"
+        if [ "$has_criteria" -eq 0 ]; then
+            ctx_get "$s" "$CRITERIA_KEY" "$WORK/criteria.stored" || die 66 "could not read $CRITERIA_KEY"
+            session_criteria "$s" "$WORK/criteria.now" || die 66 "could not read context.md"
+            cmp -s "$WORK/criteria.stored" "$WORK/criteria.now" || criteria_changed=true
+        fi
     fi
 
     # The floor: the highest level any rule yields. rule names the first rule
@@ -1021,11 +1053,16 @@ project_slice() {
 
 # cmd_slice judges with the rules copy init stored, the one `facts` derived the
 # floor from; a session init never ran for falls back to the shipped file, as
-# `facts` does. A stored copy that can't be read or parsed exits 66 or 64, and
-# koto records the criterion unanswered: never a pass.
+# `facts` does. Facts or a stored copy that can't be read, or a copy that can't
+# be parsed, exits 66 or 64, and koto records the criterion unanswered: never a
+# pass.
 cmd_slice() {
     local s="${1:-}" level="${2:-}" rules="$RULES_SHIPPED"
-    if valid_session "$s" && ctx_get "$s" "$FACTS_KEY" "$WORK/facts" && [ -s "$WORK/facts" ]; then
+    : > "$WORK/facts"
+    if valid_session "$s"; then
+        ctx_get "$s" "$FACTS_KEY" "$WORK/facts" || die 66 "could not read $FACTS_KEY"
+    fi
+    if [ -s "$WORK/facts" ]; then
         ctx_get "$s" "$RULES_KEY" "$WORK/rules" || die 66 "could not read $RULES_KEY"
         [ -s "$WORK/rules" ] && rules="$WORK/rules"
         project_slice "$WORK/facts" "$level" "$rules"
@@ -1097,21 +1134,27 @@ cmd_report() {
     while IFS= read -r s; do
         local has=0 overrides seats
         : > "$WORK/ledger"
-        # has: 0 no ledger, 1 read, 2 present but unreadable (a row of its
-        # own, not `none`, and exit 2).
-        if koto context exists "$s" "$LEDGER"; then
-            has=1
-            if ! koto context get "$s" "$LEDGER" > "$WORK/ledger"; then
-                has=2
-                : > "$WORK/ledger"
-                rc=2
-            fi
+        # has: 0 no ledger, 1 read, 2 present but unreadable, or a read koto
+        # refused (a row of its own, not `none`, and exit 2).
+        ctx_has "$s" "$LEDGER"
+        case $? in
+            0) has=1 ;;
+            1) has=0 ;;
+            *) has=2 ;;
+        esac
+        if [ "$has" -eq 1 ] && ! koto context get "$s" "$LEDGER" > "$WORK/ledger"; then
+            cat "$WORK/ledger" >&2
+            : > "$WORK/ledger"
+            has=2
         fi
+        [ "$has" -ne 2 ] || rc=2
         overrides=$(koto overrides list "$s" \
             | jq -r '[.overrides.items[]? | select(.gate == "level_floor" or .gate == "level_fits_facts")] | length')
         [ -n "$overrides" ] || overrides=-
         seats=0
-        if ctx_get "$s" verdict_ledger.json "$WORK/verdicts" && [ -s "$WORK/verdicts" ]; then
+        if ! ctx_get "$s" verdict_ledger.json "$WORK/verdicts"; then
+            seats=-
+        elif [ -s "$WORK/verdicts" ]; then
             seats=$(jq -r '[.history[]?.spawned // 0 | numbers] | add // 0' "$WORK/verdicts")
             [ -n "$seats" ] || seats=-
         fi
