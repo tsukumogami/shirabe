@@ -145,6 +145,24 @@ The entries depend on the version:
   no Issue Outlines section and no Dependency Graph section, and their
   absence is not an error.
 
+Before any category runs, check the PLAN document
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`). This step runs only in this
+no-plan-session case: under `/plan` the plan's own Phase 6 runs the check. The
+check keeps its state in a session of this skill's own, so open it first (Phase
+5 closes it); then run the check:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open review-plan <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/plans/PLAN-<topic>.md --format plan --moment pre_jury --phase 0 --topic <topic> --skill review-plan
+```
+
+The check's outcomes are telemetry and its exit changes nothing here: this
+review judges the PLAN as it stands, and its verdict is what goes back to the
+author. Exit 1 means a block-stage rule failed; name its findings in the
+verdict's report. Skip the check when the PLAN is not at
+`docs/plans/PLAN-<topic>.md` (an eval fixture, say): the script refuses any
+other path.
+
 ### 0.5 Detect Execution Mode
 
 Determine which execution mode applies:

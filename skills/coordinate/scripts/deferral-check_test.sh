@@ -122,9 +122,10 @@ eq "an earlier carry and an empty Disposition are two open" "deferral-open 2" "$
 seed "$(with_deferrals "$(def '' 2026-09-26T09:00Z)")"
 eq "a deferral raised this run may stay open" "ok beta" "$(check)"
 # A restart: the run before this one, of the same scope, started at 07:00 and
-# was cancelled when this one opened. Its 07:30 carry still counts, unless its
-# decide-by has passed; a run before it that ended at a terminal state breaks
-# the chain, so its carries don't.
+# was cancelled when this one opened, which carried it and holds a
+# dispatched-by link to it, as coordinate-open.sh writes one. Its 07:30 carry
+# still counts, unless its decide-by has passed; a run before it that ended at
+# a terminal state breaks the chain, so its carries don't.
 SAVED_S=$S
 at() { # at <session> <created_at>: set the run's start
     local f="$KOTO_STORE/sessions/$1/koto-$1.state.jsonl"
@@ -139,6 +140,8 @@ found_session "$S" "$(roadmap_vars plugin-system)"
 log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
 log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
 log_to "$S" pick dispatch_check
+carried() { mkdir -p "$KOTO_STORE/context/$1/koto/links/dispatched-by" && : > "$KOTO_STORE/context/$1/koto/links/dispatched-by/$2"; } # carried <run> <run it carried>
+carried "$S" "$PREV"; carried "$PREV" "$PREV2"
 f="$KOTO_STORE/sessions/$PREV/koto-$PREV.state.jsonl"; grep -v workflow_cancelled "$f" > "$f.new" && mv "$f.new" "$f"
 eq "a run just before this one that wasn't cancelled gives this run's own start" 2026-09-26T08:00:00.000Z "$(bash "$CL" chain-start --session "$S")"
 log_end "$PREV"
@@ -152,7 +155,7 @@ eq "a carry from before the chain is still open" "deferral-open 1" "$(check)"
 log_end "$PREV2"; rm -f "$KOTO_STORE/sessions/$PREV2/.terminal"
 eq "a chain of two cancelled runs reaches the earlier one" 2026-09-26T06:00:00.000Z "$(bash "$CL" chain-start --session "$S")"
 eq "and honours its carry" "ok beta" "$(check)"
-for s in "$PREV" "$PREV2" "$S"; do rm -rf "$KOTO_STORE/sessions/$s"; done
+for s in "$PREV" "$PREV2" "$S"; do rm -rf "$KOTO_STORE/sessions/$s" "$KOTO_STORE/context/$s/koto"; done
 S=$SAVED_S
 seed "$(with_deferrals "$(def 'filed #12')")"; db '.fail = [{match: "issues/12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 check >/dev/null; eq "a failed issue read exits 2" 2 ${PIPESTATUS[0]}

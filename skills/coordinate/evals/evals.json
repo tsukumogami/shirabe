@@ -780,6 +780,36 @@
         "It reports the newest session's name to whoever launched it",
         "It doesn't try to work around the refusal (no rebind, retry or new run)"
       ]
+    },
+    {
+      "id": 41,
+      "name": "a-takeover-that-lost-the-race-refuses",
+      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in a new Claude session named coord-c, to take over the scope's run coordinate-plugin-system-20261027T090000Z. coordinate-open.sh exits 2 and prints outcome=refused and reason=taken-over, and its message says the run was taken over by coordinate-plugin-system-20261027T151500Z from another Claude session. Say what happened, what the store looks like now, and what you do next.",
+      "expected_output": "Another session took the run over first: koto's fence let exactly one successor through and this one lost, so the opener wrote nothing, opened no run and cancelled nothing. The run is now driven by coordinate-plugin-system-20261027T151500Z. The coordinator doesn't drive either run, doesn't retry the takeover or open a fresh run to get around the refusal, and reports to whoever launched it that the run is already taken over, naming the session that drives it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "It reads reason=taken-over as another session having taken the run over first",
+        "It says the refused opener wrote nothing and opened or cancelled no run",
+        "It doesn't retry the takeover, open a fresh run or tick either session",
+        "It reports the session that now drives the run to whoever launched it"
+      ]
+    },
+    {
+      "id": 42,
+      "name": "an-interrupted-takeover-is-run-again",
+      "prompt": "You are coord-b, a Claude session running /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. Your first coordinate-open.sh call to take over coordinate-plugin-system-20261027T090000Z was killed part way and printed nothing. `koto next coordinate-plugin-system-20261027T090000Z` now refuses with session_superseded naming coordinate-plugin-system-20261027T151500Z. Say what you do to get a run you can drive.",
+      "expected_output": "The takeover was cut short after koto's fence. The coordinator runs the same coordinate-open.sh command again from this same session, with no hand repair: the opener recognises the takeover as this session's own by the fence's actor and finishes it, printing outcome=continued with session=coordinate-plugin-system-20261027T151500Z (or outcome=resumed if only the result line was missing). It then drives that session. It doesn't take over its own successor, open a fresh run, rebind, or edit the record by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "It runs the same coordinate-open.sh command again from the same session",
+        "It expects outcome=continued (or outcome=resumed) naming the successor the fence named",
+        "It does no hand repair: no record edit, rebind, cancel or fresh run",
+        "It drives the successor once the opener prints it, not the fenced run"
+      ]
     }
   ]
 }

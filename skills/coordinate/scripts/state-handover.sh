@@ -121,8 +121,9 @@ jq -R -s 'split("\n") | map(select(. != "") | split("\t") | {worker: .[0], leg: 
 # predecessor, or this run's carry report, coord/predecessor_carry.json)
 # dispatches and merges
 # nothing on it until a person acknowledges the carry: a Standing go-ahead set at
-# or after this run's start (the start of its chain of restarts, coord-log.sh
-# chain-start, so a crash restart doesn't ask again), and not one the carry
+# or after this run's start (the start of its chain of restarts and takeovers,
+# coord-log.sh chain-start, so a crash restart or a takeover doesn't ask
+# again), and not one the carry
 # itself brought over (the report lists those).
 echo '{"carried": false}' > "$WD/carry.json"
 if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then

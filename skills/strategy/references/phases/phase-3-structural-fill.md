@@ -239,6 +239,13 @@ Commit the structural fill:
 docs(strategy): fill STRATEGY structural sections for <topic>
 ```
 
+Then record the sections the commit wrote, as telemetry
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/strategies/STRATEGY-<topic>.md --format strategy --skill strategy
+```
+
 Update the `## Phase` line of key `work/context.md` to `3`.
 
 ## Quality Checklist

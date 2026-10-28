@@ -40,8 +40,8 @@
 # (PRD R15). Each is launched like a re-check once the facts it needs are
 # in, and reported under "Changed since then".
 # A deferral's carry is judged against the chain start (coord-log.sh
-# chain-start), so a restart doesn't re-decide what the run it replaced
-# carried.
+# chain-start), so a restart or a takeover doesn't re-decide what the run it
+# replaced carried.
 #
 # The work file, <session-dir>/coordinate-reconcile/visit.json, is trusted
 # only when its sha256 is the one this state's last engine-logged output

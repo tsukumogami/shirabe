@@ -480,8 +480,11 @@ below applies and the run is unchanged.
    it and stop. `refused=args_file_in_work_tree` is `koto-open.sh`'s own and never
    reaches koto. `failed=<kind>` (exit 127 for a missing koto or jq, or koto's own
    code) means no session was opened and nothing is on the leg; report it and
-   stop. koto records a refusal only on a leg that
-   is still open and unbound (`result_source: refused`, payload `outcome: refused`
+   stop. `failed=level_unreadable` (exit 66) is a live session whose recorded
+   level couldn't be read, a session bound to another workspace among them: the
+   open stopped before `koto init`, so the leg is still open and a later open can
+   bind it; report it and stop, and don't open the run another way. koto
+   records a refusal only on a leg that is still open and unbound (`result_source: refused`, payload `outcome: refused`
    and a kebab-case `reason` such as `input-mismatch` or `var-mismatch:ISSUE_NUMBER`).
    On a leg already bound to this session, a re-dispatch that koto refuses (from
    another worktree, say, which is `origin_mismatch`) records nothing, and the leg
@@ -508,8 +511,8 @@ it verifies. `done_blocked` and `validation_exit` declare no map, so their paylo
 is koto's own. work-on.md declares no `outcome`, so a coordinator still routes on
 status and final state, and reads the pull request from `pr`.
 
-Some exits never reach the leg, which stays open and unbound: an `error=usage` from
-`work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a
+Some exits never reach the leg, which stays open and unbound: an `error=usage` or a
+`failed=level_unreadable` from `work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a
 plan-backed or PLAN-path input. So does a worker that stops before its terminal. A
 request-leg gate waits on an open leg indefinitely, so the coordinator needs its
 own fallback for a worker that ended without a result: a check on the worker's
@@ -649,7 +652,8 @@ leg, since one leg answers one session.
   dispatcher with `koto session link` (the script's header has the retry and
   the `warning=link-failed` record). Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
-  with no koto call, 127 no koto or jq, and koto's own code otherwise.
+  with no koto call, 66 a live session's level read that failed, with no
+  `koto init`, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
   again, reading the count of unclosed blocking findings from the ledger
