@@ -5,6 +5,8 @@ name: Check macOS floor legs
 # Homebrew's bash 5 and proves nothing (shirabe#416). This lint fails any
 # workflow whose macOS leg runs a shell suite anywhere but through
 # scripts/check-bash-floor.sh --backend system, so that hole can't reopen.
+# It also fails a suite workflow whose macOS leg would run on a draft pull
+# request (shirabe#1300). This workflow has no macOS leg of its own.
 #
 # It also runs check-macos-floor-setup.sh, which fails when a suite's macOS
 # setup in its own workflow no longer matches the copy in macos-floor.yml, the

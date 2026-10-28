@@ -188,8 +188,10 @@ work.
    (`dispatch-worker.sh --releg-imported`) and its holding names the new leg;
    any other worker (left on the old host, bound elsewhere, or dispatched
    before leg keys existed) moves to the message path, and the handover gate's
-   told rule has you send it your address. The gate holds while a leg has no
-   end (`leg-unclassified <worker>`).
+   told rule has you send it your address, or record it pending when its
+   session is gone and its instance is still there (`state-stored-set.sh
+   --pending`): a pending worker doesn't hold the gate. The gate holds while a
+   leg has no end (`leg-unclassified <worker>`).
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries

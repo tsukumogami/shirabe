@@ -37,7 +37,13 @@
 #     (group `${{ github.workflow }}-${{ github.event.pull_request.number ||
 #     github.sha }}`, cancel-in-progress `${{ github.event_name ==
 #     'pull_request' }}`), so a newer push to a pull request cancels the run
-#     it supersedes instead of queueing behind it.
+#     it supersedes instead of queueing behind it;
+#   - when that workflow runs on pull_request, each such job takes its runner
+#     from a matrix whose `os` is DRAFT_MATRIX below, and the pull_request
+#     trigger lists the types in PR_TYPES. The matrix drops macOS while the
+#     pull request is a draft, and ready_for_review starts the run that adds
+#     it back on the same head (shirabe#1300). This is the one copy of that
+#     expression; every workflow's copy must match it.
 #
 # Not suite runs, so not checked: `bash -c`, and an installer piped into
 # `| bash`.
@@ -189,6 +195,29 @@ CONCURRENCY = {
     "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
 }
 
+# The hosted macOS pool is small and shared, and a draft pull request's pushes
+# used to hold it while releases and pushes to main waited (shirabe#1300). A
+# draft runs only the Linux leg; marking it ready runs both legs on the same
+# head. A push, and a pull request that is not a draft, run both as before.
+DRAFT_MATRIX = (
+    "${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft"
+    " && '[\"ubuntu-latest\"]' || '[\"ubuntu-latest\", \"macos-latest\"]') }}")
+# Naming any type replaces GitHub's default three, so they are listed too.
+PR_TYPES = ["opened", "synchronize", "reopened", "ready_for_review"]
+
+
+def pull_request_trigger(wf):
+    """(runs on pull_request, its types or None when it names none)."""
+    on = wf.get("on")
+    if isinstance(on, str):
+        return on == "pull_request", None
+    if isinstance(on, list):
+        return "pull_request" in on, None
+    if isinstance(on, dict) and "pull_request" in on:
+        types = (on.get("pull_request") or {}).get("types")
+        return True, [types] if isinstance(types, str) else types
+    return False, None
+
 violations = []
 suite_jobs = []  # the macOS jobs that run floor scripts
 for job_name, job in (wf.get("jobs") or {}).items():
@@ -287,12 +316,34 @@ if suite_jobs and wf.get("concurrency") != CONCURRENCY:
         f"      cancel-in-progress: {CONCURRENCY['cancel-in-progress']}\n"
         "    so a superseded pull request run keeps its place in the macOS queue")
 
+draft_problems = []
+on_pull_request, pr_types = pull_request_trigger(wf)
+if suite_jobs and on_pull_request:
+    for job_name in suite_jobs:
+        job = wf["jobs"][job_name]
+        matrix = (job.get("strategy") or {}).get("matrix")
+        if (not isinstance(matrix, dict) or matrix.get("os") != DRAFT_MATRIX
+                or job.get("runs-on") != "${{ matrix.os }}"):
+            draft_problems.append(
+                f"{label}: draft: job {job_name} runs shell suites on macOS for a draft pull "
+                "request; take the runner from the matrix (runs-on: ${{ matrix.os }}) with\n"
+                f"      os: {DRAFT_MATRIX}\n"
+                "    so the macOS leg waits until the pull request is ready")
+    missing = [t for t in PR_TYPES if t not in (pr_types or [])]
+    if missing:
+        draft_problems.append(
+            f"{label}: draft: the pull_request trigger lacks {', '.join(missing)}; list\n"
+            f"      types: [{', '.join(PR_TYPES)}]\n"
+            "    so marking a draft ready runs the macOS leg it skipped")
+
 for job_name, name, command, why in violations:
     print(f"{label}: job {job_name}: step \"{name}\": {command}")
     print(f"    {why}")
 if concurrency_problem:
     print(concurrency_problem)
-sys.exit(1 if violations or concurrency_problem else 0)
+for problem in draft_problems:
+    print(problem)
+sys.exit(1 if violations or concurrency_problem or draft_problems else 0)
 PY
     if [ "$rc" -eq 1 ] && [ "$status" -eq 0 ]; then
         status=1
