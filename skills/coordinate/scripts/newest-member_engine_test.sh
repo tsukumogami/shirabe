@@ -32,7 +32,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
-case "$(koto init --help 2>/dev/null)" in *--supersede*) SUPERSEDE=1 ;; *) SUPERSEDE=0 ;; esac
+. "$HERE/testdata/takeover-flags.sh"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/newest-member.XXXXXX") || exit 1
 T=$(cd "$T" && pwd -P)
@@ -47,7 +47,6 @@ PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
-left_out() { printf 'left out %s: this koto has no init --supersede\n' "$1"; }
 
 cat > "$T/w/run.md" <<'TPL'
 ---
@@ -81,7 +80,7 @@ member() { # member <session> <roadmap name> <coordinator> [--continues <pred>]
     put "$s" record/meta "$(jq -nc --arg n "$n" '{scope: {kind: "roadmap", name: $n}, store: "session"}')"
     put "$s" record/run "$(jq -nc --arg c "$c" '[{key: "coordinator", value: $c, set_by: $c, set: "2026-10-01T08:00Z"}]')"
 }
-if [ "$SUPERSEDE" = 1 ]; then
+if needs_takeover "the fixture: A -> B -> C fenced, a decoy D, and E -> F"; then
     # A writes the leg key of the unit it dispatches before anyone takes it over:
     # a fenced run takes no write.
     if member "$A" x coord-a \
@@ -93,19 +92,15 @@ if [ "$SUPERSEDE" = 1 ]; then
         bad "fixture: the chains open" ""
         echo; echo "newest-member-engine: $PASS passed, $FAIL failed"; exit 1
     fi
-else
-    left_out "the fixture: A -> B -> C fenced, a decoy D, and E -> F"
 fi
 
 RC="$HERE/resolve-coordinator.sh"
 echo "== 1. a worker dispatched by A, after A -> B -> C =="
-if [ "$SUPERSEDE" = 1 ]; then
+if needs_takeover "1: resolve-coordinator.sh A after A -> B -> C"; then
     OUT=$(bash "$RC" "$A" 2>"$T/rc.err"); rc=$?
     printf '%s\n' "$OUT"
     eq "1: resolve-coordinator.sh A exits 0" 0 "$rc"
     eq "1: ... printing C's coordinator row and C" "coordinator=coord-c member=$C" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
-else
-    left_out "1: resolve-coordinator.sh A after A -> B -> C"
 fi
 
 echo "== 2. a chain that can't be read, and a member of another run =="
@@ -113,41 +108,35 @@ OUT=$(bash "$RC" coordinate-roadmap-x-20261009T080000Z 2>"$T/rc.err"); rc=$?
 printf 'exit %s: %s\n' "$rc" "$(cat "$T/rc.err")"
 eq "2: an unreadable chain exits 1" 1 "$rc"
 eq "2: ... printing nothing, so the brief's address is used" "" "$OUT"
-if [ "$SUPERSEDE" = 1 ]; then
+if needs_takeover "2: a newest member whose record/meta names another run"; then
     OUT=$(bash "$RC" "$E" 2>"$T/rc.err"); rc=$?
     printf 'exit %s: %s\n' "$rc" "$(cat "$T/rc.err")"
     eq "2: a newest member whose record/meta names another run exits 1" 1 "$rc"
     eq "2: ... printing nothing" "" "$OUT"
-else
-    left_out "2: a newest member whose record/meta names another run"
 fi
 
 echo "== 3. past the hop cap =="
-if [ "$SUPERSEDE" = 1 ]; then
+if needs_takeover "3: two takeovers past the hop cap"; then
     OUT=$(DC_HOP_CAP=1 bash "$RC" "$A" 2>"$T/rc.err"); rc=$?
     printf 'exit %s: %s\n' "$rc" "$(cat "$T/rc.err")"
     eq "3: two takeovers past a cap of one exit 3" 3 "$rc"
     eq "3: ... printing nothing, so the brief's address is used" "" "$OUT"
-else
-    left_out "3: two takeovers past the hop cap"
 fi
 
 echo "== 4. render-result.sh carries the resolved address =="
 koto init worker-1 --template run.md >/dev/null
-if [ "$SUPERSEDE" = 1 ]; then
+if needs_takeover "4: render-result.sh --dispatcher A naming C's coordinator"; then
     OUT=$(bash "$HERE/render-result.sh" --session worker-1 --dispatcher "$A" 2>/dev/null); rc=$?
     printf '%s\n' "$OUT"
     eq "4: render-result.sh exits 0" 0 "$rc"
     eq "4: ... its block names C's coordinator" "coordinator=coord-c" "$(printf '%s\n' "$OUT" | grep '^coordinator=')"
-else
-    left_out "4: render-result.sh --dispatcher A naming C's coordinator"
 fi
 OUT=$(bash "$HERE/render-result.sh" --session worker-1 --dispatcher coordinate-roadmap-x-20261009T080000Z 2>/dev/null); rc=$?
 eq "4: with a chain that can't be read it still exits 0" 0 "$rc"
 eq "4: ... and carries no coordinator line" "" "$(printf '%s\n' "$OUT" | grep '^coordinator=')"
 
 echo "== 5. the cost sweep charges the newest member =="
-if [ "$SUPERSEDE" = 1 ]; then
+if needs_takeover "5: the cost sweep charging C for a unit A dispatched"; then
     FX="$HERE/testdata/unit-cost"
     KEY=2026-10-01-feat-x-0a1b2c3d
     IP="$T/ws/inst-feat-x"
@@ -170,8 +159,6 @@ if [ "$SUPERSEDE" = 1 ]; then
     bash "$HERE/unit-removed.sh" sweep >"$T/sweep.out" 2>&1
     cat "$T/sweep.out"
     eq "5: the sweep charges C for the unit A dispatched" "$C" "$(jq -r '.last.coordinator // ""' "$R/dsp-feat-x.7.json" 2>/dev/null)"
-else
-    left_out "5: the cost sweep charging C for a unit A dispatched"
 fi
 
 echo
