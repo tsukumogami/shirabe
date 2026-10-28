@@ -177,12 +177,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ctx_has <session> <key>: 0 when the key is present, 1 when koto answers that
+# it is absent, 2 when the read failed. koto's `context exists` answers an
+# absent key with exit 1 and nothing on stdout; a refusal (a session bound to
+# another workspace, say) prints its JSON on stdout and exits 2. An exit 1
+# that prints anything is a failed read too, never an absent key. What koto
+# prints goes to $ERRLOG, never to stdout.
+ctx_has() {
+    local rc=0
+    koto context exists "$1" "$2" > "$TMP/exists.out" 2>>"$ERRLOG" || rc=$?
+    cat "$TMP/exists.out" >> "$ERRLOG"
+    case "$rc" in
+        0) return 0 ;;
+        1) [ -s "$TMP/exists.out" ] || return 1 ;;
+    esac
+    echo "koto context exists $1 $2 exited $rc" >> "$ERRLOG"
+    return 2
+}
+
+# ctx_get <session> <key> <file>: the key's content into <file>, empty when the
+# key is absent. Returns 1 when the read failed, with <file> empty.
 ctx_get() {
     : > "$3"
-    if koto context exists "$1" "$2" >/dev/null 2>>"$ERRLOG"; then
-        koto context get "$1" "$2" > "$3" 2>>"$ERRLOG" || return 1
-    fi
-    return 0
+    ctx_has "$1" "$2"
+    case $? in
+        0) ;;
+        1) return 0 ;;
+        *) return 1 ;;
+    esac
+    koto context get "$1" "$2" > "$3" 2>>"$ERRLOG" && return 0
+    : > "$3"
+    return 1
 }
 
 ctx_put() {
