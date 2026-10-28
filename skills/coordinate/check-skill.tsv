@@ -20,11 +20,11 @@ shared	state-schema.jq
 # on main at 05d3a50 with four suites at a time on a loaded host. Suites
 # launch costliest first; a suite with no row launches after the rest. The
 # rows of the suites #830 cut are scaled by each suite's measured after/before
-# ratio, so they stay on the same scale as the rest. The takeover suites came
-# later: coordinate-outcome_engine_test.sh measured alone on an idle host,
-# coordinate-takeover_engine_test.sh estimated from it, and
-# coordinate-takeover-load_engine_test.sh at the cost of its skip, since it
-# runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it.
+# ratio, so they stay on the same scale as the rest. Two later suites are
+# costed differently: coordinate-outcome_engine_test.sh measured alone on an
+# idle host, and coordinate-takeover-load_engine_test.sh at the cost of its
+# skip, since it runs on CI only (CI set) and SKIPs anywhere check-skill.sh
+# runs it.
 cost	coordinate_1_engine_test.sh	271
 cost	coordinate_2_engine_test.sh	255
 cost	coordinate_3_engine_test.sh	237
@@ -66,7 +66,6 @@ cost	legs-move_engine_test.sh	39
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
 cost	state-read_test.sh	30
-cost	coordinate-takeover_engine_test.sh	30
 cost	board-record_test.sh	29
 cost	handover_engine_test.sh	29
 cost	writeback_engine_test.sh	25
@@ -105,7 +104,6 @@ cost	importer-call_engine_test.sh	5
 cost	legacy-records_engine_test.sh	5
 cost	session-fixture_engine_test.sh	5
 cost	session-start_engine_test.sh	5
-cost	coordinate-takeover_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
 cost	find-reads_test.sh	4
